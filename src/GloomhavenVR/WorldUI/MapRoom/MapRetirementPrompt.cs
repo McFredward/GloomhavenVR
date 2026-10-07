@@ -62,7 +62,7 @@ internal static class MapRetirementPrompt
         _failed = false;
         _lastClickFrame = -1;
         if (_source == null)
-            VRLog.Warn("MapRoom", "MAP RETIREMENT PROMPT: native presenter has no original widget; optional callback remains pending.");
+            LogSafely(() => VRLog.Alert("MapRoom", "MAP RETIREMENT PROMPT: native presenter has no original widget; optional callback remains pending."));
     }
 
     private static bool NativePromptStanding => _presenter != null && _presenter.isActiveAndEnabled
@@ -101,9 +101,9 @@ internal static class MapRetirementPrompt
             {
                 RestorePresentation(keepHit: true);
                 _failed = true;
-                VRLog.Warn("MapRoom", "MAP RETIREMENT PROMPT: original presentation conversion failed: "
+                LogSafely(() => VRLog.Alert("MapRoom", "MAP RETIREMENT PROMPT: original presentation conversion failed: "
                     + error.GetType().Name + ": " + error.Message
-                    + "; original desktop fallback requested, native optional callback remains pending.");
+                    + "; original desktop fallback requested, native optional callback remains pending."));
                 if (_source?.transform is RectTransform original) AddConsoleHit(original);
             }
         }
@@ -142,8 +142,8 @@ internal static class MapRetirementPrompt
         _grab = new GrabbableModal();
         _grab.Build(_panel, SharedWindowSizeLaw.ExtraScale(target.rect.size,
             WorldUIConfig.CanvasScaleMm.Value), "Native retirement prompt");
-        VRLog.Note("MapRoom", "MAP RETIREMENT PROMPT: original optional observer prompt is reachable; "
-            + "a real player press still owns the native continuation.");
+        LogSafely(() => VRLog.Note("MapRoom", "MAP RETIREMENT PROMPT: original optional observer prompt is reachable; "
+            + "a real player press still owns the native continuation."));
     }
 
     private static void AddConsoleHit(RectTransform target)
@@ -214,9 +214,10 @@ internal static class MapRetirementPrompt
                 // Unity may refuse SetParent while native OnDisable is in progress. Keep
                 // the original alive and retry on a normal frame; never delete it with a
                 // mod wrapper or forget its recorded native home.
-                if (!_restorePending)
-                    VRLog.Warn("MapRoom", "MAP RETIREMENT PROMPT: native hierarchy restore deferred during activation; original widget retained for frame retry.");
+                bool firstDeferral = !_restorePending;
                 _restorePending = true;
+                if (firstDeferral)
+                    LogSafely(() => VRLog.Warn("MapRoom", "MAP RETIREMENT PROMPT: native hierarchy restore deferred during activation; original widget retained for frame retry."));
                 return;
             }
             if (_nativeHome != null) _wrappedWidget.SetSiblingIndex(_nativeSibling);
@@ -236,6 +237,14 @@ internal static class MapRetirementPrompt
         widget.anchorMin = min; widget.anchorMax = max; widget.pivot = pivot;
         widget.sizeDelta = size; widget.anchoredPosition3D = position;
         widget.localScale = scale; widget.localRotation = rotation;
+    }
+
+    private static void LogSafely(Action report)
+    {
+        // Presentation state and native continuation must never depend on a logger.
+        // Do not attempt a second log from this failure path.
+        try { report(); }
+        catch { }
     }
 
     internal static void Replaced(MonoBehaviour presenter)

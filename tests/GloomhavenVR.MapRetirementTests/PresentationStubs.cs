@@ -129,7 +129,14 @@ namespace HarmonyLib
 namespace GloomhavenVR.Core
 {
     public static class VRSession { public static HarmonyLib.Harmony? Harmony = new(); }
-    public static class VRLog { public static int Warnings, Notes; public static void Warn(string area, string text) => Warnings++; public static void Note(string area, string text) => Notes++; }
+    public static class VRLog
+    {
+        public static int Warnings, Notes, Alerts;
+        public static bool DebugEnabled = true, ThrowWarnings, ThrowNotes, ThrowAlerts;
+        public static void Warn(string area, string text) { if (!DebugEnabled) return; Warnings++; if (ThrowWarnings) throw new InvalidOperationException("Diagnostic sink failed"); }
+        public static void Note(string area, string text) { Notes++; if (ThrowNotes) throw new InvalidOperationException("Diagnostic sink failed"); }
+        public static void Alert(string area, string text) { Alerts++; if (ThrowAlerts) throw new InvalidOperationException("Diagnostic sink failed"); }
+    }
 }
 namespace GloomhavenVR.Net.Desync
 {

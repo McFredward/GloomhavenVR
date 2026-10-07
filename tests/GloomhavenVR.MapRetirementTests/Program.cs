@@ -29,7 +29,8 @@ internal static class Program
         MapRoomDriver.Active = true; WorldUIConfig.ConversionActive = true; FlatScreen.ManualScreenActive = false;
         CanvasConversion.WorldCamera = new(); CanvasConversion.ThrowBeforeConvert = false; GrabbableModal.ThrowAfterConvert = false;
         CanvasConversion.Converts = CanvasConversion.Releases = 0; CanvasConversion.Last = null;
-        VRLog.Warnings = VRLog.Notes = 0;
+        VRLog.Warnings = VRLog.Notes = VRLog.Alerts = 0;
+        VRLog.DebugEnabled = true; VRLog.ThrowWarnings = VRLog.ThrowNotes = VRLog.ThrowAlerts = false;
         Singleton<UIReadyToggle>.Instance = new(); Singleton<UIMapMultiplayerController>.Instance = new();
         Singleton<UIPersonalQuestResultManager>.Instance = new(); Singleton<UIRetirementManager>.Instance = new();
         Singleton<UINavigation>.Instance = new(); Singleton<KeyActionHandlerController>.Instance = new();
@@ -170,7 +171,7 @@ internal static class Program
         Reset(); NativePrompt prompt = Create(true); CallbackPromise pending = Begin(prompt);
         CanvasConversion.WorldCamera = null; MapRetirementPrompt.Tick(true);
         Check(!MapRetirementPrompt.Visible && pending.IsPending && MapRetirementPrompt.ScreenFallbackWanted, "active map camera failure exposes original pending HUD");
-        Check(CanvasConversion.Converts == 0 && VRLog.Warnings == 1, "camera failure is reported once before hierarchy mutation");
+        Check(CanvasConversion.Converts == 0 && VRLog.Alerts == 1, "camera failure is reported once before hierarchy mutation");
         CanvasConversion.WorldCamera = new(); MapRetirementPrompt.Tick(true);
         Check(MapRetirementPrompt.ScreenFallbackWanted && pending.IsPending, "failed native opening retains stable fallback until original hide");
         FlatScreen.ManualScreenActive = true; MapRetirementPrompt.Tick(true); prompt.PressVr();
@@ -182,12 +183,12 @@ internal static class Program
         CanvasConversion.WorldCamera = new(); GrabbableModal.ThrowAfterConvert = true;
         MapRetirementPrompt.Tick(true);
         Check(ReferenceEquals(prompt.Source.transform.parent, prompt.Hud.transform) && pending.IsPending, "partial conversion failure restores original pending widget");
-        Check(VRLog.Warnings == 1 && CanvasConversion.Releases == 1, "failed conversion logs once and releases host");
+        Check(VRLog.Alerts == 1 && CanvasConversion.Releases == 1, "failed conversion logs once and releases host");
         Check(MapRetirementPrompt.ScreenFallbackWanted, "actual conversion failure exposes original pending HUD");
         GameObject originalHit = prompt.Hit;
         FlatScreen.ManualScreenActive = true;
         for (int i = 0; i < 5; i++) MapRetirementPrompt.Tick(true);
-        Check(VRLog.Warnings == 1 && CanvasConversion.Converts == 1, "failed standing prompt does not retry each frame");
+        Check(VRLog.Alerts == 1 && CanvasConversion.Converts == 1, "failed standing prompt does not retry each frame");
         Check(ReferenceEquals(originalHit, prompt.Hit) && prompt.Hit.layer == prompt.Source.gameObject.layer, "desktop fallback preserves stable original console hit surface");
         prompt.PressVr();
         Check(Singleton<UIReadyToggle>.Instance.OwnReadyPresses == 1 && pending.IsPending, "fallback console HUD preserves real press and native barrier");
@@ -270,11 +271,60 @@ internal static class Program
         Check(ReferenceEquals(prompt.Source.transform.parent, prompt.Hud.transform) && panel.Target.gameObject.Destroyed && !prompt.Source.gameObject.Destroyed,
             "normal inactive-room frame retries verified native hierarchy restore");
     }
+    private static void DiagnosticSinkFailures()
+    {
+        Reset(); NativePrompt prompt = Create(false); CallbackPromise pending = Begin(prompt);
+        VRLog.DebugEnabled = false; VRLog.ThrowAlerts = true;
+        // The original Show has already created a real pending native callback. Exercise
+        // capture failure without replacing that callback or synthesizing a decision.
+        Set(prompt.Presenter, "_button", null!);
+        prompt.CaptureShown();
+        Check(VRLog.Alerts == 1 && VRLog.Warnings == 0 && pending.IsPending,
+            "missing-widget failure is normal-level and cannot escape native capture");
+        Set(prompt.Presenter, "_button", prompt.Source);
+        prompt.PressOriginal();
+        for (int i = 0; i < 3; i++) Singleton<UIReadyToggle>.Instance.OtherNativePlayerReady();
+        Check(!pending.IsPending && Singleton<UIRetirementManager>.Instance.Commits == 1,
+            "capture logger failure leaves original native click and continuation intact");
+
+        Reset(); prompt = Create(true); pending = Begin(prompt);
+        VRLog.DebugEnabled = false; VRLog.ThrowAlerts = true;
+        GrabbableModal.ThrowAfterConvert = true; MapRetirementPrompt.Tick(true);
+        Check(MapRetirementPrompt.ScreenFallbackWanted && pending.IsPending && VRLog.Alerts == 1 && VRLog.Warnings == 0,
+            "failed reporter preserves normal-level original desktop fallback");
+        for (int i = 0; i < 5; i++) MapRetirementPrompt.Tick(true);
+        Check(VRLog.Alerts == 1 && CanvasConversion.Converts == 1,
+            "throwing failure reporter remains bounded per native opening");
+        FlatScreen.ManualScreenActive = true; MapRetirementPrompt.Tick(true); prompt.PressVr();
+        for (int i = 0; i < 3; i++) Singleton<UIReadyToggle>.Instance.OtherNativePlayerReady();
+        MapRetirementPrompt.Tick(true);
+        Check(!pending.IsPending && !MapRetirementPrompt.ScreenFallbackWanted && Singleton<UIRetirementManager>.Instance.Commits == 1,
+            "failed reporter cannot alter actual fallback press or native barrier completion");
+
+        Reset(); prompt = Create(false); pending = Begin(prompt); VRLog.ThrowNotes = true;
+        MapRetirementPrompt.Tick(true);
+        Check(MapRetirementPrompt.Visible && !MapRetirementPrompt.ScreenFallbackWanted && VRLog.Alerts == 0 && pending.IsPending,
+            "successful presentation logger failure cannot become conversion failure");
+        prompt.PressOriginal();
+        for (int i = 0; i < 3; i++) Singleton<UIReadyToggle>.Instance.OtherNativePlayerReady();
+        Check(!pending.IsPending, "success reporter leaves original native continuation intact");
+
+        Reset(); prompt = Create(true); pending = Begin(prompt); MapRetirementPrompt.Tick(true);
+        ConvertedPanel panel = CanvasConversion.Last!;
+        prompt.Source.transform.RefuseNextDetach = true; VRLog.ThrowWarnings = true;
+        Patch(typeof(RetirementPromptReplacedPatch), "Prefix", prompt.Presenter);
+        prompt.Presenter.HideCharacterRetiredAction();
+        Check(!prompt.Source.gameObject.Destroyed && !panel.Target.gameObject.Destroyed && pending.IsPending,
+            "debug deferral reporter cannot escape native hide or delete original widget");
+        MapRoomDriver.Active = false; MapRetirementPrompt.Tick(false); MapRetirementPrompt.LateTick();
+        Check(ReferenceEquals(prompt.Source.transform.parent, prompt.Hud.transform) && panel.Target.gameObject.Destroyed && !prompt.Source.gameObject.Destroyed,
+            "throwing debug reporter cannot prevent normal-frame hierarchy retry");
+    }
     public static int Main()
     {
         try
         {
-            EarlySeams(); NativeRootAnimation(); OriginalDesktopFlow(); RoleMatrix(); StandingLifecycle(); ConsolePermissions(); ConversionFailures();
+            EarlySeams(); NativeRootAnimation(); OriginalDesktopFlow(); RoleMatrix(); StandingLifecycle(); ConsolePermissions(); ConversionFailures(); DiagnosticSinkFailures();
             Reset(); System.Console.WriteLine($"map retirement: {_checks} checks passed, {_matrixCases} Flat/VR role/presenter cases"); return 0;
         }
         catch (Exception error) { System.Console.Error.WriteLine(error); return 1; }
