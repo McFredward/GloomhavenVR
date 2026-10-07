@@ -43,8 +43,10 @@ travels through the actual codec.
 
 A byte-exact895-member original BattleOverlayCanvas bank exposes the same dormant
 packed sprites as the hardware run. The owner-only wrappers are destroyed after
-capture. Two independent real `TownServiceAssets` registries model the otherwise
-global object state in one editor process. The loading preparation invokes the
+capture. The observer registry is reset before loading and `Scan` materializes its own
+retained native atlas clones. Source-only wrappers are destroyed after capture;
+the exact observer aliases remain. This models client-local object lifetimes
+without replacing static runtime fields. The loading preparation invokes the
 same actual `Assets.Scan` used by production's native-template initialization;
 its cost is reported separately. Owner native UI is actually rendered before
 interaction, matching the TMP shader already used by ordinary local UI. The
@@ -68,6 +70,15 @@ that the additional cost was actual cold asset resolution/build/apply, not the
 simulated send clock or software shader compilation. Production now performs
 this exact discovery during existing map loading.
 
-Final candidate, omission controls, continuous pose/hover and merchant results
-will be recorded here before integration. No complete-gate or headset pass is
+The initial loaded candidate (`candidate33-loaded/run-u5_k05ab`) passes631
+assertions with complete actual render at0.7547405s, first assembly0.5279428s,
+12 contended events/9827 wire bytes, and actual receiver apply0.0936126s. Loading
+`Scan` plus59 prepared native bases costs0.6214875s outside the interaction.
+Actual rendered-pixel upload requires the game's unmodified external
+`resources.assets.resS`, linked read-only into this private project and hashed.
+Merely loading the bank or reading native sprite descriptors did not prove this
+GPU stream dependency.
+
+Further omission controls, continuous pose/hover and merchant results will be
+recorded here before integration. No complete-gate or headset pass is
 claimed by this focused proof.

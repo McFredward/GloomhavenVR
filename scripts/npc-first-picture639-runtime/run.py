@@ -45,7 +45,7 @@ def main():
      'restored.SetTexture("_MainTex",TMP_Settings.defaultFontAsset.atlasTextures[0]); GameMaterials632.Add(material.key,restored);')
  (fixture/'NativeReader639.cs').write_text(reader)
  case_source=Path(__file__).with_name('FirstPicture639.cs').read_text()
- if args.cold_observer:case_source=case_source.replace('private const bool PrewarmObserver639 = true;', 'private const bool PrewarmObserver639 = false;')
+ if args.cold_observer:case_source=case_source.replace('private static readonly bool PrewarmObserver639 = true;', 'private static readonly bool PrewarmObserver639 = false;')
  (fixture/'FirstPicture639.cs').write_text(case_source)
  boundaries=fixture/'Boundaries.cs';text=boundaries.read_text().replace('internal static bool WantsDebug => false;','internal static bool WantsDebug => true;',1)
  text=text.replace('internal static void Info(string channel, string message) { }','internal static void Info(string channel, string message) => Messages.Add(channel + ": " + message);',1)
@@ -73,7 +73,13 @@ def main():
  else:
   python=os.environ.get('UNITYPY_PYTHON',str(Path.home()/'unitypy-venv/bin/python'))
   subprocess.run([python,str(Path(__file__).with_name('export-native.py')),str(root),str(native)],check=True)
- if args.atlas_bundle:shutil.copyfile(args.atlas_bundle.resolve(),run/'original-atlas.bundle')
+ if args.atlas_bundle:
+  shutil.copyfile(args.atlas_bundle.resolve(),run/'original-atlas.bundle')
+  # The byte-exact native Texture2D still names the game's original resS path.
+  # Actual rendering (unlike descriptor-only admission) needs this read-only stream.
+  stream=root/'ressources/GH_Data/resources.assets.resS'
+  (editor/'resources.assets.resS').symlink_to(stream.resolve())
+  (run/'native-stream-sha256.txt').write_text(hashlib.sha256(stream.read_bytes()).hexdigest()+'  '+str(stream.resolve())+'\n')
  hashes={name:hashlib.sha256(text.encode()).hexdigest()for name,text in bound.items()}
  hashes['NetAvatarDriver.TownServices fullsource']=actual_hash
  hashes['runner']=hashlib.sha256(Path(__file__).read_bytes()).hexdigest()

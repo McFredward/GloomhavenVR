@@ -24,7 +24,7 @@ public static partial class MirrorProgram
         internal TownServiceNode[] Expected=Array.Empty<TownServiceNode>();
         internal bool Required=true;
     }
-    private const bool PrewarmObserver639 = true;
+    private static readonly bool PrewarmObserver639 = true;
     private static Sprite[] _ownerAtlasWrappers639=Array.Empty<Sprite>();
     private static IEnumerator FirstPicture639(bool mage)
     {
@@ -124,18 +124,19 @@ public static partial class MirrorProgram
         }
         Add(physical,mage?"face.63901|":"itemface.63901|");
         RectTransform? aura=null,ring=null;
+        Transform? nativeHolder=null;TownServiceNativeEnhancementCardMask? nativeMask=null;var nativeAreas=new List<RectTransform>();
         if(mage)
         {
             Transform converted=Rect("Actual original highlighter canvas",owner,Vector2.zero,new Vector2(680,660));
             converted.localScale=Vector3.one*.001f;converted.gameObject.AddComponent<Canvas>().renderMode=RenderMode.WorldSpace;
             RectTransform holder=(RectTransform)NativeRow632(converted,"","highlight");
-            aura=(RectTransform)holder.Find("Aura");ring=(RectTransform)aura.Find("Highlight");
+            nativeHolder=holder;aura=(RectTransform)holder.Find("Aura");ring=(RectTransform)aura.Find("Highlight");
             holder.Find("CardHolder").GetComponent<CanvasGroup>().alpha=1;
             ring.GetComponent<CanvasGroup>().alpha=1;aura.Find("Types/Buy").gameObject.SetActive(true);
             holder.Find("GUI_LevelUp_Frame").gameObject.SetActive(false);
             RectTransform firstArea=(RectTransform)holder.Find("Enhancement Ability Highlight Variant");
             RectTransform secondArea=(RectTransform)Object.Instantiate(firstArea.gameObject,holder,false).transform;
-            var areas=new[]{firstArea,secondArea};
+            var areas=new[]{firstArea,secondArea};nativeAreas.AddRange(areas);
             var native=Go("Actual pooled ability card",holder.Find("CardHolder")).AddComponent<AbilityCardUI>();
             RectTransform nativePrint=(RectTransform)Go("FullAbilityCard",native.transform).transform;nativePrint.sizeDelta=((RectTransform)physical).sizeDelta;
             native.fullAbilityCard=nativePrint;
@@ -149,7 +150,7 @@ public static partial class MirrorProgram
                 areas[i].gameObject.SetActive(true);areas[i].Find("Image").GetComponent<CanvasGroup>().alpha=.15f;
             }
             TownServiceEnhancementHandoff.PhysicalCardFace=(RectTransform)physical;
-            var mask=native.gameObject.AddComponent<TownServiceNativeEnhancementCardMask>();mask.Mask();mask.SendMessage("LateUpdate");
+            nativeMask=native.gameObject.AddComponent<TownServiceNativeEnhancementCardMask>();nativeMask.Mask();nativeMask.SendMessage("LateUpdate");
             Add(holder,"enchant.holder|",node=>node==aura||areas.Contains(node));
             Add(aura,"enchant.holder|Aura#0");
             foreach(var area in areas)Add(area,"enchant.highlight|"+originals.Count);
@@ -173,6 +174,7 @@ public static partial class MirrorProgram
             TownServiceMirror.SetPriority(original.Id,true);
         }
         TownServiceMirror.SetLocalTransactionActive(service,true);
+        TownServiceMirror.RegisterMotionOffering(physical,true);
         var scheduler=new ExtrasSendScheduler(0,3,4);var fragments=new TownServiceFragments();
         var captured=new List<TownServiceFrame>();var motion=new Queue<byte[]>();
         Action<byte[],int,object?> publish=(bytes,length,identity)=>{
@@ -185,18 +187,21 @@ public static partial class MirrorProgram
             try{typeof(TownServiceMirror).GetMethod("CaptureCore",PrivateStatic)!.Invoke(null,new object[]{publish,true});}
             finally{SetNativeSenderActive629(false);}
         };
-        // One editor process explicitly models two client-local registries. The
-        // observer loading seam is production Assets.Scan; owner-only wrappers
-        // are destroyed after capture without destroying these retained originals.
-        var observerAssets=new TownServiceAssets();
+        // Recreate the observer's initially empty registry before the loading
+        // seam. Scan materializes separate native atlas wrappers; source-capture
+        // Key registration cannot replace their exact already registered aliases.
+        TownServiceMirror.Assets.Clear();
         var assetPreparation=System.Diagnostics.Stopwatch.StartNew();
-        if(PrewarmObserver639)observerAssets.Scan();
+        if(PrewarmObserver639)TownServiceMirror.Assets.Scan();
+        foreach(var original in originals)
+            TownServiceMirror.PrepareNativeTemplateBasis(service,original.Address);
         assetPreparation.Stop();
         // Ordinary original UI is rendered during loading and already uses the
         // game's full TMP shader before an interaction. Measure this real owner
         // draw separately; it does not preload any observer-only atlas members.
         var preparation=System.Diagnostics.Stopwatch.StartNew();
         Canvas.ForceUpdateCanvases();Render639(owner);
+
         preparation.Stop();
         // The deadline begins with the real owner capture, including its native
         // property generation, not with the last fragment or admission callback.
@@ -205,6 +210,7 @@ public static partial class MirrorProgram
         double firstAssembly=-1;bool actualColdSprite=false;
         double captureCpu=0,decodeCpu=0,applyCpu=0,canvasCpu=0,validateCpu=0,renderCpu=0;
         double stage=watch.Elapsed.TotalSeconds;capture();captureCpu+=watch.Elapsed.TotalSeconds-stage;
+
         File.WriteAllText(Path.Combine(_output,"initial-capture.txt"),"registered="+string.Join(",",originals.Select(x=>x.Id+":"+x.Address))+"\nsent="+string.Join(",",captured.Select(x=>x.Module+":"+x.Nodes.Length))+"\n"+string.Join("\n",GloomhavenVR.Core.VRLog.Messages));
         foreach(var original in originals.Where(x=>x.Required))
         {
@@ -220,13 +226,9 @@ public static partial class MirrorProgram
             poison!.sprite=null;
             foreach(var sprite in _ownerAtlasWrappers639)if(sprite!=null)Object.DestroyImmediate(sprite);
             _ownerAtlasWrappers639=Array.Empty<Sprite>();
-            // This field substitution only separates otherwise global fixture
-            // state for the two real clients. No receiver/capture logic changes.
-            typeof(TownServiceMirror).GetField("Assets",BindingFlags.Static|BindingFlags.NonPublic)!.SetValue(null,observerAssets);
+            if(!PrewarmObserver639)TownServiceMirror.Assets.Clear();
             actualColdSprite=true;
         }
-        if(!actualColdSprite)
-            typeof(TownServiceMirror).GetField("Assets",BindingFlags.Static|BindingFlags.NonPublic)!.SetValue(null,observerAssets);
         while(watch.Elapsed.TotalSeconds<5f&&ready<0)
         {
             float now=Time.unscaledTime;clock=watch.Elapsed.TotalSeconds;
@@ -275,8 +277,78 @@ public static partial class MirrorProgram
             +string.Join("\n",GloomhavenVR.Core.VRLog.Messages)+"\n");
         Check(ready>=0&&ready<=1.000,"all exact visible originals render within1s wall clock");
         foreach(var original in originals.Where(x=>x.Required))AssertComplete639(original);
+        if(poison!=null)
+        {
+            var remotePrint=Remote(2,originals.First(x=>x.Source==physical).Id)!;
+            Sprite remotePoison=remotePrint.Root.Find("Native Poison icon").GetComponent<Image>().sprite;
+            Check(remotePoison!=null&&remotePoison.texture!=null&&remotePoison.packed&&remotePoison.pivot==Vector2.zero,
+                "complete actual remote print uses exact native zero-pivot packed Poison, never its centered sibling");
+            poison.sprite=atlasBank!.LoadAsset<Sprite>("native/sprite/4688");
+        }
+        if(mage)
+        {
+            var continuation=ContinuousOriginal639(originals,physical,ring!,nativeAreas,nativeMask!,capture,publish,scheduler,fragments,receiver,watch,motion);
+            while(continuation.MoveNext())yield return continuation.Current;
+        }
         TownServiceEnhancementHandoff.PhysicalCardFace=null;
         TownServiceMirror.Shutdown();if(atlasBank!=null)atlasBank.Unload(true);
+    }
+    private static IEnumerator ContinuousOriginal639(List<PictureOriginal639> originals,Transform physical,
+        RectTransform ring,List<RectTransform> areas,TownServiceNativeEnhancementCardMask mask,Action capture,
+        Action<byte[],int,object?> publish,ExtrasSendScheduler scheduler,TownServiceFragments fragments,
+        NetAvatarDriver receiver,System.Diagnostics.Stopwatch watch,Queue<byte[]> motion)
+    {
+        ushort printId=originals.First(x=>x.Source==physical).Id;
+        PictureOriginal639 aura=originals.First(x=>ring.IsChildOf(x.Source)&&x.Source!=physical);
+        var values=new System.Text.StringBuilder("actual post-admission owner animation/hover and original mount\n");
+        float began=Time.unscaledTime,next=began;int checks=0;float remoteRingTravel=0,lastRing=0;
+        bool sampled=false;
+        while(Time.unscaledTime-began<1.25f)
+        {
+            float age=Time.unscaledTime-began;
+            physical.localRotation=Quaternion.Euler(6*Mathf.Sin(age*2),42*Mathf.Sin(age*1.7f),3);
+            physical.localPosition=new Vector3(-.24f,.02f+.025f*Mathf.Sin(age*3),0);
+            ring.localRotation=Quaternion.Euler(0,0,age*125f);
+            foreach(RectTransform area in areas)
+                area.Find("Image").GetComponent<CanvasGroup>().alpha=.15f+.25f*(.5f+.5f*Mathf.Sin(age*4));
+            mask.SendMessage("LateUpdate");
+            if(Time.unscaledTime>=next)
+            {next=Time.unscaledTime+1f/15f;capture();}
+            byte[]? batch=scheduler.NextBatch(watch.Elapsed.TotalSeconds);
+            if(batch!=null)foreach(var page in PresentationBatch.TryRead(batch,batch.Length,out var pages)?pages!:new[]{batch})
+            {
+                if(TownServiceFragments.Stream(page,page.Length)<0)continue;
+                var packet=fragments.Accept(2,page,page.Length,watch.Elapsed.TotalSeconds);if(packet==null)continue;
+                foreach(var child in TownServiceCodec.TryReadBundle(packet,packet.Length,out var children)?children!:new[]{packet})
+                    Check(receiver.FixtureQueue638(2,child),"post-admission changed original graphics remain on the actual receiver path");
+            }
+            while(motion.Count!=0)Check(receiver.FixtureQueueMotion638(2,motion.Dequeue()),"owner-authored continuous native poses/hover receive unchanged");
+            receiver.FixtureApply638();Canvas.ForceUpdateCanvases();
+            var remotePrint=Remote(2,printId)!;var remoteAura=Remote(2,aura.Id)!;
+            var remoteRing=(RectTransform)remoteAura.Root.Find("Highlight");
+            Check(remoteRing!=null&&remoteRing.gameObject.activeInHierarchy&&remoteRing.GetComponent<Image>().sprite!=null,
+                "the complete native ring stays visible throughout continuously changing owner pose");
+            Check(Vector3.Dot(remoteRing.forward,remotePrint.Root.forward)>.999f,
+                "the actual native ring and complete physical print share one observer plane at every intermediate frame");
+            var corners=new Vector3[4];remoteRing.GetWorldCorners(corners);
+            float horizontal=(corners[3]-corners[0]).magnitude,vertical=(corners[1]-corners[0]).magnitude;
+            Check(Math.Abs(horizontal-vertical)<.0006f,
+                "native ring retains equal physical side lengths while the offered card continuously rotates");
+            foreach(var area in areas)
+            {
+                var remote=Remote(2,originals.First(x=>x.Source==area).Id)!;
+                Check(remote.Root.gameObject.activeInHierarchy&&Vector3.Dot(remote.Root.forward,remotePrint.Root.forward)>.999f,
+                    "every original selectable card area stays visible and on the same current card plane");
+            }
+            float angle=remoteRing.localEulerAngles.z;
+            if(sampled)remoteRingTravel+=Math.Abs(Mathf.DeltaAngle(lastRing,angle));
+            sampled=true;lastRing=angle;checks++;
+            values.AppendLine(age+" printYaw="+remotePrint.Root.eulerAngles.y+" ring="+angle+" width="+horizontal+" height="+vertical);
+            yield return null;
+        }
+        Check(checks>=8&&remoteRingTravel>45,
+            "actual intermediate frames show a smoothly progressing native rotating ring, not a static admitted flag");
+        File.WriteAllText(Path.Combine(_output,"continuous-original639.txt"),values.ToString());
     }
     private static void FillOtherQueues639(ExtrasSendScheduler scheduler)
     {
@@ -339,8 +411,8 @@ public static partial class MirrorProgram
     {
         foreach(var go in Objects)if(go!=null)Layer(go.transform,30);Layer(observer,9);
         foreach(var canvas in observer.GetComponentsInChildren<Canvas>(true))canvas.worldCamera=_camera;
-        _camera.cullingMask=1<<9;_camera.orthographic=true;_camera.orthographicSize=.72f;
-        _camera.transform.SetPositionAndRotation(observer.position+new Vector3(0,0,-5),observer.rotation);
+        _camera.cullingMask=1<<9;_camera.orthographic=true;_camera.orthographicSize=.95f;
+        _camera.transform.SetPositionAndRotation(observer.position+new Vector3(0,-.1f,-5),observer.rotation);
         _camera.clearFlags=CameraClearFlags.SolidColor;_camera.backgroundColor=new Color(.025f,.03f,.04f,1);
         var rt=new RenderTexture(768,768,24,RenderTextureFormat.ARGB32);var image=new Texture2D(768,768,TextureFormat.RGBA32,false);
         try{_camera.targetTexture=rt;_camera.Render();RenderTexture.active=rt;image.ReadPixels(new UnityEngine.Rect(0,0,768,768),0,0);image.Apply();return image.GetPixels32();}
