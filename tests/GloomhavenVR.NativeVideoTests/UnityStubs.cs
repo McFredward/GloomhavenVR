@@ -220,3 +220,13 @@ namespace GloomhavenVR.WorldUI
         internal static float ExtraScale(UnityEngine.Vector2 size, float mm) => 1 / mm;
     }
 }
+
+namespace GloomhavenVR.WorldUI.MapRoom
+{
+    internal static class MapRetirementPrompt
+    {
+        internal static GloomhavenVR.WorldUI.GrabbableModal? OwnedGrab;
+        internal static bool OwnsGrab(GloomhavenVR.WorldUI.GrabbableModal holder) =>
+            ReferenceEquals(holder, OwnedGrab);
+    }
+}

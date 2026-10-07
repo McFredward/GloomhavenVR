@@ -31,6 +31,9 @@ assert release.index('ShouldWithholdUnstartedWindowClick(_pressedClickHandler, _
 needle = 'NativeVideoWindow.OwnsGrab(holder)'
 assert sweep.count(needle) == 1
 (out / 'ChromeSweep.mutant').write_text(sweep.replace(needle, 'false'))
+retirement = 'MapRoom.MapRetirementPrompt.OwnsGrab(holder)'
+assert sweep.count(retirement) == 1
+(out / 'ChromeSweep.retirement-mutant').write_text(sweep.replace(retirement, 'false'))
 # Teardown must close the video as well as the ordinary conversions it owns.
 start = source.index('    private static void ReleaseAllWindows(')
 assert 'NativeVideoWindow.Shutdown();' in source[start:source.index('WindowMaterialise.CancelAll(reason);', start)]
@@ -40,7 +43,7 @@ dotnet run --project "$project" --configuration Release \
     --property:PointerGuardSource="$mutation_dir/PointerGuard.fixture"
 cp "$repo_root/tests/GloomhavenVR.NativeVideoTests/"*.cs "$mutation_dir/"
 cp "$project" "$mutation_dir/"
-for mutation in premature-frame orphan-sweep scene-lifetime content-binding pointer-guard hero-stop; do
+for mutation in premature-frame orphan-sweep retirement-sweep scene-lifetime content-binding pointer-guard hero-stop; do
     python3 - "$source_file" "$mutation_dir/NativeVideoWindow.fixture" "$mutation" <<'PY'
 import pathlib, sys
 source = pathlib.Path(sys.argv[1]).read_text()
@@ -61,6 +64,7 @@ PY
     case "$mutation" in
         premature-frame) expected='first decoded frame gates the grab bar' ;;
         orphan-sweep) expected='orphan sweep preserves the live movie holder'; sweep="$mutation_dir/ChromeSweep.mutant" ;;
+        retirement-sweep) expected='orphan sweep preserves the separately owned retirement prompt beside the movie'; sweep="$mutation_dir/ChromeSweep.retirement-mutant" ;;
         scene-lifetime) expected='grab holder survives scene unload with the movie' ;;
         content-binding) expected='movie declares its actual pixels as full-frame content' ;;
         pointer-guard) expected='laser and poke delivery guard admits the actual movie handler'; pointer_guard="$mutation_dir/PointerGuard.mutant" ;;
