@@ -647,6 +647,15 @@ internal static partial class WallSegmentFade
         /// </summary>
         private void LogDissolveCensus(Segment seg)
         {
+            float now = Time.unscaledTime;
+            // A logged episode cannot emit again before this existing five-second
+            // deadline, even when native regeneration changes its channel census.
+            // Skip the complete attachment/corner walk during that closed interval.
+            // This changes no sample or line that could have emitted in the old path;
+            // adoption and the continuous native dissolve still run every frame.
+            if (PerfConfig.SharedEnvironmentMaterialReadsOn
+                && seg.DissolveCensusLogged && now < seg.NextDissolveCensus)
+                return;
             int pieces = seg.Mounted.Count + seg.Stacked.Count + seg.Body.Count
                 + seg.Siblings.Count;
             int corners = 0;
@@ -675,7 +684,6 @@ internal static partial class WallSegmentFade
                     TallyPiece(cp.Prop, ref native, ref swapped, ref own, ref enabledOnly);
             }
 
-            float now = Time.unscaledTime;
             if (seg.DissolveCensusLogged)
             {
                 // After the first line of an episode only a CHANGED popper count is news, and

@@ -525,6 +525,30 @@ internal static partial class WallSegmentFade
         private readonly List<Transform> _fadeWriteCandidate = new(128);
         private float _nextFadeCensus;
         private int _fadeCensusSig = -1;
+        // The loaded Frame638 five-room census costs 0.94 ms/game frame, including
+        // repeated native ownership/parent queries for the same subtree members.
+        // Reuse only inside ONE synchronous census, under the existing read-sharing
+        // comparison switch. Native room reveals/reparenting between calls remain live.
+        private readonly Dictionary<Renderer, bool> _fadeCensusModFacts = new(256, RendererReferenceComparer.Instance);
+        private readonly HashSet<Renderer> _fadeCensusWrittenScratch = new(RendererReferenceComparer.Instance);
+        private bool _fadeCensusSharedReads;
+
+        private sealed class RendererReferenceComparer : IEqualityComparer<Renderer>
+        {
+            internal static readonly RendererReferenceComparer Instance = new();
+            public bool Equals(Renderer? left, Renderer? right) => ReferenceEquals(left, right);
+            public int GetHashCode(Renderer renderer) =>
+                System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(renderer);
+        }
+
+        private bool CensusIsModObject(Renderer renderer)
+        {
+            if (_fadeCensusSharedReads && _fadeCensusModFacts.TryGetValue(renderer, out bool cached))
+                return cached;
+            bool owned = IsModObject(renderer);
+            if (_fadeCensusSharedReads) _fadeCensusModFacts[renderer] = owned;
+            return owned;
+        }
 
         /// <summary>
         /// Collect every renderer the frame's fade paths just wrote and, when that set has changed,
@@ -538,6 +562,18 @@ internal static partial class WallSegmentFade
                 return;
             _nextFadeCensus = now + FadeCensusIntervalSeconds;
 
+            _fadeCensusSharedReads = PerfConfig.SharedEnvironmentMaterialReadsOn;
+            try { CollectFadeWriteCensus(); }
+            finally
+            {
+                _fadeCensusSharedReads = false;
+                _fadeCensusModFacts.Clear();
+                _fadeCensusWrittenScratch.Clear();
+            }
+        }
+
+        private void CollectFadeWriteCensus()
+        {
             _fadeWrites.Clear();
             // FLOOR NEVER FADES: this window's count, owned by the write loop below and read by
             // LogFloorGuardCensus one call later. See NoteFadeWrite.
@@ -623,7 +659,7 @@ internal static partial class WallSegmentFade
         /// <summary>Record one write, skipping renderers that are gone or ours.</summary>
         private void NoteFadeWrite(Renderer? r, string path, string owner, float fade)
         {
-            if (r == null || IsModObject(r))
+            if (r == null || CensusIsModObject(r))
                 return;
             // FLOOR NEVER FADES (user 2026-09-05, fehlende_boden_tiles.jpg). This census does not
             // observe writes, it walks the fading segments' MEMBERSHIP lists — so a floor tile
@@ -788,6 +824,12 @@ internal static partial class WallSegmentFade
             // those duplicates could push the count up to TotalRenderers and HIDE a real tear.
             foreach (FadeUnit u in _fadeUnits)
             {
+                if (_fadeCensusSharedReads)
+                {
+                    IndexCensusWrittenRenderers(u);
+                    u.DistinctWritten = _fadeCensusWrittenScratch.Count;
+                    continue;
+                }
                 int distinct = 0;
                 for (int i = 0; i < u.Written.Count; i++)
                 {
@@ -811,15 +853,20 @@ internal static partial class WallSegmentFade
             {
                 if (u.Root == null || u.DistinctWritten >= u.TotalRenderers)
                     continue;
+                if (_fadeCensusSharedReads)
+                    IndexCensusWrittenRenderers(u);
                 CollectFadeUnitRenderers(u.Root, u.NodeScoped, _fadeSolidScratch);
                 foreach (Renderer piece in _fadeSolidScratch)
                 {
                     if (!CountsTowardFadeUnit(piece))
                         continue;
-                    bool written = false;
-                    foreach (FadeWrite w in u.Written)
+                    bool written = _fadeCensusSharedReads && _fadeCensusWrittenScratch.Contains(piece);
+                    if (!_fadeCensusSharedReads)
                     {
-                        if (ReferenceEquals(w.R, piece)) { written = true; break; }
+                        foreach (FadeWrite w in u.Written)
+                        {
+                            if (ReferenceEquals(w.R, piece)) { written = true; break; }
+                        }
                     }
                     if (written)
                         continue;
@@ -861,6 +908,16 @@ internal static partial class WallSegmentFade
             _fadeUnitCandidates.Clear();
             _fadeUnitCandidateSet.Clear();
             _fadeWriteCandidate.Clear();
+        }
+
+        // Reference identity is intentional: the original census uses ReferenceEquals,
+        // including for duplicate source-list entries. Unity's overloaded object equality
+        // must not merge distinct native wrappers or destroyed renderer references.
+        private void IndexCensusWrittenRenderers(FadeUnit unit)
+        {
+            _fadeCensusWrittenScratch.Clear();
+            foreach (FadeWrite write in unit.Written)
+                _fadeCensusWrittenScratch.Add(write.R);
         }
 
         /// <summary>
@@ -933,8 +990,8 @@ internal static partial class WallSegmentFade
         /// (<c>Generated Content/PCG_Test_Feature_Medium_1/skeleton_Standing 1/chest01</c>) — the
         /// skelet.jpg subject itself, which no type test may drop.</para>
         /// </summary>
-        private static bool CountsTowardFadeUnit(Renderer? piece)
-            => piece != null && !IsModObject(piece);
+        private bool CountsTowardFadeUnit(Renderer? piece)
+            => piece != null && !CensusIsModObject(piece);
 
         /// <summary>The renderers of one unit, into <paramref name="into"/> — the ONE place that
         /// decides what a unit's renderers are, so the count, the solid enumeration and the bounds

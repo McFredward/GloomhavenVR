@@ -549,9 +549,9 @@ internal static partial class WallSegmentFade
             // the fade edge would leave regenerated pieces standing inside a faded wall for up
             // to two seconds — a look change, which this round forbids.
             using var _fastScope = PerfMonitor.Scope("WallFade.FastReclaim");
-            // ModBuild 393: this sweep runs between rescans, while Apparance regenerates subtrees,
-            // so it rebuilds the map rather than trusting the one the last rescan left behind.
-            EnsureWallHomes();
+            bool sharedReads = PerfConfig.SharedEnvironmentMaterialReadsOn;
+            if (!sharedReads)
+                EnsureWallHomes(); // comparison path: original unfiltered home-map walk
             _fastSegScratch.Clear();
             foreach (Segment seg in _live.Segments.Values)
             {
@@ -562,6 +562,14 @@ internal static partial class WallSegmentFade
             }
             if (_fastSegScratch.Count == 0)
                 return;
+
+            // The Frame638 loaded-room captures price this sweep at 1.58/1.21 ms per
+            // game frame. A sweep with no faded, eligible segment cannot consult a home,
+            // so do not rebuild the complete live home map for that empty case. When there
+            // are candidates, retain the fresh rebuild: native regeneration and changes to
+            // the committed table must not acquire a cross-frame ancestry cache.
+            if (sharedReads)
+                EnsureWallHomes();
 
             // ROUND-12 CHURN FIX (the tripwire's 20 WARNs: gate embedding pieces cycled
             // 'stacked-fast → released → stacked-fast …'): those pieces are ANOTHER WALL's
@@ -649,6 +657,13 @@ internal static partial class WallSegmentFade
             {
                 if (r == null || !r.enabled || ScenarioSceneryBudget.IsOwnedHidden(r))
                     continue;
+                // Membership is already rebuilt for THIS sweep, and neither predicate
+                // below can adopt these renderers. Reject them before the native bounds
+                // read, rather than measuring hundreds of already-owned wall/body pieces
+                // four times a second. This is only a guard reordering: unowned/new pieces
+                // still read fresh enabled/bounds/ancestry and retain the same election.
+                if (sharedReads && (_mountedTouched.ContainsKey(r) || _fastOwnedScratch.Contains(r)))
+                    continue;
                 Bounds b = WallCommitGeometryReads.Read(r);
                 if (b.max.x < unionMinX || b.min.x > unionMaxX
                     || b.max.z < unionMinZ || b.min.z > unionMaxZ
@@ -656,10 +671,8 @@ internal static partial class WallSegmentFade
                     continue; // outside every faded segment's reach — see the prefilter note
                 if (IsModObject(r))
                     continue;
-                if (_mountedTouched.ContainsKey(r))
-                    continue; // already ours (hidden or ramped)
-                if (_fastOwnedScratch.Contains(r))
-                    continue; // another segment's renderer/attachment — never fast-claimed
+                if (!sharedReads && (_mountedTouched.ContainsKey(r) || _fastOwnedScratch.Contains(r)))
+                    continue; // comparison path: original order after bounds/mod ownership
                 if (IsArchProtected(b, r.name))
                     continue; // the doorway's arch stays solid (user ruling 2026-08-07)
                 if (IsWaterProtected(b))
