@@ -11,7 +11,7 @@ using Object = UnityEngine.Object;
 namespace GloomhavenVR.Net.TownServices;
 
 /// <summary>Original asset references, never instance IDs or a guessed replacement picture.</summary>
-internal sealed class TownServiceAssets
+internal sealed partial class TownServiceAssets
 {
     private readonly Dictionary<string, Object> _assets = new(StringComparer.Ordinal);
     private readonly HashSet<string> _ambiguous = new(StringComparer.Ordinal);
@@ -21,7 +21,7 @@ internal sealed class TownServiceAssets
     internal uint Generation { get; private set; }
 
     internal void Clear()
-    { _assets.Clear(); _keys.Clear(); _originalKeys.Clear(); _ambiguous.Clear(); _nextScan = 0; Generation++; }
+    { ClearPackedSprites(); _assets.Clear(); _keys.Clear(); _originalKeys.Clear(); _ambiguous.Clear(); _nextScan = 0; Generation++; }
 
     /// <summary>Immutable native-template provenance, installed in deterministic order before
     /// descriptor discovery. Reusing one original retains its first published identity, but
@@ -60,9 +60,7 @@ internal sealed class TownServiceAssets
         {
             case Sprite sprite:
                 sprite = CardFaceMipBake.OriginalFor(sprite);
-                Rect rect = sprite.rect; Vector2 pivot = sprite.pivot; Vector4 border = sprite.border;
-                key = "sprite|" + Key(sprite.texture) + "|" + sprite.name + "|" + Numbers(rect.x, rect.y, rect.width, rect.height,
-                    pivot.x, pivot.y, border.x, border.y, border.z, border.w, sprite.pixelsPerUnit);
+                key = SpriteKey(sprite, sprite.name);
                 break;
             case Texture2D texture:
                 // Player assets use a unique native descriptor; unverified collisions
@@ -102,6 +100,10 @@ internal sealed class TownServiceAssets
         if (_ambiguous.Contains(key)) throw new InvalidDataException("Ambiguous native town-service asset: " + key);
         if (!_assets.TryGetValue(key, out Object? asset) || asset == null)
         {
+            // A native SpriteAtlas may already be loaded while the requested member
+            // has never been materialized locally. Discover its exact original clone
+            // now instead of waiting for this visitor to open the native option.
+            if (typeof(T) == typeof(Sprite)) ScanPackedSprites();
             // A shader can be available to the native material factory before Resources'
             // loaded-object census contains it. Exact native lookup is not a replacement
             // shader and preserves the subsequent complete property-contract validation.
@@ -126,6 +128,7 @@ internal sealed class TownServiceAssets
     {
         if (Time.unscaledTime < _nextScan) return;
         _nextScan = Time.unscaledTime + 2;
+        ScanPackedSprites();
         foreach (TMP_FontAsset font in Resources.FindObjectsOfTypeAll<TMP_FontAsset>()) TryKey(font);
         foreach (TMP_SpriteAsset sprites in Resources.FindObjectsOfTypeAll<TMP_SpriteAsset>()) TryKey(sprites);
         foreach (Font font in Resources.FindObjectsOfTypeAll<Font>()) TryKey(font);
