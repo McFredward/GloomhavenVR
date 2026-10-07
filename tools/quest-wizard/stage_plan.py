@@ -64,7 +64,16 @@ BUILD_GROUPS = {"inputs": PLANS["build"][:6], "recovery": ("recovery",),
 WORK_REVISION = 5
 PREPARATION_ITEMS = {"bundled-audio": "audio", "native-cubemaps": "textures",
                      "ordinary-texture-audit": "textures", "native-texture2d": "textures",
-                     "native-sprites": "startup-content"}
+                     "native-sprites": "startup-content", "environment-bundles": "mod-banks",
+                     "environment-meshes": "mod-banks"}
+# These actual producer passes prepare geometry for one resource-bank
+# checkpoint. Geometry is only half its work: Unity still has to compile the
+# bank and return a qualified result. Its final mesh cannot close the scope.
+ENVIRONMENT_ITEM_SHARES = {"environment-bundles": (0., .25), "environment-meshes": (.25, .25)}
+
+
+def _item_checkpoint(name):
+    return "mod-resource-banks" if name in ENVIRONMENT_ITEM_SHARES else name
 
 
 def phase_operation(stage, phase, value):
@@ -196,9 +205,12 @@ def _preparation_fraction(plan, operation, value):
     name = phase.split(":", 1)[1]
     if PREPARATION_ITEMS.get(name) != operation: return None
     scope = plan.get("preparationScopes", {}).get(operation, {})
-    if not scope.get("open") or scope.get("name") != name or not scope.get("total"): return None
+    if not scope.get("open") or scope.get("name") != _item_checkpoint(name) or not scope.get("total"): return None
     ratio = _ratio(value)
     if ratio is None: return None
+    if name in ENVIRONMENT_ITEM_SHARES:
+        offset, share = ENVIRONMENT_ITEM_SHARES[name]
+        ratio = offset + share * ratio
     scope["itemFraction"] = ratio
     scope["items"] = {"done": value["done"], "total": value["total"]}
     return min(1., (scope["done"] + min(.99, ratio)) / scope["total"])
@@ -457,9 +469,20 @@ def advance(row, value, operation=None, status=None):
     if row["id"] == "build" and value["phase"].startswith("prepare-items:"):
         # Counter producers need no duplicated parent argument. The actual
         # opened checkpoint, not a historical frontier, establishes ownership.
-        owner = PREPARATION_ITEMS.get(value["phase"].split(":", 1)[1])
+        name = value["phase"].split(":", 1)[1]
+        owner = PREPARATION_ITEMS.get(name)
         scope = plan.get("preparationScopes", {}).get(owner, {})
-        if scope.get("open") and scope.get("name") == value["phase"].split(":", 1)[1]:
+        active_scope = scope.get("open") and scope.get("name") == _item_checkpoint(name)
+        if name in ENVIRONMENT_ITEM_SHARES:
+            # A stale or explicitly foreign counter cannot reopen this bank
+            # after its actual owner moved on or the runner was restarted.
+            active_scope = active_scope and plan.get("liveOperation") == owner and operation in (None, owner)
+            if not active_scope:
+                # Preserve an explicitly foreign producer owner so replaying
+                # this saved observation cannot reauthorize it during a poll.
+                if operation is not None: value["reportedOperation"] = operation
+                operation = None
+        if active_scope:
             operation = owner
     child_boundary = (value["phase"].startswith(("recovery-section:", "staging-section:", "prepare-substage:", "prepare-items:"))
                       or value["phase"] in ("recovery-batches", "recovery-raw-reuse", "recovery-plan", "prepare-project-copy"))
