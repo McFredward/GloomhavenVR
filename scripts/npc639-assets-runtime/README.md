@@ -44,3 +44,10 @@ resolution measurement. It does not prove final GPU pixels, transport deadlines,
 headset presentation, existing mip-bake provenance, or mod shader loading. The
 separate NPC first-picture proof must exercise complete native modules, actual
 rendering and the packet path. A metadata-only pass cannot replace that evidence.
+
+The runner loads the editor's actual TMP Essential Resources before the measured
+atlas census. These package Settings are not the game's TMP Settings and do not
+replace any native atlas artwork. Loading the shipped Settings' exact fallback
+chain into BattleOverlayCanvas is proven separately by read-only inspection of
+`globalgamemanagers` ResourceManager dependencies; this bank does not contain or
+exercise that shipped Settings resource itself.

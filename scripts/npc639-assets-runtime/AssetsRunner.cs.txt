@@ -1,7 +1,16 @@
 using System;using System.Collections;using System.IO;using System.Reflection;using UnityEditor;using UnityEngine;
 public static class AssetsRunner {
  private static IEnumerator run;private static float until;private static bool started;
- public static void Start(){EditorSettings.enterPlayModeOptionsEnabled=true;EditorSettings.enterPlayModeOptions=EnterPlayModeOptions.DisableDomainReload|EnterPlayModeOptions.DisableSceneReload;EditorApplication.update+=Tick;EditorApplication.EnterPlaymode();}
+ public static void Start(){
+ // The editor's real TMP package configuration is a load-time prerequisite.
+ // It is not the shipped game Settings or a substitute for any native atlas art.
+ // Import before timing so absent editor resources do not open the TMP importer
+ // inside the measured native895-member atlas census.
+ if(AssetDatabase.LoadAssetAtPath<UnityEngine.Object>("Assets/TextMesh Pro/Resources/TMP Settings.asset")==null){
+  string package=Path.GetFullPath("Library/PackageCache/com.unity.textmeshpro@3.0.6/Package Resources/TMP Essential Resources.unitypackage");
+  AssetDatabase.ImportPackage(package,false);AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
+ }
+ EditorSettings.enterPlayModeOptionsEnabled=true;EditorSettings.enterPlayModeOptions=EnterPlayModeOptions.DisableDomainReload|EnterPlayModeOptions.DisableSceneReload;EditorApplication.update+=Tick;EditorApplication.EnterPlaymode();}
  private static void Tick(){
  if(!EditorApplication.isPlaying||Time.realtimeSinceStartup<until)return;
  try {
