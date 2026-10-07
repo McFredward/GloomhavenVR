@@ -45,7 +45,7 @@ controllable-state ACK coroutine, `Proceed`/`Reset`, both validated ready/unread
 paths, native input/progress handlers, `ProxySetReadyState` and the native ACK
 receiver. Source pins use the same reference discovery and portable fallback.
 
-Its 63 assertions reproduce the false departure option, then exercise both map
+Its original 63 assertions reproduce the false departure option, then exercise both map
 phases, missing ACK/timeout, awaited players, unready/spectator host refusals,
 VR/offline/nonquest/scenario exclusions and native participant-count barriers.
 Client controls require a real enabled native Cancel after an actual departure;
@@ -63,11 +63,23 @@ waits for the actual native ACK receiver and emits one native `ReadyProceed`.
 The transport/process switch, initial replicated ready snapshots, and MEC clock
 are boundaries. No mod-owned quorum or accepted action replaces native policy.
 
+The departure proof now totals 160 assertions. Its additional 97 assertions
+force actual exceptions at the explicit native-property boundary, covering
+Initialize, departure prefix/postfix, input prefix/finalizer, delayed completion
+and ReadyUp. They verify unchanged native initialization arguments, continued
+original removal/input/callbacks, native full-count refusal, expired mod consent,
+preservation of an already true native argument, and exact original exceptions.
+Normal failure reports carry type and message once per Initialize/Reset
+lifetime. Repeated faults and a failed diagnostic logger cannot escape or cause
+repeated reports; failure of the successful-withdrawal note cannot block consent.
+
 Seven additional production controls disable the native departure option,
 broaden withdrawal outside real input, lose delayed input permission, retain
 permission after cancelled progress, omit controller/quest identity, or admit
-nonmap initialization. Each must reach its causal runtime assertion after a
-strict rebuild. The normal portable suite totals 287 assertions and 14 causal
+nonmap initialization. Eight further controls remove each of the seven guarded
+seam boundaries or the protected failure logger. Each must reach its causal
+runtime assertion after a strict rebuild. The normal portable suite totals
+384 assertions and 22 causal
 controls; the membership-layout count remains 25.
 
 An optional actual patch-registration proof runs separately:
@@ -80,7 +92,7 @@ It uses HarmonyX 2.7.0 under Mono (`GHVR_UNITY_MONO` overrides executable
 discovery), installs **the production `MapQuestDepartureValidation.Install()`**,
 checks `Harmony.GetPatchInfo` for all seven exact targets and the two input and
 progress prefix/finalizer state pairs, then runs the same native scenarios
-without manual seam dispatch. Its 72 assertions include those nine additional
+without manual seam dispatch. Its 169 assertions include those nine additional
 registration assertions. If Mono is absent, it explicitly skips and claims no
 actual registration/runtime pass. The portable .NET 8 suite uses explicit seam
 delivery; it does not need Mono or Harmony packages. Neither mode proves Unity

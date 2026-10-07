@@ -39,7 +39,30 @@ namespace HarmonyLib
 namespace GloomhavenVR.Core
 {
     internal static class VRSession { public static bool IsRunning=true; public static HarmonyLib.Harmony? Harmony=new("gloomhavenvr.quest.departure.fixture"); }
-    internal static class VRLog { public static List<string> Notes=new(); public static void Note(string scope,string text) => Notes.Add(text); }
+    internal static class VRLog
+    {
+        public static List<string> Notes=new(),Alerts=new();
+        public static int AlertAttempts;
+        public static void Note(string scope,string text) { NativeProbeFaults.Read("log"); Notes.Add(text); }
+        public static void Alert(string scope,string text) { AlertAttempts++; NativeProbeFaults.Read("log.failure"); Alerts.Add(text); }
+    }
+}
+internal static class NativeProbeFaults
+{
+    private static readonly HashSet<string> Properties=new();
+    private static int _skip;
+    public static int Triggered;
+    public static void Reset() { Properties.Clear(); Triggered=0; _skip=0; }
+    public static void Arm(string property,int skip=0) { Properties.Clear(); Properties.Add(property); Triggered=0; _skip=skip; }
+    public static void AlsoArm(string property) => Properties.Add(property);
+    public static void Read(string property)
+    {
+        if (!Properties.Contains(property)) return;
+        if (_skip>0) { _skip--; return; }
+        Properties.Remove(property);
+        Triggered++;
+        throw new InvalidOperationException("Forced native property failure: "+property);
+    }
 }
 namespace Photon.Bolt { internal interface IProtocolToken { } }
 namespace FFSNet
@@ -48,28 +71,37 @@ namespace FFSNet
     internal enum GameActionType { ReadyUpPlayer,UnreadyPlayer,AllPlayersReady,ReadyProceed }
     internal sealed class NetworkPlayer
     {
-        public int PlayerID { get; set; } public string Username => "player"+PlayerID;
+        private int _id; public int PlayerID { get { NativeProbeFaults.Read("player.id"); return _id; } set => _id=value; } public string Username => "player"+PlayerID;
         public bool IsParticipant { get; set; }=true; public bool IsActive=true,HasDesynched;
         public readonly List<NetworkPlayer> PlayersACKedMyLatestControllableState=new();
     }
     internal delegate void PlayersChangedEvent(NetworkPlayer player);
     internal static class PlayerRegistry
     {
-        public static NetworkPlayer MyPlayer { get; set; }=new();
+        private static NetworkPlayer _myPlayer=new();
+        public static NetworkPlayer MyPlayer { get { NativeProbeFaults.Read("local-player"); return _myPlayer; } set => _myPlayer=value; }
         public static List<NetworkPlayer> AllPlayers=new();
-        public static List<NetworkPlayer> Participants => AllPlayers.Where(p=>p.IsParticipant).ToList();
+        public static List<NetworkPlayer> Participants { get { NativeProbeFaults.Read("participants"); return AllPlayers.Where(p=>p.IsParticipant).ToList(); } }
         public static List<object> ConnectingUsers=new(); public static PlayersChangedEvent? OnPlayerLeft;
         public static NetworkPlayer? GetPlayer(int id) => AllPlayers.FirstOrDefault(p=>p.PlayerID==id);
     }
     internal static class FFSNetwork
     {
-        public static bool IsOnline=true,IsClient; public static bool IsHost => IsOnline&&!IsClient;
+        private static bool _online=true,_client;
+        public static bool IsOnline { get { NativeProbeFaults.Read("network.online"); return _online; } set => _online=value; }
+        public static bool IsClient { get { NativeProbeFaults.Read("network.client"); return _client; } set => _client=value; }
+        public static bool IsHost => IsOnline&&!IsClient;
         public static int Desyncs; public static void HandleDesync(Exception error) => Desyncs++;
     }
     internal sealed class ControllableStateRevisionToken : Photon.Bolt.IProtocolToken { public ControllableStateRevisionToken(NetworkPlayer player) { } }
     internal sealed class ReadyUpToken : Photon.Bolt.IProtocolToken { public string ToggleState; public ReadyUpToken(string state) => ToggleState=state; }
     internal sealed class GameAction { public int TargetPhaseID,PlayerID,ActionTypeID,SupplementaryDataIDMax; public bool SupplementaryDataBoolean; public Photon.Bolt.IProtocolToken? SupplementaryDataToken,SupplementaryDataToken2; }
-    internal static class ActionProcessor { public static ActionPhaseType CurrentPhase=ActionPhaseType.MapHQ; public static List<GameAction> ActionQueue=new(); }
+    internal static class ActionProcessor
+    {
+        private static ActionPhaseType _phase=ActionPhaseType.MapHQ;
+        public static ActionPhaseType CurrentPhase { get { NativeProbeFaults.Read("phase"); return _phase; } set => _phase=value; }
+        public static List<GameAction> ActionQueue=new();
+    }
     internal static class Console { public static void LogInfo(string text) { } public static void LogWarning(string text) { } }
     internal static class Synchronizer
     {
@@ -134,11 +166,14 @@ internal sealed partial class UIReadyToggle
     private readonly List<NetworkPlayer> playersAwaited=new();
     private CoroutineHandle stateSyncCheckRoutine;
     private static readonly float globalStateSyncTimeoutDuration=30f,stateSyncCheckInterval=.2f;
-    public List<NetworkPlayer> PlayersReady { get; }=new();
+    private readonly List<NetworkPlayer> _playersReady=new();
+    public List<NetworkPlayer> PlayersReady { get { NativeProbeFaults.Read("ready-roster"); return _playersReady; } }
     public Dictionary<NetworkPlayer,EReadyUpToggleStates> PlayerReadiedState { get; }=new();
-    public bool IsVisible => window.IsOpen; public bool ToggledOn => _isOn; public EReadyUpType ReadyUpType => readyUpType;
-    public bool IsInteractable => _interactable; public bool CanBeToggled { get; set; }=true;
-    public bool IsProgressingBar => _progressBar.gameObject.activeInHierarchy;
+    public bool IsVisible { get { NativeProbeFaults.Read("visible"); return window.IsOpen; } } public bool ToggledOn => _isOn; public EReadyUpType ReadyUpType => readyUpType;
+    public bool IsInteractable { get { NativeProbeFaults.Read("interactable"); return _interactable; } }
+    private bool _canBeToggled=true;
+    public bool CanBeToggled { get { NativeProbeFaults.Read("can-toggle"); return _canBeToggled; } set => _canBeToggled=value; }
+    public bool IsProgressingBar { get { NativeProbeFaults.Read("progress"); return _progressBar.gameObject.activeInHierarchy; } }
     private bool _useProgressConfirm=true,_useProgressCancel;
     private sealed class Progress
     {
@@ -156,6 +191,19 @@ internal sealed partial class UIReadyToggle
     }
     public void SetLocalReadySnapshot(bool ready) => SetIsOnWithoutNotify(ready);
     public void EnableCancelProgress(bool value) => _useProgressCancel=value;
+    public void SetProgressCallbacks(UnityAction<bool>? start=null,UnityAction<bool>? end=null) { onStartProgress=start; onEndProgress=end; }
+    public bool DepartureValidationOption => validateReadyUpOnPlayerLeft;
+    public void NativeInitialize(bool requested)
+    {
+        object[] args={requested,EReadyUpType.Participant,EReadyUpToggleStates.Quests};
+        DepartureHooks.Call(typeof(MapQuestDepartureValidation.InitializeSeam),"BeforeInitialize",args);
+        Initialize(show:false,validateReadyUpOnPlayerLeft:(bool)args[0],readyUpType:EReadyUpType.Participant,readyUpToggleState:EReadyUpToggleStates.Quests);
+    }
+    public void NativeReadyUp(bool value,bool requested)
+    {
+        object[] args={this,value,requested}; DepartureHooks.Call(typeof(MapQuestDepartureValidation.ReadyUpSeam),"BeforeReadyUp",args);
+        ReadyUp(value,(bool)args[2]);
+    }
     public void ExplicitInput(bool value)
     {
         object[] args={this,value,false}; DepartureHooks.Call(typeof(MapQuestDepartureValidation.ExplicitInputSeam),"BeforeExplicitInput",args);
@@ -167,8 +215,10 @@ internal sealed partial class UIReadyToggle
     public void CompleteProgress(bool value=false)
     {
         object[] args={this,value,false}; DepartureHooks.Call(typeof(MapQuestDepartureValidation.ProgressEndSeam),"BeforeProgressEnd",args);
+        Exception? error=null;
         try { _progressBar.Complete?.Invoke(); }
-        finally { DepartureHooks.Call(typeof(MapQuestDepartureValidation.ProgressEndSeam),"AfterProgressEnd",new object?[] { args[2],null }); }
+        catch (Exception e) { error=e; throw; }
+        finally { DepartureHooks.Call(typeof(MapQuestDepartureValidation.ProgressEndSeam),"AfterProgressEnd",new object?[] { args[2],error }); }
     }
     public void AbortProgress()
     {
@@ -185,8 +235,8 @@ internal static class DepartureHooks
     public static bool RealInstalled;
     public static object? Call(Type seam,string method,object?[] args) => RealInstalled ? null : seam.GetMethod(method,System.Reflection.BindingFlags.Static|System.Reflection.BindingFlags.NonPublic)!.Invoke(null,args);
 }
-internal sealed class NativeQuest { public string ID="Quest_A"; }
-internal sealed class UIMapMultiplayerController { public NativeQuest? HostSelectedQuest=new(); }
+internal sealed class NativeQuest { private string _id="Quest_A"; public string ID { get { NativeProbeFaults.Read("quest.id"); return _id; } set => _id=value; } }
+internal sealed class UIMapMultiplayerController { private NativeQuest? _quest=new(); public NativeQuest? HostSelectedQuest { get { NativeProbeFaults.Read("proposal"); return _quest; } set => _quest=value; } }
 namespace GloomhavenVR.WorldUI.MapRoom { internal static class StoryComposite { public static bool PointOfNoReturn; } }
 #if REAL_HARMONY
 namespace System.Runtime.CompilerServices { internal sealed class IsExternalInit { } }

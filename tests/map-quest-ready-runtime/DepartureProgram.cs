@@ -12,6 +12,7 @@ internal static class DepartureProgram
     private static void Check(bool value,string reason) { _assertions++; if (!value) throw new InvalidOperationException(reason); }
     private static UIReadyToggle Setup(bool apply=true,bool client=false,bool hostReady=true)
     {
+        NativeProbeFaults.Reset(); VRLog.Alerts.Clear(); VRLog.AlertAttempts=0;
         VRSession.IsRunning=true; FFSNetwork.IsOnline=true; FFSNetwork.IsClient=client; FFSNetwork.Desyncs=0;
         ActionProcessor.CurrentPhase=ActionPhaseType.MapHQ; Timing.Reset(); Synchronizer.Actions.Clear(); Timekeeper.instance.m_GlobalClock.time=0;
         StoryComposite.PointOfNoReturn=false;
@@ -51,6 +52,140 @@ internal static class DepartureProgram
         foreach (var player in PlayerRegistry.AllPlayers)
             foreach (var peer in PlayerRegistry.Participants)
                 if (!player.PlayersACKedMyLatestControllableState.Contains(peer)) player.PlayersACKedMyLatestControllableState.Add(peer);
+    }
+    private static bool Continues(Action action)
+    {
+        try { action(); return true; }
+        catch (Exception) { return false; }
+    }
+    private static Exception? OriginalException(Action action)
+    {
+        try { action(); return null; }
+        catch (Exception error)
+        {
+            while (error is TargetInvocationException invocation && invocation.InnerException!=null) error=invocation.InnerException;
+            return error;
+        }
+    }
+    private static void ProbeDeparture(UIReadyToggle toggle)
+    {
+        typeof(MapQuestDepartureValidation.PlayerLeftSeam).GetMethod("BeforePlayerLeft",BindingFlags.NonPublic|BindingFlags.Static)!
+            .Invoke(null,new object[] { toggle,false });
+    }
+    private static void FaultProof()
+    {
+        foreach (string property in new[] { "network.online","phase" })
+        foreach (bool requested in new[] { false,true })
+        {
+            var toggle=Setup(client:true); NativeProbeFaults.Arm(property);
+            Check(Continues(()=>toggle.NativeInitialize(requested)),"native Initialize continues after failed departure probe");
+            Check(NativeProbeFaults.Triggered==1 && toggle.DepartureValidationOption==requested,
+                "failed initialization probe preserves the native caller option");
+            Check(!toggle.ToggledOn && !toggle.IsInteractable,"original native Initialize still resets its own toggle after probe failure");
+        }
+        foreach (string property in new[] { "network.online","network.client","phase" })
+        {
+            var toggle=Setup(client:true); var departed=PlayerRegistry.AllPlayers[2]; toggle.PlayersReady.Add(departed);
+            NativeProbeFaults.Arm(property);
+            Check(Continues(()=>Leave(departed)),"native OnPlayerLeft continues after failed prefix probe");
+            Check(NativeProbeFaults.Triggered==1 && toggle.PlayersReady.Count==2 && !toggle.PlayersReady.Contains(departed),
+                "original departure removal still executes after failed prefix probe");
+            toggle.ExplicitInput(false);
+            Check(Synchronizer.Actions.Count==0,"failed departure prefix cannot authorize later withdrawal");
+        }
+        {
+            var toggle=Setup(client:true); var departed=PlayerRegistry.AllPlayers[2]; toggle.PlayersReady.Add(departed);
+            // Original OnReadiedPlayersChanged reads visibility once before the mod postfix.
+            NativeProbeFaults.Arm("visible",skip:1);
+            Check(Continues(()=>Leave(departed)),"native OnPlayerLeft continues after failed postfix probe");
+            Check(NativeProbeFaults.Triggered==1 && toggle.PlayersReady.Count==2,"postfix failure retains original native departure removal");
+            toggle.ExplicitInput(false);
+            Check(Synchronizer.Actions.Count==0,"failed departure postfix cannot authorize later withdrawal");
+        }
+        foreach (string property in new[] { "network.online","network.client","phase","proposal","quest.id",
+                     "ready-roster","participants","local-player","player.id","visible","interactable","can-toggle" })
+        {
+            var toggle=Setup(client:true); Leave(PlayerRegistry.AllPlayers[2]); NativeProbeFaults.Arm(property);
+            Check(Continues(()=>toggle.ExplicitInput(false)),"native InputToggle continues after failed departure probe");
+            Check(NativeProbeFaults.Triggered==1 && !toggle.ToggledOn && Synchronizer.Actions.Count==0,
+                "failed explicit-input probe retains original native input and full-count refusal");
+            Check(VRLog.Alerts.Count==1 && VRLog.Alerts[0].Contains("InvalidOperationException") && VRLog.Alerts[0].Contains(property),
+                "unexpected native probe failure records bounded normal-level type and message");
+            toggle.ExplicitInput(false);
+            Check(Synchronizer.Actions.Count==0,"failed explicit-input probe clears its departure authorization");
+        }
+        {
+            var toggle=Setup(client:true); Leave(PlayerRegistry.AllPlayers[2]); toggle.EnableCancelProgress(true);
+            NativeProbeFaults.Arm("progress");
+            Check(Continues(()=>toggle.ExplicitInput(false)),"native InputToggle returns after failed progress-state probe");
+            Check(NativeProbeFaults.Triggered==1 && toggle.IsProgressingBar,"native input started its own asynchronous progress before finalizer probe failed");
+            int ended=0; toggle.SetProgressCallbacks(end:_=>ended++); toggle.CompleteProgress();
+            Check(ended==1 && Synchronizer.Actions.Count==0,"failed input finalizer clears delayed withdrawal while native completion still runs");
+        }
+        {
+            var toggle=Setup(client:true); Leave(PlayerRegistry.AllPlayers[2]); toggle.EnableCancelProgress(true); toggle.ExplicitInput(false);
+            int ended=0; toggle.SetProgressCallbacks(end:_=>ended++); NativeProbeFaults.Arm("proposal");
+            Check(Continues(()=>toggle.CompleteProgress()),"native progress completion continues after failed departure probe");
+            Check(NativeProbeFaults.Triggered==1 && ended==1 && Synchronizer.Actions.Count==0,
+                "failed completion probe preserves original callback but cannot mutate native withdrawal option");
+            toggle.ExplicitInput(false); Check(Synchronizer.Actions.Count==0,"failed completion probe expires its delayed authorization");
+        }
+        {
+            var toggle=Setup(client:true); Leave(PlayerRegistry.AllPlayers[2]); toggle.EnableCancelProgress(true); toggle.ExplicitInput(false);
+            toggle.SetProgressCallbacks(end:_=>NativeProbeFaults.Arm("proposal"));
+            Check(Continues(()=>toggle.CompleteProgress()),"native ReadyUp continues after failed departure probe");
+            Check(NativeProbeFaults.Triggered==1 && Synchronizer.Actions.Count==0,"failed ready probe leaves native auto-validation false");
+            toggle.SetProgressCallbacks(); toggle.ExplicitInput(false);
+            Check(Synchronizer.Actions.Count==0,"failed ready probe clears its scoped withdrawal authorization");
+        }
+        {
+            var toggle=Setup(client:true); Leave(PlayerRegistry.AllPlayers[2]); NativeProbeFaults.Arm("proposal");
+            Check(Continues(()=>toggle.NativeReadyUp(false,true)),"failed mod ready probe preserves a caller's existing native authorization");
+            Check(NativeProbeFaults.Triggered==1 && Synchronizer.Actions.Single().AutoValidate,
+                "probe failure preserves incoming true auto-validation without manufacturing it");
+        }
+        {
+            var toggle=Setup(client:true); Leave(PlayerRegistry.AllPlayers[2]);
+            for (int i=0;i<3;i++) { NativeProbeFaults.Arm("phase"); ProbeDeparture(toggle); }
+            Check(VRLog.AlertAttempts==1 && VRLog.Alerts.Count==1,"repeated native probe failures report once per initialization lifetime");
+            toggle.NativeReset(); NativeProbeFaults.Arm("phase"); ProbeDeparture(toggle);
+            Check(VRLog.AlertAttempts==2,"original Reset opens one new bounded probe-report lifetime");
+            NativeProbeFaults.Arm("phase"); toggle.NativeInitialize(false);
+            Check(VRLog.AlertAttempts==3,"original Initialize opens one new bounded probe-report lifetime");
+        }
+        {
+            var toggle=Setup(client:true); Leave(PlayerRegistry.AllPlayers[2]); NativeProbeFaults.Arm("phase"); NativeProbeFaults.AlsoArm("log.failure");
+            Check(Continues(()=>toggle.ExplicitInput(false)),"failed diagnostic logger cannot escape native input");
+            Check(NativeProbeFaults.Triggered==2 && VRLog.AlertAttempts==1 && Synchronizer.Actions.Count==0,
+                "failed diagnostic logger still clears authorization and preserves native full-count refusal");
+            NativeProbeFaults.Arm("phase"); ProbeDeparture(toggle);
+            Check(VRLog.AlertAttempts==1,"failed diagnostic logger is never retried within the same lifetime");
+        }
+        {
+            var toggle=Setup(client:true); Leave(PlayerRegistry.AllPlayers[2]); NativeProbeFaults.Arm("log");
+            Check(Continues(()=>toggle.ExplicitInput(false)),"failed admitted-withdrawal logger cannot block original native consent");
+            Check(NativeProbeFaults.Triggered==1 && Synchronizer.Actions.Single().AutoValidate,
+                "successful native probes authorize the original action even when its normal note fails");
+        }
+        foreach (bool delayed in new[] { false,true })
+        {
+            var toggle=Setup(client:true); Leave(PlayerRegistry.AllPlayers[2]); toggle.EnableCancelProgress(true);
+            var original=new InvalidOperationException("Original native progress callback failure");
+            if (delayed) { toggle.ExplicitInput(false); toggle.SetProgressCallbacks(end:_=>throw original); }
+            else toggle.SetProgressCallbacks(start:_=>throw original);
+            Check(ReferenceEquals(OriginalException(delayed ? ()=>toggle.CompleteProgress() : ()=>toggle.ExplicitInput(false)),original),
+                "departure finalizer preserves the exact original native exception");
+            toggle.SetProgressCallbacks(); if (delayed) toggle.CompleteProgress(); else toggle.ExplicitInput(false);
+            Check(Synchronizer.Actions.Count==0,"original native input or completion failure expires mod withdrawal permission");
+        }
+        foreach (Type seam in new[] { typeof(MapQuestDepartureValidation.ExplicitInputSeam),typeof(MapQuestDepartureValidation.ProgressEndSeam) })
+        {
+            var original=new InvalidOperationException("Native exception return sentinel");
+            string name=seam==typeof(MapQuestDepartureValidation.ExplicitInputSeam) ? "AfterExplicitInput" : "AfterProgressEnd";
+            object?[] parameters=name=="AfterExplicitInput" ? new object?[] { Singleton<UIReadyToggle>.Instance,true,original } : new object?[] { true,original };
+            Check(ReferenceEquals(seam.GetMethod(name,BindingFlags.NonPublic|BindingFlags.Static)!.Invoke(null,parameters),original),
+                "finalizer returns the original native exception unchanged");
+        }
     }
     private static void Main()
     {
@@ -185,6 +320,7 @@ internal static class DepartureProgram
         hostToggle.ServerACKSyncedStateRevision(new GameAction { PlayerID=clientPlayer.PlayerID,SupplementaryDataIDMax=flatHost.PlayerID });
         Timing.Advance();
         Check(Proceeded==1 && Synchronizer.Actions.Count(x=>x.Type==GameActionType.ReadyProceed)==1,"original Flat host ACK receiver alone admits ReadyProceed and continuation");
+        FaultProof();
         System.Console.WriteLine($"Native quest departure: {_assertions} assertions passed; original OnPlayerLeft/ACK/Proceed/Reset/ReadyUp bodies executed.");
     }
 }

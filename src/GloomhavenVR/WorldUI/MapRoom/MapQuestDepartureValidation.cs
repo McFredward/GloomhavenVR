@@ -27,6 +27,7 @@ internal static class MapQuestDepartureValidation
     private static ActionPhaseType _departurePhase;
     private static int _explicitInputDepth;
     private static bool _progressAuthorized;
+    private static bool _probeFailureReported;
 
     private static readonly PropertyInfo? PlayersReady = AccessTools.Property(typeof(UIReadyToggle), "PlayersReady");
     private static readonly Type? Registry = AccessTools.TypeByName("FFSNet.PlayerRegistry");
@@ -63,10 +64,11 @@ internal static class MapQuestDepartureValidation
             }
             return true;
         }
-        catch (Exception e) when (e is TargetException || e is TargetInvocationException || e is ArgumentException)
+        catch (Exception e)
         {
-            // A stale/missing native reflection target provides no measured readiness. Do not
-            // mistake that for an unready departure or throw on the native registry callback.
+            // Native getters/collections can fail during teardown. No measured readiness may
+            // authorize withdrawal, and a mod probe must not abort the native dispatcher.
+            ProbeFailed("readiness membership", e);
             return false;
         }
     }
@@ -80,8 +82,9 @@ internal static class MapQuestDepartureValidation
                    && participants.Count > 0 && ready.Count >= participants.Count
                    && TryIsReady(toggle, MyPlayer?.GetValue(null), out bool mine) && mine;
         }
-        catch (Exception e) when (e is TargetException || e is TargetInvocationException || e is ArgumentException)
+        catch (Exception e)
         {
+            ProbeFailed("ready participant count", e);
             return false;
         }
     }
@@ -110,6 +113,23 @@ internal static class MapQuestDepartureValidation
         _progressAuthorized = false;
     }
 
+    private static void ProbeFailed(string seam, Exception error)
+    {
+        Clear();
+        if (_probeFailureReported)
+            return;
+        _probeFailureReported = true; // bound retries even when the diagnostic logger itself fails
+        try
+        {
+            if (error is TargetInvocationException invocation && invocation.InnerException != null)
+                error = invocation.InnerException;
+            VRLog.Alert("MapRoom", $"MAP QUEST DEPARTURE PROBE: {seam} failed "
+                                   + $"({error.GetType().Name}: {error.Message}). Native handler retained; "
+                                   + "departure Cancel authorization cleared.");
+        }
+        catch (Exception) { } // failure context must never replace native behavior or exceptions
+    }
+
     internal static void Install()
     {
         if (_installed || VRSession.Harmony == null)
@@ -133,14 +153,23 @@ internal static class MapQuestDepartureValidation
                                               EReadyUpToggleStates readyUpToggleState)
         {
             Clear();
-            if (!VRSession.IsRunning || !FFSNetwork.IsOnline
-                || readyUpType != UIReadyToggle.EReadyUpType.Participant
-                || readyUpToggleState != EReadyUpToggleStates.Quests)
-                return;
-            ActionPhaseType phase = ActionProcessor.CurrentPhase;
-            if (phase != ActionPhaseType.MapHQ && phase != ActionPhaseType.MapAtLinkedScenario)
-                return;
-            validateReadyUpOnPlayerLeft = true;
+            _probeFailureReported = false;
+            try
+            {
+                if (!VRSession.IsRunning || !FFSNetwork.IsOnline
+                    || readyUpType != UIReadyToggle.EReadyUpType.Participant
+                    || readyUpToggleState != EReadyUpToggleStates.Quests)
+                    return;
+                ActionPhaseType phase = ActionProcessor.CurrentPhase;
+                if (phase != ActionPhaseType.MapHQ && phase != ActionPhaseType.MapAtLinkedScenario)
+                    return;
+                validateReadyUpOnPlayerLeft = true;
+            }
+            catch (Exception e)
+            {
+                // Keep the caller's option unchanged if Bolt/native phase initialization fails.
+                ProbeFailed("Initialize", e);
+            }
         }
     }
 
@@ -154,19 +183,30 @@ internal static class MapQuestDepartureValidation
         // ready member leaves, or keep it visible when an unready/spectator member leaves. None
         // grants permission by itself. No participant roster is copied or repaired here.
         [HarmonyPrefix]
-        private static void BeforePlayerLeft(UIReadyToggle __instance, out bool __state) =>
-            __state = InClientQuest(__instance);
+        private static void BeforePlayerLeft(UIReadyToggle __instance, out bool __state)
+        {
+            __state = false;
+            try { __state = InClientQuest(__instance); }
+            catch (Exception e) { ProbeFailed("OnPlayerLeft prefix", e); }
+        }
 
         [HarmonyPostfix]
         private static void AfterPlayerLeft(UIReadyToggle __instance, bool __state)
         {
-            if (!__state || !CanRecordDeparture(__instance))
-                return;
-            Clear();
-            _departureToggle = __instance;
-            _departureController = Controller();
-            _departureQuest = _departureController?.HostSelectedQuest?.ID;
-            _departurePhase = ActionProcessor.CurrentPhase;
+            try
+            {
+                if (!__state || !CanRecordDeparture(__instance))
+                    return;
+                UIMapMultiplayerController? controller = Controller();
+                string? quest = controller?.HostSelectedQuest?.ID;
+                ActionPhaseType phase = ActionProcessor.CurrentPhase;
+                Clear();
+                _departureToggle = __instance;
+                _departureController = controller;
+                _departureQuest = quest;
+                _departurePhase = phase;
+            }
+            catch (Exception e) { ProbeFailed("OnPlayerLeft postfix", e); }
         }
     }
 
@@ -176,21 +216,34 @@ internal static class MapQuestDepartureValidation
         [HarmonyPrefix]
         private static void BeforeExplicitInput(UIReadyToggle __instance, bool isOn, out bool __state)
         {
-            __state = !isOn && MatchesDeparture(__instance)
-                      && __instance.IsVisible && __instance.IsInteractable && __instance.CanBeToggled;
-            if (__state)
-                _explicitInputDepth++;
+            __state = false;
+            try
+            {
+                __state = !isOn && MatchesDeparture(__instance)
+                          && __instance.IsVisible && __instance.IsInteractable && __instance.CanBeToggled;
+                if (__state)
+                    _explicitInputDepth++;
+            }
+            catch (Exception e) { ProbeFailed("InputToggle prefix", e); }
         }
 
         [HarmonyFinalizer]
         private static Exception? AfterExplicitInput(UIReadyToggle __instance, bool __state, Exception? __exception)
         {
-            if (__state)
+            if (__exception != null)
             {
-                _explicitInputDepth = Math.Max(0, _explicitInputDepth - 1);
-                _progressAuthorized = __exception == null && MatchesDeparture(__instance)
-                                      && __instance.IsProgressingBar;
+                Clear();
+                return __exception;
             }
+            try
+            {
+                if (__state)
+                {
+                    _explicitInputDepth = Math.Max(0, _explicitInputDepth - 1);
+                    _progressAuthorized = MatchesDeparture(__instance) && __instance.IsProgressingBar;
+                }
+            }
+            catch (Exception e) { ProbeFailed("InputToggle finalizer", e); }
             return __exception;
         }
     }
@@ -204,15 +257,25 @@ internal static class MapQuestDepartureValidation
         [HarmonyPrefix]
         private static void BeforeProgressEnd(UIReadyToggle __instance, bool isOn, out bool __state)
         {
-            __state = !isOn && _progressAuthorized && MatchesDeparture(__instance);
-            _progressAuthorized = false;
-            if (__state)
-                _explicitInputDepth++;
+            __state = false;
+            try
+            {
+                __state = !isOn && _progressAuthorized && MatchesDeparture(__instance);
+                _progressAuthorized = false;
+                if (__state)
+                    _explicitInputDepth++;
+            }
+            catch (Exception e) { ProbeFailed("progress completion prefix", e); }
         }
 
         [HarmonyFinalizer]
         private static Exception? AfterProgressEnd(bool __state, Exception? __exception)
         {
+            if (__exception != null)
+            {
+                Clear();
+                return __exception;
+            }
             if (__state)
                 _explicitInputDepth = Math.Max(0, _explicitInputDepth - 1);
             return __exception;
@@ -236,21 +299,37 @@ internal static class MapQuestDepartureValidation
         [HarmonyPrefix]
         private static void BeforeReadyUp(UIReadyToggle __instance, bool toggledOn, ref bool autoValidateUnreadying)
         {
-            if (_departureToggle == null)
-                return;
-            if (!MatchesDeparture(__instance))
+            string? quest;
+            try
             {
-                Clear();
+                if (_departureToggle == null)
+                    return;
+                if (!MatchesDeparture(__instance))
+                {
+                    Clear();
+                    return;
+                }
+                if (toggledOn || _explicitInputDepth == 0)
+                    return;
+                quest = _departureQuest;
+                Clear(); // one real authorized withdrawal; never a standing full-roster bypass
+            }
+            catch (Exception e)
+            {
+                ProbeFailed("ReadyUp prefix", e);
                 return;
             }
-            if (toggledOn || _explicitInputDepth == 0)
-                return;
+            // Mutate only after every native probe succeeded. Logging cannot prevent the
+            // original native action or replace an exception thrown by that action.
             autoValidateUnreadying = true;
-            VRLog.Note("MapRoom", "MAP QUEST DEPARTURE CANCEL: native quest withdrawal admitted after "
-                                  + $"lobby departure for quest '{_departureQuest}'; native host "
-                                  + "validation and continuation retained. The player pressed the "
-                                  + "existing native Cancel; no automatic readiness was sent.");
-            Clear(); // one real authorized withdrawal; never a standing full-roster bypass
+            try
+            {
+                VRLog.Note("MapRoom", "MAP QUEST DEPARTURE CANCEL: native quest withdrawal admitted after "
+                                      + $"lobby departure for quest '{quest}'; native host "
+                                      + "validation and continuation retained. The player pressed the "
+                                      + "existing native Cancel; no automatic readiness was sent.");
+            }
+            catch (Exception) { }
         }
     }
 
@@ -260,6 +339,7 @@ internal static class MapQuestDepartureValidation
         [HarmonyPostfix]
         private static void AfterReset(UIReadyToggle __instance)
         {
+            _probeFailureReported = false;
             if (ReferenceEquals(__instance, _departureToggle))
                 Clear();
         }

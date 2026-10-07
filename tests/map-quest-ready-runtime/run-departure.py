@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -108,8 +109,7 @@ def main():
                 "            if (toggledOn)",
                 "non-input ReadyUp never inherits departure withdrawal authorization"),
             "lost-async-input": (
-                "                _progressAuthorized = __exception == null && MatchesDeparture(__instance)\n"
-                "                                      && __instance.IsProgressingBar;",
+                "                    _progressAuthorized = MatchesDeparture(__instance) && __instance.IsProgressingBar;",
                 "                _progressAuthorized = false;",
                 "original delayed Cancel completion retains exactly its genuine user authorization"),
             "cancelled-progress-leak": (
@@ -124,10 +124,24 @@ def main():
                 "        && string.Equals(Controller()?.HostSelectedQuest?.ID, _departureQuest, StringComparison.Ordinal)\n", "",
                 "changed context or denied input cannot borrow a departure withdrawal"),
             "nonmap-initialize": (
-                "            if (phase != ActionPhaseType.MapHQ && phase != ActionPhaseType.MapAtLinkedScenario)\n"
-                "                return;\n", "",
+                "                if (phase != ActionPhaseType.MapHQ && phase != ActionPhaseType.MapAtLinkedScenario)\n"
+                "                    return;\n", "",
                 "departure validation excludes VR-off/offline/player/nonquest/nonmap phases"),
         }
+        for name, signature, expected in (
+            ("unsafe-initialize", "private static void BeforeInitialize(", "native Initialize continues after failed departure probe"),
+            ("unsafe-left-prefix", "private static void BeforePlayerLeft(", "native OnPlayerLeft continues after failed prefix probe"),
+            ("unsafe-left-postfix", "private static void AfterPlayerLeft(", "native OnPlayerLeft continues after failed postfix probe"),
+            ("unsafe-input-prefix", "private static void BeforeExplicitInput(", "native InputToggle continues after failed departure probe"),
+            ("unsafe-input-finalizer", "private static Exception? AfterExplicitInput(", "native InputToggle returns after failed progress-state probe"),
+            ("unsafe-progress-prefix", "private static void BeforeProgressEnd(", "native progress completion continues after failed departure probe"),
+            ("unsafe-ready-prefix", "private static void BeforeReadyUp(", "native ReadyUp continues after failed departure probe"),
+            ("unsafe-probe-logger", "private static void ProbeFailed(", "failed diagnostic logger cannot escape native input"),
+        ):
+            method = extract(original, signature)
+            changed, count = re.subn(r"catch \(Exception(?: e)?\)\s*\{[^}]*\}", "catch (Exception) { throw; }", method, count=1)
+            assert count == 1, "Production exception guard seam changed: " + name
+            controls[name] = (method, changed, expected)
         for name, (needle, replacement, expected) in controls.items():
             assert original.count(needle) == 1, "Production departure mutation seam changed: " + name
             (out / "MapQuestDepartureValidation.cs").write_text(original.replace(needle, replacement))
