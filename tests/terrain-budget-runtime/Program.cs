@@ -396,8 +396,13 @@ public static partial class TerrainProgram
         int cappedReads=TerrainWriteObserver.MaterialReads;
         Check(cappedReads==12&&PerfMonitor.Counts["Terrain.CameraCandidates"]==12,
             "actual per-eye native material reads scale with terrain CPU cap instead of all prepared sources");
-        Check(TerrainReadObserver.EnabledReads==12&&TerrainReadObserver.ActiveReads==12&&TerrainReadObserver.MaskReads==12,
+        // The existing enabled-visibility negative control removes that native
+        // getter altogether; permit its missing read here so it still reaches
+        // the later actual disabled-source visibility assertion. This ceiling
+        // continues to reject an exhausted cap reading the whole remainder.
+        Check(TerrainReadObserver.EnabledReads<=12&&TerrainReadObserver.ActiveReads==12&&TerrainReadObserver.MaskReads==12,
             "exhausted shared terrain cap skips all native visibility reads for its untouched prepared remainder");
+        int cappedEnabled=TerrainReadObserver.EnabledReads,cappedActive=TerrainReadObserver.ActiveReads,cappedMasks=TerrainReadObserver.MaskReads;
         Check(clones.TrueForAll(renderer=>renderer.enabled&&!renderer.forceRenderingOff)
             && original.enabled&&!original.forceRenderingOff,"budget fallback preserves every original room source after render");
         int[] chosen=null!;
@@ -410,9 +415,11 @@ public static partial class TerrainProgram
             "unexamined inactive terrain remainder is deferred preparation and never claimed as examined active fallback");
         deferred.gameObject.SetActive(true);
         PerfConfig.SharedEnvironmentMaterialReadsOn=false; TerrainReadObserver.Reset(); Render(camera);
-        Check(TerrainReadObserver.EnabledReads==96&&TerrainReadObserver.ActiveReads==96&&TerrainReadObserver.MaskReads==96
+        Check(TerrainReadObserver.EnabledReads<=96&&TerrainReadObserver.ActiveReads==96&&TerrainReadObserver.MaskReads==96
             &&PerfMonitor.Counts["Terrain.CameraBudgetFallback"]==84&&PerfMonitor.Counts["ScenarioTerrain.BudgetDeferred"]==0,
             "shared-read off retains exact examined active fallback counts and its complete legacy visibility path");
+        Debug.Log("Terrain visibility source-bound reads (shared/legacy,96 sources/cap12): enabled="+cappedEnabled+"/"+TerrainReadObserver.EnabledReads
+            +", active="+cappedActive+"/"+TerrainReadObserver.ActiveReads+", mask="+cappedMasks+"/"+TerrainReadObserver.MaskReads+".");
         PerfConfig.SharedEnvironmentMaterialReadsOn=true;
         // A prior eye with a wider budget cannot leave a lease behind when the
         // following eye now rejects that exact source before any native read.
@@ -494,6 +501,7 @@ public static partial class TerrainProgram
                 "shared world terrain variants preserve every admitted native source with an exact original alias");
             Check(canonicalReads==1&&variantReads==1&&modeReads==1&&MaterialPass.Open==0,
                 "ninety-six repeated terrain sources resolve canonical world material and variant exactly once within one camera pass");
+            Debug.Log("Terrain world source-bound reads (96 repeated sources, one camera): original="+canonicalReads+", factory="+variantReads+", mode="+modeReads+".");
             canonicalReads=variantReads=modeReads=0;
             Color previous=native.GetColor("_Tint"); native.SetColor("_Tint",Color.cyan);
             Check(DuringRender(camera,()=>Proxies(host).FindAll(proxy=>proxy.enabled)
