@@ -90,10 +90,9 @@ internal static class LocalRigSampler
             state.HeldFigurePose.Rotation = ar;
         }
 
-        // Held card (cosmetic, additive FlagHeldCard field): a single VRCard grip-held in
-        // either hand (plucked from the fan or a pile viewer). Pose only — the card's
-        // identity NEVER rides the wire (peers render a back slab; anti-cheat stance of
-        // the remote fan). The open fan itself is covered by the extras packet's count.
+        // The unchanged primary pose slot chooses the left card when both hands
+        // hold one. Face addresses follow the existing visibility/provenance rules;
+        // public map item metadata is already part of this compact rig packet.
         state.HasHeldCard = TrySampleHeldCard(out Vector3 cp, out Quaternion cr);
         if (state.HasHeldCard)
         {
@@ -186,12 +185,9 @@ internal static class LocalRigSampler
     /// TWO SIMULTANEOUS HELD CARDS (both-hands ruling: either hand can take a card, so e.g. the
     /// gate hand can hold a browse card while the dominant hand plucks another): the rig packet's
     /// <c>FlagHeldCard</c> field carries exactly ONE pose and its layout must not change, so this
-    /// sampler keeps its deterministic left-first preference unchanged — and the OTHER hand's
-    /// card rides the extras packet as extension record
-    /// <see cref="NetProtocol.ExtIdSecondHeldCard"/> (<see cref="TrySampleSecondHeldCard"/>), so
-    /// peers now see BOTH cards (user ruling 2026-08-04: "Wenn Karten in beiden Haenden sind,
-    /// soll das auch synchronisiert werden"). The split is deterministic by construction: this
-    /// slot names the LEFT hand's card whenever two are held, record 10 names the RIGHT's.</summary>
+    /// sampler keeps its deterministic left-first preference unchanged. The other card
+    /// now travels in the same rig packet's atomic record111, with record10 retained as
+    /// a legacy extras fallback. Both slots therefore arrive with the tracked wrists.</summary>
     private static bool TrySampleHeldCard(out Vector3 pos, out Quaternion rot)
     {
         return TryHeldCard(VRHands.Left, out pos, out rot)
@@ -205,8 +201,8 @@ internal static class LocalRigSampler
     /// preference), so the second card is by definition the RIGHT hand's. While only one hand —
     /// either one — holds a card, the rig slot already carries it and this returns false, which
     /// keeps the extras record absent and the idle/one-card packet byte-identical to build 49.
-    /// Read by <see cref="NetAvatarDriver"/>'s extras sender (extension record
-    /// <see cref="NetProtocol.ExtIdSecondHeldCard"/>). Pose only, no identity, ever.
+    /// Read by this sampler's atomic rig state and the legacy extras sender. The pose
+    /// and its face/source address are sampled together in <see cref="TrySample"/>.
     /// </summary>
     public static bool TrySampleSecondHeldCard(out Vector3 pos, out Quaternion rot)
     {

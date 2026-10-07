@@ -212,12 +212,10 @@ internal sealed class RemoteAvatar
     private Transform? _heldCardHolder;
     private bool _heldCardBillboardLogged; // one-line confirm the receiver-side billboard fired
 
-    // SECOND held-card slab (extras extension record NetProtocol.ExtIdSecondHeldCard): the card
-    // in the sender's OTHER hand while both hands hold one. The SAME machinery as the first slab
-    // — same lazy build, same easing, same head billboard — driven from the extras stream instead
-    // of the rig packet's FlagHeldCard block. Record absent ⇒ slab hidden; peer stale/left ⇒ the
-    // whole root (both slabs) is destroyed; no state survives a scenario load because the avatar
-    // itself does not.
+    // SECOND held-card slab: same lazy build, easing, size and billboard as slot1.
+    // Atomic rig record111 supplies pose/source/grip with the tracked wrists. Legacy
+    // record10 is accepted only before that authority is established. Explicit rig
+    // absence hides the slab; stale peer/scene cleanup destroys the entire proxy.
     private Transform? _secondCardHolder;
     private bool _hasSecondHeldCard;
 
@@ -2757,9 +2755,8 @@ internal sealed class RemoteAvatar
     /// One card-slab's whole per-frame life: lazy build on first use, ease toward the transmitted
     /// pose, hide while nothing is held, and re-derive the billboard. Parameterized over the
     /// holder/mesh pair so the FIRST held card (rig packet <see cref="NetProtocol.FlagHeldCard"/>)
-    /// and the SECOND one (extras extension record
-    /// <see cref="NetProtocol.ExtIdSecondHeldCard"/> — the card in the sender's other hand while
-    /// both hold one) share every line of this machinery instead of duplicating it. NOTE the
+    /// and the SECOND one (atomic rig record111, with extras record10 as a legacy fallback)
+    /// share every line of this machinery instead of duplicating it. NOTE the
     /// placement contract this shape encodes, which is also why record 10 needs no hand byte: the
     /// slab is rendered at the ABSOLUTE transmitted pose under the avatar root — it is never
     /// parented to a hand holder, and no hand transform is consulted anywhere below.
