@@ -23,7 +23,7 @@ python3 scripts/npc-first-picture638-runtime/run.py --source-root /path/to/candi
 Retain the unmodified 637 failure as a causal control:
 
 ```bash
-python3 scripts/npc-first-picture638-runtime/run.py --expect-baseline-stall
+python3 scripts/npc-first-picture638-runtime/run.py --source-root /path/to/unmodified637 --expect-baseline-stall
 ```
 
 `--expect-baseline-stall` expects the exact visibility-bound assertion to fail.
@@ -50,7 +50,8 @@ python3 scripts/npc-first-picture638-runtime/run.py --case lifecycle --source-ro
 python3 scripts/npc-first-picture638-runtime/run.py --case template --source-root /path/to/candidate
 ```
 
-The historical lifecycle control uses `--case lifecycle --expect-baseline-stall`.
+The historical lifecycle control also selects the unmodified source root and
+uses `--case lifecycle --expect-baseline-stall`.
 In the delayed-template case, only template-bank availability is the fixture
 boundary between the owner and observer in one Unity process. Actual native
 admission first blocks after the complete original assembles. `ResolveTemplate`

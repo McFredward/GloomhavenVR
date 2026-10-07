@@ -117,7 +117,7 @@ final remote clones.
 
 | Case | Original dev637 | Candidate |
 | --- | --- | --- |
-| Warm owner, observer missing previous original | Actual visible output at 6.213s; exact latency assertion fails; named-baseline blocker persists beyond 5s | 12 events, 0.600012s simulated send; actual Unity output at 1.295s; no named-baseline wait once the coherent picture assembles |
+| Warm owner, observer missing previous original | 110 events, 5.50011s simulated send; actual visible output at 6.214s; exact latency assertion fails; named-baseline blocker persists beyond 5s | 12 events, 0.600012s simulated send; actual Unity output at 1.295s; no named-baseline wait once the coherent picture assembles |
 | Hidden actual dynamic publisher then reveal | Exact module-retention assertion fails after actual Publish/Tick removal | 41 assertions; same registered module survives hiding; reveal has a current complete original |
 | Genuine observer template withheld until assembled current original waits | Separate cold-template condition; no claim that this caused hardware's baseline blocker | 136 assertions; same original sequence47 admitted 52ms after `ResolveTemplate` readiness; no later periodic original required |
 
@@ -134,6 +134,8 @@ receiver source and fixture inputs are recorded in
 The current dependency and delayed-template proofs compile the same candidate
 `TownServiceMirror.cs` SHA256:
 `8c0f7bcaee16e1878649f85d29a74985ef8fe8c8abfc0465bf7d31cb24abc65a`.
+The final historical control and candidate use identical `FirstPicture638.cs`
+SHA256 `dbcf52e418418dc8b3cdab14909887779517ee46fd8a7f5b590e8916260cbfeb`.
 The old failing dependency uses:
 `686d002bf3b6fd401b1fe32041d9ed2419b85646b449d4fa35259d2a94601002`.
 The lifecycle proof binds actual publication/removal methods; only the native
