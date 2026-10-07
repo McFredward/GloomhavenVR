@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / 'tools/quest-builder'))
 import recovery_resume
 import storage
 import full_assets
+import builder
 
 
 class CompletedRawTests(unittest.TestCase):
@@ -99,6 +100,24 @@ class CompletedRawTests(unittest.TestCase):
                                         expected_size=row['bytes'], proofs=full_assets._StageProofs())
         self.assertFalse(destination.exists())
         self.assertEqual(self.asset.read_bytes(), changed)
+
+    def test_real_builder_dispatch_adopts_closed_result_without_launching_raw_tools(self):
+        source = self.root / 'selected-source'
+        self.file(source / 'tools/quest-recovery/full_recovery.py', b'fixture launcher must not execute')
+        args = builder.parser().parse_args(['prepare', '--target', 'game', '--dotnet', sys.executable])
+        def select(output, inputs, selected_source, game, recipe, *, qualifications):
+            qualifications[str(self.workspace)] = recovery_resume._qualification(self.workspace, inputs, game)
+            return self.workspace
+        with patch.object(builder.recovery_resume, 'select_workspace', side_effect=select), \
+             patch.object(builder, 'recovery_helper_preflight'), \
+             patch.object(builder, 'command', side_effect=AssertionError('closed export orchestration replayed')), \
+             patch.object(builder, 'owned_tmp_source_archive', return_value=self.root / 'public-tmp.zip'), \
+             patch.object(builder.full_assets, 'stage', side_effect=RuntimeError('actual derived consumer reached')) as stage:
+            with self.assertRaisesRegex(RuntimeError, 'actual derived consumer reached'):
+                builder.prepare(args, self.inputs, self.root / 'output', source, self.game)
+        self.assertEqual(stage.call_args.args[:2], (self.raw, self.game))
+        self.assertEqual(stage.call_args.kwargs['resume_owner']['gameKey'], self.inputs['game']['key'])
+        self.assertEqual(self.asset.read_bytes(), b'actual retained raw asset')
 
     def test_pending_merge_never_adopts_a_stale_complete_marker(self):
         storage.write_json(self.workspace / 'BundleRecovery/merge-pending.json', {'state': 'incomplete'})
