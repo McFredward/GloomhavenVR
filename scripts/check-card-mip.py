@@ -24,7 +24,10 @@ def main():
     ui = args.source_root / 'ressources/GH_Data/Managed/UnityEngine.UI.dll'
     if not unity.is_file() or not ui.is_file(): parser.error('Actual Unity 2021.3.5 and native uGUI are required')
     fixture = ROOT / 'scripts/card-mip-runtime'
-    code = {Path(path).name: (args.source_root / path).read_text() for path in SOURCES}
+    source_paths = sorted(set(SOURCES) | {
+        str(path.relative_to(args.source_root)) for path in
+        (args.source_root / 'src/GloomhavenVR/Net/TownServices').glob('TownServiceAssets*.cs')})
+    code = {Path(path).name: (args.source_root / path).read_text() for path in source_paths}
     # Only the actual Image playback branch is bound here; generic native hierarchy,
     # controllers/materials/masks are covered by the existing full mirror fixture.
     # This focused proof links the complete original registry and filtering code.
@@ -33,7 +36,7 @@ def main():
     code['NativeImagePlayback.cs'] = 'using UnityEngine; using UnityEngine.UI; using GloomhavenVR.Net.TownServices; internal static class NativeImagePlayback { internal static void Apply(Transform node, TownServiceAssets assets, float[] n, string[] text) { switch (6) {\n' + branch.replace('TownServiceProperty.Image', '6') + '\n} } private static T Require<T>(Transform node) where T:Component => node.GetComponent<T>(); }'
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix='run-', dir=args.output_dir.resolve()))
-    (run / 'source-hashes.json').write_text(json.dumps({path: hashlib.sha256((args.source_root / path).read_bytes()).hexdigest() for path in SOURCES}, indent=2) + '\n')
+    (run / 'source-hashes.json').write_text(json.dumps({path: hashlib.sha256((args.source_root / path).read_bytes()).hexdigest() for path in source_paths}, indent=2) + '\n')
     files = list(fixture.glob('*')) + [Path(__file__).resolve(), ROOT / 'scripts/card-diagnostic-runtime/Editor/DiagnosticRunner.cs']
     (run / 'fixture-hashes.json').write_text(json.dumps({str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest() for path in files if path.is_file()}, indent=2) + '\n')
     variants = [
