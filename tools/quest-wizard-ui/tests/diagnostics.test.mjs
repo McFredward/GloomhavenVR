@@ -49,7 +49,7 @@ test('actual browser: measured progress, reopen/check Unity action, specific fai
     assert.equal(again.state.status,'running');assert.equal(again.state.stages.find(row=>row.id==='unity').waiting.nonce,nonce);
     assert.equal(again.state.events.filter(row=>row.code==='fixture_window_opened').length,2);
     assert.equal(await client.evaluate("document.getElementById('unity-actions').hidden"),false);
-    await client.evaluate("document.querySelector('#progress-page details').open=true;document.getElementById('unity-check').click()");
+    await client.evaluate("document.querySelector('#diagnostic-details').open=true;document.getElementById('unity-check').click()");
     await client.wait("document.getElementById('progress-title').textContent==='Build fehlgeschlagen'");
     assert.equal(await client.evaluate("document.getElementById('action-needed-title').textContent"),'Build fehlgeschlagen');
     assert.match(await client.evaluate("document.getElementById('action-needed-copy').textContent"),/^Spielinhalte konvertieren: .*fehlgeschlagen/);

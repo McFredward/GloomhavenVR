@@ -158,7 +158,8 @@ test('inaccessible retained state is visible and cannot silently start a new ses
     const server=await fixture();server.setup.missing=true;let client;
     try {
       client=await browser();await client.command('Page.navigate',{url:await server.open()});
-      await client.wait("!document.getElementById('error-banner').hidden&&Boolean(document.getElementById('resume-session'))&&!document.getElementById('resume-session').disabled");
+      // Navigation acknowledgment can precede the replacement document.
+      await client.wait("Boolean(document.getElementById('error-banner'))&&!document.getElementById('error-banner').hidden&&Boolean(document.getElementById('resume-session'))&&!document.getElementById('resume-session').disabled");
       assert.equal(await client.evaluate("document.getElementById('primary').disabled"),true);
       assert.equal(await client.evaluate("document.getElementById('new-build').hidden"),false);
       assert.equal(await client.evaluate("document.getElementById('resume-notice').hidden"),false);

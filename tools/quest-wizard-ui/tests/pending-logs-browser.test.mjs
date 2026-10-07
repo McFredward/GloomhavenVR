@@ -39,7 +39,7 @@ test('never-ending event and live log requests cannot hide a later failure or ho
     try {
       client=await browser();await client.command('Page.navigate',{url:'http://127.0.0.1:'+server.address().port+'/#fixture-token'});
       await client.wait("document.getElementById('progress-page')&&!document.getElementById('progress-page').hidden");
-      await client.evaluate("document.querySelector('[data-language=de]').click();document.querySelector('#progress-page details').open=true");
+      await client.evaluate("document.querySelector('[data-language=de]').click();document.querySelector('#diagnostic-details').open=true");
       for(let index=0;index<100&&(held.length<2||statusCalls<3);index++)await delay(50);
       assert.ok(statusCalls>=3,'status continues while logs have not returned');
       assert.deepEqual(held.map(row=>row.path).sort(),['/api/events','/api/log'],'one request per optional observer');

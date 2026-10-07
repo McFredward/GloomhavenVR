@@ -73,7 +73,7 @@ test('actual loopback HTTP browser: module/CSP/token flow, plan, reopen, safe lo
       assert.equal(await client.evaluate("document.getElementById('gallery-note').textContent"),'Artwork from your local game copy');
       await client.evaluate("document.querySelector('[data-language=de]').click()");
     }
-    await client.evaluate("document.querySelector('#progress-page details').open=true;document.getElementById('load-log').click()");
+    await client.evaluate("document.querySelector('#diagnostic-details').open=true;document.getElementById('load-log').click()");
     await client.wait("!document.getElementById('stage-log').hidden");
     assert.equal(await client.evaluate("document.getElementById('stage-log').textContent"),literal);
     assert.equal(await client.evaluate('window.unsafelyExecuted===true'),false);

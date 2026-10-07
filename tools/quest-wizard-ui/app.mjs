@@ -1,5 +1,5 @@
 import {translate} from './i18n.mjs';
-import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,sessionId,savedSession,activeWorkView,timingView,durationText,failureView,activityView} from './model.mjs';
+import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,sessionId,savedSession,activeWorkView,timingView,durationText,failureView,activityView,buildOverviewView} from './model.mjs';
 import {LocalApi,PreviewApi} from './transport.mjs';
 
 const $ = id => document.getElementById(id);
@@ -11,6 +11,7 @@ if (!['de','en'].includes(language)) language='de';
 let page=0,selected=null,discovery=null,state=null,busy=false,after=0,log=[],loadedLog=null,pollTimer=null,canConnect=preview||Boolean(token),artworkKey='',artworkGeneration=0;
 let qualification=null,resumeFailed=null,restoredSession=null,sessionGeneration=0;
 let eventsUnavailable=false,stageLogUnavailable=false,lastFailureFocus='',eventsRequest=null,stageLogRequest=null;
+let buildFocus=false;const buildGroupChoices=new Map();
 let publisherArtwork=[],ownedArtwork=[],artworkSource='';
 const reducedMotion=matchMedia('(prefers-reduced-motion:reduce)');
 let slides=[],slideIndex=0,slideTimer=null,slidePaused=reducedMotion.matches,artPollTimer=null,actionBusy=false,logSelectionManual=false;
@@ -85,7 +86,7 @@ function counters(value) {
   if(!Number.isFinite(value.done)||!Number.isFinite(value.total)||value.total<=0)return '';
   const number=n=>new Intl.NumberFormat(language,{maximumFractionDigits:1}).format(n);
   if(value.unit==='bytes')return t('counterBytes',{done:number(value.done/1048576)+' MiB',total:number(value.total/1048576)+' MiB'});
-  const key={files:'counterFiles',actions:'counterActions',checks:'counterChecks',batches:'counterBatches',steps:'counterSteps',variants:'counterVariants',objects:'counterObjects'}[value.unit]??'counterUnits';
+  const key={files:'counterFiles',actions:'counterActions',checks:'counterChecks',batches:'counterBatches',steps:'counterSteps',checkpoints:'counterSteps',variants:'counterVariants',objects:'counterObjects'}[value.unit]??'counterUnits';
   return t(key,{done:number(value.done),total:number(value.total)});
 }
 function substepLabel(value) {
@@ -117,6 +118,51 @@ function renderTiming(current) {
   else text=t(estimate?.status==='complete'?'etaComplete':estimate?.status==='paused'?'etaPaused':estimate?.status==='learning'?'etaLearning':'etaUnknown');
   $('eta-value').textContent=text;
   $('eta-value').title=t('etaScopeHint');
+}
+function overviewList(rows,prefix) {
+  const list=document.createElement('ol');list.className='build-operation-list';
+  for(const row of rows){
+    const item=document.createElement('li');item.className=row.status;item.dataset.operation=row.id;
+    const name=document.createElement('span');name.textContent=t(prefix+row.id);
+    const status=document.createElement('small');status.textContent=t('overview_'+row.status)+(row.closed?'':row.percent>0?' · '+t('measuredPercent',{percent:percentText(row.percent)}):'');
+    item.append(name,status);list.append(item);
+  }
+  return list;
+}
+function renderBuildOverview() {
+  const overview=buildOverviewView(state);$('build-overview').hidden=!overview;
+  const focus=Boolean(overview&&state.stages?.find(row=>row.id==='build')?.status!=='pending');
+  if(focus!==buildFocus){$('setup-overview').open=!focus;buildFocus=focus;}
+  if(!overview)return;
+  const openPlans=new Set([...$('build-groups').querySelectorAll('details[data-plan][open]')].map(node=>node.dataset.plan));
+  $('build-groups').replaceChildren();
+  $('build-overview-count').textContent=t('buildOverviewCount',{done:overview.done,total:overview.total,remaining:overview.total-overview.done});
+  $('build-current').textContent=t('buildCurrent',{operation:overview.active?phaseLabel('operation:'+overview.active):t('waiting')});
+  const retained=overview.groups.some(group=>group.operations.some(row=>['retained','checking'].includes(row.status)));
+  $('build-retained').hidden=!retained;
+  for(const group of overview.groups){
+    const active=group.operations.some(row=>row.id===overview.active),done=group.operations.filter(row=>row.closed).length;
+    const card=document.createElement('details');card.className='build-group'+(active?' active':'');card.dataset.group=group.id;
+    card.open=buildGroupChoices.has(group.id)?buildGroupChoices.get(group.id):active;
+    const heading=document.createElement('summary');
+    const name=document.createElement('strong');name.textContent=t('buildGroup_'+group.id);
+    const status=document.createElement('span');status.textContent=[t(active?'overviewCurrent':done===group.operations.length?'overviewSaved':'overviewRemaining'),done+' / '+group.operations.length].join(' · ');heading.append(name,status);heading.addEventListener('click',()=>buildGroupChoices.set(group.id,!card.open));card.append(heading);
+    card.append(overviewList(group.operations,'phase_operation_'));
+    if(group.id==='recovery'){
+      const data=overview.recovery;
+      if(data.batches){const packages=document.createElement('p');packages.className='hint';packages.textContent=t('buildBatchSummary',data.batches);card.append(packages);}
+      for(const [kind,rows,prefix] of [['sections',data.sections,'recoveryOverview_'],['staging',data.staging,'phase_staging-section:']]){
+        if(!rows.length)continue;
+        const nested=document.createElement('details');nested.className='build-subplan';nested.dataset.plan=kind;nested.open=openPlans.has(kind);
+        const label=document.createElement('summary');label.textContent=t(kind==='sections'?'buildRecoverySummary':'buildStagingSummary',{done:rows.filter(row=>row.closed).length,total:rows.length});nested.append(label,overviewList(rows,prefix));card.append(nested);
+        const current=rows.find(row=>['running','checking','failed'].includes(row.status));
+        if(current){const line=document.createElement('p');line.className='hint';line.textContent=t('buildCurrent',{operation:t(prefix+current.id)});card.append(line);}
+      }
+      const outer=data.stagingCounter;
+      if(outer&&Number.isFinite(outer.done)&&Number.isFinite(outer.total)){const line=document.createElement('p');line.className='hint';line.textContent=counters(outer);card.append(line);}
+    }
+    $('build-groups').append(card);
+  }
 }
 function renderGames() {
   $('game-list').replaceChildren();
@@ -204,6 +250,7 @@ function renderProgress() {
   $('activity-status').classList.toggle('quiet',activity?.quiet===true);
   $('activity-status').textContent=t(activity?.quiet?'activityQuiet':activity?'activityRecent':'activityUnknown',{duration:durationText(activity?.seconds??0)});
   $('log-status').hidden=!eventsUnavailable&&!stageLogUnavailable;$('log-status').textContent=t('logUnavailable');
+  renderBuildOverview();
   $('substep-progress').hidden=!hasSubstep;
   $('substep-label').textContent=substepLabel(sub);
   $('substep-count').textContent=sub.phasePercent===null?t('phaseUnknown'):t('phasePercent',{percent:percentText(sub.phasePercent)});
@@ -300,7 +347,7 @@ async function poll() {
     // request each and cannot postpone the next authoritative status poll or
     // keep a primary action busy. No timeout is imposed on Unity/user actions.
     void refreshEvents();
-    if($('live-log').checked&&document.querySelector('#progress-page details').open)void refreshLog();
+    if($('live-log').checked&&document.querySelector('#diagnostic-details').open)void refreshLog();
   }catch(value){if(generation===sessionGeneration)error(value);}
   if(generation===sessionGeneration&&state?.session===session&&isActive(state))schedulePoll();
 }
@@ -380,7 +427,7 @@ $('save-support').addEventListener('click',saveSupport);
 $('failure-support').addEventListener('click',saveSupport);
 $('failure-retry').addEventListener('click',primary);
 $('log-stage').addEventListener('change',()=>{logSelectionManual=true;if($('live-log').checked)refreshLog();});
-document.querySelector('#progress-page details').addEventListener('toggle',()=>{if(document.querySelector('#progress-page details').open&&$('live-log').checked)refreshLog();});
+document.querySelector('#diagnostic-details').addEventListener('toggle',()=>{if(document.querySelector('#diagnostic-details').open&&$('live-log').checked)refreshLog();});
 $('load-log').addEventListener('click',()=>void refreshLog());
 document.querySelector('.skip').addEventListener('click',event=>{event.preventDefault();$('workspace').focus();});
 $('browse-game').addEventListener('click',()=>browse('game'));$('browse-unity').addEventListener('click',()=>browse('unity'));

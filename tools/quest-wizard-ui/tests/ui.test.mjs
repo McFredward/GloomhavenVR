@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {strings,translate} from '../i18n.mjs';
-import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,publisherSourceUrl,sessionId,savedSession,activeWorkView,timingView,durationText,failureView,activityView} from '../model.mjs';
+import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,publisherSourceUrl,sessionId,savedSession,activeWorkView,timingView,durationText,failureView,activityView,buildOverviewView} from '../model.mjs';
 import {LocalApi,PreviewApi} from '../transport.mjs';
 
 test('German and English expose the same strings and parameter ABI',()=>{
@@ -27,10 +27,24 @@ test('terminal failure exposes its concrete bounded cause; stale activity never 
   for(const updatedAt of [null,undefined,NaN,Infinity,-1,0,'100'])assert.equal(activityView({progress:{updatedAt}},140),null);
 });
 
+test('overview uses retained completion and explicit active work, never wizard setup counts',()=>{
+  const raw={schema:1,active:'recovery',groups:[{id:'inputs',operations:[{id:'game-inputs',status:'retained',closed:true,percent:100}]},
+    {id:'recovery',operations:[{id:'recovery',status:'running',closed:false,percent:97}]}],recovery:{batches:{done:16,total:16},sections:[],staging:[]}};
+  const view=buildOverviewView({stages:[{id:'build',progress:{buildOverview:raw}}],progress:{completed:5,total:7}});
+  assert.equal(view.done,1);assert.equal(view.total,2);assert.equal(view.active,'recovery');
+  assert.equal(view.groups[0].operations[0].status,'retained');
+  assert.deepEqual(view.recovery.batches,{done:16,total:16});
+  assert.equal(buildOverviewView({stages:[]}),null);
+  assert.equal(buildOverviewView({stages:[{id:'build',progress:{buildOverview:{...raw,groups:[...raw.groups,raw.groups[0]]}}}]}),null,'duplicate planned operations cannot inflate completion');
+});
+
 test('all fourteen project-staging sections and their file counters have plain localized labels',()=>{
   const sections=['catalog','canonical','copy','runtime','guid','layout','native','catalog-final','index','tmp','bindings','audit','scenes','report'];
   const phases=['recovery-asset-reference-file','recovery-section:staging','staging-copy','staging-copy-file','staging-report-hash',
-    'staging-managed-assemblies','staging-runtime-copy','staging-runtime-file','staging-report-files','staging-report-file',...sections.map(section=>'staging-section:'+section)];
+    'staging-managed-assemblies','staging-runtime-copy','staging-runtime-file','staging-report-files','staging-report-file',
+    'staging-resume-verify','staging-resume-verify-files','prepare-resume-verify',
+    'prepare-substage:compiler-contracts','prepare-substage:case-paths','prepare-substage:startup-compute','prepare-substage:script-orders','prepare-substage:final-settings',
+    ...sections.map(section=>'staging-section:'+section)];
   for(const language of ['de','en'])for(const phase of phases){
     const key='phase_'+phase,label=translate(language,key);
     assert.notEqual(label,key,language+': '+phase);

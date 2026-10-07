@@ -66,6 +66,93 @@ class StageProgressTests(unittest.TestCase):
         reopened.begin_stage(self.session, 'build', 'input-b')
         self.assertEqual(self.progress()['stagePercent'], 0)
 
+    def test_build_overview_lists_real_grouped_operations_with_no_duplicate_or_missing_work(self):
+        self.assertEqual(tuple(name for names in stage_plan.BUILD_GROUPS.values() for name in names), stage_plan.PLANS['build'])
+        self.assertEqual(sum(stage_plan.BUILD_SHARES.values()), 100)
+        self.store.operation(self.session, 'build', 'startup-content')
+        overview = self.progress()['buildOverview']
+        self.assertEqual(overview['total'], 23)
+        self.assertEqual(overview['active'], 'startup-content')
+        self.assertEqual([group['id'] for group in overview['groups']], ['inputs', 'recovery', 'project', 'code', 'import', 'export'])
+        remaining = [item['id'] for group in overview['groups'] for item in group['operations'] if not item['closed']]
+        self.assertIn('unity-import', remaining)
+        self.assertIn('player', remaining)
+        self.assertEqual(remaining[0], 'startup-content')
+
+    def test_raw_section_reuse_cannot_complete_recovery_before_staging(self):
+        self.store.operation(self.session, 'build', 'recovery')
+        self.store.progress(self.session, 'build', 'recovery-plan', 16, 16, 'batches', status='reuse')
+        for section in stage_plan.RECOVERY_SECTIONS[:-1]:
+            self.store.progress(self.session, 'build', 'recovery-section:' + section, 1, 1, 'sections', status='reuse')
+            if section == 'batches':
+                self.store.progress(self.session, 'build', 'recovery-batches', 16, 16, 'batches', status='reuse')
+        self.store.progress(self.session, 'build', 'recovery-section:staging', status='start')
+        self.store.progress(self.session, 'build', 'staging-section:copy', 0, 1, 'steps', status='start')
+        self.store.progress(self.session, 'build', 'staging-copy', 0, 189701, 'files')
+        overview = self.progress()['buildOverview']
+        self.assertEqual(overview['recovery']['batches'], {'done': 16, 'total': 16})
+        self.assertEqual(sum(item['closed'] for item in overview['recovery']['sections']), 7)
+        self.assertEqual(sum(item['closed'] for item in overview['recovery']['staging']), 2)
+        self.assertTrue(all(item['status'] == 'reused' for item in overview['recovery']['sections'][:-1]))
+        self.assertNotIn('recovery', self.store.load(self.session)['stages'][5]['progressPlan']['completed'])
+        before = self.progress()['stagePercent']
+        self.store.progress(self.session, 'build', 'staging-copy', 75000, 189701, 'files')
+        self.assertGreater(self.progress()['stagePercent'], before)
+
+    def test_retry_overview_names_live_earlier_check_without_losing_retained_completion(self):
+        self.store.begin_stage(self.session, 'build', 'same-input')
+        self.store.operation(self.session, 'build', 'recovery')
+        self.store.progress(self.session, 'build', 'recovery-plan', 0, 16, 'batches')
+        self.store.progress(self.session, 'build', 'recovery-section:staging')
+        self.store.progress(self.session, 'build', 'staging-section:copy', 0, 1, 'steps')
+        saved = self.store.load(self.session); saved['stages'][5]['status'] = 'failed'; self.store.save(saved)
+        previous = self.progress()['stagePercent']
+        self.store = state.Store(self.store.root)
+        self.store.begin_stage(self.session, 'build', 'same-input')
+        saved = self.store.load(self.session); saved['stages'][5]['status'] = 'running'; self.store.save(saved)
+        self.store.progress(self.session, 'build', 'starting')
+        self.store.operation(self.session, 'build', 'game-inputs')
+        current = self.progress()
+        self.assertEqual(current['stagePercent'], previous)
+        overview = current['buildOverview']
+        self.assertEqual(overview['active'], 'game-inputs')
+        self.assertEqual(overview['groups'][0]['operations'][0]['status'], 'checking')
+        self.assertEqual(overview['groups'][0]['operations'][1]['status'], 'retained')
+        self.assertEqual(current['activeWork']['operation'], 'game-inputs')
+        self.assertEqual(overview['done'], 6)
+
+    def test_preparation_child_receipt_advances_parent_without_falsely_completing_it(self):
+        self.store.operation(self.session, 'build', 'startup-content')
+        before = self.progress()['stagePercent']
+        self.store.progress(self.session, 'build', 'prepare-substage:movies', 2, 6, 'checkpoints',
+                            operation='startup-content', status='complete')
+        current = self.progress()
+        self.assertGreater(current['stagePercent'], before)
+        self.assertNotIn('startup-content', self.store.load(self.session)['stages'][5]['progressPlan']['completed'])
+        self.assertEqual(current['buildOverview']['active'], 'startup-content')
+        self.store.progress(self.session, 'build', 'operation:startup-content', 1, 1, 'operations',
+                            operation='startup-content', status='reuse')
+        row = self.progress()['buildOverview']['groups'][2]['operations'][1]
+        self.assertEqual(row['id'], 'startup-content'); self.assertEqual(row['status'], 'reused')
+
+    def test_earlier_recovery_replay_cannot_credit_a_later_incomplete_player(self):
+        self.store.begin_stage(self.session, 'build', 'same-input')
+        self.store.operation(self.session, 'build', 'player')
+        self.store.progress(self.session, 'build', 'unity-progress', 20, 100, 'tasks')
+        previous = self.progress()['stagePercent']
+        reopened = state.Store(self.store.root)
+        reopened.begin_stage(self.session, 'build', 'same-input')
+        reopened.progress(self.session, 'build', 'starting')
+        reopened.operation(self.session, 'build', 'recovery')
+        reopened.progress(self.session, 'build', 'recovery-plan', 16, 16, 'batches', status='reuse')
+        reopened.progress(self.session, 'build', 'recovery-section:batches', 1, 1, 'sections', status='reuse')
+        reopened.progress(self.session, 'build', 'recovery-batches', 16, 16, 'batches', status='reuse')
+        current = reopened.load(self.session)['stages'][5]
+        self.assertEqual(current['progressPlan']['fractions']['player'], .2)
+        self.assertEqual(current['progress']['stagePercent'], previous)
+        self.assertEqual(current['progress']['buildOverview']['active'], 'recovery')
+        self.assertNotIn('player', current['progressPlan']['completed'])
+
     def test_bee_new_dags_reset_secondary_progress_only(self):
         self.store.operation(self.session, 'build', 'player')
         parser = ProgressParser()

@@ -47,7 +47,7 @@ PLANS = {
     "unity": ("hub", "editor", "prerequisites", "output-verify"),
     "profile": ("logo", "identity", "output-verify"),
     "inspect": ("game-inputs", "mod-inputs", "profile-inputs", "manifest", "output-verify"),
-    "build": ("game-inputs", "mod-inputs", "profile-inputs", "source-snapshot", "game-snapshot", "snapshot-check", "recovery", "project-files", "native-runtime", "audio", "textures", "graphics", "mod-banks", "weave", "package-api", "unity-import", "unity-validation", "content-bank", "player", "delivery", "output-verify"),
+    "build": ("game-inputs", "mod-inputs", "profile-inputs", "source-snapshot", "game-snapshot", "snapshot-check", "recovery", "project-files", "startup-content", "native-runtime", "audio", "textures", "graphics", "mod-banks", "preparation-contracts", "weave", "package-api", "unity-import", "unity-validation", "content-bank", "player", "delivery", "output-verify"),
     "install": ("connect", "apk", "content", "launch", "output-verify"),
 }
 
@@ -56,8 +56,12 @@ PLANS = {
 # operations had already consumed 28.6% of the equally weighted old bar. Give
 # conversion/import their own useful spans and count each scheduled package
 # inside conversion. Only actual counters and successful boundaries advance it.
-BUILD_SHARES = dict(zip(PLANS["build"], (1, 1, 1, 1, 2, 1, 40, 1, 2, 2, 6, 2, 3, 2, 1, 18, 1, 4, 8, 2, 1)))
-WORK_REVISION = 4
+BUILD_SHARES = dict(zip(PLANS["build"], (1, 1, 1, 1, 2, 1, 40, 1, 1, 2, 2, 5, 2, 2, 1, 2, 1, 18, 1, 4, 8, 2, 1)))
+BUILD_GROUPS = {"inputs": PLANS["build"][:6], "recovery": ("recovery",),
+                "project": PLANS["build"][7:15], "code": ("weave", "package-api"),
+                "import": ("unity-import", "unity-validation"),
+                "export": ("content-bank", "player", "delivery", "output-verify")}
+WORK_REVISION = 5
 
 
 def phase_operation(stage, phase, value):
@@ -135,9 +139,14 @@ def _work():
     return {"current": None, "fractions": {}, "completed": []}
 
 
-def _advance_work(work, steps, step, ratio=None):
+def _advance_work(work, steps, step, ratio=None, status=None):
     """Only a later actual boundary can close previous scheduled work."""
     if step not in steps: return
+    work["live"] = step
+    work["liveStatus"] = status or "progress"
+    if status in ("complete", "reuse"):
+        work["completed"] = list(dict.fromkeys([*work.get("completed", []), step]))
+        work.setdefault("proofs", {})[step] = status
     current = work.get("current")
     if current in steps and steps.index(step) < steps.index(current): return
     work["completed"] = list(dict.fromkeys([*work.get("completed", []), *steps[:steps.index(step)]]))
@@ -165,7 +174,7 @@ def _counter_fraction(work, value):
         # files, not an assumed number of unreported iterations.
         return parent["phase"], min(1., (parent["done"] + min(.99, ratio)) / parent["total"])
     if ratio is not None:
-        work["counter"] = {"phase": phase, "done": value["done"], "total": value["total"]}
+        work["counter"] = {"phase": phase, "done": value["done"], "total": value["total"], "unit": value.get("unit")}
     return phase, ratio
 
 
@@ -198,14 +207,20 @@ def _recovery_fraction(plan, value):
         recovery["plannedBatches"] = value["total"]
     if phase.startswith("recovery-section:"):
         section = phase.split(":", 1)[1]
-        _advance_work(recovery["work"], RECOVERY_SECTIONS, section)
+        _advance_work(recovery["work"], RECOVERY_SECTIONS, section, status=value.get("operationStatus"))
+        recovery["liveSection"] = section
     section = recovery["work"].get("current")
     # Compatibility for pre-scope producers: an aggregate schedule gives a
     # real batch denominator, but a lone collection cannot invent one.
     if phase == "recovery-batches":
         _advance_work(recovery["work"], RECOVERY_SECTIONS, "batches")
         section = "batches"
+        recovery["liveSection"] = section
     if section not in RECOVERY_SECTIONS: return None
+    # Retained high-water remains monotone, while a retry's earlier section is
+    # named separately. Its verified reuse must not pretend to start staging.
+    live = recovery.get("liveSection", section)
+    if live in RECOVERY_SECTIONS: section = live
     work = recovery["sections"].setdefault(section, _work())
     ratio = None
     if section == "batches":
@@ -235,9 +250,10 @@ def _recovery_fraction(plan, value):
         if phase.startswith("staging-section:"):
             step = phase.split(":", 1)[1]
             if step in STAGING_STEPS:
-                _advance_work(work, STAGING_STEPS, step, _ratio(value))
-                if value.get("status") in ("complete", "reuse") or value.get("done") == value.get("total") == 1:
+                _advance_work(work, STAGING_STEPS, step, _ratio(value), value.get("operationStatus"))
+                if value.get("operationStatus") in ("complete", "reuse") or value.get("done") == value.get("total") == 1:
                     work["completed"] = list(dict.fromkeys([*work["completed"], step]))
+                    work.setdefault("proofs", {})[step] = value.get("operationStatus") or "complete"
         else:
             effective, measured = _counter_fraction(work, value)
             step = {"staging-copy": "copy", "staging-managed-assemblies": "runtime", "staging-runtime-copy": "runtime",
@@ -255,7 +271,8 @@ def _recovery_fraction(plan, value):
                     "source-recheck": "recovery-source-hash", "checkpoint": "recovery-checkpoint-write",
                     "cab-index": "recovery-cab-bundle-index"}[section]
         if effective == expected: ratio = measured
-    _advance_work(recovery["work"], RECOVERY_SECTIONS, section, ratio)
+    _advance_work(recovery["work"], RECOVERY_SECTIONS, section, ratio,
+                  value.get("operationStatus") if phase.startswith("recovery-section:") else None)
     _, _, fraction = _recovery_work(recovery)
     return fraction
 
@@ -294,15 +311,91 @@ def _build_percent(plan):
     return 100 * weighted / sum(BUILD_SHARES.values())
 
 
+def _overview_rows(steps, completed, fractions, active, proofs=None, failed=False, active_status=None):
+    proofs = proofs or {}
+    rows = []
+    for name in steps:
+        closed = name in completed
+        proof = proofs.get(name, "retained" if closed else None)
+        if name == active:
+            status = ("failed" if failed else "reused" if active_status == "reuse" else "complete"
+                      if active_status == "complete" else "checking" if closed else "running")
+        elif closed:
+            status = "reused" if proof == "reuse" else "complete" if proof == "complete" else "retained"
+        else:
+            status = "pending"
+        rows.append({"id": name, "status": status, "closed": closed,
+                     "percent": 100. if closed else round(100 * fractions.get(name, 0.), 6)})
+    return rows
+
+
+def _build_overview(row, plan):
+    """Project durable evidence without running checks or inventing new work.
+
+    The completion frontier is historical high-water. Live retry operations can
+    precede it; keeping them separate explains a stable bar during revalidation.
+    Retained completion is not labelled freshly verified in the new attempt.
+    """
+    active = plan.get("liveOperation", plan.get("current"))
+    if row["status"] == "complete": active = None
+    operations = _overview_rows(PLANS["build"], plan["completed"], plan["fractions"], active,
+                               plan.get("operationProofs"), row["status"] == "failed", plan.get("liveStatus"))
+    groups = []
+    for name, names in BUILD_GROUPS.items():
+        members = [item for item in operations if item["id"] in names]
+        done = sum(item["closed"] for item in members)
+        groups.append({"id": name, "done": done, "total": len(members), "active": active in names,
+                       "percent": round(sum(BUILD_SHARES[item["id"]] * item["percent"] for item in members)
+                                        / sum(BUILD_SHARES[item["id"]] for item in members), 6), "operations": members})
+    recovery = plan.get("recovery", {})
+    work = recovery.get("work", {})
+    section = recovery.get("liveSection", work.get("current")) if active == "recovery" else None
+    sections = _overview_rows(RECOVERY_SECTIONS, work.get("completed", []), work.get("fractions", {}), section,
+                             work.get("proofs"), row["status"] == "failed", work.get("liveStatus"))
+    staging = recovery.get("sections", {}).get("staging", {})
+    steps = _overview_rows(STAGING_STEPS, staging.get("completed", []), staging.get("fractions", {}),
+                          staging.get("live", staging.get("current")) if section == "staging" else None,
+                          staging.get("proofs"), row["status"] == "failed", staging.get("liveStatus"))
+    batch = recovery.get("batch", {})
+    total = recovery.get("plannedBatches", batch.get("total"))
+    done = total if "batches" in work.get("completed", []) else batch.get("done", 0)
+    if type(total) is not int or total < 0: total, done = None, None
+    return {"schema": 1, "done": sum(item["closed"] for item in operations), "total": len(operations),
+            "active": active, "groups": groups, "recovery": {"sections": sections,
+            "batches": {"done": done, "total": total}, "staging": steps,
+            "section": section, "stagingCounter": staging.get("counter")}}
+
+
 def advance(row, value, operation=None, status=None):
-    for key in ("recoverySection", "recoveryBatchIndex", "recoveryBatchTotal", "recoveryNativeIndex", "recoveryNativeTotal", "activeWork"):
+    for key in ("recoverySection", "recoveryBatchIndex", "recoveryBatchTotal", "recoveryNativeIndex", "recoveryNativeTotal", "activeWork", "buildOverview"):
         value.pop(key, None)
     plan = initialize(row); operations = PLANS[row["id"]]
+    # One observed attempt boundary, never a status read, marks old completion
+    # as retained. Later explicit completion/reuse restores current evidence.
+    if value["phase"] == "starting" and value.get("updatedAt") != plan.get("attemptBoundary"):
+        plan["attemptBoundary"] = value.get("updatedAt")
+        plan["operationProofs"] = {name: "retained" for name in plan["completed"]}
+        plan["liveOperation"] = None
+        recovery = plan.get("recovery", {})
+        for work in [recovery.get("work", {}), *recovery.get("sections", {}).values()]:
+            work["proofs"] = {name: "retained" for name in work.get("completed", [])}
     inferred, measured = phase_operation(row["id"], value["phase"], value)
     if row["id"] == "unity" and value["phase"] == "unity-prerequisites" and plan.get("current") != "prerequisites":
         measured = False
-    operation = operation or inferred
+    operation = operation or inferred or value.get("reportedOperation")
+    status = status or value.get("operationStatus")
+    if status is not None: value["operationStatus"] = status
+    child_boundary = (value["phase"].startswith(("recovery-section:", "staging-section:", "prepare-substage:"))
+                      or value["phase"] in ("recovery-batches", "recovery-raw-reuse", "recovery-plan"))
+    parent_status = "progress" if child_boundary else status
+    if value["phase"].startswith("prepare-substage:") and operation in operations: measured = True
     if operation in operations:
+        value["reportedOperation"] = operation
+        plan["liveOperation"] = operation
+        plan["liveStatus"] = parent_status or "progress"
+        if parent_status in ("complete", "reuse"):
+            plan.setdefault("operationProofs", {})[operation] = parent_status
+            plan["completed"] = list(dict.fromkeys([*plan["completed"], operation]))
         index = operations.index(operation)
         current = plan.get("current")
         if current not in operations or index >= operations.index(current):
@@ -310,13 +403,15 @@ def advance(row, value, operation=None, status=None):
             # returned successfully or were explicitly verified/reused/skipped.
             plan["completed"] = list(dict.fromkeys([*plan["completed"], *operations[:index]]))
             plan["current"] = operation
-            if status in ("complete", "reuse"):
+            if parent_status in ("complete", "reuse"):
                 plan["completed"] = list(dict.fromkeys([*plan["completed"], operation]))
     current = plan.get("current")
-    if row["id"] == "build" and current == "recovery":
+    if row["id"] == "build" and plan.get("liveOperation", current) == "recovery":
         nested = _recovery_fraction(plan, value)
         if nested is not None:
-            plan["fractions"][current] = max(plan["fractions"].get(current, 0.), min(.999999, nested))
+            # A retry's live recovery may precede a later historical frontier.
+            # Its counters own only recovery, never unfinished Player/import work.
+            plan["fractions"]["recovery"] = max(plan["fractions"].get("recovery", 0.), min(.999999, nested))
         recovery = plan.get("recovery", {})
         section = recovery.get("work", {}).get("current")
         if section in RECOVERY_SECTIONS:
@@ -339,6 +434,8 @@ def advance(row, value, operation=None, status=None):
         plan["completed"] = list(operations)
         plan["current"] = operations[-1]
         current = operations[-1]
+        for name in operations:
+            if plan.setdefault("operationProofs", {}).get(name) != "reuse": plan["operationProofs"][name] = "complete"
     done = sum(1. if name in plan["completed"] else plan["fractions"].get(name, 0.) for name in operations)
     # Keep small measured byte/file contributions for the bar, even when its
     # concise percentage label rounds them to two decimal places.
@@ -353,5 +450,7 @@ def advance(row, value, operation=None, status=None):
     plan["percent"] = max(plan["percent"], number)
     value.update(stagePercent=100. if row["status"] == "complete" else plan["percent"],
                  stageOperation=current, stageDone=round(done, 3), stageTotal=len(operations))
-    if current is not None: value["activeWork"] = _active_work(plan, current)
+    live = plan.get("liveOperation", current)
+    if live in operations: value["activeWork"] = _active_work(plan, live)
+    if row["id"] == "build": value["buildOverview"] = _build_overview(row, plan)
     return value

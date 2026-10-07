@@ -76,6 +76,23 @@ export function activeWorkView(progress) {
   const operation=typeof work.operation==='string'&&/^[a-z0-9-]{1,64}$/.test(work.operation)?work.operation:null;
   return {done:work.done,total:work.total,operation};
 }
+export function buildOverviewView(state) {
+  const raw=state?.stages?.find(row=>row.id==='build')?.progress?.buildOverview;
+  if(raw?.schema!==1||!Array.isArray(raw.groups)||raw.groups.length>8)return null;
+  const validId=id=>typeof id==='string'&&/^[a-z0-9-]{1,64}$/.test(id);
+  const normalize=rows=>Array.isArray(rows)&&rows.length<=32?rows.filter(row=>validId(row?.id)).map(row=>({id:row.id,
+    status:['pending','running','checking','failed','retained','reused','complete'].includes(row.status)?row.status:'pending',
+    closed:row.closed===true,percent:typeof row.percent==='number'&&Number.isFinite(row.percent)&&row.percent>=0&&row.percent<=100?row.percent:0})):[];
+  const groups=raw.groups.filter(group=>validId(group?.id)).map(group=>({...group,operations:normalize(group.operations)}));
+  const operations=groups.flatMap(group=>group.operations);
+  if(!operations.length||operations.length>32||new Set(operations.map(row=>row.id)).size!==operations.length)return null;
+  const active=operations.some(row=>row.id===raw.active)?raw.active:null;
+  const recovery=raw.recovery??{},batches=recovery.batches??{};
+  const validBatches=Number.isSafeInteger(batches.done)&&Number.isSafeInteger(batches.total)&&batches.total>=0&&batches.done>=0&&batches.done<=batches.total;
+  return {groups,active,done:operations.filter(row=>row.closed).length,total:operations.length,
+    recovery:{sections:normalize(recovery.sections),staging:normalize(recovery.staging),
+      batches:validBatches?{done:batches.done,total:batches.total}:null,stagingCounter:recovery.stagingCounter??null}};
+}
 export function durationText(value) {
   // Actual elapsed/estimated durations come from the backend. Formatting a
   // clock never advances a progress bar or reconstructs missing old runtime.
