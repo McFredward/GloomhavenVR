@@ -19,7 +19,7 @@ internal static class Program
     }
     static object? Call(QuestGameBootstrap owner, string name, params object[] args)
     {
-        try { return typeof(QuestGameBootstrap).GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(owner, args); }
+        try { return typeof(QuestGameBootstrap).GetMethod(name, BindingFlags.Instance | BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(owner, args); }
         catch (TargetInvocationException exception) { throw exception.InnerException ?? exception; }
     }
     static string Hash(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
@@ -336,11 +336,66 @@ internal static class Program
         Call(failed, "OnDestroy");
     }
 
+    static void ModBanks(string sourcePath)
+    {
+        if (sourcePath.Length != 0)
+        {
+            string source = File.ReadAllText(sourcePath);
+            Check(source.Contains("ValidateModBanks(modManifest, CampaignPackageBuilt);", StringComparison.Ordinal),
+                "bank-manifest", "real bootstrap must admit its observed full-game bank contract");
+            int preload = source.IndexOf("yield return PrepareModBanks(modRoot, CampaignPackageBuilt);", StringComparison.Ordinal);
+            Check(preload >= 0 && preload > source.IndexOf("ModContentReady = true;", StringComparison.Ordinal)
+                && preload < source.IndexOf("yield return modLifecycle.Activate(modRoot);", StringComparison.Ordinal),
+                "environment-before-plugin", "verified dependency bank must open before main-bank plugin assets");
+        }
+        Setup("mod-bank-admission"); var owner = Owner();
+        string[] paths = { "StreamingAssets/gloomhavenvr.bundle", "StreamingAssets/ghvr-town.bundle",
+            "StreamingAssets/ghvr-town-voices.bundle", "StreamingAssets/ghvr-environment.bundle" };
+        QuestGameContentManifest manifest(string[] names) => new() { files = names.Select(path => new QuestGameContentFile { path = path }).ToArray() };
+        Call(owner, "ValidateModBanks", manifest(paths), true);
+        Call(owner, "ValidateModBanks", manifest(paths.Take(1).ToArray()), false);
+        Check(true, "bank-manifest", "full game admits all four banks and startup its single bank");
+        foreach (string[] invalid in new[] { paths.Take(3).ToArray(), paths.Append(paths[0]).ToArray(),
+            paths.Reverse().ToArray(), paths.Take(3).Append(paths[0]).ToArray(), paths.Take(3).Append("StreamingAssets/unknown.bundle").ToArray() })
+        {
+            bool rejected = false;
+            try { Call(owner, "ValidateModBanks", manifest(invalid), true); }
+            catch (InvalidDataException) { rejected = true; }
+            Check(rejected, "bank-manifest", "missing, extra, reordered or foreign banks must stop startup");
+        }
+        var startup = (IEnumerator)Call(owner, "PrepareModBanks", Fixture.Root, false)!;
+        Check(!startup.MoveNext() && AssetBundle.HeaderReads == 0, "startup-bank-scope", "diagnostic startup must not require the game bank");
+        AssetBundle.Request = new AssetBundleCreateRequest { isDone = false };
+        var full = (IEnumerator)Call(owner, "PrepareModBanks", Fixture.Root, true)!;
+        Check(full.MoveNext() && ReferenceEquals(full.Current, AssetBundle.Request) && AssetBundle.HeaderReads == 1,
+            "environment-async-header", "full game yields its one actual dependency header request");
+        Check(Fixture.Activations == 0, "environment-before-plugin", "no plugin assets before the pending header");
+        AssetBundle.Request.assetBundle = new AssetBundle { name = "ghvr-environment.bundle" };
+        AssetBundle.Request.isDone = true;
+        Check(!full.MoveNext() && owner.State != "failed", "environment-async-header", "successful header resumes without eager mesh reads");
+        AssetBundle.Loaded.Add(AssetBundle.Request.assetBundle);
+        var reused = (IEnumerator)Call(owner, "PrepareModBanks", Fixture.Root, true)!;
+        Check(!reused.MoveNext() && AssetBundle.HeaderReads == 1, "environment-reuse", "already loaded dependency must be adopted once");
+        Call(owner, "OnDestroy");
+        foreach (bool absentRequest in new[] { false, true })
+        {
+            Setup("mod-bank-header-failure-" + absentRequest); var failed = Owner();
+            AssetBundle.Request = absentRequest ? null! : new AssetBundleCreateRequest { assetBundle = null! };
+            var load = (IEnumerator)Call(failed, "PrepareModBanks", Fixture.Root, true)!;
+            while (load.MoveNext()) { }
+            Check(failed.State == "failed" && Fixture.Activations == 0 && !failed.OriginalBootstrapStarted,
+                "environment-failure", "failed header stops before plugin or native game");
+            Check(failed.FailureDetail.Contains("mod-environment-bank", StringComparison.Ordinal), "environment-failure", "visible failure keeps its specific cause");
+            Call(failed, "OnDestroy");
+        }
+    }
+
     static int Main(string[] args)
     {
         try
         {
             evidence = Path.GetFullPath(args[0]); System.IO.Directory.CreateDirectory(evidence);
+            ModBanks(args.Length > 1 ? args[1] : "");
             HeldWorker(); HeldSceneHandover(); Success("cold-editor", editor: true); Success("warm-android", warm: true); Success("warm-editor", editor: true, warm: true); Success("legacy-android", warm: true, legacy: true); RepairOnlyChangedBank(); LogWriteFailure();
             PcInstalledCampaign();
             foreach (string defect in new[] { "mod-archive", "payload", "missing-entry", "missing-manifest" }) Failure(defect);

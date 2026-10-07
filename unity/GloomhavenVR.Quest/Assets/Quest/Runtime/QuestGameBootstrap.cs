@@ -123,16 +123,7 @@ namespace GloomhavenVR.Quest
                 QuestGameContent.Validate(modManifest, stamp.inputKey, "quest-mod-content.zip");
                 foreach (var file in modManifest.files) modContentWeight += file.size;
                 foreach (var file in manifest.files) gameContentWeight += file.size;
-#if GHVR_QUEST_GAME
-                string[] banks = { "StreamingAssets/gloomhavenvr.bundle", "StreamingAssets/ghvr-town.bundle", "StreamingAssets/ghvr-town-voices.bundle" };
-#else
-                string[] banks = { "StreamingAssets/gloomhavenvr.bundle" };
-#endif
-                if (modManifest.files.Length != banks.Length)
-                    throw new InvalidDataException("Real mod content must contain the complete manifested Android bank set.");
-                for (int i = 0; i < banks.Length; i++)
-                    if (modManifest.files[i].path != banks[i])
-                        throw new InvalidDataException("Real mod content contains an unexpected Android bank or loader order.");
+                ValidateModBanks(modManifest, CampaignPackageBuilt);
                 // Configure and validate the optimized native hash ABI before
                 // workers start; a missing Android plugin must fail explicitly.
                 QuestGameContent.ConfigureNativeHash();
@@ -148,6 +139,11 @@ namespace GloomhavenVR.Quest
             // Install accepted a private installation receipt or verified new
             // bytes on its worker. A warm launch does not repeat content hashes.
             ModContentReady = true;
+            // The current mod's main bank can reference the separately compiled
+            // environment shaders. Open that LZ4 bank header before any plugin
+            // module loads main-bank assets; do not eagerly deserialize meshes.
+            yield return PrepareModBanks(modRoot, CampaignPackageBuilt);
+            if (State == "failed") yield break;
             preparationCompletedSteps = 1;
             State = "starting-real-mod";
             // B615's native abort occurred in a Debug performance type lookup
@@ -212,6 +208,43 @@ namespace GloomhavenVR.Quest
             AsyncOperation loading = SceneManager.LoadSceneAsync(originalScene, LoadSceneMode.Single);
             if (loading == null) { Fail("original-scene", new InvalidOperationException("Unity refused original scene load.")); yield break; }
             yield return loading;
+        }
+
+        static void ValidateModBanks(QuestGameContentManifest manifest, bool fullGame)
+        {
+            string[] banks = fullGame
+                ? new[] { "StreamingAssets/gloomhavenvr.bundle", "StreamingAssets/ghvr-town.bundle",
+                    "StreamingAssets/ghvr-town-voices.bundle", "StreamingAssets/ghvr-environment.bundle" }
+                : new[] { "StreamingAssets/gloomhavenvr.bundle" };
+            if (manifest.files.Length != banks.Length)
+                throw new InvalidDataException("Real mod content must contain the complete manifested Android bank set.");
+            for (int i = 0; i < banks.Length; i++)
+                if (manifest.files[i].path != banks[i])
+                    throw new InvalidDataException("Real mod content contains an unexpected Android bank or loader order.");
+        }
+
+        IEnumerator PrepareModBanks(string root, bool fullGame)
+        {
+            if (!fullGame) yield break;
+            AssetBundleCreateRequest request = null;
+            bool loaded = false;
+            try
+            {
+                foreach (AssetBundle bank in AssetBundle.GetAllLoadedAssetBundles())
+                    if (bank.name == "ghvr-environment.bundle") { loaded = true; break; }
+                if (!loaded)
+                {
+                    State = "loading-mod-environment-bank";
+                    SaveState();
+                    request = AssetBundle.LoadFromFileAsync(Path.Combine(root, "StreamingAssets", "ghvr-environment.bundle"));
+                    if (request == null) throw new IOException("Environment mod bank header request is unavailable.");
+                }
+            }
+            catch (Exception error) { Fail("mod-environment-bank", error); }
+            if (loaded || State == "failed") yield break;
+            yield return request;
+            if (request.assetBundle == null) { Fail("mod-environment-bank", new IOException("Environment mod bank header could not be loaded.")); yield break; }
+            UnityEngine.Debug.Log("[Quest startup] Environment mod bank header ready before dependent plugin assets; mesh loading remains demand-driven.");
         }
 
         IEnumerator EnsureContent(QuestGameContentManifest manifest, string root, string expectedArchive, string phase)

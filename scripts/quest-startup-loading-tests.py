@@ -28,7 +28,7 @@ def main():
         ("mod-before-files", 'yield return EnsureContent(modManifest, modRoot, "quest-mod-content.zip", "mod-content");',
          "yield return null;", "mod-before-content"),
         ("missing-mod-error-gate", 'yield return EnsureContent(modManifest, modRoot, "quest-mod-content.zip", "mod-content");\n            if (State == "failed") yield break;',
-         'yield return EnsureContent(modManifest, modRoot, "quest-mod-content.zip", "mod-content");', "mod-before-content"),
+         'yield return EnsureContent(modManifest, modRoot, "quest-mod-content.zip", "mod-content");', "corrupt-ready-state"),
         ("duplicate-mod-owner", "yield return modLifecycle.Activate(modRoot);",
          "yield return modLifecycle.Activate(modRoot);\n            yield return modLifecycle.Activate(modRoot);", "one-owner"),
         ("stale-mod-checkpoint", "SaveState();\n            yield return modLifecycle.Activate(modRoot);",
@@ -55,6 +55,10 @@ def main():
         ("actual-install-artwork-missing", "modLifecycle.BeginDeliveryView();", "/* Missing actual installation view */", "early-view-state"),
         ("global-startup-completes-before-native", "modLifecycle.UpdateStartupView(State, startupOverallPercent);",
          "modLifecycle.UpdateStartupView(State, 100);", "handover-percent"),
+        ("missing-environment-dependency-header", "yield return PrepareModBanks(modRoot, CampaignPackageBuilt);",
+         "yield return null;", "environment-before-plugin"),
+        ("missing-current-bank-admission", "ValidateModBanks(modManifest, CampaignPackageBuilt);",
+         "/* Missing current bank admission */", "bank-manifest"),
     )
     cases = [("production", bootstrap, ""),
              ("commented-defects-are-inert", "/* Missing early loading view; mod-before-content;\n"
@@ -85,7 +89,7 @@ def main():
         for filename, source in sources.items():
             (case / filename).write_text(modified if filename == "QuestGameBootstrap.cs" else source)
         result = subprocess.run([dotnet, "run", "--project", str(harness / "QuestStartupLoading.Tests.csproj"),
-                                 "--configuration", "Release", "--property:RuntimeSource=" + str(case), "--", str(case / "files")],
+                                 "--configuration", "Release", "--property:RuntimeSource=" + str(case), "--", str(case / "files"), str(case / "QuestGameBootstrap.cs")],
                                 text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=90)
         (case / "console.log").write_text(result.stdout)
         passed = (result.returncode == 0 and "PASS Quest startup loading:" in result.stdout) if not expected else (result.returncode != 0 and expected in result.stdout)

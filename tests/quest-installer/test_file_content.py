@@ -94,7 +94,7 @@ class FileContentTests(unittest.TestCase):
                      "StreamingAssets/Movies/intro.mp4": b"video fixture",
                      "StreamingAssets/aa/Android/scene.bundle": b"scene fixture"}
         self.mod = {"StreamingAssets/" + name: name.encode() for name in
-                    ("gloomhavenvr.bundle", "ghvr-town.bundle", "ghvr-town-voices.bundle")}
+                    ("gloomhavenvr.bundle", "ghvr-town.bundle", "ghvr-town-voices.bundle", "ghvr-environment.bundle")}
         self.make_source()
 
     def test_large_content_metadata_script_uses_short_argv_and_binary_lf_stdin(self):
@@ -162,7 +162,7 @@ class FileContentTests(unittest.TestCase):
 
     def test_first_install_prepares_all_assets_before_launch_and_never_uploads_bank(self):
         records = self.install()
-        self.assertEqual(sum(row["uploadedFiles"] for row in records), 6)
+        self.assertEqual(sum(row["uploadedFiles"] for row in records), 7)
         self.assertEqual(self.receipt()["key"], installer.content_key(self.manifest["game"]))
         for name, content in self.game.items():
             self.assertEqual((self.device.root / "quest-owned-game" / name).read_bytes(), content)
@@ -238,7 +238,7 @@ class FileContentTests(unittest.TestCase):
     def test_interrupted_batches_resume_verified_files_without_publishing_completion(self):
         # Force small batches without creating huge fixture assets.
         with mock.patch.object(installer, "_INSTALL_BATCH_BYTES", 18):
-            self.device.fail_after_directory = 5  # mod three; game first committed, second interrupted
+            self.device.fail_after_directory = 6  # mod four; game first committed, second interrupted
             with self.assertRaisesRegex(installer.InstallError, "interrupted"):
                 self.install()
             self.assertIsNone(self.receipt())
@@ -251,6 +251,19 @@ class FileContentTests(unittest.TestCase):
         self.assertEqual(records[1]["uploadedFiles"], 2)
         self.assertEqual(len(self.device.pushed_files) - start, 2)
         self.assertIsNotNone(self.receipt())
+
+    def test_legacy_three_bank_package_installs_and_current_order_is_required(self):
+        legacy = {name: data for name, data in self.mod.items() if not name.endswith("/ghvr-environment.bundle")}
+        self.make_source(mod=legacy)
+        self.assertEqual(self.install()[0]["uploadedFiles"], 3)
+        self.assertIsNotNone(self.receipt("mod"))
+        self.make_source()
+        self.manifest["mod"]["files"].reverse()
+        self.replace_manifest()
+        before = len(self.device.calls)
+        with self.assertRaisesRegex(installer.InstallError, "native-bank paths/order"):
+            self.install()
+        self.assertEqual(len(self.device.calls), before)
 
     def test_bad_uploaded_bytes_never_publish_completion_and_can_be_retried(self):
         self.device.corrupt_push = True

@@ -551,9 +551,11 @@ def installation_manifest(source):
                     or not re.fullmatch(r"[0-9a-f]{64}", str(row.get("sha256", "")))):
                 raise InstallError("Invalid or duplicate installed content path.")
             paths.add(row["path"].casefold())
-        if kind == "mod" and paths != {"streamingassets/" + name for name in
-                ("gloomhavenvr.bundle", "ghvr-town.bundle", "ghvr-town-voices.bundle")}:
-            raise InstallError("The full-game mod inventory must contain its three native banks.")
+        if kind == "mod":
+            legacy = ("StreamingAssets/gloomhavenvr.bundle", "StreamingAssets/ghvr-town.bundle", "StreamingAssets/ghvr-town-voices.bundle")
+            current = legacy + ("StreamingAssets/ghvr-environment.bundle",)
+            if tuple(row["path"] for row in value["files"]) not in (legacy, current):
+                raise InstallError("The full-game mod inventory must contain its complete native-bank paths/order.")
     if (len(source.content) != 1 or not manifest["game"].get("externalDelivery")
             or source.content[0].sha256 != manifest["game"]["archiveSha256"]):
         raise InstallError("Installation game inventory differs from the adjacent owned bank.")

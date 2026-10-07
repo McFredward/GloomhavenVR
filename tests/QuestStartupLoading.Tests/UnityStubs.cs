@@ -38,6 +38,9 @@ internal static class Fixture
         ViewCreations = ViewRetargets = LastStartupPercent = 0; Percentages.Clear();
         SceneAvailable = true;
         HoldOriginalScene = false;
+        UnityEngine.AssetBundle.Loaded.Clear();
+        UnityEngine.AssetBundle.Request = new UnityEngine.AssetBundleCreateRequest();
+        UnityEngine.AssetBundle.HeaderReads = 0;
     }
 }
 namespace UnityEngine
@@ -64,6 +67,24 @@ namespace UnityEngine
         }
     }
     public class AsyncOperation { public bool isDone = true; }
+    // Explicit native bank-header seam: no real Unity asset deserialization.
+    public class AssetBundleCreateRequest : AsyncOperation { public AssetBundle assetBundle; }
+    public class AssetBundle
+    {
+        public string name;
+        internal static readonly List<AssetBundle> Loaded = new();
+        internal static AssetBundleCreateRequest Request;
+        internal static int HeaderReads;
+        public static IEnumerable<AssetBundle> GetAllLoadedAssetBundles() { Fixture.RequireMain("GetAllLoadedAssetBundles"); return Loaded; }
+        public static AssetBundleCreateRequest LoadFromFileAsync(string path)
+        {
+            Fixture.RequireMain("LoadFromFileAsync"); HeaderReads++;
+            Fixture.Event("environment-header-request");
+            if (!path.EndsWith(Path.Combine("StreamingAssets", "ghvr-environment.bundle"), StringComparison.Ordinal))
+                throw new InvalidDataException("wrong manifested environment bank path");
+            return Request;
+        }
+    }
     public static class Time
     {
         internal static float Clock;

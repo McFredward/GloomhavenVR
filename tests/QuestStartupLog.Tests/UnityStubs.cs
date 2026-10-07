@@ -15,6 +15,14 @@ namespace UnityEngine
     }
     public class GameObject { public T AddComponent<T>() where T : new() { return new T(); } }
     public class AsyncOperation { }
+    // Header loading is outside this logger fixture's execution boundary.
+    public class AssetBundleCreateRequest : AsyncOperation { public AssetBundle assetBundle; }
+    public class AssetBundle
+    {
+        public string name;
+        public static IEnumerable<AssetBundle> GetAllLoadedAssetBundles() => Array.Empty<AssetBundle>();
+        public static AssetBundleCreateRequest LoadFromFileAsync(string path) => null;
+    }
     public static class Time { public static float unscaledTime, unscaledDeltaTime; }
     public static class Application
     {
@@ -101,12 +109,13 @@ namespace GloomhavenVR.Quest
         public void UpdateStartupView(string state, int overallPercent) { }
         public void BeginDeliveryView() { }
         public void EndDeliveryView() { }
+        public void ShowContentInstallationFailure() { }
         public IEnumerator Activate(string root) { yield break; }
         public void Observe() { }
     }
     public static class QuestPassthroughFeature { public static bool Active; }
     public class QuestGameContentFile { public string path; public long size; }
-    public class QuestGameContentManifest { public string archive; public QuestGameContentFile[] files; }
+    public class QuestGameContentManifest { public string archive, inputKey; public bool externalDelivery; public QuestGameContentFile[] files; }
     public class QuestGameContentProgress
     {
         public string Phase, File;
@@ -127,6 +136,8 @@ namespace GloomhavenVR.Quest
     public static class QuestGameContent
     {
         public static void ConfigureNativeHash() { }
+        public static QuestGameContentDeliveryResult GetExisting(QuestGameContentManifest manifest, string root, string expectedArchive)
+        { return new QuestGameContentDeliveryResult(); }
         public static QuestGameContentDeliveryResult Install(QuestGameContentManifest manifest, string root, string source,
             bool sourceIsApk, string archive, string expectedArchive, Action<QuestGameContentProgress> progress)
         { return new QuestGameContentDeliveryResult(); }

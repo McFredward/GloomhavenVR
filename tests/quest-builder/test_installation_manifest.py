@@ -80,9 +80,24 @@ class InstallationManifestTests(unittest.TestCase):
         result = self.validate()
         self.assertTrue(result["gameZipMetadataVerified"] and result["modEntryBytesVerified"])
         self.assertEqual(result["gameFileCount"], 2)
-        self.assertEqual(result["modFileCount"], 3)
+        self.assertEqual(result["modFileCount"], 4)
         self.assertEqual(result["inputKey"], self.key)
         self.assertEqual(result["manifestSha256"], self.sha(json.dumps(self.manifest).encode()))
+
+    def test_signed_legacy_three_bank_package_stays_compatible(self):
+        self.mod = {name: self.mod[name] for name in contract.LEGACY_MOD_PATHS}
+        self.mod_bytes = self.zip_bytes(self.mod)
+        self.manifest["mod"] = self.inventory(self.mod, "quest-mod-content.zip", self.sha(self.mod_bytes), False)
+        self.write_apk()
+        self.assertEqual(self.validate()["modFileCount"], 3)
+
+    def test_current_environment_bank_cannot_disappear_from_manifest_or_bytes(self):
+        self.reject_changed_manifest(lambda m: m["mod"]["files"].pop(), "ZIP entry")
+        changed = {name: self.mod[name] for name in contract.LEGACY_MOD_PATHS}
+        self.mod_bytes = self.zip_bytes(changed)
+        self.manifest["mod"]["archiveSha256"] = self.sha(self.mod_bytes)
+        self.write_apk()
+        with self.assertRaisesRegex(ValueError, "ZIP entry"): self.validate()
 
     def test_external_game_member_bytes_are_never_reread_by_metadata_gate(self):
         real_open = zipfile.ZipFile.open

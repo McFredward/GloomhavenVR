@@ -2,7 +2,7 @@
 
 The caller already proves the adjacent bank SHA against signed content delivery.
 This gate checks its exact ZIP member metadata and hashes the much smaller nested
-mod bank plus its three entries. Headset installation validates changed file bytes
+mod bank plus its manifested entries. Headset installation validates changed file bytes
 before publishing the application-private completion receipt.
 """
 import hashlib
@@ -18,7 +18,8 @@ MAXIMUM_MANIFEST_BYTES = 8 * 1024 * 1024
 MAXIMUM_FILES = 32768
 MAXIMUM_PATH_BYTES = 8192
 MAXIMUM_MOD_ARCHIVE_BYTES = 4 * 1024 * 1024 * 1024
-MOD_PATHS = ("StreamingAssets/gloomhavenvr.bundle", "StreamingAssets/ghvr-town.bundle", "StreamingAssets/ghvr-town-voices.bundle")
+LEGACY_MOD_PATHS = ("StreamingAssets/gloomhavenvr.bundle", "StreamingAssets/ghvr-town.bundle", "StreamingAssets/ghvr-town-voices.bundle")
+MOD_PATHS = LEGACY_MOD_PATHS + ("StreamingAssets/ghvr-environment.bundle",)
 
 
 def _native_packer():
@@ -61,8 +62,10 @@ def _validate_inventory(value, input_key, archive, external, packer):
                 or any(char in path for char in "\0\r\n\t") or path.casefold() in insensitive):
             raise ValueError("Signed PC installation path is unsafe, excessive or duplicated.")
         insensitive.add(path.casefold())
-    if not external and tuple(row["path"] for row in value["files"]) != MOD_PATHS:
-        raise ValueError("Signed PC mod inventory must preserve its three native-bank paths/order.")
+    # Older signed hardware packages remain installable. Current four-bank
+    # payloads must preserve their complete entry set through the ZIP gate below.
+    if not external and tuple(row["path"] for row in value["files"]) not in (LEGACY_MOD_PATHS, MOD_PATHS):
+        raise ValueError("Signed PC mod inventory must preserve its complete native-bank paths/order.")
 
 
 def validate(apk, input_key, bank, delivery):
