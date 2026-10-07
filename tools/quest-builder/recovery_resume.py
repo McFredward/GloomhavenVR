@@ -13,7 +13,7 @@ from pathlib import Path, PurePosixPath
 import re
 import stat
 
-from storage import BuildError, _ordinary_owned, digest, value_hash, write_json
+from storage import BuildError, _ordinary_owned, digest, value_hash, write_json, build_progress
 
 
 LEGACY_MERGE_FILES = {
@@ -61,7 +61,7 @@ ORCHESTRATION_FILES = set(LEGACY_MERGE_FILES) | {OBSERVER_FILE}
 # native_stage runs only on the fresh derived project, after all raw export
 # checkpoints. Its deferred duplicate audit cannot alter an original export.
 DERIVED_FILES = {"tools/quest-builder/full_assets.py", "tools/quest-builder/full_shaders.py",
-                 "tools/quest-recovery/native_stage.py"}
+                 "tools/quest-recovery/native_stage.py", "tools/quest-builder/staging_resume.py"}
 MAX_MANIFESTS = 128
 MAX_JSON_BYTES = 16 * 1024 * 1024
 # Full core exports list every asset and .meta file. The 2026-10-06 Windows
@@ -131,7 +131,12 @@ def _compatible(previous, current):
     old, new = _records(recipe_files(previous), "size"), _records(recipe_files(current), "size")
     required = ORCHESTRATION_FILES | {"tools/quest-recovery/QuestExportIdentity.cs",
                "tools/quest-recovery/export_identity.py", "tools/quest-recovery/tool-lock.json"}
-    if old.keys() != new.keys() or not required <= old.keys(): return False
+    # New derived-only journals do not change the raw exporter contract. Their
+    # complete bytes still key the new derived stage; never require an older
+    # shipped raw manifest to contain a helper which runs only after export.
+    old_raw = {name: row for name, row in old.items() if name not in DERIVED_FILES}
+    new_raw = {name: row for name, row in new.items() if name not in DERIVED_FILES}
+    if old_raw.keys() != new_raw.keys() or not required <= old_raw.keys(): return False
     changed = []
     for name in old:
         if name in DERIVED_FILES: continue  # Their new stage is never adopted.
@@ -195,7 +200,7 @@ def _qualification(workspace, inputs, game):
             "exporterSource": source_proof}
 
 
-def select_workspace(output, inputs, source, game, recipe):
+def select_workspace(output, inputs, source, game, recipe, *, qualifications=None):
     """Bind the current derived recipe to one compatible owner-qualified raw tree.
 
     Caller holds the builder output lock. No raw export or journal is rewritten,
@@ -251,6 +256,7 @@ def select_workspace(output, inputs, source, game, recipe):
     if binding.exists() and bound.get("originalWorkspaceKey") != original_key:
         raise BuildError("The bound raw recovery workspace identity changed.")
     proof = _qualification(workspace, inputs, game)
+    if qualifications is not None: qualifications[str(workspace)] = proof
     expected = {"schema": 1, "owner": "Quest raw recovery resume", "currentRecipeKey": key,
                 "originalWorkspaceKey": original_key, "originalManifestKey": selected_manifest["inputKey"],
                 "gameKey": inputs["game"]["key"], "exportContract": contract, **proof}
@@ -260,3 +266,115 @@ def select_workspace(output, inputs, source, game, recipe):
     print("recovery resume: retaining original workspace " + original_key[:12]
           + " for current recipe " + key[:12] + "; raw tool/core/batch/journal verification follows", flush=True)
     return workspace
+
+
+def completed_raw(workspace, inputs, game, *, qualifications=None):
+    """Adopt a genuinely closed raw result; qualify bytes at their consumer.
+
+    The 2026-10-07/440b Windows witness re-exported no packages but spent 441 s
+    rehashing 189,737 raw files, before staging would hash the same bytes during
+    copying. A successful full-recovery result and its complete, source/core/
+    catalog-bound checkpoint can retain those exports without launching the
+    exporter orchestration again. Staging must still qualify EVERY consumed
+    original file against this checkpoint (or its already accepted target).
+    A pending merge takes the ordinary journal-recovery path instead. This is
+    never a success receipt for derived assets, Unity, Addressables or a Player.
+    """
+    workspace, game = _ordinary_owned(workspace), _ordinary_owned(game)
+    result_path = _ordinary_owned(workspace / "full-recovery.json")
+    pending = _ordinary_owned(workspace / "BundleRecovery/merge-pending.json")
+    if not result_path.is_file() or pending.exists(): return None
+    raw = _read(result_path)
+    if raw.get("fullOriginalCatalogRecovered") is not True: return None
+    counter = build_progress.Counter("recovery-retained-result-verify", 8, "receipts")
+    try:
+        if raw.get("schema") != 1:
+            raise BuildError("Completed raw recovery result has an unsupported schema.")
+        expected_paths = {
+            "recoveryProject": workspace / "RecoveredProject",
+            "coreProject": workspace / "CoreExport/ExportedProject",
+            "managedTypes": workspace / "RecoveredProject/QuestRecovery/managed-types.json",
+            "cabBundles": workspace / "original-cab-bundles.json",
+        }
+        for name, path in expected_paths.items():
+            if raw.get(name) != str(path):
+                raise BuildError("Completed raw recovery result lost its owned " + name + " path.")
+            _ordinary_owned(path)
+        counter.add(1, "Closed raw recovery result")
+        proof = (qualifications or {}).get(str(workspace))
+        if proof is None: proof = _qualification(workspace, inputs, game)
+        if raw.get("sourceFingerprint") != proof["sourceFingerprint"]:
+            raise BuildError("Completed raw recovery result belongs to different original inputs.")
+        counter.add(1, "Original source and core identities")
+        plan = _read(workspace / "BundleRecovery/bundle-plan.json")
+        groups = plan.get("groups")
+        if not isinstance(groups, list) or not 1 <= len(groups) <= 4096:
+            raise BuildError("Completed raw recovery has no bounded original package schedule.")
+        original_files = _records(inputs["game"]["files"], "size")
+        for group in groups:
+            if not isinstance(group, dict): raise BuildError("Completed original package plan is invalid.")
+            for name, row in _records(group.get("bundles"), "bytes").items():
+                if original_files.get(name) != row:
+                    raise BuildError("Completed original package plan differs from its source: " + name)
+        counter.add(1, "Completed original package schedule")
+        catalog = game / "StreamingAssets/aa/catalog.json"
+        if digest(_ordinary_owned(catalog)) != plan.get("catalogSha256"):
+            raise BuildError("Completed original package catalog changed.")
+        counter.add(1, "Original catalog identity")
+        project = expected_paths["recoveryProject"]
+        checkpoint = _read(project / "quest-full-recovery-progress.json", max_bytes=MAX_CORE_RECEIPT_BYTES)
+        completed = checkpoint.get("completedGroups")
+        if (checkpoint.get("schema") != 1 or checkpoint.get("assetsRecovered") is not True
+                or checkpoint.get("sourceFingerprint") != proof["sourceFingerprint"]
+                or checkpoint.get("coreIdentitySha256") != proof["coreIdentitySha256"]
+                or checkpoint.get("catalogSha256") != plan["catalogSha256"]
+                or not isinstance(completed, list) or any(type(index) is not int for index in completed)
+                or sorted(completed) != list(range(len(groups)))):
+            raise BuildError("Closed original recovery checkpoint is incomplete or belongs to different inputs.")
+        recorded_groups = checkpoint.get("groups")
+        if (not isinstance(recorded_groups, list) or len(recorded_groups) != len(groups)
+                or any(not isinstance(row, dict) or type(row.get("index")) is not int
+                       for row in recorded_groups)
+                or {row["index"] for row in recorded_groups} != set(completed)
+                or any(not isinstance(row, dict) or row.get("input") != groups[row["index"]]
+                       for row in recorded_groups)):
+            raise BuildError("Completed original package receipts disagree with their schedule.")
+        inventory = _records(checkpoint.get("files"), "bytes")
+        if not isinstance(checkpoint.get("assetReferences"), dict):
+            raise BuildError("Completed raw recovery lost its reference audit.")
+        counter.add(1, "Closed checkpoint and retained reference audit")
+        managed = expected_paths["managedTypes"]
+        row = inventory.get(managed.relative_to(project).as_posix())
+        if row is None or managed.stat().st_size != row["bytes"] or digest(managed) != row["sha256"]:
+            raise BuildError("Completed raw recovery managed metadata changed.")
+        counter.add(1, "Original managed metadata")
+        owners = _read(expected_paths["cabBundles"])
+        bundles = {row["path"] for group in groups for row in group["bundles"]}
+        if not owners or any(not isinstance(name, str) or not name or not isinstance(path, str)
+                             or path not in bundles for name, path in owners.items()):
+            raise BuildError("Completed raw recovery physical bundle ownership is invalid.")
+        counter.add(1, "Physical bundle ownership")
+        source_inventory = _records(checkpoint.get("sourceInventory"), "bytes")
+        original = _read(workspace / "original-source.json")
+        if source_inventory != _records(original.get("sourceInventory"), "bytes"):
+            raise BuildError("Closed original checkpoint lost its qualified source inventory.")
+        counter.add(1, "Final original source guard")
+        counter.finish()
+    except BaseException as error:
+        counter.fail(error)
+        raise
+    raw["_completedRaw"] = {"packages": len(groups), "files": len(inventory)}
+    print("recovery resume: reusing all " + str(len(groups)) + " completed original packages; "
+          + "exact copied/consumed bytes remain qualified during staging", flush=True)
+    return raw
+
+
+def announce_completed_raw(raw):
+    """Publish witnessed export boundaries, never derived/project completion."""
+    count = raw["_completedRaw"]["packages"]
+    build_progress.event("recovery-plan", count, count, "batches", "Reusing the complete original package schedule", status="reuse")
+    for section in ("source", "core", "batches", "references", "source-recheck", "checkpoint", "cab-index"):
+        build_progress.event("recovery-section:" + section, 1, 1, "sections",
+                             "Completed original export retained", status="reuse")
+        if section == "batches":
+            build_progress.event("recovery-batches", count, count, "batches", "Completed original packages reused", status="reuse")
