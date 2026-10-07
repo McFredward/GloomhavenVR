@@ -289,6 +289,12 @@ internal static partial class TownServiceMirror
         {
             PrivateLane.TransactionActive = active;
             PrivateLane.NextManifest = 0f;
+            // A transaction can reuse originals already sent during browsing. A
+            // newly watching peer may not have that old baseline; publish the
+            // current visible originals once at this edge, not cumulative deltas
+            // which wait for a five-second repair. Hidden preparation stays quiet.
+            if (active) foreach (LocalModule module in PrivateLane.Modules.Values)
+                module.NeedsOriginal = true;
         }
         // Reassert idempotently even when the visual state did not change: a transport
         // reset can retire the grant while the same physical card remains parked.
@@ -622,6 +628,7 @@ internal static partial class TownServiceMirror
         internal float NextRefresh;
         internal float RetryAfter;
         internal bool HighPriority, WasPriority;
+        internal bool WasRequired, NeedsOriginal;
         internal bool CatalogResident, CatalogDormant, CatalogDirty;
         internal uint CatalogRevision;
         internal ulong CatalogContentKey;
@@ -873,7 +880,8 @@ internal static partial class TownServiceMirror
                         float alpha = ReadRackAlpha(module);
                         if (frame.RackMember.Alpha != alpha) { frame.RackMember = frame.RackMember.Copy(); frame.RackMember.Alpha = alpha; }
                     }
-                    if (frame.CatalogBank == null && FastMotionCaptureEnabled && module.Last != null && module.Baseline != null
+                    bool openingOriginal = module.NeedsOriginal && _local.RequiredMounts.Contains(module.Id);
+                    if (!openingOriginal && frame.CatalogBank == null && FastMotionCaptureEnabled && module.Last != null && module.Baseline != null
                         && now < module.NextBaseline && module.WasPriority == module.HighPriority
                         && (!NeedsHeartbeat(module) || now < module.NextRefresh)
                         && TownServiceFastNumbers.SameArtwork(module.Last, frame))
@@ -893,7 +901,7 @@ internal static partial class TownServiceMirror
                     if (module.CatalogResident && (module.CatalogContentKey == 0 || !SameCatalogContent(module.Last, frame)))
                         module.CatalogContentKey = TownCatalogBank.ContentKey(frame);
                     module.CatalogDirty = false;
-                    if (sameSurface && module.WasPriority == module.HighPriority
+                    if (!openingOriginal && sameSurface && module.WasPriority == module.HighPriority
                         && (now < module.NextRefresh || module.Last != null && module.LastSent < module.Last.Sequence)) continue;
                     frame.Sequence = NextSequence();
                     TownServiceFrame emitted;
@@ -903,7 +911,7 @@ internal static partial class TownServiceMirror
                     // scroll and highlight revision, congesting first-offer delivery.
                     // Reuse the existing cumulative owner delta after that first original;
                     // periodic complete repair and topology/identity changes still win.
-                    bool completeOriginal = frame.CatalogBank != null || module.Baseline == null || now >= module.NextBaseline || !TownServiceDelta.Compatible(module.Baseline, frame);
+                    bool completeOriginal = openingOriginal || frame.CatalogBank != null || module.Baseline == null || now >= module.NextBaseline || !TownServiceDelta.Compatible(module.Baseline, frame);
                     if (completeOriginal)
                         emitted = TownServiceDelta.Retain(frame);
                     else emitted = TownServiceDelta.Create(module.Baseline!, frame);
@@ -923,7 +931,7 @@ internal static partial class TownServiceMirror
                     // dependency. A failed oversized capture must not invent a baseline
                     // which the observer can never receive, or disable its next repair.
                     if (completeOriginal)
-                    { module.Baseline = emitted; module.NextBaseline = module.LastSent >= emitted.Sequence
+                    { module.NeedsOriginal = false; module.Baseline = emitted; module.NextBaseline = module.LastSent >= emitted.Sequence
                         ? now + 5f + module.Id % 13 * .07f : float.PositiveInfinity; }
                     module.WasPriority = module.HighPriority;
                     TraceNativePublication(module, emitted, packet.Length);
@@ -1614,6 +1622,12 @@ internal static partial class TownServiceMirror
         }
         foreach (ushort id in _local.RequiredMounts) _local.VisibleCensus.Add(id);
         _local.VisibleCensus.Sort();
+        foreach (LocalModule module in Local.Values)
+        {
+            bool required = _local.RequiredMounts.Contains(module.Id);
+            if (required && !module.WasRequired) module.NeedsOriginal = true;
+            module.WasRequired = required;
+        }
         if (_service != 3) return;
         bool changed = _local.RequiredVisibleModules == null
             || _local.RequiredVisibleModules.Length != _local.VisibleCensus.Count;

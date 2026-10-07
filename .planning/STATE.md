@@ -1,5 +1,28 @@
 # State — where the project stands
 
+**Build638 integration, 2026-10-07: 1.1.0 development candidate.**
+
+Paired637 evidence distinguishes original packet assembly from the missing named
+baseline which delayed mage display to12.754s. Current visible/transaction edges
+now publish complete originals once, hidden publishers retain their identities,
+and scheduled town artwork uses existing ReliableOrdered delivery within the
+same event budget. Additive111 moves the second held card onto the compact rig
+clock. Temple wrist focus no longer depends on another visitor's animated gaze,
+and ritual replacement cannot briefly restore ordinary cards.
+
+The identical causal first-picture fixture reproduces old637 at6.214s and admits
+the repaired coherent picture without a post-assembly baseline wait (12 events,
+0.600012s simulated send;1.295s actual Unity). Native send375/6 controls, card
+motion5253/3 controls, temple387/3 controls, four affected existing suites,
+source15/15, golden296712, strict Release/Debug0/0 and docs5 pairs pass. Compiled
+scope:1228 types retained,10 runtime changes plus6 build/protocol constants.
+Unchanged evidence is inherited; no complete154-suite or headset pass is claimed.
+See [the638 review](NPC-638-REVIEW.md) and
+[the previous-test failure audit](NPC-638-FIRST-PICTURE-AUDIT.md).
+Both peers must install638; no new bundle/default changes or release are made.
+
+---
+
 **Build637 integration, 2026-10-07: 1.1.0 development candidate.**
 
 The Frame636 follow-up restores native material coverage for exact shipped map

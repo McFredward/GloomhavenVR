@@ -353,7 +353,15 @@ internal sealed class FfsNetTransport : INetTransport
     {
         object token = _customDataCtor!.Invoke(new object[] { bytes, false });
         _sendArgs[1] = token;
-        _sendSideAction!.Invoke(null, _sendArgs);
+        // SnapshotSent only means locally emitted, never acknowledged. Losing one
+        // unreliable original fragment previously left every later cumulative UI
+        // delta unusable until a five/ten-second repair. Exact originals and their
+        // censuses now use Bolt's existing ReliableOrdered delivery inside the same
+        // bounded event scheduler. Head/hand/held-card and town numeric clocks stay
+        // independent and lossy, so old artwork cannot queue their live movement.
+        _sendArgs[2] = !PresentationBatch.HasTownOriginalPage(bytes, bytes.Length);
+        try { _sendSideAction!.Invoke(null, _sendArgs); }
+        finally { _sendArgs[2] = true; }
     }
 
     // ---- receive hook -------------------------------------------------------------------

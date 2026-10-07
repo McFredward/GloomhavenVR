@@ -1807,14 +1807,9 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
                     || secondPropSizeCode != _lastSentSecondPropSize));
         bool propDue = propMoving && _extrasAccumulator >= fastInterval;
 
-        // SECOND HELD CARD (extension record 10): the card in the player's OTHER hand, present
-        // only while BOTH hands hold one — the rig packet's FlagHeldCard slot keeps carrying the
-        // sampler's unchanged left-first pick, so this is deterministically the RIGHT hand's card.
-        // Sampled BEFORE the rate gate so it can pre-empt it, and converted to the shared anchor
-        // frame here (once) so the change test compares the very bytes that go on the wire. Same
-        // edge/motion treatment as the second figure above: grab/release pre-empt outright, and
-        // while the card moves the whole extras packet rides at the rig rate so both held cards
-        // stream at the same cadence.
+        // Legacy record10 remains a fallback snapshot. Both held-card poses, source
+        // and grip now travel atomically in the compact rig (111). Moving the right
+        // card must no longer promote this entire fragmented presence snapshot.
         bool secondCard = LocalRigSampler.TrySampleSecondHeldCard(
             out Vector3 secondCardWorldPos, out Quaternion secondCardWorldRot);
         Vector3 secondCardPos = default;
@@ -1823,10 +1818,6 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
             _anchor.ToAnchor(secondCardWorldPos, secondCardWorldRot,
                              out secondCardPos, out secondCardRot);
         bool secondCardChanged = secondCard != _sentSecondCardValid;
-        bool secondCardMoving = secondCard && _sentSecondCardValid
-            && ((secondCardPos - _lastSentSecondCardPos).sqrMagnitude > 1e-8f
-                || Quaternion.Angle(secondCardRot, _lastSentSecondCardRot) > 0.05f);
-        bool secondCardDue = secondCardMoving && _extrasAccumulator >= fastInterval;
 
         // HELD-CARD GRIP (extension record 34): which of the two held-card pose slots is being held
         // RIGIDLY in the fist rather than billboarded at this player's head. A DISCRETE HUMAN ACT —
@@ -2158,7 +2149,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         if (_extrasAccumulator < interval && !fxPending && !countsChanged && !browseChanged
             && !maskSizeChanged && !boardStyleChanged && !handScaleChanged && !fanPresentationChanged
             && !boardUiChanged && !boardSnapDue && !capPressChanged && !highlightDue
-            && !secondChanged && !secondDue && !secondCardChanged && !secondCardDue
+            && !secondChanged && !secondDue && !secondCardChanged
             && !propChanged && !propDue
             && !cardGripChanged
             && !stretchDue
@@ -4737,6 +4728,13 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
             _anchor.ToWorld(state.HeldCardPose.Position, state.HeldCardPose.Rotation, out Vector3 p, out Quaternion r);
             state.HeldCardPose.Position = p;
             state.HeldCardPose.Rotation = r;
+        }
+        if (state.HasSecondHeldCard)
+        {
+            _anchor.ToWorld(state.SecondHeldCardPose.Position, state.SecondHeldCardPose.Rotation,
+                out Vector3 p, out Quaternion r);
+            state.SecondHeldCardPose.Position = p;
+            state.SecondHeldCardPose.Rotation = r;
         }
     }
 

@@ -85,10 +85,14 @@ internal static partial class TownServiceMirror
         foreach (ushort id in required)
             if (pending.TryGetValue(id, out TownServiceFrame? frame)
                 && frame.Session == session.Session && frame.Service == 3) received++;
+        pending.TryGetValue(module, out TownServiceFrame? blocked);
+        TownServiceFrame? available = null;
+        if (ReceivedBaselines.TryGetValue(peer, out var originals)) originals.TryGetValue(module, out available);
         string message = "Native enhancement picture waiting: peer=" + peer
             + " session=" + session.Session + " required=" + required.Length + " prepared=" + session.Modules.Length
             + " received=" + received + " blocker=" + blocker + " module=" + module
-            + " address=" + address + " age="
+            + " address=" + address + " sequence=" + (blocked?.Sequence ?? 0)
+            + " needsBase=" + (blocked?.BaseSequence ?? 0) + " hasBase=" + (available?.Sequence ?? 0) + " age="
             + (now - trace.Started).ToString("F3", System.Globalization.CultureInfo.InvariantCulture) + "s.";
         if (debug) VRLog.Info("TownServices", message);
         else VRLog.Note("TownServices", message);

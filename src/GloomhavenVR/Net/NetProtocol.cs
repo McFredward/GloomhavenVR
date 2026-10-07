@@ -595,7 +595,34 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 637;
+    public const ushort ModBuild = 638;
+
+    // ModBuild638 — repair NPC first-picture dependencies, not just queue size.
+    // Both hardware peers were637. The observer assembled15 enhancement members
+    // after2.070s but lacked the named original baseline; exact clones became
+    // visible only after12.754s. The632 proof began with newly registered sources,
+    // warm observer templates, one fast:false capture and direct mirror Receive.
+    // A live fast:true owner with a previously sent baseline and cold observer,
+    // through the actual driver coalescer, reproduces a6.2s repair wait. A new
+    // transaction/visible mount now publishes its current complete original once;
+    // ordinary hover/scroll continues with exact deltas and independent numeric
+    // clocks. Already published hidden sources retain their module lifetime instead
+    // of retiring then reusing IDs. Scheduled town artwork/census fragments use
+    // existing Bolt ReliableOrdered delivery: local send completion never proved
+    // remote receipt. Event864B/50ms cap and other stream fairness stay unchanged;
+    // rig, town motion and activity remain independently Unreliable. No image pixels,
+    // observer-default UI substitutes or additional gameplay authority are introduced.
+    // Additive111 carries the second held-card pose/source/grip and physical hand
+    // assignment atomically with the compact rig; delayed presence cannot overwrite
+    // it. The right card previously rode the large fragmented presence snapshot,
+    // so nominal15Hz sampling did not give it the first card's delivery clock.
+    // Local temple wrist focus now uses stable visitor proximity rather than the
+    // globally animated NPC eyeball and gaze ray; disposing/replacing a ritual
+    // reasserts current local focus instead of briefly restoring ordinary cards.
+    // Old purse proofs stubbed both gates. Permission to donate stays native,
+    // actual purses remain shared and pre-drop guides stay visitor-local. Both
+    // peers must install638. Focused causal/runtime/wire evidence and limitations
+    // are recorded in .planning/NPC-638-REVIEW.md; no headset acceptance is claimed.
 
     // ModBuild 637 — integrate the Frame636 native world coverage/atmosphere
     // repair. Exact shipped map data/placement/light coordinators no longer

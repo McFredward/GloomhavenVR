@@ -1,8 +1,7 @@
 # Planning index
 
-Updated 2026-10-06 for Build631: native card distance filtering integrates with
-the completed Frame630 loading, terrain and safe XR resolution review. NPC629
-remains the offered-original admission/print and outcome-specific return baseline.
+Updated 2026-10-07 for Build638: NPC first-picture dependency, atomic secondary
+held-card delivery and local temple wrist focus repairs integrate after Frame637.
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
 status; it is not the player manual.
@@ -15,6 +14,8 @@ status; it is not the player manual.
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [NPC-638-REVIEW.md](NPC-638-REVIEW.md) | Current scoped repairs, evidence, 1:1 review and hardware limits |
+| [NPC-638-FIRST-PICTURE-AUDIT.md](NPC-638-FIRST-PICTURE-AUDIT.md) | Why earlier tests/fixes missed live missing-original dependencies |
 | [CARD-631-FILTERING.md](CARD-631-FILTERING.md) | Native item distance filtering, original asset/override parity and Unity render evidence |
 | [../docs/performance/FRAME-630-INTEGRATION.md](../docs/performance/FRAME-630-INTEGRATION.md) | Completed Frame loading, continuous animation, terrain and live XR viewport integration |
 | [NPC-629-REVIEW.md](NPC-629-REVIEW.md) | Offered-original admission, exact shared card planes and native outcome flights |

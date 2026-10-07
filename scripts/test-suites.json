@@ -1917,6 +1917,67 @@
         "local"
       ],
       "weight": 75
+    },
+    {
+      "id": "remote-second-card638-runtime",
+      "command": [
+        "python3",
+        "scripts/check-remote-second-card638-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 25
+    },
+    {
+      "id": "town-original-delivery638",
+      "command": [
+        "python3",
+        "scripts/check-town-original-delivery638.py",
+        "--controls"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 15
+    },
+    {
+      "id": "npc-first-picture638-dependency",
+      "command": [
+        "python3",
+        "scripts/npc-first-picture638-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 50
+    },
+    {
+      "id": "npc-first-picture638-template",
+      "command": [
+        "python3",
+        "scripts/npc-first-picture638-runtime/run.py",
+        "--case",
+        "template"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 50
+    },
+    {
+      "id": "npc-first-picture638-lifecycle",
+      "command": [
+        "python3",
+        "scripts/npc-first-picture638-runtime/run.py",
+        "--case",
+        "lifecycle"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 30
     }
   ]
 }

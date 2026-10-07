@@ -483,7 +483,12 @@ internal sealed partial class TownServiceSync
                 TownServiceNativeAssets.PrepareRoot(provenance != null ? provenance : source);
             }
             sourceEntry.Seen = true;
-            if (!prewarm && cloneOf == null && NativeTemplates.IsDynamic(source) && !Visible(sourceEntry)) return;
+            // Retain an already published original across native hide/show. Retiring
+            // its module and later reusing the ID discards its queued baseline and
+            // breaks the delivery bitmap's source-lifetime contract. A never-built
+            // invisible source still needs no publication or artwork work.
+            if (!sourceEntry.Complete && !prewarm && cloneOf == null
+                && NativeTemplates.IsDynamic(source) && !Visible(sourceEntry)) return;
             if (cloneOf == null) CollectDynamic(source);
             if (sourceEntry.Complete)
             {

@@ -14,7 +14,6 @@ import re
 import shutil
 import subprocess
 import tempfile
-from xml.sax.saxutils import escape
 
 
 def method(source, signature):
@@ -53,7 +52,18 @@ def main():
     for name in names:
         path = root / "src/GloomhavenVR" / name
         content = path.read_bytes()
-        (production / path.name).write_bytes(content)
+        if name == "Net/NetProtocol.cs":
+            # This proof uses wire constants, not Unity-based pose/math helpers.
+            # Bind the exact declarations rather than require a game install on CI
+            # or substitute implementations for helpers we do not exercise.
+            declarations = re.findall(r"^    public const\s+\w+\s+\w+\s*=[^;]*;", content.decode(), re.M)
+            if not declarations or "UnityEngine" in "\n".join(declarations):
+                raise RuntimeError("Portable protocol constant binding drift")
+            (production / path.name).write_text(
+                "namespace GloomhavenVR.Net;\ninternal static class NetProtocol {\n"
+                + "\n".join(declarations) + "\n}\n")
+        else:
+            (production / path.name).write_bytes(content)
         receipt[str(path.relative_to(root))] = hashlib.sha256(content).hexdigest()
     transport_path = root / "src/GloomhavenVR/Net/FfsNetTransport.cs"
     queue_path = root / "src/GloomhavenVR/Net/ExtrasSendQueue.cs"
@@ -116,19 +126,13 @@ namespace GloomhavenVR.Core {{ internal static class VRLog {{
         receipt[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
     (out / "source-receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
     project = out / "TransportProof.csproj"
-    props = root / "Directory.Build.props.user"
-    match = re.search(r"<GameManaged>([^<]+)</GameManaged>", props.read_text()) if props.is_file() else None
-    unity_core = Path(match.group(1)) / "UnityEngine.CoreModule.dll" if match else root / "ressources/GH_Data/Managed/UnityEngine.CoreModule.dll"
-    if not unity_core.is_file():
-        raise RuntimeError("UnityEngine.CoreModule.dll dependency is missing; initialize the worktree")
-    project.write_text(f"""<Project Sdk="Microsoft.NET.Sdk">
+    project.write_text("""<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <NoWarn>CS0649</NoWarn><EnableDefaultCompileItems>true</EnableDefaultCompileItems>
     <NuGetAudit>false</NuGetAudit></PropertyGroup>
-  <ItemGroup><Reference Include="UnityEngine.CoreModule"><HintPath>{escape(str(unity_core))}</HintPath></Reference></ItemGroup>
 </Project>
 """)
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")

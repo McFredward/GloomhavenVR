@@ -57,4 +57,44 @@ internal static class PresentationBatch
         if (at != length) return false;
         pages = result; return true;
     }
+
+    /// <summary>Exact town artwork is a delta dependency, not a disposable motion
+    /// sample. Select reliable delivery without allocating/unpacking batch children.
+    /// This does not change the existing event budget or the separate rig clocks.</summary>
+    internal static bool HasTownOriginalPage(byte[] buffer, int length)
+    {
+        if (buffer == null || length < 6 || length > buffer.Length || length > MaxSize) return false;
+        if (NetPacket.PeekType(buffer, length) != NetProtocol.MsgPresentationBatch)
+            return TownOriginalAt(buffer, 0, length);
+        if (length < 7 || buffer[6] < 2 || buffer[6] > 32) return false;
+        int at = 7; bool town = false;
+        for (int i = 0; i < buffer[6]; i++)
+        {
+            if (length - at < 2) return false;
+            int count = buffer[at] | buffer[at + 1] << 8; at += 2;
+            if (count < 6 || count > length - at || !ChildType(buffer[at + 5])) return false;
+            town |= TownOriginalAt(buffer, at, count); at += count;
+        }
+        return at == length && town;
+    }
+
+    private static bool TownOriginalAt(byte[] buffer, int start, int length)
+    {
+        if (buffer[start] != 0x31 || buffer[start + 1] != 0x52 || buffer[start + 2] != 0x56
+            || buffer[start + 3] != 0x47 || buffer[start + 4] != NetProtocol.Version) return false;
+        int type = buffer[start + 5];
+        if (type == TownServices.TownServiceCodec.FragmentType || type == TownServices.TownServiceCodec.MessageType)
+            return true;
+        if (type != NetProtocol.MsgPresentationCompression) return false;
+        int end = start + length; bool found = false;
+        for (int at = start + 6; at < end;)
+        {
+            if (end - at < 2) return false;
+            int id = buffer[at++], count = buffer[at++];
+            if (count <= 15 || count > end - at || id != NetProtocol.ExtIdPresentationCompression) return false;
+            if (buffer[at + 8] != TownServices.TownServiceCodec.MessageType) return false;
+            found = true; at += count;
+        }
+        return found;
+    }
 }
