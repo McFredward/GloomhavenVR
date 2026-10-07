@@ -402,6 +402,20 @@ public static class WorldMaterialProgram
             Check(source.sharedMaterial==first,"nested actual camera boundary refreshes current local held roots and cached ancestry");
             LocalProps.Visuals.Clear();Center(camera);
             Check(WorldMaterialBudget.IsOwnedVariant(source.sharedMaterial),"nested actual camera boundary observes current local release without waiting for outer pass disposal");
+            Shader previous=first.shader;string[] keywords=first.shaderKeywords;Color tint=first.GetColor("_Tint");
+            Camera.CameraCallback late=cam=>
+            {
+                if(cam!=camera)return;
+                first.shader=Shader.Find("Amp_Low/Amp_Basic_Low");first.shaderKeywords=new[]{"_DESATURATION_ON"};first.SetColor("_Tint",Color.magenta);
+                WorldMaterialBudget.ConfigureAmbientWeight(()=>.24f);
+            };
+            Camera.onPreCull+=late;Color current=Center(camera);Camera.onPreCull-=late;
+            Material currentVariant=source.sharedMaterial;
+            Check(currentVariant.GetFloat("_GHVRWorldNativeRoute")==6&&currentVariant.IsKeywordEnabled("_DESATURATION_ON")
+                &&currentVariant.GetColor("_Tint")==Color.magenta&&Mathf.Approximately(currentVariant.GetFloat("_GHVRWorldAmbientWeight"),.24f)
+                &&current.r>.7f&&current.b>.7f&&current.g<.1f,
+                "nested actual final camera boundary reads current native shader keywords tint and ambient into current pixels");
+            first.shader=previous;first.shaderKeywords=keywords;first.SetColor("_Tint",tint);WorldMaterialBudget.ConfigureAmbientWeight(()=>1f);
         }
         Object.DestroyImmediate(registered);Object.DestroyImmediate(other);
         Center(camera);NativeWriteObserver.MeshReads=0;room.SetActive(false);Center(camera);

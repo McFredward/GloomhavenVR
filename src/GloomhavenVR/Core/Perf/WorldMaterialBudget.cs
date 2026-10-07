@@ -223,6 +223,17 @@ internal static partial class WorldMaterialBudget
                 if (_mode == 0 || !isActiveAndEnabled) return;
                 using IDisposable timing = PerfMonitor.Scope("WorldMaterial.PreCull");
                 using IDisposable pass = BeginPass();
+                if (_passDepth > 1)
+                {
+                    // A real nested Camera.Render is a new native mutation
+                    // boundary, even when an earlier factory read pass remains
+                    // open. Its current shaders/keywords/ambient cannot borrow
+                    // prepared material verdicts from that earlier camera.
+                    _prepared.Clear(); _metadata.Clear();
+                    _shareReads = PerfConfig.SharedEnvironmentMaterialReadsOn;
+                    _passAmbient = _shareReads ? _ambientWeight?.Invoke() ?? 1f : 1f;
+                    _refreshes = 0; _propRootReads = 0; _scopeNodeReads = 0;
+                }
                 int candidates = 0, changed = 0, native = 0, scopeRefusals = 0, shaderRefusals = 0, effectRefusals = 0, inactive = 0;
                 foreach (KeyValuePair<int, Surface> pair in _surfaces)
                 {

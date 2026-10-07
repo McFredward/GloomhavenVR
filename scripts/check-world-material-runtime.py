@@ -52,7 +52,7 @@ def main():
         ('mode-ignored',[('WorldMaterialBudget.Materials.cs','variant.SetFloat("_GHVRWorldMaterialMode", _mode);','variant.SetFloat("_GHVRWorldMaterialMode", 1);',1)],'actual private material binds independently requested mode'),
         ('native-material-shader-mutated',[('WorldMaterialBudget.Materials.cs','variant.shader = _shader;','original.shader = _shader;',2)],'private world shader never mutates original native material'),
         ('native-copy-omitted',[('WorldMaterialBudget.Materials.cs','variant.CopyPropertiesFromMaterial(original);','/* injected stale material properties */',1)],'between-eye native in-place material edits'),
-        ('material-pass-cross-eye-stale',[('WorldMaterialBudget.cs','_prepared.Clear();','/* injected cross-eye reuse */',5)],'between-eye native in-place material edits'),
+        ('material-pass-cross-eye-stale',[('WorldMaterialBudget.cs','_prepared.Clear();','/* injected cross-eye reuse */',6)],'between-eye native in-place material edits'),
         ('scope-cross-eye-stale',[('WorldMaterialBudget.cs','_scopes.Clear();','/* injected cross-eye scope verdict */',3),('WorldMaterialBudget.Scope.cs','_scopes.Clear();','/* injected cross-eye scope verdict */',1)],'current added native interaction between eyes'),
         ('foreign-slot-overwritten',[('WorldMaterialBudget.cs','original = Canonical(current);','original = Source(_slots[0]);',1)],'conditional restoration preserves same-count foreign slot replacement'),
         ('native-clone-boundary-missing',[('WorldMaterialBudget.cs','internal static void BeforeNativeContentChange() => _driver?.RestoreBindings();','internal static void BeforeNativeContentChange() { }',1)],'native content boundary restores original slot composition'),
@@ -87,7 +87,7 @@ def main():
         ('native-placement-coordinator-vetoed',[('WorldMaterialBudget.Scope.cs','type == typeof(ProceduralPlacementNotifierHandler)','false',1)],'exact original ProcGen root and native map coordinator tuple'),
         ('native-shadow-coordinator-vetoed',[('WorldMaterialBudget.Scope.cs','type == typeof(LightShadowsModifierController)','false',1)],'exact original ProcGen root and native map coordinator tuple'),
         ('native-coordinator-subclass-admitted',[('WorldMaterialBudget.Scope.cs','type == typeof(ApparanceMap)','component is ApparanceMap',1)],'unreviewed subclass never inherits permission'),
-        ('ambient-weight-ignored',[('WorldMaterialBudget.cs','_passAmbient = _shareReads ? _ambientWeight?.Invoke() ?? 1f : 1f;','_passAmbient = 1f;',1)],'actual private material binds independently requested ambient weight'),
+        ('ambient-weight-ignored',[('WorldMaterialBudget.cs','_passAmbient = _shareReads ? _ambientWeight?.Invoke() ?? 1f : 1f;','_passAmbient = 1f;',2)],'actual private material binds independently requested ambient weight'),
         ('renderer-mpb-read-per-slot',[('WorldMaterialBudget.Materials.cs','renderer.GetPropertyBlock(_slotBlock, slot);','renderer.GetPropertyBlock(_block);\n            renderer.GetPropertyBlock(_slotBlock, slot);',1)],'settled 64-source two-slot MPBs read renderer-wide blocks once per source'),
         ('registered-root-enumeration-lost',[('WorldMaterialBudget.Scope.cs','PropGrab.CopyVisualRoots(_propVisuals);','/* injected omitted registered props */',1)],'registered unheld prop subtree remains native'),
         ('remote-root-enumeration-lost',[('WorldMaterialBudget.Scope.cs','NetHeldProps.CopyVisualRoots(_propVisuals);','/* injected omitted remote held props */',1)],'remote held original visual remains native'),
@@ -96,6 +96,7 @@ def main():
         ('ambient-read-repeated',[('WorldMaterialBudget.Materials.cs','_shareReads ? _passAmbient : _ambientWeight?.Invoke() ?? 1f','_ambientWeight?.Invoke() ?? 1f',1)],'one synchronous pass reads current ambient config once'),
         ('native-writer-read-invalidation-lost',[('WorldMaterialBudget.cs','InvalidateScopeReads(); _prepared.Clear(); _metadata.Clear(); RestoreRenderer(renderer);','InvalidateScopeReads(); RestoreRenderer(renderer);',1)],'native writer boundary invalidates prepared material reads within an outer pass'),
         ('nested-prop-reads-stale',[('WorldMaterialBudget.cs','InvalidateScopeReads();\n            return new ReadPass(this);','if (_passDepth == 1) InvalidateScopeReads();\n            return new ReadPass(this);',1)],'nested actual camera boundary refreshes current local held roots'),
+        ('nested-native-material-reads-stale',[('WorldMaterialBudget.cs','if (_passDepth > 1)','if (_passDepth > 1 && bool.Parse("false"))',1)],'nested actual final camera boundary reads current native shader keywords tint and ambient'),
     ]
     variants=[('production',sources,'')]
     if not args.production_only:
