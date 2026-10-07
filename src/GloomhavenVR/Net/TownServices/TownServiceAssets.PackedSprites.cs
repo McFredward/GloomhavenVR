@@ -14,6 +14,11 @@ internal sealed partial class TownServiceAssets
     private readonly List<Sprite> _packedSprites = new();
     private float _nextPackedScan;
 
+    /// <summary>Load-time native dependency preparation, independent of the general
+    /// font/texture census interval. Existing preparation can discover an atlas
+    /// arriving after its first scan without scanning unrelated assets again.</summary>
+    internal void PreparePackedSprites() => ScanPackedSprites();
+
     /// <summary>Build638 delivered all33 required originals, but the observer never
     /// admitted them: Poison/Disarm belonged to dormant BattleOverlayCanvas members.
     /// A loaded-object Sprite census cannot create those members. The shipped atlas
@@ -32,6 +37,17 @@ internal sealed partial class TownServiceAssets
             if (atlas == null || _packedAtlases.Contains(atlas.GetInstanceID())) continue;
             var sprites = new Sprite[atlas.spriteCount];
             int count = atlas.GetSprites(sprites);
+            bool ready = count == sprites.Length;
+            for (int i = 0; i < count; i++)
+                ready &= sprites[i] != null && sprites[i].texture != null;
+            if (!ready)
+            {
+                // Atlas binding can finish after its Object appears in Resources.
+                // Never retain an empty-texture descriptor or mark that atlas done.
+                foreach (Sprite sprite in sprites)
+                    if (sprite != null) Object.Destroy(sprite);
+                continue;
+            }
             for (int i = 0; i < count; i++)
             {
                 Sprite sprite = sprites[i];
