@@ -1,10 +1,17 @@
 """Protect complete native Cubemap face/mip serialization and path identity."""
 from pathlib import Path
+import contextlib
+import io
+import json
+import os
 import sys
 import tempfile
+import types
 import unittest
+from unittest import mock
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'tools/quest-builder'))
+sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'tools/quest-recovery'))
 import full_textures
 from storage import BuildError
 
@@ -19,6 +26,69 @@ def cube():
 
 
 class NativeCubeTests(unittest.TestCase):
+    def staged_cubes(self, *, final_reference_failure=False, platform_failure=False):
+        import portable_decoder,pointer_recovery
+        temporary=tempfile.TemporaryDirectory();self.addCleanup(temporary.cleanup)
+        root=Path(temporary.name);project=root/'project';game=root/'game';cache=root/'cache'
+        (project/'QuestRecovery').mkdir(parents=True);game.mkdir();cache.mkdir()
+        (game/'images.bundle').write_bytes(b'owned native image container')
+        rows=[];objects=[]
+        for index in range(4):
+            is_cube=index<2;relative=f'Assets/Image{index}'+('.png' if is_cube else '.renderTexture')
+            path=project/relative;path.parent.mkdir(exist_ok=True);path.write_bytes(b'original exported image')
+            Path(str(path)+'.meta').write_text(f'fileFormatVersion: 2\nguid: {index+1:032x}\n')
+            rows.append({'path':relative,'guid':f'{index+1:032x}','objects':[{'collection':'cab-images','pathId':index+1,'fileId':8900000 if is_cube else 8400000,'classId':89 if is_cube else 84}]})
+            tree={**cube(),'m_TextureFormat':5} if is_cube else dict(m_Width=4,m_Height=4,m_ColorFormat=8,m_DepthStencilFormat=90,m_EnableCompatibleFormat=True,m_Dimension=2,m_AntiAliasing=1)
+            if platform_failure and index==3:tree['m_ColorFormat']=999
+            pixels=b'x'*504
+            objects.append(types.SimpleNamespace(assets_file=types.SimpleNamespace(name='cab-images'),path_id=index+1,
+                read_typetree=lambda tree=tree:tree,read=lambda pixels=pixels:types.SimpleNamespace(get_image_data=lambda:pixels)))
+        (project/'QuestRecovery/original-asset-identities.json').write_text(json.dumps({'identities':rows}))
+        environment=types.SimpleNamespace(objects=objects)
+        stream=io.StringIO()
+        with mock.patch.dict(os.environ,{full_textures.build_progress.ENV:'1'}),contextlib.redirect_stdout(stream), \
+             mock.patch.object(full_textures.build_progress.time,'monotonic',side_effect=range(10000)), \
+             mock.patch.object(pointer_recovery,'load_native',return_value=environment), \
+             mock.patch.object(portable_decoder,'build',return_value=['fixture-codec']):
+            if final_reference_failure:
+                with mock.patch.object(full_textures,'restore_native_texture_pointer_types',side_effect=OSError('reference receipt failed')),self.assertRaisesRegex(OSError,'reference receipt failed'):
+                    full_textures.stage(project,game,dotnet='unused',tool_cache=cache,cab_bundles={'cab-images':'images.bundle'})
+                report=None
+            elif platform_failure:
+                with self.assertRaisesRegex(BuildError,'RenderTexture format'):
+                    full_textures.stage(project,game,dotnet='unused',tool_cache=cache,cab_bundles={'cab-images':'images.bundle'})
+                report=None
+            else:
+                report=full_textures.stage(project,game,dotnet='unused',tool_cache=cache,cab_bundles={'cab-images':'images.bundle'})
+                for row in report['assets']:
+                    self.assertEqual(row['sha256'],__import__('hashlib').sha256((project/row['assetPath']).read_bytes()).hexdigest())
+                self.assertEqual(report['platformImageAudit']['nativePlatformImageCount'],2)
+        prefix=full_textures.build_progress.PREFIX
+        progress=[json.loads(line[len(prefix):]) for line in stream.getvalue().splitlines() if line.startswith(prefix)]
+        return report,progress
+
+    def test_native_cube_and_child_image_counters_use_their_actual_target_lists(self):
+        report,progress=self.staged_cubes()
+        self.assertEqual(report['nativeCubemapCount'],2)
+        for phase in ('prepare-items:native-cubemaps','prepare-items:platform-images'):
+            values=[row for row in progress if row['phase']==phase]
+            self.assertEqual([(row['status'],row['done'],row['total']) for row in values],[('start',0,2),('progress',1,2),('complete',2,2)])
+        phases=[row['phase'] for row in progress if row['status']=='complete']
+        self.assertEqual(phases,['prepare-items:platform-images','prepare-items:native-cubemaps'])
+
+    def test_final_reference_failure_does_not_complete_native_cube_counter(self):
+        _,progress=self.staged_cubes(final_reference_failure=True)
+        cube_progress=[row for row in progress if row['phase']=='prepare-items:native-cubemaps']
+        self.assertEqual(cube_progress[-1]['status'],'failed')
+        self.assertFalse(any(row['done']==2 or row['status']=='complete' for row in cube_progress))
+
+    def test_failed_child_image_propagates_without_false_parent_completion(self):
+        _,progress=self.staged_cubes(platform_failure=True)
+        for phase in ('prepare-items:native-cubemaps','prepare-items:platform-images'):
+            values=[row for row in progress if row['phase']==phase]
+            self.assertEqual(values[-1]['status'],'failed')
+            self.assertFalse(any(row['done']==2 or row['status']=='complete' for row in values))
+
     def test_native_texture_reference_types_change_real_nodes_and_refresh_current_hashes(self):
         import hashlib,json
         with tempfile.TemporaryDirectory() as root:

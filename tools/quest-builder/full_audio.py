@@ -5,7 +5,7 @@ from pathlib import Path
 import struct
 import sys
 
-from storage import BuildError, write_json, ImmutableFileHashes
+from storage import BuildError, write_json, ImmutableFileHashes, build_progress
 
 
 def ogg_packets(data):
@@ -85,47 +85,54 @@ def stage(project, game_data, *, dotnet, tool_cache, cab_bundles):
     owners = json.loads(Path(cab_bundles).read_text()) if isinstance(cab_bundles, (str, Path)) else cab_bundles
     owners = {key.casefold(): value for key, value in owners.items()}
     wanted = [obj for obj in objects.values() if obj["classId"] == 83 and obj["collection"].startswith("cab-")]
-    command = portable_decoder.build(tool_cache, dotnet)
-    assets, environments = [], {}
-    source_hashes = ImmutableFileHashes()
-    temporary = Path(tool_cache) / "original-audio-payloads"
-    temporary.mkdir(exist_ok=True)
-    for target in wanted:
-        container = owners[target["collection"]]
-        if container not in environments: environments[container] = load_native(UnityPy, game_data / container)
-        env = environments[container]
-        native = [obj for obj in env.objects if (obj.assets_file.name.casefold(), int(obj.path_id)) == (target["collection"], target["pathId"])]
-        if len(native) != 1: raise BuildError("Bundled audio lost its exact original native identity.")
-        fields = native[0].read_typetree(); resource = fields["m_Resource"]
-        if fields["m_CompressionFormat"] != 1:
-            raise BuildError("Bundled AudioClip compression changed; audit before reconstruction.")
-        bundle = next(iter(env.files.values()))
-        resource_name = resource["m_Source"].replace("\\", "/").rsplit("/", 1)[-1]
-        reader = bundle.files[resource_name]
-        reader.Position = resource["m_Offset"]
-        raw = reader.read_bytes(resource["m_Size"])
-        channels, rate, frames, original_packets = fsb_vorbis(raw, fields)
-        input_path = temporary / (target["guid"] + ".fsb")
-        output_path = temporary / (target["guid"] + ".ogg")
-        input_path.write_bytes(raw)
-        portable_decoder.execute(command, ("fsb", input_path, output_path, channels))
-        corrected = output_path.read_bytes(); packets = ogg_packets(corrected)
-        if not packets or packets[0][:7] != b"\x01vorbis" or packets[0][11] != channels or struct.unpack_from("<I", packets[0], 12)[0] != rate:
-            raise BuildError("Rebuilt native Vorbis header lost actual channels/frequency.")
-        if packets[3:] != original_packets:
-            raise BuildError("Native Vorbis repair changed original compressed audio packets.")
-        path = project / target["path"]
-        before = sha256(path)
-        path.write_bytes(corrected)
-        assets.append({"assetPath": target["path"], "guid": target["guid"], "fileId": target["fileId"],
-              "originalCollection": target["collection"], "originalPathId": target["pathId"],
-              "sourceContainer": container, "sourceContainerSha256": source_hashes.digest(game_data / container),
-              "originalFsbSha256": hashlib.sha256(raw).hexdigest(), "beforeSha256": before, "sha256": sha256(path),
-              "channels": channels, "frequency": rate, "samples": frames,
-              "compressedAudioPacketsPreserved": True, "originalCompressedPacketCount": len(original_packets),
-              "source": "original-native-FSB-channel-extension-and-unaltered-Vorbis-packets"})
-        input_path.unlink(); output_path.unlink()
-    receipt = {"schema": 1, "bundledAudioClipCount": len(assets), "assets": assets,
-               "unityImportVerified": False, "headsetAudioVerified": False}
-    write_json(project / "Assets/QuestOriginalCampaign/bundled-audio.json", receipt)
-    return receipt
+    counter = build_progress.Counter('prepare-items:bundled-audio', len(wanted), "items")
+    try:
+        command = portable_decoder.build(tool_cache, dotnet)
+        assets, environments = [], {}
+        source_hashes = ImmutableFileHashes()
+        temporary = Path(tool_cache) / "original-audio-payloads"
+        temporary.mkdir(exist_ok=True)
+        for target in wanted:
+            container = owners[target["collection"]]
+            if container not in environments: environments[container] = load_native(UnityPy, game_data / container)
+            env = environments[container]
+            native = [obj for obj in env.objects if (obj.assets_file.name.casefold(), int(obj.path_id)) == (target["collection"], target["pathId"])]
+            if len(native) != 1: raise BuildError("Bundled audio lost its exact original native identity.")
+            fields = native[0].read_typetree(); resource = fields["m_Resource"]
+            if fields["m_CompressionFormat"] != 1:
+                raise BuildError("Bundled AudioClip compression changed; audit before reconstruction.")
+            bundle = next(iter(env.files.values()))
+            resource_name = resource["m_Source"].replace("\\", "/").rsplit("/", 1)[-1]
+            reader = bundle.files[resource_name]
+            reader.Position = resource["m_Offset"]
+            raw = reader.read_bytes(resource["m_Size"])
+            channels, rate, frames, original_packets = fsb_vorbis(raw, fields)
+            input_path = temporary / (target["guid"] + ".fsb")
+            output_path = temporary / (target["guid"] + ".ogg")
+            input_path.write_bytes(raw)
+            portable_decoder.execute(command, ("fsb", input_path, output_path, channels))
+            corrected = output_path.read_bytes(); packets = ogg_packets(corrected)
+            if not packets or packets[0][:7] != b"\x01vorbis" or packets[0][11] != channels or struct.unpack_from("<I", packets[0], 12)[0] != rate:
+                raise BuildError("Rebuilt native Vorbis header lost actual channels/frequency.")
+            if packets[3:] != original_packets:
+                raise BuildError("Native Vorbis repair changed original compressed audio packets.")
+            path = project / target["path"]
+            before = sha256(path)
+            path.write_bytes(corrected)
+            assets.append({"assetPath": target["path"], "guid": target["guid"], "fileId": target["fileId"],
+                  "originalCollection": target["collection"], "originalPathId": target["pathId"],
+                  "sourceContainer": container, "sourceContainerSha256": source_hashes.digest(game_data / container),
+                  "originalFsbSha256": hashlib.sha256(raw).hexdigest(), "beforeSha256": before, "sha256": sha256(path),
+                  "channels": channels, "frequency": rate, "samples": frames,
+                  "compressedAudioPacketsPreserved": True, "originalCompressedPacketCount": len(original_packets),
+                  "source": "original-native-FSB-channel-extension-and-unaltered-Vorbis-packets"})
+            counter.add(1, target["path"])
+            input_path.unlink(); output_path.unlink()
+        receipt = {"schema": 1, "bundledAudioClipCount": len(assets), "assets": assets,
+                   "unityImportVerified": False, "headsetAudioVerified": False}
+        write_json(project / "Assets/QuestOriginalCampaign/bundled-audio.json", receipt)
+        counter.finish()
+        return receipt
+    except BaseException as error:
+        counter.fail(error)
+        raise

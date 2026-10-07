@@ -1,9 +1,16 @@
 """Check exact authored geometry and native UV reconstruction for ordinary Sprites."""
 import json
+import contextlib
+import hashlib
+import io
+import os
 from pathlib import Path
 import struct
 import sys
+import tempfile
+import types
 import unittest
+from unittest import mock
 
 root=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(root/'tools/quest-builder'));sys.path.insert(0,str(root/'tools/quest-recovery'))
@@ -33,6 +40,58 @@ def exported(native):
 
 
 class NativeSpriteTests(unittest.TestCase):
+    def staged_sprites(self, *, receipt_failure=False):
+        import pointer_recovery
+        temporary=tempfile.TemporaryDirectory();self.addCleanup(temporary.cleanup)
+        root=Path(temporary.name);project=root/'project';game=root/'game'
+        (project/'QuestRecovery').mkdir(parents=True);game.mkdir()
+        (game/'sprites.bundle').write_bytes(b'owned original Sprite container')
+        rows=[];objects=[]
+        collection=types.SimpleNamespace(name='cab-sprites',externals=[])
+        for index in range(3):
+            tree=fields();tree['m_SpriteAtlas']={'m_PathID':0}
+            tree['m_RD']['texture']={'m_FileID':0,'m_PathID':99}
+            relative=f'Assets/Sprite{index}.asset';path=project/relative;path.parent.mkdir(exist_ok=True);path.write_text(exported(tree))
+            rows.append({'path':relative,'guid':f'{index+1:032x}','objects':[{'collection':'cab-sprites','pathId':index+1,'fileId':21300000,'classId':213}]})
+            objects.append(types.SimpleNamespace(assets_file=collection,path_id=index+1,read_typetree=lambda tree=tree:tree,
+                get_raw_data=lambda index=index:b'exact native Sprite '+bytes([index])))
+        # Its already witnessed packed state is retained, not decoded again or
+        # credited as another nonpacked codec item.
+        packed={'collection':'cab-sprites','pathId':3,'assetPath':'Assets/Sprite2.asset',
+                'sha256':hashlib.sha256((project/'Assets/Sprite2.asset').read_bytes()).hexdigest()}
+        (project/'QuestRecovery/packed-sprites-fixture.json').write_text(json.dumps({'restoredMembers':[packed]}))
+        rows.append({'path':'Assets/Texture.png','guid':'f'*32,'objects':[{'collection':'cab-sprites','pathId':99,'fileId':2800000,'classId':28}]})
+        objects.append(types.SimpleNamespace(assets_file=collection,path_id=99,read_typetree=lambda:{'m_Width':2048,'m_Height':2048}))
+        (project/'QuestRecovery/original-asset-identities.json').write_text(json.dumps({'identities':rows}))
+        environment=types.SimpleNamespace(objects=objects);stream=io.StringIO()
+        with mock.patch.dict(os.environ,{full_sprites.build_progress.ENV:'1'}),contextlib.redirect_stdout(stream), \
+             mock.patch.object(full_sprites.build_progress.time,'monotonic',side_effect=range(10000)), \
+             mock.patch.object(pointer_recovery,'load_native',return_value=environment):
+            if receipt_failure:
+                with mock.patch.object(full_sprites,'write_json',side_effect=OSError('Sprite receipt failed')),self.assertRaisesRegex(OSError,'Sprite receipt failed'):
+                    full_sprites.stage(project,game,cab_bundles={'cab-sprites':'sprites.bundle'})
+                report=None
+            else:
+                report=full_sprites.stage(project,game,cab_bundles={'cab-sprites':'sprites.bundle'})
+                for row in report['assets']:
+                    self.assertEqual(row['sha256'],hashlib.sha256((project/row['assetPath']).read_bytes()).hexdigest())
+                    self.assertEqual(row['vertices'],[{'x':0,'y':0},{'x':.5,'y':0},{'x':0,'y':.5}])
+                self.assertEqual(hashlib.sha256((project/packed['assetPath']).read_bytes()).hexdigest(),packed['sha256'])
+        prefix=full_sprites.build_progress.PREFIX
+        progress=[json.loads(line[len(prefix):]) for line in stream.getvalue().splitlines() if line.startswith(prefix)]
+        return report,[value for value in progress if value['phase']=='prepare-items:native-sprites']
+
+    def test_sprite_counter_accepts_two_targets_and_preserves_packed_state(self):
+        report,progress=self.staged_sprites()
+        self.assertEqual((report['restoredNonPackedSpriteCount'],report['preservedPackedSpriteCount']),(2,1))
+        self.assertEqual([(row['status'],row['done'],row['total']) for row in progress],[('start',0,2),('progress',1,2),('complete',2,2)])
+        self.assertEqual(progress[1]['detail'],'Assets/Sprite0.asset')
+
+    def test_final_sprite_receipt_error_cannot_publish_complete_counter(self):
+        _,progress=self.staged_sprites(receipt_failure=True)
+        self.assertEqual(progress[-1]['status'],'failed')
+        self.assertFalse(any(row['status']=='complete' or row['done']==2 for row in progress))
+
     def test_original_rect_pivot_trim_and_vertices_are_retained(self):
         source=fields();before=exported(source)
         after,vertices,uv=full_sprites.restore_fields(before,source,2048,2048,{'guid':'a'*32,'fileId':2800000})

@@ -5,7 +5,7 @@ from pathlib import Path
 import re
 import sys
 
-from storage import BuildError, write_json, ImmutableFileHashes
+from storage import BuildError, write_json, ImmutableFileHashes, build_progress
 
 
 def mip_sizes(width, count, bytes_per_pixel):
@@ -155,55 +155,62 @@ def stage(project, game_data, *, dotnet, tool_cache, cab_bundles):
     owners = json.loads(Path(cab_bundles).read_text()) if isinstance(cab_bundles, (str, Path)) else cab_bundles
     owners = {key.casefold(): value for key, value in owners.items()}
     targets = [target for target in objects.values() if target['classId'] == 89]
-    command = portable_decoder.build(tool_cache, dotnet)
-    temporary = Path(tool_cache)/'original-cubemap-payloads'; temporary.mkdir(exist_ok=True)
-    environments, assets, path_map = {}, [], {}
-    source_hashes = ImmutableFileHashes()
-    for target in targets:
-        container = owners[target['collection']] if target['collection'].startswith('cab-') else target['collection']
-        if container not in environments: environments[container] = load_native(UnityPy, game_data/container)
-        native = [obj for obj in environments[container].objects if (obj.assets_file.name.casefold(), int(obj.path_id)) == (target['collection'], target['pathId'])]
-        if len(native) != 1: raise BuildError('Original Cubemap identity is not unique.')
-        fields = native[0].read_typetree(); raw = native[0].read().get_image_data()
-        source_format = fields['m_TextureFormat']; width, count = fields['m_Width'], fields['m_MipCount']
-        if source_format == 5:
-            pixels, destination_format = raw, 5
-        elif source_format in (10, 24):
-            input_path, output_path = temporary/(target['guid']+'.blocks'), temporary/(target['guid']+'.pixels')
-            input_path.write_bytes(raw)
-            portable_decoder.execute(command, ('bc6h' if source_format == 24 else 'bc1', input_path, output_path, width, count))
-            pixels, destination_format = output_path.read_bytes(), 17 if source_format == 24 else 4
-            input_path.unlink(); output_path.unlink()
-        else:
-            raise BuildError('Original Cubemap has an unwitnessed texture format: '+str(source_format))
-        path = project/target['path']; replacement = path.with_suffix('.asset')
-        if replacement != path and replacement.exists(): raise BuildError('Portable Cubemap output already exists.')
-        before = sha256(path)
-        replacement.write_text(native_yaml(fields, pixels, destination_format, target['fileId']))
-        Path(str(replacement)+'.meta').write_text('fileFormatVersion: 2\nguid: '+target['guid']+'\nNativeFormatImporter:\n  externalObjects: {}\n  mainObjectFileID: '+str(target['fileId'])+'\n  userData:\n  assetBundleName:\n  assetBundleVariant:\n')
-        if replacement != path:
-            path.unlink(); Path(str(path)+'.meta').unlink()
-        new_path = replacement.relative_to(project).as_posix(); path_map[target['path']] = new_path
-        sizes = mip_sizes(width, count, 8 if destination_format == 17 else 4)
-        cursor, mip_receipts = 0, []
-        for face in range(6):
-            for mip, size in enumerate(sizes):
-                data = pixels[cursor:cursor+size]; cursor += size
-                mip_receipts.append({'face':face,'mip':mip,'size':size,'sha256':hashlib.sha256(data).hexdigest()})
-        assets.append({'assetPath':new_path,'originalRecoveredPath':target['path'],'guid':target['guid'],'fileId':target['fileId'],
-              'originalCollection':target['collection'],'originalPathId':target['pathId'],'sourceContainer':container,
-              'sourceContainerSha256':source_hashes.digest(game_data/container),'originalImageSha256':hashlib.sha256(raw).hexdigest(),
-              'beforeSha256':before,'sha256':sha256(replacement),'sourceFormat':source_format,'textureFormat':destination_format,
-              'width':width,'mipCount':count,'faceCount':6,'isReadable':fields['m_IsReadable'],'pixelByteCount':len(pixels),
-              'pixelSha256':hashlib.sha256(pixels).hexdigest(),'mips':mip_receipts,'sourceMipChainPreserved':True})
-    manifests = remap_manifests(project,path_map)
-    receipt={'schema':1,'nativeCubemapCount':len(assets),'assets':assets,'pathMap':path_map,'updatedManifests':manifests,
-             'source':'original-native-CAB-pathID-all-six-faces-all-original-mip-levels',
-             'unityImportVerified':False,'originalGpuParityVerified':False,'headsetGpuVerified':False}
-    write_json(project/'Assets/QuestOriginalCampaign/native-cubemaps.json',receipt)
-    receipt['platformImageAudit'] = audit_platform_images(project,game_data,objects,owners, source_hashes=source_hashes)
-    receipt['nativeTextureReferences']=restore_native_texture_pointer_types(project)
-    return receipt
+    counter = build_progress.Counter('prepare-items:native-cubemaps', len(targets), "items")
+    try:
+        command = portable_decoder.build(tool_cache, dotnet)
+        temporary = Path(tool_cache)/'original-cubemap-payloads'; temporary.mkdir(exist_ok=True)
+        environments, assets, path_map = {}, [], {}
+        source_hashes = ImmutableFileHashes()
+        for target in targets:
+            container = owners[target['collection']] if target['collection'].startswith('cab-') else target['collection']
+            if container not in environments: environments[container] = load_native(UnityPy, game_data/container)
+            native = [obj for obj in environments[container].objects if (obj.assets_file.name.casefold(), int(obj.path_id)) == (target['collection'], target['pathId'])]
+            if len(native) != 1: raise BuildError('Original Cubemap identity is not unique.')
+            fields = native[0].read_typetree(); raw = native[0].read().get_image_data()
+            source_format = fields['m_TextureFormat']; width, count = fields['m_Width'], fields['m_MipCount']
+            if source_format == 5:
+                pixels, destination_format = raw, 5
+            elif source_format in (10, 24):
+                input_path, output_path = temporary/(target['guid']+'.blocks'), temporary/(target['guid']+'.pixels')
+                input_path.write_bytes(raw)
+                portable_decoder.execute(command, ('bc6h' if source_format == 24 else 'bc1', input_path, output_path, width, count))
+                pixels, destination_format = output_path.read_bytes(), 17 if source_format == 24 else 4
+                input_path.unlink(); output_path.unlink()
+            else:
+                raise BuildError('Original Cubemap has an unwitnessed texture format: '+str(source_format))
+            path = project/target['path']; replacement = path.with_suffix('.asset')
+            if replacement != path and replacement.exists(): raise BuildError('Portable Cubemap output already exists.')
+            before = sha256(path)
+            replacement.write_text(native_yaml(fields, pixels, destination_format, target['fileId']))
+            Path(str(replacement)+'.meta').write_text('fileFormatVersion: 2\nguid: '+target['guid']+'\nNativeFormatImporter:\n  externalObjects: {}\n  mainObjectFileID: '+str(target['fileId'])+'\n  userData:\n  assetBundleName:\n  assetBundleVariant:\n')
+            if replacement != path:
+                path.unlink(); Path(str(path)+'.meta').unlink()
+            new_path = replacement.relative_to(project).as_posix(); path_map[target['path']] = new_path
+            sizes = mip_sizes(width, count, 8 if destination_format == 17 else 4)
+            cursor, mip_receipts = 0, []
+            for face in range(6):
+                for mip, size in enumerate(sizes):
+                    data = pixels[cursor:cursor+size]; cursor += size
+                    mip_receipts.append({'face':face,'mip':mip,'size':size,'sha256':hashlib.sha256(data).hexdigest()})
+            assets.append({'assetPath':new_path,'originalRecoveredPath':target['path'],'guid':target['guid'],'fileId':target['fileId'],
+                  'originalCollection':target['collection'],'originalPathId':target['pathId'],'sourceContainer':container,
+                  'sourceContainerSha256':source_hashes.digest(game_data/container),'originalImageSha256':hashlib.sha256(raw).hexdigest(),
+                  'beforeSha256':before,'sha256':sha256(replacement),'sourceFormat':source_format,'textureFormat':destination_format,
+                  'width':width,'mipCount':count,'faceCount':6,'isReadable':fields['m_IsReadable'],'pixelByteCount':len(pixels),
+                  'pixelSha256':hashlib.sha256(pixels).hexdigest(),'mips':mip_receipts,'sourceMipChainPreserved':True})
+            counter.add(1, target['path'])
+        manifests = remap_manifests(project,path_map)
+        receipt={'schema':1,'nativeCubemapCount':len(assets),'assets':assets,'pathMap':path_map,'updatedManifests':manifests,
+                 'source':'original-native-CAB-pathID-all-six-faces-all-original-mip-levels',
+                 'unityImportVerified':False,'originalGpuParityVerified':False,'headsetGpuVerified':False}
+        write_json(project/'Assets/QuestOriginalCampaign/native-cubemaps.json',receipt)
+        receipt['platformImageAudit'] = audit_platform_images(project,game_data,objects,owners, source_hashes=source_hashes)
+        receipt['nativeTextureReferences']=restore_native_texture_pointer_types(project)
+        counter.finish()
+        return receipt
+    except BaseException as error:
+        counter.fail(error)
+        raise
 
 
 def audit_platform_images(project,game_data,objects,owners, *, source_hashes=None):
@@ -216,32 +223,39 @@ def audit_platform_images(project,game_data,objects,owners, *, source_hashes=Non
         raise BuildError('Native 3D/array images require exact format/mip recovery before importing this game version.')
     targets=[row for row in objects.values() if row['classId']==84 or
              row['classId']==28 and Path(row['path']).suffix.casefold()=='.texture2d']
-    assets=[]
-    source_hashes = source_hashes if source_hashes is not None else ImmutableFileHashes()
-    environments = {}
-    for target in targets:
-        container=owners.get(target['collection'],target['collection'])
-        if container not in environments: environments[container] = load_native(UnityPy,game_data/container)
-        env = environments[container]
-        matches=[obj for obj in env.objects if (obj.assets_file.name.casefold(),int(obj.path_id))==(target['collection'],target['pathId'])]
-        if len(matches)!=1:raise BuildError('Native platform-sensitive image identity is unresolved.')
-        fields=matches[0].read_typetree()
-        row={'assetPath':target['path'],'guid':target['guid'],'fileId':target['fileId'],'classId':target['classId'],
-             'originalCollection':target['collection'],'originalPathId':target['pathId'],
-             'sourceContainer':container,'sourceContainerSha256':source_hashes.digest(game_data/container),
-             'sha256':sha256(project/target['path']),'width':fields['m_Width'],'height':fields['m_Height']}
-        if target['classId']==28:
-            if fields['m_TextureFormat']!=1 or fields.get('m_PlatformBlob') or fields['m_MipCount']!=1:
-                raise BuildError('Native font texture encoding changed; audit before this game version is ported.')
-            row.update(textureFormat=1,mipCount=1,nativeEncoding='uncompressed-Alpha8-no-platform-blob')
-        else:
-            if fields['m_ColorFormat']!=8 or fields['m_DepthStencilFormat'] not in (90,92) or not fields['m_EnableCompatibleFormat']:
-                raise BuildError('Native RenderTexture format/fallback contract changed.')
-            row.update(colorFormat=fields['m_ColorFormat'],depthStencilFormat=fields['m_DepthStencilFormat'],
-                       compatibleFormatFallback=fields['m_EnableCompatibleFormat'],dimension=fields['m_Dimension'],
-                       antiAliasing=fields['m_AntiAliasing'],nativeEncoding='runtime-render-target-no-serialized-PC-texels')
-        assets.append(row)
-    receipt={'schema':1,'nativePlatformImageCount':len(assets),'unsupportedImageClassCount':0,'assets':assets,
-             'androidGpuFormatsVerified':False,'headsetPictureVerified':False}
-    write_json(project/'Assets/QuestOriginalCampaign/native-platform-images.json',receipt)
-    return receipt
+    counter = build_progress.Counter('prepare-items:platform-images', len(targets), "items")
+    try:
+        assets=[]
+        source_hashes = source_hashes if source_hashes is not None else ImmutableFileHashes()
+        environments = {}
+        for target in targets:
+            container=owners.get(target['collection'],target['collection'])
+            if container not in environments: environments[container] = load_native(UnityPy,game_data/container)
+            env = environments[container]
+            matches=[obj for obj in env.objects if (obj.assets_file.name.casefold(),int(obj.path_id))==(target['collection'],target['pathId'])]
+            if len(matches)!=1:raise BuildError('Native platform-sensitive image identity is unresolved.')
+            fields=matches[0].read_typetree()
+            row={'assetPath':target['path'],'guid':target['guid'],'fileId':target['fileId'],'classId':target['classId'],
+                 'originalCollection':target['collection'],'originalPathId':target['pathId'],
+                 'sourceContainer':container,'sourceContainerSha256':source_hashes.digest(game_data/container),
+                 'sha256':sha256(project/target['path']),'width':fields['m_Width'],'height':fields['m_Height']}
+            if target['classId']==28:
+                if fields['m_TextureFormat']!=1 or fields.get('m_PlatformBlob') or fields['m_MipCount']!=1:
+                    raise BuildError('Native font texture encoding changed; audit before this game version is ported.')
+                row.update(textureFormat=1,mipCount=1,nativeEncoding='uncompressed-Alpha8-no-platform-blob')
+            else:
+                if fields['m_ColorFormat']!=8 or fields['m_DepthStencilFormat'] not in (90,92) or not fields['m_EnableCompatibleFormat']:
+                    raise BuildError('Native RenderTexture format/fallback contract changed.')
+                row.update(colorFormat=fields['m_ColorFormat'],depthStencilFormat=fields['m_DepthStencilFormat'],
+                           compatibleFormatFallback=fields['m_EnableCompatibleFormat'],dimension=fields['m_Dimension'],
+                           antiAliasing=fields['m_AntiAliasing'],nativeEncoding='runtime-render-target-no-serialized-PC-texels')
+            assets.append(row)
+            counter.add(1, target['path'])
+        receipt={'schema':1,'nativePlatformImageCount':len(assets),'unsupportedImageClassCount':0,'assets':assets,
+                 'androidGpuFormatsVerified':False,'headsetPictureVerified':False}
+        write_json(project/'Assets/QuestOriginalCampaign/native-platform-images.json',receipt)
+        counter.finish()
+        return receipt
+    except BaseException as error:
+        counter.fail(error)
+        raise
