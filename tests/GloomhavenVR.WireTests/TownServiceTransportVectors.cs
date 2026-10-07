@@ -532,6 +532,7 @@ internal static class TownServiceTransportVectors
             var sender = new ExtrasSendScheduler(65536, NetProtocol.MsgUseBarAnimation, NetProtocol.MsgUseBarAnimationFragments);
             var receiver = new TownServiceFragments(); var arrived = new HashSet<ushort>();
             var expected = new Dictionary<ushort, byte[]>(); int otherPages = 0;
+            var progressed = new HashSet<int>();
             var backgrounds = new List<byte[]>();
             foreach (byte kind in new[] { NetProtocol.MsgExtras, NetProtocol.MsgUseBarAnimation,
                 NetProtocol.MsgNativeBoard, NetProtocol.MsgCardAppearance, NetProtocol.MsgItemAppearance, NetProtocol.MsgNativeDecisionPrompt })
@@ -579,7 +580,8 @@ internal static class TownServiceTransportVectors
                 byte[][] pages = PresentationBatch.TryRead(packet, packet.Length, out var batch) ? batch! : new[] { packet };
                 foreach (byte[] page in pages)
                 {
-                    if (TownServiceFragments.Stream(page, page.Length) < 0) { otherPages++; continue; }
+                    if (TownServiceFragments.Stream(page, page.Length) < 0)
+                    { otherPages++; progressed.Add(NetPacket.PeekType(page, page.Length)); continue; }
                     byte[]? full = receiver.Accept(2, page, page.Length, now); if (full == null) continue;
                     byte[][] modules = TownServiceCodec.TryReadBundle(full, full.Length, out var packed) ? packed! : new[] { full };
                     foreach (byte[] module in modules)
@@ -630,6 +632,7 @@ internal static class TownServiceTransportVectors
             int before = otherPages;
             for (int tick = 0; tick < 120; tick++) { Busy(); Accept(sender.NextBatch(now), now, 5); now += .051; }
             t.True(otherPages - before >= 120, "six saturated original streams continue after finite first-picture bursts");
+            t.Equal(6, progressed.Count, "every one of the six saturated original streams makes progress");
             Console.WriteLine("TOWN_REPEATED count=" + count + " prior=" + priorInFlight + " withdraw=" + withdraw
                 + " first=" + timings[0].ToString("F3") + " second=" + timings[1].ToString("F3") + " other=" + otherPages);
         }
@@ -701,7 +704,9 @@ internal static class TownServiceTransportVectors
                         if (!TownServiceCodec.TryRead(module, module.Length, out var frame)) continue;
                         t.True(expected.TryGetValue(frame!.Module, out var source), "retired old offered-card metadata is not replayed into the new picture");
                         if (!expected.TryGetValue(frame.Module, out source)) continue;
-                        t.Wire(source, module, source.Length, "unchanged native originals migrate byte exactly; only the changed owner source is replaced");
+                        t.Equal(source.Length, module.Length, "obsolete differently shaped original metadata is not replayed into the new card");
+                        if (module.Length == source.Length)
+                            t.Wire(source, module, source.Length, "unchanged native originals migrate byte exactly; only the changed owner source is replaced");
                         arrived.Add(frame.Module);
                     }
                 }
