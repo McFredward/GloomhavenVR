@@ -156,6 +156,9 @@ internal static class NetProtocol
     /// <summary>Exact native module bundle with shared original property values.
     /// Reduces repeated metadata without substituting observer defaults or image pixels.</summary>
     public const byte ExtIdTownOriginalValuePool = 110;
+    /// <summary>Second held-card pose, source and grip on the same compact rig clock
+    /// as the primary card. Explicit absence supersedes older fragmented extras.</summary>
+    public const byte ExtIdRigSecondHeldCard = 111;
     /// <summary>Owner fan insertion gap: one byte gap + 1; zero clears the marker.</summary>
     public const byte ExtIdFanInsertionGap = 71;
     /// <summary>Native video source and shared pose, independent of the legacy window record21.</summary>
