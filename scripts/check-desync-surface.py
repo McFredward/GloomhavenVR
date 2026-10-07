@@ -12,11 +12,11 @@ thrown anywhere under that dispatch — INCLUDING out of one of our Harmony patc
 is not logged as a mod bug. It is shown to the player as the GAME's "Desynchronization
 occurred" dialog, and the session is shut down with a single Main Menu button.
 
-Twelve of the mod's patch classes sit on such a type today, and the mod patches the five
+Several of the mod's patch classes sit on such a type, and the mod patches the five
 heaviest receivers in the table (Choreographer 27 actions, CardsHandManager 13,
 NewPartyDisplayUI 10, UIReadyToggle 8, TakeDamagePanel 3). That is not a reason to panic
 — most of those bodies genuinely cannot throw — but it IS a reason never to add a
-thirteenth without somebody looking.
+new receiver patch without somebody looking.
 
 So this script does not guess whether a body is safe. It asserts that every patch class
 on a receiver type appears in `docs/NET-ACTION-SURFACE.md` with a verdict, and fails on a
@@ -90,6 +90,7 @@ RECEIVERS = {
 }
 
 VERDICTS = {"ISOLATED", "GUARDED-DEEPER", "CANNOT-THROW", "SELF-GUARDED", "WAIVED"}
+CLASS_NAME = r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*"
 
 
 def patched_classes() -> dict[str, tuple[str, set[str]]]:
@@ -104,9 +105,13 @@ def patched_classes() -> dict[str, tuple[str, set[str]]]:
         cells = [c.strip() for c in line.strip("|").split("|")]
         if len(cells) < 2:
             continue
-        m = re.search(r"`([A-Za-z0-9_]+)`.*?<sub>([^<:]+):\d+</sub>", cells[0])
-        if m:
-            cur_cls, cur_file = m.group(1), m.group(2)
+        if cells[0] != "&nbsp;":
+            # Only the generated continuation marker inherits an owner. A new,
+            # malformed or unrelated table row must not borrow the previous patch.
+            cur_cls = cur_file = None
+            m = re.search(rf"`({CLASS_NAME})`.*?<sub>([^<:]+):\d+</sub>", cells[0])
+            if m:
+                cur_cls, cur_file = m.group(1), m.group(2)
         tgt = re.match(r"`([A-Za-z0-9_]+)\.", cells[1])
         if not tgt or cur_cls is None:
             continue
@@ -122,7 +127,7 @@ def ledger_verdicts() -> dict[str, str]:
         return {}
     out: dict[str, str] = {}
     for line in LEDGER.read_text(encoding="utf-8").splitlines():
-        m = re.match(r"\|\s*`([A-Za-z0-9_]+)`\s*\|[^|]*\|\s*\*\*([A-Z-]+)\*\*", line)
+        m = re.match(rf"\|\s*`({CLASS_NAME})`\s*\|[^|]*\|\s*\*\*([A-Z-]+)\*\*", line)
         if m:
             out[m.group(1)] = m.group(2)
     return out

@@ -936,6 +936,18 @@
       ]
     },
     {
+      "id": "desync-surface-parser",
+      "command": [
+        "python3",
+        "tests/test_desync_surface.py"
+      ],
+      "groups": [
+        "local",
+        "ci",
+        "source"
+      ]
+    },
+    {
       "id": "hw-verify",
       "command": [
         "python3",
