@@ -49,7 +49,11 @@ assert 'RetireSceneryBackings();' in tick
 assert 'ForceUnseenOpaque();' not in tick
 assert mr.count('ForceUnseenOpaque(') == 1 # declaration, no creation caller
 assert 'HideSkyGeometry();' in tick and 'ForceSolid(head, key);' in tick
-assert '_file != null && Enabled.Value && VRSession.IsRunning;' in mr
+backings=re.search(r'internal static bool BackingsWanted\s*=>([^;]+);', mr)
+assert backings is not None
+assert '_file != null && Enabled.Value && VRSession.IsRunning' in backings.group(1)
+assert '&& (!QuestStandalonePlatform.Enabled || QuestStandalonePlatform.PassthroughActive)' in backings.group(1)
+assert 'Color key = QuestStandalonePlatform.MixedRealityClearColor(KeyColor.Value);' in tick
 assert mr.count('"INERT since build 532. MR backings are UI-only. Retained for configuration compatibility. "') == 7
 restore=mr[mr.index('private static void RestoreUnseenUnderlays('):mr.index('private static void RestoreSky(')]
 for name in ('plate', 'fill', 'rim'):

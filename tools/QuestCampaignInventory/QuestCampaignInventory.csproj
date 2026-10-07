@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnableUnsafeBinaryFormatterSerialization>true</EnableUnsafeBinaryFormatterSerialization>
+    <NoWarn>$(NoWarn);SYSLIB0011</NoWarn>
+    <GameManaged Condition="'$(GameManaged)' == ''">../../ressources/GH_Data/Managed</GameManaged>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="ScenarioRuleLibrary"><HintPath>$(GameManaged)/ScenarioRuleLibrary.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="SharedLibrary"><HintPath>$(GameManaged)/SharedLibrary.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+</Project>

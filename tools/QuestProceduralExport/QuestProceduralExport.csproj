@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>QuestProceduralExport</AssemblyName>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <GameManaged Condition="'$(GameManaged)' == ''">../../ressources/GH_Data/Managed</GameManaged>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="All" />
+    <Reference Include="GH.Runtime"><HintPath>$(GameManaged)/GH.Runtime.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="GH.Shared"><HintPath>$(GameManaged)/GH.Shared.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="ScenarioRuleLibrary"><HintPath>$(GameManaged)/ScenarioRuleLibrary.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="SharedLibrary"><HintPath>$(GameManaged)/SharedLibrary.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Apparance.Net"><HintPath>$(GameManaged)/Apparance.Net.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Apparance.Unity"><HintPath>$(GameManaged)/Apparance.Unity.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine"><HintPath>$(GameManaged)/UnityEngine.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(GameManaged)/UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.JSONSerializeModule"><HintPath>$(GameManaged)/UnityEngine.JSONSerializeModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.AssetBundleModule"><HintPath>$(GameManaged)/UnityEngine.AssetBundleModule.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+</Project>

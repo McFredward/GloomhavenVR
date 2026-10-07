@@ -329,6 +329,7 @@ internal sealed partial class FlatScreen
     /// <summary>One captured backbuffer camera + everything needed to restore it.</summary>
     private sealed class CapturedCamera
     {
+        internal FlatScreen Owner = null!;
         public Camera Camera = null!;
         public CameraClearFlags OriginalClearFlags;
         public Color OriginalBackground;
@@ -441,6 +442,8 @@ internal sealed partial class FlatScreen
     private void OnSceneLoaded(Core.Events.SceneLoadedEvent e)
     {
         ReleaseStack();
+        _questEvidenceSceneHandle = -1;
+        _questEvidenceSamples = 0;
         // A rescue is asked for by a watchdog watching ONE stuck flow in ONE scene. A scene load
         // ends that flow's world, so the latch is dropped here rather than trusted to a requester
         // that may itself have been destroyed with the scene. This can never strand the player:
@@ -483,16 +486,27 @@ internal sealed partial class FlatScreen
         TickManualChord();
         UpdateScreenTakeover();
 
-        bool want = !preMenu && WantVisible();
+        // B616's content verification still runs in QuestOriginalStartup, before
+        // any original Bootstrap/Intro/menu exists. ShowIntro normally accepts
+        // this Menu2D scene and captures its synthetic, mask-zero camera into a
+        // head-following blank quad (the capture records its lazy-follow tick).
+        // Keep only the reusable preparation artwork there, using ordinary Hide
+        // restoration. Genuine native scenes retain their complete screen policy.
+        bool questPreparation = QuestStandalonePlatform.SuppressStartupScreen(SceneManager.GetActiveScene().name);
+        bool want = !questPreparation && !preMenu && WantVisible();
         if (want && !_visible)
             Show();
         else if (!want && _visible)
             Hide();
 
         if (!_visible)
+        {
+            TickQuestPresentationEvidence(want);
             return;
+        }
 
         CaptureStack();
+        TickQuestPresentationEvidence(want);
 
         FollowHead();
         TickPointer();

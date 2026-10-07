@@ -78,6 +78,7 @@ status; it is not the player manual.
 | [../docs/performance/FRAME-609-ANALYSIS.md](../docs/performance/FRAME-609-ANALYSIS.md) | Natural-motion resolution and figure-detail evidence, loaded hitches and confidence limits |
 | [QUEST3-IMPLEMENTATION.md](QUEST3-IMPLEMENTATION.md) | Authorized Quest implementation branch, actual hardware checkpoint evidence and outstanding full-game gates |
 | [QUEST3-HARDWARE-609.md](QUEST3-HARDWARE-609.md) | Private Quest diagnostic installation, controls, evidence capture and explicit limits before campaign/multiplayer startup |
+| [QUEST3-WIRELESS-INSTALL.md](QUEST3-WIRELESS-INSTALL.md) | Windows double-click Wi-Fi ADB installer, remembered headset/source, data-preserving updates and connection recovery |
 | [QUEST3-PORT-PLAN.md](QUEST3-PORT-PLAN.md) | Quest 3 campaign port: local APK conversion, embedded Steam logo/name/ID without store/cloud services, necessary EOS multiplayer exception and native passthrough; implementation authorized 2026-10-03 |
 | [QUEST3-CRITICAL-SOLUTIONS.md](QUEST3-CRITICAL-SOLUTIONS.md) | Concrete future solutions for asset reconstruction, Apparance baking, generated ARM64 mod integration, original multiplayer, offline Steam identity, manual save transfer and Quest performance |
 | [QUEST3-PREFLIGHT-AND-BUILDER.md](QUEST3-PREFLIGHT-AND-BUILDER.md) | Source-backed preflight blockers and a builder maintenance contract: current mod/patch/helper/resource discovery, coherent inputs, dependency-aware caches and N -> N+1 acceptance |

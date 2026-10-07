@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT / "tools/quest-builder"))
 import builder
 import profile as identity
 import storage
+import native_plugins
 
 
 def png():
@@ -163,7 +164,7 @@ class SnapshotTests(Temporary):
         with self.assertRaises(storage.BuildError):
             storage.snapshot(source, records, target)
         self.assertFalse(target.exists())
-        self.assertEqual(list(target.parent.iterdir()), [])
+        self.assertFalse((target.with_name(target.name + ".staging") / ".snapshot.json").exists())
 
     def test_stage_reuse_invalidates_changed_outputs(self):
         output = self.root / "output"
@@ -275,12 +276,42 @@ class SafetyAndProcessTests(Temporary):
         self.assertEqual(builder.original_version(data), "2021.3.5f1")
 
 
+class RecoveryImportTests(Temporary):
+    def test_official_tmp_archive_imports_in_fresh_cli_without_recovery_path(self):
+        # Other recovery suites add their folder to sys.path. A real Wizard
+        # child starts cold, which exposed the post-export Windows failure.
+        code = r"""
+import sys
+from pathlib import Path
+from unittest.mock import patch
+sys.path.insert(0, str(Path(sys.argv[1]) / 'tools/quest-builder'))
+import builder
+assert 'recover' not in sys.modules
+with patch('dependencies.download_sdk', side_effect=RuntimeError('download reached')) as download:
+    try:
+        builder.owned_tmp_source_archive(Path(sys.argv[2]))
+    except RuntimeError as error:
+        assert str(error) == 'download reached', str(error)
+    else:
+        raise AssertionError('Expected intercepted archive download')
+assert Path(sys.modules['recover'].__file__).resolve() == Path(sys.argv[1]) / 'tools/quest-recovery/recover.py'
+assert download.call_args.args[0]['hash'] == '1ce172027b906a30be33cefe7b2ee46e1c8d35f729359b8b9785fc120d57b637'
+assert download.call_args.kwargs == {'algorithm': 'sha256'}
+print('Cold helper import reached pinned archive acquisition')
+"""
+        result = subprocess.run([sys.executable, '-I', '-B', '-c', code,
+                                 str(ROOT), str(self.root / 'cache')],
+                                cwd=self.root, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('Cold helper import', result.stdout)
+
+
 class ApkTests(Temporary):
     def setUp(self):
         super().setUp()
         self.output = self.root
         self.inputs = {"target": "probe", "inputKey": "chosen", "profileKey": "identity", "profile": {"isDummy": True}}
-        self.tools = {"unityVersion": "2021.3.5f1", "apksigner": "fixture-apksigner", "aapt": "fixture-aapt"}
+        self.tools = {"unityVersion": "2021.3.5f1", "java": "fixture-java", "apksigner": "fixture-apksigner.jar", "aapt": "fixture-aapt"}
         profile = self.output / "identities/identity/quest-profile.json"
         storage.write_json(profile, identity.dummy_identity())
         self.apk = self.output / "fixture.apk"
@@ -305,9 +336,105 @@ class ApkTests(Temporary):
                 archive.writestr(extra, b"fixture only")
 
     def tool_output(self, argv, *args, **kwargs):
-        if argv[0] == "fixture-apksigner":
+        if argv[0] == "fixture-java":
+            self.assertEqual(argv[1:3], ["-jar", "fixture-apksigner.jar"])
             return "Signer #1 certificate SHA-256 digest: " + "a" * 64
         return "package: name='" + builder.PACKAGE + "' versionCode='1'"
+
+    def campaign_fixture(self, omit=None, input_key=None, backend="proton-arm64ec-fex"):
+        self.inputs["target"] = "game"
+        self.inputs["inputKey"] = "c" * 64
+        self.inputs["proceduralBackend"] = backend
+        self.metadata["inputKey"] = self.inputs["inputKey"]
+        self.metadata["target"] = "game"
+        self.metadata["graphicsApi"] = "Vulkan"
+        native_names = {"libQuestApparance.so", "libopus_egpv.so"}
+        native_names.update(native_plugins.PROTON_REQUIRED if backend == "proton-arm64ec-fex" else {"libquest_box64.so", "libquest_wineserver.so"})
+        native_rows = [{"path": native_plugins.PREFIX + name, "sha256": storage.value_hash(name), "size": 64}
+                       for name in sorted(native_names)]
+        native_contract = {"schema": 1, "backend": backend, "files": native_rows}
+        self.metadata.update(proceduralBackend=backend, stagedProceduralNativeFiles=native_rows)
+        storage.write_json(self.evidence, self.metadata)
+        self.fixture_apk()
+        bank = self.apk.parent / "GloomhavenVR-Quest-content.zip"
+        with zipfile.ZipFile(bank, "w") as archive:
+            archive.writestr("StreamingAssets/Rulebase/fixture", b"owned fixture")
+        mod_bank = self.root / "mod-content.zip"
+        mod_paths = ("StreamingAssets/gloomhavenvr.bundle", "StreamingAssets/ghvr-town.bundle", "StreamingAssets/ghvr-town-voices.bundle")
+        with zipfile.ZipFile(mod_bank, "w") as archive:
+            for path in mod_paths:
+                archive.writestr(path, b"mod fixture")
+        import hashlib
+        contract = {"schema": 1, "inputKey": self.inputs["inputKey"],
+            "game": {"schema": 1, "inputKey": self.inputs["inputKey"], "archive": "quest-startup-content.zip",
+                     "archiveSha256": storage.digest(bank), "externalDelivery": True,
+                     "files": [{"path": "StreamingAssets/Rulebase/fixture", "size": len(b"owned fixture"),
+                                "sha256": hashlib.sha256(b"owned fixture").hexdigest()}]},
+            "mod": {"schema": 1, "inputKey": self.inputs["inputKey"], "archive": "quest-mod-content.zip",
+                    "archiveSha256": storage.digest(mod_bank), "externalDelivery": False,
+                    "files": [{"path": path, "size": len(b"mod fixture"), "sha256": hashlib.sha256(b"mod fixture").hexdigest()}
+                              for path in mod_paths]}}
+        with zipfile.ZipFile(self.apk, "a") as archive:
+            archive.write(mod_bank, "assets/quest-mod-content.zip")
+            archive.writestr("assets/Quest/installation-manifest.json", json.dumps(contract))
+            archive.writestr("assets/Quest/procedural-native.json", json.dumps(native_contract))
+            for name in native_names:
+                if name != omit: archive.writestr("lib/arm64-v8a/" + name, arm64_elf_header())
+            archive.writestr("assets/Quest/content-delivery.json", json.dumps({"schema": 1, "package": builder.PACKAGE,
+                "inputKey": input_key or self.inputs["inputKey"], "files": [{"file": bank.name, "archive": "quest-startup-content.zip",
+                "sha256": storage.digest(bank), "size": bank.stat().st_size}]}))
+        return bank
+
+    def test_campaign_native_abis_and_adjacent_bank_are_required(self):
+        bank = self.campaign_fixture()
+        with patch.object(builder, "command", self.tool_output):
+            evidence = builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)
+        self.assertFalse(evidence["isDiagnostic"])
+        self.assertEqual(evidence["contentFiles"], [storage.record_file(bank, bank.name)])
+        bank.write_bytes(b"changed")
+        with self.assertRaisesRegex(storage.BuildError, "content bank changed"):
+            builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)
+
+    def test_campaign_installation_contract_uses_one_bank_hash_pass(self):
+        bank = self.campaign_fixture()
+        actual_digest, observed = storage.digest, []
+        def hashed(path):
+            observed.append(Path(path))
+            return actual_digest(path)
+        with patch.object(storage, "digest", side_effect=hashed), patch.object(builder, "command", self.tool_output):
+            evidence = builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)
+        self.assertEqual(observed.count(bank), 1)
+        self.assertEqual(evidence["installationContract"]["gameFileCount"], 1)
+        self.assertEqual(evidence["installationContract"]["modFileCount"], 3)
+        self.assertTrue(evidence["installationContract"]["modEntryBytesVerified"])
+
+    def test_campaign_missing_signed_installation_inventory_fails_before_signature_receipt(self):
+        self.campaign_fixture()
+        with zipfile.ZipFile(self.apk) as archive:
+            records = [(entry, archive.read(entry)) for entry in archive.infolist()
+                       if entry.filename != "assets/Quest/installation-manifest.json"]
+        with zipfile.ZipFile(self.apk, "w") as archive:
+            for entry, data in records:
+                archive.writestr(entry, data)
+        with patch.object(builder, "command", side_effect=AssertionError("Signing tools reached before contract validation")):
+            with self.assertRaisesRegex(storage.BuildError, "Signed PC installation contract failed"):
+                builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)
+        self.assertFalse((self.output / "signing/certificate.json").exists())
+
+    def test_campaign_requires_original_depth_compatible_graphics_backend(self):
+        self.campaign_fixture()
+        self.metadata["graphicsApi"] = "OpenGLES3"
+        storage.write_json(self.evidence, self.metadata)
+        with self.assertRaisesRegex(storage.BuildError, "selected inputs: graphicsApi"):
+            builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)
+
+    def test_campaign_rejects_missing_executable_or_wrong_bank_owner(self):
+        self.campaign_fixture(omit="libquest_proton.so")
+        with self.assertRaisesRegex(storage.BuildError, "native game ABI"):
+            builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)
+        self.campaign_fixture(input_key="another-build")
+        with self.assertRaisesRegex(storage.BuildError, "delivery differs"):
+            builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)
 
     def test_evidence_and_native_architecture_controls(self):
         self.fixture_apk()
@@ -332,11 +459,70 @@ class ApkTests(Temporary):
         with patch.object(builder, "command", self.tool_output), self.assertRaises(storage.BuildError):
             builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)
 
+    def test_actual_build_provenance_survives_validation_and_mismatch_rejects(self):
+        provenance = {"schema": 1, "runtime": {"sourceCommit": "frozen-runtime"},
+                      "stagedEditorSources": [{"path": "Assets/Quest/Editor/Correction.cs", "sha256": "c" * 64}]}
+        self.metadata["buildProvenance"] = provenance
+        storage.write_json(self.evidence, self.metadata)
+        self.fixture_apk()
+        with patch.object(builder, "command", self.tool_output):
+            details = builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output, provenance)
+        self.assertEqual(details["buildProvenance"], provenance)
+        self.assertEqual(details["buildReport"]["buildProvenance"], provenance)
+        self.metadata["buildProvenance"] = {"schema": 1, "runtime": {"sourceCommit": "different-runtime"}}
+        storage.write_json(self.evidence, self.metadata)
+        with self.assertRaisesRegex(storage.BuildError, "build-tool provenance"):
+            builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output, provenance)
+
+    def test_signer_receives_literal_apk_path_through_java(self):
+        self.fixture_apk()
+        renamed = self.apk.with_name("Campaign & 100% literal.apk")
+        self.apk.rename(renamed)
+        calls = []
+        def run(argv, *args, **kwargs):
+            calls.append(argv)
+            return self.tool_output(argv, *args, **kwargs)
+        with patch.object(builder, "command", run):
+            builder.validate_apk(renamed, self.evidence, self.inputs, self.tools, self.output)
+        self.assertEqual(calls[0], ["fixture-java", "-jar", "fixture-apksigner.jar", "verify",
+                                   "--verbose", "--print-certs", str(renamed)])
+
     def test_quest_passthrough_openxr_and_loader_are_mandatory(self):
         for name in ("libghvr_quest_passthrough.so", "libUnityOpenXR.so", "libopenxr_loader.so"):
             self.fixture_apk(omit="lib/arm64-v8a/" + name)
             with self.subTest(name=name), self.assertRaises(storage.BuildError):
                 builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)
+
+    def test_campaign_explicit_box64_comparison_retains_its_exact_native_abi(self):
+        self.campaign_fixture(backend="box64-wine9")
+        with patch.object(builder, "command", self.tool_output):
+            self.assertFalse(builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)["isDiagnostic"])
+
+    def test_campaign_rejects_backend_mismatch_and_old_native_executables(self):
+        self.campaign_fixture()
+        self.inputs["proceduralBackend"] = "box64-wine9"
+        with self.assertRaisesRegex(storage.BuildError, "selected backend"):
+            builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)
+        self.inputs["proceduralBackend"] = "proton-arm64ec-fex"
+        with zipfile.ZipFile(self.apk, "a") as archive:
+            archive.writestr("lib/arm64-v8a/libquest_box64.so", arm64_elf_header())
+        with self.assertRaisesRegex(storage.BuildError, "different procedural backend"):
+            builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)
+
+    def test_campaign_rejects_missing_or_mismatched_signed_native_inventory(self):
+        self.campaign_fixture()
+        self.metadata["stagedProceduralNativeFiles"] = []
+        storage.write_json(self.evidence, self.metadata)
+        with self.assertRaisesRegex(storage.BuildError, "signed native backend inventory"):
+            builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)
+        self.campaign_fixture()
+        with zipfile.ZipFile(self.apk) as archive:
+            records = [(entry, archive.read(entry)) for entry in archive.infolist()
+                       if entry.filename != "assets/Quest/procedural-native.json"]
+        with zipfile.ZipFile(self.apk, "w") as archive:
+            for entry, data in records: archive.writestr(entry, data)
+        with self.assertRaisesRegex(storage.BuildError, "signed procedural native program"):
+            builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)
 
     def test_mislabeled_arm64_libraries_fail_elf_validation(self):
         valid = arm64_elf_header()
@@ -421,6 +607,43 @@ class DevelopmentAndDeploymentTests(Temporary):
             "prepare", "--repo-root", str(self.repo), "--game-root", str(self.data),
             "--output-root", str(self.output), "--target", "probe", "--dummy-profile", "--steam-logo", str(self.logo)])
 
+    def test_backend_choice_is_captured_and_invalidates_only_derived_input_identity(self):
+        self.args.target = "game"
+        with patch.dict(os.environ, {"GHVRQ_PROCEDURAL_BACKEND": "proton-arm64ec-fex"}):
+            first = builder.inspect_inputs(self.args, self.repo, self.output, self.data)
+        self.assertEqual(first["proceduralBackend"], "proton-arm64ec-fex")
+        self.args.procedural_backend = "box64-wine9"
+        with patch.dict(os.environ, {"GHVRQ_PROCEDURAL_BACKEND": "proton-arm64ec-fex"}):
+            second = builder.inspect_inputs(self.args, self.repo, self.output, self.data)
+        self.assertEqual(second["proceduralBackend"], "box64-wine9")
+        self.assertNotEqual(first["inputKey"], second["inputKey"])
+        self.assertEqual(first["game"], second["game"])
+        self.assertEqual(first["mod"], second["mod"])
+        self.assertEqual(first["profileKey"], second["profileKey"])
+        self.args.procedural_backend = None
+        with patch.dict(os.environ, {"GHVRQ_PROCEDURAL_BACKEND": "unknown"}), self.assertRaisesRegex(storage.BuildError, "Unknown procedural"):
+            builder.inspect_inputs(self.args, self.repo, self.output, self.data)
+
+    def test_startup_restores_post_effects_before_movie_or_native_staging(self):
+        inputs = builder.inspect_inputs(self.args, self.repo, self.output, self.data)
+        source, game = builder.snapshot_inputs(inputs, self.output, self.repo, self.data)
+        self.args.target = "startup"
+        inputs["startupProject"] = {"key": "a" * 64}
+        (self.output / "inputs/startup" / inputs["startupProject"]["key"] / "Assets").mkdir(parents=True)
+        with patch.object(builder.startup, "inspect_project") as inspect, \
+                patch.object(builder.post_effects, "restore_post_effects", side_effect=storage.BuildError("shader-adapter-boundary")) as restore, \
+                patch.object(builder.startup, "stage_startup_movies") as movies:
+            with self.assertRaisesRegex(storage.BuildError, "shader-adapter-boundary"):
+                builder.prepare(self.args, inputs, self.output, source, game)
+            inspect.assert_called_once()
+            self.assertTrue(inspect.call_args.kwargs["snapshot_receipt"])
+            restore.assert_called_once()
+            self.assertEqual(restore.call_args.args[1], self.output / "tool-cache/legacy-post-effects")
+            self.assertTrue((restore.call_args.args[0] / "Assets/Quest").is_dir())
+            movies.assert_not_called()
+            key = storage.value_hash({"input": inputs["inputKey"], "recipe": builder.RECIPE})
+            self.assertIsNone(storage.Stages(self.output).valid("prepare", key))
+
     def test_n_to_n_plus_one_captures_new_code_art_config_without_recipe_edit(self):
         first = builder.inspect_inputs(self.args, self.repo, self.output, self.data)
         source, game = builder.snapshot_inputs(first, self.output, self.repo, self.data)
@@ -457,9 +680,12 @@ class DevelopmentAndDeploymentTests(Temporary):
         self.assertFalse((new_source / "src/GloomhavenVR/private.env").exists())
         new_project = builder.prepare(self.args, second, self.output, new_source, new_game)
         self.assertNotEqual(project, new_project)
+        (new_project / "Library").mkdir()
+        (new_project / "Library/imported-artifact").write_bytes(b"retain expensive import")
         (new_project / "Assets/Quest/Runtime/Probe.cs").write_text("changed after selection")
         builder.prepare(self.args, second, self.output, new_source, new_game)
         self.assertEqual((new_project / "Assets/Quest/Runtime/Probe.cs").read_text(), "public class Probe {}\n")
+        self.assertEqual((new_project / "Library/imported-artifact").read_bytes(), b"retain expensive import")
 
     def test_probe_slice_hash_invalidation_and_no_managed_executable_ingress(self):
         assets = self.root / "probe-assets"
@@ -504,24 +730,73 @@ class DevelopmentAndDeploymentTests(Temporary):
         with self.assertRaises(storage.BuildError):
             builder.deploy_woven_assemblies(staged, self.data, project)
 
-    def test_real_recovery_process_zero_is_not_full_game_readiness(self):
-        launcher = self.repo / "scripts/recover-quest.py"
-        launcher.parent.mkdir()
+    def test_missing_staging_helper_fails_before_export_subprocess(self):
+        self.args.target = 'game'
+        self.args.dotnet = sys.executable
+        launcher = self.repo / 'tools/quest-recovery/full_recovery.py'
+        launcher.parent.mkdir(parents=True)
+        launcher.write_text('raise AssertionError("Export must not start")')
+        inputs = builder.inspect_inputs(self.args, self.repo, self.output, self.data)
+        with patch.object(builder.full_assets, '_modules', side_effect=ModuleNotFoundError("No module named 'recover'")), \
+                patch.object(builder, 'command') as child:
+            with self.assertRaisesRegex(storage.BuildError, 'helper import failed before game conversion'):
+                builder.prepare(self.args, inputs, self.output, self.repo, self.data)
+        child.assert_not_called()
+        self.assertFalse((self.output / 'cache/full-original-recovery').exists())
+
+    def test_interrupted_derived_campaign_stage_retries_only_owned_output(self):
+        launcher = self.repo / "tools/quest-recovery/full_recovery.py"
+        launcher.parent.mkdir(parents=True)
         launcher.write_text(
             'import argparse,json\nfrom pathlib import Path\np=argparse.ArgumentParser()\n'
-            'p.add_argument("--game-data");p.add_argument("--output-project");p.add_argument("--tool-root")\n'
+            'p.add_argument("--game-data");p.add_argument("--output-project");p.add_argument("--workspace");'
+            'p.add_argument("--tool-cache");p.add_argument("--dotnet");p.add_argument("--managed-dotnet")\n'
+            'a=p.parse_args();root=Path(a.output_project);(root/"Assets").mkdir(parents=True,exist_ok=True)\n'
+            '(root/"completed-native-export").write_bytes(b"retained original recovery")\n'
+            '(Path(a.workspace)/"full-recovery.json").write_text(json.dumps({"schema":1,'
+            '"fullOriginalCatalogRecovered":True,"managedTypes":str(root/"types.json"),"cabBundles":str(root/"owners.json")}))\n')
+        calls=[]
+        def partial(raw,game,recovered,*_,**__):
+            calls.append(recovered)
+            if len(calls) == 1:
+                self.assertFalse(recovered.exists())
+            else:
+                self.assertEqual((recovered/"unfinished-derived-output").read_bytes(),b"interrupted")
+            self.assertEqual((raw/"completed-native-export").read_bytes(),b"retained original recovery")
+            recovered.mkdir(parents=True,exist_ok=True);(recovered/"unfinished-derived-output").write_bytes(b"interrupted")
+            raise storage.BuildError("deliberately interrupted derived stage")
+        with patch("dependencies.python_environment", return_value=Path(sys.executable)), \
+                patch("dependencies.dotnet10", return_value=Path(sys.executable)), \
+                patch.object(builder.recovery_resume,"completed_raw",return_value=None), \
+                patch.object(builder,"owned_tmp_source_archive",return_value=self.root/"official-source.tgz"), \
+                patch.object(builder.full_assets,"stage",side_effect=partial):
+            arguments=["prepare","--repo-root",str(self.repo),"--game-root",str(self.data),"--output-root",str(self.output),"--target","game","--dummy-profile","--steam-logo",str(self.logo),"--dotnet",sys.executable]
+            self.assertEqual(builder.main(arguments),1)
+            self.assertTrue((calls[0]/"unfinished-derived-output").exists())
+            self.assertEqual(builder.main(arguments),1)
+        self.assertEqual(len(calls),2);self.assertEqual(calls[0],calls[1])
+        self.assertTrue((calls[0].parent/"stage-owner.json").is_file())
+        self.assertEqual(list((self.output/"receipts").glob("recovery/*.json")),[])
+
+    def test_real_recovery_process_zero_is_not_full_game_readiness(self):
+        launcher = self.repo / "tools/quest-recovery/full_recovery.py"
+        launcher.parent.mkdir(parents=True)
+        launcher.write_text(
+            'import argparse,json\nfrom pathlib import Path\np=argparse.ArgumentParser()\n'
+            'p.add_argument("--game-data");p.add_argument("--output-project");p.add_argument("--workspace");'
+            'p.add_argument("--tool-cache");p.add_argument("--dotnet");p.add_argument("--managed-dotnet")\n'
             'a=p.parse_args();root=Path(a.output_project);(root/"Assets").mkdir(parents=True)\n'
-            '(root/"quest-recovery-report.json").write_text(json.dumps({"schema":1,"audit":{'
-            '"readiness":{"fullGameReady":False},"shaders":{"placeholderCount":177},'
-            '"addressables":{"deferredBundleCount":12}}}))\n')
-        result = builder.main(["prepare", "--repo-root", str(self.repo), "--game-root", str(self.data),
-                               "--output-root", str(self.output), "--target", "game", "--dummy-profile",
-                               "--steam-logo", str(self.logo)])
+            '(Path(a.workspace)/"full-recovery.json").write_text(json.dumps({"schema":1,'
+            '"fullOriginalCatalogRecovered":False,"androidPlayerBuilt":False}))\n')
+        with patch("dependencies.python_environment", return_value=Path(sys.executable)), \
+                patch("dependencies.dotnet10", return_value=Path(sys.executable)):
+            result = builder.main(["prepare", "--repo-root", str(self.repo), "--game-root", str(self.data),
+                                   "--output-root", str(self.output), "--target", "game", "--dummy-profile",
+                                   "--steam-logo", str(self.logo), "--dotnet", sys.executable])
         self.assertEqual(result, 1)
         failure = json.loads((self.output / "last-failure.json").read_text())
-        self.assertEqual(failure["stage"], "prepare")
-        self.assertIn("placeholder shaders=177", failure["message"])
-        self.assertIn("deferred bundles=12", failure["message"])
+        self.assertEqual(failure["stage"], "recovery")
+        self.assertIn("did not finish the original catalog", failure["message"])
         self.assertFalse((self.output / "projects").exists())
         self.assertEqual(list((self.output / "receipts").glob("build/*.json")), [])
 

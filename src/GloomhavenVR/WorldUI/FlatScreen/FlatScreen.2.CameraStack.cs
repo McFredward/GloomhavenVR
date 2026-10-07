@@ -54,6 +54,7 @@ internal sealed partial class FlatScreen
 
             var record = new CapturedCamera
             {
+                Owner = this,
                 Camera = cam,
                 OriginalClearFlags = cam.clearFlags,
                 OriginalBackground = cam.backgroundColor,
@@ -269,10 +270,12 @@ internal sealed partial class FlatScreen
             name = "GloomhavenVR.FlatScreenRT.UI",
             antiAliasing = 1,
         };
+        QuestScreenSampling.Configure(uiRt);
         // Alpha-blended glass shader (both verified shipped — see the Show() shader
         // comment); the RT alpha is exactly what the UI cameras leave behind, which
         // is the point: everything they did not draw stays see-through.
-        Shader? glassShader = Shader.Find("Sprites/Default") ?? Shader.Find("UI/Default");
+        Shader? glassShader = QuestStandalonePlatform.SelectFlatScreenGlassShader(
+            Shader.Find("Sprites/Default") ?? Shader.Find("UI/Default"));
         if (glassShader == null || !uiRt.Create())
         {
             uiRt.Release();

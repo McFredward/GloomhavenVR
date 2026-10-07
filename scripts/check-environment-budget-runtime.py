@@ -123,6 +123,7 @@ def main():
     else: raise SystemExit('Native material repair removed-edge negative control escaped')
     assert 'StaticBatchingUtility' not in source and 'SetStaticBatchInfo' not in source, 'Native sources must not acquire Unity internal static-batch state'
     assert 'Camera.onPreCull += HandlePreCull;' in source and 'Camera.onPostRender -= HandlePostRender;' in source, 'Draw leases require paired real rendering hooks'
+    assert 'void OnPreCull(Camera' not in source and 'void OnPostRender(Camera' not in source, 'Camera events must not collide with parameterless Unity messages'
     variants = [('production',source,'')]
     if not args.production_only:
         changes = [

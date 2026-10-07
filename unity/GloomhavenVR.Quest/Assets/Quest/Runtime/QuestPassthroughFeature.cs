@@ -22,6 +22,7 @@ namespace GloomhavenVR.Quest
         public const string FeatureId = "dev.gloomhavenvr.quest.passthrough";
         const string Library = "ghvr_quest_passthrough";
         public static bool Available { get; private set; }
+        public static long SessionGeneration { get; private set; }
         static bool instanceReady;
         public static bool Active { get { return Available && ghvr_quest_status() == 2; } }
         [DllImport(Library)] static extern IntPtr ghvr_quest_hook(IntPtr function);
@@ -49,6 +50,7 @@ namespace GloomhavenVR.Quest
         protected override void OnSessionCreate(ulong session)
         {
             Available = instanceReady && ghvr_quest_session(session) == 1;
+            SessionGeneration++;
             if (!Available) Debug.LogWarning("[GloomhavenVR Quest] passthrough session unavailable");
         }
         protected override void OnSessionBegin(ulong session)
