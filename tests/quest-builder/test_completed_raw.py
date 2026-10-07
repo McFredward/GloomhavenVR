@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'tools/quest-builder'))
 import recovery_resume
 import storage
+import full_assets
 
 
 class CompletedRawTests(unittest.TestCase):
@@ -79,6 +80,25 @@ class CompletedRawTests(unittest.TestCase):
         self.assertEqual(result['_completedRaw'], {'packages': 1, 'files': 2})
         self.assertNotIn(self.asset, [call.args[0] for call in read.call_args_list])
         self.assertEqual(self.asset.read_bytes(), b'actual retained raw asset')
+
+    def test_adopted_raw_bytes_are_checked_at_the_real_staging_writer(self):
+        self.complete()
+        row = next(row for row in self.checkpoint['files'] if row['path'] == 'Assets/native.asset')
+        destination = self.root / 'derived/Assets/native.asset'
+        proofs = full_assets._StageProofs()
+        full_assets._copy_recovered(self.asset, destination, row['sha256'],
+                                    expected_size=row['bytes'], proofs=proofs)
+        self.assertEqual(destination.read_bytes(), self.asset.read_bytes())
+        destination.unlink()
+        changed = b'X' * row['bytes']
+        self.asset.write_bytes(changed)
+        # Adoption validates closed metadata, not a redundant asset sweep.
+        self.assertEqual(self.complete()['_completedRaw']['files'], 2)
+        with self.assertRaisesRegex(storage.BuildError, 'differs from recovery receipt'):
+            full_assets._copy_recovered(self.asset, destination, row['sha256'],
+                                        expected_size=row['bytes'], proofs=full_assets._StageProofs())
+        self.assertFalse(destination.exists())
+        self.assertEqual(self.asset.read_bytes(), changed)
 
     def test_pending_merge_never_adopts_a_stale_complete_marker(self):
         storage.write_json(self.workspace / 'BundleRecovery/merge-pending.json', {'state': 'incomplete'})
