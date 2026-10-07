@@ -1,5 +1,22 @@
 # State — where the project stands
 
+**Build640 integration, 2026-10-08: 1.1.0 development candidate.**
+
+All NPC639 repairs are retained. The separately checked Frame camera/viewport
+follow-up excludes recursive mod-screen geometry from original menu capture,
+repairs late native stereo/target writes at the existing sole-owner pre-cull
+seam, and stops persistent viewport reset retries after three spaced attempts.
+Exact twelve-path equality reuses native desktop120/25 controls and viewport
+90/22+2 startup evidence. Source15/15, strict Release/Debug0 warnings/errors and
+docs5 pairs pass. Actual compiled comparison retains all1231 types: only the
+three intended runtime types and eight numeric build consumers change.
+Unchanged NPC639/golden299713 evidence is inherited.
+No complete local-suite or Frame headset pass is claimed. See
+[the640 camera integration](../docs/performance/FRAME-640-INTEGRATION.md).
+Both peers install640; no bundle, config default or release changes.
+
+---
+
 **Build639 integration, 2026-10-08: 1.1.0 development candidate.**
 
 Both hardware peers were638. The mage received all33 originals but remained

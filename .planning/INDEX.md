@@ -1,7 +1,7 @@
 # Planning index
 
-Updated 2026-10-08 for Build639: exact native packed-atlas discovery, received-original
-receipts, coherent opening delivery, smaller temple wrist context and map eye clearance.
+Updated 2026-10-08 for Build640: NPC639 native assets, received-original receipts,
+coherent delivery and visit repairs, plus the checked Frame camera/viewport follow-up.
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
 status; it is not the player manual.
@@ -14,6 +14,7 @@ status; it is not the player manual.
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [../docs/performance/FRAME-640-INTEGRATION.md](../docs/performance/FRAME-640-INTEGRATION.md) | Checked camera/viewport integration, unchanged NPC639 proofs and inherited evidence |
 | [NPC-639-REVIEW.md](NPC-639-REVIEW.md) | Current paired-log causes, repair, 1:1 review and focused validation limits |
 | [NPC-639-PROOF-AUDIT.md](NPC-639-PROOF-AUDIT.md) | Actual first-render deadline and why prior tests missed the failures |
 | [NPC-639-ORIGINAL-RECEIPTS.md](NPC-639-ORIGINAL-RECEIPTS.md) | Exact compatible-observer baseline acknowledgement and reuse |
