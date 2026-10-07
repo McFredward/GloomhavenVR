@@ -25,6 +25,10 @@ def verify(root: Path):
         shutdown=core[core.index('public void Shutdown()'):]
         assert shutdown.index('ScenarioTerrainBudget.Shutdown();')<shutdown.index('WorldMaterialBudget.Shutdown();') and shutdown.index('ScenarioEnvironmentBudget.Shutdown();')<shutdown.index('WorldMaterialBudget.Shutdown();'),'native consumers precede disposal'
         assert 'ScenarioTerrainBudget.OwnsRenderSubstitute(renderer) || ScenarioEnvironmentBudget.OwnsRenderSubstitute(renderer)' in core,'exact native source mask ownership'
+        revocation='WorldMaterialBudget.ConfigureRenderSubstituteRevocation(renderer =>\n            ScenarioTerrainBudget.HasCurrentRenderLease(renderer) || ScenarioEnvironmentBudget.OwnsRenderSubstitute(renderer));'
+        assert revocation in core,'current terrain lease and queued environment revocation binding'
+        assert core.index(revocation)<core.index('WorldMaterialBudget.Install(_hostGo);'),'revocation binding precedes material owner installation'
+        assert '_driver.HasCurrentRenderLease(renderer)' in terrain,'exact current terrain lease reader'
         assert 'WorldMaterialBudget.BeginMaterialReadPass, () => PerfConfig.WorldMaterialQualityMode > 0' in core,'scoped world factory binding'
         changed=env[env.index('internal static void WorldMaterialChanged'):env.index('internal static void BeforeWorldMaterialDisposal')]
         assert '_terrainBeforeWrite?.Invoke(renderer);' in changed and '_driver?.BeforeNativeRendererWrite(renderer);' in changed,'world reference change drops terrain and environment consumers'
@@ -43,6 +47,10 @@ def verify(root: Path):
         ('core','WorldMaterialBudget.ConfigureAssetPreparation(ScenarioEnvironmentAssets.EnsureLoaded);','/* missing asset loading */','cold bundle loading binding'),
         ('core','WorldMaterialBudget.ConfigureBeforeVariantDisposal(ScenarioEnvironmentBudget.BeforeWorldMaterialDisposal);','/* missing disposal */','consumer disposal binding'),
         ('core','ScenarioTerrainBudget.OwnsRenderSubstitute(renderer) || ScenarioEnvironmentBudget.OwnsRenderSubstitute(renderer)','true','exact native source mask ownership'),
+        ('core','WorldMaterialBudget.ConfigureRenderSubstituteRevocation(renderer =>','/* missing revocation */ (renderer =>','current terrain lease and queued environment revocation binding'),
+        ('core','ScenarioTerrainBudget.HasCurrentRenderLease(renderer) || ScenarioEnvironmentBudget.OwnsRenderSubstitute(renderer)','ScenarioTerrainBudget.OwnsRenderSubstitute(renderer) || ScenarioEnvironmentBudget.OwnsRenderSubstitute(renderer)','current terrain lease and queued environment revocation binding'),
+        ('core','ScenarioTerrainBudget.HasCurrentRenderLease(renderer) || ScenarioEnvironmentBudget.OwnsRenderSubstitute(renderer)','ScenarioTerrainBudget.HasCurrentRenderLease(renderer)','current terrain lease and queued environment revocation binding'),
+        ('terrain','_driver.HasCurrentRenderLease(renderer)','false','exact current terrain lease reader'),
         ('terrain','supported &= !world || _worldOwns?.Invoke(next) == true;','supported &= true;','terrain requires all audited world slots'),
         ('environment','_parts.Clear();','/* retained queued consumers */','queued and live batch consumers released'),
         ('environment','try { _worldBeforeWrite?.Invoke(renderer); _terrainBeforeWrite?.Invoke(renderer);','try { _terrainBeforeWrite?.Invoke(renderer);','native writer first restores world references'),
@@ -59,6 +67,6 @@ def verify(root: Path):
         except AssertionError as error:
             assert expected in str(error),'integration negative control failed for another reason: '+str(error)
         else:raise AssertionError('integration negative control escaped: '+expected)
-    return list(files.values()),{'coverage':'read-only-source-wiring','contracts':16+int(ambient_bound),'controls':len(controls),
+    return list(files.values()),{'coverage':'read-only-source-wiring','contracts':19+int(ambient_bound),'controls':len(controls),
         'ambientConfigBound':ambient_bound,
         'limits':'Existing bridge methods are source-bound here; actual material/renderer/camera lifecycle executes in the separate Unity cases.'}

@@ -77,6 +77,8 @@ internal sealed class CoreModule : IVRModule
         WorldMaterialBudget.ConfigureSourceChanged(ScenarioEnvironmentBudget.WorldMaterialChanged);
         WorldMaterialBudget.ConfigureRenderSubstituteOwnership(renderer =>
             ScenarioTerrainBudget.OwnsRenderSubstitute(renderer) || ScenarioEnvironmentBudget.OwnsRenderSubstitute(renderer));
+        WorldMaterialBudget.ConfigureRenderSubstituteRevocation(renderer =>
+            ScenarioTerrainBudget.HasCurrentRenderLease(renderer) || ScenarioEnvironmentBudget.OwnsRenderSubstitute(renderer));
         // Refresh world uniforms after all native pre-cull writers, before the existing
         // environment owner validates its substitutes at the same native boundary.
         WorldMaterialBudget.Install(_hostGo);
