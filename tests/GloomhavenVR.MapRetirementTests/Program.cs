@@ -59,7 +59,7 @@ internal static class Program
         ExtendedButton originalButton = Read<ExtendedButton>(prompt.Source, "_button");
         MapRetirementPrompt.Tick(true);
         Check(MapRetirementPrompt.Visible, "native pending retirement becomes reachable in VR");
-        Check(ReferenceEquals(CanvasConversion.Last!.Target, prompt.Source.transform), "conversion floats exact native widget");
+        Check(prompt.Source.transform.IsChildOf(CanvasConversion.Last!.Target) && !ReferenceEquals(CanvasConversion.Last.Target, prompt.Source.transform), "conversion wraps exact native widget without cloning");
         Check(ReferenceEquals(nativeIcon, Read<Image>(prompt.Source, "_icon").sprite), "native icon presentation remains original");
         Check(Read<UITextTooltipTarget>(prompt.Source, "_tooltip").Text == "Original native retirement tooltip", "native tooltip is preserved");
         Check(originalButton.onClick.Count == 1 && show.IsPlaying && show.Stops == 0, "conversion preserves native animation and sole click listener");
@@ -225,11 +225,56 @@ internal static class Program
         MapRoomDriver.Active = true; MapRetirementPrompt.Tick(true);
         Check(MapRetirementPrompt.Visible && pending.IsPending, "early native Show survives later map activation");
     }
+    private static void NativeRootAnimation()
+    {
+        Reset(); NativePrompt prompt = Create(false); CallbackPromise pending = Begin(prompt);
+        var original = (RectTransform)prompt.Source.transform;
+        original.anchorMin = original.anchorMax = new(1, 0);
+        original.pivot = new(.2f, .8f); original.anchoredPosition3D = new(63, -42, 0);
+        var nativeTween = new NativeScaleFrames(original);
+        nativeTween.Frame(new(.1f, .1f, 1));
+        MapRetirementPrompt.Tick(true);
+        ConvertedPanel panel = CanvasConversion.Last!;
+        // Execute the actual production conversion-frame maintenance at each native
+        // animation frame. It must pin only the mod wrapper, not the native tween target.
+        foreach (float frame in new[] { .14f, .3f, .7f, 1f })
+        {
+            nativeTween.Frame(new(frame, frame, 1));
+            original.anchoredPosition3D = new(63 + frame * 10, -42, 0);
+            panel.Target.localScale = new(2, 2, 2);
+            CanvasConversion.ReassertForFixture(panel);
+            Check(Math.Abs(original.localScale.x - frame) < .001f && Math.Abs(original.localScale.y - frame) < .001f,
+                "native root tween survives actual conversion frame maintenance");
+            Check(Math.Abs(original.anchoredPosition3D.x - (63 + frame * 10)) < .001f && original.anchorMin.x == 1 && original.pivot.x == .2f,
+                "native animated rect retains original local geometry");
+            Check(panel.Target.localScale.x == 1 && pending.IsPending, "wrapper alone is maintained while native choice waits");
+        }
+        MapRetirementPrompt.Reset();
+        Check(ReferenceEquals(original.parent, prompt.Hud.transform) && original.GetSiblingIndex() == 0,
+            "wrapper teardown restores native parent and sibling order");
+        Check(original.localScale.x == 1 && original.anchoredPosition3D.x == 73 && original.anchorMin.x == 1 && original.pivot.x == .2f,
+            "teardown preserves native animation finish instead of resetting opening frame");
+        Check(!prompt.Hud.Destroyed && !prompt.Source.gameObject.Destroyed && panel.Target.gameObject.Destroyed,
+            "only mod wrapper is destroyed after verified native detach");
+        Check(prompt.Source.gameObject.layer == 0 && panel.HostGo.Destroyed,
+            "wrapper teardown restores native layer and releases conversion host");
+
+        Reset(); prompt = Create(true); Begin(prompt); MapRetirementPrompt.Tick(true);
+        panel = CanvasConversion.Last!;
+        prompt.Source.transform.RefuseNextDetach = true;
+        Patch(typeof(RetirementPromptReplacedPatch), "Prefix", prompt.Presenter);
+        prompt.Presenter.HideCharacterRetiredAction();
+        Check(!panel.Target.gameObject.Destroyed && !prompt.Source.gameObject.Destroyed,
+            "activation-time detach refusal retains original and wrapper alive");
+        MapRoomDriver.Active = false; MapRetirementPrompt.Tick(false); MapRetirementPrompt.LateTick();
+        Check(ReferenceEquals(prompt.Source.transform.parent, prompt.Hud.transform) && panel.Target.gameObject.Destroyed && !prompt.Source.gameObject.Destroyed,
+            "normal inactive-room frame retries verified native hierarchy restore");
+    }
     public static int Main()
     {
         try
         {
-            EarlySeams(); OriginalDesktopFlow(); RoleMatrix(); StandingLifecycle(); ConsolePermissions(); ConversionFailures();
+            EarlySeams(); NativeRootAnimation(); OriginalDesktopFlow(); RoleMatrix(); StandingLifecycle(); ConsolePermissions(); ConversionFailures();
             Reset(); System.Console.WriteLine($"map retirement: {_checks} checks passed, {_matrixCases} Flat/VR role/presenter cases"); return 0;
         }
         catch (Exception error) { System.Console.Error.WriteLine(error); return 1; }

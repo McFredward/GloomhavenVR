@@ -46,14 +46,46 @@ namespace UnityEngine
     public class Transform : Component
     {
         public Transform? parent;
+        public Vector3 localScale = Vector3.one, localPosition;
+        public Quaternion localRotation = Quaternion.identity;
+        public bool RefuseNextDetach;
         public readonly List<Transform> Children = new();
-        public void SetParent(Transform? value, bool worldPositionStays) { parent?.Children.Remove(this); parent = value; parent?.Children.Add(this); }
+        public void SetParent(Transform? value, bool worldPositionStays) { if (RefuseNextDetach) { RefuseNextDetach = false; return; } parent?.Children.Remove(this); parent = value; parent?.Children.Add(this); }
+        public bool IsChildOf(Transform other) { for (Transform? at = this; at != null; at = at.parent) if (ReferenceEquals(at, other)) return true; return false; }
+        public int GetSiblingIndex() => parent?.Children.IndexOf(this) ?? 0;
+        public void SetSiblingIndex(int index) { if (parent == null) return; parent.Children.Remove(this); parent.Children.Insert(Math.Min(index, parent.Children.Count), this); }
         public void SetPositionAndRotation(Vector3 position, Quaternion rotation) { }
     }
-    public class RectTransform : Transform { public Vector2 anchorMin, anchorMax, offsetMin, offsetMax, sizeDelta = new(300, 80); }
-    public readonly struct Vector2 { public Vector2(float x, float y) { } public static Vector2 zero => new(); public static Vector2 one => new(1, 1); }
-    public readonly struct Vector3 { }
-    public readonly struct Quaternion { }
+    public class RectTransform : Transform
+    {
+        public Vector2 anchorMin, anchorMax, offsetMin, offsetMax, pivot = new(.5f, .5f), sizeDelta = new(300, 80);
+        public Vector3 anchoredPosition3D { get => localPosition; set => localPosition = value; }
+        public Rect rect => new(sizeDelta);
+    }
+    public readonly struct Rect { public readonly Vector2 size; public Rect(Vector2 size) => this.size = size; public float height => size.y; }
+    public readonly struct Vector2
+    {
+        public readonly float x, y;
+        public Vector2(float x, float y) { this.x = x; this.y = y; }
+        public static Vector2 zero => new(); public static Vector2 one => new(1, 1);
+        public float sqrMagnitude => x * x + y * y;
+        public static Vector2 operator -(Vector2 a, Vector2 b) => new(a.x - b.x, a.y - b.y);
+    }
+    public struct Vector3
+    {
+        public float x, y, z;
+        public Vector3(float x, float y, float z) { this.x = x; this.y = y; this.z = z; }
+        public static Vector3 zero => new(); public static Vector3 one => new(1, 1, 1);
+        public static Vector3 operator *(Vector3 value, float factor) => new(value.x * factor, value.y * factor, value.z * factor);
+    }
+    public readonly struct Quaternion
+    {
+        private readonly float _angle;
+        public Quaternion(float angle) => _angle = angle;
+        public static Quaternion identity => new(); public Vector3 eulerAngles => new(0, 0, _angle);
+        public static float Angle(Quaternion a, Quaternion b) => Math.Abs(a._angle - b._angle);
+    }
+    public static class Mathf { public static float Abs(float value) => Math.Abs(value); }
     public readonly struct Color { public static Color clear => new(); }
     public sealed class Camera : Object { }
     public sealed class Sprite : Object { }
@@ -117,12 +149,15 @@ namespace GloomhavenVR.WorldUI
         public UnityEngine.RectTransform Target = null!, HostRect = null!;
         public UnityEngine.Transform? OriginalParent;
         public int OriginalLayer;
+        public readonly Dictionary<UnityEngine.Transform, int> OriginalLayers = new();
         public UnityEngine.GameObject HostGo = null!;
         public bool IsAlive => !HostGo.Destroyed;
+        public bool FitHeightCapped, FrameDriftLogged;
+        public string FitHeightCapName = "";
     }
     // Conversion is the established presentation dependency, not the defect being tested.
     // Its stub reparents the exact native object and restores it, without lifecycle calls.
-    public static class CanvasConversion
+    public static partial class CanvasConversion
     {
         public static UnityEngine.Camera? WorldCamera = new();
         public static int Converts, Releases;
@@ -135,11 +170,20 @@ namespace GloomhavenVR.WorldUI
             var host = new UnityEngine.GameObject(name, typeof(UnityEngine.RectTransform));
             var panel = new ConvertedPanel { Target = target, OriginalParent = target.parent, OriginalLayer = target.gameObject.layer, HostGo = host, HostRect = (UnityEngine.RectTransform)host.transform };
             target.SetParent(panel.HostRect, false);
-            if (useModLayer) target.gameObject.layer = 27;
+            target.localScale = UnityEngine.Vector3.one; target.localRotation = UnityEngine.Quaternion.identity;
+            if (useModLayer) ApplyLayer(panel, target);
             return Last = panel;
         }
         public static void Release(ConvertedPanel panel)
-        { Releases++; panel.Target.SetParent(panel.OriginalParent, false); panel.Target.gameObject.layer = panel.OriginalLayer; UnityEngine.Object.Destroy(panel.HostGo); }
+        { Releases++; panel.Target.SetParent(panel.OriginalParent, false); foreach (var layer in panel.OriginalLayers) layer.Key.gameObject.layer = layer.Value; UnityEngine.Object.Destroy(panel.HostGo); }
+        private static void ApplyLayer(ConvertedPanel panel, UnityEngine.Transform target)
+        { panel.OriginalLayers[target] = target.gameObject.layer; target.gameObject.layer = 27; foreach (var child in target.Children) ApplyLayer(panel, child); }
+        private static float ResolveStableHeightCap(UnityEngine.RectTransform target, string name, out string source) { source = "fixture"; return 1080; }
+    }
+    public static class SharedWindowSize
+    {
+        public static bool IsArmed(ConvertedPanel panel) => false;
+        public static bool Repin(ConvertedPanel panel, UnityEngine.RectTransform target, out string note) { note = ""; return false; }
     }
     public sealed class GrabbableModal
     {

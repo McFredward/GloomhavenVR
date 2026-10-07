@@ -4,6 +4,21 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export PATH="${DOTNET_ROOT:-$HOME/.dotnet}:$PATH"
 project="$repo_root/tests/GloomhavenVR.MapRetirementTests/GloomhavenVR.MapRetirementTests.csproj"
 source_file="${MAP_RETIREMENT_SOURCE:-$repo_root/src/GloomhavenVR/WorldUI/MapRoom/MapRetirementPrompt.cs}"
+mutation_dir="$(mktemp -d)"
+trap 'rm -rf "$mutation_dir"' EXIT
+python3 - "$repo_root/src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.3.Fit.cs" "$mutation_dir/ConversionFrame.fixture" <<'PYFRAME'
+from pathlib import Path
+import sys
+source = Path(sys.argv[1]).read_text()
+start = source.index('    private static bool ReassertConversionFrame(')
+opening = source.index('{', start)
+depth, end = 1, opening + 1
+while depth:
+    depth += (source[end] == '{') - (source[end] == '}')
+    end += 1
+Path(sys.argv[2]).write_text('using UnityEngine;\nusing GloomhavenVR.Core;\nnamespace GloomhavenVR.WorldUI;\npublic static partial class CanvasConversion\n{\n'
+    + source[start:end] + '\ninternal static bool ReassertForFixture(ConvertedPanel panel) => ReassertConversionFrame(panel, out _);\n}\n')
+PYFRAME
 native_root="$repo_root/decompiled/GH.Runtime"
 if [[ ! -d "$native_root" ]]; then
     common_dir="$(git -C "$repo_root" rev-parse --path-format=absolute --git-common-dir)"
@@ -25,6 +40,7 @@ if native.is_dir():
         assert original in widgets, name + ' fixture differs from actual native widget/presenter'
     promises = (native / 'Assets.Script.Misc/CallbackPromise.cs').read_text()
     assert promises in (fixtures / 'NativePromises.cs').read_text(), 'Actual native promise fixture differs'
+    assert (native / 'LeanTweenGuiAnimationSettingScale.cs').read_text() in (fixtures / 'NativeScaleAnimation.cs').read_text(), 'Native root-scale tween fixture differs'
     def method(text, signature):
         start = text.index('\t' + signature)
         begin = text.index('{', start)
@@ -41,13 +57,11 @@ if native.is_dir():
 else:
     print('map retirement: read-only game reference unavailable; using tracked native fixtures')
 PY
-dotnet run --project "$project" --configuration Release --property:RetirementSource="$source_file"
-mutation_dir="$(mktemp -d)"
-trap 'rm -rf "$mutation_dir"' EXIT
+dotnet run --project "$project" --configuration Release --property:RetirementSource="$source_file" --property:ConversionFrameSource="$mutation_dir/ConversionFrame.fixture"
 cp "$repo_root/tests/GloomhavenVR.MapRetirementTests/"*.cs "$mutation_dir/"
 cp "$project" "$mutation_dir/"
 dotnet restore "$mutation_dir/GloomhavenVR.MapRetirementTests.csproj" --verbosity quiet
-for mutation in capture surface auto-confirm stale-callback blocker duplicate restore hit-layer fallback; do
+for mutation in capture surface auto-confirm stale-callback blocker duplicate restore hit-layer fallback animated-root; do
     python3 - "$source_file" "$mutation_dir/Retirement.mutant" "$mutation" <<'PY'
 from pathlib import Path
 import sys
@@ -62,7 +76,8 @@ mutations = {
     'duplicate': ('_lastClickFrame == Time.frameCount', 'false'),
     'restore': ('CanvasConversion.Release(_panel);', '{}'),
     'hit-layer': ('_click.layer = target.gameObject.layer;', '_click.layer = 0;'),
-    'fallback': ('ScreenFallbackWanted => _presentationEnabled && _failed', 'ScreenFallbackWanted => _presentationEnabled && false'),
+    'fallback': ('ScreenFallbackWanted => _presentationEnabled && (_failed || _restorePending)', 'ScreenFallbackWanted => _presentationEnabled && false'),
+    'animated-root': ('CanvasConversion.Convert(_wrapper,', 'CanvasConversion.Convert(target,'),
 }
 before, after = mutations[name]
 assert text.count(before) == (2 if name == 'hit-layer' else 1), (name, before)
@@ -74,12 +89,13 @@ PY
         stale-callback) expected='stale native callback identity rejects queued click' ;;
         blocker) expected='console native navigation tags gate actual press PartyPanel' ;;
         duplicate) expected='console same-frame duplicate dispatch is bounded' ;;
-        restore) expected='native hide restores original HUD hierarchy' ;;
+        restore) expected='wrapper teardown restores native layer and releases conversion host' ;;
         hit-layer) expected='console hit surface inherits rendered layer' ;;
         fallback) expected='active map camera failure exposes original pending HUD' ;;
+        animated-root) expected='native root tween survives actual conversion frame maintenance' ;;
     esac
     if dotnet run --project "$mutation_dir/GloomhavenVR.MapRetirementTests.csproj" --configuration Release \
-        --no-restore --property:RetirementSource="$mutation_dir/Retirement.mutant" > "$mutation_dir/$mutation.log" 2>&1; then
+        --no-restore --property:RetirementSource="$mutation_dir/Retirement.mutant" --property:ConversionFrameSource="$mutation_dir/ConversionFrame.fixture" > "$mutation_dir/$mutation.log" 2>&1; then
         echo "ERROR: retirement negative control survived: $mutation" >&2
         exit 1
     fi
@@ -89,4 +105,4 @@ PY
         exit 1
     fi
 done
-echo 'map retirement: 9 causal negative controls rejected'
+echo 'map retirement: 10 causal negative controls rejected'

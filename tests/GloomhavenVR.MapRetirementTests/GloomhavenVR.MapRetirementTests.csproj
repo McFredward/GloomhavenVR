@@ -8,5 +8,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="$(RetirementSource)" Link="Production/MapRetirementPrompt.cs" />
+    <Compile Include="$(ConversionFrameSource)" Link="Production/ConversionFrame.fixture" />
   </ItemGroup>
 </Project>

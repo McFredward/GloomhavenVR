@@ -30,14 +30,17 @@ internal static class MapRetirementPrompt
     private static Action? _callback;
     private static ConvertedPanel? _panel;
     private static GrabbableModal? _grab;
+    private static RectTransform? _wrapper, _wrappedWidget;
+    private static Transform? _nativeHome;
+    private static int _nativeSibling;
     private static GameObject? _click;
-    private static bool _installed, _failed, _presentationEnabled;
+    private static bool _installed, _failed, _presentationEnabled, _restorePending;
     private static int _lastClickFrame = -1;
 
     internal static bool Visible => _panel?.IsAlive == true && _source != null
         && _source.gameObject.activeSelf;
     internal static bool OwnsGrab(GrabbableModal holder) => Visible && ReferenceEquals(_grab, holder);
-    internal static bool ScreenFallbackWanted => _presentationEnabled && _failed
+    internal static bool ScreenFallbackWanted => _presentationEnabled && (_failed || _restorePending)
         && MapRoomDriver.Active && WorldUIConfig.ConversionActive && NativePromptStanding;
 
     internal static void Install()
@@ -70,6 +73,15 @@ internal static class MapRetirementPrompt
     internal static void Tick(bool enabled)
     {
         _presentationEnabled = enabled;
+        if (_restorePending)
+        {
+            RestorePresentation(keepHit: enabled && NativePromptStanding);
+            if (_restorePending)
+            {
+                if (NativePromptStanding && _source?.transform is RectTransform waiting) AddConsoleHit(waiting);
+                return;
+            }
+        }
         if (!enabled || !MapRoomDriver.Active || !WorldUIConfig.ConversionActive
             || !NativePromptStanding)
         {
@@ -103,16 +115,31 @@ internal static class MapRetirementPrompt
             throw new InvalidOperationException("Original prompt has no native rect");
         if (CanvasConversion.WorldCamera == null)
             throw new InvalidOperationException("Active map room has no WorldUI camera");
-        // Convert the live original rather than instantiate a second native controller. The
-        // ordinary converter records its native hierarchy and restores it on room standdown.
-        _panel = CanvasConversion.Convert(target, "MapRetirementPrompt", fitContent: true,
+        if (target.parent is not RectTransform home)
+            throw new InvalidOperationException("Original prompt has no native parent rect");
+        _nativeHome = home;
+        _nativeSibling = target.GetSiblingIndex();
+        _wrappedWidget = target;
+        _wrapper = (RectTransform)new GameObject("GloomhavenVR.MapRetirementFrame", typeof(RectTransform)).transform;
+        // Parenting first keeps the wrapper and original in the native HUD's own scene.
+        // Give the original exactly its existing parent coordinate frame. Its own anchors,
+        // size, position and active native animation remain untouched inside this frame.
+        _wrapper.SetParent(home, false);
+        _wrapper.anchorMin = _wrapper.anchorMax = new Vector2(.5f, .5f);
+        _wrapper.pivot = home.pivot;
+        _wrapper.sizeDelta = home.rect.size;
+        _wrapper.anchoredPosition3D = Vector3.zero;
+        ReparentNativeRect(target, _wrapper);
+        // The converter pins its TARGET frame during reveal. A mod-owned wrapper isolates
+        // that maintenance from native root-scale/move tweens on the original widget.
+        _panel = CanvasConversion.Convert(_wrapper, "MapRetirementPrompt", fitContent: true,
             useModLayer: true) ?? throw new InvalidOperationException("Original prompt could not be converted");
         AddConsoleHit(target);
         Camera head = CanvasConversion.WorldCamera;
         PanelPlacement.Spawn(head, PanelLayout.WorldScale, out Vector3 position, out Quaternion rotation);
         _panel.HostGo.transform.SetPositionAndRotation(position, rotation);
         _grab = new GrabbableModal();
-        _grab.Build(_panel, SharedWindowSizeLaw.ExtraScale(_panel.HostRect.sizeDelta,
+        _grab.Build(_panel, SharedWindowSizeLaw.ExtraScale(target.rect.size,
             WorldUIConfig.CanvasScaleMm.Value), "Native retirement prompt");
         VRLog.Note("MapRoom", "MAP RETIREMENT PROMPT: original optional observer prompt is reachable; "
             + "a real player press still owns the native continuation.");
@@ -154,7 +181,11 @@ internal static class MapRetirementPrompt
         return true;
     }
 
-    internal static void LateTick() => _grab?.LateSyncHost();
+    internal static void LateTick()
+    {
+        if (_restorePending) RestorePresentation(keepHit: _presentationEnabled && NativePromptStanding);
+        _grab?.LateSyncHost();
+    }
 
     /// <summary>Restore presentation only; a room toggle does not answer the optional prompt.</summary>
     internal static void Reset()
@@ -174,8 +205,36 @@ internal static class MapRetirementPrompt
         }
         if (!keepHit) _click = null;
         _grab?.Destroy(); _grab = null;
+        if (_wrappedWidget != null && _wrapper != null && _wrappedWidget.IsChildOf(_wrapper))
+        {
+            ReparentNativeRect(_wrappedWidget, _nativeHome);
+            if (_wrappedWidget.IsChildOf(_wrapper))
+            {
+                // Unity may refuse SetParent while native OnDisable is in progress. Keep
+                // the original alive and retry on a normal frame; never delete it with a
+                // mod wrapper or forget its recorded native home.
+                if (!_restorePending)
+                    VRLog.Warn("MapRoom", "MAP RETIREMENT PROMPT: native hierarchy restore deferred during activation; original widget retained for frame retry.");
+                _restorePending = true;
+                return;
+            }
+            if (_nativeHome != null) _wrappedWidget.SetSiblingIndex(_nativeSibling);
+        }
         if (_panel != null) CanvasConversion.Release(_panel);
         _panel = null;
+        if (_wrapper != null) UnityEngine.Object.Destroy(_wrapper.gameObject);
+        _wrapper = _wrappedWidget = null; _nativeHome = null; _restorePending = false;
+    }
+
+    private static void ReparentNativeRect(RectTransform widget, Transform? parent)
+    {
+        Vector2 min = widget.anchorMin, max = widget.anchorMax, pivot = widget.pivot, size = widget.sizeDelta;
+        Vector3 position = widget.anchoredPosition3D, scale = widget.localScale;
+        Quaternion rotation = widget.localRotation;
+        widget.SetParent(parent, false);
+        widget.anchorMin = min; widget.anchorMax = max; widget.pivot = pivot;
+        widget.sizeDelta = size; widget.anchoredPosition3D = position;
+        widget.localScale = scale; widget.localRotation = rotation;
     }
 
     internal static void Replaced(MonoBehaviour presenter)

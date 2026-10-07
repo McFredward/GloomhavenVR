@@ -73,12 +73,18 @@ Frame captures must not be attributed to the reporting user's session.
 ## Retirement repair and evidence
 
 `MapRetirementPrompt` captures the exact native desktop or console retirement
-widget at the original presenters' Show edge. It floats that live object through
+widget at the original presenters' Show edge. A mod-owned Rect wrapper retains
+the original native parent coordinate frame and carries that live object through
 the ordinary reversible converter, preserving its icon, text, tooltip, original
-button listeners, native animation and lifetime. Hide/replacement invalidates
+button listeners, native animation and lifetime. Conversion/reveal maintenance
+pins only the wrapper; the original widget's root Rect/Tween stays untouched.
+Hide/replacement invalidates
 the capture. Room/conversion standdown restores the original hierarchy while
 retaining a still-standing capture, so re-enabling does not require replaying
-Show or resolving a promise.
+Show or resolving a promise. Teardown restores the original native parent,
+sibling order, layers and current native animation values. A Unity refusal to
+reparent during native activation keeps the original and wrapper alive for a
+normal-frame retry; it never destroys native content with a mod wrapper.
 
 The native console widget contains a hotkey/long-press adapter and no uGUI
 button. A transparent hit surface calls its original private `Confirm` only on
@@ -95,11 +101,15 @@ choice and console adapter, and never resolves a callback or writes readiness.
 The root must wire this property into `ModalFallback.ScreenWanted`; the worker
 does not own integration wiring.
 
-Focused worker evidence: `scripts/map-retirement-tests.sh` passes 180 checks and
-32 role/presenter cases, and rejects nine causal negative controls. It executes
+Focused worker evidence: `scripts/map-retirement-tests.sh` passes 198 checks and
+32 role/presenter cases, and rejects ten causal negative controls. It executes
 the production bridge with the actual original desktop/console widget and
 presenter bodies, original `CallbackPromise`, `ConfirmRetirement` and
-`MPConfirmRetire`. These fixtures are compared with the read-only native source
+`MPConfirmRetire`, plus the original root-scale tween's `SetValue`. It extracts
+and executes the complete current production `ReassertConversionFrame` body on
+four intermediate/terminal native animation values; a direct original-root
+conversion negative control fails that native animation assertion. These
+fixtures are compared with the read-only native source
 in the main checkout. The host display-mode permutation shares the same native
 method because the optional prompt has no host display-mode branch; this does
 not simulate native transport. Unity scene/render/conversion dependencies and
