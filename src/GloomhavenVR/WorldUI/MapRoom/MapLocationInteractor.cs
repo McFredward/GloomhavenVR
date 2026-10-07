@@ -177,6 +177,11 @@ internal sealed class MapLocationInteractor
         // particular it must not deselect the committed quest behind a native map lock.
         if (MapInputGate.IsBlocked)
             return false;
+        // Native SelectQuest is already host-authoritative. A late VR browsing
+        // record20 (including null) must not drive Deselect/Select over a flat
+        // host's committed proposal while this client's native prompt is pending.
+        if (NativeMapQuestSelection.TryGetHostProposal(out var proposal, out _) && proposal != null)
+            return false;
         if (ReferenceEquals(loc, _selected))
             return false;
 
@@ -1173,6 +1178,12 @@ internal sealed class MapLocationInteractor
             return;
         if (!QuestPopupOpen())
         {
+            // The original client preview may not have opened yet, or its map
+            // objects may be rebuilding. A live host proposal is positive native
+            // evidence; absence of its presentation cannot cancel it through a
+            // synthetic automatic Deselect. Manual native input below stays native.
+            if (NativeMapQuestSelection.TryGetHostProposal(out var proposal, out _) && proposal != null)
+                return;
             Deselect("its quest window was closed — closing that window IS a deselection");
             return;
         }
@@ -1490,22 +1501,17 @@ internal sealed class MapLocationInteractor
         }
     }
 
-    /// <summary>Is the quest popup a selection opens still up? Cached by type; Unity-null revives
-    /// the lookup after a scene rebuild.</summary>
+    /// <summary>Is the original popup for this decision still up? The game has two
+    /// UIQuestPopup instances; a type-wide search can retain the inactive hover popup and
+    /// then deselect the live selected popup one second after it opened.</summary>
     private bool QuestPopupOpen()
     {
-        if (_questPopup == null)
-            _questPopup = Object.FindObjectOfType<UIQuestPopup>();
-        if (_questPopup == null)
-            return false;
-        // activeInHierarchy, not a UIWindow lookup: UIQuestPopup is a plain MonoBehaviour
-        // (decompiled UIQuestPopup.cs:17) and the game shows/hides the object itself.
-        return _questPopup.gameObject.activeInHierarchy;
+        UIWindow? window = NativeMapQuestSelection.ConfirmationWindow;
+        return window != null && window.gameObject.activeInHierarchy;
     }
 
     private MapLocation? _selected;
     private float _selectedAt;
-    private UIQuestPopup? _questPopup;
 
     /// <summary>How long after a selection the quest popup is allowed to still be absent.</summary>
     private const float SelectionGraceSeconds = 1.0f;
@@ -1573,7 +1579,18 @@ internal sealed class MapLocationInteractor
     /// </summary>
     private void TickQuestDecision()
     {
-        string? now = _selectedDecisionId;
+        // Mixed flat/VR report, 2026-10-07: a flat host's proposal does not pass
+        // through VR record20, and native ProxyHostSelectedLocation precedes the
+        // client's PreviewQuest/local marker selection. Observing only our staging
+        // field published null and let the quest float disappear under its Accept
+        // control. Native identity also notices cancellation without a VR sender.
+        bool measured = NativeMapQuestSelection.TryGetDecision(out string? now);
+        if (!measured)
+        {
+            now = _selectedDecisionId;
+            if (now == null)
+                return; // late initialization is unknown, never first-sight absence
+        }
 
         // FIRST SIGHT IS NOT AN EDGE — the same rule RemoteMapRoom's own selection stamp uses.
         // Whatever is selected when this interactor comes up was selected before this observer
@@ -1761,6 +1778,23 @@ internal sealed class MapLocationInteractor
             why = "the 3D map room is not standing, so this room has no quest decision to speak of";
             return false;
         }
+        // Native proposal delivery and UI conversion can run before this frame's
+        // interactor sampling. A current subject must protect its popup immediately.
+        if (NativeMapQuestSelection.TryGetDecision(out string? nativeDecision))
+        {
+            if (nativeDecision != null)
+            {
+                why = $"the native map is deciding on quest location '{nativeDecision}', including "
+                    + "the host's proposal before this client's marker preview has opened";
+                return false;
+            }
+        }
+        else
+        {
+            why = "the native quest selection is not available yet; missing initialization or a "
+                + "replacement map object is not evidence that the current proposal was cancelled";
+            return false;
+        }
         if (!_publishedDecisionEver)
         {
             why = "MapLocationInteractor has not sampled the table's decision even once yet, so "
@@ -1813,6 +1847,14 @@ internal sealed class MapLocationInteractor
     /// anything — null is a real decision here, so "never sampled" cannot be folded into it.</returns>
     internal static bool TryGetPublishedDecision(out string? questId, out float atUnscaled)
     {
+        if (MapRoomDriver.Active && NativeMapQuestSelection.TryGetDecision(out string? nativeDecision)
+            && nativeDecision != null)
+        {
+            questId = nativeDecision;
+            atUnscaled = string.Equals(nativeDecision, _publishedDecisionId, System.StringComparison.Ordinal)
+                && _publishedDecisionEver ? _publishedAt : Time.unscaledTime;
+            return true;
+        }
         questId = _publishedDecisionId;
         atUnscaled = _publishedAt;
         return _publishedDecisionEver;
