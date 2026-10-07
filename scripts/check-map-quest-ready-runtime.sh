@@ -5,11 +5,14 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export PATH="${DOTNET_ROOT:-$HOME/.dotnet}:$PATH"
 fixture_dir="$(mktemp -d)"
 trap 'rm -rf "$fixture_dir"' EXIT
-native_root="${GHVR_NATIVE_SOURCE_ROOT:-/home/claw/gloomhaven_vr/decompiled/GH.Runtime}"
-python3 - "$repo_root" "$fixture_dir" "$native_root" <<'PY'
+python3 - "$repo_root" "$fixture_dir" <<'PY'
 from pathlib import Path
-import hashlib,json,sys
-root,out,native=map(Path,sys.argv[1:]); out.mkdir(exist_ok=True)
+import hashlib,json,os,subprocess,sys
+root,out=map(Path,sys.argv[1:]); out.mkdir(exist_ok=True)
+common=Path(subprocess.check_output(['git','-C',str(root),'rev-parse','--path-format=absolute','--git-common-dir'],text=True).strip())
+native=Path(os.environ.get('GHVR_NATIVE_SOURCE_ROOT',str(common.parent/'decompiled/GH.Runtime')))
+fixture=root/'tests/map-quest-ready-runtime/NativeFixture.cs'
+fixture_text=fixture.read_text()
 sources={}
 def method(file,signature):
     source=(native/file).read_text(); sources[str(native/file)]=hashlib.sha256((native/file).read_bytes()).hexdigest()
@@ -17,14 +20,21 @@ def method(file,signature):
     while depth:
         depth+=(source[end]=='{')-(source[end]=='}'); end+=1
     return source[start:end]
-ready='\n'.join(method('UIReadyToggle.cs',name) for name in (
-    'public bool ShouldBeVisible','public void Initialize(', 'public void ToggleVisibility(',
-    'public void SetInteractable(', 'private void UpdateVisiblity(',
-    'private bool IsReadyUpForbidden(', 'public void ReadyUp(bool toggledOn, bool autoValidateUnreadying)'))
-presenter=method('UIGuildmasterConfirmActionButtonPresenter.cs','public override void ShowQuestSelectedAction(')
-button=method('UIGuildmasterConfirmActionButton.cs','private void OnClicked(')
-popup=method('UIGuildmasterConfirmActionPopup.cs','private void Confirm(')
-(out/'Native.cs').write_text('#nullable disable\nusing System;using System.Linq;using FFSNet;using UnityEngine;using UnityEngine.UI;using UnityEngine.Events;using MapRuleLibrary.MapState;\ninternal sealed partial class UIReadyToggle {\n'+ready+'\n}\ninternal sealed partial class UIGuildmasterConfirmActionButtonPresenter {\n'+presenter+'\n}\ninternal sealed partial class UIGuildmasterConfirmActionButton {\n'+button+'\n}\ninternal sealed partial class UIGuildmasterConfirmActionPopup {\n'+popup+'\n}\n')
+if native.exists():
+    signatures=[('UIReadyToggle.cs',name) for name in (
+        'public bool ShouldBeVisible','public void Initialize(', 'public void ToggleVisibility(',
+        'public void SetInteractable(', 'private void UpdateVisiblity(',
+        'private bool IsReadyUpForbidden(', 'public void ReadyUp(bool toggledOn, bool autoValidateUnreadying)')]
+    signatures.extend((('UIGuildmasterConfirmActionButtonPresenter.cs','public override void ShowQuestSelectedAction('),
+        ('UIGuildmasterConfirmActionButton.cs','private void OnClicked('),
+        ('UIGuildmasterConfirmActionPopup.cs','private void Confirm(')))
+    for file,signature in signatures:
+        assert method(file,signature) in fixture_text, 'Native ready fixture differs from read-only game source: '+file+' '+signature
+    print('Native readiness fixture: ten verbatim method bodies match the read-only game source.')
+else:
+    print('Native readiness fixture: read-only source unavailable; executing the committed native bodies.')
+sources[str(fixture)]=hashlib.sha256(fixture.read_bytes()).hexdigest()
+(out/'Native.cs').write_text(fixture_text)
 production=root/'src/GloomhavenVR/WorldUI/MapRoom'
 for name in ('MapQuestReadyUp.cs','ReadyToggleParkClaim.cs'):
     path=production/name; (out/name).write_bytes(path.read_bytes()); sources[str(path)]=hashlib.sha256(path.read_bytes()).hexdigest()

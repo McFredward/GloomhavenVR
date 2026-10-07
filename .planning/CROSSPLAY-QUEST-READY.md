@@ -105,3 +105,14 @@ quorum's ACK coroutine. This fixture does not claim that native progression
 corner as proven; the primary audit is tracing the surrounding native
 player-registry callbacks. It must not be repaired by writing `PlayersReady` or
 adding a mod-owned proceed handshake.
+
+## Portable native fixture follow-up
+
+The runner compiles ten verbatim native bodies from the committed
+`NativeFixture.cs`, so hosted CI runs the same 224 assertions and seven causal
+controls without access to the game installation. A main-worktree reference
+tree is located through `git rev-parse --git-common-dir`, and every body is
+pinned against its read-only native source whenever that tree exists. An absent
+tree uses the committed fixture; an existing but changed method fails before
+runtime verification. No production source changes accompany this portability
+follow-up.

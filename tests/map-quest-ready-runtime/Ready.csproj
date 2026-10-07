@@ -7,7 +7,8 @@
     <NoWarn>$(NoWarn);CS0649;CS0414</NoWarn>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="$(FixtureDir)/*.cs" />
+    <Compile Include="$(FixtureDir)/Boundary.cs" />
+    <Compile Include="$(FixtureDir)/Program.cs" />
     <Compile Include="$(ProductionDir)/MapQuestReadyUp.cs" />
     <Compile Include="$(ProductionDir)/ReadyToggleParkClaim.cs" />
     <Compile Include="$(NativeSource)" />

@@ -1,12 +1,16 @@
 # Map quest readiness dispatcher proof
 
-Run `bash scripts/check-map-quest-ready-runtime.sh`. The runner needs .NET 8 and
-the read-only native game decompilation. `GHVR_NATIVE_SOURCE_ROOT` overrides its
-default `/home/claw/gloomhaven_vr/decompiled/GH.Runtime` source location.
+Run `bash scripts/check-map-quest-ready-runtime.sh`. The runner needs .NET 8.
+Its committed `NativeFixture.cs` contains ten verbatim original native method
+bodies and permits the same checks on hosted CI. When read-only game source is
+available beside the repository's common Git directory, the runner first pins
+every body byte-for-byte against that source. `GHVR_NATIVE_SOURCE_ROOT` overrides
+that discovered source location. An absent reference tree uses the committed
+fixture; an existing tree with changed native methods fails the source pin.
 
 The fixture compiles **the complete production `MapQuestReadyUp` and
 `ReadyToggleParkClaim` classes**, including their actual Harmony seam handlers.
-It also extracts unchanged native `UIReadyToggle.Initialize`, visibility methods,
+It also compiles unchanged native `UIReadyToggle.Initialize`, visibility methods,
 `ShouldBeVisible`, `ReadyUp` and its permission guard, the desktop presenter's
 installed click wrapper, and both native prompt click method bodies. No copied
 test policy replaces the readiness dispatcher or those native method bodies.
