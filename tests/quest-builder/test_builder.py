@@ -758,12 +758,16 @@ class DevelopmentAndDeploymentTests(Temporary):
         calls=[]
         def partial(raw,game,recovered,*_,**__):
             calls.append(recovered)
-            self.assertFalse(recovered.exists())
+            if len(calls) == 1:
+                self.assertFalse(recovered.exists())
+            else:
+                self.assertEqual((recovered/"unfinished-derived-output").read_bytes(),b"interrupted")
             self.assertEqual((raw/"completed-native-export").read_bytes(),b"retained original recovery")
-            recovered.mkdir(parents=True);(recovered/"unfinished-derived-output").write_bytes(b"interrupted")
+            recovered.mkdir(parents=True,exist_ok=True);(recovered/"unfinished-derived-output").write_bytes(b"interrupted")
             raise storage.BuildError("deliberately interrupted derived stage")
         with patch("dependencies.python_environment", return_value=Path(sys.executable)), \
                 patch("dependencies.dotnet10", return_value=Path(sys.executable)), \
+                patch.object(builder.recovery_resume,"completed_raw",return_value=None), \
                 patch.object(builder,"owned_tmp_source_archive",return_value=self.root/"official-source.tgz"), \
                 patch.object(builder.full_assets,"stage",side_effect=partial):
             arguments=["prepare","--repo-root",str(self.repo),"--game-root",str(self.data),"--output-root",str(self.output),"--target","game","--dummy-profile","--steam-logo",str(self.logo),"--dotnet",sys.executable]
