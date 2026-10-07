@@ -19,6 +19,7 @@ internal static partial class WorldMaterialBudget
     private static Func<Material, Material>? _canonicalSource;
     private static Action<Renderer>? _sourceChanged;
     private static Func<Renderer, bool>? _substituteOwnership;
+    private static Func<Renderer, bool>? _substituteRevocation;
     private static Func<bool>? _ensureAssets;
     private static Action? _beforeVariantDisposal;
     private static Func<float>? _ambientWeight;
@@ -26,6 +27,10 @@ internal static partial class WorldMaterialBudget
     internal static void ConfigureCanonicalSource(Func<Material, Material> source) => _canonicalSource = source;
     internal static void ConfigureSourceChanged(Action<Renderer> changed) => _sourceChanged = changed;
     internal static void ConfigureRenderSubstituteOwnership(Func<Renderer, bool> owns) => _substituteOwnership = owns;
+    // Eligibility may include prepared/cap-deferred geometry. Revocation must
+    // identify an actual live or queued consumer, otherwise unchanged refusals
+    // would remove/re-adopt native sources every eye without releasing a draw.
+    internal static void ConfigureRenderSubstituteRevocation(Func<Renderer, bool> needsRelease) => _substituteRevocation = needsRelease;
     internal static void ConfigureAssetPreparation(Func<bool> ensureLoaded) => _ensureAssets = ensureLoaded;
     internal static void ConfigureBeforeVariantDisposal(Action restoreConsumers) => _beforeVariantDisposal = restoreConsumers;
     internal static void ConfigureAmbientWeight(Func<float> weight) => _ambientWeight = weight;
@@ -240,15 +245,32 @@ internal static partial class WorldMaterialBudget
                     Surface surface = pair.Value;
                     if (surface.Renderer == null) { _dead.Add(pair.Key); continue; }
                     MeshRenderer renderer = surface.Renderer;
+                    bool ownershipRead = false, substitute = false;
+                    bool revocationRead = false, needsRevocation = false;
+                    bool HasSubstitute()
+                    {
+                        if (!ownershipRead)
+                        { ownershipRead = true; substitute = _substituteOwnership?.Invoke(renderer) == true; }
+                        return substitute;
+                    }
+                    bool NeedsSubstituteRevocation()
+                    {
+                        // Preserve the old integration/fixture boundary until the
+                        // exact consumer reader is wired; reuse its one cached read.
+                        if (_substituteRevocation is null) return HasSubstitute();
+                        if (!revocationRead)
+                        { revocationRead = true; needsRevocation = _substituteRevocation(renderer); }
+                        return needsRevocation;
+                    }
                     candidates++;
                     // A native closed room does not need mesh/component reads.
                     // Restore owned slots immediately; on its first active render
                     // re-read the mesh identity and all current ownership guards.
                     if (!renderer.enabled || !renderer.gameObject.activeInHierarchy
-                        || renderer.forceRenderingOff && _substituteOwnership?.Invoke(renderer) != true)
+                        || renderer.forceRenderingOff && !HasSubstitute())
                     {
                         bool restored = RestoreRenderer(renderer);
-                        if (restored || !surface.Refused) _changedSources.Add(renderer);
+                        if (restored || !surface.Refused || NeedsSubstituteRevocation()) _changedSources.Add(renderer);
                         surface.Refused = true; scopeRefusals++; inactive++; continue;
                     }
                     MeshFilter filter = renderer.GetComponent<MeshFilter>();
@@ -259,7 +281,7 @@ internal static partial class WorldMaterialBudget
                     if (filter == null || mesh == null || !InWorld(renderer))
                     {
                         bool restored = RestoreRenderer(renderer);
-                        if (restored || geometryChanged || !surface.Refused) _changedSources.Add(renderer);
+                        if (restored || geometryChanged || !surface.Refused || NeedsSubstituteRevocation()) _changedSources.Add(renderer);
                         surface.Refused = true; scopeRefusals++; continue;
                     }
                     renderer.GetSharedMaterials(_slots);
@@ -282,7 +304,12 @@ internal static partial class WorldMaterialBudget
                     // Keep slot count/order exactly, including unsupported/foreign
                     // slots. Never assign an empty array to a native room template.
                     if (write) renderer.sharedMaterials = _slots.ToArray();
-                    if (write || geometryChanged || refused && !surface.Refused) _changedSources.Add(renderer);
+                    // A previous refusal does not revoke a NEW earlier per-eye
+                    // substitute lease. Native slots can already be restored while
+                    // a terrain/chunk consumer renews its private draw next eye.
+                    // Revoke every currently refused live substitute, including a
+                    // slot-local effect/shader refusal or deliberately empty slots.
+                    if (write || geometryChanged || refused && (!surface.Refused || NeedsSubstituteRevocation())) _changedSources.Add(renderer);
                     surface.Refused = refused;
                     _slots.Clear();
                 }

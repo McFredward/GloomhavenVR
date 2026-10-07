@@ -56,7 +56,7 @@ def main():
         ('scope-cross-eye-stale',[('WorldMaterialBudget.cs','_scopes.Clear();','/* injected cross-eye scope verdict */',3),('WorldMaterialBudget.Scope.cs','_scopes.Clear();','/* injected cross-eye scope verdict */',1)],'current added native interaction between eyes'),
         ('foreign-slot-overwritten',[('WorldMaterialBudget.cs','original = Canonical(current);','original = Source(_slots[0]);',1)],'conditional restoration preserves same-count foreign slot replacement'),
         ('native-clone-boundary-missing',[('WorldMaterialBudget.cs','internal static void BeforeNativeContentChange() => _driver?.RestoreBindings();','internal static void BeforeNativeContentChange() { }',1)],'native content boundary restores original slot composition'),
-        ('proxy-only-refusal-not-notified',[('WorldMaterialBudget.cs','if (restored || geometryChanged || !surface.Refused) _changedSources.Add(renderer);','if (restored) _changedSources.Add(renderer);',1)],'late native scope refusal revokes an earlier proxy-only variant'),
+        ('proxy-only-refusal-not-notified',[('WorldMaterialBudget.cs','if (restored || geometryChanged || !surface.Refused || NeedsSubstituteRevocation()) _changedSources.Add(renderer);','if (restored) _changedSources.Add(renderer);',1)],'late native scope refusal revokes an earlier proxy-only variant'),
         ('final-boundary-lost',[
             ('WorldMaterialBudget.cs','ScenarioCameraCullBoundary.Subscribe(_driver.PreCull);','Camera.onPreCull += _driver.PreCull;',1),
             ('WorldMaterialBudget.cs','ScenarioCameraCullBoundary.Unsubscribe(_driver.PreCull);','Camera.onPreCull -= _driver.PreCull;',1),
@@ -97,6 +97,10 @@ def main():
         ('native-writer-read-invalidation-lost',[('WorldMaterialBudget.cs','InvalidateScopeReads(); _prepared.Clear(); _metadata.Clear(); RestoreRenderer(renderer);','InvalidateScopeReads(); RestoreRenderer(renderer);',1)],'native writer boundary invalidates prepared material reads within an outer pass'),
         ('nested-prop-reads-stale',[('WorldMaterialBudget.cs','InvalidateScopeReads();\n            return new ReadPass(this);','if (_passDepth == 1) InvalidateScopeReads();\n            return new ReadPass(this);',1)],'nested actual camera boundary refreshes current local held roots'),
         ('nested-native-material-reads-stale',[('WorldMaterialBudget.cs','if (_passDepth > 1)','if (_passDepth > 1 && bool.Parse("false"))',1)],'nested actual final camera boundary reads current native shader keywords tint and ambient'),
+        ('renewed-refusal-not-notified',[
+            ('WorldMaterialBudget.cs',' || NeedsSubstituteRevocation()) _changedSources.Add(renderer);',' || NeedsSubstituteRevocation() && bool.Parse("false")) _changedSources.Add(renderer);',2),
+            ('WorldMaterialBudget.cs','refused && (!surface.Refused || NeedsSubstituteRevocation())','refused && (!surface.Refused || NeedsSubstituteRevocation() && bool.Parse("false"))',1)],'successive actual camera culls revoke each renewed scope substitute, eye=1'),
+        ('prepared-membership-used-for-revocation',[('WorldMaterialBudget.cs','needsRevocation = _substituteRevocation(renderer);','needsRevocation = HasSubstitute();',1)],'unchanged prepared-only refused source does not revoke or re-adopt'),
     ]
     variants=[('production',sources,'')]
     if not args.production_only:

@@ -155,6 +155,7 @@ public static class WorldMaterialProgram
         Scale(host,room,source,first,second,camera);
         PropGuards(host,room,source,first,second,camera);
         LateChanges(host,source,first,second,camera);
+        RenewedRefusals(host,source,first,second,camera);
         bool prepared=false;WorldMaterialBudget.ConfigureAssetPreparation(()=>{prepared=true;return false;});Center(camera);
         Check(prepared&&source.sharedMaterial==first,"cold asset preparation refusal keeps native source materials valid");WorldMaterialBudget.ConfigureAssetPreparation(()=>true);
         WorldMaterialBudget.BeforeNativeRendererWrite(source);BundleShaders.Missing=true;
@@ -331,6 +332,10 @@ public static class WorldMaterialProgram
         Check(NativeWriteObserver.MaterialCopies==2&&PerfMonitor.Counts["WorldMaterial.VariantSlots"]==128,"world material refresh scales with two unique originals instead of 128 native slots");
         NativeWriteObserver.MaterialCopies=0;NativeWriteObserver.ArrayWrites=0;Center(camera);
         Check(NativeWriteObserver.MaterialCopies==2&&NativeWriteObserver.ArrayWrites==0,"settled 64-source world stage copies unique materials without per-eye native array writes");
+        int ownershipReads=0,consumerNotifications=0;WorldMaterialBudget.ConfigureRenderSubstituteOwnership(renderer=>{ownershipReads++;return false;});
+        WorldMaterialBudget.ConfigureSourceChanged(renderer=>{consumerNotifications++;WorldMaterialBudget.MaterialReady(renderer);});Center(camera);
+        Check(ownershipReads==0&&consumerNotifications==0,"settled safe visible sources do not read substitute ownership or trigger needless consumer notifications");
+        WorldMaterialBudget.ConfigureSourceChanged(renderer=>WorldMaterialBudget.MaterialReady(renderer));
         Debug.Log("World material scaling: 64 sources /128slots; copies="+NativeWriteObserver.MaterialCopies+"; arrayWrites="+NativeWriteObserver.ArrayWrites);
         var block=new MaterialPropertyBlock();block.SetColor("_Tint",Color.white);source.SetPropertyBlock(block);
         foreach(var clone in copies)clone.SetPropertyBlock(block);
@@ -421,6 +426,57 @@ public static class WorldMaterialProgram
         Center(camera);NativeWriteObserver.MeshReads=0;room.SetActive(false);Center(camera);
         Check(NativeWriteObserver.MeshReads==0&&source.sharedMaterial==first,"inactive native candidates restore original slots without reading mesh filters");
         room.SetActive(true);Center(camera);Check(WorldMaterialBudget.IsOwnedVariant(source.sharedMaterial),"reactivated native room checks current mesh and restores complete shading immediately");
+    }
+    private static void RenewedRefusals(GameObject host,MeshRenderer source,Material first,Material second,Camera camera)
+    {
+        MeshRenderer? proxy=null;int revoked=0,reads=0,releaseReads=0,notifications=0;var block=new MaterialPropertyBlock();
+        WorldMaterialBudget.ConfigureRenderSubstituteOwnership(renderer=>{reads++;return renderer==source&&proxy!=null&&proxy.enabled;});
+        WorldMaterialBudget.ConfigureRenderSubstituteRevocation(renderer=>{releaseReads++;return renderer==source&&proxy!=null&&proxy.enabled;});
+        WorldMaterialBudget.ConfigureSourceChanged(renderer=>{if(renderer==source){notifications++;if(proxy!=null&&proxy.enabled){revoked++;proxy.enabled=false;source.forceRenderingOff=false;}}});
+        foreach(string refusal in new[]{"scope","slot-effect","shader","empty-slots","inactive"})
+        {
+            source.enabled=true;source.sharedMaterials=new[]{first,second};WorldMaterialBudget.MaterialReady(source);Center(camera);
+            UnknownNativeAnimation? unknown=null;
+            if(refusal=="scope")unknown=source.gameObject.AddComponent<UnknownNativeAnimation>();
+            if(refusal=="slot-effect"){block.SetFloat("_AddVertexAnim",1f);source.SetPropertyBlock(block,1);}
+            int before=revoked;
+            for(int eye=0;eye<2;eye++)
+            {
+                Camera.CameraCallback renew=cam=>
+                {
+                    if(cam!=camera)return;
+                    first.DisableKeyword("_ENABLE_ANIM");
+                    Material factory=WorldMaterialBudget.VariantFor(first);
+                    proxy=Source("Renewed earlier substitute",null!,source.GetComponent<MeshFilter>().sharedMesh,factory);
+                    source.forceRenderingOff=true;
+                    if(refusal=="shader")first.EnableKeyword("_ENABLE_ANIM");
+                    if(refusal=="empty-slots")source.sharedMaterials=Array.Empty<Material>();
+                    if(refusal=="inactive")source.enabled=false;
+                };
+                Camera.onPreCull+=renew;reads=0;releaseReads=0;Color shown=Center(camera);Camera.onPreCull-=renew;
+                Check(proxy!=null&&!proxy.enabled&&!source.forceRenderingOff&&revoked==before+eye+1,
+                    "successive actual camera culls revoke each renewed "+refusal+" substitute, eye="+eye);
+                Check(reads<=1&&releaseReads<=1,"each renewed refused source reads eligibility and exact current revocation ownership at most once: "+refusal+" eye="+eye);
+                if(refusal=="scope"||refusal=="shader")Check(source.sharedMaterial==first,"repeated refused source retains original native material: "+refusal);
+                if(refusal=="slot-effect")Check(source.sharedMaterials[1]==second&&WorldMaterialBudget.IsOwnedVariant(source.sharedMaterials[0]),"renewed slot effect preserves independent safe world slot and current native effect slot");
+                if(refusal=="empty-slots"||refusal=="inactive")Check(shown.maxColorComponent<.1f,"renewed substitute cannot revive a native empty or hidden source: "+refusal);
+                Object.DestroyImmediate(proxy!.gameObject);proxy=null;
+            }
+            if(unknown!=null)Object.DestroyImmediate(unknown);source.SetPropertyBlock(null,1);block.Clear();first.DisableKeyword("_ENABLE_ANIM");source.enabled=true;
+        }
+        source.sharedMaterials=new[]{first,second};Center(camera);
+        var preparedOnly=source.gameObject.AddComponent<UnknownNativeAnimation>();
+        WorldMaterialBudget.ConfigureRenderSubstituteOwnership(renderer=>renderer==source);
+        WorldMaterialBudget.ConfigureRenderSubstituteRevocation(_=>false);Center(camera);int firstRefusal=notifications;Center(camera);Center(camera);
+        Check(notifications==firstRefusal,"unchanged prepared-only refused source does not revoke or re-adopt without a live or queued consumer");
+        Object.DestroyImmediate(preparedOnly);Center(camera);
+        source.sharedMaterials=new[]{first,second};Center(camera);
+        proxy=Source("Live substitute before Off",null!,source.GetComponent<MeshFilter>().sharedMesh,WorldMaterialBudget.VariantFor(first));source.forceRenderingOff=true;
+        WorldMaterialBudget.ConfigureBeforeVariantDisposal(()=>{if(proxy!=null){proxy.enabled=false;source.forceRenderingOff=false;}});
+        PerfConfig.WorldMaterialQualityMode=0;Tick(host);
+        Check(!proxy.enabled&&!source.forceRenderingOff&&source.sharedMaterials.SequenceEqual(new[]{first,second}),"Off revokes a renewed live consumer before disposal and restores exact original slots");
+        Object.DestroyImmediate(proxy.gameObject);proxy=null;WorldMaterialBudget.ConfigureBeforeVariantDisposal(()=>{});
+        PerfConfig.WorldMaterialQualityMode=2;Tick(host,16);WorldMaterialBudget.ConfigureSourceChanged(renderer=>WorldMaterialBudget.MaterialReady(renderer));WorldMaterialBudget.ConfigureRenderSubstituteOwnership(_=>false);WorldMaterialBudget.ConfigureRenderSubstituteRevocation(_=>false);Center(camera);
     }
     private static void LateChanges(GameObject host,MeshRenderer source,Material first,Material second,Camera camera)
     {
