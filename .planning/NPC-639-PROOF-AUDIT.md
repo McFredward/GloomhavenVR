@@ -52,6 +52,12 @@ its cost is reported separately. Owner native UI is actually rendered before
 interaction, matching the TMP shader already used by ordinary local UI. The
 source's read-only assets, pixels and packed geometry are never substituted.
 
+The portable adapter uses the editor TMP font atlas for glyph construction while
+retaining the original full native shader and property tables. It is therefore
+not a pixel-exact reconstruction of the game's shipped glyph atlas. The physical
+card-model print is also a constructed complete uGUI input at the gameplay
+boundary, not an invocation of the game's live card controllers.
+
 The final timed frame calls actual binding validation for every expected active
 asset, compares visible original text/font sizes/images, rebuilds all canvases,
 and invokes actual `Camera.Render` plus readback. A visible root cannot satisfy
@@ -79,9 +85,72 @@ Actual rendered-pixel upload requires the game's unmodified external
 Merely loading the bank or reading native sprite descriptors did not prove this
 GPU stream dependency.
 
-Further omission controls, continuous pose/hover and merchant results will be
-recorded here before integration. No complete-gate or headset pass is
-claimed by this focused proof.
+The follow-up omission controls, continuous pose/hover and merchant results are
+recorded below. No complete-gate or headset pass is claimed by this focused proof.
+
+## Re-offer proof correction
+
+The first re-offer adapter incorrectly called `SetLocalTransactionActive` while
+its owner lane was inactive for the observer phase of the one-process fixture.
+The calls were ignored. Those early 0.040–0.045 s measurements prove a changed
+artwork update only and are **not** transaction re-offer evidence. The final
+fixture activates the actual owner lane around each false/true transition and
+asserts its real transaction state. It also records every emitted module's
+sequence and `BaseSequence` at the edge. With no receipts, all 33 current required
+modules must emit complete originals. With receipts, only owner deltas against
+the exact acknowledged originals may be reused.
+
+Receipts follow the actual receiver's retained-original table through
+`CaptureOriginalReceipts`, a separate contended 864-byte scheduler, and the
+owner's `ReceiveOriginalReceipt`. The fixture never inserts receipt identities
+or pretends that preparation, sending, or a local cache established receipt.
+Sender peer 2 and observer peer 10 are explicit at each actual boundary.
+
+The in-flight case waits for a real `UrgentBundleStream` fragment, not merely a
+manifest, and verifies that the older bundle is incomplete. It then performs a
+real new transaction edge and changes the source card title and native row. The
+deadline requires the current content, not a still-visible old picture. A
+separate monotonic delivery clock spans both edges; it never rewinds the existing
+scheduler when a new deadline starts.
+
+The stronger fixture populates 14 distinct original enhancement icons from the
+byte-exact native atlas, meaningful option names, and numeric points/prices.
+This avoids counting only repeated prefab-default icons whose compression was
+unrepresentative. All original hierarchies and native shader properties remain.
+
+## Current bounded integration evidence
+
+The final finite opening reservation is measured through the actual producer,
+transport queues and receiver. Complete rendering includes camera draw/readback.
+These are local software-rendered measurements, not a guarantee for any real
+network latency or headset frame budget.
+
+| Case and retained run | Complete rendered picture | Relevant evidence |
+| --- | ---: | --- |
+| Distinct native mage, `candidate33-distinct-reoffer/run-7d0oof6a` | 0.882067 s | 33 required / 59 prepared, 15 contended events, 12,842 bytes |
+| True acknowledged re-offer in that run | 0.026356 s | Only two changed native deltas, exact baselines 9 and 29 |
+| Prior genuine in-flight original, `candidate33-true-inflight/run-oppo736m` | 0.886572 s | 15 events / 12,907 bytes; current changed owner content required |
+| Acknowledged re-offer after in-flight replacement | 0.080897 s | Two events / 1,387 bytes |
+| Merchant, `merchant-final/run-mcphkh8i` | 0.350630 s | Full native confirmation plus offered print, six events |
+| Merchant true acknowledged re-offer | 0.119920 s | Three bounded events; 92 assertions in the complete run |
+| No-ACK full re-offer, `candidate33-unack-stages/run-ty0tismr` | 0.857680 s | All 33 current originals have `BaseSequence = 0`, 15 events |
+
+One earlier genuine no-ACK re-offer (`candidate33-distinct-unack/run-80v2rh6i`)
+failed the hard deadline at 1.065512 s. It remains retained rather than silently
+replaced by a faster pass. The staged repeat measured 0.220384 s spent by the
+proof repeatedly validating already-valid old renderer trees while waiting for
+the changed row. The final probe first checks current text, then performs every
+exact validation once the replacement is ready; this reduces observer work
+without bypassing production capture, delivery, validation, apply or rendering.
+The local margin is still narrow and should not be presented as a hardware
+guarantee. Every executed failure, source hash and result remains available.
+
+Continuous real source yaw/bob, native ring rotation and area-hover alpha travel
+through actual motion/receiver code. Intermediate output assertions require a
+visible rotating native ring with equal physical dimensions, every area visible
+on the current card plane, and exact owner/observer applied sprite descriptors.
+The proof renders the first and repeated pictures; it checks transforms at
+intermediate frames without claiming a rendered-HMD animation capture.
 
 ## Focused runs and causal controls
 
@@ -109,6 +178,8 @@ manual bank arguments are only reuse/diagnostic options:
 python3 scripts/npc-first-picture639-runtime/run.py --service mage
 python3 scripts/npc-first-picture639-runtime/run.py --service merchant
 python3 scripts/npc-first-picture639-runtime/run.py --cold-observer --expect-incomplete
+python3 scripts/npc-first-picture639-runtime/run.py --without-receipts
+python3 scripts/npc-first-picture639-runtime/run.py --prior-inflight
 ```
 
 `--source-root`, `--output-dir` and `--native-dir` isolate worker evidence and

@@ -20,6 +20,8 @@ def main():
  p.add_argument('--asset-source-root',type=Path,help='Explicit pending asset worker sources; exact hashes retained')
  p.add_argument('--service',choices=['merchant','mage'],default='mage')
  p.add_argument('--cold-observer',action='store_true',help='Omit the production loading-phase exact-asset scan for a named causal control')
+ p.add_argument('--without-receipts',action='store_true',help='Re-offer the real current picture before original receipts arrive')
+ p.add_argument('--prior-inflight',action='store_true',help='Replace a real older complete original whose first packet is already in flight')
  p.add_argument('--expect-incomplete',action='store_true',help='Causal control must compile and fail the exact complete-picture deadline')
  args=p.parse_args();root=args.source_root.resolve();args.output_dir.mkdir(parents=True,exist_ok=True)
  if args.service=='mage' and args.atlas_bundle is None:
@@ -63,6 +65,8 @@ def main():
  (fixture/'NativeReader639.cs').write_text(reader)
  case_source=Path(__file__).with_name('FirstPicture639.cs').read_text()
  if args.cold_observer:case_source=case_source.replace('private static readonly bool PrewarmObserver639 = true;', 'private static readonly bool PrewarmObserver639 = false;')
+ if args.without_receipts:case_source=case_source.replace('private static readonly bool AcknowledgeObserver639 = true;', 'private static readonly bool AcknowledgeObserver639 = false;')
+ if args.prior_inflight:case_source=case_source.replace('private static readonly bool PriorInFlight639 = false;', 'private static readonly bool PriorInFlight639 = true;')
  (fixture/'FirstPicture639.cs').write_text(case_source)
  boundaries=fixture/'Boundaries.cs';text=boundaries.read_text().replace('internal static bool WantsDebug => false;','internal static bool WantsDebug => true;',1)
  text=text.replace('internal static void Info(string channel, string message) { }','internal static void Info(string channel, string message) => Messages.Add(channel + ": " + message);',1)
