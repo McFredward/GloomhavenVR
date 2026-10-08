@@ -47,8 +47,10 @@ public static partial class EnvironmentProgram
             Check(masked&&colored>20,"actual room-floor shader pixels ignore the native wall mask rather than disappear with walls");
             Check(first.sharedMaterial==room.Original&&second.sharedMaterial==room.Original,
                 "room floor grouping never binds world variants onto original sources");
-            room.Original.SetFloat("_AddVertexAnim",1f);room.Render();
-            Check(Array.TrueForAll(room.Chunks(),r=>!r.enabled)&&!first.forceRenderingOff&&!second.forceRenderingOff,
+            room.Original.SetFloat("_AddVertexAnim",1f);
+            room.ObserveRender=()=>masked=Array.Exists(room.Chunks(),r=>r.enabled)||first.forceRenderingOff||second.forceRenderingOff;
+            room.Render();room.ObserveRender=null;
+            Check(!masked,
                 "in-place native floor material animation immediately revokes its private render group");
         }
         finally
@@ -108,6 +110,10 @@ public static partial class EnvironmentProgram
             Check(PerfMonitor.Counts.TryGetValue("Environment.RoomFloorSources",out long sources)&&sources==8
                 && PerfMonitor.Counts.TryGetValue("Environment.RoomFloorGroups",out long groups)&&groups==1,
                 "completed camera counters expose actual surviving floor source reduction separately from preparation");
+            Check(PerfMonitor.Counts.TryGetValue("Environment.RoomFloorOriginalTriangles",out long nativeTriangles)
+                && nativeTriangles==64 && PerfMonitor.Counts.TryGetValue("Environment.RoomFloorSubmittedTriangles",out long submittedTriangles)
+                && submittedTriangles==16,
+                "completed floor-group triangle counters measure the submitted coarse geometry independently of per-floor proxies");
             var neverFade=new MaterialPropertyBlock();chunk.GetPropertyBlock(neverFade);
             Check(neverFade.GetFloat("_GHVRWorldNeverFade")==1f&&neverFade.GetFloat("_GHVRTerrainNeverFade")==1f,
                 "private floor group carries floor-only never-fade markers without rewriting its shared material");
@@ -121,13 +127,16 @@ public static partial class EnvironmentProgram
                 "a live floor detail change revokes the obsolete group immediately before camera culling");
             selected=endpoint;
             originals[0].gameObject.SetActive(false);
-            room.Render();
-            Check(!chunk.enabled && !originals[1].forceRenderingOff,
+            room.ObserveRender=()=>leased=chunk.enabled||originals[1].forceRenderingOff;
+            room.Render();room.ObserveRender=null;
+            Check(!leased,
                 "hiding one native source cannot leave combined room geometry visible or hide its remaining originals");
             originals[0].gameObject.SetActive(true);
             var block=new MaterialPropertyBlock();block.SetColor("_Tint",Color.green);
-            originals[0].SetPropertyBlock(block);room.Render();
-            Check(!chunk.enabled && originals.TrueForAll(r=>!r.forceRenderingOff),
+            originals[0].SetPropertyBlock(block);
+            room.ObserveRender=()=>leased=chunk.enabled||originals.Exists(r=>r.forceRenderingOff);
+            room.Render();room.ObserveRender=null;
+            Check(!leased,
                 "native renderer property overrides restore per-object rendering instead of being discarded by grouping");
             originals[0].SetPropertyBlock(null);
             ScenarioEnvironmentBudget.BeforeNativeRendererWrite(originals[0]);

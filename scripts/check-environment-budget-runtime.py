@@ -161,7 +161,7 @@ def main():
              'native renderer property overrides restore per-object rendering instead of being discarded by grouping', 1),
             ('room-floor-original-geometry-submitted',
              'surface.ReadableMesh = preparedFloor;', 'surface.ReadableMesh = surface.Mesh;',
-             'group geometry uses settled coarse endpoints and removes 75 percent of fixture floor triangle submissions', 1),
+             'broader catalog-proven floors group even without legacy floor names or a floor-plane proxy', 1),
             ('room-floor-clone-root-contaminated',
              'child.transform.SetParent(first.RoomFloor ? transform : first.Tile.transform, false);',
              'child.transform.SetParent(first.Tile.transform, false);',

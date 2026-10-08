@@ -400,6 +400,7 @@ internal static class ScenarioEnvironmentBudget
         internal Material Material = null!;
         internal bool RoomFloor;
         internal Material? NativeMaterial;
+        internal long NativeFloorTriangles, SubmittedFloorTriangles;
         internal readonly List<Surface> Sources = new();
         internal readonly List<Matrix4x4> Matrices = new();
         private bool _owned;
@@ -1354,6 +1355,11 @@ internal static class ScenarioEnvironmentBudget
                 }
                 batch.Mesh = new Mesh { name = "GloomhavenVR.StaticScenarioChunkMesh" };
                 batch.Mesh.CombineMeshes(combines, true, true, false);
+                if (first.RoomFloor)
+                {
+                    foreach (Surface source in members) batch.NativeFloorTriangles += source.Mesh.GetIndexCount(0) / 3;
+                    batch.SubmittedFloorTriangles = batch.Mesh.GetIndexCount(0) / 3;
+                }
                 child.AddComponent<MeshFilter>().sharedMesh = batch.Mesh;
                 batch.Renderer = child.AddComponent<MeshRenderer>();
                 batch.Renderer.enabled = false;
@@ -1471,11 +1477,17 @@ internal static class ScenarioEnvironmentBudget
         {
             if (!PerfMonitor.StepsActive) return;
             int chunkSources = 0, chunkGroups = 0, roomFloorSources = 0, roomFloorGroups = 0, instanceSources = 0, instanceGroups = 0;
+            long nativeFloorTriangles = 0, submittedFloorTriangles = 0;
             foreach (Batch batch in _batches)
             {
                 int count = batch.MaskedSourceCount;
                 chunkSources += count; if (count > 0) ++chunkGroups;
-                if (batch.RoomFloor) { roomFloorSources += count; if (count > 0) ++roomFloorGroups; }
+                if (batch.RoomFloor && count > 0)
+                {
+                    roomFloorSources += count; ++roomFloorGroups;
+                    nativeFloorTriangles += batch.NativeFloorTriangles;
+                    submittedFloorTriangles += batch.SubmittedFloorTriangles;
+                }
             }
             foreach (InstanceBatch batch in _instances)
             {
@@ -1492,6 +1504,8 @@ internal static class ScenarioEnvironmentBudget
             {
                 PerfMonitor.Count("Environment.RoomFloorSources", roomFloorSources);
                 PerfMonitor.Count("Environment.RoomFloorGroups", roomFloorGroups);
+                PerfMonitor.Count("Environment.RoomFloorOriginalTriangles", nativeFloorTriangles);
+                PerfMonitor.Count("Environment.RoomFloorSubmittedTriangles", submittedFloorTriangles);
             }
             PerfMonitor.Count("Environment.InstanceSources", instanceSources);
             PerfMonitor.Count("Environment.InstanceGroups", instanceGroups);
