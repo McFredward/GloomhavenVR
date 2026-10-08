@@ -353,6 +353,12 @@ internal sealed class TownServiceBinding : IDisposable
     private void ApplyRootLayout(float[] n, bool detached)
     {
         if (n.Length != 18 || Root is not RectTransform rect) return;
+        // Layout owns the native root extent, never its separately authored
+        // header pose. Changing a RectTransform anchor/pivot can otherwise move
+        // an unchanged row during a child-only hover packet. The compact root
+        // may correctly be older than a newer original artwork frame and absent
+        // from that pass, so there is no later world-pose write to mask the drift.
+        Vector3 position = rect.localPosition;
         rect.pivot = new Vector2(n[14], n[15]);
         if (detached)
         { rect.anchorMin = rect.anchorMax = rect.pivot; rect.sizeDelta = new Vector2(n[16], n[17]); }
@@ -362,6 +368,7 @@ internal sealed class TownServiceBinding : IDisposable
             rect.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, n[16]);
             rect.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, n[17]);
         }
+        if (!rect.localPosition.Equals(position)) rect.localPosition = position;
     }
 
     internal void Validate(TownServiceFrame frame, TownServiceAssets assets)
@@ -534,10 +541,13 @@ internal sealed class TownServiceBinding : IDisposable
                 }
                 if (changed) Require<MeshRenderer>(Nodes[i]).sharedMaterials = cache.AppliedMesh;
             }
-        // Root rect dimensions still govern its original children's anchors and wrapping.
+        // Preserve the owner's native root anchor frame. A parented original
+        // row is mounted below its exact scroll binding; centering it here and
+        // then restoring native anchors for a header creates a spurious layout
+        // tween on the next child-only hover. Detached hosts pin their root in
+        // the existing ApplyRootLayout(detached:true) caller instead.
         float[] root = frame.Nodes[0].Values[TownServiceProperty.Transform].Numbers;
-        if (Root is RectTransform rr && root.Length == 18)
-        { rr.anchorMin = rr.anchorMax = new Vector2(.5f, .5f); rr.pivot = new Vector2(root[14], root[15]); rr.sizeDelta = new Vector2(root[16], root[17]); }
+        ApplyRootLayout(root, detached: false);
         _lastApplied = frame.Nodes;
     }
     private static void DisableAbsent<T>(Transform node, TownServiceNode state, ushort key) where T : Behaviour
