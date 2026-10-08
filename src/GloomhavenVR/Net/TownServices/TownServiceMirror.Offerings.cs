@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
+using UnityEngine.UI;
 using UnityEngine;
 using GloomhavenVR.Core;
 
@@ -22,6 +24,150 @@ internal static partial class TownServiceMirror
         internal ulong Sequence;
         internal float SampleTime, Started, Duration;
         internal float[] From = Array.Empty<float>();
+        internal NativeRingClock? Ring;
+    }
+    private readonly struct NativeRingInfo
+    {
+        internal readonly int Root;
+        internal readonly float Rate;
+        internal NativeRingInfo(int root, float rate) { Root = root; Rate = rate; }
+    }
+    private static readonly Dictionary<string, NativeRingInfo> NativeRingRates = new();
+    internal static bool ReadNativeRingRate(Transform original, out Transform? aura, out float rate)
+    {
+        aura = null; rate = 0f;
+        const BindingFlags fields = BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance;
+        foreach (MonoBehaviour controller in original.GetComponentsInChildren<MonoBehaviour>(true))
+        {
+            if (controller == null || controller.GetType().Name != "UIEnchantressEffect") continue;
+            Type type = controller.GetType();
+            if (type.GetField("enchantressEffect", fields)?.GetValue(controller) is not GameObject effect
+                || !(effect.transform == original || effect.transform.IsChildOf(original))
+                || type.GetField("rotationTime", fields)?.GetValue(controller) is not float duration
+                || type.GetField("rotationSpeed", fields)?.GetValue(controller) is not float speed
+                || float.IsNaN(duration) || float.IsInfinity(duration) || duration <= 0f
+                || float.IsNaN(speed) || float.IsInfinity(speed)) return false;
+            // Exact native serialized UIEnchantressEffect.Rotate: speed*360/time.
+            // Capture before neutralization; observers never run its world-Z callback.
+            rate = speed * 360f / duration;
+            if (float.IsNaN(rate) || float.IsInfinity(rate)) return false;
+            aura = effect.transform; return true;
+        }
+        return false;
+    }
+    private static void PrepareNativeRingRate(string key, byte service, Transform original,
+        Func<Transform, bool>? exclude, Transform? aura, float? rate)
+    {
+        if (service != 3) return;
+        if (!rate.HasValue && ReadNativeRingRate(original, out aura, out float liveRate)) rate = liveRate;
+        if (!rate.HasValue || float.IsNaN(rate.Value) || float.IsInfinity(rate.Value) || aura == null || aura.GetComponent<Graphic>() != null) return;
+        using var binding = new TownServiceBinding(original, exclude);
+        int index = Array.IndexOf(binding.Nodes, aura);
+        if (index >= 0) NativeRingRates[key] = new NativeRingInfo(index, rate.Value);
+    }
+    private sealed class NativeRingClock
+    {
+        private readonly Transform _root;
+        private readonly Transform[] _ink;
+        private readonly float[] _original;
+        private readonly bool[] _initialized;
+        private readonly float _rate;
+        private readonly uint _rootBinding;
+        private TownServiceFrame? _authored;
+        private float[]? _rootPose;
+        private Transform? _print;
+        private double _started;
+        internal NativeRingClock(Transform[] nodes, uint[] bindings, NativeRingInfo info)
+        {
+            _root = nodes[info.Root]; _rootBinding = bindings[info.Root];
+            var ink = new List<Transform>();
+            foreach (Transform node in nodes) if (node != null && (node == _root || node.IsChildOf(_root))
+                && node.GetComponent<Graphic>() != null) ink.Add(node);
+            _ink = ink.ToArray(); _original = new float[_ink.Length]; _initialized = new bool[_ink.Length]; _rate = info.Rate;
+        }
+        internal void Reset() { _print = null; Array.Clear(_initialized, 0, _initialized.Length); }
+        internal void Draw(Transform holder, Transform print, double now, Vector3 authoredScale, TownServiceFrame authored)
+        {
+            Transform root = _root;
+            if (root == null) return;
+            if (!ReferenceEquals(_authored, authored))
+            {
+                _authored = authored; _rootPose = null;
+                foreach (TownServiceNode node in authored.Nodes)
+                    if (node.Binding == _rootBinding && node.Values.TryGetValue(TownServiceProperty.Transform, out TownServiceValue? pose)
+                        && pose.Numbers.Length >= 10) { _rootPose = pose.Numbers; break; }
+            }
+            if (root != holder)
+            {
+                if (_rootPose == null || root.parent == null) return;
+                // Generic interpolation may combine a principal-axis rotation
+                // with a different scale. Derive the native diameter from its
+                // current complete authored TRS, never that rendered intermediate.
+                Quaternion rotation = Rotation(_rootPose); Vector3 scale = Scale(_rootPose);
+                Vector3 right = root.parent.TransformVector(rotation * new Vector3(scale.x, 0f, 0f));
+                Vector3 up = root.parent.TransformVector(rotation * new Vector3(0f, scale.y, 0f));
+                authoredScale = new Vector3(right.magnitude, up.magnitude, scale.z);
+            }
+            if (!ReferenceEquals(_print, print))
+            { _print = print; _started = now; Array.Clear(_initialized, 0, _initialized.Length); }
+            // User exception, 2026-10-08: intrinsic ring phase may be local,
+            // provided direction/speed remain native and card orientation stays
+            // authored. Observers never enable the native world-Z callback.
+            for (int i = 0; i < _ink.Length; i++)
+                if (!_initialized[i] && TryAxes(_ink[i], out Vector3 right, out _))
+                {
+                    Vector3 local = print.InverseTransformDirection(right);
+                    _original[i] = Mathf.Atan2(local.y, local.x) * Mathf.Rad2Deg;
+                    _initialized[i] = true;
+                }
+            if (root.parent == null || !FitBasis(root, print, authoredScale)) return;
+            float phase = (float)((_rate * (now - _started)) % 360d);
+            for (int i = 0; i < _ink.Length; i++)
+                if (_initialized[i] && _ink[i] != null && _ink[i].gameObject.activeInHierarchy
+                    && _ink[i].parent != null && TryAxes(_ink[i], out _, out _) && TryAxes(_ink[i].parent, out _, out _))
+                {
+                    Transform drawing = _ink[i];
+                    Vector3 direction = print.rotation * Quaternion.AngleAxis(phase + _original[i], Vector3.forward) * Vector3.right;
+                    Vector3 local = drawing.parent.InverseTransformVector(direction);
+                    if (local.sqrMagnitude < .0000000001f) continue;
+                    drawing.localRotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(local.y, local.x) * Mathf.Rad2Deg);
+                }
+        }
+        private static bool TryAxes(Transform? node, out Vector3 right, out Vector3 up)
+        {
+            right = up = Vector3.zero;
+            if (node == null) return false;
+            right = node.TransformVector(Vector3.right); up = node.TransformVector(Vector3.up);
+            return Finite(right) && Finite(up) && right.sqrMagnitude > .0000000001f
+                && up.sqrMagnitude > .0000000001f && Vector3.Cross(right, up).sqrMagnitude > .000000000000000001f;
+        }
+        private static bool Finite(Vector3 value) => !float.IsNaN(value.x) && !float.IsInfinity(value.x)
+            && !float.IsNaN(value.y) && !float.IsInfinity(value.y) && !float.IsNaN(value.z) && !float.IsInfinity(value.z);
+        private static bool FitBasis(Transform root, Transform print, Vector3 authoredScale)
+        {
+            Transform parent = root.parent;
+            if (!TryAxes(parent, out _, out _) || !Finite(authoredScale)) return false;
+            // Same principal-stretch fit as the source native mask, evaluated
+            // against this observer's actual canvas matrix. Quaternion products
+            // alone lose the plane under a rotated nonuniform ancestor.
+            Vector3 localRight = parent.InverseTransformVector(print.right);
+            Vector3 localUp = parent.InverseTransformVector(print.up);
+            Vector3 normal = Vector3.Cross(localRight, localUp).normalized;
+            if (normal.sqrMagnitude < .5f) return false;
+            Quaternion plane = Quaternion.LookRotation(normal, Vector3.Cross(normal, localRight).normalized);
+            Vector3 right = parent.TransformVector(plane * Vector3.right), up = parent.TransformVector(plane * Vector3.up);
+            float gxx = right.sqrMagnitude, gxy = Vector3.Dot(right, up), gyy = up.sqrMagnitude;
+            float angle = .5f * Mathf.Atan2(2f * gxy, gxx - gyy) * Mathf.Rad2Deg;
+            Quaternion rotation = plane * Quaternion.Euler(0f, 0f, angle);
+            float x = parent.TransformVector(rotation * Vector3.right).magnitude;
+            float y = parent.TransformVector(rotation * Vector3.up).magnitude;
+            float diameter = Mathf.Sqrt(Mathf.Abs(authoredScale.x * authoredScale.y));
+            if (x < .00001f || y < .00001f || diameter < .00001f) return false;
+            root.localRotation = rotation;
+            Vector3 scale = root.localScale;
+            root.localScale = new Vector3(diameter / x, diameter / y, scale.z);
+            return true;
+        }
     }
     private static readonly Dictionary<RemoteModule, OfferedFrameMotion> OfferedRemoteMotion = new();
     private static readonly List<RemoteModule> DeadOfferedRemoteMotion = new();
@@ -78,12 +224,24 @@ internal static partial class TownServiceMirror
                 entry.Visible = true; entry.Binding = holder.Binding.Bindings[0]; entry.OfferedModule = print!.Id;
                 entry.OfferedStructure = print.Last!.Structure; entry.OfferedBinding = printBinding;
                 entry.Numbers = ReadPose(original, pair.Value);
+                bool nativeRingRoot = NativeRingRates.TryGetValue(TemplateKey(holder.Last.Service,
+                    holder.Last.Template, holder.Last.TemplateAddress), out NativeRingInfo ring) && ring.Root == 0;
+                if (nativeRingRoot)
+                {
+                    // Unity's 3D lossyScale approximates a sheared ancestry even
+                    // when the source mask made the actual ink plane isotropic.
+                    // This native root publishes its rendered XY axis lengths;
+                    // the observer's final principal fit preserves their area.
+                    Vector3 printScale = pair.Value.lossyScale;
+                    entry.Numbers[7] = original.TransformVector(Vector3.right).magnitude / Mathf.Abs(printScale.x);
+                    entry.Numbers[8] = original.TransformVector(Vector3.up).magnitude / Mathf.Abs(printScale.y);
+                }
                 Canvas? canvas = original.GetComponentInParent<Canvas>(true);
                 if (holder.Last.HasCanvasFrame && canvas != null && canvas.transform != original)
                 {
                     if (!ValidMotionScale(canvas.transform.lossyScale)) continue;
                     entry.HasCanvasFrame = true; entry.CanvasPose = ReadPose(canvas.transform, pair.Value);
-                    if (ReferenceEquals(original.parent, canvas.transform))
+                    if (!nativeRingRoot && ReferenceEquals(original.parent, canvas.transform))
                     {
                         // A rotated child of a stretched canvas requires its exact
                         // source local TRS, not division of two lossy world scales.
@@ -141,6 +299,12 @@ internal static partial class TownServiceMirror
                 if (slot.Entry.Kind == 9 && slot.Entry.Visible)
                 { OfferedApplyOrder.Add(candidate.Key); break; }
         }
+        // A withdrawn offer ends its presentation clock even if the inactive
+        // original bank/module is retained for another card or later reopening.
+        DeadOfferedRemoteMotion.Clear();
+        foreach (RemoteModule old in OfferedRemoteMotion.Keys)
+            if (!OfferedApplyOrder.Contains(old)) DeadOfferedRemoteMotion.Add(old);
+        foreach (RemoteModule old in DeadOfferedRemoteMotion) OfferedRemoteMotion.Remove(old);
         OfferedApplyOrder.Sort(CompareOfferedParentage);
         foreach (RemoteModule module in OfferedApplyOrder)
         {
@@ -173,7 +337,10 @@ internal static partial class TownServiceMirror
                     ApplyOfferedPose(module.Host.transform, print, relation.CanvasPose);
                 }
                 if (relation.OfferedLocalScale && !ReferenceEquals(holder.parent, module.Host.transform)) continue;
-                ApplyOfferedPose(holder, print, relation.Numbers, relation.OfferedLocalScale, motion.From, blend);
+                ApplyOfferedPose(holder, print, relation.Numbers, relation.OfferedLocalScale, motion.From,
+                    motion.Ring != null ? 1f : blend);
+                motion.Ring?.Draw(holder, print, Time.timeAsDouble, Vector3.Scale(print.lossyScale, Scale(relation.Numbers)),
+                    EffectiveRemoteFrame(module)!);
                 slot.Dirty = false;
             }
         }
@@ -197,12 +364,16 @@ internal static partial class TownServiceMirror
         TownServiceMotionEntry target = slot.Entry;
         if (!OfferedRemoteMotion.TryGetValue(module, out OfferedFrameMotion? motion))
             OfferedRemoteMotion.Add(module, motion = new OfferedFrameMotion());
+        if (motion.Ring == null && module.LastFrame != null
+            && NativeRingRates.TryGetValue(TemplateKey(module.LastFrame.Service, module.Template, module.Address), out NativeRingInfo info) && info.Root < module.Binding.Nodes.Length)
+            motion.Ring = new NativeRingClock(module.Binding.Nodes, module.Binding.Bindings, info);
         if (motion.Sequence == slot.ReceivedSequence) return motion;
         TownServiceMotionEntry? old = motion.Target;
         bool samePrint = old != null && old.Session == target.Session && old.Structure == target.Structure
             && old.Binding == target.Binding && old.OfferedModule == target.OfferedModule
             && old.OfferedStructure == target.OfferedStructure && old.OfferedBinding == target.OfferedBinding
             && old.HasCanvasFrame == target.HasCanvasFrame && old.OfferedLocalScale == target.OfferedLocalScale;
+        if (!samePrint) motion.Ring?.Reset();
         float blend = motion.Duration > 0f ? Mathf.Clamp01((now - motion.Started) / motion.Duration) : 1f;
         if (samePrint && Quaternion.Angle(Rotation(old!.Numbers), Rotation(target.Numbers)) < .001f)
         {

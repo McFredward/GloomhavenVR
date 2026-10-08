@@ -22,6 +22,8 @@ internal static partial class NativeTemplates
         internal string Path = string.Empty;
         internal Transform Original = null!;
         internal readonly HashSet<Transform> Excluded = new();
+        internal Transform? NativeRingRoot;
+        internal float? NativeRingRate;
     }
     private sealed class Entry
     {
@@ -197,10 +199,24 @@ internal static partial class NativeTemplates
         TownServiceTemplateAssets.Register(TownServiceMirror.Assets, key, entry.Original);
         entry.Copy = Object.Instantiate(entry.Original.gameObject, _bank.transform, false);
         Prune(entry.Original, entry.Copy.transform);
+        // Keep immutable authored timing before the bank strips native callbacks.
+        // Retained frozen parts can register it again after network teardown.
+        Transform? aura = null; float rate = 0f;
+        bool ring = key == "enchant.holder" && TownServiceMirror.ReadNativeRingRate(entry.Copy.transform, out aura, out rate);
         TownServiceNeutralize.Apply(entry.Copy);
         TownServiceCardBody.RebindClone(key == "merchant.heldstock.body" ? "merchant.cardbody" : key, entry.Copy);
         entry.Copy.SetActive(false);
         Partition(entry.Copy.transform, string.Empty, entry.Parts);
+        if (ring && aura != null) foreach (Part part in entry.Parts)
+        {
+            bool ownsAura = aura == part.Original || aura.IsChildOf(part.Original);
+            foreach (Transform excluded in part.Excluded)
+                if (aura == excluded || aura.IsChildOf(excluded)) ownsAura = false;
+            // The shipped Aura is a non-Graphic five-node original subtree;
+            // one partition owns its isotropic mount plus all three drawings.
+            if (ownsAura)
+            { part.NativeRingRoot = aura; part.NativeRingRate = rate; }
+        }
     }
     private static void Prune(Transform source, Transform copy)
     {
@@ -349,7 +365,8 @@ internal static partial class NativeTemplates
         string key = address.Substring(0, split), path = address.Substring(split + 1);
         foreach (Part part in Parts(key))
             if (part.Path == path)
-            { TownServiceMirror.RegisterTemplate(service, template, part.Original, part.Excluded.Contains, address); return true; }
+            { TownServiceMirror.RegisterTemplate(service, template, part.Original, part.Excluded.Contains, address,
+                part.NativeRingRoot, part.NativeRingRate); return true; }
         return false;
     }
     internal static string CardKey(AbilityCardUI card) => "card." + card.CardID.ToString(CultureInfo.InvariantCulture);

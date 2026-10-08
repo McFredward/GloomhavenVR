@@ -685,7 +685,8 @@ internal static partial class TownServiceMirror
     }
 
     internal static void RegisterTemplate(byte service, ushort template, Transform original,
-        Func<Transform, bool>? exclude = null, string address = "")
+        Func<Transform, bool>? exclude = null, string address = "",
+        Transform? nativeRingRoot = null, float? nativeRingRate = null)
     {
         string key = TemplateKey(service, template, address);
         if (Templates.TryGetValue(key, out GameObject? existing) && existing != null) return;
@@ -695,6 +696,7 @@ internal static partial class TownServiceMirror
             _templateHost = new GameObject("GVR inert town-service template bank");
             _templateHost.SetActive(false); Object.DontDestroyOnLoad(_templateHost);
         }
+        PrepareNativeRingRate(key, service, original, exclude, nativeRingRoot, nativeRingRate);
         // Instantiate below an inactive parent BEFORE stripping components; no Awake/OnEnable.
         GameObject clone = Object.Instantiate(original.gameObject, _templateHost.transform, false);
         Prune(original, clone.transform, exclude);
@@ -715,7 +717,7 @@ internal static partial class TownServiceMirror
         var keys = new List<string>();
         foreach (var pair in Templates) if (pair.Key.StartsWith(prefix, StringComparison.Ordinal)) keys.Add(pair.Key);
         foreach (string key in keys)
-        { if (Templates[key] != null) Object.Destroy(Templates[key]); Templates.Remove(key); }
+        { if (Templates[key] != null) Object.Destroy(Templates[key]); Templates.Remove(key); NativeRingRates.Remove(key); }
     }
 
     private static void Prune(Transform source, Transform copy, Func<Transform, bool>? exclude)
@@ -1528,7 +1530,7 @@ internal static partial class TownServiceMirror
     {
         ResetNetwork(); using (new LaneScope(StockLane)) { ClearLocalModules(); _session = 0; _active = false; }
         using (new LaneScope(PublicLane)) { ClearLocalModules(); _session = 0; _active = false; }
-        ClearLocalModules(); Templates.Clear();
+        ClearLocalModules(); Templates.Clear(); NativeRingRates.Clear();
         foreach (var original in CatalogTemplateBindings.Values) original.Binding.Dispose();
         CatalogTemplateBindings.Clear();
         if (_templateHost != null) Object.Destroy(_templateHost);
