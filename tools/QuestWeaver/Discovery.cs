@@ -19,12 +19,15 @@ public sealed class AuditReport
     public List<IntegrationIssue> Issues { get; set; } = new();
     public List<string> HarmonyApi { get; set; } = new();
     public List<IntegrationIssue> AotRisks { get; set; } = new();
+    public List<string> StaticSubstitutions { get; set; } = new();
+    public List<ReflectionRoot> ReflectionRoots { get; set; } = new();
     public Dictionary<string, string> InputAssemblies { get; set; } = new();
 }
 
 public sealed record HookEvidence(string Patch, string Kind, string? Target, int Priority);
 public sealed record CallEvidence(string Caller, int IlOffset, string Api, string[] Strings);
 public sealed record IntegrationIssue(string Code, string Subject, string Detail);
+public sealed record ReflectionRoot(string Assembly, string Type);
 internal sealed record HookDefinition(MethodDefinition Patch, MethodDefinition Target, string Kind, int Priority);
 internal sealed record FieldHelper(MethodDefinition Caller, Instruction Call, Instruction Name, FieldDefinition Field, GenericInstanceMethod Factory);
 
@@ -71,8 +74,9 @@ internal sealed class Discovery : IDisposable
         if (cached != null) return cached;
         var report = new AuditReport { ModSha256 = Hash(ModPath) };
         if (Mod.MainModule.Resources.Any(r => r.Name == "QuestWeaver.Hooks.v1")) report.Issues.Add(new IntegrationIssue("ALREADY_WOVEN", Mod.Name.Name, "The mod input already contains generated Quest integration. Build from a fresh current mod output and original game assemblies."));
+        if (report.Issues.Count == 0) CurrentModCompatibility.Apply(this, report, FindType, Track);
         report.Issues.AddRange(HarmonyFacade.Validate(Mod.MainModule));
-        report.HarmonyApi = Mod.MainModule.GetMemberReferences().Where(m => m.DeclaringType.FullName.StartsWith("HarmonyLib.", StringComparison.Ordinal)).Select(m => m.FullName).Distinct().OrderBy(s => s, StringComparer.Ordinal).ToList();
+        report.HarmonyApi = HarmonyFacade.LiveMembers(Mod.MainModule).Select(m => m.FullName).Distinct().OrderBy(s => s, StringComparer.Ordinal).ToList();
         foreach (TypeDefinition type in AllTypes(Mod.MainModule))
             if (type.BaseType?.FullName == "BepInEx.BaseUnityPlugin") report.AotRisks.Add(new IntegrationIssue("BEPINEX_MONO_BOOTSTRAP", type.FullName,
                 "Original BaseUnityPlugin constructor requires initialized Chainloader, Paths, logger/config and assembly location; Quest needs a verified standalone lifecycle adapter."));

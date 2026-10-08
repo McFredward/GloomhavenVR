@@ -29,6 +29,12 @@ int assertions = 0;
 void Check(bool condition, string message) { assertions++; if (!condition) throw new Exception(message); }
 try
 {
+    if (args.Length == 2 && args[0] == "--current-mod-only")
+    {
+        CurrentModCompatibilityTests.Run(projectRoot, Path.GetFullPath(args[1]), temp, Check);
+        Console.WriteLine($"Quest current mod AOT compatibility: {assertions} assertions passed.");
+        return;
+    }
     if (args.Length == 1 && args[0] == "--offline-profile-only")
     {
         OfflineDynamicProfileTests.Run(projectRoot, Check);

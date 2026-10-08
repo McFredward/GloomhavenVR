@@ -34,6 +34,9 @@ internal sealed class Weaver
         // Preserve reflection metadata and generic closure conservatively for the initial port.
         // This does not assert that every dynamic serializer has generated native code.
         string links = "<linker>\n" + string.Join("\n", model.Loaded.Distinct().Select(a => "  <assembly fullname=\"" + a.Name.Name + "\" preserve=\"all\" />")) + "\n  <assembly fullname=\"QuestWeaver.Runtime\" preserve=\"all\" />\n</linker>\n";
+        foreach (ReflectionRoot root in report.ReflectionRoots.Distinct())
+            links = links.Replace("</linker>", "  <assembly fullname=\"" + System.Security.SecurityElement.Escape(root.Assembly)
+                + "\"><type fullname=\"" + System.Security.SecurityElement.Escape(root.Type) + "\" preserve=\"all\" /></assembly>\n</linker>", StringComparison.Ordinal);
         string parent = Path.GetDirectoryName(absolute)!;
         Directory.CreateDirectory(parent);
         string scratch = Path.Combine(parent, ".quest-weaver-" + Guid.NewGuid().ToString("N"));

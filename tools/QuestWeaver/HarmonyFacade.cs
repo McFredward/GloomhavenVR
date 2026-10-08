@@ -9,7 +9,7 @@ internal static class HarmonyFacade
     {
         using AssemblyDefinition facade = AssemblyDefinition.ReadAssembly(Path);
         TypeDefinition[] types = Discovery.AllTypes(facade.MainModule).ToArray();
-        foreach (MemberReference member in mod.GetMemberReferences().Where(m => m.DeclaringType.Scope.Name is "0Harmony" or "0Harmony.dll"))
+        foreach (MemberReference member in LiveMembers(mod))
         {
             string typeName = member.DeclaringType is GenericInstanceType generic ? generic.ElementType.FullName : member.DeclaringType.FullName;
             TypeDefinition? type = types.FirstOrDefault(t => t.FullName == typeName);
@@ -24,6 +24,20 @@ internal static class HarmonyFacade
             });
             if (!supported) yield return new IntegrationIssue("HARMONY_FACADE_API", member.FullName, "The AOT reflection/attribute facade does not expose this exact current mod API. Add and validate its AOT semantics before conversion.");
         }
+    }
+
+    // Removed, qualified build-time transpilers must not demand runtime emit APIs
+    // merely because the input reader still retains their original metadata rows.
+    // Live attribute constructors and every remaining instruction stay qualified.
+    internal static IEnumerable<MemberReference> LiveMembers(ModuleDefinition mod)
+    {
+        TypeDefinition[] types = Discovery.AllTypes(mod).ToArray();
+        IEnumerable<MemberReference> code = types.SelectMany(t => t.Methods).Where(m => m.HasBody)
+            .SelectMany(m => m.Body.Instructions).Select(i => i.Operand).OfType<MemberReference>();
+        IEnumerable<MemberReference> attributes = types.SelectMany(t => t.CustomAttributes.Concat(t.Methods.SelectMany(m => m.CustomAttributes)))
+            .Select(a => (MemberReference)a.Constructor);
+        return code.Concat(attributes).Select(m => m is GenericInstanceMethod generic ? generic.ElementMethod : m)
+            .Where(m => m is MethodReference or FieldReference && m.DeclaringType.Scope.Name is "0Harmony" or "0Harmony.dll").DistinctBy(m => m.FullName);
     }
 
     private static string TypeKey(TypeReference type) => type switch
