@@ -1,7 +1,7 @@
 # Planning index
 
-Updated 2026-10-08 for Build643: native wall-attachment fades, late menu capture
-and saved startup eye capacity retain NPC639, Frame640/642 and crossplay641.
+Updated 2026-10-08 for Build645: native ring continuity and enhancement-row
+layout retain integrated Frame644, NPC639 and crossplay641.
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
 status; it is not the player manual.
@@ -16,6 +16,10 @@ status; it is not the player manual.
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
 | [QUEST-BUILD-REUSE-20261008.md](QUEST-BUILD-REUSE-20261008.md) | Original-source/output roles, retained14-phase staging and preparation, persistent change-time witnesses and bounded speed evidence |
 | [QUEST-BUILD-NATIVE-BYTES-20261008.md](QUEST-BUILD-NATIVE-BYTES-20261008.md) | Exact Windows native overlays, retained642 staging, measured native progress and dev643 Builder |
+| [NPC-645-REVIEW.md](NPC-645-REVIEW.md) | Paired643 hover cause, combined native proofs, compiled scope and explicit phase exceptions |
+| [NPC-645-RING.md](NPC-645-RING.md) | Final native ring clock, immutable timing provenance, exact original geometry and causal controls |
+| [NPC-645-PROOF-AUDIT.md](NPC-645-PROOF-AUDIT.md) | Independent review of earlier false greens, real template/clock seams and final proof limits |
+| [../docs/performance/FRAME-644-STEADY-CPU.md](../docs/performance/FRAME-644-STEADY-CPU.md) | Integrated Frame work removal, configurable quality trades and full-scope validation ledger |
 | [FRAME-643-NATIVE-PRESENTATION.md](FRAME-643-NATIVE-PRESENTATION.md) | Paired642 native fade/menu/resolution causes, loaded timing and inherited proof limits |
 | [../docs/performance/FRAME-643-INTEGRATION.md](../docs/performance/FRAME-643-INTEGRATION.md) | Exact-source integration, retained NPC/crossplay/CPU repairs and current validation scope |
 | [QUEST-BUILD-CRLF-20261008.md](QUEST-BUILD-CRLF-20261008.md) | Windows Unity YAML audit repair, retained640 checkpoints and dev642 Builder qualification |

@@ -2467,6 +2467,28 @@
         "local"
       ],
       "weight": 60
+    },
+    {
+      "id": "town-hover645",
+      "command": [
+        "python3",
+        "scripts/check-town-hover645.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 45
+    },
+    {
+      "id": "native-ring645",
+      "command": [
+        "python3",
+        "scripts/npc-ring645-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 60
     }
   ]
 }

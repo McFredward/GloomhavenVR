@@ -32,7 +32,8 @@ internal static partial class NativeTemplates
         foreach (Part part in entry.Parts)
         {
             string address = key + "|" + part.Path;
-            TownServiceMirror.RegisterTemplate(service, 1, part.Original, part.Excluded.Contains, address);
+            TownServiceMirror.RegisterTemplate(service, 1, part.Original, part.Excluded.Contains, address,
+                part.NativeRingRoot, part.NativeRingRate);
             TownServiceMirror.PrepareNativeTemplateBasis(service, address);
         }
     }
