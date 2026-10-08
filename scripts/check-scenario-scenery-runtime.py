@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run the complete production scenery classifier/discovery driver in Unity 2021.3.5."""
 import argparse
+import copy
 import hashlib
 import json
 import os
@@ -14,6 +15,9 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source-root', type=Path, default=ROOT)
+    parser.add_argument('--bank-source-root', type=Path, help='Explicit frozen bank worker root; defaults to source-root')
+    parser.add_argument('--catalog-source-root', type=Path, help='Explicit frozen catalog/assets root; defaults to source-root')
+    parser.add_argument('--unitypy-python', type=Path, default=Path('/home/claw/unitypy-venv/bin/python'), help='Readonly native sibling exporter Python with UnityPy installed')
     parser.add_argument('--output-dir', type=Path, default=ROOT / '.planning/debug/scenario-scenery-runtime')
     parser.add_argument('--unity', type=Path, default=Path(os.environ.get('UNITY_PATH', '/home/claw/unity-2021.3.5/Editor/Unity')))
     parser.add_argument('--no-negative-controls', action='store_true')
@@ -26,9 +30,80 @@ def main():
     run = Path(tempfile.mkdtemp(prefix='run-', dir=args.output_dir.resolve()))
     fixture = ROOT / 'scripts/scenario-scenery-runtime'
     base = args.source_root / 'src/GloomhavenVR/Core'
+    bank_root = args.bank_source_root or args.source_root
+    catalog_root = args.catalog_source_root or args.source_root
+    input_files = [base/'Perf/ScenarioSceneryBudget.cs', base/'Perf/ScenarioArchitecturalDetailBudget.cs',
+        base/'Perf/ScenarioDecorativePlacement.cs', base/'FigureRendererGuard.cs',
+        bank_root/'src/GloomhavenVR/Core/Perf/ScenarioEnvironmentMeshBank.cs',
+        bank_root/'src/GloomhavenVR/Core/Perf/ScenarioEnvironmentMeshStream.cs',
+        catalog_root/'tools/environment-mesh/ornaments.json', catalog_root/'tools/environment-mesh/catalog.json.gz',
+        catalog_root/'tools/environment-mesh/export-native.py', catalog_root/'tools/environment-mesh/roles.py',
+        catalog_root/'unity/GloomhavenVR.Assets/Assets/Bundle/EnvironmentMeshes/index.json', Path(__file__).resolve(),
+        *sorted(fixture.glob('*.cs')), fixture/'Scenery.csproj', fixture/'Editor/InteractionRunner.cs', fixture/'prepare-native-graphs.py']
+    input_hashes = {str(path.resolve()):hashlib.sha256(path.read_bytes()).hexdigest() for path in input_files}
+    (run/'input-source-hashes.json').write_text(json.dumps(input_hashes,indent=2)+'\n')
     scenery = (base / 'Perf/ScenarioSceneryBudget.cs').read_text()
     guard = (base / 'FigureRendererGuard.cs').read_text()
-    sources = {'Placement.cs': (base / 'Perf/ScenarioDecorativePlacement.cs').read_text(), 'Scenery.cs': scenery.replace('Time.unscaledTime', 'SceneryClock.Now'), 'FigureGuard.cs': guard}
+    sources = {'Placement.cs': (base / 'Perf/ScenarioDecorativePlacement.cs').read_text(), 'Scenery.cs': scenery.replace('Time.unscaledTime', 'SceneryClock.Now'), 'FigureGuard.cs': guard,
+        'Architecture.cs': (base / 'Perf/ScenarioArchitecturalDetailBudget.cs').read_text()}
+    sources['Bank.cs'] = (bank_root/'src/GloomhavenVR/Core/Perf/ScenarioEnvironmentMeshBank.cs').read_text()
+    sources['MeshStream.cs'] = (bank_root/'src/GloomhavenVR/Core/Perf/ScenarioEnvironmentMeshStream.cs').read_text()
+    # Only index delivery and the readonly game-root path are explicit boundaries.
+    # The complete production bank reader still verifies current Unity metadata,
+    # source SHA and native identity. No ornament/role verdict is replaced.
+    index_lookup = 'TextAsset? asset = Asset("index.json");'
+    assert sources['Bank.cs'].count(index_lookup) == 1, 'bank index delivery binding drift'
+    sources['Bank.cs'] = sources['Bank.cs'].replace(index_lookup, 'TextAsset? asset = ArchitectureNativeFiles.Index();')
+    native_root = 'Path.Combine(Application.streamingAssetsPath, "aa", "StandaloneWindows64", source.path)'
+    assert sources['Bank.cs'].count(native_root) == 1, 'bank readonly source path binding drift'
+    sources['Bank.cs'] = sources['Bank.cs'].replace(native_root, 'Path.Combine(ArchitectureNativeFiles.StreamingRoot, "aa", "StandaloneWindows64", source.path)')
+    index_path = catalog_root/'unity/GloomhavenVR.Assets/Assets/Bundle/EnvironmentMeshes/index.json'
+    ornaments_path = catalog_root/'tools/environment-mesh/ornaments.json'
+    index = json.loads(index_path.read_text()); ornaments = json.loads(ornaments_path.read_text())
+    actual = {entry['key']:entry for entry in index['entries']}
+    assert {entry['key'] for entry in index['entries'] if entry.get('ornament')} == {entry['key'] for entry in ornaments['entries']}, 'bank positive ornament set must equal closed all-use catalog'
+    rows=[]
+    for ornament in ornaments['entries']:
+        entry=actual[ornament['key']]
+        assert entry.get('ornament') and entry['signature']==ornament['signature'] and entry['sources']==ornament['sources'], 'positive ornament catalog binding drift'
+        exact=next(variant for variant in entry['variants'] if variant['tier']==100)
+        mesh_file=index_path.parent/exact['file']
+        assert hashlib.sha256(mesh_file.read_bytes()).hexdigest()==exact['sha256'], 'original ornament geometry hash drift'
+        rows.append({'name':entry['signature']['name'],'mesh':str(mesh_file.resolve()),'readable':entry['signature']['readable'],
+            'routes':[use['route'] for use in ornament['uses']]})
+    core=next(entry for entry in index['entries'] if entry.get('role')=='structure' and not entry.get('ornament')
+        and entry['signature']['name']=='CR_OS_Wall_01_Main')
+    core_exact=next(variant for variant in core['variants'] if variant['tier']==100)
+    core_mesh=index_path.parent/core_exact['file']
+    assert hashlib.sha256(core_mesh.read_bytes()).hexdigest()==core_exact['sha256'], 'retained original core hash drift'
+    graph_dir=run/'native-graphs'
+    result=subprocess.run([str(args.unitypy_python), str(fixture/'prepare-native-graphs.py'),
+        '--catalog-root',str(catalog_root),'--game-streaming-root',str((args.source_root/'ressources/GH_Data/StreamingAssets').resolve()),
+        '--output',str(graph_dir)],capture_output=True,text=True)
+    (run/'native-graph-export.log').write_text(result.stdout+result.stderr)
+    if result.returncode: raise SystemExit(result.stdout+result.stderr)
+    print(result.stdout,end='')
+    floor=next(entry for entry in index['entries'] if entry.get('role')=='floor' and not entry.get('ornament')
+        and entry['signature']['name']=='CR_ST_Floor_Basic_Half_01')
+    floor_exact=next(variant for variant in floor['variants'] if variant['tier']==100)
+    floor_mesh=index_path.parent/floor_exact['file']
+    assert hashlib.sha256(floor_mesh.read_bytes()).hexdigest()==floor_exact['sha256'], 'retained original floor hash drift'
+    fixture_index=copy.deepcopy(index)
+    bad_provenance=copy.deepcopy(actual[ornaments['entries'][0]['key']])
+    bad_provenance['key']='fixture-bad-provenance'; bad_provenance['signature']['name']='GloomhavenVR.Fixture.Ornament.BadSource'
+    for source in bad_provenance['sources']: source['sha256']='0'*64
+    fixture_index['entries'].append(bad_provenance)
+    fixture_index_path=run/'index-with-negative-source-fixture.json'
+    fixture_index_path.write_text(json.dumps(fixture_index))
+    sources['ArchitectureNativeData.cs']='using System; using System.IO; using UnityEngine;\nnamespace GloomhavenVR.Core { internal static class ArchitectureNativeFiles {\n'+\
+        'internal static readonly string StreamingRoot='+json.dumps(str((args.source_root/'ressources/GH_Data/StreamingAssets').resolve()))+';\n'+\
+        'internal static TextAsset Index()=>new TextAsset(File.ReadAllText('+json.dumps(str(fixture_index_path.resolve()))+'));\n'+\
+        'internal static readonly string Graphs='+json.dumps(str((graph_dir/'graphs.json').resolve()))+';\n'+\
+        'internal static readonly string ProofOutput='+json.dumps(str((run/'architecture-coverage.json').resolve()))+';\n'+\
+        'internal readonly struct Entry { internal readonly string Name,Mesh; internal readonly bool Readable; internal Entry(string n,string m,bool r){Name=n;Mesh=m;Readable=r;} }\n'+\
+        'internal static readonly Entry[] Ornaments={'+','.join('new Entry('+json.dumps(row['name'])+','+json.dumps(row['mesh'])+','+str(row['readable']).lower()+')' for row in rows)+'};\n'+\
+        'internal static readonly Entry Core=new Entry('+json.dumps(core['signature']['name'])+','+json.dumps(str(core_mesh.resolve()))+','+str(core['signature']['readable']).lower()+');\n'+\
+        'internal static readonly Entry Floor=new Entry('+json.dumps(floor['signature']['name'])+','+json.dumps(str(floor_mesh.resolve()))+','+str(floor['signature']['readable']).lower()+');\n} }\n'
     metadata = json.loads((args.source_root/'tests/GloomhavenVR.ScenarioSceneryBudgetTests/NativeDetailProvenance.json').read_text())
     composite = sorted({row['mesh'] for row in metadata['scenery_review']['composite_dressing']})
     small = sorted({row['mesh'] for row in metadata['scenery_review']['small_dressing']})
@@ -100,6 +175,20 @@ def main():
             ('unknown-small-callback-ignored', 'Scenery.cs', '|| (smallDressing && !generated && HasUnknownSmallDressingCallback(t))', '|| false', 'unknown native callbacks retain exact small decoration'),
             ('subtree-cache-retained', 'Scenery.cs', 'finally { _colliderFactsActive = false; ColliderReadFacts.Clear(); }', 'finally { _colliderFactsActive = false; ColliderReadFacts.Clear(); }', ''),
         ]
+        variants += [
+            ('architecture-unit-promotion-lost', 'Architecture.cs', '            unit = parent;', '            /* negative: no multipart promotion */', 'non-LOD multipart ornament promotes'),
+            ('architecture-retained-core-lost', 'Architecture.cs', 'if (core == null) return false;', 'if (core == null) return true;', 'sole WallTop boundary without an actual retained body'),
+            ('architecture-collider-core-lost', 'Architecture.cs', 'if (represented == null) return false;', 'if (represented == null) return true;', 'distant retained wall cannot represent a lone ornament collider'),
+            ('architecture-whole-unit-proof-lost', 'Architecture.cs', 'if (!WholeOrnament(parent)) break;', 'if (!WholeOrnament(parent) && false) break;', 'required native body is never promoted'),
+            ('architecture-light-boundary-lost', 'Architecture.cs', '|| node.GetComponent<Canvas>() != null || node.GetComponent<Light>() != null', '|| node.GetComponent<Canvas>() != null', 'native light ancestor protects ornamental'),
+            ('architecture-native-prop-boundary-lost', 'Architecture.cs', '|| (original != null && original.PropObject != null)', '|| false', 'native PropObject protects positive ornament'),
+            ('architecture-live-witness-lost', 'Scenery.cs', 'if (!core.IsCurrent()) { represented = false; break; }', 'if (!core.IsCurrent() && false) { represented = false; break; }', 'native core hidden after admission rescues'),
+            ('architecture-retune-witness-lost', 'Scenery.cs', 'if (!core.IsCurrent()) { hide = false; record.Invalidated = true; break; }', 'if (!core.IsCurrent() && false) { hide = false; record.Invalidated = true; break; }', 'retuning retained records after core loss cannot create a new mask'),
+            ('architecture-density-ignored', 'Scenery.cs', 'Kind.Architecture => _architectureDensity,', 'Kind.Architecture => 100,', 'architecture zero masks positive represented trim'),
+            ('architecture-catalog-positive-flag-lost', 'Bank.cs', 'out Entry entry) && entry.ornament', 'out Entry entry)', 'actual SHA-backed native core is retained structure'),
+            ('architecture-catalog-native-topology-lost', 'Bank.cs', '&& Matches(native, entry.signature) && SourceValid(entry);', '&& SourceValid(entry);', 'same-metadata native non-triangle topology remains unadmitted'),
+            ('architecture-catalog-source-sha-lost', 'Bank.cs', '&& Matches(native, entry.signature) && SourceValid(entry);', '&& Matches(native, entry.signature);', 'ornament source SHA mismatch retains native visual'),
+        ]
         variants = [v for v in variants if v[0] != 'subtree-cache-retained']
     if args.variant:
         known = {v[0] for v in variants}
@@ -131,6 +220,10 @@ def main():
     report=Path(manifest['result'])
     if report.is_file(): print(report.read_text(),end='')
     (run/'unity-exit-code.txt').write_text(str(result.returncode) + '\n')
+    current_hashes={path:hashlib.sha256(Path(path).read_bytes()).hexdigest() for path in input_hashes}
+    stable=current_hashes==input_hashes
+    (run/'input-stability.json').write_text(json.dumps({'stable':stable,'current':current_hashes},indent=2)+'\n')
+    if not stable: raise SystemExit('FAIL: source changed during the frozen Unity proof; rerun finalized source')
     if result.returncode or not report.is_file(): raise SystemExit('FAIL: Unity run; see '+str(run/'unity.log'))
     print('PASS: '+str(len(variants))+' complete production/negative variants; evidence: '+str(run))
 

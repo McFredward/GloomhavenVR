@@ -64,7 +64,7 @@ namespace GloomhavenVR.Board.FigureGrab
             out int side, out float scale)
         { prop = new object(); visual = Held == null ? null! : Held.gameObject; side = 0; scale = 1;
           return slot == 0 && Held != null; }
-        internal static bool OwnsRendererOf(Transform leaf) => Held != null && leaf.IsChildOf(Held);
+        internal static bool OwnsRendererOf(Transform leaf) => (Held != null && leaf.IsChildOf(Held)) || (NetHeldProps.Any && NetHeldProps.Visual != null && leaf.IsChildOf(NetHeldProps.Visual.transform));
     }
     internal static class NetHeldProps
     {
@@ -72,6 +72,11 @@ namespace GloomhavenVR.Board.FigureGrab
         internal static GameObject? Visual;
         internal static void CopyVisualRoots(List<GameObject> list)
         { if (Any && Visual != null) list.Add(Visual); }
+    }
+    internal static class PropGrab
+    {
+        internal static Transform? Registered;
+        internal static bool OwnsRendererOf(Transform leaf) => Registered != null && leaf.IsChildOf(Registered);
     }
 }
 namespace GloomhavenVR.Core
