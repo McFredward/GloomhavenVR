@@ -204,7 +204,9 @@ def snapshot(source: Path, records: list[dict], destination: Path, *, phase="sna
 @contextmanager
 def _snapshot_witnesses(destination, root, records):
     # Keep the observation database outside the immutable snapshot file set.
-    database = _ordinary_owned(destination.with_name(destination.name + ".snapshot-witnesses.sqlite3"))
+    # Dot-prefix its sidecars too: authored snapshots can live in Unity Assets,
+    # whose importer must never see a SQLite database as game content.
+    database = _ordinary_owned(destination.with_name("." + destination.name + ".snapshot-witnesses.sqlite3"))
     if database.exists() and (not stat.S_ISREG(database.lstat().st_mode) or database.lstat().st_nlink != 1):
         raise BuildError("Snapshot witness database is not a regular owned file.")
     connection = sqlite3.connect(database, timeout=30)

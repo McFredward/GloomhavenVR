@@ -280,6 +280,9 @@ class SnapshotWitnessTests(unittest.TestCase):
         self.assertEqual(reads.count(self.destination.with_name("snapshot.staging") / "game.bundle"), 1)
         storage._invocation_file_proofs.clear()
         self.assertEqual(self.count_reads(lambda: storage.snapshot(self.source, self.records, self.destination)), [])
+        database = self.root / ".snapshot.snapshot-witnesses.sqlite3"
+        self.assertTrue(database.is_file())
+        self.assertFalse((self.root / "snapshot.snapshot-witnesses.sqlite3").exists())
 
     def test_legacy_receipt_reads_once_then_next_run_skips_bytes_and_detects_change(self):
         self.destination.mkdir(); target = self.destination / "game.bundle"; target.write_bytes(self.raw)
