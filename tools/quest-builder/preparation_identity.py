@@ -102,7 +102,7 @@ def rebind_key(output, project, inputs, source, *, target, recipe, recovery):
     previous_key = value.get("inputKey")
     if (value.get("schema") != 1 or value.get("owner") != "Quest preparation substage journal"
             or value.get("project") != project.relative_to(output).as_posix()
-            or value.get("target") != target or value.get("recipe") != recipe
+            or value.get("target") != target or type(value.get("recipe")) is not int or value.get("recipe") != recipe
             or not isinstance(previous_key, str) or not HEX.fullmatch(previous_key)):
         raise BuildError("Preparation journal identity differs; existing project was retained.")
     if previous_key == inputs["inputKey"]:

@@ -103,7 +103,20 @@ OBSERVATION_PREVIOUS = {
         "path": "tools/quest-builder/prepare_resume.py", "size": 27384,
         "sha256": "ad5b12ad8a51756b1f0dee4609a903fe8380feab69f35de8724355c622d3750d"},
 }
-OBSERVATION_FIXED = {}
+OBSERVATION_FIXED = {
+    "tools/quest-builder/storage.py": {
+        "path": "tools/quest-builder/storage.py", "size": 50272,
+        "sha256": "d747a4413138c3140d2a1bbfb48fa424165c99853e49e5e5e73b5dcfe000daf2"},
+    "tools/quest-builder/full_assets.py": {
+        "path": "tools/quest-builder/full_assets.py", "size": 32663,
+        "sha256": "871186d12af12ab23dd59746acd9a0ade6d87feee03f6b654d4b6451e874206e"},
+    "tools/quest-builder/staging_resume.py": {
+        "path": "tools/quest-builder/staging_resume.py", "size": 21425,
+        "sha256": "9a8f392029555564018f46357df7c64cd4350601e8ba41b8d99a98107a0ab5eb"},
+    "tools/quest-builder/prepare_resume.py": {
+        "path": "tools/quest-builder/prepare_resume.py", "size": 34048,
+        "sha256": "abebf9fc07e2ff2137f82b55bde0ab8fa1e69f8ee0eda227689bc602a7a8f7f1"},
+}
 # Shipped d4cc44eeb adds an exporter-log observer and invocation-local proof
 # caches. The current reference-audit update changes no raw export identities.
 # Preserve this exact whole profile as well as the previous shipped profiles.
