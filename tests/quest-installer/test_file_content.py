@@ -180,6 +180,35 @@ class FileContentTests(unittest.TestCase):
         self.assertFalse(any("sha256sum" in str(call) or "stat -c" in str(call) for call in self.device.calls))
         self.assertEqual(sum(call[0] == "pull" for call in self.device.calls), 2)
 
+    def test_apk_only_update_retains_installed_game_without_original_bank(self):
+        self.install()
+        save = self.device.root / "quest-saves/campaign.save"
+        save.parent.mkdir(); save.write_bytes(b"retained private campaign")
+        self.source.content[0].path.unlink()
+        before = len(self.device.pushed_files)
+        result = self.install()
+        self.assertEqual(result[1]["uploadedFiles"], 0)
+        self.assertEqual(result[1]["reusedFiles"], len(self.game))
+        self.assertEqual(len(self.device.pushed_files), before)
+        self.assertEqual(save.read_bytes(), b"retained private campaign")
+
+    def test_apk_only_update_rejects_missing_or_other_completed_game(self):
+        self.source.content[0].path.unlink()
+        with self.assertRaisesRegex(installer.InstallError, "complete original game content"):
+            installer.require_installed_game(self.device, "quest", self.source, self.root)
+        folder = self.device.root / "quest-owned-game"
+        folder.mkdir(parents=True)
+        files = [{**row, "sha256": "a" * 64} for row in self.manifest["game"]["files"]]
+        wrong = {**self.manifest["game"], "files": files}
+        (folder / installer._RECEIPT).write_bytes(installer.encode_content_receipt(wrong, {row["path"]: row for row in files}))
+        with self.assertRaisesRegex(installer.InstallError, "complete original game content"):
+            installer.require_installed_game(self.device, "quest", self.source, self.root)
+
+    def test_apk_only_repair_requires_original_complete_bank(self):
+        self.install(); self.source.content[0].path.unlink()
+        with self.assertRaisesRegex(installer.InstallError, "original complete content ZIP"):
+            installer.require_installed_game(self.device, "quest", self.source, self.root, repair=True)
+
     def test_changed_bank_updates_only_changed_file_and_preserves_saves(self):
         self.install()
         save = self.device.root / "quest-saves/campaign.save"

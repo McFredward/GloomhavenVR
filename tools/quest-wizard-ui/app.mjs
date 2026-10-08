@@ -37,6 +37,7 @@ function setLanguage(value) {
   if(discovery) renderGames();updateView();
 }
 function form() { return {gameRoot:$('game-root').value,provider:$('provider').value,unityEditor:$('unity-editor').value,
+  mode:$('build-mode').value,baseApk:$('base-apk').value,signingRoot:$('signing-root').value,
   profileName:$('profile-name').value,profileId:$('profile-id').value,declareDlc:$('declare-dlc').checked,
   ownedDlc:[...document.querySelectorAll('input[name=dlc]:checked')].map(node => node.value),
   acceptUnityTerms:$('unity-terms').checked,install:$('install-choice').checked}; }
@@ -69,8 +70,8 @@ function showSlide(index) {
 function phaseLabel(phase='') {
   if(phase.startsWith('operation:')){
     const code=phase.slice(10),key='phase_operation_'+code,value=t(key);
-    const tool=code.match(/^(download|extract|verify)-(git|dotnet8|dotnet10)$/);
-    if(tool)return t(tool[1]==='verify'?'phase_outputVerify':'phase_'+tool[1])+' · '+({git:'Git',dotnet8:'.NET 8',dotnet10:'.NET 10'}[tool[2]]);
+    const tool=code.match(/^(download|extract|verify)-(git|dotnet8|dotnet10|apkJdk|apkBuildTools)$/);
+    if(tool)return t(tool[1]==='verify'?'phase_outputVerify':'phase_'+tool[1])+' · '+({git:'Git',dotnet8:'.NET 8',dotnet10:'.NET 10',apkJdk:'Java 17',apkBuildTools:'Android Build Tools'}[tool[2]]);
     return value===key?t('phase_starting'):value;
   }
   const unityKey='phase_'+phase;
@@ -215,9 +216,15 @@ function updateView() {
   $('cancel').textContent=t(['cancelling','cancel_requested'].includes(state?.status)?'cancelling':'cancel');
   $('profile-summary').textContent=t($('profile-name').value?'profileManual':'profileCheck');
   $('selected-review').textContent=$('provider').value.toUpperCase()+' · '+$('game-root').value;
+  const mode=$('build-mode').value;
+  $('base-apk-choice').hidden=mode==='build';
+  $('update-signing-choice').hidden=mode==='build';
+  document.querySelector('.license-note').hidden=mode==='update-profile';
+  $('browse-apk').hidden=discovery?.capabilities?.browse===false;
   $('primary').disabled=busy||!canConnect||Boolean(resumeFailed)||(page===0&&!$('game-root').value.trim())||(page===2&&(isActive(state)||state?.status==='complete'));
   $('primary').firstElementChild.textContent=t(busy?'preparing':page===0?'continue':page===1?'build':isActive(state)?'working':state?.status==='complete'?'done':state?.status==='blocked'?'retry':'resumeContinue');
   $('primary').lastElementChild.textContent=state?.status==='complete'?'✓':'→';
+  if(page===1&&mode!=='build'&&!busy)$('primary').firstElementChild.textContent=t('startUpdate');
   if(page===2)renderProgress();
 }
 function renderProgress() {
@@ -232,20 +239,20 @@ function renderProgress() {
   $('progress-title').textContent=t(failure?'failureTitle':waiting?'actionNeeded':done?'completeTitle':blocked?'blockedTitle':stopped?'stoppedTitle':state.status==='ready'?'readyTitle':'progressTitle');
   $('progress-copy').textContent=t(failure?'failureCopy':done?'completeCopy':blocked?'blockedCopy':stopped?'stoppedCopy':state.status==='ready'?'readyCopy':'progressCopy');
   const progress=progressView(state);
-  if(!logSelectionManual&&progress.current?.id)$('log-stage').value=progress.current.id;
+  if(!logSelectionManual&&(progress.active??progress.current)?.id)$('log-stage').value=(progress.active??progress.current).id;
   $('phase-label').textContent=t(done?'done':t('stage_'+progress.phase)==='stage_'+progress.phase?'waiting':'stage_'+progress.phase);
   $('progress-count').textContent=t('phasePercent',{percent:percentText(progress.percent)});
   const track=$('progress-track');track.classList.toggle('indeterminate',progress.indeterminate);
   track.setAttribute('aria-valuemin','0');track.setAttribute('aria-valuemax','100');
   track.setAttribute('aria-valuenow',String(progress.percent));
   track.setAttribute('aria-valuetext',$('progress-count').textContent);$('progress-fill').style.width=progress.width+'%';
-  const sub=stageProgress(progress.current);
+  const sub=stageProgress(progress.active??progress.current);
   const hasSubstep=!done&&sub.phase&&!['pending','starting','complete'].includes(sub.phase);
-  $('progress-detail').textContent=[!hasSubstep&&sub.phase?substepLabel(sub):'',counters(sub),sub.detail??'',waiting?t('waitingSince',{seconds:Math.max(0,Math.floor(Date.now()/1000-waiting.since))}):''].filter(Boolean).join(' · ');
+  $('progress-detail').textContent=[progress.retaining?t('retainedProgress'):'',!hasSubstep&&sub.phase?substepLabel(sub):'',counters(sub),sub.detail??'',waiting?t('waitingSince',{seconds:Math.max(0,Math.floor(Date.now()/1000-waiting.since))}):''].filter(Boolean).join(' · ');
   $('progress-completed').hidden=done;
   $('progress-completed').textContent=workSummary(sub);
   renderTiming(progress.current);
-  const activity=activityView(progress.current);
+  const activity=activityView(progress.active??progress.current);
   $('activity-status').hidden=!active||Boolean(waiting);
   $('activity-status').classList.toggle('quiet',activity?.quiet===true);
   $('activity-status').textContent=t(activity?.quiet?'activityQuiet':activity?'activityRecent':'activityUnknown',{duration:durationText(activity?.seconds??0)});
@@ -319,6 +326,8 @@ async function loadArtwork(artwork,{publisher=false}={}) {
 }
 function restoreChoices(choices) {
   if(!choices)return;
+  $('build-mode').value=choices.mode??'build';$('base-apk').value=choices.baseApk??'';
+  $('signing-root').value=choices.signingRoot??'';
   $('game-root').value=choices.gameRoot??'';$('provider').value=choices.provider??'steam';$('unity-editor').value=choices.unityEditor??'';
   $('profile-name').value=choices.profile?.displayName??'';$('profile-id').value=choices.profile?.providerId??'';
   $('unity-terms').checked=choices.acceptUnityTerms===true;$('install-choice').checked=choices.install!==false;
@@ -391,17 +400,17 @@ async function primary() {
   if(busy||resumeFailed)return;
   clearError();
   if(page===0){busy=true;updateView();try{const selectedChoices=choicesFromForm(form(),language);
-    if(discovery?.capabilities?.spaceEstimate===true){qualification=await api.qualify(selectedChoices.gameRoot);}
+    if(discovery?.capabilities?.spaceEstimate===true){qualification=await api.qualify(selectedChoices.gameRoot,selectedChoices.mode);}
     page=1;updateView();const heading=document.querySelector('#setup-page h2');heading.setAttribute('tabindex','-1');heading.focus();}catch(value){error(typeof value?.message==='string'?{code:value.message}:value);}finally{busy=false;updateView();}return;}
   busy=true;clearTimeout(pollTimer);sessionGeneration++;stopOptionalReads();updateView();
   try {
-    if(page===1){const choices=choicesFromForm(form(),language);if(!choices.acceptUnityTerms)throw {code:'missingTerms'};
+    if(page===1){const choices=choicesFromForm(form(),language);if(choices.mode!=='update-profile'&&!choices.acceptUnityTerms)throw {code:'missingTerms'};
       const result=await api.plan(choices,state?.session);if(!sessionId(result.session)||!result.state)throw {code:'invalidReply'};clearLoadedLog();state=result.state;page=2;after=0;log=[];}
     await api.run(state.session);const result=await api.status(state.session);state=result.state;await poll();schedulePoll();
   }catch(value){error(value);}finally{busy=false;updateView();}
 }
 async function browse(kind) {
-  busy=true;clearError();updateView();try{const result=await api.browse(kind);if(result.path){$(kind==='game'?'game-root':'unity-editor').value=result.path;if(kind==='game')selected=null;}}
+  busy=true;clearError();updateView();try{const result=await api.browse(kind);if(result.path){$(({game:'game-root',unity:'unity-editor',apk:'base-apk'})[kind]).value=result.path;if(kind==='game')selected=null;}}
   catch(value){error(value);}finally{busy=false;updateView();}
 }
 document.querySelectorAll('[data-language]').forEach(node=>node.addEventListener('click',()=>setLanguage(node.dataset.language)));
@@ -431,6 +440,7 @@ document.querySelector('#diagnostic-details').addEventListener('toggle',()=>{if(
 $('load-log').addEventListener('click',()=>void refreshLog());
 document.querySelector('.skip').addEventListener('click',event=>{event.preventDefault();$('workspace').focus();});
 $('browse-game').addEventListener('click',()=>browse('game'));$('browse-unity').addEventListener('click',()=>browse('unity'));
+$('browse-apk').addEventListener('click',()=>browse('apk'));$('build-mode').addEventListener('change',updateView);$('base-apk').addEventListener('input',updateView);
 $('cancel').addEventListener('click',async()=>{busy=true;updateView();try{await api.cancel(state.session);const result=await api.status(state.session);state=result.state;schedulePoll();}catch(value){error(value);}finally{busy=false;updateView();}});
 $('game-root').addEventListener('input',()=>{selected=null;resetArtwork();updateView();});$('provider').addEventListener('change',()=>{selected=null;resetArtwork();updateView();});$('profile-name').addEventListener('input',updateView);
 $('declare-dlc').addEventListener('change',()=>{$('dlc-declaration').hidden=!$('declare-dlc').checked;});

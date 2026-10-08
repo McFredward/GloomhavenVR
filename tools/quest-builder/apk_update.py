@@ -34,7 +34,7 @@ MANAGED_RESOURCES = "assets/bin/Data/Managed/Resources/"
 MAX_JSON = 8 * 1024 * 1024
 MAX_MEMBER = 1024 * 1024 * 1024
 REPLACED_PACKAGES = {"UnityEngine.UI", "Unity.InputSystem", "Unity.Addressables", "Unity.ResourceManager", "Unity.ScriptableBuildPipeline",
-                     "Unity.XR.Management", "Unity.XR.OpenXR", "Unity.XR.CoreUtils", "Unity.TextMeshPro"}
+                     "Unity.XR.Management", "Unity.XR.OpenXR", "Unity.XR.CoreUtils"}
 _SHA = re.compile(r"[0-9a-f]{64}")
 _UNITY = re.compile(r"20\d{2}\.\d+\.\d+[abfp]\d+")
 _resource_proofs = set()
@@ -291,8 +291,19 @@ def stage_code_project(repo, project, base, managed_dir, *, profile, version_cod
     # Runtime defines, package API binding and plugin references are the same as
     # the full player. Only the Editor build helper differs.
     plugins = project / "Assets/Plugins/QuestGame"; plugins.mkdir(parents=True)
+    with zipfile.ZipFile(base) as original:
+        assemblies = _json(original, ASSEMBLIES)
+    if (not isinstance(assemblies.get("names"), list) or not isinstance(assemblies.get("types"), list)
+            or len(assemblies["names"]) != len(assemblies["types"])):
+        raise BuildError("Original player assembly classification is invalid.")
+    # Original plugins are distinct from the player's SDK/BCL assemblies.
+    # Namespace prefixes cannot distinguish SpatialTracking or Unsafe from
+    # engine modules/framework DLLs. Preserve the original plugin classification.
+    original_plugins = {name for name, kind in zip(assemblies["names"], assemblies["types"]) if kind == 16}
     dlls = sorted(p for p in managed_dir.glob("*.dll") if p.stem not in REPLACED_PACKAGES
-                  and not p.name.startswith(("UnityEngine.", "System.")) and p.name not in ("UnityEngine.dll", "mscorlib.dll", "netstandard.dll", "System.dll"))
+                  and not (p.name.startswith("UnityEngine.") and p.name.endswith("Module.dll"))
+                  and (not p.name.startswith("System.") or p.name in original_plugins)
+                  and p.name not in ("UnityEngine.dll", "mscorlib.dll", "netstandard.dll", "System.dll"))
     if not {"GH.Runtime.dll", "GH.Shared.dll"}.issubset({p.name for p in dlls}):
         raise BuildError("Code update requires the owned original game managed plugin set.")
     for dll in dlls:

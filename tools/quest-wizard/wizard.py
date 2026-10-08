@@ -22,7 +22,7 @@ REPO = Path(__file__).resolve().parents[2]
 
 def choices(value):
     allowed = {"gameRoot", "provider", "sourceRoot", "sourceCommit", "sourceRef", "unityEditor", "unityHub", "steamRoot", "steamId",
-               "profile", "ownedDlc", "steamLogo", "install", "acceptUnityTerms", "language"}
+               "profile", "ownedDlc", "steamLogo", "install", "acceptUnityTerms", "language", "mode", "baseApk", "signingRoot"}
     if not isinstance(value, dict) or set(value) - allowed:
         raise WizardError("invalid_choices", "Wizard choices contain unsupported fields.", "Die Auswahl enthält nicht unterstützte Felder.")
     result = dict(value)
@@ -30,6 +30,11 @@ def choices(value):
         raise WizardError("game_required", "Select your owned Gloomhaven installation.", "Bitte die eigene Gloomhaven-Installation wählen.")
     result.setdefault("provider", "steam"); result.setdefault("language", "de")
     result.setdefault("install", True); result.setdefault("acceptUnityTerms", False)
+    result.setdefault("mode", "build")
+    if result["mode"] not in ("build", "update-mod", "update-profile"):
+        raise WizardError("invalid_choices", "Unsupported update mode.")
+    if result["mode"] != "build" and (not isinstance(result.get("baseApk"), str) or not result["baseApk"].strip()):
+        raise WizardError("base_apk_required", "Select the existing Quest APK.", "Bitte die vorhandene Quest-APK auswählen.")
     if result["provider"] not in ("steam", "gog", "epic") or result["language"] not in ("en", "de"):
         raise WizardError("invalid_choices", "Unsupported provider or language.")
     if any(type(result[name]) is not bool for name in ("install", "acceptUnityTerms")):
@@ -42,7 +47,7 @@ def choices(value):
                                  or any(not isinstance(item, str) or item not in ("jotl", "solo", "jotl-skins") for item in result["ownedDlc"])
                                  or len(set(result["ownedDlc"])) != len(result["ownedDlc"])):
         raise WizardError("dlc_choices", "Select supported purchased DLCs.", "Bitte unterstützte, gekaufte DLCs wählen.")
-    for name in ("gameRoot", "sourceRoot", "unityEditor", "unityHub", "steamRoot", "steamLogo"):
+    for name in ("gameRoot", "sourceRoot", "unityEditor", "unityHub", "steamRoot", "steamLogo", "baseApk", "signingRoot"):
         if name in result:
             if not isinstance(result[name], str) or not result[name] or "\0" in result[name]: raise WizardError("invalid_path", "Invalid selected path.")
             result[name] = str(Path(result[name]).expanduser().absolute())
@@ -59,16 +64,23 @@ class Engine:
 
     def key(self, state, stage):
         before = STAGES[:STAGES.index(stage)]
-        names = {"tools": (), "source": ("sourceRoot", "sourceCommit", "sourceRef", "gameRoot"),
-                 "unity": ("unityEditor", "unityHub", "acceptUnityTerms"),
+        names = {"tools": ("mode",), "source": ("sourceRoot", "sourceCommit", "sourceRef", "gameRoot", "mode"),
+                 "unity": ("unityEditor", "unityHub", "acceptUnityTerms", "mode"),
                  "profile": ("provider", "steamRoot", "steamId", "profile", "steamLogo"),
-                 "inspect": ("gameRoot", "ownedDlc"), "build": (), "install": ("install",)}[stage]
+                 "inspect": ("gameRoot", "ownedDlc", "mode", "baseApk"), "build": ("mode", "baseApk", "signingRoot"), "install": ("install",)}[stage]
         release_identity = None
         if stage == "source":
             selected = Path(state["choices"].get("sourceRoot") or self.repo)
             manifest = ordinary(selected / "quest-builder-release.json")
             if manifest.is_file() and not (selected / ".git").exists(): release_identity = digest(manifest)
+        base_identity = None
+        if stage == "inspect" and state["choices"].get("mode", "build") != "build":
+            apk = ordinary(Path(state["choices"]["baseApk"]))
+            # A user may replace an APK at the same selected path. File path
+            # equality must never authorize reuse of the preceding update.
+            base_identity = digest(apk)
         return value_hash({**({"releaseIdentity": release_identity} if release_identity else {}), "choices": {name: state["choices"].get(name) for name in names}, "stage": stage, "pins": value_hash(provision.LOCK),
+                           **({"baseApkSha256": base_identity} if base_identity else {}),
                            **({"prerequisitePolicy": 2} if stage == "unity" else {}), "dependencies": {name: state.get("completed", {}).get(name, {}).get("key") for name in before}})
 
     def run(self, session):
@@ -77,12 +89,33 @@ class Engine:
             with self.store.active(state):
                 return self._run(state, session)
 
+    def build_work_key(self, state):
+        """Progress scope, independent of release observer bytes; never a receipt."""
+        prior = state.get("completed", {})
+        inspected = prior.get("inspect", {}).get("details", {})
+        profile = prior.get("profile", {}).get("details", {})
+        game_key = inspected.get("gameKey")
+        if not game_key or not profile.get("profilePath"):
+            return None
+        try:
+            captured = read_json(ordinary(Path(profile["profilePath"])))
+            identity = value_hash({name: captured.get(name) for name in
+                                   ("provider", "steamId", "providerId", "accountId", "displayName", "isDummy")})
+        except (OSError, ValueError, WizardError):
+            return None
+        return value_hash({"gameRoot": state["choices"]["gameRoot"], "gameKey": game_key,
+                           "profile": identity, "provider": state["choices"]["provider"],
+                           "ownedDlc": state["choices"].get("ownedDlc"), "target": "game",
+                           "mode": state["choices"].get("mode", "build"),
+                           "baseApk": inspected.get("baseApkSha256")})
+
     def _run(self, state, session):
         if value_hash(state["choices"]) != state["choicesKey"]:
             raise WizardError("choices_changed", "Saved choices changed; create a new session.")
         # Remember the explicitly continued run, including an older selection.
         # Read-only discovery/status never changes this restart preference.
         atomic_json(self.store.root / "latest-session.json", {"schema": 1, "session": session})
+        previous_work_key = self.build_work_key(state)
         self.store.clear_cancel(session)
         self.store.begin_run(session)
         supervisor = self.supervisor_factory(self.store, session)
@@ -91,7 +124,14 @@ class Engine:
             stage = row["id"]; key = self.key(state, stage); started = time.monotonic()
             try:
                 self.store.check_cancel(session)
-                self.store.begin_stage(session, stage, key)
+                if stage == "build":
+                    self.store.begin_stage(session, stage, key, work_key=self.build_work_key(state),
+                                           previous_work_key=previous_work_key)
+                else:
+                    self.store.begin_stage(session, stage, key)
+                if stage == "tools" and state["choices"].get("mode", "build") != "build":
+                    helper = discovery.builder(self.repo)
+                    helper._local_helper("update_driver").preflight(helper, state["choices"]["gameRoot"], state["choices"]["baseApk"], state["choices"]["mode"])
                 prior = self.store.valid(session, stage, key, report_progress=True)
                 if prior:
                     if stage == "tools" and not self.actions: self.qualify(state)
@@ -145,7 +185,8 @@ class Engine:
 
     def qualify(self, state):
         from qualification import qualify
-        qualification = qualify(self.store.root, game_root=state["choices"]["gameRoot"], repo=self.repo)
+        qualification = qualify(self.store.root, game_root=state["choices"]["gameRoot"], repo=self.repo,
+                                mode=state["choices"].get("mode", "build"))
         if qualification.get("spaceWarning"):
             self.emit(self.store.event(state, "space_estimate_warning", "tools", freeBytes=qualification["freeBytes"], estimatedBytes=qualification["spaceEstimate"]["additionalEstimatedBytes"]))
         return qualification
@@ -154,11 +195,23 @@ class Engine:
         self.store.operation(state["session"], "tools", "qualify", detail="Checking available memory, disk space and supported host.")
         self.qualify(state)
         self.store.operation(state["session"], "tools", "qualify", complete=True, detail="Host capacity checked.")
+        if state["choices"].get("mode") == "update-profile":
+            return provision.profile_tools(self.store, state["session"], supervisor)
         return provision.tools(self.store, state["session"], supervisor)
     def stage_source(self, state, supervisor):
+        if state["choices"].get("mode") == "update-profile":
+            self.store.operation(state["session"], "source", "source-verify", detail="Profile edits use the current APK and the local profile writer.", complete=True)
+            marker = self.store.session_dir(state["session"]) / "profile-source.json"
+            atomic_json(marker, {"schema": 1, "sourceRoot": str(self.repo), "purpose": "Profile-only APK update; no mod compilation."})
+            return [marker], {"sourceRoot": str(self.repo)}
         return provision.source_checkout(self.store, state["session"], state["choices"], self.details(state, "tools"), supervisor, self.repo)
 
     def stage_unity(self, state, supervisor):
+        if state["choices"].get("mode") == "update-profile":
+            self.store.operation(state["session"], "unity", "prerequisites", detail="This profile edit requires no Unity compiler or licence.", complete=True)
+            marker = self.store.session_dir(state["session"]) / "profile-no-unity.json"
+            atomic_json(marker, {"schema": 1, "required": False, "reason": "Signed offline profile is updated without Unity."})
+            return [marker], {"required": False}
         from unity_setup import prepare
         return prepare(self.store, state, supervisor)
 
@@ -186,11 +239,19 @@ class Engine:
     def arguments(self, state, command):
         root = Path(self.details(state, "source")["sourceRoot"])
         tool = self.details(state, "tools"); profile = self.details(state, "profile")
+        mode = state["choices"].get("mode", "build")
+        if mode != "build": command = "inspect-update" if command == "inspect" else mode
         argv = [sys.executable, "-B", "-X", "utf8", str(root / "scripts/build-quest.py"), command,
                 "--game-root", state["choices"]["gameRoot"], "--repo-root", str(root), "--target", "game",
-                "--output-root", str(self.store.root / "build"), "--dotnet", tool["dotnet8"], "--recovery-dotnet", tool["dotnet10"],
-                "--profile-json", profile["profilePath"], "--steam-logo", profile["steamLogo"],
-                "--unity-editor", self.details(state, "unity")["unityEditor"]]
+                "--output-root", str(self.store.root / "build"),
+                "--profile-json", profile["profilePath"], "--steam-logo", profile["steamLogo"]]
+        if mode == "update-profile":
+            argv += ["--apk-tools-json", str(self.store.session_dir(state["session"]) / "apk-tools.json")]
+        else:
+            argv += ["--dotnet", tool["dotnet8"], "--recovery-dotnet", tool["dotnet10"],
+                     "--unity-editor", self.details(state, "unity")["unityEditor"]]
+        if mode != "build": argv += ["--base-apk", state["choices"]["baseApk"], "--update-kind", mode]
+        if state["choices"].get("signingRoot"): argv += ["--signing-root", state["choices"]["signingRoot"]]
         if "ownedDlc" in state["choices"]:
             ids = {row[0]: row[3] for row in discovery.builder(root).dlcs.CATALOG}
             ownership = self.store.session_dir(state["session"]) / "dlc.json"
@@ -204,6 +265,17 @@ class Engine:
 
     def stage_inspect(self, state, supervisor):
         supervisor.run(self.arguments(state, "inspect"), self.log(state, "inspect"), env=provision.environment(self.details(state, "tools")))
+        if state["choices"].get("mode", "build") != "build":
+            root = self.store.root / "build"
+            pointer = root / "latest-update-input.json"
+            selected = read_json(pointer)
+            if not re.fullmatch(r"updates/[0-9a-f]{64}/plan\.json", str(selected.get("plan", ""))):
+                raise WizardError("update_input", "Update input pointer is invalid.")
+            path = root / selected["plan"]; plan = read_json(path, limit=64 * 1048576)
+            if plan.get("schema") != 1 or plan["updateKey"] != path.parent.name:
+                raise WizardError("update_input", "Update plan identity is invalid.")
+            return [pointer, path], {"inputKey": plan["gameInputKey"], "gameKey": plan["inputs"]["game"]["key"],
+                                    "baseApkSha256": plan["baseApkSha256"], "modBuild": plan["inputs"]["mod"]["modBuild"]}
         path = self.store.root / "build/latest-input.json"
         # The existing inspect pointer deliberately predates schema-versioned
         # stage receipts. Accept only its exact shape, not arbitrary schema-less

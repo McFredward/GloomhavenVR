@@ -120,8 +120,20 @@ def apk_identity(apk):
         key = value.get("inputKey")
         if value.get("schema") != 1 or type(build) is not int or build <= 0 or not re.fullmatch(r"[0-9a-f]{64}", str(key)):
             raise InstallError("The APK has an invalid embedded Quest build stamp.")
+        profile = value.get("profile", {})
+        update_name = "assets/Quest/update-manifest.json"
+        retained = False
+        if update_name in archive.namelist():
+            if archive.getinfo(update_name).file_size > 8 * 1024 * 1024:
+                raise InstallError("APK update provenance exceeds its bound.")
+            update = json.loads(archive.read(update_name))
+            if (update.get("schema") != 1 or update.get("gameInputKey") != key
+                    or not re.fullmatch(r"[0-9a-f]{64}", str(update.get("updateKey", "")))
+                    or type(update.get("modBuild")) is not int or update["modBuild"] <= 0):
+                raise InstallError("APK update provenance differs from the original game content.")
+            build = update["modBuild"]; profile = update.get("profile", profile); retained = True
         return {"modBuild": build, "inputKey": key,
-                "isDummy": bool(value.get("profile", {}).get("isDummy")),
+                "isDummy": bool(profile.get("isDummy")), "retainedGameContent": retained,
                 "isDiagnostic": value.get("target") != "game"}
 
 
@@ -146,6 +158,11 @@ def apk_content(apk, identity):
                 or type(row.get("size")) is not int or row["size"] < 22):
             raise InstallError("Campaign delivery has an invalid content bank.")
         path = apk.parent / row["file"]
+        if not path.exists() and identity.get("retainedGameContent"):
+            # The signed inventory still requires the complete installed game.
+            # Device qualification happens before replacing the APK.
+            result.append(ContentFile(path, row["archive"], row["sha256"], row["size"]))
+            continue
         if (not path.is_file() or path.is_symlink() or path.resolve().parent != apk.parent.resolve()
                 or path.stat().st_size != row["size"] or digest(path) != row["sha256"]):
             raise InstallError("The complete Campaign bank is missing or differs from this APK: " + str(path))
@@ -741,11 +758,29 @@ def install_file_content(adb, address, source, repair=False):
             raise InstallError("The embedded mod bank differs from its inventory.")
         for kind, path, root in (("mod", mod_path, base + "quest-mod-resources"),
                                 ("game", source.content[0].path, base + "quest-owned-game")):
+            if kind == "game" and not path.exists():
+                retained = require_installed_game(adb, address, source, temporary, repair=repair)
+                records.append({"archive": manifest[kind]["archive"], "sha256": manifest[kind]["archiveSha256"],
+                                "size": source.content[0].size, "remote": root, "fileBacked": True, **retained})
+                continue
             with zipfile.ZipFile(path) as archive:
                 result = _install_content_tree(adb, address, source, manifest[kind], archive, root, temporary, repair)
             records.append({"archive": manifest[kind]["archive"], "sha256": manifest[kind]["archiveSha256"],
                             "size": path.stat().st_size, "remote": root, "fileBacked": True, **result})
     return records
+
+
+def require_installed_game(adb, address, source, temporary, *, repair=False):
+    """An APK-only update requires the exact already installed game inventory."""
+    manifest = installation_manifest(source)
+    if manifest is None or not source.content or repair:
+        raise InstallError("An APK-only update requires installed game content. For a new installation or repair, provide the original complete content ZIP.")
+    root = "/sdcard/Android/data/" + PACKAGE + "/files/quest-owned-game"
+    committed = _pull_content_receipt(adb, address, root + "/" + _RECEIPT, Path(temporary) / "retained-game.bin")
+    expected = manifest["game"]
+    if not committed or committed["key"] != content_key(expected) or committed["files"] != {row["path"]: row for row in expected["files"]}:
+        raise InstallError("This Quest does not have the complete original game content for this APK. Keep the current installation and supply its complete content ZIP or run a full build.")
+    return {"contentKey": committed["key"], "files": len(expected["files"]), "reusedFiles": len(expected["files"]), "uploadedFiles": 0}
 
 
 def install_content(adb, address, source, previous=None, repair=False):
@@ -844,7 +879,9 @@ def main(argv=None, runner=None):
         print("SHA-256: " + source.sha256 + (" (DIAGNOSTIC)" if source.diagnostic else "")
               + (" (DUMMY IDENTITY)" if source.dummy else ""))
         if source.content:
-            print("Complete owned Campaign bank: " + str(sum(bank.size for bank in source.content)) + " bytes; installed automatically with the APK.")
+            missing_bank = any(not bank.path.is_file() for bank in source.content)
+            print("Retaining the complete game content already installed on this Quest." if missing_bank
+                  else "Complete owned Campaign bank: " + str(sum(bank.size for bank in source.content)) + " bytes; installed automatically with the APK.")
         if args.dry_run:
             print("Dry run: no ADB command or settings write. Endpoint: " + str(address or "USB setup required"))
             return 0
@@ -860,6 +897,9 @@ def main(argv=None, runner=None):
         # Re-read both the receipt and APK immediately before the only app mutation.
         if resolve_source(source.kind, source.path, check_zip=False) != source:
             raise InstallError("The APK or source evidence changed during device setup; retry with the intended build.")
+        if any(not bank.path.is_file() for bank in source.content):
+            with tempfile.TemporaryDirectory(prefix="ghvr-quest-retained-") as temporary:
+                require_installed_game(adb, address, source, Path(temporary), repair=args.repair_content)
         # Budget one MiB/second plus two minutes for Android package processing.
         # Retain the small-APK floor and a bounded thirty-minute maximum.
         transfer_seconds = (source.apk.stat().st_size + 1024 * 1024 - 1) // (1024 * 1024)

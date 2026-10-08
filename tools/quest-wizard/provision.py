@@ -146,10 +146,38 @@ def tools(store, session, supervisor):
     return [path, *outputs], found
 
 
+def profile_tools(store, session, supervisor):
+    """Provision only Android signing tools; a profile edit needs no Unity licence."""
+    if os.name != "nt":
+        raise WizardError("windows_required", "Automatic APK signing tool setup supports Windows x64.")
+    found, outputs = {}, []
+    for name in ("apkJdk", "apkBuildTools"):
+        spec = LOCK[name]
+        archive = download(spec, store.root / "tools/downloads" / (name + "-" + spec["version"] + ".zip"),
+                           lambda: store.check_cancel(session),
+                           lambda done, total: store.progress(session, "tools", "tool-download-" + name, done, total, "bytes"))
+        root = store.root / "tools" / (name + "-" + spec["version"])
+        executable = extract_owned(archive, root, spec, lambda: store.check_cancel(session),
+                                   lambda done, total: store.progress(session, "tools", "tool-extract-" + name, done, total, "files"))
+        store.operation(session, "tools", "verify-" + name, detail="Pinned signing tool files extracted and qualified.", complete=True)
+        found[name] = str(executable)
+        outputs.extend(sorted(path for path in root.rglob("*") if path.is_file()))
+    java, aapt = Path(found["apkJdk"]), Path(found["apkBuildTools"])
+    selected = {"java": str(java), "keytool": str(java.with_name("keytool.exe")),
+                "jdk": str(java.parent.parent), "aapt": str(aapt),
+                "apksigner": str(aapt.parent / "lib/apksigner.jar"), "zipalign": str(aapt.parent / "zipalign.exe")}
+    if not all(Path(selected[name]).is_file() for name in ("java", "keytool", "aapt", "apksigner", "zipalign")):
+        raise WizardError("apk_tools_incomplete", "The pinned Android signing tools are incomplete.")
+    path = store.session_dir(session) / "apk-tools.json"
+    atomic_json(path, {"schema": 1, **selected})
+    return [path, *outputs], {"apkTools": selected}
+
+
 def environment(details):
     env = dict(os.environ)
-    env["PATH"] = os.pathsep.join([str(Path(details["git"]).parent), str(Path(details["dotnet8"]).parent), env.get("PATH", "")])
-    env.update(DOTNET_ROOT=str(Path(details["dotnet8"]).parent), DOTNET_CLI_TELEMETRY_OPTOUT="1",
+    env["PATH"] = os.pathsep.join([*(str(Path(details[name]).parent) for name in ("git", "dotnet8") if name in details), env.get("PATH", "")])
+    if "dotnet8" in details: env["DOTNET_ROOT"] = str(Path(details["dotnet8"]).parent)
+    env.update(DOTNET_CLI_TELEMETRY_OPTOUT="1",
                DOTNET_SKIP_FIRST_TIME_EXPERIENCE="1", PYTHONUTF8="1", GHVRQ_WIZARD_PROGRESS="1")
     return env
 

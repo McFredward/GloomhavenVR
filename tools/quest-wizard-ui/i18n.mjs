@@ -1,5 +1,8 @@
 export const strings = {
   de: {
+    'phase_operation_update-owned-game':'Vorhandene PC-Spielkopie zuordnen', 'phase_operation_update-mod-source':'Aktuelle Mod-Dateien übernehmen', 'phase_operation_update-code':'Geänderten Spiel- und Mod-Code kompilieren', 'phase_operation_update-art':'Geänderte Mod-Assets erstellen', 'phase_operation_update-profile':'Eingebettetes Profil vorbereiten', 'phase_operation_update-repack':'APK-Inhalte übernehmen und signieren', 'phase_operation_update-verify':'Update-Ergebnis abschließen',
+    signingFolder:'Ursprünglicher Signierordner (falls anderer Arbeitsordner)',signingHint:'Im ursprünglichen Arbeitsordner wird der Schlüssel wiederverwendet. Sonst den Ordner mit quest.keystore und local-key.json auswählen. Eine APK allein enthält diesen privaten Schlüssel nicht.',startUpdate:'Update starten',
+    buildMode:'Vorgang',modeBuild:'Quest-Version erstellen',modeMod:'Vorhandene APK: Mod aktualisieren',modeProfile:'Vorhandene APK: Profil ändern',baseApk:'Vorhandene Quest-APK',missingBaseApk:'Bitte die vorhandene Quest-APK auswählen.',invalidMode:'Nicht unterstützter Vorgang.',updateHint:'Die PC-Spielkopie wird vor jedem Update geprüft. Spielinhalte werden übernommen. Mod-Updates benötigen weiterhin einen Code-Compilerlauf; kompatible Profiländerungen benötigen Unity nicht.',retainedProgress:'Gespeicherter Gesamtfortschritt; Voraussetzungen werden erneut zugeordnet.',
     'phase_prepare-substage:base-project':'Spielprojekt einrichten',
     'phase_prepare-substage:post-effects':'Darstellungseffekte vorbereiten',
     'phase_prepare-substage:loading-resources':'Ladeanzeige vorbereiten',
@@ -241,6 +244,9 @@ export const strings = {
     ownershipUnknown:'DLC-Besitz wird geprüft', baseGame:'Basisspiel', cannotBrowse:'Der native Ordnerdialog ist auf diesem Rechner nicht verfügbar. Trage den vollständigen Pfad ein.'
   },
   en: {
+    'phase_operation_update-owned-game':'Qualify the existing PC installation', 'phase_operation_update-mod-source':'Capture current mod files', 'phase_operation_update-code':'Compile changed game and mod code', 'phase_operation_update-art':'Build changed mod assets', 'phase_operation_update-profile':'Prepare the embedded profile', 'phase_operation_update-repack':'Retain APK payloads and sign', 'phase_operation_update-verify':'Publish the verified update',
+    signingFolder:'Original signing folder (if using another workspace)',signingHint:'The original workspace reuses its key. Otherwise select the folder containing quest.keystore and local-key.json. An APK alone does not contain this private key.',startUpdate:'Start update',
+    buildMode:'Operation',modeBuild:'Build Quest version',modeMod:'Existing APK: update mod',modeProfile:'Existing APK: change profile',baseApk:'Existing Quest APK',missingBaseApk:'Select the existing Quest APK.',invalidMode:'Unsupported operation.',updateHint:'The PC installation is checked before every update. Game content is retained. Mod updates still need a code compiler pass; compatible profile changes do not need Unity.',retainedProgress:'Saved total progress; prerequisites are being requalified.',
     'phase_prepare-substage:base-project':'Set up game project',
     'phase_prepare-substage:post-effects':'Prepare presentation effects',
     'phase_prepare-substage:loading-resources':'Prepare loading view',

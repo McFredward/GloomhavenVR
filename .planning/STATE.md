@@ -1,5 +1,25 @@
 # State — where the project stands
 
+**Quest retained progress, parallel codecs and APK updates, 2026-10-08.**
+
+The Quest branch retains closed conversion progress while new Builder archives
+refresh prerequisites. The supplied capture replay keeps16 packages,14 staging
+transactions and3/11 startup items, moving48.362727 to48.272727 percent rather
+than zero. Actual producer receipts remain independent. Bounded parallel HDR
+codecs retain byte-identical output and committed per-input results. New wizard
+operations update mod code or the offline profile from an APK, always checking
+the matching PC install. Mod changes compile a matched IL2CPP/metadata pair
+without original-game asset import; later compatible profile edits need no
+Unity. Original signing data is required. APK-only updates retain the game bank
+already completed on the headset. Native ABI, script layout and new DLC content
+require a full build. Current dev64329d4b6dd remains an ancestor. Focused evidence
+covers source/format/continuation/browser boundaries, actual SDK compilation and
+executable original-game profile getters. Windows end-to-end builds and updated
+headset behavior remain unverified.
+See [APK update workflow and proof limits](QUEST-APK-UPDATES-20261008.md).
+
+---
+
 **Quest Windows retained-data retry, 2026-10-08 (Builder only).**
 
 Capture `quest-build-support-20261008T142900Z-fa677485.zip` identifies published

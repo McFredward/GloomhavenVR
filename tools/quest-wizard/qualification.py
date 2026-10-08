@@ -100,7 +100,7 @@ def space_estimate(root, game_root, repo):
             'certifiedExact': False}
 
 
-def qualify(store_root, *, system=None, machine=None, free_bytes=None, game_root=None, repo=None):
+def qualify(store_root, *, system=None, machine=None, free_bytes=None, game_root=None, repo=None, mode="build"):
     root = ordinary(store_root)
     system = system or platform.system(); machine = machine or platform.machine()
     if system == 'Windows':
@@ -119,7 +119,14 @@ def qualify(store_root, *, system=None, machine=None, free_bytes=None, game_root
               'freeBytes': free, 'minimumSetupBytes': MIN_SETUP_FREE_BYTES, 'rootCharacters': len(str(root)),
               'licenseVerified': False, 'unityAction': 'Sign in and activate an eligible license in Unity Hub; version does not verify licensing.',
               'fullBuildSpaceVerified': False}
-    if game_root:
+    if game_root and mode != "build":
+        import discovery
+        discovery.builder(repo or Path(__file__).resolve().parents[2]).game_data(Path(game_root))
+        required = 4 * GIB if mode == "update-profile" else 40 * GIB
+        result["spaceEstimate"] = {"additionalEstimatedBytes": required, "scanBounded": False,
+                                   "method": "APK update: retained game content; signing/code workspace reserve", "certifiedExact": False}
+        result["spaceWarning"] = free < required
+    elif game_root:
         result['spaceEstimate'] = space_estimate(root, game_root, repo or Path(__file__).resolve().parents[2])
         result['spaceWarning'] = free < result['spaceEstimate']['additionalEstimatedBytes']
         # A fresh immutable owner snapshot alone has a provable size. Do not

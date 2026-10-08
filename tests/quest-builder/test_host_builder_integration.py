@@ -130,7 +130,9 @@ class BuilderHostIntegration(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder); (root / ".git").mkdir(); (root / "src").mkdir(); (root / "src/current.cs").write_bytes(b"modified source")
             git = Mock(side_effect=[b"src/current.cs\0", b"b" * 40 + b"\n", b" M src/current.cs\n"])
-            with patch.object(builder, "git_output", git), patch.object(builder, "_release", SimpleNamespace(verified_source_inventory=Mock(side_effect=AssertionError("Git checkout must stay mutable")))):
+            release = SimpleNamespace(owned_derived_source=builder._release.owned_derived_source,
+                                      verified_source_inventory=Mock(side_effect=AssertionError("Git checkout must stay mutable")))
+            with patch.object(builder, "git_output", git), patch.object(builder, "_release", release):
                 inventory, commit, dirty = builder.source_inventory(root)
             self.assertEqual(commit, "b" * 40); self.assertTrue(dirty)
             self.assertEqual(inventory, storage.inventory(root, ["src/current.cs"]))

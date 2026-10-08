@@ -209,7 +209,7 @@ class Store:
             state.update(choices=choices, choicesKey=value_hash(choices), status="ready", needsActions=[])
             for row in state["stages"]:
                 row.update(status="pending", details={}, progress=stage_progress())
-                if row["id"] == "build": row["workMode"] = choices.get("mode", "build")
+                row["workMode"] = choices.get("mode", "build")
                 row.pop("progressPlan", None)
                 row.pop("progressWorkKey", None)
                 row.pop("waiting", None)
@@ -221,7 +221,7 @@ class Store:
         session = uuid.uuid4().hex
         state = {"schema": 1, "session": session, "choices": choices, "choicesKey": value_hash(choices),
                  "status": "ready", "stages": [{"id": name, "status": "pending", "attempts": 0,
-                    **({"workMode": choices.get("mode", "build")} if name == "build" else {})} for name in STAGES],
+                    "workMode": choices.get("mode", "build")} for name in STAGES],
                  "needsActions": [], "lastEvent": 0, "events": [], "created": time.time(),
                  "progress": {"completed": 0, "total": len(STAGES), "phase": None, "percent": None}}
         self.save(state)
@@ -273,7 +273,7 @@ class Store:
             raise WizardError("invalid_progress", "Legacy work qualification requires the current scope.")
         with self._lock:
             state = self._state(session); row = self._row(state, stage)
-            if stage == "build": row["workMode"] = state["choices"].get("mode", "build")
+            row["workMode"] = state["choices"].get("mode", "build")
             prior_key, prior_work = row.get("progressKey"), row.get("progressWorkKey")
             compatible = work_key is not None and (prior_work == work_key or
                 prior_work is None and (previous_work_key == work_key or prior_key == key))
@@ -310,7 +310,7 @@ class Store:
             state = self._state(session)
             state.update(status="running", needsActions=[])
             for row in state["stages"]:
-                if row["id"] == "build": row["workMode"] = state["choices"].get("mode", "build")
+                row["workMode"] = state["choices"].get("mode", "build")
                 stage_plan.retain_preparation_history(row, state.get("events"))
                 if row["status"] != "complete": row["status"] = "pending"
                 row.pop("waiting", None)

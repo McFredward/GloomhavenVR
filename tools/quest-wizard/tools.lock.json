@@ -50,5 +50,23 @@
     "hash": "116c8e0dd15cd9ce00cc19bccb7a4da29a0b2fea760d9404f3223e973689f9f4cc287fe630b9593205f0e3f559d18802c870ff022e9e6cfd0e4ce122c0338474",
     "size": 193623232,
     "source": "https://public-cdn.cloud.unity3d.com/hub/prod/latest.yml"
+  },
+  "apkJdk": {
+    "version": "17.0.16+8",
+    "url": "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.16%2B8/OpenJDK17U-jdk_x64_windows_hotspot_17.0.16_8.zip",
+    "algorithm": "sha256",
+    "hash": "8c7cfff78a55c56ebaf470ed6a89c6466b47d8274bdabdda997d7507c20325c5",
+    "size": 190520081,
+    "executable": "jdk-17.0.16+8/bin/java.exe",
+    "source": "https://github.com/adoptium/temurin17-binaries/releases/tag/jdk-17.0.16%2B8"
+  },
+  "apkBuildTools": {
+    "version": "35.0.0",
+    "url": "https://dl.google.com/android/repository/build-tools_r35_windows.zip",
+    "algorithm": "sha256",
+    "hash": "5753c679a1b90bcf6fbc9945a2ce39dfb9e74f1df0831a1e1866ae5b594326f0",
+    "size": 59878107,
+    "executable": "android-15/aapt.exe",
+    "source": "https://dl.google.com/android/repository/repository2-1.xml"
   }
 }

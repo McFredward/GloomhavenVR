@@ -20,6 +20,7 @@ import shutil
 import struct
 import subprocess
 import sys
+from types import SimpleNamespace
 import zipfile
 
 # The CLI handoff uses -I: retain only this captured tool directory, never the
@@ -63,6 +64,13 @@ recovery_resume = _local_helper("recovery_resume")
 prepare_resume = _local_helper("prepare_resume")
 preparation_identity = _local_helper("preparation_identity")
 _release = _local_helper("release") if Path(__file__).with_name("release.py").is_file() else None
+apk_updates = _local_helper("apk_update")
+
+
+def _module_context():
+    # The installer deliberately removes its temporary import aliases after
+    # loading us. Keep callable context without depending on that registry.
+    return SimpleNamespace(**globals())
 
 
 RECIPE = 1
@@ -989,7 +997,7 @@ def _mod_bank_workspace(output: Path, root: Path, key: str, files: list[dict]):
             os.replace(backup, library)
 
 
-def package_mod_content(project: Path, inputs: dict, output: Path, source: Path, editor: Path) -> dict:
+def package_mod_content(project: Path, inputs: dict, output: Path, source: Path, editor: Path, *, owned_game_source=None) -> dict:
     """Build current authored mod art independently of changing gameplay code."""
     prefix = "unity/GloomhavenVR.Assets/"
     files = [{**row, "path": row["path"][len(prefix):]} for row in inputs["mod"]["files"]
@@ -1010,7 +1018,7 @@ def package_mod_content(project: Path, inputs: dict, output: Path, source: Path,
             if bundles.exists(): shutil.rmtree(_ordinary_owned(bundles))
             snapshot(source / prefix, files, authored)
             if environment:
-                environment.stage(source, output / "inputs/game" / inputs["game"]["key"], authored, output,
+                environment.stage(source, owned_game_source or output / "inputs/game" / inputs["game"]["key"], authored, output,
                                   inputs["game"], inputs["mod"]["files"])
         env = dict(os.environ)
         env["GHVR_QUEST_MOD_BUNDLE_OUTPUT"] = str(bundles)
@@ -1523,6 +1531,8 @@ def build(args, inputs: dict, output: Path, source: Path, game: Path, project: P
         if args.target == "game":
             metadata["nativePlayerShaderValidation"] = validate_player_shader_log(
                 output / "logs" / ("unity-build-" + key[:12] + ".log"))
+            metadata["updateCapability"] = _local_helper("update_driver").add_update_capability(
+                _module_context(), apk, inputs, output, source, tools)
         metadata["buildProvenance"] = provenance
         write_json(report, metadata)
         details = validate_apk(apk, report, inputs, tools, output, provenance)
@@ -1798,7 +1808,11 @@ def report(output: Path) -> None:
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description="Build a locally owned Gloomhaven copy for Quest; no store/cloud services.")
-    result.add_argument("command", choices=("inspect", "prepare", "build", "install", "report", "package"))
+    result.add_argument("command", choices=("inspect", "prepare", "build", "install", "report", "package", "inspect-update", "update-mod", "update-profile"))
+    result.add_argument("--base-apk", type=Path, help="Existing locally built Quest APK; updates always require the matching owned PC game.")
+    result.add_argument("--update-kind", choices=("update-mod", "update-profile"), default="update-mod")
+    result.add_argument("--apk-tools-json", type=Path, help="Wizard-owned Android signing tool paths for profile-only updates.")
+    result.add_argument("--signing-root", type=Path, help="Original local signing folder, required for save-preserving updates signed with that key.")
     result.add_argument("--repo-root", type=Path, default=REPO)
     result.add_argument("--game-root", type=Path)
     result.add_argument("--output-root", type=Path)
@@ -1837,7 +1851,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(arguments)
     try:
         repo = args.repo_root.resolve()
-        if args.command in ("inspect", "prepare", "build") and not args.game_root:
+        if args.command in ("inspect", "prepare", "build", "inspect-update", "update-mod", "update-profile") and not args.game_root:
             raise BuildError("Supply --game-root pointing to the legally acquired PC installation.")
         if args.probe_assets and args.target != "probe":
             raise BuildError("--probe-assets belongs only to the explicitly diagnostic --target probe.")
@@ -1846,7 +1860,7 @@ def main(argv: list[str] | None = None) -> int:
         data = game_data(args.game_root) if args.game_root else None
         output = ensure_output(args.output_root or repo / ".planning/quest3-local", repo, data)
         conversion_python = None
-        if args.command in ("prepare", "build") and args.target in ("startup", "game"):
+        if args.command in ("prepare", "build", "update-mod", "update-profile") and args.target in ("startup", "game"):
             # The Windows launcher intentionally installs no conversion wheels.
             # Do not merely add private site-packages to that process: its later
             # compute, codec and Unity shader-gate children use sys.executable.
@@ -1860,7 +1874,7 @@ def main(argv: list[str] | None = None) -> int:
                 failure.unlink(missing_ok=True)
                 try:
                     python = dependencies.python_environment(output / "tool-cache", repo,
-                                                             procedural=args.target == "game", activate=False)
+                                                             procedural=args.target == "game" and args.command in ("prepare", "build"), activate=False)
                 except BaseException as exc:
                     write_json(failure, {"schema": 1, "stage": "builder-python", "error": type(exc).__name__, "message": str(exc)})
                     raise
@@ -1893,6 +1907,12 @@ def main(argv: list[str] | None = None) -> int:
                     apk, details = verified_latest_build(output)
                     archive = handoff.package(repo, output, apk, details, args.hardware_dir or repo / ".planning/debug/quest3")
                     print("package: " + str(archive), flush=True)
+                elif args.command in ("inspect-update", "update-mod", "update-profile"):
+                    updates = _local_helper("update_driver")
+                    if args.command == "inspect-update":
+                        updates.inspect(_module_context(), args, repo, output, data)
+                    else:
+                        updates.run(_module_context(), args, repo, output)
                 else:
                     inputs = inspect_inputs(args, repo, output, data)
                     os.environ[host_resources.INPUT_ENV] = inputs["inputKey"]

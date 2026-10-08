@@ -22,6 +22,8 @@ from wizard import Engine, REPO, choices
 
 
 def browse(kind):
+    if kind == "apk" and os.name == "nt":
+        return browse_apk()
     if os.name != "nt" or kind not in ("game", "unity"):
         raise WizardError("browse_unavailable", "Native path selection is unavailable on this host.", "Die native Ordnerauswahl ist hier nicht verfügbar.")
     from ctypes import wintypes as w
@@ -60,6 +62,31 @@ def browse(kind):
             return str(path)
         finally: ole.CoTaskMemFree(item)
     finally: ole.CoUninitialize()
+
+
+def browse_apk():
+    """Unicode Win32 file picker; no shell or uploaded proprietary APK data."""
+    from ctypes import wintypes as w
+    class OpenFile(ctypes.Structure):
+        _fields_ = [("size", w.DWORD), ("owner", w.HWND), ("instance", w.HINSTANCE),
+                    ("filter", w.LPCWSTR), ("customFilter", w.LPWSTR), ("customMax", w.DWORD),
+                    ("filterIndex", w.DWORD), ("file", w.LPWSTR), ("fileMax", w.DWORD),
+                    ("fileTitle", w.LPWSTR), ("titleMax", w.DWORD), ("directory", w.LPCWSTR),
+                    ("title", w.LPCWSTR), ("flags", w.DWORD), ("fileOffset", w.WORD),
+                    ("extensionOffset", w.WORD), ("defaultExtension", w.LPCWSTR),
+                    ("customData", ctypes.c_ssize_t), ("hook", ctypes.c_void_p),
+                    ("template", w.LPCWSTR), ("reserved", ctypes.c_void_p),
+                    ("reservedWord", w.DWORD), ("flagsEx", w.DWORD)]
+    buffer = ctypes.create_unicode_buffer(32768)
+    value = OpenFile(size=ctypes.sizeof(OpenFile), file=ctypes.cast(buffer, w.LPWSTR), fileMax=len(buffer),
+                     filter="Quest APK\0*.apk\0\0", title="Select the existing Quest APK", flags=0x180800)
+    dialog = ctypes.WinDLL("comdlg32", use_last_error=True)
+    dialog.GetOpenFileNameW.argtypes = [ctypes.POINTER(OpenFile)]
+    dialog.GetOpenFileNameW.restype = w.BOOL
+    dialog.CommDlgExtendedError.restype = w.DWORD
+    if dialog.GetOpenFileNameW(ctypes.byref(value)): return buffer.value
+    if dialog.CommDlgExtendedError(): raise WizardError("browse_failed", "Windows could not open the APK file picker.")
+    return None
 
 
 class LocalServer(ThreadingHTTPServer):
@@ -329,10 +356,12 @@ class Handler(BaseHTTPRequestHandler):
                 state = self.server.store.amend(value["session"], selected_choices) if value.get("session") else self.server.store.create(selected_choices)
                 return {"schema": 1, "event": "planned", "session": state["session"], "state": state}
             if parsed.path == "/api/qualify":
-                if set(value) != {"gameRoot"}: raise WizardError("request_body", "Expected only the owned game path.")
+                if set(value) - {"gameRoot", "mode"} or "gameRoot" not in value: raise WizardError("request_body", "Expected the owned game path and optional update mode.")
                 selected_choices = choices({"gameRoot": value["gameRoot"]})
                 from qualification import qualify
-                return qualify(self.server.store.root, game_root=selected_choices["gameRoot"], repo=REPO)
+                mode = value.get("mode", "build")
+                if mode not in ("build", "update-mod", "update-profile"): raise WizardError("invalid_choices", "Unsupported update mode.")
+                return qualify(self.server.store.root, game_root=selected_choices["gameRoot"], repo=REPO, mode=mode)
             if parsed.path == "/api/browse":
                 if set(value) != {"kind"}: raise WizardError("request_body", "Unsupported browse fields.")
                 with self.server.browse_lock: path = browse(value["kind"])

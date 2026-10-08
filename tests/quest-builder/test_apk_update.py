@@ -150,8 +150,15 @@ class ApkUpdateTests(unittest.TestCase):
                            "Assets/Quest/Runtime/QuestOfflineProfile.cs": "runtime", "Assets/Quest/Editor/QuestCodeUpdateBuild.cs": "helper"}.items():
             path = template / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_text(body)
         text = repo / "src/GloomhavenVR/Core/Loc/QuestText.cs"; text.parent.mkdir(parents=True); text.write_text("namespace GloomhavenVR.Core {}")
+        for name in ("UnityEngine.SpatialTracking.dll", "Unity.TextMeshPro.dll", "System.Runtime.CompilerServices.Unsafe.dll", "System.Core.dll", "UnityEngine.CoreModule.dll"):
+            (self.game / "Managed" / name).write_bytes(b"owned plugin classification fixture")
+        self.values[update.ASSEMBLIES] = b'{"names":["GH.Runtime.dll","UnityEngine.SpatialTracking.dll","System.Runtime.CompilerServices.Unsafe.dll","System.Core.dll"],"types":[16,16,16,2]}'
+        self.write_zip(self.base, self.values)
         arguments = dict(profile={"displayName": "Owner"}, version_code=644, version_name="B644", package_abi="b" * 64, code_key="c" * 64)
         first = update.stage_code_project(repo, project, self.base, self.game / "Managed", **arguments)
+        plugin_names = {p.name for p in (project / "Assets/Plugins/QuestGame").glob("*.dll")}
+        self.assertTrue({"UnityEngine.SpatialTracking.dll", "Unity.TextMeshPro.dll", "System.Runtime.CompilerServices.Unsafe.dll"}.issubset(plugin_names))
+        self.assertFalse({"System.Core.dll", "UnityEngine.CoreModule.dll"} & plugin_names)
         library = project / "Library/imported"; library.parent.mkdir(); library.write_bytes(b"expensive retained compile state")
         plugin = project / "Assets/Plugins/QuestGame/GH.Runtime.dll"; plugin.write_bytes(b"already woven replacement")
         self.assertIn("isExplicitlyReferenced: 1", plugin.with_suffix(".dll.meta").read_text())

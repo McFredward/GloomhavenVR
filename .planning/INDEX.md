@@ -89,6 +89,7 @@ status; it is not the player manual.
 | [../docs/performance/FRAME-612-ANALYSIS.md](../docs/performance/FRAME-612-ANALYSIS.md) | Frame612 mesh/camera application, remaining CPU stalls and scoped skinning conflict correction |
 | [../docs/performance/FRAME-609-ANALYSIS.md](../docs/performance/FRAME-609-ANALYSIS.md) | Natural-motion resolution and figure-detail evidence, loaded hitches and confidence limits |
 | [QUEST3-IMPLEMENTATION.md](QUEST3-IMPLEMENTATION.md) | Authorized Quest implementation branch, actual hardware checkpoint evidence and outstanding full-game gates |
+| [QUEST-APK-UPDATES-20261008.md](QUEST-APK-UPDATES-20261008.md) | Retained progress, parallel codecs, code-only APK updates and profile changes with owned-copy/signing qualification |
 | [QUEST3-HARDWARE-609.md](QUEST3-HARDWARE-609.md) | Private Quest diagnostic installation, controls, evidence capture and explicit limits before campaign/multiplayer startup |
 | [QUEST3-WIRELESS-INSTALL.md](QUEST3-WIRELESS-INSTALL.md) | Windows double-click Wi-Fi ADB installer, remembered headset/source, data-preserving updates and connection recovery |
 | [QUEST3-PORT-PLAN.md](QUEST3-PORT-PLAN.md) | Quest 3 campaign port: local APK conversion, embedded Steam logo/name/ID without store/cloud services, necessary EOS multiplayer exception and native passthrough; implementation authorized 2026-10-03 |

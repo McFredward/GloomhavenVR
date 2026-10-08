@@ -89,6 +89,13 @@ def workflow(row):
 
 
 def planned_operations(row):
+    if workflow(row) == "update-profile":
+        profile_plans = {
+            "tools": ("qualify", "download-apkJdk", "extract-apkJdk", "verify-apkJdk", "download-apkBuildTools", "extract-apkBuildTools", "verify-apkBuildTools", "output-verify"),
+            "source": ("source-verify", "output-verify"),
+            "unity": ("prerequisites", "output-verify"),
+        }
+        if row["id"] in profile_plans: return profile_plans[row["id"]]
     return UPDATE_PLANS.get(workflow(row), PLANS["build"]) if row["id"] == "build" else PLANS[row["id"]]
 
 
