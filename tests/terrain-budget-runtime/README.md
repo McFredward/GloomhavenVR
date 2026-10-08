@@ -89,8 +89,8 @@ and must fail their named assertions. Native material/art are explicit fixture
 boundaries; original geometry/provenance is independently native-source-bound.
 
 The new ten asset definitions total 3,472/2,088/1,180 triangles at 100/50/0.
-These are asset-definition counts, not scene-instance coverage or FPS. The
-allowlist grows from fifteen identities/twelve present bank definitions to
+These are asset-definition counts, not scene-instance coverage or FPS. This captured-wall follow-up grew the historical
+allowlist from fifteen identities/twelve present bank definitions to
 twenty-five identities/twenty-two present definitions, without changing assets.
 
 ## Pixel evidence and independent native samples

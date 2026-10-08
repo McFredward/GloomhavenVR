@@ -65,17 +65,23 @@ is off.
   3D views per source and verifies surviving leases/triangle counts, bounds,
   original submesh slots and unchanged native collision. Two original shelf
   bodies and five original floor-support identities add dedicated coverage.
-  The original24-source sample reduces floor triangles only18288 to16734 across
-  two of16 floor families, versus36255 to6725 across all eight structures. Native
-  shape safety correctly retains the other floor families; broad admission does
-  not imply broad floor reduction. The final outer-rim correction regenerates
-  bank endpoints, so the primary gate must rebind these source-bound fixtures
-  against the final bank; the asset worker reports18288 to16768 for that revision.
+  The final perimeter-corrected bank production rebind passed 882 assertions
+  with unchanged source hashes (run-1odr8enh; index SHA-256
+  7f5862f08bf3e990bb09b703242bf5eeddedec69aecc4f3da04889c2a9b65df2).
+  In the 24-source representative sample, only two of 16 floor families reduce:
+  18,288 to 16,768 triangles, versus 36,255 to 6,725 across all eight structures.
+  Native shape safety correctly retains the other floor families; broad admission
+  does not imply broad floor reduction. The seven dedicated shelf/support meshes
+  add 6,496 to 410 triangles, with six useful reduced endpoints. Shelf fade pixels
+  move from 1,250 and 700 to zero through nine distinct coverage changes each.
+  This final-bank rebind is production-only, separate from the causal controls.
 - A256 repeated-floor case, half with native slot blocks, acquires256 floor
   leases plus one wall with independent unlimited-floor/one-wall budgets.
   Paired submitted triangles fall197376 to12336 (93.75%) for that fixture.
-  The support follow-up adds one role3 source and checks that it shares the floor
+  The support follow-up adds one role 3 source and checks that it shares the floor
   cap/detail without consuming the wall budget or producing a core-floor event.
+  The final fixture records 257 floor-budget and one wall lease, 198,144 to 12,384
+  submitted triangles; mean total Camera.Render is 2.736 ms on llvmpipe.
   Floor cap3 retains254 native floor/support fallbacks without removing the wall.
   Exact current role reads occur once per repeated bank identity per synchronous
   floor/camera pass; nested calls and native writes force fresh reads.
