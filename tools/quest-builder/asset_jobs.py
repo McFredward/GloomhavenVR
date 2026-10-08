@@ -47,6 +47,7 @@ def _terminate(process):
     if os.name == "nt":
         # taskkill is provided by Windows. /T includes children of the managed
         # codec; literal argv prevents shell expansion of any player path.
+        # https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/taskkill
         taskkill = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32/taskkill.exe"
         try:
             subprocess.run([str(taskkill), "/PID", str(process.pid), "/T", "/F"],
@@ -107,9 +108,11 @@ def ordered_pipeline(items, prepare, execute, publish, *, jobs, byte_budget=None
                 reserved -= package.memory_bytes
                 continue
             if held is None and not exhausted:
-                try: held = prepare(next(iterator))
+                try: item = next(iterator)
                 except StopIteration: exhausted = True; continue
-                if held.memory_bytes < 0: raise BuildError("Independent asset work has an invalid memory estimate.")
+                held = prepare(item)
+                if not isinstance(held.memory_bytes,int) or isinstance(held.memory_bytes,bool) or held.memory_bytes < 0:
+                    raise BuildError("Independent asset work has an invalid memory estimate.")
                 if byte_budget is not None and held.memory_bytes > byte_budget:
                     raise BuildError("An independent codec job exceeds the detected host memory budget.")
             if held is not None:
@@ -159,7 +162,9 @@ class CodecCache:
 
     def __enter__(self): return self
 
-    def __exit__(self, *args): self.db.commit(); self.db.close()
+    def __exit__(self, *args):
+        try: self.db.commit()
+        finally: self.db.close()
 
     @staticmethod
     def _regular(path):

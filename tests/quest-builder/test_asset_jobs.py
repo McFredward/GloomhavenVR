@@ -86,8 +86,14 @@ class PipelineTests(unittest.TestCase):
     def test_invalid_counts_and_memory_estimates_are_rejected(self):
         for count in (0,-1,True,1025):
             with self.assertRaises(storage.BuildError):asset_jobs.ordered_pipeline([],Job,None,None,jobs=count)
-        with self.assertRaisesRegex(storage.BuildError,'memory estimate'):
-            asset_jobs.ordered_pipeline([0],lambda index:Job(index,-1),None,None,jobs=1)
+        for memory in (-1,True,float('nan'),1.5):
+            with self.assertRaisesRegex(storage.BuildError,'memory estimate'):
+                asset_jobs.ordered_pipeline([0],lambda index:Job(index,memory),None,None,jobs=1)
+
+    def test_prepare_stop_iteration_is_failure_not_false_inventory_completion(self):
+        def prepare(index):raise StopIteration('native object missing')
+        with self.assertRaisesRegex(StopIteration,'native object missing'):
+            asset_jobs.ordered_pipeline([0],prepare,None,None,jobs=1)
 
 
 class CommandTests(unittest.TestCase):
