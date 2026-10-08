@@ -2,6 +2,11 @@ namespace GloomhavenVR;
 
 internal static partial class Defaults
 {
+    internal const bool ScenarioRoomArchitecture = false; // => [Optimize] ScenarioRoomArchitecture
+    internal const int ScenarioRoomFloorDetailPercent = 100; // => [Optimize] ScenarioRoomFloorDetailPercent
+    internal const int ScenarioRoomArchitectureDensityPercent = 100; // => [Optimize] ScenarioRoomArchitectureDensityPercent
+    internal const int ScenarioRoomFloorCameraSourceLimitCount = 0; // => [Optimize] ScenarioRoomFloorCameraSourceLimitCount
+    internal const bool ScenarioRoomFloorBatching = false; // => [Optimize] ScenarioRoomFloorBatching
     internal const bool ScenarioTerrainSubstitution = true; // => [Optimize] ScenarioTerrainSubstitution
     internal const bool ScenarioExplicitEnvironmentInstancing = false; // => [Optimize] ScenarioExplicitEnvironmentInstancing
     internal const bool ScenarioCheapWallShading = false; // => [Optimize] ScenarioCheapWallShading

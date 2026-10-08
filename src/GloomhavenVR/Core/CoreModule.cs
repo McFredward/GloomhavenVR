@@ -67,6 +67,7 @@ internal sealed class CoreModule : IVRModule
         NativeCameraRenderBudget.Prepare();
         AutoLod.Install(_hostGo);
         ScenarioSceneryBudget.Install(_hostGo);
+        ScenarioSceneryBudget.ConfigureArchitectureDetailDensity(() => PerfConfig.RoomArchitectureDensityPercent);
         ScenarioGenerationDetail.Install();
         ScenarioFigureDetailBudget.Install(_hostGo);
         ScenarioIdleAnimationBudget.Install(_hostGo, () => PerfConfig.OffscreenIdleAnimationOn);
@@ -90,14 +91,25 @@ internal sealed class CoreModule : IVRModule
             WorldMaterialBudget.BeginMaterialReadPass, () => PerfConfig.WorldMaterialQualityMode > 0,
             WorldMaterialBudget.IsOwnedVariant);
         ScenarioEnvironmentMeshBank.ConfigureAssetPreparation(ScenarioEnvironmentAssets.EnsureLoaded);
+        ScenarioTerrainBudget.ConfigureRoomArchitecture(() => PerfConfig.RoomArchitectureEnabled,
+            () => PerfConfig.RoomFloorDetailPercent);
+        ScenarioTerrainBudget.ConfigureRoomFloorCameraSourceLimit(() => PerfConfig.RoomFloorCameraSourceLimit);
+        ScenarioTerrainBudget.ConfigureArchitectureBank(ScenarioEnvironmentMeshBank.RoomArchitectureRole);
+        ScenarioTerrainBudget.ConfigureFloorGrouping(ScenarioEnvironmentBudget.HasPreparedRoomFloorGroup);
+        ScenarioTerrainBudget.ConfigureFloorMeshReady(ScenarioEnvironmentBudget.RoomFloorMeshReady);
+        ScenarioEnvironmentBudget.ConfigureRoomFloorReads(ScenarioTerrainBudget.BeginFloorReadPass);
+        ScenarioEnvironmentBudget.ConfigureRoomFloorMaterials(WorldMaterialBudget.VariantFor,
+            WorldMaterialBudget.BeginMaterialReadPass);
+        ScenarioEnvironmentBudget.ConfigureRoomFloorGrouping(() => PerfConfig.RoomFloorBatchingOn,
+            ScenarioTerrainBudget.CanGroupRoomFloor, ScenarioTerrainBudget.TryGetSettledRoomFloor);
         ScenarioTerrainBudget.ConfigureMeshBank(ScenarioEnvironmentMeshBank.IsTerrainEligible,
             ScenarioEnvironmentMeshBank.TryGetDetail);
         ScenarioTerrainBudget.ConfigureAssetPreparation(() => ScenarioEnvironmentMeshBank.IsReady,
             () => ScenarioEnvironmentMeshBank.IsUnavailable || ScenarioEnvironmentAssets.IsUnavailable);
         ScenarioTerrainBudget.ConfigureNativeCameraConsumers(ScenarioEnvironmentBudget.HasNativeCommandBufferConsumers);
         ScenarioTerrainBudget.ConfigureCanonicalMaterial(ScenarioEnvironmentBudget.CanonicalMaterial);
-        // Terrain owns only its private wall/detail proxies. Floors remain available to the
-        // exact environment submission lane; neither owner may mask the other's replacement.
+        // Terrain owns individual geometry proxies. Settled verified floors can delegate to
+        // private environment groups; each source has one render owner at a time.
         ScenarioTerrainBudget.Install(_hostGo);
         ScenarioEnvironmentBudget.ConfigureTerrainIntegration(ScenarioTerrainBudget.QueueRoot,
             ScenarioTerrainBudget.MaterialReady, ScenarioTerrainBudget.BeforeNativeRendererWrite,

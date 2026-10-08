@@ -29,6 +29,42 @@ internal static class ScenarioEnvironmentBudget
     private static LeaseRecovery? _recovery;
     private static bool _failed;
     private static Func<bool>? _structuralEnabled;
+    private static Func<bool>? _roomFloorGroupsEnabled;
+    private static Func<Mesh, bool>? _roomFloorEligible;
+    internal delegate bool RoomFloorLookup(Renderer renderer, out Mesh mesh);
+    private static RoomFloorLookup? _roomFloorLookup;
+    private static Func<Material, Material>? _roomFloorVariant;
+    private static Func<IDisposable>? _roomFloorMaterialPass;
+    private static Func<IDisposable>? _roomFloorReadPass;
+    internal static void ConfigureRoomFloorReads(Func<IDisposable> pass) => _roomFloorReadPass = pass;
+    internal static void ConfigureRoomFloorMaterials(Func<Material, Material> variant, Func<IDisposable> pass)
+    { _roomFloorVariant = variant; _roomFloorMaterialPass = pass; }
+    private static bool TryRoomFloorMaterial(Material source, out Material draw)
+    {
+        draw = source;
+        if (!CompatibleMaterial(source, true, true)) return false;
+        if (_worldEnabled?.Invoke() == true && _roomFloorVariant != null)
+        {
+            draw = _roomFloorVariant(CanonicalMaterial(source));
+            return draw != null && _worldOwns?.Invoke(draw) == true;
+        }
+        // Original shaders cannot interpret our private never-fade markers. A live
+        // native dissolve channel requires its owned floor-aware material variant.
+        return !NativeWallFadeEnabled(CanonicalMaterial(source));
+    }
+    internal static void ConfigureRoomFloorGrouping(Func<bool> enabled, Func<Mesh, bool> eligible, RoomFloorLookup lookup)
+    { _roomFloorGroupsEnabled = enabled; _roomFloorEligible = eligible; _roomFloorLookup = lookup; }
+    internal static void RoomFloorMeshReady(Renderer renderer)
+    {
+        try { if (!_failed && renderer != null) _driver?.MaterialReady(renderer); }
+        catch (Exception error) { StopAfterFailure(error); }
+    }
+    internal static bool HasPreparedRoomFloorGroup(Renderer renderer) =>
+        _driver != null && renderer != null && _driver.HasPreparedRoomFloorGroup(renderer);
+    private static bool RoomFloorGroupsEnabled => _roomFloorGroupsEnabled?.Invoke() == true;
+    private static bool TryRoomFloorMesh(Renderer renderer, out Mesh mesh)
+    { mesh = null!; return _roomFloorLookup?.Invoke(renderer, out mesh) == true; }
+
 
     internal static void ConfigureStructuralBatching(Func<bool> enabled) => _structuralEnabled = enabled;
     private static bool StructuralEnabled => _structuralEnabled?.Invoke() == true;
@@ -208,7 +244,7 @@ internal static class ScenarioEnvironmentBudget
         || (material.HasProperty("_ToggleWallFadeLocal")
             && Mathf.Abs(material.GetFloat("_ToggleWallFadeLocal")) > 0.5f);
 
-    private static bool CompatibleMaterial(Material material, bool floor)
+    private static bool CompatibleMaterial(Material material, bool floor, bool roomFloor = false)
     {
         material = CanonicalMaterial(material);
         if (!floor || material == null || material.shader == null) return false;
@@ -224,7 +260,7 @@ internal static class ScenarioEnvironmentBudget
         // which this shader does not render. An authored floor label does not prove
         // that its material has no native wall channel. Preserve every live channel,
         // even on floors, rather than replacing animation with a cutoff/enable pop.
-        if (NativeWallFadeEnabled(material)) return false;
+        if (NativeWallFadeEnabled(material) && !roomFloor) return false;
         // Immediate native floor identity AND floor-plane geometry establish the native
         // never-fade veto. Broad ancestor names cannot promote mounted scenery into it.
         return true;
@@ -289,6 +325,7 @@ internal static class ScenarioEnvironmentBudget
         internal MeshFilter Filter = null!;
         internal ProceduralMapTile Tile = null!;
         internal bool Floor;
+        internal bool RoomFloor;
         internal bool Structural;
         internal bool TerrainOwned;
         internal Mesh Mesh = null!;
@@ -361,6 +398,8 @@ internal static class ScenarioEnvironmentBudget
         internal MeshRenderer Renderer = null!;
         internal Mesh Mesh = null!;
         internal Material Material = null!;
+        internal bool RoomFloor;
+        internal Material? NativeMaterial;
         internal readonly List<Surface> Sources = new();
         internal readonly List<Matrix4x4> Matrices = new();
         private bool _owned;
@@ -389,6 +428,11 @@ internal static class ScenarioEnvironmentBudget
         {
             LightingRefused = false;
             bool valid = Object != null && Material != null;
+            if (valid && RoomFloor)
+            {
+                valid = NativeMaterial != null && TryRoomFloorMaterial(NativeMaterial, out Material currentDraw)
+                    && currentDraw == Material;
+            }
             Matrix4x4 inverse = Object != null ? Object.transform.worldToLocalMatrix : Matrix4x4.identity;
             for (int i = 0; valid && i < Sources.Count; i++)
             {
@@ -396,13 +440,16 @@ internal static class ScenarioEnvironmentBudget
                 MeshRenderer r = source.Renderer;
                 _materialScratch.Clear();
                 if (r != null) r.GetSharedMaterials(_materialScratch);
-                valid = r != null && !TerrainOwns(r) && r.enabled && r.gameObject.activeInHierarchy && !r.HasPropertyBlock()
+                valid = r != null && (source.RoomFloor || !TerrainOwns(r)) && r.enabled && r.gameObject.activeInHierarchy && !r.HasPropertyBlock()
                     && NativeGeometryCompatible(r) && r.forceRenderingOff == _owned && source.Filter != null
                     && source.Filter.sharedMesh == source.Mesh && _materialScratch.Count == 1
-                    && _materialScratch[0] == Material
+                    && _materialScratch[0] == (RoomFloor ? NativeMaterial : Material)
                     && Renderer != null && SameRenderFlags(r, Renderer)
                     && Object != null && r.gameObject.layer == Object.layer
                     && inverse * r.transform.localToWorldMatrix == Matrices[i];
+                if (valid && source.RoomFloor)
+                    valid = RoomFloorGroupsEnabled && TryRoomFloorMesh(r!, out Mesh currentFloor)
+                        && currentFloor == source.ReadableMesh;
                 if (valid && HasNativeLightmap(r!)) { valid = false; LightingRefused = true; }
                 if (valid && !ChunkLightingCompatible(r!)) { valid = false; LightingRefused = true; }
             }
@@ -691,11 +738,13 @@ internal static class ScenarioEnvironmentBudget
         private readonly List<bool> _cameraHadForeignCommands = new();
         private readonly HashSet<ReflectionProbe> _reflectionProbes = new();
         internal bool HasLocalReflectionProbes => _reflectionProbes.Count > 0;
-        private bool _instancesOn, _meshBankOn;
+        private bool _instancesOn, _meshBankOn, _roomFloorGroupsOn;
         private readonly List<int> _dead = new();
         private bool _batchOn, _structuralOn, _simpleOn, _active, _worldOn, _buildPending, _reportPending;
         internal Material CanonicalMaterial(Material material) => material != null && _originalByVariant.TryGetValue(material, out Material original) ? original : material!;
         internal bool OwnsSubstitute(Renderer r) => r != null && (_batchBySource.ContainsKey(r.GetInstanceID()) || _instanceBySource.ContainsKey(r.GetInstanceID()));
+        internal bool HasPreparedRoomFloorGroup(Renderer r) => RoomFloorGroupsEnabled
+            && _batchBySource.TryGetValue(r.GetInstanceID(), out Batch batch) && batch.RoomFloor;
         internal bool HasForeignCommands(Camera camera)
         {
             int owned = 0; foreach (InstanceBatch batch in _instances) owned += batch.ActiveBuffers(camera);
@@ -786,13 +835,13 @@ internal static class ScenarioEnvironmentBudget
         internal void QueueRoot(GameObject root)
         {
             if (!VRSession.IsRunning || root == null || !(PerfConfig.StaticScenarioBatchesOn
-                || StructuralEnabled || PerfConfig.EnvironmentDrawInstancingOn || PerfConfig.SimpleEnvironmentShadingOn || PerfConfig.EnvironmentEffectsDensityPercent < 100)) return;
+                || StructuralEnabled || RoomFloorGroupsEnabled || PerfConfig.EnvironmentDrawInstancingOn || PerfConfig.SimpleEnvironmentShadingOn || PerfConfig.EnvironmentEffectsDensityPercent < 100)) return;
             if (_queued.Add(root.GetInstanceID())) _pending.Enqueue(root.transform);
         }
         internal void MaterialReady(Renderer renderer)
         {
             if (renderer == null || !VRSession.IsRunning || !(PerfConfig.StaticScenarioBatchesOn
-                || StructuralEnabled || PerfConfig.EnvironmentDrawInstancingOn || PerfConfig.SimpleEnvironmentShadingOn || PerfConfig.EnvironmentEffectsDensityPercent < 100)) return;
+                || StructuralEnabled || RoomFloorGroupsEnabled || PerfConfig.EnvironmentDrawInstancingOn || PerfConfig.SimpleEnvironmentShadingOn || PerfConfig.EnvironmentEffectsDensityPercent < 100)) return;
             Settings();
             if (TileScope(renderer.transform, out _) == null)
             { AdoptAmbient(renderer.transform); return; }
@@ -842,14 +891,15 @@ internal static class ScenarioEnvironmentBudget
             int effects = VRSession.IsRunning ? PerfConfig.EnvironmentEffectsDensityPercent : 100;
             bool instances = VRSession.IsRunning && PerfConfig.EnvironmentDrawInstancingOn;
             bool bank = VRSession.IsRunning && PerfConfig.EnvironmentMeshBankOn;
-            bool active = batch || structural || instances || simple || world || effects < 100;
-            if (batch == _batchOn && structural == _structuralOn && simple == _simpleOn && effects == _effects && active == _active && instances == _instancesOn && bank == _meshBankOn && world == _worldOn) return;
+            bool roomFloors = VRSession.IsRunning && RoomFloorGroupsEnabled;
+            bool active = batch || structural || instances || simple || world || roomFloors || effects < 100;
+            if (batch == _batchOn && structural == _structuralOn && simple == _simpleOn && effects == _effects && active == _active && instances == _instancesOn && bank == _meshBankOn && world == _worldOn && roomFloors == _roomFloorGroupsOn) return;
             ReleaseBatches();
             foreach (Surface surface in _surfaces.Values) surface.RestoreMaterial();
             RestoreClonedMaterials();
             foreach (Material material in _materials.Values) if (material != null) UnityEngine.Object.Destroy(material);
             _materials.Clear(); _originalByVariant.Clear();
-            _instancesOn = instances; _meshBankOn = bank;
+            _instancesOn = instances; _meshBankOn = bank; _roomFloorGroupsOn = roomFloors;
             _batchOn = batch; _structuralOn = structural; _simpleOn = simple; _effects = effects; _active = active; _worldOn = world;
             foreach (Surface surface in _surfaces.Values) ApplyMaterial(surface);
             foreach (Ambient ambient in _ambient.Values) ambient.Apply(Hide(ambient.Hash));
@@ -916,7 +966,8 @@ internal static class ScenarioEnvironmentBudget
                         cloned |= _originalByVariant.ContainsKey(materials[i]);
                         materials[i] = original;
                     }
-                floor = ProvenFloorCore(renderer, filter.sharedMesh, tile, materials);
+                bool roomFloor = _roomFloorGroupsOn && _roomFloorEligible?.Invoke(filter.sharedMesh) == true;
+                floor = roomFloor || ProvenFloorCore(renderer, filter.sharedMesh, tile, materials);
                 bool structural = !floor && StructuralIdentity(filter.sharedMesh) && !renderer.HasPropertyBlock();
                 if (structural)
                     foreach (Material material in materials)
@@ -940,7 +991,7 @@ internal static class ScenarioEnvironmentBudget
                     _surfaces.Remove(renderer.GetInstanceID());
                 }
                 bool compatible = materials.Length > 0;
-                foreach (Material material in materials) compatible &= CompatibleMaterial(material, floor || structural);
+                foreach (Material material in materials) compatible &= CompatibleMaterial(material, floor || structural, roomFloor);
                 if (VRLog.Wants(VRLogLevel.Debug))
                 {
                     ++_meshVisits;
@@ -955,7 +1006,7 @@ internal static class ScenarioEnvironmentBudget
                 if (compatible)
                 {
                     var surface = new Surface { Renderer = renderer, Id = renderer.GetInstanceID(), Filter = filter, Tile = tile,
-                        Floor = floor, Structural = structural, Mesh = filter.sharedMesh, Original = materials };
+                        Floor = floor, RoomFloor = roomFloor, Structural = structural, Mesh = filter.sharedMesh, Original = materials };
                     _surfaces[renderer.GetInstanceID()] = surface;
                     ApplyMaterial(surface);
                     _buildPending = true;
@@ -1000,6 +1051,7 @@ internal static class ScenarioEnvironmentBudget
 
         private void ApplyMaterial(Surface surface)
         {
+            if (surface.RoomFloor) return; // The world/terrain owner keeps native floor materials; groups never rewrite source slots.
             if (!_simpleOn || (surface.Structural && !_structuralOn) || surface.Renderer == null || TerrainOwns(surface.Renderer)) return;
             if (surface.Renderer.HasPropertyBlock()) return;
             foreach (Material original in surface.Original)
@@ -1028,6 +1080,8 @@ internal static class ScenarioEnvironmentBudget
 
         private void PrepareBatches()
         {
+            using IDisposable? floorReads = _roomFloorReadPass?.Invoke();
+            using IDisposable? floorMaterials = _roomFloorMaterialPass?.Invoke();
             _buildPending = false;
             _reportPending = true;
             _parts.Clear(); _unreadable = 0; _probeRefusals = 0;
@@ -1041,14 +1095,14 @@ internal static class ScenarioEnvironmentBudget
             foreach (int id in _dead) _ambient.Remove(id);
             _dead.Clear();
             if (_instancesOn) PrepareInstances();
-            if (!_batchOn && !_structuralOn) return;
+            if (!_batchOn && !_structuralOn && !_roomFloorGroupsOn) return;
             var groups = new Dictionary<BatchKey, List<Surface>>();
             foreach (Surface surface in _surfaces.Values)
             {
                 MeshRenderer renderer = surface.Renderer;
                 RecordPreparationRefusals(renderer, false);
-                if (renderer == null || TerrainOwns(renderer) || _instanceBySource.ContainsKey(renderer.GetInstanceID()) || _batchBySource.ContainsKey(renderer.GetInstanceID())
-                    || !(surface.Floor ? _batchOn : surface.Structural && _structuralOn && surface.StructuralMaterialReady()) || surface.Tile == null || surface.Mesh == null
+                if (renderer == null || !surface.RoomFloor && TerrainOwns(renderer) || _instanceBySource.ContainsKey(renderer.GetInstanceID()) || _batchBySource.ContainsKey(renderer.GetInstanceID())
+                    || !(surface.RoomFloor ? _roomFloorGroupsOn : surface.Floor ? _batchOn : surface.Structural && _structuralOn && surface.StructuralMaterialReady()) || surface.Tile == null || surface.Mesh == null
                     || renderer.transform.localToWorldMatrix.determinant <= 0f
                     || !renderer.enabled || !renderer.gameObject.activeInHierarchy || renderer.forceRenderingOff
                     || renderer.HasPropertyBlock() || !NativeGeometryCompatible(renderer) || surface.Filter.sharedMesh != surface.Mesh
@@ -1056,12 +1110,19 @@ internal static class ScenarioEnvironmentBudget
                     || renderer.GetComponentInParent<LODGroup>(true) != null
                     || (renderer.lightmapIndex >= 0 && renderer.lightmapIndex < 65534)) continue;
                 Material material = renderer.sharedMaterial;
-                if (material == null) continue;
+                if (material == null || surface.RoomFloor && !TryRoomFloorMaterial(material, out _)) continue;
                 ++_chunkCandidates;
                 if (!ChunkLightingCompatible(renderer)) { _probeRefusals++; continue; }
                 // Refused lighting never needs private geometry, source-bundle hashing
                 // or mesh decoding. Admit the complete render contract first.
-                surface.ReadableMesh = surface.Mesh.isReadable ? surface.Mesh : null;
+                if (surface.RoomFloor)
+                {
+                    // Only completed morph endpoints can enter an immutable private group.
+                    // An endpoint event retries preparation without polling all source trees.
+                    if (!TryRoomFloorMesh(renderer, out Mesh preparedFloor)) continue;
+                    surface.ReadableMesh = preparedFloor;
+                }
+                else surface.ReadableMesh = surface.Mesh.isReadable ? surface.Mesh : null;
                 if (surface.ReadableMesh == null && _meshBankOn && ScenarioEnvironmentMeshBank.TryGetExact(surface.Mesh, out Mesh exact)) surface.ReadableMesh = exact;
                 if (surface.ReadableMesh == null) { _unreadable++; continue; }
                 var key = new BatchKey(surface, material);
@@ -1092,7 +1153,7 @@ internal static class ScenarioEnvironmentBudget
             {
                 MeshRenderer r = surface.Renderer;
                 RecordPreparationRefusals(r, true);
-                if (r == null || TerrainOwns(r) || _batchBySource.ContainsKey(surface.Id) || _instanceBySource.ContainsKey(surface.Id)
+                if (surface.RoomFloor || r == null || TerrainOwns(r) || _batchBySource.ContainsKey(surface.Id) || _instanceBySource.ContainsKey(surface.Id)
                     || surface.Mesh == null || surface.Filter == null || surface.Filter.sharedMesh != surface.Mesh
                     || !r.enabled || !r.gameObject.activeInHierarchy || r.forceRenderingOff || r.HasPropertyBlock()
                     || surface.Tile == null) continue;
@@ -1158,21 +1219,24 @@ internal static class ScenarioEnvironmentBudget
 
         private void DrainBatches(int budget)
         {
+            using IDisposable? floorReads = _roomFloorReadPass?.Invoke();
+            using IDisposable? floorMaterials = _roomFloorMaterialPass?.Invoke();
             while (budget-- > 0 && _parts.Count > 0)
             {
                 List<Surface> members = _parts.Dequeue();
                 // A native hide, material load or room change may occur after preparation.
                 // Revalidate admission rather than publishing a stale substitute.
                 members.RemoveAll(s => s.Renderer == null || s.Filter == null || s.Tile == null
-                    || s.Mesh == null || s.ReadableMesh == null || !s.ReadableMesh.isReadable || TerrainOwns(s.Renderer) || s.Filter.sharedMesh != s.Mesh
+                    || s.Mesh == null || s.ReadableMesh == null || !s.ReadableMesh.isReadable || !s.RoomFloor && TerrainOwns(s.Renderer) || s.Filter.sharedMesh != s.Mesh
                     || s.Renderer.forceRenderingOff || !s.Renderer.enabled
                     || !s.Renderer.gameObject.activeInHierarchy || s.Renderer.HasPropertyBlock() || !NativeGeometryCompatible(s.Renderer)
                     || s.Renderer.sharedMaterials.Length != 1
-                    || !(s.Floor ? _batchOn : s.Structural && _structuralOn && s.StructuralMaterialReady())
-                    || !CompatibleMaterial(s.Renderer.sharedMaterial, s.Floor || s.Structural)
+                    || !(s.RoomFloor ? _roomFloorGroupsOn : s.Floor ? _batchOn : s.Structural && _structuralOn && s.StructuralMaterialReady())
+                    || !CompatibleMaterial(s.Renderer.sharedMaterial, s.Floor || s.Structural, s.RoomFloor)
                     || !ChunkLightingCompatible(s.Renderer)
                     || s.Renderer.transform.localToWorldMatrix.determinant <= 0f
-                    || _batchBySource.ContainsKey(s.Renderer.GetInstanceID()));
+                    || _batchBySource.ContainsKey(s.Renderer.GetInstanceID())
+                    || s.RoomFloor && (!TryRoomFloorMesh(s.Renderer, out Mesh floorMesh) || floorMesh != s.ReadableMesh));
                 if (members.Count < 2) continue;
                 Material material = members[0].Renderer.sharedMaterial;
                 members.RemoveAll(s => s.Renderer.sharedMaterial != material
@@ -1210,6 +1274,9 @@ internal static class ScenarioEnvironmentBudget
             {
                 Surface surface = pair.Value;
                 if (surface.Renderer == null) continue;
+                // Floor groups have no legacy material binding and own their endpoint
+                // handoff explicitly. Batch.Validate reads their current source contract.
+                if (surface.RoomFloor) continue;
                 if (TerrainOwns(surface.Renderer))
                 {
                     if (!surface.TerrainOwned) { InvalidateBatch(surface.Id); surface.RestoreMaterial(); surface.TerrainOwned = true; }
@@ -1265,10 +1332,15 @@ internal static class ScenarioEnvironmentBudget
         {
             if (members.Count < 2) return;
             Surface first = members[0];
-            var batch = new Batch { Material = first.Renderer.sharedMaterial };
+            Material nativeMaterial = first.Renderer.sharedMaterial;
+            Material drawMaterial = nativeMaterial;
+            if (first.RoomFloor && !TryRoomFloorMaterial(nativeMaterial, out drawMaterial)) return;
+            var batch = new Batch { Material = drawMaterial, NativeMaterial = nativeMaterial, RoomFloor = first.RoomFloor };
             var child = new GameObject("GloomhavenVR.StaticScenarioChunk");
             child.layer = first.Renderer.gameObject.layer;
-            child.transform.SetParent(first.Tile.transform, false);
+            // Broader floor substitutes live outside every native content cloning root.
+            // Native GameObjects, mesh pointers, colliders and static-batch metadata stay intact.
+            child.transform.SetParent(first.RoomFloor ? transform : first.Tile.transform, false);
             batch.Object = child;
             try
             {
@@ -1286,6 +1358,13 @@ internal static class ScenarioEnvironmentBudget
                 batch.Renderer = child.AddComponent<MeshRenderer>();
                 batch.Renderer.enabled = false;
                 batch.Renderer.sharedMaterial = batch.Material;
+                if (first.RoomFloor)
+                {
+                    var block = new MaterialPropertyBlock();
+                    block.SetFloat("_GHVRTerrainNeverFade", 1f);
+                    block.SetFloat("_GHVRWorldNeverFade", 1f);
+                    batch.Renderer.SetPropertyBlock(block);
+                }
                 batch.Renderer.shadowCastingMode = first.Renderer.shadowCastingMode;
                 batch.Renderer.receiveShadows = first.Renderer.receiveShadows;
                 batch.Renderer.lightProbeUsage = first.Renderer.lightProbeUsage;
@@ -1337,7 +1416,12 @@ internal static class ScenarioEnvironmentBudget
                 PerfMonitor.Count("Environment.NativeBufferFallback", foreignCommands && (_batches.Count > 0 || _instances.Count > 0) ? 1 : 0);
                 if (camera != null && camera.commandBufferCount > 0 && foreignCommands)
                     foreach (Batch batch in _batches) { batch.Unmask(); }
-                else ValidateBatches();
+                else
+                {
+                    using IDisposable? floorMaterials = _roomFloorMaterialPass?.Invoke();
+                    using IDisposable? floorReads = _roomFloorReadPass?.Invoke();
+                    ValidateBatches();
+                }
                 foreach (InstanceBatch batch in _instances) if (camera != null) batch.Submit(camera, foreignCommands);
                 foreach (Ambient ambient in _ambient.Values) ambient.Mask(Hide(ambient.Hash));
             }
@@ -1386,11 +1470,12 @@ internal static class ScenarioEnvironmentBudget
         private void ReportCameraDrawCounts()
         {
             if (!PerfMonitor.StepsActive) return;
-            int chunkSources = 0, chunkGroups = 0, instanceSources = 0, instanceGroups = 0;
+            int chunkSources = 0, chunkGroups = 0, roomFloorSources = 0, roomFloorGroups = 0, instanceSources = 0, instanceGroups = 0;
             foreach (Batch batch in _batches)
             {
                 int count = batch.MaskedSourceCount;
                 chunkSources += count; if (count > 0) ++chunkGroups;
+                if (batch.RoomFloor) { roomFloorSources += count; if (count > 0) ++roomFloorGroups; }
             }
             foreach (InstanceBatch batch in _instances)
             {
@@ -1403,6 +1488,11 @@ internal static class ScenarioEnvironmentBudget
             PerfMonitor.Count("Environment.RenderCameras");
             PerfMonitor.Count("Environment.ChunkSources", chunkSources);
             PerfMonitor.Count("Environment.ChunkGroups", chunkGroups);
+            if (VRLog.Wants(VRLogLevel.Debug))
+            {
+                PerfMonitor.Count("Environment.RoomFloorSources", roomFloorSources);
+                PerfMonitor.Count("Environment.RoomFloorGroups", roomFloorGroups);
+            }
             PerfMonitor.Count("Environment.InstanceSources", instanceSources);
             PerfMonitor.Count("Environment.InstanceGroups", instanceGroups);
         }
