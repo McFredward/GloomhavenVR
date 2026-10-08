@@ -117,9 +117,11 @@ def unity_launcher(editor, *, graphics=False):
     arguments = [str(editor), "-batchmode"]
     if not graphics: return arguments + ["-nographics"]
     if sys.platform == "linux":
+        if os.environ.get("DISPLAY", "").strip():
+            return arguments + ["-force-glcore"]
         display = shutil.which("xvfb-run")
-        if not display:
-            raise BuildError("The Linux full Campaign build requires xvfb-run for its real OpenGLCore shader compiler host.")
+        if not display or not shutil.which("xauth"):
+            raise BuildError("The Linux full Campaign build needs a desktop X display or xvfb-run and xauth for its OpenGLCore compiler host.")
         return [display, "-a", *arguments, "-force-glcore"]
     if sys.platform == "win32":
         # Use the same witnessed Editor compute backend as the Linux builder.

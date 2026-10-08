@@ -16,11 +16,11 @@ class GraphicsHostTests(unittest.TestCase):
                              ["C:/Unity Editor/Unity.exe", "-batchmode", "-force-glcore"])
 
     def test_linux_requires_real_graphics_host_and_other_targets_remain_headless(self):
-        with patch.object(builder.sys, "platform", "linux"), patch.object(builder.shutil, "which", return_value=None):
+        with patch.dict(builder.os.environ, {}, clear=True), patch.object(builder.sys, "platform", "linux"), patch.object(builder.shutil, "which", return_value=None):
             with self.assertRaises(BuildError):
                 builder.unity_launcher("/Unity", graphics=True)
             self.assertEqual(builder.unity_launcher("/Unity"), ["/Unity", "-batchmode", "-nographics"])
-        with patch.object(builder.sys, "platform", "linux"), patch.object(builder.shutil, "which", return_value="/xvfb-run"):
+        with patch.dict(builder.os.environ, {}, clear=True), patch.object(builder.sys, "platform", "linux"), patch.object(builder.shutil, "which", side_effect=lambda name: "/" + name):
             self.assertEqual(builder.unity_launcher("/Unity", graphics=True),
                              ["/xvfb-run", "-a", "/Unity", "-batchmode", "-force-glcore"])
 

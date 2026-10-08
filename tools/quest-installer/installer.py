@@ -2,7 +2,7 @@
 
 Only a successful run changes remembered settings. USB is needed once to enable
 the headset's TCP transport, and again after a reboot or changed Wi-Fi address.
-Windows provisions official Android platform-tools locally if ADB is missing.
+Windows and Linux provision official Android platform-tools locally if ADB is missing.
 No APKs, accounts or signing material are downloaded.
 """
 from __future__ import annotations
@@ -300,6 +300,17 @@ def managed_windows_adb():
         raise InstallError(str(error)) from error
 
 
+def managed_linux_adb():
+    spec = importlib.util.spec_from_file_location(
+        "_ghvr_quest_adb_bootstrap", REPO / "tools/quest-installer/adb_bootstrap.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    try:
+        return module.ensure_linux_adb(REPO / "scripts")
+    except module.AdbBootstrapError as error:
+        raise InstallError(str(error)) from error
+
+
 def adb_path(explicit, remembered=None):
     if explicit:
         candidates = [explicit]
@@ -316,21 +327,26 @@ def adb_path(explicit, remembered=None):
                        roaming / "SideQuest/platform-tools/adb",
                        local / "SideQuest/platform-tools/adb.exe",
                        local / "Programs/SideQuest/resources/app.asar.unpacked/build/platform-tools/adb.exe"]
+        if sys.platform == "linux":
+            candidates += [Path.home() / "Android/Sdk/platform-tools/adb",
+                           Path.home() / ".android/sdk/platform-tools/adb"]
     for value in candidates:
         if value and Path(value).expanduser().is_file():
             # Check the managed lexical path before resolving links; a moved
             # or linked cache must go through ownership/integrity validation.
             candidate = Path(os.path.abspath(Path(value).expanduser()))
-            if sys.platform == "win32":
+            if sys.platform in ("win32", "linux"):
                 try:
                     candidate.relative_to(REPO / "scripts/.quest-adb")
                 except ValueError:
                     pass
                 else:
-                    return managed_windows_adb()
+                    return managed_windows_adb() if sys.platform == "win32" else managed_linux_adb()
             return candidate.resolve()
     if sys.platform == "win32" and not explicit:
         return managed_windows_adb()
+    if sys.platform == "linux" and not explicit:
+        return managed_linux_adb()
     if explicit:
         raise InstallError("The supplied ADB executable was not found: " + str(explicit))
     raise InstallError("ADB was not found. Install Android platform-tools or supply --adb PATH.")

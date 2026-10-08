@@ -84,6 +84,15 @@ class AdbBootstrapTests(unittest.TestCase):
         with mock.patch.object(adb, "_download", side_effect=AssertionError("Unexpected network request")):
             self.assertEqual(self.provision(), first)
 
+    def test_previous_windows_receipt_without_host_reuses_existing_tools(self):
+        first = self.provision()
+        marker = first.parent / adb.MARKER
+        state = json.loads(marker.read_text()); state.pop("host")
+        adb._json(marker, state)
+        with mock.patch.object(adb, "_download", side_effect=AssertionError("Existing Windows receipt remains valid")), \
+             mock.patch.object(adb, "_extract", side_effect=AssertionError("No reinstall for receipt-only addition")):
+            self.assertEqual(self.provision(), first)
+
     def test_corrupted_binary_is_repaired_from_cached_archive_offline(self):
         executable = self.provision()
         original = executable.read_bytes()
