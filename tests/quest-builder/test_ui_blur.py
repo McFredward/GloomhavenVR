@@ -74,12 +74,13 @@ class OriginalBlurRecoveryTests(unittest.TestCase):
     def test_changed_original_form_platform_recipe_and_duplicate_fail_before_mutation(self):
         source_path = self.project / ui_blur.RECIPES
         original = source_path.read_bytes()
-        for mutation in ("form", "platform", "identity", "duplicate", "missing"):
+        for mutation in ("form", "platform", "identity", "native-hash", "duplicate", "missing"):
             with self.subTest(mutation=mutation):
                 source = json.loads(original)
                 if mutation == "form": source["recipes"][0]["parsedForm"]["fixturePassStates"] = "invented-alpha"
                 elif mutation == "platform": source["recipes"][0]["compiledPlatforms"] = [9]
                 elif mutation == "identity": source["recipes"][0]["recipeSha256"] = "0" * 64
+                elif mutation == "native-hash": source["recipes"][0]["nativeRecipeSha256"] = "0" * 64
                 elif mutation == "duplicate": source["recipes"].append(source["recipes"][0])
                 else: source["recipes"] = []
                 storage.write_json(source_path, source)

@@ -22,6 +22,9 @@ DUMMY_SHA256 = "852f87eae8f6a70e1da343325013cd8ebf3362e5bcbdd46227f77c75fdb5ee89
 SOURCE_SHA256 = "d91f4c480676b22c09da4262f99d2fb38677257117be1130c85fbab2f34f95b4"
 RECIPE_SHA256 = "fd65d0a293f36a8d33578386f182d73b0aeba5ecd86a556826371db6ee1fff89"
 RECIPE_FORM_SHA256 = "af7616b518effd29a17231545f7acbfe49d3006ce9732c07818aa5235ed950b3"
+# Full native parsed Shader/program-table/property/pass data and platforms.
+# AssetRipper's sourcePath is a session-local collection address, not Shader data.
+NATIVE_RECIPE_SHA256 = "4f7c1200e7d95369f27b01cf723445163852291f761192ad98dc220b1eae7632"
 RECIPES = "Assets/QuestOriginalStartup/shader-recipes.json"
 RECEIPT = "QuestStartupEvidence/original-ui-assets.json"
 RECIPE = "original-ui-dxbc-port-v1"
@@ -165,6 +168,7 @@ DISSOLVE_PROGRAM = r'''    // Quest: original-dissolve-dxbc-port-v1 (original co
 SHADERS = {
     NAME: {"asset": ASSET, "guid": GUID, "dummySha256": DUMMY_SHA256,
            "sourceSha256": SOURCE_SHA256, "recipeSha256": RECIPE_SHA256,
+           "nativeRecipeSha256": NATIVE_RECIPE_SHA256,
            "formSha256": RECIPE_FORM_SHA256, "program": PROGRAM,
            "keywords": ["", "_ADDORMULT_ON"], "dxbcSha256": DXBC_SHA256,
            "colorProperties": ["_Map02Tint", "_Map01_Tint"]},
@@ -173,6 +177,7 @@ SHADERS = {
         "dummySha256": "45a57f07b6464d97e012cc59c6f49ff899bcecc1c7c745acef0904d22ea32509",
         "sourceSha256": "c2b96680f6cd9fd44070e998c89576beeb468ab88ac1f27a1d651f86f2c9abb4",
         "recipeSha256": "0bbd001e5f0469c922464801d967e366451d698e98d787c3c97488f7f07008a7",
+        "nativeRecipeSha256": "9a986b73ac3e146ae06a68bb1f8981d633513010ac473a11041baab72b6b6068",
         "formSha256": "0de78653f6fe4bbdbbd2a49a117a6a2870e7a5ecb9b04e85c6be86a21f44f0fc",
         "program": DISSOLVE_PROGRAM, "keywords": [""], "colorProperties": [], "dxbcSha256": {
             "vertex": "076c53f158c731b2703f8baa965b0b668ddd6df4f2f07875ca6e081db5592fbe",
@@ -216,7 +221,8 @@ def _original_recipes(project):
             row = rows[0]
             form = json.dumps(row["parsedForm"], sort_keys=True, separators=(",", ":")).encode("utf-8")
             if (row["recipeSha256"] != spec["recipeSha256"] or _hash(form) != spec["formSha256"] or
-                    row["compiledPlatforms"] != [4]):
+                    row["compiledPlatforms"] != [4] or
+                    ("nativeRecipeSha256" in row and row["nativeRecipeSha256"] != spec["nativeRecipeSha256"])):
                 raise ValueError("compiled recipe/properties/states differ: " + name)
             result[name] = row
         return result
@@ -225,58 +231,93 @@ def _original_recipes(project):
 
 
 def stage_campaign_recipe_manifest(project):
-    """Derive the startup UI contract from the complete retained native recipes.
+    """Qualify original UI content independently of an export-session locator.
 
-    A full recovery includes multiple physical Shader objects with identical
-    names. Select the exact original object bytes audited for each UI program,
-    rather than importing a previous developer menu project or choosing by name.
+    The 2026-10-08 Windows run still rejects all three recipes after the newline
+    repair. Whole-file fingerprints also bind AssetRipper's session-local
+    collection index: real core and bundle Blur copies have identical full
+    parsed Shader data but different sourcePath/file hashes. Qualify every field
+    of the audited native parsed Shader (including all original program tables)
+    and platforms; retain each physical file/locator as provenance. No program,
+    property, pass or platform difference is made eligible by this change.
     """
-    from ui_blur import RECIPE_SHA256 as blur_hash, FORM_SHA256 as blur_form, NAME as blur_name
+    from ui_blur import (RECIPE_SHA256 as blur_hash, FORM_SHA256 as blur_form,
+                         NATIVE_RECIPE_SHA256 as blur_native, NAME as blur_name)
     project = _safe(project)
-    wanted = {spec["recipeSha256"]: (name, spec["formSha256"]) for name, spec in SHADERS.items()}
-    wanted[blur_hash] = (blur_name, blur_form)
-    selected = {}
+    wanted = {name: {"recipeSha256": spec["recipeSha256"], "formSha256": spec["formSha256"],
+                     "nativeRecipeSha256": spec["nativeRecipeSha256"]} for name, spec in SHADERS.items()}
+    wanted[blur_name] = {"recipeSha256": blur_hash, "formSha256": blur_form, "nativeRecipeSha256": blur_native}
+    selected, observations = {}, {name: [] for name in wanted}
     directory = _safe(project / "QuestRecovery/ShaderRecipes")
-    # Use the producer's exact shader-name filename encoding. Only the three
-    # audited families need reading; unrelated game shader banks are untouched.
-    paths = {path for name, _ in wanted.values()
+    # Read only the three required shader families, using the producer's exact
+    # filename encoding. Never scan or audit unrelated game shader banks.
+    paths = {path for name in wanted
              for path in directory.glob(re.sub(r"[^A-Za-z0-9._-]+", "_", name) + "-*.json")}
+    if len(paths) > 4096:
+        raise BuildError("Too many native UI recipe candidates; retained inputs were preserved.")
     for path in sorted(paths):
         raw = _read(path, 32 * 1024 * 1024)
-        # recover.write_json uses text-mode newlines: Windows emits CRLF, while
-        # the audited Linux producer emitted LF. Accept exactly those two byte
-        # representations. Escaped JSON string/program bytes, source locators,
-        # ordering, whitespace, properties and compiled banks stay hash-exact.
-        canonical = raw.replace(b"\r\n", b"\n")
-        if b"\r" in canonical or (b"\r\n" in raw and raw.count(b"\n") != raw.count(b"\r\n")):
-            continue
-        checksum = _hash(canonical)
-        if checksum not in wanted:
-            continue
-        if checksum in selected:
-            raise BuildError("Complete recovery duplicates an audited native UI Shader object.")
+        family = next(name for name in wanted if path.name.startswith(re.sub(r"[^A-Za-z0-9._-]+", "_", name) + "-"))
+        observation = {"file": path.name, "bytes": len(raw), "fileSha256": _hash(raw)}
         try:
-            recipe = json.loads(canonical)
+            def unique_keys(pairs):
+                value = {}
+                for key, item in pairs:
+                    if key in value: raise ValueError("duplicate JSON key: " + key)
+                    value[key] = item
+                return value
+            recipe = json.loads(raw, object_pairs_hook=unique_keys)
             parsed = recipe["parsedForm"]
+            # Formatting/newlines and the collection locator do not enter the
+            # native contract. Everything in parsedForm and compiledPlatforms
+            # does, including fields not needed by the state-only manifest.
+            native = {"parsedForm": parsed, "compiledPlatforms": recipe["compiledPlatforms"]}
+            checksum = _hash(json.dumps(native, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+            observation["nativeRecipeSha256"] = checksum
+            expected = wanted[family]
+            if checksum != expected["nativeRecipeSha256"]:
+                observation["reason"] = "native program/property/pass/platform fingerprint differs"
+                continue
+            locator = recipe["sourcePath"]
+            if not isinstance(locator, dict): raise ValueError("source locator is not an object")
             form = {"m_Name": parsed["m_Name"], "m_PropInfo": parsed["m_PropInfo"],
                     "m_SubShaders": [{"m_Passes": [{"m_State": item["m_State"]} for item in subshader["m_Passes"]]}
                                      for subshader in parsed["m_SubShaders"]]}
-            expected_name, expected_form = wanted[checksum]
-            if (form["m_Name"] != expected_name or recipe["compiledPlatforms"] != [4]
-                    or _hash(json.dumps(form, sort_keys=True, separators=(",", ":")).encode("utf-8")) != expected_form):
+            if (form["m_Name"] != family or recipe["compiledPlatforms"] != [4]
+                    or _hash(json.dumps(form, sort_keys=True, separators=(",", ":")).encode("utf-8")) != expected["formSha256"]):
                 raise ValueError("original name, properties, pass states or platform differs")
-        except (ValueError, KeyError, TypeError) as error:
-            raise BuildError("Complete recovery original UI recipe differs: " + path.name + "; " + str(error)) from error
-        selected[checksum] = {"recipePath": path.relative_to(project).as_posix(), "recipeSha256": checksum,
-                              "sourceRecipeFileSha256": _hash(raw), "sourceRecipeFileBytes": len(raw),
-                              "recipeLineEndings": "CRLF" if b"\r\n" in raw else "LF",
-                              "compiledPlatforms": recipe["compiledPlatforms"], "parsedForm": form}
+        except (ValueError, KeyError, TypeError, UnicodeError) as error:
+            observation["reason"] = "invalid recipe: " + str(error)[:160]
+            continue
+        finally:
+            if len(observations[family]) < 3: observations[family].append(observation)
+        source = {"recipePath": path.relative_to(project).as_posix(), "sourcePath": locator,
+                  "sourceRecipeFileSha256": _hash(raw), "sourceRecipeFileBytes": len(raw)}
+        if family in selected:
+            # All candidates passed the complete native fingerprint. Equivalent
+            # physical original objects do not introduce another Shader program.
+            selected[family]["equivalentSources"].append(source)
+            continue
+        selected[family] = {**source, "recipeSha256": expected["recipeSha256"],
+                            "nativeRecipeSha256": checksum, "equivalentSources": [source],
+                            "recipeLineEndings": ("CRLF" if b"\r\n" in raw else
+                                                  "LF" if b"\n" in raw else "CR" if b"\r" in raw else "none"),
+                            "compiledPlatforms": recipe["compiledPlatforms"], "parsedForm": form}
     if set(selected) != set(wanted):
-        missing = [name for checksum, (name, _) in wanted.items() if checksum not in selected]
-        raise BuildError("Complete recovery lacks the exact original UI Shader recipes required for Android: " + ", ".join(sorted(missing)) + ".")
-    manifest = {"schema": 1, "recipes": [selected[key] for key in sorted(wanted)]}
+        missing = sorted(set(wanted) - set(selected))
+        details = {name: {"expectedNativeSha256": wanted[name]["nativeRecipeSha256"],
+                         "candidates": observations[name]} for name in missing}
+        raise BuildError("Complete recovery lacks the exact original UI Shader recipes required for Android: " +
+                         ", ".join(missing) + ". Candidate diagnostics: " + json.dumps(details, sort_keys=True))
+    # recipeSha256 retains the audited LF object's established manifest ID;
+    # sourceRecipeFileSha256 is the actual physical input, and nativeRecipeSha256
+    # qualifies its complete content independently of that session's locator.
+    manifest = {"schema": 1, "recipes": sorted(selected.values(), key=lambda row: row["recipeSha256"])}
     write_json(project / RECIPES, manifest)
     _original_recipes(project)
+    print("[Quest UI] Retained exact native recipes: " + "; ".join(
+        name + " (" + str(len(selected[name]["equivalentSources"])) + " equivalent original objects)"
+        for name in sorted(selected)), flush=True)
     return manifest
 
 

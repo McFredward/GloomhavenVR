@@ -1,4 +1,4 @@
-"""Qualify exact native UI recipe transport without weakening original programs.
+"""Qualify native UI content independent of export-session addresses/JSON text.
 
 Invented producer-shaped recipes keep game shader data out of the repository.
 The independent private replay uses the unchanged production fingerprints.
@@ -34,12 +34,13 @@ class UiRecipeManifestTests(unittest.TestCase):
             raw = (json.dumps(recipe, indent=2, sort_keys=True) + "\n").encode("utf-8")
             state = {"m_Name": name, "m_PropInfo": form["m_PropInfo"], "m_SubShaders": [{"m_Passes": [{"m_State": {"blend": "unchanged"}}]}]}
             recipe_hash = hashlib.sha256(raw).hexdigest()
+            native_hash = hashlib.sha256(json.dumps({"parsedForm": form, "compiledPlatforms": [4]}, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
             form_hash = hashlib.sha256(json.dumps(state, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-            if name in self.specs: self.specs[name].update(recipeSha256=recipe_hash, formSha256=form_hash)
-            else: self.blur_hash, self.blur_form = recipe_hash, form_hash
+            if name in self.specs: self.specs[name].update(recipeSha256=recipe_hash, formSha256=form_hash, nativeRecipeSha256=native_hash)
+            else: self.blur_hash, self.blur_form, self.blur_native = recipe_hash, form_hash, native_hash
             path = self.directory / (re.sub(r"[^A-Za-z0-9._-]+", "_", name) + "-fixture.json")
             path.write_bytes(raw); self.inputs[path] = raw
-        self.patches = [patch.object(ui_assets, "SHADERS", self.specs), patch.object(ui_blur, "RECIPE_SHA256", self.blur_hash), patch.object(ui_blur, "FORM_SHA256", self.blur_form)]
+        self.patches = [patch.object(ui_assets, "SHADERS", self.specs), patch.object(ui_blur, "RECIPE_SHA256", self.blur_hash), patch.object(ui_blur, "FORM_SHA256", self.blur_form), patch.object(ui_blur, "NATIVE_RECIPE_SHA256", self.blur_native)]
         for item in self.patches: item.start()
 
     def tearDown(self):
@@ -63,35 +64,71 @@ class UiRecipeManifestTests(unittest.TestCase):
             self.assertNotEqual(first["sourceRecipeFileSha256"], second["sourceRecipeFileSha256"])
             self.assertEqual(path.read_bytes(), self.inputs[path].replace(b"\n", b"\r\n"))
 
-    def test_missing_modified_banks_locators_or_transport_never_replace_previous_manifest(self):
+    def test_missing_modified_banks_properties_passes_or_platform_never_replace_previous_manifest(self):
         previous = ui_assets.stage_campaign_recipe_manifest(self.project)
         manifest = self.project / ui_assets.RECIPES; old = manifest.read_bytes()
         path, raw = next(iter(self.inputs.items()))
-        for mutation in ("missing", "program", "locator", "platform", "whitespace", "mixed-newlines", "bare-cr", "bom"):
+        for mutation in ("missing", "program", "property", "pass", "name", "platform", "invalid-json", "duplicate-json-key"):
             with self.subTest(mutation=mutation):
                 if mutation == "missing": path.unlink()
-                elif mutation in ("program", "locator", "platform"):
+                elif mutation in ("program", "property", "pass", "name", "platform"):
                     value = json.loads(raw)
                     if mutation == "program": value["parsedForm"]["m_SubShaders"][0]["m_Passes"][0]["program"] += " changed operation"
-                    elif mutation == "locator": value["sourcePath"]["D"] += 1
+                    elif mutation == "property": value["parsedForm"]["m_PropInfo"]["m_Props"][0]["m_DefaultValue"][0] += 1
+                    elif mutation == "pass": value["parsedForm"]["m_SubShaders"][0]["m_Passes"][0]["m_State"]["blend"] = "changed"
+                    elif mutation == "name": value["parsedForm"]["m_Name"] = "unqualified same-family shader"
                     else: value["compiledPlatforms"] = [9]
                     path.write_bytes((json.dumps(value, indent=2, sort_keys=True) + "\n").encode())
-                elif mutation == "whitespace": path.write_bytes(raw.replace(b"  ", b"   ", 1))
-                elif mutation == "mixed-newlines": path.write_bytes(raw.replace(b"\n", b"\r\n", 1))
-                elif mutation == "bare-cr": path.write_bytes(raw.replace(b"\n", b"\r", 1))
-                else: path.write_bytes(b"\xef\xbb\xbf" + raw)
+                elif mutation == "invalid-json": path.write_bytes(b"not JSON")
+                else: path.write_bytes(raw.replace(b'{\n', b'{\n "sourcePath": {},\n', 1))
                 with self.assertRaisesRegex(storage.BuildError, "lacks the exact original"):
                     ui_assets.stage_campaign_recipe_manifest(self.project)
                 self.assertEqual(manifest.read_bytes(), old)
                 path.write_bytes(raw)
         self.assertEqual(json.loads(old), previous)
 
-    def test_duplicate_lf_and_crlf_physical_objects_remain_an_error(self):
+    def test_session_local_collection_indices_and_json_format_do_not_change_native_contract(self):
+        original = ui_assets.stage_campaign_recipe_manifest(self.project)
+        for path, raw in self.inputs.items():
+            value = json.loads(raw)
+            value["sourcePath"] = {"C": {"B": {"P": [7]}, "I": 97}, "D": -8456927755942251258}
+            # Different importer load orders and valid JSON transports retain
+            # exactly the same original program/property/pass/platform fields.
+            path.write_bytes(b"\xef\xbb\xbf" + json.dumps(value, sort_keys=False, indent=4).encode())
+        changed = ui_assets.stage_campaign_recipe_manifest(self.project)
+        for before, after in zip(original["recipes"], changed["recipes"]):
+            self.assertEqual(before["recipeSha256"], after["recipeSha256"])
+            self.assertEqual(before["nativeRecipeSha256"], after["nativeRecipeSha256"])
+            self.assertEqual(before["parsedForm"], after["parsedForm"])
+            self.assertNotEqual(before["sourceRecipeFileSha256"], after["sourceRecipeFileSha256"])
+            self.assertEqual(after["sourcePath"]["C"]["I"], 97)
+
+    def test_equivalent_physical_objects_preserve_all_provenance_and_select_one_program(self):
         path, raw = next(iter(self.inputs.items()))
-        path.with_name(path.stem + "-duplicate.json").write_bytes(raw.replace(b"\n", b"\r\n"))
-        with self.assertRaisesRegex(storage.BuildError, "duplicates"):
+        value = json.loads(raw); value["sourcePath"]["C"]["I"] += 100
+        path.with_name(path.stem + "-duplicate.json").write_bytes(json.dumps(value, indent=4).encode())
+        manifest = ui_assets.stage_campaign_recipe_manifest(self.project)
+        self.assertEqual(len(manifest["recipes"]), 3)
+        row = next(row for row in manifest["recipes"] if row["parsedForm"]["m_Name"] == value["parsedForm"]["m_Name"])
+        self.assertEqual(len(row["equivalentSources"]), 2)
+        self.assertNotEqual(row["equivalentSources"][0]["sourceRecipeFileSha256"], row["equivalentSources"][1]["sourceRecipeFileSha256"])
+        self.assertEqual(ui_assets.stage_campaign_recipe_manifest(self.project), manifest)
+
+    def test_failure_names_bounded_rejected_candidates_without_program_data(self):
+        path, raw = next(iter(self.inputs.items()))
+        for slot in range(8):
+            value = json.loads(raw); value["compiledPlatforms"] = [9]
+            path.with_name(path.stem + "-" + str(slot) + ".json").write_bytes(json.dumps(value).encode())
+        path.unlink()
+        with self.assertRaises(storage.BuildError) as error:
             ui_assets.stage_campaign_recipe_manifest(self.project)
-        self.assertFalse((self.project / ui_assets.RECIPES).exists())
+        message = str(error.exception)
+        self.assertIn("Candidate diagnostics", message)
+        self.assertIn("fingerprint differs", message)
+        self.assertIn("nativeRecipeSha256", message)
+        self.assertNotIn("fixture compiled DXBC", message)
+        details = json.loads(message.split("Candidate diagnostics: ", 1)[1])
+        self.assertEqual(len(next(iter(details.values()))["candidates"]), 3)
 
     def test_unrelated_shader_banks_are_never_opened(self):
         (self.directory / "UnrelatedHugeBank-other.json").write_bytes(b"invalid unrelated JSON")

@@ -19,6 +19,7 @@ GUID = "a0b681ed431356a47b5287e6441c1c11"
 RECEIPT = "QuestStartupEvidence/original-ui-blur.json"
 RECIPE = "original-ui-blur-dxbc-port-v1"
 RECIPE_SHA256 = "8c0b49510c15a60b71b6da8638bdca047d39fbc6317b8cbdd1d9d956413461ed"
+NATIVE_RECIPE_SHA256 = "7f58d5d57d85096d1c5c6a49d33f73d63a51bbe12d46d8b166e988b222fd2910"
 FORM_SHA256 = "fa7b20ad60256357747bf0b160e9ef3d9a411391199f8b2d788a48f32fe04282"
 DUMMY_SHA256 = "2becde7e00713952ce9151750bf0ef7970cfd8ff23fc4a970696f768cb440df7"
 SOURCE_SHA256 = "408ffb291c0a071cd0eef920f87e0867c8007d0b01a8775d6e011811a8832bfc"
@@ -165,7 +166,8 @@ def stage_startup_blur(project):
             raise ValueError("expected exact attached original blur recipe")
         original = matches[0]
         form = json.dumps(original["parsedForm"], sort_keys=True, separators=(",", ":")).encode()
-        if _hash(form) != FORM_SHA256 or original["compiledPlatforms"] != [4]:
+        if (_hash(form) != FORM_SHA256 or original["compiledPlatforms"] != [4] or
+                ("nativeRecipeSha256" in original and original["nativeRecipeSha256"] != NATIVE_RECIPE_SHA256)):
             raise ValueError("original blur properties, states or program bank differs")
     except (ValueError, KeyError, TypeError, AttributeError) as error:
         raise BuildError("Original UI blur source contract differs: " + str(error)) from error

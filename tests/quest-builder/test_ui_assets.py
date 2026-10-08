@@ -85,11 +85,12 @@ class OriginalUiRecoveryTests(unittest.TestCase):
     def test_shader_recipe_property_state_or_bank_changes_fail_before_mutation(self):
         path = self.project / ui_assets.RECIPES
         baseline = path.read_bytes()
-        for mutation in ("form", "hash", "platform", "duplicate", "absent"):
+        for mutation in ("form", "hash", "native-hash", "platform", "duplicate", "absent"):
             with self.subTest(mutation=mutation):
                 source = json.loads(baseline)
                 if mutation == "form": source["recipes"][1]["parsedForm"]["fixtureState"] = "invented transparent"
                 elif mutation == "hash": source["recipes"][1]["recipeSha256"] = "0" * 64
+                elif mutation == "native-hash": source["recipes"][1]["nativeRecipeSha256"] = "0" * 64
                 elif mutation == "platform": source["recipes"][1]["compiledPlatforms"] = [9]
                 elif mutation == "duplicate": source["recipes"].append(source["recipes"][1])
                 else: source["recipes"].pop()
