@@ -39,7 +39,10 @@ configuration values survive. They have no renderer reads, curated UI entries
 or graphics-preset writes. The prior647 Frame seed constants are also inert.
 The independent corrected646 offered-card sample anchor in
 `scripts/check-town-service-mirror.py` is retained, avoiding the already diagnosed
-stale test binding without changing NPC production.
+stale test binding without changing NPC production. The options-family checker
+explicitly records the five withdrawn INERT keys as non-curated compatibility
+storage, following its existing inert-key rule. Its initial unannotated attempt
+failed on those five new family orphans; no runtime quality control is hidden.
 
 A private646 compiled baseline was captured after exact restoration of all1,076
 production files. Its original worker HEAD was7288d59ab, but the compiled source

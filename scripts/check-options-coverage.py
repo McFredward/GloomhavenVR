@@ -614,6 +614,14 @@ NAME_DIFFERS_ON_PURPOSE = {
 # joining a curated family with no row and no line here. Added by hand rather than by --bless, so
 # that every addition had to be argued instead of blessed in a batch.
 KNOWN_ORPHANS = {
+    # Build648, maintainer-requested647 rollback: these bindings retain saved values
+    # only. Their renderer and curated controls are withdrawn; EN/DE help says INERT.
+    # No preset or render consumer reads them. Do not advertise inert storage as quality.
+    ("Optimize", "ScenarioRoomArchitecture"),
+    ("Optimize", "ScenarioRoomFloorDetailPercent"),
+    ("Optimize", "ScenarioRoomArchitectureDensityPercent"),
+    ("Optimize", "ScenarioRoomFloorBatching"),
+    ("Optimize", "ScenarioRoomFloorCameraSourceLimitCount"),
     # Build619 graphics audit: cache work is unconditional and its persisted key INERT;
     # batching/instancing are technical memory/render choices, offered only in Advanced.
     ("Optimize", "FigureScanCache"),
