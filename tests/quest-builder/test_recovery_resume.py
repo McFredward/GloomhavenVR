@@ -54,6 +54,8 @@ MINIMAL_RECOVERY_BYTES = {
 
 
 class ResumeFixture(unittest.TestCase):
+    native_byte_fixture = False
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
@@ -70,7 +72,8 @@ class ResumeFixture(unittest.TestCase):
         storage.snapshot(originals, game_files, self.game)
         for name in (*recovery_resume.ORCHESTRATION_FILES, "tools/quest-recovery/QuestExportIdentity.cs",
                      "tools/quest-recovery/export_identity.py", "tools/quest-recovery/tool-lock.json",
-                     *recovery_resume.DERIVED_FILES):
+                     *recovery_resume.DERIVED_FILES,
+                     *(recovery_resume.NATIVE_BYTES_PREVIOUS if self.native_byte_fixture else ())):
             target = self.source / name
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / name, target)
@@ -658,7 +661,9 @@ class ObserverStageContinuationTests(ResumeFixture):
         result.update(recoveryProject=str(self.raw), coreProject=str(self.core), managedTypes=str(self.managed),
                       cabBundles=str(workspace / "original-cab-bundles.json"))
         storage.write_json(workspace / "full-recovery.json", result)
-        records = recovery_resume._records(recovery_resume.recipe_files(self.current), "size")
+        # Reproduce the shipped binding's historical consumer rows, not the
+        # new source's canonicalization implementation.
+        records = recovery_resume._records(recovery_resume.recipe_files(self.previous), "size")
         contract = storage.value_hash({"schema": 1, "files": [row for name, row in sorted(records.items())
             if name not in recovery_resume.ORCHESTRATION_FILES and name not in recovery_resume.DERIVED_FILES]})
         proof = recovery_resume._qualification(workspace, self.current, self.game)
@@ -704,6 +709,84 @@ class ObserverStageContinuationTests(ResumeFixture):
         with self.assertRaisesRegex(storage.BuildError, "inputs/owner differ"):
             self.retry()
         self.assertEqual(self.phase_calls, [])
+
+
+class NativeByteStageContinuationTests(ObserverStageContinuationTests):
+    """Retain the bound raw/derived owners across the exact Windows I/O repair."""
+    native_byte_fixture = True
+
+    def setUp(self):
+        super().setUp()
+        for index, row in enumerate(self.previous["mod"]["files"]):
+            if row["path"] in recovery_resume.NATIVE_BYTES_PREVIOUS:
+                self.previous["mod"]["files"][index] = dict(recovery_resume.NATIVE_BYTES_PREVIOUS[row["path"]])
+        self.previous["mod"]["key"] = storage.value_hash({"files": self.previous["mod"]["files"]})
+        self.previous["inputKey"] = storage.value_hash({name: row for name, row in self.previous.items() if name != "inputKey"})
+        storage.write_json(self.output / "manifests" / (self.previous["inputKey"] + ".json"), self.previous)
+        self.assertEqual(recovery_resume.recipe_key(self.previous, 1), self.old_key)
+
+    def test_actual_fixed_native_sources_match_reviewed_complete_profile(self):
+        actual = {row["path"]: row for row in self.current["mod"]["files"]
+                  if row["path"] in recovery_resume.NATIVE_BYTES_PREVIOUS}
+        self.assertEqual(actual, recovery_resume.NATIVE_BYTES_FIXED)
+        self.assertTrue(recovery_resume._compatible(self.previous, self.current))
+        self.assertFalse(set(actual) & recovery_resume.DERIVED_FILES)
+        # The raw contract retains both consumers; deleting them would silently
+        # break a captured binding even when its original/raw inputs are intact.
+        records = recovery_resume._records(recovery_resume.recipe_files(self.previous), "size")
+        self.assertTrue(set(actual) <= records.keys())
+
+    def test_partial_or_unknown_native_pair_never_claims_closed_transformations(self):
+        for name in recovery_resume.NATIVE_BYTES_PREVIOUS:
+            for change in ("sha256", "size", "partial"):
+                with self.subTest(name=name, change=change):
+                    current = copy.deepcopy(self.current)
+                    row = next(row for row in current["mod"]["files"] if row["path"] == name)
+                    if change == "sha256": row["sha256"] = "f" * 64
+                    elif change == "size": row["size"] += 1
+                    else: row.update(recovery_resume.NATIVE_BYTES_PREVIOUS[name])
+                    self.assertNotEqual(recovery_resume.recipe_key(current, 1), self.old_key)
+                    self.assertFalse(recovery_resume._compatible(self.previous, current))
+
+    def test_native_alias_still_qualifies_actual_fixed_source_bytes(self):
+        self.seed_interrupted_native()
+        for name in recovery_resume.NATIVE_BYTES_PREVIOUS:
+            with self.subTest(name=name):
+                path = self.source / name
+                original = path.read_bytes()
+                path.write_bytes(original + b"\n# Unknown native writer edit.\n")
+                try:
+                    with self.assertRaisesRegex(storage.BuildError, "Current recovery source differs from its immutable manifest"):
+                        self.retry()
+                    self.assertEqual(self.phase_calls, [])
+                finally:
+                    path.write_bytes(original)
+
+    def test_closed_native_receipt_stays_byte_qualified_across_consumer_repair(self):
+        self.seed_interrupted_native()
+        # A completed native operation is acceptable only with its existing
+        # file witness. The recipe alias is not an instruction to rerun writers.
+        identity = {"source": str(self.raw), "game": str(self.game), "output": str(self.recovered),
+                    "checkpointSha256": storage.digest(self.raw / "quest-full-recovery-progress.json"),
+                    "catalogSha256": self.plan["catalogSha256"], "managedTypesSha256": storage.digest(self.managed),
+                    "cabBundlesSha256": storage.digest(self.workspace / "original-cab-bundles.json"),
+                    "tmpArchiveSha256": None, "canonicalProject": None, "canonicalStartup": None, "resumeOwner": self.owner}
+        path = self.recovered / "Assets/native.mat"
+        def complete_native():
+            path.write_bytes(path.read_bytes().replace(b"restored-layout", b"restored-native"))
+            return {"restored": "original-native-fields"}
+        with Journal(self.recovered, identity, full_assets._StageProofs(), resume_owner=self.owner) as journal:
+            result = journal.run("native", 6, complete_native,
+                                 auxiliary=self.recovered.with_name(self.recovered.name + "-native-restoration"))
+        self.assertEqual(result, {"restored": "original-native-fields"})
+        with Journal(self.recovered, identity, full_assets._StageProofs(), resume_owner=self.owner) as journal:
+            result = journal.run("native", 6, lambda: self.fail("Closed native writer must remain reused"),
+                                 auxiliary=self.recovered.with_name(self.recovered.name + "-native-restoration"))
+        self.assertEqual(result, {"restored": "original-native-fields"})
+        path.write_bytes(b"corrupt completed native bytes")
+        with self.assertRaisesRegex(storage.BuildError, "Retained staged bytes differ"):
+            with Journal(self.recovered, identity, full_assets._StageProofs(), resume_owner=self.owner):
+                self.fail("Corrupt native file must never be reused")
 
 
 class CorruptionControls(ResumeFixture):

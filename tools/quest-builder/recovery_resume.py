@@ -1,7 +1,7 @@
-"""Preserve witnessed raw exports across the audited recovery-merge update.
+"""Preserve witnessed raw exports across audited post-export repairs.
 
 Derived Android assets remain keyed by the complete transformation recipe. An
-exact, reviewed parser-only repair retains its preceding key; all other source
+exact, reviewed parser/native byte repair retains its preceding key; all other source
 changes receive a new derived workspace. The recovery process still verifies
 source, tool, core, batch and committed checkpoint receipts before replay.
 """
@@ -62,6 +62,29 @@ CRLF_OBSERVER_FIXED = {
     "path": OBSERVER_FILE, "size": 47667,
     "sha256": "c0e738efa56b4c6c29cea965eb94a6e274e0ed19bd3802a42206cf343339365f",
 }
+# Published B642 reached native overlay application after the same six
+# committed transformations. These two consumers restored original pointers
+# and packed-Sprite fields, but text-mode I/O normalized CRLF before hashing.
+# The exact reviewed pair now retains UTF-8 bytes, YAML offsets and line endings.
+# Keep both paths in the recipe/raw contract and normalize only the complete
+# pair: excluding them from the raw contract would invalidate existing bound raw
+# receipts, and accepting either helper independently could hide a later edit.
+NATIVE_BYTES_PREVIOUS = {
+    "tools/quest-recovery/pointer_recovery.py": {
+        "path": "tools/quest-recovery/pointer_recovery.py", "size": 21460,
+        "sha256": "bfa225a6657012c784215dc07214ea695852bdbc23d8a9e113e45b8c9ea4ebd6"},
+    "tools/quest-recovery/packed_sprites.py": {
+        "path": "tools/quest-recovery/packed_sprites.py", "size": 9806,
+        "sha256": "a11ec97298a274886cf73e873558f695787c8a733ce930d5e683c37c019bc609"},
+}
+NATIVE_BYTES_FIXED = {
+    "tools/quest-recovery/pointer_recovery.py": {
+        "path": "tools/quest-recovery/pointer_recovery.py", "size": 23171,
+        "sha256": "346f1c48627bac95a03501d7061d351589c009295e3f39907ce419758696ed41"},
+    "tools/quest-recovery/packed_sprites.py": {
+        "path": "tools/quest-recovery/packed_sprites.py", "size": 10254,
+        "sha256": "add7402c47346647beed79bf07f103e0c7631e8bbdf933b9e44ee6ac52b320eb"},
+}
 # Shipped d4cc44eeb adds an exporter-log observer and invocation-local proof
 # caches. The current reference-audit update changes no raw export identities.
 # Preserve this exact whole profile as well as the previous shipped profiles.
@@ -92,9 +115,20 @@ def recipe_files(inputs):
             if row["path"].startswith("tools/quest-recovery/") or row["path"] in DERIVED_FILES]
 
 
+def _native_byte_rows(rows):
+    """Canonicalize one exact native consumer pair, never source qualification."""
+    by_path = {}
+    for row in rows:
+        by_path.setdefault(row["path"], []).append(row)
+    if (NATIVE_BYTES_FIXED and all(by_path.get(name) == [fixed]
+                                  for name, fixed in NATIVE_BYTES_FIXED.items())):
+        return [NATIVE_BYTES_PREVIOUS.get(row["path"], row) for row in rows]
+    return rows
+
+
 def recipe_key(inputs, recipe):
     rows = [CRLF_OBSERVER_PREVIOUS if row == CRLF_OBSERVER_FIXED else row
-            for row in recipe_files(inputs)]
+            for row in _native_byte_rows(recipe_files(inputs))]
     return value_hash({"game": inputs["game"]["key"], "recoveryRecipe": rows, "recipe": recipe})
 
 
@@ -144,7 +178,8 @@ def _records(rows, size_key):
 
 
 def _compatible(previous, current):
-    old, new = _records(recipe_files(previous), "size"), _records(recipe_files(current), "size")
+    old = _records(_native_byte_rows(recipe_files(previous)), "size")
+    new = _records(_native_byte_rows(recipe_files(current)), "size")
     required = ORCHESTRATION_FILES | {"tools/quest-recovery/QuestExportIdentity.cs",
                "tools/quest-recovery/export_identity.py", "tools/quest-recovery/tool-lock.json"}
     # New derived-only journals do not change the raw exporter contract. Their
@@ -238,7 +273,11 @@ def select_workspace(output, inputs, source, game, recipe, *, qualifications=Non
         path = _ordinary_owned(source / row["path"])
         if not path.is_file() or path.stat().st_size != row["bytes"] or digest(path) != row["sha256"]:
             raise BuildError("Current recovery source differs from its immutable manifest: " + row["path"])
-    contract = value_hash({"schema": 1, "files": [row for name, row in sorted(current_records.items())
+    # This binding predates the exact consumer repair. Preserve its witnessed
+    # contract while the current immutable source was independently qualified
+    # above against the actual fixed bytes, never these canonical recipe rows.
+    contract_records = _records(_native_byte_rows(recipe_files(inputs)), "size")
+    contract = value_hash({"schema": 1, "files": [row for name, row in sorted(contract_records.items())
                                                   if name not in ORCHESTRATION_FILES and name not in DERIVED_FILES]})
     selected_manifest = None
     if binding.exists():
