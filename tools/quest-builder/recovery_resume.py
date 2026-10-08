@@ -1,9 +1,9 @@
 """Preserve witnessed raw exports across the audited recovery-merge update.
 
-Derived Android assets remain keyed by the complete current recipe. Only raw
-core/bundle exports can keep their original absolute workspace: exporter identity
-rows and the merge journal refer to that path. The recovery process still verifies
-its source, tool, core, batch and committed checkpoint receipts before replay.
+Derived Android assets remain keyed by the complete transformation recipe. An
+exact, reviewed parser-only repair retains its preceding key; all other source
+changes receive a new derived workspace. The recovery process still verifies
+source, tool, core, batch and committed checkpoint receipts before replay.
 """
 from __future__ import annotations
 
@@ -48,6 +48,20 @@ MINIMAL_RECOVERY_FILES = {
 }
 OBSERVER_FILE = "tools/quest-recovery/recover.py"
 PREVIOUS_OBSERVER_SHA256 = "8502923f2cfc7d85c4f9fca29356c5b5f3bacf66b2def2379a01c3f68f52c9d1"
+# Published 24ea5928b / B640 reached native audit after completing copy, runtime,
+# GUID and layout restoration. Its Windows CRLF parser repair changes only YAML
+# observation and error context. Preserve that exact workspace/Journal owner,
+# rather than repeat the already committed transformations under a new path.
+# This is an exact byte-reviewed alias, not a wildcard for later recover.py edits.
+# Every other recovery/derived file remains part of the complete recipe hash.
+CRLF_OBSERVER_PREVIOUS = {
+    "path": OBSERVER_FILE, "size": 47202,
+    "sha256": "ac15d03682290541f6271926b989eec084b5b35746e7915fe1e77ec75ef5c45a",
+}
+CRLF_OBSERVER_FIXED = {
+    "path": OBSERVER_FILE, "size": 47667,
+    "sha256": "c0e738efa56b4c6c29cea965eb94a6e274e0ed19bd3802a42206cf343339365f",
+}
 # Shipped d4cc44eeb adds an exporter-log observer and invocation-local proof
 # caches. The current reference-audit update changes no raw export identities.
 # Preserve this exact whole profile as well as the previous shipped profiles.
@@ -79,7 +93,9 @@ def recipe_files(inputs):
 
 
 def recipe_key(inputs, recipe):
-    return value_hash({"game": inputs["game"]["key"], "recoveryRecipe": recipe_files(inputs), "recipe": recipe})
+    rows = [CRLF_OBSERVER_PREVIOUS if row == CRLF_OBSERVER_FIXED else row
+            for row in recipe_files(inputs)]
+    return value_hash({"game": inputs["game"]["key"], "recoveryRecipe": rows, "recipe": recipe})
 
 
 def _read(path, *, max_bytes=MAX_JSON_BYTES):
@@ -141,6 +157,10 @@ def _compatible(previous, current):
     for name in old:
         if name in DERIVED_FILES: continue  # Their new stage is never adopted.
         if old[name] == new[name]: continue
+        if (name == OBSERVER_FILE
+                and old[name] == {"path": name, "bytes": CRLF_OBSERVER_PREVIOUS["size"], "sha256": CRLF_OBSERVER_PREVIOUS["sha256"]}
+                and new[name] == {"path": name, "bytes": CRLF_OBSERVER_FIXED["size"], "sha256": CRLF_OBSERVER_FIXED["sha256"]}):
+            continue  # The same reviewed observer-only repair also keeps a bound raw tree eligible.
         if name not in ORCHESTRATION_FILES: return False
         changed.append(name)
     if not changed: return True

@@ -22,6 +22,8 @@ sys.path.insert(0, str(ROOT / "tools/quest-recovery"))
 import recover
 import bundle_recovery as bundles
 import full_recovery
+import full_assets
+from staging_resume import Journal
 
 LEGACY_MERGE_BYTES = {
     "tools/quest-recovery/bundle_recovery.py": 23906,
@@ -398,6 +400,27 @@ class CompatibleMigrationTests(ResumeFixture):
         self.assertEqual(self.select(current), self.workspace)
         self.assertEqual((new / "unrelated-kept-file").read_bytes(), b"do not erase another interrupted attempt")
 
+    def test_published_observer_binding_keeps_its_older_raw_workspace_and_receipt(self):
+        current = self.inputs(self.previous["game"]["files"])
+        published = copy.deepcopy(current)
+        for index, row in enumerate(published["mod"]["files"]):
+            if row["path"] == recovery_resume.OBSERVER_FILE:
+                published["mod"]["files"][index] = dict(recovery_resume.CRLF_OBSERVER_PREVIOUS)
+        key = recovery_resume.recipe_key(published, 1)
+        self.assertEqual(recovery_resume.recipe_key(current, 1), key)
+        records = recovery_resume._records(recovery_resume.recipe_files(current), "size")
+        contract = storage.value_hash({"schema": 1, "files": [row for name, row in sorted(records.items())
+            if name not in recovery_resume.ORCHESTRATION_FILES and name not in recovery_resume.DERIVED_FILES]})
+        proof = recovery_resume._qualification(self.workspace, current, self.game)
+        marker = self.output / "cache/raw-recovery-resume" / (key + ".json")
+        storage.write_json(marker, {"schema": 1, "owner": "Quest raw recovery resume", "currentRecipeKey": key,
+            "originalWorkspaceKey": self.old_key, "originalManifestKey": self.previous["inputKey"],
+            "gameKey": current["game"]["key"], "exportContract": contract, **proof})
+        retained = marker.read_bytes()
+        self.assertEqual(self.select(current), self.workspace)
+        self.assertEqual(marker.read_bytes(), retained)
+        self.assertFalse((self.output / "cache/full-original-recovery" / key).exists())
+
     def test_migration_discovery_is_bounded_and_bound_retry_does_not_scan(self):
         current = self.updated()
         self.assertEqual(self.select(current), self.workspace)
@@ -444,6 +467,243 @@ class CompatibleMigrationTests(ResumeFixture):
         selected = self.select(current)
         self.assertNotEqual(selected, self.workspace)
         self.assertTrue((self.workspace / "core-recovery.json").exists())
+
+
+class ObserverStageContinuationTests(ResumeFixture):
+    """Retry the actual Builder/Journal seam after six committed transformations.
+
+    Exporter receipts contain 16 small owned packages, not game assets. The
+    staging consumer uses actual copy proofs, filesystem writers and SQLite
+    rollback while stopping at native audit; it does not claim a Unity build.
+    """
+    def setUp(self):
+        super().setUp()
+        for index in range(15):
+            (self.game / ("owned-" + str(index) + ".bundle")).write_bytes(("original package " + str(index)).encode())
+        catalog = self.game / "StreamingAssets/aa/catalog.json"
+        catalog.parent.mkdir(parents=True)
+        catalog.write_bytes(b'{"owned":true}')
+        files = storage.inventory(self.game, paths=[path.relative_to(self.game).as_posix()
+                                  for path in self.game.rglob("*") if path.is_file() and path.name != ".snapshot.json"])
+        self.game_key = storage.value_hash({"files": files})
+        game = self.game.with_name(self.game_key)
+        self.game.rename(game); self.game = game
+        storage.write_json(self.game / ".snapshot.json", {"schema": 1, "files": files})
+        # Every current recipe row is real checked-in source; only the known
+        # preceding observer row is supplied by its published exact receipt.
+        self.current = self.inputs(files)
+        self.previous = copy.deepcopy(self.current)
+        for index, row in enumerate(self.previous["mod"]["files"]):
+            if row["path"] == recovery_resume.OBSERVER_FILE:
+                self.previous["mod"]["files"][index] = dict(recovery_resume.CRLF_OBSERVER_PREVIOUS)
+        self.previous["mod"]["key"] = storage.value_hash({"files": self.previous["mod"]["files"]})
+        self.previous["inputKey"] = storage.value_hash({name: row for name, row in self.previous.items() if name != "inputKey"})
+        storage.write_json(self.output / "manifests" / (self.previous["inputKey"] + ".json"), self.previous)
+        self.old_key = recovery_resume.recipe_key(self.previous, 1)
+        old = self.workspace
+        self.workspace = old.with_name(self.old_key); old.rename(self.workspace)
+        self.raw = self.workspace / "RecoveredProject"
+        self.core = self.workspace / "CoreExport/ExportedProject"
+        self.core_identity = self.workspace / "core-identities.jsonl"
+        identity = json.loads(self.core_identity.read_text()); identity["path"] = str(self.core / "Assets/core.mat")
+        self.core_identity.write_text(json.dumps(identity) + "\n")
+        source, fingerprint = recover.source_inventory(self.game)
+        storage.write_json(self.workspace / "original-source.json", {
+            "schema": 1, "sourceInventory": source, "sourceFingerprint": fingerprint})
+        core = json.loads((self.workspace / "core-recovery.json").read_text())
+        core.update(sourceFingerprint=fingerprint, identitiesSha256=storage.digest(self.core_identity))
+        storage.write_json(self.workspace / "core-recovery.json", core)
+        self.asset(self.raw, "b" * 32, "native", 2)
+        self.prefab = self.raw / "Assets/native.mat"
+        self.prefab.write_bytes(("%YAML 1.1\r\n%TAG !u! tag:unity3d.com,2011:\r\n--- !u!21 &2100000\r\n"
+                                 "Material:\r\n  m_Name: original\r\n  target: {fileID: 2100000, guid: "
+                                 + "c" * 32 + ", type: 2}\r\n").encode())
+        self.managed = self.raw / "QuestRecovery/managed-types.json"
+        storage.write_json(self.managed, {"originalTypes": []})
+        originals = {row["path"]: row for row in source}
+        packages = [originals[name] for name in sorted(originals) if name.endswith(".bundle")]
+        self.plan = {"catalogSha256": storage.digest(self.game / "StreamingAssets/aa/catalog.json"),
+                     "groups": [{"bytes": row["bytes"], "bundles": [row]} for row in packages]}
+        storage.write_json(self.workspace / "BundleRecovery/bundle-plan.json", self.plan)
+        owners = self.workspace / "original-cab-bundles.json"
+        storage.write_json(owners, {"CAB-" + str(index): row["path"] for index, row in enumerate(packages)})
+        self.checkpoint = {"schema": 1, "sourceInventory": source, "sourceFingerprint": fingerprint,
+            "coreIdentitySha256": storage.digest(self.core_identity), "catalogSha256": self.plan["catalogSha256"],
+            "completedGroups": list(range(16)), "groups": [{"index": index, "input": row} for index, row in enumerate(self.plan["groups"])],
+            "assetsRecovered": True, "assetReferences": {"missingGuidCount": 0, "duplicateGuidCount": 0},
+            "files": self.records(self.raw)}
+        storage.write_json(self.raw / "quest-full-recovery-progress.json", self.checkpoint)
+        storage.write_json(self.workspace / "full-recovery.json", {
+            "schema": 1, "fullOriginalCatalogRecovered": True, "sourceFingerprint": fingerprint,
+            "recoveryProject": str(self.raw), "coreProject": str(self.core),
+            "managedTypes": str(self.managed), "cabBundles": str(owners)})
+        self.recovered = self.output / "cache/recovery" / self.old_key / "project"
+        self.owner = {"schema": 1, "owner": "Quest recovered Campaign stage", "key": self.old_key, "gameKey": self.game_key}
+        storage.write_json(self.recovered.parent / "stage-owner.json", self.owner)
+        self.phase_calls = []
+
+    def consumer(self, raw, game, recovered, archive, *, resume_owner, **kwargs):
+        identity = {"source": str(raw), "game": str(game), "output": str(recovered),
+                    "checkpointSha256": storage.digest(raw / "quest-full-recovery-progress.json"),
+                    "catalogSha256": self.plan["catalogSha256"], "managedTypesSha256": storage.digest(self.managed),
+                    "cabBundlesSha256": storage.digest(self.workspace / "original-cab-bundles.json"),
+                    "tmpArchiveSha256": None, "canonicalProject": None, "canonicalStartup": None, "resumeOwner": resume_owner}
+        with Journal(recovered, identity, full_assets._StageProofs(), resume_owner=resume_owner) as journal:
+            def action(name):
+                self.phase_calls.append(name)
+                if name == "copy":
+                    for row in self.checkpoint["files"]:
+                        full_assets._resume_copy(raw / row["path"], recovered / row["path"], row, journal.proofs, journal)
+                elif name == "runtime":
+                    full_assets._runtime_file(self.managed, recovered / "QuestRecovery/runtime-types.json", journal.proofs)
+                    journal.accept()
+                elif name == "guid":
+                    (recovered / "Assets/native.mat.meta").write_text("guid: " + "c" * 32 + "\n")
+                elif name == "layout":
+                    path = recovered / "Assets/native.mat"
+                    path.write_bytes(path.read_bytes().replace(b"m_Name: original", b"m_Name: restored-layout"))
+                return {"context": name, "ownedPackages": 16}
+            for position, name in enumerate(("catalog", "canonical", "copy", "runtime", "guid", "layout")):
+                journal.run(name, position, lambda name=name: action(name), copy=name == "copy")
+            def native():
+                self.phase_calls.append("native")
+                (recovered / "Assets/native-pending.asset").write_bytes(b"unfinished native writer")
+                # Exercise the corrected CRLF parser at the actual retry seam.
+                tokens = list(recover.serialized_pointer_tokens((recovered / "Assets/native.mat").read_bytes().decode()))
+                self.assertEqual([row[0] for row in tokens], ["c" * 32])
+                raise RuntimeError("Native audit reached; no Player build claimed")
+            journal.run("native", 6, native, auxiliary=recovered.with_name(recovered.name + "-native-restoration"))
+
+    def seed_interrupted_native(self):
+        with self.assertRaisesRegex(RuntimeError, "Native audit reached"):
+            self.consumer(self.raw, self.game, self.recovered, self.root / "official-tmp.zip", resume_owner=self.owner)
+        self.assertEqual(self.phase_calls, ["catalog", "canonical", "copy", "runtime", "guid", "layout", "native"])
+        self.phase_calls.clear()
+
+    def retry(self, current=None):
+        args = builder.parser().parse_args(["prepare", "--target", "game", "--dotnet", sys.executable])
+        with patch("dependencies.python_environment", return_value=Path(sys.executable)), \
+             patch.object(builder, "command", side_effect=AssertionError("Completed raw exports must not relaunch")), \
+             patch.object(builder, "owned_tmp_source_archive", return_value=self.root / "official-tmp.zip"), \
+             patch.object(builder.full_assets, "stage", side_effect=self.consumer):
+            return builder.prepare(args, current or self.current, self.output, self.source, self.game)
+
+    def test_exact_parser_repair_and_current_mod_keep_six_closed_phases_and_all_16_raw_packages(self):
+        actual = next(row for row in self.current["mod"]["files"] if row["path"] == recovery_resume.OBSERVER_FILE)
+        self.assertEqual(actual, recovery_resume.CRLF_OBSERVER_FIXED)
+        self.seed_interrupted_native()
+        path = self.recovered / "Assets/native.mat"
+        before = path.stat(); content = path.read_bytes()
+        # Normal mod development and a changed Git commit do not invalidate the
+        # original asset transformations; they still key later mod compilation.
+        changed = self.source / "src/GloomhavenVR/CurrentMod.cs"
+        changed.parent.mkdir(parents=True); changed.write_text("// Current dev 642 mod source.\n")
+        current = self.inputs(self.current["game"]["files"])
+        self.assertNotEqual(current["inputKey"], self.previous["inputKey"])
+        self.assertEqual(recovery_resume.recipe_key(current, 1), self.old_key)
+        stream = io.StringIO()
+        with patch.dict(os.environ, {recover.build_progress.ENV: "1"}), contextlib.redirect_stdout(stream):
+            with self.assertRaisesRegex(RuntimeError, "Native audit reached"):
+                self.retry(current)
+        self.assertEqual(self.phase_calls, ["native"])
+        self.assertEqual(path.read_bytes(), content)
+        self.assertEqual((path.stat().st_ino, path.stat().st_mtime_ns), (before.st_ino, before.st_mtime_ns))
+        self.assertFalse((self.recovered / "Assets/native-pending.asset").exists())
+        self.assertEqual(recovery_resume.completed_raw(self.workspace, current, self.game)["_completedRaw"]["packages"], 16)
+        events = [json.loads(line[len(recover.build_progress.PREFIX):]) for line in stream.getvalue().splitlines()
+                  if line.startswith(recover.build_progress.PREFIX)]
+        reused = [row["phase"].split(":", 1)[1] for row in events
+                  if row["phase"].startswith("staging-section:") and row["status"] == "reuse"]
+        self.assertEqual(reused, ["catalog", "canonical", "copy", "runtime", "guid", "layout"])
+        self.assertTrue(any(row["phase"] == "recovery-batches" and row["done"] == row["total"] == 16 for row in events))
+
+    def test_unknown_parser_or_transformation_source_never_claims_the_alias(self):
+        self.assertTrue(recovery_resume._compatible(self.previous, self.current))
+        for name in (recovery_resume.OBSERVER_FILE, "tools/quest-recovery/QuestExportIdentity.cs",
+                     "tools/quest-builder/full_assets.py", "tools/quest-builder/staging_resume.py"):
+            with self.subTest(name=name):
+                current = copy.deepcopy(self.current)
+                next(row for row in current["mod"]["files"] if row["path"] == name)["sha256"] = "f" * 64
+                self.assertNotEqual(recovery_resume.recipe_key(current, 1), self.old_key)
+                if name in (recovery_resume.OBSERVER_FILE, "tools/quest-recovery/QuestExportIdentity.cs"):
+                    self.assertFalse(recovery_resume._compatible(self.previous, current))
+        current = copy.deepcopy(self.current)
+        next(row for row in current["mod"]["files"] if row["path"] == recovery_resume.OBSERVER_FILE)["size"] += 1
+        self.assertNotEqual(recovery_resume.recipe_key(current, 1), self.old_key)
+        self.assertFalse(recovery_resume._compatible(self.previous, current))
+        self.assertNotEqual(recovery_resume.recipe_key(self.current, 2), self.old_key)
+        current["game"]["key"] = "f" * 64
+        self.assertNotEqual(recovery_resume.recipe_key(current, 1), self.old_key)
+
+    def test_existing_raw_binding_from_same_observer_and_older_derived_recipe_keeps_the_six_phases(self):
+        prior = copy.deepcopy(self.previous)
+        next(row for row in prior["mod"]["files"] if row["path"] == "tools/quest-builder/full_assets.py")["sha256"] = "f" * 64
+        prior["mod"]["key"] = storage.value_hash({"files": prior["mod"]["files"]})
+        prior["inputKey"] = storage.value_hash({name: row for name, row in prior.items() if name != "inputKey"})
+        storage.write_json(self.output / "manifests" / (prior["inputKey"] + ".json"), prior)
+        prior_key = recovery_resume.recipe_key(prior, 1)
+        workspace = self.workspace.with_name(prior_key)
+        self.workspace.rename(workspace); self.workspace = workspace
+        self.raw = workspace / "RecoveredProject"; self.core = workspace / "CoreExport/ExportedProject"
+        self.managed = self.raw / "QuestRecovery/managed-types.json"
+        self.core_identity = workspace / "core-identities.jsonl"
+        row = json.loads(self.core_identity.read_text()); row["path"] = str(self.core / "Assets/core.mat")
+        self.core_identity.write_text(json.dumps(row) + "\n")
+        core = json.loads((workspace / "core-recovery.json").read_text())
+        core["identitiesSha256"] = storage.digest(self.core_identity)
+        storage.write_json(workspace / "core-recovery.json", core)
+        self.checkpoint["coreIdentitySha256"] = core["identitiesSha256"]
+        storage.write_json(self.raw / "quest-full-recovery-progress.json", self.checkpoint)
+        result = json.loads((workspace / "full-recovery.json").read_text())
+        result.update(recoveryProject=str(self.raw), coreProject=str(self.core), managedTypes=str(self.managed),
+                      cabBundles=str(workspace / "original-cab-bundles.json"))
+        storage.write_json(workspace / "full-recovery.json", result)
+        records = recovery_resume._records(recovery_resume.recipe_files(self.current), "size")
+        contract = storage.value_hash({"schema": 1, "files": [row for name, row in sorted(records.items())
+            if name not in recovery_resume.ORCHESTRATION_FILES and name not in recovery_resume.DERIVED_FILES]})
+        proof = recovery_resume._qualification(workspace, self.current, self.game)
+        marker = self.output / "cache/raw-recovery-resume" / (self.old_key + ".json")
+        storage.write_json(marker, {"schema": 1, "owner": "Quest raw recovery resume", "currentRecipeKey": self.old_key,
+            "originalWorkspaceKey": prior_key, "originalManifestKey": prior["inputKey"],
+            "gameKey": self.game_key, "exportContract": contract, **proof})
+        retained = marker.read_bytes()
+        self.seed_interrupted_native()
+        with self.assertRaisesRegex(RuntimeError, "Native audit reached"):
+            self.retry()
+        self.assertEqual(self.phase_calls, ["native"])
+        self.assertEqual(marker.read_bytes(), retained)
+        self.assertFalse((self.output / "cache/full-original-recovery" / self.old_key).exists())
+
+    def test_retained_guid_layout_bytes_are_still_qualified_on_parser_retry(self):
+        self.seed_interrupted_native()
+        path = self.recovered / "Assets/native.mat"
+        path.write_bytes(b"corrupt prior layout output")
+        with self.assertRaisesRegex(storage.BuildError, "Retained staged bytes differ"):
+            self.retry()
+        self.assertEqual(self.phase_calls, [])
+        self.assertEqual(path.read_bytes(), b"corrupt prior layout output")
+
+    def test_alias_does_not_substitute_old_observer_bytes_during_source_qualification(self):
+        self.seed_interrupted_native()
+        observer = self.source / recovery_resume.OBSERVER_FILE
+        observer.write_bytes(observer.read_bytes() + b"\n# Unwitnessed source edit.\n")
+        with self.assertRaisesRegex(storage.BuildError, "Current recovery source differs from its immutable manifest"):
+            self.retry()
+        self.assertEqual(self.phase_calls, [])
+
+    def test_missing_or_changed_owner_does_not_restart_completed_transforms(self):
+        self.seed_interrupted_native()
+        marker = self.recovered.with_name(self.recovered.name + ".staging-resume") / "owner.json"
+        original = marker.read_bytes()
+        marker.unlink()
+        with self.assertRaisesRegex(storage.BuildError, "owner is missing or corrupt"):
+            self.retry()
+        self.assertEqual(self.phase_calls, [])
+        value = json.loads(original); value["identity"]["resumeOwner"]["gameKey"] = "f" * 64
+        marker.write_text(json.dumps(value))
+        with self.assertRaisesRegex(storage.BuildError, "inputs/owner differ"):
+            self.retry()
+        self.assertEqual(self.phase_calls, [])
 
 
 class CorruptionControls(ResumeFixture):
