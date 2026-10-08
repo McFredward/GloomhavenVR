@@ -63,9 +63,51 @@ rewrite was therefore rejected. One initial fixture failed during setup; this
 is retained as a test failure, not evidence of the game's defect. Preserving
 only position while still centring anchors also failed and was discarded.
 
-Final ring, exact-source integration and compiled-scope receipts are recorded
-when complete below. Existing native first-picture639 and643 coverage remains
-inherited for unchanged admission/assets/transport areas. These scoped local
-Unity checks are not a new complete-suite pass, a WAN latency guarantee or a
-new headset acceptance. The next hardware run checks the actual ring and list
-appearance in the supplied multiplayer workload.
+The final ring clock retains the native serialized 20-second revolution before
+template neutralization, passes it through both Warm and Resolve, and applies
+it after the offered-frame fit on Unity's scaled clock. Original controllers
+remain inert. The final matrix fit preserves the card plane and the three
+original ring drawings. Strict settled-size checks also caught a 0.74% unsplit
+and 0.125% detached error hidden by an earlier aggregate tolerance. The repair
+uses the current authored TRS for the unsplit root and actual transformed XY
+lengths for the proven detached native Aura. No new wire fields are involved.
+
+Worker ring checks pass with 3,823 production, 3,825 reverse-direction, 708 real
+Unity-clock and 3,833 partitioned assertions. The first stricter partition run
+failed; its affected final rerun passed. Both compiled causal controls reject
+the prior sampled clock and the missing frozen Warm metadata at render frame2.
+All three native sprite diameters settle within 60 micrometers. Deliberately
+unpublished/dropped source geometry has at most 3.041644% transient sampled
+lag, recorded separately from that strict endpoint. This is not an approved
+persistent size difference. Pause, half/double speed, repeated same-frame draws,
+principal-axis changes, moving card facing and withdrawal/reopening are covered.
+
+After integration, both repairs execute together through the actual native
+capture/codec/receiver/final writers. The four ring cases pass with 3,823/3,833/
+3,823/708 assertions; the hover case passes 116,228 and its exact old-source
+vertical-overlap control fails as intended. Real-clock render-loop sampling
+changes the total hover count; its fixed 36-step workload, layout matrix and
+causal assertion remain unchanged. The existing motion-fast 864/five-controls
+and offered-orientation 602 checks are retained for their unchanged paths.
+
+## Integration scope and retained evidence
+
+Private integration receipts live under `.planning/debug/npc645/integration/`;
+the combined native runs are `native-ring/run-7bgggl87` and
+`native-hover/run-bmdgd5ev`. Worker proof history, including failed hypotheses
+and strict-size failures, is retained with SHA256 receipts in the main debug
+archive. Complete production bodies are byte-bound to the final integration;
+the native real-clock case uses the unaltered `Time.timeAsDouble` line.
+
+Strict Debug and Release builds have zero warnings/errors. All16 source checks
+and the five EN/DE document pairs pass. Against the verified644 compiled bank,
+all1,237 types remain: 1,225 are identical. Differences are confined to the
+three intended runtime types (`TownServiceBinding`, `TownServiceMirror` and
+`NativeTemplates`), eight numeric build consumers and the generated branch
+stamp. The decompiled project has only checkout-depth reference-path changes.
+
+These scoped local Unity checks are not a new complete-suite pass, a WAN
+latency guarantee or new headset acceptance. Existing first-picture639 and
+Frame/crossplay evidence remains applicable to unchanged admission/assets/
+transport areas. The next hardware run checks the actual ring and enhancement
+list appearance; both VR peers must install Build645.
