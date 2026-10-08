@@ -154,8 +154,11 @@ public static class InteractionProgram
             Check(ReferenceEquals(replayOwner, b), "VR-off replay retains the original actor"); VRSession.IsRunning = true;
             // A broken native FindPlayerActor entry can throw. Prefix must not leak
             // that new exception into the original network action handler.
+            VRLog.ThrowWarnings = true;
             choreo.m_ClientPlayers.Insert(0, null!); Set(bar, "actor", b); bar.ProxyUseItemBonus(Action(a.ID, foreignToken, GameActionType.UseItem));
+            VRLog.ThrowWarnings = false;
             Check(ReferenceEquals(replayOwner, b) && VRLog.Warnings == 1, "failed resolution falls back to original replay without prefix exception");
+            Check(VRLog.LastMessage.Contains("NullReferenceException"), "bounded warning retains the native failure type even when its logger throws");
             bar.ProxyUseItemBonus(Action(a.ID, foreignToken, GameActionType.UseItem)); Check(VRLog.Warnings == 1, "resolution anomaly logging is bounded");
             choreo.m_ClientPlayers.RemoveAt(0);
 
@@ -191,6 +194,7 @@ public static class InteractionProgram
             typeof(ScenarioRuleClient).GetField("s_SRLYML", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, oldYml);
             typeof(InfusionBoardUI).GetField("<Instance>k__BackingField", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, oldInfusionBoard);
             VRSession.IsRunning = true; UnityEngine.Object.DestroyImmediate(root);
+            VRLog.ThrowWarnings = false;
         }
     }
 

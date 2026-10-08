@@ -93,18 +93,26 @@ reservation UI/authoritative infusion entry and its UI update. These boundaries
 capture original calls and arguments; they are not evidence of a complete live
 scenario or all gameplay effects. This is not a two-headset multiplayer pass.
 
-Final worker scope: production57 native-runtime assertions and six causal
-source controls (disabled show repair; upstream null-only show; disabled replay;
+Final worker scope: production58 native-runtime assertions and six causal
+source controls (disabled show repair; weakened null-only show; disabled replay;
 upstream null-only replay; ignored VR gate; ignored item identity). The final
-worker receipt is `.planning/debug/native-bugfix-items-runtime/run-1gy_7lci/`;
-its production source SHA256 is
+seven-variant receipt is `.planning/debug/native-bugfix-items-runtime/run-1gy_7lci/`
+(57 assertions before the final explicit logger-type assertion). Its production source SHA256 is
 `434bceab36c96eb50b3e6b05446e7dbad1be69bf7d34d7ff0914f65c7ca314cd`.
+The final production-only logger/type repeat passes58 assertions at
+`.planning/debug/native-bugfix-items-runtime/run-dnzzwi2w/`; the unchanged six
+source controls inherit the previous seven-variant pass. A bounded repeat is
+not relabeled as another complete seven-variant run.
 Root records the integrated receipt after registration. The whole production
 Debug and Release builds pass strictly with0 warnings/errors. Docs i18n passes
 all5 bilingual player-document pairs. The source-surface snapshot reports
 663 config keys /233 patch classes /4790 log tokens (two added native patch
 classes and one added bounded warning); registration and its final surface diff
 remain root work. No full-catalog claim is made by this worker lane.
+
+The logger boundary deliberately throws during the first failed native actor
+resolution. The guarded native replay still completes and only one warning is
+attempted, proving that a logger failure cannot escape from the repair.
 
 Failed exploratory fixture receipts are retained, not counted as passes:
 initial missing bolt reference; one constant false source mutation producing an
