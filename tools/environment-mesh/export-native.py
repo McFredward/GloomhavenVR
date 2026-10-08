@@ -141,7 +141,7 @@ def extract_bundle(path, output_dir, root, *, expected_sha256=None):
     if (stamp(before) != stamp(after) or len(raw) != before.st_size
             or expected_sha256 is not None and bundle_sha != expected_sha256):
         raise ValueError('Owned environment bundle changed before extraction: ' + path.name)
-    environment = UnityPy.load(raw); output_dir.mkdir(parents=True, exist_ok=True)
+    environment = UnityPy.load(raw, path=str(path.parent)); output_dir.mkdir(parents=True, exist_ok=True)
     uses = original_uses(environment)
     bundle_path = path.relative_to(root).as_posix()
     records = {}; ambiguous = set(); census = []

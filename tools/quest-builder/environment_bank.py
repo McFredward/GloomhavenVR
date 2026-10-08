@@ -10,13 +10,17 @@ import importlib.util
 import json
 from pathlib import Path
 import re
+import sys
+import threading
 
 from storage import BuildError, _ordinary_owned, digest, record_file, value_hash, verify_files, write_json, build_progress
 
 ROOT = "Assets/Bundle/EnvironmentMeshes/"
 SOURCE_ROOT = "StreamingAssets/aa/StandaloneWindows64/"
 PCG_ROOT = SOURCE_ROOT + "pcg_databases_assets_assets/pcg/"
-PRODUCERS = ("tools/environment-mesh/export-native.py", "scripts/generate-environment-meshes.py")
+PRODUCERS = ("tools/environment-mesh/export-native.py", "scripts/generate-environment-meshes.py",
+             "tools/environment-mesh/roles.py", "tools/environment-mesh/geometry.py")
+_HELPER_LOCK = threading.RLock()
 ORIGINS = "quest-owned-sources.json"
 ASSOCIATION = "owned-PC-original-static-environment-GHEM1"
 KEY = re.compile(r"[0-9a-f]{24}")
@@ -24,8 +28,22 @@ HASH = re.compile(r"[0-9a-f]{64}")
 
 
 def _helper(path, function):
-    spec = importlib.util.spec_from_file_location("quest_owned_environment_" + function, path)
-    module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+    # Imported role/geometry helpers belong to this immutable source snapshot.
+    # Python's global module cache must not silently substitute another checkout
+    # after a retry/update, even if the helper filename itself is unchanged.
+    with _HELPER_LOCK:
+        original_path = list(sys.path)
+        missing = object()
+        original_modules = {name: sys.modules.get(name, missing) for name in ("roles", "geometry")}
+        try:
+            for name in original_modules: sys.modules.pop(name, None)
+            spec = importlib.util.spec_from_file_location("quest_owned_environment_" + function, path)
+            module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        finally:
+            sys.path[:] = original_path
+            for name, previous in original_modules.items():
+                if previous is missing: sys.modules.pop(name, None)
+                else: sys.modules[name] = previous
     if not callable(getattr(module, function, None)):
         raise BuildError("Current environment producer API changed; review " + path.name + ".")
     return module
@@ -97,8 +115,8 @@ def stage(source, game, authored, output, game_info, source_files):
     producers = _producers(source, source_files)
     bundles = _source_rows(game_info)
     producer_key = value_hash({"format": 1, "association": ASSOCIATION, "producers": producers})
-    native_producer_key = value_hash({"format": 1, "producer": producers[0]})
-    derivative_producer_key = value_hash({"format": 1, "producer": producers[1]})
+    native_producer_key = value_hash({"format": 1, "producers": [producers[0], producers[2]]})
+    derivative_producer_key = value_hash({"format": 1, "producers": producers[1:]})
     key = value_hash({"producerKey": producer_key, "bundles": bundles})
     cache = _ordinary_owned(output / "cache/environment-meshes" / key)
     cache.mkdir(parents=True, exist_ok=True)
@@ -110,7 +128,7 @@ def stage(source, game, authored, output, game_info, source_files):
     write_json(marker, owner)
     exporter = _helper(source / PRODUCERS[0], "extract_bundle")
     generator = _helper(source / PRODUCERS[1], "prepare_mesh")
-    originals = {}; ambiguous = set(); counter = build_progress.Counter("prepare-items:environment-bundles", len(bundles), "items")
+    originals = {}; ambiguous = set(); census = []; counter = build_progress.Counter("prepare-items:environment-bundles", len(bundles), "items")
     for row in bundles:
         path = _ordinary_owned(game / row["path"])
         if not path.is_file() or path.stat().st_size != row["size"]:
@@ -126,7 +144,8 @@ def stage(source, game, authored, output, game_info, source_files):
         else:
             native.mkdir(parents=True, exist_ok=True)
             extracted = exporter.extract_bundle(path, native, game / SOURCE_ROOT, expected_sha256=row["sha256"])
-            if extracted.get("format") != 1 or not isinstance(extracted.get("meshes"), list):
+            if (extracted.get("format") != 1 or not isinstance(extracted.get("meshes"), list)
+                    or not isinstance(extracted.get("catalog"), list)):
                 raise BuildError("Current environment extractor changed its original geometry contract.")
             native_files = []
             for mesh in extracted["meshes"]:
@@ -136,6 +155,9 @@ def stage(source, game, authored, output, game_info, source_files):
                 if file["sha256"] != mesh["sha256"]: raise BuildError("Environment extraction geometry witness differs.")
                 native_files.append(file)
             write_json(receipt_path, {"identity": identity, "extracted": extracted, "files": native_files})
+        if not isinstance(extracted.get("catalog"), list):
+            raise BuildError("Owned environment source receipt lacks its complete original-use census.")
+        census.extend(extracted["catalog"])
         ambiguous.update(extracted["ambiguousRejected"])
         for mesh in extracted["meshes"]:
             mesh = dict(mesh, nativePath=str(native / mesh["file"]))
@@ -146,14 +168,17 @@ def stage(source, game, authored, output, game_info, source_files):
             else: originals[mesh["key"]] = mesh
         counter.add(1, Path(row["path"]).name)
     counter.finish()
-    meshes = [originals[key] for key in sorted(originals) if key not in ambiguous]
+    if not callable(getattr(exporter, "certify_sources", None)):
+        raise BuildError("Current environment producer API changed; complete census qualification is missing.")
+    meshes = exporter.certify_sources([originals[key] for key in sorted(originals) if key not in ambiguous], census)
     if not meshes:
         raise BuildError("Owned environment extraction produced no admissible originals; current mobile defaults require this bank.")
     prepared = cache / "prepared"
     prepared.mkdir(parents=True, exist_ok=True)
     entries = []; counter = build_progress.Counter("prepare-items:environment-meshes", len(meshes), "items")
     for mesh in meshes:
-        derivative = _ordinary_owned(output / "cache/environment-geometry" / value_hash({"producer": derivative_producer_key, "meshSha256": mesh["sha256"], "key": mesh["key"]}))
+        derivative = _ordinary_owned(output / "cache/environment-geometry" / value_hash({"producer": derivative_producer_key, "meshSha256": mesh["sha256"], "key": mesh["key"],
+                         "classification": {name: mesh[name] for name in ("role", "roleReasons", "uses")}}))
         entry, _ = generator.prepare_mesh(mesh, mesh["nativePath"], derivative / "prepared", receipt_dir=derivative / "receipts", producer_key=derivative_producer_key)
         for variant in entry["variants"]:
             path = derivative / "prepared" / variant["file"]
@@ -163,7 +188,8 @@ def stage(source, game, authored, output, game_info, source_files):
     write_json(prepared / "index.json", {"format": 1, "entries": entries})
     index_sha = digest(prepared / "index.json")
     origins = {"schema": 1, "association": ASSOCIATION, "gameKey": game_info["key"], "indexSha256": index_sha,
-               "sources": [{**row, "path": row["path"][len(SOURCE_ROOT):]} for row in bundles]}
+               "sources": [{**row, "path": row["path"][len(SOURCE_ROOT):]} for row in bundles],
+               "completePcgCensus": True, "censusSha256": value_hash(census)}
     write_json(prepared / ORIGINS, origins)
     names = sorted({variant["file"] for entry in entries for variant in entry["variants"]} | {"index.json", ORIGINS})
     for name in names: _meta(prepared / name)

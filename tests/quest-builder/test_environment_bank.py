@@ -56,7 +56,7 @@ class OwnedEnvironmentTests(unittest.TestCase):
         game_files = storage.inventory(self.game)
         self.game_info = {"key": storage.value_hash(game_files), "files": game_files}
 
-    def load(self, raw):
+    def load(self, raw, **kwargs):
         data = json.loads(raw); self.calls.append(data["name"])
         if data["name"] == self.fail_bundle: raise RuntimeError("native fixture interruption")
         n = data["grid"]; vector = lambda x, y, z: types.SimpleNamespace(x=x, y=y, z=z)
@@ -64,21 +64,25 @@ class OwnedEnvironmentTests(unittest.TestCase):
             m_LocalAABB=types.SimpleNamespace(m_Center=vector(n / 2, 0, n / 2), m_Extent=vector(n / 2, 0, n / 2)),
             m_VertexData=types.SimpleNamespace(m_VertexCount=(n + 1) ** 2),
             m_SubMeshes=[types.SimpleNamespace(indexCount=n * n * 6, topology=0)], m_BindPose=[], m_Shapes=types.SimpleNamespace(channels=[]))
-        obj = types.SimpleNamespace(type=types.SimpleNamespace(name="Mesh"), path_id=200, read=lambda: mesh)
+        assets_file = object()
+        obj = types.SimpleNamespace(type=types.SimpleNamespace(name="Mesh"), path_id=200, assets_file=assets_file, read=lambda: mesh)
         filter = types.SimpleNamespace(type=types.SimpleNamespace(name="MeshFilter"), read=lambda: types.SimpleNamespace(m_Mesh=types.SimpleNamespace(path_id=200)))
-        return types.SimpleNamespace(objects=[obj, filter])
+        use = {"route": ["floor_template", data["name"]], "components": ["Transform", "MeshFilter", "MeshRenderer"],
+               "leafComponents": ["Transform", "MeshFilter", "MeshRenderer"], "scripts": data.get("scripts", []), "unresolved": False}
+        return types.SimpleNamespace(objects=[obj, filter], original_uses={(id(assets_file), 200): [use]})
 
     def helpers(self, path, function):
         module = self.helper(path, function)
         if function == "extract_bundle":
             module.UnityPy = types.SimpleNamespace(load=self.load, __version__="nonproprietary native fixture")
             module.MeshHandler = MeshHandler
+            module.original_uses = lambda environment: environment.original_uses
         else:
             simplify = module.simplify
-            def observed(data, tier):
+            def observed(data, tier, role="none"):
                 self.simplifications.append(tier)
                 if self.fail_tier == tier: raise RuntimeError("derivative fixture interruption")
-                return simplify(data, tier)
+                return simplify(data, tier, role)
             module.simplify = observed
         return module
 
@@ -134,6 +138,62 @@ class OwnedEnvironmentTests(unittest.TestCase):
         self.assertEqual(self.calls, [])
         self.assertEqual(self.simplifications, [50, 0, 50, 0])
 
+    def test_global_census_refuses_safe_mesh_reused_under_protected_other_bundle(self):
+        paths = sorted((self.game / bank.PCG_ROOT).glob("*.bundle"))
+        paths[0].write_text(json.dumps({"name": "floor_shared", "grid": 18}))
+        paths[1].write_text(json.dumps({"name": "floor_shared", "grid": 18, "scripts": ["InventoryController"]}))
+        self.refresh(); generated = self.stage()
+        index = json.loads((self.authored / bank.ROOT / "index.json").read_text())
+        self.assertEqual(len(index["entries"]), 1)
+        self.assertEqual(index["entries"][0]["role"], "none")
+        self.assertEqual(len(index["entries"][0]["sources"]), 2)
+        self.assertFalse(index["entries"][0]["ornament"])
+        origins = json.loads((self.authored / bank.ROOT / bank.ORIGINS).read_text())
+        self.assertTrue(origins["completePcgCensus"])
+        self.assertEqual(len(origins["sources"]), 2)
+        self.assertRegex(origins["censusSha256"], bank.HASH)
+        bank.validated_records(self.authored, generated)
+
+    def test_changed_cross_bundle_ancestry_does_not_reuse_prior_safe_role_derivative(self):
+        paths = sorted((self.game / bank.PCG_ROOT).glob("*.bundle"))
+        for path in paths: path.write_text(json.dumps({"name": "floor_shared", "grid": 18}))
+        self.refresh(); self.stage()
+        original = json.loads((self.authored / bank.ROOT / "index.json").read_text())["entries"][0]
+        self.assertEqual(original["role"], "floor")
+        self.calls.clear(); self.simplifications.clear()
+        paths[1].write_text(json.dumps({"name": "floor_shared", "grid": 18, "scripts": ["InventoryController"]}))
+        self.refresh(); target = self.root / "protected-census-project"
+        self.stage(target)
+        changed = json.loads((target / bank.ROOT / "index.json").read_text())["entries"][0]
+        self.assertEqual(changed["role"], "none")
+        self.assertNotEqual(changed["roleEvidenceSha256"], original["roleEvidenceSha256"])
+        self.assertEqual(self.calls, ["floor_shared"])
+        self.assertEqual(self.simplifications, [50, 0])
+
+    def test_geometry_dependency_change_reuses_native_but_runs_new_derived_producer(self):
+        self.stage(); self.calls.clear(); self.simplifications.clear()
+        geometry = self.source / bank.PRODUCERS[3]
+        # The actual import must resolve the new snapshot's helper, rather than
+        # the module cached by the earlier source's helper. This visible producer
+        # returns only exact native streams, without pretending they are reduced.
+        geometry.write_text(geometry.read_text() + "\n\ndef simplify(data, tier, role='none'):\n    return None, None\n")
+        self.refresh(); target = self.root / "changed-geometry-project"
+        self.stage(target)
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self.simplifications, [50, 0, 50, 0])
+        index = json.loads((target / bank.ROOT / "index.json").read_text())
+        for entry in index["entries"]: self.assertEqual([row["tier"] for row in entry["variants"]], [100])
+
+    def test_role_dependency_change_is_a_distinct_source_census_producer(self):
+        self.stage(); self.calls.clear(); self.simplifications.clear()
+        roles = self.source / bank.PRODUCERS[2]
+        roles.write_text(roles.read_text() + "\n\ndef classify(name, uses):\n    return 'none', ['changed-role-contract']\n")
+        self.refresh(); target = self.root / "changed-role-project"
+        self.stage(target)
+        self.assertEqual(self.calls, ["floor_fixture_0", "floor_fixture_1"])
+        index = json.loads((target / bank.ROOT / "index.json").read_text())
+        for entry in index["entries"]: self.assertEqual(entry["role"], "none")
+
     def test_corrupt_completed_native_bytes_fail_visibly_without_reexport_or_source_write(self):
         self.stage(); self.calls.clear()
         native = next((self.output / "cache/environment-native").glob("*/*.bytes")); native.write_bytes(b"changed")
@@ -168,7 +228,7 @@ class OwnedEnvironmentTests(unittest.TestCase):
             receipt = json.loads(receipt_path.read_text())
             extracted.extend(receipt["extracted"]["meshes"])
             for row in receipt["files"]: shutil.copyfile(receipt_path.parent / row["path"], native / row["path"])
-        storage.write_json(native / "sources.json", {"format": 1, "unitypy": "fixture", "ambiguousRejected": [], "meshes": extracted})
+        storage.write_json(native / "sources.json", {"format": 1, "unitypy": "fixture", "ambiguousRejected": [], "meshes": extracted, "catalog": [], "completePcgCensus": True})
         target = self.root / "cli-prepared"
         base = [sys.executable, "-I", "-B", "-X", "utf8", str(self.source / bank.PRODUCERS[1]),
                 "--source-root", str(self.source), "--game-data", str(self.game), "--skip-extract"]
