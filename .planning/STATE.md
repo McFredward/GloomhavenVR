@@ -1,5 +1,34 @@
 # State — where the project stands
 
+**Build650 reduces recurring world-material CPU work, 2026-10-09: 1.1.0 development candidate.**
+
+The existing native-renderer path retains only immutable component-owner
+references, samples each current ancestry name once and skips absent-effect
+probes on freshly empty renderer/indexed property blocks. Current layers,
+activation, parent chains, components, meshes, held roots and material/effect
+values retain their original per-eye/native-write validation. No new quality
+option, rendering coverage, shader, geometry, profile or wire layout is added.
+
+Matched complete PreCull paths in the same actual Unity Mono process show
+12.46–18.99% paired CPU reductions in representative populated-MPB cases and
+16.52% without MPBs. Repeated both-populated/early-veto/Standard stress cases
+also support a net gain. An initial adverse stress P95 remains documented;
+two isolated fresh repeats do not reproduce it. These are local CPU results,
+not an observed Steam Frame whole-game FPS or GPU improvement.
+
+Actual camera checks retain all736 previous assertions and add29; the focused
+runtime/control suite covers68 variants. Source16, direct299,714 golden vectors,
+strict Debug/Release0 warnings/errors and private1238-type compiled comparison
+cover the bounded integration. Only WorldMaterialBudget behavior and eight
+numeric build consumers differ. This is not a new complete176-suite pass.
+See [FRAME-650-REVIEW.md](FRAME-650-REVIEW.md) for exact receipts and failures.
+
+Retains649 wrist controls,648 rollback and646 NPC repairs. A fully loaded,
+same-view Frame run with options closed is still needed to establish actual
+frame-time savings; both VR peers use the common650 build.
+
+---
+
 **Build649 wrist-board position controls, 2026-10-09: 1.1.0 development candidate.**
 
 Enabling wrist attachment immediately shows three offset sliders directly below

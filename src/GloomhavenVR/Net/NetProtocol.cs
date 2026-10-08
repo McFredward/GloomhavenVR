@@ -598,7 +598,21 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 649;
+    public const ushort ModBuild = 650;
+
+    // ModBuild650 — reduce existing world-material CPU work without a quality trade.
+    // Cache only the exact GameObject/Transform owned for a Renderer lifetime;
+    // layer, activation, ancestry, mesh, native components and held roots stay live.
+    // Read each current ancestry name once inside its callback-free iteration.
+    // Freshly empty renderer/indexed property blocks skip absent effect probes;
+    // emptiness is sampled after callback-capable source resolution for every slot.
+    // Native materials, effects, wall fading, per-eye/nested camera invalidation
+    // and consumer restitution retain their existing guards. No renderer coverage,
+    // shader/asset, graphics setting, profile or wire layout change is introduced.
+    // Old/candidate complete PreCull paths are compared in the same actual Unity
+    // Mono process; local CPU evidence is not a new Steam Frame FPS result.
+    // Source, benchmark shape, causal controls and inherited/focused validation:
+    // .planning/FRAME-650-REVIEW.md. Both VR peers use the same common build650.
 
     // ModBuild649 — live wrist-board position sliders below the ordinary mode switch.
     // The existing enabled dependency folds all three axes immediately. Reuse

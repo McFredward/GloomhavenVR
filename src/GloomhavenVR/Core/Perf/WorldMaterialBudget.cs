@@ -87,11 +87,19 @@ internal static partial class WorldMaterialBudget
     private sealed class Surface
     {
         internal readonly MeshRenderer Renderer;
+        // A Component cannot move to another GameObject or acquire a different
+        // Transform during its lifetime. Cache those exact owning references,
+        // not their mutable layer, parent, name, active state or components.
+        internal readonly GameObject Object;
+        internal readonly Transform Transform;
         internal MeshFilter? Filter;
         internal Mesh? Mesh;
         internal bool Refused;
         internal Surface(MeshRenderer renderer, MeshFilter filter)
-        { Renderer = renderer; Filter = filter; Mesh = filter.sharedMesh; }
+        {
+            Renderer = renderer; Object = renderer.gameObject; Transform = renderer.transform;
+            Filter = filter; Mesh = filter.sharedMesh;
+        }
     }
     [DefaultExecutionOrder(30008)]
     private sealed partial class Driver : MonoBehaviour
@@ -272,13 +280,13 @@ internal static partial class WorldMaterialBudget
                     // Those consumers retain the complete path and synchronous revocation.
                     // BeginPass/nested invalidation above still run on a zero-match camera.
                     if (camera != null && camera.commandBufferCount == 0
-                        && (camera.cullingMask & (1 << renderer.gameObject.layer)) == 0
+                        && (camera.cullingMask & (1 << surface.Object.layer)) == 0
                         && !NeedsSubstituteRevocation())
                     { cameraExcluded++; continue; }
                     // A native closed room does not need mesh/component reads.
                     // Restore owned slots immediately; on its first active render
                     // re-read the mesh identity and all current ownership guards.
-                    if (!renderer.enabled || !renderer.gameObject.activeInHierarchy
+                    if (!renderer.enabled || !surface.Object.activeInHierarchy
                         || renderer.forceRenderingOff && !HasSubstitute())
                     {
                         bool restored = RestoreRenderer(renderer);
@@ -290,7 +298,7 @@ internal static partial class WorldMaterialBudget
                     bool geometryChanged = surface.Filter != filter || surface.Mesh != mesh;
                     surface.Filter = filter; surface.Mesh = mesh;
                     if (geometryChanged) RestoreRenderer(renderer);
-                    if (filter == null || mesh == null || !InWorld(renderer))
+                    if (filter == null || mesh == null || !InWorld(renderer, surface.Object, surface.Transform))
                     {
                         bool restored = RestoreRenderer(renderer);
                         if (restored || geometryChanged || !surface.Refused || NeedsSubstituteRevocation()) _changedSources.Add(renderer);
