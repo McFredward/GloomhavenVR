@@ -4,7 +4,9 @@ import hmac
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
+import tempfile
 import time
 
 import discovery
@@ -99,6 +101,90 @@ def _linux_hub(store, session):
     atomic_json(root / 'wizard-tool.json', {'schema': 1, 'key': provision.value_hash(spec),
                                           'complete': True, 'executableSha256': digest(path)})
     return str(path)
+
+
+def _desktop_argument(value):
+    """Encode one Exec argument using both Desktop Entry escaping layers."""
+    # https://specifications.freedesktop.org/desktop-entry/1.2/exec-variables.html
+    if any(char in value for char in ('\0', '\n', '\r', '\t', '=')):
+        raise WizardError('unity_protocol_path', 'The Unity Hub path cannot be represented as a desktop executable.')
+    quoted = ''.join('\\' + char if char in ('\\', '"', '`', '$') else char for char in value)
+    return '"' + quoted.replace('\\', '\\\\').replace('%', '%%') + '"'
+
+
+def _publish_desktop_entry(path, content):
+    """Publish once atomically; never replace another application's desktop file."""
+    path = ordinary(path)
+    if path.exists():
+        if path.stat().st_size > 16384 or path.read_bytes() != content:
+            raise WizardError('unity_protocol_entry', 'The user desktop entry has different content and was retained.')
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle, temporary = tempfile.mkstemp(prefix='.ghvrq-unity-', dir=path.parent)
+    try:
+        with os.fdopen(handle, 'wb') as stream:
+            stream.write(content); stream.flush(); os.fsync(stream.fileno())
+            os.fchmod(stream.fileno(), 0o644)
+        try: os.link(temporary, path, follow_symlinks=False)
+        except FileExistsError:
+            if ordinary(path).stat().st_size > 16384 or path.read_bytes() != content:
+                raise WizardError('unity_protocol_entry', 'The user desktop entry changed and was retained.')
+    finally: Path(temporary).unlink(missing_ok=True)
+
+
+def _ensure_linux_protocol(store, session, hub, supervisor):
+    """Supply missing AppImage desktop integration without replacing a handler."""
+    if os.name == 'nt': return
+    spec = provision.spec_for('unityHub')
+    expected = ordinary(store.root / ('tools/unity-hub-' + spec['version'] + '/UnityHub.AppImage'))
+    if Path(hub).absolute() != expected: return  # An installed external Hub owns its integration.
+    marker = expected.parent / 'wizard-tool.json'
+    owner = read_json(marker) if marker.is_file() else {}
+    if owner.get('key') != provision.value_hash(spec) or not owner.get('complete'):
+        raise WizardError('unity_protocol_owner', 'The local Hub has no matching verified ownership record.')
+    mime = shutil.which('xdg-mime')
+    if not mime:
+        raise WizardError('unity_linux_xdg', 'Unity Hub browser sign-in requires xdg-utils. Install your distribution desktop utilities, then retry.',
+                          'Für die Unity-Hub-Anmeldung im Browser wird xdg-utils benötigt. Die Desktop-Werkzeuge deiner Distribution installieren und erneut versuchen.')
+    logs = store.session_dir(session) / 'logs'; scheme = 'x-scheme-handler/unityhub'
+    def query(name):
+        log = logs / name
+        supervisor.run([mime, 'query', 'default', scheme], log, timeout=15)
+        return log.read_text(encoding='utf-8', errors='replace').strip()
+    current = query('unity-protocol-query.log')
+    if current:
+        store.record(session, 'unity_protocol_preserved', 'unity', desktopEntry=current)
+        return
+    # This boundary modifies only the current user's XDG registration, after
+    # Unity terms acceptance, and only for the exact pinned owned AppImage.
+    if digest(expected, spec['algorithm']) != spec['hash']:
+        raise WizardError('tool_checksum', 'Unity Hub no longer matches the verified pinned AppImage.')
+    directory = os.environ.get('XDG_DATA_HOME') or str(Path.home() / '.local/share')
+    if not Path(directory).is_absolute():
+        raise WizardError('unity_linux_xdg', 'XDG_DATA_HOME must be an absolute user data directory.')
+    identity = provision.value_hash(str(expected))[:16]
+    entry = ordinary(Path(directory) / ('applications/gloomhavenvr-quest-unityhub-' + identity + '.desktop'))
+    launcher = Path('/usr/bin/env')
+    if not launcher.is_file():
+        raise WizardError('unity_linux_xdg', 'The Linux desktop requires /usr/bin/env to launch the local Unity Hub.')
+    # GLib checks the executable before expanding %% in its name. A fixed env
+    # launcher keeps percent-containing user paths as an ordinary argument.
+    content = ('[Desktop Entry]\nVersion=1.0\nType=Application\nName=Unity Hub\n'
+               'Exec=/usr/bin/env -- ' + _desktop_argument(str(expected)) + ' --appimage-extract-and-run %u\n'
+               'Terminal=false\nNoDisplay=true\nMimeType=' + scheme + ';\n'
+               'X-GloomhavenVR-Quest-Builder=1\n').encode('utf-8')
+    _publish_desktop_entry(entry, content)
+    # Recheck after publication: another application may have registered while
+    # the pinned archive was checked. Preserve that choice rather than reclaim it.
+    if query('unity-protocol-recheck.log'):
+        store.record(session, 'unity_protocol_preserved', 'unity', detail='Handler appeared during desktop entry publication')
+        return
+    supervisor.run([mime, 'default', entry.name, scheme], logs / 'unity-protocol-register.log', timeout=15)
+    if query('unity-protocol-confirm.log') != entry.name:
+        raise WizardError('unity_protocol_registration',
+                          'The Linux desktop did not confirm the Unity Hub sign-in callback. Check unity-protocol logs and retry.',
+                          'Der Linux-Desktop hat die Unity-Hub-Anmelderückgabe nicht bestätigt. unity-protocol-Protokolle prüfen und erneut versuchen.')
+    store.record(session, 'unity_protocol_registered', 'unity', desktopEntry=entry.name)
 
 
 def _wait(store, session, code, en, de, window, *, opener=_open, poll=0.25):
@@ -218,6 +304,7 @@ def prepare(store, state, supervisor):
                           'Complete Unity Hub setup. If its window was closed, open it again. Then check prerequisites.',
                           'Unity Hub installieren. Falls das Fenster geschlossen wurde, erneut öffnen. Danach Voraussetzungen prüfen.', window)
                     continue
+            _ensure_linux_protocol(store, session, hub, supervisor)
             store.operation(session, 'unity', 'hub', complete=True, detail='Unity Hub installation found; licence remains independently checked')
             if not login_confirmed:
                 _wait(store, session, 'unity_login_required',

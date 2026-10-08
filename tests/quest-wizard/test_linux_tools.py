@@ -202,6 +202,7 @@ class LinuxToolsTests(unittest.TestCase):
                     log.write_text('Fresh licence probe returned\n')
         with mock.patch('unity_setup.discovery.unity_paths', side_effect=discover), \
              mock.patch('unity_setup._linux_desktop'), mock.patch('unity_setup._linux_hub', return_value=str(hub)) as downloaded, \
+             mock.patch('unity_setup._ensure_linux_protocol'), \
              mock.patch('unity_setup._wait'):
             outputs, details = unity_setup.prepare(store, saved, FixtureSupervisor())
         downloaded.assert_called_once()
@@ -210,6 +211,79 @@ class LinuxToolsTests(unittest.TestCase):
         self.assertIn('install', calls[2]); self.assertIn('android', calls[2]); self.assertIn('--childModules', calls[2])
         self.assertTrue(details['licenseVerified']); self.assertEqual(details['unityEditor'], str(editor))
         self.assertTrue(outputs[0].is_file()); self.assertIn('-nographics', calls[-1])
+
+    def protocol_fixture(self):
+        store = FixtureStore(self.root / 'owner')
+        hub = store.root / 'tools/unity-hub-fixture/UnityHub.AppImage'
+        hub.parent.mkdir(parents=True); hub.write_bytes(b'fixture pinned AppImage'); hub.chmod(0o755)
+        spec = {'version': 'fixture', 'algorithm': 'sha256', 'hash': provision.digest(hub)}
+        (hub.parent / 'wizard-tool.json').write_text(json.dumps({'schema': 1, 'key': provision.value_hash(spec), 'complete': True}))
+        desktop = self.root / 'user-data'; return store, hub, spec, desktop
+
+    def test_protocol_registration_preserves_an_existing_handler_without_new_files(self):
+        store, hub, spec, desktop = self.protocol_fixture()
+        class FixtureSupervisor:
+            def run(self, argv, log, **kwargs):
+                self.command = argv; Path(log).write_text('existing-unity.desktop\n')
+        child = FixtureSupervisor()
+        with mock.patch('provision.spec_for', return_value=spec), \
+             mock.patch.dict(os.environ, {'XDG_DATA_HOME': str(desktop)}):
+            unity_setup._ensure_linux_protocol(store, 'run', hub, child)
+        self.assertIn('query', child.command); self.assertFalse(desktop.exists())
+        self.assertIn('unity_protocol_preserved', store.events[-1][0])
+
+    def test_protocol_registration_publishes_owned_entry_and_requires_readback(self):
+        store, hub, spec, desktop = self.protocol_fixture(); commands = []
+        class FixtureSupervisor:
+            def run(self, argv, log, **kwargs):
+                commands.append(list(argv))
+                output = ''
+                if 'query' in argv and Path(log).name == 'unity-protocol-confirm.log':
+                    output = next((desktop / 'applications').glob('*.desktop')).name
+                Path(log).write_text(output)
+        with mock.patch('provision.spec_for', return_value=spec), \
+             mock.patch.dict(os.environ, {'XDG_DATA_HOME': str(desktop)}):
+            unity_setup._ensure_linux_protocol(store, 'run', hub, FixtureSupervisor())
+        entry = next((desktop / 'applications').glob('*.desktop'))
+        self.assertIn('MimeType=x-scheme-handler/unityhub;', entry.read_text())
+        self.assertIn(' --appimage-extract-and-run %u\n', entry.read_text())
+        self.assertEqual(entry.stat().st_nlink, 1); self.assertEqual(len(commands), 4)
+        self.assertTrue(any(row[1] == 'default' for row in commands))
+
+    def test_protocol_registration_refuses_wrong_owner_or_changed_owned_desktop_entry(self):
+        store, hub, spec, desktop = self.protocol_fixture()
+        class FixtureSupervisor:
+            def run(self, argv, log, **kwargs): Path(log).write_text('')
+        with mock.patch('provision.spec_for', return_value=spec), \
+             mock.patch.dict(os.environ, {'XDG_DATA_HOME': str(desktop)}):
+            with self.assertRaises(WizardError) as error:
+                unity_setup._ensure_linux_protocol(store, 'run', hub, FixtureSupervisor())
+            self.assertEqual(error.exception.code, 'unity_protocol_registration')
+            entry = next((desktop / 'applications').glob('*.desktop')); entry.write_text('unrelated desktop file')
+            with self.assertRaises(WizardError) as error:
+                unity_setup._ensure_linux_protocol(store, 'run', hub, FixtureSupervisor())
+            self.assertEqual(error.exception.code, 'unity_protocol_entry'); self.assertEqual(entry.read_text(), 'unrelated desktop file')
+            (hub.parent / 'wizard-tool.json').write_text('{"schema":1,"key":"wrong","complete":true}')
+            with self.assertRaises(WizardError) as error:
+                unity_setup._ensure_linux_protocol(store, 'run', hub, FixtureSupervisor())
+            self.assertEqual(error.exception.code, 'unity_protocol_owner')
+
+    def test_desktop_exec_escaping_roundtrips_special_characters_through_glib(self):
+        import subprocess
+        import shutil
+        if not shutil.which('gio'): self.skipTest('GLib desktop launcher is unavailable')
+        directory = self.root / 'path with spaces $ % ` " \\'; directory.mkdir()
+        target = directory / 'hub'; received = directory / 'argv.json'
+        target.write_text('#!/usr/bin/env python3\nimport json,sys\nfrom pathlib import Path\nPath(' + repr(str(received)) + ').write_text(json.dumps(sys.argv[1:]))\n')
+        target.chmod(0o755)
+        entry = self.root / 'callback.desktop'
+        entry.write_text('[Desktop Entry]\nType=Application\nName=Fixture Hub\nExec=/usr/bin/env -- ' + unity_setup._desktop_argument(str(target)) + ' --appimage-extract-and-run %u\nTerminal=false\n')
+        subprocess.run(['gio', 'launch', str(entry), 'unityhub://quest-probe'], check=True,
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=5)
+        import time
+        deadline = time.monotonic() + 3
+        while not received.exists() and time.monotonic() < deadline: time.sleep(.01)
+        self.assertEqual(json.loads(received.read_text()), ['--appimage-extract-and-run', 'unityhub://quest-probe'])
 
 
 if __name__ == '__main__': unittest.main()
