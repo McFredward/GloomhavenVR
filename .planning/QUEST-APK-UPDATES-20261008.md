@@ -141,3 +141,14 @@ B625 immutable managed-input contract matches the original local PC copy in
 0.189s without game mutation or conversion; this is local evidence, not a
 Windows duration guarantee. These are affected-suite proofs, not a new
 complete project gate or Windows native/AOT hardware acceptance.
+
+The actual merged645 complete mod initially failed eight AOT gates. Verified
+static camera substitution now rewrites54 getter calls in37 main-reader and
+two enumeration methods. Original main/enumeration resolution and suspension
+bodies remain unchanged. The private window-registry revision uses a compiled
+readonly delegate and an exact System.Core/HashSet metadata root, retaining the
+original add/remove probe without modifying the BCL. Unknown guards, effects,
+targets, second factories and ref writes still close the build. Actual root CLI
+weave completes289 original targets with475 hooks and seven protected types
+unchanged. The worker's frozen-source suite passes23 current-mod assertions
+and832 existing Weaver assertions; this does not execute IL2CPP or a headset.

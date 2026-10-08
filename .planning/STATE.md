@@ -14,7 +14,9 @@ Unity. Original signing data is required. APK-only updates retain the game bank
 already completed on the headset. Native ABI, script layout and new DLC content
 require a full build. Current dev6452d77ffb65 is integrated. Focused evidence
 covers source/format/continuation/browser boundaries, actual SDK compilation and
-executable original-game profile getters. Windows end-to-end builds and updated
+executable original-game profile getters. Actual merged645 full weaving closes
+475 hooks/289 targets, retains seven protected types, and passes23 current-mod
+and832 existing Weaver assertions. Windows end-to-end builds and updated
 headset behavior remain unverified.
 See [APK update workflow and proof limits](QUEST-APK-UPDATES-20261008.md).
 
