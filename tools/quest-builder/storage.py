@@ -386,6 +386,9 @@ class ValidatedFileWitnesses:
 
     def observe(self, path, *, hasher=None):
         path = self._path(path)
+        return self._observe(path, hasher=hasher)
+
+    def _observe(self, path, *, hasher=None):
         before = self._current(path)
         row = self.db.execute("SELECT size,sha,stamp,check_hash FROM validated_file_witnesses WHERE owner=? AND path=?",
                               (self.namespace, self._key(path))).fetchone()
@@ -430,7 +433,7 @@ class ValidatedFileWitnesses:
     def qualify(self, path, expected_sha256, expected_size, *, hasher=None):
         path = self._path(path)
         if path.lstat().st_size != expected_size: return False
-        return self.observe(path, hasher=hasher) == expected_sha256
+        return self._observe(path, hasher=hasher) == expected_sha256
 
     def summary(self):
         c = self.counters
@@ -785,8 +788,10 @@ class Stages:
             with self._witnesses(name, key) as witnesses:
                 for item in records:
                     candidate = self.output / item["path"]
-                    if not witnesses.qualify(candidate, item["sha256"], item["size"]): return None
-                    if counter: counter.add(item["size"], candidate.name)
+                    hits = witnesses.counters["cache_hits"]
+                    hasher = (lambda path: digest(path, progress=lambda size: counter.add(size, path.name))) if counter else None
+                    if not witnesses.qualify(candidate, item["sha256"], item["size"], hasher=hasher): return None
+                    if counter and witnesses.counters["cache_hits"] != hits: counter.add(item["size"], candidate.name)
                 if counter: counter.finish()
                 if build_progress: build_progress.event(phase, detail=witnesses.summary(), status="complete")
             return value
@@ -810,9 +815,11 @@ class Stages:
             records = []
             with self._witnesses(name, key) as witnesses:
                 for path in paths:
-                    hashed = witnesses.observe(path)
+                    hits = witnesses.counters["cache_hits"]
+                    hasher = (lambda path: digest(path, progress=lambda size: counter.add(size, path.name))) if counter else None
+                    hashed = witnesses.observe(path, hasher=hasher)
                     records.append({"path": path.relative_to(self.output).as_posix(), "sha256": hashed, "size": path.lstat().st_size})
-                    if counter: counter.add(records[-1]["size"], path.name)
+                    if counter and witnesses.counters["cache_hits"] != hits: counter.add(records[-1]["size"], path.name)
                 if build_progress: build_progress.event("stage-output-verify:" + name, detail=witnesses.summary(), status="complete")
             if not records:
                 raise BuildError(name + " produced no verifiable files.")

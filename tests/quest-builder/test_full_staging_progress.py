@@ -296,8 +296,8 @@ class StagingTests(unittest.TestCase):
         final={row['path']:row for row in report['files']}
         self.assertEqual(final[scene_paths[0]]['sha256'],digest((output/scene_paths[0]).read_bytes()))
         # The completed stage has latest native hashes, not its old copy hashes.
-        # A cold second invocation reads each retained file once and executes
-        # none of its fourteen finished phases.
+        # A warm second invocation checks persisted change stamps without
+        # rereading asset bytes or executing its fourteen finished phases.
         retained_open = Path.open; reads = {}
         def observe_retained(path, mode='r', *args, **kwargs):
             if mode == 'rb' and output in path.parents:

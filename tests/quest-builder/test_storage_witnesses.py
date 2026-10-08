@@ -123,6 +123,16 @@ class WitnessTests(unittest.TestCase):
             witness.observe(self.path, hasher=changing)
         self.assertEqual(witness.db.execute("SELECT COUNT(*) FROM validated_file_witnesses").fetchone()[0], 0)
 
+    def test_replaced_owned_root_is_rejected_even_with_original_files_moved(self):
+        witness = self.open()
+        moved = self.root.with_name(self.root.name + "-moved")
+        self.root.rename(moved); self.root.mkdir()
+        try:
+            with self.assertRaisesRegex(storage.BuildError, "owner root changed"):
+                witness._path(self.root / "asset")
+        finally:
+            self.root.rmdir(); moved.rename(self.root)
+
     def test_remember_requires_closed_proof_stamp_and_invalidation_is_scoped(self):
         witness = self.open(); before = witness.current(self.path)
         witness.remember(self.path, sha(b"known owned bytes"), stamp=before)
