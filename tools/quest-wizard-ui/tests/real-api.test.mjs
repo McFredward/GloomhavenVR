@@ -30,6 +30,11 @@ test('actual loopback HTTP browser: module/CSP/token flow, plan, reopen, safe lo
     await client.wait("document.getElementById('discovery-status')&&!document.getElementById('discovery-status').textContent.includes('gesucht')");
     assert.equal(await client.evaluate("document.getElementById('preview-notice').hidden"),true);
     assert.equal(await client.evaluate("document.getElementById('error-banner').hidden"),true,'modules/discovery: '+await client.evaluate("document.getElementById('error-banner').textContent")+' backend: '+startupError);
+    if(process.platform==='linux'){
+      await client.wait("document.getElementById('game-root').placeholder.includes('steamapps/common/Gloomhaven')");
+      assert.match(await client.evaluate("document.getElementById('game-root').placeholder"),/steamapps\/common\/Gloomhaven/);
+      assert.equal(await client.evaluate("document.getElementById('unity-editor').placeholder"),'…/Editor/Unity');
+    }
     assert.equal(await client.evaluate("document.querySelector('.brand img').naturalWidth"),1280);
     const source=await client.evaluate("(async()=>{const r=await fetch('app.mjs');return {mime:r.headers.get('Content-Type'),csp:r.headers.get('Content-Security-Policy')}})()");
     assert.match(source.mime,/javascript/);assert.match(source.csp,/img-src[^;]*blob:/);

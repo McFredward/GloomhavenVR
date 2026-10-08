@@ -164,6 +164,12 @@ def check_runtime_space(store_root, *, free_bytes=None):
 def qualify(store_root, *, system=None, machine=None, free_bytes=None, game_root=None, repo=None, mode="build", enforce=True):
     root = ordinary(store_root)
     system = system or platform.system(); machine = machine or platform.machine()
+    if system not in ('Windows', 'Linux'):
+        raise WizardError('unsupported_host', 'The builder supports Windows x64 and Linux x86_64.',
+                          'Der Builder unterstützt Windows x64 und Linux x86_64.')
+    if system == 'Linux' and machine.lower() not in ('amd64', 'x86_64'):
+        raise WizardError('linux_x64_required', 'Use Linux x86_64 for Unity and the native builder tools.',
+                          'Für Unity und die nativen Build-Werkzeuge Linux x86_64 verwenden.')
     if system == 'Windows':
         if machine.lower() not in ('amd64', 'x86_64'):
             raise WizardError('windows_x64_required', 'Use Windows x64 for the Unity and native builder tools.',
@@ -172,7 +178,7 @@ def qualify(store_root, *, system=None, machine=None, free_bytes=None, game_root
             raise WizardError('workspace_path_long', 'Choose a short workspace such as D:\\GHQ and relaunch with -StateRoot D:\\GHQ.',
                               'Einen kurzen Arbeitsordner wie D:\\GHQ wählen und mit -StateRoot D:\\GHQ neu starten.', maxCharacters=MAX_WINDOWS_ROOT_CHARS)
     free = shutil.disk_usage(root).free if free_bytes is None else free_bytes
-    result = {'schema': 1, 'supportedAutomation': system == 'Windows', 'system': system, 'machine': machine,
+    result = {'schema': 1, 'supportedAutomation': system in ('Windows', 'Linux'), 'system': system, 'machine': machine,
               'freeBytes': free, 'minimumSetupBytes': MIN_SETUP_FREE_BYTES, 'rootCharacters': len(str(root)),
               'workspaceRoot': str(root), 'buildSpaceCheckPassed': False,
               'licenseVerified': False, 'unityAction': 'Sign in and activate an eligible license in Unity Hub; version does not verify licensing.',

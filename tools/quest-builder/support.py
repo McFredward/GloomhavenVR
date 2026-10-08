@@ -23,7 +23,7 @@ SAFE_EVENT_KEYS = {'phase', 'done', 'total', 'unit', 'percent', 'detail', 'updat
                    'error', 'message', 'traceback', 'outputCount', 'controlledStop', 'tool', 'version',
                    'freeBytes', 'estimatedBytes', 'command'}
 RESOURCE_FILES = ('resource-policy.json', 'resource-events.jsonl', 'build-metrics.json')
-WIZARD_LOG = re.compile(r'^(?:(?:tools|source|unity|profile|inspect|build|install)|progress(?:\.previous)?|(?:git|dotnet8|dotnet10)-version|unity-(?:hub-help|install|version|license-probe|license-process)|source-(?:clone(?:-complete)?|commit|checkout|selected-(?:present|commit)|(?:local|owned)-inventory\.json)|com\.unity\.xr\.(?:management|core-utils|openxr)-(?:init|fetch|checkout|build))\.log$')
+WIZARD_LOG = re.compile(r'^(?:(?:tools|source|unity|profile|inspect|build|install)|progress(?:\.previous)?|(?:git|dotnet8|dotnet10)-version|unity-(?:hub-help|hub-window|install|install-path|version|license-probe|license-process|protocol-(?:query|recheck|register|confirm))|source-(?:clone(?:-complete)?|commit|checkout|selected-(?:present|commit)|(?:local|owned)-inventory\.json)|com\.unity\.xr\.(?:management|core-utils|openxr)-(?:init|fetch|checkout|build))\.log$')
 BUILD_LOG = re.compile(r'^(unity-(build|launch)|native|weave|mod|package-(import|api)|recovery|recover|dotnet|apk-(signature|badging)|adb-[a-z-]+|campaign-[a-z-]+|build)[a-zA-Z0-9_.-]*\.log$')
 SENSITIVE_KEY = re.compile(r'(?i)(token|password|passwd|secret|credential|authorization|license|entitlement|steamid|providerid|accountid|displayname|persona)')
 
@@ -49,6 +49,7 @@ def redact(text, replacements=()):
         (r'\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b', '[redacted JWT]'),
         (r'\b7656119\d{10}\b', '[profile-id]'),
         (r'(https?://[^\s?"<>]+)\?[^\s"<>]+', r'\1?[redacted query]'),
+        (r'(unityhub://[^\s?"<>]+)\?[^\s"<>]+', r'\1?[redacted query]'),
         (r'(?is)<(?:Serial|Signature|AccessToken|RefreshToken)>.*?</(?:Serial|Signature|AccessToken|RefreshToken)>', '[redacted license/token field]'),
         (r'-----BEGIN [^-]+-----[\s\S]*?-----END [^-]+-----', '[redacted key block]'),
     )

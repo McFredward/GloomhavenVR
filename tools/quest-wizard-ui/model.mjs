@@ -7,6 +7,7 @@ export function choicesFromForm(form, language) {
   const baseApk = String(form.baseApk ?? '').trim();
   if (mode !== 'build' && !baseApk) throw new Error('missingBaseApk');
   const provider = ['steam','epic','gog'].includes(form.provider) ? form.provider : 'steam';
+  if(form.hostSystem==='Linux'&&provider==='steam'&&mode!=='update-profile'&&!form.declareDlc)throw new Error('linuxDlcRequired');
   const choices = {gameRoot, provider, mode, install:Boolean(form.install), acceptUnityTerms:Boolean(form.acceptUnityTerms), language};
   if (mode !== 'build') choices.baseApk = baseApk;
   if (mode !== 'build' && String(form.signingRoot ?? '').trim()) choices.signingRoot = form.signingRoot.trim();

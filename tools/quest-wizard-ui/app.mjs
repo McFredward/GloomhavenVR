@@ -37,7 +37,7 @@ function setLanguage(value) {
   showSlide(slideIndex);
   if(discovery) renderGames();updateView();
 }
-function form() { return {gameRoot:$('game-root').value,provider:$('provider').value,unityEditor:$('unity-editor').value,
+function form() { return {gameRoot:$('game-root').value,provider:$('provider').value,unityEditor:$('unity-editor').value,hostSystem:discovery?.host?.system,
   mode:$('build-mode').value,baseApk:$('base-apk').value,signingRoot:$('signing-root').value,
   profileName:$('profile-name').value,profileId:$('profile-id').value,declareDlc:$('declare-dlc').checked,
   ownedDlc:[...document.querySelectorAll('input[name=dlc]:checked')].map(node => node.value),
@@ -216,6 +216,12 @@ function renderBuildOverview() {
   }
 }
 function renderGames() {
+  const linux=discovery?.host?.system==='Linux';
+  $('game-root').placeholder=linux?'…/steamapps/common/Gloomhaven':'C:\\…\\Gloomhaven';
+  $('unity-editor').placeholder=linux?'…/Editor/Unity':'…\\Unity.exe';
+  $('base-apk').placeholder=linux?'…/GloomhavenVR-Quest.apk':'C:\\…\\GloomhavenVR-Quest.apk';
+  $('declare-dlc').nextElementSibling.textContent=t(linux?'declareDlcLinux':'declareDlc');
+  document.querySelector('#dlc-declaration .hint').textContent=t(linux?'dlcDeclarationLinuxHint':'dlcDeclarationHint');
   $('game-list').replaceChildren();
   const games=Array.isArray(discovery?.games) ? discovery.games : [];
   $('discovery-status').textContent=t(games.length===1?'foundOne':games.length?'foundMany':'notFound',{count:games.length});

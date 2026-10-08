@@ -16,14 +16,14 @@ AUTHORED_LINKS = {
     'unity/GloomhavenVR.Assets/Assets/Editor/GrabBarMeshLink.cs': 'src/GloomhavenVR/Core/GrabBar.cs',
 }
 PUBLIC_PACKAGES = {'prebuilt/quest-converters-win64-v1.zip': '61f7d664384b12663fb4fb799ffb8566bf11e99e15ce72c7afb00d5b62199f2d'}
-ROOT_FILES = {'Quest-Builder.cmd', 'QUEST-BUILDER-START.txt', 'LICENSE', 'Directory.Build.props', 'GloomhavenVR.sln', 'global.json', 'nuget.config', '.editorconfig'}
+ROOT_FILES = {'Quest-Builder.cmd', 'Quest-Builder.sh', 'QUEST-BUILDER-START.txt', 'LICENSE', 'Directory.Build.props', 'GloomhavenVR.sln', 'global.json', 'nuget.config', '.editorconfig'}
 TOOL_ROOTS = {'QuestCampaignInventory', 'QuestProceduralExport', 'QuestWeaver', 'RuntimeDepsBuild',
               'ShaderOcclusionPatcher', 'environment-mesh', 'quest-builder', 'quest-campaign-audit', 'quest-compute',
               'quest-installer', 'quest-native', 'quest-network', 'quest-procedural',
               'quest-procedural-runtime', 'quest-recovery', 'quest-shaders', 'quest-wizard', 'quest-wizard-ui'}
 UNITY_ROOTS = {'GloomhavenVR.Assets', 'GloomhavenVR.Quest', 'GloomhavenVR.FigureMeshes'}
 SCRIPTS = {'build-quest.py', 'build-quest-native.py', 'recover-quest.py', 'build-runtimedeps.sh',
-           'quest-builder-wizard.cmd', 'quest-builder-wizard.ps1', 'package-quest-builder.py',
+           'quest-builder-wizard.cmd', 'quest-builder-wizard.ps1', 'quest-builder-wizard.sh', 'package-quest-builder.py',
            'export-quest-build-support.py', 'install-quest-wireless.cmd', 'install-quest-wireless.ps1',
            'install-quest-wireless.py', 'collect-quest-logs.cmd', 'collect-quest-logs.ps1',
            'collect-quest-logs.py', 'quest-saves.cmd', 'quest-saves.ps1', 'quest-saves.py', 'generate-environment-meshes.py'}
@@ -31,8 +31,13 @@ SECRET_SUFFIXES = {'.dll', '.exe', '.apk', '.bundle', '.zip', '.ulf', '.alf', '.
 GENERATED_PARTS = {'bin', 'obj', 'Library', 'Temp', 'Logs', 'Builds', '__pycache__', '.git', 'node_modules'}
 # Tool source checkouts and compiled reference DLLs are derived on the owner's PC;
 # they are not release inputs and the builder inventories declared DLLs separately.
-LOCAL_DEPENDENCIES = ('libs/RuntimeDeps/', 'libs/Natives/', 'tools/RuntimeDepsBuild/sources/',
-                      'scripts/.quest-venv/', 'scripts/.quest-python/')
+LEGACY_LOCAL_DEPENDENCIES = ('libs/RuntimeDeps/', 'libs/Natives/', 'tools/RuntimeDepsBuild/sources/',
+                             'scripts/.quest-venv/', 'scripts/.quest-python/')
+LOCAL_DEPENDENCIES = (*LEGACY_LOCAL_DEPENDENCIES, 'scripts/.quest-python-linux/', 'scripts/.quest-adb/')
+RELEASE_KIND = 'GloomhavenVR game-free Windows and Linux builder'
+LEGACY_RELEASE_KIND = 'GloomhavenVR game-free Windows builder'
+LINUX_REQUIRED = {'Quest-Builder.sh', 'scripts/quest-builder-wizard.sh', 'tools/quest-installer/bootstrap.sh',
+                  'tools/quest-installer/linux_bootstrap.py', 'tools/quest-wizard/host_paths.py'}
 # The current Frame mod tracks its offline original-derived environment bank.
 # A source Builder recreates those streams from the player's immutable game;
 # original geometry and its derived receipt never become public ZIP inputs.
@@ -133,11 +138,11 @@ def verified_source_inventory(repo):
     repo = ordinary(repo); path = ordinary(repo / MANIFEST)
     if not path.is_file() or path.stat().st_size > 4 * 1048576: raise BuildError('Missing or oversized builder release manifest.')
     value = json.loads(path.read_text(encoding='utf-8'))
-    if set(value) != {'schema', 'kind', 'sourceCommit', 'modBuild', 'files', 'localDependencyRoots'} or value['schema'] != 1 or value['kind'] != 'GloomhavenVR game-free Windows builder':
+    if set(value) != {'schema', 'kind', 'sourceCommit', 'modBuild', 'files', 'localDependencyRoots'} or value['schema'] != 1 or value['kind'] not in (RELEASE_KIND, LEGACY_RELEASE_KIND):
         raise BuildError('Unsupported builder release manifest.')
     if not re.fullmatch('[0-9a-f]{40}', str(value['sourceCommit'])) or type(value['modBuild']) is not int:
         raise BuildError('Invalid builder release source identity.')
-    if value['localDependencyRoots'] != list(LOCAL_DEPENDENCIES): raise BuildError('Invalid local dependency exception.')
+    if value['localDependencyRoots'] not in (list(LOCAL_DEPENDENCIES), list(LEGACY_LOCAL_DEPENDENCIES)): raise BuildError('Invalid local dependency exception.')
     pinned_hashes = ImmutableFileHashes()
     for name, expected in PUBLIC_PACKAGES.items():
         if pinned_hashes.digest(ordinary(repo / name)) != expected: raise BuildError('Public converter package differs from its pinned release.')
@@ -155,6 +160,8 @@ def verified_source_inventory(repo):
         if not item.is_file() or item.stat().st_size != row['size'] or (pinned_hashes.digest(item) if name in PUBLIC_PACKAGES else digest(item)) != row['sha256']:
             raise BuildError('Builder release file changed: ' + name)
     if not REQUIRED <= names: raise BuildError('Builder release is incomplete.')
+    if value['kind'] == RELEASE_KIND and not LINUX_REQUIRED <= names:
+        raise BuildError('Cross-platform builder release is missing its Linux launcher.')
     # Traverse without following junctions; ignore only declared per-user generated
     # directories. Unknown files in source-bearing roots are a tampered release.
     for directory, dirs, files in os.walk(repo, followlinks=False):
@@ -167,7 +174,7 @@ def verified_source_inventory(repo):
         dirs[:] = kept
         for name in files:
             relative = (rel / name).as_posix()
-            if relative in (MANIFEST, 'scripts/.quest-bootstrap.lock'): continue
+            if relative in (MANIFEST, 'scripts/.quest-bootstrap.lock', 'scripts/.quest-bootstrap-linux.lock', 'scripts/.quest-adb.lock'): continue
             if relative in names: continue
             # Even excluded binaries in a shipped input root are rejected. Local
             # dependency trees above are the only assembly exceptions.
@@ -180,7 +187,7 @@ def assemble(repo, destination):
     repo = ordinary(repo); destination = ordinary(destination)
     tracked = subprocess.run(['git', '-C', str(repo), 'ls-files', '-z'], check=True, stdout=subprocess.PIPE).stdout.decode().split('\0')
     names = sorted(name for name in tracked if name and selected(name))
-    if not REQUIRED <= set(names): raise BuildError('Required builder release sources are not tracked.')
+    if not (REQUIRED | LINUX_REQUIRED) <= set(names): raise BuildError('Required builder release sources are not tracked.')
     commit = subprocess.run(['git', '-C', str(repo), 'rev-parse', 'HEAD'], check=True, capture_output=True, text=True).stdout.strip()
     dirty = subprocess.run(['git', '-C', str(repo), 'diff', '--quiet', 'HEAD', '--', *names]).returncode
     if dirty: raise BuildError('Commit the release source files before packaging.')
@@ -191,7 +198,7 @@ def assemble(repo, destination):
     protocol = (repo / 'src/GloomhavenVR/Net/NetProtocol.cs').read_text(encoding='utf-8')
     match = re.search(r'const (?:int|ushort) ModBuild\s*=\s*(\d+)', protocol)
     if not match: raise BuildError('Cannot identify the released mod build.')
-    manifest = {'schema': 1, 'kind': 'GloomhavenVR game-free Windows builder', 'sourceCommit': commit,
+    manifest = {'schema': 1, 'kind': RELEASE_KIND, 'sourceCommit': commit,
                 'modBuild': int(match[1]), 'files': records, 'localDependencyRoots': list(LOCAL_DEPENDENCIES)}
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists(): raise BuildError('Release destination already exists; choose a new file.')
@@ -203,7 +210,11 @@ def assemble(repo, destination):
                 raw = originals[row['path']].read_bytes()
                 import hashlib
                 if len(raw) != row['size'] or hashlib.sha256(raw).hexdigest() != row['sha256']: raise BuildError('Source changed during release assembly.')
-                archive.writestr('GloomhavenVR-Quest-Builder/' + row['path'], raw)
+                info = zipfile.ZipInfo('GloomhavenVR-Quest-Builder/' + row['path'])
+                info.create_system = 3
+                info.compress_type = zipfile.ZIP_DEFLATED
+                info.external_attr = (0o100755 if row['path'].endswith('.sh') else 0o100644) << 16
+                archive.writestr(info, raw)
             archive.writestr('GloomhavenVR-Quest-Builder/' + MANIFEST, canonical(manifest) + b'\n')
         with zipfile.ZipFile(temp) as archive:
             if archive.testzip() is not None: raise BuildError('Release ZIP failed CRC validation.')
@@ -217,7 +228,8 @@ def assemble(repo, destination):
               'promotionalArtworkFiles': sorted(PROMOTIONAL_ASSETS),
               'excluded': ['owned game/decompiled code', 'reference DLLs', 'original-derived figure/environment mesh banks',
                            'generated APKs/caches', 'credentials/licenses/savegames'], 'materializedAuthoredLinks': [name for name in names if (repo / name).is_symlink()],
-              'windowsEndToEndVerified': False}
+              'supportedHosts': ['windows-x64', 'linux-x64'],
+              'windowsEndToEndVerified': False, 'linuxEndToEndVerified': False}
     write_json(Path(str(destination) + '.audit.json'), report)
     return report
 

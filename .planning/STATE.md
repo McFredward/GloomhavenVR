@@ -1,5 +1,15 @@
 # State — where the project stands
 
+**Quest Linux and Windows Builder support, 2026-10-09 (Builder only).**
+
+The game-free source ZIP includes CMD and Bash launchers for Windows x64 and
+Linux x86_64. Linux provisions an isolated Python/venv and native SDK/signing/ADB
+tools, discovers desktop/owned Unity installations and uses a native file picker
+where available. Steam DLC declarations are requested before Linux conversion;
+Windows tool-stage identities stay compatible. Actual Linux executable, native
+plugin, Bee, HTTP and browser evidence is bounded; no new whole-APK or HMD
+acceptance is established. See [Linux host delivery](QUEST-LINUX-BUILDER-20261009.md).
+
 **Quest Windows inventory-order and storage repair, 2026-10-08 (Builder only).**
 
 Capture205407 confirmsd8e805207/Mod646. Windows Path ordering changed the

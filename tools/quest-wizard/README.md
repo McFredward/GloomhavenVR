@@ -1,19 +1,29 @@
-# Local Windows conversion wizard backend
+# Local Windows and Linux conversion wizard backend
 
 The standard-library backend persists private local choices and seven verified
 stage receipts under a separately marked owned workspace. It provisions pinned
-portable Git and .NET 8/10 without changing system installations, resolves the
+portable Git on Windows and .NET 8/10 on both hosts without changing system installations, resolves the
 selected mod source to an immutable commit, and uses the existing builder's
 owned-game, profile and DLC rules. Local uncommitted source inputs remain part of
 the existing source inventory; ignored runtime dependency assemblies are copied
 when available or derived from the selected source's existing XR package projects.
-No Bash or private maintainer cache is required for that derivation.
+On Linux the existing Git executable is qualified and used for the declared XR
+source packages. No private maintainer cache is required for that derivation.
 
 Run `python tools/quest-wizard/wizard.py serve --state-root C:\GHQ
 --ui-root tools/quest-wizard-ui --open-browser` with the Windows launcher. The
 launcher supplies its existing isolated local CPython. Recovery continues to use
 the separate pinned conversion interpreter; no extension wheel is loaded into
 that CPython merely because it serves the UI.
+
+Linux x86_64 launches the same engine through `bash Quest-Builder.sh`, or
+`bash scripts/quest-builder-wizard.sh --state-root /private/workspace --no-browser`.
+The launcher uses a suitable system Python without changing it, or downloads
+checksum-pinned [python-build-standalone](https://github.com/astral-sh/python-build-standalone/releases/tag/20261003).
+Its isolated venv remains in `scripts/.quest-venv`; fallback Python uses
+`scripts/.quest-python-linux`. The default persistent workspace is `~/.ghvrq`.
+The release ZIP preserves executable permissions for shell scripts, and explicit
+`bash` invocation works even when an extractor does not restore those permissions.
 
 The browser API is loopback only with a random request token. Mutations require
 an exact Origin. GETs require the same token and either exact Origin or the
@@ -39,8 +49,9 @@ HTTP uses GET `/api/discover`, `/api/status?session=ID`,
 `/api/cancel {session}`, `/api/browse {kind:game|unity}`,
 `/api/action {session,action:unity-open|unity-check,nonce}`. The last route accepts
 only an action currently declared by the running Unity stage. Closing a Hub or
-installer window keeps the wait visible; reopening it does not complete the stage. Native browse is Windows
-only. GET `/api/gallery` exposes twenty-one hash-pinned public publisher character/enemy
+installer window keeps the wait visible; reopening it does not complete the stage. Native browse uses
+Win32 on Windows and Zenity/KDialog on a Linux desktop. A missing Linux picker
+leaves the manual path fields available. GET `/api/gallery` exposes twenty-one hash-pinned public publisher character/enemy
 images bundled with the source release. An optional repair uses the exact official
 announcement CDN pins anonymously in a private local cache. No account or platform
 service is used, and an unavailable picture does not block conversion. GET
@@ -82,6 +93,12 @@ Old unverified prerequisite receipts are invalidated by prerequisite policy 2.
 Sign-in remains an explicit repeatable user action; supported headless tools have
 timeouts, and their authentication failures return to the visible wait. Unity
 failure logs remain local.
+
+The owned Linux AppImage supplies a missing `unityhub://` browser callback through
+a user-local XDG desktop entry after Unity terms acceptance. Existing handlers
+and unrelated desktop files remain untouched. This requires `xdg-utils`; the
+registration result and Hub window stderr are included in named, bounded Unity
+logs. Callback query parameters are redacted from support exports.
 
 After hard process death, a saved running session is marked interrupted only
 when the kernel workspace lock has no active owner; a live external run remains
@@ -125,7 +142,7 @@ authoritative installation and activation contracts.
 Focused source fixtures: `python -B -m unittest discover -s tests/quest-wizard`.
 They do not download tools, import Unity projects or assert hardware outcomes.
 
-## Complete Windows source release
+## Complete Windows and Linux source release
 
 The installer-only hardware handoff is not a builder distribution. Assemble the
 full game-free builder from a committed integration checkout with:
@@ -147,11 +164,13 @@ in-repository mod targets and materialized as ordinary files; no links ship.
 Future tracked mod files inside declared source roots enter the next release.
 New root families or binary dependencies require an explicit inventory review.
 
-Extract into a fresh folder and double-click `Quest-Builder.cmd`. No Git
-checkout or installed Python is required. The launcher bootstraps pinned local
-CPython/venv, then starts the existing browser Wizard. Portable Git is still
-provisioned for public XR package sources; it is not needed to identify the
-shipped mod. The separately owned build state defaults to `%USERPROFILE%\.ghvrq`.
+Extract into a fresh folder and start `Quest-Builder.cmd` on Windows or
+`bash Quest-Builder.sh` on Linux x86_64. No Git checkout or installed Python is
+required. The launcher bootstraps an isolated Python/venv, then starts the same
+browser Wizard. Portable Git is provisioned on Windows; Linux qualifies the
+system Git for public XR package sources. Git is not needed to identify the
+shipped mod. The separately owned build state defaults to `%USERPROFILE%\.ghvrq`
+on Windows and `~/.ghvrq` on Linux.
 Do not overlay different source release archives: unlisted source files are
 rejected. Moving/replacing the release folder does not remove user build caches
 or signing keys. A changed release manifest invalidates source and downstream
@@ -160,7 +179,7 @@ own resumable source-copy directory; old source workspaces remain untouched.
 Generated compile-time XR assemblies are derived from the user's game files and
 are inventoried separately from shipped source.
 
-Before downloads the backend checks Windows x64, a short workspace root and a
+Before downloads the backend checks Windows x64 or Linux x86_64, a short Windows workspace root and a
 4 GiB **setup-only** free-space floor. Before starting, the UI also presents a
 bounded estimate of full-conversion disk demand: eight times the owned data size
 plus a 20 GiB tools/import reserve, reduced conservatively by matching retained
@@ -174,8 +193,26 @@ Unity imports and recovered content require substantially more free disk space,
 and the check records `fullBuildSpaceVerified:false`. Unity Hub setup/sign-in and
 activation of an eligible license remain guided manual steps. The backend never
 reads or exports license contents and does not infer license validity from the
-Editor version. Real Windows provisioning/conversion and headset outcomes still
+Editor version. Whole-build acceptance on either OS and headset outcomes still
 require user testing; a package audit establishes only its delivered inputs.
+
+Linux tool pins use the same official .NET metadata, Temurin release assets and
+Android repository metadata as their Windows counterparts. Owned tar extraction
+keeps only internal links and required executable modes. The pinned Linux Unity
+Hub AppImage runs without FUSE through its extraction mode, and discovers or
+installs Editor/Android modules in the owned workspace. Linux system libraries
+and GPU drivers remain the distribution's responsibility; the Wizard reports
+missing native prerequisites rather than installing system packages with sudo.
+Unity's [2021 LTS requirements](https://docs.unity3d.com/2021.3/Documentation/Manual/system-requirements.html)
+define its supported Linux desktop environments. A real graphical Editor build
+uses the desktop X display when available; a headless host needs Xvfb and xauth.
+Windows stage pins exclude added Linux-only recipes, retaining existing Windows
+receipts. Original preparation identity excludes both root launchers and their
+instructions: they are delivery inputs, never original-asset producers.
+Linux cannot load the original Windows Steam entitlement DLL. The setup form
+requires an explicit purchased-DLC declaration for Steam before a full/mod build;
+an empty declaration means base game only. Missing declarations are rejected
+before tool downloads or Unity import. Profile-only updates do not require it.
 
 Missing original-derived figure mesh banks keep the complete original actor
 meshes intact through the mod's documented fallback. The Quest pipeline does not

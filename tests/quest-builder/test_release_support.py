@@ -21,7 +21,7 @@ from storage import BuildError, record_file, write_json
 class ReleaseTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.root = Path(self.temp.name) / 'repo'; self.root.mkdir()
-        for name in release.REQUIRED | {'src/GloomhavenVR/Net/NetProtocol.cs', 'tools/quest-wizard/tools.lock.json'}:
+        for name in release.REQUIRED | release.LINUX_REQUIRED | {'src/GloomhavenVR/Net/NetProtocol.cs', 'tools/quest-wizard/tools.lock.json'}:
             path = self.root / name; path.parent.mkdir(parents=True, exist_ok=True)
             if name in release.PUBLIC_PACKAGES: shutil.copyfile(ROOT / name, path); continue
             path.write_text('public const ushort ModBuild = 625;' if name.endswith('NetProtocol.cs') else 'public fixture source')
@@ -73,6 +73,21 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn(release.MANIFEST, {row['path'] for row in rows})
         (self.root / 'tools/quest-wizard/wizard.py').write_text('tampered')
         with self.assertRaises(BuildError): release.verified_source_inventory(self.root)
+
+    def test_legacy_release_still_valid_but_new_kind_requires_linux_launcher(self):
+        for name in release.LINUX_REQUIRED: (self.root / name).unlink()
+        value = self.manifest(); value['localDependencyRoots'] = list(release.LEGACY_LOCAL_DEPENDENCIES)
+        write_json(self.root / release.MANIFEST, value)
+        release.verified_source_inventory(self.root)
+        value['kind'] = release.RELEASE_KIND; write_json(self.root / release.MANIFEST, value)
+        with self.assertRaisesRegex(BuildError, 'missing its Linux launcher'):
+            release.verified_source_inventory(self.root)
+
+    def test_linux_runtime_and_adb_cache_are_local_outputs_not_release_tampering(self):
+        for name in ('scripts/.quest-python-linux/runtime/python', 'scripts/.quest-adb/platform-tools/adb',
+                     'scripts/.quest-bootstrap-linux.lock', 'scripts/.quest-adb.lock'):
+            path = self.root / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(b'owner-created fixture')
+        release.verified_source_inventory(self.root)
     def test_unlisted_code_binary_and_generated_exceptions(self):
         derived = self.root / 'libs/RuntimeDeps/Unity.XR.dll'; derived.parent.mkdir(parents=True); derived.write_bytes(b'owner-derived')
         release.verified_source_inventory(self.root)
@@ -128,6 +143,10 @@ class ReleaseTests(unittest.TestCase):
         self.assertFalse(report['windowsEndToEndVerified'])
         with zipfile.ZipFile(output) as archive:
             self.assertTrue(any(name.endswith('quest-builder-wizard.cmd') for name in archive.namelist()))
+            self.assertTrue(any(name.endswith('/Quest-Builder.sh') for name in archive.namelist()))
+            for name in ('Quest-Builder.sh', 'scripts/quest-builder-wizard.sh', 'tools/quest-installer/bootstrap.sh'):
+                mode = archive.getinfo('GloomhavenVR-Quest-Builder/' + name).external_attr >> 16
+                self.assertEqual(mode & 0o777, 0o755)
             self.assertFalse(any('RefAsm' in name or 'ghvr-figure-meshes' in name or '/ressources/' in name or name.endswith('/.env') for name in archive.namelist()))
             archive.extractall(self.root.parent / 'extracted')
         release.verified_source_inventory(self.root.parent / 'extracted/GloomhavenVR-Quest-Builder')
@@ -161,6 +180,17 @@ class SupportTests(unittest.TestCase):
         self.assertEqual(len(selected), 2)
         self.assertTrue(any('17754574362' in raw for raw in selected.values()))
         self.assertFalse(any('unrelated-private' in name for name in files))
+
+    def test_linux_hub_window_and_install_location_failures_are_exported(self):
+        logs = self.directory / 'logs'
+        (logs / 'unity-hub-window.log').write_text('error while loading shared libraries: libgtk-3.so.0\naccess_token="private"\nunityhub://login?code=private-oauth-code&state=private-state\n')
+        (logs / 'unity-install-path.log').write_text('install-path failed\n')
+        (logs / 'unity-protocol-register.log').write_text('desktop handler registration failed\n')
+        _, files = self.export()
+        self.assertIn('libgtk-3.so.0', files['wizard/unity-hub-window.log'])
+        self.assertIn('install-path failed', files['wizard/unity-install-path.log'])
+        self.assertIn('desktop handler registration failed', files['wizard/unity-protocol-register.log'])
+        self.assertNotIn('private', '\n'.join(files.values()))
     def test_failed_running_support_has_identity_errors_and_no_assets_credentials_or_savegame(self):
         log = self.directory / 'logs/build.log'
         log.write_text('Source SecretName 76561198000000001 C:\\PrivateOwnedGame\nAuthorization: Bearer super-secret\naccess_token="another secret"\nMY_SECRET=private-env-value\nCookie: private-cookie\nclientSecret: private-client-secret\nError: missing native entrypoint\n')

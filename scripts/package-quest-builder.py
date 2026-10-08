@@ -1,4 +1,4 @@
-"""Assemble the complete public Windows Quest builder, without owned game files."""
+"""Assemble the public Windows and Linux Quest builder, without owned game files."""
 from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools/quest-builder'))

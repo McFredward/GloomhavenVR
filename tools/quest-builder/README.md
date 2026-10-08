@@ -2,7 +2,7 @@
 
 `scripts/build-quest.py` runs real recovery, static integration, native compilation,
 Unity Android builds, APK validation and optional ADB installation. Python 3.11+
-and the documented external tools are required; the Windows build host is x64.
+and the documented external tools are required; build hosts are Windows x64 and Linux x86_64.
 The wireless installer has its own independent Python/ADB provisioning. Original game files, frozen
 sources, private profiles, signing material and APKs remain local. This directory
 contains no original game payload.

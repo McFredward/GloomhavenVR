@@ -37,7 +37,9 @@ PREFIX_MOD_BANK_ROOTS = ("unity/GloomhavenVR.Assets/", "unity/GloomhavenVR.Figur
 PREFIX_MOD_BANK_HELPERS = {"tools/quest-builder/environment_bank.py"}
 # Inventory/release/support validation is complete before preparation begins.
 # Its immutable records remain qualified; these helpers do not generate assets.
-PREFIX_DELIVERY_HELPERS = {"tools/quest-builder/release.py", "tools/quest-builder/support.py"}
+PREFIX_DELIVERY_HELPERS = {"tools/quest-builder/release.py", "tools/quest-builder/support.py",
+                           "tools/quest-builder/README.md", "Quest-Builder.cmd", "Quest-Builder.sh",
+                           "QUEST-BUILDER-START.txt"}
 
 # Exact producer profiles reviewed against the original movie/audio outputs.
 # These are aliases for this repair, never a general exclusion from identity.

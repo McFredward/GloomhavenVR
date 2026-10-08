@@ -263,6 +263,16 @@ class HttpTests(Fixture):
     def test_bounded_log_tail(self):
         saved=self.plan();path=self.store.session_dir(saved['session'])/'logs/build.log';path.parent.mkdir();path.write_text('x'*70000)
         code,value=self.request('/api/log?session='+saved['session']+'&stage=build');self.assertEqual(code,200);self.assertTrue(value['truncated']);self.assertEqual(len(value['text']),65536)
+    def test_unity_stage_log_includes_linux_hub_window_and_install_path_failures(self):
+        saved=self.plan();logs=self.store.session_dir(saved['session'])/'logs';logs.mkdir()
+        (logs/'unity-hub-window.log').write_text('missing desktop library fixture')
+        (logs/'unity-install-path.log').write_text('owned editor path fixture failure')
+        (logs/'unity-protocol-confirm.log').write_text('desktop callback fixture failure')
+        (logs/'unrelated-private.log').write_text('must not appear')
+        code,value=self.request('/api/log?session='+saved['session']+'&stage=unity')
+        self.assertEqual(code,200);self.assertIn('missing desktop library fixture',value['text'])
+        self.assertIn('owned editor path fixture failure',value['text']);self.assertNotIn('must not appear',value['text'])
+        self.assertIn('desktop callback fixture failure',value['text'])
     def test_build_log_includes_actual_nested_failure_without_arbitrary_cache_reads(self):
         saved=self.plan();session=saved['session'];key='e'*64
         failure=self.store.root/'build/last-failure.json'
@@ -394,10 +404,17 @@ class UiModuleIntegrationTests(Fixture):
         self.assertIn(b'export const value',response.read());connection.close()
 
 class UnityProvisionTests(Fixture):
+    def setUp(self):
+        super().setUp()
+        import unity_setup
+        desktop = mock.patch.object(unity_setup, '_linux_desktop')
+        desktop.start(); self.addCleanup(desktop.stop)
     def test_missing_hub_download_stops_at_explicit_setup_action(self):
         import unity_setup
         saved=self.plan(acceptUnityTerms=True);setup=self.store.root/'setup.exe';setup.write_bytes(b'fixture verified setup')
-        with mock.patch.object(unity_setup.discovery,'unity_paths',return_value=([],[])),mock.patch.object(provision,'download',return_value=setup) as download,mock.patch.object(unity_setup,'_wait',side_effect=state.Cancelled()) as wait:
+        with mock.patch.object(unity_setup.discovery,'unity_paths',return_value=([],[])),mock.patch.object(provision,'download',return_value=setup) as download,mock.patch.object(unity_setup,'_wait',side_effect=state.Cancelled()) as wait, \
+             mock.patch.object(unity_setup, 'os', type('WindowsFixture', (), {'name': 'nt'})()), \
+             mock.patch.object(provision, 'host_key', return_value='windows-x64'):
             with self.assertRaises(state.Cancelled):wizard.Engine(self.store).stage_unity(saved,mock.Mock())
         download.assert_called_once();self.assertEqual(wait.call_args.args[2],'unity_hub_setup')
         self.assertEqual(download.call_args.args[0]['algorithm'],'sha512')

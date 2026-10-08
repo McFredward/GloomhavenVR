@@ -19,11 +19,14 @@ from urllib.parse import parse_qs, unquote, urlsplit
 import webbrowser
 
 import discovery
+import host_paths
 from state import STAGES, WizardError, ordinary
 from wizard import Engine, REPO, choices
 
 
 def browse(kind):
+    if os.name != "nt":
+        return host_paths.browse_linux(kind)
     if kind == "apk" and os.name == "nt":
         return browse_apk()
     if os.name != "nt" or kind not in ("game", "unity"):
@@ -60,7 +63,7 @@ def browse(kind):
             if not shell.SHGetPathFromIDListW(item, output): raise WizardError("browse_failed", "Selected folder is not a filesystem path.", "Der ausgewählte Ordner ist kein Dateisystempfad.")
             path = Path(output.value)
             if kind == "unity":
-                path = next((candidate for candidate in (path / "Unity.exe", path / "Editor/Unity.exe") if candidate.is_file()), path / "Unity.exe")
+                return host_paths.editor_path(path, windows=True)
             return str(path)
         finally: ole.CoTaskMemFree(item)
     finally: ole.CoUninitialize()
@@ -412,7 +415,10 @@ class Handler(BaseHTTPRequestHandler):
                 folder = ordinary(self.server.store.session_dir(session) / "logs")
                 paths = [(stage + ".log", ordinary(folder / (stage + ".log")))]
                 if stage == "unity":
-                    for name in ("unity-install.log", "unity-license-probe.log", "unity-license-process.log", "unity-version.log"):
+                    for name in ("unity-install.log", "unity-license-probe.log", "unity-license-process.log", "unity-version.log",
+                                 "unity-hub-help.log", "unity-hub-window.log", "unity-install-path.log",
+                                 "unity-protocol-query.log", "unity-protocol-recheck.log",
+                                 "unity-protocol-register.log", "unity-protocol-confirm.log"):
                         paths.append((name, ordinary(folder / name)))
                 elif stage == "build":
                     module = discovery.local_support_module(REPO, "support")

@@ -79,7 +79,14 @@ class Engine:
             # A user may replace an APK at the same selected path. File path
             # equality must never authorize reuse of the preceding update.
             base_identity = digest(apk)
-        return value_hash({**({"releaseIdentity": release_identity} if release_identity else {}), "choices": {name: state["choices"].get(name) for name in names}, "stage": stage, "pins": value_hash(provision.LOCK),
+        # Adding a Linux host must not invalidate the pinned Windows recipes in
+        # already completed sessions. Host-specific tools cannot be reused when
+        # a workspace is moved to a different operating system.
+        pins = {name: spec for name, spec in provision.LOCK.items() if name != "linux"}
+        if os.name != "nt":
+            pins.update(provision.LOCK.get("linux", {}))
+            pins["host"] = "linux-x64"
+        return value_hash({**({"releaseIdentity": release_identity} if release_identity else {}), "choices": {name: state["choices"].get(name) for name in names}, "stage": stage, "pins": value_hash(pins),
                            **({"baseApkSha256": base_identity} if base_identity else {}),
                            **({"prerequisitePolicy": 2} if stage == "unity" else {}), "dependencies": {name: state.get("completed", {}).get(name, {}).get("key") for name in before}})
 
@@ -222,6 +229,14 @@ class Engine:
         self.store.operation(state["session"], "tools", "qualify", detail="Checking available memory, disk space and supported host.")
         self.qualify(state)
         self.store.operation(state["session"], "tools", "qualify", complete=True, detail="Host capacity checked.")
+        if (os.name != 'nt' and state['choices'].get('provider') == 'steam'
+                and state['choices'].get('mode', 'build') != 'update-profile'
+                and 'ownedDlc' not in state['choices']):
+            # The original Windows Steam DLL cannot be loaded by a Linux host.
+            # Ask before provisioning/import, rather than failing hours later.
+            raise WizardError('linux_dlc_required',
+                              'Select your purchased DLCs in the setup form before building on Linux. An empty selection declares base game only.',
+                              'Vor dem Linux-Build die gekauften DLCs in der Auswahl angeben. Eine leere Auswahl bedeutet nur das Basisspiel.')
         if state["choices"].get("mode") == "update-profile":
             return provision.profile_tools(self.store, state["session"], supervisor)
         return provision.tools(self.store, state["session"], supervisor)

@@ -62,6 +62,8 @@ test('ownership is never inferred from selected checkboxes unless explicitly dec
   const base={gameRoot:' C:\\Owned Game ',provider:'gog',ownedDlc:['jotl'],install:true};
   assert.deepEqual(choicesFromForm(base,'de'),{gameRoot:'C:\\Owned Game',provider:'gog',mode:'build',install:true,acceptUnityTerms:false,language:'de'});
   assert.deepEqual(choicesFromForm({...base,declareDlc:true,ownedDlc:[]},'de').ownedDlc,[]);
+  assert.throws(()=>choicesFromForm({...base,hostSystem:'Linux',provider:'steam'},'de'),/linuxDlcRequired/);
+  assert.deepEqual(choicesFromForm({...base,hostSystem:'Linux',provider:'steam',declareDlc:true,ownedDlc:['solo']},'de').ownedDlc,['solo']);
   assert.deepEqual(choicesFromForm({...base,declareDlc:true,ownedDlc:['solo','solo','not-dlc','jotl']},'de').ownedDlc,['solo','jotl']);
   assert.throws(()=>choicesFromForm({gameRoot:' '},'de'),/missingGame/);
   assert.throws(()=>choicesFromForm({...base,profileName:'Name'},'de'),/missingProfile/);

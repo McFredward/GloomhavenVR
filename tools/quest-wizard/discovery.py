@@ -5,12 +5,15 @@ import json
 import math
 import os
 from pathlib import Path
+import platform
 import re
+import shutil
 import sys
 import subprocess
 import threading
 
 from state import WizardError, read_json, value_hash
+import host_paths
 
 
 _LOADER_LOCK = threading.RLock()
@@ -86,13 +89,30 @@ def mod_source(repo, commit=None):
     return result
 
 
-def unity_paths():
+def unity_paths(workspace=None):
     editors, hubs = [], []
-    program = Path(os.environ.get("PROGRAMFILES", r"C:\Program Files"))
-    hub = program / "Unity Hub/Unity Hub.exe"
-    if hub.is_file(): hubs.append(str(hub))
-    candidates = list((program / "Unity/Hub/Editor").glob("*/Editor/Unity.exe"))
-    registry = Path(os.environ.get("APPDATA", "")) / "UnityHub/editors-v2.json"
+    if os.name == "nt":
+        program = Path(os.environ.get("PROGRAMFILES", r"C:\Program Files"))
+        hub_candidates = [program / "Unity Hub/Unity Hub.exe"]
+        candidates = list((program / "Unity/Hub/Editor").glob("*/Editor/Unity.exe"))
+        registry = Path(os.environ.get("APPDATA", "")) / "UnityHub/editors-v2.json"
+    else:
+        home = Path.home()
+        hub_candidates = [Path(value) for value in [shutil.which("unityhub")] if value]
+        local = Path(workspace) if workspace is not None else home / ".ghvrq"
+        hub_candidates += sorted((local / "tools").glob("unity-hub-*/UnityHub.AppImage"))
+        candidates = list((home / "Unity/Hub/Editor").glob("*/Editor/Unity"))
+        candidates += list((local / "tools/unity-editors").glob("*/Editor/Unity"))
+        candidates += list((home / "Unity/Hub/Editor").glob("*/Unity"))
+        # A manually configured Editor remains usable even when it was not
+        # installed at Hub's default location. No directory tree is scanned.
+        if os.environ.get("UNITY_EDITOR_PATH"):
+            candidates.append(Path(os.environ["UNITY_EDITOR_PATH"]))
+        registry = Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config") / "UnityHub/editors-v2.json"
+    for hub in hub_candidates:
+        if hub.is_file() and (os.name == "nt" or os.access(hub, os.X_OK)):
+            resolved = str(hub.resolve())
+            if resolved not in hubs: hubs.append(resolved)
     if registry.is_file() and registry.stat().st_size <= 262144:
         try:
             value = json.loads(registry.read_text(encoding="utf-8"))
@@ -100,9 +120,11 @@ def unity_paths():
             for row in entries:
                 if isinstance(row, dict) and isinstance(row.get("location"), str): candidates.append(Path(row["location"]))
         except (OSError, ValueError, AttributeError): pass
-    for path in sorted(set(candidates)):
-        if path.is_dir(): path /= "Editor/Unity.exe"
-        if path.is_file():
+    seen = set()
+    for path in sorted(set(candidates), key=lambda path: path.as_posix()):
+        path = Path(host_paths.editor_path(path, windows=os.name == "nt"))
+        if path.is_file() and str(path) not in seen:
+            seen.add(str(path))
             editors.append({"path": str(path), "version": path.parent.parent.name,
                             "androidSupport": (path.parent / "Data/PlaybackEngines/AndroidPlayer/NDK/source.properties").is_file()})
     return editors, hubs
@@ -179,7 +201,13 @@ def discover(repo, store):
                         if str(winreg.QueryValueEx(key, "gameName")[0]).casefold() == "gloomhaven":
                             candidates.append(("gog", Path(winreg.QueryValueEx(key, "path")[0])))
         except OSError: pass
-    candidates.append(("gog", Path(r"C:\GOG Games\Gloomhaven")))
+    if os.name == "nt":
+        candidates.append(("gog", Path(r"C:\GOG Games\Gloomhaven")))
+    else:
+        # Non-Steam installations can always be selected explicitly. These
+        # common user folders are candidates, never evidence of DLC ownership.
+        candidates.extend(("gog", path) for path in (Path.home() / "GOG Games/Gloomhaven",
+                                                     Path.home() / "Games/Gloomhaven"))
     seen = set()
     for provider, root in candidates:
         try: helper.game_data(root)
@@ -190,8 +218,9 @@ def discover(repo, store):
         games.append({"id": value_hash(identity)[:32], "provider": provider, "gameRoot": identity[1],
                       "displayName": "Gloomhaven", "profileAvailable": provider == "steam",
                       "ownershipComplete": False})
-    editors, hubs = unity_paths()
+    editors, hubs = unity_paths(store.root)
     recent, latest = recent_sessions(store)
     return {"schema": 1, "event": "discovery", "modSource": mod_source(repo), "games": games, "unityEditors": editors, "unityHubs": hubs,
             "recentSessions": recent, "latestSession": latest,
-            "capabilities": {"browse": os.name == "nt", "artwork": False, "logs": True, "support": True, "spaceEstimate": True, "capture": False, "cleanCache": False}}
+            "host": {"system": platform.system(), "machine": platform.machine()},
+            "capabilities": {"browse": host_paths.browse_available(), "artwork": False, "logs": True, "support": True, "spaceEstimate": True, "capture": False, "cleanCache": False}}
