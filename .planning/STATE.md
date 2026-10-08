@@ -1,5 +1,33 @@
 # State — where the project stands
 
+**Quest Windows CRLF retry with ModBuild 642, 2026-10-08 (Builder only).**
+
+Capture `quest-build-support-20261008T065008Z-a3cf3b9e.zip` is published source
+`24ea5928b` / ModBuild640. It reused all16 original packages and committed six
+staging phases, then failed while auditing `Assets/GameObject/UI Quest Marker.prefab`.
+The byte-backed parser missed CRLF Unity headers. Ten read-only original prefabs
+reproduce the former failure and preserve all131 pointer spans with the repair.
+Native YAML errors now include the asset path and retain the original cause.
+
+An exact reviewed observer-source alias retains the640 staging workspace and
+journal; other transformation/game changes still receive their own keys. Actual
+Builder/raw-binding/Journal regressions retain16 packages and six closed phases,
+retry only native work, and reject corrupted bytes or ownership. The integrated
+repair gate passes180/180 cases in13 affected modules. Current dev642 is an
+ancestor through reviewed merge `1e0d5c780`; published Quest history is intact.
+Runtime source comparisons retain29 new dev paths and41 existing Quest paths.
+Strict Release/Debug0/0, source16/16 and platform3081/17 controls pass on those
+exact runtime sources. CPU, authored banks and camera evidence is inherited by
+source hashes. Suite-inventory tests pass16 with two existing optional skips.
+
+The exact extracted ZIP must pass isolated discovery, retained-session and source
+identity checks before publication. Keep the existing work/state folders and
+continue the same session; completed staging phases are reused after their byte
+proofs are qualified. No full Windows build, Unity import, shader sweep, Player/APK
+or headset success is claimed. See [diagnosis and continuation](QUEST-BUILD-CRLF-20261008.md).
+
+---
+
 **Quest Windows retry with current ModBuild 640, 2026-10-08 (Builder only).**
 
 Quest stays on `feature/quest3-standalone`. Seven unpublished repair commits were
