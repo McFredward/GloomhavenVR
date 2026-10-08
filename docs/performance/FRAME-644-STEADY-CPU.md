@@ -152,6 +152,39 @@ must price the new masked-source work exclusion separately with the options open
 and closed in the same loaded view. The final 643 scene census never completed,
 so older renderer totals are not current evidence.
 
-Validation and compiled integration receipts are recorded after the focused
-runtime checks; automated render/ownership tests do not establish headset FPS or
-multiplayer acceptance. A paired multiplayer run is still required.
+## Validation and retained evidence
+
+Strict Debug and Release builds pass with zero warnings/errors. All 16 source
+suites pass. The complete local invocation executed all 170 suites: 167 passed,
+and three unchanged NPC suites initially failed. The public-catalog negative
+control threw an unexpected Mono ConditionalWeakTable InvalidCastException before
+its intended target; production, the isolated control and the entire 20-variant
+suite passed on repetition. Two 1-second first-picture deadlines measured
+1.266/1.117 seconds under six-job load; serial repetitions passed at
+0.888/0.874 seconds without changing code or deadlines. Both exact NPC source-hash
+maps match their initial runs. All 170 current suite IDs have passing evidence;
+**there is no single newly green complete invocation**. Preserve the initial
+failed report and the explicitly partial repeats rather than rewriting its result.
+
+The separately executed byte-exact wire vectors pass **299,711 assertions**;
+the complete wrapper stops before these when a suite fails. Current actual-Unity
+terrain passes 387 assertions across 79 production/causal variants, environment
+passes 11,450 across 92 variants, and world-material/wall delivery passes 736
+across 20 variants. Profile boundaries pass 281 assertions; bilingual player-help,
+UI notes and shared local/multiplayer read/callback controls also pass. Test-only
+independent-read references remain injected controls, not player switches.
+
+Private compiled baseline/current snapshots retain the same 1,237 types, files,
+resources and references. Twenty types differ: twelve owned rendering/config/UI
+implementations and eight exact 643-to-644 build constants. No NPC algorithm,
+authoritative game command or wire layout changes. All type differences were
+reviewed; full snapshots and per-type diffs are retained. Worker UI, terrain and
+wall archives and both policy reviews are independently SHA-verified before
+removing their worktrees. The candidate archive preserves generated sources,
+actual test assemblies, pixels, reports, failed attempts and compiled snapshots;
+rebuildable Unity/MSBuild caches and byte-identical readonly dependencies are
+excluded explicitly. Cleanup preserves other agents and shared game references.
+
+Automated render/ownership tests do not establish headset FPS, original Windows
+shader pixels or multiplayer acceptance. A new Frame and paired multiplayer run
+are still required. Receipts live in `.planning/debug/frame643-followup/`.

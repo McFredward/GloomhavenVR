@@ -634,6 +634,10 @@ internal static class NetProtocol
     // hiding, idle throttling, native static batching, mesh/shader bank, gameplay
     // command or wire layout change. Scoped automated evidence and next hardware
     // comparison: docs/performance/FRAME-644-STEADY-CPU.md. VR peers install644.
+    // Strict Debug/Release0/0; source16; full170initial167 plus3exact-source
+    // NPC scoped repeats pass with unchanged deadlines (not onegreenfullrun).
+    // Separate299711 golden assertions; fresh Unity terrain387/79variants,
+    // environment11450/92 andworld-wall736/20. Headset FPS andMP remain unverified.
 
     // ModBuild643 — integrate checked Frame native-presentation follow-up on642.
     // A late enabled backbuffer camera could bypass CapturedSet before its first

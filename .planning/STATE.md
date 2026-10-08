@@ -37,9 +37,14 @@ exclusion is introduced. Both PC and standalone use the same automatic repairs.
 Evidence, tested scope and next On/Off/On comparison are recorded in
 [the644 performance review](../docs/performance/FRAME-644-STEADY-CPU.md), with
 frozen hardware inputs and independently verified worker proofs under
-`.planning/debug/frame643-followup/`. Unchanged643/NPC639/crossplay641 evidence
-is retained; no new complete170-suite or multiplayer/headset acceptance is
-claimed. No whole-room hiding,2.5D board, idle throttling, native static batching,
+`.planning/debug/frame643-followup/`. Current strict Debug/Release0/0 and16source
+suites pass. Full170 execution initially passes167; the3 unchanged NPC failures
+pass in explicit complete affected/serial repeats with identical source hashes
+and unchanged1s deadlines. All170 IDs have passing evidence, not a single new
+all-green invocation. Separate wire vectors pass299711 assertions; actual Unity
+terrain387/79variants, environment11450/92 andworld+wall736/20 pass. Private
+compiled snapshots retain1237types;20 diffs include8exact build constants. No
+new multiplayer/headset acceptance is claimed. No whole-room hiding,2.5D board, idle throttling, native static batching,
 shader/mesh bank, gameplay command or wire layout change. VR peers install644.
 
 ---
