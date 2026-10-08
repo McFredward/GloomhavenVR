@@ -2183,6 +2183,54 @@
         "local"
       ],
       "weight": 60
+    },
+    {
+      "id": "npc646-merchant-caption",
+      "command": [
+        "python3",
+        "scripts/merchant-caption646-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 45
+    },
+    {
+      "id": "npc646-mage-replacement",
+      "command": [
+        "python3",
+        "scripts/npc-admission646-runtime/run.py",
+        "--prior-inflight",
+        "--pre-offer-growth",
+        "--required35"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 60
+    },
+    {
+      "id": "npc646-mage-census",
+      "command": [
+        "python3",
+        "scripts/npc-admission646-runtime/run.py",
+        "--census-only"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 45
+    },
+    {
+      "id": "npc646-card-returns",
+      "command": [
+        "python3",
+        "scripts/npc-return646-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 40
     }
   ]
 }

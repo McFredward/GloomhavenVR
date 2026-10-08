@@ -1,5 +1,31 @@
 # State — where the project stands
 
+**Build646 paired NPC and map-entry follow-up, 2026-10-08: 1.1.0 development candidate.**
+
+Both supplied peers ran645. Obsolete cumulative artwork prevented replacement
+of the current fragmented mage picture; retiring a pooled holder also destroyed
+still-current original children. Complete current originals now supersede only
+older exact-source revisions, preserving newer named dependencies. Retained
+census children survive holder retirement/replacement with their displayed
+geometry, alpha and native clocks intact; real withdrawal stays immediate.
+
+The exact old35-visible/66-prepared case takes1.8737s; combined646 renders the
+complete native picture in0.9498s under the unchanged1s local deadline. Sparse
+native return clocks also survive newer artwork instead of reverting to sampled
+root motion. Merchant cabinet prices/quantity are centered and enlarged using
+original widgets, without duplicate item names/icons or changed economic data.
+Map entry/recenter bounds eyes0.70–1.05m above parchment, correcting the visitor's
+measured1.95m ceiling-height entry while leaving subsequent movement free.
+
+Focused actual-source Unity, transport, build and compiled-scope evidence is
+recorded in [NPC-646-REVIEW.md](NPC-646-REVIEW.md) and its linked subreviews.
+This is not a new complete176-suite or headset pass. The suite inventory now
+includes645/646 native fixtures; CI93/source16 are unchanged. Retains645 ring/
+hover and644 Frame policy with no gameplay, wire-layout or Frame-profile change.
+Both VR peers install646 for the next hardware run.
+
+---
+
 **Build645 NPC motion repair, 2026-10-08: 1.1.0 development candidate.**
 
 The paired Build643 report and supplied enhancement-list video reproduce two
