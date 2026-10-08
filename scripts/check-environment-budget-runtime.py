@@ -151,6 +151,28 @@ def main():
             variants.append((name,source,expected)); attachment_variants[name] = attachment_source.replace(before,after)
     if not args.production_only:
         changes = [
+            ('room-floor-board-follow-missing',
+             'if (!RoomFloor) return true;', 'if (!RoomFloor || bool.Parse("true")) return true;',
+             'moved private floor pixels match current native board geometry: tile translation', 1),
+            ('room-floor-fixed-host-matrices',
+             '&& (RoomFloor ? TryTileMatrix(source, RoomTile, out Matrix4x4 tileMatrix) && tileMatrix == Matrices[i]\n                        : inverse * r.transform.localToWorldMatrix == Matrices[i]);',
+             '&& inverse * r.transform.localToWorldMatrix == Matrices[i];',
+             'private room-floor chunk retains both camera leases after native board pose change: tile translation', 1),
+            ('room-floor-source-local-pose-ignored',
+             'tileMatrix == Matrices[i]', 'true',
+             'individual floor movement revokes the following chunk instead of moving stale combined geometry', 1),
+            ('room-floor-unsafe-board-frame-admitted',
+             'if (!UniformFrame(RoomTile, out float tileScale) || !UniformFrame(parent, out float parentScale)) return false;',
+             'float tileScale = RoomTile!.lossyScale.x; float parentScale = parent!.lossyScale.x;',
+             'following floor chunk preserves native fallback for unsupported board or source state: nonuniform tile scale', 1),
+            ('room-floor-final-pose-follow-missing',
+             'foreach (Batch batch in _batches) batch.FinishRoomPose();',
+             '/* injected: late common board movement leaves a stale private floor pose */',
+             'late native board movement updates the private floor pose before actual camera culling', 1),
+            ('room-floor-final-unsafe-frame-unmask-missing',
+             'if (_owned && RoomFloor && !FollowRoomTile()) Unmask();',
+             'if (_owned && RoomFloor) _ = FollowRoomTile();',
+             'late unsupported board pose restores original floor renderers before native culling', 1),
             ('room-floor-ownership-lanes-merged',
              '_kind = surface.RoomFloor ? 2 : surface.Structural ? 1 : 0;', '_kind = 0;',
              'shared native materials and bounds keep room-floor ownership separate from legacy floor groups', 1),
@@ -238,7 +260,12 @@ def main():
         ]
         for name, before, after, expected, occurrences in changes:
             assert source.count(before) == occurrences, 'negative control binding drift: '+name
-            variants.append((name,source.replace(before,after),expected))
+            changed = source.replace(before,after)
+            if name == 'room-floor-fixed-host-matrices':
+                follow = 'if (!RoomFloor) return true;'
+                assert changed.count(follow) == 1, 'Old fixed-host pose causal binding drift'
+                changed = changed.replace(follow, 'if (!RoomFloor || bool.Parse("true")) return true;')
+            variants.append((name,changed,expected))
         storage = 'private readonly Dictionary<Material, bool> _preCullMaterialVerdicts = new();'
         entry_clear = '_preCullMaterialVerdicts.Clear();\n            _dead.Clear();'
         assert source.count(storage) == 1 and source.count(entry_clear) == 1, 'material storage control binding drift'

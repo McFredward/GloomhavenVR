@@ -207,4 +207,151 @@ public static partial class EnvironmentProgram
             ScenarioEnvironmentBudget.ConfigureTerrainIntegration(_=>{},_=>{},_=>{},()=>{},_=>false);
         }
     }
+
+    private static void RoomFloorBoardMotion()
+    {
+        using var room = new Room();
+        Mesh native = room.Mesh();
+        var first = room.Surface("VerifiedMotionFloorOne", x: 1f);
+        var second = room.Surface("VerifiedMotionFloorTwo", x: 2f);
+        first.GetComponent<MeshFilter>().sharedMesh = native;
+        second.GetComponent<MeshFilter>().sharedMesh = native;
+        bool enabled = true;
+        ScenarioEnvironmentBudget.ConfigureRoomFloorGrouping(() => enabled, mesh => mesh == native,
+            (Renderer renderer, out Mesh mesh) => { mesh = native; return true; });
+        try
+        {
+            ScenarioEnvironmentBudget.Placed(room.Generated);
+            ScenarioEnvironmentBudget.BeforeLoadingComplete();
+            Check(room.Chunks().Length == 1, "board motion fixture prepares one private room-floor chunk");
+            MeshRenderer chunk = room.Chunks()[0];
+            Mesh combined = chunk.GetComponent<MeshFilter>().sharedMesh;
+            Check(chunk.transform.IsChildOf(room.Host.transform) && !chunk.transform.IsChildOf(room.Tile.transform),
+                "moving room-floor chunk remains outside native tile and scenario clone roots");
+            void Lease(string step)
+            {
+                bool leased = false;
+                room.Camera.transform.position = room.Tile.transform.TransformPoint(new Vector3(1.5f, 8f, 0f));
+                room.Camera.transform.rotation = room.Tile.transform.rotation * Quaternion.Euler(90f, 0f, 0f);
+                room.Camera.orthographicSize = 3f * room.Tile.transform.lossyScale.x;
+                long sourcesBefore = PerfMonitor.Counts.TryGetValue("Environment.RoomFloorSources", out long sourceCount) ? sourceCount : 0;
+                long groupsBefore = PerfMonitor.Counts.TryGetValue("Environment.RoomFloorGroups", out long groupCount) ? groupCount : 0;
+                room.ObserveRender = () => leased = first.forceRenderingOff && second.forceRenderingOff && chunk.enabled;
+                Color32[] actual = room.Render(); room.ObserveRender = null;
+                long sources = PerfMonitor.Counts["Environment.RoomFloorSources"] - sourcesBefore;
+                long groups = PerfMonitor.Counts["Environment.RoomFloorGroups"] - groupsBefore;
+                UnityEngine.Debug.Log("Room floor board motion " + step + ": leased=" + leased
+                    + ", cameraSources=" + sources + ", cameraGroups=" + groups);
+                Check(leased && sources == 2 && groups == 1,
+                    "private room-floor chunk retains both camera leases after native board pose change: " + step);
+                Check(chunk.GetComponent<MeshFilter>().sharedMesh == combined && room.Chunks().Length == 1,
+                    "native board pose changes reuse the prepared private mesh without rebuilding geometry: " + step);
+                enabled = false; Color32[] original = room.Render(); enabled = true;
+                int visible = 0;
+                for (int i = 0; i < actual.Length; i++)
+                {
+                    Check(actual[i].Equals(original[i]), "moved private floor pixels match current native board geometry: " + step);
+                    if (actual[i].r != 0 || actual[i].g != 0 || actual[i].b != 0) visible++;
+                }
+                Check(visible > 10, "moved floor pose comparison contains actual visible pixels: " + step);
+            }
+            Lease("initial");
+            room.Tile.transform.localPosition = new Vector3(.3f, .2f, -.4f); Lease("tile translation");
+            room.Tile.transform.localRotation = Quaternion.Euler(11f, 23f, 7f); Lease("tile rotation");
+            room.Tile.transform.localScale = Vector3.one * .72f; Lease("tile uniform scale");
+            room.Root.transform.position = new Vector3(.6f, -.2f, .3f);
+            room.Root.transform.rotation = Quaternion.Euler(8f, -31f, 12f);
+            room.Root.transform.localScale = Vector3.one * 1.3f; Lease("scenario recenter and uniform scale");
+            Vector3 sourcePosition = first.transform.localPosition;
+            first.transform.localPosition += new Vector3(.15f, 0f, 0f);
+            bool nativeDraw = false;
+            room.ObserveRender = () => nativeDraw = !first.forceRenderingOff && !second.forceRenderingOff && !chunk.enabled;
+            room.Render(); room.ObserveRender = null;
+            Check(nativeDraw, "individual floor movement revokes the following chunk instead of moving stale combined geometry");
+            first.transform.localPosition = sourcePosition; Lease("source restored");
+            void NativeFallback(string reason)
+            {
+                nativeDraw = false;
+                long sourcesBefore = PerfMonitor.Counts["Environment.RoomFloorSources"];
+                room.ObserveRender = () => nativeDraw = !first.forceRenderingOff && !second.forceRenderingOff && !chunk.enabled;
+                room.Render(); room.ObserveRender = null;
+                Check(nativeDraw && PerfMonitor.Counts["Environment.RoomFloorSources"] == sourcesBefore,
+                    "following floor chunk preserves native fallback for unsupported board or source state: " + reason);
+            }
+            room.Tile.transform.localScale = new Vector3(1.4f, 1f, 1f); NativeFallback("nonuniform tile scale");
+            room.Tile.transform.localScale = new Vector3(-1f, 1f, 1f); NativeFallback("negative tile scale");
+            room.Tile.transform.localScale = new Vector3(-1f, -1f, 1f); NativeFallback("two negative tile axes");
+            room.Tile.transform.localScale = Vector3.one * .72f;
+            room.Root.transform.localScale = new Vector3(1f, 1.3f, .8f); NativeFallback("sheared rotated ancestry");
+            room.Root.transform.localScale = Vector3.one * 1.3f; Lease("supported board pose restored");
+            room.Host.transform.position = new Vector3(.2f, -.1f, .4f);
+            room.Host.transform.rotation = Quaternion.Euler(-7f, 18f, 4f);
+            room.Host.transform.localScale = Vector3.one * .8f; Lease("private host moved independently");
+            room.Host.transform.localScale = new Vector3(-1f, -1f, 1f); NativeFallback("negative private host ancestry");
+            room.Host.transform.localScale = Vector3.one * .8f;
+            var effect = new MaterialPropertyBlock(); effect.SetColor("_Tint", Color.green);
+            first.SetPropertyBlock(effect); NativeFallback("native source property override"); first.SetPropertyBlock(null);
+            second.sharedMaterial = room.Material(); NativeFallback("native source material replacement"); second.sharedMaterial = room.Original;
+            second.enabled = false; NativeFallback("native source visibility"); second.enabled = true;
+            Lease("native source states restored");
+            ScenarioEnvironmentBudget.BeforeNativeContentChange();
+            GameObject clone = UnityEngine.Object.Instantiate(room.Root);
+            try
+            {
+                Check(clone.GetComponentsInChildren<MeshRenderer>(true).Length == 2
+                    && Array.TrueForAll(clone.GetComponentsInChildren<MeshRenderer>(true), r => !r.forceRenderingOff),
+                    "native scenario cloning after board motion contains only original unmasked floor renderers");
+            }
+            finally { UnityEngine.Object.DestroyImmediate(clone); }
+
+            bool finalLease = false, finalPose = false;
+            Camera.CameraCallback finalObserve = camera =>
+            {
+                if (camera != room.Camera) return;
+                finalLease = first.forceRenderingOff && second.forceRenderingOff && chunk.enabled;
+                finalPose = (chunk.transform.position - room.Tile.transform.position).sqrMagnitude < 1e-9f
+                    && Quaternion.Angle(chunk.transform.rotation, room.Tile.transform.rotation) < .01f;
+            };
+            room.ObserveRender = () => room.Tile.transform.localPosition += new Vector3(.17f, .05f, -.08f);
+            Camera.onPreRender += finalObserve;
+            Color32[] latePixels;
+            try { latePixels = room.Render(); }
+            finally { Camera.onPreRender -= finalObserve; room.ObserveRender = null; }
+            Check(finalLease && finalPose && chunk.GetComponent<MeshFilter>().sharedMesh == combined,
+                "late native board movement updates the private floor pose before actual camera culling");
+            enabled = false; Color32[] lateOriginal = room.Render(); enabled = true;
+            for (int i = 0; i < latePixels.Length; i++)
+                Check(latePixels[i].Equals(lateOriginal[i]), "late moved private floor pixels match current native board geometry");
+            room.ObserveRender = () => room.Tile.transform.localScale = new Vector3(1.2f, 1f, 1f);
+            bool lateNative = false;
+            Camera.CameraCallback lateObserve = camera =>
+            {
+                if (camera == room.Camera) lateNative = !first.forceRenderingOff && !second.forceRenderingOff && !chunk.enabled;
+            };
+            long lateSourcesBefore = PerfMonitor.Counts["Environment.RoomFloorSources"];
+            Camera.onPreRender += lateObserve;
+            try { room.Render(); }
+            finally { Camera.onPreRender -= lateObserve; room.ObserveRender = null; }
+            Check(lateNative && PerfMonitor.Counts["Environment.RoomFloorSources"] == lateSourcesBefore,
+                "late unsupported board pose restores original floor renderers before native culling");
+            room.Tile.transform.localScale = Vector3.one * .72f; Lease("late board pose restored");
+            room.ObserveRender = () =>
+            {
+                ScenarioEnvironmentBudget.BeforeNativeRendererWrite(first);
+                first.transform.localPosition += new Vector3(.15f, 0f, 0f);
+            };
+            lateNative = false; Camera.onPreRender += lateObserve;
+            try { room.Render(); }
+            finally { Camera.onPreRender -= lateObserve; room.ObserveRender = null; }
+            Check(lateNative && !ScenarioEnvironmentBudget.HasPreparedRoomFloorGroup(second),
+                "late native source writer retires the following group before publishing independent geometry");
+        }
+        finally
+        {
+            room.ObserveRender = null;
+            ScenarioEnvironmentBudget.ConfigureRoomFloorGrouping(() => false, _ => false,
+                (Renderer renderer, out Mesh mesh) => { mesh = null!; return false; });
+        }
+    }
+
 }
