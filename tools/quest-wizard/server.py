@@ -1,6 +1,7 @@
 """Token-protected loopback-only HTTP adapter for the local wizard engine."""
 from __future__ import annotations
 import ctypes
+import copy
 from datetime import datetime, timezone
 import hmac
 import importlib.util
@@ -10,6 +11,7 @@ import mimetypes
 import os
 from pathlib import Path, PurePosixPath
 import secrets
+import shutil
 import re
 import threading
 import traceback
@@ -105,6 +107,10 @@ class LocalServer(ThreadingHTTPServer):
         self.artwork_cache, self.artwork_lock = {}, threading.Lock()
         self.mod_source_cache = {}
         self.action_lock = threading.Lock()
+        self.storage_lock = threading.Lock()
+        self.storage_job = None
+        self.storage_state = {"status": "idle"}
+        self.storage_plan = None
         self.promo = None
         if promotional:
             from promotional import Gallery
@@ -182,7 +188,7 @@ class LocalServer(ThreadingHTTPServer):
     def run_session(self, session):
         self.store.load(session)
         with self.jobs_lock:
-            if any(job.is_alive() for job in self.jobs.values()):
+            if any(job.is_alive() for job in self.jobs.values()) or self.storage_job and self.storage_job.is_alive():
                 raise WizardError("already_running", "Another wizard run owns this workspace.", "Ein anderer Wizard-Lauf verwendet diesen Arbeitsordner.")
             def work():
                 try: self.engine_factory(self.store).run(session)
@@ -201,12 +207,84 @@ class LocalServer(ThreadingHTTPServer):
             self.job_errors.pop(session, None)
             self.jobs[session] = job; job.start()
 
+    def storage_status(self):
+        with self.storage_lock:
+            value = copy.deepcopy(self.storage_state)
+        return {"schema": 1, "event": "storage", "state": value,
+                "workspaceRoot": str(self.store.root), "freeBytes": shutil.disk_usage(self.store.root).free}
+
+    def storage_log(self, event, **details):
+        """Bounded operation summaries survive cache cleanup and support export."""
+        try:
+            path = ordinary(self.store.root / "logs/storage-cleanup.log")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if path.exists() and path.stat().st_size >= 1048576:
+                os.replace(path, path.with_name("storage-cleanup.previous.log"))
+            with path.open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps({"time": datetime.now(timezone.utc).isoformat(), "event": event,
+                                         **details}, ensure_ascii=False) + "\n")
+        except OSError:
+            pass  # A full drive must still permit preview and actual reclamation.
+
+    def manage_storage(self, *, mode=None, plan_id=None):
+        """Keep previews and deletions responsive and separate from active builds."""
+        import cleanup
+        with self.jobs_lock:
+            if any(job.is_alive() for job in self.jobs.values()) or self.storage_job and self.storage_job.is_alive():
+                raise WizardError("already_running", "Stop the active operation before managing storage.",
+                                  "Den laufenden Vorgang vor der Speicherbereinigung anhalten.")
+            deleting = plan_id is not None
+            if deleting:
+                if self.storage_plan is None or self.storage_plan["id"] != plan_id:
+                    raise WizardError("cleanup_preview", "Refresh the storage preview before deleting files.",
+                                      "Vor dem Löschen die Speichervorschau erneut erstellen.")
+                selected = self.storage_plan
+            else:
+                if mode not in ("duplicates", "build-cache"):
+                    raise WizardError("cleanup_mode", "Unsupported cleanup selection.", "Ungültige Auswahl für die Bereinigung.")
+                self.storage_plan = None
+                selected = None
+            with self.storage_lock:
+                self.storage_state = {"status": "deleting" if deleting else "planning", "phase": "starting",
+                                      "done": 0, "total": None, **({"plan": selected} if selected else {})}
+            def progress(value):
+                with self.storage_lock:
+                    self.storage_state.update(value)
+            def work():
+                try:
+                    if deleting:
+                        result = cleanup.execute(self.store.root, selected, progress=progress)
+                        self.storage_log("completed", mode=selected["mode"], **result)
+                        with self.storage_lock:
+                            self.storage_plan = None
+                            self.storage_state = {"status": "complete", "result": result}
+                    else:
+                        planned = cleanup.plan(self.store.root, mode, progress=progress)
+                        self.storage_log("preview", mode=mode, paths=planned["paths"], bytes=planned["bytes"], files=planned["files"])
+                        with self.storage_lock:
+                            self.storage_plan = planned
+                            self.storage_state = {"status": "preview", "plan": planned}
+                except Exception as error:
+                    code = error.code if isinstance(error, WizardError) else "cleanup_failed"
+                    message = error.message if isinstance(error, WizardError) else {
+                        "en": "Storage cleanup stopped: " + str(error), "de": "Speicherbereinigung angehalten: " + str(error)}
+                    with self.storage_lock:
+                        self.storage_plan = None
+                        self.storage_state = {"status": "failed", "error": {"code": code, "message": message}}
+                    self.storage_log("failed", code=code, message=message)
+                    try: self.request_failure(error)
+                    except (OSError, ImportError, RuntimeError, ValueError): pass
+            self.storage_job = threading.Thread(target=work, name="quest-storage", daemon=False)
+            self.storage_job.start()
+        return self.storage_status()
+
     def close_owned(self):
         # Closing the console/server cancels owned children before allowing the
         # interpreter to exit. Receipts survive; incomplete work stays uncommitted.
         with self.jobs_lock: running = [(session, job) for session, job in self.jobs.items() if job.is_alive()]
         for session, _ in running: self.store.cancel(session)
         for _, job in running: job.join()
+        if self.storage_job: self.storage_job.join()
         if self.promo: self.promo.stop.set()
         self.server_close()
 
@@ -299,6 +377,7 @@ class Handler(BaseHTTPRequestHandler):
             if len(values) != 1: raise WizardError("request_query", "Expected one " + name + " parameter.")
             return values[0]
         if self.command == "GET":
+            if parsed.path == "/api/storage": return self.server.storage_status()
             if parsed.path == "/api/discover": return self.server.discover(REPO, self.server.store)
             if parsed.path == '/api/gallery':
                 return {'schema': 1, 'event': 'gallery', 'artwork': self.server.promo.visible() if self.server.promo else []}
@@ -350,6 +429,13 @@ class Handler(BaseHTTPRequestHandler):
                         "truncated": any(path.stat().st_size > limit for _, path in existing)}
         else:
             value = self.body()
+            if parsed.path == "/api/storage/plan":
+                if set(value) != {"mode"}: raise WizardError("request_body", "Expected a cleanup selection.")
+                return self.server.manage_storage(mode=value["mode"])
+            if parsed.path == "/api/storage/clean":
+                if set(value) != {"planId"} or not isinstance(value["planId"], str):
+                    raise WizardError("request_body", "Expected the current storage preview identity.")
+                return self.server.manage_storage(plan_id=value["planId"])
             if parsed.path == "/api/plan":
                 if set(value) - {"choices", "session"}: raise WizardError("request_body", "Unsupported plan fields.")
                 selected_choices = choices(value["choices"])

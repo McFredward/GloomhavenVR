@@ -138,7 +138,17 @@ OBSERVATION_INPUT_INDEX = {
         "path": "tools/quest-builder/prepare_resume.py", "size": 35360,
         "sha256": "c9b9961b434446566946314e40c8a5be2b9007c04ce78b318dad682a47dfc20e"},
 }
-OBSERVATION_PROFILES = (OBSERVATION_BYTE_WITNESSES, OBSERVATION_FIXED, OBSERVATION_INPUT_INDEX)
+# Restore the historical case-sensitive relative-path order on Windows. Only
+# input enumeration changes: the indexed byte proofs and asset producers remain
+# the complete preceding profile. Preserve old original-conversion owners.
+OBSERVATION_INPUT_ORDER = {
+    **OBSERVATION_INPUT_INDEX,
+    "tools/quest-builder/storage.py": {
+        "path": "tools/quest-builder/storage.py", "size": 54724,
+        "sha256": "40ccd9aa5df2598e2a17471a60992b49261bf80302ab63070285030912d830ff"},
+}
+OBSERVATION_PROFILES = (OBSERVATION_BYTE_WITNESSES, OBSERVATION_FIXED,
+                        OBSERVATION_INPUT_INDEX, OBSERVATION_INPUT_ORDER)
 # Shipped d4cc44eeb adds an exporter-log observer and invocation-local proof
 # caches. The current reference-audit update changes no raw export identities.
 # Preserve this exact whole profile as well as the previous shipped profiles.

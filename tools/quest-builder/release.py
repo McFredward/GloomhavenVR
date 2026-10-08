@@ -37,7 +37,9 @@ LOCAL_DEPENDENCIES = ('libs/RuntimeDeps/', 'libs/Natives/', 'tools/RuntimeDepsBu
 # A source Builder recreates those streams from the player's immutable game;
 # original geometry and its derived receipt never become public ZIP inputs.
 OWNED_DERIVED_ROOTS = ('unity/GloomhavenVR.Assets/Assets/Bundle/EnvironmentMeshes/',)
-OWNED_DERIVED_FILES = {'tools/environment-mesh/bank.json', 'tools/environment-mesh/manifest.json'}
+OWNED_DERIVED_FILES = {'tools/environment-mesh/bank.json', 'tools/environment-mesh/manifest.json',
+                       'tools/environment-mesh/catalog.json', 'tools/environment-mesh/catalog.json.gz',
+                       'tools/environment-mesh/ornaments.json'}
 
 
 def owned_derived_source(name):
@@ -71,6 +73,8 @@ REQUIRED |= PROMOTIONAL_ASSETS | {'tools/quest-wizard-ui/promo-artwork.json',
     'tools/quest-builder/recovery_resume.py',
     'tools/quest-builder/environment_bank.py',
     'tools/environment-mesh/export-native.py',
+    'tools/environment-mesh/geometry.py',
+    'tools/environment-mesh/roles.py',
     'scripts/generate-environment-meshes.py',
     'tools/quest-wizard/stage_plan.py',
     'tools/quest-wizard/timing.py',

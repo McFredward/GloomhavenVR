@@ -29,6 +29,15 @@ PREFIX_MOD_INPUTS = {
     "src/GloomhavenVR/Assets/GloomhavenVR_logo.png",
 }
 PREFIX_UNUSED_TOOLS = {"tools/quest-builder/ui_assets.py", "tools/quest-builder/ui_blur.py"}
+# These authored mod-bank projects and their original-mesh producers first run
+# after startup-archive. They do not produce the closed original-game prefix.
+# The complete prepare() AST still rejects an added earlier consumer.
+PREFIX_MOD_BANK_ROOTS = ("unity/GloomhavenVR.Assets/", "unity/GloomhavenVR.FigureMeshes/",
+                         "tools/environment-mesh/")
+PREFIX_MOD_BANK_HELPERS = {"tools/quest-builder/environment_bank.py"}
+# Inventory/release/support validation is complete before preparation begins.
+# Its immutable records remain qualified; these helpers do not generate assets.
+PREFIX_DELIVERY_HELPERS = {"tools/quest-builder/release.py", "tools/quest-builder/support.py"}
 
 # Exact producer profiles reviewed against the original movie/audio outputs.
 # These are aliases for this repair, never a general exclusion from identity.
@@ -199,6 +208,8 @@ def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=Fal
         # Developer checks and release/install launchers are not read by any
         # producer in this prefix. Keep all conversion tools and template files.
         rows = [row for row in rows if not row["path"].startswith("scripts/")]
+        rows = [row for row in rows if not row["path"].startswith(PREFIX_MOD_BANK_ROOTS)
+                and row["path"] not in PREFIX_MOD_BANK_HELPERS | PREFIX_DELIVERY_HELPERS]
         if ui_unconsumed:
             rows = [row for row in rows if row["path"] not in PREFIX_UNUSED_TOOLS]
     scope = copy.deepcopy({key: value for key, value in inputs.items() if key not in ("inputKey", "mod")})

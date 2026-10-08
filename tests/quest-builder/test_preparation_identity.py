@@ -309,6 +309,19 @@ class ActualPreparationMigrationTests(unittest.TestCase):
         f = self.fixture
         self.stop = False
         f.failure = "graphics"
+        later_banks = (
+            "unity/GloomhavenVR.Assets/Assets/Editor/BuildEnvironmentBank.cs",
+            "unity/GloomhavenVR.Assets/Assets/Bundle/Environments/ScenarioCheapTerrain.shader",
+            "unity/GloomhavenVR.FigureMeshes/Assets/Editor/BuildFigureBank.cs",
+            "tools/environment-mesh/export-native.py",
+            "tools/environment-mesh/geometry.py",
+            "tools/environment-mesh/roles.py",
+            "tools/quest-builder/environment_bank.py",
+            "tools/quest-builder/release.py",
+            "tools/quest-builder/support.py",
+        )
+        for name in later_banks:
+            f.write(f.source, name, b"// Previous later mod-bank producer.\n")
         self.previous = self.inputs()
         self.previous_source = f.output / "inputs/mod" / self.previous["mod"]["key"]
         shutil.copytree(f.source, self.previous_source, dirs_exist_ok=True)
@@ -323,6 +336,8 @@ class ActualPreparationMigrationTests(unittest.TestCase):
         library = f.write(project, "Library/retained-current-import", b"existing original Unity imports")
         f.write(f.source, "src/GloomhavenVR/Net/NewCurrentRuntime.cs", b"// Current runtime used by later weaving.\n")
         f.write(f.source, "scripts/current-runtime-check.py", b"# Current unrelated check.\n")
+        for name in later_banks:
+            f.write(f.source, name, b"// Current later mod-bank producer.\n")
         current = self.inputs()
         self.assertEqual(identity.rebind_key(f.output, project, current, f.source,
                          target="game", recipe=builder.RECIPE, recovery=recovery_resume), self.previous["inputKey"])
@@ -338,6 +353,18 @@ class ActualPreparationMigrationTests(unittest.TestCase):
         self.assertEqual(f.calls, calls)
         self.assertEqual(json.loads(journal.read_text())["inputKey"], current["inputKey"])
         self.assertEqual(library.read_bytes(), b"existing original Unity imports")
+        # The same bank edit is a real input change after its first consumer:
+        # a completed mutable archive can never receive this prefix exemption.
+        value = json.loads(journal.read_text())
+        value["inputKey"] = self.previous["inputKey"]
+        value["steps"] += [
+            {"name": "campaign-shaders", "operation": "graphics", "outputs": []},
+            {"name": "startup-archive", "operation": "mod-banks", "outputs": []},
+        ]
+        value["pending"] = {"name": "package-settings", "operation": "mod-banks", "undo": []}
+        storage.write_json(journal, value)
+        self.assertIsNone(identity.rebind_key(f.output, project, current, f.source,
+                          target="game", recipe=builder.RECIPE, recovery=recovery_resume))
 
     def test_partial_unknown_progress_profile_and_completed_ui_never_receive_transport_alias(self):
         project, journal, _, _ = self.startup_transport_failure()

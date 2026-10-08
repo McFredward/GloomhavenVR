@@ -40,6 +40,9 @@ class ReleaseTests(unittest.TestCase):
             'unity/GloomhavenVR.Assets/Assets/Bundle/EnvironmentMeshes/index.json': b'{"format":1,"entries":["private original"]}',
             'tools/environment-mesh/manifest.json': b'private original derivatives receipt',
             'tools/environment-mesh/bank.json': b'private original native bank receipt',
+            'tools/environment-mesh/catalog.json.gz': b'private complete original mesh ancestry census',
+            'tools/environment-mesh/catalog.json': b'private uncompressed original mesh ancestry census',
+            'tools/environment-mesh/ornaments.json': b'private original decoration graph evidence',
         }
         for name, content in generated.items():
             path = self.root / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(content)
@@ -59,7 +62,8 @@ class ReleaseTests(unittest.TestCase):
         self.assertFalse({row['path'] for row in manifest['files']}.intersection(generated))
         self.assertIn(shader.relative_to(self.root).as_posix(), names)
         for name in ('tools/quest-builder/environment_bank.py', 'tools/environment-mesh/export-native.py',
-                     'scripts/generate-environment-meshes.py'):
+                     'scripts/generate-environment-meshes.py', 'tools/environment-mesh/geometry.py',
+                     'tools/environment-mesh/roles.py'):
             self.assertIn(name, names)
         self.assertIn('original-derived figure/environment mesh banks', report['excluded'])
 
@@ -146,6 +150,17 @@ class SupportTests(unittest.TestCase):
         result = support.export_support(self.root, self.session)
         with zipfile.ZipFile(result['path']) as archive:
             return result, {name: archive.read(name).decode() for name in archive.namelist()}
+    def test_cleanup_operation_summaries_survive_cache_deletion_in_support_archive(self):
+        logs = self.root / 'logs'
+        logs.mkdir()
+        (logs / 'storage-cleanup.log').write_text('{"event":"completed","freedBytes":17754574362,"deletedFiles":5228}\n')
+        (logs / 'storage-cleanup.previous.log').write_text('{"event":"preview","mode":"duplicates"}\n')
+        (logs / 'unrelated-private.txt').write_text('Do not export arbitrary local files')
+        _, files = self.export()
+        selected = {name: raw for name, raw in files.items() if 'storage-cleanup' in name}
+        self.assertEqual(len(selected), 2)
+        self.assertTrue(any('17754574362' in raw for raw in selected.values()))
+        self.assertFalse(any('unrelated-private' in name for name in files))
     def test_failed_running_support_has_identity_errors_and_no_assets_credentials_or_savegame(self):
         log = self.directory / 'logs/build.log'
         log.write_text('Source SecretName 76561198000000001 C:\\PrivateOwnedGame\nAuthorization: Bearer super-secret\naccess_token="another secret"\nMY_SECRET=private-env-value\nCookie: private-cookie\nclientSecret: private-client-secret\nError: missing native entrypoint\n')
