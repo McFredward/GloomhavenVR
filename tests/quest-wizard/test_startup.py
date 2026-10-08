@@ -1,17 +1,25 @@
 """Actual isolated HTTP discovery and pointer-safe Windows folder selection."""
 import ctypes
 from ctypes import wintypes
+import http.client
+import io
+import json
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
 from types import SimpleNamespace
 import unittest
 from unittest import mock
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools/quest-wizard"))
 import server
+import qualification
+import state
+import wizard
 from state import WizardError
 
 
@@ -88,6 +96,40 @@ finally:
 
 
 class StartupTests(unittest.TestCase):
+    def test_low_space_startup_keeps_session_status_and_support_export_available(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = state.Store(Path(directory) / 'workspace')
+            saved = store.create(wizard.choices({'gameRoot': str(Path(directory) / 'Game')}))
+            saved.update(status='blocked', needsActions=[{'code': 'workspace_space_exhausted',
+                         'message': {'en': 'Free space and continue.', 'de': 'Platz freigeben und fortsetzen.'}}])
+            store.event(saved, 'workspace_space_exhausted')
+            ready = threading.Event(); created = []; original = server.LocalServer
+            def create(*args, **kwargs):
+                local = original(*args, **kwargs); created.append(local); ready.set(); return local
+            with mock.patch.object(qualification.shutil, 'disk_usage', return_value=SimpleNamespace(free=1024 * 1024)), \
+                 mock.patch.object(server, 'LocalServer', side_effect=create):
+                thread = threading.Thread(target=server.serve, args=(store, ROOT / 'tools/quest-wizard-ui'), daemon=True)
+                thread.start(); self.assertTrue(ready.wait(10))
+                local = created[0]
+                try:
+                    connection = http.client.HTTPConnection(*local.server_address, timeout=5)
+                    headers = {'X-Quest-Token': local.token, 'Origin': local.origin}
+                    connection.request('GET', '/api/status?session=' + saved['session'], headers=headers)
+                    response = connection.getresponse(); visible = json.loads(response.read())
+                    self.assertEqual(response.status, 200); self.assertEqual(visible['state']['status'], 'blocked')
+                    connection.request('POST', '/api/support', json.dumps({'session': saved['session']}),
+                                       {**headers, 'Content-Type': 'application/json'})
+                    response = connection.getresponse(); raw = response.read(); connection.close()
+                    self.assertEqual(response.status, 200)
+                    with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+                        captured = json.loads(archive.read('diagnostic.json'))
+                    self.assertTrue(captured['qualification']['spaceWarning'])
+                    self.assertEqual(captured['qualification']['freeBytes'], 1024 * 1024)
+                    self.assertFalse(captured['qualification']['buildSpaceCheckPassed'])
+                finally:
+                    local.shutdown(); thread.join(timeout=10)
+                self.assertFalse(thread.is_alive())
+
     def test_real_http_discovery_in_fresh_isolated_process(self):
         with tempfile.TemporaryDirectory() as directory:
             result = subprocess.run([sys.executable, "-I", "-B", "-c", ISOLATED_HTTP,

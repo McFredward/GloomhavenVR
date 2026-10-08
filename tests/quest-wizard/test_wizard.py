@@ -22,6 +22,7 @@ import provision
 import wizard
 import server
 from processes import Supervisor
+import qualification
 
 
 class Fixture(unittest.TestCase):
@@ -182,6 +183,34 @@ class ProvisionTests(Fixture):
 
 @unittest.skipIf(os.name=='nt','POSIX fixture; Windows uses suspended process Job Objects')
 class ProcessTests(Fixture):
+    def test_low_space_prevents_launching_another_heavy_child(self):
+        saved = self.plan(); supervisor = Supervisor(self.store, saved['session'], poll=.01)
+        supervisor.set_stage('build')
+        with mock.patch.object(qualification.shutil, 'disk_usage', return_value=type('Usage', (), {'free': 1})()), \
+             mock.patch('processes.subprocess.Popen', side_effect=AssertionError('Heavy child must not start')):
+            with self.assertRaises(state.WizardError) as error:
+                supervisor.run([sys.executable, '-c', 'pass'], self.store.session_dir(saved['session']) / 'logs/build.log')
+        self.assertEqual(error.exception.code, 'workspace_runtime_space_low')
+
+    def test_live_space_guard_stops_owned_child_tree_and_preserves_logs(self):
+        saved = self.plan(); session = saved['session']; childfile = self.root / 'space-grandchild.pid'
+        log = self.store.session_dir(session) / 'logs/build.log'
+        script = 'import subprocess,sys,time;p=subprocess.Popen([sys.executable,"-c","import time;time.sleep(60)"]);open(sys.argv[1],"w").write(str(p.pid));print("ready",flush=True);time.sleep(60)'
+        supervisor = Supervisor(self.store, session, grace=.1, poll=.01); supervisor.set_stage('build')
+        def free(_):
+            return type('Usage', (), {'free': 100 * qualification.GIB if not childfile.exists() else qualification.GIB})()
+        with mock.patch.object(qualification.shutil, 'disk_usage', side_effect=free), \
+             mock.patch.object(qualification, 'SPACE_CHECK_SECONDS', .01), \
+             mock.patch.object(qualification, 'tree_bytes', side_effect=AssertionError('No cache scanning during polling')):
+            with self.assertRaises(state.WizardError) as error:
+                supervisor.run([sys.executable, '-c', script, str(childfile)], log, timeout=5)
+        self.assertEqual(error.exception.code, 'workspace_runtime_space_low')
+        self.assertIn('ready', log.read_text())
+        pid = int(childfile.read_text()); proc = Path('/proc') / str(pid) / 'stat'
+        self.assertTrue(not proc.exists() or proc.read_text().rsplit(')', 1)[1].split()[0] == 'Z')
+        self.assertFalse((self.store.session_dir(session) / 'child.json').exists())
+        self.assertIn('process_finished', (log.parent / 'progress.log').read_text())
+
     def test_cancel_kills_owned_descendants_and_retains_log(self):
         saved=self.plan();session=saved['session'];childfile=self.root/'grandchild.pid';log=self.store.session_dir(session)/'logs/build.log'
         script='import subprocess,sys,time; p=subprocess.Popen([sys.executable,"-c","import time;time.sleep(60)"]);open(sys.argv[1],"w").write(str(p.pid));print("ready",flush=True);time.sleep(60)'

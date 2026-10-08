@@ -247,12 +247,16 @@ class Supervisor:
 
     def run(self, argv, log, *, cwd=None, env=None, timeout=None, on_started=None, on_poll=None, acceptable_codes=(0,)):
         self.store.check_cancel(self.session)
+        if self.stage in ("inspect", "build"):
+            from qualification import check_runtime_space, SPACE_CHECK_SECONDS
+            check_runtime_space(self.store.root)
         if timeout is not None and (type(timeout) not in (int, float) or not math.isfinite(timeout) or timeout <= 0):
             raise WizardError("invalid_timeout", "Process timeout must be positive.")
         log = Path(log); log.parent.mkdir(parents=True, exist_ok=True)
         job = self.job_factory() if os.name == "nt" else None
         options = {"creationflags": WindowsJob.CREATE_SUSPENDED | WindowsJob.CREATE_NEW_PROCESS_GROUP} if job else {"start_new_session": True}
         process = None; started = time.monotonic(); started_wall = time.time()
+        next_space_check = started + SPACE_CHECK_SECONDS if self.stage in ("inspect", "build") else None
         tails = {log: LogTail(log)}; parser = ProgressParser(); controlled_stop = False
         try:
             with log.open("wb") as stream:
@@ -269,6 +273,10 @@ class Supervisor:
                         self.stop(process, job)
                         raise
                     self._tail_progress(tails, parser, started_wall)
+                    if self.stage in ("inspect", "build") and time.monotonic() >= next_space_check:
+                        from qualification import check_runtime_space, SPACE_CHECK_SECONDS
+                        check_runtime_space(self.store.root)
+                        next_space_check = time.monotonic() + SPACE_CHECK_SECONDS
                     if timeout is not None and time.monotonic() - started >= timeout:
                         raise WizardError("child_timeout", "A required tool exceeded its bounded wait; retry the displayed action.",
                                           "Ein benötigtes Werkzeug hat die Wartezeit überschritten; die angezeigte Aktion erneut ausführen.",

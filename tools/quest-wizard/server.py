@@ -486,7 +486,9 @@ class Handler(BaseHTTPRequestHandler):
 
 def serve(store, ui_root, *, port=0, open_browser=False):
     from qualification import qualify
-    qualify(store.root)
+    # Low space must block expensive work, not access to diagnostics, the
+    # retained session or its retry UI. Selected-game checks remain enforced.
+    qualify(store.root, enforce=False)
     if (REPO / "quest-builder-release.json").is_file() and not (REPO / ".git").exists():
         discovery.local_support_module(REPO, "release").verified_source_inventory(REPO)
     server = LocalServer(store, ui_root, port=port, promotional=True)

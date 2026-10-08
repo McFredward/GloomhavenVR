@@ -1,10 +1,29 @@
 """Bounded failure context from known logs in the owned conversion workspace."""
 from __future__ import annotations
+import errno
 import json
 from pathlib import Path
 import re
+import shutil
 
 from state import WizardError, ordinary
+
+
+def disk_full(error):
+    return isinstance(error, OSError) and (error.errno == errno.ENOSPC or getattr(error, "winerror", None) in (39, 112))
+
+
+def disk_full_error(root, stage, *, error=None, **parameters):
+    root = ordinary(root)
+    free = shutil.disk_usage(root).free
+    gib = free / 1024 ** 3
+    return WizardError("workspace_space_exhausted",
+                       f"The build drive ran out of space ({gib:.1f} GiB free at {root}). Free space and continue; keep the workspace so completed work can be reused.",
+                       f"Auf dem Build-Laufwerk fehlt Speicherplatz ({gib:.1f} GiB frei in {root}). Platz freigeben und fortsetzen; den Arbeitsordner behalten, damit abgeschlossene Arbeit wiederverwendet werden kann.",
+                       workspaceRoot=str(root), freeBytes=free, failureStage=stage,
+                       completedWorkRetained=True, **({"cause": str(error), "errorNumber": error.errno,
+                                                       "winError": getattr(error, "winerror", None)} if error else {}),
+                       **parameters)
 
 
 def tail(path, limit=8192):
@@ -34,14 +53,19 @@ def tool_failure(root, stage, log, started, executable, exit_code):
                         logs.append(ordinary(root / "build/logs" / ("recovery-" + key[:12] + ".log")))
         except (OSError, ValueError): pass
     error_line = ""
+    disk_failure = False
     for path in logs:
         if not path.is_file() or path.stat().st_mtime < started: continue
         text = tail(path)
+        disk_failure |= bool(re.search(r"(?i)(no space left on device|disk (?:is )?full|\[Errno 28\]|\[WinError (?:39|112)\]|not enough space on (?:the )?disk)", text))
         for line in text.splitlines():
             if re.search(r"(?i)(FAILED:|Quest builder:|(?:Error|Exception):|error (?:CS|MSB|BC)\d+|fatal error:)", line):
                 error_line = line.strip()[:2048]
     parameters["cause"] = error_line or parameters.get("builderError") or "No error summary was emitted; inspect the retained tool log."
     parameters["logs"] = [str(path) for path in logs]
+    if disk_failure or re.search(r"(?i)(no space left on device|\[Errno 28\]|\[WinError (?:39|112)\])", parameters.get("builderError", "")):
+        failed_stage = parameters.pop("failureStage")
+        return disk_full_error(root, failed_stage, **parameters)
     import_failure = ("helper import failed before game conversion" in parameters.get("builderError", "")
                       or "ModuleNotFoundError:" in parameters["cause"])
     if parameters["failureStage"] == "recovery" and import_failure:

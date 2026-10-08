@@ -134,7 +134,7 @@ class Engine:
                     helper._local_helper("update_driver").preflight(helper, state["choices"]["gameRoot"], state["choices"]["baseApk"], state["choices"]["mode"])
                 prior = self.store.valid(session, stage, key, report_progress=True)
                 if prior:
-                    if stage == "tools" and not self.actions: self.qualify(state)
+                    if stage == "tools" and not self.actions: self.qualify(state, stage=stage)
                     row.update(status="complete", details=prior["details"], durationSeconds=round(time.monotonic() - started, 3))
                     self.store.clear_waiting(session, stage)
                     self.store.progress(session, stage, "complete", 1, 1, "stages", "Verified stage outputs reused.")
@@ -151,6 +151,11 @@ class Engine:
                                 "install": "Connecting to the Quest and installing the verified APK and content."}
                 self.store.progress(session, stage, "starting", detail=descriptions[stage])
                 self.emit(self.store.event(state, "stage_started", stage))
+                # A cached tool receipt or time spent in Unity Hub does not
+                # reserve the drive. Recheck before inspect can copy the owned
+                # inputs and immediately before the asset/player build begins.
+                if stage in ("inspect", "build") and not self.actions:
+                    self.qualify(state, stage=stage)
                 action = self.actions.get(stage) or getattr(self, "stage_" + stage)
                 paths, details = action(state, supervisor)
                 self.store.check_cancel(session)
@@ -173,6 +178,16 @@ class Engine:
                 self.emit(self.store.event(state, error.code, stage, **{**error.parameters, "message": error.message, "durationSeconds": row["durationSeconds"]})); return state
             except (OSError, ValueError, RuntimeError) as error:
                 row["durationSeconds"] = round(time.monotonic() - started, 3)
+                from failures import disk_full, disk_full_error
+                if disk_full(error):
+                    capacity = disk_full_error(self.store.root, stage, error=error)
+                    row["status"] = state["status"] = "blocked"
+                    self.store.clear_waiting(session, stage)
+                    state["needsActions"] = [{"code": capacity.code, "stage": stage,
+                                              "message": capacity.message, "parameters": capacity.parameters}]
+                    self.emit(self.store.event(state, capacity.code, stage, **{**capacity.parameters,
+                                              "message": capacity.message, "durationSeconds": row["durationSeconds"]}))
+                    return state
                 row["status"] = state["status"] = "failed"
                 if not row.get("waiting"):
                     state["needsActions"] = [{"code": "stage_failed", "stage": stage, "message": {"en": str(error), "de": str(error)}}]
@@ -183,12 +198,24 @@ class Engine:
     def details(self, state, stage): return state["completed"][stage]["details"]
     def log(self, state, stage): return self.store.session_dir(state["session"]) / "logs" / (stage + ".log")
 
-    def qualify(self, state):
+    def qualify(self, state, *, stage="tools"):
         from qualification import qualify
-        qualification = qualify(self.store.root, game_root=state["choices"]["gameRoot"], repo=self.repo,
-                                mode=state["choices"].get("mode", "build"))
-        if qualification.get("spaceWarning"):
-            self.emit(self.store.event(state, "space_estimate_warning", "tools", freeBytes=qualification["freeBytes"], estimatedBytes=qualification["spaceEstimate"]["additionalEstimatedBytes"]))
+        try:
+            qualification = qualify(self.store.root, game_root=state["choices"]["gameRoot"], repo=self.repo,
+                                    mode=state["choices"].get("mode", "build"))
+        except WizardError as error:
+            if error.code in ("workspace_build_space_low", "workspace_space_estimate_incomplete"):
+                # Keep the existing diagnostic token; this warning is now
+                # accompanied by the mandatory stop and its actionable cause.
+                self.emit(self.store.event(state, "space_estimate_warning", stage,
+                                          freeBytes=error.parameters.get("freeBytes"),
+                                          estimatedBytes=error.parameters.get("estimatedBytes"),
+                                          spaceEstimate=error.parameters.get("spaceEstimate")))
+            raise
+        self.emit(self.store.event(state, "workspace_space_checked", stage,
+                                  workspaceRoot=qualification["workspaceRoot"], freeBytes=qualification["freeBytes"],
+                                  requiredFreeBytes=qualification["requiredFreeBytes"],
+                                  spaceEstimate=qualification.get("spaceEstimate")))
         return qualification
 
     def stage_tools(self, state, supervisor):

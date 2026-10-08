@@ -1,5 +1,6 @@
 """Real failing child and exact attempt-scoped diagnostic context."""
 import json
+import errno
 import os
 from pathlib import Path
 import sys
@@ -9,7 +10,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools/quest-wizard"))
-from failures import tool_failure
+from failures import disk_full, tool_failure
 from processes import Supervisor
 from state import Store, WizardError, atomic_json
 import wizard
@@ -89,6 +90,44 @@ class FailureTests(unittest.TestCase):
         event = result["events"][-1]
         self.assertEqual(event["parameters"]["error"], "ValueError")
         self.assertIn("Invalid owned asset index", event["parameters"]["traceback"])
+
+    def test_child_disk_full_has_explicit_space_action_even_without_failure_json(self):
+        self.log.write_text('Traceback (most recent call last):\nOSError: [Errno 28] No space left on device\n')
+        error = tool_failure(self.root, 'build', self.log, time.time() - 1, 'python.exe', 1)
+        self.assertEqual(error.code, 'workspace_space_exhausted')
+        self.assertIn('Platz freigeben und fortsetzen', error.message['de'])
+        self.assertIn(str(self.root), error.message['de'])
+        self.assertEqual(error.parameters['workspaceRoot'], str(self.root))
+        self.assertIn('Errno 28', error.parameters['cause'])
+        self.assertEqual(error.parameters['logs'], [str(self.log)])
+
+    def test_disk_full_in_nested_current_recovery_overrides_generic_parent_error(self):
+        key = 'b' * 64
+        self.log.write_text('Quest builder: recovery tool failed')
+        child = self.root / 'build/logs' / ('recovery-' + key[:12] + '.log')
+        child.parent.mkdir(parents=True); child.write_text('OSError: [WinError 112] There is not enough space on the disk')
+        atomic_json(self.root / 'build/last-failure.json', {'schema': 1, 'stage': 'recovery', 'key': key, 'message': 'recovery tool failed'})
+        error = tool_failure(self.root, 'build', self.log, time.time() - 1, 'python.exe', 1)
+        self.assertEqual(error.code, 'workspace_space_exhausted')
+        self.assertEqual(error.parameters['failureStage'], 'recovery')
+        self.assertTrue(error.parameters['completedWorkRetained'])
+
+    def test_native_os_disk_full_is_blocked_with_retained_details_not_opaque_failure(self):
+        def fail(*_): raise OSError(errno.ENOSPC, 'No space left on device')
+        result = wizard.Engine(self.store, actions={'tools': fail}).run(self.session)
+        self.assertEqual(result['status'], 'blocked')
+        action = result['needsActions'][0]
+        self.assertEqual(action['code'], 'workspace_space_exhausted')
+        self.assertEqual(action['parameters']['errorNumber'], errno.ENOSPC)
+        self.assertEqual(action['parameters']['workspaceRoot'], str(self.root))
+        self.assertFalse(self.store.receipt(self.session, 'tools').exists())
+        self.assertIn('workspace_space_exhausted', (self.log.parent / 'progress.log').read_text())
+
+    def test_windows_disk_full_codes_are_distinct_from_other_os_failures(self):
+        error = OSError('Windows disk full'); error.winerror = 112
+        self.assertTrue(disk_full(error)); error.winerror = 39; self.assertTrue(disk_full(error))
+        error.winerror = 5; self.assertFalse(disk_full(error))
+        self.assertFalse(disk_full(ValueError('No space left on device')))
 
 
 if __name__ == "__main__": unittest.main()
