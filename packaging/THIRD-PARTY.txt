@@ -18,6 +18,12 @@ together with the referenced licence texts, are included in the Licenses folder.
 See Licenses/SOURCES.txt for versions and provenance. These dependencies are not
 relicensed under GloomhavenVR's GPL-3.0 licence.
 
+Selected native game UI repairs are adapted from Gloomhaven Bug Fixes 5.0.0
+by fingoldfish (gummyboars), under the MIT licence. Its copyright and complete
+licence text are included as Licenses/Gloomhaven-Bug-Fixes-MIT.txt.
+    https://www.nexusmods.com/gloomhaven/mods/8?tab=description
+    https://github.com/gummyboars/gloomhaven-bugfixes/tree/v5.0.0
+
 
 VR CONTROLLER MODELS
 --------------------
