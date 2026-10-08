@@ -540,6 +540,7 @@ internal sealed partial class TownServiceCatalog : IDisposable
             _bodyHidden = hidden;
         }
         private readonly RemoteWidgetMirror _row;
+        private readonly TownServiceMerchantCaption _caption;
         private readonly List<KeyValuePair<Graphic, bool>> _raycastTargets = new();
         private readonly List<KeyValuePair<GraphicRaycaster, bool>> _raycasters = new();
         private readonly List<Transform> _rowBackgrounds = new();
@@ -619,10 +620,11 @@ internal sealed partial class TownServiceCatalog : IDisposable
             _canvas = face.GetComponent<Canvas>(); _canvas.renderMode = RenderMode.WorldSpace;
             VRLayers.Apply(face);
             var rowMount = new GameObject("Price"); rowMount.transform.SetParent(_display, false);
-            rowMount.transform.localPosition = new Vector3(0f, -.053f, -.002f);
+            rowMount.transform.localPosition = new Vector3(0f, -.074f, -.002f);
             rowMount.transform.localRotation = Quaternion.identity;
             _row = new RemoteWidgetMirror("CatalogPrice", rowMount.transform, .118f, .030f, Vector2.zero,
                 externallyShownBranch: node => node.GetComponent<UIPartyItemInventoryTooltip>() != null, mrBacking: false);
+            _caption = new TownServiceMerchantCaption(_row, source.transform);
             RectTransform rowRect = (RectTransform)source.transform;
             _row.SetOwnerFrame(rowRect.rect.size, rowRect.parent is RectTransform rowParent ? rowParent.rect.size : rowRect.rect.size);
             try
@@ -746,7 +748,7 @@ internal sealed partial class TownServiceCatalog : IDisposable
             // same frame repeats the entire widget walk with no intervening source
             // mutation; all other visible frames retain their live animation sync.
             if (!refreshed) _row.TickLive();
-            // Preserve original stock/price/name glyphs but remove the flat list's backing.
+            // Reuse the original stock/price glyphs in their readable cabinet caption.
             SuppressNativeBacking();
             Sample.Tick(scale);
         }
@@ -778,6 +780,7 @@ internal sealed partial class TownServiceCatalog : IDisposable
                 if (clone != null && clone.gameObject.activeSelf) clone.gameObject.SetActive(false);
             if (_tooltipClone != null && _tooltipClone.gameObject.activeSelf)
                 _tooltipClone.gameObject.SetActive(false);
+            _caption.Apply();
         }
         internal void RefreshSoldOutMarker(bool inCabinet)
         {
