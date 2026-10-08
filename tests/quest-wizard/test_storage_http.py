@@ -1,5 +1,6 @@
 """Responsive authenticated cleanup ownership; deletion safety has separate tests."""
 import http.client
+import importlib.util
 import json
 from pathlib import Path
 import sys
@@ -123,6 +124,31 @@ class StorageHttpTests(unittest.TestCase):
         self.assertIn("Vorschau", value["state"]["error"]["message"]["de"])
         self.assertIsNone(self.http.storage_plan)
         self.assertEqual(self.request("/api/storage/clean", {"planId": self.plan["id"]})[0], 400)
+
+    def test_actual_http_cleanup_deletes_only_proven_duplicate_and_preserves_canonical_resume(self):
+        spec = importlib.util.spec_from_file_location("actual_storage_cleanup", ROOT / "tools/quest-wizard/cleanup.py")
+        actual = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(actual)
+        with mock.patch.dict(sys.modules, {"cleanup": actual}):
+            fixture_spec = importlib.util.spec_from_file_location("actual_cleanup_fixture", ROOT / "tests/quest-wizard/test_cleanup.py")
+            fixtures = importlib.util.module_from_spec(fixture_spec)
+            fixture_spec.loader.exec_module(fixtures)
+            fixture = fixtures.CleanupTests("test_duplicate_original_snapshot_and_matching_raw_stage_are_removed")
+            fixture.setUp()
+            self.addCleanup(fixture.doCleanups)
+            _, wrong = fixture.snapshots()
+            fixture.raw_recovery(wrong)
+            self.http.store = fixture.store
+            self.assertEqual(self.request("/api/storage/plan", {"mode": "duplicates"})[0], 200)
+            preview = self.wait_status("preview")["state"]["plan"]
+            self.assertEqual(len(preview["paths"]), 2)
+            self.assertEqual(self.request("/api/storage/clean", {"planId": preview["id"]})[0], 200)
+            result = self.wait_status("complete")["state"]["result"]
+            self.assertEqual(result["freedBytes"], preview["bytes"])
+            self.assertFalse((fixture.build / "inputs/game" / fixture.wrong).exists())
+            self.assertFalse(fixture.raw.exists())
+            self.assertTrue((fixture.build / "inputs/game" / fixture.correct / ".snapshot.json").is_file())
+            self.assertEqual((fixture.original / "leave-alone.bin").read_bytes(), b"owned original")
 
 
 if __name__ == "__main__": unittest.main()

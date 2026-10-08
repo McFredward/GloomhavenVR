@@ -1,5 +1,83 @@
 # Quest Windows retained-data qualification, 2026-10-08
 
+## Follow-up: Windows inventory order, capacity and explicit reclamation
+
+Capture `quest-build-support-20261008T205407Z-23d38753.zip` identifies
+`d8e805207`, ModBuild646. It did restart: a new immutable17.75GB game copy
+and a new raw export completed4/16 packages and began package5, before
+`[Errno28] No space left on device`. The captured qualification had
+47,421,988,864 available bytes and estimated133,094,165,922 additional bytes.
+The previous code treated that estimate as a warning and admitted any retained
+cache with only the4GiB setup minimum.
+
+The persistent inventory sorted `Path` objects. Windows sorts those without case,
+whereas the historical game identity sorts relative POSIX strings with case.
+The actual5227-row immutable snapshot reproduces exactly the capture's changed
+`26d393f5...` key from the historical `cc172275...` key, without reading game
+payloads. The fixed inventory restores historical order; existing SQLite proofs
+remain reusable, and the canonical immutable copy is selected without copying.
+Four new regressions fail against the exact previous source. A complete exact
+reviewed observer profile retains old raw/derived identities. The pre-archive
+preparation scope also excludes later mod-bank authoring projects/helpers and
+release/support validators, while their actual source records remain qualified.
+Changed original producers, template, game, owner or backend still refuse reuse.
+
+The Windows Wizard defaults to `%USERPROFILE%\.ghvrq`. `build\inputs` contains
+immutable game/mod copies; `build\cache` contains raw/derived conversion and
+substage data; `build\projects` retains native Unity projects and Library/Bee;
+`build\tool-cache` contains downloaded private conversion tools. Final APKs
+and content banks are under `build\builds` or `build\updates`; `build\signing`
+contains the local update key. Sessions/logs/qualification live beside `build`.
+The launch archive separately keeps Python under `scripts\.quest-python` and
+`scripts\.quest-venv`; Unity Hub/editor installations are outside this root.
+
+The Wizard now hard-gates the conservative additional-space estimate before
+setup, before snapshotting and immediately before building, including reused
+prerequisites. Matching canonical receipts can credit the old Windows-order
+case. Cache metadata scanning shares one3-second budget. Unknown partial game
+size estimates refuse admission. During inspect/build, the owned supervisor
+checks the drive counter every15seconds and stops its process tree below2GiB.
+ENOSPC/Windows112 failures name the workspace, available/required space and next
+step. The estimate remains a planning reserve, not a guarantee of exact future
+Unity disk use. Direct developer `scripts/build-quest.py` is outside this Wizard
+admission contract. Non-enforcing GUI startup remains available even if its
+small qualification JSON cannot be written to a completely full drive.
+
+Storage management is available before a run and offered after successful output:
+
+- `duplicates` proves same immutable original records, a complete canonical
+  snapshot and the old wrong-order owner before offering redundant copies and
+  their matching raw/derived exports. Unknown caches remain untouched.
+- `build-cache` requires owned completed APK/content-output metadata. It removes
+  conversion caches, Unity projects and snapshots, retaining delivered APKs,
+  content banks, signing data, tools, logs and manifests. Later full builds need
+  conversion/import again; eligible APK-only mod/profile updates remain possible.
+- Both produce an exact metadata preview and require a separate explicit delete
+  action. Original game data, unknown paths, links/reparse points, private keys,
+  active builders and changed previews cannot authorize deletion. Kernel guards
+  remain held through session receipt invalidation. A full-drive fallback locks
+  the same existing guard inode without creating a status JSON.
+
+Real file counts drive preview/check/delete status; the UI displays workspace,
+free space, retained-folder notices and consequences in English/German. Preview
+never deletes. Operation summaries survive cache deletion in bounded
+`logs/storage-cleanup.log` and the explicit support archive. Completed build
+history/result remains visible; interrupted sessions lose deleted inspect/build
+receipts and stale work progress so they cannot present removed caches as saved.
+
+Evidence: `/home/claw/quest3-local/build/evidence/B647-support-205407/`.
+The actual metadata ordering proof, negative controls, real filesystem deletions,
+capacity/process-tree/HTTP ownership tests and actual browser workflows qualify
+this repair. A bounded actual original PCG bundle produces both native meshes
+and all six corresponding Frame647 tiers byte-for-byte; environment producers
+now combine every owned bundle's use census before assigning a safe role.
+Original-derived catalog/ornament data remains excluded from public source ZIPs.
+Current dev647 including the board-pose follow-up is integrated only into the
+user-confirmed Quest feature branch. Actual current mod compilation has zero
+warnings/errors and complete original-game weaving closes289targets/475hooks,
+retaining seven protected types. No full host APK, repeated shader matrix,
+unrelated full Frame gate, Windows whole-build or headset success is claimed.
+
 ## Follow-up: 193438 capture and actual exporter qualification
 
 `quest-build-support-20261008T193438Z-f99ac3b2.zip` identifies published

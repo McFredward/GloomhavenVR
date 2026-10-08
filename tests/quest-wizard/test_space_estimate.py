@@ -1,5 +1,6 @@
 """Early disk planning is bounded, cache-aware and does not read game assets."""
 import json
+import errno
 from pathlib import Path
 import sys
 import tempfile
@@ -67,6 +68,16 @@ class SpaceTests(unittest.TestCase):
         with self.assertRaises(state.WizardError) as error:
             qualification.qualify(self.workspace, system='Windows', machine='AMD64', free_bytes=1024)
         self.assertEqual(error.exception.code, 'workspace_space_low')
+
+    def test_full_drive_diagnostic_write_cannot_prevent_cleanup_ui_or_hide_capacity_failure(self):
+        with mock.patch.object(qualification, 'atomic_json', side_effect=OSError(errno.ENOSPC, 'No space left')):
+            result = qualification.qualify(self.workspace, free_bytes=0, enforce=False)
+            self.assertFalse(result['qualificationFileSaved'])
+            self.assertTrue(result['spaceWarning'])
+            with self.assertRaises(state.WizardError) as error:
+                qualification.qualify(self.workspace, free_bytes=0)
+            self.assertEqual(error.exception.code, 'workspace_space_low')
+            self.assertIn(str(self.workspace), error.exception.message['de'])
 
     def test_partial_game_scan_never_authorizes_a_low_estimate(self):
         with mock.patch.object(qualification, 'MAX_SCAN_FILES', 1):

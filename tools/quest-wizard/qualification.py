@@ -1,6 +1,7 @@
 """Bounded hard capacity checks; estimates do not certify reuse/license."""
 from __future__ import annotations
 import json
+import errno
 import os
 from pathlib import Path
 import platform
@@ -193,7 +194,14 @@ def qualify(store_root, *, system=None, machine=None, free_bytes=None, game_root
     result['requiredFreeBytes'] = required
     result['spaceWarning'] = free < required
     result['buildSpaceCheckPassed'] = not result['spaceWarning'] and not result.get('spaceEstimate', {}).get('scanBounded', False)
-    atomic_json(root / 'qualification.json', result)
+    try:
+        atomic_json(root / 'qualification.json', result)
+    except OSError as error:
+        # Keep the existing workspace's UI and cleanup accessible even when no
+        # new diagnostic JSON fits. Capacity failures still take precedence.
+        if error.errno != errno.ENOSPC and getattr(error, 'winerror', None) != 112:
+            raise
+        result['qualificationFileSaved'] = False
     if enforce and result.get('spaceEstimate', {}).get('scanBounded'):
         raise WizardError('workspace_space_estimate_incomplete',
                           'The bounded game-file scan did not finish, so enough build space cannot be established. Keep the workspace and save the diagnostic package before retrying.',

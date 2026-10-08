@@ -1,5 +1,23 @@
 # State — where the project stands
 
+**Quest Windows inventory-order and storage repair, 2026-10-08 (Builder only).**
+
+Capture205407 confirmsd8e805207/Mod646. Windows Path ordering changed the
+same5227original rows fromcc172275 to26d393f5, causing another17.75GBsnapshot
+and fresh raw exports. Exact historical POSIX string order now selects the
+original cache with existing metadata proofs. Additional-space estimates now
+block setup/snapshot/build; a bounded during-run reserve stops owned children
+before the drive fills. The UI names the default `%USERPROFILE%\.ghvrq` workspace.
+
+Explicit storage previews reclaim proven duplicate snapshots and their exports,
+or remove large build caches after a successful APK. Delivery banks/APKs, signing,
+tools, originals and logs survive. Full rebuilds slow down after cache removal;
+eligible APK updates remain available. Actual filesystem, HTTP, capacity and
+browser controls cover the new behavior. Current dev647 and its board-pose
+follow-up are merged into the separately confirmed Quest feature branch; actual
+mod compilation and full original-game weaving complete. No Windows whole-build
+or new headset outcome is established. See [storage follow-up](QUEST-BUILD-REUSE-20261008.md).
+
 **Quest Windows continuation and UI recipe follow-up, 2026-10-08 (Builder only).**
 
 Capture193438 confirms3ab6ff9c4/Mod645. Recovery and original snapshots already
