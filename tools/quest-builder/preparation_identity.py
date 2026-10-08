@@ -1,9 +1,10 @@
-"""Keep witnessed preparation prefixes across exact observer-only tool updates.
+"""Keep witnessed original preparation prefixes across compatible input updates.
 
 The real input key still owns the mutable archive, settings and final Player.
 Compatibility here only permits the ordered preparation journal to retain
-completed conversions. Game, profile, templates, assets and producer logic
-remain part of its scope; unknown producer changes take ordinary regeneration.
+completed conversions. Game, profile, templates and actual producer logic stay
+scoped. Later mod source and release metadata do not produce original assets;
+the current real input key still owns all subsequent mod and Player work.
 """
 from __future__ import annotations
 
@@ -20,6 +21,14 @@ IDENTITY = "tools/quest-builder/preparation_identity.py"
 RECIPE_IDENTITY = "tools/quest-builder/recovery_resume.py"
 DELIVERY_PREFIXES = ("tools/quest-wizard/", "tools/quest-wizard-ui/", "tools/quest-installer/")
 HEX = re.compile(r"[0-9a-f]{64}\Z")
+# Before UI reconstruction the only mod files copied or read by the closed
+# startup producers are the Quest template, localization and loading logo.
+# Runtime C# and mod bundles are consumed later, under the new real input key.
+PREFIX_MOD_INPUTS = {
+    "src/GloomhavenVR/Core/Loc/QuestText.cs",
+    "src/GloomhavenVR/Assets/GloomhavenVR_logo.png",
+}
+PREFIX_UNUSED_TOOLS = {"tools/quest-builder/ui_assets.py", "tools/quest-builder/ui_blur.py"}
 
 # Exact producer profiles reviewed against the original movie/audio outputs.
 # These are aliases for this repair, never a general exclusion from identity.
@@ -82,6 +91,30 @@ def _transport_prefix(value, target):
             and pending.get("operation") == ("project-files" if not steps else "startup-content"))
 
 
+def _original_game_prefix(value, target):
+    """Prove exact order before any mod bank or current-input archive is written."""
+    if target not in ("startup", "game"): return False
+    phases = [("base-project", "project-files")]
+    phases += [(name, "startup-content") for name in (
+        "post-effects", "loading-resources", "startup-movies")]
+    if target == "game": phases.append(("native-sprites", "startup-content"))
+    phases += [(name, "startup-content") for name in ("loading-sprite", "startup-audio")]
+    if target == "game": phases.append(("ui-recipes", "startup-content"))
+    phases += [(name, "startup-content") for name in ("startup-ui", "startup-blur", "dlc-selection")]
+    if target == "game":
+        phases += [("file-extras", "startup-content"), ("native-runtime", "native-runtime"), ("bundled-audio", "audio")]
+        phases += [(name, "textures") for name in ("native-cubemaps", "ordinary-texture-audit", "native-texture2d")]
+        phases += [(name, "graphics") for name in ("campaign-compute", "campaign-shaders")]
+    steps = value.get("steps")
+    if not isinstance(steps, list) or len(steps) > len(phases): return False
+    if any(not isinstance(step, dict) or (step.get("name"), step.get("operation")) != phases[index]
+           for index, step in enumerate(steps)): return False
+    pending = value.get("pending")
+    if pending is None: return True
+    next_phase = phases[len(steps)] if len(steps) < len(phases) else ("startup-archive", "mod-banks")
+    return isinstance(pending, dict) and (pending.get("name"), pending.get("operation")) == next_phase
+
+
 LOAD = ast.parse('preparation_identity = _local_helper("preparation_identity")').body[0]
 REBIND = ast.parse(
     "prior_preparation_key = preparation_identity.rebind_key("
@@ -89,12 +122,14 @@ REBIND = ast.parse(
 PREPARATION_CALL = ast.parse("prepare_resume.Preparation").body[0].value
 
 
-def builder_producer_digest(raw):
-    """Hash the complete Builder AST except these exact journal identity calls.
+def builder_producer_digest(raw, *, original_prefix=False):
+    """Qualify complete Builder code, or consumed original-prefix orchestration.
 
     This avoids a self-referential whole-file hash. No producer function, global
     constant, call order or unrelated constructor argument is omitted. Even an
-    unknown change elsewhere in prepare() produces a different identity.
+    unknown change elsewhere in prepare() produces a different identity. The
+    original-prefix mode retains its consumed helpers/imports/constants while
+    omitting unrelated later Player/CLI functions.
     """
     try:
         tree = ast.parse(raw.decode("utf-8"))
@@ -122,6 +157,18 @@ def builder_producer_digest(raw):
                                  if not (keyword.arg == "compatible_input_key"
                                          and isinstance(keyword.value, ast.Name)
                                          and keyword.value.id == "prior_preparation_key")]
+    if original_prefix:
+        # The complete preparation body, import bindings and top-level constants
+        # still qualify these producers. CLI inspection, APK update, signing and
+        # Player-export functions do not run while producing the retained prefix.
+        # An edit to those unrelated functions must not recopy the original game.
+        tree.body = [node for node in tree.body if isinstance(node, (ast.Import, ast.ImportFrom, ast.Assign, ast.AnnAssign))
+                     or isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                     and node.name in ("prepare", "_local_helper", "command", "tool_path", "toolchain",
+                                       "campaign_shader_cache", "recovery_helper_preflight", "owned_tmp_source_archive")]
+        for node in tree.body:
+            if isinstance(node, ast.ImportFrom) and node.module == "storage":
+                node.names = [name for name in node.names if not (name.name == "persistent_inventory" and name.asname is None)]
     return hashlib.sha256(ast.dump(tree, include_attributes=False).encode("utf-8")).hexdigest()
 
 
@@ -138,17 +185,26 @@ def _builder_bytes(root, records):
     return raw
 
 
-def _scope(inputs, source, recovery):
+def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=False):
     records = recovery._records(inputs["mod"]["files"], "size")
-    builder = builder_producer_digest(_builder_bytes(source, records))
+    builder = builder_producer_digest(_builder_bytes(source, records), original_prefix=original_prefix)
     rows = _reviewed_startup_rows(recovery.preparation_source_rows(inputs["mod"]["files"]))
     # These modules validate/select identity; neither generates game assets.
     # Delivery tools are never read by generate_files or its conversion tools.
-    rows = [row for row in rows if row["path"] not in (BUILDER, IDENTITY, RECIPE_IDENTITY)
+    rows = [row for row in rows if row["path"] not in (BUILDER, IDENTITY, RECIPE_IDENTITY, "quest-builder-release.json")
             and not row["path"].startswith(DELIVERY_PREFIXES)]
+    if original_prefix:
+        rows = [row for row in rows if not row["path"].startswith("src/")
+                or row["path"] in PREFIX_MOD_INPUTS]
+        # Developer checks and release/install launchers are not read by any
+        # producer in this prefix. Keep all conversion tools and template files.
+        rows = [row for row in rows if not row["path"].startswith("scripts/")]
+        if ui_unconsumed:
+            rows = [row for row in rows if row["path"] not in PREFIX_UNUSED_TOOLS]
     scope = copy.deepcopy({key: value for key, value in inputs.items() if key not in ("inputKey", "mod")})
-    scope["mod"] = {"modBuild": inputs["mod"].get("modBuild"),
-                    "producerFiles": rows, "builderProducerAstSha256": builder}
+    scope["mod"] = {"producerFiles": rows, "builderProducerAstSha256": builder}
+    if not original_prefix:
+        scope["mod"]["modBuild"] = inputs["mod"].get("modBuild")
     return scope
 
 
@@ -177,13 +233,17 @@ def rebind_key(output, project, inputs, source, *, target, recipe, recovery):
     new_rows = {name: {"path": name, "size": row["bytes"], "sha256": row["sha256"]}
                 for name, row in recovery._records(inputs["mod"]["files"], "size").items()}
     before_ui, after_ui = old_rows.get(UI_TRANSPORT_PREVIOUS["path"]), new_rows.get(UI_TRANSPORT_FIXED["path"])
+    ui_unconsumed = _transport_prefix(value, target)
     if before_ui != after_ui:
-        if (before_ui != UI_TRANSPORT_PREVIOUS or after_ui != UI_TRANSPORT_FIXED
-                or not _transport_prefix(value, target)):
+        # UI recipes are consumed immediately after this prefix. A current UI
+        # repair may retry there; it cannot claim any already completed UI work.
+        if not ui_unconsumed:
             return None
-    before, after = _scope(previous, previous_source, recovery), _scope(inputs, source, recovery)
+    original_prefix = _original_game_prefix(value, target)
+    before = _scope(previous, previous_source, recovery, original_prefix=original_prefix, ui_unconsumed=ui_unconsumed)
+    after = _scope(inputs, source, recovery, original_prefix=original_prefix, ui_unconsumed=ui_unconsumed)
     if value_hash(before) != value_hash(after):
         return None
-    print("preparation resume: retaining witnessed conversions across reviewed compatible tool update; "
+    print("preparation resume: retaining witnessed conversions across compatible producer inputs; "
           "mutable content and final settings retain the current input key", flush=True)
     return previous_key

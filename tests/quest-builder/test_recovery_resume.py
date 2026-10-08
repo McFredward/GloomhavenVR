@@ -803,8 +803,8 @@ class ObservationRecipeContinuationTests(unittest.TestCase):
         self.fixture.setUp()
         self.addCleanup(self.fixture.tearDown)
         f = self.fixture
-        actual = {row["path"]: row for row in f.current["mod"]["files"] if row["path"] in recovery_resume.OBSERVATION_FIXED}
-        self.assertEqual(actual, recovery_resume.OBSERVATION_FIXED)
+        actual = {row["path"]: row for row in f.current["mod"]["files"] if row["path"] in recovery_resume.OBSERVATION_INPUT_INDEX}
+        self.assertEqual(actual, recovery_resume.OBSERVATION_INPUT_INDEX)
         self.assertTrue(actual)
         for index, row in enumerate(f.previous["mod"]["files"]):
             if row["path"] in recovery_resume.OBSERVATION_PREVIOUS:

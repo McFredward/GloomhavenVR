@@ -42,7 +42,7 @@ import import_workspace
 import native_plugins
 
 from profile import discover_steam_root, dummy_identity, load_profile, read_logo, ProfileError
-from storage import (BuildError, Stages, canonical, digest, ensure_output, inventory,
+from storage import (BuildError, Stages, canonical, digest, ensure_output, inventory, persistent_inventory,
                      output_lock, record_file, snapshot, value_hash, verify_files, write_json,
                      restore_project_library, regenerate_project, recover_project_content, project_content_transaction,
                      project_content_valid, publish_project_content, CONTENT_PATHS, _ordinary_owned)
@@ -230,9 +230,9 @@ def selected_profile(args) -> tuple[dict | None, bytes | None]:
 
 
 def inspect_inputs(args, repo: Path, output: Path, data: Path) -> dict:
-    print("inspect: hashing owned game and current mod inputs", flush=True)
+    print("inspect: reading owned game changes and current mod inputs", flush=True)
     build_progress.operation("game-inputs", detail="Reading owned original game files")
-    game_files = inventory(data, phase="game-hash")
+    game_files = persistent_inventory(data, output / "cache/input-inventories/game.sqlite3", phase="game-hash")
     build_progress.operation("mod-inputs", detail="Checking selected source files and source ModBuild")
     source_files, commit, dirty = source_inventory(repo)
     build_progress.operation("profile-inputs", detail="Validating local identity and owned DLC records")
@@ -308,7 +308,7 @@ def snapshot_inputs(inputs: dict, output: Path, repo: Path, data: Path,
     build_progress.operation("game-snapshot", detail="Copying or verifying retained original game inputs")
     snapshot(data, inputs["game"]["files"], game, phase="game-snapshot")
     build_progress.operation("snapshot-check", detail="Confirming the installation did not change during the copy")
-    if inventory(data, phase="game-snapshot-source-verify") != inputs["game"]["files"]:
+    if persistent_inventory(data, output / "cache/input-inventories/game.sqlite3", phase="game-snapshot-source-verify") != inputs["game"]["files"]:
         raise BuildError("The original installation changed during snapshotting; finish its update and retry.")
     if inputs.get("probeAssets"):
         probe = inputs["probeAssets"]

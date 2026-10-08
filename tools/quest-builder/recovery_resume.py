@@ -126,7 +126,19 @@ OBSERVATION_FIXED = {
         "path": "tools/quest-builder/prepare_resume.py", "size": 35121,
         "sha256": "9e685ebd51d0d99dc6967f4c93f35d632e228172dd03c5fe430a662821d40355"},
 }
-OBSERVATION_PROFILES = (OBSERVATION_BYTE_WITNESSES, OBSERVATION_FIXED)
+# Persistent source inventory reads each unchanged original once, and the
+# invocation observer reuses only already qualified frozen source stamps. These
+# two helpers change no recovered or prepared asset bytes.
+OBSERVATION_INPUT_INDEX = {
+    **OBSERVATION_FIXED,
+    "tools/quest-builder/storage.py": {
+        "path": "tools/quest-builder/storage.py", "size": 54297,
+        "sha256": "321461243ec5c89044a9bbef8904a094f69dfc1c4a580012525ae2c147e47a58"},
+    "tools/quest-builder/prepare_resume.py": {
+        "path": "tools/quest-builder/prepare_resume.py", "size": 35360,
+        "sha256": "c9b9961b434446566946314e40c8a5be2b9007c04ce78b318dad682a47dfc20e"},
+}
+OBSERVATION_PROFILES = (OBSERVATION_BYTE_WITNESSES, OBSERVATION_FIXED, OBSERVATION_INPUT_INDEX)
 # Shipped d4cc44eeb adds an exporter-log observer and invocation-local proof
 # caches. The current reference-audit update changes no raw export identities.
 # Preserve this exact whole profile as well as the previous shipped profiles.

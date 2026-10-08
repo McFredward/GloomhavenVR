@@ -1,5 +1,25 @@
 # State — where the project stands
 
+**Quest Windows continuation and UI recipe follow-up, 2026-10-08 (Builder only).**
+
+Capture193438 confirms3ab6ff9c4/Mod645. Recovery and original snapshots already
+use metadata with zero payload reads; over20 minutes of repeated base copying
+plus six repeated startup conversions result from overbroad preparation source
+identity. Exact ordered pre-archive producer scopes now preserve those outputs
+across later runtime/release/CLI changes. Mutable original inputs receive a
+persistent per-file change index, eliminating repeated full-game hash reads
+after its initial visit. Changed actual inputs/outputs remain individually
+qualified and unfinished mutations retain bounded rollback.
+
+The pinned original exporter reproduces all three UI failures with changed
+collection locators and identical original Shader data. Selection now pins the
+complete parsed Shader/platform content and retains locator/raw-file provenance;
+exact original UI/blur sources and actual negative controls qualify the repair.
+Current dev646 is merged only into the maintainer-confirmed Quest feature branch;
+actual current mod compilation and full original-game AOT weaving complete.
+See [retained-data follow-up](QUEST-BUILD-REUSE-20261008.md). Focused source and
+extracted-archive evidence do not establish Windows whole-build or HMD success.
+
 **Quest Windows startup preparation repair, 2026-10-08 (Builder only).**
 
 Capture `quest-build-support-20261008T162840Z-51d5aa71.zip` identifies published

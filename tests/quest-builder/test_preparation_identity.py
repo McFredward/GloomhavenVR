@@ -54,6 +54,16 @@ class BuilderProducerIdentityTests(unittest.TestCase):
                 self.assertNotEqual(changed, self.original)
                 self.assertNotEqual(identity.builder_producer_digest(changed), identity.builder_producer_digest(self.original))
 
+    def test_original_prefix_does_not_depend_on_later_cli_or_player_functions(self):
+        changed = self.original.replace(b'"inspect: reading owned game changes and current mod inputs"', b'"inspect: using a persistent original input inventory"')
+        self.assertNotEqual(changed, self.original)
+        self.assertNotEqual(identity.builder_producer_digest(changed), identity.builder_producer_digest(self.original))
+        self.assertEqual(identity.builder_producer_digest(changed, original_prefix=True),
+                         identity.builder_producer_digest(self.original, original_prefix=True))
+        changed = self.original.replace(b"base_project, base_contracts", b"loading_resources, base_contracts")
+        self.assertNotEqual(identity.builder_producer_digest(changed, original_prefix=True),
+                            identity.builder_producer_digest(self.original, original_prefix=True))
+
 
 class ActualPreparationMigrationTests(unittest.TestCase):
     def setUp(self):
@@ -244,6 +254,90 @@ class ActualPreparationMigrationTests(unittest.TestCase):
         self.assertEqual(self.native_attempts, 1)
         self.assertEqual(json.loads(journal.read_text())["inputKey"], f.inputs["inputKey"])
         self.assertEqual(library.read_bytes(), b"native import cache")
+
+    def test_new_mod_runtime_preserves_original_startup_prefix_under_current_input_key(self):
+        project, journal, calls, library = self.startup_transport_failure()
+        f = self.fixture
+        f.write(f.source, "src/GloomhavenVR/Net/NetProtocol.cs", b"// Updated current mod build.\n")
+        f.write(f.source, "src/GloomhavenVR/WorldUI/CurrentRuntime.cs", b"// Current runtime consumed after startup.\n")
+        f.write(f.source, "scripts/current-runtime-check.py", b"# Unrelated developer verification.\n")
+        # Git-free releases carry a changing manifest wrapping all delivered
+        # source rows; its metadata is not a preparation producer input.
+        f.write(f.source, "quest-builder-release.json", b'{"sourceCommit":"new-release"}\n')
+        current = self.inputs()
+        current["mod"]["modBuild"] += 1
+        current.pop("inputKey"); current["inputKey"] = storage.value_hash(current)
+        storage.write_json(f.output / "manifests" / (current["inputKey"] + ".json"), current)
+        f.inputs = current
+        self.assertEqual(identity.rebind_key(f.output, project, current, f.source,
+                         target="game", recipe=builder.RECIPE, recovery=recovery_resume), self.previous["inputKey"])
+        with patch.object(builder.prepare_resume, "copy_changed", side_effect=AssertionError("Original startup must not restart for a later runtime update")):
+            with self.assertRaisesRegex(storage.BuildError, "Original UI recipe transport failure"):
+                f.run_prepare()
+        calls["ui-attempt"] += 1
+        self.assertEqual(f.calls, calls)
+        self.assertEqual(json.loads(journal.read_text())["inputKey"], current["inputKey"])
+        self.assertEqual(library.read_bytes(), b"native import cache")
+
+    def test_mod_prefix_exceptions_do_not_cover_loading_inputs_or_later_runtime_owners(self):
+        project, journal, _, _ = self.startup_transport_failure()
+        f = self.fixture
+        baseline = copy.deepcopy(f.inputs)
+        for name in identity.PREFIX_MOD_INPUTS:
+            with self.subTest(input=name):
+                current = copy.deepcopy(baseline)
+                next(row for row in current["mod"]["files"] if row["path"] == name).update(size=8, sha256="e" * 64)
+                current["mod"]["key"] = storage.value_hash({"files": current["mod"]["files"]})
+                current.pop("inputKey"); current["inputKey"] = storage.value_hash(current)
+                storage.write_json(f.output / "manifests" / (current["inputKey"] + ".json"), current)
+                self.assertIsNone(identity.rebind_key(f.output, project, current, f.source,
+                                  target="game", recipe=builder.RECIPE, recovery=recovery_resume))
+        value = json.loads(journal.read_text())
+        value["steps"].append({"name": "ui-recipes", "operation": "startup-content", "outputs": []})
+        value["pending"] = {"name": "startup-ui", "operation": "startup-content", "undo": []}
+        storage.write_json(journal, value)
+        current = copy.deepcopy(baseline)
+        current["mod"]["files"].append({"path": "src/GloomhavenVR/Runtime.cs", "size": 8, "sha256": "e" * 64})
+        current["mod"]["modBuild"] += 1
+        current["mod"]["key"] = storage.value_hash({"files": current["mod"]["files"]})
+        current.pop("inputKey"); current["inputKey"] = storage.value_hash(current)
+        storage.write_json(f.output / "manifests" / (current["inputKey"] + ".json"), current)
+        self.assertIsNone(identity.rebind_key(f.output, project, current, f.source,
+                          target="game", recipe=builder.RECIPE, recovery=recovery_resume))
+
+    def test_runtime_update_preserves_all_closed_original_conversions_before_mod_banks(self):
+        f = self.fixture
+        self.stop = False
+        f.failure = "graphics"
+        self.previous = self.inputs()
+        self.previous_source = f.output / "inputs/mod" / self.previous["mod"]["key"]
+        shutil.copytree(f.source, self.previous_source, dirs_exist_ok=True)
+        with self.assertRaisesRegex(storage.BuildError, "fixture graphics failure"):
+            f.run_prepare()
+        project = f.project()
+        journal = f.output / "cache/prepare-resume" / project.name / "journal.json"
+        value = json.loads(journal.read_text())
+        self.assertEqual(value["steps"][-1]["name"], "campaign-compute")
+        self.assertEqual(len(value["steps"]), 18)
+        calls = dict(f.calls)
+        library = f.write(project, "Library/retained-current-import", b"existing original Unity imports")
+        f.write(f.source, "src/GloomhavenVR/Net/NewCurrentRuntime.cs", b"// Current runtime used by later weaving.\n")
+        f.write(f.source, "scripts/current-runtime-check.py", b"# Current unrelated check.\n")
+        current = self.inputs()
+        self.assertEqual(identity.rebind_key(f.output, project, current, f.source,
+                         target="game", recipe=builder.RECIPE, recovery=recovery_resume), self.previous["inputKey"])
+        real_copy = builder.prepare_resume.copy_changed
+        def only_pending_undo(source, target, **kwargs):
+            self.assertTrue("undo-campaign-shaders" in Path(source).parts
+                            or "undo-campaign-shaders" in Path(target).parts)
+            return real_copy(source, target, **kwargs)
+        with patch.object(builder.prepare_resume, "copy_changed", side_effect=only_pending_undo):
+            with self.assertRaisesRegex(storage.BuildError, "fixture graphics failure"):
+                f.run_prepare()
+        calls["shaders"] += 1
+        self.assertEqual(f.calls, calls)
+        self.assertEqual(json.loads(journal.read_text())["inputKey"], current["inputKey"])
+        self.assertEqual(library.read_bytes(), b"existing original Unity imports")
 
     def test_partial_unknown_progress_profile_and_completed_ui_never_receive_transport_alias(self):
         project, journal, _, _ = self.startup_transport_failure()

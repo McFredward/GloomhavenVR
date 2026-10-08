@@ -1,5 +1,81 @@
 # Quest Windows retained-data qualification, 2026-10-08
 
+## Follow-up: 193438 capture and actual exporter qualification
+
+`quest-build-support-20261008T193438Z-f99ac3b2.zip` identifies published
+`3ab6ff9c4`, ModBuild645. The command lasted2184.052 seconds. It already reused
+5227 immutable game snapshot files and191415 recovered files by metadata,
+reading zero payload bytes in those two checks. Preparation then qualified zero
+closed outputs, copied191488 files again and repeated six startup producers.
+The observed copy interval alone is at least1237.647 seconds; movie/Sprite/audio
+work takes438.233/84.778/61.295 seconds. The capture omits earlier timed log
+endpoints, so it cannot establish the individual initial hash/check durations.
+
+The preparation key included the whole ModBuild/source tree, unrelated Builder
+CLI/Player functions and the aggregate Git-free release manifest. Those inputs
+changed even though the original conversion producers did not. Compatibility
+now proves the exact ordered original-game prefix, frozen game/profile/template
+inputs, actual preparation body, its consumed top-level helpers/import bindings,
+and conversion helper records. General mod C# and repository check/install
+scripts are consumed later. QuestText and the loading logo remain explicit
+prefix inputs. `quest-builder-release.json` stays in verified delivery/input
+provenance; its already verified child records qualify producers instead of
+binding original assets to every release-wrapper change.
+
+The reusable pre-archive prefix contains19 Game or9 Startup steps. An altered
+UI helper can retain only the earlier7 Game/6 Startup steps, before its first
+consumer; previously completed UI work is never attributed to the new helper.
+Pending names and operations must match the exact next step. Changed game,
+profile, template, consumed tool and unknown partial observer profiles retain
+their independent identities. The current source snapshot and input key own all
+later mod banks/settings/weaving. In-process proof reuse also avoids reading a
+new immutable snapshot path twice. Partial destructive work still restores its
+bounded undo before retrying; closed conversions and Unity Library remain.
+
+Original input inventory now persists file identity/change stamps in an owned
+SQLite index outside the PC game. The first visit hashes files once, committing
+completed large files immediately. Later inspect/build/source-verification
+visits read only changed/new files. Additions/removals alter the inventory;
+same-size edits with restored mtime remain detected by native change stamps.
+Existing output-witness and unsupported-filesystem fallback rules are unchanged.
+An older installation with no original-input index needs that first indexing
+pass; this is distinct from repeating project copies or conversions.
+
+The all-three UI failure was independently reproduced with the pinned
+AssetRipper producer and three original SerializedFiles totaling4.7MB. Export
+collection addresses differ from the historical startup export. Consequently,
+whole-recipe file hashes change even with LF and identical original Shader
+data. The repaired consumer pins every parsed Shader field/program table and
+compiled platform while retaining physical hashes and locators as provenance.
+Equivalent original Blur objects collapse deterministically. Existing DXBC
+transcription/source hashes, pass/property/GUID contracts remain authoritative;
+the exporter JSON contains program tables, not the separate DXBC blob bytes.
+LF and Windows CRLF producer transports both restore the three original UI/blur
+source hashes. Twelve mutations of actual original properties/pass/platform/
+program tables are refused without replacing the prior manifest. Failed
+candidate families now emit bounded file/fingerprint/reason diagnostics.
+
+Evidence root: `/home/claw/quest3-local/build/evidence/B646-support-193438/`.
+`audit-worker/` qualifies full producer counters against the truncated Wizard
+logs and independently reviews pre-archive dependencies. `ui-worker/` records
+the actual producer reproduction, exact original source restoration and negative
+controls. `resume-worker/benchmark.json` uses5227 synthetic files/21.46MB:
+warm inspect/source checks read zero bytes in about0.33 seconds; a same-size
+preserved-mtime change reads only its2100-byte file. These are bounded Linux
+results, not a Windows whole-build ETA. Integrated preparation fixtures preserve
+the six captured startup steps across updated runtime/release/inspection inputs;
+a later graphics failure preserves18 completed original conversions and retries
+only the pending phase with its undo. Source-based checks do not prove headset
+pixels or successful completion of the user's next Windows APK build.
+
+Current dev646 is merged on the user-confirmed Quest feature branch. Its actual
+mod compiles without warnings/errors and complete original-game weaving closes
+289 targets/475 hooks with seven protected types retained. Unchanged runtime,
+Wizard UI and hardware evidence below is inherited at its declared scope;
+no new unrelated full mod gate, full host APK or exhaustive shader pass is run.
+
+The earlier sections below describe the preceding fixes and their evidence.
+
 ## Observed failure and retained work
 
 Input: `quest-build-support-20261008T142900Z-fa677485.zip`. The release and
