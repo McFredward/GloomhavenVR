@@ -75,6 +75,7 @@ public static partial class TerrainProgram
     public static int Run()
     {
         PerfConfig.SharedEnvironmentMaterialReadsOn=false; PerfConfig.TerrainCameraSourceLimit=0; PerfConfig.TerrainSubstitutionOn=true;
+        ScenarioTerrainBudget.ConfigureRoomArchitecture(() => false, () => 100);
         _checks=0; Bank.Clear(); ProceduralWall.m_WallCache.Clear(); VRLog.Faults.Clear(); BundleShaders.Throw=false;
         PerfConfig.CheapWallShadingOn=true; PerfConfig.TerrainDetailPercent=100; PerfConfig.DistantTerrainDetailPercent=100;
         var host=new GameObject("GloomhavenVR.TerrainOwner"); var scenario=new GameObject("Scenario"); scenario.AddComponent<ProceduralScenario>();
@@ -337,7 +338,7 @@ public static partial class TerrainProgram
         ShaderPixels(camera);
         NoisePixels(camera);
         Check(VRLog.Faults.FindAll(text=>text.Contains("presentation failed")).Count==1,"optional failure reports once with useful normal-level context");
-        scenario.SetActive(false); NativeCoverage(camera);
+        scenario.SetActive(false); NativeCoverage(camera); RoomArchitectureCoverage(camera); RoomFloorScale(camera);
         Object.DestroyImmediate(host); Object.DestroyImmediate(scenario); Object.DestroyImmediate(camera.targetTexture); Object.DestroyImmediate(cameraGo); Object.DestroyImmediate(material); DisposeBank();
         return _checks;
     }
