@@ -147,7 +147,7 @@ def persistent_inventory(root: Path, database: Path, *, phase="input-hash") -> l
     # Keep the exact selected set current: additions/removals change the
     # returned inventory even when every surviving file has a reusable proof.
     selected = []
-    for path in sorted(root.rglob("*")):
+    for path in root.rglob("*"):
         value = path.lstat()
         if stat.S_ISDIR(value.st_mode):
             if getattr(value, "st_file_attributes", 0) & 0x400:
@@ -156,6 +156,12 @@ def persistent_inventory(root: Path, database: Path, *, phase="input-hash") -> l
         if not stat.S_ISREG(value.st_mode) or getattr(value, "st_file_attributes", 0) & 0x400:
             raise BuildError("Input inventory contains an unsupported linked or non-file path: " + str(path))
         selected.append((path, path.relative_to(root).as_posix(), value.st_size))
+    # Preserve inventory()'s exact relative-string order. Path ordering is
+    # case-insensitive on Windows and compares path parts even on POSIX. Either
+    # changes the ordered files array and its game key for unchanged originals,
+    # starting a duplicate snapshot/export instead of selecting saved work.
+    # Existing per-file SQLite byte proofs remain valid in the corrected order.
+    selected.sort(key=lambda item: item[1])
     counter = _counter(phase, sum(size for _, _, size in selected), "bytes")
     connection = sqlite3.connect(database, timeout=30)
     try:

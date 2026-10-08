@@ -3,7 +3,7 @@ import ctypes
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import shutil
 import sqlite3
 import sys
@@ -17,6 +17,12 @@ import storage
 
 
 def sha(raw): return hashlib.sha256(raw).hexdigest()
+
+
+class WindowsOrderedPath(type(Path())):
+    """Exercise Windows path ordering with real files on the host platform."""
+    def __lt__(self, other):
+        return PureWindowsPath(self.as_posix()) < PureWindowsPath(other.as_posix())
 
 
 class WitnessTests(unittest.TestCase):
@@ -333,6 +339,74 @@ class PersistentInventoryTests(unittest.TestCase):
         result, reads = self.reads(lambda: (self.inventory(), self.inventory()))
         self.assertEqual(result, (expected, expected)); self.assertEqual(reads, [])
         self.assertEqual(sorted(path.name for path in self.source.iterdir()), ["one.bundle", "two.bundle"])
+
+    def mixed_case_files(self):
+        for relative in ("app.info", "Managed/Apparance.Net.dll", "Managed/assembly.dll", "StreamingAssets/Z.asset"):
+            path = self.source / relative; path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(relative.encode("utf-8"))
+
+    def test_windows_path_order_preserves_legacy_inventory_rows_and_key(self):
+        self.mixed_case_files(); expected = storage.inventory(self.source)
+        windows_rows = sorted(expected, key=lambda row: PureWindowsPath(row["path"]))
+        # A Path sort is case-insensitive on Windows. The old manifest sorts
+        # relative POSIX strings, so unchanged bytes must not adopt that order.
+        self.assertNotEqual(windows_rows, expected)
+        self.assertNotEqual(storage.value_hash({"files": windows_rows}), storage.value_hash({"files": expected}))
+        with mock.patch.object(storage, "Path", WindowsOrderedPath):
+            result, reads = self.reads(self.inventory)
+        self.assertEqual(result, expected)
+        self.assertEqual(storage.value_hash({"files": result}), storage.value_hash({"files": expected}))
+        self.assertEqual(len(reads), len(expected))
+        storage._invocation_file_proofs.clear()
+        with mock.patch.object(storage, "Path", WindowsOrderedPath):
+            result, reads = self.reads(self.inventory)
+        self.assertEqual(result, expected); self.assertEqual(reads, [])
+
+    def test_previous_windows_ordered_database_restores_legacy_key_without_reads(self):
+        self.mixed_case_files(); expected = storage.inventory(self.source)
+        windows_rows = sorted(expected, key=lambda row: PureWindowsPath(row["path"]))
+        self.database.parent.mkdir(parents=True)
+        # Seed the exact previous database layout with individually observed
+        # original bytes, independently of the fixed enumeration order.
+        with sqlite3.connect(self.database) as connection:
+            witnesses = storage.ValidatedFileWitnesses(connection, self.source,
+                {"schema": 1, "owner": "Quest original input inventory"})
+            for row in windows_rows:
+                self.assertEqual(witnesses.observe(self.source / row["path"]), row["sha256"])
+        storage._invocation_file_proofs.clear()
+        with mock.patch.object(storage, "Path", WindowsOrderedPath):
+            result, reads = self.reads(self.inventory)
+        self.assertEqual(reads, []); self.assertEqual(result, expected)
+        self.assertEqual(storage.value_hash({"files": result}), storage.value_hash({"files": expected}))
+        with sqlite3.connect(self.database) as connection:
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM validated_file_witnesses").fetchone()[0], len(expected))
+
+    def test_directory_and_filename_prefix_sort_as_relative_strings(self):
+        path = self.source / "node" / "A.asset"; path.parent.mkdir(); path.write_bytes(b"nested original")
+        (self.source / "node.asset").write_bytes(b"root original")
+        expected = storage.inventory(self.source)
+        native_rows = sorted(expected, key=lambda row: Path(row["path"]))
+        self.assertNotEqual(native_rows, expected)
+        self.assertEqual(self.inventory(), expected)
+
+    def test_windows_inventory_selects_existing_legacy_snapshot_without_copying(self):
+        self.mixed_case_files(); expected = storage.inventory(self.source)
+        original_key = storage.value_hash({"files": expected})
+        destination = self.root / "inputs" / "game" / original_key
+        storage.snapshot(self.source, expected, destination)
+        self.inventory(); storage._invocation_file_proofs.clear()
+        original_open = Path.open
+        def opening(path, mode="r", *args, **kwargs):
+            if mode == "rb" and (self.source in path.parents or destination in path.parents):
+                raise AssertionError("unchanged original/snapshot asset reread")
+            return original_open(path, mode, *args, **kwargs)
+        with mock.patch.object(storage, "Path", WindowsOrderedPath), mock.patch.object(Path, "open", opening), \
+                mock.patch.object(storage.shutil, "copyfile", side_effect=AssertionError("duplicate snapshot copy")):
+            current = self.inventory()
+            current_destination = self.root / "inputs" / "game" / storage.value_hash({"files": current})
+            self.assertEqual(current_destination, destination)
+            storage.snapshot(self.source, current, current_destination)
+        self.assertEqual([path.name for path in destination.parent.iterdir() if path.is_dir()], [original_key])
 
     def test_only_changed_same_size_preserved_mtime_file_is_rehashed(self):
         expected = self.inventory(); storage._invocation_file_proofs.clear()
