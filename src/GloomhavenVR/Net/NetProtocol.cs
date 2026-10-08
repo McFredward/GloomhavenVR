@@ -598,7 +598,29 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 646;
+    public const ushort ModBuild = 647;
+
+    // ModBuild647 — broader source-verified simplified 3D room presentation.
+    // Audit every local PCG MeshFilter use across the game and DLC source bundles.
+    // Only unambiguous static floor/structure/ornament families are admitted by
+    // exact native metadata and source hashes. Stronger prepared tiers retain
+    // original channels, vertex indexing, bounds, open seams and certified floor
+    // footprints; unsafe derivatives keep original geometry. No 2.5D board,
+    // native static batching, source mesh writes or room/actor/door hiding.
+    // The room master, floor detail, ornament density, private floor grouping
+    // and individual floor source budget are distinct live quality controls.
+    // Fresh Frame/Standalone profiles select this same shared implementation;
+    // ordinary PC defaults keep native room quality. Saved choices always win.
+    // Geometry transitions and native continuous wall/pillar/shelf fades remain.
+    // Verified settled floors may delegate from terrain to private environment
+    // groups outside native cloning roots. Current visibility/material/MPB/pose,
+    // source scope, native consumers and morph endpoints revoke stale groups.
+    // Floor budget is independent of the existing wall/pillar budget; complete
+    // camera counters distinguish floors, structures and surviving group leases.
+    // Unused settled-floor morph buffers and repeated current-pass native reads
+    // are removed universally, without an option. Gameplay and wire schemas stay.
+    // Full asset-bank installation is required. Scope, measurements and limits:
+    // docs/performance/FRAME-647-ROOM-ARCHITECTURE.md. Peers install647 together.
 
     // ModBuild646 — paired645 town presentation and map-entry review.
     // A complete newer native original supersedes older cumulative deltas from
