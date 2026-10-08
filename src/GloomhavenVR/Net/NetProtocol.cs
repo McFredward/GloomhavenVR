@@ -598,7 +598,46 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 643;
+    public const ushort ModBuild = 644;
+
+    // ModBuild644 — target measured fully loaded Frame CPU costs after643.
+    // Current five-room643 windows average78.634ms/frame,43.240ms measured mod;
+    // terrain13.144ms, walls10.477ms and world materials6.214ms are parent totals
+    // including both eye callbacks. Saved .8 now really allocates2728x2728 eyes;
+    // these measurements do not establish a controlled FPS gain or GPU attribution.
+    // Share exact current grabbable/local-held/remote-held roots in terrain ancestry
+    // only within an invocation; native writes, nested cameras and recovery clear
+    // mutable facts. Record lease camera after callback-capable preparation so a
+    // resumed outer render still restores its original native sources.
+    // ScenarioTerrainSubstitution provides an independent original-3D-geometry
+    // comparison while native-slot world simplification remains available. On is
+    // retained by default; Off is a CPU/GPU trade, not a proven Frame improvement.
+    // Already-hidden attachments avoid exact fade1 writes only when genuinely
+    // owned and disabled with no current/queued geometry consumer. Floor, held,
+    // intermediate fade and native re-enable guards remain live. Hide ownership
+    // is recorded only after a real enabled setter; late native disables still
+    // revoke current/queued geometry before the same draw.
+    // User policy2026-10-08: pure work removal ships universally without player
+    // switches. Retire14 existing pure/inert/discovery controls, including shared
+    // environment/UI reads and exact full-detail mesh-bank preparation. Walk-in
+    // discarded measurements always stop; inert AutomaticLOD discovery uses15s.
+    // Four regrouping options remain adjustable: native ForwardAdd coverage,
+    // per-source dynamic lights and supplementary-stream/global material scope
+    // are not equivalent in every existing path. Quality/freshness/diagnostic
+    // choices stay separate. The proposed hidden-write toggle is not shipped.
+    // Current camera masks also omit unreachable source material/scope work,
+    // retaining complete checks for geometry consumers, null cameras and external
+    // camera command buffers. UI captures still invalidate nested reads; no stale
+    // layer union is cached. Terrain's real CPU/geometry trade stays configurable
+    // with bilingual help and the existing Debug quality boundary.
+    // Retains643 native fade, camera and XR fixes, NPC639 and crossplay641. No room
+    // hiding, idle throttling, native static batching, mesh/shader bank, gameplay
+    // command or wire layout change. Scoped automated evidence and next hardware
+    // comparison: docs/performance/FRAME-644-STEADY-CPU.md. VR peers install644.
+    // Strict Debug/Release0/0; source16; full170initial167 plus3exact-source
+    // NPC scoped repeats pass with unchanged deadlines (not onegreenfullrun).
+    // Separate299711 golden assertions; fresh Unity terrain387/79variants,
+    // environment11450/92 andworld-wall736/20. Headset FPS andMP remain unverified.
 
     // ModBuild643 — integrate checked Frame native-presentation follow-up on642.
     // A late enabled backbuffer camera could bypass CapturedSet before its first

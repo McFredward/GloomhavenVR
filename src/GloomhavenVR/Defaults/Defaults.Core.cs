@@ -63,13 +63,10 @@ internal static partial class Defaults
     internal const bool CullSubmitSplit = true;              // => [Perf] CullSubmitSplit  (ON since ModBuild 227. Pure measurement, changes no pixel: two timer reads per camera render. It decides whether the head camera's 6–9ms/frame over 8,600 renderers is CULL — in which case the blanket 0xFFFFFFFF head mask vs the game's own 0x700FFF17 ScenarioCamera mask is the next lever — or SUBMIT, in which case it is not)
     internal const bool ProfileDefaultsMigrated227 = false;   // => [Perf] ProfileDefaultsMigrated227  (pinned: one-shot migration marker — a fresh install must start false, or the ModBuild 227 SceneProfile/CullSubmitSplit flip never reaches an existing cfg)
     internal const bool LodCensus = true;                    // => [Perf] LodCensus  (ON: pure measurement, one line per scene. The 227 SIM reading put 2560 of 2986 Update entries — 86% — in ONE third-party type, and the analysis that named it also asserted "the game has no LODGroup at all" while the GFX line in the same log read "LOD groups: 1277 active". This walk settles both, names which camera decides the level, prints the level distribution the scene is actually running at, and prints QualitySettings.masterTextureLimit — the competing mechanism for the separate "matschige Texturen" report, which no line in this log has ever carried)
-    internal const bool CacheTickDelegates = true;           // => [Optimize] CacheTickDelegates
-    internal const bool MapIconCache = true;                 // => [Optimize] MapIconCache
     internal const int ScenarioSceneryDensityPercent = 100; // => [Optimize] ScenarioSceneryDensityPercent
     internal const int ScenarioDecorationDensityPercent = 100; // => [Optimize] ScenarioDecorationDensityPercent
     internal const int ScenarioVegetationDensityPercent = 100; // => [Optimize] ScenarioVegetationDensityPercent
     internal const float ActorBarPoseCheckIntervalSeconds = 0f;
-    internal const bool SuspendUnusedCameras = false;
     internal const bool OffscreenIdleAnimation = false;     // => [Optimize] OffscreenIdleAnimation
     internal const bool ScenarioStructuralBatching = false; // => [Optimize] ScenarioStructuralBatching
     internal const bool ScenarioStructuralInstancing = false; // => [Optimize] ScenarioStructuralInstancing
@@ -87,11 +84,6 @@ internal static partial class Defaults
     internal const bool ScenarioSimpleEnvironmentShading = false; // => [Optimize] ScenarioSimpleEnvironmentShading
     internal const int ScenarioEnvironmentEffectsDensityPercent = 100; // => [Optimize] ScenarioEnvironmentEffectsDensityPercent
     internal const bool ReduceScenarioGenerationDetail = false; // => [Optimize] ReduceScenarioGenerationDetail
-    internal const bool SharedWallReadCache = true;         // => [Optimize] SharedWallReadCache
-    internal const bool LightStabiliserWorkCache = true;     // => [Optimize] LightStabiliserWorkCache
-    internal const bool FigureScanCache = true;              // => [Optimize] FigureScanCache
-    internal const bool LeanLogStrings = true;               // => [Optimize] LeanLogStrings
-    internal const bool TooltipScanGate = true;              // => [Optimize] TooltipScanGate
     internal const float FanRelayoutMinInterval = 0f;        // => [Optimize] FanRelayoutMinInterval
     internal const float WallFadeEvalInterval = 0f;          // => [Optimize] WallFadeEvalInterval
     internal const float InitiativeDepthEvalInterval = 0f;   // => [Optimize] InitiativeDepthEvalInterval
@@ -145,8 +137,6 @@ internal static partial class Defaults
     internal const bool HeadDepthPrepass = false;            // => [Optimize] HeadDepthPrepass
     internal const string HeadCullingMaskDrop = "";          // => [Optimize] HeadCullingMaskDrop
     internal const bool HeadMaskFromScenarioCamera = false;  // => [Optimize] HeadMaskFromScenarioCamera
-    internal const bool AutomaticLodIdleSkip = true;         // => [Optimize] AutomaticLodIdleSkip  (ON, VR only. Not a judgement call: the sweep disables an instance only after READING its own LODSwitchMode as UnityLODGroup, which is the exact condition under which AutomaticLOD.Update returns on its FIRST statement — the component's own test, run per instance. 2560 of 2986 entries on Unity's Update list on the 2026-08-22 log. The LODGroup that actually picks the level is a different component and is untouched; every disabled instance is restored on teardown, on hot-reload and on a dial flip)
-    internal const float AutomaticLodSweepSeconds = 15f;     // => [Optimize] AutomaticLodSweepSeconds  (a revealed room instantiates new AutomaticLOD; 15s is the worst-case latency before those come off the list too. One typed FindObjectsOfType per sweep, which the [Perf] LOD line times and prints — at a single-digit-ms scan this is far under a tenth of a percent of a frame amortised, against a saving paid on all ~1350 frames in that window)
     internal const float LodBias = 0f;                       // => [Optimize] LodBias  (0 = leave QualitySettings.lodBias at the quality level's own value = TODAY'S BEHAVIOUR, changes no pixel. The VR correction factor is tan(fovVR/2)/tan(fovFlat/2), two numbers this project has never measured — the [Perf] LOD line prints them and the exact value that would restore the flat game's LOD choice. Nothing gets tuned here before that reading exists)
 
     // ---- Core/SkyAlternative.cs ----------------------------------------------------
@@ -352,7 +342,6 @@ internal static partial class Defaults
     // and it is safe by construction — while the walk-in latch holds, every wall is forced solid
     // by decree, so the decision, the coverage sampling and the rescan cadence are all computing
     // an answer the segment loop throws away one branch later.
-    internal const bool WalkInSuspendSampling = true;        // => [WallFade] WalkInSuspendSampling
     // ModBuild 278 — the WHICH-RENDERERS census (see WallSegmentFadeCulprits.cs). It shipped ON
     // "because it is the whole point of the build": 28 of 33 commits in the ModBuild 277 log
     // fired on "the SCENE signature moved" and nothing shipped could say what moved it.

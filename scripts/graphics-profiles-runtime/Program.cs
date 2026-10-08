@@ -33,9 +33,11 @@ internal static class Program
             Check(WorldUIConfig.ImmersiveTownServices.Value==(i!=0) && WindowMaterialise.Entry.Value==(i!=0), "standalone disables costly NPC/dust; PC restores original features");
             Check(PerfConfig.ScenarioFigureClothSimulation.Value==(i>=2), "cloth simulation trade is explicit");
             Check(PerfConfig.ReduceScenarioGenerationDetail.Value==(i<=1), "next-load generation trade is explicit");
-            Check(PerfConfig.ScenarioEnvironmentMeshBank.Value==(i<3), "mesh-copy option is a shared standalone/performance control");
+            Check(PerfConfig.EnvironmentMeshBankOn, "exact full-detail private mesh preparation applies to every profile");
             Check(PerfConfig.ScenarioExplicitEnvironmentInstancing.Value==(i<3), "explicit draw option is independent and disabled in original quality");
             Check(PerfConfig.ScenarioCheapWallShading.Value==(i<2), "wall shading compromise is explicit for low profiles");
+            Check(PerfConfig.ScenarioTerrainSubstitution.Value,
+                "explicit profiles restore the prepared-terrain path before later individual comparisons");
             Check(PerfConfig.WorldMaterialQualityModeCount.Value==(i==0?2:0),
                 "standalone requests radical audited world shading while ordinary PC profiles keep native materials");
             Check(PerfConfig.WorldMaterialAmbientPercent.Value==100,
@@ -45,11 +47,13 @@ internal static class Program
             Check(PerfConfig.ScenarioTerrainCameraSourceLimitCount.Value==(i==0?64:0),
                 "standalone bounds terrain substitution work while PC quality profiles retain unlimited originals-compatible substitution");
             Check(PerfConfig.ScenarioTerrainDistanceMeters.Value==GloomhavenVR.FrameDefaults.ScenarioTerrainDistanceMeters, "VR distance threshold is platform-independent");
-            Check(PerfConfig.SharedEnvironmentMaterialReads.Value && PerfConfig.SharedUiWindowReads.Value, "exact work removal is selectable on every platform");
+            Check(PerfConfig.SharedEnvironmentMaterialReadsOn && PerfConfig.SharedUiWindowReadsOn, "environment and UI work removal apply universally without a quality switch");
             foreach (var file in ModuleConfig.Snapshot())
                 foreach (var key in file.Value.Entries.Keys)
-                    Check(!key.Key.StartsWith("VisibleIdle",StringComparison.Ordinal),
-                        "profiles never bind retired visible idle controls");
+                    Check(!key.Key.StartsWith("VisibleIdle",StringComparison.Ordinal)
+                        && key.Key != "SharedEnvironmentMaterialReads" && key.Key != "SkipHiddenWallAttachmentWrites"
+                        && key.Key != "ScenarioEnvironmentMeshBank" && key.Key != "SharedUiWindowReads",
+                        "profiles never bind retired idle or pure environment work-removal controls");
             foreach(var file in ModuleConfig.Snapshot()) Check(file.Value.SaveOnConfigSet, "autosave flags restored for every file");
         }
         Check(GraphicsProfiles.Apply(0), "can return to standalone after high-end");
@@ -73,18 +77,22 @@ internal static class Program
             "material shading stage remains independently adjustable after Standalone");
         Check(PerfConfig.WorldMaterialAmbientPercent.Value==40,
             "ambient weight remains independently adjustable after an explicit profile");
+        PerfConfig.ScenarioTerrainSubstitution.Value=false;
+        PerfConfig.Bind();
+        Check(!PerfConfig.ScenarioTerrainSubstitution.Value,
+            "the terrain geometry comparison survives rebinding without selecting another preset");
+        Check(PerfConfig.ScenarioTerrainDetailPercent.Value==0 && PerfConfig.WorldMaterialQualityModeCount.Value==1,
+            "turning off terrain substitutes retains saved detail and independent world-material choices");
         PerfConfig.ScenarioCheapWallShading.Value=false;
         PerfConfig.ScenarioExplicitEnvironmentInstancing.Value=false;
         PerfConfig.ScenarioTerrainDetailPercent.Value=75;
         PerfConfig.ScenarioDistantTerrainDetailPercent.Value=25;
-        PerfConfig.SharedEnvironmentMaterialReads.Value=false;
-        PerfConfig.SharedUiWindowReads.Value=false;
         Check(!PerfConfig.ScenarioCheapWallShading.Value && !PerfConfig.ScenarioExplicitEnvironmentInstancing.Value,
             "individual rendering toggles remain independently editable after preset");
         Check(PerfConfig.ScenarioTerrainDetailPercent.Value==75 && PerfConfig.ScenarioDistantTerrainDetailPercent.Value==25,
             "near and distant detail choices remain independent after preset");
-        Check(!PerfConfig.SharedEnvironmentMaterialReads.Value && !PerfConfig.SharedUiWindowReads.Value,
-            "exact cache choices retain an explicit original path");
+        Check(PerfConfig.SharedEnvironmentMaterialReadsOn && PerfConfig.SharedUiWindowReadsOn,
+            "environment and UI work removal stay universal across individual quality edits");
         int calls=native.Calls; var names=QualitySettings.names; QualitySettings.names=new[]{"Good"};
         Check(!GraphicsProfiles.Apply(0) && native.Calls==calls && RenderQuality.MsaaLevel.Value==4, "missing native level leaves tuned VR controls untouched");
         QualitySettings.names=names; native.ThrowOnCallback=true;

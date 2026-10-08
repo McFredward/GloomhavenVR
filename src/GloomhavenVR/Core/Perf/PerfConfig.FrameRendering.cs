@@ -4,38 +4,40 @@ using UnityEngine;
 namespace GloomhavenVR.Core;
 
 // One mod binary for PC and Frame. The maintainer requested independent live controls
-// for every new compromise (2026-10-05); profile detection only seeds unsaved values.
+// for every quality compromise; pure work removal is universal (2026-10-08).
+// Profile detection only seeds unsaved quality choices.
 internal static partial class PerfConfig
 {
-    internal static ConfigEntry<bool> ScenarioEnvironmentMeshBank = null!;
     internal static ConfigEntry<bool> ScenarioExplicitEnvironmentInstancing = null!;
     internal static ConfigEntry<bool> ScenarioCheapWallShading = null!;
+    internal static ConfigEntry<bool> ScenarioTerrainSubstitution = null!;
     internal static ConfigEntry<int> WorldMaterialQualityModeCount = null!;
     internal static ConfigEntry<int> WorldMaterialAmbientPercent = null!;
     internal static ConfigEntry<int> ScenarioTerrainDetailPercent = null!;
     internal static ConfigEntry<int> ScenarioDistantTerrainDetailPercent = null!;
     internal static ConfigEntry<float> ScenarioTerrainDistanceMeters = null!;
     internal static ConfigEntry<int> ScenarioTerrainCameraSourceLimitCount = null!;
-    internal static ConfigEntry<bool> SharedEnvironmentMaterialReads = null!;
-    internal static ConfigEntry<bool> SharedUiWindowReads = null!;
 
-    internal static bool EnvironmentMeshBankOn => ScenarioEnvironmentMeshBank?.Value ?? Defaults.ScenarioEnvironmentMeshBank;
+    internal static bool EnvironmentMeshBankOn => true;
     internal static bool EnvironmentDrawInstancingOn => ScenarioExplicitEnvironmentInstancing?.Value ?? Defaults.ScenarioExplicitEnvironmentInstancing;
     internal static bool CheapWallShadingOn => ScenarioCheapWallShading?.Value ?? Defaults.ScenarioCheapWallShading;
+    internal static bool TerrainSubstitutionOn => ScenarioTerrainSubstitution?.Value ?? Defaults.ScenarioTerrainSubstitution;
     internal static int WorldMaterialQualityMode => Mathf.Clamp(WorldMaterialQualityModeCount?.Value ?? Defaults.WorldMaterialQualityModeCount, 0, 2);
     internal static float WorldMaterialAmbientWeight => Mathf.Clamp(WorldMaterialAmbientPercent?.Value ?? Defaults.WorldMaterialAmbientPercent, 0, 100) * .01f;
     internal static int TerrainDetailPercent => Mathf.Clamp(ScenarioTerrainDetailPercent?.Value ?? Defaults.ScenarioTerrainDetailPercent, 0, 100);
     internal static int DistantTerrainDetailPercent => Mathf.Clamp(ScenarioDistantTerrainDetailPercent?.Value ?? Defaults.ScenarioDistantTerrainDetailPercent, 0, 100);
     internal static float TerrainDistanceMeters => Mathf.Clamp(ScenarioTerrainDistanceMeters?.Value ?? Defaults.ScenarioTerrainDistanceMeters, .1f, 10f);
     internal static int TerrainCameraSourceLimit => Mathf.Clamp(ScenarioTerrainCameraSourceLimitCount?.Value ?? Defaults.ScenarioTerrainCameraSourceLimitCount, 0, 2048);
-    internal static bool SharedEnvironmentMaterialReadsOn => SharedEnvironmentMaterialReads?.Value ?? Defaults.SharedEnvironmentMaterialReads;
-    internal static bool SharedUiWindowReadsOn => SharedUiWindowReads?.Value ?? Defaults.SharedUiWindowReads;
+    // Work removal is universal, not a player quality choice. The getter preserves
+    // existing internal/test-reference read paths without binding a config entry.
+    internal static bool SharedEnvironmentMaterialReadsOn => true;
+    internal static bool SharedUiWindowReadsOn => true;
 
     private static void BindFrameRendering(ConfigFile file)
     {
-        ScenarioEnvironmentMeshBank = file.Bind("Optimize", "ScenarioEnvironmentMeshBank",
-            FrameDefaults.Active ? FrameDefaults.ScenarioEnvironmentMeshBank : Defaults.ScenarioEnvironmentMeshBank,
-            "Use private verified original environment meshes for render chunks when native meshes are unreadable. Source meshes, colliders and native objects remain unchanged. Works live on PC and Frame.");
+        ScenarioTerrainSubstitution = file.Bind("Optimize", "ScenarioTerrainSubstitution",
+            FrameDefaults.Active ? FrameDefaults.ScenarioTerrainSubstitution : Defaults.ScenarioTerrainSubstitution,
+            "Use prepared 3D substitutes for eligible walls and pillars. Off restores original geometry and stops substitute preparation, while the independent world-material mode still applies. This trades lower CPU preparation for potentially more GPU geometry work; compare in the same loaded view. Detail percentages and simpler-wall choices are retained for On. Works live on every platform; no room is hidden.");
         ScenarioExplicitEnvironmentInstancing = file.Bind("Optimize", "ScenarioExplicitEnvironmentInstancing",
             FrameDefaults.Active ? FrameDefaults.ScenarioExplicitEnvironmentInstancing : Defaults.ScenarioExplicitEnvironmentInstancing,
             "Submit eligible repeated static environment geometry in small camera-bound groups. Restores original rendering on unsupported or changed sources. Works live on PC and Frame.");
@@ -57,15 +59,9 @@ internal static partial class PerfConfig
         ScenarioTerrainDistanceMeters = file.Bind("Optimize", "ScenarioTerrainDistanceMeters",
             FrameDefaults.Active ? FrameDefaults.ScenarioTerrainDistanceMeters : Defaults.ScenarioTerrainDistanceMeters,
             new ConfigDescription("Viewing distance in VR metres beyond which the distant wall and pillar detail cap applies. Native game and room visibility remain unchanged.", new AcceptableValueRange<float>(.1f, 10f)));
-        SharedEnvironmentMaterialReads = file.Bind("Optimize", "SharedEnvironmentMaterialReads",
-            FrameDefaults.Active ? FrameDefaults.SharedEnvironmentMaterialReads : Defaults.SharedEnvironmentMaterialReads,
-            "Reuse exact current scenery, ownership and material checks within one synchronous pass, and stop redundant terrain preparation after its configured camera limit. Each later pass reads native changes again. Off repeats independent checks for A/B comparison; geometry, appearance and animation remain the same.");
         ScenarioTerrainCameraSourceLimitCount = file.Bind("Optimize", "ScenarioTerrainCameraSourceLimitCount",
             FrameDefaults.Active ? FrameDefaults.ScenarioTerrainCameraSourceLimitCount : Defaults.ScenarioTerrainCameraSourceLimitCount,
             new ConfigDescription("Maximum eligible 3D wall/pillar substitutes per eye: 0 is unlimited; lower positive limits reduce substitute preparation CPU work. Remaining surfaces keep their original 3D geometry and shading, which can increase rendering cost. No room is hidden. Works live; fresh Frame/Standalone profiles use 64.", new AcceptableValueRange<int>(0, 2048)));
-        SharedUiWindowReads = file.Bind("Optimize", "SharedUiWindowReads",
-            FrameDefaults.Active ? FrameDefaults.SharedUiWindowReads : Defaults.SharedUiWindowReads,
-            "Share exact current native window-registry reads across converted panels and reuse immediate original-property reads in multiplayer mirrors. Off retains independent reads for A/B comparison. Content, visibility and intermediate animation remain immediate.");
 
     }
 }

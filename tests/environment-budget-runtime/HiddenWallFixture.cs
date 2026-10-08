@@ -1,26 +1,17 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-
 namespace GloomhavenVR.Core
 {
-    // Environment/terrain ownership delegates are explicit boundaries in this lane.
-    // The actual world material owner, native-write release and camera culls execute.
-    internal static class ScenarioEnvironmentBudget
-    {
-        internal static Material CanonicalMaterial(Material material) => WorldMaterialBudget.CanonicalMaterial(material);
-        internal static bool OwnsRenderSubstitute(Renderer renderer) => false;
-        internal static int Writes;
-        internal static void BeforeNativeRendererWrite(Renderer renderer)
-        { Writes++; WorldMaterialBudget.BeforeNativeRendererWrite(renderer); }
-    }
+    // Actual environment leases execute in this lane; current terrain ownership is
+    // separately source-bound and exercised by the terrain runtime lane.
     internal static class ScenarioTerrainBudget
     {
         internal static bool HasCurrentRenderLease(Renderer renderer) => false;
     }
-    internal static partial class WallSegmentFade
+    internal static partial class WallDormantFixture
     {
-        private const string Name = "WallSegmentFade";
+        private const string Name = "WallDormantFixture";
         private sealed class MountedProp
         {
             public Renderer Renderer = null!;

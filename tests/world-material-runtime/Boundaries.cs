@@ -57,10 +57,12 @@ namespace GloomhavenVR.Core
     {
         private sealed class Quiet:IDisposable { public void Dispose(){ } }
         internal static readonly Dictionary<string,int> Counts=new();
+        internal static readonly Dictionary<string,int> ScopeCalls=new();
         internal static bool StepsActive=>true;
         internal static void RegisterDebug(string name){ }
         internal static void Count(string name,int value=1)=>Counts[name]=value;
-        internal static IDisposable Scope(string name)=>new Quiet();
+        internal static IDisposable Scope(string name)
+        { ScopeCalls.TryGetValue(name,out int count); ScopeCalls[name]=count+1; return new Quiet(); }
         internal static long BeginStep()=>0L;
         internal static void EndStep(string name,long begin){ }
     }

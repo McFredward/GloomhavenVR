@@ -49,10 +49,27 @@ namespace GloomhavenVR.Core
         { HeadPositions=HeadScales=HandPositions=PropertyGuards=PropertyReads=PropertyWrites=EffectReads=0;
             EnabledReads=ActiveReads=MaskReads=0; }
     }
+    internal static class TerrainOwnershipObserver
+    {
+        internal static int VisualReads, RootCopies;
+        internal static Transform VisualTransform(GameObject visual) { VisualReads++; return visual.transform; }
+        internal static void Reset() { VisualReads = RootCopies = 0; }
+    }
+    // The narrow wall-hide fixture executes actual Terrain ownership through the
+    // production write contract. The independent environment chunks are covered
+    // by the wall worker's actual-owner fixture, rather than modeled here.
+    internal static class ScenarioEnvironmentBudget
+    {
+        internal static int Writes;
+        internal static bool OwnsRenderSubstitute(Renderer renderer) => false;
+        internal static void BeforeNativeRendererWrite(Renderer renderer)
+        { Writes++; ScenarioTerrainBudget.BeforeNativeRendererWrite(renderer); }
+    }
     internal static class VRSession { internal static bool IsRunning = true; }
     internal static class PerfConfig
     {
         internal static bool CheapWallShadingOn;
+        internal static bool TerrainSubstitutionOn = true;
         internal static bool SharedEnvironmentMaterialReadsOn;
         internal static int TerrainCameraSourceLimit;
         internal static int TerrainDetailPercent = 100, DistantTerrainDetailPercent = 100;
@@ -93,11 +110,39 @@ namespace GloomhavenVR.Core
 namespace GloomhavenVR.Rig { internal static class VRRigDriver { internal static Camera? HeadCamera; } }
 namespace GloomhavenVR.Board.FigureGrab
 {
-    internal static class HeldProps { internal static bool Held; internal static bool OwnsRendererOf(Transform t) => Held; }
-    internal static class PropGrab { internal static bool Held = false; internal static bool OwnsRendererOf(Transform t) => Held; }
+    // Only registration is a fixture boundary. Every read/ancestry/copy API is
+    // source-extracted from the real local and remote prop owners.
+    internal sealed class GrabbableProp { internal GameObject Visual = null!; }
+    internal static partial class PropGrab
+    {
+        private static readonly Dictionary<int, GrabbableProp> Registry = new();
+        internal static void SetRoots(params GameObject[] roots)
+        { Registry.Clear(); for (int i = 0; i < roots.Length; i++) Registry.Add(i, new GrabbableProp { Visual = roots[i] }); }
+    }
+    internal static partial class HeldProps
+    {
+        private static readonly List<ScenarioRuleLibrary.CObjectProp> Held = new();
+        private static readonly List<GloomhavenVR.Hands.HandSide> Sides = new();
+        private static readonly List<GameObject> Visuals = new();
+        private static readonly List<float> HomeWorldScales = new();
+        internal static void SetRoots(params GameObject[] roots)
+        {
+            Held.Clear(); Sides.Clear(); Visuals.Clear(); HomeWorldScales.Clear();
+            foreach (GameObject visual in roots)
+            { Held.Add(new ScenarioRuleLibrary.CObjectProp()); Sides.Add(GloomhavenVR.Hands.HandSide.Right); Visuals.Add(visual); HomeWorldScales.Add(1f); }
+        }
+    }
+    internal static partial class NetHeldProps
+    {
+        private static readonly Dictionary<int, GameObject> Visuals = new();
+        internal static void SetRoots(params GameObject[] roots)
+        { Visuals.Clear(); for (int i = 0; i < roots.Length; i++) Visuals.Add(i, roots[i]); }
+    }
 }
+namespace ScenarioRuleLibrary { internal sealed class CObjectProp { } }
 namespace GloomhavenVR.Hands
 {
+    internal enum HandSide { Left, Right }
     internal sealed class VRHand : MonoBehaviour { internal bool HasPose; internal float WorldScale = 1f; }
     internal static class VRHands { internal static VRHand? Left, Right = null; }
 }

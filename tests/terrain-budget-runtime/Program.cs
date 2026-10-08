@@ -74,7 +74,7 @@ public static partial class TerrainProgram
     private static void DisposeBank() { foreach(var entry in Bank) foreach(Mesh mesh in entry.Value) Object.DestroyImmediate(mesh); Bank.Clear(); }
     public static int Run()
     {
-        PerfConfig.SharedEnvironmentMaterialReadsOn=false; PerfConfig.TerrainCameraSourceLimit=0;
+        PerfConfig.SharedEnvironmentMaterialReadsOn=false; PerfConfig.TerrainCameraSourceLimit=0; PerfConfig.TerrainSubstitutionOn=true;
         _checks=0; Bank.Clear(); ProceduralWall.m_WallCache.Clear(); VRLog.Faults.Clear(); BundleShaders.Throw=false;
         PerfConfig.CheapWallShadingOn=true; PerfConfig.TerrainDetailPercent=100; PerfConfig.DistantTerrainDetailPercent=100;
         var host=new GameObject("GloomhavenVR.TerrainOwner"); var scenario=new GameObject("Scenario"); scenario.AddComponent<ProceduralScenario>();
@@ -310,8 +310,9 @@ public static partial class TerrainProgram
         ScenarioTerrainBudget.ConfigureMeshBank(Bank.ContainsKey,Lookup);
         Object.DestroyImmediate(repeated.gameObject);
         BudgetScaling(host,wall,camera);
-        GloomhavenVR.Board.FigureGrab.HeldProps.Held=true; Pixels(camera);
-        Check(Proxies(host).TrueForAll(r=>!r.enabled),"held-source veto retains native rendering"); GloomhavenVR.Board.FigureGrab.HeldProps.Held=false;
+        ConfigurableTerrainGate(host,wall,camera);
+        GloomhavenVR.Board.FigureGrab.HeldProps.SetRoots(scenario); Pixels(camera);
+        Check(Proxies(host).TrueForAll(r=>!r.enabled),"held-source veto retains native rendering"); GloomhavenVR.Board.FigureGrab.HeldProps.SetRoots();
         wall.enabled=false; Pixels(camera); Check(!DuringRender(camera,()=>wall.forceRenderingOff),"native disabled visibility immediately suppresses private proxy"); wall.enabled=true;
         wall.forceRenderingOff=true; Pixels(camera); Check(wall.forceRenderingOff&&Proxies(host).TrueForAll(r=>!r.enabled),"foreign native render mask is preserved"); wall.forceRenderingOff=false;
         Mesh foreign=Box("foreign"); wall.GetComponent<MeshFilter>().sharedMesh=foreign; Tick(host); Pixels(camera);
@@ -475,6 +476,7 @@ public static partial class TerrainProgram
             &&TerrainReadObserver.EffectReads==0&&TerrainReadObserver.PropertyWrites==0,
             "ninety-six empty native terrain blocks retain per-eye guards without repeated copies or private writes");
         SharedWorldMaterialReads(host,original,camera,clones);
+        PropOwnershipPasses(host, original, camera, clones);
         edited.transform.localPosition=new Vector3(100,0,0); TerrainWriteObserver.MaterialReads=0;
         Check(!DuringRender(camera,()=>edited.forceRenderingOff)&&TerrainWriteObserver.MaterialReads==95,
             "actual current camera frustum rejects offscreen substitute work while preserving native source");

@@ -21,26 +21,15 @@ namespace GloomhavenVR.Core;
 /// point of the pass is that the NEXT hardware log already carries the numbers; the measurement
 /// is built to cost a couple of microseconds per frame (see PerfMonitor's cost note) and
 /// <see cref="Enabled"/> = false makes it a hard no-op down to a single bool test per frame.</item>
-/// <item><b>[Optimize]</b> — BEHAVIOUR. Each entry switches exactly ONE optimization, and each
-/// one's DEFAULT is chosen so that nothing the player can see changes silently: pure
-/// work-removal (idempotence gates, cached delegates, change-gating) defaults ON because it is
-/// invisible by construction, while anything that trades quality or freshness for frames
-/// defaults to TODAY'S behaviour on PC. The separately identified Steam Frame standalone
-/// profile may seed explicit scenery-quality compromises on a fresh configuration.</item>
+/// <item><b>[Optimize]</b> — QUALITY AND FRESHNESS. Entries select genuine geometry,
+/// effects, lighting or update-frequency trades. PC defaults preserve ordinary
+/// presentation; fresh Steam Frame profiles seed explicit standalone compromises.
+/// Pure work removal is always active and has no player configuration.</item>
 /// </list>
 ///
-/// <para>NOT IN THE VR SETTINGS ANY MORE (2026-07, user: the performance pane was "super
-/// verwirrend für den User"): every [Perf] entry and every pure work-removal [Optimize] entry is
-/// CONFIG-FILE ONLY now. A settings row asks the player to make a decision, and these offer no
-/// decision to make — the measurement changes nothing visible, and the work-removal switches are
-/// invisible by construction (that is exactly why they default ON). They are A/B harnesses for
-/// this debug phase, so they live here, described here, and nowhere else. The local interval
-/// levers below (<see cref="FanRelayoutMinInterval"/> and <see cref="WallFadeEvalInterval"/>)
-/// trade freshness for work, so they kept a UI row — but
-/// in the Debug pane (<c>SettingsPanel.BuildTimingCategory</c>), not the user-facing category,
-/// because the measurement says the CPU is ~2.5% of frame time and pointing a stuttering player
-/// at a CPU lever would aim them at the wrong problem. The user-facing performance rows are the
-/// GPU quality trade only (<c>SettingsPanel.BuildPerformanceCategory</c> → Rig.RenderQuality).
+/// <para>The maintainer's2026-10-08 policy retires historical technical A/B
+/// switches for pure work removal. Reference paths remain in developer test
+/// fixtures; diagnostics remain configurable separately from rendering quality.
 /// RemoteContentInterval is retained as an INERT compatibility key: observer-side delay is not
 /// an approved exception to the owner's board presentation.</para>
 /// </summary>
@@ -102,20 +91,10 @@ internal static partial class PerfConfig
 
     // ---- [Optimize] behaviour ---------------------------------------------------------------
 
-    /// <summary>Cache the per-frame TickGuard delegates instead of re-allocating them every frame.</summary>
-    internal static ConfigEntry<bool> CacheTickDelegates = null!;
 
-    /// <summary>Cache the campaign-map icon scan (choreographer, decals, renderers, property blocks).</summary>
-    internal static ConfigEntry<bool> MapIconCache = null!;
 
-    /// <summary>Skip the per-frame component walks for figures that are already adopted / nothing held.</summary>
-    internal static ConfigEntry<bool> FigureScanCache = null!;
 
-    /// <summary>Do not build diagnostic strings for log lines that are throttled or change-gated away.</summary>
-    internal static ConfigEntry<bool> LeanLogStrings = null!;
 
-    /// <summary>Gate the per-frame tooltip canvas walk behind "is a tooltip actually shown".</summary>
-    internal static ConfigEntry<bool> TooltipScanGate = null!;
 
     /// <summary>Minimum seconds between two gaze-driven card-fan re-layouts (0 = every frame, today's behaviour).</summary>
     internal static ConfigEntry<float> FanRelayoutMinInterval = null!;
@@ -141,11 +120,6 @@ internal static partial class PerfConfig
     /// <summary>Seed the scenario head mask from the game's ScenarioCamera instead of the blanket anchor mask.</summary>
     internal static ConfigEntry<bool> HeadMaskFromScenarioCamera = null!;
 
-    /// <summary>Take the AutomaticLOD behaviours whose Update provably returns on line one off Unity's Update list.</summary>
-    internal static ConfigEntry<bool> AutomaticLodIdleSkip = null!;
-
-    /// <summary>Seconds between AutomaticLOD sweeps (catches instances born with a newly revealed room).</summary>
-    internal static ConfigEntry<float> AutomaticLodSweepSeconds = null!;
 
     /// <summary>Override <see cref="QualitySettings.lodBias"/> in VR (0 = leave the quality level's own value).</summary>
     internal static ConfigEntry<float> LodBias = null!;
@@ -158,7 +132,6 @@ internal static partial class PerfConfig
 
     internal static ConfigEntry<int> ScenarioVegetationDensityPercent = null!;
     internal static ConfigEntry<float> ActorBarPoseCheckIntervalSeconds = null!;
-    internal static ConfigEntry<bool> SuspendUnusedCameras = null!;
     internal static ConfigEntry<float> UiMaintenanceIntervalSeconds = null!;
     internal static ConfigEntry<bool> OffscreenIdleAnimation = null!;
     internal static ConfigEntry<bool> ScenarioStructuralInstancing = null!;
@@ -175,28 +148,27 @@ internal static partial class PerfConfig
     internal static ConfigEntry<bool> ScenarioSimpleEnvironmentShading = null!;
     internal static ConfigEntry<int> ScenarioEnvironmentEffectsDensityPercent = null!;
 
-    internal static ConfigEntry<bool> SharedWallReadCache = null!;
-    internal static ConfigEntry<bool> LightStabiliserWorkCache = null!;
 
     // ---- safe accessors ---------------------------------------------------------------------
     // Optimization sites live in per-frame code that can run BEFORE (or entirely without) a
     // successful Bind — a module whose Init threw, a hot-reload mid-frame, the flat-screen path.
     // Quality tradeoffs retain their defaults while unbound. Build619 makes pure work-removal
-    // optimizations unconditional (maintainer graphics audit); their persisted keys stay INERT.
+    // optimizations unconditional (maintainer graphics audit). Build644 removes their
+    // obsolete bindings under the maintainer's explicit2026-10-08 policy.
 
-    /// <summary>Always active; [Optimize] CacheTickDelegates is retained as an INERT compatibility key.</summary>
+    /// <summary>Always active; pure work removal has no player setting.</summary>
     internal static bool CacheDelegates => true;
 
-    /// <summary>Always active; [Optimize] MapIconCache is retained as an INERT compatibility key.</summary>
+    /// <summary>Always active; pure work removal has no player setting.</summary>
     internal static bool MapIconCacheOn => true;
 
-    /// <summary>Always active; [Optimize] FigureScanCache is retained as an INERT compatibility key.</summary>
+    /// <summary>Always active; pure work removal has no player setting.</summary>
     internal static bool FigureScanCacheOn => true;
 
-    /// <summary>Always active; [Optimize] LeanLogStrings is retained as an INERT compatibility key.</summary>
+    /// <summary>Always active; pure work removal has no player setting.</summary>
     internal static bool LeanStrings => true;
 
-    /// <summary>Always active; [Optimize] TooltipScanGate is retained as an INERT compatibility key.</summary>
+    /// <summary>Always active; pure work removal has no player setting.</summary>
     internal static bool TooltipGateOn => true;
 
     /// <summary>[Optimize] FanRelayoutMinInterval, defaulting to 0 (every frame) while unbound.</summary>
@@ -236,7 +208,7 @@ internal static partial class PerfConfig
     /// <summary>[Perf] LodCensus, defaulting to on while unbound.</summary>
     internal static bool LodCensusOn => LodCensus == null || LodCensus.Value;
 
-    /// <summary>Always active; [Optimize] AutomaticLodIdleSkip is retained as an INERT compatibility key.</summary>
+    /// <summary>Always active; pure work removal has no player setting.</summary>
     internal static bool AutomaticLodIdleSkipOn => true;
 
     /// <summary>[Perf] SummaryIntervalSeconds, clamped — the cadence of the FRAME/STEPS/SPLIT/GFX
@@ -248,11 +220,8 @@ internal static partial class PerfConfig
             ? Defaults.SummaryIntervalSeconds
             : Mathf.Clamp(SummaryIntervalSeconds.Value, 5f, 600f);
 
-    /// <summary>[Optimize] AutomaticLodSweepSeconds, clamped to a cadence that cannot become the cost.</summary>
-    internal static float LodSweepSeconds =>
-        AutomaticLodSweepSeconds == null
-            ? Defaults.AutomaticLodSweepSeconds
-            : Mathf.Clamp(AutomaticLodSweepSeconds.Value, 2f, 300f);
+    /// <summary>Internal discovery cadence for inert native updates; rendered detail is unchanged.</summary>
+    internal static float LodSweepSeconds => 15f;
 
     /// <summary>[Optimize] LodBias, 0 = leave QualitySettings.lodBias alone (today's behaviour).</summary>
     internal static float LodBiasOverride =>
@@ -449,9 +418,6 @@ internal static partial class PerfConfig
             + "figures. Prepared animation bounds retain the original idle-cycle height. 0 checks every "
             + "frame. Actor/state changes, non-looping actions and native health callbacks remain immediate. "
             + "Fresh Frame 0.1 s, PC 0; works live.", new AcceptableValueRange<float>(0f, .2f)));
-        SuspendUnusedCameras = _file.Bind("Optimize", "SuspendUnusedCameras",
-            FrameDefaults.Active ? FrameDefaults.SuspendUnusedCameras : Defaults.SuspendUnusedCameras,
-            "INERT — this behavior-preserving optimization is always active. Legacy value is retained. Suspend unused native rendering cameras; retain projection, picking, visible menus and required preview captures.");
         OffscreenIdleAnimation = _file.Bind("Optimize", "OffscreenIdleAnimation",
             FrameDefaults.Active ? FrameDefaults.OffscreenIdleAnimation : Defaults.OffscreenIdleAnimation,
             "For audited native scenario figures only, skip offscreen idle bone-transform evaluation "
@@ -558,10 +524,6 @@ internal static partial class PerfConfig
             + "the current scenario. OFF restores original generation at the next load. Fresh Frame "
             + "defaults to ON, PC to OFF; saved choices stay.");
 
-        SharedWallReadCache = _file.Bind("Optimize", "SharedWallReadCache", Defaults.SharedWallReadCache,
-            "INERT — this behavior-preserving optimization is always active. Legacy value is retained. Reuse unchanged material and ancestor queries during synchronous wall preparation; appearance and ownership are retained.");
-        LightStabiliserWorkCache = _file.Bind("Optimize", "LightStabiliserWorkCache", Defaults.LightStabiliserWorkCache,
-            "INERT — this behavior-preserving optimization is always active. Legacy value is retained. Skip unused light diagnostic scans and exact unchanged setters; stabilized light values are retained.");
 
         // ---- [Perf] -------------------------------------------------------------------------
         Enabled = _file.Bind("Perf", "Enabled", Defaults.Perf_Enabled,
@@ -788,16 +750,6 @@ internal static partial class PerfConfig
         }
 
         // ---- [Optimize] ----------------------------------------------------------------------
-        CacheTickDelegates = _file.Bind("Optimize", "CacheTickDelegates", Defaults.CacheTickDelegates,
-            "INERT — this behavior-preserving optimization is always active. Legacy value is retained. Cache unchanged tick delegates instead of allocating them each frame.");
-        MapIconCache = _file.Bind("Optimize", "MapIconCache", Defaults.MapIconCache,
-            "INERT — this behavior-preserving optimization is always active. Legacy value is retained. Cache campaign-map icon discovery instead of repeating it PER RENDERING CAMERA PER FRAME; read each icon pose live.");
-        FigureScanCache = _file.Bind("Optimize", "FigureScanCache", Defaults.FigureScanCache,
-            "INERT — this behavior-preserving optimization is always active. Legacy value is retained. Reuse adopted figure ownership and skip unnecessary empty-hand component walks.");
-        LeanLogStrings = _file.Bind("Optimize", "LeanLogStrings", Defaults.LeanLogStrings,
-            "INERT — this behavior-preserving optimization is always active. Legacy value is retained. Check diagnostic gates before constructing discarded messages; emitted log content is retained.");
-        TooltipScanGate = _file.Bind("Optimize", "TooltipScanGate", Defaults.TooltipScanGate,
-            "INERT — this behavior-preserving optimization is always active. Legacy value is retained. Skip empty tooltip work and bound unresolved canvas discovery; active tooltips remain live.");
         FanRelayoutMinInterval = _file.Bind("Optimize", "FanRelayoutMinInterval", Defaults.FanRelayoutMinInterval, new ConfigDescription(
             "Minimum seconds between two GAZE-driven re-layouts of the open card fan. 0 = re-lay out "
             + "on every frame the gaze gate trips, which is today's behaviour and what a fast head "
@@ -897,18 +849,6 @@ internal static partial class PerfConfig
         // actually picks the level is a separate component and is untouched, no mesh is swapped, and
         // OnWillRenderObject's only product (m_renderCamera) is read nowhere but the Update that
         // returns before it.
-        AutomaticLodIdleSkip = _file.Bind("Optimize", "AutomaticLodIdleSkip", Defaults.AutomaticLodIdleSkip,
-            "INERT — this behavior-preserving optimization is always active. Legacy value is retained. Suspend only native AutomaticLOD callbacks whose own UnityLODGroup branch immediately returns; actual Unity LOD selection is retained.");
-        AutomaticLodSweepSeconds = _file.Bind("Optimize", "AutomaticLodSweepSeconds", Defaults.AutomaticLodSweepSeconds, new ConfigDescription(
-            "Seconds between AutomaticLOD sweeps. A sweep is one typed FindObjectsOfType, which the "
-            + "[Perf] LOD line TIMES and prints; it exists because revealing a room instantiates new "
-            + "instances that were not there when the last sweep ran, and this is the interval within "
-            + "which those get taken off the Update list too. Lower = newly revealed rooms are caught "
-            + "sooner at the price of more scans; the scan is a single-digit-millisecond one-frame "
-            + "cost, so at the shipped cadence its amortised share is far under a tenth of a percent "
-            + "of a frame. A Harmony postfix on AutomaticLOD.Awake would make this free and is the "
-            + "upgrade if the printed scan cost ever reads as a visible hitch.",
-            new AcceptableValueRange<float>(2f, 300f)));
 
         // DEFAULT 0 = CHANGE NOTHING, deliberately, and that is not timidity: the correction factor
         // is arithmetic on two field-of-view numbers that nothing in this project has ever measured,

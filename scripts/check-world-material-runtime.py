@@ -26,6 +26,42 @@ def pure_method(source,signature):
     return source[start:end]
 
 
+def wall_attachment_source(root):
+    """Read complete current production attachment primitives; no runtime dependency."""
+    wall_dir=root/'src/GloomhavenVR/Core/WallFade'
+    wall_paths=[wall_dir/name for name in ('WallSegmentFade.cs','WallSegmentFade.Mounted.cs',
+        'WallSegmentFade.Dissolve.cs','WallSegmentFade.ReadFacts.cs','WallSegmentFade.PropUnit.cs',
+        'WallSegmentFade.Floor.cs','WallSegmentFade.Standing.cs','WallSegmentFade.FreeStanding.cs',
+        'WallSegmentFade.SelectionFacts.cs','WallSegmentFade.HoldQuery.cs')]
+    wall_text={p.name:p.read_text() for p in wall_paths}
+    attachment_methods=[]
+    for filename,signatures in (
+        ('WallSegmentFade.cs',('private bool EnsureTextures()', 'private static bool HasLiveWallFadeToggle(Material m)',
+            'private bool RendererIsWallFadeCapable(MeshRenderer r)', 'private bool RendererUsesWallFade(MeshRenderer r)')),
+        ('WallSegmentFade.Mounted.cs',('private static MountedProp ClassifyProp(Renderer r)',
+            'private static ParticleSystem.MinMaxGradient ScaledStartColor(MountedProp p, float alpha)',
+            'private void DriveProp(MountedProp p, float fade)')),
+        ('WallSegmentFade.Dissolve.cs',('private void CaptureMasonryTemplate(Material m)',
+            'private void EnsureDissolveChannel(MountedProp p)', 'private Material BuildSwapMaterial(Material source)',
+            'private void DriveNativeProp(MountedProp p, float fade)',
+            'private static void RestorePropSwap(MountedProp p, Renderer? r)',
+            'private static bool MaterialOffersOwnChannel(Material? mat)',
+            'private int PredictClassOfRenderer(Renderer? r)')),
+        ('WallSegmentFade.ReadFacts.cs',('private static void ReadFadeMaterials(Renderer renderer, List<Material> destination)',)),
+        ('WallSegmentFade.HoldQuery.cs',('internal void HideByEnable(Renderer r)', 'internal bool ShowIfWeHid(Renderer r)')),
+    ):
+        attachment_methods.extend(pure_method(wall_text[filename],sig) for sig in signatures)
+    read_source=wall_text['WallSegmentFade.ReadFacts.cs']
+    source_signature='private static Material FadeSourceMaterial(Material material) =>'
+    start=read_source.index(source_signature);end=read_source.index(';',start)+1
+    attachment_methods.append(read_source[start:end])
+    for filename,signature in (('WallSegmentFade.cs','private const float FoliageCutoffEnd'),
+                               ('WallSegmentFade.Mounted.cs','private const float MountedParticleShrink')):
+        text=wall_text[filename];start=text.index(signature);end=text.index(';',start)+1
+        attachment_methods.append(text[start:end])
+    return wall_paths, 'using System; using System.Collections.Generic; using UnityEngine; namespace GloomhavenVR.Core { internal static partial class WallSegmentFade { private sealed partial class FadeDriver {\n'+'\n'.join(attachment_methods)+'\n} } }\n'
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source-root',type=Path,default=ROOT)
@@ -44,43 +80,26 @@ def main():
         'internal static bool OwnsRendererOf(Transform? t)',
         'internal static void CopyVisualRoots(List<GameObject> destination)')]
     sources['PropGrab.VisualRoots.cs']='using System;\nusing System.Collections.Generic;\nusing UnityEngine;\nnamespace GloomhavenVR.Board.FigureGrab { internal static partial class PropGrab {\n'+'\n'.join(prop_methods)+'\n} }\n'
-    wall_dir=root/'src/GloomhavenVR/Core/WallFade'
-    wall_paths=[wall_dir/name for name in ('WallSegmentFade.cs','WallSegmentFade.Mounted.cs',
-        'WallSegmentFade.Dissolve.cs','WallSegmentFade.ReadFacts.cs','WallSegmentFade.PropUnit.cs',
-        'WallSegmentFade.Floor.cs','WallSegmentFade.Standing.cs','WallSegmentFade.FreeStanding.cs',
-        'WallSegmentFade.SelectionFacts.cs')]
-    wall_text={p.name:p.read_text() for p in wall_paths}
-    attachment_methods=[]
-    for filename,signatures in (
-        ('WallSegmentFade.cs',('private bool EnsureTextures()', 'private static bool HasLiveWallFadeToggle(Material m)',
-            'private bool RendererIsWallFadeCapable(MeshRenderer r)', 'private bool RendererUsesWallFade(MeshRenderer r)')),
-        ('WallSegmentFade.Mounted.cs',('private static MountedProp ClassifyProp(Renderer r)',
-            'private static ParticleSystem.MinMaxGradient ScaledStartColor(MountedProp p, float alpha)',
-            'private void DriveProp(MountedProp p, float fade)')),
-        ('WallSegmentFade.Dissolve.cs',('private void CaptureMasonryTemplate(Material m)',
-            'private void EnsureDissolveChannel(MountedProp p)', 'private Material BuildSwapMaterial(Material source)',
-            'private void DriveNativeProp(MountedProp p, float fade)',
-            'private static void RestorePropSwap(MountedProp p, Renderer? r)',
-            'private static bool MaterialOffersOwnChannel(Material? mat)',
-            'private int PredictClassOfRenderer(Renderer? r)')),
-        ('WallSegmentFade.ReadFacts.cs',('private static void ReadFadeMaterials(Renderer renderer, List<Material> destination)',)),
-    ):
-        attachment_methods.extend(pure_method(wall_text[filename],sig) for sig in signatures)
-    read_source=wall_text['WallSegmentFade.ReadFacts.cs']
-    source_signature='private static Material FadeSourceMaterial(Material material) =>'
-    start=read_source.index(source_signature);end=read_source.index(';',start)+1
-    attachment_methods.append(read_source[start:end])
-    for filename,signature in (('WallSegmentFade.cs','private const float FoliageCutoffEnd'),
-                               ('WallSegmentFade.Mounted.cs','private const float MountedParticleShrink')):
-        text=wall_text[filename];start=text.index(signature);end=text.index(';',start)+1
-        attachment_methods.append(text[start:end])
-    sources['WallAttachmentDelivery.cs']='using System; using System.Collections.Generic; using UnityEngine; namespace GloomhavenVR.Core { internal static partial class WallSegmentFade { private sealed partial class FadeDriver {\n'+'\n'.join(attachment_methods)+'\n} } }\n'
+    wall_paths,attachment_source=wall_attachment_source(root)
+    sources['WallAttachmentDelivery.cs']=attachment_source
     combined='\n'.join(sources.values())
     assert 'StaticBatchingUtility' not in combined and 'SetStaticBatchInfo' not in combined
     world_combined='\n'.join(value for name,value in sources.items() if name!='WallAttachmentDelivery.cs')
     assert 'new Mesh' not in world_combined and 'SetPropertyBlock(' not in world_combined and 'forceRenderingOff =' not in world_combined
     assert 'Camera.onPreCull +=' not in combined,'commit must use the final native boundary'
     changes=[
+        ('camera-ui-read-pass-bypassed',[('WorldMaterialBudget.cs','using IDisposable timing = PerfMonitor.Scope("WorldMaterial.PreCull");','if (camera != null && camera.name == "UI capture" && camera.commandBufferCount == 0) return;\n                using IDisposable timing = PerfMonitor.Scope("WorldMaterial.PreCull");',1)],'every UI capture retains its actual current native final callback and read-pass lifecycle'),
+        ('camera-exclusion-omitted',[('WorldMaterialBudget.cs','if (camera != null && camera.commandBufferCount == 0','if (false && camera != null && camera.commandBufferCount == 0',1)],'two unreachable UI captures perform zero world material mesh scope or prop traversal'),
+        ('camera-current-mask-ignored',[('WorldMaterialBudget.cs','(camera.cullingMask & (1 << renderer.gameObject.layer))','((camera.name == "UI capture" ? (1 << 31) : camera.cullingMask) & (1 << renderer.gameObject.layer))',1)],'current native camera mask change immediately validates newly reachable world sources'),
+        ('camera-current-source-layer-ignored',[('WorldMaterialBudget.cs','(camera.cullingMask & (1 << renderer.gameObject.layer))','(camera.cullingMask & (1 << (camera.name == "UI capture" ? 0 : renderer.gameObject.layer)))',1)],'late native source re-layer into current UI mask immediately retains its native effect'),
+        ('camera-native-commands-ignored',[('WorldMaterialBudget.cs','camera.commandBufferCount == 0','true',1)],'late native DrawRenderer beyond UI mask retains complete current world effect validation and pixels'),
+        ('camera-current-consumer-ignored',[('WorldMaterialBudget.cs','&& !NeedsSubstituteRevocation())','&& true)',1)],'unreachable original with current differently layered consumer retains same-camera native revocation'),
+        ('foreign-hide-ownership-adopted',[('WallAttachmentDelivery.cs','r.enabled = false;\n                _hidByEnable.Add(r);\n            }','r.enabled = false;\n            }\n            _hidByEnable.Add(r);',1)],'foreign disabled renderer without owned hide still drives its native endpoint'),
+        ('hidden-attachment-skip-omitted',[('WallAttachmentDelivery.cs','if (fade == 1f','if (false && fade == 1f',1)],'fully hidden owned endpoint avoids all repeated native effect writes'),
+        ('hidden-attachment-ledger-ignored',[('WallAttachmentDelivery.cs','&& _hidByEnable.Contains(r) && !r.enabled','&& !r.enabled',1)],'foreign disabled renderer without owned hide still drives its native endpoint'),
+        ('hidden-attachment-ramp-skipped',[('WallAttachmentDelivery.cs','if (fade == 1f','if (fade > 0f',1)],'intermediate hidden return continues native opacity delivery'),
+        ('hidden-attachment-native-reenable-ignored',[('WallAttachmentDelivery.cs','&& _hidByEnable.Contains(r) && !r.enabled','&& _hidByEnable.Contains(r)',1)],'actual native reenable immediately restores current full native fade drive'),
+        ('hidden-enable-release-unconditional',[('WallAttachmentDelivery.cs','if (r.enabled || ScenarioTerrainBudget.HasCurrentRenderLease(r)','if (true || ScenarioTerrainBudget.HasCurrentRenderLease(r)',1)],'repeated enabled-hide endpoint has no native write release'),
         ('attachment-canonical-source-missing',[('WallAttachmentDelivery.cs','ScenarioEnvironmentBudget.CanonicalMaterial(material);','material;',1)],'optimized native wall admission resolves original shader name and live gate'),
         ('attachment-native-priority-missing',[('WallAttachmentDelivery.cs','if (p.System == null && r is MeshRenderer)','if (p.System == null && r is MeshRenderer && bool.Parse("false"))',1)],'optimized attachment retains original native dissolve classification'),
         ('attachment-swap-original-not-canonical',[('WallAttachmentDelivery.cs','src[i] = m = FadeSourceMaterial(m);','m = FadeSourceMaterial(m);',1)],'mixed attachment restore snapshot retains real native slots'),

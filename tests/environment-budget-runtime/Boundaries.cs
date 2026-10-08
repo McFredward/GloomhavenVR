@@ -65,6 +65,7 @@ namespace GloomhavenVR.Core
     }
     internal static class VRLog
     {
+        internal static void Info(string source, string message) { }
         internal static readonly List<string> Faults = new List<string>();
         internal static readonly List<string> DebugLines = new List<string>();
         internal static bool DebugEnabled = true;

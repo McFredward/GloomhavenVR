@@ -2,11 +2,14 @@
 
 ## Scope
 
-Remain on `feature/quest3-standalone`, with current dev643
-`29d4b6dd85e6ce3b3d19b531bde79d2fcc44e587` as an ancestor. The maintainer
+Remain on `feature/quest3-standalone`, with current dev644
+`3e96cd6dc4f57ecf88eb5fdcb67b848e636c823e` integrated. The maintainer
 requested retained whole-build progress, greater host resource use and faster
 mod/profile updates from an existing APK. Every update requires the PC copy
 again. This release builds the Windows Builder ZIP, not a full host game APK.
+Dev advanced during publication; its Frame644 source/check/renderer evidence
+is inherited from `docs/performance/FRAME-644-STEADY-CPU.md`. The published Quest
+history is retained by a merge; no force push or history rewrite is performed.
 
 ## Retained progress
 

@@ -245,11 +245,35 @@ def snapshot() -> dict:
 # an unrelated surface cannot borrow the same name to conceal its removal.
 AUTHORIZED_RETIREMENTS = {
     "configKeys": {
+        # Explicit user policy, 2026-10-08: pure work removal is universal.
+        "[Optimize] CacheTickDelegates": "src/GloomhavenVR/Core/Perf/PerfConfig.cs",
+        "[Optimize] MapIconCache": "src/GloomhavenVR/Core/Perf/PerfConfig.cs",
+        "[Optimize] FigureScanCache": "src/GloomhavenVR/Core/Perf/PerfConfig.cs",
+        "[Optimize] LeanLogStrings": "src/GloomhavenVR/Core/Perf/PerfConfig.cs",
+        "[Optimize] TooltipScanGate": "src/GloomhavenVR/Core/Perf/PerfConfig.cs",
+        "[Optimize] AutomaticLodIdleSkip": "src/GloomhavenVR/Core/Perf/PerfConfig.cs",
+        "[Optimize] SharedWallReadCache": "src/GloomhavenVR/Core/Perf/PerfConfig.cs",
+        "[Optimize] LightStabiliserWorkCache": "src/GloomhavenVR/Core/Perf/PerfConfig.cs",
+        "[Optimize] SuspendUnusedCameras": "src/GloomhavenVR/Core/Perf/PerfConfig.cs",
+        "[Optimize] SharedUiWindowReads": "src/GloomhavenVR/Core/Perf/PerfConfig.FrameRendering.cs",
+        "[Optimize] ScenarioEnvironmentMeshBank": "src/GloomhavenVR/Core/Perf/PerfConfig.FrameRendering.cs",
+        "[Optimize] AutomaticLodSweepSeconds": "src/GloomhavenVR/Core/Perf/PerfConfig.cs",
+        "[WallFade] WalkInSuspendSampling": "src/GloomhavenVR/Core/WallFade/WallSegmentFade.cs",
+        "[Optimize] SharedEnvironmentMaterialReads": "src/GloomhavenVR/Core/Perf/PerfConfig.FrameRendering.cs",
         "[Optimize] VisibleIdleAnimationIntervalSeconds": "src/GloomhavenVR/Core/Perf/PerfConfig.FrameRendering.cs",
         "[Optimize] VisibleIdleDisabledClothApproximation": "src/GloomhavenVR/Core/Perf/PerfConfig.FrameRendering.cs",
     },
     "harmonyPatches": {
         "typeof(FigureVisualMirror), nameof(FigureVisualMirror.CloneVisual)": "src/GloomhavenVR/Core/Perf/ScenarioIdleAnimationBudget.cs",
+    },
+    "logTokens": {
+        # Only appeared in the explicitly retired MapIconCache config help, not a log call.
+        "PER RENDERING CAMERA PER FRAME": "src/GloomhavenVR/Core/Perf/PerfConfig.cs",
+        "PRO RENDERNDER KAMERA PRO FRAME": "src/GloomhavenVR/Core/Loc/Loc.ConfigDescriptions.German.cs",
+        # Only in retired WalkInSuspendSampling config help, never a runtime log.
+        "NOTHING IS BROKEN BY IT": "src/GloomhavenVR/Core/WallFade/WallSegmentFade.cs",
+        "ES GEHT DABEI": "src/GloomhavenVR/Core/Loc/Loc.ConfigDescriptions.German.cs",
+        "NICHTS KAPUTT": "src/GloomhavenVR/Core/Loc/Loc.ConfigDescriptions.German.cs",
     },
 }
 
@@ -268,7 +292,7 @@ def diff(before: dict, after: dict) -> int:
         added = sorted(set(a) - set(b))
         print(f"=== {kind}: {len(b)} -> {len(a)}  ({len(removed)} removed, {len(retired)} authorized, {len(added)} added) ===")
         for key in retired:
-            print(f"  AUTHORIZED RETIREMENT (maintainer 2026-10-06): {key}")
+            print(f"  AUTHORIZED RETIREMENT (explicit maintainer policy): {key}")
         if gone:
             worst = 1
             print(f"  REMOVED — {label}:")

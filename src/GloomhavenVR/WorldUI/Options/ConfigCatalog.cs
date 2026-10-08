@@ -916,17 +916,15 @@ internal static class ConfigCatalog
                                      || key == "ScenarioStructuralInstancing"
                                      || key == "ScenarioStructuralBatching"
                                      || key == "ScenarioSimpleEnvironmentShading"
-                                     || key == "ScenarioEnvironmentMeshBank"
                                      || key == "ScenarioExplicitEnvironmentInstancing"
                                      || key == "ScenarioCheapWallShading"
+                                     || key == "ScenarioTerrainSubstitution"
                                      || key == "WorldMaterialQualityModeCount"
                                      || key == "WorldMaterialAmbientPercent"
                                      || key == "ScenarioTerrainDetailPercent"
                                      || key == "ScenarioDistantTerrainDetailPercent"
                                      || key == "ScenarioTerrainDistanceMeters"
                                      || key == "ScenarioTerrainCameraSourceLimitCount"
-                                     || key == "SharedEnvironmentMaterialReads"
-                                     || key == "SharedUiWindowReads"
                                      || key == "ScenarioFigureClothSimulation"
                                      || key == "ReduceScenarioGenerationDetail"))
             return ConfigTopic.Visual;

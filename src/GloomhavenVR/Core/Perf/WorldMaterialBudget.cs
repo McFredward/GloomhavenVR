@@ -43,7 +43,8 @@ internal static partial class WorldMaterialBudget
         foreach (string counter in new[] { "WorldMaterial.Candidates", "WorldMaterial.VariantSlots",
             "WorldMaterial.NativeSlots", "WorldMaterial.MaterialRefreshes", "WorldMaterial.ScopeRefusals",
             "WorldMaterial.ShaderRefusals", "WorldMaterial.EffectRefusals", "WorldMaterial.FactoryVariantRefreshes",
-            "WorldMaterial.PropRootReads", "WorldMaterial.ScopeNodeReads", "WorldMaterial.InactiveCandidates" }) PerfMonitor.RegisterDebug(counter);
+            "WorldMaterial.PropRootReads", "WorldMaterial.ScopeNodeReads", "WorldMaterial.InactiveCandidates",
+            "WorldMaterial.CameraExcludedCandidates" }) PerfMonitor.RegisterDebug(counter);
     }
     internal static void Shutdown()
     {
@@ -239,7 +240,7 @@ internal static partial class WorldMaterialBudget
                     _passAmbient = _shareReads ? _ambientWeight?.Invoke() ?? 1f : 1f;
                     _refreshes = 0; _propRootReads = 0; _scopeNodeReads = 0;
                 }
-                int candidates = 0, changed = 0, native = 0, scopeRefusals = 0, shaderRefusals = 0, effectRefusals = 0, inactive = 0;
+                int candidates = 0, changed = 0, native = 0, scopeRefusals = 0, shaderRefusals = 0, effectRefusals = 0, inactive = 0, cameraExcluded = 0;
                 foreach (KeyValuePair<int, Surface> pair in _surfaces)
                 {
                     Surface surface = pair.Value;
@@ -263,6 +264,17 @@ internal static partial class WorldMaterialBudget
                         return needsRevocation;
                     }
                     candidates++;
+                    // Options-panel captures do not draw world layers, but used to repeat
+                    // every world scope/material/MPB read anyway. Ask this camera's actual
+                    // mask and each source's current layer, never a cached layer union or
+                    // a camera name. Native DrawRenderer command buffers ignore that mask;
+                    // current/queued geometry consumers can also have a different layer.
+                    // Those consumers retain the complete path and synchronous revocation.
+                    // BeginPass/nested invalidation above still run on a zero-match camera.
+                    if (camera != null && camera.commandBufferCount == 0
+                        && (camera.cullingMask & (1 << renderer.gameObject.layer)) == 0
+                        && !NeedsSubstituteRevocation())
+                    { cameraExcluded++; continue; }
                     // A native closed room does not need mesh/component reads.
                     // Restore owned slots immediately; on its first active render
                     // re-read the mesh identity and all current ownership guards.
@@ -331,13 +343,15 @@ internal static partial class WorldMaterialBudget
                     PerfMonitor.Count("WorldMaterial.PropRootReads", _propRootReads);
                     PerfMonitor.Count("WorldMaterial.ScopeNodeReads", _scopeNodeReads);
                     PerfMonitor.Count("WorldMaterial.InactiveCandidates", inactive);
+                    PerfMonitor.Count("WorldMaterial.CameraExcludedCandidates", cameraExcluded);
                     if (Time.unscaledTime >= _nextDebug)
                     {
                         _nextDebug = Time.unscaledTime + 10f;
                         VRLog.Debug("Perf", "World material coverage: requested=" + _mode + ", candidates=" + candidates
                             + ", effectiveSlots=" + changed + ", nativeSlots=" + native + ", uniqueRefreshes=" + _refreshes
                             + ", refusedScope=" + scopeRefusals + ", refusedShader=" + shaderRefusals
-                            + ", refusedEffect=" + effectRefusals + "; source work, not visible GPU draws.");
+                            + ", refusedEffect=" + effectRefusals + ", cameraExcluded=" + cameraExcluded
+                            + "; source work, not visible GPU draws.");
                     }
                 }
             }

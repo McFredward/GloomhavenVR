@@ -18,6 +18,16 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def method(source, signature):
+    assert source.count(signature) == 1, 'source API binding drift: ' + signature
+    match = source.index(signature)
+    start = source.rfind('\n', 0, match) + 1
+    line = source[start:source.index('\n', start)]
+    indent = len(line) - len(line.lstrip())
+    closing = '\n' + ' ' * indent + '}\n'
+    return source[start:source.index(closing, start) + len(closing)]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source-root', type=Path, default=ROOT)
@@ -25,6 +35,7 @@ def main():
     parser.add_argument('--unity', type=Path, default=Path(os.environ.get('UNITY_PATH','/home/claw/unity-2021.3.5/Editor/Unity')))
     parser.add_argument('--production-only', action='store_true')
     parser.add_argument('--case', action='append')
+    parser.add_argument('--wall-source-root', type=Path, help='Explicit frozen wall worker source for the cross-owner native-write fixture; defaults to source-root')
     args = parser.parse_args()
     root=args.source_root.resolve(); fixture=ROOT/'tests/terrain-budget-runtime'
     paths=[root/'src/GloomhavenVR/Core/Perf/ScenarioTerrainBudget.cs',root/'src/GloomhavenVR/Core/Perf/ScenarioTerrainBudget.Geometry.cs',
@@ -32,6 +43,30 @@ def main():
         root/'unity/GloomhavenVR.Assets/Assets/Bundle/Environments/ScenarioCheapTerrain.shader',
         root/'src/GloomhavenVR/Core/Perf/ScenarioEnvironmentMeshStream.cs']
     source, geometry, admission, shader=[p.read_text() for p in paths[:4]]
+    ownership_paths=[root/'src/GloomhavenVR/Board/FigureGrab'/name for name in ('PropGrab.cs','HeldProps.cs','NetHeldProps.cs')]
+    prop, held, remote=[p.read_text() for p in ownership_paths]
+    assert 'internal static int Count => Held.Count;' in held, 'held source count binding drift'
+    assert 'internal static bool OwnsRendererOf(Transform? t) =>\n        LocalOwnsRendererOf(t) || NetHeldProps.OwnsRendererOf(t);' in held, 'held source ownership forwarding drift'
+    ownership='using System; using System.Collections.Generic; using UnityEngine; using GloomhavenVR.Hands; using ScenarioRuleLibrary;\nnamespace GloomhavenVR.Board.FigureGrab {\n'
+    ownership+='internal static partial class PropGrab {\n'+method(prop,'    internal static bool OwnsRendererOf(')+method(prop,'    internal static void CopyVisualRoots(')+'}\n'
+    ownership+='internal static partial class HeldProps { internal static int Count => Held.Count;\ninternal static bool OwnsRendererOf(Transform? t) => LocalOwnsRendererOf(t) || NetHeldProps.OwnsRendererOf(t);\n'
+    for signature in ('    internal static bool LocalOwnsRendererOf(', '    internal static bool TryGetSlot(int slot, out CObjectProp prop, out HandSide side)',
+        '    internal static bool TryGetSlot(int slot, out CObjectProp prop, out GameObject visual,'):
+        ownership+=method(held,signature)
+    ownership+='}\ninternal static partial class NetHeldProps {\n'+method(remote,'    internal static bool OwnsRendererOf(')+method(remote,'    internal static void CopyVisualRoots(')+'}\n}\n'
+    # Count exact primitive visual-root accesses, then execute the same Unity
+    # getter. The registry/read APIs above are source-extracted, not a toy verdict.
+    ownership=ownership.replace('v.transform','GloomhavenVR.Core.TerrainOwnershipObserver.VisualTransform(v)')
+    ownership=ownership.replace('    internal static void CopyVisualRoots(List<GameObject> destination)\n    {',
+        '    internal static void CopyVisualRoots(List<GameObject> destination)\n    {\n        GloomhavenVR.Core.TerrainOwnershipObserver.RootCopies++;')
+    wall_path=(args.wall_source_root.resolve() if args.wall_source_root else root)/'src/GloomhavenVR/Core/WallFade/WallSegmentFade.HoldQuery.cs'
+    wall_source=wall_path.read_text()
+    # Bind extraction to the same source bytes later recorded in the final receipt;
+    # this also catches a parallel worker editing the optional cross-lane source
+    # between extraction and the native coverage export.
+    extracted_hashes={str(p):hashlib.sha256(value.encode()).hexdigest()
+        for p,value in zip(paths[:4]+ownership_paths+[wall_path], [source,geometry,admission,shader,prop,held,remote,wall_source])}
+    hide='using System.Collections.Generic; using UnityEngine;\nnamespace GloomhavenVR.Core { internal sealed class TerrainWallHide {\nprivate readonly HashSet<Renderer> _hidByEnable = new();\ninternal bool Owns(Renderer r) => _hidByEnable.Contains(r);\nprivate static bool FloorNeverFades(Renderer r) => false;\nprivate static bool HeldNeverFades(Renderer r) => false;\n'+method(wall_source,'    internal void HideByEnable(Renderer r)')+'}\n}\n'
     assert 'StaticBatchingUtility' not in source+geometry and 'SetStaticBatchInfo' not in source+geometry
     assert not re.search(r'(?<![\w])(?:Filter\.sharedMesh|Renderer\.sharedMaterials)\s*=(?!=)', source+geometry), 'native cloning sources must stay unchanged'
     controls=[
@@ -62,7 +97,7 @@ def main():
         ('live-renderer-effect-ignored','if (LiveSpecialEffect(Block)) return false;','/* injected live renderer effect bypass */','live renderer-wide vertex effect retains',geometry,1),
         ('live-slot-effect-ignored','if (LiveSpecialEffect(SlotBlock)) return false;','/* injected live slot effect bypass */','live material-slot emissive effect retains',geometry,1),
         ('canonical-original-ignored','_canonicalMaterial?.Invoke(material) ?? material','material','existing environment material variant resolves',source,1),
-        ('native-visibility-bypass','|| !surface.Renderer.enabled','/* injected source enabled */','native disabled visibility',source,1),
+        ('native-visibility-bypass','|| !surface.Renderer.enabled','/* injected source enabled */','native disabled terrain stays original after shared ownership reuse',source,1),
         ('shader-cutoff-ramp-ignored','clip(m - _Cutoff);','clip(m - .5);','production native wall map has multiple visible intermediate frames',shader,1),
         ('shader-floor-fades','_GHVRTerrainNeverFade > .5 || ','','never-fade floor ignores native wall channel',shader,1),
         ('native-simplex-scrambled','return dot(m*m, float4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));','return 0.;','production simplex matches original native DXBC instruction samples',shader,1),
@@ -129,6 +164,20 @@ def main():
          'inactive HIGH and toggle-native clip retain original authored cutoff',shader,1),
     ]
     controls += [
+        ('terrain-prop-memo-bypassed','if (_propRootsReady) return;','if (_propRootsReady && _propRoots.Count < 0) return;',
+         'terrain shared scope reads exact prop visuals once per camera instead of every ancestor',admission,1),
+        ('terrain-prop-membership-ignored','state.Prop |= propRoots?.Contains(node) == true;','state.Prop |= propRoots != null && propRoots.Count < 0;',
+         'unregistered local held terrain root remains native',source,1),
+        ('terrain-local-root-skipped','if (HeldProps.TryGetSlot(slot, out _, out GameObject visual, out _, out _)) _propVisuals.Add(visual);',
+         'if (slot < 0) _propVisuals.Add(null!);','unregistered local held terrain root remains native',admission,1),
+        ('terrain-remote-root-skipped','NetHeldProps.CopyVisualRoots(_propVisuals);','/* injected remote hold missing */',
+         'unregistered remote held terrain root remains native',admission,1),
+        ('terrain-prop-roots-cross-camera-stale','_propRoots.Clear(); _propVisuals.Clear(); _propRootsReady = false;',
+         'if (_propRoots.Count != 16) { _propRoots.Clear(); _propVisuals.Clear(); _propRootsReady = false; }',
+         'unregistered local held terrain root remains native',source,1),
+        ('terrain-native-writer-scope-stale','            ClearValidation();\n        }\n        internal void RecoverLeases()',
+         '            /* injected stale native writer scope */\n        }\n        internal void RecoverLeases()',
+         'native writer registration and reparent invalidate same-pass terrain roots',source,1),
         ('terrain-current-lease-native-mask-dependent','internal bool HasCurrentRenderLease => _masked && Renderer != null;',
          'internal bool HasCurrentRenderLease => IsMasked;',
          'terrain current lease survives late native mask edits until explicit owner release',geometry,1),
@@ -150,6 +199,21 @@ def main():
         ('terrain-canonical-cross-eye-stale','_canonicalThisCamera.Clear();',
          '/* injected stale next-eye native original */',
          'shared terrain material maps expire before the next actual eye',source,1),
+        ('terrain-nested-camera-owner-lost','                        _leaseCamera = camera;\n                        surface.Mask();',
+         '                        /* injected resumed outer lease owner loss */\n                        surface.Mask();',
+         'nested terrain material lookup ends with every native source unmasked',source,1),
+        ('terrain-master-membership-gate-lost','internal bool OwnsRenderSubstitute(Renderer renderer) => PerfConfig.TerrainSubstitutionOn',
+         'internal bool OwnsRenderSubstitute(Renderer renderer) => true',
+         'terrain master off drops prepared ownership immediately before Update',source,1),
+        ('terrain-master-camera-gate-lost','|| !isActiveAndEnabled || !PerfConfig.TerrainSubstitutionOn',
+         '|| !isActiveAndEnabled',
+         'terrain master off next camera releases interrupted leases without native material preparation',source,1),
+        ('terrain-master-update-release-lost','if (_active || _surfaces.Count != 0 || _pending.Count != 0) RestoreAll();',
+         '/* injected disabled terrain private preparation retained */',
+         'terrain master off Update clears prepared proxies and queued native discovery',source,1),
+        ('terrain-master-discovery-gate-lost','private bool Enabled => PerfConfig.TerrainSubstitutionOn && VRSession.IsRunning',
+         'private bool Enabled => VRSession.IsRunning',
+         'terrain master off rejects new native discovery without queued preparation',source,1),
     ]
     variants=[('production',source,geometry,admission,shader,'')]
     if not args.production_only:
@@ -158,6 +222,24 @@ def main():
             values=[source,geometry,admission,shader]
             values[values.index(text)]=text.replace(before,after)
             variants.append((name,*values,expected))
+    wall_controls=[
+        ('wall-native-hide-terrain-release-lost','                ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);',
+         '                /* injected native disable without current terrain release */',
+         'actual wall native disable synchronously releases current terrain proxy before its draw'),
+        ('wall-already-disabled-terrain-consumer-ignored',
+         'r.enabled || ScenarioTerrainBudget.HasCurrentRenderLease(r)\n                || ScenarioEnvironmentBudget.OwnsRenderSubstitute(r)',
+         'r.enabled',
+         'already native-disabled wall releases its actual terrain consumer without stealing visibility ownership'),
+        ('wall-foreign-disabled-ledger-adopted','                _hidByEnable.Add(r);\n            }',
+         '            }\n            _hidByEnable.Add(r);',
+         'prepared disabled wall without current terrain lease is never adopted or rewritten'),
+    ]
+    observed_wall={'production':hide}
+    if not args.production_only:
+        for name,before,after,expected in wall_controls:
+            assert hide.count(before)==1, 'actual wall mutation binding drift: '+name
+            observed_wall[name]=hide.replace(before,after)
+            variants.append((name,source,geometry,admission,shader,expected))
     if args.case:
         unknown=set(args.case)-{v[0] for v in variants}
         if unknown: raise SystemExit('Unknown selected variants: '+', '.join(sorted(unknown)))
@@ -170,12 +252,13 @@ def main():
     (run/'native-verification.log').write_text(native_result.stdout+native_result.stderr)
     print(native_result.stdout,end='')
     native=json.loads((run/'native-coverage.json').read_text())
-    inputs=paths+[Path(__file__).resolve(),Path(native['nativeBundle']),
+    inputs=paths+ownership_paths+[wall_path,Path(__file__).resolve(),Path(native['nativeBundle']),
         root/'tools/environment-mesh/export-native.py',
         root/'unity/GloomhavenVR.Assets/Assets/Bundle/EnvironmentMeshes/index.json']
     inputs+=sorted(p for p in fixture.rglob('*') if p.is_file())
     inputs+=[Path(entry[k]) for entry in native['entries'] for k in ('exactPath','coarsePath')]
     input_hashes={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in inputs}
+    assert all(input_hashes[path]==value for path,value in extracted_hashes.items()), 'source changed between extraction and receipt binding'
     dotnet=shutil.which('dotnet') or str(Path.home()/'.dotnet/dotnet')
     manifest={'result':str(run/'results.txt'),'cases':[]}
     for name,src,geo,admit,shade,expected in variants:
@@ -211,9 +294,16 @@ def main():
             assert src.count(before)==expected_count, 'actual production visibility observer binding drift: '+before
             src=src.replace(before,after)
         (production/'Terrain.cs').write_text(src); (production/'Geometry.cs').write_text(observed_geometry)
-        (production/'Admission.cs').write_text(admit)
+        observed_admission=admit.replace('_propRoots.Add(visual.transform);',
+            '_propRoots.Add(TerrainOwnershipObserver.VisualTransform(visual));')
+        (production/'Admission.cs').write_text(observed_admission)
+        (production/'PropOwnership.cs').write_text(ownership)
+        (production/'WallHide.cs').write_text(observed_wall.get(name,hide))
         (production/'MeshStream.cs').write_text(paths[4].read_text())
         shutil.copyfile(fixture/'NativeCoverage.cs',production/'NativeCoverage.cs')
+        for extra in fixture.glob('*.cs'):
+            if extra.name not in ('Boundaries.cs','Program.cs','NativeCoverage.cs'):
+                shutil.copyfile(extra,production/extra.name)
         literals=['new Entry('+','.join([json.dumps(entry['name']),json.dumps(entry['exactPath']),
             json.dumps(entry['coarsePath']),str(entry['sourceTriangles'])])+')' for entry in native['entries']]
         (production/'TerrainCoverageData.cs').write_text(

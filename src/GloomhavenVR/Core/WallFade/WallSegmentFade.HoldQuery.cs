@@ -97,10 +97,18 @@ internal static partial class WallSegmentFade
             // ever claim we did.
             if (HeldNeverFades(r))
                 return;
-            ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
+            // A native disable can arrive after camera preparation. Revoke its actual
+            // terrain lease or queued environment consumer before this same draw even
+            // when there is no enabled setter left for us to perform. Plain disabled
+            // originals need neither that release nor a new entry in our hide ledger.
+            if (r.enabled || ScenarioTerrainBudget.HasCurrentRenderLease(r)
+                || ScenarioEnvironmentBudget.OwnsRenderSubstitute(r))
+                ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
             if (r.enabled)
+            {
                 r.enabled = false;
-            _hidByEnable.Add(r);
+                _hidByEnable.Add(r);
+            }
         }
 
         /// <summary>Write <c>enabled = true</c> ONLY if we were the one who wrote false. Returns

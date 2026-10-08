@@ -12,13 +12,64 @@ the matching PC install. Mod changes compile a matched IL2CPP/metadata pair
 without original-game asset import; later compatible profile edits need no
 Unity. Original signing data is required. APK-only updates retain the game bank
 already completed on the headset. Native ABI, script layout and new DLC content
-require a full build. Current dev64329d4b6dd remains an ancestor. Focused evidence
+require a full build. Current dev6443e96cd6dc is integrated. Focused evidence
 covers source/format/continuation/browser boundaries, actual SDK compilation and
 executable original-game profile getters. Windows end-to-end builds and updated
 headset behavior remain unverified.
 See [APK update workflow and proof limits](QUEST-APK-UPDATES-20261008.md).
 
 ---
+
+**Build644 Frame steady-render follow-up, 2026-10-08: 1.1.0 development candidate.**
+
+The supplied643 banners match29d4b6dd8. Fully loaded five-room windows still
+average78.634ms/frame with43.240ms measured mod work: terrain13.144ms,
+walls10.477ms and world materials6.214ms. These include both eyes, with nested
+wall phases excluded from the sum. Actual saved.8 now allocates2728x2728;
+the maintainer confirms improved wall fading. Neither different-view642 timing
+comparisons nor automated renderer tests establish a net headset FPS gain.
+
+Terrain shares exact current registered/local-held/remote-held roots within a
+synchronous camera invocation, invalidated by native writes, nesting and recovery.
+Lease acquisition restores its camera owner after callback-capable preparation,
+fixing a reproduced nested-render recovery failure. The independent terrain
+master switch stops substitute preparation while retaining original3D geometry
+and the independently simplified native material slots. Default remains On;
+Off trades CPU preparation against more geometry for the next controlled test.
+
+An automatic hidden-attachment write gate retains floor/held, intermediate fade,
+native re-enable and current/queued consumer recovery. Hide ownership is claimed
+only for an actual enabled setter. The maintainer's2026-10-08 policy makes pure
+work removal universal, without player switches: remove the proposed hidden-write
+option and retire14 existing pure/inert/discovery keys, including shared
+environment/UI reads and exact full-detail mesh preparation. Fixed15s AutoLOD
+discovery and discarded walk-in sampling are internal. Four grouping/instancing
+controls remain adjustable because dynamic lights, native extra passes and
+supplementary streams are not proven equivalent. The internal shared strategy is
+always active; Terrain's actual CPU/geometry trade remains configurable.
+
+Open VR Options invoked world-material work nearly four times/frame instead of
+two. Current masks now omit material/scope work for unreachable sources, retaining
+complete geometry-consumer and external command-buffer checks. Every invocation
+still refreshes nested mutable reads; no cached layer union or camera-name
+exclusion is introduced. Both PC and standalone use the same automatic repairs.
+
+Evidence, tested scope and next On/Off/On comparison are recorded in
+[the644 performance review](../docs/performance/FRAME-644-STEADY-CPU.md), with
+frozen hardware inputs and independently verified worker proofs under
+`.planning/debug/frame643-followup/`. Current strict Debug/Release0/0 and16source
+suites pass. Full170 execution initially passes167; the3 unchanged NPC failures
+pass in explicit complete affected/serial repeats with identical source hashes
+and unchanged1s deadlines. All170 IDs have passing evidence, not a single new
+all-green invocation. Separate wire vectors pass299711 assertions; actual Unity
+terrain387/79variants, environment11450/92 andworld+wall736/20 pass. Private
+compiled snapshots retain1237types;20 diffs include8exact build constants. No
+new multiplayer/headset acceptance is claimed. No whole-room hiding,2.5D board, idle throttling, native static batching,
+shader/mesh bank, gameplay command or wire layout change. VR peers install644.
+
+---
+
+
 
 **Quest Windows retained-data retry, 2026-10-08 (Builder only).**
 

@@ -148,9 +148,10 @@ internal static partial class ScenarioTerrainBudget
     private static bool Gate(Material material, string key) =>
         material.HasProperty(key) && material.GetFloat(key) != 0f;
 
-    private struct ScopeState { internal bool Valid, Generated, Structural, Scenario; }
+    private struct ScopeState { internal bool Valid, Generated, Structural, Scenario, Prop; }
     private static bool NativeScope(MeshRenderer renderer, Dictionary<Transform, ScopeState> scopes,
-        Dictionary<int, bool> scenes, List<Transform> ancestry, List<GameObject> roots, List<Component> components)
+        Dictionary<int, bool> scenes, List<Transform> ancestry, List<GameObject> roots, List<Component> components,
+        HashSet<Transform>? propRoots)
     {
         ancestry.Clear();
         ScopeState state = new() { Valid = true };
@@ -181,6 +182,7 @@ internal static partial class ScenarioTerrainBudget
             components.Clear();
             state.Valid &= !blocked;
             state.Generated |= nodeName == "Generated Content";
+            state.Prop |= propRoots?.Contains(node) == true;
             scopes[node] = state;
         }
         ancestry.Clear();
@@ -197,8 +199,8 @@ internal static partial class ScenarioTerrainBudget
                 roots.Clear(); scenes.Add(scene.handle, state.Scenario);
             }
         }
-        return state.Scenario && !HeldProps.OwnsRendererOf(renderer.transform)
-            && !PropGrab.OwnsRendererOf(renderer.transform);
+        return state.Scenario && (propRoots != null ? !state.Prop
+            : !HeldProps.OwnsRendererOf(renderer.transform) && !PropGrab.OwnsRendererOf(renderer.transform));
     }
 
     // The route is the original native clip equation, not a material-name guess.
@@ -266,9 +268,9 @@ internal static partial class ScenarioTerrainBudget
             SceneManager.sceneUnloaded -= SceneUnloaded;
             RestoreAll();
         }
-        private void SceneLoaded(Scene scene, LoadSceneMode mode) { _active = false; }
+        private void SceneLoaded(Scene scene, LoadSceneMode mode) { _active = false; ClearValidation(); }
         private void SceneUnloaded(Scene scene) { RestoreAll(); _active = false; }
-        private bool Enabled => VRSession.IsRunning && (PerfConfig.CheapWallShadingOn
+        private bool Enabled => PerfConfig.TerrainSubstitutionOn && VRSession.IsRunning && (PerfConfig.CheapWallShadingOn
             || PerfConfig.TerrainDetailPercent < 100 || PerfConfig.DistantTerrainDetailPercent < 100);
         internal void QueueRoot(GameObject root)
         {
@@ -294,6 +296,16 @@ internal static partial class ScenarioTerrainBudget
             RecoverLeases();
             using (PerfMonitor.Scope("ScenarioTerrain.Update"))
             {
+                // The independent CPU-first comparison retains all selected detail
+                // settings and cheap native-slot world shading. Off has no terrain
+                // geometry/preparation work after this release; On reseeds from exact
+                // native sources and uses the existing continuous morph again.
+                if (!PerfConfig.TerrainSubstitutionOn)
+                {
+                    if (_active || _surfaces.Count != 0 || _pending.Count != 0) RestoreAll();
+                    _active = false;
+                    return;
+                }
                 bool active = Enabled;
                 if (active && !_active) Seed();
                 bool ready = !active || (_assetsReady?.Invoke() ?? true);
@@ -379,10 +391,19 @@ internal static partial class ScenarioTerrainBudget
                 ClearValidation();
             }
         }
-        private bool CurrentScope(MeshRenderer renderer) => NativeScope(renderer, _scopeThisInvocation,
-            _sceneThisInvocation, _ancestry, _sceneRoots, _scopeComponents);
+        private bool CurrentScope(MeshRenderer renderer)
+        {
+            bool shared = PerfConfig.SharedEnvironmentMaterialReadsOn;
+            if (shared) ReadCurrentPropRoots();
+            return NativeScope(renderer, _scopeThisInvocation, _sceneThisInvocation,
+                _ancestry, _sceneRoots, _scopeComponents, shared ? _propRoots : null);
+        }
         private void ClearValidation()
-        { _scopeThisInvocation.Clear(); _sceneThisInvocation.Clear(); _ancestry.Clear(); _sceneRoots.Clear(); _scopeComponents.Clear(); _meshThisInvocation.Clear(); }
+        {
+            _scopeThisInvocation.Clear(); _sceneThisInvocation.Clear(); _ancestry.Clear(); _sceneRoots.Clear();
+            _scopeComponents.Clear(); _meshThisInvocation.Clear();
+            _propRoots.Clear(); _propVisuals.Clear(); _propRootsReady = false;
+        }
         private readonly struct HandProximity
         {
             internal readonly bool Tracked;
@@ -429,7 +450,8 @@ internal static partial class ScenarioTerrainBudget
         private static bool NearHand(HandProximity hand, Bounds bounds) => hand.Tracked
             && Vector3.Distance(hand.Position, bounds.ClosestPoint(hand.Position)) / hand.Scale < .12f;
 
-        internal bool OwnsRenderSubstitute(Renderer renderer) => _surfaces.TryGetValue(renderer.GetInstanceID(), out Surface surface)
+        internal bool OwnsRenderSubstitute(Renderer renderer) => PerfConfig.TerrainSubstitutionOn
+            && _surfaces.TryGetValue(renderer.GetInstanceID(), out Surface surface)
             && surface.WantsSubstitute(_active);
         internal bool HasCurrentRenderLease(Renderer renderer) => _surfaces.TryGetValue(renderer.GetInstanceID(), out Surface surface)
             && surface.HasCurrentRenderLease;
@@ -437,6 +459,10 @@ internal static partial class ScenarioTerrainBudget
         {
             if (_surfaces.TryGetValue(renderer.GetInstanceID(), out Surface surface)) surface.Unmask();
             ClearMaterialReads();
+            // A native writer may also register/reparent a prop or replace a scope
+            // component during a callback. Neither its ancestry nor prop-root verdict
+            // may survive into the remainder of the same synchronous camera pass.
+            ClearValidation();
         }
         internal void RecoverLeases()
         {
@@ -475,7 +501,8 @@ internal static partial class ScenarioTerrainBudget
                 // DrawRenderer retains its original identity, shader and geometry too.
                 RecoverLeases();
                 if (camera == null || camera != Rig.VRRigDriver.HeadCamera || !VRSession.IsRunning
-                    || !isActiveAndEnabled || (_nativeCameraConsumers?.Invoke(camera) ?? camera.commandBufferCount > 0)) return;
+                    || !isActiveAndEnabled || !PerfConfig.TerrainSubstitutionOn
+                    || (_nativeCameraConsumers?.Invoke(camera) ?? camera.commandBufferCount > 0)) return;
                 using (PerfMonitor.Scope("ScenarioTerrain.PreCull"))
                 using (_worldReadPass?.Invoke())
                 {
@@ -535,6 +562,10 @@ internal static partial class ScenarioTerrainBudget
                         if (!supported || Array.Exists(surface.Materials, material => material == null)) continue;
                         if (!surface.PrepareProxy(shared, ownerPose, ownerScale)) continue;
                         surface.CheapLease = world || cheap;
+                        // Canonical/world material callbacks may render another camera,
+                        // which recovers the prior leases and clears their camera owner.
+                        // The resumed outer pass owns each newly acquired lease again.
+                        _leaseCamera = camera;
                         surface.Mask(); _leases.Add(surface);
                     }
                     if (PerfMonitor.StepsActive && VRLog.Level >= VRLogLevel.Debug)
