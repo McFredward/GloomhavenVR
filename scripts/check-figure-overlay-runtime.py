@@ -54,7 +54,8 @@ def main():
     shader = (args.source_root / 'unity/GloomhavenVR.Assets/Assets/Bundle/Table/Overlay.shader').read_text()
     proof = {'root': str(args.source_root.resolve()), 'native_drake': str(args.native_drake_bundle.resolve()), 'sha256': {key: hashlib.sha256(value.encode()).hexdigest() for key, value in sources.items()}}
     for name in ('WallSegmentFade.cs', 'WallSegmentFade.CommitPhases.cs',
-                 'WallSegmentFade.Prepare.cs', 'WallSegmentFade.Water.cs'):
+                 'WallSegmentFade.Prepare.cs', 'WallSegmentFade.Water.cs',
+                 'WallSegmentFade.ReadFacts.cs'):
         proof['sha256'][name] = hashlib.sha256((wall / name).read_bytes()).hexdigest()
     proof['sha256']['Overlay.shader'] = hashlib.sha256(shader.encode()).hexdigest()
     proof['sha256']['native_drake_bundle'] = hashlib.file_digest(args.native_drake_bundle.open('rb'), 'sha256').hexdigest()

@@ -149,7 +149,13 @@ namespace GloomhavenVR.Core
     internal static class VRLayers
     { internal const int ModLayer = 31; internal const string ModOwnedNamePrefix = "VR", ModOwnedQualifiedPrefix = "GloomhavenVR."; }
 
-    internal static class ScenarioEnvironmentBudget { internal static void BeforeNativeRendererWrite(Renderer renderer) { } }
+    internal static class ScenarioEnvironmentBudget
+    {
+        internal static void BeforeNativeRendererWrite(Renderer renderer) { }
+        // This counted read fixture has native materials only; private-owner and
+        // pixel delivery are exercised in the actual Unity material runtime lane.
+        internal static Material CanonicalMaterial(Material material) => material;
+    }
     internal static class ScenarioSceneryBudget
     {
         internal static readonly HashSet<Renderer> Hidden = new();

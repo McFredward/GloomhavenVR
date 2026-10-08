@@ -84,7 +84,10 @@ if '--ownership-only' in sys.argv:
     text = ownership_source()
     seam = '\n}\n}\n'
     pos = text.rindex(seam)
-    text = text[:pos] + member('        private static void BeginFigureMemo()') + '\n' + member('        private static void EndFigureMemo()') + text[pos:]
+    read_facts = pathlib.Path(sys.argv[1]).parent.joinpath('WallSegmentFade.ReadFacts.cs').read_text()
+    helpers = expression('        private static Material FadeSourceMaterial(', read_facts) + '\n'
+    helpers += member('        private static void ReadFadeMaterials(', read_facts) + '\n'
+    text = text[:pos] + helpers + member('        private static void BeginFigureMemo()') + '\n' + member('        private static void EndFigureMemo()') + text[pos:]
     pathlib.Path(sys.argv[2]).write_text(text)
     sys.exit(0)
 

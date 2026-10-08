@@ -118,7 +118,13 @@ namespace GloomhavenVR.Core
         internal readonly struct Marker : System.IDisposable { public void Dispose() { } }
         internal static Marker Scope(string label) => new();
     }
-    internal static class ScenarioEnvironmentBudget { internal static void BeforeNativeRendererWrite(Renderer renderer) { } }
+    internal static class ScenarioEnvironmentBudget
+    {
+        internal static void BeforeNativeRendererWrite(Renderer renderer) { }
+        // This figure fixture binds native materials; actual private material
+        // ownership and dissolve pixels belong to the world-material runtime lane.
+        internal static Material CanonicalMaterial(Material material) => material;
+    }
     internal static class VRLayers { internal const int ModLayer = 26; internal const string ModOwnedNamePrefix = "VR", ModOwnedQualifiedPrefix = "GloomhavenVR."; }
     internal static class VRLog { internal static bool WantsDebug => true; internal static void Warn(string area, string text) { } internal static void Note(string area, string text) { } internal static void Debug(string area, string text) { } internal static void Alert(string area, string text) { } }
 }
