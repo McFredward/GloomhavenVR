@@ -44,6 +44,7 @@ class OrdinaryTextureTests(unittest.TestCase):
         container=game/'textures.bundle';container.write_bytes(b'original audited container')
         source_sha=hashlib.sha256(container.read_bytes()).hexdigest();rows=[];objects=[]
         parent=threading.get_ident();reads=[];active,peak=0,0;lock=threading.Lock()
+        first_jobs=threading.Barrier(workers)
         for index in range(6):
             path=project/f'Assets/HDR{index}.png';path.write_bytes(b'original exported PNG'+bytes([index]))
             meta=Path(str(path)+'.meta');meta.write_bytes(b'original importer'+bytes([index]))
@@ -66,6 +67,7 @@ class OrdinaryTextureTests(unittest.TestCase):
             nonlocal active,peak
             index=Path(args[1]).read_bytes()[0]
             with lock:active+=1;peak=max(peak,active)
+            if index<workers:first_jobs.wait(timeout=5)
             time.sleep(.04 if index%2==0 else .01);cancellation.check()
             pixels=struct.pack('<48e',*([float(index),-.125,1.5,1.0]*12))
             Path(args[2]).write_bytes(pixels[:-1] if broken_output else pixels)
