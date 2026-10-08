@@ -1036,7 +1036,10 @@ internal static partial class TownServiceMirror
                 var removed = new List<ushort>();
                 foreach (var pair in standing) if (Array.BinarySearch(frame.Modules, pair.Key) < 0 && !RackRetains(peer, pair.Key)) removed.Add(pair.Key);
                 if (removed.Count == 0 || !StagePublicPicture(peer))
+                {
+                    PreserveCensusChildren(standing, frame.Modules, removed);
                     foreach (ushort id in removed) { standing[id].Dispose(); standing.Remove(id); }
+                }
             }
             PrunePending(Pending, peer, frame);
             PrunePending(ReceivedBaselines, peer, frame);
@@ -1068,6 +1071,37 @@ internal static partial class TownServiceMirror
             { StageChangingPublicRack(peer, frame); pending[frame.Module] = frame; ObserveMerchantOffering(peer, frame); }
         if (IsStockPeerKey(peer)) FlushStockVoicePending(RealPeer(peer));
         return true;
+    }
+
+    private static void PreserveCensusChildren(Dictionary<ushort, RemoteModule> standing,
+        ushort[] retained, List<ushort> removed)
+    {
+        // The owner may reparent an unchanged pooled native card/overlay while
+        // retiring its old holder. The census can precede the new child header.
+        // Destroying that holder also destroys current observer children,
+        // leaving a blank interval until their metadata rebuilds them. Detach
+        // only members explicitly retained by this same census, preserving their
+        // exact current original/world pose. Removed cards/controls still retire
+        // immediately; a genuine session close never enters this path.
+        foreach (ushort id in removed)
+        {
+            RemoteModule old = standing[id]; if (!old.Alive) continue;
+            Transform host = old.Host.transform;
+            foreach (var candidate in standing)
+            {
+                RemoteModule child = candidate.Value;
+                if (candidate.Key == id || Array.BinarySearch(retained, candidate.Key) < 0 || !child.Alive
+                    || !child.Host.transform.IsChildOf(host)) continue;
+                Transform? mount = host.parent;
+                while (mount != null && removed.Exists(parentId => standing[parentId].Alive
+                    && (mount == standing[parentId].Host.transform
+                        || mount.IsChildOf(standing[parentId].Host.transform)))) mount = mount.parent;
+                child.Host.transform.SetParent(mount, true);
+                // A retained packet whose sequence was already applied must be
+                // eligible to mount under its current original once that arrives.
+                child.Sequence = 0;
+            }
+        }
     }
 
     private static void PrunePending(Dictionary<int, Dictionary<ushort, TownServiceFrame>> store, int peer, TownServiceFrame manifest)
@@ -1179,9 +1213,10 @@ internal static partial class TownServiceMirror
                         catch { candidate.Dispose(); throw; }
                         if (module != null)
                         {
-                            // Replacing this host also destroys every module physically
-                            // mounted under it. Retire those entries before the next
-                            // rack/page pass so their retained owner frames rebuild them.
+                            // A validated parent replacement must preserve its current
+                            // census-listed children before destroying the old ancestry.
+                            // Obsolete controls still retire before the next rack pass.
+                            PreserveCensusChildren(standing, session.Modules, new List<ushort> { frame.Module });
                             RetireRemoteDescendants(standing, frame.Module, module);
                             module.Dispose();
                         }

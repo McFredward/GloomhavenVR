@@ -189,7 +189,7 @@ internal sealed class TownServiceLaneSendQueue
         var retain = new List<(TownServiceFrame Frame, byte[] Bytes)>();
         foreach (TownServiceFrame older in _urgentBundleFrames)
         {
-            if (older.BaseSequence != 0 || older.Session != census.Session || older.Service != census.Service
+            if (older.Session != census.Session || older.Service != census.Service
                 || older.PublicCatalog != census.PublicCatalog || older.VisitorStock != census.VisitorStock
                 || older.PublicClaim != census.PublicClaim) return;
             if (older.Module == TownServiceFrame.ManifestModule)
@@ -199,11 +199,15 @@ internal sealed class TownServiceLaneSendQueue
                 continue;
             }
             bool needed = Array.BinarySearch(census.Modules, older.Module) >= 0;
-            if (_queues.TryGetValue(older.Module, out var queue) && queue.HasTownDelta(older.Sequence)) return;
+            _queues.TryGetValue(older.Module, out var queue);
             if (!needed) { changed = true; continue; }
             if (_latestOriginals.TryGetValue(older.Module, out var current)
-                && ExtrasSendQueue.CanSupersedeTownOriginal(older, current))
+                && ExtrasSendQueue.CanSupersedeTownRevision(older, current)
+                && (older.BaseSequence != 0 || queue == null || !queue.HasTownDelta(older.Sequence, current.Sequence)))
             { changed = true; continue; }
+            // An older cumulative delta without a replacement still owns its
+            // exact baseline. Never turn cancellation into a missing dependency.
+            if (older.BaseSequence != 0 || queue != null && queue.HasTownDelta(older.Sequence)) return;
             // An unchanged native row may still be required by the new card's
             // picture. Preserve its exact already encoded original in that new
             // atomic bundle instead of making its old fragment debt block it.
