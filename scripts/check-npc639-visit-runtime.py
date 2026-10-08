@@ -43,7 +43,7 @@ def bind(root):
     assert '_mapSeat = seat;' in build
     assert 'RecenterMap();' in method(raw[paths[3]], '    internal void Recenter()')
     assert 'if (_pendingRecenter && _camera != null' in raw[paths[4]]
-    assert map_rig.count('EyeClearanceLiftMeters(') == 1
+    assert map_rig.count('EyeClearanceAdjustmentMeters(') == 1
     bound = {
         'MapRoomSeat.cs': raw[paths[2]],
         'RecenterMap.cs': ('using UnityEngine;using GloomhavenVR.Core;using GloomhavenVR.WorldUI.MapRoom;'
@@ -64,10 +64,13 @@ def main():
     (run / 'source-hashes.json').write_text(json.dumps(hashes, indent=2) + '\n')
     variants = (
         ('production', '', '', ''),
-        ('raw-eye-origin', 'float liftMeters = MapRoomSeat.EyeClearanceLiftMeters(headLocal.y, tableAboveRigFloorMeters);',
-         'float liftMeters = 0f;', 'low origin obtains the minimum map overview'),
-        ('double-clearance', 'liftMeters * scale', 'liftMeters * scale * 2f',
-         'lift only to the minimum without raising the view farther'),
+        ('raw-eye-origin', 'float adjustmentMeters = MapRoomSeat.EyeClearanceAdjustmentMeters(headLocal.y, tableAboveRigFloorMeters);',
+         'float adjustmentMeters = 0f;', 'low origin obtains the minimum map overview'),
+        ('unbounded-high-origin', 'float adjustmentMeters = MapRoomSeat.EyeClearanceAdjustmentMeters(headLocal.y, tableAboveRigFloorMeters);',
+         'float adjustmentMeters = Mathf.Max(0f, tableAboveRigFloorMeters + .70f - headLocal.y);',
+         'high origin stays below the entry clearance ceiling'),
+        ('double-clearance', 'adjustmentMeters * scale', 'adjustmentMeters * scale * 2f',
+         'high origin stays below the entry clearance ceiling'),
         ('lateral-tracking-retained', 'yaw * (flat * scale)', 'yaw * (Vector3.zero * scale)',
          'entry absorbs measured tracking XZ without moving the table'))
     fixture = ROOT / 'scripts/npc639-visit-runtime'
@@ -114,7 +117,7 @@ def main():
     # Preserve the bound source, compiled inputs and receipts, remove only the
     # disposable editor project. No hardware logs or shared checkout are deleted.
     shutil.rmtree(project)
-    print('PASS: actual map recenter and three causal controls; ' + str(run))
+    print('PASS: actual map recenter and four causal controls; ' + str(run))
 
 
 if __name__ == '__main__':
