@@ -220,6 +220,10 @@ function updateView() {
   $('base-apk-choice').hidden=mode==='build';
   $('update-signing-choice').hidden=mode==='build';
   document.querySelector('.license-note').hidden=mode==='update-profile';
+  const updateContent=mode==='update-profile'?'setupProfile':mode==='update-mod'?'setupMod':'setupContent';
+  document.querySelector('[data-i18n=setupContent]').textContent=t(updateContent);
+  document.querySelector('[data-i18n=setupContentCopy]').textContent=t(updateContent+'Copy');
+  document.querySelector('[data-i18n=firstBuild]').textContent=t(mode==='build'?'firstBuild':'updateBuild');
   $('browse-apk').hidden=discovery?.capabilities?.browse===false;
   $('primary').disabled=busy||!canConnect||Boolean(resumeFailed)||(page===0&&!$('game-root').value.trim())||(page===2&&(isActive(state)||state?.status==='complete'));
   $('primary').firstElementChild.textContent=t(busy?'preparing':page===0?'continue':page===1?'build':isActive(state)?'working':state?.status==='complete'?'done':state?.status==='blocked'?'retry':'resumeContinue');

@@ -2,13 +2,15 @@
 
 ## Scope
 
-Remain on `feature/quest3-standalone`, with current dev644
-`3e96cd6dc4f57ecf88eb5fdcb67b848e636c823e` integrated. The maintainer
+Remain on `feature/quest3-standalone`, with current dev645
+`2d77ffb65d9b8d82413de8bf05aafab654e4a5df` integrated. The maintainer
 requested retained whole-build progress, greater host resource use and faster
 mod/profile updates from an existing APK. Every update requires the PC copy
 again. This release builds the Windows Builder ZIP, not a full host game APK.
-Dev advanced during publication; its Frame644 source/check/renderer evidence
-is inherited from `docs/performance/FRAME-644-STEADY-CPU.md`. The published Quest
+Dev advanced during publication; Frame644 and bounded NPC645 evidence is
+inherited by exact affected source from `docs/performance/FRAME-644-STEADY-CPU.md`
+and `.planning/NPC-645-REVIEW.md`. The actual merged645 mod compiles with zero
+warnings/errors. The published Quest
 history is retained by a merge; no force push or history rewrite is performed.
 
 ## Retained progress
@@ -129,3 +131,9 @@ assertions. Focused Python, browser, installer and extracted-archive evidence
 records exact source hashes and negative controls. No new unrelated complete
 mod gate is claimed. Windows code-only AOT builds and updated Quest behavior
 remain to be tested by the maintainer; no full host game APK is produced.
+
+Integrated focused validation covers219 Builder cases in15 modules,223 Wizard
+cases,193 Installer cases (170 executed and23 explicit platform skips), and
+20 current UI-model cases. The earlier browser gate executed30 cases with two
+optional real-loopback skips. These are affected-suite proofs, not a new
+complete project gate or Windows native/AOT hardware acceptance.

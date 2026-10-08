@@ -12,7 +12,7 @@ the matching PC install. Mod changes compile a matched IL2CPP/metadata pair
 without original-game asset import; later compatible profile edits need no
 Unity. Original signing data is required. APK-only updates retain the game bank
 already completed on the headset. Native ABI, script layout and new DLC content
-require a full build. Current dev6443e96cd6dc is integrated. Focused evidence
+require a full build. Current dev6452d77ffb65 is integrated. Focused evidence
 covers source/format/continuation/browser boundaries, actual SDK compilation and
 executable original-game profile getters. Windows end-to-end builds and updated
 headset behavior remain unverified.
