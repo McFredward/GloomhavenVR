@@ -18,8 +18,68 @@ from storage import BuildError, _ordinary_owned, value_hash
 BUILDER = "tools/quest-builder/builder.py"
 IDENTITY = "tools/quest-builder/preparation_identity.py"
 RECIPE_IDENTITY = "tools/quest-builder/recovery_resume.py"
-DELIVERY_PREFIXES = ("tools/quest-wizard/", "tools/quest-installer/")
+DELIVERY_PREFIXES = ("tools/quest-wizard/", "tools/quest-wizard-ui/", "tools/quest-installer/")
 HEX = re.compile(r"[0-9a-f]{64}\Z")
+
+# Exact producer profiles reviewed against the original movie/audio outputs.
+# These are aliases for this repair, never a general exclusion from identity.
+# The UI manifest gains physical-byte provenance, so only the committed prefix
+# before that producer can migrate across its transport repair.
+UI_TRANSPORT_PREVIOUS = {
+    "path": "tools/quest-builder/ui_assets.py", "size": 15502,
+    "sha256": "3a7deb92b1984d0c15ab2821b1ad6f211673f2d587b4da8548c5c048efd3de24",
+}
+UI_TRANSPORT_FIXED = {
+    "path": "tools/quest-builder/ui_assets.py", "size": 17347,
+    "sha256": "7c56bb464fe316aeaeeb7c42f029d7d0a789bf52cfb79b47298bf94c3a6519f6",
+}
+STARTUP_PROGRESS_PREVIOUS = {
+    "tools/quest-builder/startup.py": {
+        "path": "tools/quest-builder/startup.py", "size": 17374,
+        "sha256": "7b37a9dfe70d39d45c642b17037dad65c2f7a4cefb77ffe1616e72e4fac9484e"},
+    "tools/quest-builder/full_sprites.py": {
+        "path": "tools/quest-builder/full_sprites.py", "size": 7248,
+        "sha256": "fb587ef18e4113cd5484bf9050ab350b2d67b9748502c382d5c53d70365ea8d2"},
+    "tools/quest-builder/audio.py": {
+        "path": "tools/quest-builder/audio.py", "size": 21531,
+        "sha256": "cc8fc63e44010d73f89dfde75f5c5d78ae00d9d5e43d7d131131302fe5177c02"},
+}
+STARTUP_PROGRESS_FIXED = {
+    "tools/quest-builder/startup.py": {
+        "path": "tools/quest-builder/startup.py", "size": 19926,
+        "sha256": "0203bae66b4156a17f394c78961185d4f0c922afbb7cd524b57d020c3ad18233"},
+    "tools/quest-builder/full_sprites.py": {
+        "path": "tools/quest-builder/full_sprites.py", "size": 9217,
+        "sha256": "28d4822eec0e4684f237004c63a595c9c9fe6bed419e85fdea015e09fa33fc0f"},
+    "tools/quest-builder/audio.py": {
+        "path": "tools/quest-builder/audio.py", "size": 22646,
+        "sha256": "167a595a97ec838bf9d88bdb2378969f9175f7e231043f1d1f6a679b8c443b05"},
+}
+
+
+def _reviewed_startup_rows(rows):
+    by_path = {row["path"]: row for row in rows}
+    if (STARTUP_PROGRESS_FIXED and all(by_path.get(name) == fixed
+                                      for name, fixed in STARTUP_PROGRESS_FIXED.items())):
+        rows = [STARTUP_PROGRESS_PREVIOUS.get(row["path"], row) for row in rows]
+    return [UI_TRANSPORT_PREVIOUS if row == UI_TRANSPORT_FIXED else row for row in rows]
+
+
+def _transport_prefix(value, target):
+    names = ["base-project", "post-effects", "loading-resources", "startup-movies"]
+    if target == "game": names.append("native-sprites")
+    names += ["loading-sprite", "startup-audio"]
+    steps = value.get("steps")
+    if not isinstance(steps, list) or len(steps) > len(names): return False
+    for index, step in enumerate(steps):
+        if (not isinstance(step, dict) or step.get("name") != names[index]
+                or step.get("operation") != ("project-files" if index == 0 else "startup-content")):
+            return False
+    pending = value.get("pending")
+    if pending is None: return True
+    next_name = names[len(steps)] if len(steps) < len(names) else "ui-recipes" if target == "game" else "startup-ui"
+    return (isinstance(pending, dict) and pending.get("name") == next_name
+            and pending.get("operation") == ("project-files" if not steps else "startup-content"))
 
 
 LOAD = ast.parse('preparation_identity = _local_helper("preparation_identity")').body[0]
@@ -81,7 +141,7 @@ def _builder_bytes(root, records):
 def _scope(inputs, source, recovery):
     records = recovery._records(inputs["mod"]["files"], "size")
     builder = builder_producer_digest(_builder_bytes(source, records))
-    rows = recovery.preparation_source_rows(inputs["mod"]["files"])
+    rows = _reviewed_startup_rows(recovery.preparation_source_rows(inputs["mod"]["files"]))
     # These modules validate/select identity; neither generates game assets.
     # Delivery tools are never read by generate_files or its conversion tools.
     rows = [row for row in rows if row["path"] not in (BUILDER, IDENTITY, RECIPE_IDENTITY)
@@ -112,9 +172,18 @@ def rebind_key(output, project, inputs, source, *, target, recipe, recovery):
     if current != inputs:
         raise BuildError("Current preparation inputs differ from their immutable manifest.")
     previous_source = _ordinary_owned(output / "inputs/mod" / previous["mod"]["key"])
+    old_rows = {name: {"path": name, "size": row["bytes"], "sha256": row["sha256"]}
+                for name, row in recovery._records(previous["mod"]["files"], "size").items()}
+    new_rows = {name: {"path": name, "size": row["bytes"], "sha256": row["sha256"]}
+                for name, row in recovery._records(inputs["mod"]["files"], "size").items()}
+    before_ui, after_ui = old_rows.get(UI_TRANSPORT_PREVIOUS["path"]), new_rows.get(UI_TRANSPORT_FIXED["path"])
+    if before_ui != after_ui:
+        if (before_ui != UI_TRANSPORT_PREVIOUS or after_ui != UI_TRANSPORT_FIXED
+                or not _transport_prefix(value, target)):
+            return None
     before, after = _scope(previous, previous_source, recovery), _scope(inputs, source, recovery)
     if value_hash(before) != value_hash(after):
         return None
-    print("preparation resume: retaining witnessed conversions across observer-only source update; "
+    print("preparation resume: retaining witnessed conversions across reviewed compatible tool update; "
           "mutable content and final settings retain the current input key", flush=True)
     return previous_key

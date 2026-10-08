@@ -151,6 +151,40 @@ class JournalTests(unittest.TestCase):
         first.close(); second = self.journal()
         self.assertFalse((self.project / "Assets/ShaderPrograms").exists()); second.close()
 
+    def test_movie_undo_reports_streamed_bytes_before_action_and_retains_original_on_retry(self):
+        from types import SimpleNamespace
+        rows = []
+        class Counter:
+            def __init__(self, phase, total, unit, detail=None):
+                self.phase, self.total, self.done = phase, total, 0
+                rows.append((phase, 0, total))
+            def add(self, amount, detail=None):
+                self.done += amount; rows.append((self.phase, self.done, self.total))
+            def finish(self): self.assert_total()
+            def assert_total(self):
+                if self.done != self.total: raise AssertionError("Backup progress differs from actual streamed bytes")
+        progress = SimpleNamespace(Counter=Counter, event=lambda *_args, **_kwargs: None)
+        data = b"original movie packets" * 100000
+        original = self.put("Assets/VideoClip/Intro.mov", data)
+        first = self.journal(progress=progress)
+        def action():
+            counts = [done for phase, done, total in rows if phase == "prepare-items:startup-movies-backup"]
+            self.assertGreater(len(counts), 2)
+            self.assertEqual(counts[0], 0); self.assertEqual(counts[-1], len(data))
+            self.assertTrue(any(0 < done < len(data) for done in counts))
+            original.unlink()
+            raise storage.BuildError("Movie action interrupted")
+        with self.assertRaisesRegex(storage.BuildError, "Movie action interrupted"):
+            with first.operation("startup-content", 1):
+                first.run("startup-movies", "startup-content", action, ["Assets/VideoClip/Intro.mov"],
+                          mutations=["Assets/VideoClip/Intro.mov", "Assets/VideoClip/not-created.mov"])
+        first.close()
+        second = self.journal()
+        self.assertEqual(original.read_bytes(), data)
+        self.assertEqual(second.value["steps"], [])
+        self.assertIsNone(second.value["pending"])
+        second.close()
+
     def test_corrupted_undo_preflight_changes_no_project_file(self):
         original = self.put("Assets/input", b"original")
         first = self.journal()

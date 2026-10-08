@@ -44,7 +44,7 @@ def _stamp(path):
     return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
 
 
-def copy_changed(source, target, *, observed=None):
+def copy_changed(source, target, *, observed=None, transfer=None):
     """Resume an immutable copy by bytes, and reject mutations/short writes.
 
     Completed same-size/time copies are compared before retention. Source and
@@ -81,6 +81,7 @@ def copy_changed(source, target, *, observed=None):
                     raise BuildError("Preparation copy wrote fewer bytes than requested: " + target.name)
                 size += len(chunk)
                 checksum.update(chunk)
+                if transfer: transfer(len(chunk))
             destination.flush()
         if size != before[2] or before != _stamp(source) or temporary.stat().st_size != size:
             raise BuildError("Preparation source changed during copy: " + source.name)
@@ -424,6 +425,17 @@ class Preparation:
         if undo.exists(): shutil.rmtree(undo)
 
     def _undo(self, name, paths):
+        paths = list(dict.fromkeys(paths))
+        # Movie source deletion needs the existing bounded undo copy. Report
+        # bytes from that writer itself, without a second read or a timer.
+        # Other phase contracts and directory undo semantics remain unchanged.
+        backup_counter = None
+        if self.progress and name == "startup-movies":
+            targets = [self._path(relative) for relative in paths]
+            if not any(path.is_dir() for path in targets):
+                total = sum(path.stat().st_size for path in targets if path.is_file())
+                backup_counter = self.progress.Counter("prepare-items:startup-movies-backup", total, "bytes",
+                                                       "Preserving original movie inputs for interrupted-build recovery")
         root = _ordinary_owned(self.root / ("undo-" + name))
         if root.exists(): shutil.rmtree(root)  # same exact journal-owned basename, before any phase mutation
         root.mkdir(parents=True)
@@ -436,11 +448,13 @@ class Preparation:
             def observed(checksum):
                 self.checked[relative] = (_stamp(path), checksum)
                 self.witnesses.remember(path, checksum)
-            copy_changed(path, saved, observed=observed)
+            def transfer(size): backup_counter.add(size, relative)
+            if backup_counter: copy_changed(path, saved, observed=observed, transfer=transfer)
+            else: copy_changed(path, saved, observed=observed)
             row = {**self._observe(relative), "backup": str(sequence)}
             sequence += 1
             return row
-        for relative in dict.fromkeys(paths):
+        for relative in paths:
             path = self._path(relative)
             if not path.exists(): rows.append({"path": relative, "absent": True}); continue
             if path.is_dir():
@@ -454,6 +468,7 @@ class Preparation:
                 rows.append({"path": relative, "directory": True, "directories": directories, "files": members})
             elif path.is_file(): rows.append(preserve(relative))
             else: raise BuildError("Preparation undo can preserve only owned files/directories: " + relative)
+        if backup_counter: backup_counter.finish()
         return rows
 
     def run(self, name, operation, action, contracts, *, mutations=()):

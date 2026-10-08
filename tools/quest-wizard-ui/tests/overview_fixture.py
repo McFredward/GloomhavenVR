@@ -42,4 +42,19 @@ event('staging-copy', 150000, 189701, 'files'); states.append(copy.deepcopy(row)
 event('operation:project-files', 1, 1, 'operations', 'project-files', 'reuse')
 event('operation:startup-content', operation='startup-content', status='start')
 event('prepare-substage:startup-movies', 2, 6, 'checkpoints', 'startup-content', 'complete'); states.append(copy.deepcopy(row))
+
+# Real opened startup checkpoint: byte observations advance its bounded share
+# and the whole build while the movie producer has not yet returned.
+row = {'id': 'build', 'status': 'running'}
+for operation in stage_plan.PLANS['build'][:8]: event('operation:' + operation, 1, 1, 'operations', operation, 'reuse')
+event('operation:startup-content', operation='startup-content', status='start')
+event('prepare-substage:post-effects', 1, 11, 'checkpoints', 'startup-content', 'reuse')
+event('prepare-substage:loading-resources', 2, 11, 'checkpoints', 'startup-content', 'reuse')
+event('prepare-substage:startup-movies', 2, 11, 'checkpoints', 'startup-content', 'start')
+event('prepare-items:startup-movies-backup', 1024, 1024, 'bytes', status='complete')
+event('prepare-items:startup-movies-clips', 3, 3, 'files', status='complete')
+event('prepare-items:startup-movies-scenes', 13, 13, 'scenes', status='complete')
+event('prepare-items:startup-movies-assets', 0, 64 * 1048576, 'bytes'); states.append(copy.deepcopy(row))
+event('prepare-items:startup-movies-assets', 16 * 1048576, 64 * 1048576, 'bytes'); states.append(copy.deepcopy(row))
+event('prepare-items:startup-movies-assets', 48 * 1048576, 64 * 1048576, 'bytes'); states.append(copy.deepcopy(row))
 print(json.dumps(states))

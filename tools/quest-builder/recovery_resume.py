@@ -103,7 +103,7 @@ OBSERVATION_PREVIOUS = {
         "path": "tools/quest-builder/prepare_resume.py", "size": 27384,
         "sha256": "ad5b12ad8a51756b1f0dee4609a903fe8380feab69f35de8724355c622d3750d"},
 }
-OBSERVATION_FIXED = {
+OBSERVATION_BYTE_WITNESSES = {
     "tools/quest-builder/storage.py": {
         "path": "tools/quest-builder/storage.py", "size": 50272,
         "sha256": "d747a4413138c3140d2a1bbfb48fa424165c99853e49e5e5e73b5dcfe000daf2"},
@@ -117,6 +117,16 @@ OBSERVATION_FIXED = {
         "path": "tools/quest-builder/prepare_resume.py", "size": 34048,
         "sha256": "abebf9fc07e2ff2137f82b55bde0ab8fa1e69f8ee0eda227689bc602a7a8f7f1"},
 }
+# Exact observer-only follow-up: the existing movie undo writer now reports
+# streamed byte counts. Copy/hash/undo contracts and original output bytes are
+# unchanged. Preserve both complete published witness profiles, never mixes.
+OBSERVATION_FIXED = {
+    **OBSERVATION_BYTE_WITNESSES,
+    "tools/quest-builder/prepare_resume.py": {
+        "path": "tools/quest-builder/prepare_resume.py", "size": 35121,
+        "sha256": "9e685ebd51d0d99dc6967f4c93f35d632e228172dd03c5fe430a662821d40355"},
+}
+OBSERVATION_PROFILES = (OBSERVATION_BYTE_WITNESSES, OBSERVATION_FIXED)
 # Shipped d4cc44eeb adds an exporter-log observer and invocation-local proof
 # caches. The current reference-audit update changes no raw export identities.
 # Preserve this exact whole profile as well as the previous shipped profiles.
@@ -164,8 +174,8 @@ def preparation_source_rows(rows):
     by_path = {}
     for row in rows:
         by_path.setdefault(row["path"], []).append(row)
-    if (OBSERVATION_FIXED and all(by_path.get(name) == [fixed]
-                                 for name, fixed in OBSERVATION_FIXED.items())):
+    if any(profile and all(by_path.get(name) == [fixed] for name, fixed in profile.items())
+           for profile in OBSERVATION_PROFILES):
         return [OBSERVATION_PREVIOUS.get(row["path"], row) for row in rows]
     return rows
 

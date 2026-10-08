@@ -44,6 +44,9 @@ test('all fourteen project-staging sections and their file counters have plain l
     'staging-managed-assemblies','staging-runtime-copy','staging-runtime-file','staging-report-files','staging-report-file',
     'staging-resume-verify','staging-resume-verify-files','prepare-resume-verify',
     'prepare-substage:compiler-contracts','prepare-substage:case-paths','prepare-substage:startup-compute','prepare-substage:script-orders','prepare-substage:final-settings',
+    ...['startup-movies-backup','startup-movies-clips','startup-movies-scenes','startup-movies-assets','startup-movies-media',
+      'native-sprites-identities','native-sprites-packed','native-sprites-targets','native-sprites-containers',
+      'startup-audio-metadata','startup-audio-preflight','startup-audio-write','startup-audio-decode'].map(name=>'prepare-items:'+name),
     ...sections.map(section=>'staging-section:'+section)];
   for(const language of ['de','en'])for(const phase of phases){
     const key='phase_'+phase,label=translate(language,key);

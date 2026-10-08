@@ -73,6 +73,18 @@ test('resumed build names retained, current and remaining real work while observ
    await client.evaluate("document.querySelector('[data-language=en]').click()");
    assert.equal(await client.evaluate("document.getElementById('build-overview-title').textContent"),'Quest build workflow');
    assert.match(await client.evaluate("document.getElementById('build-current').textContent"),/Prepare menu and startup content/);
+   mode=5;await client.wait("document.getElementById('substep-label').textContent.includes('Find video references')");
+   assert.equal(await client.evaluate("document.getElementById('substep-track').getAttribute('aria-valuenow')"),'0');
+   mode=6;await client.wait("document.getElementById('substep-track').getAttribute('aria-valuenow')==='25'");
+   assert.equal(await client.evaluate("document.getElementById('progress-track').getAttribute('aria-valuenow')"),String(rows[6].progress.stagePercent));
+   assert.match(await client.evaluate("document.getElementById('progress-detail').textContent"),/16 MiB \/ 64 MiB/);
+   mode=7;await client.wait("document.getElementById('substep-track').getAttribute('aria-valuenow')==='75'");
+   assert.ok(rows[7].progress.stagePercent>rows[6].progress.stagePercent,'whole build advances within the still-open movie scan');
+   assert.equal(await client.evaluate("document.getElementById('progress-track').getAttribute('aria-valuenow')"),String(rows[7].progress.stagePercent));
+   assert.match(await client.evaluate("document.querySelector('[data-operation=startup-content]').textContent"),/Creating/);
+   await client.evaluate("document.querySelector('[data-language=de]').click()");
+   assert.match(await client.evaluate("document.getElementById('substep-label').textContent"),/Videoreferenzen in den Spieldaten suchen/);
+   await client.picture('startup-movie-measured-byte-progress-de');
    assert.equal(client.events.filter(row=>row.method==='Runtime.exceptionThrown').length,0);
   }finally{try{await client?.close();}finally{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}}
  });

@@ -1,5 +1,32 @@
 # State — where the project stands
 
+**Quest Windows startup preparation repair, 2026-10-08 (Builder only).**
+
+Capture `quest-build-support-20261008T162840Z-51d5aa71.zip` identifies published
+437c198e / ModBuild643, not the subsequently delivered645 Builder. All14 derived
+transactions and16 raw packages closed; preparation then completed six startup
+items before rejecting the exact original UI Shader recipes. The unchanged
+text-mode recipe producer emits Windows CRLF whereas the pinned original recipe
+bytes use LF. The repaired consumer accepts only those exact physical transports,
+retains raw-file provenance and restores all three real original UI/blur recipes.
+
+The movie checkpoint takes420.392s, including414.941s without inner counters;
+audio takes71.210s. These intervals do not isolate undo, scanning or codec costs.
+Measured copy bytes, incremental UTF-8 movie scanning, actual metadata objects,
+Sprite planning and audio blocks now expose that work inside the same globally
+counted checkpoint. No timer creates progress. Exact reviewed profiles preserve
+original recovery identities and compatible closed preparation prefixes; changed
+game/template/profile/runtime inputs retain their own preparation scope. The
+capture's two other apparent long gaps are omitted diagnostic log middles, not
+producer stalls. Full-log qualification and bounded proof are recorded in
+[the retained-build review](QUEST-BUILD-REUSE-20261008.md).
+
+Current dev645 remains integrated. No PC mod runtime code changes in this repair;
+the prior exact645 AOT and compiled-runtime evidence remains applicable. Windows
+end-to-end build duration and the resulting headset picture remain unverified.
+
+---
+
 **Quest retained progress, parallel codecs and APK updates, 2026-10-08.**
 
 The Quest branch retains closed conversion progress while new Builder archives

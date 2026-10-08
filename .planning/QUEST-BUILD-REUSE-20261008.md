@@ -102,3 +102,65 @@ the preceding complete derived recipe. Unpack over the existing folder, keep
 the selected work/state folders and continue the same session. No host APK,
 exhaustive shader sweep, full Windows conversion or headset success is claimed.
 Cleanup removes only this repair's completed private workers and duplicate ZIP.
+
+## Subsequent startup preparation capture, 2026-10-08
+
+`quest-build-support-20261008T162840Z-51d5aa71.zip` identifies published437c198e
+/ ModBuild643. The later20689453b / current dev645 source is the repair base.
+All14 derived phases and16 original package checkpoints finish. Seven journal
+steps are closed: the base project plus post-effects, loading resources, movies,
+native Sprites, loading geometry and startup audio. The pending UI recipe step
+then fails before claiming success.
+
+The original recipe producer uses text-mode `write_json` without an explicit
+newline mode. Its Windows CRLF bytes differ from the audited LF hashes. The exact
+three real original Splash/Dissolve/Blur recipes reproduce the reported failure
+under the preceding consumer. The new consumer opens only the producer's three
+known filename families and accepts precisely uniform LF or CRLF representations
+of the unchanged full original bytes. Physical file hash/size/newline provenance
+is recorded separately. Mixed endings, BOM, bare CR, altered JSON whitespace,
+source locators, program banks, properties, pass states, platforms and duplicate
+recipes still fail before manifest publication. Historical LF manifests remain
+readable with unchanged Windows recipe files. Original exports are never edited.
+
+The timed movie boundary is420.392s, with414.941s before the first inner progress
+event. This includes the bounded undo copies, scene/player preflight and complete
+serialized GUID-consumer search; their individual costs are not measured. Audio
+is71.210s with36.313s and28.176s quiet portions. Movie undo now reports actual
+writer bytes. Movie reference search incrementally decodes bounded blocks with
+the same UTF-8/ignore and cross-boundary literal-match result. Every prior asset
+candidate remains scanned; compound or unknown files are not skipped. This
+removes whole large YAML string allocation without claiming a Windows speedup.
+Scene/clip/media counts, Sprite identity bytes/planning/container counts, original
+AudioClip object-table counts and IMA block counts feed the active checkpoint's
+bounded work share and the global build bar. Successful parent boundaries still
+alone finish operations; nested 100-percent counters cannot finish their parent.
+
+Only exact reviewed old/new source profiles alias the movie observer update and
+unchanged recovery output recipe. The UI transport repair additionally requires
+the exact ordered committed prefix before `ui-recipes`/`startup-ui`; it cannot
+reuse already closed UI outputs across a changed manifest producer. Actual retry
+fixtures keep the base plus six startup steps, refuse any repeated copy/writer,
+retry only the failed UI producer and retain Library. Partial/unknown helpers,
+changed originals/template/profile/backend/target and wrong pending order do not
+receive this compatibility. The capture's643-to-current645 runtime/template
+changes remain genuine preparation changes; no unchanged-prefix claim is made
+for that different runtime scope. Original recovery work is retained separately.
+
+Evidence is under `/home/claw/quest3-local/build/evidence/B645-support-162840/`.
+The complete `build.log` contains4961 producer events. The rotated Wizard logs
+were explicitly shortened in the support export. Their apparent932/502-second
+gaps contain1732/990 additional producer events in the full log and are not
+evidence of stalled work. The qualified timeline assigns timestamps only to925
+exact matched Wizard events; other event times remain unknown. Do not infer
+Windows performance from the diagnostic omission markers.
+
+Focused checks cover the real recipe consumer, exact source aliases, destructive
+undo/retry, incremental scan/PCM output parity and the actual planner/browser
+projection. Current645 compiled-runtime/AOT evidence is inherited for unchanged
+runtime sources. Publication additionally qualifies the extracted archive's
+stdlib startup, source hashes, retained session and complete original recovery
+recipe. No full local gate, exhaustive shader pass, host APK, Windows whole build
+or headset acceptance is claimed. Keep the existing work/state folders when
+updating the Builder and continue the same session. Only completed private
+worker worktrees and superseded public Builder archives are removed.

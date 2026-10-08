@@ -113,6 +113,7 @@ class ActualPreparationMigrationTests(unittest.TestCase):
         (f.source / identity.BUILDER).write_bytes((ROOT / identity.BUILDER).read_bytes())
         if delivery:
             f.write(f.source, "tools/quest-wizard/status-only.js", b"const status = 'updated';")
+            f.write(f.source, "tools/quest-wizard-ui/status-only.mjs", b"export const status = 'updated';")
         current = self.inputs()
         self.assertNotEqual(current["inputKey"], self.previous["inputKey"])
         return current
@@ -192,6 +193,83 @@ class ActualPreparationMigrationTests(unittest.TestCase):
         self.assertEqual(self.native_attempts, 1)
         self.assertEqual(self.probe.read_bytes(), self.probe_bytes)
         self.assertEqual(self.library.read_bytes(), b"owned native import cache")
+
+    def startup_transport_failure(self):
+        """Exercise a real ordered preparation, stopped at the captured boundary."""
+        f = self.fixture
+        self.stop = False
+        names = (identity.UI_TRANSPORT_PREVIOUS["path"],
+                 "tools/quest-builder/startup.py", "tools/quest-builder/full_sprites.py", "tools/quest-builder/audio.py")
+        previous, fixed = {}, {}
+        for name in names:
+            old = b"# Qualified preceding fixture producer.\n"
+            new = b"# Qualified compatible fixture producer.\n"
+            f.write(f.source, name, old)
+            previous[name] = {"path": name, "size": len(old), "sha256": hashlib.sha256(old).hexdigest()}
+            fixed[name] = {"path": name, "size": len(new), "sha256": hashlib.sha256(new).hexdigest()}
+        for module in (identity, builder.preparation_identity):
+            f.stack.enter_context(patch.object(module, "UI_TRANSPORT_PREVIOUS", previous[names[0]]))
+            f.stack.enter_context(patch.object(module, "UI_TRANSPORT_FIXED", fixed[names[0]]))
+            f.stack.enter_context(patch.object(module, "STARTUP_PROGRESS_PREVIOUS", {name: previous[name] for name in names[1:]}))
+            f.stack.enter_context(patch.object(module, "STARTUP_PROGRESS_FIXED", {name: fixed[name] for name in names[1:]}))
+        self.previous = self.inputs()
+        self.previous_source = f.output / "inputs/mod" / self.previous["mod"]["key"]
+        shutil.copytree(f.source, self.previous_source)
+        def fail_ui(_project):
+            f.tick("ui-attempt")
+            raise storage.BuildError("Original UI recipe transport failure")
+        f.stack.enter_context(patch.object(builder.ui_assets, "stage_campaign_recipe_manifest", fail_ui))
+        with self.assertRaisesRegex(storage.BuildError, "Original UI recipe transport failure"):
+            f.run_prepare()
+        project = f.project()
+        journal = f.output / "cache/prepare-resume" / project.name / "journal.json"
+        self.assertEqual([step["name"] for step in json.loads(journal.read_text())["steps"]],
+                         ["base-project", "post-effects", "loading-resources", "startup-movies", "native-sprites", "loading-sprite", "startup-audio"])
+        before_calls = dict(f.calls)
+        library = f.write(project, "Library/retained-original-import", b"native import cache")
+        for name in names: f.write(f.source, name, b"# Qualified compatible fixture producer.\n")
+        self.updated()
+        return project, journal, before_calls, library
+
+    def test_exact_startup_repair_retains_all_six_closed_content_steps_and_retries_only_ui(self):
+        project, journal, calls, library = self.startup_transport_failure()
+        f = self.fixture
+        self.assertEqual(identity.rebind_key(f.output, project, f.inputs, f.source,
+                         target="game", recipe=builder.RECIPE, recovery=recovery_resume), self.previous["inputKey"])
+        with patch.object(builder.prepare_resume, "copy_changed", side_effect=AssertionError("Closed base/movie/audio producers must not copy again")):
+            with self.assertRaisesRegex(storage.BuildError, "Original UI recipe transport failure"):
+                f.run_prepare()
+        calls["ui-attempt"] += 1
+        self.assertEqual(f.calls, calls)
+        self.assertEqual(self.native_attempts, 1)
+        self.assertEqual(json.loads(journal.read_text())["inputKey"], f.inputs["inputKey"])
+        self.assertEqual(library.read_bytes(), b"native import cache")
+
+    def test_partial_unknown_progress_profile_and_completed_ui_never_receive_transport_alias(self):
+        project, journal, _, _ = self.startup_transport_failure()
+        f = self.fixture
+        baseline = copy.deepcopy(f.inputs)
+        for change in ("partial-progress", "unknown-progress", "closed-ui", "wrong-pending"):
+            with self.subTest(change=change):
+                current, value = copy.deepcopy(baseline), json.loads(journal.read_text())
+                if change in ("partial-progress", "unknown-progress"):
+                    row = next(row for row in current["mod"]["files"] if row["path"] == "tools/quest-builder/audio.py")
+                    row.update(identity.STARTUP_PROGRESS_PREVIOUS[row["path"]] if change == "partial-progress"
+                               else {"size": 19, "sha256": "f" * 64})
+                    current["mod"]["key"] = storage.value_hash({"files": current["mod"]["files"]})
+                    current.pop("inputKey"); current["inputKey"] = storage.value_hash(current)
+                    storage.write_json(f.output / "manifests" / (current["inputKey"] + ".json"), current)
+                elif change == "closed-ui":
+                    value["steps"].append({"name": "ui-recipes", "operation": "startup-content", "outputs": []})
+                    value["pending"] = {"name": "startup-ui", "operation": "startup-content", "undo": []}
+                else: value["pending"]["name"] = "unreviewed-next-producer"
+                storage.write_json(journal, value)
+                self.assertIsNone(identity.rebind_key(f.output, project, current, f.source,
+                                  target="game", recipe=builder.RECIPE, recovery=recovery_resume))
+                if change in ("closed-ui", "wrong-pending"):
+                    value["steps"] = value["steps"][:7]
+                    value["pending"] = {"name": "ui-recipes", "operation": "startup-content", "undo": []}
+                    storage.write_json(journal, value)
 
 
 if __name__ == "__main__":
