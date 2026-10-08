@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using GloomhavenVR.Board.FigureGrab;
 using UnityEngine;
 
 namespace GloomhavenVR.Core;
@@ -53,6 +54,25 @@ internal static partial class ScenarioTerrainBudget
     }
     private sealed partial class Driver
     {
+        private readonly HashSet<Transform> _propRoots = new();
+        private readonly List<GameObject> _propVisuals = new();
+        private bool _propRootsReady;
+        private void ReadCurrentPropRoots()
+        {
+            if (_propRootsReady) return;
+            // Frame643 admits about 51 terrain sources per eye. The independent
+            // guard scans every registered visual at every source ancestor. Read
+            // exact current roots once instead and fold their membership into the
+            // existing native-scope ancestry memo. Held visuals may be absent from
+            // the grabbable registry, including a remote visitor's current hold.
+            PropGrab.CopyVisualRoots(_propVisuals);
+            NetHeldProps.CopyVisualRoots(_propVisuals);
+            for (int slot = 0; slot < HeldProps.Count; slot++)
+                if (HeldProps.TryGetSlot(slot, out _, out GameObject visual, out _, out _)) _propVisuals.Add(visual);
+            foreach (GameObject visual in _propVisuals)
+                if (visual != null) _propRoots.Add(visual.transform);
+            _propVisuals.Clear(); _propRootsReady = true;
+        }
         private readonly List<Surface> _priority = new();
         private bool _priorityDirty;
         private readonly Plane[] _cameraPlanes = new Plane[6], _leftPlanes = new Plane[6], _rightPlanes = new Plane[6];
