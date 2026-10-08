@@ -1,5 +1,42 @@
 # State — where the project stands
 
+**Build645 NPC motion repair, 2026-10-08: 1.1.0 development candidate.**
+
+The paired Build643 report and supplied enhancement-list video reproduce two
+separate observer defects. A caption refresh followed by child-only hover
+exposed an unintended root-anchor recentering, moving native rows vertically
+through their neighbours. Binding now keeps the original parented root layout
+and separately authored pose; detached roots retain their existing pinning.
+
+The native ring had conflicting sampled and final offered-frame rotation
+writers. It now rotates the original graphics on the original serialized rate
+and Unity scaled clock after native frame fitting. Authored timing survives
+actual template neutralization through both Warm and Resolve. Native callbacks
+remain inert. Exact matrix fitting also repairs the independently found native
+ring-size errors. No property codec, wire grammar, admission or flight change.
+
+The maintainer explicitly permits different intrinsic ring-spin and offered
+merchant/enchantress bob phases, with unchanged native direction, waveform,
+amplitude and speed. Facing, content, overlays, UI, size and actual flights keep
+their existing parity contract. Both exceptions are recorded in AGENTS.md;
+this patch does not rewrite bob or flights.
+
+Integrated native ring cases pass 3823/3833/3823/708 assertions; native hover
+passes116228 and its exact old-source overlap control fails as intended.
+Independent worker causal controls, strict original-sprite size endpoints and
+failed hypotheses are retained. Source16, strict Debug/Release0 warnings/errors
+and docs5 EN/DE pairs pass. Compiled scope retains1237 types: three intended
+runtime types, eight numeric build consumers and the generated branch differ.
+The completed644 exact-source full-scope evidence is inherited for unchanged
+areas; this bounded645 repair is not a new complete172-suite run or headset pass.
+
+Retains the integrated644 Frame CPU/config policy and NPC639/crossplay641 fixes.
+Evidence and limits: [NPC-645-REVIEW.md](NPC-645-REVIEW.md),
+[NPC-645-RING.md](NPC-645-RING.md), and the independent
+[NPC-645-PROOF-AUDIT.md](NPC-645-PROOF-AUDIT.md). Both VR peers install645.
+
+---
+
 **Build644 Frame steady-render follow-up, 2026-10-08: 1.1.0 development candidate.**
 
 The supplied643 banners match29d4b6dd8. Fully loaded five-room windows still

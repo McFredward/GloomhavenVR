@@ -111,3 +111,13 @@ latency guarantee or new headset acceptance. Existing first-picture639 and
 Frame/crossplay evidence remains applicable to unchanged admission/assets/
 transport areas. The next hardware run checks the actual ring and enhancement
 list appearance; both VR peers must install Build645.
+
+The private candidate is rebased onto the actually published644 commit
+`3e96cd6dc4f57ecf88eb5fdcb67b848e636c823e`, rather than merging an unfinished
+Frame worker into dev. Its final changes from the checked `aabab0f72` baseline
+are build comments and developer documentation; the tested NPC bodies and all
+Frame algorithms are unchanged. Build644's 170-suite invocation had167 initial
+passes and three failures, followed by exact-source affected repetitions with
+all170 IDs covered. Those partial continuations are inherited honestly, not
+relabelled as a single green full run. The catalog now has172 local suites,
+including the two focused native645 proofs.
