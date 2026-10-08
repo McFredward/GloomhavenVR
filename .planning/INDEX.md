@@ -14,6 +14,7 @@ status; it is not the player manual.
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [QUEST-BUILD-REUSE-20261008.md](QUEST-BUILD-REUSE-20261008.md) | Original-source/output roles, retained14-phase staging and preparation, persistent change-time witnesses and bounded speed evidence |
 | [QUEST-BUILD-NATIVE-BYTES-20261008.md](QUEST-BUILD-NATIVE-BYTES-20261008.md) | Exact Windows native overlays, retained642 staging, measured native progress and dev643 Builder |
 | [FRAME-643-NATIVE-PRESENTATION.md](FRAME-643-NATIVE-PRESENTATION.md) | Paired642 native fade/menu/resolution causes, loaded timing and inherited proof limits |
 | [../docs/performance/FRAME-643-INTEGRATION.md](../docs/performance/FRAME-643-INTEGRATION.md) | Exact-source integration, retained NPC/crossplay/CPU repairs and current validation scope |

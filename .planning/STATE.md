@@ -1,5 +1,36 @@
 # State — where the project stands
 
+**Quest Windows retained-data retry, 2026-10-08 (Builder only).**
+
+Capture `quest-build-support-20261008T142900Z-fa677485.zip` identifies published
+6cfd7cfb5 / ModBuild643. All14 derived staging phases now finish. Four preparation
+steps complete, including the191486-file project copy and startup movies; the
+3369-Sprite producer then fails its consumer's invented original-PC-bundle output
+contract. Source-container provenance is now validated separately from produced
+asset paths; actual output/movie contracts remain required.
+
+Owned journals, stage receipts, copies and retained snapshots persist real byte
+proofs with file identity and change-time metadata. Legacy receipts read once;
+warm unchanged files need no repeated payload read. Source checks remain scoped.
+Exact whole-profile aliases retain the published recipe/raw binding. Full Builder
+AST and immutable input qualification preserve the four completed preparation
+steps across this compatible tool repair. Pending work retries at its boundary;
+real changed inputs still receive their own identity. Warm key migration transfers
+qualified old proofs; actual project regeneration drops old-root proof trust.
+
+Bounded Linux tests distinguish small-file metadata overhead from large-payload
+savings; Windows whole-build duration and headset success remain unverified.
+Current dev64329d4b6dd remains an ancestor and all1060 declared compiled-runtime
+inputs match the prior qualified composition. Publication requires focused
+continuation/error/release checks and actual extracted-ZIP preserved-session
+startup. Keep the existing work/state folders and continue the same session.
+The integrated affected gate passes318/318 cases in20 Builder/Wizard modules;
+the genuine original Sprite producer/consumer regression passes with zero warm
+payload reads and no producer replay. This is not a new complete local gate.
+See [retained-data diagnosis and proof limits](QUEST-BUILD-REUSE-20261008.md).
+
+---
+
 **Quest Windows native overlay retry with ModBuild643, 2026-10-08 (Builder only).**
 
 Capture `quest-build-support-20261008T075121Z-022bc617.zip` identifies Quest2fc28e31
