@@ -1,5 +1,6 @@
 """Audit native Texture2D import contracts by exact original object identity."""
 from collections import Counter,defaultdict
+from dataclasses import dataclass
 import gc
 import hashlib
 import json
@@ -8,6 +9,8 @@ import struct
 import sys
 
 from storage import BuildError,write_json, build_progress
+import asset_jobs
+import host_resources
 
 NORMAL_USAGE={3,4,10} # Pinned AssetRipper TextureUsageMode enum, read from actual PE metadata.
 IMAGE_SUFFIXES={'.png','.tga','.jpg','.jpeg'}
@@ -171,8 +174,19 @@ def native_pixels(original,fields,game_data,container):
         return pixels
 
 
-def restore_float_textures(project,game_data,source_audit,*,dotnet,tool_cache,cab_bundles):
-    """Apply an identity-witnessed audit to a generated copy, never to owned inputs."""
+@dataclass
+class _TextureJob:
+    row: dict
+    fields: dict
+    before: str
+    original_image_sha: str
+    direct_pixels: bytes | None
+    codec: object
+    memory_bytes: int
+
+
+def restore_float_textures(project,game_data,source_audit,*,dotnet,tool_cache,cab_bundles,jobs=None):
+    """Run independent BC6H codecs, retaining single-author native publication."""
     recovery=Path(__file__).resolve().parents[1]/'quest-recovery'
     if str(recovery) not in sys.path:sys.path.append(str(recovery))
     from pointer_recovery import load_native
@@ -183,38 +197,62 @@ def restore_float_textures(project,game_data,source_audit,*,dotnet,tool_cache,ca
     if source_audit['schema']!=1 or source_audit['mismatchedTextureCount'] or source_audit['incompleteMipChainCount']:
         raise BuildError('Native ordinary Texture2D contracts require repair before float recovery.')
     selected=[row for row in source_audit['assets'] if row['nativeFloatOrHdr']]
-    if len(selected)!=source_audit['floatOrHdrTextureCount']:
-        raise BuildError('Native float Texture2D inventory is incomplete.')
+    if len(selected)!=source_audit['floatOrHdrTextureCount'] or len({row['assetPath'] for row in selected})!=len(selected):
+        raise BuildError('Native float Texture2D inventory is incomplete or repeated.')
     groups=defaultdict(list)
     for row in selected:groups[row['sourceContainer']].append(row)
     counter = build_progress.Counter('prepare-items:native-texture2d', len(selected), "items")
     try:
         command=portable_decoder.build(tool_cache,dotnet)
-        temporary=Path(tool_cache)/'original-texture2d-payloads';temporary.mkdir(exist_ok=True)
+        policy=host_resources.phase_budget('asset-codec',tool_cache)
+        workers=min(policy['jobs'],host_resources.parse_jobs(jobs) or policy['jobs'])
         containers={row['path']:row['sha256'] for row in source_audit['sourceContainers']}
         assets,path_map=[],{}
-        for container,rows in sorted(groups.items()):
-            if sha256(game_data/container)!=containers[container]:raise BuildError('Original audited Texture2D container changed.')
-            env=load_native(UnityPy,game_data/container)
-            native_objects={(obj.assets_file.name.casefold(),int(obj.path_id)):obj for obj in env.objects}
-            for row in rows:
+        # Native readers use mutable resource positions. They stay in this
+        # parent closure; only independent closed payloads reach codec threads.
+        native_objects={};current_container=None;environment=None
+        with asset_jobs.CodecCache(tool_cache,asset_jobs.codec_fingerprint(command)) as cache:
+            def prepare(row):
+                nonlocal native_objects,current_container,environment
+                container=row['sourceContainer']
+                if container!=current_container:
+                    native_objects.clear();environment=None;gc.collect()
+                    if sha256(game_data/container)!=containers[container]:raise BuildError('Original audited Texture2D container changed.')
+                    environment=load_native(UnityPy,game_data/container)
+                    native_objects={(obj.assets_file.name.casefold(),int(obj.path_id)):obj for obj in environment.objects}
+                    current_container=container
                 original=native_objects.get((row['originalCollection'],row['originalPathId']))
                 if original is None or hashlib.sha256(original.get_raw_data()).hexdigest()!=row['originalObjectSha256']:
                     raise BuildError('Original audited Texture2D identity changed.')
                 fields=original.read_typetree();path=project/row['assetPath'];meta=Path(str(path)+'.meta')
                 if sha256(meta)!=row['metaSha256'] or native_contract(fields)!=row['native']:
                     raise BuildError('Audited ordinary Texture2D source/importer contract changed.')
-                raw=native_pixels(original,fields,game_data,container);source_format=fields['m_TextureFormat']
-                if source_format==17:pixels=raw
-                elif source_format==24:
-                    input_path,output_path=temporary/(row['guid']+'.blocks'),temporary/(row['guid']+'.pixels')
-                    input_path.write_bytes(raw)
-                    portable_decoder.execute(command,('bc6h-2d',input_path,output_path,fields['m_Width'],fields['m_Height'],fields['m_MipCount']))
-                    pixels=output_path.read_bytes();input_path.unlink();output_path.unlink()
-                else:raise BuildError('Original floating Texture2D requires a witnessed decoder: '+str(source_format))
                 replacement=path.with_suffix('.texture2D')
                 if replacement.exists():raise BuildError('Portable floating Texture2D output already exists.')
-                before=sha256(path);replacement.write_text(native_yaml(fields,pixels,row['fileId']))
+                raw=native_pixels(original,fields,game_data,container);source_format=fields['m_TextureFormat']
+                expected=sum(half_mip_sizes(fields['m_Width'],fields['m_Height'],fields['m_MipCount']))
+                codec=None;direct=None
+                if source_format==17:direct=raw
+                elif source_format==24:
+                    codec=cache.prepare(row['guid'],raw,('bc6h-2d',fields['m_Width'],fields['m_Height'],fields['m_MipCount']),expected)
+                else:raise BuildError('Original floating Texture2D requires a witnessed decoder: '+str(source_format))
+                memory=codec.memory_bytes if codec else max(128*1048576,4*len(raw))
+                return _TextureJob(row,fields,sha256(path),hashlib.sha256(raw).hexdigest(),direct,codec,memory)
+
+            def execute(job,cancellation):
+                return job.direct_pixels if job.codec is None else cache.execute(job.codec,command,cancellation)
+
+            def publish(job,result):
+                row,fields=job.row,job.fields
+                if job.codec is None:pixels=result;stamp=None
+                else:stamp=cache.witnesses.current(result);pixels=result.read_bytes()
+                # The original layout/pixel guards run before accepting a cache
+                # output or writing anything to the generated Unity project.
+                text=native_yaml(fields,pixels,row['fileId'])
+                pixel_sha=hashlib.sha256(pixels).hexdigest()
+                if job.codec is not None:cache.accept(job.codec,pixel_sha,stamp)
+                path=project/row['assetPath'];meta=Path(str(path)+'.meta');replacement=path.with_suffix('.texture2D')
+                replacement.write_text(text)
                 Path(str(replacement)+'.meta').write_text('fileFormatVersion: 2\nguid: '+row['guid']+'\nNativeFormatImporter:\n  externalObjects: {}\n  mainObjectFileID: '+str(row['fileId'])+'\n  userData:\n  assetBundleName:\n  assetBundleVariant:\n')
                 path.unlink();meta.unlink();new_path=replacement.relative_to(project).as_posix();path_map[row['assetPath']]=new_path
                 cursor,mips=0,[]
@@ -222,19 +260,21 @@ def restore_float_textures(project,game_data,source_audit,*,dotnet,tool_cache,ca
                     data=pixels[cursor:cursor+size];cursor+=size
                     mips.append({'mip':mip,'size':size,'sha256':hashlib.sha256(data).hexdigest()})
                 assets.append({'assetPath':new_path,'originalRecoveredPath':row['assetPath'],'guid':row['guid'],'fileId':row['fileId'],
-                    'originalCollection':row['originalCollection'],'originalPathId':row['originalPathId'],'sourceContainer':container,
-                    'sourceContainerSha256':containers[container],'originalObjectSha256':row['originalObjectSha256'],
+                    'originalCollection':row['originalCollection'],'originalPathId':row['originalPathId'],'sourceContainer':row['sourceContainer'],
+                    'sourceContainerSha256':containers[row['sourceContainer']],'originalObjectSha256':row['originalObjectSha256'],
                     'originalStreamData':fields['m_StreamData'],
-                    'originalImageSha256':hashlib.sha256(raw).hexdigest(),'beforeSha256':before,'sha256':sha256(replacement),
-                    'sourceFormat':source_format,'textureFormat':17,'native':row['native'],
+                    'originalImageSha256':job.original_image_sha,'beforeSha256':job.before,'sha256':sha256(replacement),
+                    'sourceFormat':fields['m_TextureFormat'],'textureFormat':17,'native':row['native'],
                     'width':fields['m_Width'],'height':fields['m_Height'],'mipCount':fields['m_MipCount'],
-                    'isReadable':fields['m_IsReadable'],'pixelByteCount':len(pixels),'pixelSha256':hashlib.sha256(pixels).hexdigest(),
-                    'originalHalfBytesPreserved':source_format==17,'sourceMipChainPreserved':True,'mips':mips,
-                    'originalHalfValueWitness':half_range_witness(pixels) if source_format==17 else None})
-                counter.add(1, row['assetPath'])
-            native_objects.clear()
-            del original,env
-            gc.collect()
+                    'isReadable':fields['m_IsReadable'],'pixelByteCount':len(pixels),'pixelSha256':pixel_sha,
+                    'originalHalfBytesPreserved':fields['m_TextureFormat']==17,'sourceMipChainPreserved':True,'mips':mips,
+                    'originalHalfValueWitness':half_range_witness(pixels) if fields['m_TextureFormat']==17 else None})
+                counter.add(1,row['assetPath'])
+
+            ordered=[row for _,rows in sorted(groups.items()) for row in rows]
+            asset_jobs.ordered_pipeline(ordered,prepare,execute,publish,jobs=workers,byte_budget=policy['memoryBudgetBytes'])
+            print('asset-codecs: '+json.dumps({'phase':'native-texture2d','workers':workers,'items':len(selected),**cache.stats}),flush=True)
+        native_objects.clear();environment=None;gc.collect()
         receipt={'schema':1,'nativeTexture2DCount':len(assets),'originalHalfTextureCount':sum(row['sourceFormat']==17 for row in assets),
                  'originalBc6hTextureCount':sum(row['sourceFormat']==24 for row in assets),'assets':assets,'pathMap':path_map,
                  'updatedManifests':remap_manifests(project,path_map),'unityImportVerified':False,

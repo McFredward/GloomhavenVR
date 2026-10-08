@@ -35,7 +35,11 @@ RUN_ENV = "GHVRQ_RESOURCE_RUN_ID"
 PROFILES = {"il2cpp": (32 * GIB, 28 * GIB, 6 * GIB, 32),
             "unity": (3 * GIB, 2 * GIB, 4 * GIB, 16),
             "box64": (4 * GIB, 2 * GIB, 0, 32),
-            "opus": (2 * GIB, GIB, 0, 32)}
+            "opus": (2 * GIB, GIB, 0, 32),
+            # Managed image codecs are separate processes. Keep native bundle
+            # readers and the single parent YAML publisher outside their pool.
+            # Admission also checks each job's actual estimated payload memory.
+            "asset-codec": (2 * GIB, GIB, 6 * GIB, 16)}
 
 
 class ResourceError(ValueError):

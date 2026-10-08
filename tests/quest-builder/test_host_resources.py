@@ -102,6 +102,16 @@ class HostResources(unittest.TestCase):
         self.assertFalse(resources.choose_jobs(unknown, "box64")["memoryKnown"])
         self.assertEqual(resources.choose_jobs(host(128, 112, 2), "opus", 32)["jobs"], 2)
 
+    def test_independent_asset_codec_policy_scales_without_relaxing_native_peak(self):
+        medium=resources.choose_jobs(host(32,28,cores=32,commit=40),'asset-codec',32)
+        fast=resources.choose_jobs(host(128,112,cores=64,commit=160),'asset-codec',64)
+        self.assertGreater(medium['jobs'],1);self.assertEqual(fast['jobs'],16)
+        self.assertEqual(resources.PROFILES['il2cpp'][:2],(32*GIB,28*GIB))
+        self.assertEqual(medium['parentReserveBytes'],6*GIB)
+        unknown={**host(128,112),'availableMemoryBytes':None,'commitHeadroomBytes':None}
+        self.assertEqual(resources.choose_jobs(unknown,'asset-codec',64)['jobs'],1)
+        self.assertEqual(resources.choose_jobs(host(128,112,cores=2),'asset-codec',64)['jobs'],2)
+
     def test_native_profiles_differ_and_shared_override_is_validated(self):
         os.environ[resources.JOBS_ENV] = "9"
         self.assertEqual(resources.choose_jobs(host(128, 112), "opus")["jobs"], 9)

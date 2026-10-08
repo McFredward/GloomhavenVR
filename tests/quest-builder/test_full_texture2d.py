@@ -8,6 +8,8 @@ import os
 import struct
 import sys
 import tempfile
+import threading
+import time
 import types
 import unittest
 from unittest import mock
@@ -34,6 +36,71 @@ def importer(texture_type=0):
 
 
 class OrdinaryTextureTests(unittest.TestCase):
+    def bc6h_fixture(self,workers,*,broken_output=False):
+        import portable_decoder,pointer_recovery
+        temporary=tempfile.TemporaryDirectory();self.addCleanup(temporary.cleanup)
+        root=Path(temporary.name);project=root/'project';game=root/'game';cache=root/'cache'
+        (project/'Assets').mkdir(parents=True);game.mkdir();cache.mkdir()
+        container=game/'textures.bundle';container.write_bytes(b'original audited container')
+        source_sha=hashlib.sha256(container.read_bytes()).hexdigest();rows=[];objects=[]
+        parent=threading.get_ident();reads=[];active,peak=0,0;lock=threading.Lock()
+        for index in range(6):
+            path=project/f'Assets/HDR{index}.png';path.write_bytes(b'original exported PNG'+bytes([index]))
+            meta=Path(str(path)+'.meta');meta.write_bytes(b'original importer'+bytes([index]))
+            fields={**native(),'m_Name':f'HDR{index}','m_TextureFormat':24,'m_StreamData':{'path':'','offset':0,'size':0}}
+            original_bytes=b'exact native object'+bytes([index]);raw=bytes([index])*16
+            def tree(fields=fields):
+                self.assertEqual(threading.get_ident(),parent);reads.append(threading.get_ident());return fields
+            def pixels(raw=raw):
+                self.assertEqual(threading.get_ident(),parent);return types.SimpleNamespace(get_image_data=lambda:raw)
+            objects.append(types.SimpleNamespace(assets_file=types.SimpleNamespace(name='cab-textures'),path_id=index+1,
+                read_typetree=tree,get_raw_data=lambda raw=original_bytes:raw,read=pixels))
+            rows.append({'assetPath':path.relative_to(project).as_posix(),'guid':f'{index+1:032x}','fileId':2800000,
+                'sourceContainer':'textures.bundle','originalCollection':'cab-textures','originalPathId':index+1,
+                'originalObjectSha256':hashlib.sha256(original_bytes).hexdigest(),'metaSha256':hashlib.sha256(meta.read_bytes()).hexdigest(),
+                'native':full_texture2d.native_contract(fields),'nativeFloatOrHdr':True})
+        audit={'schema':1,'mismatchedTextureCount':0,'incompleteMipChainCount':0,'floatOrHdrTextureCount':len(rows),
+               'sourceContainers':[{'path':'textures.bundle','sha256':source_sha}],'assets':rows}
+        environment=types.SimpleNamespace(objects=objects)
+        def decode(command,args,cancellation):
+            nonlocal active,peak
+            index=Path(args[1]).read_bytes()[0]
+            with lock:active+=1;peak=max(peak,active)
+            time.sleep(.04 if index%2==0 else .01);cancellation.check()
+            pixels=struct.pack('<48e',*([float(index),-.125,1.5,1.0]*12))
+            Path(args[2]).write_bytes(pixels[:-1] if broken_output else pixels)
+            with lock:active-=1
+        original_write=Path.write_text
+        def write(path,*args,**kwargs):
+            if project in path.parents:self.assertEqual(threading.get_ident(),parent)
+            return original_write(path,*args,**kwargs)
+        policy={'jobs':workers,'memoryBudgetBytes':workers*1024**3}
+        with contextlib.redirect_stdout(io.StringIO()),mock.patch.object(pointer_recovery,'load_native',return_value=environment), \
+             mock.patch.object(portable_decoder,'build',return_value=['fixture-codec']), \
+             mock.patch.object(full_texture2d.host_resources,'phase_budget',return_value=policy), \
+             mock.patch.object(full_texture2d.asset_jobs,'run_command',side_effect=decode), \
+             mock.patch.object(Path,'write_text',write), \
+             mock.patch('full_textures.restore_native_texture_pointer_types',return_value={'fixture':True}):
+            if broken_output:
+                with self.assertRaisesRegex(BuildError,'retain all native pixels'):
+                    full_texture2d.restore_float_textures(project,game,audit,dotnet='unused',tool_cache=cache,cab_bundles={},jobs=workers)
+                self.assertFalse((project/'Assets/QuestOriginalCampaign/native-texture2d.json').exists())
+                self.assertFalse(any(cache.rglob('accepted.json')))
+                self.assertTrue(all((project/row['assetPath']).exists() for row in rows))
+                return None
+            report=full_texture2d.restore_float_textures(project,game,audit,dotnet='unused',tool_cache=cache,cab_bundles={},jobs=workers)
+        self.assertEqual(len(reads),len(rows));self.assertEqual(hashlib.sha256(container.read_bytes()).hexdigest(),source_sha)
+        generated={str(path.relative_to(project)):path.read_bytes() for path in project.rglob('*') if path.is_file()}
+        self.assertEqual([row['originalPathId'] for row in report['assets']],list(range(1,7)))
+        return report,generated,peak
+
+    def test_parallel_bc6h_preserves_serial_bytes_receipts_and_parent_reader_writes(self):
+        serial=self.bc6h_fixture(1);parallel=self.bc6h_fixture(3)
+        self.assertEqual(serial[:2],parallel[:2]);self.assertEqual(serial[2],1);self.assertEqual(parallel[2],3)
+
+    def test_bad_parallel_pixels_never_acquire_cache_or_project_completion(self):
+        self.bc6h_fixture(3,broken_output=True)
+
     def staged_textures(self, *, broken_audit=False, broken_pixels=False, receipt_failure=False):
         import portable_decoder,pointer_recovery,yaml
         temporary=tempfile.TemporaryDirectory();self.addCleanup(temporary.cleanup)
