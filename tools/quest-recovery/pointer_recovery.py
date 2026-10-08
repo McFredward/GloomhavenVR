@@ -19,10 +19,37 @@ import struct
 import shutil
 
 from export_identity import object_index
-from recover import RecoveryError, sha256, write_json
+from recover import RecoveryError, sha256, write_json, build_progress
 
 MISSING_GUID = "0000000deadbeef15deadf00d0000000"
-DOCUMENT = re.compile(r"^--- !u!(\d+) &(-?\d+)\s*$", re.M)
+# Unity's Windows exports retain CRLF; a header match must never consume its
+# line ending, or YAML node offsets no longer point into the original bytes.
+DOCUMENT = re.compile(r"^--- !u!(\d+) &(-?\d+)(?:[ \t]+stripped)?[ \t]*(?=\r?$)", re.M)
+
+
+def _read_unity_yaml(text, reader):
+    """Remove Unity directives/tags without moving any original text offset."""
+    import yaml
+    clean = re.sub(r"^%[^\r\n]*", lambda match: " " * len(match[0]), text, flags=re.M)
+    clean = DOCUMENT.sub(lambda match: "---" + " " * (len(match[0]) - 3), clean)
+    loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+    try:
+        return reader(clean, Loader=loader)
+    except yaml.scanner.ScannerError as error:
+        # Original null managed-reference registries contain a compact empty
+        # type map accepted by SafeLoader but rejected by libyaml. Admit only
+        # that witnessed syntax; malformed unrelated documents still fail.
+        empty_types = list(re.finditer(r"(?m)^[ \t]+type:[ \t]*(\{class:, ns:, asm:\})[ \t]*(?=\r?$)", clean))
+        index = error.problem_mark.index if error.problem_mark is not None else -1
+        if (loader is yaml.SafeLoader or error.problem != "found unexpected ':'" or
+                not any(match.start(1) <= index < match.end(1) for match in empty_types)):
+            raise
+        return reader(clean, Loader=yaml.SafeLoader)
+
+
+def compose_unity_yaml(text):
+    import yaml
+    return _read_unity_yaml(text, yaml.compose)
 
 
 def native_pointers(value, path=()):
@@ -50,8 +77,6 @@ def native_pointers(value, path=()):
 
 def yaml_missing(text):
     """Return exact owner/localID/field coordinates without reserializing YAML."""
-    import yaml
-    loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
     from yaml.nodes import MappingNode, ScalarNode, SequenceNode
     headers = list(DOCUMENT.finditer(text))
     for index, header in enumerate(headers):
@@ -59,8 +84,7 @@ def yaml_missing(text):
         block = text[header.start():end]
         if MISSING_GUID not in block:
             continue
-        clean = "---" + " " * (header.end() - header.start() - 3) + block[header.end() - header.start():]
-        node = yaml.compose(clean, Loader=loader)
+        node = compose_unity_yaml(block)
         if not isinstance(node, MappingNode) or len(node.value) != 1:
             raise RecoveryError("Original Unity YAML document lost its native class mapping.")
         def walk(current, path=()):
@@ -117,13 +141,11 @@ def native_recipe_fields(recipe, original):
     path = Path(recipe["yamlPath"])
     if recipe["classId"] != original.type.value or sha256(path) != recipe["yamlSha256"]:
         raise RecoveryError("Original native managed field recipe is not its captured type/hash.")
-    text = path.read_text()
+    text = path.read_bytes().decode("utf-8")
     headers = list(DOCUMENT.finditer(text))
     if len(headers) != 1 or int(headers[0][1]) != original.type.value:
         raise RecoveryError("Native field recipe lacks its unique original object type.")
-    clean = re.sub(r"^%[^\n]*\n", "", text, flags=re.M)
-    clean = DOCUMENT.sub("---", clean)
-    fields = yaml.load(clean, Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader))
+    fields = _read_unity_yaml(text, yaml.load)
     if not isinstance(fields, dict) or len(fields) != 1:
         raise RecoveryError("Native managed field recipe lost its native root.")
     pointers = dict(native_pointers(next(iter(fields.values()))))
@@ -175,9 +197,13 @@ def prepare(project, game_data, identities, cab_bundles, output, *, unitypy=None
             raise RecoveryError("Requested native pointer subset has no source missing-reference evidence.")
         bad_paths = [path for path in bad_paths if path in requested]
     groups = collections.defaultdict(lambda: collections.defaultdict(list))
-    texts, expected = {}, 0
+    texts, source_hashes, expected = {}, {}, 0
     for relative in sorted(bad_paths):
-        text = (project / relative).read_text()
+        # The Windows 075121 failure was a real-byte hash checked against
+        # newline-normalized read_text(). Decode exact UTF-8 bytes and splice
+        # only PPtr tokens; locale/newline translation must not alter originals.
+        before_bytes = (project / relative).read_bytes()
+        text = before_bytes.decode("utf-8")
         pointers = list(yaml_missing(text))
         if len(pointers) != text.count(MISSING_GUID):
             raise RecoveryError("Original missing-pointer field parser lost a reference: " + relative)
@@ -188,12 +214,14 @@ def prepare(project, game_data, identities, cab_bundles, output, *, unitypy=None
             container = owners.get(obj["collection"], obj["collection"])
             groups[container][(obj["collection"], obj["pathId"])].append({**pointer, "path": relative})
         texts[relative] = text
+        source_hashes[relative] = hashlib.sha256(before_bytes).hexdigest()
         expected += len(pointers)
     output.mkdir(parents=True)
     replacements, proofs, errors = collections.defaultdict(list), [], []
     selected = sorted(groups)
     if limit is not None:
         selected = selected[:limit]
+    counter = build_progress.Counter("recovery-pointer-containers", len(selected), "containers", "Original native pointer sources")
     for container_index, relative_container in enumerate(selected):
         wanted = groups[relative_container]
         source = game_data / relative_container
@@ -243,7 +271,7 @@ def prepare(project, game_data, identities, cab_bundles, output, *, unitypy=None
                             yaml_path = Path(recipe["yamlPath"])
                             if sha256(yaml_path) != recipe["yamlSha256"]:
                                 raise RecoveryError("Pinned exporter native atlas YAML changed.")
-                            target = atlas_target(project, target_original, yaml_path.read_text(), objects, output)
+                            target = atlas_target(project, target_original, yaml_path.read_bytes().decode("utf-8"), objects, output)
                         if target is not None:
                             objects[target_key] = target
                             additional_targets.append(target)
@@ -277,9 +305,11 @@ def prepare(project, game_data, identities, cab_bundles, output, *, unitypy=None
         write_json(output / "progress.json", {"schema": 1, "containersComplete": container_index + 1,
                    "containerCount": len(selected), "restoredPointerCount": len(proofs), "blockedOwnerCount": len(errors),
                    "blockedReasons": dict(collections.Counter(item["error"] for item in errors))})
+        counter.add(1, relative_container)
         del environment
         if container_index % 20 == 0:
             gc.collect()
+    counter.finish()
     files = []
     for relative, changes in sorted(replacements.items()):
         before = texts[relative]
@@ -292,8 +322,8 @@ def prepare(project, game_data, identities, cab_bundles, output, *, unitypy=None
             previous_start = start
         target = output / "Overlay" / relative
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(after)
-        files.append({"path": relative, "beforeSha256": hashlib.sha256(before.encode()).hexdigest(),
+        target.write_bytes(after.encode("utf-8"))
+        files.append({"path": relative, "beforeSha256": source_hashes[relative],
                       "sha256": sha256(target), "pointerCount": len(changes), "remainingMissingPointers": after.count(MISSING_GUID)})
     receipt = {"schema": 1, "proof": "exact-original-native-owner-CAB-pathID-field-and-target-CAB-pathID",
                "scope": "all-original-missing-native-pointers" if only_paths is None else "selected-original-native-pointer-assets",

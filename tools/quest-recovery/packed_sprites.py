@@ -54,11 +54,9 @@ def vertex_bytes(vertex, row, width, height):
 
 
 def field_edits(text, values):
-    import yaml
+    from pointer_recovery import compose_unity_yaml
     from yaml.nodes import MappingNode
-    clean = re.sub(r"^%[^\n]*\n", lambda match: " " * (len(match[0]) - 1) + "\n", text, flags=re.M)
-    clean = re.sub(r"^--- !u!\d+ &-?\d+", lambda match: "---" + " " * (len(match[0]) - 3), clean, flags=re.M)
-    node = yaml.compose(clean, Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader))
+    node = compose_unity_yaml(text)
     if not isinstance(node, MappingNode) or len(node.value) != 1:
         raise RecoveryError("Packed Sprite lost its unique original YAML object.")
     nodes = {}
@@ -73,8 +71,14 @@ def field_edits(text, values):
         if path not in nodes:
             raise RecoveryError("Original packed Sprite field absent: " + repr(path))
         item = nodes[path]
+        # Keep the exact input outside changed native fields, including mixed
+        # line endings and Unicode. New block values inherit that field's EOL.
+        ending = re.search(r"\r\n|\r|\n", text[item.start_mark.index:item.end_mark.index])
+        ending = ending or re.search(r"\r\n|\r|\n", text)
+        newline = ending[0] if ending else "\n"
+        value = value.replace("\r\n", "\n").replace("\r", "\n").replace("\n", newline)
         if isinstance(item, MappingNode) and not item.flow_style:
-            value += "\n" + " " * item.end_mark.column
+            value += newline + " " * item.end_mark.column
         edits.append((item.start_mark.index, item.end_mark.index, value))
     previous = len(text) + 1
     for start, end, value in sorted(edits, reverse=True):
@@ -142,15 +146,18 @@ def restore(project, game_data, atlas, atlas_identity, objects, owners, output, 
         for name in ("settingsRaw", "downscaleMultiplier"):
             changes[("m_RD", name)] = str(row[name])
         changes[("m_RD", "m_VertexData", "_typelessdata")] = data.hex()
-        before = (project / target["path"]).read_text()
+        # Hash the original serialized bytes, rather than a newline-normalized
+        # string. Windows CRLF and UTF-8 names must survive native field repair.
+        before_bytes = (project / target["path"]).read_bytes()
+        before = before_bytes.decode("utf-8")
         after = field_edits(before, changes)
         path = output / "Overlay" / target["path"]
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(after)
+        path.write_bytes(after.encode("utf-8"))
         entry = {"collection": key[0], "pathId": key[1], "memberIndex": member_index,
                  "assetPath": target["path"], "guid": target["guid"], "fileId": target["fileId"],
                  "nativeRenderKey": list(render_key), "originalObjectBytesSha256": hashlib.sha256(native.get_raw_data()).hexdigest(),
-                 "beforeSha256": hashlib.sha256(before.encode()).hexdigest(), "sha256": sha256(path),
+                 "beforeSha256": hashlib.sha256(before_bytes).hexdigest(), "sha256": sha256(path),
                  "rect": sprite["m_Rect"], "pivot": sprite["m_Pivot"], "pixelsPerUnit": sprite["m_PixelsToUnits"],
                  "vertices": vertices, "uv": uv, "textureGuid": texture["guid"],
                  "textureWidth": texture_fields["m_Width"], "textureHeight": texture_fields["m_Height"],
