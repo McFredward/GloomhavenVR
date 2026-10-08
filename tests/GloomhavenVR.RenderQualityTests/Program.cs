@@ -29,7 +29,10 @@ internal static class Program
         XRSettings.ProviderInitialized=true;
         var display=new XRDisplaySubsystem { RejectStartupAllocation=rejectStartup }; SubsystemManager.Displays.Add(display);
         RenderQuality.PrepareSession(); // selection after Initialize must recognize a fresh stopped display
-        RenderQuality.PrepareDisplays(); display.running=true; XRSettings.Live=true; VRSession.IsRunning=true;
+        RenderQuality.PrepareDisplays();
+        Near(display.scaleOfAllViewports, Math.Clamp(saved / display.scaleOfAllRenderTargets, .01f, 1),
+            "startup viewport respects actual accepted provider capacity");
+        display.running=true; XRSettings.Live=true; VRSession.IsRunning=true;
         return display;
     }
     private static void Main()
@@ -133,8 +136,9 @@ internal static class Program
         Check(XRSettings.LiveAllocationWrites==0,"refused native reset repair retains session allocation");
 
         // Frame638's provider accepts each write immediately, then forgets it before
-        // the following Update. Model that delayed reset independently of setter refusal.
-        display=Start(.8f); writes=XRSettings.ViewportWrites;
+        // the following Update. Preserve that live-viewport test when a provider rejects
+        // the smaller startup allocation and reports its actual native capacity.
+        display=Start(.8f, rejectStartup:true); writes=XRSettings.ViewportWrites;
         for(int i=0;i<400;i++) ResetViewportTick(.5f+i*.02f);
         Check(XRSettings.ViewportWrites==writes+3,
             "persistent delayed viewport reset stops after three spaced repairs");
@@ -154,7 +158,7 @@ internal static class Program
 
         // Native scene changes may legitimately reset a previously stable viewport.
         // Stability between bursts must replenish the budget without a config edit.
-        display=Start(.8f);
+        display=Start(.8f, rejectStartup:true);
         ResetViewportTick(.5f); ResetViewportTick(1.51f); ResetViewportTick(2.52f);
         FrameTick(3.53f); Near(XRSettings.renderViewportScale,.8f,"repaired viewport persists beyond repair interval");
         writes=XRSettings.ViewportWrites;
@@ -162,7 +166,7 @@ internal static class Program
         Check(XRSettings.ViewportWrites==writes+3,"stable viewport replenishes the later native reset budget");
         ResetViewportTick(7.63f);
         Check(XRSettings.ViewportWrites==writes+3,"second continuous reset burst remains bounded after stability");
-        display=Start(.8f); writes=XRSettings.ViewportWrites; ResetViewportTick(.5f);
+        display=Start(.8f, rejectStartup:true); writes=XRSettings.ViewportWrites; ResetViewportTick(.5f);
         Check(XRSettings.ViewportWrites==writes+1,"new session clears a previous persistent reset stop");
 
         display=Start(1); RenderQuality.EyeResolutionScale!.Value=.8f; Tick(.1f); Tick(.5f);
@@ -178,10 +182,11 @@ internal static class Program
         Check(XRSettings.ViewportWrites==writes,"stopped session tick never writes XR render state");
         display.running=false; XRSettings.Live=false; SubsystemManager.Displays.Clear(); RenderQuality.EndSession();
         RenderQuality.EyeResolutionScale.Value=.8f; RenderQuality.PrepareSession();
-        Near(XRSettings.eyeTextureResolutionScale,1,"new reduced session reserves native restoration capacity");
+        Near(XRSettings.eyeTextureResolutionScale,1,"new session selection leaves existing resources untouched before display setup");
         display=new XRDisplaySubsystem(); SubsystemManager.Displays.Add(display); RenderQuality.PrepareDisplays();
-        Near(XRSettings.renderViewportScale,.8f,"saved reduction starts reduced without live allocation change");
-        Near(display.scaleOfAllViewports,.8f,"saved reduction reaches stopped provider before first start");
+        Near(display.scaleOfAllRenderTargets,.8f,"saved reduction allocates smaller stopped eye targets");
+        Near(XRSettings.renderViewportScale,1,"saved reduction starts with whole reduced allocation");
+        Near(display.scaleOfAllViewports,1,"saved reduction uses full stopped provider viewport before first start");
         Check(display.AllocationWrites==1 && display.ViewportWrites==1 && !display.running,
             "fresh initialized stopped display receives startup quality exactly once");
         Check(XRSettings.LiveAllocationWrites==0,"complete lifecycle has no live allocation setter");
@@ -192,11 +197,30 @@ internal static class Program
         RenderQuality.EyeResolutionScale!.Value=.8f; Tick(.1f); Tick(.5f);
         Near(XRSettings.renderViewportScale,.8f,"refused startup allocation uses actual accepted capacity for later viewport");
         Check(XRSettings.LiveAllocationWrites==0,"startup refusal never schedules live allocation fallback");
-        display=Start(.8f); XRSettings.renderViewportScale=1; Camera.current=new();
+        display=Start(.8f, rejectStartup:true); XRSettings.renderViewportScale=1; Camera.current=new();
         Tick(.5f); Near(XRSettings.renderViewportScale,1,"unmarked camera call cannot repair a startup viewport reset");
         FrameTick(.51f); Near(XRSettings.renderViewportScale,.8f,"accepted startup viewport reset is repaired by known Update");
         Check(XRSettings.LiveAllocationWrites==0 && display.AllocationWrites==1,
             "startup viewport reset repair retains the original session allocation");
+        // Frame642 loses reduced viewports after a delayed provider reset. A cold
+        // reduced allocation with a full viewport keeps the requested scale even
+        // when the provider writes its default viewport, without retrying resources.
+        var reduced=Start(.8f);
+        Near(reduced.scaleOfAllRenderTargets,.8f,"saved reduction selects smaller stopped display capacity");
+        Near(XRSettings.eyeTextureResolutionScale,.8f,"saved reduction reaches the modeled native allocation");
+        Near(XRSettings.renderViewportScale,1,"reduced startup uses whole smaller target");
+        int reducedWrites=XRSettings.ViewportWrites;
+        for(int i=0;i<400;i++) ResetViewportTick(.5f+i*.02f);
+        Check(XRSettings.ViewportWrites==reducedWrites && reduced.AllocationWrites==1
+            && XRSettings.LiveAllocationWrites==0,"provider full-viewport resets retain reduced startup without resource retries");
+        Check(!VRLog.Lines.Any(x=>x.StartsWith("Eye viewport request did not persist:")),
+            "full viewport on reduced startup does not exhaust a repair burst");
+        RenderQuality.EyeResolutionScale!.Value=1; FrameTick(9); FrameTick(9.36f);
+        Near(XRSettings.eyeTextureResolutionScale,.8f,"increase beyond reduced startup never recreates live allocation");
+        Near(XRSettings.renderViewportScale,1,"increase beyond reduced startup is capped at current capacity");
+        Near(RenderQuality.EyeResolutionScale.Value,1,"increase beyond reduced startup remains saved for restart");
+        Check(VRLog.Lines.Any(x=>x.Contains("above-capacity request saved for next VR restart")),
+            "reduced startup capacity limit is explicitly reported");
         Console.WriteLine($"RenderQuality production lifecycle: {_assertions} assertions passed.");
     }
 }

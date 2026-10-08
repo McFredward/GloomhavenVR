@@ -98,6 +98,7 @@ production = execute('production')
 if production.returncode: raise SystemExit(production.stdout+production.stderr)
 print(production.stdout.strip())
 mutations = [
+ ('reduced-startup-capacity-lost','_sessionAllocationScale = wanted;','_sessionAllocationScale = Mathf.Max(1f, wanted);','saved reduction allocates smaller stopped eye targets'),
  ('native-reset-repair-omitted','if (!_viewportScaleAccepted || Time.unscaledTime < _nextViewportRepairTime','if (true || Time.unscaledTime < _nextViewportRepairTime','unchanged accepted viewport is restored after native reset'),
  ('native-reset-no-spacing','Time.unscaledTime < _nextViewportRepairTime','false','repeated native viewport resets have bounded repair spacing'),
  ('native-reset-refusal-retried','_viewportScaleAccepted = ApplyViewportScale(viewport, "restoring a previously accepted viewport after native reset");','ApplyViewportScale(viewport, "restoring a previously accepted viewport after native reset");','refused native reset repair disarms automatic retries'),
@@ -116,10 +117,10 @@ mutations = [
  ('provider-realloc-fallback','bool stuck = Mathf.Abs(XRSettings.renderViewportScale - wanted) < 0.005f;','bool stuck = Mathf.Abs(XRSettings.renderViewportScale - wanted) < 0.005f;\n        if (!stuck) XRSettings.eyeTextureResolutionScale = wanted;','provider refusal never uses hazardous allocation fallback'),
  ('hot-reload-allocation','float allocation = XRSettings.eyeTextureResolutionScale;','float allocation = XRSettings.eyeTextureResolutionScale;\n        XRSettings.eyeTextureResolutionScale = allocation;','hot reload adopts live allocation without setter'),
  ('startup-refusal-aborts', 'catch (System.Exception e) when (e is System.ArgumentException\n            || e is System.InvalidOperationException)', 'catch (System.Exception e) when (e is System.ArgumentException)', 'startup display allocation rejected'),
- ('early-legacy-allocation', '_sessionAllocationScale = Mathf.Max(1f, wanted);', '_sessionAllocationScale = Mathf.Max(1f, wanted);\n        TryStartupSetting(() => XRSettings.eyeTextureResolutionScale = _sessionAllocationScale, "legacy eye allocation");', 'quality selection never touches native resources before provider initialization'),
+ ('early-legacy-allocation', '_sessionAllocationScale = wanted;', '_sessionAllocationScale = wanted;\n        TryStartupSetting(() => XRSettings.eyeTextureResolutionScale = _sessionAllocationScale, "legacy eye allocation");', 'quality selection never touches native resources before provider initialization'),
  ('early-legacy-viewport', '_viewportScaleApplied = Mathf.Clamp(wanted / _sessionAllocationScale, 0.01f, 1f);\n        _lastLoggedEyeScale = wanted;', '_viewportScaleApplied = Mathf.Clamp(wanted / _sessionAllocationScale, 0.01f, 1f);\n        TryStartupSetting(() => XRSettings.renderViewportScale = _viewportScaleApplied, "legacy eye viewport");\n        _lastLoggedEyeScale = wanted;', 'quality selection never touches native resources before provider initialization'),
  ('early-native-msaa', '_pendingMsaa = _committedMsaa;', '_pendingMsaa = _committedMsaa;\n        QualitySettings.antiAliasing = _committedMsaa;', 'native render resource touched before provider initialization'),
- ('startup-capacity-readback-ignored', 'if (ValidScale(acceptedAllocation)) _sessionAllocationScale = acceptedAllocation;', 'if (ValidScale(acceptedAllocation) && false) _sessionAllocationScale = acceptedAllocation;', 'refused startup allocation uses actual accepted capacity for later viewport'),
+ ('startup-capacity-readback-ignored', 'if (ValidScale(acceptedAllocation)) _sessionAllocationScale = acceptedAllocation;', 'if (ValidScale(acceptedAllocation) && false) _sessionAllocationScale = acceptedAllocation;', 'startup viewport respects actual accepted provider capacity'),
 ]
 results = []
 for name, before, after, expected in mutations:

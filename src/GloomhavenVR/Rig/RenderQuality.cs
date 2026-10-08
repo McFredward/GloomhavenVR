@@ -76,7 +76,7 @@ namespace GloomhavenVR.Rig;
 /// The sample arithmetic is verifiable; how it looks is what the A/B in the settings is for.
 ///
 /// RESOLUTION LEVER ([RenderQuality] EyeResolutionScale): startup chooses an allocation of
-/// max(1, the saved value), without reserving a 2x/4x-memory target for a possible slider move.
+/// the saved value, without reserving a larger target for a possible slider move.
 /// During play only XRSettings.renderViewportScale changes, after a short slider quiet period
 /// in Update. This preserves the XR projection/compositor sub-rect contract and avoids live
 /// swapchain recreation. A request above the session allocation is saved for the next VR start;
@@ -418,8 +418,8 @@ internal static class RenderQuality
             + "for the actual pixel count. Above 1 is the only lever against SHADER/TEXTURE shimmer "
             + "(specular sparkle, sub-pixel detail) that geometry-edge MSAA cannot touch; below 1 "
             + "softens texture detail before it softens edges. Live changes are coalesced and use "
-            + "the allocated eye viewport without recreating XR textures. Startup allocates at "
-            + "least 1x, or a larger saved value; a live request above that session capacity is "
+            + "the allocated eye viewport without recreating XR textures. Startup allocates "
+            + "the saved resolution; a live request above that session capacity is "
             + "saved for the next VR restart and remains capped until then. Deferred rendering "
             + "and providers that refuse viewport scaling cannot apply live resolution changes. "
             + "WHAT IT CANNOT BUY, measured rather than assumed (ModBuild 226 hardware log, the "
@@ -849,7 +849,7 @@ internal static class RenderQuality
     /// <summary>
     /// Select allocation/MSAA after successful OpenXR initialization, before StartSubsystems.
     /// Only an initialized, stopped display receives resource setters in PrepareDisplays.
-    /// Capacity is max(1, saved request), never an automatic 2x target. No legacy XR setter
+    /// Capacity is the saved request, never an automatic larger target. No legacy XR setter
     /// may run here: native runtime selection and initialization must precede quality writes.
     /// </summary>
     internal static void PrepareSession()
@@ -865,7 +865,11 @@ internal static class RenderQuality
         ResetSessionState();
         _sessionPrepared = true;
         float wanted = WantedEyeScale();
-        _sessionAllocationScale = Mathf.Max(1f, wanted);
+        // Frame642 accepts a reduced viewport then resets it to 1 every frame. A
+        // full-size allocation therefore defeats a saved .8 even after repairs stop.
+        // Select the actual saved capacity for the initialized, stopped display;
+        // a full viewport then retains the reduction without any live resource write.
+        _sessionAllocationScale = wanted;
         _viewportScaleApplied = Mathf.Clamp(wanted / _sessionAllocationScale, 0.01f, 1f);
         _lastLoggedEyeScale = wanted;
         _pendingEyeScale = wanted;
