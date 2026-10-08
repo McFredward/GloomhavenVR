@@ -9,6 +9,7 @@ const api = preview ? new PreviewApi() : new LocalApi(location.origin,token);
 let language = (preview ? new URLSearchParams(location.search).get('lang') : null) ?? readStorage('quest-wizard-language') ?? (navigator.language.startsWith('de') ? 'de' : 'en');
 if (!['de','en'].includes(language)) language='de';
 let page=0,selected=null,discovery=null,state=null,busy=false,after=0,log=[],loadedLog=null,pollTimer=null,canConnect=preview||Boolean(token),artworkKey='',artworkGeneration=0;
+let storageInfo=null,storageBusy=false,storagePollTimer=null,storageCompletedShown=false;
 let qualification=null,resumeFailed=null,restoredSession=null,sessionGeneration=0;
 let eventsUnavailable=false,stageLogUnavailable=false,lastFailureFocus='',eventsRequest=null,stageLogRequest=null;
 let buildFocus=false;const buildGroupChoices=new Map();
@@ -66,6 +67,54 @@ function showSlide(index) {
   const row=slides[slideIndex],caption=row.caption?.[language]??row.caption?.en;
   $('gallery-note').textContent=[caption,t(row.altCode??'ownedArtwork')].filter(Boolean).join(' · ');
   clearTimeout(slideTimer);if(!slidePaused&&!document.hidden)slideTimer=setTimeout(()=>showSlide(slideIndex+1),6500);
+}
+function storageActive() {return storageBusy||['planning','deleting'].includes(storageInfo?.state?.status);}
+function storageSize(bytes) {return new Intl.NumberFormat(language,{maximumFractionDigits:1}).format(Math.max(0,Number(bytes)||0)/1073741824)+' GiB';}
+function renderStorage() {
+  $('storage-card').hidden=!storageInfo;
+  if(!storageInfo)return;
+  $('storage-root').textContent=storageInfo.workspaceRoot??'';
+  $('storage-free').textContent=Number.isFinite(storageInfo.freeBytes)?t('storageFree',{size:storageSize(storageInfo.freeBytes)}):'';
+  const current=storageInfo.state??{},status=current.status,plan=current.plan;
+  const locked=busy||isActive(state)||storageActive();
+  $('storage-plan-duplicates').disabled=locked;
+  const completed=state?.status==='complete'||state?.stages?.some(row=>row.id==='build'&&row.status==='complete');
+  $('storage-plan-cache').hidden=!completed;$('storage-plan-cache').disabled=locked;
+  if(completed&&!storageCompletedShown){$('storage-details').open=true;storageCompletedShown=true;}
+  $('storage-cache-consequence').hidden=plan?.mode!=='build-cache';
+  const measured=Number.isFinite(current.done)&&Number.isFinite(current.total)&&current.total>0;
+  const count=measured?t('storageMeasured',{done:new Intl.NumberFormat(language).format(current.done),total:new Intl.NumberFormat(language).format(current.total)}):'';
+  const files=plan?.files??0,parameters={files:new Intl.NumberFormat(language).format(files),size:storageSize(plan?.bytes)};
+  const copy=status==='planning'?t('storagePlanning'):status==='deleting'?t('storageDeleting'):status==='preview'?t(files>0?'storagePreview':'storageNoFiles',parameters):status==='complete'?t('storageComplete',{files:new Intl.NumberFormat(language).format(current.result?.deletedFiles??0),size:storageSize(current.result?.freedBytes)}):status==='failed'?t('storageFailed',{message:message(current.error?.message)}):'';
+  $('storage-status').textContent=[copy,count].filter(Boolean).join(' · ');$('storage-status').setAttribute('role',status==='failed'?'alert':'status');
+  $('storage-progress').hidden=!['planning','deleting'].includes(status);
+  if(measured)$('storage-progress').value=Math.min(100,Math.max(0,current.done/current.total*100));else $('storage-progress').removeAttribute('value');
+  const previewing=status==='preview';$('storage-paths').hidden=!previewing;$('storage-paths').replaceChildren();
+  if(previewing)for(const row of plan?.paths??[]){const li=document.createElement('li'),path=document.createElement('code'),detail=document.createElement('small');path.textContent=row.path;detail.textContent=t('storagePlanSize',{size:storageSize(row.bytes),files:new Intl.NumberFormat(language).format(row.files??0)});li.append(path,detail);$('storage-paths').append(li);}
+  $('storage-confirmation').hidden=!previewing||files<=0;$('storage-confirm-copy').textContent=t('storageConfirmCopy');
+  $('storage-clean').disabled=locked||!plan?.id;$('storage-dismiss').disabled=locked;
+}
+function scheduleStoragePoll() {clearTimeout(storagePollTimer);if(storageActive())storagePollTimer=setTimeout(refreshStorage,750);}
+async function refreshStorage() {
+  try{const result=await api.storage();if(result?.event!=='storage'||!result.state)throw {code:'invalidReply'};storageInfo=result;updateView();}
+  catch(value){if(storageInfo){storageInfo={...storageInfo,state:{status:'failed',error:{message:value?.message??t(value?.code??'offline')}}};updateView();}}
+  finally{scheduleStoragePoll();}
+}
+async function planStorage(mode) {
+  if(storageActive()||busy||isActive(state))return;
+  storageBusy=true;clearTimeout(storagePollTimer);$('storage-details').open=true;
+  if(storageInfo)storageInfo={...storageInfo,state:{status:'planning'}};updateView();
+  try{const result=await api.storagePlan(mode);if(result?.event!=='storage'||!result.state)throw {code:'invalidReply'};storageInfo=result;}
+  catch(value){storageInfo={...storageInfo,state:{status:'failed',error:{message:value?.message??t(value?.code??'offline')}}};}
+  finally{storageBusy=false;updateView();scheduleStoragePoll();}
+}
+async function cleanStorage() {
+  const plan=storageInfo?.state?.status==='preview'?storageInfo.state.plan:null;
+  if(storageActive()||busy||isActive(state)||!plan?.id||!(plan.files>0))return;
+  storageBusy=true;clearTimeout(storagePollTimer);storageInfo={...storageInfo,state:{status:'deleting'}};updateView();
+  try{const result=await api.storageClean(plan.id);if(result?.event!=='storage'||!result.state)throw {code:'invalidReply'};storageInfo=result;qualification=null;}
+  catch(value){storageInfo={...storageInfo,state:{status:'failed',error:{message:value?.message??t(value?.code??'offline')}}};}
+  finally{storageBusy=false;updateView();scheduleStoragePoll();}
 }
 function phaseLabel(phase='') {
   if(phase.startsWith('operation:')){
@@ -211,7 +260,7 @@ function updateView() {
   const step=page===2 ? macroStep(state) : page;
   document.querySelectorAll('[data-step]').forEach(node => {const index=Number(node.dataset.step);node.classList.toggle('active',index===step);node.classList.toggle('done',index<step);if(index===step)node.setAttribute('aria-current','step');else node.removeAttribute('aria-current');});
   $('back').hidden=page!==1;$('cancel').hidden=page!==2||!isActive(state);
-  $('new-build').hidden=!(resumeFailed||page===2&&state&&!isActive(state));$('new-build').disabled=busy;$('new-build').title=t('newBuildHint');
+  $('new-build').hidden=!(resumeFailed||page===2&&state&&!isActive(state));$('new-build').disabled=busy||storageActive();$('new-build').title=t('newBuildHint');
   $('cancel').disabled=busy||['cancelling','cancel_requested'].includes(state?.status);
   $('cancel').textContent=t(['cancelling','cancel_requested'].includes(state?.status)?'cancelling':'cancel');
   $('profile-summary').textContent=t($('profile-name').value?'profileManual':'profileCheck');
@@ -225,11 +274,12 @@ function updateView() {
   document.querySelector('[data-i18n=setupContentCopy]').textContent=t(updateContent+'Copy');
   document.querySelector('[data-i18n=firstBuild]').textContent=t(mode==='build'?'firstBuild':'updateBuild');
   $('browse-apk').hidden=discovery?.capabilities?.browse===false;
-  $('primary').disabled=busy||!canConnect||Boolean(resumeFailed)||(page===0&&!$('game-root').value.trim())||(page===2&&(isActive(state)||state?.status==='complete'));
+  $('primary').disabled=busy||storageActive()||!canConnect||Boolean(resumeFailed)||(page===0&&!$('game-root').value.trim())||(page===2&&(isActive(state)||state?.status==='complete'));
   $('primary').firstElementChild.textContent=t(busy?'preparing':page===0?'continue':page===1?'build':isActive(state)?'working':state?.status==='complete'?'done':state?.status==='blocked'?'retry':'resumeContinue');
   $('primary').lastElementChild.textContent=state?.status==='complete'?'✓':'→';
   if(page===1&&mode!=='build'&&!busy)$('primary').firstElementChild.textContent=t('startUpdate');
   if(page===2)renderProgress();
+  renderStorage();
 }
 function renderProgress() {
   if(!state)return;
@@ -284,7 +334,7 @@ function renderProgress() {
   $('failure-cause').hidden=!failure?.cause;
   $('failure-cause').textContent=failure?.cause?t('failureCause',{cause:failure.cause}):'';
   $('failure-next').hidden=!failure;$('failure-actions').hidden=!failure;
-  $('failure-retry').disabled=busy||!canConnect||Boolean(resumeFailed);
+  $('failure-retry').disabled=busy||storageActive()||!canConnect||Boolean(resumeFailed);
   $('failure-support').hidden=preview||discovery?.capabilities?.support!==true;
   $('failure-support').disabled=!sessionId(state.session);
   if(action||blocked||stopped){const blockedStage=state.stages?.find(stage=>stage.status==='blocked');const code=typeof action==='string'?action:action?.code??blockedStage?.details?.needsAction;
@@ -401,7 +451,7 @@ document.addEventListener('visibilitychange',()=>showSlide(slideIndex));
 reducedMotion.addEventListener('change',event=>{if(event.matches){slidePaused=true;$('gallery-pause').textContent=t('galleryPlay');showSlide(slideIndex);}});
 async function pollGallery(){try{const result=await api.gallery();await loadArtwork(result.artwork,{publisher:true});}catch{}if(!preview)artPollTimer=setTimeout(pollGallery,5000);}
 async function primary() {
-  if(busy||resumeFailed)return;
+  if(busy||resumeFailed||storageActive())return;
   clearError();
   if(page===0){busy=true;updateView();try{const selectedChoices=choicesFromForm(form(),language);
     if(discovery?.capabilities?.spaceEstimate===true){qualification=await api.qualify(selectedChoices.gameRoot,selectedChoices.mode);}
@@ -418,6 +468,10 @@ async function browse(kind) {
   catch(value){error(value);}finally{busy=false;updateView();}
 }
 document.querySelectorAll('[data-language]').forEach(node=>node.addEventListener('click',()=>setLanguage(node.dataset.language)));
+$('storage-plan-duplicates').addEventListener('click',()=>planStorage('duplicates'));
+$('storage-plan-cache').addEventListener('click',()=>planStorage('build-cache'));
+$('storage-clean').addEventListener('click',cleanStorage);
+$('storage-dismiss').addEventListener('click',()=>{if(storageActive())return;storageInfo={...storageInfo,state:{status:'idle'}};updateView();});
 $('primary').addEventListener('click',primary);$('back').addEventListener('click',()=>{page=0;clearError();updateView();});
 $('new-build').addEventListener('click',()=>{
   if(busy||isActive(state))return;
@@ -448,9 +502,9 @@ $('browse-apk').addEventListener('click',()=>browse('apk'));$('build-mode').addE
 $('cancel').addEventListener('click',async()=>{busy=true;updateView();try{await api.cancel(state.session);const result=await api.status(state.session);state=result.state;schedulePoll();}catch(value){error(value);}finally{busy=false;updateView();}});
 $('game-root').addEventListener('input',()=>{selected=null;resetArtwork();updateView();});$('provider').addEventListener('change',()=>{selected=null;resetArtwork();updateView();});$('profile-name').addEventListener('input',updateView);
 $('declare-dlc').addEventListener('change',()=>{$('dlc-declaration').hidden=!$('declare-dlc').checked;});
-window.addEventListener('beforeunload',()=>{clearTimeout(pollTimer);clearTimeout(slideTimer);clearTimeout(artPollTimer);stopOptionalReads();blobUrls.forEach(url=>URL.revokeObjectURL(url));});
+window.addEventListener('beforeunload',()=>{clearTimeout(storagePollTimer);clearTimeout(pollTimer);clearTimeout(slideTimer);clearTimeout(artPollTimer);stopOptionalReads();blobUrls.forEach(url=>URL.revokeObjectURL(url));});
 $('preview-notice').hidden=!preview;setLanguage(language);
-if(canConnect)pollGallery();
+if(canConnect){pollGallery();void refreshStorage();}
 busy=true;updateView();
 try{discovery=await api.discover();renderGames();if(discovery.games?.length===1)selectGame(discovery.games[0]);
   const editor=discovery.unityEditors?.find(row=>row.version==='2021.3.5f1'&&row.androidSupport);if(editor)$('unity-editor').value=editor.path;

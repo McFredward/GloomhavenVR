@@ -24,6 +24,9 @@ export class LocalApi {
     if (response.headers.get('Content-Type') !== 'application/zip') throw {code:'invalidReply'};
     return {blob:await response.blob(),name:response.headers.get('Content-Disposition')?.match(/filename="([A-Za-z0-9_.-]+)"/)?.[1]??'quest-build-support.zip'};
   }
+  storage() { return this.request('/api/storage'); }
+  storagePlan(mode='duplicates') { if(!['duplicates','build-cache'].includes(mode))throw {code:'invalidReply'};return this.request('/api/storage/plan',{mode}); }
+  storageClean(planId) { if(typeof planId!=='string'||!planId||planId.length>256)throw {code:'invalidReply'};return this.request('/api/storage/clean',{planId}); }
   discover() { return this.request('/api/discover'); }
   plan(choices, session) { if(session !== undefined && !sessionId(session))throw {code:'invalidReply'};return this.request('/api/plan',{choices,...(session?{session}:{})}); }
   run(session) { return this.request('/api/run',{session}); }
@@ -39,6 +42,9 @@ export class LocalApi {
 
 // Deliberate, visibly labelled design preview; never falls through to real tools.
 export class PreviewApi {
+  async storage() {return {schema:1,event:'storage',workspaceRoot:'C:\\Users\\Preview\\.ghvrq',freeBytes:150*1073741824,state:this.storageState??{status:'idle'}};}
+  async storagePlan(mode='duplicates') {this.storageState={status:'preview',plan:{id:'preview-cleanup',mode,paths:[],bytes:0,files:0,exact:true}};return this.storage();}
+  async storageClean() {this.storageState={status:'complete',result:{freedBytes:0,deletedFiles:0}};return this.storage();}
   async gallery() {return {schema:1,event:'gallery',artwork:[]};}
   async action() {throw {code:'preview'};}
   constructor() { this.sequence=0; this.state=null; this.eventsList=[]; this.tick=0; }
