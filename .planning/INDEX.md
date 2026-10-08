@@ -16,6 +16,7 @@ status; it is not the player manual.
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
 | [FRAME-643-NATIVE-PRESENTATION.md](FRAME-643-NATIVE-PRESENTATION.md) | Paired642 native fade/menu/resolution causes, loaded timing and inherited proof limits |
 | [../docs/performance/FRAME-643-INTEGRATION.md](../docs/performance/FRAME-643-INTEGRATION.md) | Exact-source integration, retained NPC/crossplay/CPU repairs and current validation scope |
+| [QUEST-BUILD-CRLF-20261008.md](QUEST-BUILD-CRLF-20261008.md) | Windows Unity YAML audit repair, retained640 checkpoints and dev642 Builder qualification |
 | [FRAME-642-STEADY-CPU.md](FRAME-642-STEADY-CPU.md) | Exact per-camera CPU read sharing, native lease/refusal ownership and inherited runtime evidence |
 | [../docs/performance/FRAME-642-INTEGRATION.md](../docs/performance/FRAME-642-INTEGRATION.md) | Checked CPU integration on641, exact source hashes, compiled scope and retained NPC evidence |
 | [CROSSPLAY-QUEST-REVIEW.md](CROSSPLAY-QUEST-REVIEW.md) | Crossplay source repairs, integrated validation and outstanding mixed-session HMD matrix |
@@ -87,6 +88,7 @@ status; it is not the player manual.
 | [../docs/performance/FRAME-609-ANALYSIS.md](../docs/performance/FRAME-609-ANALYSIS.md) | Natural-motion resolution and figure-detail evidence, loaded hitches and confidence limits |
 | [QUEST3-IMPLEMENTATION.md](QUEST3-IMPLEMENTATION.md) | Authorized Quest implementation branch, actual hardware checkpoint evidence and outstanding full-game gates |
 | [QUEST3-HARDWARE-609.md](QUEST3-HARDWARE-609.md) | Private Quest diagnostic installation, controls, evidence capture and explicit limits before campaign/multiplayer startup |
+| [QUEST3-WIRELESS-INSTALL.md](QUEST3-WIRELESS-INSTALL.md) | Windows double-click Wi-Fi ADB installer, remembered headset/source, data-preserving updates and connection recovery |
 | [QUEST3-PORT-PLAN.md](QUEST3-PORT-PLAN.md) | Quest 3 campaign port: local APK conversion, embedded Steam logo/name/ID without store/cloud services, necessary EOS multiplayer exception and native passthrough; implementation authorized 2026-10-03 |
 | [QUEST3-CRITICAL-SOLUTIONS.md](QUEST3-CRITICAL-SOLUTIONS.md) | Concrete future solutions for asset reconstruction, Apparance baking, generated ARM64 mod integration, original multiplayer, offline Steam identity, manual save transfer and Quest performance |
 | [QUEST3-PREFLIGHT-AND-BUILDER.md](QUEST3-PREFLIGHT-AND-BUILDER.md) | Source-backed preflight blockers and a builder maintenance contract: current mod/patch/helper/resource discovery, coherent inputs, dependency-aware caches and N -> N+1 acceptance |

@@ -260,3 +260,212 @@ actual installed versions at implementation time.
 [unity-aot]: https://docs.unity3d.com/2021.3/Documentation/Manual/ScriptingRestrictions.html
 [unity-bundles]: https://docs.unity3d.com/2021.3/Documentation/ScriptReference/AssetBundle.html
 [unity-streaming]: https://docs.unity3d.com/2021.3/Documentation/Manual/StreamingAssets.html
+
+## 2026-10-05: novice Windows Wizard and interruption recovery
+
+The maintainer requested a Wizard that provisions its own tools, uses the
+player's locally owned Steam/Epic/GOG installation, and resumes after cancellation
+or a subsequent restart. This is a required future delivery workflow. The
+complete Campaign APK remains the current implementation objective; the Wizard
+and the optimizations below are not implemented or validated by this audit.
+
+The intended flow is game discovery/selection, local profile and purchased-DLC
+confirmation where evidence is ambiguous, tool provisioning, conversion/build,
+then headset installation. Persist these choices and their immutable input
+identities before starting expensive work. Show one overall progress view with
+the current phase, completed work, and an explicit resumable cancellation action.
+Python, Android platform-tools, converters, and the pinned Unity Editor/modules
+should be provisioned automatically. Unity Personal activation requires the
+user's account/sign-in and license acceptance; the Wizard must explain that step
+and detect completion rather than promise unattended activation. The first ADB
+authorization on the headset also remains a visible user action. Official
+[Unity installation](https://docs.unity.com/en-us/unity-cli/use-unity-cli) and
+[license management](https://docs.unity.com/en-us/hub/manage-license) documentation
+was checked on 2026-10-05; the actual pinned 2021.3.5f1 installation path must be
+rehearsed on clean Windows before claiming that this flow works.
+
+### Measured first-build costs and cache ownership
+
+The actual complete-content cold import took 5,754.362 seconds (95.9 minutes),
+with 131,902 imports and no cache hits. Changing Android settings afterward
+caused another 2,965.486-second refresh (49.4 minutes), importing 14,986 assets
+without source file changes. These are host build times, not headset startup
+times. Moving final settings before the initial import is a concrete optimization
+candidate; a shortened total duration has not been measured.
+
+The present project directory includes the complete input key, including mod
+revision/profile changes. Preparation excludes Library when copying and removes
+an invalid prepared project. Consequently ordinary mod updates can discard
+expensive imported game artifacts. Use a stable, exclusively locked local asset
+workspace with separate keys for original game recovery, target/import settings,
+native tools, mod artwork banks, mod code, profile/entitlement, and packaging.
+Apply only owned changed overlays atomically and preserve valid Library/SBP/native
+compiler caches. Actual dependency identities and original GUID/localID contracts
+remain mandatory. SDK compilation can be isolated into a small pinned-package
+project while the complete original-content import and final Player gates remain
+required. Repeated full-game hashing and unnecessarily broad cache keys also need
+measured review. Do not claim a five-minute first build without cold/warm, mod
+update, and DLC-change measurements on Windows.
+
+The Wizard must distinguish caches useful for the next update from superseded
+APKs and temporary outputs. Offer retaining the reusable conversion cache or
+freeing its disk space after success. Automatic cleanup may remove only owned,
+superseded artifacts; original installations, saves, signing identity, active
+build workspaces, and other agents' worktrees are never cleanup targets.
+
+### Required resume semantics and present gaps
+
+Verified completed stage receipts and immutable snapshots already provide useful
+reuse. They do not yet establish arbitrary interruption recovery. The source
+audit found interrupted bundle/core directories that reject on restart, locks
+left by hard process death, no complete owned-child shutdown policy, repeated SDK
+compilation, extraction/download staging left incomplete, and no persisted Wizard
+choices. Addressables repacking also rewrites preparation-hashed content
+manifests; a late cancellation can then invalidate preparation and cause the
+imported project to be deleted. Original content moved temporarily for a build
+needs transactional recovery as well.
+
+Implement durable per-stage states and atomic output publication. On resume,
+verify committed outputs, repair only the interrupted stage's owned temporary
+outputs, and preserve every still-valid dependency cache. Final repack outputs
+must have a separate stage contract rather than invalidate preparation. Validate
+a stale lock against its recorded process ownership before recovery; shut down
+the owned process tree gracefully on ordinary cancellation. Handle an incomplete
+first signing-key/metadata pair explicitly without silently changing the signing
+identity. Record content-transfer/APK-install handoff independently so a failed
+installation retries without conversion or deleting app data. Test cancellation
+and forced death during download, recovery, import, repack, compilation, signing,
+and installation. A valid unchanged import must survive each restart.
+
+A universally distributable APK is not established by removing textures: the
+current IL2CPP Player contains original game code. Distributable generic tools
+and recipes therefore remain separate from locally generated game-derived
+outputs. Direct local ASTC/native texture conversion is a narrower first-build
+research candidate, not a proven replacement for Unity import; normal-map
+channels, mipmaps, sprites, fonts, and precision-sensitive textures require exact
+format and visual checks before using it.
+
+### Additional bounded Windows and shader-cache audit
+
+Read-only review of the complete retained Assets tree counts205,024 files, with
+maximum project-relative length183 and output-relative length257. Even an output
+root directly at `C:\` puts11,656 paths at260 characters or more; `C:\GHQ` gives264
+for the largest path, and the example user's Downloads build directory gives307.
+The generated shader include basename concatenates two64-character hashes
+(`produce.py`, generated DXBC/interface include path), followed by `.hlsl.meta`.
+Use one full SHA256 of that unambiguous fixed-width pair as its generated basename,
+retain both original identities in the program manifest, and regenerate the
+include/program references coherently. This saves65 characters without changing
+original shader GUID/meta/localID identities. Rehearse actual Unity/NDK temporary
+and generated paths too; this Assets census does not prove every child tool's
+long-path support. Merely changing the registry is insufficient for applications
+that have not opted in, per Microsoft's
+[long-path contract](https://learn.microsoft.com/en-us/windows/win32/fileio/maximum-file-path-limitation).
+
+The Windows producer currently serializes `str(Path(...))` for generated program
+paths; canonical `as_posix()` output and a Windows fixture are required. The C#
+consumer already normalizes program paths, so this review does not establish an
+end-to-end compiler failure from backslashes alone. The actual Linux Player is
+unaffected by these future recipe changes.
+
+`dependencies.python_environment` keys its owned venv only by requirements,
+without checking its interpreter/base executable or native-wheel ABI before
+adding site-packages to the running process. Persist the pinned interpreter/ABI
+identity and verify it before reuse. A mismatch may replace only the owned tool
+environment, preserving valid game/import/signing caches. Current full-game
+`builder.py` also requires Git and a real checkout; an ordinary source-release
+ZIP is not yet sufficient. Provision a pinned portable Git checkout or implement
+a separately verified release-source manifest mode rather than exposing Git
+configuration as a novice's prerequisite.
+
+For cancellation, supervise owned child processes as one Windows Job Object,
+request a graceful stop, then bound termination and wait for children before
+releasing the output lock. Recovery/export currently terminates only its direct
+child, while compiler/download launches can leave descendants running. Microsoft
+[Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)
+provide process-group ownership; existing unrelated Unity/license processes must
+remain outside that ownership. This supplements the durable stage/file recovery
+requirements above and is not an implemented Wizard feature.
+
+The shader audit identifies repeated work, without performance measurements:
+PrepareVariantCollection and Validate each parse the72.6MB manifest and validate
+11,656 includes (approximately610.8MB). The native loop repeats query, SMOL-V
+decode, reflection/binding joins and payload hashes for all51,564 original aliases.
+Historical complete evidence contains11,212 bank/stage pairs,1,799 vertex payloads
+and7,904 fragments, with20,915 unique output files. Duplicate output checks cause
+133,777 extra file reads/hashes totaling about3.365GB. Those are counts and byte
+volumes, not elapsed-time claims.
+
+Prioritize one dependency-closure validation per immutable stage with a final
+before/after identity check; decode/reflection reuse keyed by the actual returned
+bank SHA plus exact texture-binding signature; output-file verification once per
+immutable output snapshot; and persisted complete local shader evidence keyed by
+actual shader/importer/dependencies/settings and exact Editor/compiler/helper
+bytes, independently of ordinary mod C# changes. Preserve all688 identities,
+material references, every51,564-alias ledger entry and every per-alias original
+interface check, with corrupt/stale-cache negatives. Output equivalence cannot
+justify omitting an uncompiled input. Root's six retained shader contracts differ
+from historical translated inputs; actual Root bytes govern reuse. These
+optimizations remain future work pending measured cold/warm Windows builds.
+
+### Maintainer ruling: minimum production builder work
+
+The maintainer clarified on2026-10-05 that the exhaustive51,564-alias shader
+matrix is development validation, and must not run routinely in the later
+player-facing Builder. The current QuestBuild path still calls that full matrix
+unconditionally; this is a present implementation gap, not existing production
+behavior. Keep this first complete development Player's gates intact while
+recording the future separation explicitly.
+
+Introduce distinct developer-validation and normal-player build contracts. The
+normal build still performs the player's necessary real Android conversion and
+Unity compilation, retains all required native variants, and checks basic
+completeness, recognized input/tool identities and native build errors. It reuses
+valid local artifacts and reruns only affected dependencies. Ordinary mod C#,
+profile or package changes must not invalidate unrelated game shader/import work.
+The exhaustive native query/decode/reflection/driver/readback matrix belongs to
+development, release recipe validation and genuinely changed supported shader
+closures. Do not describe caching that still repeats the full matrix on every
+first player build as satisfying this ruling. This separation is required future
+Builder/Wizard work; it is not yet shipped or measured on Windows.
+
+The maintainer further requires expensive shader validation only when necessary
+in development as well. An unrelated Player/IL2CPP/package failure must reuse the
+completed native shader gate when its relevant graphics closure is unchanged.
+Implement a completed actual validation receipt and atomic reuse contract, bound
+to exact source/includes/importers/dependencies, graphics/compiler settings and
+Editor/compiler/verifier identities, retaining complete alias/material ledgers
+and output hashes. Changed relevant inputs or corrupt/partial results require
+validation; ordinary mod/profile/package changes do not. The first actual full
+imported Android Campaign gate remains in progress and necessary at this
+checkpoint. Cache integration must not modify the live build's captured sources
+or invent completion before that gate reports success.
+
+### Parallel Wizard implementation authorized
+
+On2026-10-05 the maintainer explicitly requested beginning Wizard implementation
+while the current full Player builds, with APK delivery remaining the priority.
+The UI must be modern, attractive, novice-friendly and gamer-oriented, including
+the GloomhavenVR logo and locally owned Gloomhaven imagery. Implement UI and
+backend in isolated worker worktrees with disjoint ownership. New Wizard modules
+and launchers can be reviewed separately; changes to captured central builder
+modules must wait for the current Player's safe completion/failure boundary.
+
+Use a local browser UI and standard-library local backend, without hosting or
+external account services. Reuse the working Windows local-Python/ADB bootstrap;
+keep conversion environments separately pinned. Provide EN/DE strings, accessible
+clear step navigation, one primary action, useful overall progress, resumable
+cancel/restart and collapsed technical details. The public package ships only
+project-owned artwork. Original game imagery is served through bounded opaque
+IDs from the user's selected installation, optional offline launcher artwork or
+verified completed local recovery; it is not checked into Git or released with
+the tools. A polished project-logo presentation is valid before those local
+images exist.
+
+A conservative block that preserves an interrupted imported project is an interim
+safeguard, not fulfillment of seamless resume. Central transactional preparation,
+build-owned output separation, process ownership and interrupted owned recovery
+must be fixed so an unchanged interrupted build can actually continue without
+losing Library. Source/runtime dependencies missing from a clean checkout must
+be provisioned from authoritative pinned recipes and owned game/Editor inputs;
+no private ignored cache may become a hidden Wizard prerequisite.

@@ -29,9 +29,42 @@ def write(mesh,path):
             flat=[i for t in sub for i in t];ints(len(flat));ints(*flat)
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
+def extract_bundle(path,output_dir,root,*,expected_sha256=None):
+    """Extract one owned bundle; the caller checkpoints this exact producer.
+
+    Read bytes once for the source witness and native parser. No source metadata
+    or generated asset is written into the PC installation.
+    """
+    path,output_dir,root=Path(path),Path(output_dir),Path(root)
+    before=path.stat();raw=path.read_bytes();bundle_sha=hashlib.sha256(raw).hexdigest()
+    after=path.stat()
+    stamp=lambda s:(s.st_dev,s.st_ino,s.st_size,s.st_mtime_ns,s.st_ctime_ns)
+    if stamp(before)!=stamp(after) or len(raw)!=before.st_size or expected_sha256 is not None and bundle_sha!=expected_sha256:
+        raise ValueError('Owned environment bundle changed before extraction: '+path.name)
+    env=UnityPy.load(raw);output_dir.mkdir(parents=True,exist_ok=True)
+    static={o.read().m_Mesh.path_id for o in env.objects if o.type.name=='MeshFilter'}
+    records={};ambiguous=set()
+    for o in env.objects:
+        if o.type.name!='Mesh' or o.path_id not in static:continue
+        m=o.read();name=m.m_Name
+        if not re.search(r'floor|wall|pillar|rock|terrain|cliff|slab|slope|stairs|underfloor',name,re.I):continue
+        if m.m_VertexData.m_VertexCount<3 or m.m_VertexData.m_VertexCount>100000 or m.m_BindPose or m.m_Shapes.channels or any(s.topology!=0 for s in m.m_SubMeshes):continue
+        sig=signature(m);identity=json.dumps(sig,sort_keys=True,separators=(',',':'));key=hashlib.sha256(identity.encode()).hexdigest()[:24]
+        target=output_dir/(key+'.bytes');sha=write(m,target)
+        provenance={'path':path.relative_to(root).as_posix(),'sha256':bundle_sha,'meshPathId':o.path_id}
+        if key in records:
+            if records[key]['sha256']!=sha:ambiguous.add(key);continue
+            records[key]['sources'].append(provenance);continue
+        records[key]={'key':key,'file':target.name,'sha256':sha,'signature':sig,'sources':[provenance]}
+    for key in ambiguous:records.pop(key,None);(output_dir/(key+'.bytes')).unlink(missing_ok=True)
+    return {'format':1,'unitypy':UnityPy.__version__,'meshes':list(records.values()),'ambiguousRejected':sorted(ambiguous)}
+
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--source-root',type=Path,required=True);p.add_argument('--output-dir',type=Path,required=True);p.add_argument('--only',nargs='*');a=p.parse_args()
-    root=a.source_root/'ressources/GH_Data/StreamingAssets/aa/StandaloneWindows64'
+    p=argparse.ArgumentParser();p.add_argument('--source-root',type=Path,required=True);p.add_argument('--game-data',type=Path);p.add_argument('--output-dir',type=Path,required=True);p.add_argument('--only',nargs='*');a=p.parse_args()
+    game=a.game_data or a.source_root/'ressources/GH_Data'
+    if a.game_data and any(base==a.output_dir.resolve() or base in a.output_dir.resolve().parents for base in (a.source_root.resolve(),game.resolve())):
+        raise SystemExit('Owned-game extraction must not write the source checkout or PC game.')
+    root=game/'StreamingAssets/aa/StandaloneWindows64'
     source_folder=root/'pcg_databases_assets_assets/pcg'
     if not source_folder.is_dir():
         raise SystemExit('Native environment source folder is missing: '+str(source_folder))
@@ -39,22 +72,16 @@ def main():
     if not bundles:
         raise SystemExit('No native environment bundles match the requested source selection.')
     a.output_dir.mkdir(parents=True,exist_ok=True)
-    records={};ambiguous=set(); skipped=[]
+    records={};ambiguous=set()
     for path in bundles:
-        env=UnityPy.load(str(path));bundle_sha=hashlib.sha256(path.read_bytes()).hexdigest()
-        static={o.read().m_Mesh.path_id for o in env.objects if o.type.name=='MeshFilter'}
-        for o in env.objects:
-            if o.type.name!='Mesh' or o.path_id not in static:continue
-            m=o.read(); name=m.m_Name
-            if not re.search(r'floor|wall|pillar|rock|terrain|cliff|slab|slope|stairs|underfloor',name,re.I):continue
-            if m.m_VertexData.m_VertexCount<3 or m.m_VertexData.m_VertexCount>100000 or m.m_BindPose or m.m_Shapes.channels or any(s.topology!=0 for s in m.m_SubMeshes):continue
-            sig=signature(m);identity=json.dumps(sig,sort_keys=True,separators=(',',':'));key=hashlib.sha256(identity.encode()).hexdigest()[:24]
-            raw=a.output_dir/(key+'.bytes');sha=write(m,raw)
-            provenance={'path':path.relative_to(root).as_posix(),'sha256':bundle_sha,'meshPathId':o.path_id}
+        extracted=extract_bundle(path,a.output_dir,root)
+        ambiguous.update(extracted['ambiguousRejected'])
+        for row in extracted['meshes']:
+            key,sha=row['key'],row['sha256']
             if key in records:
                 if records[key]['sha256']!=sha:ambiguous.add(key);continue
-                records[key]['sources'].append(provenance);continue
-            records[key]={'key':key,'file':raw.name,'sha256':sha,'signature':sig,'sources':[provenance]}
+                records[key]['sources'].extend(row['sources']);continue
+            records[key]=row
         print('Scanned '+path.name,flush=True)
     for key in ambiguous:
         records.pop(key,None);(a.output_dir/(key+'.bytes')).unlink(missing_ok=True)

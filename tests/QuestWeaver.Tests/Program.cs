@@ -29,6 +29,18 @@ int assertions = 0;
 void Check(bool condition, string message) { assertions++; if (!condition) throw new Exception(message); }
 try
 {
+    if (args.Length == 1 && args[0] == "--guildmaster-only")
+    {
+        StandaloneGuildmasterTests.Run(projectRoot, Check, requireOriginal: true);
+        Console.WriteLine($"Quest Guildmaster admission: {assertions} assertions passed.");
+        return;
+    }
+    if (args.Length == 1 && args[0] == "--type-lookup")
+    {
+        HarmonyLookupTests.Run(Path.Combine(temp, "type-lookup"), Check);
+        Console.WriteLine($"Quest Harmony type lookup: {assertions} assertions passed.");
+        return;
+    }
     using (Discovery model = Discovery.Load(Path.Combine(fixtureDir, "FixtureMod.dll"), fixtureDir))
     {
         AuditReport report = model.Audit();
@@ -164,6 +176,15 @@ try
         if (Directory.Exists(nextOutput)) Directory.Delete(nextOutput, true);
     }
     context.Unload();
+    HarmonyLookupTests.Run(Path.Combine(temp, "type-lookup"), Check);
+    StartupTests.Run(projectRoot, Check);
+    DlcTests.Run(projectRoot, Check);
+    StandaloneProfileTests.Run(projectRoot, Check);
+    StandaloneCampaignTests.Run(projectRoot, Path.Combine(temp, "native-campaign"), Check);
+    StandaloneOdinTests.Run(projectRoot, Check);
+    StandaloneGuildmasterTests.Run(projectRoot, Check);
+    StandaloneExportTests.Run(projectRoot, Path.Combine(temp, "native-export"), Check);
+    PackageApiTests.Run(temp + "-package-api", Check);
     Console.WriteLine($"QuestWeaver executable fixture: {assertions} assertions passed.");
 }
 finally { if (Directory.Exists(temp)) Directory.Delete(temp, true); }

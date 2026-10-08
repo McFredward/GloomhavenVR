@@ -142,6 +142,11 @@ namespace UnityEngine.XR
 }
 namespace GloomhavenVR.Core
 {
+    internal static class QuestStandalonePlatform
+    {
+        internal static bool FixedEyeTextureAllocation;
+        internal static int StandaloneMsaaDefault => 2;
+    }
     internal static class PerfTextureCensus { }
     internal static class PerfMonitor { internal static void MarkChange(string reason) { } }
     internal static class ModuleConfig { internal static BepInEx.Configuration.ConfigFile Create(string module) => new(); }

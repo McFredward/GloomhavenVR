@@ -22,6 +22,7 @@ internal static class ScenarioEnvironmentMeshBank
     private static readonly Dictionary<string, bool> Provenance = new();
     private static readonly HashSet<string> Failed = new();
     private static bool _loaded;
+    private static HashSet<string>? _questSources;
     private static Func<bool>? _ensureAssetsLoaded;
     internal static void ConfigureAssetPreparation(Func<bool> ensureAssetsLoaded) => _ensureAssetsLoaded = ensureAssetsLoaded;
     internal static bool IsReady => PrepareIndex();
@@ -87,6 +88,13 @@ internal static class ScenarioEnvironmentMeshBank
             using var input = new MemoryStream(bytes, false);
             Manifest manifest = (Manifest)new DataContractJsonSerializer(typeof(Manifest)).ReadObject(input);
             if (manifest.format != 1 || manifest.entries.Length > 8192) throw new InvalidDataException("environment index format/bound");
+            HashSet<string>? questSources = null;
+            if (QuestStandalonePlatform.Enabled)
+            {
+                TextAsset? origins = Asset("quest-owned-sources.json");
+                if (origins == null) throw new InvalidDataException("missing owned environment source receipt");
+                questSources = QuestStandalonePlatform.OwnedEnvironmentSources(bytes, origins.bytes);
+            }
             var pending = new Dictionary<string, Entry>();
             foreach (Entry entry in manifest.entries)
             {
@@ -103,6 +111,7 @@ internal static class ScenarioEnvironmentMeshBank
                 pending.Add(Identity(entry.signature), entry); // Any duplicate/ambiguous metadata rejects the entire index.
             }
             foreach (var item in pending) Entries.Add(item.Key, item.Value);
+            _questSources = questSources;
             _loaded = true;
             return true;
         }
@@ -136,7 +145,9 @@ internal static class ScenarioEnvironmentMeshBank
             if (!Provenance.TryGetValue(key, out bool valid))
             {
                 valid = false;
-                try
+                if (QuestStandalonePlatform.Enabled)
+                    valid = _questSources?.Contains(key) == true;
+                else try
                 {
                     string path = Path.Combine(Application.streamingAssetsPath, "aa", "StandaloneWindows64", source.path);
                     using var input = File.OpenRead(path);

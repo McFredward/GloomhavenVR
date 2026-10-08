@@ -1,0 +1,108 @@
+#!/usr/bin/env python3
+"""Run production startup coroutine/file delivery with bounded component seams.
+
+This is an ordering and managed-IO fixture, not a Unity/XR/Android player proof.
+The separate startup-log fixture executes the actual bounded logging sink.
+"""
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+
+
+def main():
+    root = Path(__file__).resolve().parents[1]
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--runtime-source", type=Path, default=root / "unity/GloomhavenVR.Quest/Assets/Quest/Runtime")
+    args = parser.parse_args()
+    names = ("QuestGameBootstrap.cs", "QuestGameContent.cs", "QuestGameContent.Delivery.cs", "QuestGameArchiveDelivery.cs", "QuestContentHash.cs", "QuestFrameEvidence.cs")
+    sources = {name: (args.runtime_source / name).read_text() for name in names}
+    bootstrap = sources["QuestGameBootstrap.cs"]
+    mutations = (
+        ("missing-original-path-cache", "QuestGame.Compatibility.Paths.Initialize(Application.persistentDataPath);",
+         "/* Missing original path initialization */", "cached-original-paths"),
+        ("late-loading-view", "modLifecycle.PrepareStartupView();", "/* Missing early loading view */", "early-anchor"),
+        ("mod-before-files", 'yield return EnsureContent(modManifest, modRoot, "quest-mod-content.zip", "mod-content");',
+         "yield return null;", "mod-before-content"),
+        ("missing-mod-error-gate", 'yield return EnsureContent(modManifest, modRoot, "quest-mod-content.zip", "mod-content");\n            if (State == "failed") yield break;',
+         'yield return EnsureContent(modManifest, modRoot, "quest-mod-content.zip", "mod-content");', "corrupt-ready-state"),
+        ("duplicate-mod-owner", "yield return modLifecycle.Activate(modRoot);",
+         "yield return modLifecycle.Activate(modRoot);\n            yield return modLifecycle.Activate(modRoot);", "one-owner"),
+        ("stale-mod-checkpoint", "SaveState();\n            yield return modLifecycle.Activate(modRoot);",
+         "yield return modLifecycle.Activate(modRoot);", "mod-checkpoint"),
+        ("synchronous-main-hash", "Task.Run(() => {", "RunSynchronously(() => {", "main-hash"),
+        ("worker-unity-path", "void ReportContentProgress(QuestGameContentProgress progress)\n        {",
+         "void ReportContentProgress(QuestGameContentProgress progress)\n        {\n            string forbiddenWorkerPath = Application.persistentDataPath;", "worker-api"),
+        ("wrong-apk-source", "sourceIsApk ? Application.dataPath :", "sourceIsApk ? Application.streamingAssetsPath :", "startup-completes"),
+        ("false-main-heartbeat", "mainThreadFrames++;", "// Missing main thread heartbeat", "main-frame-state"),
+        ("progress-log-io-blocks-load", "catch (IOException) { contentLogWriteFailed = true; }",
+         "catch (IOException) { throw; }", "startup-completes"),
+        ("wait-blocks-main-thread", "while (!delivery.IsCompleted)\n            {",
+         "delivery.GetAwaiter().GetResult();\n            while (!delivery.IsCompleted)\n            {", "yield-main-pump"),
+        ("premature-preparation-complete", 'State = "checking-" + phase;',
+         'preparationCompletedSteps = PreparationTotalSteps;\n            State = "checking-" + phase;', "preparation-held"),
+        ("missing-preparation-completion", 'preparationCompletedSteps = PreparationTotalSteps;',
+         '/* Missing observed preparation completion */', "preparation-complete"),
+        ("premature-scene-handover", 'AsyncOperation loading = SceneManager.LoadSceneAsync(originalScene, LoadSceneMode.Single);',
+         'modLifecycle.EndDeliveryView();\n            AsyncOperation loading = SceneManager.LoadSceneAsync(originalScene, LoadSceneMode.Single);', "handover-view"),
+        ("warm-repeats-byte-hash", "QuestGameContent.Install(manifest, root, source, sourceIsApk, archive, expectedArchive, ReportContentProgress)",
+         "QuestGameContent.Deliver(manifest, root, source, sourceIsApk, archive, expectedArchive, ReportContentProgress)", "warm-no-content-reads"),
+        ("warm-requests-loading-artwork", 'State = "checking-" + phase;',
+         'contentWorkRequested = true;\n            State = "checking-" + phase;', "one-cold-view"),
+        ("actual-install-artwork-missing", "modLifecycle.BeginDeliveryView();", "/* Missing actual installation view */", "early-view-state"),
+        ("global-startup-completes-before-native", "modLifecycle.UpdateStartupView(State, startupOverallPercent);",
+         "modLifecycle.UpdateStartupView(State, 100);", "handover-percent"),
+        ("missing-environment-dependency-header", "yield return PrepareModBanks(modRoot, CampaignPackageBuilt);",
+         "yield return null;", "environment-before-plugin"),
+        ("missing-current-bank-admission", "ValidateModBanks(modManifest, CampaignPackageBuilt);",
+         "/* Missing current bank admission */", "bank-manifest"),
+    )
+    cases = [("production", bootstrap, ""),
+             ("commented-defects-are-inert", "/* Missing early loading view; mod-before-content;\n"
+              "while (!delivery.IsCompleted) { Thread.Sleep(1); }\n"
+              "string forbiddenWorkerPath = Application.persistentDataPath; */\n" + bootstrap, "")]
+    for name, before, after, expected in mutations:
+        if bootstrap.count(before) != 1:
+            raise RuntimeError("Mutation binding drift: " + name)
+        modified = bootstrap.replace(before, after)
+        if name == "synchronous-main-hash":
+            modified = modified.replace("        IEnumerator EnsureContent(",
+                "        static Task<QuestGameContentDeliveryResult> RunSynchronously(Func<QuestGameContentDeliveryResult> work) { return Task.FromResult(work()); }\n        IEnumerator EnsureContent(")
+        cases.append((name, modified, expected))
+    output = root / ".planning/debug/quest-startup-loading"
+    output.mkdir(parents=True, exist_ok=True)
+    run = Path(tempfile.mkdtemp(prefix="run-", dir=output))
+    evidence = {"runtimeSource": str(args.runtime_source.resolve()),
+                "sources": {name: hashlib.sha256(source.encode()).hexdigest() for name, source in sources.items()},
+                "boundary": "actual Bootstrap/content/delivery; Unity, logger and downstream-component seams; no native rendering or throughput proof",
+                "cases": []}
+    print("Quest startup loading evidence: " + str(run), flush=True)
+    dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
+    for name, modified, expected in cases:
+        case = run / name
+        case.mkdir()
+        harness = case / "fixture"
+        shutil.copytree(root / "tests/QuestStartupLoading.Tests", harness, ignore=shutil.ignore_patterns("bin", "obj"))
+        for filename, source in sources.items():
+            (case / filename).write_text(modified if filename == "QuestGameBootstrap.cs" else source)
+        result = subprocess.run([dotnet, "run", "--project", str(harness / "QuestStartupLoading.Tests.csproj"),
+                                 "--configuration", "Release", "--property:RuntimeSource=" + str(case), "--", str(case / "files"), str(case / "QuestGameBootstrap.cs")],
+                                text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=90)
+        (case / "console.log").write_text(result.stdout)
+        passed = (result.returncode == 0 and "PASS Quest startup loading:" in result.stdout) if not expected else (result.returncode != 0 and expected in result.stdout)
+        evidence["cases"].append({"name": name, "exitCode": result.returncode, "expected": expected, "passed": passed})
+        (run / "results.json").write_text(json.dumps(evidence, indent=2) + "\n")
+        if not passed:
+            raise SystemExit("FAIL " + name + "; see " + str(case / "console.log"))
+        if not expected:
+            print(next(line for line in result.stdout.splitlines() if line.startswith("PASS Quest startup loading:")), flush=True)
+        else:
+            print("PASS rejected " + name + " at " + expected, flush=True)
+    print("PASS production startup coroutine and " + str(len(mutations)) + " defect controls")
+
+
+if __name__ == "__main__":
+    main()

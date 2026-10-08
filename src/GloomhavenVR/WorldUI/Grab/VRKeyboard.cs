@@ -53,7 +53,9 @@ namespace GloomhavenVR.WorldUI;
 ///
 /// <para>REVERSIBILITY. Three writes, all on objects the game owns and all undone by
 /// <see cref="Detach"/> / <see cref="Shutdown"/>: <c>Show()</c>/<c>Hide()</c>, one listener added,
-/// one listener parked. Desktop play never reaches any of it.</para>
+/// one listener parked. Quest additionally leases TMP's software-keyboard flag while typing;
+/// the native field's validation and callbacks still own editing. Desktop play never reaches
+/// any of it.</para>
 /// </summary>
 internal static class VRKeyboard
 {
@@ -79,6 +81,7 @@ internal static class VRKeyboard
 
     private static UnityAction<KeyCode>? _listener;
     private static UnityAction<KeyCode>? _parked;
+    private static QuestKeyboardInputLease? _questInput;
     private static bool _probed;
 
     /// <summary>
@@ -298,6 +301,10 @@ internal static class VRKeyboard
         _field = field;
         _keyboard = keyboard;
         _native = native;
+        // Android TMP otherwise routes editing to its software keyboard and rejects Append.
+        // Acquire before the original pointer click can schedule field activation. This is a
+        // reversible Quest-only flag; the same ProcessEvent writer and native validation remain.
+        _questInput = QuestKeyboardInputLease.TryAcquire(field);
         KeyboardAutoHideBlock.EnsureRegistered();
 
         _listener = code => TickGuard.Run("VRKeyboard.Key", () => OnKey(code), "WorldUI");
@@ -340,6 +347,8 @@ internal static class VRKeyboard
 
     private static void Detach(string reason)
     {
+        _questInput?.Release();
+        _questInput = null;
         if (_keyboard != null)
         {
             if (_listener != null)

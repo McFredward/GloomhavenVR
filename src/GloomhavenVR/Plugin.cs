@@ -1086,7 +1086,9 @@ public class Plugin : BaseUnityPlugin
         // a newer release exists — nothing else in the mod depends on it, nothing it does is on a
         // frame path, and initialising it after everything else means a throw in its Init (which is
         // caught there anyway) cannot come between two modules that DO depend on each other.
-        _modules.Add(new Core.SelfUpdateModule());
+        // Android updates are rebuilt from the owned PC copy. The desktop updater
+        // must not offer a Windows archive to the standalone Quest player.
+        if (!Core.QuestStandalonePlatform.Enabled) _modules.Add(new Core.SelfUpdateModule());
     }
 
     private void InitModules()
@@ -1096,11 +1098,14 @@ public class Plugin : BaseUnityPlugin
             try
             {
                 module.Init();
+                Core.QuestStandaloneModuleHealth.Record(module.Name, null);
             }
             catch (Exception e)
             {
                 VRLog.Error(module.Name, $"Init failed: {e}");
+                Core.QuestStandaloneModuleHealth.Record(module.Name, e);
             }
         }
+        Core.QuestStandaloneModuleHealth.Complete();
     }
 }

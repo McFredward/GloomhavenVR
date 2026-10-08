@@ -55,30 +55,66 @@ def simplify(data,tier):
     if after==0 or after>=before*.98:return None,None
     return bytes(out),{'tier':tier,'sourceTriangles':before,'triangles':after,'sourceVertices':len(vertices),'vertices':len(moved),'fixedBoundaryPositions':len(boundary),'sameIndexMorph':True}
 
+def _publish(path,data):
+    path=Path(path);path.parent.mkdir(parents=True,exist_ok=True)
+    temporary=path.with_name(path.name+'.generating')
+    temporary.write_bytes(data);temporary.replace(path)
+
+def prepare_mesh(source,native_path,target,*,receipt_dir=None,producer_key=None):
+    """Preserve the desktop algorithm while checkpointing each accepted tier."""
+    target=Path(target);target.mkdir(parents=True,exist_ok=True)
+    native_path=Path(native_path);data=native_path.read_bytes()
+    if hashlib.sha256(data).hexdigest()!=source['sha256'] or data[:5]!=b'GHEM1':
+        raise ValueError('Native environment stream differs from its source receipt: '+source['key'])
+    variants=[];details=[]
+    for tier in (100,50,0):
+        filename=source['key']+'-'+str(tier)+'.bytes';path=target/filename
+        identity={'format':1,'sourceSha256':source['sha256'],'producerKey':producer_key,'tier':tier}
+        receipt=Path(receipt_dir)/(source['key']+'-'+str(tier)+'.json') if receipt_dir else None
+        prior=json.loads(receipt.read_text()) if receipt and receipt.is_file() else None
+        if prior is not None and prior.get('identity')!=identity:
+            raise ValueError('Environment derivative ownership changed: '+filename)
+        if prior is not None:
+            variant=prior['variant'];detail=prior.get('detail')
+            if variant is not None:
+                if path.is_symlink() or not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest()!=variant['sha256']:
+                    raise ValueError('Completed environment derivative changed: '+filename)
+        else:
+            generated=data;detail=None
+            if tier!=100:generated,detail=simplify(data,tier)
+            variant=None
+            if generated is not None:
+                _publish(path,generated)
+                variant={'tier':tier,'file':filename,'sha256':hashlib.sha256(generated).hexdigest()}
+            if receipt:
+                _publish(receipt,(json.dumps({'identity':identity,'variant':variant,'detail':detail},sort_keys=True)+'\n').encode())
+        if variant:variants.append(variant)
+        if detail:details.append(dict(key=source['key'],name=source['signature']['name'],**detail))
+    return {'key':source['key'],'signature':source['signature'],'sources':source['sources'],'variants':variants},details
+
 def main():
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--source-root',type=Path,default=ROOT);p.add_argument('--output-dir',type=Path);p.add_argument('--skip-extract',action='store_true');p.add_argument('--only',nargs='*');a=p.parse_args()
-    root=a.source_root.resolve();work=(a.output_dir or root/'.planning/debug/environment-mesh-generation').resolve();native=work/'native';native.mkdir(parents=True,exist_ok=True)
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--source-root',type=Path,default=ROOT);p.add_argument('--game-data',type=Path);p.add_argument('--prepared-dir',type=Path);p.add_argument('--output-dir',type=Path);p.add_argument('--skip-extract',action='store_true');p.add_argument('--only',nargs='*');a=p.parse_args()
+    root=a.source_root.resolve();work=(a.output_dir or root/'.planning/debug/environment-mesh-generation').resolve();native=work/'native'
+    if a.game_data and not a.prepared_dir:
+        raise SystemExit('Owned-game conversion requires --prepared-dir outside the source checkout.')
+    target=a.prepared_dir.resolve() if a.prepared_dir else work/'prepared' if a.only else root/'unity/GloomhavenVR.Assets/Assets/Bundle/EnvironmentMeshes'
+    if a.game_data and any(base==path or base in path.parents for base in (root,a.game_data.resolve()) for path in (target,work)):
+        raise SystemExit('Owned-game preparation must not write the source checkout or PC game.')
+    native.mkdir(parents=True,exist_ok=True)
     if not a.skip_extract:
-        cmd=[str(Path.home()/'unitypy-venv/bin/python'),str(root/'tools/environment-mesh/export-native.py'),'--source-root',str(root),'--output-dir',str(native)]
+        python=sys.executable if a.game_data else str(Path.home()/'unitypy-venv/bin/python')
+        cmd=[python,str(root/'tools/environment-mesh/export-native.py'),'--source-root',str(root),'--output-dir',str(native)]
+        if a.game_data:cmd+=['--game-data',str(a.game_data)]
         if a.only:cmd+=['--only']+a.only
         subprocess.run(cmd,check=True)
     sources=json.loads((native/'sources.json').read_text())
     if sources.get('format')!=1 or not sources.get('meshes'):
         raise SystemExit('Native environment receipt has no admissible originals; existing prepared assets remain unchanged.')
-    target=work/'prepared' if a.only else root/'unity/GloomhavenVR.Assets/Assets/Bundle/EnvironmentMeshes';target.mkdir(parents=True,exist_ok=True)
+    target.mkdir(parents=True,exist_ok=True)
     entries=[];receipts=[];current=set()
     for source in sources['meshes']:
-        data=(native/source['file']).read_bytes();assert hashlib.sha256(data).hexdigest()==source['sha256']
-        variants=[]
-        for tier in (100,50,0):
-            generated=data;receipt=None
-            if tier!=100:
-                generated,receipt=simplify(data,tier)
-                if generated is None:continue
-            filename=source['key']+'-'+str(tier)+'.bytes';(target/filename).write_bytes(generated);current.add(filename)
-            variants.append({'tier':tier,'file':filename,'sha256':hashlib.sha256(generated).hexdigest()})
-            if receipt:receipts.append(dict(key=source['key'],name=source['signature']['name'],**receipt))
-        entries.append({'key':source['key'],'signature':source['signature'],'sources':source['sources'],'variants':variants})
+        entry,details=prepare_mesh(source,native/source['file'],target)
+        entries.append(entry);receipts.extend(details);current.update(v['file'] for v in entry['variants'])
     for old in target.glob('*.bytes'):
         if old.name not in current:old.unlink()
     (target/'index.json').write_text(json.dumps({'format':1,'entries':entries},separators=(',',':'))+'\n')
@@ -91,6 +127,6 @@ def main():
         if not meta.with_name(meta.name[:-5]).is_file():meta.unlink()
     report={'format':1,'source':'read-only pcg database MeshFilter originals','unitypy':sources['unitypy'],'originals':len(entries),'variants':sum(len(e['variants']) for e in entries),'ambiguousRejected':sources['ambiguousRejected'],'detailReceipts':receipts,'assetBytes':sum((target/f).stat().st_size for f in current)}
     (work/'manifest.json').write_text(json.dumps(report,indent=2)+'\n')
-    if not a.only:(root/'tools/environment-mesh/manifest.json').write_text(json.dumps(report,indent=2)+'\n')
+    if not a.only and not a.prepared_dir:(root/'tools/environment-mesh/manifest.json').write_text(json.dumps(report,indent=2)+'\n')
     print(json.dumps({k:v for k,v in report.items() if k not in ('detailReceipts','ambiguousRejected')},indent=2))
 if __name__=='__main__':main()
