@@ -2,8 +2,14 @@ export const stageIds = ['tools','source','unity','profile','inspect','build','i
 export function choicesFromForm(form, language) {
   const gameRoot = String(form.gameRoot ?? '').trim();
   if (!gameRoot) throw new Error('missingGame');
+  const mode = form.mode ?? 'build';
+  if (!['build','update-mod','update-profile'].includes(mode)) throw new Error('invalidMode');
+  const baseApk = String(form.baseApk ?? '').trim();
+  if (mode !== 'build' && !baseApk) throw new Error('missingBaseApk');
   const provider = ['steam','epic','gog'].includes(form.provider) ? form.provider : 'steam';
-  const choices = {gameRoot, provider, install:Boolean(form.install), acceptUnityTerms:Boolean(form.acceptUnityTerms), language};
+  const choices = {gameRoot, provider, mode, install:Boolean(form.install), acceptUnityTerms:Boolean(form.acceptUnityTerms), language};
+  if (mode !== 'build') choices.baseApk = baseApk;
+  if (mode !== 'build' && String(form.signingRoot ?? '').trim()) choices.signingRoot = form.signingRoot.trim();
   if (String(form.unityEditor ?? '').trim()) choices.unityEditor = form.unityEditor.trim();
   const displayName = String(form.profileName ?? '').trim(), providerId = String(form.profileId ?? '').trim();
   if (displayName || providerId) {
@@ -18,12 +24,19 @@ export function progressView(state) {
   const stages = Array.isArray(state?.stages) ? state.stages : [];
   const completed = Number.isInteger(state?.progress?.completed) ? state.progress.completed : stages.filter(row => row.status === 'complete').length;
   const total = Number.isInteger(state?.progress?.total) && state.progress.total > 0 ? state.progress.total : stages.length;
-  const current = stages.find(row => row.status === 'running') ?? stages.find(row => ['blocked','failed','interrupted','cancelled'].includes(row.status)) ?? stages.find(row=>row.status==='pending');
+  const active = stages.find(row => row.status === 'running') ?? stages.find(row => ['blocked','failed','interrupted','cancelled'].includes(row.status)) ?? stages.find(row=>row.status==='pending');
+  const build = stages.find(row => row.id === 'build');
+  // Setup receipts can change after a Builder update while closed game work
+  // waits for qualification. Keep that work's total visible and name the
+  // actual prerequisite separately; this does not certify an old receipt.
+  const retaining = Boolean(build && build.status !== 'complete' && stageProgress(build).percent > 0 &&
+    active && stageIds.indexOf(active.id) >= 0 && stageIds.indexOf(active.id) < stageIds.indexOf('build'));
+  const current = retaining ? build : active;
   // A native phase can finish and restart inside one stage. Its percentage is
   // never a substitute for the durable, planned whole-stage percentage.
   const percent = state?.status === 'complete' ? 100 : stageProgress(current).percent;
   return {completed, total, phase:current?.id ?? state?.progress?.phase ?? '', percent,
-    width:percent, indeterminate:false, current};
+    width:percent, indeterminate:false, current, active, retaining};
 }
 export function macroStep(state) {
   const phase = progressView(state).phase;

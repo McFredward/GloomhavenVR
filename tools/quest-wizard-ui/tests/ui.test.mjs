@@ -57,7 +57,7 @@ test('all fourteen project-staging sections and their file counters have plain l
 
 test('ownership is never inferred from selected checkboxes unless explicitly declared',()=>{
   const base={gameRoot:' C:\\Owned Game ',provider:'gog',ownedDlc:['jotl'],install:true};
-  assert.deepEqual(choicesFromForm(base,'de'),{gameRoot:'C:\\Owned Game',provider:'gog',install:true,acceptUnityTerms:false,language:'de'});
+  assert.deepEqual(choicesFromForm(base,'de'),{gameRoot:'C:\\Owned Game',provider:'gog',mode:'build',install:true,acceptUnityTerms:false,language:'de'});
   assert.deepEqual(choicesFromForm({...base,declareDlc:true,ownedDlc:[]},'de').ownedDlc,[]);
   assert.deepEqual(choicesFromForm({...base,declareDlc:true,ownedDlc:['solo','solo','not-dlc','jotl']},'de').ownedDlc,['solo','jotl']);
   assert.throws(()=>choicesFromForm({gameRoot:' '},'de'),/missingGame/);
@@ -66,9 +66,46 @@ test('ownership is never inferred from selected checkboxes unless explicitly dec
   assert.equal(choicesFromForm({...base,profileName:'Name',profileId:'gog-id'},'en').profile.steamId,undefined);
 });
 
+test('update workflows require the owned game and selected base APK; profile updates need no Unity consent',()=>{
+  const base={gameRoot:' C:\\Owned Game ',provider:'gog',baseApk:' C:\\Quest\\Built.apk ',install:false};
+  for(const mode of ['update-mod','update-profile']){
+    const result=choicesFromForm({...base,mode},'de');
+    assert.equal(result.mode,mode);assert.equal(result.baseApk,'C:\\Quest\\Built.apk');
+    assert.equal(result.acceptUnityTerms,false);assert.equal(result.gameRoot,'C:\\Owned Game');
+    assert.equal(choicesFromForm({...base,mode,signingRoot:' C:\\Owner Workspace '},'de').signingRoot,'C:\\Owner Workspace');
+    assert.throws(()=>choicesFromForm({...base,mode,baseApk:' '},'de'),/missingBaseApk/);
+    assert.throws(()=>choicesFromForm({...base,mode,gameRoot:' '},'de'),/missingGame/);
+  }
+  assert.equal(choicesFromForm(base,'de').mode,'build');
+  assert.equal(choicesFromForm(base,'de').baseApk,undefined,'a new build cannot silently consume an update APK');
+  assert.equal(choicesFromForm({...base,signingRoot:' C:\\Unused '},'de').signingRoot,undefined);
+  for(const mode of ['unsupported','',true])assert.throws(()=>choicesFromForm({...base,mode},'de'),/invalidMode/);
+});
+
+test('prerequisite requalification keeps the retained build primary and exposes actual live work separately',()=>{
+  const build={id:'build',status:'pending',progress:{stagePercent:49.5,phase:'pending',buildOverview:{active:null}}};
+  for(const id of ['tools','source','unity','profile','inspect']){
+    const active={id,status:'running',progress:{stagePercent:0,phase:'receipt-verify',percent:25}};
+    const result=progressView({status:'running',stages:[active,build,{id:'install',status:'pending'}]});
+    assert.equal(result.current,build);assert.equal(result.active,active);assert.equal(result.retaining,true);
+    assert.equal(result.phase,'build');assert.equal(result.percent,49.5);assert.equal(result.width,49.5);
+    assert.equal(macroStep({status:'running',stages:[active,build]}),2);
+  }
+  const source={id:'source',status:'blocked',waiting:{code:'source_required'},progress:{stagePercent:20}};
+  const blocked=progressView({status:'blocked',stages:[source,build]});
+  assert.equal(blocked.retaining,true);assert.equal(blocked.active,source);assert.equal(blocked.current,build);
+  const fresh={...build,progress:{stagePercent:0}};
+  assert.equal(progressView({status:'running',stages:[{...source,status:'running'},fresh]}).retaining,false,'changed game/workflow scope has no retained build');
+  const executing={...build,status:'running',progress:{stagePercent:50,phase:'recovery'}};
+  const current=progressView({status:'running',stages:[{...source,status:'complete'},executing]});
+  assert.equal(current.current,executing);assert.equal(current.active,executing);assert.equal(current.retaining,false);
+  const installation={id:'install',status:'running',progress:{stagePercent:15}};
+  assert.equal(progressView({status:'running',stages:[{...build,status:'complete'},installation]}).current,installation);
+});
+
 test('whole-stage progress never substitutes a resettable phase percentage',()=>{
   const state={status:'running',stages:[{id:'tools',status:'complete'},{id:'build',status:'running'}]};
-  assert.deepEqual(progressView(state),{completed:1,total:2,phase:'build',percent:0,width:0,indeterminate:false,current:state.stages[1]});
+  assert.deepEqual(progressView(state),{completed:1,total:2,phase:'build',percent:0,width:0,indeterminate:false,current:state.stages[1],active:state.stages[1],retaining:false});
   for(const percent of [NaN,Infinity,-1,101,'50',null])assert.equal(progressView({...state,progress:{percent}}).percent,0);
   assert.equal(progressView({...state,progress:{percent:0}}).percent,0);
   assert.equal(progressView({...state,progress:{percent:72}}).width,0);

@@ -61,6 +61,14 @@ BUILD_GROUPS = {"inputs": PLANS["build"][:6], "recovery": ("recovery",),
                 "project": PLANS["build"][7:15], "code": ("weave", "package-api"),
                 "import": ("unity-import", "unity-validation"),
                 "export": ("content-bank", "player", "delivery", "output-verify")}
+UPDATE_PLANS = {
+    "update-mod": ("update-owned-game", "update-mod-source", "update-code", "update-art", "update-repack", "update-verify"),
+    "update-profile": ("update-owned-game", "update-profile", "update-repack", "update-verify"),
+}
+UPDATE_SHARES = {"update-mod": dict(zip(UPDATE_PLANS["update-mod"], (5, 5, 40, 15, 25, 10))),
+                 "update-profile": dict(zip(UPDATE_PLANS["update-profile"], (20, 20, 40, 20)))}
+UPDATE_GROUPS = {"update-mod": {"inputs": UPDATE_PLANS["update-mod"][:2], "code": UPDATE_PLANS["update-mod"][2:4], "export": UPDATE_PLANS["update-mod"][4:]},
+                 "update-profile": {"inputs": UPDATE_PLANS["update-profile"][:2], "export": UPDATE_PLANS["update-profile"][2:]}}
 WORK_REVISION = 6
 PREPARATION_ITEMS = {"bundled-audio": "audio", "native-cubemaps": "textures",
                      "ordinary-texture-audit": "textures", "native-texture2d": "textures",
@@ -74,6 +82,30 @@ ENVIRONMENT_ITEM_SHARES = {"environment-bundles": (0., .25), "environment-meshes
 
 def _item_checkpoint(name):
     return "mod-resource-banks" if name in ENVIRONMENT_ITEM_SHARES else name
+
+
+def workflow(row):
+    return row.get("workMode") if row.get("workMode") in UPDATE_PLANS else "build"
+
+
+def planned_operations(row):
+    return UPDATE_PLANS.get(workflow(row), PLANS["build"]) if row["id"] == "build" else PLANS[row["id"]]
+
+
+def build_shares(plan):
+    return UPDATE_SHARES.get(plan.get("workflow"), BUILD_SHARES)
+
+
+def update_alias(row, name):
+    """Map only known reused helper counters to their current update owner."""
+    if row["id"] != "build" or workflow(row) != "update-mod": return None
+    aliases = {"source-snapshot": "update-mod-source", "game-snapshot": "update-mod-source", "snapshot-check": "update-mod-source",
+               "weave": "update-code", "package-api": "update-code", "unity-import": "update-code",
+               "unity-validation": "update-code", "unity-build": "update-code",
+               "mod-banks": "update-art", "mod-resource-banks": "update-art", "delivery": "update-repack"}
+    parent = aliases.get(name)
+    if parent == "update-code" and row.get("progressPlan", {}).get("liveOperation") == "update-art": return "update-art"
+    return parent
 
 
 def phase_operation(stage, phase, value):
@@ -111,9 +143,11 @@ def phase_operation(stage, phase, value):
 
 def initialize(row):
     plan = row.get("progressPlan")
-    operations = PLANS[row["id"]]
-    if not isinstance(plan, dict) or plan.get("version") not in (1, 2):
-        plan = row["progressPlan"] = {"version": 2, "workRevision": WORK_REVISION, "current": None, "completed": [], "fractions": {}, "percent": 0.0}
+    operations = planned_operations(row)
+    mode = workflow(row)
+    if not isinstance(plan, dict) or plan.get("version") not in (1, 2) or plan.get("workflow", "build") != mode:
+        plan = row["progressPlan"] = {"version": 2, "workRevision": WORK_REVISION, "workflow": mode, "current": None, "completed": [], "fractions": {}, "percent": 0.0}
+    plan["workflow"] = mode
     # A replaced Builder preserves its saved operation/high-water evidence.
     # Older plans lack child scopes, so those are learned from the live producer
     # without interpreting a previously reset substep 100% as global completion.
@@ -169,6 +203,7 @@ def begin_attempt(row, boundary):
     the latter at an actual runner boundary, never while polling status.
     """
     plan = initialize(row)
+    if row["id"] == "build": _retain_preparation(plan)
     plan["attemptBoundary"] = boundary
     plan["operationProofs"] = {name: "retained" for name in plan["completed"]}
     plan["liveOperation"] = None
@@ -196,6 +231,98 @@ def begin_attempt(row, boundary):
     return plan
 
 
+def _retain_preparation(plan):
+    """Keep closed checkpoint counts apart from an invocation's live items."""
+    def valid(scope):
+        return isinstance(scope, dict) and type(scope.get("done")) is int and type(scope.get("total")) is int \
+            and 0 <= scope["done"] <= scope["total"] and scope["total"] > 0
+    saved = plan.get("preparationCompleted", {})
+    retained = plan["preparationCompleted"] = {
+        name: {"done": scope["done"], "total": scope["total"]}
+        for name, scope in (saved.items() if isinstance(saved, dict) else ())
+        if name in PLANS["build"] and valid(scope)}
+    scopes = plan.get("preparationScopes", {})
+    for name, scope in (scopes.items() if isinstance(scopes, dict) else ()):
+        if name not in PLANS["build"] or not valid(scope): continue
+        done, total = scope.get("done"), scope.get("total")
+        previous = retained.get(name, {})
+        if previous.get("total") == total: done = max(done, previous.get("done", 0))
+        retained[name] = {"done": done, "total": total}
+    return retained
+
+
+def retain_preparation_history(row, events):
+    """Recover old closed counters before the new attempt clears live state.
+
+    Older planners discarded the scope on the terminal operation failure. The
+    bounded session history still has its preceding closed-checkpoint count.
+    A changed choice boundary excludes counters from a previous selection;
+    begin_stage later rejects any incompatible qualified work scope.
+    """
+    if row["id"] != "build" or workflow(row) != "build" or not isinstance(events, list): return
+    plan = initialize(row)
+    if "project-files" not in plan["completed"]: return
+    retained = _retain_preparation(plan)
+    recent = events[-128:]
+    boundary = max((index for index, item in enumerate(recent)
+                    if isinstance(item, dict) and item.get("code") == "choices_updated"), default=-1)
+    for event in recent[boundary + 1:]:
+        if not isinstance(event, dict) or event.get("stage") != "build" or event.get("code") != "stage_progress": continue
+        value = event.get("parameters", {})
+        if not isinstance(value, dict) or not isinstance(value.get("phase"), str) or not value["phase"].startswith("prepare-substage:"): continue
+        name, done, total = value.get("reportedOperation"), value.get("done"), value.get("total")
+        if name not in PLANS["build"] or type(done) is not int or type(total) is not int or not 0 <= done <= total or total < 1: continue
+        previous = retained.get(name, {})
+        if previous.get("total") == total: done = max(done, previous.get("done", 0))
+        retained[name] = {"done": done, "total": total}
+
+
+def retain_committed(row):
+    """Requalify a changed Builder without discarding closed game work.
+
+    Observed item/byte fractions from an unfinished transform have no commit
+    witness. Only closed operations, packages and checkpoint counts survive
+    the new artifact identity. Their UI status is retained, never fresh reuse.
+    This function does not qualify files or authorize a builder cache.
+    """
+    plan = begin_attempt(row, None)
+    # A new source archive can invalidate code, import and the Android player.
+    # Keeping those old outputs at 99.9% would conceal the new build's work.
+    retained_names = (PLANS["build"][:PLANS["build"].index("weave")] if workflow(row) == "build" else
+                      ("update-owned-game", "update-profile") if workflow(row) == "update-profile" else ("update-owned-game",))
+    plan["completed"] = [name for name in plan["completed"] if name in retained_names]
+    plan["operationProofs"] = {name: "retained" for name in plan["completed"]}
+    plan["current"] = None
+    plan["fractions"] = {}
+    plan.pop("progressScale", None)
+    if workflow(row) != "build":
+        plan["percent"] = round(_build_percent(plan), 6)
+        return plan
+    retained = plan.get("preparationCompleted", {})
+    for name, scope in retained.items():
+        if name not in retained_names or not isinstance(scope, dict): continue
+        done, total = scope.get("done"), scope.get("total")
+        if type(done) is int and type(total) is int and 0 <= done <= total and total > 0:
+            plan["fractions"][name] = min(.99, done / total)
+    recovery = plan.get("recovery", {})
+    work = recovery.get("work", {})
+    sections = recovery.get("sections", {})
+    for section, names in (("core", CORE_STEPS), ("staging", STAGING_STEPS)):
+        child = sections.get(section)
+        if isinstance(child, dict): work.setdefault("fractions", {})[section] = _work_fraction(child, names)
+    batch = recovery.get("batch", {})
+    # A package is durable only at its completed aggregate boundary. The open
+    # package's export/merge counters belong to the previous invocation.
+    batch["work"] = _work()
+    done, total = batch.get("done"), recovery.get("plannedBatches", batch.get("total"))
+    if type(done) is int and type(total) is int and 0 <= done <= total and total > 0:
+        work.setdefault("fractions", {})["batches"] = done / total
+    _, _, fraction = _recovery_work(recovery)
+    if fraction is not None: plan["fractions"]["recovery"] = min(.999999, fraction)
+    plan["percent"] = min(99.9, round(_build_percent(plan), 6))
+    return plan
+
+
 def _ratio(value):
     done, total = value.get("done"), value.get("total")
     if done is None or total is None: return None
@@ -216,6 +343,7 @@ def _preparation_fraction(plan, operation, value):
         plan.setdefault("preparationScopes", {})[operation] = {
             "name": phase.split(":", 1)[1], "done": value["done"], "total": value["total"],
             "open": value.get("operationStatus") == "start", "itemFraction": 0.}
+        _retain_preparation(plan)
         return ratio
     if not phase.startswith("prepare-items:"): return None
     name = phase.split(":", 1)[1]
@@ -420,9 +548,10 @@ def _active_work(plan, current):
 
 
 def _build_percent(plan):
+    shares = build_shares(plan)
     weighted = sum(weight * (1. if name in plan["completed"] else plan["fractions"].get(name, 0.))
-                   for name, weight in BUILD_SHARES.items())
-    return 100 * weighted / sum(BUILD_SHARES.values())
+                   for name, weight in shares.items())
+    return 100 * weighted / sum(shares.values())
 
 
 def _overview_rows(steps, completed, fractions, active, proofs=None, failed=False, active_status=None):
@@ -452,15 +581,19 @@ def _build_overview(row, plan):
     """
     active = plan.get("liveOperation", plan.get("current"))
     if row["status"] == "complete": active = None
-    operations = _overview_rows(PLANS["build"], plan["completed"], plan.get("liveFractions", plan["fractions"]), active,
+    operations = _overview_rows(planned_operations(row), plan["completed"], plan.get("liveFractions", plan["fractions"]), active,
                                plan.get("operationProofs"), row["status"] == "failed", plan.get("liveStatus"))
     groups = []
-    for name, names in BUILD_GROUPS.items():
+    shares = build_shares(plan)
+    for name, names in UPDATE_GROUPS.get(workflow(row), BUILD_GROUPS).items():
         members = [item for item in operations if item["id"] in names]
         done = sum(item["closed"] for item in members)
         groups.append({"id": name, "done": done, "total": len(members), "active": active in names,
-                       "percent": round(sum(BUILD_SHARES[item["id"]] * item["percent"] for item in members)
-                                        / sum(BUILD_SHARES[item["id"]] for item in members), 6), "operations": members})
+                       "percent": round(sum(shares[item["id"]] * item["percent"] for item in members)
+                                        / sum(shares[item["id"]] for item in members), 6), "operations": members})
+    if workflow(row) in UPDATE_PLANS:
+        return {"schema": 1, "workflow": workflow(row), "done": sum(item["closed"] for item in operations), "total": len(operations),
+                "active": active, "groups": groups, "recovery": {"sections": [], "staging": [], "batches": None}}
     recovery = plan.get("recovery", {})
     work = recovery.get("work", {})
     section = recovery.get("liveSection", work.get("current")) if active == "recovery" else None
@@ -483,12 +616,19 @@ def _build_overview(row, plan):
 def advance(row, value, operation=None, status=None):
     for key in ("recoverySection", "recoveryBatchIndex", "recoveryBatchTotal", "recoveryNativeIndex", "recoveryNativeTotal", "activeWork", "buildOverview"):
         value.pop(key, None)
-    plan = initialize(row); operations = PLANS[row["id"]]
+    plan = initialize(row); operations = planned_operations(row)
     # One observed attempt boundary, never a status read, marks old completion
     # as retained. Later explicit completion/reuse restores current evidence.
     if value["phase"] == "starting" and value.get("updatedAt") != plan.get("attemptBoundary"):
         begin_attempt(row, value.get("updatedAt"))
     inferred, measured = phase_operation(row["id"], value["phase"], value)
+    if row["id"] == "build" and workflow(row) in UPDATE_PLANS:
+        inferred = {"game-inputs": "update-owned-game", "mod-inputs": "update-mod-source",
+                    "output-verify": "update-verify"}.get(inferred, inferred)
+        if inferred is not None and inferred not in operations:
+            mapped = update_alias(row, inferred)
+            if mapped is not None: value["childOperation"], inferred = inferred, mapped
+            else: inferred, measured = None, False
     if row["id"] == "unity" and value["phase"] == "unity-prerequisites" and plan.get("current") != "prerequisites":
         measured = False
     operation = operation or inferred or value.get("reportedOperation")
@@ -513,7 +653,8 @@ def advance(row, value, operation=None, status=None):
         if active_scope:
             operation = owner
     child_boundary = (value["phase"].startswith(("recovery-section:", "staging-section:", "prepare-substage:", "prepare-items:"))
-                      or value["phase"] in ("recovery-batches", "recovery-raw-reuse", "recovery-plan", "prepare-project-copy"))
+                      or value["phase"] in ("recovery-batches", "recovery-raw-reuse", "recovery-plan", "prepare-project-copy")
+                      or workflow(row) in UPDATE_PLANS and value.get("childOperation") is not None)
     parent_status = "progress" if child_boundary else status
     preparation_counter = row["id"] == "build" and value["phase"].startswith(("prepare-substage:", "prepare-items:"))
     if operation in operations:

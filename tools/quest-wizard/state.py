@@ -209,7 +209,9 @@ class Store:
             state.update(choices=choices, choicesKey=value_hash(choices), status="ready", needsActions=[])
             for row in state["stages"]:
                 row.update(status="pending", details={}, progress=stage_progress())
+                if row["id"] == "build": row["workMode"] = choices.get("mode", "build")
                 row.pop("progressPlan", None)
+                row.pop("progressWorkKey", None)
                 row.pop("waiting", None)
                 row.pop("timingState", None)
             self.event(state, "choices_updated")
@@ -218,7 +220,8 @@ class Store:
     def create(self, choices):
         session = uuid.uuid4().hex
         state = {"schema": 1, "session": session, "choices": choices, "choicesKey": value_hash(choices),
-                 "status": "ready", "stages": [{"id": name, "status": "pending", "attempts": 0} for name in STAGES],
+                 "status": "ready", "stages": [{"id": name, "status": "pending", "attempts": 0,
+                    **({"workMode": choices.get("mode", "build")} if name == "build" else {})} for name in STAGES],
                  "needsActions": [], "lastEvent": 0, "events": [], "created": time.time(),
                  "progress": {"completed": 0, "total": len(STAGES), "phase": None, "percent": None}}
         self.save(state)
@@ -253,21 +256,45 @@ class Store:
     def record(self, session, code, stage=None, **parameters):
         with self._lock: return self._event(self._state(session), code, stage, **parameters)
 
-    def begin_stage(self, session, stage, key):
-        """Retry the same immutable inputs without resetting completed work units."""
+    def begin_stage(self, session, stage, key, *, work_key=None, previous_work_key=None):
+        """Separate receipt identity from compatible, retained build work.
+
+        The engine qualifies the game/profile/workflow scope independently of
+        the changing Builder release. This scope preserves display evidence;
+        stage receipts still require their exact immutable artifact key.
+        Legacy adoption requires the engine's explicitly captured old scope.
+        """
+        if (work_key is not None or previous_work_key is not None) and stage != "build":
+            raise WizardError("invalid_progress", "A retained work scope belongs to the build stage.")
+        for scope in (work_key, previous_work_key):
+            if scope is not None and (not isinstance(scope, str) or not scope or len(scope) > 160 or "\0" in scope):
+                raise WizardError("invalid_progress", "Invalid retained build work scope.")
+        if previous_work_key is not None and work_key is None:
+            raise WizardError("invalid_progress", "Legacy work qualification requires the current scope.")
         with self._lock:
             state = self._state(session); row = self._row(state, stage)
-            if row.get("progressKey") != key:
-                row.pop("progressPlan", None)
+            if stage == "build": row["workMode"] = state["choices"].get("mode", "build")
+            prior_key, prior_work = row.get("progressKey"), row.get("progressWorkKey")
+            compatible = work_key is not None and (prior_work == work_key or
+                prior_work is None and (previous_work_key == work_key or prior_key == key))
+            if prior_key != key or work_key is not None and prior_work is not None and prior_work != work_key:
+                if compatible and prior_key is not None:
+                    stage_plan.retain_committed(row)
+                else:
+                    row.pop("progressPlan", None)
+                    row.pop("progressWorkKey", None)
                 row["progress"] = stage_progress()
                 row["status"] = "pending"
                 row.pop("timingState", None)
             row["progressKey"] = key
+            if work_key is not None: row["progressWorkKey"] = work_key
             self.save(state)
 
     def operation(self, session, stage, name, *, complete=False, detail=None):
-        if name not in stage_plan.PLANS.get(stage, ()):
-            raise WizardError("invalid_progress", "Unknown planned operation.")
+        with self._lock:
+            row = self._row(self._state(session), stage)
+            if name not in stage_plan.planned_operations(row):
+                raise WizardError("invalid_progress", "Unknown planned operation.")
         return self.progress(session, stage, "operation:" + name, 1 if complete else None,
                              1 if complete else None, "operations", detail,
                              operation=name, status="complete" if complete else "start")
@@ -275,14 +302,16 @@ class Store:
     def begin_run(self, session):
         """Clear old failures/live work before checking prerequisite receipts.
 
-        Stage input keys are still qualified by begin_stage: a replaced source
-        cannot inherit incompatible progress. This boundary only separates the
-        explicitly continued attempt from accepted, compatible old work.
+        Stage receipts remain immutable. begin_stage separately qualifies the
+        build's retained work scope after prerequisites refresh their details.
+        This boundary clears current-attempt diagnostics before that check.
         """
         with self._lock:
             state = self._state(session)
             state.update(status="running", needsActions=[])
             for row in state["stages"]:
+                if row["id"] == "build": row["workMode"] = state["choices"].get("mode", "build")
+                stage_plan.retain_preparation_history(row, state.get("events"))
                 if row["status"] != "complete": row["status"] = "pending"
                 row.pop("waiting", None)
                 row["progress"] = stage_progress("complete", 1, 1) if row["status"] == "complete" else stage_progress()
@@ -293,10 +322,12 @@ class Store:
         value = stage_progress(phase, done, total, unit, detail)
         if status is not None and status not in ("start", "progress", "complete", "reuse", "failed"):
             raise WizardError("invalid_progress", "Invalid progress event status.")
-        if operation is not None and operation not in stage_plan.PLANS.get(stage, ()):
-            raise WizardError("invalid_progress", "Unknown planned operation.")
         with self._lock:
             state = self._state(session); row = self._row(state, stage)
+            if operation is not None and operation not in stage_plan.planned_operations(row):
+                mapped = stage_plan.update_alias(row, operation)
+                if mapped is None: raise WizardError("invalid_progress", "Unknown planned operation.")
+                value["childOperation"], operation = operation, mapped
             stage_plan.advance(row, value, operation, status)
             old = row.get("progress", {}); row["progress"] = value
             self._timing.observe(state, row, value, status)

@@ -66,6 +66,251 @@ class StageProgressTests(unittest.TestCase):
         reopened.begin_stage(self.session, 'build', 'input-b')
         self.assertEqual(self.progress()['stagePercent'], 0)
 
+    def closed_preparation(self, *, work_key=None):
+        self.store.begin_stage(self.session, 'build', 'old-release-key', work_key=work_key)
+        self.store.operation(self.session, 'build', 'startup-content')
+        self.store.progress(self.session, 'build', 'prepare-substage:native-sprites', 3, 6, 'checkpoints',
+                            operation='startup-content', status='start')
+        closed = self.progress()['stagePercent']
+        self.store.progress(self.session, 'build', 'prepare-items:native-sprites', 80, 100, 'items')
+        self.assertGreater(self.progress()['stagePercent'], closed)
+        return closed
+
+    def test_release_key_change_preserves_closed_work_but_drops_uncommitted_items(self):
+        closed = self.closed_preparation(work_key='owned-game-target-profile')
+        old = self.store.load(self.session)
+        old['stages'][5]['status'] = 'failed'
+        old['needsActions'] = [{'code': 'build_tool_failed', 'stage': 'build'}]
+        self.store.save(old)
+        reopened = state.Store(self.store.root)
+        reopened.begin_run(self.session)
+        reopened.begin_stage(self.session, 'build', 'repaired-release-key', work_key='owned-game-target-profile')
+        current = reopened.load(self.session)['stages'][5]
+        self.assertEqual(current['status'], 'pending')
+        self.assertEqual(current['progress']['stagePercent'], closed)
+        self.assertEqual(current['progress']['phase'], 'pending')
+        self.assertIsNone(current['progress']['buildOverview']['active'])
+        self.assertEqual(current['progressPlan']['preparationCompleted']['startup-content'], {'done': 3, 'total': 6})
+        self.assertEqual(current['progressPlan']['preparationScopes'], {})
+        self.assertNotIn('startup-content', current['progressPlan']['completed'])
+        operations = [item for group in current['progress']['buildOverview']['groups'] for item in group['operations']]
+        self.assertTrue(all(item['status'] == 'retained' for item in operations if item['closed']))
+        self.assertFalse(any(item['status'] in ('running', 'checking', 'failed', 'reused') for item in operations))
+        reopened.progress(self.session, 'build', 'starting')
+        reopened.operation(self.session, 'build', 'game-inputs')
+        progress = reopened.load(self.session)['stages'][5]['progress']
+        self.assertEqual(progress['stagePercent'], closed)
+        self.assertEqual(progress['buildOverview']['active'], 'game-inputs')
+        self.assertEqual(progress['activeWork']['operation'], 'game-inputs')
+
+    def test_legacy_scope_adoption_requires_matching_engine_qualification(self):
+        for previous, expected in [('owned-scope', True), ('different-game', False), (None, False)]:
+            with self.subTest(previous=previous):
+                self.store = state.Store(Path(self.temp.name) / ('legacy-' + str(previous)))
+                self.session = self.store.create({'gameRoot': 'owned'})['session']
+                closed = self.closed_preparation()
+                self.store.begin_run(self.session)
+                self.store.begin_stage(self.session, 'build', 'new-release-key', work_key='owned-scope', previous_work_key=previous)
+                current = self.store.load(self.session)['stages'][5]
+                self.assertEqual(current['progress']['stagePercent'], closed if expected else 0)
+                self.assertEqual(current['progressWorkKey'], 'owned-scope')
+                self.assertEqual(current['progressKey'], 'new-release-key')
+
+    def test_legacy_terminal_failure_restores_only_closed_checkpoint_history(self):
+        closed = self.closed_preparation()
+        self.store.progress(self.session, 'build', 'prepare-substage:native-sprites', 3, 6, 'checkpoints',
+                            operation='startup-content', status='failed')
+        self.store.progress(self.session, 'build', 'operation:startup-content', operation='startup-content', status='failed')
+        saved = self.store.load(self.session)
+        saved['status'] = saved['stages'][5]['status'] = 'failed'
+        plan = saved['stages'][5]['progressPlan']
+        plan.pop('preparationCompleted', None)
+        self.assertEqual(plan['preparationScopes'], {}, 'old terminal operation discarded the live scope')
+        self.store.save(saved)
+        self.store.begin_run(self.session)
+        self.store.begin_stage(self.session, 'build', 'new-release-key', work_key='owned', previous_work_key='owned')
+        progress = self.progress()
+        self.assertEqual(progress['stagePercent'], closed)
+        current = self.store.load(self.session)['stages'][5]
+        self.assertEqual(current['progressPlan']['preparationCompleted']['startup-content'], {'done': 3, 'total': 6})
+        self.assertIsNone(progress['buildOverview']['active'])
+
+    def test_legacy_checkpoint_history_before_choice_change_cannot_add_credit(self):
+        self.closed_preparation()
+        saved = self.store.load(self.session)
+        plan = saved['stages'][5]['progressPlan']
+        plan.pop('preparationCompleted', None); plan['preparationScopes'] = {}
+        saved['events'].append({'code': 'choices_updated'})
+        self.store.save(saved)
+        self.store.begin_run(self.session)
+        self.store.begin_stage(self.session, 'build', 'new-release-key', work_key='owned', previous_work_key='owned')
+        self.assertEqual(self.progress()['stagePercent'], 48)
+        self.assertEqual(self.store.load(self.session)['stages'][5]['progressPlan']['preparationCompleted'], {})
+
+    def test_changed_game_target_profile_or_workflow_cannot_adopt_retained_work(self):
+        for scope in ('changed-game', 'changed-target', 'changed-profile', 'update-mod', 'update-profile'):
+            with self.subTest(scope=scope):
+                self.store = state.Store(Path(self.temp.name) / scope)
+                self.session = self.store.create({'gameRoot': 'owned'})['session']
+                self.closed_preparation(work_key='old-owned-scope')
+                # Even an unchanged receipt key cannot override a genuinely
+                # changed work scope. A legacy hint cannot replace a saved one.
+                self.store.begin_stage(self.session, 'build', 'old-release-key', work_key=scope, previous_work_key=scope)
+                current = self.store.load(self.session)['stages'][5]
+                self.assertEqual(current['progress']['stagePercent'], 0)
+                self.assertEqual(current['progressPlan']['completed'], [])
+                self.assertEqual(current['progressWorkKey'], scope)
+
+    def test_retained_work_scope_does_not_qualify_old_stage_receipts(self):
+        self.closed_preparation(work_key='owned-scope')
+        output = self.store.session_dir(self.session) / 'old-build-result.txt'
+        output.write_text('old APK receipt fixture')
+        self.store.publish(self.session, 'build', 'old-release-key', [output], {})
+        self.store.begin_stage(self.session, 'build', 'new-release-key', work_key='owned-scope')
+        self.assertGreater(self.progress()['stagePercent'], 0)
+        self.assertIsNone(self.store.valid(self.session, 'build', 'new-release-key'))
+        self.assertIsNotNone(self.store.valid(self.session, 'build', 'old-release-key'))
+
+    def test_changed_release_retains_closed_raw_packages_and_staging_receipts(self):
+        self.store.begin_stage(self.session, 'build', 'old-release-key', work_key='owned-scope')
+        self.store.operation(self.session, 'build', 'recovery')
+        self.store.progress(self.session, 'build', 'recovery-plan', 16, 16, 'batches', status='reuse')
+        for section in stage_plan.RECOVERY_SECTIONS[:-1]:
+            self.store.progress(self.session, 'build', 'recovery-section:' + section, 1, 1, 'sections', status='reuse')
+            if section == 'batches': self.store.progress(self.session, 'build', 'recovery-batches', 16, 16, 'batches', status='reuse')
+        self.store.progress(self.session, 'build', 'recovery-section:staging', status='start')
+        for step in stage_plan.STAGING_STEPS[:6]:
+            self.store.progress(self.session, 'build', 'staging-section:' + step, 1, 1, 'steps', status='reuse')
+        closed = self.progress()['stagePercent']
+        self.store.progress(self.session, 'build', 'staging-section:native', 0, 1, 'steps', status='start')
+        self.store.progress(self.session, 'build', 'recovery-asset-references', 95, 100, 'files')
+        self.assertGreater(self.progress()['stagePercent'], closed)
+        self.store.begin_run(self.session)
+        self.store.begin_stage(self.session, 'build', 'new-release-key', work_key='owned-scope')
+        progress = self.progress()
+        self.assertEqual(progress['stagePercent'], closed)
+        overview = progress['buildOverview']
+        self.assertEqual(overview['recovery']['batches'], {'done': 16, 'total': 16})
+        self.assertEqual([item['id'] for item in overview['recovery']['staging'] if item['closed']], list(stage_plan.STAGING_STEPS[:6]))
+        self.assertTrue(all(item['status'] == 'retained' for item in overview['recovery']['staging'][:6]))
+        self.assertIsNone(overview['recovery']['stagingCounter'])
+        self.assertIsNone(overview['active'])
+
+    def test_invalid_work_scope_does_not_mutate_progress(self):
+        self.closed_preparation(work_key='owned-scope')
+        before = self.progress()['stagePercent']
+        for parameters in ({'work_key': ''}, {'work_key': True}, {'work_key': 'x' * 161}, {'previous_work_key': 'old'}):
+            with self.subTest(parameters=parameters), self.assertRaises(state.WizardError):
+                self.store.begin_stage(self.session, 'build', 'new', **parameters)
+        with self.assertRaises(state.WizardError): self.store.begin_stage(self.session, 'source', 'new', work_key='owned')
+        self.assertEqual(self.progress()['stagePercent'], before)
+
+    def test_new_artifact_reopens_source_dependent_code_import_and_player_work(self):
+        self.store.begin_stage(self.session, 'build', 'old-release-key', work_key='owned-scope')
+        self.store.operation(self.session, 'build', 'output-verify', complete=True)
+        self.assertGreater(self.progress()['stagePercent'], 99)
+        self.store.begin_stage(self.session, 'build', 'new-release-key', work_key='owned-scope')
+        row = self.store.load(self.session)['stages'][5]
+        names = stage_plan.PLANS['build'][:stage_plan.PLANS['build'].index('weave')]
+        self.assertEqual(row['progressPlan']['completed'], list(names))
+        self.assertEqual(row['progress']['stagePercent'], sum(stage_plan.BUILD_SHARES[name] for name in names))
+        operations = [item for group in row['progress']['buildOverview']['groups'] for item in group['operations']]
+        self.assertTrue(all(item['status'] == 'pending' for item in operations if item['id'] not in names))
+        self.assertNotIn('player', row['progressPlan']['completed'])
+        self.assertNotIn('output-verify', row['progressPlan']['completed'])
+
+    def test_update_workflows_use_only_their_real_operations_and_output_verification(self):
+        for mode, operations in stage_plan.UPDATE_PLANS.items():
+            with self.subTest(mode=mode):
+                self.store = state.Store(Path(self.temp.name) / mode)
+                self.session = self.store.create({'gameRoot': 'owned', 'mode': mode})['session']
+                fresh = self.progress()
+                self.assertEqual(fresh['stageTotal'], len(operations))
+                self.assertEqual(fresh['buildOverview']['total'], len(operations))
+                self.store.begin_run(self.session)
+                self.store.begin_stage(self.session, 'build', 'update-input', work_key=mode + '-owned-scope')
+                self.store.progress(self.session, 'build', 'game-hash', 50, 100, 'bytes')
+                self.assertEqual(self.progress()['stageOperation'], 'update-owned-game')
+                previous = self.progress()['stagePercent']
+                self.assertGreater(previous, 0)
+                for name in operations[:-1]:
+                    progress = self.store.operation(self.session, 'build', name, complete=True)
+                    self.assertGreaterEqual(progress['stagePercent'], previous)
+                    self.assertLess(progress['stagePercent'], 100)
+                    previous = progress['stagePercent']
+                self.store.progress(self.session, 'build', 'output-verify', 50, 100, 'bytes')
+                final = self.progress()
+                self.assertEqual(final['stageOperation'], 'update-verify')
+                self.assertGreater(final['stagePercent'], previous)
+                self.assertEqual([row['id'] for group in final['buildOverview']['groups'] for row in group['operations']], list(operations))
+                self.assertEqual(final['buildOverview']['recovery']['sections'], [])
+                self.assertEqual(final['buildOverview']['recovery']['staging'], [])
+                self.assertIsNone(final['buildOverview']['recovery']['batches'])
+                with self.assertRaises(state.WizardError): self.store.operation(self.session, 'build', 'recovery')
+                with self.assertRaises(state.WizardError): self.store.operation(self.session, 'build', 'unity-import')
+                saved = self.store.load(self.session)
+                saved['stages'][5]['status'] = 'complete'; self.store.save(saved)
+                self.assertEqual(self.progress()['stagePercent'], 100)
+
+    def test_update_recipe_change_reopens_code_or_repack_without_global_asset_credit(self):
+        for mode, expected in [('update-mod', ['update-owned-game']), ('update-profile', ['update-owned-game', 'update-profile'])]:
+            with self.subTest(mode=mode):
+                self.store = state.Store(Path(self.temp.name) / mode)
+                self.session = self.store.create({'gameRoot': 'owned', 'mode': mode})['session']
+                self.store.begin_stage(self.session, 'build', 'old-update-key', work_key='same-' + mode)
+                self.store.operation(self.session, 'build', 'update-verify', complete=True)
+                self.store.begin_stage(self.session, 'build', 'new-update-key', work_key='same-' + mode)
+                current = self.store.load(self.session)['stages'][5]
+                self.assertEqual(current['progressPlan']['completed'], expected)
+                self.assertEqual(current['progress']['stagePercent'], sum(stage_plan.UPDATE_SHARES[mode][name] for name in expected))
+                self.assertNotIn('recovery', current['progressPlan']['completed'])
+                self.assertNotIn('update-verify', current['progressPlan']['completed'])
+
+    def test_update_helper_aliases_contribute_counters_without_completing_the_parent(self):
+        self.store = state.Store(Path(self.temp.name) / 'update-helpers')
+        self.session = self.store.create({'gameRoot': 'owned', 'mode': 'update-mod'})['session']
+        self.store.begin_stage(self.session, 'build', 'update-input')
+        for parent, aliases in [('update-mod-source', ('source-snapshot', 'game-snapshot', 'snapshot-check')),
+                                ('update-code', ('weave', 'package-api', 'unity-import', 'unity-validation', 'unity-build')),
+                                ('update-art', ('mod-banks', 'mod-resource-banks', 'unity-import', 'unity-build')),
+                                ('update-repack', ('delivery',))]:
+            self.store.operation(self.session, 'build', parent)
+            for alias in aliases:
+                with self.subTest(parent=parent, alias=alias):
+                    progress = self.store.progress(self.session, 'build', 'unity-progress', 50, 100, 'tasks', operation=alias, status='complete')
+                    self.assertEqual(progress['stageOperation'], parent)
+                    self.assertEqual(progress['childOperation'], alias)
+                    current = self.store.load(self.session)['stages'][5]
+                    self.assertNotIn(parent, current['progressPlan']['completed'])
+                    self.assertEqual(progress['buildOverview']['active'], parent)
+            self.store.operation(self.session, 'build', parent, complete=True)
+            self.assertIn(parent, self.store.load(self.session)['stages'][5]['progressPlan']['completed'])
+        self.store = state.Store(Path(self.temp.name) / 'profile-no-code')
+        self.session = self.store.create({'gameRoot': 'owned', 'mode': 'update-profile'})['session']
+        self.store.begin_stage(self.session, 'build', 'profile-input')
+        for alias in ('weave', 'package-api', 'unity-import', 'mod-banks', 'delivery', 'unknown-future-op'):
+            with self.subTest(alias=alias), self.assertRaises(state.WizardError):
+                self.store.progress(self.session, 'build', 'tool:child', 1, 1, 'commands', operation=alias, status='complete')
+        self.assertEqual(self.progress()['stagePercent'], 0)
+
+    def test_mode_change_cannot_inherit_full_asset_progress_or_update_repack_progress(self):
+        self.closed_preparation(work_key='build-scope')
+        saved = self.store.load(self.session)
+        saved['choices']['mode'] = 'update-mod'; self.store.save(saved)
+        self.store.begin_run(self.session)
+        self.store.begin_stage(self.session, 'build', 'update-key', work_key='update-scope')
+        current = self.store.load(self.session)['stages'][5]
+        self.assertEqual(current['workMode'], 'update-mod')
+        self.assertEqual(current['progress']['stagePercent'], 0)
+        self.assertEqual(current['progress']['stageTotal'], 6)
+        self.store.operation(self.session, 'build', 'update-repack', complete=True)
+        self.assertGreater(self.progress()['stagePercent'], 0)
+        saved = self.store.load(self.session)
+        saved['choices']['mode'] = 'update-profile'; self.store.save(saved)
+        self.store.begin_run(self.session)
+        self.assertEqual(self.progress()['stagePercent'], 0)
+        self.assertEqual(self.progress()['stageTotal'], 4)
+
     def test_build_overview_lists_real_grouped_operations_with_no_duplicate_or_missing_work(self):
         self.assertEqual(tuple(name for names in stage_plan.BUILD_GROUPS.values() for name in names), stage_plan.PLANS['build'])
         self.assertEqual(sum(stage_plan.BUILD_SHARES.values()), 100)
