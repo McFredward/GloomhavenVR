@@ -1149,6 +1149,8 @@ internal static partial class WallSegmentFade
             var p = new MountedProp { Renderer = r };
             Material? mat = r.sharedMaterial;
             if (mat != null)
+                mat = FadeSourceMaterial(mat);
+            if (mat != null)
             {
                 if (mat.HasProperty(TintColorId)) p.ColorId = TintColorId;
                 else if (mat.HasProperty(ColorPropId)) p.ColorId = ColorPropId;

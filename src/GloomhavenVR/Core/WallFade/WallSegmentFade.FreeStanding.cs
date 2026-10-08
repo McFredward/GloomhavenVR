@@ -757,8 +757,7 @@ internal static partial class WallSegmentFade
         /// </summary>
         private bool IsNonOccludingRenderer(Renderer r)
         {
-            _matScratch.Clear();
-            r.GetSharedMaterials(_matScratch);
+            ReadFadeMaterials(r, _matScratch);
             bool any = false;
             foreach (Material m in _matScratch)
             {

@@ -7,6 +7,24 @@ internal static partial class WallSegmentFade
 {
     private sealed partial class FadeDriver
     {
+        // Private presentation shaders expose a union of several native property schemas.
+        // Their names/gates are not the authored fade capability: in particular the world
+        // shader has _Tint/_Cutoff but no native wall-fade material gate. Classifying it
+        // turns opaque masonry into an inert alpha rider. Resolve current ownership at
+        // each read, then keep the existing synchronous fact/Shader caches on that source.
+        // Never memoize this mapping across frames or restore bindings just to inspect them.
+        private static Material FadeSourceMaterial(Material material) =>
+            ScenarioEnvironmentBudget.CanonicalMaterial(material);
+
+        private static void ReadFadeMaterials(Renderer renderer, List<Material> destination)
+        {
+            destination.Clear();
+            renderer.GetSharedMaterials(destination);
+            for (int i = 0; i < destination.Count; i++)
+                if (destination[i] != null)
+                    destination[i] = FadeSourceMaterial(destination[i]);
+        }
+
         // Build 599 warms 4,631 wall-cache children before a 121 ms WallCache phase, with no
         // rejected warm or changed anchor set. That warm is already retained correctly. The
         // remaining material loop still crosses Unity's native boundary repeatedly for the
@@ -58,6 +76,7 @@ internal static partial class WallSegmentFade
 
         private WallMaterialFact WallMaterialFactOf(Material material)
         {
+            material = FadeSourceMaterial(material);
             if (_wallCacheMaterialFactsActive
                 && _wallCacheMaterialFacts.TryGetValue(material, out WallMaterialFact cached))
                 return cached;

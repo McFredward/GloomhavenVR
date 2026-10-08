@@ -41,15 +41,16 @@ namespace GloomhavenVR.Core
         internal static VRLogLevel Level=VRLogLevel.Debug;
         internal static readonly List<string> Messages=new();
         internal static void Note(string scope,string message)=>Messages.Add(message);
+        internal static void Info(string scope,string message)=>Messages.Add(message);
         internal static void Debug(string scope,string message)=>Messages.Add(message);
     }
     internal static class BundleShaders
     {
-        internal static bool Missing,Throw=false;
+        internal static bool Missing,Throw=false,AttachmentPixels;
         internal static Shader? Resolve(string name,string scope,string yes,string no)
         {
             if(Throw)throw new InvalidOperationException("fixture resolver failure");
-            return Missing?null:Shader.Find("Fixture/WorldMaterialBridge");
+            return Missing?null:Shader.Find(AttachmentPixels?"GloomhavenVR/WorldSimpleMaterial":"Fixture/WorldMaterialBridge");
         }
     }
     internal static class PerfMonitor

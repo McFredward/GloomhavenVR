@@ -1821,8 +1821,7 @@ internal static partial class WallSegmentFade
         /// swap-template donation) as it decides.</summary>
         private bool RendererHasWallFadeChannel(MeshRenderer r)
         {
-            _matScratch.Clear();
-            r.GetSharedMaterials(_matScratch);
+            ReadFadeMaterials(r, _matScratch);
             foreach (Material m in _matScratch)
             {
                 if (m == null || m.shader == null)

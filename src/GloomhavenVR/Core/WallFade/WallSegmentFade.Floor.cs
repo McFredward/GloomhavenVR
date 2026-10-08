@@ -279,7 +279,7 @@ internal static partial class WallSegmentFade
             {
                 if (m == null)
                     continue;
-                Shader sh = m.shader;
+                Shader sh = FadeSourceMaterial(m).shader;
                 if (sh == null)
                     continue;
                 if (!_shaderVerdict.TryGetValue(sh, out bool capable))

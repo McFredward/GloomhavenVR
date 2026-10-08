@@ -12,7 +12,7 @@ using Props=GloomhavenVR.Board.FigureGrab.PropGrab;
 using LocalProps=GloomhavenVR.Board.FigureGrab.HeldProps;
 using RemoteProps=GloomhavenVR.Board.FigureGrab.NetHeldProps;
 
-public static class WorldMaterialProgram
+public static partial class WorldMaterialProgram
 {
     private static int _checks;
     public static int Assertions => _checks;
@@ -173,6 +173,7 @@ public static class WorldMaterialProgram
         WorldMaterialBudget.Shutdown();VRSession.Harmony.UnpatchSelf();
         Object.DestroyImmediate(source.gameObject);Object.DestroyImmediate(scenario);Object.DestroyImmediate(host);
         Object.DestroyImmediate(camera.targetTexture);Object.DestroyImmediate(cameraGo);Object.DestroyImmediate(first);Object.DestroyImmediate(second);Object.DestroyImmediate(foreign);
+        WallAttachmentParity();
         return _checks;
     }
     public static IEnumerator RunAsync()

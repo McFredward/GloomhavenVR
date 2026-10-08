@@ -1001,8 +1001,7 @@ internal static partial class WallSegmentFade
         /// </summary>
         private bool RendererHasFadeChannel(Renderer r)
         {
-            _standingMatScratch.Clear();
-            r.GetSharedMaterials(_standingMatScratch);
+            ReadFadeMaterials(r, _standingMatScratch);
             bool any = false;
             foreach (Material m in _standingMatScratch)
             {

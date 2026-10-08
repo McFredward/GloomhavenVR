@@ -173,8 +173,7 @@ internal static partial class WallSegmentFade
         private static bool HasProtectedNativePresentationMaterial(Renderer renderer)
         {
             if (IsWaterNameFamily(renderer.name)) return true;
-            NativeVisualMaterials.Clear();
-            renderer.GetSharedMaterials(NativeVisualMaterials);
+            ReadFadeMaterials(renderer, NativeVisualMaterials);
             foreach (Material material in NativeVisualMaterials)
             {
                 if (material == null || material.shader == null) continue;

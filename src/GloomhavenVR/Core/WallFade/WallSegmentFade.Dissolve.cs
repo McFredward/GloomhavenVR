@@ -111,6 +111,7 @@ internal static partial class WallSegmentFade
         /// wall material was ever seen.</summary>
         private void CaptureMasonryTemplate(Material m)
         {
+            m = FadeSourceMaterial(m);
             if (_masonryFadeShader == null && m.shader != null)
                 _masonryFadeShader = m.shader;
         }
@@ -186,8 +187,7 @@ internal static partial class WallSegmentFade
             // are unchanged.
             if (p.System == null && r is MeshRenderer)
             {
-                _matScratch.Clear();
-                r.GetSharedMaterials(_matScratch);
+                ReadFadeMaterials(r, _matScratch);
                 bool allNative = _matScratch.Count > 0;
                 foreach (Material m in _matScratch)
                 {
@@ -215,8 +215,7 @@ internal static partial class WallSegmentFade
                 return;
             }
 
-            _matScratch.Clear();
-            r.GetSharedMaterials(_matScratch);
+            ReadFadeMaterials(r, _matScratch);
             if (_matScratch.Count == 0)
             {
                 p.DissolveWhy = "renderer has no materials";
@@ -276,6 +275,8 @@ internal static partial class WallSegmentFade
             for (int i = 0; i < src.Length; i++)
             {
                 Material? m = src[i];
+                if (m != null)
+                    src[i] = m = FadeSourceMaterial(m);
                 if (m == null)
                 {
                     // Raced with a half-built renderer: abort cleanly — destroy the copies
@@ -327,6 +328,7 @@ internal static partial class WallSegmentFade
         /// source material can donate; fade keyword and gate enabled on OUR copy only.</summary>
         private Material BuildSwapMaterial(Material source)
         {
+            source = FadeSourceMaterial(source);
             var mat = new Material(_masonryFadeShader!)
             {
                 name = "GloomhavenVR.DissolveSwap." + source.name,
@@ -498,12 +500,16 @@ internal static partial class WallSegmentFade
         /// no record yet agrees with the record it will get. ModBuild 261: without this,
         /// <see cref="PredictClassOfRenderer"/> promised "enabled-only" for every cutout leaf on
         /// the <c>fade ON</c> banner.</summary>
-        private static bool MaterialOffersOwnChannel(Material? mat) =>
-            mat != null
-            && (mat.HasProperty(TintColorId) || mat.HasProperty(ColorPropId)
+        private static bool MaterialOffersOwnChannel(Material? mat)
+        {
+            if (mat == null)
+                return false;
+            mat = FadeSourceMaterial(mat);
+            return mat.HasProperty(TintColorId) || mat.HasProperty(ColorPropId)
                 || mat.HasProperty(BaseColorId) || mat.HasProperty(CutoffId)
                 || (mat.HasProperty(ToggleDissolvePropId)
-                    && mat.HasProperty(InvisibilityControlPropId)));
+                    && mat.HasProperty(InvisibilityControlPropId));
+        }
 
         /// <summary>
         /// The channel a piece runs on, or — for one not yet evaluated — the channel it WILL
@@ -524,25 +530,25 @@ internal static partial class WallSegmentFade
         {
             if (r == null)
                 return -1;
-            // ModBuild 261: ask the OWN-CHANNEL question first, in the same order and by the same
-            // slot-0 rule ClassifyProp uses — EnsureDissolveChannel declines to swap such a piece,
-            // so a prediction that skipped this term could only ever contradict the record.
-            if (MaterialOffersOwnChannel(r.sharedMaterial))
-                return 2;
-            _matScratch.Clear();
-            r.GetSharedMaterials(_matScratch);
-            if (_matScratch.Count == 0)
-                return 3;
+            // Match EnsureDissolveChannel: all-native masonry precedes a slot-0 colour/cutoff
+            // channel. Inspect authored materials so an optimized union schema cannot turn a
+            // native dissolve into a false own-alpha census entry.
+            ReadFadeMaterials(r, _matScratch);
             int needSwap = 0;
+            bool undecidable = _matScratch.Count == 0;
             foreach (Material m in _matScratch)
             {
                 if (m == null)
-                    return 3; // half-built — undecidable right now
-                if (!HasLiveWallFadeToggle(m))
+                    undecidable = true;
+                else if (!HasLiveWallFadeToggle(m))
                     needSwap++;
             }
-            if (needSwap == 0)
+            if (!undecidable && needSwap == 0 && r is MeshRenderer)
                 return 0;
+            if (r is ParticleSystemRenderer || MaterialOffersOwnChannel(r.sharedMaterial))
+                return 2;
+            if (undecidable)
+                return 3; // half-built channel-less renderer — retried next frame
             return _masonryFadeShader != null && r is MeshRenderer ? 1 : 3;
         }
 

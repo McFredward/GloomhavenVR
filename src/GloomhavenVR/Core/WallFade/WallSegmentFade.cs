@@ -5645,8 +5645,7 @@ internal static partial class WallSegmentFade
         private void ClassifyMaterialsAndName(Renderer r, ref RendererFact f)
         {
             bool wallFade = false, foliage = false, water = false;
-            _matScratch.Clear();
-            r.GetSharedMaterials(_matScratch);
+            ReadFadeMaterials(r, _matScratch);
             for (int mi = 0; mi < _matScratch.Count; mi++)
             {
                 Material mat = _matScratch[mi];
@@ -8022,8 +8021,7 @@ internal static partial class WallSegmentFade
         /// <summary>Any shared material on a foliage-family shader? (Cached per Shader.)</summary>
         private bool RendererUsesFoliage(MeshRenderer r)
         {
-            _matScratch.Clear();
-            r.GetSharedMaterials(_matScratch);
+            ReadFadeMaterials(r, _matScratch);
             return SharedMaterialsUseFoliage();
         }
 
@@ -8074,8 +8072,7 @@ internal static partial class WallSegmentFade
         /// </summary>
         private bool RendererIsWallFadeCapable(MeshRenderer r)
         {
-            _matScratch.Clear();
-            r.GetSharedMaterials(_matScratch);
+            ReadFadeMaterials(r, _matScratch);
             foreach (Material m in _matScratch)
             {
                 if (m == null)
@@ -8122,8 +8119,7 @@ internal static partial class WallSegmentFade
 
         private bool RendererUsesWallFade(MeshRenderer r)
         {
-            _matScratch.Clear();
-            r.GetSharedMaterials(_matScratch);
+            ReadFadeMaterials(r, _matScratch);
             foreach (Material m in _matScratch)
             {
                 if (m == null)
@@ -8194,6 +8190,7 @@ internal static partial class WallSegmentFade
         /// </summary>
         private static bool HasLiveWallFadeToggle(Material m)
         {
+            m = FadeSourceMaterial(m);
             if (!m.HasProperty(CutoffId))
                 return false;
             if (m.HasProperty(ToggleWallfadeMatId))
@@ -8210,8 +8207,7 @@ internal static partial class WallSegmentFade
         /// solid, deliberately untouched.</summary>
         private bool HasGatedOffWallFadeToggle(MeshRenderer r)
         {
-            _matScratch.Clear();
-            r.GetSharedMaterials(_matScratch);
+            ReadFadeMaterials(r, _matScratch);
             foreach (Material m in _matScratch)
             {
                 if (m == null || m.shader == null || !m.HasProperty(CutoffId))
@@ -8666,6 +8662,7 @@ internal static partial class WallSegmentFade
 
         private void LogToggleNativeMaterialOnce(Material m)
         {
+            m = FadeSourceMaterial(m);
             if (_loggedToggleMats.Count >= 6
                 || !_loggedToggleMats.Add(m.shader.name + "/" + m.name))
                 return;
@@ -9931,8 +9928,7 @@ internal static partial class WallSegmentFade
                     {
                         if (r == null)
                             continue;
-                        _matScratch.Clear();
-                        r.GetSharedMaterials(_matScratch);
+                        ReadFadeMaterials(r, _matScratch);
                         foreach (Material m in _matScratch)
                         {
                             if (m != null && m.shader != null && _unfadeableWallShaders.Count < 8)
@@ -10103,8 +10099,7 @@ internal static partial class WallSegmentFade
                 return false;
             }
             bool any = false;
-            _matScratch.Clear();
-            r.GetSharedMaterials(_matScratch);
+            ReadFadeMaterials(r, _matScratch);
             materialsRead = true;
             foreach (Material m in _matScratch)
             {

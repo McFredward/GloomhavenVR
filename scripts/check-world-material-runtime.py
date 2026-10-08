@@ -44,11 +44,47 @@ def main():
         'internal static bool OwnsRendererOf(Transform? t)',
         'internal static void CopyVisualRoots(List<GameObject> destination)')]
     sources['PropGrab.VisualRoots.cs']='using System;\nusing System.Collections.Generic;\nusing UnityEngine;\nnamespace GloomhavenVR.Board.FigureGrab { internal static partial class PropGrab {\n'+'\n'.join(prop_methods)+'\n} }\n'
+    wall_dir=root/'src/GloomhavenVR/Core/WallFade'
+    wall_paths=[wall_dir/name for name in ('WallSegmentFade.cs','WallSegmentFade.Mounted.cs',
+        'WallSegmentFade.Dissolve.cs','WallSegmentFade.ReadFacts.cs','WallSegmentFade.PropUnit.cs',
+        'WallSegmentFade.Floor.cs','WallSegmentFade.Standing.cs','WallSegmentFade.FreeStanding.cs',
+        'WallSegmentFade.SelectionFacts.cs')]
+    wall_text={p.name:p.read_text() for p in wall_paths}
+    attachment_methods=[]
+    for filename,signatures in (
+        ('WallSegmentFade.cs',('private bool EnsureTextures()', 'private static bool HasLiveWallFadeToggle(Material m)',
+            'private bool RendererIsWallFadeCapable(MeshRenderer r)', 'private bool RendererUsesWallFade(MeshRenderer r)')),
+        ('WallSegmentFade.Mounted.cs',('private static MountedProp ClassifyProp(Renderer r)',
+            'private static ParticleSystem.MinMaxGradient ScaledStartColor(MountedProp p, float alpha)',
+            'private void DriveProp(MountedProp p, float fade)')),
+        ('WallSegmentFade.Dissolve.cs',('private void CaptureMasonryTemplate(Material m)',
+            'private void EnsureDissolveChannel(MountedProp p)', 'private Material BuildSwapMaterial(Material source)',
+            'private void DriveNativeProp(MountedProp p, float fade)',
+            'private static void RestorePropSwap(MountedProp p, Renderer? r)',
+            'private static bool MaterialOffersOwnChannel(Material? mat)',
+            'private int PredictClassOfRenderer(Renderer? r)')),
+        ('WallSegmentFade.ReadFacts.cs',('private static void ReadFadeMaterials(Renderer renderer, List<Material> destination)',)),
+    ):
+        attachment_methods.extend(pure_method(wall_text[filename],sig) for sig in signatures)
+    read_source=wall_text['WallSegmentFade.ReadFacts.cs']
+    source_signature='private static Material FadeSourceMaterial(Material material) =>'
+    start=read_source.index(source_signature);end=read_source.index(';',start)+1
+    attachment_methods.append(read_source[start:end])
+    for filename,signature in (('WallSegmentFade.cs','private const float FoliageCutoffEnd'),
+                               ('WallSegmentFade.Mounted.cs','private const float MountedParticleShrink')):
+        text=wall_text[filename];start=text.index(signature);end=text.index(';',start)+1
+        attachment_methods.append(text[start:end])
+    sources['WallAttachmentDelivery.cs']='using System; using System.Collections.Generic; using UnityEngine; namespace GloomhavenVR.Core { internal static partial class WallSegmentFade { private sealed partial class FadeDriver {\n'+'\n'.join(attachment_methods)+'\n} } }\n'
     combined='\n'.join(sources.values())
     assert 'StaticBatchingUtility' not in combined and 'SetStaticBatchInfo' not in combined
-    assert 'new Mesh' not in combined and 'SetPropertyBlock(' not in combined and 'forceRenderingOff =' not in combined
+    world_combined='\n'.join(value for name,value in sources.items() if name!='WallAttachmentDelivery.cs')
+    assert 'new Mesh' not in world_combined and 'SetPropertyBlock(' not in world_combined and 'forceRenderingOff =' not in world_combined
     assert 'Camera.onPreCull +=' not in combined,'commit must use the final native boundary'
     changes=[
+        ('attachment-canonical-source-missing',[('WallAttachmentDelivery.cs','ScenarioEnvironmentBudget.CanonicalMaterial(material);','material;',1)],'optimized native wall admission resolves original shader name and live gate'),
+        ('attachment-native-priority-missing',[('WallAttachmentDelivery.cs','if (p.System == null && r is MeshRenderer)','if (p.System == null && r is MeshRenderer && bool.Parse("false"))',1)],'optimized attachment retains original native dissolve classification'),
+        ('attachment-swap-original-not-canonical',[('WallAttachmentDelivery.cs','src[i] = m = FadeSourceMaterial(m);','m = FadeSourceMaterial(m);',1)],'mixed attachment restore snapshot retains real native slots'),
+        ('attachment-native-write-release-missing',[('WallAttachmentDelivery.cs','ScenarioEnvironmentBudget.BeforeNativeRendererWrite(p.Renderer);','/* injected surviving native-write lease */',1)],'attachment native write releases original renderer binding before its effect'),
         ('mode-ignored',[('WorldMaterialBudget.Materials.cs','variant.SetFloat("_GHVRWorldMaterialMode", _mode);','variant.SetFloat("_GHVRWorldMaterialMode", 1);',1)],'actual private material binds independently requested mode'),
         ('native-material-shader-mutated',[('WorldMaterialBudget.Materials.cs','variant.shader = _shader;','original.shader = _shader;',2)],'private world shader never mutates original native material'),
         ('native-copy-omitted',[('WorldMaterialBudget.Materials.cs','variant.CopyPropertiesFromMaterial(original);','/* injected stale material properties */',1)],'between-eye native in-place material edits'),
@@ -125,7 +161,8 @@ def main():
         'harmonyx/2.7.0/lib/net45/0Harmony.dll','monomod.runtimedetour/21.12.13.1/lib/net452/MonoMod.RuntimeDetour.dll',
         'monomod.utils/21.12.13.1/lib/net452/MonoMod.Utils.dll','mono.cecil/0.11.4/lib/net40/Mono.Cecil.dll')]
     assert all(p.is_file() for p in deps),'pinned production HarmonyX dependencies must exist'
-    inputs=paths+[prop_path]+bridge_paths+[Path(__file__).resolve()]+sorted(p for p in fixture.rglob('*') if p.is_file() and '__pycache__' not in p.parts)+deps
+    world_shader=root/'unity/GloomhavenVR.Assets/Assets/Bundle/Environments/WorldSimpleMaterial.shader'
+    inputs=paths+wall_paths+[world_shader,prop_path]+bridge_paths+[Path(__file__).resolve()]+sorted(p for p in fixture.rglob('*') if p.is_file() and '__pycache__' not in p.parts)+deps
     hashes={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in inputs}
     manifest={'result':str(run/'results.txt'),'cases':[]}
     dotnet=shutil.which('dotnet') or str(Path.home()/'.dotnet/dotnet')
@@ -160,12 +197,16 @@ def main():
     for shader in ('Amp_Basic_N_MRAO','Amp_Low/Amp_Basic_N_MRAO_Low','Amp_Basic_WallFade',
             'Amp_Low/Amp_Basic_WallFade_Low','Amp_Basic','Amp_Low/Amp_Basic_Low','Fixture/UnreviewedWorld'):
         (unity/'Assets'/(shader.replace('/','_')+'.shader')).write_text(native.replace('Amp_Basic_N_MRAO',shader,1))
+    shutil.copyfile(world_shader,unity/'Assets/WorldSimpleMaterial.shader')
+    shutil.copyfile(fixture/'AttachmentNative.shader',unity/'Assets/Amp_Basic_WallFade.shader')
     for dependency in deps:shutil.copyfile(dependency,unity/'Assets'/dependency.name)
     (unity/'Packages/manifest.json').write_text('{"dependencies":{}}\n');(unity/'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
     (run/'source-hashes.json').write_text(json.dumps({'sha256':hashes,'coverage':'partial' if args.production_only or args.case else 'production-and-negative-controls',
         'cases':[v[0] for v in variants],'limits':['Native scene/controllers/config are explicit surrogate boundaries.',
         'Fixture bridge shader proves ownership/delivery pixels, not production world shading; separate shader lane proves native fragment routes.',
         'Actual Unity material/MPB/cloning/renderer camera calls and production final Harmony postfix execute.',
+        'Complete production attachment classification, channel establishment, native drive, textures and swap restoration execute; scene membership/held/floor decisions are explicit boundaries.',
+        'Attachment pixels use the actual production world shader and a GL native HIGH clip surrogate; native simplex sample/art/lighting and Windows bytecode remain outside this lane.',
         'No headset FPS, full original scene, Windows shader execution or multiplayer acceptance.']},indent=2)+'\n')
     command=[str(args.unity),'-batchmode','-force-glcore','-projectPath',str(unity),'-executeMethod','WorldRunner.Start',
         '-worldManifest',str(run/'manifest.json'),'-logFile',str(run/'unity.log')]

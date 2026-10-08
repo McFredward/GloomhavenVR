@@ -33,6 +33,7 @@ public static class WorldRunner
         bool passed=true;
         using(var report=new StreamWriter(manifest.result))
         {
+            Environment.SetEnvironmentVariable("GHVR_WORLD_EVIDENCE", Path.GetDirectoryName(manifest.result));
             report.WriteLine("Unity "+Application.unityVersion+"; GPU "+SystemInfo.graphicsDeviceName);
             foreach(var entry in manifest.cases)
             {
