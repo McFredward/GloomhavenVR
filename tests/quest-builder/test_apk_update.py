@@ -168,6 +168,14 @@ class ApkUpdateTests(unittest.TestCase):
         self.assertEqual(library.read_bytes(), b"expensive retained compile state"); self.assertEqual(plugin.read_bytes(), b"already woven replacement")
         with self.assertRaisesRegex(storage.BuildError, "different update"):
             update.stage_code_project(repo, project, self.base, self.game / "Managed", **{**arguments, "code_key": "d" * 64})
+        changed = update.stage_code_project(repo, project, self.base, self.game / "Managed",
+            **{**arguments, "code_key": "d" * 64, "retain_compatible_library": True})
+        self.assertFalse(changed["reused"])
+        self.assertEqual(library.read_bytes(), b"expensive retained compile state")
+        self.assertEqual(plugin.read_bytes(), (self.game / "Managed/GH.Runtime.dll").read_bytes())
+        with self.assertRaisesRegex(storage.BuildError, "package/template ABI changed"):
+            update.stage_code_project(repo, project, self.base, self.game / "Managed",
+                **{**arguments, "code_key": "e" * 64, "package_abi": "f" * 64, "retain_compatible_library": True})
 
     def test_local_central_name_mismatch_is_rejected_before_signing(self):
         raw = bytearray(self.base.read_bytes())

@@ -197,7 +197,8 @@ def _compile_code(builder, args, inputs, output, source, game, project, base, to
         return result
     core.stage_code_project(source, project, base, game / "Managed", profile=inputs["profile"], package_abi=package_abi,
                             version_code=inputs["mod"]["modBuild"],
-                            version_name="0.1.0.B" + str(inputs["mod"]["modBuild"]) + "." + root.name[:12], code_key=root.name)
+                            version_name="0.1.0.B" + str(inputs["mod"]["modBuild"]) + "." + root.name[:12], code_key=root.name,
+                            retain_compatible_library=True)
     builder.weave(args, inputs, output, source, game, project)
     ugui = project / "Packages/com.unity.ugui/Runtime/UI/Core/Layout/LayoutRebuilder.cs"
     if ugui.is_file():
@@ -322,7 +323,12 @@ def run(builder, args, repo, output):
             changed_art = _art_rows(inputs["mod"]["files"]) != _art_rows(current_mod["files"])
             game = output / "updates/game-inputs" / inputs["game"]["key"] / ("with-art" if changed_art else "code")
             _game_subset(builder, inputs, builder.game_data(args.game_root), game, art_changed=changed_art)
-            project = root / "code-project"
+            # A stable private compiler directory retains Unity/Bee's native
+            # object cache across mod versions. Its owner requires the same
+            # converted game and package ABI; each update keeps separate receipts.
+            compiler_scope = builder.value_hash({"gameInputKey": base["inputKey"],
+                "packageAbi": package_fingerprint(builder, source, inputs), "scope": "quest-code-project-v1"})
+            project = output / "updates/code-projects" / compiler_scope
             code = _compile_code(builder, args, inputs, output, source, game, project, base_apk, tools, root)
             replacements.update(code["replacements"])
             if changed_art:

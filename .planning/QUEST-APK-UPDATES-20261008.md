@@ -66,6 +66,11 @@ retained original MonoScript assembly/name/property hash/execution order must
 match the actual compact player. Original initializers/assembly classification
 remain qualified. Completed SDK, weave, package API and native outputs have
 separate receipts. Packaging retries reuse the closed native pair.
+Successive mod versions share a private code project's Unity/Bee Library only
+for the same converted game and package ABI. Its small code tree refreshes;
+Unity invalidates changed native objects. Build receipts remain per-update and
+unowned/linked compiler directories are rejected. This reuses compiler work
+without treating an earlier mod's native pair as the current completed output.
 
 Changed authored VR art rebuilds its own banks. Unchanged banks and the original
 Campaign bank remain untouched. Original-derived environment inputs use a

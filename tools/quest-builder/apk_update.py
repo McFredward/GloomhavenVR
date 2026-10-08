@@ -242,7 +242,8 @@ def _validate_capsule(value, manifest):
         keys.add(key)
 
 
-def stage_code_project(repo, project, base, managed_dir, *, profile, version_code, version_name, package_abi, packages_manifest=None, code_key=None):
+def stage_code_project(repo, project, base, managed_dir, *, profile, version_code, version_name, package_abi, packages_manifest=None, code_key=None,
+                       retain_compatible_library=False):
     """Stage only runtime code, managed plugins and their script-reference roster.
 
     The caller may initially supply original PC DLLs and deploy its woven/bound
@@ -267,14 +268,26 @@ def stage_code_project(repo, project, base, managed_dir, *, profile, version_cod
     marker = project / "QuestCodeUpdate/code-project-owner.json"
     if marker.is_file():
         previous = json.loads(marker.read_bytes())
-        if previous.get("owner") != owner: raise BuildError("Code-only project belongs to a different update; retain it and use this update's own output folder.")
-        if previous.get("state") == "ready":
+        matching = previous.get("owner") == owner
+        prior_owner = previous.get("owner", {})
+        compatible = (retain_compatible_library and isinstance(prior_owner, dict)
+            and prior_owner.get("schema") == owner["schema"] and prior_owner.get("gameInputKey") == owner["gameInputKey"]
+            and prior_owner.get("packageAbi") == owner["packageAbi"] and previous.get("state") in ("ready", "staging"))
+        if not matching and not compatible:
+            raise BuildError("Code-only project belongs to a different update; retain it and use this update's own output folder.")
+        if matching and previous.get("state") == "ready":
             return {"project": str(project), "capsule": capsule, "gameInputKey": metadata["inputKey"],
                     "originalAssetsImported": False, "reused": True}
-        if previous.get("state") != "staging": raise BuildError("Code-only project owner state is invalid.")
+        if previous.get("state") not in ("ready", "staging"): raise BuildError("Code-only project owner state is invalid.")
+        # Same owned game/compiler ABI, new mod: refresh only the small code
+        # tree. Unity/Bee owns invalidation of changed native objects in Library.
+        # This does not adopt code/build receipts from the previous update.
+        for name in ("Assets", "Packages", "ProjectSettings", "Library"):
+            path = project / name
+            if path.is_symlink() or (hasattr(path, "is_junction") and path.is_junction()):
+                raise BuildError("Code-only project cannot reuse a linked code or compiler directory.")
         for name in ("Assets", "Packages", "ProjectSettings"):
             path = project / name
-            if path.is_symlink(): raise BuildError("Code-only project cannot regenerate a linked directory.")
             if path.exists(): shutil.rmtree(path)
     elif project.exists() and any(project.iterdir()):
         raise BuildError("The code-only project has no matching owned staging receipt; use an empty private directory.")
