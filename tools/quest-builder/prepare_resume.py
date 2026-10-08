@@ -102,7 +102,7 @@ def copy_changed(source, target, *, observed=None):
 
 
 class Preparation:
-    def __init__(self, output, project, *, input_key, target, recipe, source_files=(), progress=None, reset=None, content_proofs=()):
+    def __init__(self, output, project, *, input_key, target, recipe, source_files=(), progress=None, reset=None, content_proofs=(), compatible_input_key=None):
         self.output, self.project = Path(output), _ordinary_owned(Path(project))
         self.progress, self.checked, self.index = progress, {}, 0
         self.copy_qualified = set()
@@ -120,6 +120,9 @@ class Preparation:
         self.journal = _ordinary_owned(self.root / "journal.json")
         self.identity = {"schema": SCHEMA, "owner": OWNER, "project": relative,
                          "inputKey": input_key, "target": target, "recipe": recipe}
+        if compatible_input_key is not None and (not isinstance(compatible_input_key, str) or not re.fullmatch(r"[0-9a-f]{64}", compatible_input_key)):
+            raise BuildError("Preparation compatibility evidence has an invalid prior input key.")
+        migration = False
         self.sources = [(Path(path), dict(row)) for path, row in source_files]
         # Read-only immutable snapshot files were already hashed while selecting
         # inputs. Store metadata qualification once, not a tree sweep per phase.
@@ -134,24 +137,32 @@ class Preparation:
                 if not isinstance(step, dict) or not re.fullmatch(r"[a-z][a-z0-9-]{0,79}", step.get("name", "")):
                     raise BuildError("Preparation journal step ownership differs; existing files were retained.")
             if any(value.get(key) != expected for key, expected in self.identity.items()):
-                if reset is None: raise BuildError("Preparation inputs changed; owned project requires a new preparation.")
-                reset()
-                self._discard_owned_journal(value)
-                value = None
-            elif value.get("sources") != self.source_stamps:
+                if compatible_input_key is not None:
+                    # The builder has proved the exact old/new immutable input
+                    # manifests and unchanged producers before supplying this
+                    # private key. This is never inferred from matching stats.
+                    if value.get("inputKey") != compatible_input_key or any(value.get(key) != expected for key, expected in self.identity.items() if key != "inputKey"):
+                        raise BuildError("Preparation compatibility evidence does not match this journal identity.")
+                    migration = True
+                else:
+                    if reset is None: raise BuildError("Preparation inputs changed; owned project requires a new preparation.")
+                    reset()
+                    self._discard_owned_journal(value)
+                    value = None
+            if value is not None and value.get("sources") != self.source_stamps:
                 # A snapshot is immutable. Re-hash only metadata changes to allow
                 # harmless copied timestamps while rejecting an edited source.
                 for path, row in self.sources:
                     if value.get("sources", {}).get(str(path)) != self.source_stamps[str(path)]:
                         if path.stat().st_size != row["size"] or digest(path) != row["sha256"]:
                             raise BuildError("Preparation source changed since its checkpoint: " + path.name)
-                value["sources"] = self.source_stamps
+                if not migration: value["sources"] = self.source_stamps
         else:
             value = None
             if self.project.exists() and reset is not None: reset()
         self.value = value or {**self.identity, "sources": self.source_stamps, "steps": [], "pending": None}
         if not isinstance(self.value.get("steps"), list): raise BuildError("Preparation journal has no ordered steps.")
-        write_json(self.journal, self.value)
+        if not migration: write_json(self.journal, self.value)
         self._rollback_pending()
         try:
             self._qualify()
@@ -159,12 +170,13 @@ class Preparation:
             # A corrupt base overlay is repairable from the exact selected
             # snapshot. This differs from an interrupted later substage, whose
             # good base/native/audio outputs must remain in place.
-            if getattr(self, "invalid_step", None) == "base-project" and reset is not None:
+            if not migration and getattr(self, "invalid_step", None) == "base-project" and reset is not None:
                 reset()
                 self.value["steps"] = []
                 self.checked.clear()
                 write_json(self.journal, self.value)
             else: raise
+        if migration: self._rebind_compatible_input()
         # A kill after receipt publication can leave an already committed undo
         # directory. Its successful named step proves this private ownership.
         for step in self.value["steps"]:
@@ -281,6 +293,23 @@ class Preparation:
             if counter: counter.add(1, relative)
         if counter: counter.finish()
         if replaced: write_json(self.journal, self.value)
+
+    def _rebind_compatible_input(self):
+        """Retain a byte-qualified pre-archive prefix after a proved tool repair."""
+        steps = self.value["steps"]
+        boundary = next((index for index, step in enumerate(steps) if step["name"] == "startup-archive"), len(steps))
+        prefix = {row["path"] for step in steps[:boundary] for row in step["outputs"]}
+        # Later package/compiler/case phases may have rewritten prefix files.
+        # Dropping their last owner would expose stale earlier contracts on the
+        # next restart. Such ownership migration needs its own explicit recipe;
+        # retain everything and fail rather than guess replacement contracts.
+        for step in steps[boundary:]:
+            if any(row["path"] in prefix for row in step["outputs"]):
+                raise BuildError("Preparation compatibility cannot discard a later owner of retained output contracts: " + step["name"] + "; project and journal were retained.")
+        self.value["steps"] = steps[:boundary]
+        self.value["inputKey"] = self.identity["inputKey"]
+        self.value["sources"] = self.source_stamps
+        write_json(self.journal, self.value)
 
     def _emit(self, operation, status, detail):
         if self.progress:
@@ -440,14 +469,39 @@ class Preparation:
 
 
 def manifest_contracts(project, manifests, *, extra=()):
-    """Resolve paths already declared by bounded phase evidence, without globbing."""
+    """Resolve declared produced files, retaining source provenance separately."""
     project, result, absent = Path(project), list(manifests) + list(extra), set()
+    roots = ("Assets/", "Packages/", "ProjectSettings/", "QuestRecovery/", "QuestStartupEvidence/", "QuestCampaignEvidence/")
+    sources = {}
+    def source_containers(rows):
+        # Sprite/Texture2D receipts record the original PC CAB containers beside
+        # their produced assets. The 142900 Windows run restored every Sprite,
+        # then mistook sourceContainers[].path for copied StreamingAssets. These
+        # exact {path, sha256} records are input provenance, never output files.
+        # Validate the role instead of skipping arbitrary nested declarations:
+        # an extra assetPath/output or generated-project root is ambiguous.
+        if not isinstance(rows, list): raise BuildError("Preparation source-container provenance is not a list.")
+        for row in rows:
+            if not isinstance(row, dict) or set(row) != {"path", "sha256"}:
+                raise BuildError("Preparation source-container provenance has ambiguous fields.")
+            name = _relative(row["path"])
+            if name.split("/", 1)[0] in {root[:-1] for root in roots}:
+                raise BuildError("Preparation source-container provenance names a generated output: " + name)
+            checksum = row["sha256"]
+            if not isinstance(checksum, str) or not re.fullmatch(r"[0-9a-f]{64}", checksum):
+                raise BuildError("Preparation source-container provenance has an invalid byte hash: " + name)
+            if name in sources and sources[name] != checksum:
+                raise BuildError("Preparation source-container provenance disagrees on original bytes: " + name)
+            sources[name] = checksum
     def visit(value):
         if isinstance(value, dict):
             for key in ("assetPath", "asset", "path", "metaPath", "sourceScene", "source"):
                 name = value.get(key)
-                if isinstance(name, str) and name.startswith(("Assets/", "Packages/", "ProjectSettings/", "QuestRecovery/", "QuestStartupEvidence/", "QuestCampaignEvidence/")):
+                if isinstance(name, str) and name.startswith(roots):
                     if not (project / _relative(name)).is_dir(): result.append(name)
+                    if (key == "source" and name.startswith("Assets/") and Path(name).suffix.lower() in (".mp4", ".mov", ".webm", ".ogv")
+                            and isinstance(value.get("path"), str) and value["path"].startswith("StreamingAssets/") and not (project / name).exists()):
+                        absent.add(name)
                 elif isinstance(name, str) and name.startswith("StreamingAssets/"):
                     result.append(_relative("Assets/" + name))
             if isinstance(value.get("files"), dict):
@@ -465,16 +519,16 @@ def manifest_contracts(project, manifests, *, extra=()):
                 result.extend((_relative(name), _relative(destination)))
                 result.extend((_relative(name + ".meta"), _relative(destination + ".meta")))
                 if name != destination: absent.update((name, name + ".meta"))
-            for nested in value.values(): visit(nested)
+            for key, nested in value.items():
+                if key == "sourceContainers": source_containers(nested)
+                elif isinstance(nested, (dict, list)): visit(nested)
         elif isinstance(value, list):
-            for nested in value: visit(nested)
+            for nested in value:
+                if isinstance(nested, (dict, list)): visit(nested)
     for name in manifests:
         path = _ordinary_owned(project / _relative(name))
         if not path.is_file(): raise BuildError("Preparation phase evidence is missing: " + name)
         visit(json.loads(path.read_text(encoding="utf-8")))
-    # Movie staging removes exactly these importer inputs; delivered file-backed
-    # bytes and consuming scene contracts are retained independently.
-    for name in list(result):
-        if name.startswith("Assets/") and Path(name).suffix.lower() in (".mp4", ".mov", ".webm", ".ogv") and not (project / name).exists():
-            absent.add(name)
+    # Only explicit removed movie importer sources may be absent. Delivered
+    # StreamingAssets bytes remain required, even when their suffix is a movie.
     return Contracts(list(dict.fromkeys(result)), absent=absent)

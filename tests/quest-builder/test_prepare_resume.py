@@ -315,6 +315,119 @@ with journal.operation('textures',1):
             with self.subTest(path=path), self.assertRaises(storage.BuildError): resume._relative(path)
 
 
+class CompatiblePreparationTests(unittest.TestCase):
+    """Only explicitly proven producer-compatible input repairs can rebind work."""
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(); self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name); self.project = self.root / "projects/fixture"
+
+    def put(self, name, data):
+        path = self.project / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(data)
+        return path
+
+    def journal(self, key="a", **kwargs):
+        return resume.Preparation(self.root, self.project, input_key=key * 64, target="game", recipe=1, **kwargs)
+
+    def completed_prefix(self, *, pending=False, sources=()):
+        journal = self.journal(source_files=sources)
+        with journal.operation("project-files", 1):
+            journal.run("base-project", "project-files", lambda: self.put("Assets/Quest/Runtime/Probe.cs", b"same template"), ["Assets/Quest/Runtime/Probe.cs"])
+        with journal.operation("startup-content", 3):
+            for name in ("post-effects", "loading-resources", "startup-movies"):
+                journal.run(name, "startup-content", lambda name=name: self.put("Assets/" + name, name.encode()), ["Assets/" + name])
+        if pending:
+            def interrupted():
+                self.put("Assets/native-sprites.json", b"complete producer receipt; old consumer failed")
+                raise storage.BuildError("old contract consumer failed")
+            with self.assertRaisesRegex(storage.BuildError, "old contract consumer"):
+                with journal.operation("startup-content", 1):
+                    journal.run("native-sprites", "startup-content", interrupted, ["Assets/native-sprites.json"])
+        journal.close()
+        return journal
+
+    def test_proven_rebind_preserves_four_closed_steps_pending_outputs_and_library(self):
+        first = self.completed_prefix(pending=True)
+        self.put("Library/imported", b"retained Unity state")
+        old_stamps = {row["path"]: (self.project / row["path"]).stat().st_mtime_ns for step in first.value["steps"] for row in step["outputs"]}
+        second = self.journal("b", compatible_input_key="a" * 64, reset=lambda: self.fail("Project reset"))
+        self.assertEqual(second.value["inputKey"], "b" * 64)
+        self.assertIsNone(second.value["pending"])
+        self.assertEqual([step["name"] for step in second.value["steps"]], ["base-project", "post-effects", "loading-resources", "startup-movies"])
+        with second.operation("project-files", 1):
+            second.run("base-project", "project-files", lambda: self.fail("Base repeated"), [])
+        with second.operation("startup-content", 4):
+            for name in ("post-effects", "loading-resources", "startup-movies"):
+                second.run(name, "startup-content", lambda: self.fail("Closed conversion repeated"), [])
+            second.run("native-sprites", "startup-content", lambda: self.put("Assets/native-sprites.json", b"new valid output contracts"), ["Assets/native-sprites.json"])
+        second.finish(); second.close()
+        self.assertEqual((self.project / "Library/imported").read_bytes(), b"retained Unity state")
+        self.assertEqual({name: (self.project / name).stat().st_mtime_ns for name in old_stamps}, old_stamps)
+
+    def test_wrong_prior_key_and_other_identity_changes_do_not_reset_or_rebind(self):
+        first = self.completed_prefix(); before = first.journal.read_bytes()
+        for parameters in ({"compatible_input_key": "c" * 64}, {"compatible_input_key": "invalid"}):
+            with self.subTest(parameters=parameters), self.assertRaises(storage.BuildError):
+                self.journal("b", reset=lambda: self.fail("Reset before identity guard"), **parameters)
+            self.assertEqual(first.journal.read_bytes(), before)
+        for target, recipe in (("startup", 1), ("game", 2)):
+            with self.subTest(target=target, recipe=recipe), self.assertRaisesRegex(storage.BuildError, "journal identity"):
+                resume.Preparation(self.root, self.project, input_key="b" * 64, target=target, recipe=recipe,
+                                   compatible_input_key="a" * 64, reset=lambda: self.fail("Reset before guard"))
+            self.assertEqual(first.journal.read_bytes(), before)
+
+    def test_corrupt_prefix_rejects_migration_even_when_base_reset_is_available(self):
+        first = self.completed_prefix(); before = first.journal.read_bytes()
+        self.put("Assets/Quest/Runtime/Probe.cs", b"corrupt template")
+        with self.assertRaisesRegex(storage.BuildError, "Retained preparation output changed"):
+            self.journal("b", compatible_input_key="a" * 64, reset=lambda: self.fail("Corrupt prefix must not be erased"))
+        self.assertEqual(first.journal.read_bytes(), before)
+
+    def test_changed_immutable_source_rejects_migration_before_journal_publication(self):
+        source = self.root / "snapshot-original"; source.write_bytes(b"same immutable source")
+        sources = [(source, {"size": source.stat().st_size, "sha256": storage.digest(source)})]
+        first = self.completed_prefix(sources=sources); before = first.journal.read_bytes()
+        source.write_bytes(b"modified source")
+        with self.assertRaisesRegex(storage.BuildError, "source changed since its checkpoint"):
+            self.journal("b", compatible_input_key="a" * 64, source_files=sources)
+        self.assertEqual(first.journal.read_bytes(), before)
+
+    def test_corrupt_tail_rejected_before_trimming_completed_steps(self):
+        first = self.completed_prefix(); next_run = self.journal()
+        next_run.index = len(next_run.value["steps"])
+        with next_run.operation("mod-banks", 1):
+            next_run.run("startup-archive", "mod-banks", lambda: self.put("Assets/archive", b"closed archive"), ["Assets/archive"])
+        next_run.close(); before = first.journal.read_bytes()
+        self.put("Assets/archive", b"corrupt archive")
+        with self.assertRaisesRegex(storage.BuildError, "Retained preparation output changed in startup-archive"):
+            self.journal("b", compatible_input_key="a" * 64)
+        self.assertEqual(first.journal.read_bytes(), before)
+
+    def test_tail_owning_later_prefix_rewrites_is_retained_and_reported_unsupported(self):
+        first = self.completed_prefix(); next_run = self.journal(); next_run.index = len(next_run.value["steps"])
+        with next_run.operation("mod-banks", 2):
+            next_run.run("startup-archive", "mod-banks", lambda: self.put("Assets/archive", b"closed archive"), ["Assets/archive"])
+            next_run.run("package-settings", "mod-banks", lambda: self.put("Assets/Quest/Runtime/Probe.cs", b"later accepted template"), ["Assets/Quest/Runtime/Probe.cs"])
+        next_run.close(); before = first.journal.read_bytes()
+        with self.assertRaisesRegex(storage.BuildError, "later owner.*package-settings"):
+            self.journal("b", compatible_input_key="a" * 64)
+        self.assertEqual(first.journal.read_bytes(), before)
+        self.assertEqual((self.project / "Assets/Quest/Runtime/Probe.cs").read_bytes(), b"later accepted template")
+
+    def test_independent_archive_tail_rebuilds_with_new_real_input_key(self):
+        first = self.completed_prefix(); previous = self.journal(); previous.index = len(previous.value["steps"])
+        with previous.operation("mod-banks", 1):
+            previous.run("startup-archive", "mod-banks", lambda: self.put("Assets/archive", b"a" * 64), ["Assets/archive"])
+        previous.close()
+        second = self.journal("b", compatible_input_key="a" * 64)
+        self.assertEqual(len(second.value["steps"]), 4)
+        second.index = len(second.value["steps"])
+        with second.operation("mod-banks", 1):
+            second.run("startup-archive", "mod-banks", lambda: self.put("Assets/archive", second.identity["inputKey"].encode()), ["Assets/archive"])
+        second.finish(); second.close()
+        self.assertEqual((self.project / "Assets/archive").read_bytes(), b"b" * 64)
+        last = self.journal("b"); last.close()
+
+
 class PreparationPipelineTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.root = Path(self.temp.name)
