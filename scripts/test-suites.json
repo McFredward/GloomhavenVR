@@ -2041,6 +2041,312 @@
       "weight": 30
     },
     {
+      "id": "quest-installer",
+      "command": [
+        "python3",
+        "scripts/quest-python-tests.py",
+        "installer"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 1
+    },
+    {
+      "id": "quest-network",
+      "command": [
+        "python3",
+        "scripts/quest-python-tests.py",
+        "network"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 1
+    },
+    {
+      "id": "quest-startup-log",
+      "command": [
+        "python3",
+        "scripts/quest-startup-log-tests.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 2
+    },
+    {
+      "id": "quest-script-order-staging",
+      "command": [
+        "python3",
+        "scripts/quest-script-order-staging-tests.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 2
+    },
+    {
+      "id": "quest-startup-video",
+      "command": [
+        "python3",
+        "scripts/quest-startup-video-tests.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 40
+    },
+    {
+      "id": "quest-startup-media",
+      "command": [
+        "python3",
+        "scripts/quest-startup-media-tests.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 2
+    },
+    {
+      "id": "quest-game-scope",
+      "command": [
+        "python3",
+        "scripts/quest-game-scope-tests.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 2
+    },
+    {
+      "id": "quest-scene-discovery",
+      "command": [
+        "python3",
+        "scripts/quest-scene-discovery-tests.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 30
+    },
+    {
+      "id": "quest-options",
+      "command": [
+        "python3",
+        "scripts/quest-options-tests.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 2
+    },
+    {
+      "id": "quest-keyboard-input",
+      "command": [
+        "python3",
+        "scripts/quest-keyboard-input-tests.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 2
+    },
+    {
+      "id": "quest-video-output",
+      "command": [
+        "python3",
+        "scripts/quest-video-output-tests.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 30
+    },
+    {
+      "id": "quest-world-screen-shaders",
+      "command": [
+        "python3",
+        "scripts/quest-world-screen-shader-tests.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 30
+    },
+    {
+      "id": "quest-scope-discovery",
+      "command": [
+        "python3",
+        "scripts/quest-scope-discovery-tests.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 30
+    },
+    {
+      "id": "quest-menu-sampling",
+      "command": [
+        "python3",
+        "scripts/quest-menu-sampling-tests.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 30
+    },
+    {
+      "id": "quest-menu-presentation",
+      "command": [
+        "python3",
+        "scripts/quest-menu-presentation-tests.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 2
+    },
+    {
+      "id": "quest-addressables",
+      "command": [
+        "python3",
+        "scripts/quest-addressables-tests.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 2
+    },
+    {
+      "id": "quest-post-effect-sources",
+      "command": [
+        "python3",
+        "scripts/quest-post-effect-source-tests.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 2
+    },
+    {
+      "id": "quest-startup-loading",
+      "command": [
+        "python3",
+        "scripts/quest-startup-loading-tests.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 2
+    },
+    {
+      "id": "quest-platform",
+      "command": [
+        "python3",
+        "scripts/quest-platform-tests.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 2
+    },
+    {
+      "id": "quest-platform-bridge",
+      "command": [
+        "python3",
+        "scripts/quest-platform-bridge-tests.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 2
+    },
+    {
+      "id": "quest-mod-bundles",
+      "command": [
+        "python3",
+        "scripts/quest-mod-bundle-tests.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 2
+    },
+    {
+      "id": "quest-mod-content",
+      "command": [
+        "python3",
+        "scripts/quest-mod-content-tests.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 2
+    },
+    {
+      "id": "quest-content-delivery",
+      "command": [
+        "python3",
+        "scripts/quest-content-delivery-tests.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 2
+    },
+    {
+      "id": "quest-loading-view",
+      "command": [
+        "python3",
+        "scripts/quest-loading-view-tests.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 2
+    },
+    {
+      "id": "quest-probe-input",
+      "command": [
+        "python3",
+        "scripts/quest-probe-input-tests.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 30
+    },
+    {
+      "id": "quest-probe-diagnostics",
+      "command": [
+        "python3",
+        "scripts/quest-probe-diagnostics-tests.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 30
+    },
+    {
       "id": "npc639-original-receipts",
       "command": [
         "python3",

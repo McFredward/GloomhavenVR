@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
+    <DefineConstants>GHVR_QUEST_STARTUP</DefineConstants>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <NoWarn>$(NoWarn);CS0649</NoWarn>
+    <QuestRuntimeSource Condition="'$(QuestRuntimeSource)' == ''">../../unity/GloomhavenVR.Quest/Assets/Quest/Runtime</QuestRuntimeSource>
+    <PlatformSource Condition="'$(PlatformSource)' == ''">../../src/GloomhavenVR/Core</PlatformSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" /><Compile Include="UnityStubs.cs" />
+    <Compile Include="$(QuestRuntimeSource)/QuestLoadingView.cs" Link="QuestLoadingView.cs" />
+    <Compile Include="$(QuestRuntimeSource)/QuestGameModLifecycle.cs" Link="QuestGameModLifecycle.cs" />
+    <Compile Include="$(PlatformSource)/QuestStandalonePlatform.cs" Link="QuestStandalonePlatform.cs" />
+    <Compile Include="$(PlatformSource)/Loc/QuestText.cs" Link="QuestText.cs" />
+  </ItemGroup>
+</Project>

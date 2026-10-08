@@ -869,7 +869,8 @@ internal static class RenderQuality
         _viewportScaleApplied = Mathf.Clamp(wanted / _sessionAllocationScale, 0.01f, 1f);
         _lastLoggedEyeScale = wanted;
         _pendingEyeScale = wanted;
-        _committedMsaa = Sanitize(MsaaLevel!.Value);
+        _committedMsaa = QuestStandalonePlatform.FixedEyeTextureAllocation
+            ? QuestEyeResolution.StartupMsaa : Sanitize(MsaaLevel!.Value);
         _pendingMsaa = _committedMsaa;
     }
 
@@ -925,7 +926,8 @@ internal static class RenderQuality
         if (Displays.Count > 0) allocation = Displays[0].scaleOfAllRenderTargets;
         _sessionAllocationScale = ValidScale(allocation) ? allocation : 1f;
         _viewportScaleApplied = XRSettings.renderViewportScale;
-        _committedMsaa = Sanitize(MsaaLevel!.Value);
+        _committedMsaa = QuestStandalonePlatform.FixedEyeTextureAllocation
+            ? QuestEyeResolution.StartupMsaa : Sanitize(MsaaLevel!.Value);
     }
 
     /// <summary>After XR teardown: forget capacity/readbacks before the next session.</summary>
@@ -960,7 +962,12 @@ internal static class RenderQuality
 
     private static void ApplyMsaa(bool canWriteRenderResources)
     {
-        int request = Sanitize(MsaaLevel!.Value);
+        // The Android player owns the live Vulkan swapchain and negotiated its
+        // shared mobile sample count before starting XR. Retain dev's coalesced
+        // desktop lifecycle without reintroducing the B623 live-image crash on
+        // Quest; a saved desktop sample request must never resize that swapchain.
+        int request = QuestStandalonePlatform.FixedEyeTextureAllocation
+            ? QuestEyeResolution.StartupMsaa : Sanitize(MsaaLevel!.Value);
         if (request != _pendingMsaa)
         {
             _pendingMsaa = request;
@@ -988,7 +995,8 @@ internal static class RenderQuality
             VRLog.Info("Rig", $"MSAA (re)asserted {current}x → {wanted}x (quality level '{quality}'; " +
                               "native quality swaps are corrected toward the committed level).");
         }
-        if (wanted == _lastPushedDisplayMsaa || !canWriteRenderResources) return;
+        if (wanted == _lastPushedDisplayMsaa || !canWriteRenderResources
+            || QuestStandalonePlatform.FixedEyeTextureAllocation) return;
         SubsystemManager.GetInstances(Displays);
         if (Displays.Count == 0) return;
         foreach (XRDisplaySubsystem display in Displays) display.SetMSAALevel(Mathf.Max(wanted, 1));
@@ -1040,6 +1048,11 @@ internal static class RenderQuality
             return;
         }
         _lastEyeRefusal = -1f;
+        // Keep the Quest-specific viewport cap after the same quiet/render-path
+        // boundary as the current desktop controller. Unity owns the Android
+        // allocation; the compatibility bridge may change only its viewport.
+        if (QuestEyeResolution.TryApply(wanted))
+            return;
         float viewport = Mathf.Clamp(wanted / _sessionAllocationScale, 0.01f, 1f);
         if (Mathf.Abs(_lastLoggedEyeScale - wanted) < 0.0005f)
         {
@@ -1096,6 +1109,10 @@ internal static class RenderQuality
     private static string VerifyEyeScaleBound()
     {
         float wanted = WantedEyeScale();
+        if (QuestStandalonePlatform.FixedEyeTextureAllocation)
+            return $"Quest Vulkan retains its {XRSettings.eyeTextureWidth}x{XRSettings.eyeTextureHeight} "
+                + $"eye allocation; saved scale {wanted:F2}, effective viewport "
+                + $"{XRSettings.renderViewportScale:F2}; live supersampling is unavailable.";
         float expectedViewport = Mathf.Clamp(wanted / _sessionAllocationScale, 0.01f, 1f);
         float actualViewport = XRSettings.renderViewportScale;
         bool accepted = Mathf.Abs(actualViewport - expectedViewport) < 0.005f;
@@ -1566,7 +1583,8 @@ internal static class RenderQuality
     internal static string MsaaLabel()
     {
         Bind();
-        int v = Sanitize(MsaaLevel!.Value);
+        int v = QuestStandalonePlatform.FixedEyeTextureAllocation
+            ? QuestEyeResolution.StartupMsaa : Sanitize(MsaaLevel!.Value);
         return v == 0 ? "Off" : $"{v}x";
     }
 
@@ -1590,7 +1608,7 @@ internal static class RenderQuality
     internal static string EyeScaleLabel()
     {
         Bind();
-        return $"{Mathf.Clamp(EyeResolutionScale!.Value, MinEyeScale, MaxEyeScale):0.0}x";
+        return $"{QuestEyeResolution.EffectiveScale(Mathf.Clamp(EyeResolutionScale!.Value, MinEyeScale, MaxEyeScale)):0.0}x";
     }
 
     /// <summary>

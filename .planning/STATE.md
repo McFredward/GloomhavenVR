@@ -1,5 +1,39 @@
 # State — where the project stands
 
+**Quest Windows retry with current ModBuild 640, 2026-10-08 (Builder only).**
+
+Quest stays on `feature/quest3-standalone`. Seven unpublished repair commits were
+rebased onto a reviewed integration of committed dev `5c8298918`; published
+history remains intact. Capture 215452 reused all 16 original packages, then
+failed during canonical conversion because the installer Python lacked UnityPy.
+Prepare/build now execute in the pinned build interpreter, including child tools.
+Compatible per-file copies and completed transforms survive interruptions;
+current retry rows clear historical failures before prerequisite checks.
+
+The current mod's environment geometry is rebuilt from the owner's game into a
+separate resumable Android bank; original-derived Git payloads are excluded from
+the public Builder. Completed producers and the mod's Unity Library remain reusable.
+Actual source/mesh progress advances the open mod-bank operation. Installation
+and startup admit all four current banks; legacy signed three-bank packages are
+still installable. The environment header opens before dependent mod assets.
+
+The affected integrated gate at `71d211aeb` passes 717/719 cases in 26 suites
+(two existing optional skips), including 29 UI cases and 12 Chrome workflows.
+Strict Release/Debug 0/0, source 15/15, platform 3081/17 controls, bundle recipe
+111, managed startup 313/21 controls and logging 57/11 controls pass. Current Frame camera capture guards and bounded viewport reset repairs are
+composed with Quest ownership. Their source-bound renderer checks pass 99
+assertions/24 controls plus two startup controls; menu ownership passes 26/8.
+The final 640 composition receives fresh strict compilation, source15 and Quest
+platform checks; unchanged tooling and authored-bundle evidence is inherited.
+Exact extracted archive/retained-session qualification precedes publication;
+completed owned workers and obsolete host caches are removed afterwards.
+No host Player/APK, Unity import, full game conversion, exhaustive shader sweep
+or complete Windows/headset success is claimed. Keep existing state/work folders
+and resume the same Wizard session. See [cause, continuation and proof limits](QUEST-BUILD-RETRY-20261008.md).
+
+---
+
+
 **Build642 integration, 2026-10-08: 1.1.0 development candidate.**
 
 The separately checked Frame steady-render CPU follow-up is integrated after641.
@@ -128,6 +162,37 @@ Unchanged evidence is inherited; no complete154-suite or headset pass is claimed
 See [the638 review](NPC-638-REVIEW.md) and
 [the previous-test failure audit](NPC-638-FIRST-PICTURE-AUDIT.md).
 Both peers must install638; no new bundle/default changes or release are made.
+
+---
+
+**Quest B627 durable Windows build continuation, 2026-10-07 (tooling only).**
+
+Capture 200625 identifies source `440b99057`: all sixteen raw packages already
+exist, but the first derived copy rejects `ErrorPulse.anim`. Combined rotated
+logs show a redundant 1,012.469-second raw scan. Closed raw exports now proceed
+to their qualified staging consumers without replaying that scan. Windows
+path/descriptor timestamp semantics and write-time finalization are handled
+without relaxing streamed byte qualification; exact Windows timestamp values
+were not captured, and a whole Windows build remains unverified.
+
+Fourteen durable staging phases and preparation checkpoints preserve compatible
+accepted copies and completed transforms after failure. Owned journals restore
+only unfinished destructive work; Unity `Library` and original inputs remain
+outside rollback. The long build is foregrounded in six groups and 23 actual
+operations, with completed/current/retained/failed/remaining work and genuine
+file/item progress contributing to the global percentage. Failures remain
+visible independently of the optional log stream. Incompatible outputs fail
+explicitly rather than silently restarting a completed stage.
+
+The integrated affected-tooling gate at `e55fbe2ff` passes 617 of 619 cases
+(two existing optional skips), including 28 UI cases and eleven Chrome workflows.
+Final planning-only edits preserve that tested implementation. Qualify the exact
+extracted game-free Builder ZIP and retained Wizard session before publication.
+Keep the existing work/state folders when replacing the archive. Only the Quest
+feature branch is pushed, as reconfirmed by the maintainer; clean only completed
+owned workers after retaining external evidence. See
+[continuation evidence and limits](QUEST-BUILD-RESUME-20261007.md).
+No host APK, game export, Unity import, shader sweep or full hardware result.
 
 ---
 

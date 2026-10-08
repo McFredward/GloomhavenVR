@@ -2,6 +2,57 @@
 
 ## Unified development workflow (2026-09-29)
 
+**Quest scope, corrected by the maintainer on2026-10-06:** include Guildmaster
+again. Its earlier exclusion depended on removing the procedural engine; the
+current bridge instead preserves original dynamic generation. Retain native
+Guildmaster menu availability, saves, loading and multiplayer admission. Remove
+Quest-specific unavailable hints/guards from the complete game target. Steam
+Workshop and store/cloud services remain excluded. Engine execution and its
+combined mobile CPU/memory/frame cost remain unverified hardware gates.
+
+**Quest exception, clarified by the maintainer on 2026-10-03:** keep Quest
+implementation and hardware installer work on `feature/quest3-standalone`, with
+separate worker worktrees from its current checkpoint. The primary agent reviews,
+runs the complete checks and publishes this feature branch for Windows hardware
+testing. Do not merge or push these Quest changes into `dev`, where other agents
+continue Steam Frame work. This explicit instruction supersedes the generic
+integration-branch rules below for the Quest task; all other contracts still apply.
+
+**Quest hardware handoff, clarified on 2026-10-04:** after verifying each new
+hardware package, keep the main ignored `.planning/debug/quest3/` output directory
+limited to the latest APK, Windows archive and current handoff receipt. Remove
+superseded APKs/archives and move historical validation outside that handoff
+directory. Preserve supplied captures in `quest3_probleme/`. The initial loading
+view must use the existing GloomhavenVR logo, a real progress bar and percentage;
+keep the presentation reusable for later in-game loading.
+
+**Quest startup, clarified on 2026-10-04 after the longer menu capture:**
+prefer the original Intro-to-menu flow without an extra preparation display.
+Reuse successfully installed content across launches and source-only mod updates;
+do not run full-file integrity scans on every launch. If actual installation or
+repair needs preparation, show one overall progress bar before native startup,
+without individual verification/file/step bars. Complete it only at observed
+native handover. This supersedes the earlier five-step progress presentation.
+The original native loaders retain their asset-load ownership.
+
+**Quest adaptation compatibility, clarified by the maintainer on 2026-10-04:**
+standalone-only behavior must not change the ordinary PC mod. Gate adaptations
+through `QuestStandalonePlatform.Enabled` or a centrally owned capability, use
+small seams in the shared current components, and retain desktop behavior tests.
+Do not fork menus/keyboards, pin an old mod binary or maintain a Quest option
+allowlist. The builder must include selected current source/art automatically;
+report genuine original/package ABI drift visibly rather than guessing bindings.
+Future settings remain available unless a specific Quest-only exclusion applies.
+
+**Quest cache hygiene, requested by the maintainer on 2026-10-04:** after a
+verified hardware handoff, archive compact diagnostic receipts and prune obsolete
+Quest worker checkouts, generated test copies and historical Unity/build caches.
+Keep Git branch refs, active builds/worktrees, latest matching native symbols,
+canonical owned inputs, supplied captures and potentially unique dirty source
+snapshots. Check active process references and incoming symlinks before removal;
+never follow shared links into other agents' work or the read-only references.
+Record measured reclaimed space rather than summing potentially shared extents.
+
 The maintainer requested integration of `feature/immersive-town-services` into
 `dev`. All subsequent NPC, Steam Frame, and other development now integrates and
 pushes to `dev`; create worker worktrees from the current `dev` commit. The NPC

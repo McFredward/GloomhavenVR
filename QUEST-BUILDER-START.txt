@@ -1,0 +1,23 @@
+GloomhavenVR Quest Builder
+
+DE
+1. Das vollständige ZIP in einen neuen Ordner entpacken.
+2. Quest-Builder.cmd per Doppelklick starten. Das Fenster geöffnet lassen.
+3. Im Wizard die eigene Gloomhaven-PC-Installation wählen und den Hinweisen folgen.
+   Unity Hub kann eine Anmeldung und die Aktivierung einer geeigneten Lizenz erfordern.
+4. Falls unterbrochen: Wizard erneut starten. Der gespeicherte Vorgang öffnet sich automatisch;
+   mit "Fortsetzen" dieselbe Auswahl und erhaltene Ergebnisse weiterverwenden.
+   Der Arbeitsordner %USERPROFILE%\.ghvrq bleibt auch bei einem neuen Builder-Paket erhalten.
+5. Bei einem Fehler: im Wizard "Diagnosepaket speichern" wählen und das ZIP dem Fehlerbericht beilegen.
+
+EN
+1. Extract the complete ZIP into a new folder.
+2. Double-click Quest-Builder.cmd. Keep its launch window open.
+3. Select your own Gloomhaven PC installation in the wizard and follow its prompts.
+   Unity Hub may require sign-in and activation of an eligible license.
+4. If interrupted, open the wizard again. Its saved session opens automatically;
+   use "Continue" to retain the same choices and verified results.
+   Keep the %USERPROFILE%\.ghvrq workspace when replacing the Builder package.
+5. If a step fails, choose "Save diagnostic package" and attach the ZIP to your bug report.
+
+Requires Windows x64, your own game installation, internet for tool setup, and substantial free disk space.

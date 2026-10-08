@@ -50,11 +50,15 @@ internal static class InputModeGuard
             _enforced = false;
             return;
         }
-        if (_enforced || !InputManager.GamePadInUse)
+        // Quest starts the real mod before original Bootstrap. GamePadInUse reads
+        // PlatformLayer.Instance.IsConsole, so its getter is not safe until that
+        // original singleton exists (B614 hardware: thousands of early throws).
+        // Wait for native readiness; keep the same native binding switch below.
+        if (_enforced || PlatformLayer.Instance == null)
             return;
 
         InputManager manager = Singleton<InputManager>.Instance;
-        if (manager == null)
+        if (manager == null || !InputManager.GamePadInUse)
             return;
 
         VRLog.Info("WorldUI", "InputModeGuard: switching the game from gamepad to mouse mode for VR.");

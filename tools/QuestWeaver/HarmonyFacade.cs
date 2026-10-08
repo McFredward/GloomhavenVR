@@ -35,7 +35,7 @@ internal static class HarmonyFacade
         _ => type.FullName
     };
 
-    public static void Write(string destination, AssemblyNameReference? original)
+    public static void Write(string destination, AssemblyNameReference? original, IEnumerable<AssemblyDefinition> currentAssemblies, string managedPath)
     {
         using AssemblyDefinition facade = AssemblyDefinition.ReadAssembly(Path);
         if (original != null)
@@ -43,6 +43,7 @@ internal static class HarmonyFacade
             if (original.HasPublicKey || original.PublicKeyToken.Length > 0) throw new NotSupportedException("A signed Harmony identity requires an explicitly compatible facade.");
             facade.Name.Version = original.Version;
         }
+        TypeLookupMetadata.Attach(facade, currentAssemblies, managedPath);
         facade.Write(destination);
     }
 }
