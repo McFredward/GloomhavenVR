@@ -598,7 +598,31 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 644;
+    public const ushort ModBuild = 645;
+
+    // ModBuild645 — repair the Build643 remote enhancement motion report.
+    // Native row roots were recentered by Binding after a newer artwork frame
+    // made the retained root header older than a child-only hover. Preserve the
+    // original parented anchors/extent and independently authored root position;
+    // explicit detached roots retain their existing pivot pinning. The actual
+    // capture/codec/render fixture reproduces old-source vertical row overlap.
+    // Generic numeric animation and the final offered-card fit both wrote ring
+    // rotation. Faster native pulse/fit updates disturbed sparse spin clocks.
+    // User exception2026-10-08 permits viewer-local intrinsic spin phase, with
+    // unchanged original direction/rate and exact shared card plane/facing.
+    // Retain serialized native UIEnchantressEffect timing before template-bank
+    // neutralization; Warm and Resolve carry inert provenance to the final
+    // observer presentation clock. No native gameplay callback is re-enabled.
+    // Fit the original Aura graphics to the actual parent matrix after native
+    // motion, preserving native size/center/alpha and selectable overlay geometry.
+    // Detached Aura publishes exact transformed XY lengths in existing scale
+    // fields instead of Unity's approximate sheared lossyScale. Ordinary templates
+    // and property/wire layouts are unchanged. Withdrawal resets retained clocks.
+    // The same explicit exception permits intrinsic offered merchant/enchantress
+    // bob phase differences at the original amplitude/waveform/rate; no bob or
+    // flight rewrite is included. Scope, causal controls, exact native geometry
+    // and inherited validation limits: .planning/NPC-645-REVIEW.md. Retains644
+    // automatic CPU work removal and all NPC639/crossplay641 repairs. Peers use645.
 
     // ModBuild644 — target measured fully loaded Frame CPU costs after643.
     // Current five-room643 windows average78.634ms/frame,43.240ms measured mod;
