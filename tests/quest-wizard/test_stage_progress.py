@@ -500,15 +500,16 @@ class StageProgressTests(unittest.TestCase):
         saved = self.store.load(self.session)
         row = saved['stages'][5]
         row['progressPlan']['workRevision'] = stage_plan.WORK_REVISION - 1
-        row['progressPlan']['percent'] = 29.97
+        row['progressPlan']['percent'] = 46.750311
         staging = row['progressPlan']['recovery']['sections']['staging']
         staging.update(completed=list(stage_plan.STAGING_STEPS[:11]), current='audit', live='native',
                        fractions={'audit': .99}, liveStatus='failed')
+        row['progressPlan']['recovery']['work']['fractions']['staging'] = 11.99 / 14
         state.atomic_json(self.store.session_dir(self.session) / 'state.json', saved)
         reopened = state.Store(self.store.root)
         reopened.progress(self.session, 'build', 'staging-section:native', 0, 1, 'steps', status='start')
         progress = self.progress()
-        self.assertGreaterEqual(progress['stagePercent'], 29.97)
+        self.assertGreaterEqual(progress['stagePercent'], 46.750311)
         rows = progress['buildOverview']['recovery']['staging']
         self.assertEqual([item['id'] for item in rows if item['closed']], list(stage_plan.STAGING_STEPS[:6]))
         self.assertEqual(next(item for item in rows if item['id'] == 'native')['status'], 'running')

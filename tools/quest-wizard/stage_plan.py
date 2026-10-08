@@ -141,6 +141,10 @@ def initialize(row):
                 staging["fractions"] = {}
                 for key in ("current", "live", "liveStatus", "counter"):
                     staging.pop(key, None)
+                # Drop the matching parent fraction too. Its former max()
+                # high-water included the falsely closed later phases and
+                # would otherwise freeze newly measured native work again.
+                plan["recovery"].get("work", {}).get("fractions", {}).pop("staging", None)
             plan["fractions"].pop("recovery", None)
             if plan.get("current") == "recovery" and isinstance(row.get("progress"), dict):
                 nested = _recovery_fraction(plan, row["progress"])

@@ -1,5 +1,31 @@
 # State — where the project stands
 
+**Quest Windows native overlay retry with ModBuild643, 2026-10-08 (Builder only).**
+
+Capture `quest-build-support-20261008T075121Z-022bc617.zip` identifies Quest2fc28e31
+/ ModBuild642. All16 raw packages and six staging phases reused; the repaired
+reference audit completed128223 files. Native application then rejected material
+bytes because its producer hashed normalized text against physical CRLF input.
+Pointer and packed-Sprite producers now retain exact UTF-8/newline bytes; strict
+all-file application checks stay enabled. Real original CAB/field/target tests
+reproduce the old defect and pass all three newline variants. An exact reviewed
+helper-pair alias retains the existing recipe, raw binding and closed phases.
+
+Native containers emit measured counts without extra scans. The Wizard keeps
+preparatory reference counts inside native instead of falsely closing later
+transforms/final audit. Migration keeps explicit proofs and global high-water.
+Integrated focused gate245/245 in14 affected modules passes. Reviewed merge
+3eb56d766 includes current dev64329d4b6dd; strict Release/Debug0/0, source16/16,
+renderer124/25+two startup controls pass. Unchanged platform/menu/native/bank
+evidence is inherited by exact source inputs.
+
+The actual packaged Builder must pass isolated startup, preserved-session and
+source/staging qualification before publication. Keep existing work and continue
+the same session. No full Windows/Unity/Player/APK/headset result is claimed.
+See [native byte diagnosis and continuation](QUEST-BUILD-NATIVE-BYTES-20261008.md).
+
+---
+
 **Quest Windows CRLF retry with ModBuild 642, 2026-10-08 (Builder only).**
 
 Capture `quest-build-support-20261008T065008Z-a3cf3b9e.zip` is published source
