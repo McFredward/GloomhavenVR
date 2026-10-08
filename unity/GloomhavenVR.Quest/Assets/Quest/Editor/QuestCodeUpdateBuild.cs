@@ -142,6 +142,12 @@ namespace GloomhavenVR.Quest.Editor
                     if (row.assembly.StartsWith("UnityEngine.", StringComparison.Ordinal) && row.assembly.EndsWith("Module.dll", StringComparison.Ordinal)) continue;
                     throw new InvalidDataException("Retained original serialized script is missing: " + key + "; a full build is required.");
                 }
+                // Source/package metadata can differ from the original player
+                // (for example the private UGUI EventSystem). Preserve its
+                // actual imported order before writing the replacement roster.
+                MonoImporter.SetExecutionOrder(script, row.executionOrder);
+                if (MonoImporter.GetExecutionOrder(script) != row.executionOrder)
+                    throw new InvalidDataException("Retained original script execution order could not be restored: " + key);
                 roots.Add(script);
             }
             // MonoScript assets carry only class identity/property metadata.
