@@ -18,7 +18,7 @@ import struct
 import sys
 import uuid
 
-from storage import BuildError, digest, write_json
+from storage import BuildError, digest, write_json, build_progress
 
 REPORT = "quest-startup-audio.json"
 RESOURCE = "Assets/Resources/QuestOriginalAudio.json"
@@ -81,7 +81,7 @@ class _Reader:
             raise BuildError("Original audio metadata contains an invalid string.") from error
 
 
-def original_clips(source: Path) -> list[dict]:
+def original_clips(source: Path, *, observe=False) -> list[dict]:
     """Read only the pinned player's AudioClip objects; no third-party decoder.
 
     This deliberately accepts the original Unity2021.3.5 little-endian v22
@@ -119,7 +119,9 @@ def original_clips(source: Path) -> list[dict]:
                 raise BuildError("Original AudioClip serialized type changed; refusing a guessed layout.")
             classes.append(class_id)
         clips, identities = [], set()
-        for _ in range(reader.count(1_000_000)):
+        object_count = reader.count(1_000_000)
+        counter = build_progress.Counter("prepare-items:startup-audio-metadata", object_count, "objects") if observe else None
+        for _ in range(object_count):
             reader.align()
             identity, offset, size, type_id = reader.unpack("qQIi")
             if (identity in identities or not 0 <= type_id < len(classes) or
@@ -127,6 +129,7 @@ def original_clips(source: Path) -> list[dict]:
                 raise BuildError("Original audio object table has an invalid identity or range.")
             identities.add(identity)
             if classes[type_id] != 83:
+                if counter is not None: counter.add(1)
                 continue
             if not 0 < size <= 16384 or len(clips) >= 65536:
                 raise BuildError("Original AudioClip object exceeds its bound.")
@@ -154,8 +157,10 @@ def original_clips(source: Path) -> list[dict]:
             clips.append({"name": name, "pathId": identity, "channels": channels, "frequency": frequency,
                           "duration": duration, "loadType": load_type, "compression": compression,
                           "resource": resource, "offset": offset, "size": size})
+            if counter is not None: counter.add(1, name)
     if not clips or len({item["name"] for item in clips}) != len(clips):
         raise BuildError("Original audio clips are absent or have ambiguous names.")
+    if counter is not None: counter.finish()
     return clips
 
 
@@ -200,7 +205,7 @@ def pcm16_fsb(raw: bytes, clip: dict) -> bytes:
     return raw[data_start:data_start + pcm_size]
 
 
-def ima_fsb(raw: bytes, clip: dict) -> bytes:
+def ima_fsb(raw: bytes, clip: dict, *, observe=False) -> bytes:
     """Decode the original FMOD IMA blocks, retaining every authored channel.
 
     Mono/stereo use Xbox IMA; multichannel FSB IMA separates predictor and index
@@ -216,6 +221,7 @@ def ima_fsb(raw: bytes, clip: dict) -> bytes:
     if frames % 64 or not 0 < encoded <= size or size - encoded >= 256 or any(raw[data_start + encoded:]):
         raise BuildError("Original IMA FSB5 frame blocks disagree with the declared timeline.")
     output = array("h", [0]) * (frames * channels)
+    counter = build_progress.Counter("prepare-items:startup-audio-decode", frames // 64, "blocks", clip["name"]) if observe else None
     for block in range(frames // 64):
         start = data_start + block * channels * 36
         base = block * 64 * channels
@@ -239,9 +245,12 @@ def ima_fsb(raw: bytes, clip: dict) -> bytes:
                 if predictor > 32767: predictor = 32767
                 elif predictor < -32768: predictor = -32768
                 output[base + frame * channels + channel] = predictor
+        if counter is not None: counter.add(1)
     if sys.byteorder != "little":
         output.byteswap()
-    return output.tobytes()
+    result = output.tobytes()
+    if counter is not None: counter.finish()
+    return result
 
 
 def wave(pcm: bytes, channels: int, frequency: int) -> bytes:
@@ -298,11 +307,13 @@ def stage_startup_audio(project: Path, game: Path) -> dict:
     if project == game or game in project.parents or project in game.parents:
         raise BuildError("Audio staging needs a generated project separate from the owned game.")
     source = game / "resources.assets"
-    clips = original_clips(source)
+    clips = original_clips(source, observe=True)
     bank = game / "resources.resource"
     if not bank.is_file() or bank.is_symlink():
         raise BuildError("Original audio resource bank is missing or linked.")
     assets, plans, counts = [], [], {}
+    preflight_counter = build_progress.Counter("prepare-items:startup-audio-preflight",
+                                               sum(clip["compression"] != 1 for clip in clips), "clips")
     before = (bank.stat().st_size, bank.stat().st_mtime_ns, source.stat().st_size, source.stat().st_mtime_ns)
     with bank.open("rb") as stream:
         for clip in clips:
@@ -328,7 +339,7 @@ def stage_startup_audio(project: Path, game: Path) -> dict:
                 if clip["compression"] == 0:
                     pcm = pcm16_fsb(raw, clip)
                 elif clip["channels"] == 4:
-                    pcm = ima_fsb(raw, clip)
+                    pcm = ima_fsb(raw, clip, observe=True)
                 else:
                     _fsb(raw, clip, 7)
                 raw_hash = hashlib.sha256(raw).hexdigest()
@@ -347,15 +358,18 @@ def stage_startup_audio(project: Path, game: Path) -> dict:
             counts[recipe] = counts.get(recipe, 0) + 1
             if corrected != exported:
                 plans.append((path, clip, item))
+            preflight_counter.add(1, relative)
     after = (bank.stat().st_size, bank.stat().st_mtime_ns, source.stat().st_size, source.stat().st_mtime_ns)
     if before != after:
         raise BuildError("Owned audio changed during staging; retry from a stable installation.")
+    preflight_counter.finish()
     report = {"schema": 1, "recipe": "original-audio-pcm-boundary-v1", "sourceAssetsSha256": digest(source),
               "originalClipCount": len(clips), "waveClipCount": len(assets), "deliveryCounts": counts, "clips": assets,
               "playbackModified": False, "resampled": False, "downmixed": False}
     # All original/exported associations preflight before changing generated data.
     # Reconstruct one clip at a time instead of retaining hundreds of complete
     # WAVs in RAM. The read-only preflight above already checked every binding.
+    write_counter = build_progress.Counter("prepare-items:startup-audio-write", len(plans), "clips")
     with bank.open("rb") as stream:
         for path, clip, evidence in plans:
             exported = path.read_bytes()
@@ -367,7 +381,7 @@ def stage_startup_audio(project: Path, game: Path) -> dict:
                 raw = stream.read(clip["size"])
                 if hashlib.sha256(raw).hexdigest() != evidence["originalResourceSha256"]:
                     raise BuildError("Owned original audio changed after staging preflight.")
-                pcm = pcm16_fsb(raw, clip) if clip["compression"] == 0 else ima_fsb(raw, clip)
+                pcm = pcm16_fsb(raw, clip) if clip["compression"] == 0 else ima_fsb(raw, clip, observe=True)
             corrected, _ = restore_wave(exported, clip, pcm)
             if hashlib.sha256(corrected).hexdigest() != evidence["sha256"]:
                 raise BuildError("Reconstructed original audio changed after staging preflight.")
@@ -377,7 +391,9 @@ def stage_startup_audio(project: Path, game: Path) -> dict:
                 temp.replace(path)
             finally:
                 temp.unlink(missing_ok=True)
+            write_counter.add(1, evidence["assetPath"])
     write_json(project / REPORT, report)
     write_json(project / RESOURCE, {"schema": 1, "clips": [{k: row[k] for k in
                ("assetPath", "name", "channels", "frequency", "samples", "loadType")} for row in assets]})
+    write_counter.finish()
     return report

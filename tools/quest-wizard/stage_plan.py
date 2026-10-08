@@ -78,10 +78,26 @@ PREPARATION_ITEMS = {"bundled-audio": "audio", "native-cubemaps": "textures",
 # checkpoint. Geometry is only half its work: Unity still has to compile the
 # bank and return a qualified result. Its final mesh cannot close the scope.
 ENVIRONMENT_ITEM_SHARES = {"environment-bundles": (0., .25), "environment-meshes": (.25, .25)}
+# Reservations inside one real preparation checkpoint, never elapsed-time
+# estimates. Each measured pass adds only its own share. Container loads and
+# Sprite writes interleave, so an item cannot imply every container is loaded.
+STARTUP_ITEM_SCHEDULES = {
+    "startup-movies": {"startup-movies-backup": .05, "startup-movies-clips": .04,
+                       "startup-movies-scenes": .06, "startup-movies-assets": .75,
+                       "startup-movies-media": .10},
+    "native-sprites": {"native-sprites-identities": .05, "native-sprites-packed": .10,
+                       "native-sprites-targets": .05, "native-sprites-containers": .10,
+                       "native-sprites": .70},
+    "startup-audio": {"startup-audio-metadata": .05, "startup-audio-preflight": .65,
+                      "startup-audio-write": .30},
+}
+STARTUP_ITEM_CHECKPOINTS = {name: checkpoint for checkpoint, parts in STARTUP_ITEM_SCHEDULES.items() for name in parts}
+STARTUP_ITEM_CHECKPOINTS["startup-audio-decode"] = "startup-audio"
+PREPARATION_ITEMS.update({name: "startup-content" for name in STARTUP_ITEM_CHECKPOINTS})
 
 
 def _item_checkpoint(name):
-    return "mod-resource-banks" if name in ENVIRONMENT_ITEM_SHARES else name
+    return STARTUP_ITEM_CHECKPOINTS.get(name, "mod-resource-banks" if name in ENVIRONMENT_ITEM_SHARES else name)
 
 
 def workflow(row):
@@ -352,16 +368,35 @@ def _preparation_fraction(plan, operation, value):
             "open": value.get("operationStatus") == "start", "itemFraction": 0.}
         _retain_preparation(plan)
         return ratio
-    if not phase.startswith("prepare-items:"): return None
-    name = phase.split(":", 1)[1]
-    if PREPARATION_ITEMS.get(name) != operation: return None
     scope = plan.get("preparationScopes", {}).get(operation, {})
+    nested_movie_bytes = phase == "file-hash" and scope.get("name") == "startup-movies"
+    nested_audio_blocks = phase == "prepare-items:startup-audio-decode" and scope.get("name") == "startup-audio"
+    if nested_movie_bytes or nested_audio_blocks:
+        parent = scope.get("itemCounter", {})
+        allowed = ("startup-audio-preflight", "startup-audio-write") if nested_audio_blocks else ("startup-movies-media",)
+        if parent.get("name") not in allowed or not parent.get("total"): return None
+        name = parent["name"]
+    elif phase.startswith("prepare-items:"):
+        name = phase.split(":", 1)[1]
+    else: return None
+    if PREPARATION_ITEMS.get(name) != operation: return None
     if not scope.get("open") or scope.get("name") != _item_checkpoint(name) or not scope.get("total"): return None
     ratio = _ratio(value)
     if ratio is None: return None
+    if nested_movie_bytes or nested_audio_blocks:
+        # Repeated source/derived hashes belong to at most the currently open
+        # media file. They never count another delivered movie or close it.
+        ratio = min(1., (parent["done"] + min(.99, ratio)) / parent["total"])
+    else:
+        scope["itemCounter"] = {"name": name, "done": value["done"], "total": value["total"]}
     if name in ENVIRONMENT_ITEM_SHARES:
         offset, share = ENVIRONMENT_ITEM_SHARES[name]
         ratio = offset + share * ratio
+    schedule = STARTUP_ITEM_SCHEDULES.get(scope.get("name"))
+    if schedule and (name != "native-sprites" or "itemParts" in scope):
+        parts = scope.setdefault("itemParts", {})
+        parts[name] = max(parts.get(name, 0.), ratio)
+        ratio = sum(share * parts.get(part, 0.) for part, share in schedule.items())
     scope["itemFraction"] = ratio
     scope["items"] = {"done": value["done"], "total": value["total"]}
     return min(1., (scope["done"] + min(.99, ratio)) / scope["total"])
@@ -648,7 +683,7 @@ def advance(row, value, operation=None, status=None):
         owner = PREPARATION_ITEMS.get(name)
         scope = plan.get("preparationScopes", {}).get(owner, {})
         active_scope = scope.get("open") and scope.get("name") == _item_checkpoint(name)
-        if name in ENVIRONMENT_ITEM_SHARES:
+        if name in ENVIRONMENT_ITEM_SHARES or name in STARTUP_ITEM_CHECKPOINTS:
             # A stale or explicitly foreign counter cannot reopen this bank
             # after its actual owner moved on or the runner was restarted.
             active_scope = active_scope and plan.get("liveOperation") == owner and operation in (None, owner)
@@ -659,11 +694,19 @@ def advance(row, value, operation=None, status=None):
                 operation = None
         if active_scope:
             operation = owner
+    movie_file_counter = False
+    if row["id"] == "build" and value["phase"] == "file-hash":
+        scope = plan.get("preparationScopes", {}).get("startup-content", {})
+        movie_file_counter = (scope.get("open") and scope.get("name") == "startup-movies"
+                              and scope.get("itemCounter", {}).get("name") == "startup-movies-media"
+                              and plan.get("liveOperation") == "startup-content" and operation in (None, "startup-content"))
+        if movie_file_counter: operation = "startup-content"
     child_boundary = (value["phase"].startswith(("recovery-section:", "staging-section:", "prepare-substage:", "prepare-items:"))
                       or value["phase"] in ("recovery-batches", "recovery-raw-reuse", "recovery-plan", "prepare-project-copy")
+                      or movie_file_counter
                       or workflow(row) in UPDATE_PLANS and value.get("childOperation") is not None)
     parent_status = "progress" if child_boundary else status
-    preparation_counter = row["id"] == "build" and value["phase"].startswith(("prepare-substage:", "prepare-items:"))
+    preparation_counter = row["id"] == "build" and (value["phase"].startswith(("prepare-substage:", "prepare-items:")) or movie_file_counter)
     if operation in operations:
         value["reportedOperation"] = operation
         plan["liveOperation"] = operation

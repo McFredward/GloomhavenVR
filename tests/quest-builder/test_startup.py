@@ -1,11 +1,15 @@
 """Original startup provenance controls; diagnostic evidence cannot unlock the game."""
 
 import json
+import contextlib
+import io
+import os
 from pathlib import Path
 import sys
 import tempfile
 import unittest
 import zipfile
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools/quest-builder"))
 import startup
@@ -272,6 +276,45 @@ class RestoredShaderCacheTests(unittest.TestCase):
                 self.assertIsNotNone(stages.valid("prepare", key))
 
 
+class MovieReferenceScanTests(unittest.TestCase):
+    def test_incremental_decoder_and_literal_overlap_match_original_full_text(self):
+        guids = ['a' * 32, 'b' * 32, 'c' * 32]
+        payloads = [
+            b'', b'guid: ' + guids[0].encode(),
+            ('\r\n\u00e4\u20ac\U0001f600\r\nguid: ' + guids[0] + '\r\nguid: ' + guids[1] + '\n').encode(),
+            b'g\xffuid: ' + guids[0].encode() + b'\xe2\x82',
+            b'gu\n id: ' + guids[0].encode() + b'GUID: ' + guids[1].encode(),
+            b'guid: ' + guids[0].encode()[:-1] + b'\xff' + guids[0].encode()[-1:],
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'multi-object.asset'
+            for payload in payloads:
+                path.write_bytes(payload)
+                original = path.read_text(encoding='utf-8', errors='ignore')
+                expected = {guid for guid in guids if 'guid: ' + guid in original}
+                for size in (1, 2, 3, 7, 37, 38, 39, 1024):
+                    with self.subTest(payload=payload, size=size):
+                        increments = []
+                        counter = type('Counter', (), {'add': lambda _, amount, detail: increments.append(amount)})()
+                        self.assertEqual(startup._clip_references(path, guids, counter, chunk_size=size), expected)
+                        self.assertEqual(sum(increments), len(payload))
+                        self.assertTrue(all(0 < value <= size for value in increments))
+
+    def test_large_hex_and_compound_objects_do_not_skip_reference_consumers(self):
+        guid = 'a' * 32
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'Texture2D.asset'
+            payload = (b'--- !u!28 &28\nTexture2D:\n  _typelessdata: ' + b'ef' * (2 * 1024 * 1024)
+                       + b'\n--- !u!114 &114\nMonoBehaviour:\n  clip: {guid: ' + guid.encode() + b'}\n')
+            path.write_bytes(payload)
+            sizes = []
+            counter = type('Counter', (), {'add': lambda _, amount, detail: sizes.append(amount)})()
+            self.assertEqual(startup._clip_references(path, [guid], counter), {guid})
+            self.assertEqual(sum(sizes), len(payload)); self.assertGreater(len(sizes), 4)
+            for invalid in (0, -1, True, 1.5):
+                with self.assertRaises(ValueError): startup._clip_references(path, [guid], chunk_size=invalid)
+
+
 class CampaignMovieCensusTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -330,6 +373,33 @@ class CampaignMovieCensusTests(unittest.TestCase):
         for row in report["externalMovies"]:
             self.assertEqual((self.project / "Assets" / row["path"]).read_bytes(), (self.game / row["source"]).read_bytes())
         self.assertFalse((self.project / "Assets/VideoClip/Owned.mp4").exists())
+
+    def test_progress_counts_actual_scenes_asset_bytes_and_delivered_files(self):
+        clip_meta = self.project / 'Assets/VideoClip/Owned.mp4.meta'
+        candidates = [path for path in (self.project / 'Assets').rglob('*') if path.is_file()
+                      and path.suffix in startup.SERIALIZED_EXTENSIONS and path != clip_meta]
+        total_bytes = sum(path.stat().st_size for path in candidates)
+        stream = io.StringIO()
+        with mock.patch.dict(os.environ, {startup.build_progress.ENV: '1'}), contextlib.redirect_stdout(stream), \
+             mock.patch.object(startup.build_progress.time, 'monotonic', side_effect=range(10000)):
+            startup.stage_startup_movies(self.project, self.game)
+        prefix = startup.build_progress.PREFIX
+        progress = [json.loads(line[len(prefix):]) for line in stream.getvalue().splitlines() if line.startswith(prefix)]
+        phases = {'clips': 1, 'scenes': len(self.scenes), 'assets': total_bytes, 'media': 4}
+        for name, total in phases.items():
+            rows = [row for row in progress if row['phase'] == 'prepare-items:startup-movies-' + name]
+            self.assertEqual(rows[0]['status'], 'start'); self.assertEqual(rows[-1]['status'], 'complete')
+            self.assertEqual((rows[-1]['done'], rows[-1]['total']), (total, total))
+            self.assertEqual([row['done'] for row in rows], sorted(row['done'] for row in rows))
+
+    def test_unconverted_reference_still_rejects_before_movie_or_scene_mutation(self):
+        path = self.project / 'Assets/Future.prefab'
+        path.write_bytes(b'--- !u!28 &28\nTexture2D:\n  data: ' + b'ff' * 600000
+                         + b'\n--- !u!114 &114\nMonoBehaviour:\n  m_Clip: {guid: ' + self.guid.encode() + b'}\n')
+        with self.assertRaisesRegex(storage.BuildError, 'Assets/Future.prefab'):
+            startup.stage_startup_movies(self.project, self.game)
+        self.assertEqual((self.project / 'Assets/Scenes/Intro.unity').read_text(), self.originals['Assets/Scenes/Intro.unity'])
+        self.assertTrue((self.project / 'Assets/VideoClip/Owned.mp4').exists())
 
     def test_two_dynamic_components_with_same_native_path_are_rejected_before_mutation(self):
         relative = "Assets/Scenes/CampaignMap.unity"

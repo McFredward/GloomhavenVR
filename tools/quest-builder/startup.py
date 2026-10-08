@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
+import codecs
 from pathlib import Path, PurePosixPath
 import re
 
-from storage import BuildError, digest, inventory, value_hash, write_json
+from storage import BuildError, digest, inventory, value_hash, write_json, build_progress
 
 
 REPORT = "quest-startup-report.json"
@@ -136,6 +137,32 @@ def _copy_movie(source: Path, target: Path, relative: str) -> dict:
     return stage_media(source, target, relative)
 
 
+def _clip_references(path, guids, counter=None, *, chunk_size=1024 * 1024):
+    """Find exactly the old UTF-8/ignore literal matches without a whole YAML buffer.
+
+    Recovered Texture2D payloads can be hundreds of MiB of hex. Whole-text reads
+    held a second complete string without observable byte progress. Incremental
+    decoding retains even matches joined by
+    ignored invalid UTF-8, and the overlap retains matches across block edges.
+    Every byte is still inspected; no asset type or unknown reference is skipped.
+    """
+    if type(chunk_size) is not int or chunk_size <= 0:
+        raise ValueError("Movie reference scan requires a positive block size.")
+    patterns = {guid: "guid: " + guid for guid in guids}
+    overlap = max((len(value) for value in patterns.values()), default=1) - 1
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="ignore")
+    found, tail = set(), ""
+    with path.open("rb") as stream:
+        while True:
+            block = stream.read(chunk_size)
+            text = tail + decoder.decode(block, final=not block)
+            found.update(guid for guid, pattern in patterns.items() if pattern in text)
+            tail = text[-overlap:] if overlap else ""
+            if not block: break
+            if counter is not None: counter.add(len(block), str(path))
+    return found
+
+
 def stage_startup_movies(project: Path, game: Path) -> dict:
     """Deliver exactly the native menu movies and replace unsupported editor clip imports.
 
@@ -178,9 +205,10 @@ def stage_startup_movies(project: Path, game: Path) -> dict:
         raise BuildError("Original startup requires the owned Movies/Ambient menu alternatives.")
 
     clips_by_guid = {}
-    for path in sorted((project / "Assets/VideoClip").rglob("*")):
-        if not path.is_file() or path.suffix.lower() not in VIDEO_EXTENSIONS:
-            continue
+    clip_paths = [path for path in sorted((project / "Assets/VideoClip").rglob("*"))
+                  if path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS]
+    clip_counter = build_progress.Counter("prepare-items:startup-movies-clips", len(clip_paths), "files")
+    for path in clip_paths:
         meta = Path(str(path) + ".meta")
         try:
             guids = re.findall(r"^guid: ([0-9a-f]{32})$", meta.read_text(encoding="utf-8"), re.MULTILINE)
@@ -189,8 +217,11 @@ def stage_startup_movies(project: Path, game: Path) -> dict:
         if len(guids) != 1 or guids[0] in clips_by_guid:
             raise BuildError("Recovered VideoClips have a missing or duplicate GUID: " + path.name)
         clips_by_guid[guids[0]] = path
+        clip_counter.add(1, path.relative_to(project).as_posix())
+    clip_counter.finish()
 
     selected, rewrites, dynamic_players = {}, [], []
+    scene_counter = build_progress.Counter("prepare-items:startup-movies-scenes", len(scenes), "scenes")
     for relative in scenes:
         scene = project / relative
         if scene.is_symlink() or not scene.is_file():
@@ -249,37 +280,50 @@ def stage_startup_movies(project: Path, game: Path) -> dict:
             changed = re.sub(r"^  m_DataSource: 0$", "  m_DataSource: 1", changed, flags=re.MULTILINE)
             text = text.replace(block, changed, 1)
         rewrites.append((scene, text))
+        scene_counter.add(1, relative)
     if not selected:
         raise BuildError("Original menu movie delivery found no embedded clip bindings.")
+    scene_counter.finish()
 
     # Preflight references before copying/removing anything. A future export may
     # add another consumer; report it rather than deleting an asset still in use.
     remaining = {}
     clip_metas = {Path(str(clips_by_guid[guid]) + ".meta") for guid in selected}
     rewritten_scenes = dict(rewrites)
-    for path in sorted((project / "Assets").rglob("*")):
-        if not path.is_file() or path.suffix not in SERIALIZED_EXTENSIONS or path in clip_metas:
-            continue
+    candidates = [path for path in sorted((project / "Assets").rglob("*"))
+                  if path.is_file() and path.suffix in SERIALIZED_EXTENSIONS and path not in clip_metas]
+    scan_counter = build_progress.Counter("prepare-items:startup-movies-assets",
+                                          sum(path.stat().st_size for path in candidates), "bytes")
+    for path in candidates:
         text = rewritten_scenes.get(path)
         if text is None:
-            text = path.read_text(encoding="utf-8", errors="ignore")
+            matches = _clip_references(path, selected, scan_counter)
+        else:
+            # The scene was read and rewritten above. Inspect that exact staged
+            # text again, without performing a duplicate scene-file read.
+            matches = {guid for guid in selected if "guid: " + guid in text}
+            scan_counter.add(path.stat().st_size, path.relative_to(project).as_posix())
         for guid in selected:
-            if "guid: " + guid in text:
+            if guid in matches:
                 remaining.setdefault(guid, []).append(path.relative_to(project).as_posix())
     if remaining:
         raise BuildError("File-backed startup movies retain unsupported clip references: " + json.dumps(remaining, sort_keys=True))
+    scan_counter.finish()
 
     clip_records = []
+    media_counter = build_progress.Counter("prepare-items:startup-movies-media", len(selected) + len(external), "files")
     for guid, bindings in sorted(selected.items()):
         source = clips_by_guid[guid]
         relative = "StreamingAssets/QuestOriginalMovies/" + guid + source.suffix.lower()
         copied = _copy_movie(source, project / "Assets" / relative, relative)
         clip_records.append({**copied, "guid": guid, "name": source.stem, "source": source.relative_to(project).as_posix(), "bindings": bindings})
+        media_counter.add(1, relative)
     movie_records = []
     for source in external:
         relative = source.relative_to(game).as_posix()
         copied = _copy_movie(source, project / "Assets" / relative, relative)
         movie_records.append({**copied, "source": relative})
+        media_counter.add(1, relative)
 
     for scene, text in rewrites:
         scene.write_text(text, encoding="utf-8")
@@ -297,4 +341,5 @@ def stage_startup_movies(project: Path, game: Path) -> dict:
               "nativePlayerCount": len(dynamic_players) + sum(len(row["bindings"]) for row in clip_records),
               "totalBytes": sum(row["size"] for row in clip_records + movie_records)}
     write_json(project / "Assets/Quest/Resources" / MOVIES_REPORT, result)
+    media_counter.finish()
     return result

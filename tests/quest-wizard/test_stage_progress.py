@@ -455,6 +455,86 @@ class StageProgressTests(unittest.TestCase):
         self.store.progress(self.session, 'build', 'prepare-items:ordinary-texture-audit', 250, 1000, 'items')
         self.assertEqual(self.store.load(self.session)['stages'][5]['progressPlan']['fractions']['textures'], 1.25 / 3)
 
+    def open_startup_checkpoint(self, checkpoint, done=2):
+        self.store.operation(self.session, 'build', 'startup-content')
+        self.store.progress(self.session, 'build', 'prepare-substage:' + checkpoint, done, 11, 'checkpoints',
+                            operation='startup-content', status='start')
+
+    def startup_fraction(self):
+        return self.store.load(self.session)['stages'][5]['progressPlan']['fractions']['startup-content']
+
+    def test_movie_passes_advance_the_same_main_and_global_progress_without_closing_parent(self):
+        self.open_startup_checkpoint('startup-movies')
+        before=self.progress()['stagePercent']; share=0.
+        for name,weight in stage_plan.STARTUP_ITEM_SCHEDULES['startup-movies'].items():
+            self.store.progress(self.session,'build','prepare-items:'+name,0,100,'bytes',status='start')
+            self.store.progress(self.session,'build','prepare-items:'+name,50,100,'bytes')
+            self.assertAlmostEqual(self.startup_fraction(),(2+share+weight*.5)/11)
+            self.assertGreater(self.progress()['stagePercent'],before)
+            self.assertAlmostEqual(self.progress()['activeWork']['percent'],100*(2+share+weight*.5)/11,places=5)
+            self.store.progress(self.session,'build','prepare-items:'+name,100,100,'bytes',status='complete')
+            share+=weight;before=self.progress()['stagePercent']
+        plan=self.store.load(self.session)['stages'][5]['progressPlan']
+        self.assertNotIn('startup-content',plan['completed'])
+        self.assertEqual(self.progress()['activeWork']['done'],2)
+        self.assertAlmostEqual(self.startup_fraction(),2.99/11)
+        self.store.progress(self.session,'build','prepare-substage:startup-movies',3,11,'checkpoints',
+                            operation='startup-content',status='complete')
+        self.assertAlmostEqual(self.startup_fraction(),3/11)
+
+    def test_movie_nested_hash_advances_at_most_one_open_media_file(self):
+        self.open_startup_checkpoint('startup-movies')
+        self.store.progress(self.session,'build','prepare-items:startup-movies-media',1,4,'files')
+        self.store.progress(self.session,'build','file-hash',50,100,'bytes')
+        self.assertAlmostEqual(self.startup_fraction(),(2+.10*1.5/4)/11)
+        for _ in range(3):self.store.progress(self.session,'build','file-hash',100,100,'bytes',status='complete')
+        self.assertAlmostEqual(self.startup_fraction(),(2+.10*1.99/4)/11)
+        self.assertNotIn('startup-content',self.store.load(self.session)['stages'][5]['progressPlan']['completed'])
+        self.store.progress(self.session,'build','prepare-items:startup-movies-media',2,4,'files')
+        self.assertAlmostEqual(self.startup_fraction(),(2+.10*.5)/11)
+
+    def test_interleaved_sprite_container_and_item_counts_sum_only_observed_shares(self):
+        self.open_startup_checkpoint('native-sprites',3)
+        for name in ('identities','packed','targets'):
+            self.store.progress(self.session,'build','prepare-items:native-sprites-'+name,10,10,'items',status='complete')
+        self.store.progress(self.session,'build','prepare-items:native-sprites-containers',1,4,'containers')
+        self.store.progress(self.session,'build','prepare-items:native-sprites',1,100,'items')
+        self.assertAlmostEqual(self.startup_fraction(),(3+.2+.1*.25+.7*.01)/11)
+        self.store.progress(self.session,'build','prepare-items:native-sprites',25,100,'items')
+        self.assertAlmostEqual(self.startup_fraction(),(3+.2+.1*.25+.7*.25)/11)
+        self.assertNotIn('startup-content',self.store.load(self.session)['stages'][5]['progressPlan']['completed'])
+
+    def test_audio_decode_blocks_belong_only_to_current_clip_pass_and_empty_writes_are_valid(self):
+        self.open_startup_checkpoint('startup-audio',5)
+        self.store.progress(self.session,'build','prepare-items:startup-audio-metadata',100,100,'objects',status='complete')
+        self.store.progress(self.session,'build','prepare-items:startup-audio-preflight',1,4,'clips')
+        self.store.progress(self.session,'build','prepare-items:startup-audio-decode',50,100,'blocks')
+        self.assertAlmostEqual(self.startup_fraction(),(5+.05+.65*1.5/4)/11)
+        for _ in range(3):self.store.progress(self.session,'build','prepare-items:startup-audio-decode',100,100,'blocks',status='complete')
+        self.assertAlmostEqual(self.startup_fraction(),(5+.05+.65*1.99/4)/11)
+        self.store.progress(self.session,'build','prepare-items:startup-audio-preflight',4,4,'clips',status='complete')
+        self.store.progress(self.session,'build','prepare-items:startup-audio-write',0,0,'clips',status='complete')
+        self.assertAlmostEqual(self.startup_fraction(),5.99/11)
+        self.assertNotIn('startup-content',self.store.load(self.session)['stages'][5]['progressPlan']['completed'])
+
+    def test_new_startup_counters_cannot_use_foreign_closed_or_previous_attempt_scopes(self):
+        self.store.begin_stage(self.session,'build','same-input')
+        self.open_startup_checkpoint('startup-movies')
+        before=self.progress()['stagePercent']
+        for phase in ('prepare-items:startup-audio-metadata','prepare-items:native-sprites-containers'):
+            self.store.progress(self.session,'build',phase,100,100,'items',status='complete')
+            self.assertEqual(self.progress()['stagePercent'],before)
+        self.store.progress(self.session,'build','prepare-items:startup-movies-assets',100,100,'bytes',operation='player',status='complete')
+        self.assertEqual(self.startup_fraction(),2/11)
+        self.store.begin_stage(self.session,'build','same-input')
+        self.store.progress(self.session,'build','starting')
+        self.store.progress(self.session,'build','prepare-items:startup-movies-assets',100,100,'bytes',status='complete')
+        self.assertEqual(self.startup_fraction(),2/11)
+        self.open_startup_checkpoint('startup-movies')
+        self.store.progress(self.session,'build','prepare-substage:startup-movies',3,11,'checkpoints',operation='startup-content',status='complete')
+        self.store.progress(self.session,'build','prepare-items:startup-movies-assets',100,100,'bytes',status='complete')
+        self.assertEqual(self.startup_fraction(),3/11)
+
     def test_preparation_unopened_mismatched_and_nested_platform_items_cannot_add_credit(self):
         self.store.operation(self.session, 'build', 'textures')
         before = self.progress()['stagePercent']

@@ -61,7 +61,8 @@ class NativeSpriteTests(unittest.TestCase):
                 'sha256':hashlib.sha256((project/'Assets/Sprite2.asset').read_bytes()).hexdigest()}
         (project/'QuestRecovery/packed-sprites-fixture.json').write_text(json.dumps({'restoredMembers':[packed]}))
         rows.append({'path':'Assets/Texture.png','guid':'f'*32,'objects':[{'collection':'cab-sprites','pathId':99,'fileId':2800000,'classId':28}]})
-        objects.append(types.SimpleNamespace(assets_file=collection,path_id=99,read_typetree=lambda:{'m_Width':2048,'m_Height':2048}))
+        texture_reader=mock.Mock(return_value={'m_Width':2048,'m_Height':2048})
+        objects.append(types.SimpleNamespace(assets_file=collection,path_id=99,read_typetree=texture_reader))
         (project/'QuestRecovery/original-asset-identities.json').write_text(json.dumps({'identities':rows}))
         environment=types.SimpleNamespace(objects=objects);stream=io.StringIO()
         with mock.patch.dict(os.environ,{full_sprites.build_progress.ENV:'1'}),contextlib.redirect_stdout(stream), \
@@ -79,6 +80,9 @@ class NativeSpriteTests(unittest.TestCase):
                 self.assertEqual(hashlib.sha256((project/packed['assetPath']).read_bytes()).hexdigest(),packed['sha256'])
         prefix=full_sprites.build_progress.PREFIX
         progress=[json.loads(line[len(prefix):]) for line in stream.getvalue().splitlines() if line.startswith(prefix)]
+        self.texture_read_count=texture_reader.call_count
+        self.all_progress=progress
+        self.identity_bytes=(project/'QuestRecovery/original-asset-identities.json').stat().st_size
         return report,[value for value in progress if value['phase']=='prepare-items:native-sprites']
 
     def test_sprite_counter_accepts_two_targets_and_preserves_packed_state(self):
@@ -91,6 +95,20 @@ class NativeSpriteTests(unittest.TestCase):
         _,progress=self.staged_sprites(receipt_failure=True)
         self.assertEqual(progress[-1]['status'],'failed')
         self.assertFalse(any(row['status']=='complete' or row['done']==2 for row in progress))
+
+    def test_planning_counts_real_objects_containers_and_bytes_without_decoding_shared_texture_twice(self):
+        self.staged_sprites()
+        self.assertEqual(self.texture_read_count,1)
+        phases={'identities':self.identity_bytes,'packed':1,'targets':4,'containers':1}
+        for name,total in phases.items():
+            rows=[row for row in self.all_progress if row['phase']=='prepare-items:native-sprites-'+name]
+            self.assertEqual(rows[0]['status'],'start')
+            self.assertEqual((rows[-1]['status'],rows[-1]['done'],rows[-1]['total']),('complete',total,total))
+            self.assertEqual([row['done'] for row in rows],sorted(row['done'] for row in rows))
+        self.staged_sprites(receipt_failure=True)
+        containers=[row for row in self.all_progress if row['phase']=='prepare-items:native-sprites-containers']
+        self.assertEqual(containers[-1]['status'],'failed')
+        self.assertFalse(any(row['status']=='complete' for row in containers))
 
     def test_original_rect_pivot_trim_and_vertices_are_retained(self):
         source=fields();before=exported(source)

@@ -1,11 +1,15 @@
 """Exercise original sample reconstruction and refuse unproven export changes."""
 import hashlib
+import contextlib
+import io
+import os
 import json
 from pathlib import Path
 import struct
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools/quest-builder"))
 import audio
@@ -119,6 +123,66 @@ class OriginalAudioTests(unittest.TestCase):
             audio.stage_startup_audio(self.project, self.game)
         self.assertEqual(before, {p.name: p.read_bytes() for p in (self.project / "Assets/AudioClip").iterdir()})
         self.assertFalse((self.project / audio.REPORT).exists())
+
+    def observed_stage(self):
+        stream=io.StringIO()
+        with mock.patch.dict(os.environ,{audio.build_progress.ENV:'1'}),contextlib.redirect_stdout(stream), \
+             mock.patch.object(audio.build_progress.time,'monotonic',side_effect=range(10000)):
+            report=audio.stage_startup_audio(self.project,self.game)
+        prefix=audio.build_progress.PREFIX
+        return report,[json.loads(line[len(prefix):]) for line in stream.getvalue().splitlines() if line.startswith(prefix)]
+
+    def test_real_metadata_preflight_and_write_counts_include_warm_no_write_pass(self):
+        self.fixture()
+        for expected_writes in (2,0):
+            report,progress=self.observed_stage()
+            for name,total in {'metadata':2,'preflight':2,'write':expected_writes}.items():
+                rows=[row for row in progress if row['phase']=='prepare-items:startup-audio-'+name]
+                self.assertEqual((rows[-1]['status'],rows[-1]['done'],rows[-1]['total']),('complete',total,total))
+                self.assertEqual([row['done'] for row in rows],sorted(row['done'] for row in rows))
+                if total:self.assertEqual(rows[0]['status'],'start')
+            self.assertEqual(report['waveClipCount'],2)
+
+    def test_metadata_counter_counts_skipped_non_audio_object(self):
+        self.fixture();path=self.game/'resources.assets'
+        original=clip();raw=bank(pcm(),original);original['size']=len(raw)
+        data=serialized([original])
+        metadata_size,_,data_offset=struct.unpack_from('>IQQ',data,20)
+        metadata=data[48:48+metadata_size]
+        type_count_at=len(b'2021.3.5f1\0')+5
+        type_table_at=type_count_at+4
+        object_count_at=type_table_at+23
+        classes=metadata[type_table_at:object_count_at]+struct.pack('<iBh',28,0,-1)+b'x'*16
+        object_table_at=(object_count_at+4+3)&~3
+        objects=metadata[object_table_at:]
+        newmetadata=metadata[:type_count_at]+struct.pack('<i',2)+classes+struct.pack('<i',2)
+        newmetadata+=b'\0'*((-len(newmetadata))%4)
+        newmetadata+=objects+struct.pack('<qQIi',2,0,1,1)
+        newoffset=(48+len(newmetadata)+15)&~15;payload=data[data_offset:]
+        header=struct.pack('>4IB3sIQQQ',len(newmetadata),0,22,0,0,b'\0'*3,len(newmetadata),newoffset+len(payload),newoffset,0)
+        path.write_bytes(header+newmetadata+b'\0'*(newoffset-48-len(newmetadata))+payload)
+        stream=io.StringIO()
+        with mock.patch.dict(os.environ,{audio.build_progress.ENV:'1'}),contextlib.redirect_stdout(stream):
+            clips=audio.original_clips(path,observe=True)
+        rows=[json.loads(line[len(audio.build_progress.PREFIX):]) for line in stream.getvalue().splitlines()]
+        self.assertEqual(len(clips),1);self.assertEqual((rows[-1]['done'],rows[-1]['total']),(2,2))
+
+    def test_observed_ima_blocks_are_pcm_identical_and_only_complete_after_valid_predictors(self):
+        item=clip(channels=4,compression=2,frames=128)
+        encoded=(struct.pack('<4h',-3000,-1000,1000,3000)+b'\0'*8+b'\0'*128)*2
+        raw=bank(encoded,item,encoding=7,frames=128)
+        stream=io.StringIO()
+        with mock.patch.dict(os.environ,{audio.build_progress.ENV:'1'}),contextlib.redirect_stdout(stream), \
+             mock.patch.object(audio.build_progress.time,'monotonic',side_effect=range(10000)):
+            observed=audio.ima_fsb(raw,item,observe=True)
+        self.assertEqual(observed,audio.ima_fsb(raw,item))
+        rows=[json.loads(line[len(audio.build_progress.PREFIX):]) for line in stream.getvalue().splitlines()]
+        self.assertEqual([(row['status'],row['done'],row['total']) for row in rows],[('start',0,2),('progress',1,2),('complete',2,2)])
+        bad=bytearray(raw);start,_,_=audio._fsb(raw,item,7);bad[start+8]=89
+        stream=io.StringIO()
+        with mock.patch.dict(os.environ,{audio.build_progress.ENV:'1'}),contextlib.redirect_stdout(stream),self.assertRaises(audio.BuildError):
+            audio.ima_fsb(bytes(bad),item,observe=True)
+        self.assertNotIn('"status":"complete"',stream.getvalue())
 
     def test_single_and_stereo_pcm_keep_authored_payload_and_rate(self):
         for channels in (1, 2, 4):
