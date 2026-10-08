@@ -116,7 +116,7 @@ def unity_load(root, output):
     settings = project / 'ProjectSettings'; settings.mkdir()
     (settings / 'ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n')
     packages = project / 'Packages'; packages.mkdir()
-    (packages / 'manifest.json').write_text('{"dependencies":{}}\n')
+    (packages / 'manifest.json').write_text('{"dependencies":{"com.unity.modules.assetbundle":"1.0.0"}}\n')
     shutil.copyfile(root / 'scripts/environment-bank-runtime/Editor/LoadBank.cs', editor / 'LoadBank.cs')
     decoder = root / 'src/GloomhavenVR/Core/Perf/ScenarioEnvironmentMeshStream.cs'
     text = decoder.read_text()
@@ -126,8 +126,10 @@ def unity_load(root, output):
         'loader': hashlib.sha256((editor / 'LoadBank.cs').read_bytes()).hexdigest(),
         'bank': hashlib.sha256((root / 'prebuilt/ghvr-environment.bundle').read_bytes()).hexdigest()}, indent=2) + '\n')
     unity = os.environ.get('UNITY_PATH', str(Path.home() / 'unity-2021.3.5/Editor/Unity'))
+    receipt = json.loads((root / 'tools/environment-mesh/bank.json').read_text())
     command = [unity, '-batchmode', '-nographics', '-projectPath', str(project), '-executeMethod', 'LoadEnvironmentBank.Run',
-        '-environmentBank', str(root / 'prebuilt/ghvr-environment.bundle'), '-logFile', str(run / 'unity.log')]
+        '-environmentBank', str(root / 'prebuilt/ghvr-environment.bundle'), '-environmentExpectedStreams',
+        str(receipt['textAssets'] - 1), '-logFile', str(run / 'unity.log')]
     result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, timeout=300)
     log = (run / 'unity.log').read_text(errors='replace')
     assert result.returncode == 0 and 'PASS packaged environment bank load:' in log, 'actual Unity bank/production decoder failed; see ' + str(run / 'unity.log')
@@ -193,6 +195,9 @@ def main():
     assert texts.pop('index') == (prepared / 'index.json').read_bytes(), 'runtime index differs from prepared index'
     checked = 0; identities = set(); files = set(); detail_triangles = {0: [0, 0], 50: [0, 0]}
     for entry in manifest['entries']:
+        assert entry.get('role') in ('floor', 'structure', 'none'), 'certified original role'
+        assert isinstance(entry.get('ornament'), bool), 'independent closed ornament role'
+        assert re.fullmatch('[0-9a-f]{64}', entry.get('roleEvidenceSha256', '')), 'complete offline role evidence binding'
         identity = json.dumps(entry['signature'], sort_keys=True, separators=(',', ':'))
         assert entry['key'] == hashlib.sha256(identity.encode()).hexdigest()[:24], 'exact original metadata identity'
         assert identity not in identities and entry['key'] not in preparation['ambiguousRejected'], 'unambiguous native identity'

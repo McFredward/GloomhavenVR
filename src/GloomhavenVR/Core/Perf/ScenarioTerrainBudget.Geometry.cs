@@ -14,13 +14,20 @@ internal static partial class ScenarioTerrainBudget
         internal readonly MeshFilter Filter;
         internal readonly Mesh Original;
         internal readonly bool Floor;
+        internal readonly bool FloorSupport;
+        internal bool FloorBudget => Floor || FloorSupport;
+        internal bool RoomArchitecture;
+        private readonly bool _legacyStructural;
+        private readonly bool _neverFade;
         internal readonly int OriginalTriangles;
         internal readonly MaterialPropertyBlock Block = new();
         internal readonly MaterialPropertyBlock SlotBlock = new();
         internal Material[] Materials = Array.Empty<Material>();
         internal bool Distant;
         internal bool CheapLease;
+        internal bool WorldLease;
         private Mesh? _exact, _target, _morph, _current;
+        private Mesh? _notifiedFloorMesh;
         private Vector3[]? _from, _to, _vertices;
         private float _progress = 1f;
         private int _percent = 100, _requestedPercent = 100;
@@ -39,9 +46,18 @@ internal static partial class ScenarioTerrainBudget
         private RendererState _rendererState;
 
         internal Surface(MeshRenderer renderer, MeshFilter filter, Transform owner)
+            : this(renderer, filter, owner, false, FloorIdentity(filter.sharedMesh)) { }
+        internal Surface(MeshRenderer renderer, MeshFilter filter, Transform owner, bool architecture, bool floor)
+            : this(renderer, filter, owner, architecture, floor, false) { }
+        internal Surface(MeshRenderer renderer, MeshFilter filter, Transform owner, bool architecture, bool floor, bool floorSupport)
         {
             Renderer = renderer; Identity = renderer.GetInstanceID(); Filter = filter; Original = filter.sharedMesh;
-            Floor = FloorIdentity(Original);
+            Floor = floor; FloorSupport = floorSupport; RoomArchitecture = architecture; _legacyStructural = StructuralIdentity(Original);
+            // Positively audited floor outlines/supports have no horizontal floor
+            // footprint, yet retain floor fade safety. Furniture such as native
+            // CR_ST_FloorShelf_Stone_Wood contains "Floor" too and must still fade.
+            // Only the verified bank role3 distinguishes these structural uses.
+            _neverFade = floor || floorSupport;
             OriginalTriangles = TriangleCount(Original);
             _proxy = new GameObject("GloomhavenVR.TerrainProxy");
             _proxy.transform.SetParent(owner, false);
@@ -63,7 +79,34 @@ internal static partial class ScenarioTerrainBudget
             }
             return eligible;
         }
-        internal bool WantsSubstitute(bool enabled) => (enabled && PerfConfig.CheapWallShadingOn)
+        internal bool GeometryEnabled => FloorBudget ? RoomArchitectureOn
+            : RoomArchitecture && RoomArchitectureOn || _legacyStructural && PerfConfig.TerrainSubstitutionOn;
+        internal bool TryGetSettledRoomFloor(out Mesh mesh)
+        {
+            mesh = null!;
+            // Live settings are checked even before the next Update. A previously
+            // prepared group cannot pin an old endpoint across a dial change.
+            // The group owner separately checks every original renderer's current
+            // scene/visibility/material/MPB/pose and foreign-consumer constraints.
+            if (!Floor || !RoomArchitecture || !RoomArchitectureOn || _progress < 1f
+                || _requestedPercent != FloorDetailPercent || Renderer == null || Filter == null
+                || Filter.sharedMesh != Original || _exact == null || CurrentFloorRole(Original) != 1) return false;
+            mesh = _current ?? _exact;
+            return mesh != null && mesh.isReadable;
+        }
+        internal bool HadFloorEndpoint => _notifiedFloorMesh != null;
+        internal bool TakeFloorEndpointChange()
+        {
+            if (!Floor || !RoomArchitecture) return false;
+            // Tick has already validated the current immutable bank identity.
+            // Compare only owned endpoint state; no per-frame group query or bank
+            // callback is needed to report a genuine geometry revision.
+            Mesh? endpoint = RoomArchitectureOn && _progress >= 1f && _requestedPercent == FloorDetailPercent
+                ? _current ?? _exact : null;
+            if (endpoint == _notifiedFloorMesh) return false;
+            _notifiedFloorMesh = endpoint; return true;
+        }
+        internal bool WantsSubstitute(bool enabled) => (enabled && PerfConfig.CheapWallShadingOn && GeometryEnabled)
             || (_current != null && _current != Original) || _progress < 1f;
         internal Mesh DrawMesh => _progress < 1f && _morph != null ? _morph : _current ?? Original;
         internal int DrawTriangles
@@ -94,6 +137,17 @@ internal static partial class ScenarioTerrainBudget
         private static bool LiveSpecialEffect(MaterialPropertyBlock block) =>
             !block.isEmpty && (block.GetFloat("_AddVertexAnim") != 0f || block.GetFloat("_UseEmissiveMap") != 0f
             || block.GetFloat("_Diffuse_Emissive_On") != 0f);
+        private bool UnsupportedWorldBlock(MaterialPropertyBlock block, int slot = -1)
+        {
+            if (!WorldLease || block.isEmpty) return false;
+            // Geometry admission uses the audited world factory when that owner
+            // supplies the shader. Its complete effect table checks already-read
+            // native blocks; the legacy cheap route cannot prove these programs.
+            if (_unsupportedBlock == null) return true;
+            if (slot >= 0) return _unsupportedBlock(block, Materials[slot]);
+            foreach (Material material in Materials) if (_unsupportedBlock(block, material)) return true;
+            return false;
+        }
         internal bool PrepareProxy(bool sharedOwner, Matrix4x4 sharedPose, Vector3 sharedScale)
         {
             Matrix4x4 native = _sourceTransform.localToWorldMatrix;
@@ -143,13 +197,13 @@ internal static partial class ScenarioTerrainBudget
             }
             _copiedNativeProperties = true;
             Renderer.GetPropertyBlock(Block);
-            if (LiveSpecialEffect(Block)) return false;
+            if (LiveSpecialEffect(Block) || UnsupportedWorldBlock(Block)) return false;
             SetNeverFade(Block);
             _proxyRenderer.SetPropertyBlock(Block);
             for (int slot = 0; slot < Materials.Length; slot++)
             {
                 Renderer.GetPropertyBlock(SlotBlock, slot);
-                if (LiveSpecialEffect(SlotBlock)) return false;
+                if (LiveSpecialEffect(SlotBlock) || UnsupportedWorldBlock(SlotBlock, slot)) return false;
                 if (SlotBlock.isEmpty) _proxyRenderer.SetPropertyBlock(null, slot);
                 else
                 {
@@ -165,8 +219,8 @@ internal static partial class ScenarioTerrainBudget
             // Legacy cheap terrain and the global world shader use separate channels.
             // Set both on renderer and nonempty index blocks, whose values take
             // precedence in Unity. Walls explicitly retain the native fade route.
-            block.SetFloat("_GHVRTerrainNeverFade", Floor ? 1f : 0f);
-            block.SetFloat("_GHVRWorldNeverFade", Floor ? 1f : 0f);
+            block.SetFloat("_GHVRTerrainNeverFade", _neverFade ? 1f : 0f);
+            block.SetFloat("_GHVRWorldNeverFade", _neverFade ? 1f : 0f);
         }
         private static bool SameMatrix(Matrix4x4 left, Matrix4x4 right)
         { for (int i = 0; i < 16; i++) if (left[i] != right[i]) return false; return true; }
@@ -218,9 +272,10 @@ internal static partial class ScenarioTerrainBudget
         }
         internal void StepGeometry(int percent, float delta)
         {
-            // Floors never fade or change geometry. Their exact native mesh remains the
-            // only draw source, including while a separate cheap-lighting control is live.
-            if (Floor) return;
+            // Only verified room floors reach this path. Coarse tiers retain authored
+            // elevation/boundaries and use the same continuous 3D morph as walls;
+            // collision/gameplay remain on the untouched original native geometry.
+            if (Floor && !RoomArchitecture) return;
             if (_exact == null && _lookup != null && _lookup(Original, 100, out Mesh exact)) _exact = exact;
             if (_exact == null || !_exact.isReadable) return;
             if (percent != _requestedPercent)
@@ -259,6 +314,16 @@ internal static partial class ScenarioTerrainBudget
                 _vertices[vertex] = Vector3.LerpUnclamped(_from[vertex], _to[vertex], blend);
             _morph.vertices = _vertices; _morph.bounds = _exact.bounds;
             if (_progress >= 1f) _current = _percent >= 100 ? null : _target;
+            if (FloorBudget && _progress >= 1f)
+            {
+                // Room floors can number in the thousands. Settled geometry is an
+                // immutable shared bank endpoint; retaining one full private mesh
+                // and three vertex arrays per tile would spend memory indefinitely.
+                // A later quality change starts another continuous morph from the
+                // current endpoint and allocates these private buffers only then.
+                UnityEngine.Object.Destroy(_morph); _morph = null;
+                _from = null; _to = null; _vertices = null;
+            }
         }
         internal void Mask()
         {

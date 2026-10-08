@@ -10,6 +10,11 @@ internal static partial class PerfConfig
 {
     internal static ConfigEntry<bool> ScenarioExplicitEnvironmentInstancing = null!;
     internal static ConfigEntry<bool> ScenarioCheapWallShading = null!;
+    internal static ConfigEntry<bool> ScenarioRoomArchitecture = null!;
+    internal static ConfigEntry<int> ScenarioRoomFloorDetailPercent = null!;
+    internal static ConfigEntry<int> ScenarioRoomArchitectureDensityPercent = null!;
+    internal static ConfigEntry<bool> ScenarioRoomFloorBatching = null!;
+    internal static ConfigEntry<int> ScenarioRoomFloorCameraSourceLimitCount = null!;
     internal static ConfigEntry<bool> ScenarioTerrainSubstitution = null!;
     internal static ConfigEntry<int> WorldMaterialQualityModeCount = null!;
     internal static ConfigEntry<int> WorldMaterialAmbientPercent = null!;
@@ -21,6 +26,14 @@ internal static partial class PerfConfig
     internal static bool EnvironmentMeshBankOn => true;
     internal static bool EnvironmentDrawInstancingOn => ScenarioExplicitEnvironmentInstancing?.Value ?? Defaults.ScenarioExplicitEnvironmentInstancing;
     internal static bool CheapWallShadingOn => ScenarioCheapWallShading?.Value ?? Defaults.ScenarioCheapWallShading;
+    internal static bool RoomArchitectureEnabled => ScenarioRoomArchitecture?.Value ?? Defaults.ScenarioRoomArchitecture;
+    internal static int RoomFloorDetailPercent => Mathf.Clamp(ScenarioRoomFloorDetailPercent?.Value ?? Defaults.ScenarioRoomFloorDetailPercent, 0, 100);
+    internal static int RoomArchitectureDensityPercent => RoomArchitectureEnabled
+        ? Mathf.Clamp(ScenarioRoomArchitectureDensityPercent?.Value ?? Defaults.ScenarioRoomArchitectureDensityPercent, 0, 100) : 100;
+    internal static int RoomFloorCameraSourceLimit => Mathf.Clamp(ScenarioRoomFloorCameraSourceLimitCount?.Value
+        ?? Defaults.ScenarioRoomFloorCameraSourceLimitCount, 0, 8192);
+    internal static bool RoomFloorBatchingOn => RoomArchitectureEnabled
+        && (ScenarioRoomFloorBatching?.Value ?? Defaults.ScenarioRoomFloorBatching);
     internal static bool TerrainSubstitutionOn => ScenarioTerrainSubstitution?.Value ?? Defaults.ScenarioTerrainSubstitution;
     internal static int WorldMaterialQualityMode => Mathf.Clamp(WorldMaterialQualityModeCount?.Value ?? Defaults.WorldMaterialQualityModeCount, 0, 2);
     internal static float WorldMaterialAmbientWeight => Mathf.Clamp(WorldMaterialAmbientPercent?.Value ?? Defaults.WorldMaterialAmbientPercent, 0, 100) * .01f;
@@ -35,6 +48,21 @@ internal static partial class PerfConfig
 
     private static void BindFrameRendering(ConfigFile file)
     {
+        ScenarioRoomArchitecture = file.Bind("Optimize", "ScenarioRoomArchitecture",
+            FrameDefaults.Active ? FrameDefaults.ScenarioRoomArchitecture : Defaults.ScenarioRoomArchitecture,
+            "Use broader source-verified 3D floor, wall and pillar simplification throughout the game and DLCs. Original room boundaries, elevation, doors, figures, colliders and native wall fading remain. Enables the independent floor-detail, optional architectural-detail and floor-group controls. Off restores this room mode while retaining their values and the older wall-detail choice. Works live on every platform.");
+        ScenarioRoomFloorDetailPercent = file.Bind("Optimize", "ScenarioRoomFloorDetailPercent",
+            FrameDefaults.Active ? FrameDefaults.ScenarioRoomFloorDetailPercent : Defaults.ScenarioRoomFloorDetailPercent,
+            new ConfigDescription("Room floor geometry: 100 keeps original detail; lower values use coarser prepared 3D surfaces. Fine cracks, bumps and relief are reduced; native height, open boundaries, room footprint, color textures and gameplay collision remain. Requires ScenarioRoomArchitecture. Works live with continuous geometry transitions.", new AcceptableValueRange<int>(0, 100)));
+        ScenarioRoomArchitectureDensityPercent = file.Bind("Optimize", "ScenarioRoomArchitectureDensityPercent",
+            FrameDefaults.Active ? FrameDefaults.ScenarioRoomArchitectureDensityPercent : Defaults.ScenarioRoomArchitectureDensityPercent,
+            new ConfigDescription("Optional noninteractive architectural dressing: 100 retains all; 0 omits admitted complete decorative units. Fewer ornaments and mounted decorations remain visible. Required room boundaries, floors, doorways, lights, figures and interactive or held props remain. Requires ScenarioRoomArchitecture; independent of grass, vegetation and loose decoration. Works live.", new AcceptableValueRange<int>(0, 100)));
+        ScenarioRoomFloorBatching = file.Bind("Optimize", "ScenarioRoomFloorBatching",
+            FrameDefaults.Active ? FrameDefaults.ScenarioRoomFloorBatching : Defaults.ScenarioRoomFloorBatching,
+            "Combine verified settled room floors into private local render groups. Uses the selected 3D floor detail and never changes native meshes or Unity batch metadata. Changed visibility, materials, property blocks or unsupported native consumers restore original rendering. Group bounds can change rendering and per-object lighting selection. Requires ScenarioRoomArchitecture. Works live; Off retains individual floor rendering.");
+        ScenarioRoomFloorCameraSourceLimitCount = file.Bind("Optimize", "ScenarioRoomFloorCameraSourceLimitCount",
+            FrameDefaults.Active ? FrameDefaults.ScenarioRoomFloorCameraSourceLimitCount : Defaults.ScenarioRoomFloorCameraSourceLimitCount,
+            new ConfigDescription("Maximum individual simplified room-floor surfaces per eye, outside prepared floor groups: 0 is unlimited. Lower limits reduce proxy maintenance CPU work but leave overflow floors at native geometric detail. Independent of the wall/pillar source limit; floors never consume its budget. Requires ScenarioRoomArchitecture. Works live.", new AcceptableValueRange<int>(0, 8192)));
         ScenarioTerrainSubstitution = file.Bind("Optimize", "ScenarioTerrainSubstitution",
             FrameDefaults.Active ? FrameDefaults.ScenarioTerrainSubstitution : Defaults.ScenarioTerrainSubstitution,
             "Use prepared 3D substitutes for eligible walls and pillars. Off restores original geometry and stops substitute preparation, while the independent world-material mode still applies. This trades lower CPU preparation for potentially more GPU geometry work; compare in the same loaded view. Detail percentages and simpler-wall choices are retained for On. Works live on every platform; no room is hidden.");

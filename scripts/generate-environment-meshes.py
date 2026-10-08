@@ -5,55 +5,12 @@ Native bundles are read-only. Vertex clustering fixes every original open bounda
 retains all native attribute slots/indices and removes collapsed triangles. It runs
 only offline, never in the mod or on a game source object.
 """
-import argparse, collections, hashlib, json, math, struct, subprocess, sys
+import argparse, collections, gzip, hashlib, json, math, subprocess, sys
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
-
-def parse(data):
-    off=5; length=struct.unpack_from('<i',data,off)[0];off+=4+length+24
-    count,width=struct.unpack_from('<ii',data,off);off+=8;position=off
-    vertices=[struct.unpack_from('<fff',data,off+12*i) for i in range(count)];off+=count*width*4
-    for _ in range(11):
-        n,w=struct.unpack_from('<ii',data,off);off+=8+n*w*4
-    prefix=off;subs=struct.unpack_from('<i',data,off)[0];off+=4;triangles=[]
-    for _ in range(subs):
-        n=struct.unpack_from('<i',data,off)[0];off+=4
-        indices=struct.unpack_from('<'+'i'*n,data,off);off+=4*n;triangles.append(list(zip(indices[::3],indices[1::3],indices[2::3])))
-    assert off==len(data)
-    return vertices,triangles,position,prefix
-
-def simplify(data,tier):
-    vertices,subs,position,prefix=parse(data)
-    # Canonical positions join native UV/normal-split indices for boundary detection;
-    # those actual split indices and their original channels still remain in the stream.
-    edges=collections.Counter()
-    for triangles in subs:
-        for a,b,c in triangles:
-            for i,j in ((a,b),(b,c),(c,a)):
-                va,vb=vertices[i],vertices[j]
-                if va!=vb:edges[tuple(sorted((va,vb)))]+=1
-    boundary={v for edge,count in edges.items() if count==1 for v in edge}
-    lo=[min(v[i] for v in vertices) for i in range(3)];hi=[max(v[i] for v in vertices) for i in range(3)]
-    divisions=12 if tier==50 else 4
-    groups=collections.defaultdict(set)
-    def key(v):return tuple(min(divisions-1,max(0,int((v[i]-lo[i])/(hi[i]-lo[i])*divisions))) if hi[i]>lo[i] else 0 for i in range(3))
-    for v in vertices:
-        if v not in boundary:groups[key(v)].add(v)
-    means={k:tuple(sum(v[i] for v in group)/len(group) for i in range(3)) for k,group in groups.items()}
-    moved=[v if v in boundary else means[key(v)] for v in vertices]
-    out=bytearray(data[:prefix]);
-    for i,v in enumerate(moved):struct.pack_into('<fff',out,position+12*i,*v)
-    out.extend(struct.pack('<i',len(subs)));after=0;before=0
-    for triangles in subs:
-        flat=[];before+=len(triangles)
-        for a,b,c in triangles:
-            va,vb,vc=moved[a],moved[b],moved[c]
-            ab=[vb[i]-va[i] for i in range(3)];ac=[vc[i]-va[i] for i in range(3)]
-            cross=(ab[1]*ac[2]-ab[2]*ac[1],ab[2]*ac[0]-ab[0]*ac[2],ab[0]*ac[1]-ab[1]*ac[0])
-            if sum(x*x for x in cross)>1e-18:flat.extend((a,b,c))
-        after+=len(flat)//3;out.extend(struct.pack('<i',len(flat)));out.extend(struct.pack('<'+'i'*len(flat),*flat))
-    if after==0 or after>=before*.98:return None,None
-    return bytes(out),{'tier':tier,'sourceTriangles':before,'triangles':after,'sourceVertices':len(vertices),'vertices':len(moved),'fixedBoundaryPositions':len(boundary),'sameIndexMorph':True}
+sys.path.insert(0, str(ROOT / 'tools/environment-mesh'))
+from geometry import parse, simplify, footprint
+from roles import architectural_ornament
 
 def _publish(path,data):
     path=Path(path);path.parent.mkdir(parents=True,exist_ok=True)
@@ -66,10 +23,21 @@ def prepare_mesh(source,native_path,target,*,receipt_dir=None,producer_key=None)
     native_path=Path(native_path);data=native_path.read_bytes()
     if hashlib.sha256(data).hexdigest()!=source['sha256'] or data[:5]!=b'GHEM1':
         raise ValueError('Native environment stream differs from its source receipt: '+source['key'])
+    role=source.get('role','none')
+    ornament=architectural_ornament(source['signature']['name'],source.get('uses',[]))
+    # Vertical retained floor skirts can have an empty horizontal footprint; only
+    # the stricter reduced-floor certificate refuses such simplification.
+    floor_facts={}
+    if role=='floor':
+        vertices,subs,_,_=parse(data);heights,_=footprint(vertices,subs)
+        floor_facts={'footprintGrid':18,'sourceFootprintSamples':sum(math.isfinite(height[1]) for height in heights)}
+    source['floor']=floor_facts
+    evidence={'role':role,'reasons':source.get('roleReasons',[]),'uses':source.get('uses',[]),'floor':floor_facts}
+    evidence_sha=hashlib.sha256(json.dumps(evidence,sort_keys=True,separators=(',',':')).encode()).hexdigest()
     variants=[];details=[]
     for tier in (100,50,0):
         filename=source['key']+'-'+str(tier)+'.bytes';path=target/filename
-        identity={'format':1,'sourceSha256':source['sha256'],'producerKey':producer_key,'tier':tier}
+        identity={'format':1,'sourceSha256':source['sha256'],'producerKey':producer_key,'roleEvidenceSha256':evidence_sha,'tier':tier}
         receipt=Path(receipt_dir)/(source['key']+'-'+str(tier)+'.json') if receipt_dir else None
         prior=json.loads(receipt.read_text()) if receipt and receipt.is_file() else None
         if prior is not None and prior.get('identity')!=identity:
@@ -81,7 +49,7 @@ def prepare_mesh(source,native_path,target,*,receipt_dir=None,producer_key=None)
                     raise ValueError('Completed environment derivative changed: '+filename)
         else:
             generated=data;detail=None
-            if tier!=100:generated,detail=simplify(data,tier)
+            if tier!=100:generated,detail=simplify(data,tier,role)
             variant=None
             if generated is not None:
                 _publish(path,generated)
@@ -90,7 +58,7 @@ def prepare_mesh(source,native_path,target,*,receipt_dir=None,producer_key=None)
                 _publish(receipt,(json.dumps({'identity':identity,'variant':variant,'detail':detail},sort_keys=True)+'\n').encode())
         if variant:variants.append(variant)
         if detail:details.append(dict(key=source['key'],name=source['signature']['name'],**detail))
-    return {'key':source['key'],'signature':source['signature'],'sources':source['sources'],'variants':variants},details
+    return {'key':source['key'],'signature':source['signature'],'sources':source['sources'],'role':role,'ornament':ornament,'roleEvidenceSha256':evidence_sha,'variants':variants},details
 
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--source-root',type=Path,default=ROOT);p.add_argument('--game-data',type=Path);p.add_argument('--prepared-dir',type=Path);p.add_argument('--output-dir',type=Path);p.add_argument('--skip-extract',action='store_true');p.add_argument('--only',nargs='*');a=p.parse_args()
@@ -111,10 +79,13 @@ def main():
     if sources.get('format')!=1 or not sources.get('meshes'):
         raise SystemExit('Native environment receipt has no admissible originals; existing prepared assets remain unchanged.')
     target.mkdir(parents=True,exist_ok=True)
-    entries=[];receipts=[];current=set()
+    entries=[];receipts=[];current=set();ornaments=[];role_counts=collections.Counter()
     for source in sources['meshes']:
         entry,details=prepare_mesh(source,native/source['file'],target)
         entries.append(entry);receipts.extend(details);current.update(v['file'] for v in entry['variants'])
+        role_counts[entry['role']]+=1
+        if entry['ornament']:ornaments.append({'key':source['key'],'signature':source['signature'],
+            'sources':source['sources'],'uses':source.get('uses',[]),'collisionPolicy':'retained-core-or-explicit-native-tile-wall-required'})
     for old in target.glob('*.bytes'):
         if old.name not in current:old.unlink()
     (target/'index.json').write_text(json.dumps({'format':1,'entries':entries},separators=(',',':'))+'\n')
@@ -125,8 +96,17 @@ def main():
         meta.write_text('fileFormatVersion: 2\nguid: '+guid+'\nTextScriptImporter:\n  externalObjects: {}\n  userData:\n  assetBundleName:\n  assetBundleVariant:\n')
     for meta in target.glob('*.meta'):
         if not meta.with_name(meta.name[:-5]).is_file():meta.unlink()
-    report={'format':1,'source':'read-only pcg database MeshFilter originals','unitypy':sources['unitypy'],'originals':len(entries),'variants':sum(len(e['variants']) for e in entries),'ambiguousRejected':sources['ambiguousRejected'],'detailReceipts':receipts,'assetBytes':sum((target/f).stat().st_size for f in current)}
+    catalog={'format':1,'completePcgCensus':sources.get('completePcgCensus',False),
+        'bundles':sources.get('bundles',[]),'meshes':sources.get('catalog',[]),
+        'certified':[{**entry,'roleReasons':source.get('roleReasons',[]),'uses':source.get('uses',[]),'floor':source.get('floor',{})}
+            for entry,source in zip(entries,sources['meshes'])]}
+    report={'format':1,'source':'read-only pcg database MeshFilter originals','unitypy':sources['unitypy'],'originals':len(entries),'variants':sum(len(e['variants']) for e in entries),'ambiguousRejected':sources['ambiguousRejected'],'roles':dict(role_counts),'ornaments':len(ornaments),'completePcgCensus':sources.get('completePcgCensus',False),'sourceBundles':len(sources.get('bundles',[])),'detailReceipts':receipts,'assetBytes':sum((target/f).stat().st_size for f in current)}
     (work/'manifest.json').write_text(json.dumps(report,indent=2)+'\n')
-    if not a.only and not a.prepared_dir:(root/'tools/environment-mesh/manifest.json').write_text(json.dumps(report,indent=2)+'\n')
+    if not a.only and not a.prepared_dir:
+        (root/'tools/environment-mesh/manifest.json').write_text(json.dumps(report,indent=2)+'\n')
+        catalog_bytes=(json.dumps(catalog,separators=(',',':'))+'\n').encode()
+        (root/'tools/environment-mesh/catalog.json.gz').write_bytes(gzip.compress(catalog_bytes,mtime=0))
+        (root/'tools/environment-mesh/catalog.json').unlink(missing_ok=True)
+        (root/'tools/environment-mesh/ornaments.json').write_text(json.dumps({'format':1,'entries':ornaments},separators=(',',':'))+'\n')
     print(json.dumps({k:v for k,v in report.items() if k not in ('detailReceipts','ambiguousRejected')},indent=2))
 if __name__=='__main__':main()

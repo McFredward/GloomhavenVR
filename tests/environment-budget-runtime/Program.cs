@@ -1077,7 +1077,7 @@ public static partial class EnvironmentProgram
             NativeHighHistoricalDelivery(toggleNative:true);
             NativeHighHistoricalDelivery(mounted:true);
             NativeHighHistoricalDelivery(toggleNative:true,mounted:true);
-            WallDrawDeliveryTrace(); WorldMaterialConsumerIntegration(); HiddenWallCurrentLease();
+            WallDrawDeliveryTrace(); WorldMaterialConsumerIntegration(); HiddenWallCurrentLease(); BroaderRoomFloorGroups(); RoomFloorNativeFadeMaterial(); RoomFloorMixedOwnership();
             return count;
         }
         finally { Application.logMessageReceived -= EngineMessage; }

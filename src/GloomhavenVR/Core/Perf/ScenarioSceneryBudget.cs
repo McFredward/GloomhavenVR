@@ -39,6 +39,25 @@ internal static class ScenarioSceneryBudget
     private const int NamedDebugCap = 8;
 
     private static Driver? _driver;
+    private static Func<int>? _architectureDetailDensity;
+    private static bool _architectureReadFailed;
+    internal static void ConfigureArchitectureDetailDensity(Func<int> density) => _architectureDetailDensity = density;
+    private static int ReadArchitectureDensity()
+    {
+        try
+        {
+            int value = Mathf.Clamp(_architectureDetailDensity?.Invoke() ?? 100, 0, 100);
+            _architectureReadFailed = false;
+            return value;
+        }
+        catch (Exception error)
+        {
+            if (!_architectureReadFailed)
+                VRLog.Note(Scope, "Architectural detail density unavailable; original ornaments retained (" + error.Message + ").");
+            _architectureReadFailed = true;
+            return 100;
+        }
+    }
     private static bool _colliderFactsActive;
     private static bool _loadingFailureLogged;
     private static readonly Dictionary<Transform, ColliderFacts> ColliderReadFacts = new();
@@ -190,7 +209,7 @@ internal static class ScenarioSceneryBudget
         Eligible, Name, Generator, Ancestry, Structural, Effect, Geometry,
     }
 
-    private enum Kind : byte { None, Grass, Vegetation, Dressing }
+    private enum Kind : byte { None, Grass, Vegetation, Dressing, Architecture }
 
     private static bool ShouldHide(uint hash, int densityPercent) =>
         densityPercent < 100 && hash % 100u >= (uint)densityPercent;
@@ -207,6 +226,7 @@ internal static class ScenarioSceneryBudget
         internal Collider[] TreeColliders = Array.Empty<Collider>();
         internal bool ColliderClaims;
         internal Collider[] BayColliders = Array.Empty<Collider>();
+        internal ScenarioArchitecturalDetailBudget.RetainedCore[] ArchitectureCores = Array.Empty<ScenarioArchitecturalDetailBudget.RetainedCore>();
     }
 
     // Original PCG blood/dirt projectors are decorative paint, not mesh renderers. Keep the
@@ -306,6 +326,9 @@ internal static class ScenarioSceneryBudget
             for (int i = 0; i < record.BayColliders.Length; i++) RefreshBayCollider(record.BayColliders[i]);
             return;
         }
+        if (hide)
+            foreach (ScenarioArchitecturalDetailBudget.RetainedCore core in record.ArchitectureCores)
+                if (!core.IsCurrent()) { hide = false; record.Invalidated = true; break; }
         if (hide)
         {
             if (!record.Owned && !renderer.forceRenderingOff)
@@ -429,6 +452,16 @@ internal static class ScenarioSceneryBudget
         MeshFilter originalFilter = renderer.GetComponent<MeshFilter>();
         Mesh? originalMesh = originalFilter != null ? originalFilter.sharedMesh : null;
         bool smallDressing = originalMesh != null && IsNativeSmallDressing(originalMesh.name);
+        // The new independent density widens only positively audited architecture.
+        // Existing exact loose/composite dressing keeps its established slider and
+        // collider policy. The new branch never acquires collider ownership.
+        if (originalMesh != null && !smallDressing && !IsNativeCompositeDressing(originalMesh.name)
+            && ScenarioArchitecturalDetailBudget.TryAdmit(renderer, tile, out Transform? architectureUnit))
+        {
+            unit = architectureUnit;
+            kind = Kind.Architecture;
+            return Verdict.Eligible;
+        }
         // The global figure guard deliberately treats every Animator as a figure. Only this
         // exact original-small-mesh seam may distinguish an empty decorative Animator; the
         // explicit actor/interactable and live-controller tests below remain absolute.
@@ -2763,6 +2796,7 @@ internal static class ScenarioSceneryBudget
         private int _density = 100;
         private int _vegetationDensity = 100;
         private int _decorationDensity = 100;
+        private int _architectureDensity = 100;
         private ProceduralMapTile? _walkingTile;
         private bool _wasLoading;
         private bool _settlePending;
@@ -2913,8 +2947,10 @@ internal static class ScenarioSceneryBudget
             int grass = Mathf.Clamp(PerfConfig.ScenarioSceneryDensityPercentValue, 0, 100);
             int vegetation = Mathf.Clamp(PerfConfig.ScenarioVegetationDensityPercentValue, 0, 100);
             int decoration = Mathf.Clamp(PerfConfig.ScenarioDecorationDensityPercentValue, 0, 100);
-            if (_density != grass || _vegetationDensity != vegetation || _decorationDensity != decoration)
-                ChangeDensity(grass, vegetation, decoration);
+            int architecture = ReadArchitectureDensity();
+            if (_density != grass || _vegetationDensity != vegetation || _decorationDensity != decoration
+                || _architectureDensity != architecture)
+                ChangeDensity(grass, vegetation, decoration, architecture);
         }
 
         internal void PrepareLoadingCompletion()
@@ -2934,7 +2970,8 @@ internal static class ScenarioSceneryBudget
             MaybeReport(loading: false);
         }
 
-        private bool BudgetActive => _density < 100 || _vegetationDensity < 100 || _decorationDensity < 100;
+        private bool BudgetActive => _density < 100 || _vegetationDensity < 100 || _decorationDensity < 100
+            || _architectureDensity < 100;
 
         private void EnterScene(Scene scene)
         {
@@ -2946,6 +2983,7 @@ internal static class ScenarioSceneryBudget
             _density = 100;
             _vegetationDensity = 100;
             _decorationDensity = 100;
+            _architectureDensity = 100;
             _actualScenario = false;
             _wasLoading = true;
             _settlePending = false;
@@ -2953,15 +2991,17 @@ internal static class ScenarioSceneryBudget
             _summaryDue = Time.unscaledTime + 3f;
         }
 
-        private void ChangeDensity(int wantedGrass, int wantedVegetation, int wantedDecoration)
+        private void ChangeDensity(int wantedGrass, int wantedVegetation, int wantedDecoration, int wantedArchitecture)
         {
             bool wasActive = BudgetActive;
             _density = wantedGrass;
             _vegetationDensity = wantedVegetation;
             _decorationDensity = wantedDecoration;
+            _architectureDensity = wantedArchitecture;
             PerfMonitor.MarkChange($"[Optimize] ScenarioSceneryDensityPercent={wantedGrass}; "
                              + $"ScenarioDecorationDensityPercent={wantedDecoration}; "
-                             + $"ScenarioVegetationDensityPercent={wantedVegetation}");
+                             + $"ScenarioVegetationDensityPercent={wantedVegetation}; "
+                             + $"RoomArchitectureDensityPercent={wantedArchitecture}");
             _retuneIndex = 0;
             _summaryPrinted = false;
             _summaryDue = Time.unscaledTime + 2f;
@@ -3107,6 +3147,8 @@ internal static class ScenarioSceneryBudget
                 return;
             }
 
+            ScenarioArchitecturalDetailBudget.RetainedCore[] architectureCores = Array.Empty<ScenarioArchitecturalDetailBudget.RetainedCore>();
+            if (kind == Kind.Architecture && (!ScenarioArchitecturalDetailBudget.TryAdmit(renderer, tile, out unit, out architectureCores) || unit == null)) return;
             var record = new Record
             {
                 Renderer = renderer,
@@ -3114,8 +3156,9 @@ internal static class ScenarioSceneryBudget
                 Id = id,
                 Hash = StableHash(unit, tile),
                 Kind = kind,
-                TreeColliders = TreeCollidersFor(renderer, unit),
-                BayColliders = BayCollidersFor(renderer),
+                ArchitectureCores = architectureCores,
+                TreeColliders = kind == Kind.Architecture ? Array.Empty<Collider>() : TreeCollidersFor(renderer, unit),
+                BayColliders = kind == Kind.Architecture ? Array.Empty<Collider>() : BayCollidersFor(renderer),
             };
             _records.Add(record);
             _byId.Add(id, record);
@@ -3165,7 +3208,7 @@ internal static class ScenarioSceneryBudget
                 // Native placement can reuse a leaf with a changed collider layout. Do not
                 // flip unchanged collider masks on repeat discovery; acquire/release only a
                 // changed ownership plan, with the original renderer mask still reversible.
-                Collider[] currentColliders = TreeCollidersFor(renderer, unit);
+                Collider[] currentColliders = kind == Kind.Architecture ? Array.Empty<Collider>() : TreeCollidersFor(renderer, unit);
                 if (!SameColliders(record.TreeColliders, currentColliders))
                 {
                     ReleaseTreeColliders(record);
@@ -3173,11 +3216,19 @@ internal static class ScenarioSceneryBudget
                     if (record.Owned)
                         ClaimTreeColliders(record);
                 }
-                Collider[] currentBays = BayCollidersFor(renderer);
+                Collider[] currentBays = kind == Kind.Architecture ? Array.Empty<Collider>() : BayCollidersFor(renderer);
                 if (!SameColliders(record.BayColliders, currentBays))
                 {
                     SetHidden(record, false);
                     record.BayColliders = currentBays;
+                }
+                record.ArchitectureCores = Array.Empty<ScenarioArchitecturalDetailBudget.RetainedCore>();
+                if (kind == Kind.Architecture)
+                {
+                    if (!ScenarioArchitecturalDetailBudget.TryAdmit(renderer, tile, out unit, out record.ArchitectureCores) || unit == null)
+                    { SetHidden(record, false); record.Invalidated = true; return; }
+                    // Sibling parts may have changed while this leaf kept its own parent.
+                    record.Hash = StableHash(unit!, tile);
                 }
                 record.Invalidated = false;
                 record.Kind = kind;
@@ -3198,6 +3249,7 @@ internal static class ScenarioSceneryBudget
         {
             Kind.Grass => _density,
             Kind.Vegetation => _vegetationDensity,
+            Kind.Architecture => _architectureDensity,
             _ => _decorationDensity,
         };
 
@@ -3222,7 +3274,7 @@ internal static class ScenarioSceneryBudget
                 return;
             _retuneIndex = -1;
             PerfMonitor.MarkChange($"Scenario scenery budget retune complete: grass {_density}%, "
-                             + $"decoration {_decorationDensity}%, vegetation {_vegetationDensity}%");
+                             + $"decoration {_decorationDensity}%, vegetation {_vegetationDensity}%, architecture {_architectureDensity}%");
             if (!BudgetActive)
             {
                 _records.Clear();
@@ -3284,8 +3336,11 @@ internal static class ScenarioSceneryBudget
                 if (_watchIndex >= _records.Count)
                     _watchIndex = 0;
                 Record record = _records[_watchIndex++];
-                if (!record.Owned || StillOnOriginalChain(record))
-                    continue;
+                if (!record.Owned) continue;
+                bool represented = true;
+                foreach (ScenarioArchitecturalDetailBudget.RetainedCore core in record.ArchitectureCores)
+                    if (!core.IsCurrent()) { represented = false; break; }
+                if (represented && StillOnOriginalChain(record)) continue;
                 SetHidden(record, false);
                 record.Invalidated = true;
             }
@@ -3341,6 +3396,7 @@ internal static class ScenarioSceneryBudget
             int grass = 0;
             int vegetation = 0;
             int dressing = 0;
+            int architecture = 0;
             int projectorOwned = 0;
             for (int i = 0; i < _projectors.Count; i++)
                 if (_projectors[i].Projector != null && _projectors[i].Owned && !_projectors[i].Invalidated) projectorOwned++;
@@ -3356,14 +3412,15 @@ internal static class ScenarioSceneryBudget
                     case Kind.Grass: grass++; break;
                     case Kind.Vegetation: vegetation++; break;
                     case Kind.Dressing: dressing++; break;
+                    case Kind.Architecture: architecture++; break;
                 }
             }
             PerfMonitor.MarkChange($"Scenario scenery preparation complete: {owned} owned renderer masks");
             VRLog.Note(Scope, $"Scenario scenery budget: density {_density}%, decoration "
-                              + $"{_decorationDensity}%, vegetation {_vegetationDensity}%; {_tileIds.Count} tile(s), "
+                              + $"{_decorationDensity}%, vegetation {_vegetationDensity}%, architecture {_architectureDensity}%; {_tileIds.Count} tile(s), "
                               + $"{_meshRenderers} unique mesh renderer(s) inspected, "
                               + $"eligible grass {grass}, trees/bushes/vines {vegetation}, "
-                              + $"scatter/details {dressing}; {owned} owned and {actuallyForced} "
+                              + $"scatter/details {dressing}, architectural ornaments {architecture}; {owned} owned and {actuallyForced} "
                               + "actually forceRenderingOff. Native props, actors, floors and "
                               + "structural walls preserved; actual frame gain is unverified. "
                               + $"Decorative projections {_projectors.Count}, owned masks {projectorOwned}.");

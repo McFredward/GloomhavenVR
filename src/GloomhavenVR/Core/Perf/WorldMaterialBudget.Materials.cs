@@ -115,6 +115,27 @@ internal static partial class WorldMaterialBudget
             || original.GetFloat("_ZWrite") != 1f || original.GetColor("_EmissionColor").maxColorComponent > 0f)) return -1;
         return ProvenProgram(metadata.Keywords(original), route) ? route : -1;
     }
+    // Geometry consumers already read/copy the genuine native MPB. Apply the same
+    // world-material effect contract to that block without another renderer read.
+    // Their owned variant is mapped back to its exact original material first.
+    internal static bool HasUnsupportedBlock(MaterialPropertyBlock block, Material material)
+    {
+        if (block == null || block.isEmpty) return false;
+        Material original = CanonicalMaterial(material);
+        int route = ShaderRoute(original);
+        if (block.HasTexture(MainTextureId) && block.GetTexture(MainTextureId) is RenderTexture) return true;
+        for (int index = 0; index < EffectPropertyIds.Length; index++)
+        {
+            if (route == 9 && EffectProperties[index] == "_EmissionMap") continue;
+            int property = EffectPropertyIds[index];
+            if (block.HasFloat(property) && block.GetFloat(property) != 0f) return true;
+        }
+        if (route == 9)
+            foreach (int property in StandardStatePropertyIds)
+                if (block.HasFloat(property) && block.GetFloat(property) != original.GetFloat(property)) return true;
+        return false;
+    }
+
     private sealed partial class Driver
     {
         private readonly Dictionary<Material, Material> _variants = new();

@@ -68,6 +68,13 @@ internal static class FrameDefaults
     // 2026-10-05: one shared binary; new reversible controls seed only fresh entries.
     // Build644 keeps geometry substitution enabled until a controlled hardware A/B prices
     // its preparation versus native drawing. Hidden attachment writes have no visible output.
+    // Broader 3D room geometry and optional architecture use the same renderer on PC.
+    // Only previously unsaved quality controls are seeded; existing choices always win.
+    internal const bool ScenarioRoomArchitecture = true;
+    internal const int ScenarioRoomFloorDetailPercent = 0;
+    internal const int ScenarioRoomArchitectureDensityPercent = 0;
+    internal const int ScenarioRoomFloorCameraSourceLimitCount = 0;
+    internal const bool ScenarioRoomFloorBatching = true;
     internal const bool ScenarioTerrainSubstitution = true;
     internal const bool ScenarioExplicitEnvironmentInstancing = true;
     internal const bool ScenarioCheapWallShading = true;

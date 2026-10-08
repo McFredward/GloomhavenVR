@@ -101,6 +101,8 @@ def main():
     attachment_paths, attachment_source = attachment_module.wall_attachment_source(args.source_root)
     attachment_source = attachment_source.replace('internal static partial class WallSegmentFade', 'internal static partial class WallDormantFixture', 1)
     source, shader, repair, floor = source_path.read_text(), shader_path.read_text(), repair_path.read_text(), floor_path.read_text()
+    world_shader_path = shader_path.with_name('WorldSimpleMaterial.shader')
+    world_shader = world_shader_path.read_text()
     wall, clock, occlusion = wall_path.read_text(), clock_path.read_text(), occlusion_path.read_text()
     trace = trace_path.read_text()
     delivery = wall_delivery(wall)
@@ -150,6 +152,27 @@ def main():
             variants.append((name,source,expected)); attachment_variants[name] = attachment_source.replace(before,after)
     if not args.production_only:
         changes = [
+            ('room-floor-ownership-lanes-merged',
+             '_kind = surface.RoomFloor ? 2 : surface.Structural ? 1 : 0;', '_kind = 0;',
+             'shared native materials and bounds keep room-floor ownership separate from legacy floor groups', 1),
+            ('room-floor-settled-endpoint-ignored',
+             'valid = RoomFloorGroupsEnabled && TryRoomFloorMesh(r!, out Mesh currentFloor)\n                        && currentFloor == source.ReadableMesh;',
+             'valid = true;',
+             'a live floor detail change revokes the obsolete group immediately before camera culling', 1),
+            ('room-floor-native-override-ignored',
+             '(source.RoomFloor || !TerrainOwns(r)) && r.enabled && r.gameObject.activeInHierarchy && !r.HasPropertyBlock()',
+             '(source.RoomFloor || !TerrainOwns(r)) && r.enabled && r.gameObject.activeInHierarchy && (source.RoomFloor || !r.HasPropertyBlock())',
+             'native renderer property overrides restore per-object rendering instead of being discarded by grouping', 1),
+            ('room-floor-original-geometry-submitted',
+             'surface.ReadableMesh = preparedFloor;', 'surface.ReadableMesh = surface.Mesh;',
+             'broader catalog-proven floors group even without legacy floor names or a floor-plane proxy', 1),
+            ('room-floor-clone-root-contaminated',
+             'child.transform.SetParent(first.RoomFloor ? transform : first.Tile.transform, false);',
+             'child.transform.SetParent(first.Tile.transform, false);',
+             'broader floor groups stay outside every native content cloning root', 1),
+            ('room-floor-native-shader-channel-unprotected',
+             'return !NativeWallFadeEnabled(CanonicalMaterial(source));', 'return true;',
+             'live native floor fade material cannot enter groups without its floor-aware world variant', 1),
             ('world-canonical-map-missing', 'return _worldCanonical?.Invoke(original) ?? original;', 'return original;', 'composed canonical material maps private world references to exact native original', 1),
             ('world-notification-recurses-owner', '_terrainBeforeWrite?.Invoke(renderer);\n            if (_failed) return;', '_worldBeforeWrite?.Invoke(renderer); _terrainBeforeWrite?.Invoke(renderer);\n            if (_failed) return;', 'world reference notification retains new bindings without recursively restoring its owner', 1),
             ('world-disposal-consumers-retained', '_driver?.WorldMaterialsDisposing();', '/* injected retained world material consumers */', 'world variant disposal synchronously releases current and queued material consumers', 1),
@@ -204,7 +227,7 @@ def main():
             ('structural-never-admitted','bool structural = !floor && StructuralIdentity(filter.sharedMesh) && !renderer.HasPropertyBlock();','bool structural = false;','audited native masonry creates a bounded structural render substitute',1),
             ('structural-command-renderer-masked','if (camera != null && camera.commandBufferCount > 0 && foreignCommands)','if (bool.Parse("false"))','native command-buffer DrawRenderer keeps the original structural renderer identity and geometry',1),
             ('structural-effect-release-missing','InvalidateBatch(id);\n            if (_surfaces.TryGetValue(id, out Surface surface))','/* injected: substitute survives write */\n            if (_surfaces.TryGetValue(id, out Surface surface))','wall effect write restores structural sources and material synchronously',1),
-            ('live-floor-dissolve-not-preserved','if (NativeWallFadeEnabled(material)) return false;','/* injected: native floor shader channel lost */','live native floor wall channels retain original shaders',1),
+            ('live-floor-dissolve-not-preserved','if (NativeWallFadeEnabled(material) && !roomFloor) return false;','/* injected: native floor shader channel lost */','live native floor wall channels retain original shaders',1),
             ('late-native-channel-not-retired','RetireChangedNativeMaterials();','/* injected: late original wall channel ignored */','late native material gate retires the simpler variant before actual camera culling',1),
             ('shared-original-verdict-recomputed','if (!share || !_preCullMaterialVerdicts.TryGetValue(original, out materialCompatible))','_preCullMaterialVerdicts.Clear();\n                    if (!share || !_preCullMaterialVerdicts.TryGetValue(original, out materialCompatible))','one camera validates each shared original material once',1),
             ('shared-original-cross-camera-cache','_preCullMaterialVerdicts.Clear();','/* injected: stale material verdict survives cameras */','native keyword edit between camera invocations restores every sharing surface before culling',3),
@@ -323,7 +346,7 @@ def main():
         (swallowed_fixture/'Program.cs').write_text(program.replace(guard,
             'if (callbackFailure != null && bool.Parse("false")) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(callbackFailure).Throw();'))
     manifest = {'result':str(run/'results.txt'),'cases':[]}
-    bound_sources = {attachment_binder:attachment_binder.read_text(), **{path:path.read_text() for path in attachment_paths}, source_path:source,boundary_path:boundary,ambient_path:ambient,shader_path:shader,repair_path:repair,floor_path:floor,wall_path:wall,clock_path:clock,trace_path:trace,occlusion_path:occlusion,dissolve_path:dissolve}
+    bound_sources = {attachment_binder:attachment_binder.read_text(), **{path:path.read_text() for path in attachment_paths}, source_path:source,boundary_path:boundary,ambient_path:ambient,shader_path:shader,world_shader_path:world_shader,repair_path:repair,floor_path:floor,wall_path:wall,clock_path:clock,trace_path:trace,occlusion_path:occlusion,dissolve_path:dissolve}
     for bank_file in ('ScenarioEnvironmentMeshBank.cs','ScenarioEnvironmentMeshStream.cs'):
         bank_path = args.source_root/'src/GloomhavenVR/Core/Perf'/bank_file
         bound_sources[bank_path] = bank_path.read_text()
@@ -332,7 +355,7 @@ def main():
     dotnet = shutil.which('dotnet') or str(Path.home()/'.dotnet/dotnet')
     for name, value, expected in variants:
         build = run/name; production = build/'production'; production.mkdir(parents=True)
-        read_entry = 'private static bool CompatibleMaterial(Material material, bool floor)\n    {'
+        read_entry = 'private static bool CompatibleMaterial(Material material, bool floor, bool roomFloor = false)\n    {'
         assert value.count(read_entry) == 1, 'complete original material-read counter binding drift'
         for bank_file in ('ScenarioEnvironmentMeshBank.cs','ScenarioEnvironmentMeshStream.cs'):
             bank_text = bank_variants.get(name, bound_sources[args.source_root/'src/GloomhavenVR/Core/Perf'/bank_file]) if bank_file == 'ScenarioEnvironmentMeshBank.cs' else bound_sources[args.source_root/'src/GloomhavenVR/Core/Perf'/bank_file]
@@ -392,6 +415,7 @@ def main():
         (unity_project/'Assets'/('NativeTrace'+route+'.shader')).write_text(
             native_shader.replace('Shader "Amp_Basic_N_MRAO"', 'Shader "WallTrace.WallFade.'+route+'"'))
     (unity_project/'Assets/ScenarioSimpleEnvironment.shader').write_text(shader)
+    (unity_project/'Assets/WorldSimpleMaterial.shader').write_text(world_shader)
     bank_root = args.source_root/'unity/GloomhavenVR.Assets/Assets/Bundle/EnvironmentMeshes'
     if not (bank_root/'index.json').is_file(): raise SystemExit('Prepared environment bank assets missing')
     bank_index = json.loads((bank_root/'index.json').read_text())
