@@ -1,0 +1,231 @@
+"""Persistent owned byte proofs reduce reads without hiding changed files."""
+import ctypes
+import hashlib
+import json
+import os
+from pathlib import Path
+import sqlite3
+import sys
+import tempfile
+import unittest
+from unittest import mock
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "tools/quest-builder"))
+import storage
+
+
+def sha(raw): return hashlib.sha256(raw).hexdigest()
+
+
+class WitnessTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.path = self.root / "assets" / "fixture.bin"
+        self.path.parent.mkdir(); self.path.write_bytes(b"known owned bytes")
+        self.database = self.root / "witness.sqlite3"
+        storage._invocation_file_proofs.clear()
+        self.addCleanup(storage._invocation_file_proofs.clear)
+
+    def open(self, owner="fixture-owner"):
+        connection = sqlite3.connect(self.database); self.addCleanup(connection.close)
+        return storage.ValidatedFileWitnesses(connection, self.root, {"owner": owner})
+
+    def cold(self):
+        witness = self.open()
+        self.assertTrue(witness.qualify(self.path, sha(b"known owned bytes"), 17))
+        witness.db.commit(); storage._invocation_file_proofs.clear()
+        return witness
+
+    def test_cold_reads_then_new_instance_qualifies_unchanged_without_bytes(self):
+        cold = self.cold()
+        self.assertEqual(cold.counters, {"files_read": 1, "bytes_read": 17, "cache_hits": 0})
+        warm = self.open()
+        with mock.patch.object(Path, "open", side_effect=AssertionError("unexpected byte read")):
+            self.assertTrue(warm.qualify(self.path, sha(b"known owned bytes"), 17))
+        self.assertEqual(warm.counters, {"files_read": 0, "bytes_read": 0, "cache_hits": 1})
+
+    def test_expected_hash_and_size_remain_authoritative(self):
+        self.cold(); witness = self.open()
+        self.assertFalse(witness.qualify(self.path, "0" * 64, 17))
+        self.assertFalse(witness.qualify(self.path, sha(b"known owned bytes"), 18))
+
+    def test_same_size_preserved_mtime_change_reads_and_rejects_old_hash(self):
+        self.cold(); before = self.path.stat()
+        self.path.write_bytes(b"other owned bytes")
+        os.utime(self.path, ns=(before.st_atime_ns, before.st_mtime_ns))
+        witness = self.open()
+        self.assertFalse(witness.qualify(self.path, sha(b"known owned bytes"), 17))
+        self.assertEqual(witness.counters["files_read"], 1)
+        self.assertEqual(witness.observe(self.path), sha(b"other owned bytes"))
+        self.assertEqual(witness.counters["files_read"], 1)
+
+    def test_replaced_identity_requires_read_even_when_size_and_times_match(self):
+        self.cold(); before = self.path.stat()
+        replacement = self.path.with_suffix(".new"); replacement.write_bytes(b"known owned bytes")
+        os.utime(replacement, ns=(before.st_atime_ns, before.st_mtime_ns)); replacement.replace(self.path)
+        witness = self.open()
+        self.assertTrue(witness.qualify(self.path, sha(b"known owned bytes"), 17))
+        self.assertEqual(witness.counters["files_read"], 1)
+
+    def test_corrupt_stamp_or_hash_checksum_requires_byte_read(self):
+        for column, bad in (("stamp", "bad-json"), ("sha", "0" * 64), ("check_hash", "broken"), ("size", 19)):
+            with self.subTest(column=column):
+                witness = self.cold()
+                witness.db.execute("UPDATE validated_file_witnesses SET " + column + "=?", (bad,)); witness.db.commit()
+                storage._invocation_file_proofs.clear()
+                fresh = self.open()
+                self.assertTrue(fresh.qualify(self.path, sha(b"known owned bytes"), 17))
+                self.assertEqual(fresh.counters["files_read"], 1)
+                fresh.db.commit()
+
+    def test_changed_owner_does_not_inherit_persistent_witness(self):
+        self.cold(); changed = self.open("another-owner")
+        self.assertTrue(changed.qualify(self.path, sha(b"known owned bytes"), 17))
+        self.assertEqual(changed.counters["files_read"], 1)
+
+    def test_unsupported_stamp_always_reads_and_remember_does_not_persist(self):
+        with mock.patch.object(storage, "_file_witness_stamp", return_value=None):
+            witness = self.open(); witness.remember(self.path, sha(b"known owned bytes"))
+            self.assertEqual(witness.db.execute("SELECT COUNT(*) FROM validated_file_witnesses").fetchone()[0], 0)
+            self.assertEqual(witness.observe(self.path), sha(b"known owned bytes"))
+            self.assertEqual(witness.observe(self.path), sha(b"known owned bytes"))
+            self.assertEqual(witness.counters["files_read"], 2)
+
+    def test_linked_leaf_parent_and_outside_paths_are_rejected(self):
+        witness = self.open()
+        linked = self.root / "linked"; linked.symlink_to(self.path)
+        with self.assertRaises(storage.BuildError): witness.observe(linked)
+        parent = self.root / "parent"; parent.symlink_to(self.path.parent, target_is_directory=True)
+        with self.assertRaises(storage.BuildError): witness.observe(parent / self.path.name)
+        with self.assertRaises(storage.BuildError): witness.observe(self.root.parent / "outside")
+
+    def test_hardlinked_content_remains_supported_with_conservative_bytes(self):
+        self.cold()
+        hard = self.root / "preimage.zip"; os.link(self.path, hard)
+        witness = self.open()
+        self.assertEqual(witness.observe(self.path), sha(b"known owned bytes"))
+        self.assertEqual(witness.observe(self.path), sha(b"known owned bytes"))
+        self.assertEqual(witness.counters, {"files_read": 2, "bytes_read": 34, "cache_hits": 0})
+        stages = storage.Stages(self.root)
+        result = stages.run("hardlinked", "fixture", lambda: ([hard], {}))
+        storage._invocation_file_proofs.clear()
+        self.assertIsNotNone(stages.valid("hardlinked", "fixture"))
+        self.assertEqual(hard.read_bytes(), self.path.read_bytes())
+
+    def test_changed_file_while_hashing_never_records_witness(self):
+        witness = self.open()
+        def changing(path):
+            raw = path.read_bytes(); path.write_bytes(b"other owned bytes")
+            return sha(raw)
+        with self.assertRaisesRegex(storage.BuildError, "changed while"):
+            witness.observe(self.path, hasher=changing)
+        self.assertEqual(witness.db.execute("SELECT COUNT(*) FROM validated_file_witnesses").fetchone()[0], 0)
+
+    def test_remember_requires_closed_proof_stamp_and_invalidation_is_scoped(self):
+        witness = self.open(); before = witness.current(self.path)
+        witness.remember(self.path, sha(b"known owned bytes"), stamp=before)
+        witness.invalidate(self.path)
+        self.assertEqual(witness.db.execute("SELECT COUNT(*) FROM validated_file_witnesses").fetchone()[0], 0)
+        self.path.write_bytes(b"other owned bytes")
+        with self.assertRaisesRegex(storage.BuildError, "changed before"):
+            witness.remember(self.path, sha(b"known owned bytes"), stamp=before)
+
+    def test_producer_proof_seeds_following_stage_without_duplicate_read(self):
+        witness = self.open(); witness.remember(self.path, sha(b"known owned bytes"))
+        stages = storage.Stages(self.root)
+        # JSON receipt writers are allowed; only the asset byte reader is forbidden.
+        original = Path.open
+        def opening(path, mode="r", *args, **kwargs):
+            if path == self.path and mode == "rb": raise AssertionError("duplicate producer read")
+            return original(path, mode, *args, **kwargs)
+        with mock.patch.object(Path, "open", opening):
+            result = stages.run("fixture", "key", lambda: ([self.path], {"known": True}))
+        self.assertEqual(result["outputs"][0]["sha256"], sha(b"known owned bytes"))
+
+    def test_stage_legacy_migration_then_warm_continuation_and_change(self):
+        stages = storage.Stages(self.root)
+        storage.write_json(stages.path("fixture", "key"), {"schema": 1, "stage": "fixture", "key": "key",
+            "outputs": [{"path": self.path.relative_to(self.root).as_posix(), "size": 17, "sha256": sha(b"known owned bytes")}], "details": {}})
+        self.assertIsNotNone(stages.valid("fixture", "key"))
+        storage._invocation_file_proofs.clear()
+        original = Path.open
+        def opening(path, mode="r", *args, **kwargs):
+            if path == self.path and mode == "rb": raise AssertionError("warm byte read")
+            return original(path, mode, *args, **kwargs)
+        with mock.patch.object(Path, "open", opening):
+            self.assertIsNotNone(storage.Stages(self.root).valid("fixture", "key"))
+        stamp = self.path.stat(); self.path.write_bytes(b"other owned bytes")
+        os.utime(self.path, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+        self.assertIsNone(stages.valid("fixture", "key"))
+
+
+class FakeKernel:
+    def __init__(self):
+        self.closed, self.calls = [], []
+        self.change, self.write, self.file_id = 20, 10, 123
+        self.links, self.attributes, self.pending, self.directory = 1, 0, False, False
+        self.filesystem, self.failed = "NTFS", None
+
+    def CreateFileW(self, *args): self.calls.append(args); return 99
+    def CloseHandle(self, handle): self.closed.append(handle); return True
+    def GetVolumeInformationByHandleW(self, handle, a, b, c, d, e, name, count):
+        name.value = self.filesystem; return True
+    def GetFileInformationByHandleEx(self, handle, kind, pointer, size):
+        if kind == self.failed: return False
+        value = pointer._obj
+        if kind == 0:
+            value.CreationTime, value.ChangeTime, value.LastWriteTime = 1, self.change, self.write
+            value.FileAttributes = self.attributes
+        elif kind == 1:
+            value.EndOfFile, value.NumberOfLinks, value.DeletePending, value.Directory = 17, self.links, self.pending, self.directory
+        elif kind == 18:
+            value.VolumeSerialNumber = 1234
+            value.FileId[:] = self.file_id.to_bytes(16, "little")
+        return True
+
+
+class WindowsMetadataTests(unittest.TestCase):
+    def test_win32_abi_attribute_access_share_flags_and_closed_handle(self):
+        kernel = FakeKernel(); seam = storage._WindowsFileMetadata(kernel)
+        self.assertEqual([ctypes.sizeof(cls) for cls in (seam.Basic, seam.Standard, seam.Identity)], [40, 24, 24])
+        stamp = seam.stamp(Path("C:/owned/fixture.bin"))
+        self.assertEqual(stamp, ("win32-v1", 1234, (123).to_bytes(16, "little").hex(), 17, 10, 20))
+        self.assertEqual(kernel.calls[0][1:], (0x80, 7, None, 3, 0x00200000, None))
+        self.assertTrue(kernel.calls[0][0].startswith("\\\\?\\")); self.assertEqual(kernel.closed, [99])
+
+    def test_api_failure_unknown_driver_and_fat_are_conservative(self):
+        for failed, filesystem in ((0, "NTFS"), (1, "NTFS"), (18, "NTFS"), (None, "FAT32"), (None, "unknown")):
+            with self.subTest(failed=failed, filesystem=filesystem):
+                kernel = FakeKernel(); kernel.failed, kernel.filesystem = failed, filesystem
+                self.assertIsNone(storage._WindowsFileMetadata(kernel).stamp(Path("C:/owned/file")))
+                self.assertEqual(kernel.closed, [99])
+
+    def test_reparse_hardlink_directory_and_delete_pending_rejected(self):
+        for field, value in (("attributes", 0x400), ("attributes", 0x10), ("directory", True), ("pending", True)):
+            with self.subTest(field=field):
+                kernel = FakeKernel(); setattr(kernel, field, value)
+                with self.assertRaises(storage.BuildError): storage._WindowsFileMetadata(kernel).stamp(Path("C:/owned/file"))
+                self.assertEqual(kernel.closed, [99])
+
+    def test_win32_hardlinked_content_has_no_persistent_stamp(self):
+        kernel = FakeKernel(); kernel.links = 2
+        self.assertIsNone(storage._WindowsFileMetadata(kernel).stamp(Path("C:/owned/file")))
+        self.assertEqual(kernel.closed, [99])
+
+    def test_actual_change_time_invalidates_even_when_path_creation_and_mtime_match(self):
+        temporary = tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name); path = root / "file"; path.write_bytes(b"known owned bytes")
+        connection = sqlite3.connect(root / "cache.sqlite3"); self.addCleanup(connection.close)
+        kernel = FakeKernel(); seam = storage._WindowsFileMetadata(kernel)
+        with mock.patch.object(storage, "_file_witness_stamp", side_effect=lambda p, value: seam.stamp(p)):
+            witness = storage.ValidatedFileWitnesses(connection, root, {"owner": "fixture"})
+            self.assertEqual(witness.observe(path), sha(b"known owned bytes"))
+            before = path.stat(); path.write_bytes(b"other owned bytes")
+            os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns)); kernel.change += 1
+            self.assertFalse(witness.qualify(path, sha(b"known owned bytes"), 17))
+            self.assertEqual(witness.counters["files_read"], 2)
+
+
+if __name__ == "__main__": unittest.main()

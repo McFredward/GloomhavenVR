@@ -9,6 +9,9 @@ import json
 import os
 from pathlib import Path
 import shutil
+import sqlite3
+import stat
+import sys
 import time
 import uuid
 
@@ -214,6 +217,225 @@ def _ordinary_owned(path: Path) -> Path:
         if part.is_symlink() or (hasattr(part, "is_junction") and part.is_junction()):
             raise BuildError("Generated workspace paths cannot be links: " + str(path))
     return path
+
+
+class _WindowsFileMetadata:
+    """Read one handle's identity and ChangeTime, never Python's creation time."""
+    def __init__(self, kernel=None):
+        import ctypes
+        self.ctypes = ctypes
+        # Explicit Windows widths also make ABI regression tests portable.
+        class Basic(ctypes.Structure):
+            _fields_ = [(name, ctypes.c_int64) for name in
+                        ("CreationTime", "LastAccessTime", "LastWriteTime", "ChangeTime")] + [("FileAttributes", ctypes.c_uint32)]
+        class Standard(ctypes.Structure):
+            _fields_ = [("AllocationSize", ctypes.c_int64), ("EndOfFile", ctypes.c_int64),
+                        ("NumberOfLinks", ctypes.c_uint32), ("DeletePending", ctypes.c_ubyte), ("Directory", ctypes.c_ubyte)]
+        class Identity(ctypes.Structure):
+            _fields_ = [("VolumeSerialNumber", ctypes.c_uint64), ("FileId", ctypes.c_ubyte * 16)]
+        self.Basic, self.Standard, self.Identity = Basic, Standard, Identity
+        self.kernel = kernel or ctypes.WinDLL("kernel32", use_last_error=True)
+        self.filesystems = {}
+        if kernel is None:
+            self.kernel.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_uint32, ctypes.c_uint32,
+                                               ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p]
+            self.kernel.CreateFileW.restype = ctypes.c_void_p
+            self.kernel.GetFileInformationByHandleEx.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+            self.kernel.GetFileInformationByHandleEx.restype = ctypes.c_int
+            self.kernel.GetVolumeInformationByHandleW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_uint32,
+                ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_uint32]
+            self.kernel.GetVolumeInformationByHandleW.restype = ctypes.c_int
+            self.kernel.CloseHandle.argtypes = [ctypes.c_void_p]
+            self.kernel.CloseHandle.restype = ctypes.c_int
+
+    def stamp(self, path):
+        c = self.ctypes
+        name = str(path)
+        if not name.startswith("\\\\?\\"):
+            name = "\\\\?\\UNC\\" + name[2:] if name.startswith("\\\\") else "\\\\?\\" + name
+        # Read attributes, share reads/writes/deletes, OPEN_EXISTING, and open a
+        # reparse point itself so it can be rejected. No file data is opened.
+        # https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew
+        handle = self.kernel.CreateFileW(name, 0x80, 7, None, 3, 0x00200000, None)
+        if handle is None or handle == c.c_void_p(-1).value:
+            return None
+        try:
+            basic, standard, identity = self.Basic(), self.Standard(), self.Identity()
+            # FileBasicInfo=0, FileStandardInfo=1, FileIdInfo=18; the documented
+            # structures keep ChangeTime distinct from CreationTime.
+            # https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getfileinformationbyhandleex
+            # https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_basic_info
+            for kind, value in ((0, basic), (1, standard), (18, identity)):
+                if not self.kernel.GetFileInformationByHandleEx(handle, kind, c.byref(value), c.sizeof(value)):
+                    return None
+            if basic.FileAttributes & (0x400 | 0x10) or standard.Directory or standard.DeletePending:
+                raise BuildError("Owned witness path is linked, pending deletion, or not a regular file: " + str(path))
+            if standard.NumberOfLinks != 1: return None
+            volume = identity.VolumeSerialNumber
+            if volume not in self.filesystems:
+                filesystem = c.create_unicode_buffer(261)
+                # Query the opened file's volume, rather than guessing from its
+                # drive letter. Unknown/FAT/network drivers use byte checks.
+                # https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getvolumeinformationbyhandlew
+                ok = self.kernel.GetVolumeInformationByHandleW(handle, None, 0, None, None, None, filesystem, len(filesystem))
+                self.filesystems[volume] = filesystem.value.upper() if ok else ""
+            if self.filesystems[volume] not in ("NTFS", "REFS") or not basic.ChangeTime or not any(identity.FileId):
+                return None
+            return ("win32-v1", volume, bytes(identity.FileId).hex(), standard.EndOfFile,
+                    basic.LastWriteTime, basic.ChangeTime)
+        finally:
+            self.kernel.CloseHandle(handle)
+
+
+_windows_metadata = None
+_invocation_file_proofs = {}
+
+
+def _file_witness_stamp(path, value):
+    global _windows_metadata
+    if sys.platform == "win32":
+        try:
+            if _windows_metadata is None: _windows_metadata = _WindowsFileMetadata()
+            return _windows_metadata.stamp(path)
+        except (OSError, AttributeError):
+            # Unsupported metadata APIs never become persistent stamp trust.
+            return None
+    return ("posix-v1", value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+
+
+class ValidatedFileWitnesses:
+    """Persist byte proofs under an exact owner and reliable file-change stamp.
+
+    The caller holds the workspace lock and commits the supplied SQLite
+    connection. Receipt hashes remain authoritative. Unknown metadata or an old
+    database without witnesses requires a byte read; this is not a hash skip.
+    """
+    def __init__(self, connection, owned_root, owner_identity):
+        self.db = connection
+        self.root = _ordinary_owned(Path(owned_root))
+        root_stat = self.root.lstat()
+        if not stat.S_ISDIR(root_stat.st_mode): raise BuildError("File witness root is not a directory.")
+        self.root_identity = (root_stat.st_dev, root_stat.st_ino)
+        self.namespace = value_hash({"schema": 1, "root": str(self.root), "owner": owner_identity})
+        self.counters = {"files_read": 0, "bytes_read": 0, "cache_hits": 0}
+        self.db.execute("""CREATE TABLE IF NOT EXISTS validated_file_witnesses
+            (owner TEXT NOT NULL, path TEXT NOT NULL, size INTEGER NOT NULL,
+             sha TEXT NOT NULL, stamp TEXT NOT NULL, check_hash TEXT NOT NULL,
+             PRIMARY KEY(owner,path))""")
+
+    def _path(self, path):
+        path = Path(os.path.abspath(path))
+        if path == self.root or self.root not in path.parents:
+            raise BuildError("File witness is outside its owned root: " + str(path))
+        # The root and its external ancestors were qualified once. Inspect
+        # each owned ancestor with one lstat, without resolve/is_junction walks.
+        for parent in path.parents:
+            value = parent.lstat()
+            if not stat.S_ISDIR(value.st_mode) or getattr(value, "st_file_attributes", 0) & 0x400:
+                raise BuildError("File witness crosses a linked directory: " + str(path))
+            if parent == self.root:
+                if (value.st_dev, value.st_ino) != self.root_identity:
+                    raise BuildError("File witness owner root changed during conversion.")
+                break
+        return path
+
+    def current(self, path):
+        path = self._path(path)
+        return self._current(path)
+
+    def _current(self, path):
+        value = path.lstat()
+        if not stat.S_ISREG(value.st_mode) or getattr(value, "st_file_attributes", 0) & 0x400:
+            raise BuildError("File witness is not a regular owned file: " + str(path))
+        # Content publication deliberately hardlinks ZIP preimages. Preserve
+        # that contract, but never reuse persistent/invocation stamp trust.
+        if value.st_nlink != 1: return None
+        return _file_witness_stamp(path, value)
+
+    def _key(self, path):
+        return Path(path).absolute().relative_to(self.root).as_posix()
+
+    def _save(self, path, sha256, stamp):
+        if stamp is None: return
+        _invocation_file_proofs[Path(path).absolute()] = (stamp, sha256)
+        relative = self._key(path)
+        payload = [self.namespace, relative, stamp[3], sha256, list(stamp)]
+        self.db.execute("INSERT OR REPLACE INTO validated_file_witnesses VALUES (?,?,?,?,?,?)",
+                        (self.namespace, relative, stamp[3], sha256, canonical(list(stamp)).decode(), value_hash(payload)))
+
+    def remember(self, path, sha256, *, stamp=None):
+        """Attach a caller's exact closed-writer/read proof; never infer bytes."""
+        if not isinstance(sha256, str) or len(sha256) != 64 or any(c not in "0123456789abcdef" for c in sha256):
+            raise BuildError("File witness requires a SHA-256 byte proof.")
+        actual = self.current(path)
+        if stamp is not None and tuple(stamp) != actual:
+            raise BuildError("File changed before its witness was recorded: " + str(path))
+        self._save(path, sha256, actual)
+
+    def invalidate(self, path):
+        relative = self._key(path)
+        path = Path(path).absolute()
+        _invocation_file_proofs.pop(path, None)
+        if path.is_dir():
+            for known in list(_invocation_file_proofs):
+                if path in known.parents: del _invocation_file_proofs[known]
+        # Indexed prefix ranges avoid scanning every witness per YAML write.
+        self.db.execute("DELETE FROM validated_file_witnesses WHERE owner=? AND path=?", (self.namespace, relative))
+        self.db.execute("DELETE FROM validated_file_witnesses WHERE owner=? AND path>=? AND path<?",
+                        (self.namespace, relative + "/", relative + "0"))
+
+    def observe(self, path, *, hasher=None):
+        path = self._path(path)
+        before = self._current(path)
+        row = self.db.execute("SELECT size,sha,stamp,check_hash FROM validated_file_witnesses WHERE owner=? AND path=?",
+                              (self.namespace, self._key(path))).fetchone()
+        if row is not None and before is not None:
+            size, hashed, serialized, check = row
+            try:
+                stamp = json.loads(serialized)
+                good = (stamp == list(before) and size == before[3] and isinstance(hashed, str) and len(hashed) == 64 and
+                        all(c in "0123456789abcdef" for c in hashed) and
+                        check == value_hash([self.namespace, self._key(path), size, hashed, stamp]))
+            except (ValueError, TypeError): good = False
+            if good:
+                self.counters["cache_hits"] += 1
+                _invocation_file_proofs[path] = (before, hashed)
+                return hashed
+        # A prior producer in this process may already have streamed the exact
+        # closed-writer bytes. This also avoids a second producer/stage hash.
+        proved = _invocation_file_proofs.get(path)
+        if before is not None and proved is not None and proved[0] == before:
+            self._save(path, proved[1], before)
+            self.counters["cache_hits"] += 1
+            return proved[1]
+        fallback_before = path.lstat()
+        if hasher is None:
+            result = hashlib.sha256(); read = 0
+            with path.open("rb") as stream:
+                for chunk in iter(lambda: stream.read(1048576), b""):
+                    result.update(chunk); read += len(chunk)
+            hashed = result.hexdigest()
+        else:
+            # Custom hashers must consume the complete file, as digest does.
+            hashed = hasher(path); read = fallback_before.st_size
+        self.counters["files_read"] += 1; self.counters["bytes_read"] += read
+        after = self._current(path)
+        fallback_after = path.lstat()
+        stamp = lambda v: (v.st_dev, v.st_ino, v.st_size, v.st_mtime_ns, v.st_ctime_ns)
+        if before != after or stamp(fallback_before) != stamp(fallback_after) or read != fallback_after.st_size:
+            raise BuildError("Owned file changed while its bytes were read: " + str(path))
+        self._save(path, hashed, after)
+        return hashed
+
+    def qualify(self, path, expected_sha256, expected_size, *, hasher=None):
+        path = self._path(path)
+        if path.lstat().st_size != expected_size: return False
+        return self.observe(path, hasher=hasher) == expected_sha256
+
+    def summary(self):
+        c = self.counters
+        return (str(c["cache_hits"]) + " files reused by metadata; " + str(c["files_read"]) +
+                " files / " + str(c["bytes_read"]) + " bytes rechecked")
 
 
 @contextmanager
@@ -524,10 +746,28 @@ def project_content_transaction(output: Path, project: Path, input_key: str):
 
 class Stages:
     def __init__(self, output: Path):
-        self.output = output
+        self.output = _ordinary_owned(Path(output))
 
     def path(self, name: str, key: str) -> Path:
         return self.output / "receipts" / name / (key + ".json")
+
+    @contextmanager
+    def _witnesses(self, name, key):
+        root = _ordinary_owned(self.output)
+        directory = _ordinary_owned(root / "receipts")
+        directory.mkdir(parents=True, exist_ok=True)
+        path = _ordinary_owned(directory / ".file-witnesses.sqlite3")
+        if path.exists() and (not stat.S_ISREG(path.lstat().st_mode) or path.lstat().st_nlink != 1):
+            raise BuildError("Stage witness database is not a regular owned file.")
+        connection = sqlite3.connect(path, timeout=30)
+        try:
+            connection.execute("PRAGMA journal_mode=WAL")
+            connection.execute("PRAGMA synchronous=NORMAL")
+            witnesses = ValidatedFileWitnesses(connection, root, {"schema": 1, "stage": name, "key": key})
+            yield witnesses
+            connection.commit()
+        finally:
+            connection.close()
 
     def valid(self, name: str, key: str) -> dict | None:
         path = self.path(name, key)
@@ -540,12 +780,17 @@ class Stages:
             records = value["outputs"]
             if not records:
                 return None
-            for item in records:
-                candidate = (self.output / item["path"]).resolve()
-                if self.output.resolve() not in candidate.parents:
-                    return None
-            return value if verify_files(self.output, records, phase="stage-receipt-verify:" + name) else None
-        except (ValueError, OSError, KeyError):
+            phase = "stage-receipt-verify:" + name
+            counter = _counter(phase, sum(item["size"] for item in records), "bytes")
+            with self._witnesses(name, key) as witnesses:
+                for item in records:
+                    candidate = self.output / item["path"]
+                    if not witnesses.qualify(candidate, item["sha256"], item["size"]): return None
+                    if counter: counter.add(item["size"], candidate.name)
+                if counter: counter.finish()
+                if build_progress: build_progress.event(phase, detail=witnesses.summary(), status="complete")
+            return value
+        except (ValueError, OSError, KeyError, BuildError):
             return None
 
     def run(self, name: str, key: str, action) -> dict:
@@ -562,8 +807,13 @@ class Stages:
             paths, details = action()
             paths = list(paths)
             counter = _counter("stage-output-verify:" + name, sum(path.stat().st_size for path in paths), "bytes")
-            records = [record_file(p, p.relative_to(self.output).as_posix(), progress=lambda size, p=p: counter.add(size, p.name))
-                       if counter else record_file(p, p.relative_to(self.output).as_posix()) for p in paths]
+            records = []
+            with self._witnesses(name, key) as witnesses:
+                for path in paths:
+                    hashed = witnesses.observe(path)
+                    records.append({"path": path.relative_to(self.output).as_posix(), "sha256": hashed, "size": path.lstat().st_size})
+                    if counter: counter.add(records[-1]["size"], path.name)
+                if build_progress: build_progress.event("stage-output-verify:" + name, detail=witnesses.summary(), status="complete")
             if not records:
                 raise BuildError(name + " produced no verifiable files.")
             value = {"schema": 1, "stage": name, "key": key, "outputs": records, "details": details}

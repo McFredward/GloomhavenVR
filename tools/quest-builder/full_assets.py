@@ -62,7 +62,7 @@ def _written_identity(value):
 
 
 class _StageProofs:
-    """Hashes read/written in this invocation; never serialized stat trust.
+    """Actual byte proofs, with owned persistent change-stamp qualification.
 
     Each copy endpoint is qualified through startup.safe_path or the exact
     original runtime task. Repeating parent resolution for every later report
@@ -71,9 +71,15 @@ class _StageProofs:
     """
     def __init__(self):
         self.files = {}
+        self.witnesses = None
 
     def remember(self, path, digest, stamp):
-        self.files[Path(path).absolute()] = stamp, digest
+        path = Path(path).absolute()
+        self.files[path] = stamp, digest
+        if self.witnesses is not None and self.witnesses.root in path.parents:
+            # Persistent metadata has its own Win32 ChangeTime seam. Do not
+            # compare path stat creation time against fstat change time here.
+            self.witnesses.remember(path, digest)
 
     @staticmethod
     def current(path):
@@ -84,6 +90,10 @@ class _StageProofs:
 
     def digest(self, path, hasher=None):
         path = Path(path).absolute()
+        if self.witnesses is not None and self.witnesses.root in path.parents:
+            digest = self.witnesses.observe(path, hasher=hasher or _hash_output)
+            self.files[path] = self.current(path), digest
+            return digest
         before = self.current(path)
         prior = self.files.get(path)
         if prior is not None and prior[0] == before:
@@ -99,6 +109,9 @@ class _StageProofs:
         prior = self.files.get(path)
         if prior is None or prior[0] != self.current(path):
             raise BuildError("Current staged output changed before publication: " + str(path))
+        if self.witnesses is not None and self.witnesses.root in path.parents:
+            if not self.witnesses.qualify(path, prior[1], prior[0][2], hasher=_hash_output):
+                raise BuildError("Current staged output bytes changed before publication: " + str(path))
         return prior[1]
 
 

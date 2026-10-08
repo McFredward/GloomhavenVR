@@ -313,7 +313,7 @@ class StagingTests(unittest.TestCase):
              mock.patch.object(tmp,'restore',side_effect=AssertionError('completed TMP replay')):
             reused=full_assets.stage(project,game,output,self.root/'unused-tmp.zip',managed_types=project/'QuestRecovery/managed-types.json',cab_bundles=owners,unitypy=types.SimpleNamespace())
         self.assertEqual(reused,report)
-        self.assertTrue(reads and all(count == 1 for count in reads.values()))
+        self.assertEqual(reads, {}, "Unchanged retained writer proofs must not reread asset bytes on a warm continuation")
         self.assertEqual([(row['phase'].split(':')[1],row['status']) for row in events(reuse_stream) if row['phase'].startswith('staging-section:')],[(name,'reuse') for name in full_assets.STAGING_SECTIONS])
 
         interrupted=self.root/'interrupted-native-stage'

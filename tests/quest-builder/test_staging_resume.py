@@ -66,10 +66,33 @@ class ResumeTests(unittest.TestCase):
                 return {"complete": True}
             journal.run("copy", 0, resume, copy=True)
         self.assertNotIn(first, reads)
-        self.assertEqual(reads.count(self.output / "first"), 1)
+        self.assertEqual(reads.count(self.output / "first"), 0)
         self.assertEqual(reads.count(second), 1)
         self.assertEqual((self.output / "first").stat().st_ino, stamp.st_ino)
         self.assertEqual((self.output / "first").read_bytes(), first.read_bytes())
+
+    def test_legacy_journal_qualifies_bytes_once_then_warm_reuses_metadata(self):
+        self.baseline()
+        database = self.output.with_name(self.output.name + ".staging-resume") / "journal.sqlite3"
+        with sqlite3.connect(database) as connection:
+            connection.execute("DROP TABLE validated_file_witnesses")
+        import storage
+        storage._invocation_file_proofs.clear()
+        with self.journal() as migrated:
+            self.assertEqual(migrated.witnesses.counters["files_read"], 3)
+            self.assertEqual(migrated.witnesses.counters["bytes_read"], 37)
+        storage._invocation_file_proofs.clear()
+        with self.journal() as warm:
+            self.assertEqual(warm.witnesses.counters, {"files_read": 0, "bytes_read": 0, "cache_hits": 3})
+
+    def test_same_size_preserved_mtime_corruption_rejects_warm_witness(self):
+        self.baseline()
+        target = self.output / "asset"
+        stamp = target.stat()
+        target.write_bytes(b"modified")
+        os.utime(target, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+        with self.assertRaisesRegex(BuildError, "Retained staged bytes differ"):
+            self.journal()
 
     def test_uncommitted_complete_copy_is_qualified_and_partial_copy_is_repaired(self):
         original = self.original / "asset"; original.write_bytes(b"complete owned data")

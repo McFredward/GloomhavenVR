@@ -1,7 +1,8 @@
 """Owned, incremental full-staging receipts and bounded write-ahead rollback.
 
 Completed phases keep JSON context and the latest byte proofs, not snapshots of
-the project. A cold invocation qualifies each retained file once. During a
+the project. Persisted change stamps qualify unchanged owned files; legacy or
+changed files still require byte reads. During a
 transform, one scoped CPython audit dispatcher records preimages before Python
 filesystem writes, moves and removals. Only the unfinished phase is rolled back.
 Current GUID/layout/native/TMP writers use these operations; subprocess writers
@@ -20,7 +21,7 @@ import sys
 import threading
 import uuid
 
-from storage import BuildError, build_progress
+from storage import BuildError, ValidatedFileWitnesses, build_progress
 
 SCHEMA = 1
 BATCH = 128
@@ -108,6 +109,8 @@ class Journal:
         """)
         self.db.commit()
         self.output.mkdir(parents=True, exist_ok=True)
+        self.witnesses = ValidatedFileWitnesses(self.db, self.output, expected)
+        self.proofs.witnesses = self.witnesses
         try:
             self.rollback()
             self._qualify()
@@ -150,6 +153,7 @@ class Journal:
         if recursive and path.is_dir():
             for child in path.iterdir(): self._capture(child, recursive=True)
         if relative in self.claimed: return
+        self.witnesses.invalidate(path)
         try: value = path.lstat()
         except FileNotFoundError: value = None
         backup, size, digest, mode, atime, mtime = None, None, None, None, None, None
@@ -236,20 +240,25 @@ class Journal:
         try:
             for relative, expected_size, expected, phase in self.db.execute("SELECT path,size,sha,phase FROM files ORDER BY path"):
                 try:
-                    path = self._path(self.output / relative)
-                    valid = path is not None and path.is_file() and _regular(path).st_size == expected_size and self.proofs.digest(path) == expected
+                    path = self.output / relative
+                    valid = _regular(path).st_size == expected_size and self.witnesses.qualify(path, expected, expected_size)
+                    if valid: self.proofs.files[path.absolute()] = self.proofs.current(path), expected
                 except (OSError, BuildError) as error:
                     raise BuildError("Retained staged bytes could not be qualified (phase " + phase + "): " + relative) from error
                 if not valid:
                     raise BuildError("Retained staged bytes differ from the last completed write (phase " + phase + "): " + relative)
                 counter.add(expected_size, relative); files.add(1, relative)
             counter.finish(); files.finish()
+            self.db.commit()
+            build_progress.event("staging-resume-verify", size, size, "bytes", self.witnesses.summary(), status="complete")
         except BaseException as error:
             counter.fail(error); files.fail(error); raise
 
     def record(self, path):
         path = Path(path)
-        self.pending.append((path.relative_to(self.output).as_posix(), _regular(path).st_size, self.proofs.published(path), self.phase or "copy-incomplete"))
+        hashed = self.proofs.published(path)
+        self.witnesses.remember(path, hashed)
+        self.pending.append((path.relative_to(self.output).as_posix(), _regular(path).st_size, hashed, self.phase or "copy-incomplete"))
         if len(self.pending) >= BATCH: self.flush()
 
     def flush(self):
@@ -298,6 +307,7 @@ class Journal:
                     raise BuildError("Staging rollback preimage is corrupt; files were preserved: " + relative)
         for relative, kind, *_ in sorted(rows, key=lambda row: len(Path(row[0]).parts), reverse=True):
             path = self.output / relative
+            self.witnesses.invalidate(path)
             if path.is_file(): path.unlink()
             elif path.exists() and kind != "directory":
                 # All children of a moved/removed directory have their own undo
