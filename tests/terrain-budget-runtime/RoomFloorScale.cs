@@ -75,6 +75,10 @@ public static partial class TerrainProgram
             Check(ScenarioTerrainBudget.TryGetSettledRoomFloor(first, out _), "native floor writer invalidates same-pass original metadata");
         }
         Check(roleReads == 5, "nested pass and native writer invalidate repeated floor bank metadata without crossing frames");
+        ScenarioTerrainBudget.ConfigureFloorGrouping(renderer => renderer is MeshRenderer meshRenderer && floors.Contains(meshRenderer)); roleReads = 0;
+        Render(camera);
+        Check(roleReads == 1, "terrain camera validates one bank role for256 already grouped repeated floors");
+        ScenarioTerrainBudget.ConfigureFloorGrouping(renderer => false);
         var watch = Stopwatch.StartNew();
         for (int frame = 0; frame < 10; frame++) Render(camera);
         watch.Stop();

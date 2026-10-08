@@ -23,6 +23,7 @@ internal static partial class ScenarioTerrainBudget
         internal Material[] Materials = Array.Empty<Material>();
         internal bool Distant;
         internal bool CheapLease;
+        internal bool WorldLease;
         private Mesh? _exact, _target, _morph, _current;
         private Mesh? _notifiedFloorMesh;
         private Vector3[]? _from, _to, _vertices;
@@ -131,6 +132,17 @@ internal static partial class ScenarioTerrainBudget
         private static bool LiveSpecialEffect(MaterialPropertyBlock block) =>
             !block.isEmpty && (block.GetFloat("_AddVertexAnim") != 0f || block.GetFloat("_UseEmissiveMap") != 0f
             || block.GetFloat("_Diffuse_Emissive_On") != 0f);
+        private bool UnsupportedWorldBlock(MaterialPropertyBlock block, int slot = -1)
+        {
+            if (!WorldLease || block.isEmpty) return false;
+            // Geometry admission uses the audited world factory when that owner
+            // supplies the shader. Its complete effect table checks already-read
+            // native blocks; the legacy cheap route cannot prove these programs.
+            if (_unsupportedBlock == null) return true;
+            if (slot >= 0) return _unsupportedBlock(block, Materials[slot]);
+            foreach (Material material in Materials) if (_unsupportedBlock(block, material)) return true;
+            return false;
+        }
         internal bool PrepareProxy(bool sharedOwner, Matrix4x4 sharedPose, Vector3 sharedScale)
         {
             Matrix4x4 native = _sourceTransform.localToWorldMatrix;
@@ -180,13 +192,13 @@ internal static partial class ScenarioTerrainBudget
             }
             _copiedNativeProperties = true;
             Renderer.GetPropertyBlock(Block);
-            if (LiveSpecialEffect(Block)) return false;
+            if (LiveSpecialEffect(Block) || UnsupportedWorldBlock(Block)) return false;
             SetNeverFade(Block);
             _proxyRenderer.SetPropertyBlock(Block);
             for (int slot = 0; slot < Materials.Length; slot++)
             {
                 Renderer.GetPropertyBlock(SlotBlock, slot);
-                if (LiveSpecialEffect(SlotBlock)) return false;
+                if (LiveSpecialEffect(SlotBlock) || UnsupportedWorldBlock(SlotBlock, slot)) return false;
                 if (SlotBlock.isEmpty) _proxyRenderer.SetPropertyBlock(null, slot);
                 else
                 {

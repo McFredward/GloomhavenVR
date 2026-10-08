@@ -34,6 +34,8 @@ internal static partial class ScenarioTerrainBudget
     private static Func<Renderer, bool>? _floorGrouping;
     private static Action<Renderer>? _floorMeshReady;
     private static Func<int>? _floorCameraLimit;
+    private static Func<bool>? _floorPreparation;
+    private static Func<MaterialPropertyBlock, Material, bool>? _unsupportedBlock;
     private static Driver? _driver;
     private static bool _failed;
     private const string ShaderName = "GloomhavenVR/ScenarioCheapTerrain";
@@ -57,6 +59,8 @@ internal static partial class ScenarioTerrainBudget
     internal static void ConfigureFloorGrouping(Func<Renderer, bool> hasPreparedFloorGroup) => _floorGrouping = hasPreparedFloorGroup;
     internal static void ConfigureFloorMeshReady(Action<Renderer> meshReady) => _floorMeshReady = meshReady;
     internal static void ConfigureRoomFloorCameraSourceLimit(Func<int> sourceLimit) => _floorCameraLimit = sourceLimit;
+    internal static void ConfigureRoomFloorPreparation(Func<bool> required) => _floorPreparation = required;
+    internal static void ConfigureBlockEffectAdmission(Func<MaterialPropertyBlock, Material, bool> unsupported) => _unsupportedBlock = unsupported;
     internal static IDisposable BeginFloorReadPass() => new FloorReadPass(_driver);
     private static int CurrentFloorRole(Mesh mesh) => _driver != null
         ? _driver.CurrentFloorRole(mesh) : _roomRole?.Invoke(mesh) ?? 0;
@@ -336,7 +340,7 @@ internal static partial class ScenarioTerrainBudget
         private void SceneUnloaded(Scene scene) { RestoreAll(); _active = false; }
         private bool Enabled => AnySubstitutionOn && VRSession.IsRunning && (PerfConfig.CheapWallShadingOn
             || PerfConfig.TerrainDetailPercent < 100 || PerfConfig.DistantTerrainDetailPercent < 100
-            || RoomArchitectureOn && FloorDetailPercent < 100);
+            || RoomArchitectureOn && (FloorDetailPercent < 100 || _floorPreparation?.Invoke() == true));
         internal void QueueRoot(GameObject root)
         {
             if (Enabled && root != null && _queued.Add(root.GetInstanceID())) _pending.Enqueue(root.transform);
@@ -629,6 +633,7 @@ internal static partial class ScenarioTerrainBudget
                     || (_nativeCameraConsumers?.Invoke(camera) ?? camera.commandBufferCount > 0)) return;
                 using (PerfMonitor.Scope("ScenarioTerrain.PreCull"))
                 using (_worldReadPass?.Invoke())
+                using (BeginFloorReadPass())
                 {
                     _leaseCamera = camera;
                     PreparePriority();
@@ -677,7 +682,8 @@ internal static partial class ScenarioTerrainBudget
                         surface.Renderer.GetSharedMaterials(_materialScratch);
                         if (_materialScratch.Count != surface.Original.subMeshCount) continue;
                         bool supported = true;
-                        foreach (Material material in _materialScratch) supported &= CurrentMaterialRoute(CurrentCanonicalMaterial(material, shared)) >= 0;
+                        if (!world)
+                            foreach (Material material in _materialScratch) supported &= CurrentMaterialRoute(CurrentCanonicalMaterial(material, shared)) >= 0;
                         if (!supported) continue;
                         // Never mask until ALL required slot submissions have valid materials.
                         surface.EnsureSlots(_materialScratch.Count);
@@ -692,6 +698,7 @@ internal static partial class ScenarioTerrainBudget
                             surface.SetMaterial(slot, next);
                         }
                         if (!supported || Array.Exists(surface.Materials, material => material == null)) continue;
+                        surface.WorldLease = world;
                         if (!surface.PrepareProxy(shared, ownerPose, ownerScale)) continue;
                         surface.CheapLease = world || cheap;
                         // Canonical/world material callbacks may render another camera,
