@@ -226,6 +226,7 @@ internal static class ScenarioSceneryBudget
         internal Collider[] TreeColliders = Array.Empty<Collider>();
         internal bool ColliderClaims;
         internal Collider[] BayColliders = Array.Empty<Collider>();
+        internal ScenarioArchitecturalDetailBudget.RetainedCore[] ArchitectureCores = Array.Empty<ScenarioArchitecturalDetailBudget.RetainedCore>();
     }
 
     // Original PCG blood/dirt projectors are decorative paint, not mesh renderers. Keep the
@@ -325,6 +326,9 @@ internal static class ScenarioSceneryBudget
             for (int i = 0; i < record.BayColliders.Length; i++) RefreshBayCollider(record.BayColliders[i]);
             return;
         }
+        if (hide)
+            foreach (ScenarioArchitecturalDetailBudget.RetainedCore core in record.ArchitectureCores)
+                if (!core.IsCurrent()) { hide = false; record.Invalidated = true; break; }
         if (hide)
         {
             if (!record.Owned && !renderer.forceRenderingOff)
@@ -3143,6 +3147,8 @@ internal static class ScenarioSceneryBudget
                 return;
             }
 
+            ScenarioArchitecturalDetailBudget.RetainedCore[] architectureCores = Array.Empty<ScenarioArchitecturalDetailBudget.RetainedCore>();
+            if (kind == Kind.Architecture && (!ScenarioArchitecturalDetailBudget.TryAdmit(renderer, tile, out unit, out architectureCores) || unit == null)) return;
             var record = new Record
             {
                 Renderer = renderer,
@@ -3150,6 +3156,7 @@ internal static class ScenarioSceneryBudget
                 Id = id,
                 Hash = StableHash(unit, tile),
                 Kind = kind,
+                ArchitectureCores = architectureCores,
                 TreeColliders = kind == Kind.Architecture ? Array.Empty<Collider>() : TreeCollidersFor(renderer, unit),
                 BayColliders = kind == Kind.Architecture ? Array.Empty<Collider>() : BayCollidersFor(renderer),
             };
@@ -3214,6 +3221,14 @@ internal static class ScenarioSceneryBudget
                 {
                     SetHidden(record, false);
                     record.BayColliders = currentBays;
+                }
+                record.ArchitectureCores = Array.Empty<ScenarioArchitecturalDetailBudget.RetainedCore>();
+                if (kind == Kind.Architecture)
+                {
+                    if (!ScenarioArchitecturalDetailBudget.TryAdmit(renderer, tile, out unit, out record.ArchitectureCores) || unit == null)
+                    { SetHidden(record, false); record.Invalidated = true; return; }
+                    // Sibling parts may have changed while this leaf kept its own parent.
+                    record.Hash = StableHash(unit!, tile);
                 }
                 record.Invalidated = false;
                 record.Kind = kind;
@@ -3321,8 +3336,11 @@ internal static class ScenarioSceneryBudget
                 if (_watchIndex >= _records.Count)
                     _watchIndex = 0;
                 Record record = _records[_watchIndex++];
-                if (!record.Owned || StillOnOriginalChain(record))
-                    continue;
+                if (!record.Owned) continue;
+                bool represented = true;
+                foreach (ScenarioArchitecturalDetailBudget.RetainedCore core in record.ArchitectureCores)
+                    if (!core.IsCurrent()) { represented = false; break; }
+                if (represented && StillOnOriginalChain(record)) continue;
                 SetHidden(record, false);
                 record.Invalidated = true;
             }
