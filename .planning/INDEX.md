@@ -1,7 +1,7 @@
 # Planning index
 
-Updated 2026-10-08 for Build642: scoped steady-render CPU optimization retains
-NPC639, Frame640 and crossplay641 native quest/continuation repairs.
+Updated 2026-10-08 for Build643: native wall-attachment fades, late menu capture
+and saved startup eye capacity retain NPC639, Frame640/642 and crossplay641.
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
 status; it is not the player manual.
@@ -14,6 +14,8 @@ status; it is not the player manual.
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [FRAME-643-NATIVE-PRESENTATION.md](FRAME-643-NATIVE-PRESENTATION.md) | Paired642 native fade/menu/resolution causes, loaded timing and inherited proof limits |
+| [../docs/performance/FRAME-643-INTEGRATION.md](../docs/performance/FRAME-643-INTEGRATION.md) | Exact-source integration, retained NPC/crossplay/CPU repairs and current validation scope |
 | [FRAME-642-STEADY-CPU.md](FRAME-642-STEADY-CPU.md) | Exact per-camera CPU read sharing, native lease/refusal ownership and inherited runtime evidence |
 | [../docs/performance/FRAME-642-INTEGRATION.md](../docs/performance/FRAME-642-INTEGRATION.md) | Checked CPU integration on641, exact source hashes, compiled scope and retained NPC evidence |
 | [CROSSPLAY-QUEST-REVIEW.md](CROSSPLAY-QUEST-REVIEW.md) | Crossplay source repairs, integrated validation and outstanding mixed-session HMD matrix |

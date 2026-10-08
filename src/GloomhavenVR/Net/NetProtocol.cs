@@ -598,7 +598,30 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 642;
+    public const ushort ModBuild = 643;
+
+    // ModBuild643 — integrate checked Frame native-presentation follow-up on642.
+    // A late enabled backbuffer camera could bypass CapturedSet before its first
+    // render. Adopt it through the existing stack policy at final pre-cull, with
+    // native target/stereo/mask ownership preserved. Independent preview RTs,
+    // disabled/manual cameras and the VR head retain their original boundaries.
+    // Frame's private world shader exposes a union property schema, which made
+    // native wall attachments appear to have an inert alpha-only channel. Resolve
+    // current native materials for capability, classification, masonry templates
+    // and swaps; native wall gates/fades remain authoritative without restoring
+    // bindings merely to inspect them or retaining cross-frame reverse mappings.
+    // Saved .8 previously allocated1x; viewport resets to1 then defeated the saved
+    // reduction even after bounded repairs stopped. After successful XR initialize,
+    // allocate the saved capacity while the display is stopped, before start.
+    // Live changes remain allocation-free/coalesced; above-capacity requests wait
+    // for restart. Actual native eye targets/FOV and cold-menu appearance need HMD
+    // confirmation. English/German help matches the session-capacity behavior.
+    // Exact-source worker evidence: actual Unity menu145/33 controls, attachment
+    // 698/four controls, environment11439; quality XR-boundary model114/23+2,
+    // native ownership731/nine controls. This is not native OpenXR or new headset
+    // acceptance. Retains NPC639 and Frame640/642 plus crossplay641. No shader
+    // bank, default, mesh, gameplay command or wire layout change. VR peers install
+    // 643; scoped integration receipts: docs/performance/FRAME-643-INTEGRATION.md.
 
     // ModBuild642 — integrate the checked steady-render CPU follow-up after641.
     // Fully loaded five-room638 windows measured terrain9.069ms, world materials

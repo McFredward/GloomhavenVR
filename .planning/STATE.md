@@ -1,5 +1,30 @@
 # State — where the project stands
 
+**Build643 integration, 2026-10-08: 1.1.0 development candidate.**
+
+Three checked Frame presentation repairs are integrated after642. Late enabled
+backbuffer cameras join the existing capture stack before their first render.
+Wall attachment classification/template/swap reads resolve current native material
+ownership, preserving authored fade gates under simplified world shaders. Initial
+stopped XR displays allocate the saved capacity, so a provider's viewport reset
+cannot silently undo a saved sub-1 startup resolution. Live writes remain guarded,
+coalesced and allocation-free; above-capacity increases wait for restart.
+
+Thirty checked worker source/test/doc paths are byte-identical. Native Unity
+menu145/33controls, attachments698/four controls, environment11439, ownership731/
+nine controls and XR-boundary model114/23+2 are inherited. Native OpenXR/FOV,
+cold-start appearance and net Frame FPS remain hardware-open. The unchanged
+NPC639/Frame640/crossplay641/CPU642 repairs and evidence are retained.
+Integration source16/16, strict Debug/Release0 warnings/errors and docs5 pairs
+pass. Compiled comparison retains all1237 types with1225 byte-identical: only
+three intended runtime types, German description data and eight numeric build
+consumers change. Exact source/build/compiled receipts are recorded in
+[the643 integration review](../docs/performance/FRAME-643-INTEGRATION.md).
+No new complete170-suite, native OpenXR or headset pass is claimed. No shader
+bank, default, mesh, gameplay or wire-layout change. VR peers install643.
+
+---
+
 **Build642 integration, 2026-10-08: 1.1.0 development candidate.**
 
 The separately checked Frame steady-render CPU follow-up is integrated after641.
