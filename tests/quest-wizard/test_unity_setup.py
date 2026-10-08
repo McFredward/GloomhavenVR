@@ -65,6 +65,7 @@ class UnitySetupTests(unittest.TestCase):
         editors = [{'path': str(editor), 'version': unity_setup.VERSION, 'androidSupport': False}]
         with state.file_lock(self.store.root / 'run.lock'), self.store.active(self.saved), \
              mock.patch('unity_setup.discovery.unity_paths', return_value=(editors, [str(hub)])), \
+             mock.patch('unity_setup._linux_desktop'), \
              mock.patch('unity_setup._wait', side_effect=pending):
             self.running()
             thread = threading.Thread(target=work); thread.start()

@@ -68,5 +68,56 @@
     "size": 59878107,
     "executable": "android-15/aapt.exe",
     "source": "https://dl.google.com/android/repository/repository2-1.xml"
+  },
+  "linux": {
+    "dotnet8": {
+      "version": "8.0.425",
+      "url": "https://builds.dotnet.microsoft.com/dotnet/Sdk/8.0.425/dotnet-sdk-8.0.425-linux-x64.tar.gz",
+      "algorithm": "sha512",
+      "hash": "934b8060a7190e5909ad1fd0785db542f487b3bbf6cdd14826b02095fdd0d0394298b1634085eff302928fccc33f7c1a7253e9b87df555fc36fce819bcd2e798",
+      "archive": "tar.gz",
+      "executable": "dotnet",
+      "source": "https://builds.dotnet.microsoft.com/dotnet/release-metadata/8.0/releases.json"
+    },
+    "dotnet10": {
+      "version": "10.0.401",
+      "url": "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.401/dotnet-sdk-10.0.401-linux-x64.tar.gz",
+      "algorithm": "sha512",
+      "hash": "51c8b999af9e8dd9998c9edc5944e19a90788862068acd38694e098889054ce8c23d4f0c5cccfa16bf187d044562359e5ee69a9f8ad0bbe913ba90311fbce25b",
+      "archive": "tar.gz",
+      "executable": "dotnet",
+      "source": "https://builds.dotnet.microsoft.com/dotnet/release-metadata/10.0/releases.json"
+    },
+    "unityHub": {
+      "version": "3.22.2",
+      "url": "https://public-cdn.cloud.unity3d.com/hub/prod/3.22.2/UnityHub-3.22.2-x86_64.AppImage",
+      "algorithm": "sha512",
+      "hash": "eec1560813f25b10679d9d95d89a5e37cf87dd1c99ad82e634fbd26f5640ec03f6f5a237af4235e432f9c760d29ffcc1e4efd5e686abdb879cd5cd553b90567f",
+      "size": 204032504,
+      "archive": "appimage",
+      "executable": "UnityHub.AppImage",
+      "source": "https://public-cdn.cloud.unity3d.com/hub/prod/latest-linux.yml"
+    },
+    "apkJdk": {
+      "version": "17.0.16+8",
+      "url": "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.16%2B8/OpenJDK17U-jdk_x64_linux_hotspot_17.0.16_8.tar.gz",
+      "algorithm": "sha256",
+      "hash": "166774efcf0f722f2ee18eba0039de2d685b350ee14d7b69e6f83437dafd2af1",
+      "size": 192062472,
+      "archive": "tar.gz",
+      "executable": "jdk-17.0.16+8/bin/java",
+      "source": "https://github.com/adoptium/temurin17-binaries/releases/tag/jdk-17.0.16%2B8"
+    },
+    "apkBuildTools": {
+      "version": "35.0.0",
+      "url": "https://dl.google.com/android/repository/build-tools_r35_linux.zip",
+      "algorithm": "sha256",
+      "hash": "bd3a4966912eb8b30ed0d00b0cda6b6543b949d5ffe00bea54c04c81e1561d88",
+      "size": 61958799,
+      "archive": "zip",
+      "executable": "android-15/aapt",
+      "source": "https://dl.google.com/android/repository/repository2-1.xml",
+      "repositorySha1": "2cfaa0bbb2336e9ec18ed3ecea84fa2e2af607bc"
+    }
   }
 }

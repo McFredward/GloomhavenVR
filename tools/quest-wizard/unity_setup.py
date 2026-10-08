@@ -4,6 +4,7 @@ import hmac
 import os
 from pathlib import Path
 import re
+import subprocess
 import time
 
 import discovery
@@ -33,18 +34,71 @@ def request_action(store, session, action, nonce):
     return {'schema': 1, 'event': 'action_requested', 'session': session, 'action': action}
 
 
-def _open(executable, *, installer=False):
+def _open(executable, *, installer=False, log=None):
     executable = ordinary(executable)
     if not executable.is_file():
         raise WizardError('unity_window_missing', 'The Unity setup window cannot be opened; its executable is missing.',
                           'Das Unity-Fenster kann nicht geöffnet werden; die Programmdatei fehlt.')
-    if installer and digest(executable, provision.LOCK['unityHub']['algorithm']) != provision.LOCK['unityHub']['hash']:
+    spec = provision.spec_for('unityHub')
+    if installer and digest(executable, spec['algorithm']) != spec['hash']:
         raise WizardError('tool_checksum', 'The Unity Hub installer no longer matches its pinned checksum.')
-    if os.name != 'nt':
-        raise WizardError('windows_required', 'Interactive Unity setup currently supports Windows.')
     # Hub is a shared interactive application, not a build subprocess. ShellExecute
     # brings its window back without claiming or terminating an already open Hub.
-    os.startfile(str(executable))
+    if os.name == 'nt': os.startfile(str(executable)); return
+    _linux_desktop()
+    log = ordinary(log) if log is not None else executable.parent / 'wizard-hub-window.log' if executable.suffix == '.AppImage' else None
+    if log is not None: log.parent.mkdir(parents=True, exist_ok=True)
+    # Preserve GUI failure details, including distribution-specific shared libraries
+    # and sandbox diagnostics. Never disable Electron's sandbox automatically.
+    with log.open('wb') if log else open(os.devnull, 'ab') as output:
+        child = subprocess.Popen(_hub_command(executable), stdin=subprocess.DEVNULL,
+                                 stdout=output, stderr=output, start_new_session=True,
+                                 env=_hub_environment(executable))
+    time.sleep(.25)
+    if child.poll() not in (None, 0):
+        raise WizardError('unity_linux_window',
+                          'Unity Hub could not open. Check unity-hub-window.log in the session logs for missing desktop libraries or sandbox setup; then retry.',
+                          'Unity Hub konnte nicht geöffnet werden. Fehlende Desktop-Bibliotheken oder Sandbox-Einrichtung in unity-hub-window.log bei den Sitzungsprotokollen prüfen und erneut versuchen.')
+
+
+def _linux_desktop():
+    if not os.environ.get('DISPLAY') and not os.environ.get('WAYLAND_DISPLAY'):
+        raise WizardError('unity_linux_desktop',
+                          'Unity Hub sign-in requires a graphical Linux desktop. Start the wizard from your desktop session, then retry.',
+                          'Die Unity-Hub-Anmeldung benötigt einen grafischen Linux-Desktop. Den Wizard in deiner Desktop-Sitzung starten und erneut versuchen.')
+    if hasattr(os, 'geteuid') and os.geteuid() == 0:
+        raise WizardError('unity_linux_root', 'Run the Unity wizard as your desktop user, without sudo.',
+                          'Den Unity-Wizard als normalen Desktop-Benutzer ohne sudo starten.')
+
+
+def _hub_command(executable, *arguments):
+    command = [str(executable)]
+    if os.name != 'nt' and Path(executable).suffix == '.AppImage':
+        # Official AppImage fallback avoids requiring FUSE or administrator access.
+        command.append('--appimage-extract-and-run')
+    if arguments: command.extend(['--', '--headless'] if os.name == 'nt' else ['--headless'])
+    return [*command, *arguments]
+
+
+def _hub_environment(executable):
+    env = dict(os.environ)
+    if os.name != 'nt' and Path(executable).suffix == '.AppImage':
+        # Hub's AppImage runtime extracts itself here, on the capacity-checked drive.
+        runtime = ordinary(Path(executable).parent / 'runtime'); runtime.mkdir(exist_ok=True)
+        env['TMPDIR'] = str(runtime)
+    return env
+
+
+def _linux_hub(store, session):
+    spec = provision.spec_for('unityHub')
+    root = ordinary(store.root / ('tools/unity-hub-' + spec['version']))
+    root.mkdir(parents=True, exist_ok=True)
+    path = provision.download(spec, root / 'UnityHub.AppImage', lambda: store.check_cancel(session),
+                              lambda done, total: store.progress(session, 'unity', 'unity-hub-download', done, total, 'bytes'))
+    path.chmod(0o755)
+    atomic_json(root / 'wizard-tool.json', {'schema': 1, 'key': provision.value_hash(spec),
+                                          'complete': True, 'executableSha256': digest(path)})
+    return str(path)
 
 
 def _wait(store, session, code, en, de, window, *, opener=_open, poll=0.25):
@@ -56,7 +110,8 @@ def _wait(store, session, code, en, de, window, *, opener=_open, poll=0.25):
         if not announced:
             try:
                 executable, installer = window()
-                opener(executable, installer=installer)
+                opener(executable, installer=installer,
+                       log=store.session_dir(session) / 'logs/unity-hub-window.log')
             except (WizardError, OSError) as error:
                 # Keep the explicit instruction and repeat/check buttons available.
                 # Closing a setup window never publishes a prerequisite receipt.
@@ -73,8 +128,8 @@ def _wait(store, session, code, en, de, window, *, opener=_open, poll=0.25):
         time.sleep(poll)
 
 
-def _editor(state):
-    editors, hubs = discovery.unity_paths()
+def _editor(state, workspace=None):
+    editors, hubs = discovery.unity_paths(workspace) if workspace is not None else discovery.unity_paths()
     selected = state['choices'].get('unityEditor')
     if not selected:
         selected = next((row['path'] for row in editors if row['version'] == VERSION and row['androidSupport']), None)
@@ -142,23 +197,27 @@ def prepare(store, state, supervisor):
     store.progress(session, 'unity', 'unity-prerequisites', 0, 4, 'checks', 'Editor, Android tools, version and licence')
     while True:
         store.check_cancel(session)
-        selected, hub = _editor(state)
+        selected, hub = _editor(state, store.root if os.name != 'nt' else None)
         if not _android_complete(selected):
             if not state['choices']['acceptUnityTerms']:
                 raise WizardError('unity_terms_required', 'Review Unity and Android module terms before installation.',
                                   'Vor der Installation die Bedingungen von Unity und den Android-Modulen bestätigen.')
+            if os.name != 'nt': _linux_desktop()
             if not hub:
-                spec = provision.LOCK['unityHub']
-                setup = provision.download(spec, store.root / 'tools/downloads/UnityHubSetup-3.22.2-x64.exe',
-                    lambda: store.check_cancel(session),
-                    lambda done, total: store.progress(session, 'unity', 'unity-hub-download', done, total, 'bytes'))
-                def window():
-                    _, current = _editor(state)
-                    return (current, False) if current else (setup, True)
-                _wait(store, session, 'unity_hub_setup',
-                      'Complete Unity Hub setup. If its window was closed, open it again. Then check prerequisites.',
-                      'Unity Hub installieren. Falls das Fenster geschlossen wurde, erneut öffnen. Danach Voraussetzungen prüfen.', window)
-                continue
+                if os.name != 'nt':
+                    hub = _linux_hub(store, session)
+                else:
+                    spec = provision.spec_for('unityHub')
+                    setup = provision.download(spec, store.root / 'tools/downloads/UnityHubSetup-3.22.2-x64.exe',
+                        lambda: store.check_cancel(session),
+                        lambda done, total: store.progress(session, 'unity', 'unity-hub-download', done, total, 'bytes'))
+                    def window():
+                        _, current = _editor(state)
+                        return (current, False) if current else (setup, True)
+                    _wait(store, session, 'unity_hub_setup',
+                          'Complete Unity Hub setup. If its window was closed, open it again. Then check prerequisites.',
+                          'Unity Hub installieren. Falls das Fenster geschlossen wurde, erneut öffnen. Danach Voraussetzungen prüfen.', window)
+                    continue
             store.operation(session, 'unity', 'hub', complete=True, detail='Unity Hub installation found; licence remains independently checked')
             if not login_confirmed:
                 _wait(store, session, 'unity_login_required',
@@ -170,15 +229,19 @@ def prepare(store, state, supervisor):
             store.progress(session, 'unity', 'unity-editor-install', None, None, None, 'Unity Hub installs the Editor and Android modules')
             try:
                 help_log = log_root / 'unity-hub-help.log'
-                supervisor.run([hub, '--', '--headless', 'help', '--errors'], help_log, timeout=60)
+                supervisor.run(_hub_command(hub, 'help', '--errors'), help_log, timeout=60, env=_hub_environment(hub))
                 supported = help_log.read_text(encoding='utf-8', errors='replace')
                 if not re.search(r'\binstall\b', supported) or not re.search(r'\beditors\b', supported):
                     raise WizardError('unity_cli_unavailable', 'This Hub cannot install the required Editor automatically.')
                 install = ['install-modules', '--version', VERSION] if selected else ['install', '--version', VERSION, '--changeset', '40eb3a945986']
+                if os.name != 'nt' and not selected:
+                    location = ordinary(store.root / 'tools/unity-editors'); location.mkdir(parents=True, exist_ok=True)
+                    supervisor.run(_hub_command(hub, 'install-path', '-s', str(location)),
+                                   log_root / 'unity-install-path.log', timeout=60, env=_hub_environment(hub))
                 install_log = log_root / 'unity-install.log'
-                supervisor.run([hub, '--', '--headless', *install, '--module', 'android', '--childModules', '--errors'],
-                               install_log, timeout=1800, on_poll=_login_guard(install_log))
-                selected, hub = _editor(state)
+                supervisor.run(_hub_command(hub, *install, '--module', 'android', '--childModules', '--errors'),
+                               install_log, timeout=1800, on_poll=_login_guard(install_log), env=_hub_environment(hub))
+                selected, hub = _editor(state, store.root if os.name != 'nt' else None)
                 if not _android_complete(selected): raise WizardError('unity_install_incomplete', 'Editor or Android modules remain missing.')
             except WizardError as error:
                 if error.code not in ('child_failed', 'child_timeout', 'unity_cli_unavailable', 'unity_install_incomplete', 'unity_login_required'): raise
@@ -202,8 +265,9 @@ def prepare(store, state, supervisor):
             probe = _probe(store, session, selected, supervisor)
         except WizardError as error:
             if error.code not in ('child_failed', 'child_timeout', 'unity_license_unconfirmed'): raise
+            if os.name != 'nt': _linux_desktop()
             def license_window():
-                _, current = _editor(state)
+                _, current = _editor(state, store.root if os.name != 'nt' else None)
                 if current: return current, False
                 if setup: return setup, True
                 raise WizardError('unity_hub_required', 'Install Unity Hub to activate an eligible licence.')

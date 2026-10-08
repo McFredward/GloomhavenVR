@@ -1,4 +1,4 @@
-"""Pinned user-local tools; resumable verified downloads and owned ZIP extraction."""
+"""Pinned user-local tools; resumable verified downloads and owned extraction."""
 from __future__ import annotations
 import json
 import os
@@ -6,6 +6,10 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
 import shutil
 import sys
+import platform
+import posixpath
+import stat
+import tarfile
 import discovery
 import urllib.request
 import zipfile
@@ -14,6 +18,20 @@ from state import WizardError, atomic_json, digest, ordinary, read_json, value_h
 
 HERE = Path(__file__).resolve().parent
 LOCK = json.loads((HERE / "tools.lock.json").read_text(encoding="utf-8"))
+
+
+def host_key():
+    machine = platform.machine().lower()
+    if machine not in ('amd64', 'x86_64'):
+        raise WizardError('host_architecture', 'Unity 2021.3 Android builds require an x86-64 Windows or Linux host.',
+                          'Unity 2021.3 benötigt zum Bauen einen Windows- oder Linux-Rechner mit x86-64-Prozessor.')
+    if os.name == 'nt': return 'windows-x64'
+    if sys.platform.startswith('linux'): return 'linux-x64'
+    raise WizardError('host_platform', 'Automatic build tool setup supports Windows and Linux x86-64.')
+
+
+def spec_for(name):
+    return LOCK[name] if host_key() == 'windows-x64' else LOCK['linux'][name]
 
 
 def download(spec, destination, check_cancel=lambda: None, progress=lambda done, total: None, opener=urllib.request.urlopen):
@@ -63,115 +81,220 @@ def download(spec, destination, check_cancel=lambda: None, progress=lambda done,
     return destination
 
 
-def extract_owned(archive, destination, spec, check_cancel=lambda: None, progress=lambda done, total: None):
-    """Resume the same pinned extraction file by file; no unowned directory deletion."""
-    destination = ordinary(destination); key = value_hash(spec)
-    marker = destination / "wizard-tool.json"
-    if destination.exists():
-        if not marker.is_file() or read_json(marker).get("key") != key:
-            raise WizardError("unowned_tool", "Tool extraction belongs to another input; it was retained.")
-    else:
-        destination.mkdir(parents=True)
-        atomic_json(marker, {"schema": 1, "key": key, "complete": False})
-    with zipfile.ZipFile(archive) as package:
-        members = package.infolist()
-        if len(members) > 100000 or sum(row.file_size for row in members) > 8 * 1024**3:
-            raise WizardError("tool_archive", "Tool archive exceeds its supported bounds.")
-        seen = set()
-        total = sum(not row.is_dir() for row in members); done = 0; progress(done, total)
+def _archive_name(name):
+    # Tar archives commonly prefix every member with ./; remove that prefix only.
+    while name.startswith('./'): name = name[2:]
+    name = name.rstrip('/')
+    parts = PurePosixPath(name).parts
+    if (not parts or PurePosixPath(name).is_absolute() or PureWindowsPath(name).is_absolute()
+            or any(p in ('.', '..') or ':' in p for p in parts) or "\\" in name):
+        raise WizardError('tool_archive', 'Tool archive has an unsafe member path.')
+    return name
+
+
+def _mode(target, mode):
+    if os.name != 'nt': target.chmod((mode & 0o777) | 0o400)
+
+
+def _tar_owned(archive, destination, check_cancel, progress):
+    """Extract regular files first, then validated internal links; never use extractall."""
+    with tarfile.open(archive, 'r:*') as package:
+        members = package.getmembers()
+        if len(members) > 100000 or sum(row.size for row in members) > 8 * 1024**3:
+            raise WizardError('tool_archive', 'Tool archive exceeds its supported bounds.')
+        rows = {}; links = {}
         for row in members:
-            name = row.filename.rstrip("/")
-            parts = PurePosixPath(name).parts
-            if (not parts or PurePosixPath(name).is_absolute() or PureWindowsPath(name).is_absolute()
-                    or any(p in (".", "..") or ":" in p for p in parts) or "\\" in name
-                    or name.casefold() in seen or (row.external_attr >> 16) & 0o170000 == 0o120000):
-                raise WizardError("tool_archive", "Tool archive has unsafe or duplicate members.")
-            seen.add(name.casefold())
-            target = ordinary(destination.joinpath(*parts))
-            if row.is_dir(): target.mkdir(parents=True, exist_ok=True); continue
-            check_cancel(); target.parent.mkdir(parents=True, exist_ok=True)
-            # CRC is the exact pinned archive's member identity. Hash publication
-            # follows extraction; size alone never authorizes reuse.
-            if target.is_file() and target.stat().st_size == row.file_size:
-                import zlib
-                crc = 0
-                with target.open("rb") as stream:
-                    for block in iter(lambda: stream.read(1048576), b""): crc = zlib.crc32(block, crc)
-                if crc & 0xFFFFFFFF == row.CRC:
-                    done += 1; progress(done, total); continue
-            temp = target.with_name(target.name + ".extracting")
-            ordinary(temp)
-            with package.open(row) as source, temp.open("wb") as output:
+            if row.name.rstrip('/') in ('.', '') and row.isdir(): continue
+            name = _archive_name(row.name)
+            if name in rows or not (row.isfile() or row.isdir() or row.issym() or row.islnk()):
+                raise WizardError('tool_archive', 'Tool archive has duplicate or unsupported members.')
+            rows[name] = row
+            if row.issym() or row.islnk():
+                raw = row.linkname
+                if not raw or PurePosixPath(raw).is_absolute() or PureWindowsPath(raw).is_absolute() or "\\" in raw or ':' in raw:
+                    raise WizardError('tool_archive', 'Tool archive link has an unsafe target.')
+                target = posixpath.normpath(posixpath.join(posixpath.dirname(name), raw) if row.issym() else raw)
+                if target in ('.', '..') or target.startswith('../'):
+                    raise WizardError('tool_archive', 'Tool archive link escapes the owned tool directory.')
+                links[name] = target
+        for name, row in rows.items():
+            if any(parent.as_posix() in links for parent in PurePosixPath(name).parents):
+                raise WizardError('tool_archive', 'Tool archive writes through a linked parent.')
+        def resolve(name, seen=()):
+            if name in seen or len(seen) > 40:
+                raise WizardError('tool_archive', 'Tool archive link has a cycle.')
+            if name in links: return resolve(links[name], (*seen, name))
+            if name not in rows: raise WizardError('tool_archive', 'Tool archive link target is missing.')
+            return name
+        for name in links: resolve(name)
+        total = sum(not row.isdir() for row in rows.values()); done = 0; progress(done, total)
+        for name, row in rows.items():
+            if name in links: continue
+            check_cancel(); target = ordinary(destination / name)
+            if row.isdir(): target.mkdir(parents=True, exist_ok=True); continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            # Compare exact bytes while reading the verified archive. An interrupted
+            # extraction retains completed files without trusting their size alone.
+            source = package.extractfile(row)
+            import hashlib
+            sha = hashlib.sha256()
+            temp = ordinary(target.with_name(target.name + '.extracting'))
+            with source, temp.open('wb') as output:
                 while True:
                     check_cancel(); block = source.read(1048576)
                     if not block: break
-                    output.write(block)
+                    sha.update(block); output.write(block)
                 output.flush(); os.fsync(output.fileno())
-            os.replace(temp, target)
+            if target.is_file() and target.stat().st_size == row.size and digest(target) == sha.hexdigest():
+                temp.unlink()
+            else: os.replace(temp, target)
+            _mode(target, row.mode); done += 1; progress(done, total)
+        # Symlinks remain symlinks (JDK and native SDK loaders depend on them).
+        # Hard links are copied to ordinary files so state receipts have no shared inode.
+        for name, linked in links.items():
+            check_cancel(); row = rows[name]; target = destination / name
+            ordinary(target.parent); target.parent.mkdir(parents=True, exist_ok=True)
+            if target.is_symlink():
+                if row.issym() and os.readlink(target) == row.linkname:
+                    done += 1; progress(done, total); continue
+                raise WizardError('tool_archive', 'An extracted tool link changed; retained for review.')
+            if target.exists():
+                if row.issym(): raise WizardError('tool_archive', 'An extracted tool link was replaced.')
+                ordinary(target)
+            source = ordinary(destination / resolve(name))
+            if row.issym(): os.symlink(row.linkname, target, target_is_directory=source.is_dir())
+            else:
+                if not source.is_file(): raise WizardError('tool_archive', 'Tool hard link target is not a regular file.')
+                shutil.copyfile(source, target); _mode(target, rows[resolve(name)].mode)
             done += 1; progress(done, total)
-    executable = destination / spec["executable"]
-    if not executable.is_file(): raise WizardError("missing_tool", "Pinned tool archive lacks its executable.")
-    atomic_json(marker, {"schema": 1, "key": key, "complete": True, "executableSha256": digest(executable)})
+        return {name: rows[name].linkname for name in links if rows[name].issym()}
+
+
+def extract_owned(archive, destination, spec, check_cancel=lambda: None, progress=lambda done, total: None):
+    """Resume the same pinned extraction; no unowned directory deletion."""
+    destination = ordinary(destination); key = value_hash(spec)
+    marker = destination / 'wizard-tool.json'
+    if destination.exists():
+        if not marker.is_file() or read_json(marker).get('key') != key:
+            raise WizardError('unowned_tool', 'Tool extraction belongs to another input; it was retained.')
+    else:
+        destination.mkdir(parents=True)
+        atomic_json(marker, {'schema': 1, 'key': key, 'complete': False})
+    links = {}
+    if spec.get('archive') in ('tar.gz', 'tar.xz', 'tar'):
+        links = _tar_owned(archive, destination, check_cancel, progress)
+    else:
+        with zipfile.ZipFile(archive) as package:
+            members = package.infolist()
+            if len(members) > 100000 or sum(row.file_size for row in members) > 8 * 1024**3:
+                raise WizardError('tool_archive', 'Tool archive exceeds its supported bounds.')
+            seen = set()
+            total = sum(not row.is_dir() for row in members); done = 0; progress(done, total)
+            for row in members:
+                name = _archive_name(row.filename)
+                identity = name.casefold() if os.name == 'nt' else name
+                mode = row.external_attr >> 16
+                if identity in seen or stat.S_ISLNK(mode):
+                    raise WizardError('tool_archive', 'Tool archive has unsafe or duplicate members.')
+                seen.add(identity); target = ordinary(destination / name)
+                if row.is_dir(): target.mkdir(parents=True, exist_ok=True); continue
+                check_cancel(); target.parent.mkdir(parents=True, exist_ok=True)
+                import zlib
+                if target.is_file() and target.stat().st_size == row.file_size:
+                    crc = 0
+                    with target.open('rb') as stream:
+                        for block in iter(lambda: stream.read(1048576), b''): crc = zlib.crc32(block, crc)
+                    if crc & 0xFFFFFFFF == row.CRC:
+                        _mode(target, mode or 0o644); done += 1; progress(done, total); continue
+                temp = ordinary(target.with_name(target.name + '.extracting'))
+                with package.open(row) as source, temp.open('wb') as output:
+                    while True:
+                        check_cancel(); block = source.read(1048576)
+                        if not block: break
+                        output.write(block)
+                    output.flush(); os.fsync(output.fileno())
+                os.replace(temp, target); _mode(target, mode or 0o644)
+                done += 1; progress(done, total)
+    executable = ordinary(destination / spec['executable'])
+    if not executable.is_file(): raise WizardError('missing_tool', 'Pinned tool archive lacks its executable.')
+    atomic_json(marker, {'schema': 1, 'key': key, 'complete': True,
+                         'executableSha256': digest(executable), 'links': links})
     return executable
 
 
+def _tool_outputs(root):
+    # State receipts deliberately reject links. Record their ordinary targets and
+    # the archive-bound link manifest, while the extractor verifies the links.
+    return sorted(path for path in root.rglob('*') if path.is_file() and not path.is_symlink())
+
+
+def _provision_tool(name, store, session):
+    spec = spec_for(name); platform_name = host_key()
+    suffix = '.tar.gz' if spec.get('archive') == 'tar.gz' else '.zip'
+    archive = download(spec, store.root / 'tools/downloads' / (name + '-' + spec['version'] + ('-linux-x64' if platform_name == 'linux-x64' else '') + suffix),
+                       lambda: store.check_cancel(session),
+                       lambda done, total: store.progress(session, 'tools', 'tool-download-' + name, done, total, 'bytes'))
+    root = store.root / 'tools' / (name + '-' + spec['version'] + ('-linux-x64' if platform_name == 'linux-x64' else ''))
+    executable = extract_owned(archive, root, spec, lambda: store.check_cancel(session),
+                               lambda done, total: store.progress(session, 'tools', 'tool-extract-' + name, done, total, 'files'))
+    return executable, _tool_outputs(root)
+
 def tools(store, session, supervisor):
-    if os.name != "nt":
-        raise WizardError("windows_required", "The conversion wizard currently provisions Windows x64 tools.", "Der Konvertierungs-Wizard unterstützt derzeit Windows x64.")
-    found = {}; outputs = []
-    for name in ("git", "dotnet8", "dotnet10"):
-        spec = LOCK[name]
-        archive = download(spec, store.root / "tools/downloads" / (name + "-" + spec["version"] + ".zip"),
-                           lambda: store.check_cancel(session),
-                           lambda done, total: store.progress(session, 'tools', 'tool-download-' + name, done, total, 'bytes'))
-        executable = extract_owned(archive, store.root / "tools" / (name + "-" + spec["version"]), spec,
-                                   lambda: store.check_cancel(session),
-                                   lambda done, total: store.progress(session, 'tools', 'tool-extract-' + name, done, total, 'files'))
-        log = store.session_dir(session) / "logs" / (name + "-version.log")
+    host = host_key(); found = {}; outputs = []; pins = {}
+    for name in ('git', 'dotnet8', 'dotnet10'):
+        log = store.session_dir(session) / 'logs' / (name + '-version.log')
         store.operation(session, 'tools', 'verify-' + name, detail='Checking ' + name + ' executable version and support files')
-        supervisor.run([executable, "--version"], log)
-        store.record(session, 'tool_verified', 'tools', tool=name, version=spec['version'])
-        expected = "git version " + spec["version"] if name == "git" else spec["version"]
-        if log.read_text(encoding="utf-8").strip() != expected:
-            raise WizardError("tool_version", "A provisioned tool reported an unexpected version.")
+        if name == 'git' and host == 'linux-x64':
+            candidate = shutil.which('git')
+            if not candidate:
+                raise WizardError('linux_git_missing', 'Git is required for mod source dependencies. Install Git with your distribution package manager, then retry.',
+                                  'Für die Mod-Abhängigkeiten wird Git benötigt. Git über die Paketverwaltung deiner Distribution installieren und erneut versuchen.')
+            executable = Path(candidate).resolve()
+            supervisor.run([executable, '--version'], log)
+            version = log.read_text(encoding='utf-8').strip()
+            match = re.fullmatch(r'git version (\d+)\.(\d+)(?:\..*)?', version)
+            if not match or (int(match[1]), int(match[2])) < (2, 25):
+                raise WizardError('tool_version', 'The Linux system Git must be version 2.25 or newer.')
+            pins[name] = {'kind': 'system-unpinned', 'version': version, 'path': str(executable)}
+        else:
+            spec = spec_for(name)
+            executable, extracted = _provision_tool(name, store, session); outputs.extend(extracted)
+            supervisor.run([executable, '--version'], log)
+            expected = 'git version ' + spec['version'] if name == 'git' else spec['version']
+            if log.read_text(encoding='utf-8').strip() != expected:
+                raise WizardError('tool_version', 'A provisioned tool reported an unexpected version.')
+            pins[name] = value_hash(spec)
+            version = spec['version']
+        store.record(session, 'tool_verified', 'tools', tool=name, version=version)
         store.operation(session, 'tools', 'verify-' + name, complete=True, detail=name + ' version confirmed')
-        found[name] = str(executable)
-        tool_root = executable.parent.parent if name == "git" else executable.parent
-        # A missing SDK support DLL must invalidate this receipt even when the
-        # launcher EXE itself still matches. Extraction then repairs exact ZIP
-        # members without redownloading a valid pinned archive.
-        outputs += [*sorted(path for path in tool_root.rglob("*") if path.is_file()), log]
-    path = store.session_dir(session) / "tools.json"
-    atomic_json(path, {"schema": 1, **found, "pins": {name: value_hash(LOCK[name]) for name in found}})
+        found[name] = str(executable); outputs.append(log)
+    path = store.session_dir(session) / 'tools.json'
+    atomic_json(path, {'schema': 1, **found, 'host': host, 'pins': pins})
     return [path, *outputs], found
 
 
 def profile_tools(store, session, supervisor):
     """Provision only Android signing tools; a profile edit needs no Unity licence."""
-    if os.name != "nt":
-        raise WizardError("windows_required", "Automatic APK signing tool setup supports Windows x64.")
-    found, outputs = {}, []
-    for name in ("apkJdk", "apkBuildTools"):
-        spec = LOCK[name]
-        archive = download(spec, store.root / "tools/downloads" / (name + "-" + spec["version"] + ".zip"),
-                           lambda: store.check_cancel(session),
-                           lambda done, total: store.progress(session, "tools", "tool-download-" + name, done, total, "bytes"))
-        root = store.root / "tools" / (name + "-" + spec["version"])
-        executable = extract_owned(archive, root, spec, lambda: store.check_cancel(session),
-                                   lambda done, total: store.progress(session, "tools", "tool-extract-" + name, done, total, "files"))
-        store.operation(session, "tools", "verify-" + name, detail="Pinned signing tool files extracted and qualified.", complete=True)
-        found[name] = str(executable)
-        outputs.extend(sorted(path for path in root.rglob("*") if path.is_file()))
-    java, aapt = Path(found["apkJdk"]), Path(found["apkBuildTools"])
-    selected = {"java": str(java), "keytool": str(java.with_name("keytool.exe")),
-                "jdk": str(java.parent.parent), "aapt": str(aapt),
-                "apksigner": str(aapt.parent / "lib/apksigner.jar"), "zipalign": str(aapt.parent / "zipalign.exe")}
-    if not all(Path(selected[name]).is_file() for name in ("java", "keytool", "aapt", "apksigner", "zipalign")):
-        raise WizardError("apk_tools_incomplete", "The pinned Android signing tools are incomplete.")
-    path = store.session_dir(session) / "apk-tools.json"
-    atomic_json(path, {"schema": 1, **selected})
-    return [path, *outputs], {"apkTools": selected}
-
+    host = host_key(); found, outputs = {}, []
+    for name in ('apkJdk', 'apkBuildTools'):
+        executable, extracted = _provision_tool(name, store, session)
+        store.operation(session, 'tools', 'verify-' + name, detail='Pinned signing tool files extracted and qualified.', complete=True)
+        found[name] = str(executable); outputs.extend(extracted)
+    java, aapt = Path(found['apkJdk']), Path(found['apkBuildTools'])
+    suffix = '.exe' if host == 'windows-x64' else ''
+    selected = {'java': str(java), 'keytool': str(java.with_name('keytool' + suffix)),
+                'jdk': str(java.parent.parent), 'aapt': str(aapt),
+                'apksigner': str(aapt.parent / 'lib/apksigner.jar'), 'zipalign': str(aapt.parent / ('zipalign' + suffix))}
+    if not all(Path(selected[name]).is_file() for name in ('java', 'keytool', 'aapt', 'apksigner', 'zipalign')):
+        raise WizardError('apk_tools_incomplete', 'The pinned Android signing tools are incomplete.')
+    log = store.session_dir(session) / 'logs/apk-java-version.log'
+    supervisor.run([java, '-version'], log, timeout=30)
+    if '17.0.16' not in log.read_text(encoding='utf-8', errors='replace'):
+        raise WizardError('tool_version', 'The pinned APK JDK reported an unexpected version.')
+    outputs.append(log)
+    path = store.session_dir(session) / 'apk-tools.json'
+    atomic_json(path, {'schema': 1, **selected, 'host': host})
+    return [path, *outputs], {'apkTools': selected}
 
 def environment(details):
     env = dict(os.environ)
