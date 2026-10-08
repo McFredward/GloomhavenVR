@@ -93,6 +93,8 @@ internal sealed class CoreModule : IVRModule
         ScenarioEnvironmentMeshBank.ConfigureAssetPreparation(ScenarioEnvironmentAssets.EnsureLoaded);
         ScenarioTerrainBudget.ConfigureRoomArchitecture(() => PerfConfig.RoomArchitectureEnabled,
             () => PerfConfig.RoomFloorDetailPercent);
+        ScenarioTerrainBudget.ConfigureRoomFloorPreparation(() => PerfConfig.RoomFloorBatchingOn);
+        ScenarioTerrainBudget.ConfigureBlockEffectAdmission(WorldMaterialBudget.HasUnsupportedBlock);
         ScenarioTerrainBudget.ConfigureRoomFloorCameraSourceLimit(() => PerfConfig.RoomFloorCameraSourceLimit);
         ScenarioTerrainBudget.ConfigureArchitectureBank(ScenarioEnvironmentMeshBank.RoomArchitectureRole);
         ScenarioTerrainBudget.ConfigureFloorGrouping(ScenarioEnvironmentBudget.HasPreparedRoomFloorGroup);

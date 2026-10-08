@@ -79,6 +79,16 @@ public static partial class EnvironmentProgram
             Check(masked&&colored>20,"actual room-floor shader pixels ignore the native wall mask rather than disappear with walls");
             Check(first.sharedMaterial==room.Original&&second.sharedMaterial==room.Original,
                 "room floor grouping never binds world variants onto original sources");
+            // The independent world owner can legitimately bind its own source
+            // slots later. Its exact notification boundary must rebuild floor
+            // groups against those references without confusing them with natives.
+            first.sharedMaterial=variant;ScenarioEnvironmentBudget.WorldMaterialChanged(first);
+            second.sharedMaterial=variant;ScenarioEnvironmentBudget.WorldMaterialChanged(second);
+            ScenarioEnvironmentBudget.BeforeLoadingComplete();
+            room.ObserveRender=()=>masked=first.forceRenderingOff&&second.forceRenderingOff;
+            room.Render();room.ObserveRender=null;
+            Check(masked&&room.Chunks().Length==1&&room.Chunks()[0].sharedMaterial==variant,
+                "world-owned source reference changes rebuild the floor group with canonical native admission and a current draw variant");
             room.Original.SetFloat("_AddVertexAnim",1f);
             room.ObserveRender=()=>masked=Array.Exists(room.Chunks(),r=>r.enabled)||first.forceRenderingOff||second.forceRenderingOff;
             room.Render();room.ObserveRender=null;
