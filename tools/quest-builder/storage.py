@@ -128,6 +128,63 @@ def inventory(root: Path, paths: list[str] | None = None, *, phase="input-hash")
     return result
 
 
+def persistent_inventory(root: Path, database: Path, *, phase="input-hash") -> list[dict]:
+    """Inventory mutable originals, reading only files whose metadata changed.
+
+    A first visit still reads every file. Later visits compare the exact file
+    identity/change stamp with that earlier byte proof, including Win32
+    ChangeTime on NTFS/ReFS. A new or changed file is hashed independently;
+    neither an old manifest nor matching size/mtime alone seeds this cache.
+    The database belongs in the builder output, never the PC installation.
+    """
+    root, database = _ordinary_owned(Path(root)), _ordinary_owned(Path(database))
+    if not root.is_dir(): raise BuildError("Input inventory root is not a directory.")
+    if database == root or root in database.parents:
+        raise BuildError("Input inventory cache must be outside the original game installation.")
+    database.parent.mkdir(parents=True, exist_ok=True)
+    if database.exists() and (not stat.S_ISREG(database.lstat().st_mode) or database.lstat().st_nlink != 1):
+        raise BuildError("Input inventory database is not a regular owned file.")
+    # Keep the exact selected set current: additions/removals change the
+    # returned inventory even when every surviving file has a reusable proof.
+    selected = []
+    for path in sorted(root.rglob("*")):
+        value = path.lstat()
+        if stat.S_ISDIR(value.st_mode):
+            if getattr(value, "st_file_attributes", 0) & 0x400:
+                raise BuildError("Input inventory crosses a linked directory: " + str(path))
+            continue
+        if not stat.S_ISREG(value.st_mode) or getattr(value, "st_file_attributes", 0) & 0x400:
+            raise BuildError("Input inventory contains an unsupported linked or non-file path: " + str(path))
+        selected.append((path, path.relative_to(root).as_posix(), value.st_size))
+    counter = _counter(phase, sum(size for _, _, size in selected), "bytes")
+    connection = sqlite3.connect(database, timeout=30)
+    try:
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA synchronous=NORMAL")
+        witnesses = ValidatedFileWitnesses(connection, root, {"schema": 1, "owner": "Quest original input inventory"})
+        records = []
+        for index, (path, relative, size) in enumerate(selected):
+            hits = witnesses.counters["cache_hits"]
+            hasher = (lambda path: digest(path, progress=lambda count: counter.add(count, path.name))) if counter else None
+            hashed = witnesses.observe(path, hasher=hasher)
+            if path.lstat().st_size != size:
+                raise BuildError("An input changed while its inventory was selected: " + relative)
+            records.append({"path": relative, "sha256": hashed, "size": size})
+            if counter and witnesses.counters["cache_hits"] != hits: counter.add(size, path.name)
+            # A cancelled first visit preserves individual completed proofs.
+            if size >= 8 * 1048576 or (index + 1) % 128 == 0: connection.commit()
+        connection.commit()
+        if counter: counter.finish()
+        if build_progress:
+            build_progress.event(phase, detail="Selected " + str(len(records)) + " input files; " + witnesses.summary(), status="complete")
+        return records
+    except BaseException as error:
+        if counter: counter.fail(error)
+        raise
+    finally:
+        connection.close()
+
+
 def verify_files(root: Path, records: list[dict], *, phase="file-verify") -> bool:
     counter = _counter(phase, sum(item["size"] for item in records), "bytes")
     for item in records:
@@ -333,6 +390,18 @@ class _WindowsFileMetadata:
 
 _windows_metadata = None
 _invocation_file_proofs = {}
+
+
+def invocation_file_matches(path, expected_sha256, expected_size):
+    """Reuse an exact proof already qualified in this process, without a read."""
+    path = _ordinary_owned(Path(path))
+    proved = _invocation_file_proofs.get(path)
+    if proved is None or proved[1] != expected_sha256: return False
+    value = path.lstat()
+    if not stat.S_ISREG(value.st_mode) or getattr(value, "st_file_attributes", 0) & 0x400 or value.st_nlink != 1:
+        return False
+    current = _file_witness_stamp(path, value)
+    return current is not None and current == proved[0] and current[3] == expected_size
 
 
 def _file_witness_stamp(path, value):

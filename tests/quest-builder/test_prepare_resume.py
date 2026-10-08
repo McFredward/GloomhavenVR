@@ -115,6 +115,28 @@ class JournalTests(unittest.TestCase):
         source.write_bytes(b"modified")
         with self.assertRaisesRegex(storage.BuildError, "source changed since its checkpoint"): self.journal(source_files=records)
 
+    def test_new_snapshot_path_reuses_this_invocations_exact_source_proof(self):
+        original = self.root / "original"; original.mkdir()
+        (original / "source.cs").write_bytes(b"same original source")
+        row = storage.record_file(original / "source.cs", "source.cs")
+        first = self.journal(source_files=[(original / "source.cs", row)]); first.close()
+        snapshot = self.root / "new-snapshot"
+        storage.snapshot(original, [row], snapshot)
+        with patch.object(resume, "digest", side_effect=AssertionError("Snapshot was just qualified; do not read it twice")):
+            second = self.journal(source_files=[(snapshot / "source.cs", row)]); second.close()
+
+    def test_changed_snapshot_does_not_inherit_same_invocation_proof(self):
+        original = self.root / "original"; original.mkdir()
+        (original / "source.cs").write_bytes(b"same original source")
+        row = storage.record_file(original / "source.cs", "source.cs")
+        first = self.journal(source_files=[(original / "source.cs", row)]); first.close()
+        snapshot = self.root / "new-snapshot"
+        storage.snapshot(original, [row], snapshot)
+        path = snapshot / "source.cs"; before = path.stat()
+        path.write_bytes(b"bad! original source"); os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+        with self.assertRaisesRegex(storage.BuildError, "source changed since its checkpoint"):
+            self.journal(source_files=[(path, row)])
+
     def test_source_mutation_during_function_cannot_commit(self):
         source = self.root / "source.cs"; source.write_bytes(b"original")
         first = self.journal(source_files=[(source, storage.record_file(source, "source.cs"))])

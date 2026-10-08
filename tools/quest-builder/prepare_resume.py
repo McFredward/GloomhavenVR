@@ -16,7 +16,7 @@ import re
 import shutil
 import sqlite3
 
-from storage import BuildError, CONTENT_PATHS, ValidatedFileWitnesses, _ordinary_owned, digest, value_hash, write_json
+from storage import BuildError, CONTENT_PATHS, ValidatedFileWitnesses, _ordinary_owned, digest, invocation_file_matches, value_hash, write_json
 
 SCHEMA = 1
 OWNER = "Quest preparation substage journal"
@@ -151,11 +151,13 @@ class Preparation:
                     self._discard_owned_journal(value)
                     value = None
             if value is not None and value.get("sources") != self.source_stamps:
-                # A snapshot is immutable. Re-hash only metadata changes to allow
-                # harmless copied timestamps while rejecting an edited source.
+                # Snapshot qualification already populated exact invocation
+                # proofs. A compatible new mod snapshot has different paths;
+                # do not read its unchanged bytes again just for that move.
+                # Unqualified or genuinely changed sources still need a hash.
                 for path, row in self.sources:
                     if value.get("sources", {}).get(str(path)) != self.source_stamps[str(path)]:
-                        if path.stat().st_size != row["size"] or digest(path) != row["sha256"]:
+                        if not invocation_file_matches(path, row["sha256"], row["size"]) and (path.stat().st_size != row["size"] or digest(path) != row["sha256"]):
                             raise BuildError("Preparation source changed since its checkpoint: " + path.name)
                 if not migration: value["sources"] = self.source_stamps
         else:

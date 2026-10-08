@@ -306,4 +306,94 @@ class SnapshotWitnessTests(unittest.TestCase):
             storage.snapshot(self.source, changed, self.destination)
 
 
+class PersistentInventoryTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name); self.source = self.root / "original"; self.source.mkdir()
+        self.database = self.root / "output" / "original-inventory.sqlite3"
+        (self.source / "one.bundle").write_bytes(b"first original bytes")
+        (self.source / "two.bundle").write_bytes(b"second original bytes")
+        storage._invocation_file_proofs.clear(); self.addCleanup(storage._invocation_file_proofs.clear)
+
+    def inventory(self): return storage.persistent_inventory(self.source, self.database)
+
+    def reads(self, action):
+        original = Path.open; reads = []
+        def opening(path, mode="r", *args, **kwargs):
+            if mode == "rb" and self.source in path.parents: reads.append(path.name)
+            return original(path, mode, *args, **kwargs)
+        with mock.patch.object(Path, "open", opening): result = action()
+        return result, reads
+
+    def test_first_actual_inventory_matches_strict_then_two_checks_read_nothing(self):
+        expected = storage.inventory(self.source)
+        result, reads = self.reads(self.inventory)
+        self.assertEqual(result, expected); self.assertEqual(reads, ["one.bundle", "two.bundle"])
+        storage._invocation_file_proofs.clear()
+        result, reads = self.reads(lambda: (self.inventory(), self.inventory()))
+        self.assertEqual(result, (expected, expected)); self.assertEqual(reads, [])
+        self.assertEqual(sorted(path.name for path in self.source.iterdir()), ["one.bundle", "two.bundle"])
+
+    def test_only_changed_same_size_preserved_mtime_file_is_rehashed(self):
+        expected = self.inventory(); storage._invocation_file_proofs.clear()
+        path = self.source / "one.bundle"; before = path.stat()
+        path.write_bytes(b"other original bytes")
+        os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+        result, reads = self.reads(self.inventory)
+        self.assertEqual(reads, ["one.bundle"])
+        self.assertEqual(result[1], expected[1]); self.assertNotEqual(result[0]["sha256"], expected[0]["sha256"])
+        self.assertEqual(result, storage.inventory(self.source))
+
+    def test_addition_and_removal_update_file_set_without_rehashing_survivors(self):
+        self.inventory(); storage._invocation_file_proofs.clear()
+        (self.source / "one.bundle").unlink(); (self.source / "three.bundle").write_bytes(b"new original")
+        result, reads = self.reads(self.inventory)
+        self.assertEqual([row["path"] for row in result], ["three.bundle", "two.bundle"])
+        self.assertEqual(reads, ["three.bundle"])
+
+    def test_missing_cache_requires_real_reads_and_wrong_root_never_inherits_rows(self):
+        self.inventory(); storage._invocation_file_proofs.clear()
+        other = self.root / "other-original"; shutil.copytree(self.source, other)
+        original = Path.open; opened = []
+        def opening(path, mode="r", *args, **kwargs):
+            if mode == "rb" and other in path.parents: opened.append(path.name)
+            return original(path, mode, *args, **kwargs)
+        with mock.patch.object(Path, "open", opening): storage.persistent_inventory(other, self.database)
+        self.assertEqual(opened, ["one.bundle", "two.bundle"])
+
+    def test_corrupt_witness_rechecks_only_its_file(self):
+        self.inventory(); storage._invocation_file_proofs.clear()
+        with sqlite3.connect(self.database) as connection:
+            connection.execute("UPDATE validated_file_witnesses SET check_hash='broken' WHERE path='one.bundle'")
+        result, reads = self.reads(self.inventory)
+        self.assertEqual(reads, ["one.bundle"]); self.assertEqual(result, storage.inventory(self.source))
+
+    def test_interrupted_inventory_keeps_each_completed_large_file_proof(self):
+        path = self.source / "one.bundle"; path.write_bytes(b"x" * (8 * 1048576))
+        original = Path.open
+        def opening(candidate, mode="r", *args, **kwargs):
+            if candidate == self.source / "two.bundle" and mode == "rb": raise KeyboardInterrupt()
+            return original(candidate, mode, *args, **kwargs)
+        with mock.patch.object(Path, "open", opening), self.assertRaises(KeyboardInterrupt): self.inventory()
+        storage._invocation_file_proofs.clear()
+        result, reads = self.reads(self.inventory)
+        self.assertEqual(reads, ["two.bundle"]); self.assertEqual(len(result), 2)
+
+    def test_unsupported_metadata_still_reads_and_never_trusts_unobserved_originals(self):
+        with mock.patch.object(storage, "_file_witness_stamp", return_value=None):
+            self.inventory(); storage._invocation_file_proofs.clear()
+            _, reads = self.reads(self.inventory)
+        self.assertEqual(reads, ["one.bundle", "two.bundle"])
+
+    def test_database_in_originals_and_linked_inputs_are_rejected(self):
+        with self.assertRaisesRegex(storage.BuildError, "outside the original"):
+            storage.persistent_inventory(self.source, self.source / "do-not-write.sqlite3")
+        linked = self.source / "linked"; linked.symlink_to(self.source / "one.bundle")
+        with self.assertRaisesRegex(storage.BuildError, "unsupported linked"):
+            self.inventory()
+        linked.unlink()
+        linked.symlink_to(self.root / "output", target_is_directory=True)
+        with self.assertRaises(storage.BuildError): self.inventory()
+
+
 if __name__ == "__main__": unittest.main()
