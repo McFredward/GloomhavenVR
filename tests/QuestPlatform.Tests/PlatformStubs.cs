@@ -283,6 +283,10 @@ namespace GloomhavenVR.Core
         internal static void ConfigureCanonicalSource(Func<UnityEngine.Material, UnityEngine.Material> source) { }
         internal static void ConfigureSourceChanged(Action<UnityEngine.Renderer> changed) { }
         internal static void ConfigureRenderSubstituteOwnership(Func<UnityEngine.Renderer, bool> owns) { }
+        // Dev642 separates live substitute revocation from prepared ownership.
+        // This platform fixture only binds the real CoreModule's dependency API;
+        // the source-bound terrain/world harnesses own lease behavior evidence.
+        internal static void ConfigureRenderSubstituteRevocation(Func<UnityEngine.Renderer, bool> revoke) { }
         internal static void Install(UnityEngine.GameObject host) { }
         internal static void Shutdown() { }
         internal static void QueueRoot(UnityEngine.GameObject root) { }
@@ -312,6 +316,7 @@ namespace GloomhavenVR.Core
         internal static void ConfigureNativeCameraConsumers(Func<UnityEngine.Camera, bool> consumers) { }
         internal static void ConfigureCanonicalMaterial(Func<UnityEngine.Material, UnityEngine.Material> canonical) { }
         internal static bool OwnsRenderSubstitute(UnityEngine.Renderer renderer) => false;
+        internal static bool HasCurrentRenderLease(UnityEngine.Renderer renderer) => false;
         internal static void QueueRoot(UnityEngine.GameObject root) { }
         internal static void MaterialReady(UnityEngine.Renderer renderer) { }
         internal static void BeforeNativeRendererWrite(UnityEngine.Renderer renderer) { }
