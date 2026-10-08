@@ -108,6 +108,7 @@ public static partial class WorldMaterialProgram
                     "attachment unfade restores real original slot and removes owned effects before continuation");
             }
             PerfConfig.WorldMaterialQualityMode = 2; Tick(host, 16); Pixels(null!);
+            HiddenAttachmentWrites(source, material, Pixels);
             Material privateDonor = source.sharedMaterial;
             var toggled = Native("Native N_MRAO keyword admission");
             try

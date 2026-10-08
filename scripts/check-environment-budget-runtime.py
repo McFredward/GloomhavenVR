@@ -94,6 +94,12 @@ def main():
     trace_path = args.source_root/'src/GloomhavenVR/Core/WallFade/WallSegmentFade.DrawTrace.cs'
     occlusion_path = args.source_root/'src/GloomhavenVR/Core/OcclusionFade.cs'
     dissolve_path = args.source_root/'src/GloomhavenVR/Core/WallFade/WallSegmentFade.Dissolve.cs'
+    import importlib.util
+    attachment_binder = args.source_root/'scripts/check-world-material-runtime.py'
+    spec = importlib.util.spec_from_file_location('wall_attachment_source_bindings', attachment_binder)
+    attachment_module = importlib.util.module_from_spec(spec); spec.loader.exec_module(attachment_module)
+    attachment_paths, attachment_source = attachment_module.wall_attachment_source(args.source_root)
+    attachment_source = attachment_source.replace('internal static partial class WallSegmentFade', 'internal static partial class WallDormantFixture', 1)
     source, shader, repair, floor = source_path.read_text(), shader_path.read_text(), repair_path.read_text(), floor_path.read_text()
     wall, clock, occlusion = wall_path.read_text(), clock_path.read_text(), occlusion_path.read_text()
     trace = trace_path.read_text()
@@ -105,7 +111,7 @@ def main():
     delivery = delivery.replace('\n} }\n',native_prop+'\n} }\n')
     assert '_nativeTransitionMaps' not in wall + dissolve, 'Retired square-mask bank must not return'
     assert 'Shader.PropertyToID("_EnableOcclusionMap")' in wall, 'Original native enable binding must remain explicit'
-    clock_variants, delivery_variants, trace_variants, boundary_variants, ambient_variants = {}, {}, {}, {}, {}
+    clock_variants, delivery_variants, trace_variants, boundary_variants, ambient_variants, attachment_variants = {}, {}, {}, {}, {}, {}
     wall_writes = []
     for path in (args.source_root/'src/GloomhavenVR/Core/WallFade').glob('WallSegmentFade*.cs'):
         text = path.read_text()
@@ -124,6 +130,23 @@ def main():
     assert 'StaticBatchingUtility' not in source and 'SetStaticBatchInfo' not in source, 'Native sources must not acquire Unity internal static-batch state'
     assert 'Camera.onPreCull += HandlePreCull;' in source and 'Camera.onPostRender -= HandlePostRender;' in source, 'Draw leases require paired real rendering hooks'
     variants = [('production',source,'')]
+    if not args.production_only:
+        for name, before, after, expected in (
+            ('hidden-wall-native-write-bridge-omitted',
+             'ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);\n            if (r.enabled)',
+             '{} // injected: actual enabled setter keeps a current chunk lease\n            if (r.enabled)',
+             'actual enabled wall hide revokes current environment chunk lease before native setter'),
+            ('hidden-wall-current-consumer-ignored',
+             'if (r.enabled || ScenarioTerrainBudget.HasCurrentRenderLease(r)\n                || ScenarioEnvironmentBudget.OwnsRenderSubstitute(r))',
+             'if (r.enabled)',
+             'already disabled wall hide revokes its actual late environment consumer before same draw'),
+            ('hidden-wall-drive-consumer-ignored',
+             '\n                && !ScenarioTerrainBudget.HasCurrentRenderLease(r)\n                && !ScenarioEnvironmentBudget.OwnsRenderSubstitute(r)',
+             '',
+             'dormant native drive refuses current environment consumer and releases before same draw'),
+        ):
+            assert attachment_source.count(before) == 1, 'Hidden wall lease causal binding drift: '+name
+            variants.append((name,source,expected)); attachment_variants[name] = attachment_source.replace(before,after)
     if not args.production_only:
         changes = [
             ('world-canonical-map-missing', 'return _worldCanonical?.Invoke(original) ?? original;', 'return original;', 'composed canonical material maps private world references to exact native original', 1),
@@ -299,7 +322,7 @@ def main():
         (swallowed_fixture/'Program.cs').write_text(program.replace(guard,
             'if (callbackFailure != null && bool.Parse("false")) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(callbackFailure).Throw();'))
     manifest = {'result':str(run/'results.txt'),'cases':[]}
-    bound_sources = {source_path:source,boundary_path:boundary,ambient_path:ambient,shader_path:shader,repair_path:repair,floor_path:floor,wall_path:wall,clock_path:clock,trace_path:trace,occlusion_path:occlusion,dissolve_path:dissolve}
+    bound_sources = {attachment_binder:attachment_binder.read_text(), **{path:path.read_text() for path in attachment_paths}, source_path:source,boundary_path:boundary,ambient_path:ambient,shader_path:shader,repair_path:repair,floor_path:floor,wall_path:wall,clock_path:clock,trace_path:trace,occlusion_path:occlusion,dissolve_path:dissolve}
     for bank_file in ('ScenarioEnvironmentMeshBank.cs','ScenarioEnvironmentMeshStream.cs'):
         bank_path = args.source_root/'src/GloomhavenVR/Core/Perf'/bank_file
         bound_sources[bank_path] = bank_path.read_text()
@@ -328,6 +351,7 @@ def main():
         (production/'AmbientEffects.cs').write_text(ambient_variants.get(name,ambient))
         (production/'WallFloorTile.cs').write_text(floor)
         (production/'WallDelivery.cs').write_text(delivery_variants.get(name,delivery))
+        (production/'HiddenAttachmentDelivery.cs').write_text(attachment_variants.get(name,attachment_source))
         (production/'WallClock.cs').write_text(clock_variants.get(name,clock))
         (production/'WallDrawTrace.cs').write_text('using Time = GloomhavenVR.Core.WallFixtureClock;\n'+trace_variants.get(name,trace))
         (production/'OcclusionFade.cs').write_text(occlusion)

@@ -1248,6 +1248,17 @@ internal static partial class WallSegmentFade
                 RestoreHeldProp(p, r);
                 return;
             }
+            // Fully hidden attachments cannot deliver pixels. Keep live floor/held guards
+            // ahead of this gate, and ask the actual enabled flag and our own hide ledger:
+            // a native re-enable, intermediate return or unowned disable immediately takes
+            // the complete original drive again. A current geometry consumer also takes
+            // that path so its masks/submission are released before this same draw. No
+            // main wall/foundation is skipped here.
+            if (PerfConfig.SkipHiddenWallAttachmentWritesOn && fade == 1f
+                && _hidByEnable.Contains(r) && !r.enabled
+                && !ScenarioTerrainBudget.HasCurrentRenderLease(r)
+                && !ScenarioEnvironmentBudget.OwnsRenderSubstitute(r))
+                return;
             if (p.NativeFade)
             {
                 // Round 15: the piece runs the game's own masonry fade branch — either on its
