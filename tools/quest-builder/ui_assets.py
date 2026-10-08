@@ -231,25 +231,49 @@ def stage_campaign_recipe_manifest(project):
     names. Select the exact original object bytes audited for each UI program,
     rather than importing a previous developer menu project or choosing by name.
     """
-    from ui_blur import RECIPE_SHA256 as blur_hash
-    wanted = {spec["recipeSha256"] for spec in SHADERS.values()} | {blur_hash}
+    from ui_blur import RECIPE_SHA256 as blur_hash, FORM_SHA256 as blur_form, NAME as blur_name
+    project = _safe(project)
+    wanted = {spec["recipeSha256"]: (name, spec["formSha256"]) for name, spec in SHADERS.items()}
+    wanted[blur_hash] = (blur_name, blur_form)
     selected = {}
-    for path in sorted((project / "QuestRecovery/ShaderRecipes").glob("*.json")):
+    directory = _safe(project / "QuestRecovery/ShaderRecipes")
+    # Use the producer's exact shader-name filename encoding. Only the three
+    # audited families need reading; unrelated game shader banks are untouched.
+    paths = {path for name, _ in wanted.values()
+             for path in directory.glob(re.sub(r"[^A-Za-z0-9._-]+", "_", name) + "-*.json")}
+    for path in sorted(paths):
         raw = _read(path, 32 * 1024 * 1024)
-        checksum = _hash(raw)
+        # recover.write_json uses text-mode newlines: Windows emits CRLF, while
+        # the audited Linux producer emitted LF. Accept exactly those two byte
+        # representations. Escaped JSON string/program bytes, source locators,
+        # ordering, whitespace, properties and compiled banks stay hash-exact.
+        canonical = raw.replace(b"\r\n", b"\n")
+        if b"\r" in canonical or (b"\r\n" in raw and raw.count(b"\n") != raw.count(b"\r\n")):
+            continue
+        checksum = _hash(canonical)
         if checksum not in wanted:
             continue
         if checksum in selected:
             raise BuildError("Complete recovery duplicates an audited native UI Shader object.")
-        recipe = json.loads(raw)
-        parsed = recipe["parsedForm"]
-        form = {"m_Name": parsed["m_Name"], "m_PropInfo": parsed["m_PropInfo"],
-                "m_SubShaders": [{"m_Passes": [{"m_State": item["m_State"]} for item in subshader["m_Passes"]]}
-                                 for subshader in parsed["m_SubShaders"]]}
+        try:
+            recipe = json.loads(canonical)
+            parsed = recipe["parsedForm"]
+            form = {"m_Name": parsed["m_Name"], "m_PropInfo": parsed["m_PropInfo"],
+                    "m_SubShaders": [{"m_Passes": [{"m_State": item["m_State"]} for item in subshader["m_Passes"]]}
+                                     for subshader in parsed["m_SubShaders"]]}
+            expected_name, expected_form = wanted[checksum]
+            if (form["m_Name"] != expected_name or recipe["compiledPlatforms"] != [4]
+                    or _hash(json.dumps(form, sort_keys=True, separators=(",", ":")).encode("utf-8")) != expected_form):
+                raise ValueError("original name, properties, pass states or platform differs")
+        except (ValueError, KeyError, TypeError) as error:
+            raise BuildError("Complete recovery original UI recipe differs: " + path.name + "; " + str(error)) from error
         selected[checksum] = {"recipePath": path.relative_to(project).as_posix(), "recipeSha256": checksum,
+                              "sourceRecipeFileSha256": _hash(raw), "sourceRecipeFileBytes": len(raw),
+                              "recipeLineEndings": "CRLF" if b"\r\n" in raw else "LF",
                               "compiledPlatforms": recipe["compiledPlatforms"], "parsedForm": form}
-    if set(selected) != wanted:
-        raise BuildError("Complete recovery lacks the exact original UI Shader recipes required for Android.")
+    if set(selected) != set(wanted):
+        missing = [name for checksum, (name, _) in wanted.items() if checksum not in selected]
+        raise BuildError("Complete recovery lacks the exact original UI Shader recipes required for Android: " + ", ".join(sorted(missing)) + ".")
     manifest = {"schema": 1, "recipes": [selected[key] for key in sorted(wanted)]}
     write_json(project / RECIPES, manifest)
     _original_recipes(project)
