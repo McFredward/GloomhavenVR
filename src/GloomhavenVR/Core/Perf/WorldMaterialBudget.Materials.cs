@@ -188,8 +188,18 @@ internal static partial class WorldMaterialBudget
             int route = _shareReads ? Metadata(original).Route : ShaderRoute(original);
             if (route < 0) return false;
             renderer.GetPropertyBlock(_slotBlock, slot);
-            if (_block.HasTexture(MainTextureId) && _block.GetTexture(MainTextureId) is RenderTexture
-                || _slotBlock.HasTexture(MainTextureId) && _slotBlock.GetTexture(MainTextureId) is RenderTexture) return true;
+            bool rendererBlockEmpty = _block.isEmpty;
+            bool slotBlockEmpty = _slotBlock.isEmpty;
+            // Native fade/tint blocks commonly occupy just one of the renderer or
+            // slot levels. An empty block cannot contain a video, animated scalar
+            // or blend override: do not issue twelve absent-property native calls
+            // for it on every room surface, every eye. Check both actual blocks
+            // here, after callback-capable source resolution and earlier-slot
+            // preparation: a nested camera can overwrite the reusable blocks.
+            // No empty verdict or material value survives that boundary.
+            if (rendererBlockEmpty && slotBlockEmpty) return false;
+            if (!rendererBlockEmpty && _block.HasTexture(MainTextureId) && _block.GetTexture(MainTextureId) is RenderTexture
+                || !slotBlockEmpty && _slotBlock.HasTexture(MainTextureId) && _slotBlock.GetTexture(MainTextureId) is RenderTexture) return true;
             for (int index = 0; index < EffectPropertyIds.Length; index++)
             {
                 // A native spelling can have a different type in another family.
@@ -197,13 +207,13 @@ internal static partial class WorldMaterialBudget
                 // float switch. Typed MPB presence also avoids absent-value reads.
                 if (route == 9 && EffectProperties[index] == "_EmissionMap") continue;
                 int property = EffectPropertyIds[index];
-                if (_block.HasFloat(property) && _block.GetFloat(property) != 0f
-                    || _slotBlock.HasFloat(property) && _slotBlock.GetFloat(property) != 0f) return true;
+                if (!rendererBlockEmpty && _block.HasFloat(property) && _block.GetFloat(property) != 0f
+                    || !slotBlockEmpty && _slotBlock.HasFloat(property) && _slotBlock.GetFloat(property) != 0f) return true;
             }
             if (route == 9)
                 foreach (int property in StandardStatePropertyIds)
-                    if (_block.HasFloat(property) && _block.GetFloat(property) != original.GetFloat(property)
-                        || _slotBlock.HasFloat(property) && _slotBlock.GetFloat(property) != original.GetFloat(property)) return true;
+                    if (!rendererBlockEmpty && _block.HasFloat(property) && _block.GetFloat(property) != original.GetFloat(property)
+                        || !slotBlockEmpty && _slotBlock.HasFloat(property) && _slotBlock.GetFloat(property) != original.GetFloat(property)) return true;
             return false;
         }
     }

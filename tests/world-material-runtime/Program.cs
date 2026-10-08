@@ -150,6 +150,8 @@ public static partial class WorldMaterialProgram
         var unknown=source.gameObject.AddComponent<UnknownNativeAnimation>();Center(camera);
         Check(source.sharedMaterial==first,"unknown scripted animation remains native despite positive world ancestry");Object.DestroyImmediate(unknown);
         Families(source,first,second,camera);
+        EmptyBlockParity(source,first,second,camera);
+        CurrentOwnerParity(room,source,first,second,camera);
         NativeScenarioScopes(host,room,source,first,second,camera);
         MapScopes(host,originalMesh,first,camera);
         Scale(host,room,source,first,second,camera);
