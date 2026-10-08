@@ -1,7 +1,7 @@
 # Planning index
 
-Updated 2026-10-08 for Build645: native ring continuity and enhancement-row
-layout retain integrated Frame644, NPC639 and crossplay641.
+Updated 2026-10-08 for Build646: paired NPC picture admission/continuity, native
+returns, readable merchant captions and bounded map entry retain645/Frame644.
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
 status; it is not the player manual.
@@ -16,6 +16,11 @@ status; it is not the player manual.
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
 | [QUEST-BUILD-REUSE-20261008.md](QUEST-BUILD-REUSE-20261008.md) | Original-source/output roles, retained14-phase staging and preparation, persistent change-time witnesses and bounded speed evidence |
 | [QUEST-BUILD-NATIVE-BYTES-20261008.md](QUEST-BUILD-NATIVE-BYTES-20261008.md) | Exact Windows native overlays, retained642 staging, measured native progress and dev643 Builder |
+| [NPC-646-REVIEW.md](NPC-646-REVIEW.md) | Paired645 causes, bounded combined validation, 1:1 review and inherited evidence |
+| [NPC-646-ADMISSION.md](NPC-646-ADMISSION.md) | Actual pre-offer full/delta debt, complete native render deadline and retained-child continuity |
+| [NPC-646-FLIGHTS.md](NPC-646-FLIGHTS.md) | Native per-render returns through newer artwork, regrab/withdrawal and exact old-source control |
+| [NPC-646-MERCHANT.md](NPC-646-MERCHANT.md) | Original price/stock caption geometry, economic parity and rendered causal controls |
+| [NPC-646-SPAWN.md](NPC-646-SPAWN.md) | Measured elevated tracking origins, signed entry clearance and source-bound Unity controls |
 | [NPC-645-REVIEW.md](NPC-645-REVIEW.md) | Paired643 hover cause, combined native proofs, compiled scope and explicit phase exceptions |
 | [NPC-645-RING.md](NPC-645-RING.md) | Final native ring clock, immutable timing provenance, exact original geometry and causal controls |
 | [NPC-645-PROOF-AUDIT.md](NPC-645-PROOF-AUDIT.md) | Independent review of earlier false greens, real template/clock seams and final proof limits |

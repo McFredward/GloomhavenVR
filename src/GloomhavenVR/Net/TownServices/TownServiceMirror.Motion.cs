@@ -452,6 +452,8 @@ internal static partial class TownServiceMirror
                 MotionSlot slot = slotPair.Value; TownServiceMotionEntry entry = slot.Entry;
                 if (now - slot.ReceivedAt > NetProtocol.StaleTimeoutSeconds)
                 { MotionRemoval.Add(slotPair.Key); continue; }
+                bool liveCardReturn = entry.Kind == 8 && entry.Numbers[0]
+                    + Mathf.Max(0f, now - slot.ReceivedAt) <= entry.Numbers[1] + .25f;
                 int key = pair.Key;
                 if (entry.Lane == 1) key = -key;
                 else if (entry.Lane == 2 && !TryStockPeerKey(key, out key)) continue;
@@ -464,7 +466,12 @@ internal static partial class TownServiceMirror
                     // The exact print affinity is not present in an artwork
                     // header. A newer identical-original heartbeat cannot erase
                     // this still-current independent geometric registration.
-                    || entry.Kind != 9 && slot.SampleTime < module.LastFrame.SampleTime) continue;
+                    // The same native return can outlive a newer caption/artwork
+                    // sample. Its validated endpoints/revision are independent
+                    // of those property timestamps, just like print affinity.
+                    // Session, structure, census and its bounded lifetime still
+                    // guard it; a true withdrawal never retains a visible clone.
+                    || entry.Kind != 9 && !liveCardReturn && slot.SampleTime < module.LastFrame.SampleTime) continue;
                 if (!MotionRemoteFrames.TryGetValue(module, out RemoteMotion? composed))
                 { composed = new RemoteMotion(); MotionRemoteFrames.Add(module, composed); }
                 composed.Owner = RealPeer(key);
@@ -528,8 +535,9 @@ internal static partial class TownServiceMirror
             // Card returns use the same actual local easing, endpoint and original child
             // geometry every render frame. They cannot depend on a held-hand root branch:
             // cabinet and ability returns are explicitly shared-map anchored.
-            if (flight != null && flight.Entry.Kind == 8 && composed.Merged != null && root != null
-                && root.Entry.Hand == flight.Entry.Hand && root.Entry.Visible && root.Entry.ParentAlpha > 0f
+            if (flight != null && flight.Entry.Kind == 8 && composed.Merged != null
+                && (root == null || root.Entry.Hand == flight.Entry.Hand)
+                && composed.Merged.Visible && composed.Merged.ParentAlpha > 0f
                 && module.Host.activeInHierarchy)
                 ApplyCardReturnMotion(module, flight, composed, composed.Merged, now);
             // This continuous path writes only rig transforms. The registered

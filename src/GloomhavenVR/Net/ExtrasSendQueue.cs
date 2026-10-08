@@ -113,28 +113,42 @@ internal sealed class ExtrasSendQueue
         bytes=_pending[0].Bytes;identity=_pending[0].Identity;_pending.RemoveAt(0);return true;
     }
 
-    // Only complete cumulative originals may supersede an older complete
-    // original from this exact source. A waiting delta still needs its named
-    // baseline; native animation streams never enter this method.
+    // Only complete cumulative originals may supersede strictly older revisions
+    // from this exact source. A genuinely newer delta keeps its named baseline;
+    // native animation streams never enter this method.
     internal void SupersedeTownOriginal(TownServices.TownServiceFrame current)
     {
         if (current.BaseSequence != 0) return;
+        // A complete newer owner picture replaces older cumulative deltas too.
+        // Keeping their dependency after that replacement blocked a new mage
+        // offer behind the entire previous fragmented picture. A genuinely newer
+        // delta may still name the older baseline; retain that exact dependency.
         for (int i = _pending.Count - 1; i >= 0; i--)
             if (_pending[i].Identity is TownServices.TownServiceFrame older
-                && CanSupersedeTownOriginal(older, current) && !HasTownDelta(older.Sequence))
+                && CanSupersedeTownRevision(older, current)
+                && (older.BaseSequence != 0 || !HasTownDelta(older.Sequence, current.Sequence)))
                 _pending.RemoveAt(i);
         if (_activeIdentity is TownServices.TownServiceFrame active
-            && CanSupersedeTownOriginal(active, current) && !HasTownDelta(active.Sequence))
+            && CanSupersedeTownRevision(active, current)
+            && (active.BaseSequence != 0 || !HasTownDelta(active.Sequence, current.Sequence)))
         { _pages = null; _page = 0; _activeIdentity = null; }
     }
 
-    internal bool HasTownDelta(ulong baseline)
+    internal bool HasTownDelta(ulong baseline, ulong newerThan = 0)
     {
-        if (_activeIdentity is TownServices.TownServiceFrame active && active.BaseSequence == baseline) return true;
+        if (_activeIdentity is TownServices.TownServiceFrame active
+            && active.BaseSequence == baseline && active.Sequence > newerThan) return true;
         foreach (Pending pending in _pending)
-            if (pending.Identity is TownServices.TownServiceFrame frame && frame.BaseSequence == baseline) return true;
+            if (pending.Identity is TownServices.TownServiceFrame frame
+                && frame.BaseSequence == baseline && frame.Sequence > newerThan) return true;
         return false;
     }
+
+    internal static bool CanSupersedeTownRevision(TownServices.TownServiceFrame older, TownServices.TownServiceFrame current) =>
+        current.BaseSequence == 0 && older.Sequence < current.Sequence
+        && older.VisitorStock == current.VisitorStock && older.PublicCatalog == current.PublicCatalog
+        && older.PublicClaim == current.PublicClaim && older.Session == current.Session
+        && older.Service == current.Service && older.Module == current.Module;
 
     internal void PrependTownOriginal(byte[] bytes, TownServices.TownServiceFrame frame)
     {

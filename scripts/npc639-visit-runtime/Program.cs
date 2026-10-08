@@ -45,8 +45,8 @@ public static class InteractionProgram
         void Near(float actual, float expected, string message)
             => Check(Mathf.Abs(actual - expected) <= .001f, message + ": " + actual + " vs " + expected);
         // These are actual floor-, seated-, and eye-origin tracked local poses.
-        // The host638 measured2.21m pose is intentionally preserved, not called low.
-        foreach (float trackedY in new[] { -1f, 0f, .12f, .75f, 1.2f, 1.48f, 1.65f, 2.21f })
+        // Include the independently measured Build645 host2.16m and visitor2.73m origins.
+        foreach (float trackedY in new[] { -1f, 0f, .12f, .75f, 1.2f, 1.48f, 1.65f, 2.16f, 2.21f, 2.73f })
         foreach (float scale in new[] { 1f, 198.12f, 500f })
         foreach (float zoom in new[] { .5f, 1f, 2f })
         foreach (float localYaw in new[] { -135f, 0f, 37f })
@@ -74,7 +74,8 @@ public static class InteractionProgram
             rig.RunRecenter();
             float clearance = (head.transform.position.y - topY) / currentScale;
             Check(clearance >= .699f, "low origin obtains the minimum map overview");
-            float expected = Mathf.Max(.70f, trackedY - .78f / zoom);
+            Check(clearance <= 1.051f, "high origin stays below the entry clearance ceiling");
+            float expected = Mathf.Clamp(trackedY - .78f / zoom, .70f, 1.05f);
             Near(clearance, expected, "lift only to the minimum without raising the view farther");
             Near((head.transform.position.x - floor.x) / currentScale, 0f,
                 "entry absorbs measured tracking XZ without moving the table");

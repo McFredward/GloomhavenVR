@@ -127,15 +127,15 @@ internal sealed partial class VRRigDriver
     /// <summary>
     /// Put the player back at the map-room seat.
     ///
-    /// <para>THE HORIZONTAL HEAD OFFSET IS NULLED; LOW EYE ORIGINS GET A ONE-SHOT LIFT, and at this scale that
+    /// <para>THE HORIZONTAL HEAD OFFSET IS NULLED; EYE CLEARANCE IS BOUNDED ONCE, and at this scale that
     /// distinction is the difference between standing at the table and standing 200 world units
     /// away from it. The rig root is scaled, so the player's own offset from their play-space
     /// origin is multiplied by <c>Scale</c>: half a metre of real offset becomes hundreds of world
     /// units. Nulling the horizontal part puts the HEAD exactly at the seat whatever corner of the
     /// room the player is physically standing in (the same correction <see cref="RecenterMenu"/>
-    /// makes at 1:1). The VERTICAL part is kept for a normal standing pose. The build 638 hardware
-    /// review reports a low map spawn: retaining a seated/eye-origin local Y puts the eyes
-    /// at or below the table. Apply only the minimum clearance correction once on entry
+    /// makes at 1:1). Normal standing poses retain their height. Low tracking origins need an
+    /// overview lift; elevated origins (the Build645 visitor measured 2.73 m) need a downward
+    /// correction to stay below the cellar ceiling. Apply the clearance range only on entry
     /// and deliberate recenter; ordinary tracked movement and locomotion remain untouched.</para>
     ///
     /// <para>THE HEAD'S OWN YAW IS ABSORBED TOO (user request 2026-09-03: "die Startausrichtung
@@ -169,12 +169,12 @@ internal sealed partial class VRRigDriver
         // actual table height in the current tracking scale instead of assuming
         // the original 0.78 m offset. Otherwise recenter can lower the eyes again.
         float tableAboveRigFloorMeters = (_mapSeat.TopY - _mapSeat.FloorPosition.y) / scale;
-        float liftMeters = MapRoomSeat.EyeClearanceLiftMeters(headLocal.y, tableAboveRigFloorMeters);
+        float adjustmentMeters = MapRoomSeat.EyeClearanceAdjustmentMeters(headLocal.y, tableAboveRigFloorMeters);
         _rigRoot.transform.position = _mapSeat.FloorPosition - yaw * (flat * scale)
-            + Vector3.up * (liftMeters * scale);
+            + Vector3.up * (adjustmentMeters * scale);
         RigPoseVersion++;
 
-        float effectiveHeightMeters = headLocal.y + liftMeters;
+        float effectiveHeightMeters = headLocal.y + adjustmentMeters;
         float eyeClearanceMeters = effectiveHeightMeters - tableAboveRigFloorMeters;
         MapRoomDriver.NoteEyeHeight(eyeClearanceMeters + MapRoomSeat.TableTopHeightMeters);
         VRLog.Info("Rig", $"Map rig recentered — head at {_camera.transform.position} "
@@ -182,8 +182,8 @@ internal sealed partial class VRRigDriver
                           + $"{eyeClearanceMeters:F2} m above the parchment "
                           + $"surface at y={_mapSeat.TopY:F2}), rig root at {_rigRoot.transform.position}, "
                           + $"scale {scale:F2}. Horizontal head offset ({flat.x:F2}, {flat.z:F2}) m nulled; "
-                          + $"tracked head Y {headLocal.y:F2} m, one-shot minimum-clearance lift {liftMeters:F2} m. "
-                          + "Standing poses already above the minimum keep their original height.");
+                          + $"tracked head Y {headLocal.y:F2} m, one-shot clearance adjustment {adjustmentMeters:F2} m. "
+                          + "Standing poses within the entry clearance range keep their original height.");
 
         // THE FALSIFIER FOR THE ORIENTATION. The head's forward, flattened and read back off the
         // camera AFTER the write, against the seat's own forward (which by construction points from

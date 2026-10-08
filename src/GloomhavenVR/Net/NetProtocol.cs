@@ -598,7 +598,30 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 645;
+    public const ushort ModBuild = 646;
+
+    // ModBuild646 — paired645 town presentation and map-entry review.
+    // A complete newer native original supersedes older cumulative deltas from
+    // the exact same source, while genuinely newer named-baseline dependencies
+    // remain retained. The pre-offer13 -> current35 visible/66 prepared native
+    // picture no longer waits for obsolete fragmented artwork. Payload grammar,
+    // event caps, scheduler debt and background fairness remain unchanged.
+    // Retain explicitly current native children before retiring/replacing their
+    // previous holder; validate the replacement first. Actual withdrawn modules
+    // and closed sessions still retire immediately. No stale-card timeout or
+    // observer gameplay callbacks are introduced. Existing native motion stays.
+    // Kind8 exact return clocks survive intervening artwork only for their
+    // validated native lifetime and current session/structure/census. Reuse the
+    // local return curve; fresh regrabs and true withdrawal retain precedence.
+    // Merchant cabinet clones hide duplicate names/icons and center/enlarge
+    // original price, reputation triangle and stock. Source economics and
+    // owner-captured observer geometry remain native and shared.
+    // Map entry/recenter bounds eye clearance to0.70-1.05m above parchment;
+    // elevated tracking origins no longer spawn inside the cellar ceiling.
+    // Ordinary subsequent tracked movement/locomotion is unchanged. Retains645
+    // smooth native ring/hover fixes and644 Frame policy. Scope, actual-source
+    // controls and inherited-vs-focused evidence: .planning/NPC-646-REVIEW.md.
+    // Both VR peers install646; no new wire/property protocol is introduced.
 
     // ModBuild645 — repair the Build643 remote enhancement motion report.
     // Native row roots were recentered by Binding after a newer artwork frame

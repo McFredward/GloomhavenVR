@@ -55,15 +55,20 @@ internal static class MapRoomSeat
     internal const float TableTopHeightMeters = 0.78f;
 
     /// <summary>Minimum entry/recenter eye clearance above the parchment in real metres.
-    /// A seated or eye-origin tracking pose can be below the 0.78 m furniture height;
-    /// preserve taller floor-origin poses while lifting only the rig once to restore
-    /// an overview. This is not applied during locomotion or ordinary head movement.</summary>
+    /// A seated or eye-origin tracking pose can be below the 0.78 m furniture height.
+    /// This is not applied during locomotion or ordinary head movement.</summary>
     internal const float MinimumEyeClearanceMeters = 0.70f;
 
-    /// <summary>One-shot upward rig correction for a measured tracked local head Y.
+    /// <summary>Maximum entry/recenter eye clearance above the parchment in real metres.
+    /// Elevated tracking origins must not spawn visitors inside the cellar ceiling.</summary>
+    internal const float MaximumEyeClearanceMeters = 1.05f;
+
+    /// <summary>One-shot signed rig correction for a measured tracked local head Y.
     /// The furniture, hand tracking and horizontal seat retain their existing geometry.</summary>
-    internal static float EyeClearanceLiftMeters(float trackedEyeHeightMeters, float tableAboveRigFloorMeters) =>
-        Mathf.Max(0f, tableAboveRigFloorMeters + MinimumEyeClearanceMeters - trackedEyeHeightMeters);
+    internal static float EyeClearanceAdjustmentMeters(float trackedEyeHeightMeters, float tableAboveRigFloorMeters) =>
+        Mathf.Clamp(trackedEyeHeightMeters - tableAboveRigFloorMeters,
+            MinimumEyeClearanceMeters, MaximumEyeClearanceMeters)
+        - (trackedEyeHeightMeters - tableAboveRigFloorMeters);
 
     /// <summary>
     /// Standing clearance between the map's own EDGE and the player, real metres — the same

@@ -28,7 +28,7 @@ def replace_once(source, before, after):
 
 def sources(root):
     base = root / "src/GloomhavenVR/WorldUI/TownServices"
-    names = ["TownServiceCardFace.cs", "TownServiceCatalog.cs", "TownServiceCatalog.Preparation.cs", "TownServiceCatalogCategory.cs", "TownServiceMerchantRows.cs", "TownServiceMerchantTransaction.cs", "TownServiceMerchantDrawer.cs", "TownServiceCabinetAudio.cs", "TownServiceMerchantCounter.cs", "TownServiceMerchantZone.cs", "TownServiceCatalogPreview.cs", "TownServiceWindowMask.cs", "TownServiceToken.cs", "TownServiceOfferingPose.cs"]
+    names = ["TownServiceCardFace.cs", "TownServiceMerchantCaption.cs", "TownServiceCatalog.cs", "TownServiceCatalog.Preparation.cs", "TownServiceCatalogCategory.cs", "TownServiceMerchantRows.cs", "TownServiceMerchantTransaction.cs", "TownServiceMerchantDrawer.cs", "TownServiceCabinetAudio.cs", "TownServiceMerchantCounter.cs", "TownServiceMerchantZone.cs", "TownServiceCatalogPreview.cs", "TownServiceWindowMask.cs", "TownServiceToken.cs", "TownServiceOfferingPose.cs"]
     bound = {name: (base / name).read_text() for name in names}
     bound["TownRackState.cs"] = (root / "src/GloomhavenVR/Net/TownServices/TownRackState.cs").read_text()
     bound["TownCatalogLayout.cs"] = (root / "src/GloomhavenVR/Net/TownServices/TownCatalogLayout.cs").read_text()
