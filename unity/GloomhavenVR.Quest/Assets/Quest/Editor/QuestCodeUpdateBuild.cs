@@ -69,6 +69,13 @@ namespace GloomhavenVR.Quest.Editor
             PlayerSettings.Android.bundleVersionCode = input.versionCode;
             PlayerSettings.Android.useCustomKeystore = false;
             PlayerSettings.SetScriptingDefineSymbolsForGroup(BuildTargetGroup.Android, "GHVR_QUEST_STARTUP;GHVR_QUEST_GAME");
+            // Match the original player's legacy and Input System APIs before
+            // either SDK compilation or native AOT compilation strips code.
+            var settings = new SerializedObject(Unsupported.GetSerializedAssetInterfaceSingleton("PlayerSettings"));
+            var inputHandler = settings.FindProperty("activeInputHandler");
+            if (inputHandler == null) throw new InvalidDataException("Code update could not configure the original input backends.");
+            inputHandler.intValue = 2;
+            settings.ApplyModifiedPropertiesWithoutUndo();
             return input;
         }
 
