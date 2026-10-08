@@ -7,6 +7,18 @@ receipt under `.planning/debug/npc645/inputs/receipt.json` binds the paired logs
 and supplied `pristerin_menu.mp4` to base
 `29d4b6dd85e6ce3b3d19b531bde79d2fcc44e587`.
 
+The maintainer's explicit2026-10-08 follow-up permits different intrinsic
+ring-spin phases between viewers, provided the ring keeps the same native
+direction/speed and remains smooth. Its facing/yaw must still follow the
+offered card exactly. This narrow phase exception does not cover card, row,
+overlay, effect-state, facing or transaction UI differences.
+The same explicit follow-up permits different timing phases for the intrinsic
+up/down float of offered merchant/enchantress cards, while preserving native
+amplitude, waveform and speed. It does not permit arbitrary position offsets,
+different card-facing/content, displaced overlays or unsynchronized flights.
+This report introduces no separate bob-motion repair merely because that
+narrow phase exception is now available.
+
 The video shows enhancement rows changing their relative vertical positions;
 the Wound row overlaps the Confusion row while the surrounding panel remains
 continuous. This is separate from the intended native hover tint/scale. A local
@@ -49,6 +61,14 @@ positions must not become new owner targets when a subsequent parent rect
 write changes that derived reference. A parent-first pass alone would hide
 this example without fixing the incorrect coordinate contract.
 
+For example, a top-anchored child with anchoredY0 has localY50 inside a100px
+parent and localY80 inside a160px parent. During an unfinished parent tween,
+restoring cached localY80 first can assign a nonzero anchoredY; restoring the
+parent afterwards then moves the child again. An unchanged native child
+property is correctly skipped by Binding, so the displaced derived local
+position can be retained as a new motion target. In anchored coordinates,
+the unchanged native intent remains0 throughout both parent writes.
+
 `TownServiceMotion` originally uses one sample/start clock for all properties
 of a node. A simultaneous scale/color/layout sample can overwrite the clock
 used to interpolate that node's sparse ring rotation. Its pure-spin test is
@@ -63,6 +83,16 @@ rotation. Detached native Aura partitions can therefore have their final pose
 written by this path. A passing isolated `TownServiceMotion` test is insufficient
 unless the actual partition/capture/apply path proves that the final writer
 retains the same continuous owner rotation and exact print relation.
+
+There are also two legitimate components of the native visible ring phase.
+`TownServiceNativeEnhancementCardMask.AlignNativeEffects` compensates stretched
+or sheared parents by fitting Aura's principal axes and transferring the
+remaining `nativeAngle - angle` into each original Graphic child's local
+rotation. The native Aura root's offered registration and its Highlight child's
+residual rotation must therefore be reviewed together. Assuming that kind9
+always contains the entire visible ring phase would be another proof mismatch.
+The old639 continuous fixture directly rotated the Highlight child, rather
+than running the game's actual Aura animation and this compensation.
 
 ## Required bounded replacement evidence
 
