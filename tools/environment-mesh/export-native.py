@@ -6,10 +6,12 @@ import hashlib
 import json
 import re
 import struct
+import sys
 from pathlib import Path
 
 import UnityPy
 from UnityPy.helpers.MeshHelper import MeshHandler
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from roles import classify, family_candidate
 
 

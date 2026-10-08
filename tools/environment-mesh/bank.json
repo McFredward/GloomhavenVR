@@ -14,7 +14,7 @@
     "unity/GloomhavenVR.Assets/Assets/Bundle/Environments/WorldSimpleMaterial.shader": "969d7f841e4188c28fe68887fcb23911b9fc825e7a0dec89ca2a15984d22fafe",
     "unity/GloomhavenVR.Assets/Assets/Bundle/EnvironmentMeshes/index.json": "3d16d25549ed6cc6c9cb3c4adc9a41f660b70af288527838d8c40acbb93e0205",
     "scripts/generate-environment-meshes.py": "ad87e603e4da41941fb618c843159eb9522fc2eab2074f5a7b7d2577f300ee71",
-    "tools/environment-mesh/export-native.py": "678dbfc01fa16e1623f38bfebf2b8846a83b8736f2c5dbb6eb2b019d8835951e",
+    "tools/environment-mesh/export-native.py": "f6b81a10dd08efa088ceeda5d069c1da7ecddede084968b8717ed621817dd2b3",
     "tools/environment-mesh/geometry.py": "21a28083554aae4c74bff7d00d0b5f6bdf2908b2158df40fa8c5e84a92f491df",
     "tools/environment-mesh/roles.py": "f0945537d2f46a033d7453a682213a586f30f3ea35a976e343a641ffbe7a2e37",
     "tools/environment-mesh/catalog.json.gz": "693e3b3f4e1d37bfa9f1c9c9757473c67633c83da5e8c77570df115ff2e5e7fd",
