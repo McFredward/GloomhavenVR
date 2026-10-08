@@ -70,6 +70,17 @@ command-buffer consumers. Room-floor, legacy-floor and structural groups have
 distinct ownership keys even when they share materials and spatial cells.
 Original material arrays never acquire a group-wide never-fade state.
 
+The final board-motion review reproduced another loss of floor grouping: private
+Core-host chunks used fixed world-relative coordinates and relinquished every
+floor lease after a Tile translation. Floor meshes now use Tile-local coordinates;
+only the private chunk follows current positive uniform Tile/scenario/host poses.
+Every source's independent local-chain matrix remains checked. The mesh object
+stays unchanged, cloning roots remain native-only, and unsupported ancestry or
+late source writes still restore originals before culling. This is a universal
+correctness repair within the optional grouping, with no additional visual dial.
+Source-bound runtime and pixel evidence is in
+[the floor-motion note](../docs/performance/FRAME-647-FLOOR-MOTION.md).
+
 The world material owner audits complete current shader/effect state. Wider floor
 admission can use all supported game/DLC shader families without the obsolete
 cheap-shader-only gate. Actual native renderer-wide/indexed property blocks are
@@ -104,9 +115,70 @@ Standalone defaults enable the stronger room choices in the same binary.
 
 ## Verification ledger
 
-Final integrated results and exact compiled scope are appended after the full
-local gate. Focused worker and initial integration receipts are retained with
-their source hashes; they are not substituted for that gate.
+The complete local catalog ran all177 entries on frozen integrated8bf477053;
+174 passed and three failed. The failed receipts remain evidence, rather than a
+claimed green177 invocation. The offered-orientation control had an obsolete
+pre646 source anchor; its correction removes only the offered-print exemption
+and preserves646's independent live-return exemption. The full affected suite
+passes production and all nine causal controls. Five new settings also lacked
+the separate compact bilingual player-help table, despite having names and full
+descriptions; the corrected lookup passes2,296 assertions and all content/lookup
+controls. The NPC639 in-flight replacement exceeded its unchanged1s wall-clock
+deadline under four-way concurrent execution; its isolated result is recorded
+below. No runtime NPC code or latency requirement is changed for that retry.
+
+The late bounded board-pose repair is validated through the entire affected
+environment suite after integration. Passing unchanged areas inherit the
+completed catalog's exact-source evidence, as permitted by the maintainer's
+2026-10-06 bounded-repair clarification. The final ledger distinguishes this
+complete coverage with focused repeats from a fresh single green full invocation.
+
+Final coverage on the bounded repaired source a67963fbe:
+
+| Evidence | Result and exact scope |
+| --- | --- |
+| Frozen complete catalog |177/177 recorded,174 passes and three preserved failures; `.planning/debug/test-runs/20261008-222654-075ea6cf/results.json` |
+| Final affected environment |36,880 production assertions and103 causal variants,104 total; `frame647-environment-board-final/run-bbflmdtm` |
+| Offered orientation after binding repair |Production and all nine negative controls; floor-motion worktree `frame647-offered-binding/run-3mu_kvrp` |
+| NPC639 in-flight replacement |Isolated unchanged1s deadline passes; `frame647-npc639-isolated/results.json`, rendered proof `npc639/proof/run-cpgczxad`; failed four-way receipt retained |
+| Bilingual player help |2,296 production lookups,667 bound keys and all content/lookup controls; floor-motion worktree `frame647-player-help/run-n5azro9b` |
+| Final source gates |16/16 complete passes,17.6s; `test-runs/20261008-225954-7c2d6e96/results.json` |
+| Wire vectors and runner checks |299,714 assertions pass; runner unittest suite passes; no packet grammar/version change |
+| Original/DLC terrain |882 production assertions,103 total production/causal variants; inherited unchanged terrain result from complete catalog |
+| World material ownership |746 production assertions,64 total variants plus actual shader suite; inherited unchanged complete-catalog results |
+| Whole-source asset catalog |129 bundles,8,864 occurrences,1,434 exact originals,169 floor derivatives and four destructive controls; complete catalog passes with morph checks |
+| Surface census |658 to663 keys, exactly the five choices;232 Harmony registrations and4,790 log tokens retained; zero removals |
+| Bundle formats and docs |All committed bundles retain Unity2021.3.5f1 format7; rebuilt environment70,999,748 bytes; five EN/DE player-doc pairs pass |
+
+The private guard continuation runs source16, fresh wire-project compilation and
+golden vectors, runner checks, bundle formats, surface comparison and the normal
+Release snapshot. Only the already completed local-catalog invocation and ROOT
+resolution differ from the original script; both scripts/hashes and logs are
+archived. It is not presented as a second complete177 run. Its final exit1 is the
+normal compiled-difference verdict: zero moved types,20 changed and one addition.
+All20 changed types were reviewed against the private original646 snapshot:
+12 intended configuration/rendering types and eight consumers differing only at
+standalone646-to647 build literals. The only added type is
+`ScenarioArchitecturalDetailBudget`. Type count1,238 becomes1,239. No NPC runtime
+or wire implementation changes occur outside those literal build checks.
+
+Worker evidence is already copied and independently reverified in the main
+checkout's gitignored `.planning/debug/frame647/workers/`:
+
+| Archive | Bytes | SHA256 |
+| --- | ---: | --- |
+| `assets.tar.gz` |113,537,286 |`c60807cc10e566e5b73fe8a3cf15cb6636dec6cecdbf5338f17180697c40acd6` |
+| `terrain.tar.gz` |61,439,766 |`4079a9f9552ca1efe0f4883bd4986feb831d42dd42fab969d24329bf1d26bdf1` |
+| `scenery.tar.gz` |5,570,887 |`9a0621f38936c535f464b5a010173bd6e6bce1ccff6232dfe06e1990419a5fca` |
+
+The three archives retain182,6,788 and252 verified payloads respectively. The
+primary's remaining complete/focused receipts, failed attempts, actual compiled
+assemblies and both646/final snapshots are retained in `frame647/root.tar.gz`
+with deduplicated SHA-addressed payloads and `root-verification.json`. Archive
+verification precedes removal of the five owned647 worktrees. Read-only game
+inputs, shared baselines, unrelated agent worktrees and supplied hardware logs
+are outside cleanup scope. Final strict main-checkout Debug/Release build and
+push receipts accompany the main handoff.
 
 Independent controls have already caught real implementation/fixture defects:
 an early floor test inspected restored post-render state instead of the camera
