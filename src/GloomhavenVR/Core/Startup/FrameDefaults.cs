@@ -65,6 +65,10 @@ internal static class FrameDefaults
     internal const int ScenarioEnvironmentEffectsDensityPercent = 0;
 
     // 2026-10-05: one shared binary; new reversible controls seed only fresh entries.
+    // Build644 keeps geometry substitution enabled until a controlled hardware A/B prices
+    // its preparation versus native drawing. Hidden attachment writes have no visible output.
+    internal const bool ScenarioTerrainSubstitution = true;
+    internal const bool SkipHiddenWallAttachmentWrites = true;
     internal const bool ScenarioEnvironmentMeshBank = true;
     internal const bool ScenarioExplicitEnvironmentInstancing = true;
     internal const bool ScenarioCheapWallShading = true;

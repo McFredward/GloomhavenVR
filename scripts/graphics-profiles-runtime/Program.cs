@@ -36,6 +36,10 @@ internal static class Program
             Check(PerfConfig.ScenarioEnvironmentMeshBank.Value==(i<3), "mesh-copy option is a shared standalone/performance control");
             Check(PerfConfig.ScenarioExplicitEnvironmentInstancing.Value==(i<3), "explicit draw option is independent and disabled in original quality");
             Check(PerfConfig.ScenarioCheapWallShading.Value==(i<2), "wall shading compromise is explicit for low profiles");
+            Check(PerfConfig.ScenarioTerrainSubstitution.Value,
+                "explicit profiles restore the prepared-terrain path before later individual comparisons");
+            Check(PerfConfig.SkipHiddenWallAttachmentWrites.Value==(i<2),
+                "low profiles select hidden attachment work removal; higher profiles preserve the comparison path");
             Check(PerfConfig.WorldMaterialQualityModeCount.Value==(i==0?2:0),
                 "standalone requests radical audited world shading while ordinary PC profiles keep native materials");
             Check(PerfConfig.WorldMaterialAmbientPercent.Value==100,
@@ -73,6 +77,13 @@ internal static class Program
             "material shading stage remains independently adjustable after Standalone");
         Check(PerfConfig.WorldMaterialAmbientPercent.Value==40,
             "ambient weight remains independently adjustable after an explicit profile");
+        PerfConfig.ScenarioTerrainSubstitution.Value=false;
+        PerfConfig.SkipHiddenWallAttachmentWrites.Value=false;
+        PerfConfig.Bind();
+        Check(!PerfConfig.ScenarioTerrainSubstitution.Value && !PerfConfig.SkipHiddenWallAttachmentWrites.Value,
+            "later terrain and hidden-write comparisons survive ordinary rebinding without selecting another preset");
+        Check(PerfConfig.ScenarioTerrainDetailPercent.Value==0 && PerfConfig.WorldMaterialQualityModeCount.Value==1,
+            "turning off terrain substitutes retains saved detail and independent world-material choices");
         PerfConfig.ScenarioCheapWallShading.Value=false;
         PerfConfig.ScenarioExplicitEnvironmentInstancing.Value=false;
         PerfConfig.ScenarioTerrainDetailPercent.Value=75;

@@ -10,6 +10,8 @@ internal static partial class PerfConfig
     internal static ConfigEntry<bool> ScenarioEnvironmentMeshBank = null!;
     internal static ConfigEntry<bool> ScenarioExplicitEnvironmentInstancing = null!;
     internal static ConfigEntry<bool> ScenarioCheapWallShading = null!;
+    internal static ConfigEntry<bool> ScenarioTerrainSubstitution = null!;
+    internal static ConfigEntry<bool> SkipHiddenWallAttachmentWrites = null!;
     internal static ConfigEntry<int> WorldMaterialQualityModeCount = null!;
     internal static ConfigEntry<int> WorldMaterialAmbientPercent = null!;
     internal static ConfigEntry<int> ScenarioTerrainDetailPercent = null!;
@@ -22,6 +24,8 @@ internal static partial class PerfConfig
     internal static bool EnvironmentMeshBankOn => ScenarioEnvironmentMeshBank?.Value ?? Defaults.ScenarioEnvironmentMeshBank;
     internal static bool EnvironmentDrawInstancingOn => ScenarioExplicitEnvironmentInstancing?.Value ?? Defaults.ScenarioExplicitEnvironmentInstancing;
     internal static bool CheapWallShadingOn => ScenarioCheapWallShading?.Value ?? Defaults.ScenarioCheapWallShading;
+    internal static bool TerrainSubstitutionOn => ScenarioTerrainSubstitution?.Value ?? Defaults.ScenarioTerrainSubstitution;
+    internal static bool SkipHiddenWallAttachmentWritesOn => SkipHiddenWallAttachmentWrites?.Value ?? Defaults.SkipHiddenWallAttachmentWrites;
     internal static int WorldMaterialQualityMode => Mathf.Clamp(WorldMaterialQualityModeCount?.Value ?? Defaults.WorldMaterialQualityModeCount, 0, 2);
     internal static float WorldMaterialAmbientWeight => Mathf.Clamp(WorldMaterialAmbientPercent?.Value ?? Defaults.WorldMaterialAmbientPercent, 0, 100) * .01f;
     internal static int TerrainDetailPercent => Mathf.Clamp(ScenarioTerrainDetailPercent?.Value ?? Defaults.ScenarioTerrainDetailPercent, 0, 100);
@@ -33,6 +37,12 @@ internal static partial class PerfConfig
 
     private static void BindFrameRendering(ConfigFile file)
     {
+        ScenarioTerrainSubstitution = file.Bind("Optimize", "ScenarioTerrainSubstitution",
+            FrameDefaults.Active ? FrameDefaults.ScenarioTerrainSubstitution : Defaults.ScenarioTerrainSubstitution,
+            "Use prepared 3D substitutes for eligible walls and pillars. Off restores original geometry and stops substitute preparation, while the independent world-material mode still applies. This trades lower CPU preparation for potentially more GPU geometry work; compare in the same loaded view. Detail percentages and simpler-wall choices are retained for On. Works live on every platform; no room is hidden.");
+        SkipHiddenWallAttachmentWrites = file.Bind("Optimize", "SkipHiddenWallAttachmentWrites",
+            FrameDefaults.Active ? FrameDefaults.SkipHiddenWallAttachmentWrites : Defaults.SkipHiddenWallAttachmentWrites,
+            "Avoid redundant material and particle-color writes to fully faded wall attachments already hidden by the wall-fade owner. Visible fades and returning attachments update immediately; floors, held objects and native callbacks retain their existing behavior. Off repeats the original writes for comparison. Works live; fresh Frame/Standalone On, PC Off.");
         ScenarioEnvironmentMeshBank = file.Bind("Optimize", "ScenarioEnvironmentMeshBank",
             FrameDefaults.Active ? FrameDefaults.ScenarioEnvironmentMeshBank : Defaults.ScenarioEnvironmentMeshBank,
             "Use private verified original environment meshes for render chunks when native meshes are unreadable. Source meshes, colliders and native objects remain unchanged. Works live on PC and Frame.");

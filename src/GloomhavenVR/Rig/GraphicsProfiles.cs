@@ -64,6 +64,8 @@ internal static class GraphicsProfiles
             Set(PerfConfig.ScenarioStructuralBatching, standalone ? FrameDefaults.ScenarioStructuralBatching : index < 3);
             Set(PerfConfig.ScenarioStructuralInstancing, FrameDefaults.ScenarioStructuralInstancing);
             // One-time presets only: every new control remains independently editable.
+            Set(PerfConfig.ScenarioTerrainSubstitution, standalone ? FrameDefaults.ScenarioTerrainSubstitution : Defaults.ScenarioTerrainSubstitution);
+            Set(PerfConfig.SkipHiddenWallAttachmentWrites, standalone ? FrameDefaults.SkipHiddenWallAttachmentWrites : low);
             Set(PerfConfig.ScenarioEnvironmentMeshBank, standalone ? FrameDefaults.ScenarioEnvironmentMeshBank : index < 3);
             Set(PerfConfig.ScenarioExplicitEnvironmentInstancing, standalone ? FrameDefaults.ScenarioExplicitEnvironmentInstancing : index < 3);
             Set(PerfConfig.ScenarioCheapWallShading, standalone ? FrameDefaults.ScenarioCheapWallShading : low);

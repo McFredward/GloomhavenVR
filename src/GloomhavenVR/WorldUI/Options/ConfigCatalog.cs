@@ -919,6 +919,8 @@ internal static class ConfigCatalog
                                      || key == "ScenarioEnvironmentMeshBank"
                                      || key == "ScenarioExplicitEnvironmentInstancing"
                                      || key == "ScenarioCheapWallShading"
+                                     || key == "ScenarioTerrainSubstitution"
+                                     || key == "SkipHiddenWallAttachmentWrites"
                                      || key == "WorldMaterialQualityModeCount"
                                      || key == "WorldMaterialAmbientPercent"
                                      || key == "ScenarioTerrainDetailPercent"

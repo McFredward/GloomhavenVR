@@ -2,6 +2,8 @@ namespace GloomhavenVR;
 
 internal static partial class Defaults
 {
+    internal const bool ScenarioTerrainSubstitution = true; // => [Optimize] ScenarioTerrainSubstitution
+    internal const bool SkipHiddenWallAttachmentWrites = false; // => [Optimize] SkipHiddenWallAttachmentWrites
     internal const bool ScenarioEnvironmentMeshBank = false; // => [Optimize] ScenarioEnvironmentMeshBank
     internal const bool ScenarioExplicitEnvironmentInstancing = false; // => [Optimize] ScenarioExplicitEnvironmentInstancing
     internal const bool ScenarioCheapWallShading = false; // => [Optimize] ScenarioCheapWallShading
