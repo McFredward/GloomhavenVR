@@ -405,6 +405,7 @@ internal static class ScenarioEnvironmentBudget
         internal Material Material = null!;
         internal bool RoomFloor;
         internal Material? NativeMaterial;
+        internal Transform? RoomTile;
         internal long NativeFloorTriangles, SubmittedFloorTriangles;
         internal readonly List<Surface> Sources = new();
         internal readonly List<Matrix4x4> Matrices = new();
@@ -430,13 +431,77 @@ internal static class ScenarioEnvironmentBudget
             return false;
         }
 
+        internal static bool TryTileMatrix(Surface source, Transform? tile, out Matrix4x4 matrix)
+        {
+            // Compare the current native local chain rather than cancelling two
+            // large world matrices: common board motion must not introduce inverse
+            // rounding differences or conceal an independently moved floor source.
+            matrix = Matrix4x4.identity;
+            Transform? node = source.Renderer != null ? source.Renderer.transform : null;
+            while (node != tile)
+            {
+                if (node == null || tile == null) return false;
+                matrix = Matrix4x4.TRS(node.localPosition, node.localRotation, node.localScale) * matrix;
+                node = node.parent;
+            }
+            return node != null;
+        }
+
+        private static bool UniformFrame(Transform? node, out float scale)
+        {
+            scale = 0f;
+            if (node == null) return false;
+            for (Transform? current = node; current != null; current = current.parent)
+            {
+                Vector3 local = current.localScale;
+                float tolerance = 1e-5f * Mathf.Max(local.x, Mathf.Max(local.y, local.z));
+                if (!(local.x > 0f && local.y > 0f && local.z > 0f)
+                    || Mathf.Abs(local.x - local.y) > tolerance || Mathf.Abs(local.x - local.z) > tolerance) return false;
+            }
+            Matrix4x4 world = node.localToWorldMatrix;
+            for (int i = 0; i < 16; i++) if (float.IsNaN(world[i]) || float.IsInfinity(world[i])) return false;
+            Vector3 x = world.GetColumn(0), y = world.GetColumn(1), z = world.GetColumn(2);
+            scale = x.magnitude;
+            if (!(scale > 0f) || float.IsInfinity(scale)) return false;
+            float epsilon = 1e-5f * scale;
+            return Mathf.Abs(y.magnitude - scale) <= epsilon && Mathf.Abs(z.magnitude - scale) <= epsilon
+                && Mathf.Abs(Vector3.Dot(x, y)) <= epsilon * scale
+                && Mathf.Abs(Vector3.Dot(x, z)) <= epsilon * scale
+                && Mathf.Abs(Vector3.Dot(y, z)) <= epsilon * scale && world.determinant > 0f;
+        }
+
+        internal bool FollowRoomTile()
+        {
+            if (!RoomFloor) return true;
+            Transform? parent = Object != null ? Object.transform.parent : null;
+            if (!UniformFrame(RoomTile, out float tileScale) || !UniformFrame(parent, out float parentScale)) return false;
+            Transform chunk = Object!.transform;
+            Vector3 position = parent!.InverseTransformPoint(RoomTile!.position);
+            Quaternion rotation = Quaternion.Inverse(parent.rotation) * RoomTile.rotation;
+            Vector3 scale = Vector3.one * (tileScale / parentScale);
+            // The private chunk stays outside native clone roots. A grabbed,
+            // recentered or uniformly scaled board only changes its private pose;
+            // native transforms and the prepared combined mesh remain untouched.
+            if (chunk.localPosition != position) chunk.localPosition = position;
+            if (chunk.localRotation != rotation) chunk.localRotation = rotation;
+            if (chunk.localScale != scale) chunk.localScale = scale;
+            return true;
+        }
+
+        internal void FinishRoomPose()
+        {
+            // A later pre-cull listener can move the whole board without a native
+            // renderer setter. Follow it before culling, or return its originals.
+            if (_owned && RoomFloor && !FollowRoomTile()) Unmask();
+        }
+
         internal void Validate()
         {
             LightingRefused = false;
             bool valid = Object != null && Material != null;
             if (valid && RoomFloor)
             {
-                valid = NativeMaterial != null && TryRoomFloorMaterial(NativeMaterial, out Material currentDraw)
+                valid = FollowRoomTile() && NativeMaterial != null && TryRoomFloorMaterial(NativeMaterial, out Material currentDraw)
                     && currentDraw == Material;
             }
             Matrix4x4 inverse = Object != null ? Object.transform.worldToLocalMatrix : Matrix4x4.identity;
@@ -452,7 +517,8 @@ internal static class ScenarioEnvironmentBudget
                     && _materialScratch[0] == (RoomFloor ? NativeMaterial : Material)
                     && Renderer != null && SameRenderFlags(r, Renderer)
                     && Object != null && r.gameObject.layer == Object.layer
-                    && inverse * r.transform.localToWorldMatrix == Matrices[i];
+                    && (RoomFloor ? TryTileMatrix(source, RoomTile, out Matrix4x4 tileMatrix) && tileMatrix == Matrices[i]
+                        : inverse * r.transform.localToWorldMatrix == Matrices[i]);
                 if (valid && source.RoomFloor)
                     valid = RoomFloorGroupsEnabled && TryRoomFloorMesh(r!, out Mesh currentFloor)
                         && currentFloor == source.ReadableMesh;
@@ -1345,7 +1411,8 @@ internal static class ScenarioEnvironmentBudget
             Material nativeMaterial = first.Renderer.sharedMaterial;
             Material drawMaterial = nativeMaterial;
             if (first.RoomFloor && !TryRoomFloorMaterial(nativeMaterial, out drawMaterial)) return;
-            var batch = new Batch { Material = drawMaterial, NativeMaterial = nativeMaterial, RoomFloor = first.RoomFloor };
+            var batch = new Batch { Material = drawMaterial, NativeMaterial = nativeMaterial, RoomFloor = first.RoomFloor,
+                RoomTile = first.RoomFloor ? first.Tile.transform : null };
             var child = new GameObject("GloomhavenVR.StaticScenarioChunk");
             child.layer = first.Renderer.gameObject.layer;
             // Broader floor substitutes live outside every native content cloning root.
@@ -1354,11 +1421,17 @@ internal static class ScenarioEnvironmentBudget
             batch.Object = child;
             try
             {
+                if (!batch.FollowRoomTile()) { batch.Dispose(); return; }
                 var combines = new CombineInstance[members.Count];
                 for (int i = 0; i < members.Count; i++)
                 {
                     Surface surface = members[i];
-                    Matrix4x4 matrix = child.transform.worldToLocalMatrix * surface.Renderer.transform.localToWorldMatrix;
+                    Matrix4x4 matrix;
+                    if (first.RoomFloor)
+                    {
+                        if (!Batch.TryTileMatrix(surface, batch.RoomTile, out matrix)) { batch.Dispose(); return; }
+                    }
+                    else matrix = child.transform.worldToLocalMatrix * surface.Renderer.transform.localToWorldMatrix;
                     combines[i] = new CombineInstance { mesh = surface.ReadableMesh, subMeshIndex = 0, transform = matrix };
                     batch.Sources.Add(surface); batch.Matrices.Add(matrix);
                 }
@@ -1475,6 +1548,7 @@ internal static class ScenarioEnvironmentBudget
             bool foreign = camera.commandBufferCount > 0 && HasNativeCommandBufferConsumers(camera);
             bool changedPath = _cameraDepthModes[last] != camera.depthTextureMode || _cameraPaths[last] != camera.renderingPath;
             bool changedLighting = _cameraProbeSources[last] != probes || _cameraProbeCounts[last] != (probes != null ? probes.count : 0);
+            foreach (Batch batch in _batches) batch.FinishRoomPose();
             foreach (Batch batch in _batches) if (batch.HasLateLightingWrite()) { changedLighting = true; break; }
             if (!foreign && !changedPath && !changedLighting) return;
             if (foreign && !_cameraHadForeignCommands[last]) PerfMonitor.Count("Environment.NativeBufferFallback");

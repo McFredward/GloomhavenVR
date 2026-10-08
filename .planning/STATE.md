@@ -67,6 +67,36 @@ and832 existing Weaver assertions. Windows end-to-end builds and updated
 headset behavior remain unverified.
 See [APK update workflow and proof limits](QUEST-APK-UPDATES-20261008.md).
 
+**Build647 broader simplified 3D rooms, 2026-10-08: 1.1.0 development candidate.**
+
+Proposal2 extends verified floor/wall/pillar presentation across all129 native
+PCG bundles, including DLCs. The1,434-original catalog retains ambiguous or
+unsafe sources. Strongest505 structural derivatives reduce510,018 to60,903
+triangles (88.1%); all133 floor families including exact fallbacks reduce53,962
+to44,174 (18.1%). These are asset counts, not scenario totals or measured FPS.
+
+Five independent live controls cover the room master, floor detail, architecture
+decoration, private floor grouping and its separate per-eye source budget. Fresh
+Frame/Standalone defaults select stronger compromises in the same PC binary;
+saved choices win and PC defaults retain full room quality. Universal current-pass
+read sharing and unused settled-floor buffer release add no options.
+
+Private settled-floor groups stay outside native cloning roots and follow board
+translation/rotation/positive uniform scale without rebuilding their mesh.
+Individual source edits, native effects/consumers and unsafe poses restore
+originals. Five exact floor supports keep never-fade behavior; shelves and other
+structures retain continuous native fades. Native LODGroup selection, colliders,
+meshes, room visibility, doors, actors, gameplay and wire layout remain native.
+
+The validation ledger separates the complete177-suite catalog from subsequent
+bounded repair/repeat evidence and records failed attempts, actual Unity pixels,
+original game/DLC inputs, compiled scope and archived receipts. It retains646's
+NPC/map repairs. No647 headset capture exists; both VR peers install the complete
+647 package, including the rebuilt environment bank, for the next fully loaded
+closed-options multi-room comparison. See [FRAME-647-REVIEW.md](FRAME-647-REVIEW.md).
+
+---
+
 **Build646 paired NPC and map-entry follow-up, 2026-10-08: 1.1.0 development candidate.**
 
 Both supplied peers ran645. Obsolete cumulative artwork prevented replacement

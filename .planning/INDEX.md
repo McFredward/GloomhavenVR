@@ -1,7 +1,8 @@
 # Planning index
 
-Updated 2026-10-08 for Build646: paired NPC picture admission/continuity, native
-returns, readable merchant captions and bounded map entry retain645/Frame644.
+Updated 2026-10-08 for Build647: verified whole-game/DLC floor and structural
+simplification, independently configurable room quality and board-following private
+floor groups retain646 NPC/map repairs.
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
 status; it is not the player manual.
@@ -16,6 +17,11 @@ status; it is not the player manual.
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
 | [QUEST-BUILD-REUSE-20261008.md](QUEST-BUILD-REUSE-20261008.md) | Original-source/output roles, retained14-phase staging and preparation, persistent change-time witnesses and bounded speed evidence |
 | [QUEST-BUILD-NATIVE-BYTES-20261008.md](QUEST-BUILD-NATIVE-BYTES-20261008.md) | Exact Windows native overlays, retained642 staging, measured native progress and dev643 Builder |
+| [FRAME-647-REVIEW.md](FRAME-647-REVIEW.md) | Whole-game/DLC room simplification, final validation scope, archives and headset limits |
+| [../docs/performance/FRAME-647-ROOM-ARCHITECTURE.md](../docs/performance/FRAME-647-ROOM-ARCHITECTURE.md) | Five independent choices, native ownership and universal work removal |
+| [../docs/performance/FRAME-647-ASSET-CATALOG.md](../docs/performance/FRAME-647-ASSET-CATALOG.md) | Full original bundle census, certified geometry tiers, bank decoder and proof limits |
+| [../docs/performance/FRAME-647-TERRAIN-COVERAGE.md](../docs/performance/FRAME-647-TERRAIN-COVERAGE.md) | Actual native floor/structure coverage, independent budgets, support roles and shelf fades |
+| [../docs/performance/FRAME-647-FLOOR-MOTION.md](../docs/performance/FRAME-647-FLOOR-MOTION.md) | Reproduced board-pose lease loss, private Tile following and source-bound pixel controls |
 | [NPC-646-REVIEW.md](NPC-646-REVIEW.md) | Paired645 causes, bounded combined validation, 1:1 review and inherited evidence |
 | [NPC-646-ADMISSION.md](NPC-646-ADMISSION.md) | Actual pre-offer full/delta debt, complete native render deadline and retained-child continuity |
 | [NPC-646-FLIGHTS.md](NPC-646-FLIGHTS.md) | Native per-render returns through newer artwork, regrab/withdrawal and exact old-source control |
