@@ -5,12 +5,55 @@ Native bundles are read-only. Vertex clustering fixes every original open bounda
 retains all native attribute slots/indices and removes collapsed triangles. It runs
 only offline, never in the mod or on a game source object.
 """
-import argparse, collections, gzip, hashlib, json, math, subprocess, sys
+import argparse, collections, hashlib, json, math, struct, subprocess, sys
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / 'tools/environment-mesh'))
-from geometry import parse, simplify, footprint
-from roles import architectural_ornament
+
+def parse(data):
+    off=5; length=struct.unpack_from('<i',data,off)[0];off+=4+length+24
+    count,width=struct.unpack_from('<ii',data,off);off+=8;position=off
+    vertices=[struct.unpack_from('<fff',data,off+12*i) for i in range(count)];off+=count*width*4
+    for _ in range(11):
+        n,w=struct.unpack_from('<ii',data,off);off+=8+n*w*4
+    prefix=off;subs=struct.unpack_from('<i',data,off)[0];off+=4;triangles=[]
+    for _ in range(subs):
+        n=struct.unpack_from('<i',data,off)[0];off+=4
+        indices=struct.unpack_from('<'+'i'*n,data,off);off+=4*n;triangles.append(list(zip(indices[::3],indices[1::3],indices[2::3])))
+    assert off==len(data)
+    return vertices,triangles,position,prefix
+
+def simplify(data,tier):
+    vertices,subs,position,prefix=parse(data)
+    # Canonical positions join native UV/normal-split indices for boundary detection;
+    # those actual split indices and their original channels still remain in the stream.
+    edges=collections.Counter()
+    for triangles in subs:
+        for a,b,c in triangles:
+            for i,j in ((a,b),(b,c),(c,a)):
+                va,vb=vertices[i],vertices[j]
+                if va!=vb:edges[tuple(sorted((va,vb)))]+=1
+    boundary={v for edge,count in edges.items() if count==1 for v in edge}
+    lo=[min(v[i] for v in vertices) for i in range(3)];hi=[max(v[i] for v in vertices) for i in range(3)]
+    divisions=12 if tier==50 else 4
+    groups=collections.defaultdict(set)
+    def key(v):return tuple(min(divisions-1,max(0,int((v[i]-lo[i])/(hi[i]-lo[i])*divisions))) if hi[i]>lo[i] else 0 for i in range(3))
+    for v in vertices:
+        if v not in boundary:groups[key(v)].add(v)
+    means={k:tuple(sum(v[i] for v in group)/len(group) for i in range(3)) for k,group in groups.items()}
+    moved=[v if v in boundary else means[key(v)] for v in vertices]
+    out=bytearray(data[:prefix]);
+    for i,v in enumerate(moved):struct.pack_into('<fff',out,position+12*i,*v)
+    out.extend(struct.pack('<i',len(subs)));after=0;before=0
+    for triangles in subs:
+        flat=[];before+=len(triangles)
+        for a,b,c in triangles:
+            va,vb,vc=moved[a],moved[b],moved[c]
+            ab=[vb[i]-va[i] for i in range(3)];ac=[vc[i]-va[i] for i in range(3)]
+            cross=(ab[1]*ac[2]-ab[2]*ac[1],ab[2]*ac[0]-ab[0]*ac[2],ab[0]*ac[1]-ab[1]*ac[0])
+            if sum(x*x for x in cross)>1e-18:flat.extend((a,b,c))
+        after+=len(flat)//3;out.extend(struct.pack('<i',len(flat)));out.extend(struct.pack('<'+'i'*len(flat),*flat))
+    if after==0 or after>=before*.98:return None,None
+    return bytes(out),{'tier':tier,'sourceTriangles':before,'triangles':after,'sourceVertices':len(vertices),'vertices':len(moved),'fixedBoundaryPositions':len(boundary),'sameIndexMorph':True}
 
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--source-root',type=Path,default=ROOT);p.add_argument('--output-dir',type=Path);p.add_argument('--skip-extract',action='store_true');p.add_argument('--only',nargs='*');a=p.parse_args()
@@ -23,37 +66,19 @@ def main():
     if sources.get('format')!=1 or not sources.get('meshes'):
         raise SystemExit('Native environment receipt has no admissible originals; existing prepared assets remain unchanged.')
     target=work/'prepared' if a.only else root/'unity/GloomhavenVR.Assets/Assets/Bundle/EnvironmentMeshes';target.mkdir(parents=True,exist_ok=True)
-    entries=[];receipts=[];current=set(); ornaments=[]; role_counts=collections.Counter()
+    entries=[];receipts=[];current=set()
     for source in sources['meshes']:
         data=(native/source['file']).read_bytes();assert hashlib.sha256(data).hexdigest()==source['sha256']
-        role=source.get('role', 'none')
-        ornament=architectural_ornament(source['signature']['name'],source.get('uses',[]))
-        # Source roles are about retained tile architecture, including vertical
-        # UnderFloor side skirts. A zero horizontal footprint is valid for such
-        # parts; their exact mesh remains available for floor batching, while the
-        # stricter floor derivative certificate declines horizontal simplification.
-        floor_facts={}
-        if role=='floor':
-            vertices,subs,_,_=parse(data)
-            heights,_=footprint(vertices,subs)
-            floor_facts={'footprintGrid':18,'sourceFootprintSamples':sum(math.isfinite(height[1]) for height in heights)}
-        source['floor']=floor_facts
-        role_counts[role]+=1
-        evidence={'role':role,'reasons':source.get('roleReasons',[]),'uses':source.get('uses',[]),'floor':floor_facts}
-        evidence_sha=hashlib.sha256(json.dumps(evidence,sort_keys=True,separators=(',',':')).encode()).hexdigest()
         variants=[]
         for tier in (100,50,0):
             generated=data;receipt=None
             if tier!=100:
-                generated,receipt=simplify(data,tier,role)
+                generated,receipt=simplify(data,tier)
                 if generated is None:continue
             filename=source['key']+'-'+str(tier)+'.bytes';(target/filename).write_bytes(generated);current.add(filename)
             variants.append({'tier':tier,'file':filename,'sha256':hashlib.sha256(generated).hexdigest()})
             if receipt:receipts.append(dict(key=source['key'],name=source['signature']['name'],**receipt))
-        entries.append({'key':source['key'],'signature':source['signature'],'sources':source['sources'],
-            'role':role,'ornament':ornament,'roleEvidenceSha256':evidence_sha,'variants':variants})
-        if ornament:ornaments.append({'key':source['key'],'signature':source['signature'],
-            'sources':source['sources'],'uses':source.get('uses',[]),'collisionPolicy':'retained-core-or-explicit-native-tile-wall-required'})
+        entries.append({'key':source['key'],'signature':source['signature'],'sources':source['sources'],'variants':variants})
     for old in target.glob('*.bytes'):
         if old.name not in current:old.unlink()
     (target/'index.json').write_text(json.dumps({'format':1,'entries':entries},separators=(',',':'))+'\n')
@@ -64,17 +89,8 @@ def main():
         meta.write_text('fileFormatVersion: 2\nguid: '+guid+'\nTextScriptImporter:\n  externalObjects: {}\n  userData:\n  assetBundleName:\n  assetBundleVariant:\n')
     for meta in target.glob('*.meta'):
         if not meta.with_name(meta.name[:-5]).is_file():meta.unlink()
-    catalog={'format':1,'completePcgCensus':sources.get('completePcgCensus',False),
-        'bundles':sources.get('bundles',[]),'meshes':sources.get('catalog',[]),
-        'certified':[{**entry,'roleReasons':source.get('roleReasons',[]),'uses':source.get('uses',[]),'floor':source.get('floor',{})}
-            for entry,source in zip(entries,sources['meshes'])]}
-    report={'format':1,'source':'read-only pcg database MeshFilter originals','unitypy':sources['unitypy'],'originals':len(entries),'variants':sum(len(e['variants']) for e in entries),'ambiguousRejected':sources['ambiguousRejected'],'roles':dict(role_counts),'ornaments':len(ornaments),'completePcgCensus':sources.get('completePcgCensus',False),'sourceBundles':len(sources.get('bundles',[])),'detailReceipts':receipts,'assetBytes':sum((target/f).stat().st_size for f in current)}
+    report={'format':1,'source':'read-only pcg database MeshFilter originals','unitypy':sources['unitypy'],'originals':len(entries),'variants':sum(len(e['variants']) for e in entries),'ambiguousRejected':sources['ambiguousRejected'],'detailReceipts':receipts,'assetBytes':sum((target/f).stat().st_size for f in current)}
     (work/'manifest.json').write_text(json.dumps(report,indent=2)+'\n')
-    if not a.only:
-        (root/'tools/environment-mesh/manifest.json').write_text(json.dumps(report,indent=2)+'\n')
-        catalog_bytes=(json.dumps(catalog,separators=(',',':'))+'\n').encode()
-        (root/'tools/environment-mesh/catalog.json.gz').write_bytes(gzip.compress(catalog_bytes,mtime=0))
-        (root/'tools/environment-mesh/catalog.json').unlink(missing_ok=True)
-        (root/'tools/environment-mesh/ornaments.json').write_text(json.dumps({'format':1,'entries':ornaments},separators=(',',':'))+'\n')
+    if not a.only:(root/'tools/environment-mesh/manifest.json').write_text(json.dumps(report,indent=2)+'\n')
     print(json.dumps({k:v for k,v in report.items() if k not in ('detailReceipts','ambiguousRejected')},indent=2))
 if __name__=='__main__':main()

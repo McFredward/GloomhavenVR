@@ -14,19 +14,11 @@ public static class LoadEnvironmentBank
             int argument = Array.IndexOf(args, "-environmentBank");
             if (argument < 0 || argument + 1 >= args.Length) throw new ArgumentException("Missing actual environment bank path.");
             string path = args[argument + 1];
-            int expectedArgument = Array.IndexOf(args, "-environmentExpectedStreams");
-            int expected;
-            if (expectedArgument < 0 || expectedArgument + 1 >= args.Length
-                || !int.TryParse(args[expectedArgument + 1], out expected) || expected < 1 || expected > 24576)
-                throw new ArgumentException("Missing independently verified packaged stream count.");
             if (Application.unityVersion != "2021.3.5f1") throw new InvalidOperationException("Use the game-exact Unity2021.3.5f1 loader.");
             AssetBundle bank = AssetBundle.LoadFromFile(path);
             if (bank == null) throw new InvalidOperationException("Actual packaged environment bank did not load.");
             string[] names = bank.GetAllAssetNames();
-            // The Python verifier independently compares each packed stream to
-            // immutable sources, index hashes and the separately checked receipt.
-            // Do not pin an old bank generation's count in this actual decoder.
-            if (names.Length != expected + 3) throw new InvalidOperationException("Actual packaged asset count drift: " + names.Length);
+            if (names.Length != 3173) throw new InvalidOperationException("Actual packaged asset count drift: " + names.Length);
             int count = 0; long vertices = 0, triangles = 0;
             foreach (string name in names.Where(name => name.EndsWith(".bytes", StringComparison.Ordinal)))
             {
@@ -51,7 +43,7 @@ public static class LoadEnvironmentBank
             Shader world = bank.LoadAsset<Shader>("Assets/Bundle/Environments/WorldSimpleMaterial.shader");
             if (world == null || world.name != "GloomhavenVR/WorldSimpleMaterial")
                 throw new InvalidOperationException("Actual packaged world material shader unavailable.");
-            if (count != expected || index == null || shader == null || shader.name != "GloomhavenVR/ScenarioCheapTerrain")
+            if (count != 3170 || index == null || shader == null || shader.name != "GloomhavenVR/ScenarioCheapTerrain")
                 throw new InvalidOperationException("Actual packaged environment content unavailable.");
             Debug.Log("PASS packaged environment bank load: " + count + " production-decoded streams, " + vertices
                 + " vertex slots, " + triangles + " triangles; index and both shaders; Unity " + Application.unityVersion);

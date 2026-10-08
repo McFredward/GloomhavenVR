@@ -1,5 +1,31 @@
 # State — where the project stands
 
+**Build648 withdraws the647 room-render regression, 2026-10-08: 1.1.0 development candidate.**
+
+The supplied647 Frame run supports the reported slowdown: comparable fully
+loaded closed-options windows average123.976ms versus94.107ms in645, with
+26.281ms more named mod work. Terrain alone adds15.607ms/frame. Different
+head poses and window lengths prevent a controlled identical-view benchmark.
+A bounded actual647 Unity reproduction additionally proves unnecessary private
+admission for256 exact floor endpoints while only64 sources save geometry.
+
+The maintainer requests rollback unless a real net improvement over the prior
+run is established.648 restores646's complete terrain/environment/world/scenery
+render implementation and its exact environment bank and generated assets.
+646's NPC/map repairs remain. Five647 keys survive solely as INERT saved-value
+storage, with bilingual explanations, no curated controls, preset writes or
+render consumers. No experimental647 repair or new quality compromise ships.
+
+Final local validation and integration are recorded in
+[FRAME-648-REVIEW.md](FRAME-648-REVIEW.md). Independent hardware/source diagnosis:
+[FRAME-648-LOG-AUDIT.md](FRAME-648-LOG-AUDIT.md),
+[terrain reproduction](../docs/performance/FRAME-648-TERRAIN.md).
+A648 Frame run is still required to confirm restored headset performance;
+automated checks do not demonstrate a new FPS gain. Both VR peers install the
+complete648 archive, including its restored bank.
+
+---
+
 **Build647 broader simplified 3D rooms, 2026-10-08: 1.1.0 development candidate.**
 
 Proposal2 extends verified floor/wall/pillar presentation across all129 native

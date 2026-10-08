@@ -1,5 +1,9 @@
 # Architectural detail density: source and runtime contract
 
+**Historical647 experiment; withdrawn in648 after a measured Frame regression.**
+The active renderer and asset bank are restored to646. New647 controls are INERT
+saved-value storage. See [rollback review](../.planning/FRAME-648-REVIEW.md). The following records647's experiment and proof limits.
+
 `ScenarioSceneryBudget.ConfigureArchitectureDetailDensity(Func<int>)` is an independent
 live visual compromise. The caller supplies 100 when its master switch is off. Values clamp
 to 0–100; a failing settings reader retains native detail and emits one bounded note.

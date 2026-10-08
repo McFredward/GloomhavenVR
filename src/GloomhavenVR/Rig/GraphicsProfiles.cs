@@ -64,11 +64,6 @@ internal static class GraphicsProfiles
             Set(PerfConfig.ScenarioStructuralBatching, standalone ? FrameDefaults.ScenarioStructuralBatching : index < 3);
             Set(PerfConfig.ScenarioStructuralInstancing, FrameDefaults.ScenarioStructuralInstancing);
             // One-time presets only: every new control remains independently editable.
-            Set(PerfConfig.ScenarioRoomArchitecture, standalone ? FrameDefaults.ScenarioRoomArchitecture : false);
-            Set(PerfConfig.ScenarioRoomFloorDetailPercent, standalone ? FrameDefaults.ScenarioRoomFloorDetailPercent : 100);
-            Set(PerfConfig.ScenarioRoomArchitectureDensityPercent, standalone ? FrameDefaults.ScenarioRoomArchitectureDensityPercent : 100);
-            Set(PerfConfig.ScenarioRoomFloorCameraSourceLimitCount, standalone ? FrameDefaults.ScenarioRoomFloorCameraSourceLimitCount : 0);
-            Set(PerfConfig.ScenarioRoomFloorBatching, standalone ? FrameDefaults.ScenarioRoomFloorBatching : false);
             Set(PerfConfig.ScenarioTerrainSubstitution, standalone ? FrameDefaults.ScenarioTerrainSubstitution : Defaults.ScenarioTerrainSubstitution);
             Set(PerfConfig.ScenarioExplicitEnvironmentInstancing, standalone ? FrameDefaults.ScenarioExplicitEnvironmentInstancing : index < 3);
             Set(PerfConfig.ScenarioCheapWallShading, standalone ? FrameDefaults.ScenarioCheapWallShading : low);

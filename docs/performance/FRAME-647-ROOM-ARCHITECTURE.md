@@ -1,5 +1,9 @@
 # Build647: broader simplified 3D rooms
 
+**Historical647 experiment; withdrawn in648 after a measured Frame regression.**
+The active renderer and asset bank are restored to646. New647 controls are INERT
+saved-value storage. See [rollback review](../../.planning/FRAME-648-REVIEW.md). The following records647's experiment and proof limits.
+
 The maintainer approved proposal2 on 2026-10-08: expand the existing simplified
 room presentation across native floors and architecture in the whole game and
 DLCs, with substantial geometry/detail compromises that remain independently

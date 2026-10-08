@@ -35,8 +35,6 @@ def main():
     parser.add_argument('--unity', type=Path, default=Path(os.environ.get('UNITY_PATH','/home/claw/unity-2021.3.5/Editor/Unity')))
     parser.add_argument('--production-only', action='store_true')
     parser.add_argument('--case', action='append')
-    parser.add_argument('--room-bank-root', type=Path, help='Explicit frozen expanded environment bank for native room coverage; defaults to source-root')
-    parser.add_argument('--world-source-root', type=Path, help='Explicit frozen world owner for the source-bound block effect helper; defaults to source-root')
     parser.add_argument('--wall-source-root', type=Path, help='Explicit frozen wall worker source for the cross-owner native-write fixture; defaults to source-root')
     args = parser.parse_args()
     root=args.source_root.resolve(); fixture=ROOT/'tests/terrain-budget-runtime'
@@ -69,25 +67,6 @@ def main():
     extracted_hashes={str(p):hashlib.sha256(value.encode()).hexdigest()
         for p,value in zip(paths[:4]+ownership_paths+[wall_path], [source,geometry,admission,shader,prop,held,remote,wall_source])}
     hide='using System.Collections.Generic; using UnityEngine;\nnamespace GloomhavenVR.Core { internal sealed class TerrainWallHide {\nprivate readonly HashSet<Renderer> _hidByEnable = new();\ninternal bool Owns(Renderer r) => _hidByEnable.Contains(r);\nprivate static bool FloorNeverFades(Renderer r) => false;\nprivate static bool HeldNeverFades(Renderer r) => false;\n'+method(wall_source,'    internal void HideByEnable(Renderer r)')+'}\n}\n'
-    world_path=(args.world_source_root.resolve() if args.world_source_root else root)/'src/GloomhavenVR/Core/Perf/WorldMaterialBudget.Materials.cs'
-    world_source=world_path.read_text()
-    block_proof='using System; using UnityEngine;\nnamespace GloomhavenVR.Core { internal static class TerrainWorldBlockProof {\ninternal static Func<Material,Material> Canonical = value => value;\nprivate static Material CanonicalMaterial(Material value) => Canonical(value);\n'
-    for name in ('EffectProperties', 'StandardStateProperties', 'EffectPropertyIds', 'StandardStatePropertyIds', 'MainTextureId'):
-        block_proof+=re.search(r'    private static readonly [^;]+\b'+name+r'\s*=[^;]+;',world_source).group(0)+'\n'
-    block_proof+=method(world_source,'    private static int[] PropertyIds(')
-    block_proof+=method(world_source,'    private static bool ProvenProgram(')
-    block_proof+='internal static bool ProgramAllowed(Material value) => ProvenProgram(value.shaderKeywords, ShaderRoute(value));\n'
-    route_start=world_source.index('    private static int ShaderRoute(')
-    block_proof+=world_source[route_start:world_source.index('\n    };',route_start)+len('\n    };')]
-    block_proof+=method(world_source,'    internal static bool HasUnsupportedBlock(')+'}}\n'
-    extracted_hashes[str(world_path)]=hashlib.sha256(world_source.encode()).hexdigest()
-    bank_path=root/'src/GloomhavenVR/Core/Perf/ScenarioEnvironmentMeshBank.cs'
-    bank_source=bank_path.read_text()
-    support_start=bank_source.index('    private static bool FloorSupportIdentity(')
-    support_end=bank_source.index(';',support_start)+1
-    block_proof=block_proof[:-3]+bank_source[support_start:support_end]+'\ninternal static bool CertifiedFloorSupport(string name) => FloorSupportIdentity(name);\n}}\n'
-    extracted_hashes[str(bank_path)]=hashlib.sha256(bank_source.encode()).hexdigest()
-
     assert 'StaticBatchingUtility' not in source+geometry and 'SetStaticBatchInfo' not in source+geometry
     assert not re.search(r'(?<![\w])(?:Filter\.sharedMesh|Renderer\.sharedMaterials)\s*=(?!=)', source+geometry), 'native cloning sources must stay unchanged'
     controls=[
@@ -107,16 +86,16 @@ def main():
         ('original-triangles-through-endpoint','_current = _percent >= 100 ? null : _target;','_current = _percent >= 100 ? null : _morph;','coarse 3D endpoint materially reduces',geometry,1),
         ('identical-tier-substitute','if (percent < 100 && TriangleCount(target) >= OriginalTriangles) { percent = 100; target = _exact; }','/* injected private exact-tier overhead */','coarse bank tier without actual triangle saving retains',geometry,1),
         ('actor-scope-bypass',' or ActorBehaviour',' /* injected actor veto bypass */','actor-owned source with genuine bank mesh is never scenery',admission,1),
-        ('late-interaction-bypass','|| !CurrentScope(surface.Renderer, surface.RoomArchitecture, surface.Floor)','/* injected live native scope veto */','late native interaction veto',source,1),
+        ('late-interaction-bypass','|| !CurrentScope(surface.Renderer)','/* injected live native scope veto */','late native interaction veto',source,1),
         ('native-command-buffer-bypass','|| (_nativeCameraConsumers?.Invoke(camera) ?? camera.commandBufferCount > 0)','/* injected command-buffer veto */','native command-buffer camera',source,1),
         ('inactive-host-masks-original','|| !isActiveAndEnabled','|| !enabled','deactivated terrain host retains original wall pixels',source,1),
         ('hand-proximity-bypass','NearHand(detail.Left, bounds)','false','tracked hand proximity restores',source,1),
         ('distant-detail-ignored','Mathf.Min(near, detail.Distant)','near','independent distant terrain detail cap',source,1),
-        ('foreign-mesh-bypass','|| Filter.sharedMesh != Original','/* injected foreign mesh ownership */','foreign native mesh replacement',geometry,2),
+        ('foreign-mesh-bypass','|| Filter.sharedMesh != Original','/* injected foreign mesh ownership */','foreign native mesh replacement',geometry,1),
         ('native-rendering-layer-not-copied','_proxyRenderer.renderingLayerMask = next.RenderingLayer;','/* injected native layer loss */','actual terrain camera proxy preserves current native rendering layers',geometry,1),
         ('material-slot-block-dropped','Renderer.GetPropertyBlock(SlotBlock, slot);','SlotBlock.Clear();','native material-slot MPB precedence',geometry,1),
-        ('live-renderer-effect-ignored','if (LiveSpecialEffect(Block) || UnsupportedWorldBlock(Block)) return false;','if (UnsupportedWorldBlock(Block)) return false;','live renderer-wide vertex effect retains',geometry,1),
-        ('live-slot-effect-ignored','if (LiveSpecialEffect(SlotBlock) || UnsupportedWorldBlock(SlotBlock, slot)) return false;','if (UnsupportedWorldBlock(SlotBlock, slot)) return false;','live material-slot emissive effect retains',geometry,1),
+        ('live-renderer-effect-ignored','if (LiveSpecialEffect(Block)) return false;','/* injected live renderer effect bypass */','live renderer-wide vertex effect retains',geometry,1),
+        ('live-slot-effect-ignored','if (LiveSpecialEffect(SlotBlock)) return false;','/* injected live slot effect bypass */','live material-slot emissive effect retains',geometry,1),
         ('canonical-original-ignored','_canonicalMaterial?.Invoke(material) ?? material','material','existing environment material variant resolves',source,1),
         ('native-visibility-bypass','|| !surface.Renderer.enabled','/* injected source enabled */','native disabled terrain stays original after shared ownership reuse',source,1),
         ('shader-cutoff-ramp-ignored','clip(m - _Cutoff);','clip(m - .5);','production native wall map has multiple visible intermediate frames',shader,1),
@@ -145,7 +124,7 @@ def main():
          'settled empty native MPB checks one fresh guard and skips all block reads',geometry,1),
         ('empty-slot-effect-reads','!block.isEmpty && (block.GetFloat','(block.GetFloat',
          'empty native material-slot block skips effect reads',geometry,1),
-        ('world-floor-safety-channel-lost','block.SetFloat("_GHVRWorldNeverFade", _neverFade ? 1f : 0f);',
+        ('world-floor-safety-channel-lost','block.SetFloat("_GHVRWorldNeverFade", Floor ? 1f : 0f);',
          'block.SetFloat("_GHVRWorldNeverFade", 0f);',
          'private floor renderer block sets legacy and world never-fade channels',geometry,1),
     ]
@@ -223,94 +202,25 @@ def main():
         ('terrain-nested-camera-owner-lost','                        _leaseCamera = camera;\n                        surface.Mask();',
          '                        /* injected resumed outer lease owner loss */\n                        surface.Mask();',
          'nested terrain material lookup ends with every native source unmasked',source,1),
-        ('terrain-master-membership-gate-lost','internal bool OwnsRenderSubstitute(Renderer renderer) => AnySubstitutionOn',
+        ('terrain-master-membership-gate-lost','internal bool OwnsRenderSubstitute(Renderer renderer) => PerfConfig.TerrainSubstitutionOn',
          'internal bool OwnsRenderSubstitute(Renderer renderer) => true',
          'terrain master off drops prepared ownership immediately before Update',source,1),
-        ('terrain-master-camera-gate-lost','|| !isActiveAndEnabled || !AnySubstitutionOn',
+        ('terrain-master-camera-gate-lost','|| !isActiveAndEnabled || !PerfConfig.TerrainSubstitutionOn',
          '|| !isActiveAndEnabled',
          'terrain master off next camera releases interrupted leases without native material preparation',source,1),
         ('terrain-master-update-release-lost','if (_active || _surfaces.Count != 0 || _pending.Count != 0) RestoreAll();',
          '/* injected disabled terrain private preparation retained */',
          'terrain master off Update clears prepared proxies and queued native discovery',source,1),
-        ('terrain-master-discovery-gate-lost','private bool Enabled => AnySubstitutionOn && VRSession.IsRunning',
+        ('terrain-master-discovery-gate-lost','private bool Enabled => PerfConfig.TerrainSubstitutionOn && VRSession.IsRunning',
          'private bool Enabled => VRSession.IsRunning',
          'terrain master off rejects new native discovery without queued preparation',source,1),
-    ]
-    controls += [
-        ('room-floor-detail-ignored', 'if (surface.FloorBudget) return RoomArchitectureOn ? detail.Floor : 100;',
-         'if (surface.FloorBudget) return 100;', 'room master renders verified floor', source, 1),
-        ('room-floor-morph-veto', 'if (Floor && !RoomArchitecture) return;', 'if (Floor) return;',
-         'room master renders verified floor', geometry, 1),
-        ('room-role-name-only-bypass', '_roomRole?.Invoke(filter.sharedMesh) ?? 0', '1',
-         'room master independently admits verified floors', source, 1),
-        ('room-floor-owner-veto-lost', '(floor ? !state.Tile :', '(floor ? false :',
-         'room master independently admits verified floors', source, 1),
-        ('room-floor-group-stale-setting', '_requestedPercent != FloorDetailPercent || Renderer == null', 'Renderer == null',
-         'changed floor setting invalidates a prepared group', geometry, 1),
-        ('room-floor-yield-without-endpoint', '&& surface.TryGetSettledRoomFloor(out _);', ';',
-         'changed floor setting invalidates a prepared group', source, 1),
-        ('room-floor-budget-coupled', 'int floorLimit = Mathf.Max(0, _floorCameraLimit?.Invoke() ?? limit);', 'int floorLimit = limit;',
-         'separate unlimited room floor budget leases256', source, 1),
-        ('room-floor-budget-ignored', 'floorLimit > 0 && floorCandidates >= floorLimit', 'floorLimit < 0 && floorCandidates >= floorLimit',
-         'independent floor camera cap limits floor preparation', source, 2),
-        ('room-floor-ready-repeated', 'if (endpoint == _notifiedFloorMesh) return false;', 'if (endpoint == null) return false;',
-         'settled room floor readiness reports one endpoint revision', geometry, 1),
-    ]
-    controls += [
-        ('room-floor-read-memo-bypassed', 'if (FloorReadDepth <= 0) return', 'if (FloorReadDepth < int.MaxValue) return',
-         'one native floor read pass validates one repeated original bank signature', source, 1),
-        ('room-floor-read-nested-dispose-stale', '_owner.InvalidateFloorReadPass(); _owner.FloorReadDepth--;', '_owner.FloorReadDepth--;',
-         'nested pass and native writer invalidate repeated floor bank metadata', source, 1),
-        ('room-floor-read-native-write-stale', '_roomRoleThisInvocation.Clear();\n            ClearFloorReads();', '_roomRoleThisInvocation.Clear();',
-         'nested pass and native writer invalidate repeated floor bank metadata', source, 1),
-    ]
-    controls += [
-        ('room-floor-morph-retained', 'if (FloorBudget && _progress >= 1f)', 'if (FloorBudget && _progress > 1f)',
-         'settled room floor releases its private morph mesh', geometry, 1),
-    ]
-    controls += [
-        ('room-floor-settled-scope-bypassed', '&& CurrentScope(surface.Renderer, true, true);', ';',
-         'settled floor group lookup rejects a newly interactive native owner', source, 1),
-        ('room-floor-outline-never-fade-lost', '_neverFade = floor || floorSupport;', '_neverFade = floor;',
-         'verified floor-outline structure retains original never-fade marker', geometry, 1),
-    ]
-    controls += [
-        ('room-floor-full-quality-preparation-lost', '_floorPreparation?.Invoke() == true', 'false',
-         'full-quality floor grouping independently prepares exact geometry', source, 1),
-        ('room-grouped-camera-read-scope-lost', 'using (BeginFloorReadPass())', 'using (new FloorReadPass(null))',
-         'terrain camera validates one bank role for256', source, 1),
-        ('room-world-legacy-route-imposed', 'if (!world)\n                            foreach (Material material', 'if (!world || _materialScratch.Exists(material => material != null && material.shader != null && material.shader.name == \"Amp_Low/Amp_Basic_N_MRAO_Low\"))\n                            foreach (Material material',
-         'audited world owner admits coarse native LOW floor', source, 1),
-        ('room-world-wide-block-proof-lost', '|| UnsupportedWorldBlock(Block)', '',
-         'world-owned floor wide MPB effect retains native geometry', geometry, 1),
-        ('room-world-slot-block-proof-lost', '|| UnsupportedWorldBlock(SlotBlock, slot)', '',
-         'world-owned floor slot MPB effect retains native geometry', geometry, 1),
-    ]
-    controls += [
-        ('room-floorshelf-word-bypasses-fade', '_neverFade = floor || floorSupport;', '_neverFade = floor || architecture && FloorIdentity(Original);',
-         'native FloorShelf furniture preserves animated wall-fade markers', geometry, 1),
-        ('room-floor-support-budget-lost', 'internal bool FloorBudget => Floor || FloorSupport;', 'internal bool FloorBudget => Floor;',
-         'separate unlimited room floor budget leases256', geometry, 1),
-    ]
-    controls += [
-        ('room-native-lod-group-veto-lost', 'or SkinnedMeshRenderer or LODGroup;', 'or SkinnedMeshRenderer;',
-         'actual native LODGroup ancestor retains every original level', admission, 1),
-    ]
-    controls += [
-        ('room-floor-support-core-group-bypass', 'if (!Floor || !RoomArchitecture || !RoomArchitectureOn || _progress < 1f',
-         'if (!FloorBudget || !RoomArchitecture || !RoomArchitectureOn || _progress < 1f',
-         'verified floor support uses floor detail and budget without becoming a core-floor grouping', geometry, 1),
     ]
     variants=[('production',source,geometry,admission,shader,'')]
     if not args.production_only:
         for name,before,after,expected,text,count in controls:
             assert text.count(before)==count, 'mutation binding drift: '+name
             values=[source,geometry,admission,shader]
-            changed=text.replace(before,after)
-            if name=='room-floor-support-core-group-bypass':
-                assert changed.count('CurrentFloorRole(Original) != 1')==1
-                changed=changed.replace('CurrentFloorRole(Original) != 1','CurrentFloorRole(Original) < 1')
-            values[values.index(text)]=changed
+            values[values.index(text)]=text.replace(before,after)
             variants.append((name,*values,expected))
     wall_controls=[
         ('wall-native-hide-terrain-release-lost','                ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);',
@@ -342,18 +252,10 @@ def main():
     (run/'native-verification.log').write_text(native_result.stdout+native_result.stderr)
     print(native_result.stdout,end='')
     native=json.loads((run/'native-coverage.json').read_text())
-    room_command=[str(Path.home()/'unitypy-venv/bin/python'),str(fixture/'verify-room-native-coverage.py'),
-        '--source-root',str(root),'--bank-root',str(args.room_bank_root.resolve() if args.room_bank_root else root),'--output-dir',str(run)]
-    room_result=subprocess.run(room_command,capture_output=True,text=True,check=True)
-    (run/'room-native-verification.log').write_text(room_result.stdout+room_result.stderr)
-    print(room_result.stdout,end='')
-    room_native=json.loads((run/'room-native-coverage.json').read_text())
-    inputs=paths+ownership_paths+[wall_path,world_path,bank_path,Path(__file__).resolve(),Path(native['nativeBundle']),
+    inputs=paths+ownership_paths+[wall_path,Path(__file__).resolve(),Path(native['nativeBundle']),
         root/'tools/environment-mesh/export-native.py',
         root/'unity/GloomhavenVR.Assets/Assets/Bundle/EnvironmentMeshes/index.json']
     inputs+=sorted(p for p in fixture.rglob('*') if p.is_file())
-    inputs+=[Path(room_native['indexPath'])]
-    inputs+=[Path(entry[k]) for entry in room_native['entries'] for k in ('exactPath','coarsePath','sourcePath')]
     inputs+=[Path(entry[k]) for entry in native['entries'] for k in ('exactPath','coarsePath')]
     input_hashes={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in inputs}
     assert all(input_hashes[path]==value for path,value in extracted_hashes.items()), 'source changed between extraction and receipt binding'
@@ -396,7 +298,6 @@ def main():
             '_propRoots.Add(TerrainOwnershipObserver.VisualTransform(visual));')
         (production/'Admission.cs').write_text(observed_admission)
         (production/'PropOwnership.cs').write_text(ownership)
-        (production/'WorldBlockProof.cs').write_text(block_proof)
         (production/'WallHide.cs').write_text(observed_wall.get(name,hide))
         (production/'MeshStream.cs').write_text(paths[4].read_text())
         shutil.copyfile(fixture/'NativeCoverage.cs',production/'NativeCoverage.cs')
@@ -409,13 +310,6 @@ def main():
             'internal static class TerrainCoverageData { internal readonly struct Entry { '+
             'internal readonly string Name,Exact,Coarse; internal readonly int Triangles; '+
             'internal Entry(string n,string e,string c,int t) {Name=n;Exact=e;Coarse=c;Triangles=t;} } '+
-            'internal static readonly Entry[] Entries={'+','.join(literals)+'}; }')
-        literals=['new Entry('+','.join([json.dumps(entry['name']),json.dumps(entry['exactPath']),
-            json.dumps(entry['coarsePath']),str(entry['sourceTriangles']),str(1 if entry['role']=='floor' else 2)])+')' for entry in room_native['entries']]
-        (production/'TerrainRoomCoverageData.cs').write_text(
-            'internal static class TerrainRoomCoverageData { internal readonly struct Entry { '+
-            'internal readonly string Name,Exact,Coarse; internal readonly int Triangles,Role; '+
-            'internal Entry(string n,string e,string c,int t,int r) {Name=n;Exact=e;Coarse=c;Triangles=t;Role=r;} } '+
             'internal static readonly Entry[] Entries={'+','.join(literals)+'}; }')
         project=case/'Terrain.csproj'; shutil.copyfile(fixture/'Terrain.csproj',project)
         assembly='TerrainBudget_'+name.replace('-','_')
@@ -457,8 +351,6 @@ def main():
     unity=run/'unity'; (unity/'Assets/Editor').mkdir(parents=True); (unity/'Packages').mkdir(); (unity/'ProjectSettings').mkdir()
     shutil.copyfile(fixture/'Editor/TerrainRunner.cs',unity/'Assets/Editor/TerrainRunner.cs')
     shutil.copyfile(fixture/'NativeMaterials.shader',unity/'Assets/NativeMaterials.shader')
-    (unity/'Assets/NativeLowMaterial.shader').write_text((fixture/'NativeMaterials.shader').read_text().replace('Amp_Basic_N_MRAO', 'Amp_Low/Amp_Basic_N_MRAO_Low'))
-    (unity/'Assets/NativeLowWall.shader').write_text((fixture/'NativeMaterials.shader').read_text().replace('Amp_Basic_N_MRAO', 'Amp_Low/Amp_Basic_WallFade_Low'))
     shutil.copyfile(fixture/'NativeHighBranch.shader',unity/'Assets/NativeHighBranch.shader')
     for name,*_ in variants:
         for kind in ('shader','noise','high'):shutil.copyfile(run/name/(kind+'.shader'),unity/'Assets'/(name+'-'+kind+'.shader'))

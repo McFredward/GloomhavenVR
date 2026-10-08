@@ -1,7 +1,7 @@
 # Private terrain runtime fixture
 
 Run `python3 scripts/check-terrain-budget-runtime.py`. The complete focused suite
-compiles the actual `ScenarioTerrainBudget` production source files and
+compiles the actual two `ScenarioTerrainBudget` production source files and
 imports the actual `ScenarioCheapTerrain.shader` into an isolated Unity 2021.3.5f1
 project. Its CPU-side boundaries are explicit substitutes for native scene types,
 configuration, held props/hands, logging, shader loading and bank lookup.
@@ -10,9 +10,9 @@ verified native structural streams through the actual production mesh decoder. A
 command buffers and `Camera.Render` callbacks execute; there is no simulated
 renderer or pixel oracle substituted for the production fragment.
 
-The current worker production snapshot makes882 assertions. Independently
-compiled negative variants corrupt production statements and must fail at named
-assertions; the run receipt records the exact source hashes and selected cases. Shader compilation failures and unrelated exceptions never count as
+The production case makes 335 assertions. Fifty-seven independently compiled
+negative variants each corrupt a production statement and must fail at a named
+assertion. Shader compilation failures and unrelated exceptions never count as
 passing negative controls. `--production-only` and repeatable `--case NAME` are
 partial development runs; selected cases always retain the production baseline.
 Use `UNITY_PATH` or `--unity` for an editor override.
@@ -27,10 +27,8 @@ near/distant options and restoration of full geometry near a tracked hand.
 Coarse geometry retains its native material when cheap wall shading is disabled.
 A prepared tier without any actual triangle saving retains the native renderer.
 
-The legacy wall-only controls retain native floor geometry/materials. The
-independent room architecture option additionally admits verified core floors,
-structural bodies and exact floor-support families with current native scope.
-FloorHex names are exercised beneath both tile and wall owners. Bank membership alone
+Floors retain native geometry/materials under the combined controls. FloorHex
+names are exercised beneath both tile and wall owners. Bank membership alone
 cannot admit anonymous geometry or foundation slabs; a vetted wall name beneath
 only a map tile cannot replace explicit native wall ownership. Actors, late
 interactables, held sources, disabled renderers, foreign masks and foreign mesh
@@ -89,8 +87,8 @@ and must fail their named assertions. Native material/art are explicit fixture
 boundaries; original geometry/provenance is independently native-source-bound.
 
 The new ten asset definitions total 3,472/2,088/1,180 triangles at 100/50/0.
-These are asset-definition counts, not scene-instance coverage or FPS. This captured-wall follow-up grew the historical
-allowlist from fifteen identities/twelve present bank definitions to
+These are asset-definition counts, not scene-instance coverage or FPS. The
+allowlist grows from fifteen identities/twelve present bank definitions to
 twenty-five identities/twenty-two present definitions, without changing assets.
 
 ## Pixel evidence and independent native samples
@@ -121,8 +119,8 @@ remain per-source. A settled empty-block camera retains 96 fresh native presence
 guards with no block reads, effect reads or private block writes. Late native
 color/texture blocks, removed renderer/index blocks and live vertex/emissive
 effects execute through actual Camera.Render callbacks. A separate direct helper
-case checks both legacy/world floor never-fade channels without broadening
-legacy wall-only admission. Causal variants corrupt each optimization
+case checks both legacy/world floor never-fade channels without admitting floors
+to production geometry substitution. Causal variants corrupt each optimization
 or freshness/safety boundary. See
 [the terrain CPU follow-up](../../docs/performance/FRAME-636-TERRAIN-CPU.md).
 
@@ -131,35 +129,11 @@ results, editor log, actual exit code, native-coverage/provenance receipts and e
 gitignored `.planning/debug/terrain-budget-runtime/`. The native game bundle and
 raw original shader bytecode/art are never checked in.
 
-## Independently controlled room architecture
-
-`RoomArchitecture.cs`, `RoomFloorScale.cs`, `RoomOwnerAdmission.cs` and
-`NativeRoomCoverage.cs` exercise independent room/floor controls, current typed
-ownership, continuous three-dimensional morphs and settled floor handoff. The
-256-floor scale case includes live indexed blocks, a floor-support source and a
-one-source wall budget. Synchronous bank metadata sharing expires at nested
-camera/native-write boundaries; native LODGroup sources always retain originals.
-The geometry helper releases settled floor transition buffers. Exact floor100
-preparation works with legacy geometry/cheap/world controls disabled.
-
-`--room-bank-root` selects the independently hashed all-game/DLC bank and original
-source bundles for24 representative mesh definitions plus dedicated shelf and
-floor-support proofs. `--world-source-root` selects the actual production world
-effect helper/property tables/whitelist. Native LOW saved fade flags remain
-supported only through an audited world owner; unsupported keywords, renderer
-and indexed block effects retain native rendering. Native shelf meshes execute
-intermediate fades and never inherit floor safety from a name substring. Only
-core role1 floors participate in grouping/readiness; positive role3 floor supports
-share the floor detail/cap and never-fade safety. See
-[room architecture coverage](../../docs/performance/FRAME-647-TERRAIN-COVERAGE.md)
-for the tested snapshots and native reduction limits.
-
 ## Evidence limits
 
 Lookup and native procedural ownership remain explicit boundaries. The initial
-synthetic cases are supplemented by independently verified captured walls and
-all-game/DLC room definitions; the environment-bank suite separately covers the
-complete package. This suite
+synthetic cases are supplemented by ten independently verified original bank
+definitions; the environment-bank suite separately covers the complete package. This suite
 does not execute original procedural controllers, Windows shader bytecode,
 original game textures, network state or headset presentation. The software GL
 graphics device is appropriate for engine/pixel contracts and cannot establish

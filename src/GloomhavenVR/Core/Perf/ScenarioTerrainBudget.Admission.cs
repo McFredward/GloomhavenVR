@@ -8,7 +8,7 @@ namespace GloomhavenVR.Core;
 internal static partial class ScenarioTerrainBudget
 {
     [Flags]
-    private enum ComponentRole { None = 0, Blocked = 1, Structural = 2, Scenario = 4, Tile = 8 }
+    private enum ComponentRole { None = 0, Blocked = 1, Structural = 2, Scenario = 4 }
     private static readonly Dictionary<Type, ComponentRole> Roles = new();
     private static readonly Dictionary<string, bool> BlockedNames = new(StringComparer.Ordinal);
 
@@ -21,10 +21,9 @@ internal static partial class ScenarioTerrainBudget
         bool shared = PerfConfig.SharedEnvironmentMaterialReadsOn;
         if (shared && Roles.TryGetValue(type, out ComponentRole cached)) return cached;
         bool blocked = component is Canvas or ActorBehaviour or ProceduralProp or ProceduralDoorway
-            or UnityGameEditorDoorProp or CInteractable or Animator or Rigidbody or Light or SkinnedMeshRenderer or LODGroup;
+            or UnityGameEditorDoorProp or CInteractable or Animator or Rigidbody or Light or SkinnedMeshRenderer;
         ComponentRole role = blocked ? ComponentRole.Blocked : ComponentRole.None;
         if (component is ProceduralWall) role |= ComponentRole.Structural;
-        if (component is ProceduralMapTile) role |= ComponentRole.Tile;
         if (component is ProceduralScenario) role |= ComponentRole.Scenario;
         if (shared) Roles[type] = role;
         return role;
@@ -76,7 +75,6 @@ internal static partial class ScenarioTerrainBudget
         }
         private readonly List<Surface> _priority = new();
         private bool _priorityDirty;
-        private int _firstFloor;
         private readonly Plane[] _cameraPlanes = new Plane[6], _leftPlanes = new Plane[6], _rightPlanes = new Plane[6];
         private bool _frustumReady, _stereoFrustum;
         private void PrepareFrustum(Camera camera, bool shared)
@@ -116,15 +114,9 @@ internal static partial class ScenarioTerrainBudget
             // every omitted substitute retains its current original native renderer.
             _priority.Sort((left, right) =>
             {
-                // Most scenes repeat hundreds of small floor tiles. Settled floor
-                // groups have their own owner; their ungrouped fallback must never
-                // exhaust the wall/architecture camera budget before a wall runs.
-                if (left.FloorBudget != right.FloorBudget) return left.FloorBudget ? 1 : -1;
                 int cost = right.OriginalTriangles.CompareTo(left.OriginalTriangles);
                 return cost != 0 ? cost : left.Identity.CompareTo(right.Identity);
             });
-            _firstFloor = 0;
-            while (_firstFloor < _priority.Count && !_priority[_firstFloor].FloorBudget) _firstFloor++;
             _priorityDirty = false;
         }
     }

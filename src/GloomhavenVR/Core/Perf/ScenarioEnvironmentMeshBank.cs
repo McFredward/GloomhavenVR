@@ -31,26 +31,6 @@ internal static class ScenarioEnvironmentMeshBank
     internal static bool TryGetDetail(Mesh native, int percent, out Mesh mesh) => TryGet(native, percent >= 100 ? 100 : percent >= 50 ? 50 : 0, out mesh);
     internal static bool IsTerrainEligible(Mesh native) => TryGetExact(native, out _);
 
-    // The role is exported from every original prefab use of this exact immutable
-    // mesh. Runtime names, a matching bounds box or bank membership alone never
-    // authorize a floor/architecture replacement. Ambiguous/interactive uses are
-    // explicitly role=none in the all-game catalog and retain native geometry.
-    // Roles:0 unsupported,1 core floor,2 structure,3 exact authored floor support.
-    // Support role3 shares floor detail/fade safety but is never a core-floor group.
-    internal static int RoomArchitectureRole(Mesh native)
-    {
-        if (native == null || !PrepareIndex()) return 0;
-        if (!Entries.TryGetValue(Identity(native), out Entry entry)
-            || !Matches(native, entry.signature) || !SourceValid(entry)) return 0;
-        return entry.role == "floor" ? 1 : entry.role == "structure" ? FloorSupportIdentity(entry.signature.name) ? 3 : 2 : 0;
-    }
-    private static bool FloorSupportIdentity(string name) => name is "CV_Floor_HexOutline_Rock_02"
-        or "CV_Floor_HexOutline_Rock_03" or "CV_Floor_HexOutline_Rock_04"
-        or "TERRAIN_DU_Rubble_Floor" or "TERRAIN_DU_Thorns_Floor";
-    internal static bool IsArchitecturalOrnament(Mesh native) => native != null && PrepareIndex()
-        && Entries.TryGetValue(Identity(native), out Entry entry) && entry.ornament
-        && Matches(native, entry.signature) && SourceValid(entry);
-
     private static bool TryGet(Mesh native, int tier, out Mesh mesh)
     {
         mesh = null!;
@@ -110,8 +90,6 @@ internal static class ScenarioEnvironmentMeshBank
             var pending = new Dictionary<string, Entry>();
             foreach (Entry entry in manifest.entries)
             {
-                if (!string.IsNullOrEmpty(entry.role) && entry.role != "none" && entry.role != "floor" && entry.role != "structure")
-                    throw new InvalidDataException("environment architecture role");
                 if (entry.signature.name.Length < 1 || entry.signature.name.Length > 1024 || entry.signature.vertices < 3 || entry.signature.vertices > 100000 || entry.signature.indices.Length < 1
                     || entry.signature.indices.Length > 32 || entry.signature.bounds.Length != 6 || entry.sources.Length < 1
                     || entry.sources.Length > 128 || entry.variants.Length < 1 || entry.variants.Length > 3)
@@ -208,7 +186,7 @@ internal static class ScenarioEnvironmentMeshBank
     }
     [DataContract] private sealed class Manifest { [DataMember] public int format = 0; [DataMember] public Entry[] entries = Array.Empty<Entry>(); }
     [DataContract] private sealed class Entry
-    { [DataMember] public string key = string.Empty; [DataMember] public string role = string.Empty; [DataMember] public bool ornament = false; [DataMember] public Signature signature = new(); [DataMember] public Source[] sources = Array.Empty<Source>(); [DataMember] public Variant[] variants = Array.Empty<Variant>(); internal Source? VerifiedSource; internal string? VerifiedHash; }
+    { [DataMember] public string key = string.Empty; [DataMember] public Signature signature = new(); [DataMember] public Source[] sources = Array.Empty<Source>(); [DataMember] public Variant[] variants = Array.Empty<Variant>(); internal Source? VerifiedSource; internal string? VerifiedHash; }
     [DataContract] private sealed class Signature
     { [DataMember] public string name = string.Empty; [DataMember] public bool readable = false; [DataMember] public int vertices = 0; [DataMember] public uint[] indices = Array.Empty<uint>(); [DataMember] public float[] bounds = Array.Empty<float>(); }
     [DataContract] private sealed class Source { [DataMember] public string path = string.Empty; [DataMember] public string sha256 = string.Empty; }

@@ -36,11 +36,6 @@ internal static class Program
             Check(PerfConfig.EnvironmentMeshBankOn, "exact full-detail private mesh preparation applies to every profile");
             Check(PerfConfig.ScenarioExplicitEnvironmentInstancing.Value==(i<3), "explicit draw option is independent and disabled in original quality");
             Check(PerfConfig.ScenarioCheapWallShading.Value==(i<2), "wall shading compromise is explicit for low profiles");
-            Check(PerfConfig.ScenarioRoomArchitecture.Value == (i==0)
-                && PerfConfig.ScenarioRoomFloorBatching.Value == (i==0), "only standalone preset requests broader room geometry and floor grouping");
-            Check(PerfConfig.ScenarioRoomFloorDetailPercent.Value == (i==0?0:100)
-                && PerfConfig.ScenarioRoomArchitectureDensityPercent.Value == (i==0?0:100), "floor relief and architectural dressing are distinct quality compromises");
-            Check(PerfConfig.ScenarioRoomFloorCameraSourceLimitCount.Value==0, "individual floor cap is independent of the wall budget");
             Check(PerfConfig.ScenarioTerrainSubstitution.Value,
                 "explicit profiles restore the prepared-terrain path before later individual comparisons");
             Check(PerfConfig.WorldMaterialQualityModeCount.Value==(i==0?2:0),
@@ -72,16 +67,6 @@ internal static class Program
         RenderQuality.Bind();
         Check(RenderQuality.EyeResolutionScale.Value==.95f,
             "individual resolution remains independent after Standalone until another profile is explicitly chosen");
-        PerfConfig.ScenarioRoomFloorDetailPercent.Value=50;
-        PerfConfig.ScenarioRoomArchitectureDensityPercent.Value=35;
-        PerfConfig.ScenarioRoomFloorBatching.Value=false;
-        PerfConfig.ScenarioRoomFloorCameraSourceLimitCount.Value=128;
-        PerfConfig.Bind();
-        Check(PerfConfig.ScenarioRoomFloorDetailPercent.Value==50
-            && PerfConfig.ScenarioRoomArchitectureDensityPercent.Value==35
-            && !PerfConfig.ScenarioRoomFloorBatching.Value
-            && PerfConfig.ScenarioRoomFloorCameraSourceLimitCount.Value==128,
-            "individual room geometry, dressing, grouping and source cap survive rebinding");
         PerfConfig.ScenarioTerrainCameraSourceLimitCount.Value=32;
         PerfConfig.WorldMaterialQualityModeCount.Value=1;
         PerfConfig.WorldMaterialAmbientPercent.Value=40;

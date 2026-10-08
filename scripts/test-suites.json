@@ -2231,18 +2231,6 @@
         "local"
       ],
       "weight": 40
-    },
-    {
-      "id": "environment-catalog647",
-      "command": [
-        "python3",
-        "scripts/check-environment-catalog647.py",
-        "--morph"
-      ],
-      "groups": [
-        "local"
-      ],
-      "weight": 40
     }
   ]
 }

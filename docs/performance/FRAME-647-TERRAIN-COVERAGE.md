@@ -1,5 +1,9 @@
 # Verified room architecture presentation
 
+**Historical647 experiment; withdrawn in648 after a measured Frame regression.**
+The active renderer and asset bank are restored to646. New647 controls are INERT
+saved-value storage. See [rollback review](../../.planning/FRAME-648-REVIEW.md). The following records647's experiment and proof limits.
+
 This worker changes private scenario presentation, never native game meshes,
 material arrays, collision, room availability or static-batch state. The optional
 room master admits only exact catalog identities with independently hashed

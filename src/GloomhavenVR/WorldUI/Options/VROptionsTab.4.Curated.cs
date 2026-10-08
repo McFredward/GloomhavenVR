@@ -487,11 +487,6 @@ internal static partial class VROptionsTab
                     {
                         new("Optimize", "ScenarioExplicitEnvironmentInstancing", ""),
                         new("Optimize", "ScenarioCheapWallShading", ""),
-                        new("Optimize", "ScenarioRoomArchitecture", ""),
-                        new("Optimize", "ScenarioRoomFloorDetailPercent", ""),
-                        new("Optimize", "ScenarioRoomArchitectureDensityPercent", ""),
-                        new("Optimize", "ScenarioRoomFloorBatching", ""),
-                        new("Optimize", "ScenarioRoomFloorCameraSourceLimitCount", ""),
                         new("Optimize", "ScenarioTerrainSubstitution", ""),
                         new("Optimize", "WorldMaterialQualityModeCount", ""),
                         new("Optimize", "WorldMaterialAmbientPercent", ""),
