@@ -9,7 +9,6 @@ public static partial class WorldMaterialProgram
     private static void HiddenAttachmentWrites(MeshRenderer source, Material material, Func<string, int> pixels)
     {
         var block = new MaterialPropertyBlock();
-        PerfConfig.SkipHiddenWallAttachmentWritesOn = true;
         using (var hide = new WallSegmentFade.AttachmentFixture())
         {
             source.SetPropertyBlock(null); source.enabled = true; WorldMaterialBudget.MaterialReady(source); pixels(null!);
@@ -31,16 +30,15 @@ public static partial class WorldMaterialProgram
             ScenarioEnvironmentBudget.Writes = 0;
             for (int frame = 0; frame < 60; frame++) { fade.Present(1f); fade.Hide(source); }
             source.GetPropertyBlock(block);
+            string evidence = Environment.GetEnvironmentVariable("GHVR_WORLD_EVIDENCE")!;
+            File.WriteAllText(Path.Combine(evidence, typeof(WorldMaterialProgram).Assembly.GetName().Name + "-hidden-write-counts.txt"),
+                "60 stable owned hidden ticks: actual native bridge/effect writes=" + ScenarioEnvironmentBudget.Writes + ".\n"
+                + "Unconditional production skip compared with the skip-omitted source mutation; no player-facing comparison option.\n"
+                + "Actual enabled hide, re-enable, intermediate return and held restitution retain native writes. Counts are source-extracted Unity operations, not FPS.\n");
             Check(ScenarioEnvironmentBudget.Writes == 0 && block.GetColor("_Tint") == Color.magenta
                 && block.GetFloat("_ForeignNativeEffect") == .43f && block.GetFloat("_Cutoff") == .91f,
                 "fully hidden owned endpoint avoids all repeated native effect writes");
-            Check(pixels("hidden-writes-on") == 0 && !source.enabled, "untouched hidden foreign MPB cannot paint an owned disabled attachment");
-            PerfConfig.SkipHiddenWallAttachmentWritesOn = false;
-            ScenarioEnvironmentBudget.Writes = 0;
-            for (int frame = 0; frame < 60; frame++) { fade.Present(1f); fade.Hide(source); }
-            Check(ScenarioEnvironmentBudget.Writes == 60, "option off preserves every original continuous native attachment drive");
-            Check(pixels("hidden-writes-off") == 0, "option off retains the same actual hidden camera endpoint");
-            PerfConfig.SkipHiddenWallAttachmentWritesOn = true;
+            Check(pixels("hidden-writes-suppressed") == 0 && !source.enabled, "untouched hidden foreign MPB cannot paint an owned disabled attachment");
             ScenarioEnvironmentBudget.Writes = 0; fade.Present(.5f); source.GetPropertyBlock(block);
             Check(ScenarioEnvironmentBudget.Writes == 1 && Mathf.Approximately(block.GetFloat("_Cutoff"), .475f),
                 "intermediate hidden return continues native opacity delivery");
@@ -74,12 +72,6 @@ public static partial class WorldMaterialProgram
             source.forceRenderingOff = false; fade.Restore();
         }
         HiddenParticleWrites();
-        PerfConfig.SkipHiddenWallAttachmentWritesOn = false;
-        string evidence = Environment.GetEnvironmentVariable("GHVR_WORLD_EVIDENCE")!;
-        File.WriteAllText(Path.Combine(evidence, typeof(WorldMaterialProgram).Assembly.GetName().Name + "-hidden-write-counts.txt"),
-            "60 stable owned hidden ticks: On=0 native bridge/effect writes; Off=60; repeated Hide=0.\n"
-            + "Actual enabled hide, native re-enable, every intermediate return and held restitution retain native writes.\n"
-            + "Counts are actual source-extracted Unity seam operations; not headset FPS or timing.\n");
     }
     private static void HiddenParticleWrites()
     {

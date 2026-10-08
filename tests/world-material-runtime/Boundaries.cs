@@ -35,7 +35,7 @@ namespace GloomhavenVR.Core
         internal static bool IsRunning=true;
         internal static Harmony Harmony=new("world.material."+typeof(VRSession).Assembly.GetName().Name);
     }
-    internal static class PerfConfig { internal static int WorldMaterialQualityMode=2; internal static bool SharedEnvironmentMaterialReadsOn=true; internal static bool SkipHiddenWallAttachmentWritesOn; }
+    internal static class PerfConfig { internal static int WorldMaterialQualityMode=2; internal static bool SharedEnvironmentMaterialReadsOn=true; }
     internal static class VRLog
     {
         internal static VRLogLevel Level=VRLogLevel.Debug;
