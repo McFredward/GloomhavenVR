@@ -35,13 +35,18 @@ internal static class ScenarioEnvironmentMeshBank
     // mesh. Runtime names, a matching bounds box or bank membership alone never
     // authorize a floor/architecture replacement. Ambiguous/interactive uses are
     // explicitly role=none in the all-game catalog and retain native geometry.
+    // Roles:0 unsupported,1 core floor,2 structure,3 exact authored floor support.
+    // Support role3 shares floor detail/fade safety but is never a core-floor group.
     internal static int RoomArchitectureRole(Mesh native)
     {
         if (native == null || !PrepareIndex()) return 0;
         if (!Entries.TryGetValue(Identity(native), out Entry entry)
             || !Matches(native, entry.signature) || !SourceValid(entry)) return 0;
-        return entry.role == "floor" ? 1 : entry.role == "structure" ? 2 : 0;
+        return entry.role == "floor" ? 1 : entry.role == "structure" ? FloorSupportIdentity(entry.signature.name) ? 3 : 2 : 0;
     }
+    private static bool FloorSupportIdentity(string name) => name is "CV_Floor_HexOutline_Rock_02"
+        or "CV_Floor_HexOutline_Rock_03" or "CV_Floor_HexOutline_Rock_04"
+        or "TERRAIN_DU_Rubble_Floor" or "TERRAIN_DU_Thorns_Floor";
     internal static bool IsArchitecturalOrnament(Mesh native) => native != null && PrepareIndex()
         && Entries.TryGetValue(Identity(native), out Entry entry) && entry.ornament
         && Matches(native, entry.signature) && SourceValid(entry);

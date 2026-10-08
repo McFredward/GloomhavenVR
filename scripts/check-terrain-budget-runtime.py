@@ -81,6 +81,13 @@ def main():
     block_proof+=world_source[route_start:world_source.index('\n    };',route_start)+len('\n    };')]
     block_proof+=method(world_source,'    internal static bool HasUnsupportedBlock(')+'}}\n'
     extracted_hashes[str(world_path)]=hashlib.sha256(world_source.encode()).hexdigest()
+    bank_path=root/'src/GloomhavenVR/Core/Perf/ScenarioEnvironmentMeshBank.cs'
+    bank_source=bank_path.read_text()
+    support_start=bank_source.index('    private static bool FloorSupportIdentity(')
+    support_end=bank_source.index(';',support_start)+1
+    block_proof=block_proof[:-3]+bank_source[support_start:support_end]+'\ninternal static bool CertifiedFloorSupport(string name) => FloorSupportIdentity(name);\n}}\n'
+    extracted_hashes[str(bank_path)]=hashlib.sha256(bank_source.encode()).hexdigest()
+
     assert 'StaticBatchingUtility' not in source+geometry and 'SetStaticBatchInfo' not in source+geometry
     assert not re.search(r'(?<![\w])(?:Filter\.sharedMesh|Renderer\.sharedMaterials)\s*=(?!=)', source+geometry), 'native cloning sources must stay unchanged'
     controls=[
@@ -230,8 +237,8 @@ def main():
          'terrain master off rejects new native discovery without queued preparation',source,1),
     ]
     controls += [
-        ('room-floor-detail-ignored', 'if (surface.Floor) return RoomArchitectureOn ? detail.Floor : 100;',
-         'if (surface.Floor) return 100;', 'room master renders verified floor', source, 1),
+        ('room-floor-detail-ignored', 'if (surface.FloorBudget) return RoomArchitectureOn ? detail.Floor : 100;',
+         'if (surface.FloorBudget) return 100;', 'room master renders verified floor', source, 1),
         ('room-floor-morph-veto', 'if (Floor && !RoomArchitecture) return;', 'if (Floor) return;',
          'room master renders verified floor', geometry, 1),
         ('room-role-name-only-bypass', '_roomRole?.Invoke(filter.sharedMesh) ?? 0', '1',
@@ -258,13 +265,13 @@ def main():
          'nested pass and native writer invalidate repeated floor bank metadata', source, 1),
     ]
     controls += [
-        ('room-floor-morph-retained', 'if (Floor && _progress >= 1f)', 'if (Floor && _progress > 1f)',
+        ('room-floor-morph-retained', 'if (FloorBudget && _progress >= 1f)', 'if (FloorBudget && _progress > 1f)',
          'settled room floor releases its private morph mesh', geometry, 1),
     ]
     controls += [
         ('room-floor-settled-scope-bypassed', '&& CurrentScope(surface.Renderer, true, true);', ';',
          'settled floor group lookup rejects a newly interactive native owner', source, 1),
-        ('room-floor-outline-never-fade-lost', '_neverFade = floor || architecture && FloorIdentity(Original);', '_neverFade = floor;',
+        ('room-floor-outline-never-fade-lost', '_neverFade = floor || floorSupport;', '_neverFade = floor;',
          'verified floor-outline structure retains original never-fade marker', geometry, 1),
     ]
     controls += [
@@ -279,12 +286,31 @@ def main():
         ('room-world-slot-block-proof-lost', '|| UnsupportedWorldBlock(SlotBlock, slot)', '',
          'world-owned floor slot MPB effect retains native geometry', geometry, 1),
     ]
+    controls += [
+        ('room-floorshelf-word-bypasses-fade', '_neverFade = floor || floorSupport;', '_neverFade = floor || architecture && FloorIdentity(Original);',
+         'native FloorShelf furniture preserves animated wall-fade markers', geometry, 1),
+        ('room-floor-support-budget-lost', 'internal bool FloorBudget => Floor || FloorSupport;', 'internal bool FloorBudget => Floor;',
+         'separate unlimited room floor budget leases256', geometry, 1),
+    ]
+    controls += [
+        ('room-native-lod-group-veto-lost', 'or SkinnedMeshRenderer or LODGroup;', 'or SkinnedMeshRenderer;',
+         'actual native LODGroup ancestor retains every original level', admission, 1),
+    ]
+    controls += [
+        ('room-floor-support-core-group-bypass', 'if (!Floor || !RoomArchitecture || !RoomArchitectureOn || _progress < 1f',
+         'if (!FloorBudget || !RoomArchitecture || !RoomArchitectureOn || _progress < 1f',
+         'verified floor support uses floor detail and budget without becoming a core-floor grouping', geometry, 1),
+    ]
     variants=[('production',source,geometry,admission,shader,'')]
     if not args.production_only:
         for name,before,after,expected,text,count in controls:
             assert text.count(before)==count, 'mutation binding drift: '+name
             values=[source,geometry,admission,shader]
-            values[values.index(text)]=text.replace(before,after)
+            changed=text.replace(before,after)
+            if name=='room-floor-support-core-group-bypass':
+                assert changed.count('CurrentFloorRole(Original) != 1')==1
+                changed=changed.replace('CurrentFloorRole(Original) != 1','CurrentFloorRole(Original) < 1')
+            values[values.index(text)]=changed
             variants.append((name,*values,expected))
     wall_controls=[
         ('wall-native-hide-terrain-release-lost','                ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);',
@@ -322,7 +348,7 @@ def main():
     (run/'room-native-verification.log').write_text(room_result.stdout+room_result.stderr)
     print(room_result.stdout,end='')
     room_native=json.loads((run/'room-native-coverage.json').read_text())
-    inputs=paths+ownership_paths+[wall_path,world_path,Path(__file__).resolve(),Path(native['nativeBundle']),
+    inputs=paths+ownership_paths+[wall_path,world_path,bank_path,Path(__file__).resolve(),Path(native['nativeBundle']),
         root/'tools/environment-mesh/export-native.py',
         root/'unity/GloomhavenVR.Assets/Assets/Bundle/EnvironmentMeshes/index.json']
     inputs+=sorted(p for p in fixture.rglob('*') if p.is_file())
@@ -432,6 +458,7 @@ def main():
     shutil.copyfile(fixture/'Editor/TerrainRunner.cs',unity/'Assets/Editor/TerrainRunner.cs')
     shutil.copyfile(fixture/'NativeMaterials.shader',unity/'Assets/NativeMaterials.shader')
     (unity/'Assets/NativeLowMaterial.shader').write_text((fixture/'NativeMaterials.shader').read_text().replace('Amp_Basic_N_MRAO', 'Amp_Low/Amp_Basic_N_MRAO_Low'))
+    (unity/'Assets/NativeLowWall.shader').write_text((fixture/'NativeMaterials.shader').read_text().replace('Amp_Basic_N_MRAO', 'Amp_Low/Amp_Basic_WallFade_Low'))
     shutil.copyfile(fixture/'NativeHighBranch.shader',unity/'Assets/NativeHighBranch.shader')
     for name,*_ in variants:
         for kind in ('shader','noise','high'):shutil.copyfile(run/name/(kind+'.shader'),unity/'Assets'/(name+'-'+kind+'.shader'))

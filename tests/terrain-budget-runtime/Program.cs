@@ -562,9 +562,9 @@ public static partial class TerrainProgram
     }
     private static void PropertyBridgeChannels(GameObject host,GameObject scenario,Material material)
     {
-        // Floors are intentionally never admitted by the production owner. Directly
-        // execute the shared proxy helper to pin its compatibility contract for the
-        // world and legacy shaders, without broadening actual floor admission.
+        // The legacy wall-only owner never admits floors. Directly execute the
+        // shared proxy helper to pin both shader safety channels independently
+        // of the separately verified room-architecture floor admission.
         var floor=Surface(scenario,"CV_Floor_Basic",new Vector3(12,0,0),material,false);
         Type type=typeof(ScenarioTerrainBudget).GetNestedType("Surface",BindingFlags.NonPublic)!;
         object surface=Activator.CreateInstance(type,BindingFlags.Instance|BindingFlags.NonPublic,null,

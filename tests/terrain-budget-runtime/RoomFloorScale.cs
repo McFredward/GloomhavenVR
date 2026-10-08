@@ -35,9 +35,11 @@ public static partial class TerrainProgram
         }
         first.transform.position = new Vector3(-.825f, 1f, -.825f); first.transform.localScale = Vector3.one * .1f;
         MeshRenderer wall = Surface(scenario, "CV_Wall_Generic_01", new Vector3(0, 1, 0), material);
+        MeshRenderer support = Surface(scenario, "VerifiedFloorSupport", new Vector3(.3f, 1, 0), material, false);
+        Mesh supportOriginal = support.GetComponent<MeshFilter>().sharedMesh; support.transform.localScale = Vector3.one * .1f;
         ScenarioTerrainBudget.ConfigureRoomArchitecture(() => true, () => 0);
         int roleReads = 0;
-        ScenarioTerrainBudget.ConfigureArchitectureBank(mesh => { roleReads++; return mesh == original ? 1 : 0; });
+        ScenarioTerrainBudget.ConfigureArchitectureBank(mesh => { roleReads++; return mesh == original ? 1 : mesh == supportOriginal ? 3 : 0; });
         ScenarioTerrainBudget.ConfigureRoomFloorCameraSourceLimit(() => 0);
         ScenarioTerrainBudget.ConfigureFloorGrouping(renderer => false);
         int notifications = 0;
@@ -50,16 +52,18 @@ public static partial class TerrainProgram
         PerfConfig.SharedEnvironmentMaterialReadsOn = true; PerfConfig.TerrainCameraSourceLimit = 1;
         camera.transform.position = new Vector3(0, 3, -3); camera.transform.LookAt(Vector3.up); camera.orthographicSize = 2f;
         ScenarioTerrainBudget.Install(host); ScenarioTerrainBudget.QueueRoot(scenario); Morph(host, 48);
-        Check(DuringRender(camera, () => floors.TrueForAll(renderer => renderer.forceRenderingOff) && wall.forceRenderingOff),
+        Check(DuringRender(camera, () => floors.TrueForAll(renderer => renderer.forceRenderingOff) && support.forceRenderingOff && wall.forceRenderingOff),
             "separate unlimited room floor budget leases256 live floors without starving the one-source structural budget");
-        Check(PerfMonitor.Counts["Terrain.FloorSubstitutes"] == count && PerfMonitor.Counts["Terrain.StructuralSubstitutes"] == 1
-            && PerfMonitor.Counts["Terrain.FloorCameraCandidates"] == count,
+        Check(PerfMonitor.Counts["Terrain.FloorSubstitutes"] == count + 1 && PerfMonitor.Counts["Terrain.StructuralSubstitutes"] == 1
+            && PerfMonitor.Counts["Terrain.FloorCameraCandidates"] == count + 1,
             "large repeated room coverage counters measure256 surviving floor leases and one surviving wall independently");
         Check(PerfMonitor.Counts["Terrain.SubmittedTriangles"] < PerfMonitor.Counts["Terrain.OriginalTriangles"] / 2,
             "large repeated floor and wall coverage materially reduce actual paired submitted triangles");
         int settled = notifications; Morph(host, 4);
         Check(settled == count && notifications == settled,
             "settled room floor readiness reports one endpoint revision per floor and no per-frame rebuild notifications");
+        Check(!ScenarioTerrainBudget.CanGroupRoomFloor(supportOriginal) && !ScenarioTerrainBudget.TryGetSettledRoomFloor(support, out _),
+            "verified floor support uses floor detail and budget without becoming a core-floor grouping or readiness source");
         roleReads = 0;
         using (ScenarioTerrainBudget.BeginFloorReadPass())
             foreach (MeshRenderer floor in floors)
@@ -88,7 +92,7 @@ public static partial class TerrainProgram
             + ", actualCameraMeanMs=" + watch.Elapsed.TotalMilliseconds / 10
             + "; llvmpipe editor render timing, not headset FPS.");
         ScenarioTerrainBudget.ConfigureRoomFloorCameraSourceLimit(() => 3);
-        Check(DuringRender(camera, () => floors.FindAll(renderer => renderer.forceRenderingOff).Count == 3 && wall.forceRenderingOff),
+        Check(DuringRender(camera, () => floors.FindAll(renderer => renderer.forceRenderingOff).Count + (support.forceRenderingOff ? 1 : 0) == 3 && wall.forceRenderingOff),
             "independent floor camera cap limits floor preparation while retaining the separate structural lease");
         Check(PerfMonitor.Counts["Terrain.FloorSubstitutes"] == 3 && PerfMonitor.Counts["Terrain.StructuralSubstitutes"] == 1,
             "floor cap completion retains original native fallback for every omitted floor");

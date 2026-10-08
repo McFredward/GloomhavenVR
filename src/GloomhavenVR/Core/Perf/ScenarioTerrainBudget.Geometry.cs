@@ -14,6 +14,8 @@ internal static partial class ScenarioTerrainBudget
         internal readonly MeshFilter Filter;
         internal readonly Mesh Original;
         internal readonly bool Floor;
+        internal readonly bool FloorSupport;
+        internal bool FloorBudget => Floor || FloorSupport;
         internal bool RoomArchitecture;
         private readonly bool _legacyStructural;
         private readonly bool _neverFade;
@@ -46,13 +48,16 @@ internal static partial class ScenarioTerrainBudget
         internal Surface(MeshRenderer renderer, MeshFilter filter, Transform owner)
             : this(renderer, filter, owner, false, FloorIdentity(filter.sharedMesh)) { }
         internal Surface(MeshRenderer renderer, MeshFilter filter, Transform owner, bool architecture, bool floor)
+            : this(renderer, filter, owner, architecture, floor, false) { }
+        internal Surface(MeshRenderer renderer, MeshFilter filter, Transform owner, bool architecture, bool floor, bool floorSupport)
         {
             Renderer = renderer; Identity = renderer.GetInstanceID(); Filter = filter; Original = filter.sharedMesh;
-            Floor = floor; RoomArchitecture = architecture; _legacyStructural = StructuralIdentity(Original);
-            // Original floor-outline/support parts may be cataloged as structure,
-            // because they have no horizontal floor footprint. Preserve the native
-            // floor safety classification independently of the grouping/LOD role.
-            _neverFade = floor || architecture && FloorIdentity(Original);
+            Floor = floor; FloorSupport = floorSupport; RoomArchitecture = architecture; _legacyStructural = StructuralIdentity(Original);
+            // Positively audited floor outlines/supports have no horizontal floor
+            // footprint, yet retain floor fade safety. Furniture such as native
+            // CR_ST_FloorShelf_Stone_Wood contains "Floor" too and must still fade.
+            // Only the verified bank role3 distinguishes these structural uses.
+            _neverFade = floor || floorSupport;
             OriginalTriangles = TriangleCount(Original);
             _proxy = new GameObject("GloomhavenVR.TerrainProxy");
             _proxy.transform.SetParent(owner, false);
@@ -74,7 +79,7 @@ internal static partial class ScenarioTerrainBudget
             }
             return eligible;
         }
-        internal bool GeometryEnabled => Floor ? RoomArchitectureOn
+        internal bool GeometryEnabled => FloorBudget ? RoomArchitectureOn
             : RoomArchitecture && RoomArchitectureOn || _legacyStructural && PerfConfig.TerrainSubstitutionOn;
         internal bool TryGetSettledRoomFloor(out Mesh mesh)
         {
@@ -309,7 +314,7 @@ internal static partial class ScenarioTerrainBudget
                 _vertices[vertex] = Vector3.LerpUnclamped(_from[vertex], _to[vertex], blend);
             _morph.vertices = _vertices; _morph.bounds = _exact.bounds;
             if (_progress >= 1f) _current = _percent >= 100 ? null : _target;
-            if (Floor && _progress >= 1f)
+            if (FloorBudget && _progress >= 1f)
             {
                 // Room floors can number in the thousands. Settled geometry is an
                 // immutable shared bank endpoint; retaining one full private mesh

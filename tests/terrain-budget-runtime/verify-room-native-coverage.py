@@ -31,6 +31,14 @@ def main():
             entry = matching[0]; selected.add(entry['key']); selection.append((entry, relative))
             if sum(item['role'] == role for item, _ in selection) >= limit: break
     assert len(selection) == 24 and any('dlc' in path for _, path in selection) and any('dlc' not in path for _, path in selection), 'base-game and DLC representatives'
+    dedicated = ('CR_ST_FloorShelf_Stone_Wood_Shelf', 'CR_ST_FloorShelf_Stone_Wood',
+                 'CV_Floor_HexOutline_Rock_02', 'CV_Floor_HexOutline_Rock_03', 'CV_Floor_HexOutline_Rock_04',
+                 'TERRAIN_DU_Rubble_Floor', 'TERRAIN_DU_Thorns_Floor')
+    for name in dedicated:
+        entry = next(entry for entry in candidates if entry['signature']['name'] == name)
+        if entry['key'] not in selected:
+            selection.append((entry, entry['sources'][0]['path'])); selected.add(entry['key'])
+
     spec = importlib.util.spec_from_file_location('room_native_export', root/'tools/environment-mesh/export-native.py')
     exporter = importlib.util.module_from_spec(spec); spec.loader.exec_module(exporter)
     cache = {}; results = []; output.mkdir(parents=True, exist_ok=True)
@@ -62,7 +70,7 @@ def main():
                'entries': results, 'limits': ['Representative runtime coverage is not a complete hardware rendering census.',
                'Complete authored role classification and footprint certificates belong to the separately checked all-game asset catalog.']}
     (output/'room-native-coverage.json').write_text(json.dumps(receipt, indent=2)+'\n')
-    print('PASS independent native room coverage: 16 floor +8 structural identities, original bundle/channel bytes and base-game/DLC streams verified')
+    print('PASS independent native room coverage: 16 floor + representative and dedicated structural identities, original bundle/channel bytes and base-game/DLC streams verified')
 
 
 if __name__ == '__main__': main()

@@ -7,14 +7,21 @@ original-bundle provenance, and current generated map-tile/wall ownership. Nativ
 actors, props, doors, held visuals, live effects and unsupported sources retain
 their originals. The previous narrow wall mode remains independent.
 
-Certified floor cores use their own detail percentage and camera-source limit.
-The existing structural limit still governs walls and architectural bodies, so
-hundreds of floors cannot consume the wall budget. Floors morph continuously in
+Certified floor cores and five positively audited floor-support families use
+their own detail percentage and camera-source limit. The existing structural
+limit still governs walls and architectural bodies, so hundreds of floors cannot
+consume the wall budget. Floors morph continuously in
 3D through the original topology; immutable shared bank endpoints replace only
 degenerate endpoint triangles. Native colliders remain untouched. Settled floor
 transition meshes and full-vertex arrays are released instead of retained per
-tile. Floor outline/support structures retain the original never-fade marker
-independently of the catalog's grouping role.
+tile. Runtime bank roles are0 (unsupported),1 (core floor),2 (ordinary structure)
+and3 (verified floor support). Only role1 can supply a floor group or readiness
+event. Role3 is restricted to exact verified CV_Floor_HexOutline_Rock_02/03/04,
+TERRAIN_DU_Rubble_Floor and TERRAIN_DU_Thorns_Floor identities. These retain the
+original never-fade marker. Native CR_ST_FloorShelf_Stone_Wood shelf/body geometry
+remains role2 and retains continuous native attachment/wall fading despite its
+name containing "Floor". Native LODGroup ancestry retains the original renderer;
+private proxies cannot inherit native LOD selection.
 
 Floor grouping requests exact geometry preparation even at floor100 with legacy
 terrain, cheap shading and world shading all off. The environment owner receives
@@ -35,12 +42,19 @@ is off.
 - Initial complete focused terrain execution: production677 assertions and92
   production/negative variants passed. Later live scope and floor-outline repair:
   production680 plus six affected controls passed. These are distinct snapshots.
-- Current bounded follow-up: production791 passed with twelve affected causal
+- Earlier bounded follow-up: production791 passed with twelve affected causal
   controls covered by the initial affected run and the explicit LOW-only repeat.
   The first broad LOW control also changed canonical-read counts and stopped at
   that earlier invariant; narrowing the injected defect to LOW sources reaches
   the intended missing-floor assertion. No production/test expectation was
-  weakened. This is not a new complete99-variant run.
+  weakened. This was not a new complete99-variant run.
+- The shelf/support/LOD follow-up passed882 production assertions and seven
+  affected causal controls using the frozen integration-candidate bank. Actual
+  native shelf geometry executes eleven intermediate fade pictures; support
+  geometry retains never-fade safety and stays outside core-floor grouping.
+  Actual Unity LODGroup ancestry, including a late addition, retains original
+  pixels/renderer admission. These eight variants are a focused pass, not the
+  primary complete gate.
 - Exact production WorldMaterialBudget.HasUnsupportedBlock, effect/property
   tables and native program whitelist are compiled into the terrain fixture.
   Canonical ownership/factory registration are explicit boundary delegates.
@@ -49,11 +63,20 @@ is off.
   original vertex/channel/index bytes match their prepared exact streams;
   source bundle hashes and coarse hashes are checked. Actual Unity renders two
   3D views per source and verifies surviving leases/triangle counts, bounds,
-  original submesh slots and unchanged native collision.
+  original submesh slots and unchanged native collision. Two original shelf
+  bodies and five original floor-support identities add dedicated coverage.
+  The original24-source sample reduces floor triangles only18288 to16734 across
+  two of16 floor families, versus36255 to6725 across all eight structures. Native
+  shape safety correctly retains the other floor families; broad admission does
+  not imply broad floor reduction. The final outer-rim correction regenerates
+  bank endpoints, so the primary gate must rebind these source-bound fixtures
+  against the final bank; the asset worker reports18288 to16768 for that revision.
 - A256 repeated-floor case, half with native slot blocks, acquires256 floor
   leases plus one wall with independent unlimited-floor/one-wall budgets.
   Paired submitted triangles fall197376 to12336 (93.75%) for that fixture.
-  Floor cap3 retains253 native floor fallbacks without removing the wall.
+  The support follow-up adds one role3 source and checks that it shares the floor
+  cap/detail without consuming the wall budget or producing a core-floor event.
+  Floor cap3 retains254 native floor/support fallbacks without removing the wall.
   Exact current role reads occur once per repeated bank identity per synchronous
   floor/camera pass; nested calls and native writes force fresh reads.
 - Strict worker Debug compiles with zero warnings and errors. Primary integration

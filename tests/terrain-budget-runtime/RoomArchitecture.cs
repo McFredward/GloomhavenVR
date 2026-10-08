@@ -26,7 +26,7 @@ public static partial class TerrainProgram
         var collision = floor.gameObject.AddComponent<MeshCollider>(); collision.sharedMesh = floorOriginal;
         var roles = new Dictionary<Mesh, int> { [floorOriginal] = 1, [structureOriginal] = 2,
             [wrongOwner.GetComponent<MeshFilter>().sharedMesh] = 1,
-            [outline.GetComponent<MeshFilter>().sharedMesh] = 2 };
+            [outline.GetComponent<MeshFilter>().sharedMesh] = 3 };
         bool room = true; int floorPercent = 0;
         ScenarioTerrainBudget.ConfigureArchitectureBank(mesh => roles.TryGetValue(mesh, out int role) ? role : 0);
         ScenarioTerrainBudget.ConfigureRoomArchitecture(() => room, () => floorPercent);
@@ -78,6 +78,11 @@ public static partial class TerrainProgram
             return floor.forceRenderingOff && current.GetFloat("_GHVRTerrainNeverFade") == 1f && current.GetFloat("_GHVRWorldNeverFade") == 1f;
         }), "verified coarse floor copies native blocks while retaining both never-fade channels");
         floor.SetPropertyBlock(null);
+        var lod = scenario.AddComponent<LODGroup>();
+        lod.SetLODs(new[] { new LOD(.5f, new Renderer[] { floor }), new LOD(.1f, new Renderer[] { outline }) }); lod.RecalculateBounds();
+        Check(!DuringRender(camera, () => floor.forceRenderingOff || outline.forceRenderingOff),
+            "actual native LODGroup ancestor retains every original level instead of submitting detached duplicate proxies");
+        Object.DestroyImmediate(lod);
         Check(DuringRender(camera, () =>
         {
             var current = new MaterialPropertyBlock(); Proxies(host).Find(r => r.transform.position == outline.transform.position)!.GetPropertyBlock(current);

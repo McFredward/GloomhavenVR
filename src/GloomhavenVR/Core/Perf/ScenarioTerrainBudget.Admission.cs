@@ -21,7 +21,7 @@ internal static partial class ScenarioTerrainBudget
         bool shared = PerfConfig.SharedEnvironmentMaterialReadsOn;
         if (shared && Roles.TryGetValue(type, out ComponentRole cached)) return cached;
         bool blocked = component is Canvas or ActorBehaviour or ProceduralProp or ProceduralDoorway
-            or UnityGameEditorDoorProp or CInteractable or Animator or Rigidbody or Light or SkinnedMeshRenderer;
+            or UnityGameEditorDoorProp or CInteractable or Animator or Rigidbody or Light or SkinnedMeshRenderer or LODGroup;
         ComponentRole role = blocked ? ComponentRole.Blocked : ComponentRole.None;
         if (component is ProceduralWall) role |= ComponentRole.Structural;
         if (component is ProceduralMapTile) role |= ComponentRole.Tile;
@@ -119,12 +119,12 @@ internal static partial class ScenarioTerrainBudget
                 // Most scenes repeat hundreds of small floor tiles. Settled floor
                 // groups have their own owner; their ungrouped fallback must never
                 // exhaust the wall/architecture camera budget before a wall runs.
-                if (left.Floor != right.Floor) return left.Floor ? 1 : -1;
+                if (left.FloorBudget != right.FloorBudget) return left.FloorBudget ? 1 : -1;
                 int cost = right.OriginalTriangles.CompareTo(left.OriginalTriangles);
                 return cost != 0 ? cost : left.Identity.CompareTo(right.Identity);
             });
             _firstFloor = 0;
-            while (_firstFloor < _priority.Count && !_priority[_firstFloor].Floor) _firstFloor++;
+            while (_firstFloor < _priority.Count && !_priority[_firstFloor].FloorBudget) _firstFloor++;
             _priorityDirty = false;
         }
     }

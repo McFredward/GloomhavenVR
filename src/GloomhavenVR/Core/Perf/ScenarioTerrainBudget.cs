@@ -427,7 +427,7 @@ internal static partial class ScenarioTerrainBudget
                         : !CurrentScope(renderer, architecture, floor) ? 0
                         : !EligibleMesh(filter.sharedMesh) ? 3 : -1;
                     if (refusal >= 0) { if (first) _refusals[refusal]++; continue; }
-                    if (!_surfaces.ContainsKey(id)) { _surfaces.Add(id, new Surface(renderer, filter, transform, architecture, floor)); _priorityDirty = true; }
+                    if (!_surfaces.ContainsKey(id)) { _surfaces.Add(id, new Surface(renderer, filter, transform, architecture, floor, role == 3)); _priorityDirty = true; }
                     else if (architecture) _surfaces[id].RoomArchitecture = true;
                 }
                 Camera? camera = Rig.VRRigDriver.HeadCamera;
@@ -537,7 +537,7 @@ internal static partial class ScenarioTerrainBudget
             // Floor tiers preserve native heights, 3D bounds and open boundaries in
             // the audited asset bank. A global tier needs no per-tile proximity
             // or bounds query; floors are never part of the wall-fade system.
-            if (surface.Floor) return RoomArchitectureOn ? detail.Floor : 100;
+            if (surface.FloorBudget) return RoomArchitectureOn ? detail.Floor : 100;
             if (!surface.GeometryEnabled) return 100;
             Bounds bounds = surface.Renderer.bounds;
             Vector3 nearest = bounds.ClosestPoint(detail.Position);
@@ -609,7 +609,7 @@ internal static partial class ScenarioTerrainBudget
                 if (!surface.IsMasked) continue;
                 originals += surface.OriginalTriangles; submitted += surface.DrawTriangles;
                 if (surface.CheapLease) cheap++;
-                if (surface.Floor) floors++; else structures++;
+                if (surface.FloorBudget) floors++; else structures++;
             }
             PerfMonitor.Count("Terrain.OriginalTriangles", originals);
             PerfMonitor.Count("Terrain.SubmittedTriangles", submitted);
@@ -672,10 +672,10 @@ internal static partial class ScenarioTerrainBudget
                             || !surface.WantsSubstitute(substitute) || FloorGroupOwns(surface)) continue;
                         // Bound full guard/copy work, not merely successful masks. Rejected
                         // candidates also cost CPU; budget fallback keeps original output.
-                        if (!surface.Floor && limit > 0 && candidates >= limit) { budgetFallback++; continue; }
-                        if (surface.Floor && floorLimit > 0 && floorCandidates >= floorLimit) { budgetFallback++; continue; }
+                        if (!surface.FloorBudget && limit > 0 && candidates >= limit) { budgetFallback++; continue; }
+                        if (surface.FloorBudget && floorLimit > 0 && floorCandidates >= floorLimit) { budgetFallback++; continue; }
                         if (OutsideFrustum(surface.Renderer)) { frustumFallback++; continue; }
-                        if (surface.Floor) floorCandidates++; else candidates++;
+                        if (surface.FloorBudget) floorCandidates++; else candidates++;
                         if (!surface.Validate(_meshThisInvocation)
                             || surface.Renderer.isPartOfStaticBatch || surface.Renderer.additionalVertexStreams != null
                             || !CurrentScope(surface.Renderer, surface.RoomArchitecture, surface.Floor)) continue;
