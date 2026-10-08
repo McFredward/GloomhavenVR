@@ -61,6 +61,7 @@ host_resources = _local_helper("host_resources")
 build_progress = _local_helper("progress")
 recovery_resume = _local_helper("recovery_resume")
 prepare_resume = _local_helper("prepare_resume")
+preparation_identity = _local_helper("preparation_identity")
 _release = _local_helper("release") if Path(__file__).with_name("release.py").is_file() else None
 
 
@@ -809,6 +810,9 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path, *, conve
             "project": project.relative_to(output).as_posix(), "target": args.target,
             "isDiagnostic": args.target != "game", "isDummy": bool(inputs["profile"].get("isDummy"))}
 
+    prior_preparation_key = preparation_identity.rebind_key(
+        output, project, inputs, source, target=args.target, recipe=RECIPE, recovery=recovery_resume)
+
     def generate():
         def reset():
             # Only a new input/recipe or older uncheckpointed project enters this
@@ -819,7 +823,8 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path, *, conve
         sources += [(game / row["path"], row) for row in inputs["game"]["files"]]
         build_progress.operation("project-files", detail="Qualifying retained preparation checkpoints")
         resume = prepare_resume.Preparation(output, project, input_key=inputs["inputKey"], target=args.target,
-                                           recipe=RECIPE, source_files=sources, progress=build_progress, reset=reset, content_proofs=content_proofs)
+                                           recipe=RECIPE, source_files=sources, progress=build_progress, reset=reset,
+                                           content_proofs=content_proofs, compatible_input_key=prior_preparation_key)
         try:
             result = generate_files(resume)
             if args.target in ("startup", "game"): publish_project_content(output, project, inputs["inputKey"])

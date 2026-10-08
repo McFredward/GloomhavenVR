@@ -85,6 +85,25 @@ NATIVE_BYTES_FIXED = {
         "path": "tools/quest-recovery/packed_sprites.py", "size": 10254,
         "sha256": "add7402c47346647beed79bf07f103e0c7631e8bbdf933b9e44ee6ac52b320eb"},
 }
+# B643's first Windows completion retained all fourteen derived transformations
+# and four preparation steps. The following exact observer/cache update changes
+# no generated original asset bytes. Preserve those owners only for the complete
+# reviewed profile; an unrelated or partial producer update retains a new key.
+OBSERVATION_PREVIOUS = {
+    "tools/quest-builder/storage.py": {
+        "path": "tools/quest-builder/storage.py", "size": 32239,
+        "sha256": "62a0c3a50579a2505ff33ac8abd9d17d8d71b76c6ce9c6b2aca0ccf48837fc25"},
+    "tools/quest-builder/full_assets.py": {
+        "path": "tools/quest-builder/full_assets.py", "size": 31808,
+        "sha256": "70356fc0af07ba66deae7a60359e7a20794e5d51596f40b05643c42cca039abb"},
+    "tools/quest-builder/staging_resume.py": {
+        "path": "tools/quest-builder/staging_resume.py", "size": 20847,
+        "sha256": "5f4f803decb96a49eaf1e00801e6d4325684666f19b19c3769be6f06e12e4d89"},
+    "tools/quest-builder/prepare_resume.py": {
+        "path": "tools/quest-builder/prepare_resume.py", "size": 27384,
+        "sha256": "ad5b12ad8a51756b1f0dee4609a903fe8380feab69f35de8724355c622d3750d"},
+}
+OBSERVATION_FIXED = {}
 # Shipped d4cc44eeb adds an exporter-log observer and invocation-local proof
 # caches. The current reference-audit update changes no raw export identities.
 # Preserve this exact whole profile as well as the previous shipped profiles.
@@ -126,9 +145,22 @@ def _native_byte_rows(rows):
     return rows
 
 
+def preparation_source_rows(rows):
+    """Return reviewed output-equivalent rows; actual source proof stays exact."""
+    rows = _native_byte_rows(rows)
+    by_path = {}
+    for row in rows:
+        by_path.setdefault(row["path"], []).append(row)
+    if (OBSERVATION_FIXED and all(by_path.get(name) == [fixed]
+                                 for name, fixed in OBSERVATION_FIXED.items())):
+        return [OBSERVATION_PREVIOUS.get(row["path"], row) for row in rows]
+    return rows
+
+
 def recipe_key(inputs, recipe):
+    selected = {"mod": {"files": preparation_source_rows(inputs["mod"]["files"])}}
     rows = [CRLF_OBSERVER_PREVIOUS if row == CRLF_OBSERVER_FIXED else row
-            for row in _native_byte_rows(recipe_files(inputs))]
+            for row in recipe_files(selected)]
     return value_hash({"game": inputs["game"]["key"], "recoveryRecipe": rows, "recipe": recipe})
 
 

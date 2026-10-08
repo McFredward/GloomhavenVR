@@ -55,6 +55,7 @@ MINIMAL_RECOVERY_BYTES = {
 
 class ResumeFixture(unittest.TestCase):
     native_byte_fixture = False
+    observation_fixture = False
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -73,7 +74,8 @@ class ResumeFixture(unittest.TestCase):
         for name in (*recovery_resume.ORCHESTRATION_FILES, "tools/quest-recovery/QuestExportIdentity.cs",
                      "tools/quest-recovery/export_identity.py", "tools/quest-recovery/tool-lock.json",
                      *recovery_resume.DERIVED_FILES,
-                     *(recovery_resume.NATIVE_BYTES_PREVIOUS if self.native_byte_fixture else ())):
+                     *(recovery_resume.NATIVE_BYTES_PREVIOUS if self.native_byte_fixture else ()),
+                     *(recovery_resume.OBSERVATION_PREVIOUS if self.observation_fixture else ())):
             target = self.source / name
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / name, target)
@@ -787,6 +789,123 @@ class NativeByteStageContinuationTests(ObserverStageContinuationTests):
         with self.assertRaisesRegex(storage.BuildError, "Retained staged bytes differ"):
             with Journal(self.recovered, identity, full_assets._StageProofs(), resume_owner=self.owner):
                 self.fail("Corrupt native file must never be reused")
+
+
+class ObservationRecipeContinuationTests(unittest.TestCase):
+    """Replay fourteen real Journal transactions without any native/Unity claim."""
+    PHASES = ("catalog", "canonical", "copy", "runtime", "guid", "layout", "native",
+              "catalog-final", "index", "tmp", "bindings", "audit", "scenes", "report")
+
+    def setUp(self):
+        fixture_type = type("OwnedObservationFixture", (ObserverStageContinuationTests,),
+                            {"observation_fixture": True})
+        self.fixture = fixture_type("test_exact_parser_repair_and_current_mod_keep_six_closed_phases_and_all_16_raw_packages")
+        self.fixture.setUp()
+        self.addCleanup(self.fixture.tearDown)
+        f = self.fixture
+        actual = {row["path"]: row for row in f.current["mod"]["files"] if row["path"] in recovery_resume.OBSERVATION_FIXED}
+        self.assertEqual(actual, recovery_resume.OBSERVATION_FIXED)
+        self.assertTrue(actual)
+        for index, row in enumerate(f.previous["mod"]["files"]):
+            if row["path"] in recovery_resume.OBSERVATION_PREVIOUS:
+                f.previous["mod"]["files"][index] = dict(recovery_resume.OBSERVATION_PREVIOUS[row["path"]])
+        self.publish(f.previous)
+        self.assertEqual(recovery_resume.recipe_key(f.previous, 1), f.old_key)
+        f.consumer = self.consumer
+        self.actions = []
+
+    def publish(self, value):
+        value["mod"]["key"] = storage.value_hash({"files": value["mod"]["files"]})
+        value["inputKey"] = storage.value_hash({key: row for key, row in value.items() if key != "inputKey"})
+        storage.write_json(self.fixture.output / "manifests" / (value["inputKey"] + ".json"), value)
+
+    def consumer(self, raw, game, recovered, archive, *, resume_owner, **kwargs):
+        f = self.fixture
+        identity = {"source": str(raw), "game": str(game), "output": str(recovered),
+                    "checkpointSha256": storage.digest(raw / "quest-full-recovery-progress.json"),
+                    "catalogSha256": f.plan["catalogSha256"], "managedTypesSha256": storage.digest(f.managed),
+                    "cabBundlesSha256": storage.digest(f.workspace / "original-cab-bundles.json"),
+                    "tmpArchiveSha256": None, "canonicalProject": None, "canonicalStartup": None, "resumeOwner": resume_owner}
+        report = {"fixtureOnly": True, "readiness": {"originalSceneClosureStaged": True,
+                  "fullOriginalCatalogRecovered": True, "unityImportVerified": False, "androidPlayerBuilt": False},
+                  "missingReferences": {"missingGuidCount": 0, "duplicateGuidCount": 0},
+                  "unresolvedAddressables": [], "managedScriptBindings": {"unexpectedUnresolvedCount": 0}}
+        with Journal(recovered, identity, full_assets._StageProofs(), resume_owner=resume_owner) as journal:
+            for position, name in enumerate(self.PHASES):
+                def action(name=name):
+                    self.actions.append(name)
+                    if name == "copy":
+                        for row in f.checkpoint["files"]:
+                            full_assets._resume_copy(raw / row["path"], recovered / row["path"], row, journal.proofs, journal)
+                    elif name == "native":
+                        path = recovered / "Assets/native.mat"
+                        path.write_bytes(path.read_bytes().replace(b"m_Name: original", b"m_Name: restored-native"))
+                    receipt = recovered / "QuestRecovery" / ("fixture-stage-" + name + ".json")
+                    storage.write_json(receipt, {"schema": 1, "phase": name, "fixtureOnly": True})
+                    if name == "copy":
+                        journal.proofs.digest(receipt)
+                        journal.record(receipt)
+                    return report if name == "report" else {"phase": name}
+                result = journal.run(name, position, action, copy=name == "copy",
+                    auxiliary=recovered.with_name(recovered.name + "-native-restoration") if name == "native" else None)
+        return result
+
+    def seed(self):
+        f = self.fixture
+        result = self.consumer(f.raw, f.game, f.recovered, f.root / "tmp.zip", resume_owner=f.owner)
+        self.assertTrue(result["fixtureOnly"])
+        self.assertEqual(self.actions, list(self.PHASES))
+        self.actions.clear()
+
+    def test_exact_observer_profile_keeps_all_fourteen_transactions_and_sixteen_raw_packages(self):
+        f = self.fixture
+        self.seed()
+        path = f.recovered / "Assets/native.mat"
+        before, content = path.stat(), path.read_bytes()
+        stream = io.StringIO()
+        with patch.dict(os.environ, {recover.build_progress.ENV: "1"}), contextlib.redirect_stdout(stream), \
+             patch.object(builder.prepare_resume, "Preparation", side_effect=RuntimeError("Preparation consumer reached")):
+            with self.assertRaisesRegex(RuntimeError, "Preparation consumer reached"):
+                f.retry()
+        self.assertEqual(self.actions, [])
+        self.assertEqual(path.read_bytes(), content)
+        self.assertEqual((path.stat().st_ino, path.stat().st_mtime_ns), (before.st_ino, before.st_mtime_ns))
+        events = [json.loads(line[len(recover.build_progress.PREFIX):]) for line in stream.getvalue().splitlines()
+                  if line.startswith(recover.build_progress.PREFIX)]
+        reused = [row["phase"].split(":", 1)[1] for row in events
+                  if row["phase"].startswith("staging-section:") and row["status"] == "reuse"]
+        self.assertEqual(reused, list(self.PHASES))
+        self.assertTrue(any(row["phase"] == "recovery-batches" and row["done"] == row["total"] == 16 for row in events))
+
+    def test_partial_or_unrecognized_observer_profile_never_claims_prior_derived_outputs(self):
+        f = self.fixture
+        for name in recovery_resume.OBSERVATION_PREVIOUS:
+            for change in ("unknown", "previous"):
+                with self.subTest(name=name, change=change):
+                    current = copy.deepcopy(f.current)
+                    row = next(row for row in current["mod"]["files"] if row["path"] == name)
+                    if change == "previous": row.update(recovery_resume.OBSERVATION_PREVIOUS[name])
+                    else: row["sha256"] = "f" * 64
+                    # storage/Preparation are not raw exporters. A mixed
+                    # observer set must nevertheless stop recipe aliasing of
+                    # the changed full-assets/staging consumers.
+                    self.assertNotEqual(recovery_resume.recipe_key(current, 1), f.old_key)
+
+    def test_actual_changed_observer_source_and_completed_transaction_bytes_are_rejected(self):
+        f = self.fixture
+        self.seed()
+        path = f.source / "tools/quest-builder/full_assets.py"
+        original = path.read_bytes()
+        path.write_bytes(original + b"\n# Unmanifested current observer source.\n")
+        with self.assertRaisesRegex(storage.BuildError, "Current recovery source differs"):
+            f.retry()
+        self.assertEqual(self.actions, [])
+        path.write_bytes(original)
+        changed = f.recovered / "QuestRecovery/fixture-stage-audit.json"
+        changed.write_bytes(b"corrupt completed derived transaction")
+        with self.assertRaisesRegex(storage.BuildError, "Retained staged bytes differ"):
+            f.retry()
+        self.assertEqual(self.actions, [])
 
 
 class CorruptionControls(ResumeFixture):
