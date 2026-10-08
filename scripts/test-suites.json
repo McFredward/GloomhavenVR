@@ -2172,6 +2172,17 @@
         "local"
       ],
       "weight": 45
+    },
+    {
+      "id": "native-ring645",
+      "command": [
+        "python3",
+        "scripts/npc-ring645-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 60
     }
   ]
 }
