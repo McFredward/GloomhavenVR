@@ -134,6 +134,10 @@ remain to be tested by the maintainer; no full host game APK is produced.
 
 Integrated focused validation covers219 Builder cases in15 modules,223 Wizard
 cases,193 Installer cases (170 executed and23 explicit platform skips), and
-20 current UI-model cases. The earlier browser gate executed30 cases with two
-optional real-loopback skips. These are affected-suite proofs, not a new
+20 current UI-model cases. After the update setup text changed, the final
+34-case UI gate executes32 cases with two optional real-loopback skips, including
+both real-browser update modes and restored APK/signing choices. The genuine
+B625 immutable managed-input contract matches the original local PC copy in
+0.189s without game mutation or conversion; this is local evidence, not a
+Windows duration guarantee. These are affected-suite proofs, not a new
 complete project gate or Windows native/AOT hardware acceptance.
