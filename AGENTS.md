@@ -71,6 +71,14 @@ arguments and implementation comments are not approvals. Record the source of ea
 exception; fix newly discovered divergences within the authorized review. Native prefab clones
 must retain original presentation without running gameplay controllers or callbacks.
 
+The user's 2026-10-08 motion clarification permits client-local phases for two
+intrinsic repeating effects: the enchantress offered-card ring spin and the
+up/down hover of offered cards at the merchant and enchantress. Preserve each
+original effect's direction, speed, amplitude and waveform. Ring orientation
+and plane still follow the physical card exactly; this phase exception does not
+permit different card facing/content, displaced enhancement overlays, changed
+interaction state, or divergent flights.
+
 The latest multiplayer test ruling (2026-09-09, ModBuild 486 evidence) supersedes older
 pile/active-card face exceptions: during the action phase cards are face-up; during
 ability selection, remote fans, held cards and placed cards are face-down. Remote short-rest
