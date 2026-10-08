@@ -30,26 +30,36 @@ shared identity are checked; seven ambiguous identities retain original renderin
 The index contains1,434 exact originals:133 floor,531 structure and770 protected
 legacy families. The strongest certified structure derivatives cover505 families
 and reduce510,018 to60,903 triangles (88.1%). The strongest floor derivatives
-cover68 families and reduce14,157 to4,907 triangles (65.3%). Other originals
+cover80 families and reduce15,643 to5,855 triangles (62.6%). Across all133
+floor families with original fallbacks,53,962 becomes44,174 (18.1%). An independent
+representative native16-floor set reduces18,288 to16,768 (8.3%); only two
+originals in that set have useful safe floor derivatives. Eight representative
+native DLC structures reduce36,255 to6,725 (81.5%). Other originals
 remain exact when no safe useful derivative exists. These numbers compare each
 asset once and do not estimate a scenario's visible total or FPS.
 
-The rebuilt environment bank contains4,040 immutable geometry streams and4,043
-loadable assets, occupies70,975,207 bytes and has SHA256
-`cfcc2dee4121e7ab1a2881cb033dd5fb50fada00797d527d347b7bd4dc8d3116`.
+The rebuilt environment bank contains4,057 immutable geometry streams and4,060
+loadable assets, occupies70,999,748 bytes and has SHA256
+`c3648422dedaf3197ae1738ccbb4eff50aad0491113bbd263855fe6c04ea1802`.
 The independent Unity loader decodes every stream through the production reader:
-3,296,386 vertex slots and1,741,930 triangles across all included tiers. This
+3,297,619 vertex slots and1,742,924 triangles across all included tiers. This
 includes exact originals and multiple derivatives, not one frame's geometry.
 
 ## Rendering and presentation contracts
 
-All geometry stays three-dimensional. Floor footprint, holes, height, actual
-bounds, open seams, submesh slots and original attribute channels are certified.
-Floor morph certificates include three intermediate positions. Native meshes,
+All geometry stays three-dimensional. Actual bounds, open seams, submesh slots and original attribute channels are
+certified. Floor certificates additionally verify sampled footprint, holes and
+height on the existing18-by-18 grid. Fine relief may change within the unchanged
+height tolerance; these samples do not prove every unsampled tiny feature.
+Floor morph certificates include three intermediate positions. Every original
+projected convex-hull edge slot, including collinear points and all heights,
+remains fixed; an independent audit caught94/152 earlier derivatives that missed
+diagonal rim vertices. All169 final floor derivatives pass the stronger check. Native meshes,
 colliders, transforms, gameplay controllers, room visibility, doors and actors
 remain authoritative. Geometry transitions use the existing continuous morph.
-Original floor-outline supports retain their never-fade contract while sharing
-the structural geometry budget. No static-batch metadata is rewritten.
+Five exact bank-proven floor-outline/support identities retain their never-fade
+contract and use the floor detail/budget, without claiming floor-core grouping.
+FloorShelf furnishing identities retain normal continuous native fading. No static-batch metadata is rewritten.
 
 Room floors use an independent per-eye source budget;0 means unlimited. They
 cannot consume the existing wall/pillar cap. Settled floors can delegate their
@@ -68,13 +78,21 @@ retain native rendering. Safe tint/texture blocks remain on individual proxies.
 Groups conservatively refuse all source property blocks. Saved LOW floor wall
 flags require the owned floor-aware material and private never-fade markers.
 
+New LODGroup ancestors retain native rendering: private proxies outside the
+native LODGroup cannot safely infer which enabled original level Unity selects.
+Fifteen positive rock identities have native LODGroup use and therefore retain
+their native selection. This correctness rule is universal and has no option.
+
 Optional architecture removal uses a closed21-signature catalog and complete
 safe decoration units. It requires a live retained bank-proven floor/structural
 core, refuses unknown/gameplay/held/animated/light descendants and never disables
 native colliders. Structural walls, pillars and shelves retain their continuous
 native fading. Native core witnesses use bounded existing rescue checks rather
 than a scene-wide per-frame scan. Actual runtime coverage is reported separately
-from the candidate catalog.
+from the candidate catalog. Reconstructed original graphs cover46 contexts,139
+original mesh identities and1,242 uses from14 verified bundles. Of62 closed
+ornament uses,27 complete units (20,332 original triangles) are additional
+admissions and35 retain native presentation for collider/core/script safety.
 
 Scoped mesh-role, ancestry and material reads share only one synchronous
 invocation. Nested cameras, native writers and recovery invalidate mutable reads.

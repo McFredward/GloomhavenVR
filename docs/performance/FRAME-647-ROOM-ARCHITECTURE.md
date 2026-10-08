@@ -33,7 +33,9 @@ The archive and exact input hashes are in the main checkout's gitignored
 | `ScenarioRoomFloorCameraSourceLimitCount` |0 |0 | Independent CPU/geometry budget for individual floors;0 means unlimited |
 
 Existing wall/pillar near and distant detail percentages also apply to newly
-verified structural families when the room mode is on. The old wall-substitution
+verified structural families when the room mode is on. Five bank-proven genuine
+floor-outline/support families share floor detail and its source budget while
+remaining outside floor-core grouping; furnishing shelves keep native fades. The old wall-substitution
 switch retains its legacy scope independently. The existing per-eye wall/pillar
 limit remains64 for fresh low profiles; floors have a separate budget and cannot
 consume it. Grouped floors do not consume the individual floor budget.
@@ -53,8 +55,10 @@ families retain original rendering. No broad runtime name matching authorizes
 the new role.
 
 Prepared derivatives retain original vertex indexing, channels, submesh slots,
-actual 3D bounds and open seams. Floors additionally retain certified coverage,
-holes and heights throughout sampled intermediate morph positions. Unsafe or
+actual 3D bounds and open seams. Floors additionally check coverage,
+holes and heights on a sampled grid, including three intermediate morph positions.
+Fine relief changes within the original tolerance; unsampled tiny features are
+not established by those certificates. Unsafe or
 ineffective derivatives retain the exact original. This is still native 3D room
 geometry with original textures; it does not flatten the board or erase rooms.
 Geometry quality transitions reuse the continuous native-facing morph path.

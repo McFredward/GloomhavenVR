@@ -604,8 +604,9 @@ internal static class NetProtocol
     // Audit every local PCG MeshFilter use across the game and DLC source bundles.
     // Only unambiguous static floor/structure/ornament families are admitted by
     // exact native metadata and source hashes. Stronger prepared tiers retain
-    // original channels, vertex indexing, bounds, open seams and certified floor
-    // footprints; unsafe derivatives keep original geometry. No 2.5D board,
+    // original channels, vertex indexing, bounds, open seams and floor convex
+    // perimeter slots; interior coverage/holes/height remain sampled certificates.
+    // Unsafe derivatives keep original geometry. No 2.5D board,
     // native static batching, source mesh writes or room/actor/door hiding.
     // The room master, floor detail, ornament density, private floor grouping
     // and individual floor source budget are distinct live quality controls.
@@ -617,6 +618,10 @@ internal static class NetProtocol
     // source scope, native consumers and morph endpoints revoke stale groups.
     // Floor budget is independent of the existing wall/pillar budget; complete
     // camera counters distinguish floors, structures and surviving group leases.
+    // Five exact bank-proven floor supports share floor detail/budget, without
+    // entering core-floor groups. FloorShelf furniture retains native fades.
+    // Native LODGroup sources keep original level selection. Owned world variants
+    // use their complete current shader and wide/indexed block effect contract.
     // Unused settled-floor morph buffers and repeated current-pass native reads
     // are removed universally, without an option. Gameplay and wire schemas stay.
     // Full asset-bank installation is required. Scope, measurements and limits:
