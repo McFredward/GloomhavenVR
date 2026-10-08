@@ -133,6 +133,6 @@ public static class InteractionProgram
             UnityEngine.Object.DestroyImmediate(preview.gameObject);
             GloomhavenVR.Rig.VRRigDriver.HeadCamera = null;
         }
-        return count + ConversionMeasureProgram.Run() + NativeCameraProgram.Run() + MenuCaptureProgram.Run();
+        return count + ConversionMeasureProgram.Run() + NativeCameraProgram.Run() + MenuCaptureProgram.Run() + LateMenuProgram.Run();
     }
 }

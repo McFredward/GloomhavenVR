@@ -13,7 +13,13 @@ namespace GloomhavenVR.Core
     internal static class VRLog
     {
         internal static int StereoCorrections;
-        internal static void Info(string category, string message) { if (message.StartsWith("Stereo policy: ")) StereoCorrections++; }
+        internal static int FirstCaptureReports;
+        internal static bool WantsDebug = true;
+        internal static void Info(string category, string message)
+        {
+            if (message.StartsWith("Stereo policy: ")) StereoCorrections++;
+            if (message.StartsWith("FlatScreen first-render discovery: ")) FirstCaptureReports++;
+        }
         internal static void Warn(string category, string message) => Debug.LogWarning(message);
         internal static void Note(string category, string message) { }
     }
@@ -33,14 +39,26 @@ namespace GloomhavenVR.WorldUI
     {
         private bool _visible;
         private bool _mirrorLogged;
-        private void CaptureStack() { }
-        private sealed class CapturedCamera { internal bool IsUi; }
-        private static readonly Dictionary<Camera, CapturedCamera> CapturedSet = new Dictionary<Camera, CapturedCamera>();
-        private static readonly HashSet<Camera> Captured = new HashSet<Camera>();
         private RenderTexture? _rt, _uiRt;
         private bool _splitRouting;
-        private RenderTexture? TargetFor(CapturedCamera c) => c.IsUi && _splitRouting && _uiRt != null ? _uiRt : _rt;
-        internal static bool IsCaptured(Camera camera) => Captured.Contains(camera);
+        private bool _splitNoUi, _splitFailed = false;
+        private string? _stereoGateReason;
+        private Renderer? _backRenderer = null;
+        private bool SplitActive => _uiRt != null;
+        private static bool IsPreMenuScene() => false;
+        // Explicit construction boundaries: tests execute real native capture and
+        // clear policy, and separately observe its calls into the stereo owner.
+        private int _fixtureCaptureScans;
+        private void TickSplitLifecycle() => _fixtureCaptureScans++;
+        private void SetSplitRouting(bool routing, string reason) => _splitRouting = routing;
+        private void TickNoUiWatchdog() { }
+        internal void BeginEmptyCapture(RenderTexture target, RenderTexture? glass = null)
+        { _rt = target; _uiRt = glass; _splitRouting = glass != null; SetCaptureRenderGuard(true); }
+        internal void Census() => CaptureStack();
+        internal int MemberCount => _captured.Count;
+        internal int CaptureScans => _fixtureCaptureScans;
+        internal int StereoSyncCount => _stereo.SyncCount;
+        internal void EnableStereoFixture() => _stereo.Active = true;
         internal void Tick(bool visible, bool mirror)
         {
             _visible = visible;
@@ -48,21 +66,40 @@ namespace GloomhavenVR.WorldUI
             TickDesktopMirrorMode();
             TickDesktopCameraScrub();
         }
-        internal void End() { SetCaptureRenderGuard(false); CapturedSet.Clear(); Captured.Clear(); GloomhavenVR.Core.VRCameraPolicy.RestoreAll(); RestoreDesktopMirrorMode(); ReleaseDesktopScrub("fixture teardown"); }
+        internal void End() { ReleaseStack(); GloomhavenVR.Core.VRCameraPolicy.RestoreAll(); RestoreDesktopMirrorMode(); ReleaseDesktopScrub("fixture teardown"); }
         internal RenderTexture? Sink => _scrubRt;
         internal void Pre(Camera camera) => OnScrubPreCull(camera);
         internal void Post(Camera camera) => OnScrubPostRender(camera);
         internal void Handoff(Camera camera, RenderTexture capture)
         {
-            Captured.Add(camera);
+            RegisterFixtureCapture(camera);
             TickDesktopCameraScrub();
             camera.targetTexture = capture;
         }
         internal void ReleaseForCapture() => ReleaseDesktopScrub("flat screen capture begins");
         internal void Capture(Camera camera, RenderTexture target)
-        { Captured.Add(camera); CapturedSet[camera] = new CapturedCamera { IsUi = false }; _rt = target; _uiRt = null; _splitRouting = false; camera.targetTexture = target; SetCaptureRenderGuard(true); }
-        internal void ForgetCapture(Camera camera) { Captured.Remove(camera); CapturedSet.Remove(camera); camera.targetTexture = null; }
+        { RegisterFixtureCapture(camera); _rt = target; _uiRt = null; _splitRouting = false; camera.targetTexture = target; SetCaptureRenderGuard(true); }
+        private void RegisterFixtureCapture(Camera camera)
+        {
+            if (CapturedSet.ContainsKey(camera)) return;
+            var record = new CapturedCamera { Camera = camera, OriginalClearFlags = camera.clearFlags,
+                OriginalBackground = camera.backgroundColor, WasEnabled = camera.isActiveAndEnabled, IsUi = false };
+            _captured.Add(record); CapturedSet.Add(camera, record);
+        }
+        internal void ForgetCapture(Camera camera)
+        { if (CapturedSet.TryGetValue(camera, out CapturedCamera record)) _captured.Remove(record); CapturedSet.Remove(camera); camera.targetTexture = null; }
         internal void InterruptCapture(Camera camera) => OnCapturePreCull(camera);
         internal void RestoreInterruptedCapture(Camera camera) => OnCapturePostRender(camera);
+    }
+    internal sealed class FlatScreenStereo
+    {
+        internal bool Active, Suspended = false;
+        internal int SyncCount;
+        internal void Tick(RenderTexture rt, Renderer? renderer, bool preMenu) { }
+        internal void BeginStackSync() => SyncCount = 0;
+        internal void SyncCamera(Camera camera) => SyncCount++;
+        internal void EndStackSync() { }
+        internal void Deactivate(string reason) => Active = false;
+        internal void ReleaseMirrors() => SyncCount = 0;
     }
 }

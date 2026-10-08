@@ -57,6 +57,19 @@ def main():
         'CullBoundary.cs': (args.source_root/'src/GloomhavenVR/Core/Perf/ScenarioEnvironmentBudget.CameraBoundary.cs').read_text(),
         'Lifecycle.cs': 'using GloomhavenVR.Core;\nusing UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class FlatScreen\n{\n'+fields+end+'}\n',
     }
+    # Execute real discovery, classification, base selection, clear policy and
+    # release. Only the heavyweight split/stereo construction is a named fixture
+    # boundary; a hand-written capture stub cannot prove a first native render.
+    captured_fields = core[core.index('    private sealed class CapturedCamera'):core.index('    // Placement anchors:')]
+    stack_probe = 'using GloomhavenVR.Core;\nusing UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal sealed partial class FlatScreen\n{\n' + captured_fields
+    for signature in ('    private void CaptureStack()\n', '    private void SelectBases()\n',
+                      '    private void TickStackClears()\n', '    private void ReleaseStack()\n'):
+        stack_probe += method(stack, signature)
+    start = stack.index('    private static bool IsUiCamera(')
+    stack_probe += stack[start:stack.index(';', start)+1] + '\n'
+    start = stack.index('    private RenderTexture? TargetFor(')
+    stack_probe += stack[start:stack.index(';', start)+1] + '\n'
+    sources['CaptureStack.cs'] = stack_probe + '}\n'
     fit = (args.source_root/'src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.3.Fit.cs').read_text()
     probe = """using System.Collections.Generic;
 using UnityEngine;
@@ -96,6 +109,14 @@ internal static bool Measure(ConvertedPanel panel, Graphic graphic, out Vector2 
         + 'private const int SweepIntervalFrames = 16;\n' + resolver + '\n}\n')
     variants = [
         ('production', '', '', '', ''),
+        ('late-menu-discovery-lost', 'CaptureRender.cs', '            CaptureStack();', '            /* injected: first render bypasses native capture */', 'late native camera is captured before its first actual render'),
+        ('late-menu-base-clear-lost', 'CaptureStack.cs', '                if (cam.backgroundColor != OpaqueBlack)\n                    cam.backgroundColor = OpaqueBlack;', '                /* injected: new base retains undefined native background */', 'first native render applies current opaque stack base clear'),
+        ('late-menu-release-lost', 'CaptureStack.cs', '                cam.targetTexture = null;', '                { /* injected: first-render camera stays captured after release */ }', 'first-render capture releases exact camera and native clear state'),
+        ('late-menu-head-census', 'CaptureRender.cs', 'camera == Rig.VRRigDriver.HeadCamera)', 'false)', 'head foreign preview and manual-disabled cameras never trigger first-render census'),
+        ('late-menu-foreign-census', 'CaptureRender.cs', '|| camera.targetTexture != null)', '|| false)', 'head foreign preview and manual-disabled cameras never trigger first-render census'),
+        ('late-menu-disabled-census', 'CaptureRender.cs', '|| !camera.isActiveAndEnabled ||', '|| false ||', 'head foreign preview and manual-disabled cameras never trigger first-render census'),
+        ('late-menu-ui-classification-lost', 'CaptureStack.cs', 'IsUi = IsUiCamera(cam),', 'IsUi = false,', 'first late UI render joins transparent glass in the same render'),
+        ('late-menu-stereo-sync-lost', 'CaptureStack.cs', '                        _stereo.SyncCamera(c.Camera);', '                        { /* injected: late camera omitted from stereo stack */ }', 'first late background camera synchronizes current stereo stack'),
         ('captured-menu-feedback', 'CaptureRender.cs', 'camera.cullingMask = mask & ~VRLayers.ModLayerMask;', 'camera.cullingMask = mask;', 'captured native menu cannot redraw the floating screen'),
         ('captured-target-write-leak', 'CaptureRender.cs', 'camera.targetTexture = target;', '{ /* injected: late native target reset survives */ }', 'render-time capture routing repairs a late native target reset'),
         ('captured-stereo-write-leak', 'CaptureRender.cs', 'VRCameraPolicy.ExcludeStereo(camera, "screen capture render");', '/* injected: late native stereo reset survives */', 'render-time capture excludes native stereo without waiting for a periodic sweep'),
@@ -127,8 +148,18 @@ internal static bool Measure(ConvertedPanel panel, Graphic graphic, out Vector2 
         if selected - {v[0] for v in variants}: parser.error('Unknown variant')
         variants = [v for v in variants if v[0] in selected]
     fixture = ROOT/'scripts/desktop-render-runtime'
+    source_files = [flat/name for name in ('FlatScreen.1.Core.cs', 'FlatScreen.2.CameraStack.cs',
+        'FlatScreen.3.Desktop.cs', 'FlatScreen.4.Lifecycle.cs', 'FlatScreen.7.CaptureRender.cs',
+        'FrameDesktopPolicy.cs', 'NativeVideoWindow.cs')]
+    source_files += [args.source_root/'src/GloomhavenVR'/name for name in (
+        'Core/NativeCameraRenderBudget.cs', 'Core/VRCameraPolicy.cs',
+        'Core/Perf/ScenarioEnvironmentBudget.CameraBoundary.cs', 'Rig/VRRigDriver.HeadCamera.cs',
+        'WorldUI/Conversion/PanelMaintenanceCadence.cs', 'WorldUI/Conversion/CanvasConversion.3.Fit.cs',
+        'WorldUI/Conversion/CanvasConversion.2.Adopt.cs')]
+    input_files = source_files + [Path(__file__).resolve()] + sorted(fixture.rglob('*.cs')) + [fixture/'Desktop.csproj']
+    input_hashes = {str(path.resolve()): hashlib.sha256(path.read_bytes()).hexdigest() for path in input_files}
     manifest = {'result': str(run/'results.txt'), 'managed': str((args.source_root/'ressources/GH_Data/Managed').resolve()), 'cases': []}
-    (run/'source-hashes.json').write_text(json.dumps({'root':str(args.source_root.resolve()),'sha256':{key:hashlib.sha256(value.encode()).hexdigest() for key,value in sources.items()},'limits':['No OpenXR device is attached; provider presentation remains hardware-open.','Actual Camera.Render callbacks, ownership and current RenderTexture are executed.']},indent=2)+'\n')
+    (run/'source-hashes.json').write_text(json.dumps({'root':str(args.source_root.resolve()),'sha256':{key:hashlib.sha256(value.encode()).hexdigest() for key,value in sources.items()},'inputs': input_hashes,'limits':['No OpenXR device is attached; provider presentation remains hardware-open.','Actual Camera.Render callbacks, ownership and current RenderTexture are executed.','Split/stereo construction is an explicit fixture boundary; same-pass sync calls and native glass pixels execute, not headset stereo presentation.']},indent=2)+'\n')
     dotnet = shutil.which('dotnet') or str(Path.home()/'.dotnet/dotnet')
     for name, filename, before, after, expected in variants:
         build = run/name; production = build/'production'; production.mkdir(parents=True)
@@ -167,6 +198,10 @@ internal static bool Measure(ConvertedPanel panel, Graphic graphic, out Vector2 
     if report.is_file(): print(report.read_text(),end='')
     (run/'unity-exit-code.txt').write_text(str(result.returncode)+'\n')
     if result.returncode or not report.is_file(): raise SystemExit('FAIL: Unity run; see '+str(run/'unity.log'))
+    stable = all(path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest() == input_hashes[str(path.resolve())]
+                 for path in input_files)
+    (run/'source-stability.json').write_text(json.dumps({'unchanged': stable, 'inputs': len(input_files)}, indent=2)+'\n')
+    if not stable: raise SystemExit('FAIL: source or fixture changed during run; frozen evidence required')
     print('PASS: '+str(len(variants))+' complete production/negative variants; evidence: '+str(run))
 
 if __name__ == '__main__': main()

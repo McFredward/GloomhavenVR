@@ -80,9 +80,25 @@ internal sealed partial class FlatScreen
     private void OnCapturePreCull(Camera camera)
     {
         RestoreCaptureMask(); // Interrupted renders cannot leave native projection writers blinded.
-        if (!VRSession.IsRunning || camera == null || camera == Rig.VRRigDriver.HeadCamera
-            || !CapturedSet.TryGetValue(camera, out CapturedCamera captured))
+        if (!VRSession.IsRunning || camera == null || camera == Rig.VRRigDriver.HeadCamera)
             return;
+        if (!CapturedSet.TryGetValue(camera, out CapturedCamera captured))
+        {
+            // A native camera created/enabled after the Update census is absent
+            // from CapturedSet, so its first render would bypass every guard:
+            // target null, stereo Both and a mask containing the floating screen.
+            // Adopt through the same stack policy now, before native culling. This
+            // rare discovery also syncs stack clears, split routing and stereo
+            // mirrors; later renders use only the existing dictionary lookup.
+            // Foreign preview RTs and disabled/manual cameras remain independent.
+            if (!_captureRenderHooked || _rt == null || !camera.isActiveAndEnabled || camera.targetTexture != null)
+                return;
+            CaptureStack();
+            if (!CapturedSet.TryGetValue(camera, out captured)) return;
+            if (VRLog.WantsDebug)
+                VRLog.Info("WorldUI", $"FlatScreen first-render discovery: '{camera.name}' — " +
+                    "late native backbuffer camera joined the capture before culling.");
+        }
         VRCameraPolicy.ExcludeStereo(camera, "screen capture render");
         RenderTexture? target = TargetFor(captured);
         if (target != null && camera.targetTexture != target)
