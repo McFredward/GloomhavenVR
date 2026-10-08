@@ -144,9 +144,24 @@ def snapshot(source: Path, records: list[dict], destination: Path, *, phase="sna
     receipt = destination / ".snapshot.json"
     if receipt.is_file():
         prior = json.loads(receipt.read_text(encoding="utf-8"))
-        if prior.get("files") == records and verify_files(destination, records, phase=phase + "-verify"):
-            if build_progress: build_progress.event(phase, 1, 1, "snapshots", "Verified existing snapshot", status="reuse")
-            return
+        if prior.get("files") == records:
+            counter = _counter(phase + "-verify", sum(row["size"] for row in records), "bytes")
+            with _snapshot_witnesses(destination, destination, records) as witnesses:
+                valid = True
+                for row in records:
+                    path = destination / row["path"]
+                    try:
+                        hits = witnesses.counters["cache_hits"]
+                        hasher = (lambda path: digest(path, progress=lambda size: counter.add(size, path.name))) if counter else None
+                        if not witnesses.qualify(path, row["sha256"], row["size"], hasher=hasher):
+                            valid = False; break
+                        if counter and witnesses.counters["cache_hits"] != hits: counter.add(row["size"], path.name)
+                    except (OSError, BuildError):
+                        valid = False; break
+                if valid:
+                    if counter: counter.finish()
+                    if build_progress: build_progress.event(phase, 1, 1, "snapshots", "Verified existing snapshot; " + witnesses.summary(), status="reuse")
+                    return
         raise BuildError("Immutable snapshot is corrupt: " + str(destination) + "; remove this snapshot and retry.")
     if destination.exists():
         raise BuildError("An incomplete snapshot occupies " + str(destination) + "; remove it and retry.")
@@ -161,19 +176,46 @@ def snapshot(source: Path, records: list[dict], destination: Path, *, phase="sna
     # The owner is durable before any directory/member creation. A killed copy
     # resumes only this exact known file set; original inputs stay read-only.
     counter = _counter(phase, len(records), "files")
-    for item in records:
-        original = source / item["path"]
-        copied = _ordinary_owned(temp / item["path"])
-        copied.parent.mkdir(parents=True, exist_ok=True)
-        if not copied.is_file() or copied.stat().st_size != item["size"] or digest(copied) != item["sha256"]:
-            shutil.copyfile(original, copied)
-            if copied.stat().st_size != item["size"] or digest(copied) != item["sha256"]:
-                raise BuildError("An input changed while copied: " + item["path"] + "; retry after editing stops.")
-        if counter: counter.add(1, Path(item["path"]).name)
-    write_json(temp / ".snapshot.json", {"schema": 1, "files": records})
-    temp.replace(destination)
+    temp.mkdir(parents=True, exist_ok=True)
+    proofs = []
+    with _snapshot_witnesses(destination, temp, records) as witnesses:
+        for item in records:
+            original = source / item["path"]
+            copied = _ordinary_owned(temp / item["path"])
+            copied.parent.mkdir(parents=True, exist_ok=True)
+            if not copied.is_file() or not witnesses.qualify(copied, item["sha256"], item["size"]):
+                witnesses.invalidate(copied)
+                shutil.copyfile(original, copied)
+                if not witnesses.qualify(copied, item["sha256"], item["size"]):
+                    raise BuildError("An input changed while copied: " + item["path"] + "; retry after editing stops.")
+            proofs.append((item, witnesses.current(copied)))
+            if counter: counter.add(1, Path(item["path"]).name)
+        write_json(temp / ".snapshot.json", {"schema": 1, "files": records})
+        temp.replace(destination)
+    # Directory publication preserves each file's identity. Transfer only the
+    # actual checked byte proofs, requiring their stamps to remain exact.
+    with _snapshot_witnesses(destination, destination, records) as witnesses:
+        for item, stamp in proofs:
+            witnesses.remember(destination / item["path"], item["sha256"], stamp=stamp)
     owner.unlink()
     if counter: counter.finish()
+
+
+@contextmanager
+def _snapshot_witnesses(destination, root, records):
+    # Keep the observation database outside the immutable snapshot file set.
+    database = _ordinary_owned(destination.with_name(destination.name + ".snapshot-witnesses.sqlite3"))
+    if database.exists() and (not stat.S_ISREG(database.lstat().st_mode) or database.lstat().st_nlink != 1):
+        raise BuildError("Snapshot witness database is not a regular owned file.")
+    connection = sqlite3.connect(database, timeout=30)
+    try:
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA synchronous=NORMAL")
+        witnesses = ValidatedFileWitnesses(connection, root, {"schema": 1, "owner": "Quest input snapshot", "filesHash": value_hash(records)})
+        yield witnesses
+        connection.commit()
+    finally:
+        connection.close()
 
 
 def ensure_output(output: Path, repo: Path, game_data: Path | None = None) -> Path:
@@ -334,7 +376,9 @@ class ValidatedFileWitnesses:
             if not stat.S_ISDIR(value.st_mode) or getattr(value, "st_file_attributes", 0) & 0x400:
                 raise BuildError("File witness crosses a linked directory: " + str(path))
             if parent == self.root:
-                if (value.st_dev, value.st_ino) != self.root_identity:
+                observed = (value.st_dev, value.st_ino)
+                if self.root_identity is None: self.root_identity = observed
+                if observed != self.root_identity:
                     raise BuildError("File witness owner root changed during conversion.")
                 break
         return path
@@ -373,8 +417,21 @@ class ValidatedFileWitnesses:
         self._save(path, sha256, actual)
 
     def invalidate(self, path):
-        relative = self._key(path)
         path = Path(path).absolute()
+        if path == self.root:
+            # An explicit owned reset may delete/recreate the root. Drop only
+            # this owner namespace and bind its newly created directory again.
+            _ordinary_owned(path)
+            self.db.execute("DELETE FROM validated_file_witnesses WHERE owner=?", (self.namespace,))
+            for known in list(_invocation_file_proofs):
+                if path in known.parents: del _invocation_file_proofs[known]
+            try: value = path.lstat()
+            except FileNotFoundError: self.root_identity = None
+            else:
+                if not stat.S_ISDIR(value.st_mode): raise BuildError("File witness reset root is not a directory.")
+                self.root_identity = (value.st_dev, value.st_ino)
+            return
+        relative = self._key(path)
         _invocation_file_proofs.pop(path, None)
         if path.is_dir():
             for known in list(_invocation_file_proofs):

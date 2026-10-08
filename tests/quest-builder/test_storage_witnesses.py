@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import sqlite3
 import sys
 import tempfile
@@ -142,6 +143,23 @@ class WitnessTests(unittest.TestCase):
         with self.assertRaisesRegex(storage.BuildError, "changed before"):
             witness.remember(self.path, sha(b"known owned bytes"), stamp=before)
 
+    def test_explicit_root_reset_drops_only_owner_and_binds_recreated_directory(self):
+        project = self.root / "project"; project.mkdir()
+        target = project / "asset"; target.write_bytes(b"known owned bytes")
+        connection = sqlite3.connect(self.database); self.addCleanup(connection.close)
+        witness = storage.ValidatedFileWitnesses(connection, project, {"owner": "fixture-owner"})
+        witness.remember(target, sha(b"known owned bytes"))
+        witness.db.commit()
+        sibling_owner = storage.ValidatedFileWitnesses(connection, project, {"owner": "sibling-owner"})
+        sibling_owner.remember(target, sha(b"known owned bytes"))
+        sibling_owner.db.commit()
+        project.rename(self.root / "retained"); project.mkdir(); target.write_bytes(b"other owned bytes")
+        witness.invalidate(project)
+        self.assertEqual(witness.db.execute("SELECT COUNT(*) FROM validated_file_witnesses WHERE owner=?", (witness.namespace,)).fetchone()[0], 0)
+        self.assertEqual(witness.db.execute("SELECT COUNT(*) FROM validated_file_witnesses WHERE owner=?", (sibling_owner.namespace,)).fetchone()[0], 1)
+        self.assertEqual(witness.observe(target), sha(b"other owned bytes"))
+        self.assertEqual(witness.counters["files_read"], 1)
+
     def test_producer_proof_seeds_following_stage_without_duplicate_read(self):
         witness = self.open(); witness.remember(self.path, sha(b"known owned bytes"))
         stages = storage.Stages(self.root)
@@ -236,6 +254,53 @@ class WindowsMetadataTests(unittest.TestCase):
             os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns)); kernel.change += 1
             self.assertFalse(witness.qualify(path, sha(b"known owned bytes"), 17))
             self.assertEqual(witness.counters["files_read"], 2)
+
+
+class SnapshotWitnessTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name); self.source = self.root / "source"; self.source.mkdir()
+        self.destination = self.root / "snapshot"
+        self.raw = (b"known ten-megabyte input\n" * 436907)[:10 * 1048576]
+        self.path = self.source / "game.bundle"; self.path.write_bytes(self.raw)
+        self.records = [{"path": "game.bundle", "size": len(self.raw), "sha256": sha(self.raw)}]
+        storage._invocation_file_proofs.clear(); self.addCleanup(storage._invocation_file_proofs.clear)
+
+    def count_reads(self, action):
+        original = Path.open; reads = []
+        def opening(path, mode="r", *args, **kwargs):
+            if mode == "rb" and path.name == "game.bundle": reads.append(path)
+            return original(path, mode, *args, **kwargs)
+        with mock.patch.object(Path, "open", opening): action()
+        return reads
+
+    def test_new_snapshot_seeds_verified_producer_then_warm_reads_zero_bytes(self):
+        reads = self.count_reads(lambda: storage.snapshot(self.source, self.records, self.destination))
+        self.assertEqual(reads.count(self.path), 0)  # kernel copy; original source verification is separate
+        self.assertEqual(reads.count(self.destination.with_name("snapshot.staging") / "game.bundle"), 1)
+        storage._invocation_file_proofs.clear()
+        self.assertEqual(self.count_reads(lambda: storage.snapshot(self.source, self.records, self.destination)), [])
+
+    def test_legacy_receipt_reads_once_then_next_run_skips_bytes_and_detects_change(self):
+        self.destination.mkdir(); target = self.destination / "game.bundle"; target.write_bytes(self.raw)
+        storage.write_json(self.destination / ".snapshot.json", {"schema": 1, "files": self.records})
+        self.assertEqual(self.count_reads(lambda: storage.snapshot(self.source, self.records, self.destination)), [target])
+        storage._invocation_file_proofs.clear()
+        self.assertEqual(self.count_reads(lambda: storage.snapshot(self.source, self.records, self.destination)), [])
+        stamp = target.stat()
+        target.write_bytes(b"X" + self.raw[1:]); os.utime(target, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+        with self.assertRaisesRegex(storage.BuildError, "Immutable snapshot is corrupt"):
+            reads = self.count_reads(lambda: storage.snapshot(self.source, self.records, self.destination))
+        self.assertEqual(target.read_bytes(), b"X" + self.raw[1:])
+        # Source immutability qualification remains a full byte check.
+        self.path.write_bytes(b"X" + self.raw[1:])
+        self.assertFalse(storage.verify_files(self.source, self.records))
+
+    def test_completed_snapshot_ownership_hash_change_is_not_reused(self):
+        storage.snapshot(self.source, self.records, self.destination)
+        changed = [{**self.records[0], "sha256": "0" * 64}]
+        with self.assertRaisesRegex(storage.BuildError, "Immutable snapshot is corrupt"):
+            storage.snapshot(self.source, changed, self.destination)
 
 
 if __name__ == "__main__": unittest.main()
