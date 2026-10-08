@@ -60,11 +60,23 @@ class ReferenceAuditProgressTests(unittest.TestCase):
             root = Path(folder); assets = root / "Assets"; assets.mkdir(); output = io.StringIO()
             (assets / "bad.asset").write_text("--- !u!1 &1\nRoot:\n  wrong: {field:, other:, invalid:}\n  reference: {fileID: 1, guid: " + GUID + ", type: 2}\n")
             with patch.dict(os.environ, {"GHVRQ_WIZARD_PROGRESS": "1"}), patch("sys.stdout", output):
-                with self.assertRaises(yaml.YAMLError): recover.audit_asset_references(root)
+                with self.assertRaisesRegex(recover.RecoveryError, "Assets/bad.asset") as failure:
+                    recover.audit_asset_references(root)
+            self.assertIsInstance(failure.exception.__cause__, yaml.YAMLError)
             events = [json.loads(line.removeprefix("GHVRQ_PROGRESS ")) for line in output.getvalue().splitlines() if line.startswith("GHVRQ_PROGRESS ")]
             self.assertEqual(events[-1]["status"], "failed")
             self.assertNotIn("complete", [row["status"] for row in events])
             self.assertIn("Asset reference audit failed: Assets/bad.asset ; ScannerError", output.getvalue())
+
+    def test_unexpected_asset_io_failure_keeps_its_original_exception(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); assets = root / "Assets"; assets.mkdir()
+            (assets / "locked.asset").write_bytes(b"native asset")
+            blocked = PermissionError("Native asset is locked")
+            with patch.object(Path, "open", side_effect=blocked), patch("sys.stdout", io.StringIO()):
+                with self.assertRaises(PermissionError) as failure:
+                    recover.audit_asset_references(root)
+            self.assertIs(failure.exception, blocked)
 
 
 class StreamingPointerParserTests(unittest.TestCase):

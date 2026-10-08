@@ -634,15 +634,19 @@ def serialized_pointer_tokens(text):
     """Yield GUID/token spans from actual YAML PPtr nodes, never scalar names."""
     import yaml
     loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
-    headers = list(re.finditer(r"^--- !u!\d+ &-?\d+[ \t]*$", text, re.M))
+    # The byte-backed audit retains Windows CRLF. Match the line ending without
+    # consuming it: removing CR would shift every later GUID repair coordinate.
+    # Unity's optional stripped-prefab suffix is part of the document header.
+    header_pattern = re.compile(r"^--- !u!\d+ &-?\d+(?:[ \t]+stripped)?[ \t]*(?=\r?$)", re.M)
+    headers = list(header_pattern.finditer(text))
     ranges = [(header.start(), headers[index + 1].start() if index + 1 < len(headers) else len(text))
               for index, header in enumerate(headers)] if headers else [(0, len(text))]
     for start, end in ranges:
         block = text[start:end]
         if "fileID:" not in block or not re.search(r"guid:\s*[0-9a-f]{32}", block):
             continue
-        clean = re.sub(r"^%[^\n]*", lambda match: " " * len(match[0]), block, flags=re.M)
-        clean = re.sub(r"^--- !u!\d+ &-?\d+[ \t]*$", lambda match: "---" + " " * (len(match[0]) - 3), clean, flags=re.M)
+        clean = re.sub(r"^%[^\r\n]*", lambda match: " " * len(match[0]), block, flags=re.M)
+        clean = header_pattern.sub(lambda match: "---" + " " * (len(match[0]) - 3), clean)
         try:
             try:
                 tokens = _stream_pointer_tokens(clean, text, start, loader)
@@ -653,7 +657,7 @@ def serialized_pointer_tokens(text):
             # empty flow mapping. PyYAML's Python parser accepts it; libyaml's C
             # parser rejects its colon. Fall back only at that exact original
             # syntax, without inserting bytes or shifting later GUID tokens.
-            empty_types = list(re.finditer(r"(?m)^[ \t]+type:[ \t]*(\{class:, ns:, asm:\})[ \t]*$", clean))
+            empty_types = list(re.finditer(r"(?m)^[ \t]+type:[ \t]*(\{class:, ns:, asm:\})[ \t]*(?=\r?$)", clean))
             index = error.problem_mark.index if error.problem_mark is not None else -1
             if (loader is yaml.SafeLoader or error.problem != "found unexpected ':'" or
                     not any(match.start(1) <= index < match.end(1) for match in empty_types)):
@@ -664,6 +668,7 @@ def serialized_pointer_tokens(text):
 
 def audit_asset_references(project):
     """Check all native YAML/importer PPtr GUIDs, regardless of asset suffix."""
+    import yaml
     project = Path(project)
     guids, missing = {}, collections.defaultdict(set)
     # Generated assets already passed the merge ownership checks. Enumerate once
@@ -703,6 +708,8 @@ def audit_asset_references(project):
     except Exception as error:
         counter.fail(error)
         print("[Quest recovery] Asset reference audit failed:", relative, ";", type(error).__name__, flush=True)
+        if isinstance(error, yaml.YAMLError):
+            raise RecoveryError(f"Cannot parse native serialized asset references: {relative}; {error}") from error
         raise
     duplicates = {guid: paths for guid, paths in guids.items() if len(paths) > 1}
     return {"referenceCount": references, "missingGuidCount": len(missing),
