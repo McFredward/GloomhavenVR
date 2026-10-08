@@ -1254,7 +1254,7 @@ internal static partial class WallSegmentFade
             // the complete original drive again. A current geometry consumer also takes
             // that path so its masks/submission are released before this same draw. No
             // main wall/foundation is skipped here.
-            if (PerfConfig.SkipHiddenWallAttachmentWritesOn && fade == 1f
+            if (fade == 1f
                 && _hidByEnable.Contains(r) && !r.enabled
                 && !ScenarioTerrainBudget.HasCurrentRenderLease(r)
                 && !ScenarioEnvironmentBudget.OwnsRenderSubstitute(r))

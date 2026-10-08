@@ -65,7 +65,6 @@ internal static class GraphicsProfiles
             Set(PerfConfig.ScenarioStructuralInstancing, FrameDefaults.ScenarioStructuralInstancing);
             // One-time presets only: every new control remains independently editable.
             Set(PerfConfig.ScenarioTerrainSubstitution, standalone ? FrameDefaults.ScenarioTerrainSubstitution : Defaults.ScenarioTerrainSubstitution);
-            Set(PerfConfig.SkipHiddenWallAttachmentWrites, standalone ? FrameDefaults.SkipHiddenWallAttachmentWrites : low);
             Set(PerfConfig.ScenarioEnvironmentMeshBank, standalone ? FrameDefaults.ScenarioEnvironmentMeshBank : index < 3);
             Set(PerfConfig.ScenarioExplicitEnvironmentInstancing, standalone ? FrameDefaults.ScenarioExplicitEnvironmentInstancing : index < 3);
             Set(PerfConfig.ScenarioCheapWallShading, standalone ? FrameDefaults.ScenarioCheapWallShading : low);
@@ -75,7 +74,6 @@ internal static class GraphicsProfiles
             Set(PerfConfig.ScenarioDistantTerrainDetailPercent, standalone ? FrameDefaults.ScenarioDistantTerrainDetailPercent : index == 1 ? 0 : index == 2 ? 50 : 100);
             Set(PerfConfig.ScenarioTerrainCameraSourceLimitCount, standalone ? FrameDefaults.ScenarioTerrainCameraSourceLimitCount : 0);
             Set(PerfConfig.ScenarioTerrainDistanceMeters, FrameDefaults.ScenarioTerrainDistanceMeters);
-            Set(PerfConfig.SharedEnvironmentMaterialReads, true);
             Set(PerfConfig.SharedUiWindowReads, true);
             Set(PerfConfig.FigureDistanceLod, standalone ? FrameDefaults.FigureDistanceLod : index < 3);
             Set(PerfConfig.SkinningBoneLimit, standalone ? FrameDefaults.SkinningBoneLimit : low ? 2 : index == 2 ? 4 : 0);

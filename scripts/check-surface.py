@@ -245,6 +245,8 @@ def snapshot() -> dict:
 # an unrelated surface cannot borrow the same name to conceal its removal.
 AUTHORIZED_RETIREMENTS = {
     "configKeys": {
+        # Explicit user policy, 2026-10-08: pure work removal is universal.
+        "[Optimize] SharedEnvironmentMaterialReads": "src/GloomhavenVR/Core/Perf/PerfConfig.FrameRendering.cs",
         "[Optimize] VisibleIdleAnimationIntervalSeconds": "src/GloomhavenVR/Core/Perf/PerfConfig.FrameRendering.cs",
         "[Optimize] VisibleIdleDisabledClothApproximation": "src/GloomhavenVR/Core/Perf/PerfConfig.FrameRendering.cs",
     },
@@ -268,7 +270,7 @@ def diff(before: dict, after: dict) -> int:
         added = sorted(set(a) - set(b))
         print(f"=== {kind}: {len(b)} -> {len(a)}  ({len(removed)} removed, {len(retired)} authorized, {len(added)} added) ===")
         for key in retired:
-            print(f"  AUTHORIZED RETIREMENT (maintainer 2026-10-06): {key}")
+            print(f"  AUTHORIZED RETIREMENT (explicit maintainer policy): {key}")
         if gone:
             worst = 1
             print(f"  REMOVED — {label}:")
