@@ -450,6 +450,72 @@ class StageProgressTests(unittest.TestCase):
         self.assertEqual(self.progress()['activeWork']['total'], 23)
         self.assertLess(self.progress()['stagePercent'], 100)
 
+    def test_native_reference_pass_and_container_reads_do_not_close_later_staging(self):
+        self.store.operation(self.session, 'build', 'recovery')
+        self.store.progress(self.session, 'build', 'recovery-plan', 0, 16, 'batches')
+        self.store.progress(self.session, 'build', 'recovery-section:staging')
+        for step in stage_plan.STAGING_STEPS[:6]:
+            self.store.progress(self.session, 'build', 'staging-section:' + step, 1, 1, 'steps', status='reuse')
+        self.store.progress(self.session, 'build', 'staging-section:native', 0, 1, 'steps', status='start')
+        prior = self.progress()['stagePercent']
+        for phase, done in [('recovery-asset-references', 50), ('recovery-asset-references', 100),
+                            ('recovery-pointer-containers', 20), ('recovery-pointer-containers', 100)]:
+            self.store.progress(self.session, 'build', phase, done, 100, 'files')
+            progress = self.progress()
+            self.assertGreater(progress['stagePercent'], prior)
+            prior = progress['stagePercent']
+            rows = progress['buildOverview']['recovery']['staging']
+            self.assertEqual([item['id'] for item in rows if item['closed']], list(stage_plan.STAGING_STEPS[:6]))
+            native = next(item for item in rows if item['id'] == 'native')
+            self.assertEqual(native['status'], 'running')
+            self.assertLess(native['percent'], 100)
+            self.assertTrue(all(item['status'] == 'pending' for item in rows[7:]))
+        self.store.progress(self.session, 'build', 'staging-section:native', status='failed')
+        saved = self.store.load(self.session)
+        saved['stages'][5]['status'] = 'failed'; self.store.save(saved)
+        rows = self.progress()['buildOverview']['recovery']['staging']
+        self.assertFalse(next(item for item in rows if item['id'] == 'native')['closed'])
+        self.assertEqual(next(item for item in rows if item['id'] == 'native')['status'], 'failed')
+        self.store.progress(self.session, 'build', 'staging-section:native', 1, 1, 'steps', status='complete')
+        self.assertTrue(next(item for item in self.progress()['buildOverview']['recovery']['staging']
+                             if item['id'] == 'native')['closed'])
+
+    def test_final_reference_audit_remains_owned_by_its_later_phase(self):
+        self.store.operation(self.session, 'build', 'recovery')
+        self.store.progress(self.session, 'build', 'recovery-section:staging')
+        self.store.progress(self.session, 'build', 'staging-section:audit', 0, 1, 'steps', status='start')
+        self.store.progress(self.session, 'build', 'recovery-asset-references', 50, 100, 'files')
+        rows = self.progress()['buildOverview']['recovery']['staging']
+        audit = next(item for item in rows if item['id'] == 'audit')
+        self.assertEqual(audit['percent'], 50)
+        self.assertFalse(audit['closed'])
+        self.assertEqual(audit['status'], 'running')
+
+    def test_old_native_precheck_frontier_retains_only_receipt_proven_phases(self):
+        self.store.operation(self.session, 'build', 'recovery')
+        self.store.progress(self.session, 'build', 'recovery-plan', 0, 16, 'batches')
+        self.store.progress(self.session, 'build', 'recovery-section:staging')
+        for step in stage_plan.STAGING_STEPS[:6]:
+            self.store.progress(self.session, 'build', 'staging-section:' + step, 1, 1, 'steps', status='reuse')
+        saved = self.store.load(self.session)
+        row = saved['stages'][5]
+        row['progressPlan']['workRevision'] = stage_plan.WORK_REVISION - 1
+        row['progressPlan']['percent'] = 29.97
+        staging = row['progressPlan']['recovery']['sections']['staging']
+        staging.update(completed=list(stage_plan.STAGING_STEPS[:11]), current='audit', live='native',
+                       fractions={'audit': .99}, liveStatus='failed')
+        state.atomic_json(self.store.session_dir(self.session) / 'state.json', saved)
+        reopened = state.Store(self.store.root)
+        reopened.progress(self.session, 'build', 'staging-section:native', 0, 1, 'steps', status='start')
+        progress = self.progress()
+        self.assertGreaterEqual(progress['stagePercent'], 29.97)
+        rows = progress['buildOverview']['recovery']['staging']
+        self.assertEqual([item['id'] for item in rows if item['closed']], list(stage_plan.STAGING_STEPS[:6]))
+        self.assertEqual(next(item for item in rows if item['id'] == 'native')['status'], 'running')
+        before = progress['stagePercent']
+        reopened.progress(self.session, 'build', 'recovery-asset-references', 50, 100, 'files')
+        self.assertGreater(self.progress()['stagePercent'], before)
+
     def test_staging_runtime_and_report_file_bytes_supplement_known_parent_work(self):
         self.store.operation(self.session, 'build', 'recovery')
         self.store.progress(self.session, 'build', 'recovery-plan', 0, 16, 'batches')

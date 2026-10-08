@@ -61,7 +61,7 @@ BUILD_GROUPS = {"inputs": PLANS["build"][:6], "recovery": ("recovery",),
                 "project": PLANS["build"][7:15], "code": ("weave", "package-api"),
                 "import": ("unity-import", "unity-validation"),
                 "export": ("content-bank", "player", "delivery", "output-verify")}
-WORK_REVISION = 5
+WORK_REVISION = 6
 PREPARATION_ITEMS = {"bundled-audio": "audio", "native-cubemaps": "textures",
                      "ordinary-texture-audit": "textures", "native-texture2d": "textures",
                      "native-sprites": "startup-content", "environment-bundles": "mod-banks",
@@ -129,6 +129,18 @@ def initialize(row):
         # measured work to the previous high-water once, then keep that mapping.
         plan["workRevision"] = WORK_REVISION
         if row["id"] == "build":
+            # Native pointer preparation also audits references. Older models
+            # assigned that counter to the later final audit and inferred that
+            # every intervening transform was complete. Retain explicit phase
+            # receipts only; the global bar keeps its existing high-water.
+            staging = plan.get("recovery", {}).get("sections", {}).get("staging")
+            if isinstance(staging, dict):
+                proofs = staging.get("proofs", {})
+                staging["completed"] = [name for name in staging.get("completed", [])
+                                        if proofs.get(name) in ("complete", "reuse")]
+                staging["fractions"] = {}
+                for key in ("current", "live", "liveStatus", "counter"):
+                    staging.pop(key, None)
             plan["fractions"].pop("recovery", None)
             if plan.get("current") == "recovery" and isinstance(row.get("progress"), dict):
                 nested = _recovery_fraction(plan, row["progress"])
@@ -339,7 +351,19 @@ def _recovery_fraction(plan, value):
         else:
             effective, measured = _counter_fraction(work, value)
             step = {"staging-copy": "copy", "staging-managed-assemblies": "runtime", "staging-runtime-copy": "runtime",
-                    "staging-report-files": "report", "staging-report-hash": "report", "recovery-asset-references": "audit"}.get(effective)
+                    "staging-report-files": "report", "staging-report-hash": "report"}.get(effective)
+            if work.get("live") == "native":
+                # The preparatory reference pass and original container reads
+                # share this open native phase. Neither closes the final audit
+                # or the native overlay/Sprite application checkpoint.
+                if effective == "recovery-asset-references":
+                    step = "native"
+                    measured = .5 * measured if measured is not None else None
+                elif effective == "recovery-pointer-containers":
+                    step = "native"
+                    measured = .5 + .49 * measured if measured is not None else None
+            elif effective == "recovery-asset-references" and work.get("live") == "audit":
+                step = "audit"
             _advance_work(work, STAGING_STEPS, step, measured)
         ratio = _work_fraction(work, STAGING_STEPS)
     elif section == "core":
