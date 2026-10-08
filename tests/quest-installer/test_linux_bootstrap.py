@@ -179,6 +179,28 @@ class LinuxBootstrap(unittest.TestCase):
         archive.write_bytes(b"changed")
         self.assertNotEqual(subprocess.run(["bash", "-c", code]).returncode, 0)
 
+    def test_venv_without_ensurepip_or_ssl_is_not_accepted_as_system_python(self):
+        # Run the real probe through an executable Python fixture whose import
+        # hook reproduces a distribution omitting exactly one stdlib module.
+        # The old venv-only probe succeeds, proving this fixture distinguishes
+        # the Debian failure instead of merely returning failure for all code.
+        for missing in ("ensurepip", "ssl"):
+            with self.subTest(missing=missing):
+                fixture = self.root / f"python missing {missing}"
+                fixture.write_text("#!" + sys.executable + "\n"
+                    "import builtins, sys\n"
+                    "original = builtins.__import__\n"
+                    "def restricted(name, *args, **kwargs):\n"
+                    f"    if name == {missing!r}: raise ModuleNotFoundError(name)\n"
+                    "    return original(name, *args, **kwargs)\n"
+                    "builtins.__import__ = restricted\n"
+                    "exec(sys.argv[sys.argv.index('-c') + 1])\n")
+                fixture.chmod(0o755)
+                old = subprocess.run([str(fixture), "-I", "-B", "-c", "import sys,venv; raise SystemExit(0 if sys.version_info >= (3,11) else 1)"], capture_output=True)
+                self.assertEqual(old.returncode, 0, old.stderr)
+                code = f"source {shlex.quote(str(BOOTSTRAP))}; quest_linux_usable_python {shlex.quote(str(fixture))}"
+                self.assertNotEqual(subprocess.run(["bash", "-c", code]).returncode, 0)
+
     @unittest.skipUnless(os.environ.get("GHVR_QUEST_PBS_FIXTURE"), "Optional actual pinned standalone archive fixture")
     def test_actual_pinned_fallback_and_cached_restart(self):
         cache = self.scripts / ".quest-python-linux"

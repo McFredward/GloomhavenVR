@@ -29,7 +29,10 @@ quest_linux_owned_directory() {
 }
 
 quest_linux_usable_python() {
-    "$1" -I -B -c 'import sys,venv; raise SystemExit(0 if sys.version_info >= (3,11) else 1)' >/dev/null 2>&1
+    # Conversion later creates a hash-pinned dependency venv with pip. Debian's
+    # minimal Python can provide venv but omit ensurepip; select the standalone
+    # fallback now rather than discovering that after the Wizard has started.
+    "$1" -I -B -c 'import sys,venv,ensurepip,ssl; raise SystemExit(0 if sys.version_info >= (3,11) else 1)' >/dev/null 2>&1
 }
 
 quest_linux_package_valid() {
