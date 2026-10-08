@@ -248,11 +248,16 @@ internal static class ScenarioEnvironmentBudget
     {
         material = CanonicalMaterial(material);
         if (!floor || material == null || material.shader == null) return false;
+        if (material.renderQueue > 2500 || Gate(material, "_AddVertexAnim")
+            || Gate(material, "_UseEmissiveMap") || Gate(material, "_Diffuse_Emissive_On")) return false;
+        // Wider floor roles do not weaken the legacy material contract. An active
+        // world owner proves its complete current native shader/program/effect
+        // contract, including the other game/DLC families beyond N_MRAO.
+        if (roomFloor && _worldEnabled?.Invoke() == true && _roomFloorVariant != null)
+            return _worldOwns?.Invoke(_roomFloorVariant(material)) == true;
         string shader = material.shader.name;
         if (shader != "Amp_Basic_N_MRAO" && shader != "Amp_Low/Amp_Basic_N_MRAO_Low"
             && shader != SimpleShader) return false;
-        if (material.renderQueue > 2500 || Gate(material, "_AddVertexAnim")
-            || Gate(material, "_UseEmissiveMap") || Gate(material, "_Diffuse_Emissive_On")) return false;
         // Frame615 logs identify CV_Floor_Basic_M (VR simple environment) as
         // "toggle-native" and include the cheap shader in Wall25's native fade set.
         // CopyPropertiesFromMaterial also preserves saved properties absent from the
