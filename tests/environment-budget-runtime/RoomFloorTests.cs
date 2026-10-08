@@ -5,6 +5,38 @@ using UnityEngine;
 
 public static partial class EnvironmentProgram
 {
+    private static void RoomFloorMixedOwnership()
+    {
+        using var room = new Room();
+        var legacyOne = room.Floor(.6f); var legacyTwo = room.Floor(.9f);
+        var floorOne = room.Surface("AuditedRoomFloorOne", x: 1.2f);
+        var floorTwo = room.Surface("AuditedRoomFloorTwo", x: 1.5f);
+        Mesh floorMesh = room.Mesh();
+        floorOne.GetComponent<MeshFilter>().sharedMesh = floorTwo.GetComponent<MeshFilter>().sharedMesh = floorMesh;
+        ScenarioEnvironmentBudget.ConfigureRoomFloorGrouping(() => true, mesh => mesh == floorMesh,
+            (Renderer renderer, out Mesh mesh) => { mesh = floorMesh; return true; });
+        try
+        {
+            Configure(true, false, 100);
+            ScenarioEnvironmentBudget.Placed(room.Generated); ScenarioEnvironmentBudget.BeforeLoadingComplete();
+            Check(room.Chunks().Length == 2,
+                "shared native materials and bounds keep room-floor ownership separate from legacy floor groups");
+            bool drawn = false;
+            room.ObserveRender = () => drawn = legacyOne.forceRenderingOff && legacyTwo.forceRenderingOff
+                && floorOne.forceRenderingOff && floorTwo.forceRenderingOff;
+            room.Render(); room.ObserveRender = null;
+            Check(drawn && PerfMonitor.Counts["Environment.RoomFloorSources"] == 2
+                && PerfMonitor.Counts["Environment.RoomFloorGroups"] == 1,
+                "mixed floor camera submission counts only sources with the room-floor endpoint and marker contract");
+        }
+        finally
+        {
+            room.ObserveRender = null;
+            ScenarioEnvironmentBudget.ConfigureRoomFloorGrouping(() => false, _ => false,
+                (Renderer renderer, out Mesh mesh) => { mesh = null!; return false; });
+        }
+    }
+
     // Complete production chunk ownership/engine callbacks execute here. Catalog admission,
     // the terrain morph endpoint and the world material factory are explicit boundaries;
     // their source-proven mesh/animation contracts have independent runtime suites.

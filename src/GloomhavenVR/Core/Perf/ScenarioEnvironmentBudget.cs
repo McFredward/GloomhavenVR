@@ -690,10 +690,14 @@ internal static class ScenarioEnvironmentBudget
 
     private readonly struct BatchKey : IEquatable<BatchKey>
     {
-        private readonly int _tile, _material, _layer, _x, _z, _y, _flags;
+        private readonly int _tile, _material, _layer, _x, _z, _y, _flags, _kind;
         internal BatchKey(Surface surface, Material material)
         {
             _tile = surface.Tile.GetInstanceID(); _material = material.GetInstanceID();
+            // Floor endpoint ownership and never-fade markers belong only to the
+            // wider room-floor lane. Shared materials/bounds cannot merge it with
+            // legacy floor or structural groups and transfer those contracts.
+            _kind = surface.RoomFloor ? 2 : surface.Structural ? 1 : 0;
             _layer = surface.Renderer.gameObject.layer;
             MeshRenderer r = surface.Renderer;
             unchecked { _flags = (((((int)r.shadowCastingMode * 397 ^ (r.receiveShadows ? 1 : 0))
@@ -706,10 +710,10 @@ internal static class ScenarioEnvironmentBudget
             _y = surface.Structural ? Mathf.FloorToInt(p.y / 4f) : 0;
         }
         public bool Equals(BatchKey other) => _tile == other._tile && _material == other._material
-            && _layer == other._layer && _x == other._x && _z == other._z && _y == other._y && _flags == other._flags;
+            && _layer == other._layer && _x == other._x && _z == other._z && _y == other._y && _flags == other._flags && _kind == other._kind;
         public override bool Equals(object? other) => other is BatchKey key && Equals(key);
         public override int GetHashCode()
-        { unchecked { return (((((_tile * 397 ^ _material) * 397 ^ _layer) * 397 ^ _x) * 397 ^ _z) * 397 ^ _y) * 397 ^ _flags; } }
+        { unchecked { return ((((((_tile * 397 ^ _material) * 397 ^ _layer) * 397 ^ _x) * 397 ^ _z) * 397 ^ _y) * 397 ^ _flags) * 397 ^ _kind; } }
     }
 
     // Recover an interrupted camera render before native Update can instantiate an

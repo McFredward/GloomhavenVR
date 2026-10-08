@@ -151,6 +151,9 @@ def main():
             variants.append((name,source,expected)); attachment_variants[name] = attachment_source.replace(before,after)
     if not args.production_only:
         changes = [
+            ('room-floor-ownership-lanes-merged',
+             '_kind = surface.RoomFloor ? 2 : surface.Structural ? 1 : 0;', '_kind = 0;',
+             'shared native materials and bounds keep room-floor ownership separate from legacy floor groups', 1),
             ('room-floor-settled-endpoint-ignored',
              'valid = RoomFloorGroupsEnabled && TryRoomFloorMesh(r!, out Mesh currentFloor)\n                        && currentFloor == source.ReadableMesh;',
              'valid = true;',
