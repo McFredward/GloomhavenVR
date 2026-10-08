@@ -14,6 +14,7 @@ status; it is not the player manual.
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [WRIST-649-REVIEW.md](WRIST-649-REVIEW.md) | Conditional ordinary wrist offsets, live original board placement and focused validation |
 | [FRAME-648-REVIEW.md](FRAME-648-REVIEW.md) | User-requested rollback, exact646 render/bank identity, validation scope and hardware limits |
 | [FRAME-648-LOG-AUDIT.md](FRAME-648-LOG-AUDIT.md) | Independent loaded647 regression, CPU attribution, camera work and false wall ownership |
 | [../docs/performance/FRAME-648-TERRAIN.md](../docs/performance/FRAME-648-TERRAIN.md) | Actual old647 useless floor admissions and unshipped repair boundary |

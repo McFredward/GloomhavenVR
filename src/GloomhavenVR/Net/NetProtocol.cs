@@ -598,7 +598,15 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 648;
+    public const ushort ModBuild = 649;
+
+    // ModBuild649 — live wrist-board position sliders below the ordinary mode switch.
+    // The existing enabled dependency folds all three axes immediately. Reuse
+    // the native options bar/arrow kit and saved Vector3; axis edits preserve
+    // the other components and use the existing1mm catalog step. A +/-0.5m
+    // gesture range does not rewrite or clamp hand-tuned saved offsets on open.
+    // Actual board placement and owner-authored remote pose stay unchanged.
+    // Focused validation and inherited648 evidence: .planning/WRIST-649-REVIEW.md.
 
     // ModBuild648 — withdraw the647 room renderer after the Frame regression.
     // Fully loaded comparable645/647 log windows average94.107/123.976ms;

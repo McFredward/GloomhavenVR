@@ -953,6 +953,7 @@ internal static partial class Loc
         ["vr_o_boardrecall"] = Pair("Board: bring it back to me", "Brett: zu mir zurückholen"),
         ["vr_o_trayscale"] = Pair("Board: size", "Brett: Größe"),
         ["vr_o_wristboard"] = Pair("Wrist-mounted control board", "Steuerbrett am Handgelenk"),
+        ["vr_o_wristoffset"] = Pair("Wrist position (m)", "Position am Handgelenk (m)"),
         ["wristboard_nonmain"] = Pair("Non-main hand", "Nebenhand"),
         ["wristboard_left"] = Pair("Left", "Links"),
         ["wristboard_right"] = Pair("Right", "Rechts"),

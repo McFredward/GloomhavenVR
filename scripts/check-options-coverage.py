@@ -943,8 +943,8 @@ def main():
             f"member names, but it now has a localizing row (or is no longer offered). Delete the "
             f"line — the list may only shrink, and a stale entry hides the next real one.")
 
-    # Explicit 2026-10-04 user request: wrist-board angles and offsets belong in
-    # Advanced. Hand/size are the same attachment tuning, not an everyday setting.
+    # The 2026-10-09 request also exposes position sliders directly below the
+    # ordinary wrist switch. Advanced retains every axis plus hand/angle/size tuning.
     # This finite exception is separate from the frozen unreviewed orphan backlog:
     # require each real Advanced BoardRef and keep the ordinary toggle in its topic.
     wrist_advanced = {("Cards", key) for key in (

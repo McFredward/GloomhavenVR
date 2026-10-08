@@ -700,6 +700,7 @@ internal static partial class Loc
             ["h_vr_o_townsfx"] = Pair("Play physical sounds from NPCs and their stands, such as coins and the merchant cabinet.", "Spielt Geräusche der NPCs und ihrer Stände, etwa Münzen und Händlerschrank."),
             ["h_vr_o_townspeech"] = Pair("Play the immersive NPCs' English speech. Turning this off only changes what you hear.", "Spielt die englische Sprachausgabe der immersiven NPCs. Aus verändert nur, was du hörst."),
             ["h_vr_o_wristboard"] = Pair("Attach the board to your wrist. Turning this off restores your previous follow/fixed placement.", "Befestigt das Brett am Handgelenk. Ausschalten stellt die vorherige Position und Folgen/Fixiert wieder her."),
+            ["h_vr_o_wristoffset"] = Pair("Move the board across the wrist (X), toward the fingers (Y), or out of the palm (Z). Use the arrows for 1 mm adjustments.", "Versetzt das Brett quer zum Handgelenk (X), zu den Fingern (Y) oder aus der Handfläche (Z). Die Pfeile verändern die Position um 1 mm."),
             ["h_vr_o_trayfollow"] = Pair("Follow keeps the board with you; fixed leaves it where you put it.", "Folgen hält das Brett bei dir; Fixiert lässt es an seinem abgelegten Ort."),
             ["h_vr_o_trayscale"] = Pair("Overall control-board size.", "Gesamtgröße des Kontrollbretts."),
             ["h_vr_o_turnhand"] = Pair("Controller whose stick turns your view. The other stick controls movement.", "Controller, dessen Stick deinen Blick dreht. Der andere Stick steuert die Bewegung."),

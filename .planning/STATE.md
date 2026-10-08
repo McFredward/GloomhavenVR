@@ -1,5 +1,19 @@
 # State — where the project stands
 
+**Build649 wrist-board position controls, 2026-10-09: 1.1.0 development candidate.**
+
+Enabling wrist attachment immediately shows three offset sliders directly below
+the switch in Board & Cards. They reuse the normal slider/arrow kit, edit the
+existing saved Vector3 by axis and adjust the original board live. Disabling
+attachment hides the rows without resetting their values. Advanced keeps its
+hand/angle/size controls. No placement, wire, asset or Frame-profile change.
+
+Focused validation and its boundaries are recorded in
+[WRIST-649-REVIEW.md](WRIST-649-REVIEW.md). The unchanged648 rollback and646 NPC
+repairs remain; a new headset result is still required for those earlier changes.
+
+---
+
 **Build648 withdraws the647 room-render regression, 2026-10-08: 1.1.0 development candidate.**
 
 The supplied647 Frame run supports the reported slowdown: comparable fully
