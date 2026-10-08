@@ -51,9 +51,40 @@ written. Archived647 records are retained and clearly marked withdrawn.
 
 ## Validation ledger
 
-Validation is running on the restored candidate; this section will be replaced
-with exact final scope and counts before integration. Hardware performance and
-headset image correctness remain unverified for648.
+Publication uses the maintainer's bounded-repair rule and exact646 source/asset
+identity, plus newly executed affected checks. This is not a new complete-gate
+pass at the publication checkpoint:
+
+- Complete source group:16/16 pass. The initial unannotated INERT family attempt
+  failed five orphan checks; the explicit compatibility reasons repair only that
+  checker inventory. The subsequent complete source group passes.
+- Focused rollback group:4/4 pass, including281 profile-boundary assertions,
+  all player help, render-quality causal controls, and the restored bank's1,139
+  exact originals/3,170 immutable streams and compiled shader programs.
+- Restored terrain:387 production assertions,79 production/negative variants,
+  actual Unity render/native fading/stereo/nested ownership and native floor
+  retention. This is part of the one additional complete176-suite attempt.
+- Direct golden wire execution:299,714 assertions pass against the real Unity
+  references. The direct apphost initially lacked its .NET environment (exit131),
+  and bare `dotnet` was absent from the shell PATH (exit127); using the installed
+  absolute SDK executes the already compiled vectors successfully. Neither
+  failure was a vector or production failure.
+- Strict candidate Debug/Release:0 errors,0 warnings. Docs:5 EN/DE pairs.
+  Bundle-format and surface-preservation checks pass.
+- Private compiled646 comparison:1,238 types retained, none added/removed;
+  four intended INERT compatibility types and eight numeric-build-only consumers
+  differ. All renderers and NPC/map behavior remain compiled-identical to646.
+  The derived compile-only invocation retains the guard's unmodified snapshot
+  functions; source, bundle/surface and goldens were executed separately.
+
+The unaffected646 NPC/map evidence and previously checked unchanged native
+presentation paths are inherited; exact source/compiled identity is verified.
+One additional complete176-suite guard/wire attempt continues after this checked
+rollback checkpoint is published. Its pending status is not reported as a pass.
+A separately started duplicate complete attempt was cancelled before completion
+to avoid duplicate work; its cancellation receipt/logs are retained. Final
+completion or any failed attempts and bounded repeats will be appended here.
+A648 Frame picture/FPS result remains unverified.
 
 ## Evidence and next hardware boundary
 
