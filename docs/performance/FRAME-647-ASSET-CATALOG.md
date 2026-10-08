@@ -51,25 +51,46 @@ triangle winding. The runtime can use its existing same-index continuous morph.
 Strong clustering begins at two cells per axis instead of the former four;
 medium begins at six instead of twelve. Every original open seam is fixed in
 three dimensions, and the actual original axis bounds remain represented.
-Closed floor meshes additionally pin their complete outer XZ perimeter.
+Closed floor meshes additionally pin every original position along their convex
+projected XZ hull, including collinear edge points and every authored height.
+This protects diagonal outer edges that axis bounds alone do not identify.
 
-Every accepted floor derivative retains all original covered cells and holes on
+Every accepted floor derivative retains original covered and empty samples on
 an 18x18 projected lattice. Maximum sampled top-height displacement is bounded
-by the greater of 1.5 cm in original mesh units or 20% of native height extent.
+by the greater of 0.015 original mesh units or 20% of native height extent.
 The focused checker also verifies three intermediate morph states. This finite
-certificate is not a proof of every possible eye position or a replacement
-collision surface. Original colliders and gameplay heights are unchanged.
+certificate does not prove exact arbitrary concave footprint unions, tiny holes
+between samples or every possible eye position. Original open boundaries remain
+fixed, but unsampled closed interior features are a remaining proof limit.
+Original colliders and gameplay heights are unchanged.
 
 | Certified strong tier | Families with a meaningful derivative | Source triangles | Derivative triangles | Reduction |
 |---|---:|---:|---:|---:|
 | Structure |505|510,018|60,903|88.1%|
-| Floor |68|14,157|4,907|65.3%|
+| Floor |80|15,643|5,855|62.6%|
 
 On 356 structural families shared with the former strong bank, the same-family
 comparison is 76,365→53,485 triangles, a further 30.0% reduction. Floor correctness
 is deliberately stricter than legacy generated streams that were never admitted
 as floors: some new floor derivatives use more triangles and others remain exact
 originals. When no safe meaningful derivative exists, the native shape remains.
+
+An independently captured representative set of 16 actual native floor families
+shows the practical limit: 18,288 original triangles become 16,768, an 8.3%
+reduction, and only two families receive a meaningful derivative. The earlier
+candidate yielded 16,734 triangles (8.5%); projected-rim pinning is a correctness
+repair, not an additional gain for that native sample. The rim-only prototype
+was rejected as a claimed performance expansion. Across all 133 floor families,
+including exact-original fallbacks, the equivalent comparison is 53,962 original
+triangles, 44,712 in the earlier candidate and 44,174 after the correction (18.1%
+from original). These source-family counts do not predict a resident scenario's
+triangle count or FPS.
+
+The final independent gift-wrapping audit rejected 94 of the earlier 152 floor
+derivatives for moving original projected hull-edge slots. All 169 final floor
+derivatives preserve those slots exactly. An actual diagonal closed-floor slot,
+missed by both axis extrema and open-edge checks, supplies a causal negative
+control. The preparation keeps the original footprint/height tolerances.
 
 `SE_Rot_01_Floor_Under` illustrates why a floor name is insufficient to infer
 geometry. Its 48 original triangles are vertical side skirts, with no horizontal
@@ -79,9 +100,9 @@ floor grouping; it has no reduced tier and is never flattened into a plane.
 ## Package and validation
 
 The independent Windows bank uses game-exact Unity 2021.3.5f1, Gamma, all existing
-instancing/fog programs and unchanged shader sources. It contains 4,040 geometry
-streams, one index and two shaders, occupying 70,975,207 bytes. SHA256:
-`cfcc2dee4121e7ab1a2881cb033dd5fb50fada00797d527d347b7bd4dc8d3116`.
+instancing/fog programs and unchanged shader sources. It contains 4,057 geometry
+streams, one index and two shaders, occupying 70,999,748 bytes. SHA256:
+`c3648422dedaf3197ae1738ccbb4eff50aad0491113bbd263855fe6c04ea1802`.
 
 The first minimal private pack omitted the built-in AssetBundle module. Unity
 reported successful output but stripped the AssetBundle container. The independent
@@ -93,16 +114,25 @@ output and its causal logs remain in private evidence.
 
 Focused evidence under `.planning/debug/frame647-assets/`:
 
-- `complete/catalog-proof.json`: all 129 source bundle hashes, all 1,434 certified
-  identities, every derivative seam/boundary, 152 floor derivatives, all three
-  intermediate floor morph states, and three actual-source causal controls.
-- `bank-check-final.log`: every packaged stream/hash and independently extracted
+- `complete/catalog-projected-rim-proof.json`: all 129 source bundle hashes, all
+  1,434 certified identities, every derivative seam/boundary, 169 floor
+  derivatives, all three intermediate floor morph states, and four actual-source
+  causal controls.
+- `projected-rim-final-audit.json`: separate supporting-hull construction verifies
+  all original collinear rim slots, rejects the earlier immutable bank and passes
+  every final derivative. The old commit and source/variant hashes are recorded.
+- `native16-floor-rim-result.json` and
+  `floor-source-equivalent-rim-comparison.json`: representative native and full
+  source-equivalent floor totals, including original fallbacks.
+- `projected-prototype-result.json`: rejected rim-only performance expansion;
+  the subsequent accepted change repairs footprint correctness.
+- `bank-check-projected-rim.log`: every packaged stream/hash and independently extracted
   original byte/provenance, actual compiled shader instancing/fog programs.
-- `bank-load/run-bgbzckz6/`: actual Unity production decoder loads all 4,040 streams,
-  3,296,386 vertex slots and1,741,930 triangles across all packaged tiers; complete
+- `bank-load-projected-rim/run-2ydmyq2e/`: actual Unity production decoder loads all
+  4,057 streams, 3,297,619 vertex slots and 1,742,924 triangles across all packaged tiers; complete
   index and both shader asset paths are available. The graphics device is Null.
-- `preparation-guards.log`: seven destructive/malformed-original controls pass.
-- `pack-final.log`: final builder hash/preflight, forced build and actual loaded
+- `preparation-projected-rim-guards.log`: seven destructive/malformed-original controls pass.
+- `pack-projected-rim.log`: final builder hash/preflight, forced build and actual loaded
   asset-container validation pass. An inherited potentially-uninitialized
   `OriginalAlbedo` shader compiler warning belongs to the unchanged shader source;
   this is not a claim of a warning-free shader build.

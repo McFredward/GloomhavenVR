@@ -32,6 +32,49 @@ def check_entry(entry, certificate):
     assert certificate['variants'] == entry['variants'], 'exact certified derivative set'
 
 
+def projected_outer_slots(vertices):
+    """Independently derive supporting hull edges with gift wrapping.
+
+    Preparation uses sorted monotone chains. This checker uses a different hull
+    construction and checks every original vertex slot against its supporting
+    edges, including collinear edge points and duplicated attribute slots.
+    """
+    points = sorted({(point[0], point[2]) for point in vertices})
+    if len(points) < 3:
+        return set(range(len(vertices)))
+    hull = [points[0]]
+    while True:
+        first = hull[-1]
+        second = next(point for point in points if point != first)
+        for point in points:
+            dx, dz = second[0] - first[0], second[1] - first[1]
+            px, pz = point[0] - first[0], point[1] - first[1]
+            cross = dx * pz - dz * px
+            if cross < 0 or cross == 0 and px * px + pz * pz > dx * dx + dz * dz:
+                second = point
+        if second == hull[0]:
+            break
+        assert second not in hull, 'projected supporting hull closes without a cycle'
+        hull.append(second)
+    if len(hull) < 3:
+        return set(range(len(vertices)))
+    span = max(max(point[axis] for point in points) - min(point[axis] for point in points)
+               for axis in (0, 1))
+    tolerance = max(span * 1e-6, 1e-9)
+    slots = set()
+    for index, point in enumerate(vertices):
+        for first, second in zip(hull, hull[1:] + hull[:1]):
+            dx, dz = second[0] - first[0], second[1] - first[1]
+            px, pz = point[0] - first[0], point[2] - first[1]
+            length = math.hypot(dx, dz)
+            distance = abs(dx * pz - dz * px) / length
+            along = (px * dx + pz * dz) / length
+            if distance <= tolerance and -tolerance <= along <= length + tolerance:
+                slots.add(index)
+                break
+    return slots
+
+
 def check_geometry(entry, original, reduced, morph=False):
     source, source_submeshes, _, _ = parse(original)
     positions, submeshes, _, _ = parse(reduced)
@@ -43,18 +86,15 @@ def check_geometry(entry, original, reduced, morph=False):
         assert max(point[axis] for point in source) == max(point[axis] for point in positions), 'actual upper 3D geometry bound'
     if entry['role'] != 'floor':
         return
-    low = [min(point[axis] for point in source) for axis in range(3)]
-    high = [max(point[axis] for point in source) for axis in range(3)]
-    assert all(positions[index] == point for index, point in enumerate(source)
-               if any(point[axis] in (low[axis], high[axis]) for axis in (0, 2))), 'closed floor perimeter stays fixed'
+    assert all(positions[index] == source[index] for index in projected_outer_slots(source)), 'projected floor hull-edge slots stay fixed'
     valid, facts = floor_certificate(source, positions, source_submeshes, submeshes)
-    assert valid, 'floor retains original footprint/holes/top height: ' + str(facts)
+    assert valid, 'floor retains sampled footprint/holes/top height: ' + str(facts)
     if morph:
         for progress in (.25, .5, .75):
             intermediate = [tuple(a[axis] + (b[axis] - a[axis]) * progress for axis in range(3))
                             for a, b in zip(source, positions)]
             valid, facts = floor_certificate(source, intermediate, source_submeshes, source_submeshes)
-            assert valid, 'intermediate floor morph retains surface/holes/height: ' + str(facts)
+            assert valid, 'intermediate floor morph retains sampled surface/holes/height: ' + str(facts)
 
 
 def main():
@@ -135,10 +175,42 @@ def main():
     try: check_geometry(seam_entry, original, bytes(reduced))
     except AssertionError: controls += 1
     else: raise AssertionError('actual original seam displacement control escaped')
+    # Catch the former closed-floor regression specifically: an actual diagonal
+    # hull-edge slot missed by both open edges and XZ axis extrema must be pinned.
+    rim_control = None
+    for entry in entries:
+        if entry['role'] != 'floor' or not any(variant['tier'] != 100 for variant in entry['variants']):
+            continue
+        source_file = next(variant['file'] for variant in entry['variants'] if variant['tier'] == 100)
+        original = (prepared / source_file).read_bytes()
+        positions, submeshes, offset, _ = parse(original)
+        fixed = boundaries(positions, submeshes)
+        low = [min(point[axis] for point in positions) for axis in range(3)]
+        high = [max(point[axis] for point in positions) for axis in range(3)]
+        missed = [index for index in projected_outer_slots(positions)
+                  if positions[index] not in fixed
+                  and all(positions[index][axis] not in (low[axis], high[axis]) for axis in (0, 2))]
+        if missed:
+            rim_control = (entry, original, positions, offset, missed[0])
+            break
+    assert rim_control is not None, 'actual closed diagonal floor rim control exists'
+    entry, original, positions, offset, index = rim_control
+    altered = bytearray(original)
+    # The chosen XZ slot is strictly inside the axis bounds, so this small
+    # displacement cannot trigger the unrelated bounds or open-seam guards.
+    low_x, high_x = min(point[0] for point in positions), max(point[0] for point in positions)
+    shift = min(positions[index][0] - low_x, high_x - positions[index][0]) * .01
+    struct.pack_into('<f', altered, offset + index * 12, positions[index][0] + shift)
+    try: check_geometry(entry, original, bytes(altered))
+    except AssertionError as error:
+        assert 'hull-edge slots' in str(error); controls += 1
+    else: raise AssertionError('actual original diagonal hull-edge displacement escaped')
     facts = {'format': 1, 'sourceBundles': len(actual), 'nativeMeshOccurrences': len(catalog['meshes']),
              'certifiedOriginals': len(entries), 'roles': dict(role_counts), 'variants': total_variants,
              'floorVariantsCertified': floor_variants, 'strongTierTriangles': dict(reductions),
              'ornaments': len(ornaments), 'causalControls': controls, 'morph': args.morph,
+             'floorOuterBoundaryProof': 'unchanged original slots along the projected convex hull, including collinear points',
+             'floorInteriorProof': '18x18 coverage/holes/top-height samples; no exact arbitrary small-feature union claim',
              'sourceSha256': {path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
                               for path in (Path(__file__), root / 'tools/environment-mesh/geometry.py',
                                            root / 'tools/environment-mesh/roles.py', prepared / 'index.json',

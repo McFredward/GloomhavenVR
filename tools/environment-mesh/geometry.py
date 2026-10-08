@@ -98,9 +98,54 @@ def floor_certificate(source, reduced, source_submeshes, reduced_submeshes):
     facts = {'sourceFootprintSamples': len(covered), 'retainedFootprintSamples': retained,
              'introducedFootprintSamples': introduced, 'maximumTopHeightShift': maximum_shift,
              'sourceHeightExtent': height_extent, 'footprintGrid': 18}
-    # No sampled walkable footprint may disappear and no original hole may fill.
+    # No sampled walkable footprint may disappear or sampled original hole fill.
     # Relief can become coarse, but surfaces must remain close to native heights.
     return retained == len(covered) and introduced == 0 and maximum_shift <= max(.015, height_extent * .2), facts
+
+
+def projected_rim(vertices):
+    """Original positions on the projected convex hull, including collinear slots.
+
+    A closed floor has no open mesh edges. Axis extrema alone do not protect its
+    diagonal room edges. Pin all positions along every XZ hull edge, at every
+    authored height. Concave/open boundaries remain protected by boundaries();
+    interior coverage and heights have the separate sampled certificate.
+    """
+    points = sorted({(point[0], point[2]) for point in vertices})
+    if len(points) < 3:
+        return set(vertices)
+
+    def cross(first, second, third):
+        return ((second[0] - first[0]) * (third[1] - first[1])
+                - (second[1] - first[1]) * (third[0] - first[0]))
+
+    lower, upper = [], []
+    for point in points:
+        while len(lower) > 1 and cross(lower[-2], lower[-1], point) <= 0:
+            lower.pop()
+        lower.append(point)
+    for point in reversed(points):
+        while len(upper) > 1 and cross(upper[-2], upper[-1], point) <= 0:
+            upper.pop()
+        upper.append(point)
+    hull = lower[:-1] + upper[:-1]
+    if len(hull) < 3:
+        return set(vertices)
+    span = max(points[-1][0] - points[0][0],
+               max(point[1] for point in points) - min(point[1] for point in points))
+    tolerance = max(span * 1e-6, 1e-9)
+    fixed = set()
+    for point in vertices:
+        x, z = point[0], point[2]
+        for first, second in zip(hull, hull[1:] + hull[:1]):
+            dx, dz = second[0] - first[0], second[1] - first[1]
+            length = math.hypot(dx, dz)
+            projection = (x - first[0]) * dx + (z - first[1]) * dz
+            if (abs(dx * (z - first[1]) - dz * (x - first[0])) <= tolerance * length
+                    and -tolerance * length <= projection <= length * length + tolerance * length):
+                fixed.add(point)
+                break
+    return fixed
 
 
 def simplify(data, tier, role='none'):
@@ -114,10 +159,7 @@ def simplify(data, tier, role='none'):
         fixed.add(min(vertices, key=lambda point: (point[axis], point)))
         fixed.add(max(vertices, key=lambda point: (point[axis], point)))
     if role == 'floor':
-        # Closed native floor meshes have no topological boundary. Their outer
-        # XZ rim is still a room seam; pin every original position on that rim.
-        fixed.update(point for point in vertices
-                     if any(point[axis] == low[axis] or point[axis] == high[axis] for axis in (0, 2)))
+        fixed.update(projected_rim(vertices))
     for divisions in ((6, 8, 12) if tier == 50 else (2, 3, 4, 6, 8)):
         groups = collections.defaultdict(set)
         def cell(point):
