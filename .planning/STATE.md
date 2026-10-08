@@ -1,5 +1,28 @@
 # State — where the project stands
 
+**Build651 selected native game UI repairs, 2026-10-09: 1.1.0 development candidate.**
+
+Every patch in the supplied Bug Fixes5.0.0 package has an individual current-game,
+VR and unmodified-multiplayer verdict. Three guarded local UI adaptations ship:
+item-bar owner before ownership checks, exact native action owner for hidden
+item replay, and stale extra-turn UI restriction during matching-owner cached
+card choices. Original replay/SetPhase, tokens, rules, inventories and native
+network version remain unchanged. No foreign DLL is distributed.
+
+Shared extra-turn stack, damage redirect, summon ownership and achievement
+changes are excluded because mixed-client equivalence is not established. The
+save-path replacement is obsolete in this game; debug-provider activation and
+version branding are features rather than fixes. Both READMEs credit fingoldfish
+(gummyboars), with the upstream MIT notice retained in release archives.
+
+Native fixtures prove the adopted defects and repairs; they do not run a connected
+Bolt/headset session or fix another participant's unmodified local bugs. Final
+integration/check scope is recorded in [BUGFIX-651-REVIEW.md](BUGFIX-651-REVIEW.md).
+The independent650 CPU change,649 wrist sliders,648 rollback and646 NPC repairs
+are retained. No config, artwork, native network grammar or Frame-profile change.
+
+---
+
 **Build650 reduces recurring world-material CPU work, 2026-10-09: 1.1.0 development candidate.**
 
 The existing native-renderer path retains only immutable component-owner

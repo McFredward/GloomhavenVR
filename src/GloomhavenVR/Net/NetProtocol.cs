@@ -598,7 +598,19 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 650;
+    public const ushort ModBuild = 651;
+
+    // ModBuild651 — selected native game UI repairs from Bug Fixes 5.0.0.
+    // Resolve the item bar's actual incoming inventory/action owner before
+    // original predicates/replay. Restore only stale extra-turn UI restrictions
+    // in owner-matching cached choice phases; native SetPhase retains every
+    // played-half/ownership/bonus restriction. Original actions/tokens, native
+    // NetworkVersion and ScenarioRuleLibrary remain unchanged for flat crossplay.
+    // Shared stack/damage/summoner/achievement changes and obsolete save/debug
+    // patches are excluded. All11 supplied patches have individual verdicts in
+    // BUGFIX-651-REVIEW. Retains650 CPU work removal and649 wrist offsets.
+    // Bounded native proofs, source16, strict builds, goldens and compiled scope
+    // are recorded separately; no new full-catalog or connected-HMD claim.
 
     // ModBuild650 — reduce existing world-material CPU work without a quality trade.
     // Cache only the exact GameObject/Transform owned for a Renderer lifetime;

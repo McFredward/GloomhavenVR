@@ -106,8 +106,9 @@ not relabeled as another complete seven-variant run.
 Root records the integrated receipt after registration. The whole production
 Debug and Release builds pass strictly with0 warnings/errors. Docs i18n passes
 all5 bilingual player-document pairs. The source-surface snapshot reports
-663 config keys /233 patch classes /4790 log tokens (two added native patch
-classes and one added bounded warning); registration and its final surface diff
+663 config keys /233 Harmony source entries /4790 log tokens. Two native patch
+classes and one bounded warning are added; source entries are not a count of
+classes. Registration and its final surface diff
 remain root work. No full-catalog claim is made by this worker lane.
 
 The logger boundary deliberately throws during the first failed native actor

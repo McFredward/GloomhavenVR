@@ -93,8 +93,55 @@ Build651 follows the independent Build650 CPU integration and retains649 wrist
 sliders,648's renderer rollback and646 NPC repairs. No config key, visual asset,
 wire layout, renderer or Frame profile is added or changed by this audit.
 
-Validation receipts and final compiled scope are recorded here when integration
-completes. The intended gate is bounded native reproduction and causal controls
-for the adopted UI scope, all source checks, strict Debug/Release, unchanged golden
-vectors and the compiled behavior comparison. It is not another complete local
-catalog pass. Existing passed receipts for unrelated areas remain inherited.
+Passed integration evidence:
+
+- **Items:** original Unity methods, final58 production assertions, including a
+  throwing diagnostic sink. Six causal controls from the prior57-assertion fixture
+  remain inherited unchanged-runtime evidence; they are not relabeled as a final58
+  complete-variant run. Exact production SHA256 is
+  `434bceab36c96eb50b3e6b05446e7dbad1be69bf7d34d7ff0914f65c7ca314cd`.
+- **Cards/rules audit:**542 production assertions, two effective causal negatives,
+  and25+25 member-failure/missing-member assertions against original Unity methods.
+  Exact runtime source SHA256 is
+  `b5b794b9755fecf126fc39e69efd0d0dbacb41d037cfed282cf75d41a599b40d`.
+- **Achievement audit:**8 assertions in unchanged original managed DLLs; this
+  demonstrates the defect and divergent persisted counters, not a shipped map fix.
+- Final registered-source group **16/16**, including original patch inventory,
+  receiver classifications, source-order, surface/identity and bank contracts.
+  Inventory contains206 patch classes /304 patched methods. Saved source surface
+  remains663 config keys /4790 log tokens, with235 Harmony source entries versus
+  baseline232 and no removals. These source entries are not a patch-class count.
+- Strict **Debug and Release:0 warnings,0 errors**; all **299,714 direct wire
+  assertions** pass. These are the golden executable, not another invocation of
+  the complete `scripts/wire-tests.sh` local-suite wrapper.
+- The test scheduler's18 tests pass, with2 optional resource-boundary skips.
+  Discovery is now179 local /93 CI /16 source suites. New original-game fixtures
+  are local-only because they require executable proprietary game/DLC inputs.
+- All5 bilingual documentation pairs pass; author/URL are present in both READMEs.
+  The copied MIT file is byte-identical to the pinned source licence and both
+  archive builders' unchanged all-text licence loops include it.
+- Private compiled comparison: **1238→1242 types**, four intended local UI/helper
+  additions, no removals. `CompatModule` changes only by the three registrations
+  and compiler local renumbering. The inherited `WorldMaterialBudget` is byte-exact
+  to the compiled650 snapshot. The other seven changed types and `NetProtocol`
+  differ only by the normal649→651 constant propagation. No receiver, mirror,
+  rendering, native action serializer or unrelated behavior changed in651.
+
+Successful native worker evidence is reused after proving both integrated runtime
+source hashes unchanged. No already-passing native suite or650 material benchmark
+is repeated. This is a **bounded integration pass**, not a new full179-suite gate.
+Earlier648 composite/649 focused/650 focused receipts retain their original scope.
+
+Main-checkout archive: `.planning/debug/bugfixes-audit/`, with `item-lane/runtime/`,
+`rules/`, `map-lane/`, and final `integration651/`. Original failed fixture attempts
+remain archived. Integration also retains two tooling failures: direct golden
+apphost launch initially lacked `DOTNET_ROOT`; execution was repeated with the
+installed runtime, without rebuilding. A generated snapshot-only helper initially
+derived its root from its debug-directory location; its root binding was corrected
+before the actual snapshot. Neither failed attempt is counted as a native pass.
+
+The snapshot-only path uses the existing guard's unchanged build/decompile/masking
+function and the private649 baseline; it avoids triggering an unrelated complete
+catalog run. Runtime proofs do not establish headset visuals, a live mixed-client
+session or immunity from unrelated native bugs. No new hardware capture was supplied
+for this integration.

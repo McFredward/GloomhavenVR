@@ -1,7 +1,7 @@
 # Planning index
 
-Updated 2026-10-08 for Build648: withdraw the647 room-render regression and
-restore646 rendering/assets while retaining646 NPC/map work and saved647 keys.
+Updated 2026-10-09 for Build651: individual native Bug Fixes audit and safe local UI repairs.
+
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
 status; it is not the player manual.
@@ -15,6 +15,11 @@ status; it is not the player manual.
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
 | [WRIST-649-REVIEW.md](WRIST-649-REVIEW.md) | Conditional ordinary wrist offsets, live original board placement and focused validation |
+| [BUGFIX-651-REVIEW.md](BUGFIX-651-REVIEW.md) | All eleven external patches, adoption decisions, unmodified-client contract and final scope |
+| [BUGFIX-ITEMS-AUDIT.md](BUGFIX-ITEMS-AUDIT.md) | Original item predicates/replay, exact actor identity, mixed directions and causal controls |
+| [BUGFIX-RULES-AUDIT.md](BUGFIX-RULES-AUDIT.md) | Native cached UI restriction and excluded shared turn/damage/summon changes |
+| [BUGFIX-MAP-AUDIT.md](BUGFIX-MAP-AUDIT.md) | Native achievement defect/divergence, obsolete save replacement and non-fix features |
+| [FRAME-650-REVIEW.md](FRAME-650-REVIEW.md) | Retained material CPU work removal, original-runtime benchmark and inherited render scope |
 | [FRAME-648-REVIEW.md](FRAME-648-REVIEW.md) | User-requested rollback, exact646 render/bank identity, validation scope and hardware limits |
 | [FRAME-648-LOG-AUDIT.md](FRAME-648-LOG-AUDIT.md) | Independent loaded647 regression, CPU attribution, camera work and false wall ownership |
 | [../docs/performance/FRAME-648-TERRAIN.md](../docs/performance/FRAME-648-TERRAIN.md) | Actual old647 useless floor admissions and unshipped repair boundary |
