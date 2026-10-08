@@ -88,6 +88,20 @@ class ApkUpdateTests(unittest.TestCase):
         self.provenance["gameInputKey"] = "d" * 64
         with self.assertRaisesRegex(storage.BuildError, "identity"): self.publish({})
 
+    def test_unqualified_guid_named_resource_bytes_cannot_be_published(self):
+        with self.assertRaisesRegex(storage.BuildError, "native-registry/object qualification"):
+            self.publish({"assets/bin/Data/" + "f" * 32: b"unverified serialized object bytes"})
+
+    def test_profile_rejects_credentials_and_cross_account_dlc_flags(self):
+        profile = {"schema": 1, "provider": "steam", "steamId": "76561197960265729", "accountId": 1, "displayName": "Owner"}
+        with self.assertRaisesRegex(storage.BuildError, "credentials"): update.profile_update(self.base, {**profile, "token": "private"})
+        ownership = {"schema": 1, "provider": "steam", "steamId": "76561197960265730", "appId": 780290, "ownedMask": 1, "installedAppIds": [1809490]}
+        with self.assertRaisesRegex(storage.BuildError, "selected account"): update.profile_update(self.base, {**profile, "dlcOwnership": ownership})
+        ownership["steamId"] = profile["steamId"]
+        self.assertEqual(json.loads(update.profile_update(self.base, {**profile, "dlcOwnership": ownership})[update.PROFILE])["dlcOwnership"], ownership)
+        ownership["installedAppIds"] = [1809490, 1809490]
+        with self.assertRaisesRegex(storage.BuildError, "selected account"): update.profile_update(self.base, {**profile, "dlcOwnership": ownership})
+
     def test_owned_assembly_inputs_required_on_every_update(self):
         self.assertEqual(update.preflight_owned_game(self.base, self.game)["managedKey"], self.capsule["managedKey"])
         (self.game / "Managed/GH.Runtime.dll").write_bytes(b"wrong owned game")
@@ -140,6 +154,8 @@ class ApkUpdateTests(unittest.TestCase):
         first = update.stage_code_project(repo, project, self.base, self.game / "Managed", **arguments)
         library = project / "Library/imported"; library.parent.mkdir(); library.write_bytes(b"expensive retained compile state")
         plugin = project / "Assets/Plugins/QuestGame/GH.Runtime.dll"; plugin.write_bytes(b"already woven replacement")
+        self.assertIn("isExplicitlyReferenced: 1", plugin.with_suffix(".dll.meta").read_text())
+        self.assertEqual((project / "Assets/Quest/Runtime/QuestText.cs").read_text(), "namespace GloomhavenVR.Core {}")
         second = update.stage_code_project(repo, project, self.base, self.game / "Managed", **arguments)
         self.assertFalse(first["reused"]); self.assertTrue(second["reused"])
         self.assertEqual(library.read_bytes(), b"expensive retained compile state"); self.assertEqual(plugin.read_bytes(), b"already woven replacement")

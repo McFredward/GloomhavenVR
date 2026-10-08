@@ -19,7 +19,7 @@ import zipfile
 from xml.sax.saxutils import escape
 
 from storage import BuildError, digest, value_hash, write_json
-from profile import validate_identity
+from profile import validate_identity, ProfileError
 
 CAPSULE = "assets/Quest/update-capsule.json"
 UPDATE = "assets/Quest/update-manifest.json"
@@ -122,6 +122,8 @@ def inspect_base(path):
                     "unityVersion": capsule.get("unityVersion") if capsule else None,
                     "manifest": manifest, "installation": installation,
                     "capsule": capsule, "update": update, "legacy": capsule is None,
+                    "currentMod": update.get("mod", manifest.get("mod")) if update else manifest.get("mod"),
+                    "currentProfile": update.get("profile", manifest.get("profile")) if update else manifest.get("profile"),
                     "dynamicProfile": bool(capsule and capsule.get("dynamicProfile"))}
     except (OSError, zipfile.BadZipFile) as exc:
         raise BuildError("The existing Quest APK could not be read.") from exc
@@ -248,6 +250,9 @@ def stage_code_project(repo, project, base, managed_dir, *, profile, version_cod
     conversion or shared Unity Library is used.
 """
     repo, project, managed_dir = Path(repo), Path(project), Path(managed_dir)
+    for ancestor in (project.absolute(), *project.absolute().parents):
+        if ancestor.is_symlink() or (hasattr(ancestor, "is_junction") and ancestor.is_junction()):
+            raise BuildError("Code-only project rejects linked output directories.")
     metadata = inspect_base(base)
     capsule = metadata["capsule"] or make_capsule(base, package_abi=package_abi)
     if capsule["packageAbi"] != package_abi:
@@ -282,7 +287,6 @@ def stage_code_project(repo, project, base, managed_dir, *, profile, version_cod
     runtime.mkdir(parents=True)
     for path in sorted((template / "Assets/Quest/Runtime").glob("*.cs")): shutil.copyfile(path, runtime / path.name)
     text = (repo / "src/GloomhavenVR/Core/Loc/QuestText.cs").read_text(encoding="utf-8")
-    text = text.replace("namespace GloomhavenVR.Core", "namespace GloomhavenVR.Quest")
     (runtime / "QuestText.cs").write_text(text, encoding="utf-8")
     # Runtime defines, package API binding and plugin references are the same as
     # the full player. Only the Editor build helper differs.
@@ -417,13 +421,30 @@ def profile_update(base, profile):
         raise BuildError("This older APK has compiled profile constants. Run one mod/code update first; later profile updates need no Unity build.")
     # Keep the current signed DLC/content scope; a profile patch cannot create
     # new game content or grant a store service.
+    if not isinstance(profile, dict) or set(profile) - {"schema", "provider", "providerId", "steamId", "accountId", "displayName", "source", "logoSha256", "isDummy", "dlcOwnership"}:
+        raise BuildError("Offline profile contains unexpected fields; credentials are never APK update inputs.")
+    name = profile.get("displayName")
+    if (profile.get("schema") != 1 or not isinstance(name, str) or not name.strip() or len(name.encode("utf-8")) > 256
+            or any(ord(c) < 32 or ord(c) == 127 for c in name)):
+        raise BuildError("Offline profile display identity is invalid.")
     selected = {k: v for k, v in profile.items() if k not in ("dlcOwnership", "isDummy")}
     if profile.get("isDummy") is True:
         if (profile.get("provider") != "steam" or profile.get("steamId") != "0" or profile.get("accountId") != 0
                 or "DUMMY" not in profile.get("displayName", "").upper()):
             raise BuildError("Offline dummy profile must be explicitly labelled and use ID zero.")
     else:
-        validate_identity(selected)
+        try: validate_identity(selected)
+        except ProfileError as exc: raise BuildError(str(exc)) from exc
+    ownership = profile.get("dlcOwnership")
+    if ownership is not None:
+        id = profile.get("providerId", profile.get("steamId"))
+        apps = ownership.get("installedAppIds") if isinstance(ownership, dict) else None
+        if (not isinstance(ownership, dict) or ownership.get("schema") != 1 or ownership.get("provider") != profile.get("provider")
+                or ownership.get("appId") != 780290 or ownership.get("providerId", ownership.get("steamId")) != id
+                or not isinstance(apps, list) or any(type(app) is not int or app not in (1809490, 1958560, 2584170) for app in apps)
+                or len(set(apps)) != len(apps) or type(ownership.get("ownedMask")) is not int
+                or ownership["ownedMask"] != sum({1809490: 1, 1958560: 2, 2584170: 4}[app] for app in apps)):
+            raise BuildError("Offline profile DLC ownership is inconsistent with the selected account.")
     raw = _json_bytes(profile)
     if len(raw) > 4096: raise BuildError("Offline profile exceeds its runtime bound.")
     return {PROFILE: raw}

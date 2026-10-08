@@ -7,6 +7,7 @@ using UnityEditor;
 using UnityEditor.Android;
 using UnityEditor.Build.Player;
 using UnityEditor.Build.Reporting;
+using UnityEditor.Compilation;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -103,9 +104,29 @@ namespace GloomhavenVR.Quest.Editor
             var scripts = new Dictionary<string, MonoScript>(StringComparer.Ordinal);
             foreach (var script in MonoImporter.GetAllRuntimeMonoScripts())
             {
+                // The original native roster also contains partial/static
+                // source-file scripts for which GetClass returns null. Their
+                // exact MonoScript metadata, not reflection alone, is the key.
+                var serialized = new SerializedObject(script);
+                var assembly = serialized.FindProperty("m_AssemblyName");
+                var ns = serialized.FindProperty("m_Namespace");
+                var name = serialized.FindProperty("m_ClassName");
                 Type type = script.GetClass();
-                if (type == null) continue;
-                string key = type.Assembly.GetName().Name + ".dll|" + (type.Namespace ?? "") + "|" + type.Name;
+                string assemblyName, namespaceName, className;
+                if (assembly != null && ns != null && name != null && !string.IsNullOrEmpty(assembly.stringValue) && !string.IsNullOrEmpty(name.stringValue))
+                { assemblyName = assembly.stringValue; namespaceName = ns.stringValue; className = name.stringValue; }
+                else if (type != null)
+                { assemblyName = type.Assembly.GetName().Name + ".dll"; namespaceName = type.Namespace ?? ""; className = type.Name; }
+                else
+                {
+                    string path = AssetDatabase.GetAssetPath(script);
+                    if (!path.EndsWith(".cs", StringComparison.Ordinal)) continue;
+                    assemblyName = CompilationPipeline.GetAssemblyNameFromScriptPath(path);
+                    namespaceName = ""; className = Path.GetFileNameWithoutExtension(path);
+                    if (string.IsNullOrEmpty(assemblyName)) continue;
+                }
+                if (!assemblyName.EndsWith(".dll", StringComparison.Ordinal)) assemblyName += ".dll";
+                string key = assemblyName + "|" + namespaceName + "|" + className;
                 if (!scripts.ContainsKey(key)) scripts.Add(key, script);
             }
             var roots = new List<UnityEngine.Object>();
@@ -113,7 +134,14 @@ namespace GloomhavenVR.Quest.Editor
             {
                 string key = row.assembly + "|" + row.@namespace + "|" + row.@class;
                 if (!scripts.TryGetValue(key, out MonoScript script))
+                {
+                    // Engine default scripts are already emitted by the same
+                    // exact editor's default resource bank, even when the public
+                    // MonoImporter catalog excludes those native assets. The
+                    // closed output roster still must prove every one matches.
+                    if (row.assembly.StartsWith("UnityEngine.", StringComparison.Ordinal) && row.assembly.EndsWith("Module.dll", StringComparison.Ordinal)) continue;
                     throw new InvalidDataException("Retained original serialized script is missing: " + key + "; a full build is required.");
+                }
                 roots.Add(script);
             }
             // MonoScript assets carry only class identity/property metadata.
