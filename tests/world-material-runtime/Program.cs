@@ -156,6 +156,7 @@ public static partial class WorldMaterialProgram
         PropGuards(host,room,source,first,second,camera);
         LateChanges(host,source,first,second,camera);
         RenewedRefusals(host,source,first,second,camera);
+        CameraMasks(host,room,source,first,second,camera);
         bool prepared=false;WorldMaterialBudget.ConfigureAssetPreparation(()=>{prepared=true;return false;});Center(camera);
         Check(prepared&&source.sharedMaterial==first,"cold asset preparation refusal keeps native source materials valid");WorldMaterialBudget.ConfigureAssetPreparation(()=>true);
         WorldMaterialBudget.BeforeNativeRendererWrite(source);BundleShaders.Missing=true;
