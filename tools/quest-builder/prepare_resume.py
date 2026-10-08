@@ -169,7 +169,14 @@ class Preparation:
         self.copies.execute("CREATE TABLE IF NOT EXISTS copies (path TEXT PRIMARY KEY, source TEXT, target TEXT, sha256 TEXT)")
         self.copy_writes = 0
         self.witnesses = ValidatedFileWitnesses(self.copies, self.project, self.identity)
+        self.prior_copies, self.prior_witnesses = None, None
         try:
+            if migration:
+                prior_identity = {key: self.value[key] for key in self.identity}
+                prior_path = _ordinary_owned(self.root / ("copy-" + value_hash(prior_identity) + ".sqlite"))
+                if prior_path.is_file():
+                    self.prior_copies = sqlite3.connect(prior_path)
+                    self.prior_witnesses = ValidatedFileWitnesses(self.prior_copies, self.project, prior_identity)
             self._rollback_pending()
             try:
                 self._qualify()
@@ -178,6 +185,12 @@ class Preparation:
                 # snapshot. An interrupted later substage retains its good base.
                 if not migration and getattr(self, "invalid_step", None) == "base-project" and reset is not None:
                     reset()
+                    self.project.mkdir(parents=True, exist_ok=True)
+                    # An authorized reset replaces the project's directory
+                    # identity. Drop only this owner's old proofs and rebind to
+                    # the new owned root before any replacement copy is read.
+                    self.witnesses.invalidate(self.project)
+                    self.witnesses = ValidatedFileWitnesses(self.copies, self.project, self.identity)
                     self.value["steps"] = []
                     self.checked.clear()
                     write_json(self.journal, self.value)
@@ -189,6 +202,7 @@ class Preparation:
                 if undo.exists(): shutil.rmtree(undo)
             self.copies.commit()
         except BaseException:
+            self._close_prior_witnesses(commit=False)
             self.copies.close()
             raise
 
@@ -269,10 +283,26 @@ class Preparation:
             # lock. These are invocation-local producer proofs, never old stats.
             self.checked[relative] = (before, content_proof["sha256"])
             self.witnesses.remember(path, content_proof["sha256"])
-        checksum = self.witnesses.observe(path, hasher=digest)
+        if self.prior_witnesses:
+            # Only the builder's proven compatible-input seam opens the exact
+            # old owner database. Its accepted byte witness must still match the
+            # live file's strong identity/change stamp and this receipt's SHA.
+            stamp = self.prior_witnesses.current(path)
+            checksum = self.prior_witnesses.observe(path, hasher=digest)
+            self.witnesses.remember(path, checksum, stamp=stamp)
+        else:
+            checksum = self.witnesses.observe(path, hasher=digest)
         if before != _stamp(path): raise BuildError("Preparation output changed while read: " + relative)
         self.checked[relative] = (before, checksum)
         return {"path": relative, "size": before[2], "sha256": checksum}
+
+    def _close_prior_witnesses(self, *, commit):
+        if self.prior_copies is None: return
+        if commit:
+            for key, count in self.prior_witnesses.counters.items(): self.witnesses.counters[key] += count
+            self.prior_copies.commit()
+        self.prior_copies.close()
+        self.prior_copies, self.prior_witnesses = None, None
 
     def _qualify(self):
         latest = {}
@@ -299,7 +329,10 @@ class Preparation:
                 raise BuildError("Retained preparation output changed in " + name + ": " + relative +
                                  "; completed steps and Unity Library were retained. Restore the file or use a fresh output folder.")
             if counter: counter.add(1, relative)
-        if counter: counter.finish()
+        self._close_prior_witnesses(commit=True)
+        if counter:
+            counter.detail = "Qualifying retained preparation contracts: " + self.witnesses.summary()
+            counter.finish()
         if replaced: write_json(self.journal, self.value)
 
     def _rebind_compatible_input(self):

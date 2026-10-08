@@ -336,6 +336,25 @@ with journal.operation('textures',1):
             self.assertEqual(second.witnesses.counters["cache_hits"], 0)
             second.close()
 
+    def test_authorized_base_reset_refreshes_the_owned_witness_directory(self):
+        source = self.root / "source"; source.write_bytes(b"original")
+        first = self.journal(); target = self.project / "Assets/copied"
+        with first.operation("project-files", 1):
+            first.run("base-project", "project-files", lambda: first.copy(source, target), ["Assets/copied"])
+        first.close(); target.write_bytes(b"corrupted")
+        resets = []
+        def reset():
+            resets.append(True); shutil.rmtree(self.project); self.project.mkdir(parents=True)
+        second = self.journal(reset=reset)
+        self.assertEqual(resets, [True])
+        self.assertEqual(second.value["steps"], [])
+        self.assertEqual(second.copies.execute("SELECT COUNT(*) FROM validated_file_witnesses WHERE owner=?", (second.witnesses.namespace,)).fetchone()[0], 0)
+        with second.operation("project-files", 1):
+            second.run("base-project", "project-files", lambda: second.copy(source, target), ["Assets/copied"])
+        second.finish(); second.close()
+        self.assertEqual(target.read_bytes(), b"original")
+        last = self.journal(); last.close()
+
     def test_short_write_retains_old_target_and_cleans_temporary(self):
         source = self.root / "source"; source.write_bytes(b"new original")
         target = self.put("Assets/copied", b"previous")
@@ -412,6 +431,43 @@ class CompatiblePreparationTests(unittest.TestCase):
         second.finish(); second.close()
         self.assertEqual((self.project / "Library/imported").read_bytes(), b"retained Unity state")
         self.assertEqual({name: (self.project / name).stat().st_mtime_ns for name in old_stamps}, old_stamps)
+
+    def test_proven_key_migration_transfers_existing_byte_witnesses_without_payload_reads(self):
+        self.completed_prefix(pending=True)
+        with patch.dict(storage._invocation_file_proofs, clear=True), patch.object(resume, "digest", side_effect=AssertionError("Proved compatible migration must retain byte witnesses")):
+            second = self.journal("b", compatible_input_key="a" * 64)
+            self.assertEqual(second.witnesses.counters, {"files_read": 0, "bytes_read": 0, "cache_hits": 4})
+            second.close()
+        with patch.dict(storage._invocation_file_proofs, clear=True), patch.object(resume, "digest", side_effect=AssertionError("Transferred proof lost on next restart")):
+            third = self.journal("b"); third.close()
+        self.assertEqual(third.witnesses.counters, {"files_read": 0, "bytes_read": 0, "cache_hits": 4})
+
+    def test_compatible_migration_without_old_byte_witness_reads_legacy_contracts_once(self):
+        self.completed_prefix()
+        prior = self.journal(); prior.copies.execute("DELETE FROM validated_file_witnesses"); prior.close()
+        with patch.dict(storage._invocation_file_proofs, clear=True):
+            second = self.journal("b", compatible_input_key="a" * 64)
+            self.assertEqual(second.witnesses.counters["files_read"], 4)
+            self.assertGreater(second.witnesses.counters["bytes_read"], 0)
+            second.close()
+        with patch.dict(storage._invocation_file_proofs, clear=True), patch.object(resume, "digest", side_effect=AssertionError("Legacy migration must persist its actual proof")):
+            third = self.journal("b"); third.close()
+
+    def test_changed_old_witness_never_bootstraps_a_compatible_key_migration(self):
+        first = self.completed_prefix(); before = first.journal.read_bytes()
+        path = self.project / "Assets/loading-resources"; original = path.stat()
+        path.write_bytes(b"wrong"); os.utime(path, ns=(original.st_atime_ns, original.st_mtime_ns))
+        with patch.dict(storage._invocation_file_proofs, clear=True), self.assertRaisesRegex(storage.BuildError, "Retained preparation output changed"):
+            self.journal("b", compatible_input_key="a" * 64)
+        self.assertEqual(first.journal.read_bytes(), before)
+
+    def test_old_witness_corruption_forces_byte_qualification_before_transfer(self):
+        self.completed_prefix(); previous = self.journal()
+        previous.copies.execute("UPDATE validated_file_witnesses SET check_hash=?", ("bad",)); previous.close()
+        with patch.dict(storage._invocation_file_proofs, clear=True):
+            second = self.journal("b", compatible_input_key="a" * 64)
+            self.assertEqual(second.witnesses.counters["files_read"], 4)
+            second.close()
 
     def test_wrong_prior_key_and_other_identity_changes_do_not_reset_or_rebind(self):
         first = self.completed_prefix(); before = first.journal.read_bytes()
