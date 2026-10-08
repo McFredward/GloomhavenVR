@@ -29,6 +29,12 @@ int assertions = 0;
 void Check(bool condition, string message) { assertions++; if (!condition) throw new Exception(message); }
 try
 {
+    if (args.Length == 1 && args[0] == "--offline-profile-only")
+    {
+        OfflineDynamicProfileTests.Run(projectRoot, Check);
+        Console.WriteLine($"Quest offline dynamic profile: {assertions} assertions passed.");
+        return;
+    }
     if (args.Length == 1 && args[0] == "--guildmaster-only")
     {
         StandaloneGuildmasterTests.Run(projectRoot, Check, requireOriginal: true);

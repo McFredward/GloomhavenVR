@@ -136,6 +136,15 @@ internal static class Standalone
         {
             Replace(Method(a, type, method, result), il => { EmitConstant(il, value); il.Emit(OpCodes.Ret); });
         }
+        void ProfileValue(AssemblyDefinition assembly, ILProcessor il, string accessor, string fallback)
+        {
+            il.Emit(OpCodes.Ldstr, fallback);
+            if (target == "game")
+                il.Emit(OpCodes.Call, assembly.MainModule.ImportReference(typeof(Runtime.OfflineProfile).GetMethod(accessor)!));
+        }
+        void ProfileGetter(string type, string method, string accessor, string fallback)
+            => Replace(Method(game, type, method, "System.String"), il =>
+            { ProfileValue(game, il, accessor, fallback); il.Emit(OpCodes.Ret); });
         void Noop(string type, string method, params string[] parameters) => Replace(Method(game, type, method, "System.Void", parameters), il => il.Emit(OpCodes.Ret));
 
         MethodDefinition factory = Method(platforms, "Platforms.Utils.PlatformConstructor", "BuildPlatform", "Platforms.IPlatform",
@@ -154,7 +163,8 @@ internal static class Standalone
         Replace(buildUsers, il =>
         {
             var inputUser = new VariableDefinition(userCtor.Parameters[3].ParameterType); buildUsers.Body.Variables.Add(inputUser);
-            il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, users); il.Emit(OpCodes.Ldstr, profile.DisplayName); il.Emit(OpCodes.Ldstr, profile.AccountId); il.Emit(OpCodes.Ldc_I4_0);
+            il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, users);
+            ProfileValue(platforms, il, "DisplayName", profile.DisplayName); ProfileValue(platforms, il, "AccountId", profile.AccountId); il.Emit(OpCodes.Ldc_I4_0);
             il.Emit(OpCodes.Ldloca, inputUser); il.Emit(OpCodes.Initobj, inputUser.VariableType); il.Emit(OpCodes.Ldloc, inputUser);
             il.Emit(OpCodes.Newobj, userCtor); il.Emit(OpCodes.Callvirt, addUser); il.Emit(OpCodes.Ret);
         });
@@ -173,8 +183,8 @@ internal static class Standalone
         Constant(game, "PlatformLayer", "get_IsValid", false, "System.Boolean");
         Constant(game, "PlatformLayer", "get_SessionTicket", "", "System.String");
         Constant(game, "PlatformLayer", "get_SteamAppId", 780290, "System.UInt32");
-        if (profile.Provider != "steam")
-            Constant(game, "PlatformLayer", "get_PlatformID", profile.Provider == "gog" ? "GoGGalaxy" : "EpicGamesStore", "System.String");
+        if (target == "game" || profile.Provider != "steam")
+            ProfileGetter("PlatformLayer", "get_PlatformID", "PlatformId", profile.Provider == "gog" ? "GoGGalaxy" : profile.Provider == "epic" ? "EpicGamesStore" : "Steam");
         // The PC builder captures local DLC availability once. Preserve original
         // CanPlayDLC/file checks, party/save validation and promotional selection;
         // only the unavailable live-store seam uses baked ownership on Quest.
@@ -186,6 +196,19 @@ internal static class Standalone
             throw new InvalidDataException("Original DLC ownership mapping changed; review the new source before building.");
         Replace(installedDlc, il =>
         {
+            if (target == "game")
+            {
+                foreach (int flag in new[] { 1, 2, 4 })
+                {
+                    Instruction next = Instruction.Create(OpCodes.Nop);
+                    il.Emit(OpCodes.Ldarg_1); il.Emit(OpCodes.Ldc_I4, flag); il.Emit(OpCodes.Bne_Un, next);
+                    il.Emit(OpCodes.Ldc_I4, profile.OwnedDlcMask);
+                    il.Emit(OpCodes.Call, game.MainModule.ImportReference(typeof(Runtime.OfflineProfile).GetMethod("OwnedDlcMask")!));
+                    il.Emit(OpCodes.Ldc_I4, flag); il.Emit(OpCodes.And); il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Cgt_Un); il.Emit(OpCodes.Ret); il.Append(next);
+                }
+                il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Ret);
+                return;
+            }
             Instruction yes = Instruction.Create(OpCodes.Ldc_I4_1);
             foreach (int flag in new[] { 1, 2, 4 })
                 if ((profile.OwnedDlcMask & flag) != 0)
@@ -206,11 +229,11 @@ internal static class Standalone
         Constant(game, "PlatformNetworking", "get_EPICInvitesSupported", false, "System.Boolean");
         Constant(game, "PlatformModding", "get_ModdingSupported", false, "System.Boolean");
         Constant(game, "PlatformModding", "get_LevelEditorSupported", false, "System.Boolean");
-        Constant(game, "PlatformUserData", "get_UserName", profile.DisplayName, "System.String");
-        Constant(game, "PlatformUserData", "get_PlatformPlayerID", profile.SteamId, "System.String");
-        Constant(game, "PlatformUserData", "get_PlatformAccountID", profile.AccountId, "System.String");
+        ProfileGetter("PlatformUserData", "get_UserName", "DisplayName", profile.DisplayName);
+        ProfileGetter("PlatformUserData", "get_PlatformPlayerID", "PlayerId", profile.SteamId);
+        ProfileGetter("PlatformUserData", "get_PlatformAccountID", "AccountId", profile.AccountId);
         Constant(game, "PlatformUserData", "get_IsSignedIn", true, "System.Boolean");
-        void ConnectionIdentity(string name, string tokenProperty, string localValue)
+        void ConnectionIdentity(string name, string tokenProperty, string accessor, string localValue)
         {
             MethodDefinition method = Method(game, "PlatformUserData", name, "System.String", "Photon.Bolt.BoltConnection");
             MethodReference[] calls = method.Body.Instructions.Select(i => i.Operand).OfType<MethodReference>().ToArray();
@@ -226,13 +249,13 @@ internal static class Standalone
             {
                 Instruction remote = Instruction.Create(OpCodes.Ldarg, method.Parameters[0]);
                 il.Emit(OpCodes.Ldarg, method.Parameters[0]); il.Emit(OpCodes.Brtrue, remote);
-                il.Emit(OpCodes.Ldstr, localValue); il.Emit(OpCodes.Ret); il.Append(remote);
+                ProfileValue(game, il, accessor, localValue); il.Emit(OpCodes.Ret); il.Append(remote);
                 il.Emit(OpCodes.Callvirt, connections[0]); il.Emit(OpCodes.Castclass, tokens[0].DeclaringType);
                 il.Emit(OpCodes.Callvirt, tokens[0]); il.Emit(OpCodes.Ret);
             });
         }
-        ConnectionIdentity("GetUserNameForConnection", "get_Username", profile.DisplayName);
-        ConnectionIdentity("GetPlatformIDForConnection", "get_PlatformPlayerID", profile.SteamId);
+        ConnectionIdentity("GetUserNameForConnection", "get_Username", "DisplayName", profile.DisplayName);
+        ConnectionIdentity("GetPlatformIDForConnection", "get_PlatformPlayerID", "PlayerId", profile.SteamId);
         MethodDefinition voiceSwitch = Method(game, "VoiceChat.VoceChatOptions", "SwitchStatus", "System.Void");
         if (!voiceSwitch.Body.Instructions.Any(i => i.Operand is MethodReference c && c.DeclaringType.FullName == "VoiceChat.BoltVoiceChatService" && c.Name == "get_IsVoiceChatConnected"))
             throw new InvalidDataException("Original voice UI connection gate changed: " + voiceSwitch.FullName);
