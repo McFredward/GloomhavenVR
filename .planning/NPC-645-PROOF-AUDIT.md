@@ -25,6 +25,12 @@ continuous. This is separate from the intended native hover tint/scale. A local
 capture does not expose numeric packets or exact ring sample intervals. Logs
 report complete original enhancement pictures and do not encode every rendered
 row corner or angular velocity. Neither is a source of per-frame timing proof.
+The host's seven original admission/display pairs and their `age=0` describe
+the local admission clock, not end-to-end wire latency. A painted count below a
+required dependency count does not, on its own, establish a missing visible
+widget. The peer's merchant-stock NullReference occurs after hosting ended and
+loading began; it is not attributed to the active hover symptom. Neither paired
+log contains a fast-motion exception or per-node angular/row sample trace.
 
 ## Why inherited green evidence did not cover this report
 
@@ -49,7 +55,7 @@ stretched row hierarchy with independently changing parent rects and hover
 geometry. An exact settled endpoint does not establish that intermediate
 anchored child positions stay valid.
 
-## Runtime seams requiring direct causal controls
+## Confirmed runtime causes and bounded repairs
 
 The actual full-path hover reproduction narrows the cause further than the
 initial coordinate hypothesis. `Binding.Apply` always centered the original
@@ -71,27 +77,12 @@ of the hardware cause. The later full capture/codec/motion/receiver fixture
 first performs a genuine caption/artwork refresh, then a child-only hover
 against the stationary root. That is the needed causally different workload.
 
-`TownServiceBinding.Read` captures RectTransform `anchoredPosition3D`; its
-`Apply` restores the same anchored coordinates. `TownServiceMotion.Read` and
-`Write` instead cache/interpolate `localPosition`. Unity derives local position
-from a rect's anchors, pivot and parent dimensions. A changed parent can thus
-change a child's local position without changing its anchored coordinates.
-Binding order is stable identity order, not hierarchy order. Cached local
-positions must not become new owner targets when a subsequent parent rect
-write changes that derived reference. A parent-first pass alone would hide
-this example without fixing the incorrect coordinate contract.
-
-For example, a top-anchored child with anchoredY 0 has localY 50 inside a 100px
-parent and localY 80 inside a 160px parent. During an unfinished parent tween,
-restoring cached localY 80 first can assign a nonzero anchoredY; restoring the
-parent afterwards then moves the child again. An unchanged native child
-property is correctly skipped by Binding, so the displaced derived local
-position can be retained as a new motion target. In anchored coordinates,
-the unchanged native intent remains 0 throughout both parent writes.
-This coordinate-space concern is documented as a candidate seam, not as the
-proven cause or a shipped Motion coordinate change. The final repair does not
-change Motion's coordinate contract merely because this simpler hypothesis
-initially appeared plausible.
+The initial hypothesis concerned Binding's native `anchoredPosition3D` and
+Motion's derived `localPosition` under changing parent rects and identity-sorted
+children. The simple native fixture passed unchanged source and did not confirm
+that hypothesis. It is not attributed to the hardware report; no Motion
+coordinate change is shipped. The full-path root-layout control above determines
+the bounded repair instead.
 
 `TownServiceMotion` originally uses one sample/start clock for all properties
 of a node. A simultaneous scale/color/layout sample can overwrite the clock
@@ -126,26 +117,24 @@ Reading `UIEnchantressEffect` there cannot discover its original serialized
 rotation settings, because neutralization has already removed that controller.
 A fixture which directly registers a live source controller can pass while the
 real frozen-template path never enables the intended ring clock. The authored
-rate must survive the real freeze/partition/registration path as inert metadata,
-without preserving or running the gameplay controller. The final proof must
-exercise that path, not only direct live-template registration.
+rate now survives the real freeze/partition/registration path as inert Part
+metadata, without preserving or running the gameplay controller. Both eager
+Warm and later Resolve pass that metadata: repairing only Resolve would leave
+an already cached inert template without its clock. Retained frozen parts can
+restore it after template/network teardown.
 
-## Required bounded replacement evidence
-
-The focused replacement checks must fail under the exact previous runtime
-behavior, rather than under a malformed codec or an unrelated missing asset.
-They should retain source hashes, initial failures and final receipts.
-
-- Native slow ring samples interleaved with faster same-node pulse/scale/fit
-  updates and unrelated root/hover/artwork updates; per-render progress, no
-  stationary gaps or angular reversals, and exact stop/reset behavior.
-- Final detached native Aura output through the actual capture/codec/motion
-  receiver and offered print registration, including a full rotation wrap.
-- Native stretched enhancement rows with a changing parent rect, scroll and
-  hover children, comparing anchored positions and world corners throughout
-  intermediate playback rather than only after settling.
-- Original ring/list artwork, visitor-local pre-drop guides and inert native
-  callbacks retained; wire size/cadence and native property formats unchanged.
+The source clock is also part of the native contract. The original
+`UIEnchantressEffect.Rotate` tween uses LeanTween's default normal delta,
+ultimately `Time.deltaTime`, rather than an explicit unscaled override. A local
+clock driven solely by the network's unscaled receipt time would keep rotating
+during a native pause and use the wrong speed at other time scales. A manual
+LeanTween pump is useful for deterministic geometry but does not prove this
+default clock. The final observer uses `Time.timeAsDouble`; coverage includes
+normal scaled time at 0, 0.5 and 2, and repeated observer draws in the same Unity
+frame do not multiply progress.
+The actual lifecycle stops through native shop/card-holder hide or offering
+removal; a hypothetical manual stop while still visibly offered is not claimed
+as a gameplay case.
 
 ## Independently reviewed hover result
 
@@ -182,7 +171,98 @@ coordinate storage nor capture cadence, codecs or transport payloads. Existing
 five meaningful negative controls). This is inherited area coverage, not a new
 complete local gate.
 
-The final ring result and its exact checked source will be recorded below
-before handoff. A focused local Unity/Mono pass will not be described as a new
-complete-suite pass, an actual WAN latency guarantee or a rendered-HMD animation
-acceptance.
+## Independently reviewed final ring result
+
+The final repair changes only `TownServiceMirror.Offerings.cs`,
+`TownServiceMirror.cs`, `NativeTemplates.cs` and
+`NativeTemplates.EnhancementPreparation.cs`. `TownServiceMotion.cs` is unchanged.
+The new final presentation clock runs after the generic numeric and offered
+writers. It rotates the original three Aura Graphics in the current shared
+print plane at the native signed rate, with a viewer-local phase under the
+maintainer's explicit exception. The game-authored 20-second revolution remains
+18 degrees per second. The original controller stays stripped on observers.
+
+The native receipt contains the actual eleven-node holder and all three original
+Aura sprites. Its five-node Aura owns the original controller and native
+Highlight/Buy/Sell graphics; the clock metadata belongs only to that owning
+non-Graphic mount. Original level-up/frame and selectable enhancement graphics
+outside Aura do not join this clock. Both the normal unsplit holder, where Aura
+has a nonzero binding index, and a forced detached Aura partition are exercised.
+Freeze, neutralization, partitioning, Warm/Resolve, native mask, capture, codecs,
+receiver and final writers all run. Constructing the external card model remains
+an explicit fixture boundary.
+
+An initial independent-rotation-channel repair passed 509 standalone assertions
+but the full final-writer route still produced approximately 3.25-times the
+expected per-frame rotation. It was rejected. A later quaternion-based fit
+produced an ellipse under anisotropic ancestry. The final implementation instead
+uses the observer's actual parent matrix and the native principal-stretch basis.
+It then expresses each Graphic's angle in that corrected parent plane. Current
+complete authored Aura TRS sets the unsplit diameter; the detached native Aura
+publishes its exact transformed XY axis lengths in the existing kind-9 fields.
+That special case is guarded by the known native Aura being the partition root;
+other offered roots keep their original numeric and scale-flag behavior.
+
+The strict settled-size audit also caught persistent errors which the initial
+5% transient bound would have allowed: approximately 0.74% in the unsplit route
+and 0.125% in the detached route. Both are repaired. The final three-sprite
+endpoint assertion requires owner/observer diameter difference below 60
+micrometers. Passing predicates establish that bound; the receipts do not print
+each final absolute diameter, so no more precise endpoint measurement is claimed.
+
+The final worker-local evidence is:
+
+- `npc-ring645-final3/run-8gn9lbsr`: production, reversed native rate and the
+  unaltered Unity normal-clock case pass. The detached strict-size check fails
+  there and is explicitly superseded by the affected rerun below.
+- `npc-ring645-partition-size/run-j76y9lv2`: the repaired actual detached route
+  passes the strict diameter and withdrawal/reopen checks. Its production
+  `TownServiceMirror.Offerings.cs` SHA256 is
+  `37ea7f72197443a376b2ee413734c40e4f7923b91a700caafa082f1c0ddc2787`,
+  independently matched to the final reviewed source.
+- `npc-ring645-existing/run-mir4otuy`: existing offered-orientation coverage
+  passes 602 assertions. The final native-only XY-axis correction does not enter
+  that synthetic, non-Aura route.
+
+Each deterministic case renders 540 frames with native LeanTween, nonuniform
+ancestry, moving print yaw/pitch, principal-axis changes, irregular/dropped
+packets and older artwork heartbeats. It binds only the scaled-clock boundary
+to the fixture timeline, starting at one billion seconds. Every render checks
+the exact signed increment, ordinarily 0.2 degrees at 90 Hz, rather than total
+travel. Recorded final production and detached runs have zero stationary or
+reverse steps; double-speed increments peak at approximately 0.4 degrees. The
+separate real Unity case leaves the production `Time.timeAsDouble` call unchanged
+and runs normal-delta LeanTween through pause, half/double speed and repeated
+same-frame final writers. Native plane, orthogonal square basis, center and all
+three strict settled diameters are checked.
+
+Two compiled controls reject the previous blind spots at frame 2: disabling the
+final local ring clock, or losing frozen metadata on Warm before Resolve sees
+the cached template, gives 0 degrees where the native increment is 0.2 degrees.
+They are targeted behavioral mutations, not claims that the entire old revision
+was recompiled unchanged. Hidden-interval checks advance the bound scaled clock
+and verify cached offered clocks are retired; an inert cached binding reopens at
+the native rate. Source Stop is tested with the actual following holder hide and
+offering withdrawal, rather than an unsupported visible manual-pause workload.
+
+The source review of game clock setters establishes the regular multiplayer
+boundary: gameplay speed controls change Chronos's global clock rather than
+Unity `Time.timeScale`; native UI LeanTween continues on Unity's normal clock.
+The game's Unity-time debug pause is explicitly disabled online. Other discovered
+Unity-time setters belong to demo or offline capture code. This does not assert
+support for an external mod arbitrarily changing only one viewer's Unity clock.
+
+The largest measured transient diameter difference from the current
+*unpublished* owner is 3.041644% during deliberately delayed/dropped updates.
+This remains sampled geometry interpolation lag, not an approved persistent
+size divergence. Native alpha/pulse and other properties retain their existing
+sampled transport and interpolation; this change does not make their phase local
+or establish pixel equality at every WAN instant. Card-facing, center, content,
+selectable overlays and flights retain their existing shared ownership. The
+ring phase exception does not weaken those contracts.
+
+No new wire fields, protocol grammar, publication cadence or diagnostic stream
+is added. Visitor-local pre-drop guides and inert native callbacks remain intact.
+This bounded audit accepts the source repairs and causal local controls. It does
+not claim a new complete gate, WAN latency measurement or HMD visual acceptance;
+the integrator records its combined focused checks and inherited gate separately.
