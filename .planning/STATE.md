@@ -16,6 +16,12 @@ render implementation and its exact environment bank and generated assets.
 storage, with bilingual explanations, no curated controls, preset writes or
 render consumers. No experimental647 repair or new quality compromise ships.
 
+Rollback validation passes source16, focused4/4, goldens299,714 and strict
+Debug/Release with0 warnings/errors. Compiled1238 types retain exact646 renderer/
+NPC behavior. The additional176-suite attempt records170 direct passes; all six
+remaining scopes pass bounded unchanged-source repeats. This composite evidence
+is not a new single-run complete-gate pass; original failures remain archived.
+
 Final local validation and integration are recorded in
 [FRAME-648-REVIEW.md](FRAME-648-REVIEW.md). Independent hardware/source diagnosis:
 [FRAME-648-LOG-AUDIT.md](FRAME-648-LOG-AUDIT.md),

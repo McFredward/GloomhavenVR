@@ -79,12 +79,34 @@ pass at the publication checkpoint:
 
 The unaffected646 NPC/map evidence and previously checked unchanged native
 presentation paths are inherited; exact source/compiled identity is verified.
-One additional complete176-suite guard/wire attempt continues after this checked
-rollback checkpoint is published. Its pending status is not reported as a pass.
-A separately started duplicate complete attempt was cancelled before completion
-to avoid duplicate work; its cancellation receipt/logs are retained. Final
-completion or any failed attempts and bounded repeats will be appended here.
-A648 Frame picture/FPS result remains unverified.
+The additional complete176-suite guard/wire attempt is now finished:176/176
+recorded,170 directly passed,6 failed. It is preserved as FAIL, not rewritten
+as a successful complete gate. Five unchanged NPC639/646 native atlas/visible
+picture cases exceeded their original1s wall-clock deadlines under8-way load.
+All five pass unchanged in a serial5-suite repeat (145.5s).
+
+The sixth failure is scenery's `omit-creation-deferral` control: production922
+assertions and50 other negative controls pass, but that mutant rejects at an
+earlier decoration assertion instead of its declared creation assertion. A
+bounded isolated run passes production922 and rejects the same unmodified
+mutant at its original expected creation assertion (2 variants). No production,
+fixture, mutation or deadline/expectation was changed to obtain these repeats.
+The differing outcomes are consistent with parallel test scheduling/load;
+they do not identify a648 runtime change or prove headset timing.
+
+Restored World materials additionally pass736 production assertions/64 variants;
+environment passes11,450/92, terrain387/79, and the complete native scenery
+classifier source check passes. Combined recorded scope covers all176 inventory
+entries through the original attempt plus bounded unchanged-source repeats.
+This is composite coverage, not a new single-run complete-gate pass. The original
+wire wrapper stopped after the failed catalog; its generic "wire format changed"
+line is not a failed vector. The separately executed299,714 goldens pass.
+
+The checked rollback checkpoint was pushed as `80023a380`; integrated dev and
+candidate have10,542 identical source/test/asset paths. Integrated dev Debug/
+Release again pass0 warnings/errors and the complete source group16/16 passes.
+The following descendant changes developer evidence only. A648 Frame picture/
+FPS result remains unverified.
 
 ## Evidence and next hardware boundary
 
