@@ -16,7 +16,7 @@ import re
 import shutil
 import sqlite3
 
-from storage import BuildError, CONTENT_PATHS, _ordinary_owned, digest, value_hash, write_json
+from storage import BuildError, CONTENT_PATHS, ValidatedFileWitnesses, _ordinary_owned, digest, value_hash, write_json
 
 SCHEMA = 1
 OWNER = "Quest preparation substage journal"
@@ -163,29 +163,34 @@ class Preparation:
         self.value = value or {**self.identity, "sources": self.source_stamps, "steps": [], "pending": None}
         if not isinstance(self.value.get("steps"), list): raise BuildError("Preparation journal has no ordered steps.")
         if not migration: write_json(self.journal, self.value)
-        self._rollback_pending()
-        try:
-            self._qualify()
-        except BuildError:
-            # A corrupt base overlay is repairable from the exact selected
-            # snapshot. This differs from an interrupted later substage, whose
-            # good base/native/audio outputs must remain in place.
-            if not migration and getattr(self, "invalid_step", None) == "base-project" and reset is not None:
-                reset()
-                self.value["steps"] = []
-                self.checked.clear()
-                write_json(self.journal, self.value)
-            else: raise
-        if migration: self._rebind_compatible_input()
-        # A kill after receipt publication can leave an already committed undo
-        # directory. Its successful named step proves this private ownership.
-        for step in self.value["steps"]:
-            undo = _ordinary_owned(self.root / ("undo-" + step["name"]))
-            if undo.exists(): shutil.rmtree(undo)
+        self.project.mkdir(parents=True, exist_ok=True)
         copy_path = _ordinary_owned(self.root / ("copy-" + value_hash(self.identity) + ".sqlite"))
         self.copies = sqlite3.connect(copy_path)
         self.copies.execute("CREATE TABLE IF NOT EXISTS copies (path TEXT PRIMARY KEY, source TEXT, target TEXT, sha256 TEXT)")
         self.copy_writes = 0
+        self.witnesses = ValidatedFileWitnesses(self.copies, self.project, self.identity)
+        try:
+            self._rollback_pending()
+            try:
+                self._qualify()
+            except BuildError:
+                # A corrupt base overlay is repairable from the exact selected
+                # snapshot. An interrupted later substage retains its good base.
+                if not migration and getattr(self, "invalid_step", None) == "base-project" and reset is not None:
+                    reset()
+                    self.value["steps"] = []
+                    self.checked.clear()
+                    write_json(self.journal, self.value)
+                else: raise
+            if migration: self._rebind_compatible_input()
+            # A kill after publication can leave an already committed undo tree.
+            for step in self.value["steps"]:
+                undo = _ordinary_owned(self.root / ("undo-" + step["name"]))
+                if undo.exists(): shutil.rmtree(undo)
+            self.copies.commit()
+        except BaseException:
+            self.copies.close()
+            raise
 
     def copy(self, source, target):
         """Retain qualified base-copy files, committing in bounded small batches."""
@@ -195,10 +200,10 @@ class Preparation:
         previous = self.copies.execute("SELECT source,target,sha256 FROM copies WHERE path=?", (relative,)).fetchone()
         if previous and json.loads(previous[0]) == before and target.is_file() and json.loads(previous[1]) == list(_stamp(target)):
             stamp = _stamp(target)
-            # Across process restarts, metadata alone is never content proof.
-            # Read only the retained target, once as it is consumed, rather than
-            # sweeping the project or reading both immutable copies beforehand.
-            if relative in self.copy_qualified or digest(target) == previous[2]:
+            # A previous byte witness binds to this project/input and real file
+            # ChangeTime. Older ledgers and unsupported metadata still read the
+            # retained target once; a warm unchanged file needs no second read.
+            if self.witnesses.qualify(target, previous[2], before[2], hasher=digest):
                 if stamp != _stamp(target): raise BuildError("Retained preparation copy changed while read: " + relative)
                 self.copy_qualified.add(relative)
                 self.checked[relative] = (stamp, previous[2])
@@ -210,6 +215,7 @@ class Preparation:
             self.copies.execute("INSERT OR REPLACE INTO copies VALUES (?,?,?,?)",
                                 (relative, json.dumps(before), json.dumps(stamp), checksum))
             self.checked[relative] = (stamp, checksum)
+            self.witnesses.remember(target, checksum)
             self.copy_qualified.add(relative)
             self.copy_writes += 1
             if self.copy_writes % 128 == 0: self.copies.commit()
@@ -252,7 +258,9 @@ class Preparation:
 
     def _observe(self, relative):
         path = self._path(relative)
-        if not path.exists(): return {"path": relative, "absent": True}
+        if not path.exists():
+            self.witnesses.invalidate(path)
+            return {"path": relative, "absent": True}
         if not path.is_file(): raise BuildError("Preparation output is not a file: " + relative)
         before = _stamp(path)
         content_proof = self.content_proofs.get(relative)
@@ -260,8 +268,8 @@ class Preparation:
             # The caller just hashed this exact coherent pair under its output
             # lock. These are invocation-local producer proofs, never old stats.
             self.checked[relative] = (before, content_proof["sha256"])
-        previous = self.checked.get(relative)
-        checksum = previous[1] if previous and previous[0] == before else digest(path)
+            self.witnesses.remember(path, content_proof["sha256"])
+        checksum = self.witnesses.observe(path, hasher=digest)
         if before != _stamp(path): raise BuildError("Preparation output changed while read: " + relative)
         self.checked[relative] = (before, checksum)
         return {"path": relative, "size": before[2], "sha256": checksum}
@@ -365,6 +373,7 @@ class Preparation:
                 raise BuildError("Preparation undo bytes changed; no project file was overwritten: " + row["path"])
         for row in reversed(rows):
             target = self._path(row["path"])
+            self.witnesses.invalidate(target)
             if row.get("directory"):
                 if target.exists(): shutil.rmtree(target)
                 target.mkdir(parents=True)
@@ -391,7 +400,10 @@ class Preparation:
             nonlocal sequence
             path = self._path(relative)
             saved = root / str(sequence)
-            copy_changed(path, saved, observed=lambda checksum: self.checked.__setitem__(relative, (_stamp(path), checksum)))
+            def observed(checksum):
+                self.checked[relative] = (_stamp(path), checksum)
+                self.witnesses.remember(path, checksum)
+            copy_changed(path, saved, observed=observed)
             row = {**self._observe(relative), "backup": str(sequence)}
             sequence += 1
             return row
@@ -425,6 +437,7 @@ class Preparation:
         undo = self._undo(name, paths) if paths else []
         self.value["pending"] = {"name": name, "operation": operation, "undo": undo}
         write_json(self.journal, self.value)
+        for relative in paths: self.witnesses.invalidate(self._path(relative))
         try:
             result = action()
             paths = contracts(result) if callable(contracts) else contracts

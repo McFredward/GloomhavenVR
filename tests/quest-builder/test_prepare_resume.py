@@ -278,13 +278,63 @@ with journal.operation('textures',1):
     def test_copy_cold_consumes_only_target_once_then_retains_current_proof(self):
         source = self.root / "source"; source.write_bytes(b"original")
         first = self.journal(); target = self.project / "Assets/copied"
+        first.copy(source, target)
+        # An older copy ledger has no durable byte witness. Migration consumes
+        # its retained target once, then the same proof serves later consumers.
+        first.copies.execute("DELETE FROM validated_file_witnesses"); first.close()
+        with patch.dict(storage._invocation_file_proofs, clear=True):
+            second = self.journal()
+            with patch.object(resume, "digest", wraps=resume.digest) as hashed, patch.object(resume, "copy_changed", wraps=resume.copy_changed) as copied:
+                second.copy(source, target); second.copy(source, target)
+                self.assertEqual(hashed.call_args_list, [unittest.mock.call(target)])
+                copied.assert_not_called()
+            second.close()
+
+    def test_warm_copy_witness_survives_restart_without_reading_source_or_target(self):
+        source = self.root / "source"; source.write_bytes(b"same immutable source")
+        first = self.journal(); target = self.project / "Assets/copied"
         first.copy(source, target); first.close()
-        second = self.journal()
-        with patch.object(resume, "digest", wraps=resume.digest) as hashed, patch.object(resume, "copy_changed", wraps=resume.copy_changed) as copied:
-            second.copy(source, target); second.copy(source, target)
-            self.assertEqual(hashed.call_args_list, [unittest.mock.call(target)])
-            copied.assert_not_called()
-        second.close()
+        with patch.dict(storage._invocation_file_proofs, clear=True):
+            second = self.journal()
+            with patch.object(resume, "digest", side_effect=AssertionError("Warm bytes must not be read")), patch.object(resume, "copy_changed", side_effect=AssertionError("Completed copy must not repeat")):
+                second.copy(source, target); second.copy(source, target)
+            self.assertEqual(second.witnesses.counters, {"files_read": 0, "bytes_read": 0, "cache_hits": 2})
+            second.close()
+
+    def test_warm_completed_output_contracts_require_no_second_byte_walk(self):
+        first = self.journal()
+        with first.operation("native-runtime", 1):
+            first.run("native-runtime", "native-runtime", lambda: self.put("Assets/native", b"native output" * 1024), ["Assets/native"])
+        first.close()
+        with patch.dict(storage._invocation_file_proofs, clear=True), patch.object(resume, "digest", side_effect=AssertionError("Warm contract byte walk")):
+            second = self.journal()
+            with second.operation("native-runtime", 1):
+                second.run("native-runtime", "native-runtime", lambda: self.fail("Closed native producer repeated"), [])
+            second.finish(); second.close()
+        self.assertEqual(second.witnesses.counters, {"files_read": 0, "bytes_read": 0, "cache_hits": 1})
+
+    def test_preserved_size_mtime_cannot_hide_changed_completed_output(self):
+        first = self.journal()
+        with first.operation("native-runtime", 1):
+            first.run("native-runtime", "native-runtime", lambda: self.put("Assets/native", b"original"), ["Assets/native"])
+        first.close()
+        path = self.project / "Assets/native"; before = path.stat()
+        path.write_bytes(b"modified"); os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+        with patch.dict(storage._invocation_file_proofs, clear=True), self.assertRaisesRegex(storage.BuildError, "Retained preparation output changed"):
+            self.journal()
+        self.assertEqual(path.read_bytes(), b"modified")
+
+    def test_unsupported_metadata_seam_falls_back_to_actual_copy_bytes(self):
+        source = self.root / "source"; source.write_bytes(b"original")
+        first = self.journal(); target = self.project / "Assets/copied"
+        first.copy(source, target); first.close()
+        with patch.object(storage, "_file_witness_stamp", return_value=None):
+            second = self.journal()
+            with patch.object(resume, "digest", wraps=resume.digest) as reads:
+                second.copy(source, target); second.copy(source, target)
+                self.assertEqual(reads.call_args_list, [unittest.mock.call(target), unittest.mock.call(target)])
+            self.assertEqual(second.witnesses.counters["cache_hits"], 0)
+            second.close()
 
     def test_short_write_retains_old_target_and_cleans_temporary(self):
         source = self.root / "source"; source.write_bytes(b"new original")
