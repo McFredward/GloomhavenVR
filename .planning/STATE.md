@@ -1,5 +1,30 @@
 # State — where the project stands
 
+**Build642 integration, 2026-10-08: 1.1.0 development candidate.**
+
+The separately checked Frame steady-render CPU follow-up is integrated after641.
+Terrain stops inspecting the prepared remainder after the existing camera cap;
+world materials share exact current prop/material ownership reads within one
+native camera pass. Nested callbacks invalidate mutable reads. Refusal revocation
+uses current leases and active/queued consumers, independently of preparation.
+Walls avoid unused home maps, repeated bounds/membership queries and premature
+census sampling. Native output, fades, room availability and interaction remain.
+The existing shared-read switch retains an independent-read comparison.
+
+Twenty-one checked source/test/doc files are byte-identical to the completed CPU
+candidate. Actual Unity world623/four affected controls, terrain352/one control,
+bridge20/13 controls and broader worker evidence are inherited; their original
+red154-suite record remains separate from bounded repairs. Source16/16, strict
+Debug/Release0 warnings/errors, docs5 pairs and current golden299713 pass.
+Compiled comparison retains all1237 types;1221 remain byte-identical. Changes
+are confined to five CPU types, two descriptions, eight numeric build consumers
+and one generated branch field. See [the642 integration review](../docs/performance/FRAME-642-INTEGRATION.md).
+NPC639, Frame640 and crossplay641 repairs and their scoped evidence are retained.
+No new complete local-suite or actual Frame FPS acceptance is claimed. No new
+bundle, quality limit, config default or wire layout. VR peers install642.
+
+---
+
 **Build641 integration, 2026-10-08: 1.1.0 development candidate.**
 
 Native Flat-host quest proposals now drive the current VR quest confirmation

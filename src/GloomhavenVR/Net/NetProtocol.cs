@@ -598,7 +598,29 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 641;
+    public const ushort ModBuild = 642;
+
+    // ModBuild642 — integrate the checked steady-render CPU follow-up after641.
+    // Fully loaded five-room638 windows measured terrain9.069ms, world materials
+    // 10.578ms and walls6.423ms per frame. These are optimization targets, not a
+    // measured post-fix saving; nested phase timings must not be added again.
+    // With SharedEnvironmentMaterialReads enabled, terrain stops examining the
+    // prepared remainder once the existing per-camera candidate cap is exhausted.
+    // Recover prior leases first and retain original output for untouched sources.
+    // Share exact current material/factory and registered/held prop ownership reads
+    // only within a synchronous camera pass; native/nested camera writes invalidate
+    // them. Refusal revocation uses actual current terrain leases or active/queued
+    // environment consumers, separately from prepared ownership membership.
+    // Walls skip unused home maps, use exact membership indexing before bounds,
+    // and check the existing census deadline before expensive attachment sampling.
+    // Native animation, room availability, material/MPB freshness and interaction
+    // stay intact. The existing shared-read switch permits an independent-read
+    // comparison; no new quality/profile limit, mesh bank, bundle or wire layout.
+    // Reviewed worker runtime evidence: world623 assertions/four affected controls,
+    // terrain352/one affected control, bridge20contracts/13controls. Byte-identical
+    // checked sources inherit those receipts; integration scope/build/source checks
+    // are recorded in .planning/FRAME-642-STEADY-CPU.md. Retains NPC639/Frame640/
+    // crossplay641. VR peers install642; actual headset FPS remains unverified.
 
     // ModBuild641 — restore native quest selection and continuation in Flat/VR crossplay.
     // User report: with two VR/two Flat players, a VR host could not reach quest start;

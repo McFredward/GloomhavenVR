@@ -1,7 +1,7 @@
 # Planning index
 
-Updated 2026-10-08 for Build641: native Flat/VR quest selection, readiness,
-departure recovery and optional retirement reachability on the NPC639/Frame640 tree.
+Updated 2026-10-08 for Build642: scoped steady-render CPU optimization retains
+NPC639, Frame640 and crossplay641 native quest/continuation repairs.
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
 status; it is not the player manual.
@@ -14,6 +14,8 @@ status; it is not the player manual.
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [FRAME-642-STEADY-CPU.md](FRAME-642-STEADY-CPU.md) | Exact per-camera CPU read sharing, native lease/refusal ownership and inherited runtime evidence |
+| [../docs/performance/FRAME-642-INTEGRATION.md](../docs/performance/FRAME-642-INTEGRATION.md) | Checked CPU integration on641, exact source hashes, compiled scope and retained NPC evidence |
 | [CROSSPLAY-QUEST-REVIEW.md](CROSSPLAY-QUEST-REVIEW.md) | Crossplay source repairs, integrated validation and outstanding mixed-session HMD matrix |
 | [CROSSPLAY-FLOW-AUDIT.md](CROSSPLAY-FLOW-AUDIT.md) | Native mixed-session mission and continuation audit, including departure and retirement |
 | [CROSSPLAY-QUEST-SELECTION.md](CROSSPLAY-QUEST-SELECTION.md) | Native proposal/popup identity and private/publicized causal regression proof |
