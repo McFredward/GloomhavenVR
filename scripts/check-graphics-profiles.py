@@ -49,6 +49,9 @@ for owner, (rel, namespace, module) in owners.items():
         section = 'RenderQuality' if owner=='RenderQuality' else 'Optimize' if owner=='PerfConfig' else 'WallFade' if owner=='WallFadeTuning' else 'WorldUI'
         value = 'false' if kind=='bool' else '0f' if kind=='float' else '0'
         extra += f'if ({name} == null) {name} = file.Add("{section}", "{name}", {value});\n'
+    if owner == 'PerfConfig':
+        # Compile the exact always-on getters; they deliberately create no binding.
+        extra += '\n'.join(re.findall(r'internal static bool \w+\s*=> true;', original))+'\n'
     extra += '} } }\n'
 extra += '''namespace GloomhavenVR.WorldUI { internal static class WindowMaterialise {
     internal static BepInEx.Configuration.ConfigEntry<bool> Entry = null!;
@@ -70,10 +73,14 @@ if result.returncode: raise SystemExit(result.returncode)
 curated=(source/'WorldUI/Options/VROptionsTab.4.Curated.cs').read_text()
 for index in range(4):
     if curated.count('() => GraphicsProfileActions.Apply('+str(index)+')') != 1: raise SystemExit('Missing unique profile button')
-for key in ['CacheTickDelegates','MapIconCache','FigureScanCache','LeanLogStrings','TooltipScanGate','SharedWallReadCache','LightStabiliserWorkCache','SuspendUnusedCameras','AutomaticLodIdleSkip']:
-    perf=(source/'Core/Perf/PerfConfig.cs').read_text()
-    if not re.search(key+r' = _file.Bind\("Optimize", "'+key+r'",[^,]+,\s*"INERT',perf): raise SystemExit('Unretired optimization: '+key)
-print('PASS: four unique UI actions and nine retained INERT work-removal keys')
+retired = ['CacheTickDelegates','MapIconCache','FigureScanCache','LeanLogStrings',
+           'TooltipScanGate','SharedWallReadCache','LightStabiliserWorkCache',
+           'SuspendUnusedCameras','AutomaticLodIdleSkip','SharedEnvironmentMaterialReads']
+perf = (source/'Core/Perf/PerfConfig.cs').read_text() + (source/'Core/Perf/PerfConfig.FrameRendering.cs').read_text()
+for key in retired:
+    if re.search(r'\.Bind\("Optimize", "'+key+r'"', perf):
+        raise SystemExit('Pure work-removal option must be retired: '+key)
+print('PASS: four unique UI actions; pure work-removal getters are always on and retired keys are unbound')
 # Default selection is independent of the explicit profile action. Keep the real Bind's
 # platform conditional and PC constant source-bound; this is not a persisted-file fixture.
 quality=(source/'Rig/RenderQuality.cs').read_text()

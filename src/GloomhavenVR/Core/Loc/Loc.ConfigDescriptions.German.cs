@@ -164,13 +164,11 @@ internal static partial class Loc
                 + "statt innen auf null zu prüfen, und die SPLIT-Zeile druckt dann wie bisher den kombinierten "
                 + "Wert pro Kamera.",
             // ---- [Optimize] ----
-            ["Optimize/CacheTickDelegates"] =
                 "Hält die an TickGuard.Run übergebenen Action-Delegaten im Cache, statt sie jeden Frame neu "
                 + "aus einer Instanz-Methodengruppe zu erzeugen. Reine Arbeitsersparnis — identisches "
                 + "Verhalten, nur ohne ~7 Delegat-Allokationen pro Frame, die den gen0-Collector füttern, der "
                 + "die Ruckler bei Kopfdrehungen verursacht. AUS stellt die alte Allokation pro Frame wieder "
                 + "her (nur für A/B).",
-            ["Optimize/MapIconCache"] =
                 "Cacht den Icon-Scan der Kampagnenkarte. Das Icon-Zeichnen läuft aus Camera.onPreCull — "
                 + "einmal PRO RENDERNDER KAMERA PRO FRAME, die Stereo-Leinwand hat zwei oder drei — und "
                 + "wiederholte bisher jedes Mal ein szenenweites FindObjectOfType, zwei allokierende "
@@ -178,20 +176,17 @@ internal static partial class Loc
                 + "und einen langen Diagnosetext. Die MENGE der Decals ändert sich nur mit dem Kartenzustand, "
                 + "wird also nur im Intervall gescannt; jede Icon-Pose wird weiter live pro Frame gelesen — "
                 + "Schieben und Zoomen sind pixelidentisch. AUS stellt den Scan pro Frame wieder her (A/B).",
-            ["Optimize/FigureScanCache"] =
                 "Überspringt Komponentendurchläufe pro Frame, die der Figuren-Greiftreiber nicht braucht: "
                 + "eine bereits übernommene Figur wird nicht mehr in jedem Frame per GetComponentInChildren neu "
                 + "aufgelöst, und der Ring-Unterdrücker nimmt seinen \"nichts wird gehalten\"-Ausstieg, BEVOR "
                 + "er die Enumeratoren allokiert, die er durchlaufen hätte. Verhaltensgleiche Arbeitsersparnis; "
                 + "AUS stellt die bedingungslosen Durchläufe wieder her.",
-            ["Optimize/LeanLogStrings"] =
                 "BAUT keine Diagnosetexte, die das Log anschließend wegwirft. Mehrere Diagnosen werden erst "
                 + "im Aufgerufenen gedrosselt oder auf Änderung gefiltert, sodass die interpolierte Meldung "
                 + "(plus der Zugriff auf UnityEngine.Object.name, der bei jedem Lesen einen frischen String "
                 + "allokiert) in jedem Frame bezahlt wurde, während nur eine von hunderten Zeilen ausgegeben "
                 + "wurde. Die Filter sitzen jetzt vor der String-Arbeit statt dahinter. Die Log-Ausgabe ist so "
                 + "oder so identisch.",
-            ["Optimize/TooltipScanGate"] =
                 "Koppelt die Arbeit des Welt-Tooltip-Subsystems pro Frame daran, ob überhaupt ein Tooltip "
                 + "angezeigt wird: bisher lief der vollständige Durchlauf des Canvas-Teilbaums vor dieser "
                 + "Prüfung, und die Ersatzsuche nach dem CanvasManager des Spiels wiederholte in jedem Frame "
@@ -250,7 +245,6 @@ internal static partial class Loc
                 + "Figuren. Vorbereitete Animationsgrenzen erhalten die originale Höhe des Ruhezyklus. "
                 + "0 prüft jeden Frame. Figur-/Zustandswechsel, einzelne Aktionen und Lebensänderungen "
                 + "bleiben sofort wirksam. Neue Frame-Profile 0,1 s, PC 0; wirkt sofort.",
-            ["Optimize/SuspendUnusedCameras"] =
                 "Stoppt das Rendering ungenutzter Spielkameras. Ihre Projektion und Laser-Zielprüfung "
                 + "bleiben erhalten. Sichtbare Flat-Menüs und benötigte Vorschauen rendern weiter. "
                 + "Neue Frame-Profile Ein, PC Aus; wirkt sofort.",
@@ -351,12 +345,10 @@ internal static partial class Loc
                 + "Untergrundsichtbarkeit und andere questabhängige Originalwerte bleiben erhalten. "
                 + "Ein laufendes Szenario wird beim Umschalten nicht neu erzeugt. Aus nutzt beim nächsten "
                 + "Laden wieder die Originalqualität. Neue Frame-Profile Ein, PC Aus; gespeicherte Werte bleiben.",
-            ["Optimize/SharedWallReadCache"] =
                 "Verwendet gemeinsame Material- und Figuren-Vorfahren-Abfragen innerhalb der "
                 + "synchronen Wandvorbereitung erneut. Ein spart doppelte Engine-Abfragen bei gleicher "
                 + "Darstellung und Besitzzuordnung. Aus stellt die ungecachten Abfragen wieder her. "
                 + "Auf allen Plattformen verfügbar; wirkt sofort.",
-            ["Optimize/LightStabiliserWorkCache"] =
                 "Überspringt eine ungenutzte szenenweite Licht-Diagnosesuche und exakt unveränderte "
                 + "Unity-Schreibzugriffe. Ein spart doppelte Arbeit bei gleichen stabilisierten "
                 + "Lichtwerten. Aus stellt die ursprüngliche Such- und Schreibfrequenz wieder her. "

@@ -246,6 +246,15 @@ def snapshot() -> dict:
 AUTHORIZED_RETIREMENTS = {
     "configKeys": {
         # Explicit user policy, 2026-10-08: pure work removal is universal.
+        "[Optimize] CacheTickDelegates": "src/GloomhavenVR/Core/Perf/PerfConfig.cs",
+        "[Optimize] MapIconCache": "src/GloomhavenVR/Core/Perf/PerfConfig.cs",
+        "[Optimize] FigureScanCache": "src/GloomhavenVR/Core/Perf/PerfConfig.cs",
+        "[Optimize] LeanLogStrings": "src/GloomhavenVR/Core/Perf/PerfConfig.cs",
+        "[Optimize] TooltipScanGate": "src/GloomhavenVR/Core/Perf/PerfConfig.cs",
+        "[Optimize] AutomaticLodIdleSkip": "src/GloomhavenVR/Core/Perf/PerfConfig.cs",
+        "[Optimize] SharedWallReadCache": "src/GloomhavenVR/Core/Perf/PerfConfig.cs",
+        "[Optimize] LightStabiliserWorkCache": "src/GloomhavenVR/Core/Perf/PerfConfig.cs",
+        "[Optimize] SuspendUnusedCameras": "src/GloomhavenVR/Core/Perf/PerfConfig.cs",
         "[Optimize] SharedEnvironmentMaterialReads": "src/GloomhavenVR/Core/Perf/PerfConfig.FrameRendering.cs",
         "[Optimize] VisibleIdleAnimationIntervalSeconds": "src/GloomhavenVR/Core/Perf/PerfConfig.FrameRendering.cs",
         "[Optimize] VisibleIdleDisabledClothApproximation": "src/GloomhavenVR/Core/Perf/PerfConfig.FrameRendering.cs",
