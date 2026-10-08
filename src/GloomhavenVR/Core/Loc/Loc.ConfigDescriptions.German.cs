@@ -164,34 +164,6 @@ internal static partial class Loc
                 + "statt innen auf null zu prüfen, und die SPLIT-Zeile druckt dann wie bisher den kombinierten "
                 + "Wert pro Kamera.",
             // ---- [Optimize] ----
-                "Hält die an TickGuard.Run übergebenen Action-Delegaten im Cache, statt sie jeden Frame neu "
-                + "aus einer Instanz-Methodengruppe zu erzeugen. Reine Arbeitsersparnis — identisches "
-                + "Verhalten, nur ohne ~7 Delegat-Allokationen pro Frame, die den gen0-Collector füttern, der "
-                + "die Ruckler bei Kopfdrehungen verursacht. AUS stellt die alte Allokation pro Frame wieder "
-                + "her (nur für A/B).",
-                "Cacht den Icon-Scan der Kampagnenkarte. Das Icon-Zeichnen läuft aus Camera.onPreCull — "
-                + "einmal PRO RENDERNDER KAMERA PRO FRAME, die Stereo-Leinwand hat zwei oder drei — und "
-                + "wiederholte bisher jedes Mal ein szenenweites FindObjectOfType, zwei allokierende "
-                + "Komponentendurchläufe sowie je Decal ein GetComponent, einen frischen MaterialPropertyBlock "
-                + "und einen langen Diagnosetext. Die MENGE der Decals ändert sich nur mit dem Kartenzustand, "
-                + "wird also nur im Intervall gescannt; jede Icon-Pose wird weiter live pro Frame gelesen — "
-                + "Schieben und Zoomen sind pixelidentisch. AUS stellt den Scan pro Frame wieder her (A/B).",
-                "Überspringt Komponentendurchläufe pro Frame, die der Figuren-Greiftreiber nicht braucht: "
-                + "eine bereits übernommene Figur wird nicht mehr in jedem Frame per GetComponentInChildren neu "
-                + "aufgelöst, und der Ring-Unterdrücker nimmt seinen \"nichts wird gehalten\"-Ausstieg, BEVOR "
-                + "er die Enumeratoren allokiert, die er durchlaufen hätte. Verhaltensgleiche Arbeitsersparnis; "
-                + "AUS stellt die bedingungslosen Durchläufe wieder her.",
-                "BAUT keine Diagnosetexte, die das Log anschließend wegwirft. Mehrere Diagnosen werden erst "
-                + "im Aufgerufenen gedrosselt oder auf Änderung gefiltert, sodass die interpolierte Meldung "
-                + "(plus der Zugriff auf UnityEngine.Object.name, der bei jedem Lesen einen frischen String "
-                + "allokiert) in jedem Frame bezahlt wurde, während nur eine von hunderten Zeilen ausgegeben "
-                + "wurde. Die Filter sitzen jetzt vor der String-Arbeit statt dahinter. Die Log-Ausgabe ist so "
-                + "oder so identisch.",
-                "Koppelt die Arbeit des Welt-Tooltip-Subsystems pro Frame daran, ob überhaupt ein Tooltip "
-                + "angezeigt wird: bisher lief der vollständige Durchlauf des Canvas-Teilbaums vor dieser "
-                + "Prüfung, und die Ersatzsuche nach dem CanvasManager des Spiels wiederholte in jedem Frame "
-                + "ein szenenweites FindObjectOfType, solange sie erfolglos blieb. Identische Tooltips, weit "
-                + "weniger Scans.",
             ["Optimize/FanRelayoutMinInterval"] =
                 "Mindestabstand in Sekunden zwischen zwei BLICKGESTEUERTEN Neuaufbauten des offenen "
                 + "Kartenfächers. 0 = Neuaufbau in jedem Frame, in dem der Blick-Filter auslöst — heutiges "
@@ -245,9 +217,6 @@ internal static partial class Loc
                 + "Figuren. Vorbereitete Animationsgrenzen erhalten die originale Höhe des Ruhezyklus. "
                 + "0 prüft jeden Frame. Figur-/Zustandswechsel, einzelne Aktionen und Lebensänderungen "
                 + "bleiben sofort wirksam. Neue Frame-Profile 0,1 s, PC 0; wirkt sofort.",
-                "Stoppt das Rendering ungenutzter Spielkameras. Ihre Projektion und Laser-Zielprüfung "
-                + "bleiben erhalten. Sichtbare Flat-Menüs und benötigte Vorschauen rendern weiter. "
-                + "Neue Frame-Profile Ein, PC Aus; wirkt sofort.",
             ["Optimize/OffscreenIdleAnimation"] =
                 "Reduziert bei geprüften Szenariofiguren außerhalb des Blickfelds die Berechnung der "
                 + "Ruhepose. Die native Animationszeit läuft weiter. Aktionen, Übergänge, gehaltene "
@@ -318,7 +287,6 @@ internal static partial class Loc
                 + "Färbung und Geometrie bleiben; Normalen-, Metall-, feine Oberflächendetails und empfangene Echtzeitschatten entfallen. "
                 + "Wandauflösung, Wasser, Pflanzen, Figuren, Gegenstände und UI behalten ihre Shader. "
                 + "Gilt bei Umgebungsmaterialien 0. Wirkt sofort; neue Frame-Profile Ein, PC Aus; gespeicherte Werte bleiben erhalten.",
-            ["Optimize/ScenarioEnvironmentMeshBank"] = "Erlaubt das Zusammenfassen statischer Umgebung trotz nicht lesbarer Originalmeshes. Benötigt zusätzlichen Speicher und Vorbereitung; Aus erhält das Original.",
             ["Optimize/ScenarioExplicitEnvironmentInstancing"] = "Zeichnet geeignete wiederholte statische Umgebung gemeinsam. Alle aufgedeckten Räume und ihre Interaktionen bleiben verfügbar; Aus stellt einzelne Zeichenvorgänge wieder her.",
             ["Optimize/ScenarioCheapWallShading"] = "Nutzt sparsamere Wandschattierung. Feine Beleuchtung und Oberflächendetails nehmen ab; Originaltexturen und animierte Wandausblendung bleiben. Böden behalten ihre Originalschattierung. Gilt bei Umgebungsmaterialien 0.",
             ["Optimize/ScenarioTerrainSubstitution"] = "Vorbereitete 3D-Ersatzflächen für geeignete Wände und Säulen. Aus stellt Originalgeometrie wieder her und beendet die Ersatzvorbereitung; der unabhängige Umgebungsmaterial-Modus bleibt wirksam. Spart Vorbereitungsarbeit auf der CPU, kann aber mehr Geometriearbeit auf der GPU verursachen. In derselben geladenen Ansicht vergleichen. Detailwerte und einfachere Wandschattierung bleiben für Ein gespeichert. Wirkt sofort auf allen Plattformen; kein Raum wird ausgeblendet.",
@@ -328,7 +296,6 @@ internal static partial class Loc
             ["Optimize/ScenarioDistantTerrainDetailPercent"] = "Zusätzliche Detailgrenze für geeignete Wände und Säulen ab dem gewählten Betrachtungsabstand. Alle aufgedeckten spielrelevanten Inhalte bleiben dargestellt.",
             ["Optimize/ScenarioTerrainDistanceMeters"] = "Betrachtungsabstand in VR, ab dem die Detailgrenze für entfernte Wände und Säulen gilt.",
             ["Optimize/ScenarioTerrainCameraSourceLimitCount"] = "Begrenzt die Zahl vereinfachter 3D-Wand- und Säulenflächen pro Auge. 0 ist unbegrenzt; kleinere positive Werte sparen CPU-Arbeit für die Ersatzdarstellung. Übrige Flächen behalten ihre originale 3D-Geometrie und Schattierung, was mehr Renderleistung kosten kann. Kein Raum wird ausgeblendet. Wirkt sofort; neue Frame- und Standalone-Profile nutzen 64.",
-            ["Optimize/SharedUiWindowReads"] = "Spart wiederholte Fensterabfragen und unmittelbare Originalabfragen in Multiplayer-Spiegeln. Inhalte, native Sichtbarkeit und Animation bleiben unmittelbar; Aus ermöglicht einen Vergleich.",
             ["Optimize/ScenarioEnvironmentEffectsDensityPercent"] =
                 "Anteil dekorativer Szenario-Umgebungseffekte, etwa Motten, Kerzen- und Fackelpartikel. "
                 + "0% pausiert geeignete Dauereffekte, 100% stellt sie wieder her. Lichtquellen, Angriffe, "
@@ -345,14 +312,6 @@ internal static partial class Loc
                 + "Untergrundsichtbarkeit und andere questabhängige Originalwerte bleiben erhalten. "
                 + "Ein laufendes Szenario wird beim Umschalten nicht neu erzeugt. Aus nutzt beim nächsten "
                 + "Laden wieder die Originalqualität. Neue Frame-Profile Ein, PC Aus; gespeicherte Werte bleiben.",
-                "Verwendet gemeinsame Material- und Figuren-Vorfahren-Abfragen innerhalb der "
-                + "synchronen Wandvorbereitung erneut. Ein spart doppelte Engine-Abfragen bei gleicher "
-                + "Darstellung und Besitzzuordnung. Aus stellt die ungecachten Abfragen wieder her. "
-                + "Auf allen Plattformen verfügbar; wirkt sofort.",
-                "Überspringt eine ungenutzte szenenweite Licht-Diagnosesuche und exakt unveränderte "
-                + "Unity-Schreibzugriffe. Ein spart doppelte Arbeit bei gleichen stabilisierten "
-                + "Lichtwerten. Aus stellt die ursprüngliche Such- und Schreibfrequenz wieder her. "
-                + "Auf allen Plattformen verfügbar; wirkt sofort.",
             ["Optimize/QuietDiagnostics"] =
                 "Unterdrückt die hochfrequenten DIAGNOSE-Logzeilen einzelner Subsysteme (den "
                 + "\"diag:\"-Durchlauf der Wandüberblendung, den \"Fan depth-curve:\"-Rekorder des "
@@ -847,24 +806,6 @@ internal static partial class Loc
                 + "dev.gloomhavenvr.perf.cfg; steht das ebenfalls auf 0, gelten die "
                 + "ausgelieferten 0,05 s. Jeder Wert über 0 hat hier Vorrang. Live änderbar; "
                 + "begrenzt auf 0.00-0.25.",
-            ["WallFade/WalkInSuspendSampling"] =
-                "Solange du IM Spielfeld stehst (siehe 'Im Spielfeld: alle Wände massiv'), gar "
-                + "nicht mehr messen, statt zu messen und das Ergebnis wegzuwerfen. In diesem "
-                + "Modus wird jede Wand ohnehin per Anweisung massiv gehalten — die "
-                + "Verdeckungsprüfung, die Ausblende-Entscheidung und der regelmäßige Neuaufbau "
-                + "der Wandtabelle berechnen also ein Urteil, das die nächste Programmzeile "
-                + "sofort überstimmt. Dieser Schalter hört einfach auf, dafür zu bezahlen: "
-                + "geschenkte Bildzeit, solange du unten zwischen den Wänden bist. ES GEHT DABEI "
-                + "NICHTS KAPUTT: Ein bereits laufender Neuaufbau darf zu Ende laufen statt "
-                + "mittendrin abgebrochen zu werden, ein Raum, den das Spiel währenddessen "
-                + "aufdeckt, löst weiterhin sofort einen aus, und sobald du heraustrittst oder "
-                + "herauszoomst, nimmt das allernächste Einzelbild sowohl das Messen als auch "
-                + "den Neuaufbau wieder auf — es wird keine ausgesetzte Taktung abgewartet. Der "
-                + "Mehrspieler-Betrieb ist nicht betroffen: Was deine Mitspieler sehen, "
-                + "entscheidet sich auf IHREN Rechnern, und eine Ausblendung, die du vor dem "
-                + "Hineingehen hattest, wird weiterhin gesendet. AUS = weiter messen, während "
-                + "der Modus hält, also das Verhalten von ModBuild 277. Live änderbar (greift im "
-                + "nächsten Einzelbild).",
             ["WallFade/SignatureCulpritCensus"] =
                 "DIAGNOSE, keine Verhaltensänderung. Wenn der Mod beschließt, seine Wandtabelle neu "
                 + "aufzubauen, weil 'sich die Szene geändert hat', dann protokollieren, WELCHE "

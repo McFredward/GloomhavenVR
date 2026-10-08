@@ -9,6 +9,11 @@ using UnityEngine.SceneManagement;
 namespace GloomhavenVR.Core;
 
 /// <summary>
+/// Build 644 policy: disabling proven inert updates is universal. Discovery uses the internal
+/// 15-second cadence; the initial scene delay remains 8 seconds. The LOD bias and census are
+/// independent quality/diagnostic choices. Historical switch descriptions below explain the
+/// original implementation, not current player controls. Admission and restoration are unchanged.
+///
 /// THE 2,560 <c>AutomaticLOD</c> BEHAVIOURS ON UNITY'S UPDATE LIST — what they cost, what they
 /// decide, and what actually picks the level of detail this game renders at.
 ///

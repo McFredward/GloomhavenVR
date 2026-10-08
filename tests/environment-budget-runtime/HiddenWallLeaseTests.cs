@@ -6,7 +6,6 @@ public static partial class EnvironmentProgram
     {
         using var room = new Room();
         var first = room.Floor(1f); var second = room.Floor(2f);
-        PerfConfig.SkipHiddenWallAttachmentWritesOn = true;
         using var wall = new WallDormantFixture.AttachmentFixture();
         Configure(true, true, 100); ScenarioEnvironmentBudget.BeforeLoadingComplete();
         Check(room.Chunks().Length == 1, "hidden-wall lease fixture creates an actual native chunk consumer");
@@ -42,6 +41,5 @@ public static partial class EnvironmentProgram
             "next actual camera keeps the externally disabled source native after its synchronous consumer release");
         first.enabled = true; wall.Restore();
         Configure(false, false, 100); Tick();
-        PerfConfig.SkipHiddenWallAttachmentWritesOn = false;
     }
 }

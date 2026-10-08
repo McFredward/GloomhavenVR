@@ -51,22 +51,20 @@ def prove_dial_census(root, run):
     exec(compile(code, str(scanner), 'exec'), namespace)
     namespace['SRC'] = sample; namespace['MIRROR'] = sample / 'Net/Remote'
     dials, wrappers = namespace['census']()
-    assert 'SharedUiWindowReads' in dials
+    # Universal work removal is no longer a live viewer choice. The complete
+    # runtime fixtures below retain the former independent-read path solely as
+    # an injected source-reference control, never as a production setting.
     key = 'PerfConfig.SharedUiWindowReadsOn'
-    assert key in wrappers, 'Nullable partial config wrapper must be censused'
+    assert 'internal static bool SharedUiWindowReadsOn => true;' in config.read_text()
+    assert 'SharedUiWindowReads' not in dials and key not in wrappers
+    assert '.Bind("Optimize", "SharedUiWindowReads"' not in config.read_text()
     found = namespace['reads'](dials, wrappers)
-    assert any(read[0] == 'Net/Remote/RemoteWidgetMirror.cs' and read[2] == key for read in found)
+    assert not any(read[2] == key for read in found)
     allowed, malformed = namespace['load_allow']()
-    assert not malformed and allowed[('Net/Remote/RemoteWidgetMirror.cs', key)][0] == 'not-1to1'
-    before = r'r"\s*(?:\?\.|\.)\s*Value\b"'
-    assert code.count(before) == 1, 'Nullable wrapper causal seam changed'
-    legacy = {'__file__': str(scanner), '__name__': 'old_mirror_dial_proof'}
-    exec(compile(code.replace(before, r'r"\.Value\b"', 1), str(scanner), 'exec'), legacy)
-    legacy['SRC'] = sample; legacy['MIRROR'] = sample / 'Net/Remote'
-    assert key not in legacy['census']()[1], 'Legacy scanner control must miss the nullable wrapper'
+    assert not malformed and ('Net/Remote/RemoteWidgetMirror.cs', key) not in allowed
     (run / 'dial-census-proof.json').write_text(json.dumps({
-        'actual_nullable_partial_wrapper_found': True, 'actual_remote_reader_found': True,
-        'recorded_verdict': 'not-1to1', 'old_nullable_matcher_rejected': True,
+        'universal_getter_is_true': True, 'retired_binding_absent': True,
+        'constant_getter_is_not_viewer_dial': True, 'stale_verdict_absent': True,
         'scanner_sha256': hashlib.sha256(scanner.read_bytes()).hexdigest(),
         'allow_sha256': hashlib.sha256(allow.read_bytes()).hexdigest()}, indent=2) + '\n')
 

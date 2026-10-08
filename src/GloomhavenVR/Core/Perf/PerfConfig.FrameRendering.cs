@@ -4,10 +4,10 @@ using UnityEngine;
 namespace GloomhavenVR.Core;
 
 // One mod binary for PC and Frame. The maintainer requested independent live controls
-// for every new compromise (2026-10-05); profile detection only seeds unsaved values.
+// for every quality compromise; pure work removal is universal (2026-10-08).
+// Profile detection only seeds unsaved quality choices.
 internal static partial class PerfConfig
 {
-    internal static ConfigEntry<bool> ScenarioEnvironmentMeshBank = null!;
     internal static ConfigEntry<bool> ScenarioExplicitEnvironmentInstancing = null!;
     internal static ConfigEntry<bool> ScenarioCheapWallShading = null!;
     internal static ConfigEntry<bool> ScenarioTerrainSubstitution = null!;
@@ -17,9 +17,8 @@ internal static partial class PerfConfig
     internal static ConfigEntry<int> ScenarioDistantTerrainDetailPercent = null!;
     internal static ConfigEntry<float> ScenarioTerrainDistanceMeters = null!;
     internal static ConfigEntry<int> ScenarioTerrainCameraSourceLimitCount = null!;
-    internal static ConfigEntry<bool> SharedUiWindowReads = null!;
 
-    internal static bool EnvironmentMeshBankOn => ScenarioEnvironmentMeshBank?.Value ?? Defaults.ScenarioEnvironmentMeshBank;
+    internal static bool EnvironmentMeshBankOn => true;
     internal static bool EnvironmentDrawInstancingOn => ScenarioExplicitEnvironmentInstancing?.Value ?? Defaults.ScenarioExplicitEnvironmentInstancing;
     internal static bool CheapWallShadingOn => ScenarioCheapWallShading?.Value ?? Defaults.ScenarioCheapWallShading;
     internal static bool TerrainSubstitutionOn => ScenarioTerrainSubstitution?.Value ?? Defaults.ScenarioTerrainSubstitution;
@@ -32,16 +31,13 @@ internal static partial class PerfConfig
     // Work removal is universal, not a player quality choice. The getter preserves
     // existing internal/test-reference read paths without binding a config entry.
     internal static bool SharedEnvironmentMaterialReadsOn => true;
-    internal static bool SharedUiWindowReadsOn => SharedUiWindowReads?.Value ?? Defaults.SharedUiWindowReads;
+    internal static bool SharedUiWindowReadsOn => true;
 
     private static void BindFrameRendering(ConfigFile file)
     {
         ScenarioTerrainSubstitution = file.Bind("Optimize", "ScenarioTerrainSubstitution",
             FrameDefaults.Active ? FrameDefaults.ScenarioTerrainSubstitution : Defaults.ScenarioTerrainSubstitution,
             "Use prepared 3D substitutes for eligible walls and pillars. Off restores original geometry and stops substitute preparation, while the independent world-material mode still applies. This trades lower CPU preparation for potentially more GPU geometry work; compare in the same loaded view. Detail percentages and simpler-wall choices are retained for On. Works live on every platform; no room is hidden.");
-        ScenarioEnvironmentMeshBank = file.Bind("Optimize", "ScenarioEnvironmentMeshBank",
-            FrameDefaults.Active ? FrameDefaults.ScenarioEnvironmentMeshBank : Defaults.ScenarioEnvironmentMeshBank,
-            "Use private verified original environment meshes for render chunks when native meshes are unreadable. Source meshes, colliders and native objects remain unchanged. Works live on PC and Frame.");
         ScenarioExplicitEnvironmentInstancing = file.Bind("Optimize", "ScenarioExplicitEnvironmentInstancing",
             FrameDefaults.Active ? FrameDefaults.ScenarioExplicitEnvironmentInstancing : Defaults.ScenarioExplicitEnvironmentInstancing,
             "Submit eligible repeated static environment geometry in small camera-bound groups. Restores original rendering on unsupported or changed sources. Works live on PC and Frame.");
@@ -66,9 +62,6 @@ internal static partial class PerfConfig
         ScenarioTerrainCameraSourceLimitCount = file.Bind("Optimize", "ScenarioTerrainCameraSourceLimitCount",
             FrameDefaults.Active ? FrameDefaults.ScenarioTerrainCameraSourceLimitCount : Defaults.ScenarioTerrainCameraSourceLimitCount,
             new ConfigDescription("Maximum eligible 3D wall/pillar substitutes per eye: 0 is unlimited; lower positive limits reduce substitute preparation CPU work. Remaining surfaces keep their original 3D geometry and shading, which can increase rendering cost. No room is hidden. Works live; fresh Frame/Standalone profiles use 64.", new AcceptableValueRange<int>(0, 2048)));
-        SharedUiWindowReads = file.Bind("Optimize", "SharedUiWindowReads",
-            FrameDefaults.Active ? FrameDefaults.SharedUiWindowReads : Defaults.SharedUiWindowReads,
-            "Share exact current native window-registry reads across converted panels and reuse immediate original-property reads in multiplayer mirrors. Off retains independent reads for A/B comparison. Content, visibility and intermediate animation remain immediate.");
 
     }
 }

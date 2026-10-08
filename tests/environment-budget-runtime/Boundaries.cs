@@ -59,7 +59,6 @@ namespace GloomhavenVR.Core
     internal static class BankFixturePaths { internal static string streamingAssetsPath => Environment.GetEnvironmentVariable("GHVR_ENVIRONMENT_STREAMING_ASSETS")!; }
     internal static class PerfConfig
     {
-        internal static bool SkipHiddenWallAttachmentWritesOn;
         internal static bool StaticScenarioBatchesOn, SimpleEnvironmentShadingOn;
         internal static bool SharedEnvironmentMaterialReadsOn = true, EnvironmentMeshBankOn = false, EnvironmentDrawInstancingOn = false;
         internal static int EnvironmentEffectsDensityPercent = 100;

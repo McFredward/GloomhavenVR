@@ -49,10 +49,11 @@ for owner, (rel, namespace, module) in owners.items():
         section = 'RenderQuality' if owner=='RenderQuality' else 'Optimize' if owner=='PerfConfig' else 'WallFade' if owner=='WallFadeTuning' else 'WorldUI'
         value = 'false' if kind=='bool' else '0f' if kind=='float' else '0'
         extra += f'if ({name} == null) {name} = file.Add("{section}", "{name}", {value});\n'
+    extra += '}\n'
     if owner == 'PerfConfig':
         # Compile the exact always-on getters; they deliberately create no binding.
         extra += '\n'.join(re.findall(r'internal static bool \w+\s*=> true;', original))+'\n'
-    extra += '} } }\n'
+    extra += '} }\n'
 extra += '''namespace GloomhavenVR.WorldUI { internal static class WindowMaterialise {
     internal static BepInEx.Configuration.ConfigEntry<bool> Entry = null!;
     internal static bool Enabled { get { if (Entry == null) Entry = GloomhavenVR.Core.ModuleConfig.Get("worldui").Add("WorldUI", "WindowMaterialise", true); return Entry.Value; } }
@@ -75,11 +76,19 @@ for index in range(4):
     if curated.count('() => GraphicsProfileActions.Apply('+str(index)+')') != 1: raise SystemExit('Missing unique profile button')
 retired = ['CacheTickDelegates','MapIconCache','FigureScanCache','LeanLogStrings',
            'TooltipScanGate','SharedWallReadCache','LightStabiliserWorkCache',
-           'SuspendUnusedCameras','AutomaticLodIdleSkip','SharedEnvironmentMaterialReads']
+           'SuspendUnusedCameras','AutomaticLodIdleSkip','SharedEnvironmentMaterialReads',
+           'SharedUiWindowReads','ScenarioEnvironmentMeshBank','AutomaticLodSweepSeconds']
 perf = (source/'Core/Perf/PerfConfig.cs').read_text() + (source/'Core/Perf/PerfConfig.FrameRendering.cs').read_text()
 for key in retired:
     if re.search(r'\.Bind\("Optimize", "'+key+r'"', perf):
         raise SystemExit('Pure work-removal option must be retired: '+key)
+wallfade = (source/'Core/WallFade/WallSegmentFade.cs').read_text()
+if re.search(r'\.Bind\("WallFade", "WalkInSuspendSampling"', wallfade):
+    raise SystemExit('Pure walk-in work-removal option must be retired')
+if 'internal static bool WalkInSuspendSamplingOn => true;' not in wallfade:
+    raise SystemExit('Walk-in discarded measurements must always be omitted')
+if 'internal static float LodSweepSeconds => 15f;' not in perf:
+    raise SystemExit('Redundant native-update discovery must use its internal cadence')
 print('PASS: four unique UI actions; pure work-removal getters are always on and retired keys are unbound')
 # Default selection is independent of the explicit profile action. Keep the real Bind's
 # platform conditional and PC constant source-bound; this is not a persisted-file fixture.

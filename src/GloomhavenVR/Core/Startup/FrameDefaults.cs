@@ -68,7 +68,6 @@ internal static class FrameDefaults
     // Build644 keeps geometry substitution enabled until a controlled hardware A/B prices
     // its preparation versus native drawing. Hidden attachment writes have no visible output.
     internal const bool ScenarioTerrainSubstitution = true;
-    internal const bool ScenarioEnvironmentMeshBank = true;
     internal const bool ScenarioExplicitEnvironmentInstancing = true;
     internal const bool ScenarioCheapWallShading = true;
     // One shared renderer: a fresh low profile requests the strongest audited material
@@ -80,7 +79,6 @@ internal static class FrameDefaults
     // This CPU/GPU trade is independently adjustable and still needs hardware comparison.
     internal const int ScenarioTerrainCameraSourceLimitCount = 64; // => [Optimize] ScenarioTerrainCameraSourceLimitCount
     internal const float ScenarioTerrainDistanceMeters = .75f;
-    internal const bool SharedUiWindowReads = true;
 
     // A 4 s wall-rescan cadence was active in the tested Frame configuration. It reduces
     // rescan frequency, not the duration of an individual rescan.

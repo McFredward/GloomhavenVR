@@ -137,7 +137,6 @@ internal static partial class Defaults
     internal const bool HeadDepthPrepass = false;            // => [Optimize] HeadDepthPrepass
     internal const string HeadCullingMaskDrop = "";          // => [Optimize] HeadCullingMaskDrop
     internal const bool HeadMaskFromScenarioCamera = false;  // => [Optimize] HeadMaskFromScenarioCamera
-    internal const float AutomaticLodSweepSeconds = 15f;     // => [Optimize] AutomaticLodSweepSeconds  (a revealed room instantiates new AutomaticLOD; 15s is the worst-case latency before those come off the list too. One typed FindObjectsOfType per sweep, which the [Perf] LOD line times and prints — at a single-digit-ms scan this is far under a tenth of a percent of a frame amortised, against a saving paid on all ~1350 frames in that window)
     internal const float LodBias = 0f;                       // => [Optimize] LodBias  (0 = leave QualitySettings.lodBias at the quality level's own value = TODAY'S BEHAVIOUR, changes no pixel. The VR correction factor is tan(fovVR/2)/tan(fovFlat/2), two numbers this project has never measured — the [Perf] LOD line prints them and the exact value that would restore the flat game's LOD choice. Nothing gets tuned here before that reading exists)
 
     // ---- Core/SkyAlternative.cs ----------------------------------------------------
@@ -343,7 +342,6 @@ internal static partial class Defaults
     // and it is safe by construction — while the walk-in latch holds, every wall is forced solid
     // by decree, so the decision, the coverage sampling and the rescan cadence are all computing
     // an answer the segment loop throws away one branch later.
-    internal const bool WalkInSuspendSampling = true;        // => [WallFade] WalkInSuspendSampling
     // ModBuild 278 — the WHICH-RENDERERS census (see WallSegmentFadeCulprits.cs). It shipped ON
     // "because it is the whole point of the build": 28 of 33 commits in the ModBuild 277 log
     // fired on "the SCENE signature moved" and nothing shipped could say what moved it.

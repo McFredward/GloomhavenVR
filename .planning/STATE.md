@@ -1,5 +1,49 @@
 # State — where the project stands
 
+**Build644 Frame steady-render follow-up, 2026-10-08: 1.1.0 development candidate.**
+
+The supplied643 banners match29d4b6dd8. Fully loaded five-room windows still
+average78.634ms/frame with43.240ms measured mod work: terrain13.144ms,
+walls10.477ms and world materials6.214ms. These include both eyes, with nested
+wall phases excluded from the sum. Actual saved.8 now allocates2728x2728;
+the maintainer confirms improved wall fading. Neither different-view642 timing
+comparisons nor automated renderer tests establish a net headset FPS gain.
+
+Terrain shares exact current registered/local-held/remote-held roots within a
+synchronous camera invocation, invalidated by native writes, nesting and recovery.
+Lease acquisition restores its camera owner after callback-capable preparation,
+fixing a reproduced nested-render recovery failure. The independent terrain
+master switch stops substitute preparation while retaining original3D geometry
+and the independently simplified native material slots. Default remains On;
+Off trades CPU preparation against more geometry for the next controlled test.
+
+An automatic hidden-attachment write gate retains floor/held, intermediate fade,
+native re-enable and current/queued consumer recovery. Hide ownership is claimed
+only for an actual enabled setter. The maintainer's2026-10-08 policy makes pure
+work removal universal, without player switches: remove the proposed hidden-write
+option and retire14 existing pure/inert/discovery keys, including shared
+environment/UI reads and exact full-detail mesh preparation. Fixed15s AutoLOD
+discovery and discarded walk-in sampling are internal. Four grouping/instancing
+controls remain adjustable because dynamic lights, native extra passes and
+supplementary streams are not proven equivalent. The internal shared strategy is
+always active; Terrain's actual CPU/geometry trade remains configurable.
+
+Open VR Options invoked world-material work nearly four times/frame instead of
+two. Current masks now omit material/scope work for unreachable sources, retaining
+complete geometry-consumer and external command-buffer checks. Every invocation
+still refreshes nested mutable reads; no cached layer union or camera-name
+exclusion is introduced. Both PC and standalone use the same automatic repairs.
+
+Evidence, tested scope and next On/Off/On comparison are recorded in
+[the644 performance review](../docs/performance/FRAME-644-STEADY-CPU.md), with
+frozen hardware inputs and independently verified worker proofs under
+`.planning/debug/frame643-followup/`. Unchanged643/NPC639/crossplay641 evidence
+is retained; no new complete170-suite or multiplayer/headset acceptance is
+claimed. No whole-room hiding,2.5D board, idle throttling, native static batching,
+shader/mesh bank, gameplay command or wire layout change. VR peers install644.
+
+---
+
 **Build643 integration, 2026-10-08: 1.1.0 development candidate.**
 
 Three checked Frame presentation repairs are integrated after642. Late enabled

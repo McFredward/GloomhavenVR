@@ -121,9 +121,6 @@ internal static partial class PerfConfig
     internal static ConfigEntry<bool> HeadMaskFromScenarioCamera = null!;
 
 
-    /// <summary>Seconds between AutomaticLOD sweeps (catches instances born with a newly revealed room).</summary>
-    internal static ConfigEntry<float> AutomaticLodSweepSeconds = null!;
-
     /// <summary>Override <see cref="QualitySettings.lodBias"/> in VR (0 = leave the quality level's own value).</summary>
     internal static ConfigEntry<float> LodBias = null!;
 
@@ -223,11 +220,8 @@ internal static partial class PerfConfig
             ? Defaults.SummaryIntervalSeconds
             : Mathf.Clamp(SummaryIntervalSeconds.Value, 5f, 600f);
 
-    /// <summary>[Optimize] AutomaticLodSweepSeconds, clamped to a cadence that cannot become the cost.</summary>
-    internal static float LodSweepSeconds =>
-        AutomaticLodSweepSeconds == null
-            ? Defaults.AutomaticLodSweepSeconds
-            : Mathf.Clamp(AutomaticLodSweepSeconds.Value, 2f, 300f);
+    /// <summary>Internal discovery cadence for inert native updates; rendered detail is unchanged.</summary>
+    internal static float LodSweepSeconds => 15f;
 
     /// <summary>[Optimize] LodBias, 0 = leave QualitySettings.lodBias alone (today's behaviour).</summary>
     internal static float LodBiasOverride =>
@@ -855,16 +849,6 @@ internal static partial class PerfConfig
         // actually picks the level is a separate component and is untouched, no mesh is swapped, and
         // OnWillRenderObject's only product (m_renderCamera) is read nowhere but the Update that
         // returns before it.
-        AutomaticLodSweepSeconds = _file.Bind("Optimize", "AutomaticLodSweepSeconds", Defaults.AutomaticLodSweepSeconds, new ConfigDescription(
-            "Seconds between AutomaticLOD sweeps. A sweep is one typed FindObjectsOfType, which the "
-            + "[Perf] LOD line TIMES and prints; it exists because revealing a room instantiates new "
-            + "instances that were not there when the last sweep ran, and this is the interval within "
-            + "which those get taken off the Update list too. Lower = newly revealed rooms are caught "
-            + "sooner at the price of more scans; the scan is a single-digit-millisecond one-frame "
-            + "cost, so at the shipped cadence its amortised share is far under a tenth of a percent "
-            + "of a frame. A Harmony postfix on AutomaticLOD.Awake would make this free and is the "
-            + "upgrade if the printed scan cost ever reads as a visible hitch.",
-            new AcceptableValueRange<float>(2f, 300f)));
 
         // DEFAULT 0 = CHANGE NOTHING, deliberately, and that is not timidity: the correction factor
         // is arithmetic on two field-of-view numbers that nothing in this project has ever measured,

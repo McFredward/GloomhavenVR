@@ -2014,8 +2014,8 @@ internal static partial class WallSegmentFade
                     + "finish rather than being torn up: abandoning it would drop the banked "
                     + "signature and force a guaranteed ~90ms commit on the frame you zoom back "
                     + "out. Split-run drive dropped so every run re-seeds its coverage from a "
-                    + "LIVE reading on release instead of a stale one. Switch at [WallFade] "
-                    + "WalkInSuspendSampling.");
+                    + "LIVE reading on release instead of a stale one. Discarded measurements "
+                    + "are always omitted.");
             }
             else
             {
@@ -2075,11 +2075,7 @@ internal static partial class WallSegmentFade
                     + "so this very frame evaluates and the next tick opens a cycle. Every wall "
                     + "is back on its own coverage against the live bars "
                     + $"{WallFadeTuning.On:F2}/{WallFadeTuning.Off:F2}, and every split run "
-                    + "re-seeds from its own live reading."
-                    + (WallFadeTuning.WalkInSuspendSamplingOn
-                        ? string.Empty
-                        : " (This edge is [WallFade] WalkInSuspendSampling being switched OFF, "
-                          + "not the player stepping out.)"));
+                    + "re-seeds from its own live reading.");
         }
 
         /// <summary>Drop the walk-in latch without waiting out an exit dwell (dial off, board

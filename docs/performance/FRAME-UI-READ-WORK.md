@@ -1,5 +1,7 @@
 # Exact native UI read work removal
 
+Build 644 policy update (2026-10-08): pure work-removal controls documented here are now unbound and always enabled on every platform. Historical Off cases remain source-reference test evidence; quality, timing and diagnostics remain configurable. See [the current audit](FRAME-644-STEADY-CPU.md).
+
 Prepared on `worker/frame-ui-work-20261005`, based on `dev` commit `01503d4c`
 (Build625), with the parent's common configuration API preparation. No new build
 number, wire record, NPC source or separate Frame binary belongs to this lane.

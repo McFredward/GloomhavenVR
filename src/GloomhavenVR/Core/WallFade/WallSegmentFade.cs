@@ -74,9 +74,6 @@ internal static class WallFadeTuning
     /// <summary>ModBuild 278: seconds between two fade DECISIONS (sample visibility + blocked
     /// fraction). The [WallFade] door onto what [Optimize] WallFadeEvalInterval already did.</summary>
     internal static ConfigEntry<float>? EvalIntervalSecondsEntry;
-    /// <summary>ModBuild 278: suspend the decision, the coverage sampling and the rescan cadence
-    /// while the walk-in stand-down holds every wall solid anyway.</summary>
-    internal static ConfigEntry<bool>? WalkInSuspendSampling;
     /// <summary>ModBuild 278: name WHICH renderers moved the scene half of the skip signature on
     /// a cycle that refused to skip (see WallSegmentFadeCulprits.cs).</summary>
     internal static ConfigEntry<bool>? SignatureCulpritCensus;
@@ -310,22 +307,6 @@ internal static class WallFadeTuning
             // save 1.00 while the driver kept using 0.25 (Frame Build 594 evidence).
             // BepInEx now normalizes old out-of-range cfg values to the SAME effective value.
             new AcceptableValueRange<float>(0f, 0.25f)));
-        WalkInSuspendSampling = config.Bind("WallFade", "WalkInSuspendSampling",
-            Defaults.WalkInSuspendSampling,
-            "While you are standing INSIDE the play field (see 'Im Spielfeld: alle Wände "
-            + "massiv'), stop measuring the walls altogether instead of measuring them and "
-            + "throwing the answer away. In that mode every wall is held fully solid by decree, "
-            + "so the coverage check, the fade decision and the periodic table rebuild are all "
-            + "computing a verdict that the very next line of code overrules — this switch just "
-            + "stops paying for it, which is the frame time back for free while you are down "
-            + "among the walls. NOTHING IS BROKEN BY IT: a rebuild already in flight is allowed "
-            + "to finish rather than being torn up mid-way, a room the game reveals while you "
-            + "are in there still triggers one immediately, and the moment you step or zoom out "
-            + "the very next frame resumes both the measuring and the rebuild — no waiting out "
-            + "a skipped cadence. Multiplayer is unaffected: what your teammates see is decided "
-            + "on THEIR machines, and a fade you had before you walked in is still broadcast. "
-            + "OFF = keep measuring while the mode holds, which is the ModBuild 277 behaviour. "
-            + "Live (the very next frame).");
         SignatureCulpritCensus = config.Bind("WallFade", "SignatureCulpritCensus",
             Defaults.SignatureCulpritCensus,
             "DIAGNOSTIC, not a behaviour. When the mod decides it has to rebuild its wall table "
@@ -770,11 +751,8 @@ internal static class WallFadeTuning
         }
     }
 
-    /// <summary>ModBuild 278 kill switch for the walk-in suspension. Read live every frame and
-    /// printed live on the suspension's own edge line, because a remedy that silently did not
-    /// run has cost this project a whole build before.</summary>
-    internal static bool WalkInSuspendSamplingOn =>
-        WalkInSuspendSampling == null || WalkInSuspendSampling.Value;
+    /// <summary>Always omit measurements overruled by the native walk-in solid-wall branch.</summary>
+    internal static bool WalkInSuspendSamplingOn => true;
 
     /// <summary>ModBuild 278 — the WHICH-RENDERERS census (WallSegmentFadeCulprits). Defaults ON
     /// while unbound: an instrument that is off in the capture that was supposed to answer the

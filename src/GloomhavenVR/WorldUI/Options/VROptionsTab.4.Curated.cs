@@ -485,7 +485,6 @@ internal static partial class VROptionsTab
                     LocKey = "sec_graphics_details",
                     Entries = new CuratedEntry[]
                     {
-                        new("Optimize", "ScenarioEnvironmentMeshBank", ""),
                         new("Optimize", "ScenarioExplicitEnvironmentInstancing", ""),
                         new("Optimize", "ScenarioCheapWallShading", ""),
                         new("Optimize", "ScenarioTerrainSubstitution", ""),

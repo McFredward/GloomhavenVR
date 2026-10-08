@@ -1,5 +1,7 @@
 # Exact multiplayer mirror source reads
 
+Build 644 policy update (2026-10-08): pure work-removal controls documented here are now unbound and always enabled on every platform. Historical Off cases remain source-reference test evidence; quality, timing and diagnostics remain configurable. See [the current audit](FRAME-644-STEADY-CPU.md).
+
 This lane changes `RemoteWidgetMirror.Pair.Apply`, independently of NPC transport,
 protocol or remote-board refresh scheduling. `Optimize.SharedUiWindowReads` controls
 both this lane and the local native-window read lane in the same PC/Frame binary.

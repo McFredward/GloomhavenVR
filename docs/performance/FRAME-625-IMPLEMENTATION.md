@@ -1,5 +1,7 @@
 # Isolated Steam Frame implementation based on Build625
 
+Build 644 policy update (2026-10-08): pure work-removal controls documented here are now unbound and always enabled on every platform. Historical Off cases remain source-reference test evidence; quality, timing and diagnostics remain configurable. See [the current audit](FRAME-644-STEADY-CPU.md).
+
 > Build630 update: visible idle pose sampling and both associated options were
 > removed at the maintainer's explicit request. See
 > [FRAME-630-IDLE-REMOVAL.md](FRAME-630-IDLE-REMOVAL.md). The evidence below is historical.

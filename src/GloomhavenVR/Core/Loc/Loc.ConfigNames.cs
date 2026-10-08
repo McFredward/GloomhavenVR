@@ -658,7 +658,6 @@ internal static partial class Loc
             // both and therefore useless on a row.
             ["WallFade/RescanIntervalSeconds"] = Pair("Wall table rebuild (s)", "Wandtabelle neu aufbauen (s)"),
             ["WallFade/EvalIntervalSeconds"] = Pair("Occlusion check every (s)", "Verdeckung prüfen alle (s)"),
-            ["WallFade/WalkInSuspendSampling"] = Pair("Inside: stop measuring", "Im Spielfeld: Messung pausieren"),
             ["WallFade/SignatureCulpritCensus"] = Pair("Log what changed the scene", "Szenen-Änderungen protokollieren"),
             ["WallFade/DeepSceneCensus"] = Pair("Log detailed wall geometry", "Wandgeometrie detailliert protokollieren"),
             // ModBuild 281. The row names WHAT IS COUNTED, not the machinery: "Tabellenumbau
@@ -721,7 +720,6 @@ internal static partial class Loc
             ["Optimize/ScenarioFigureClothSimulation"] = Pair("Simulate figure clothing", "Figurenkleidung simulieren"),
             ["Optimize/ScenarioStaticBatching"] = Pair("Combine static scenario surfaces", "Statische Szenarioflächen bündeln"),
             ["Optimize/ScenarioSimpleEnvironmentShading"] = Pair("Simpler environment shading", "Einfachere Umgebungsschattierung"),
-            ["Optimize/ScenarioEnvironmentMeshBank"] = Pair("Private environment mesh copies", "Private Kopien der Umgebungsmeshes"),
             ["Optimize/ScenarioExplicitEnvironmentInstancing"] = Pair("Group repeated environment draws", "Wiederholte Umgebung gemeinsam zeichnen"),
             ["Optimize/ScenarioCheapWallShading"] = Pair("Simpler wall shading", "Einfachere Wandschattierung"),
             ["Optimize/ScenarioTerrainSubstitution"] = Pair("Prepared 3D wall substitutes", "Vorbereiteter 3D-Wandersatz"),
@@ -731,7 +729,6 @@ internal static partial class Loc
             ["Optimize/ScenarioDistantTerrainDetailPercent"] = Pair("Distant 3D wall detail (%)", "Entfernte 3D-Wanddetails (%)"),
             ["Optimize/ScenarioTerrainDistanceMeters"] = Pair("Distant wall detail threshold (m)", "Abstand für entfernte Wanddetails (m)"),
             ["Optimize/ScenarioTerrainCameraSourceLimitCount"] = Pair("3D wall substitutes per eye (0 = unlimited)", "3D-Wandersatzflächen pro Auge (0 = unbegrenzt)"),
-            ["Optimize/SharedUiWindowReads"] = Pair("Share current window reads", "Aktuelle Fensterabfragen teilen"),
             ["Optimize/ScenarioEnvironmentEffectsDensityPercent"] = Pair("Scenario ambient effects (%)", "Szenario-Umgebungseffekte (%)"),
             ["Optimize/ReduceScenarioGenerationDetail"] = Pair("Reduced scenario generation", "Sparsame Szenario-Erzeugung"),
             ["Optimize/FanRelayoutMinInterval"] = Pair("Fan relayout min (s)", "Fächer-Relayout (s)"),

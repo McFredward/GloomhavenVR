@@ -916,7 +916,6 @@ internal static class ConfigCatalog
                                      || key == "ScenarioStructuralInstancing"
                                      || key == "ScenarioStructuralBatching"
                                      || key == "ScenarioSimpleEnvironmentShading"
-                                     || key == "ScenarioEnvironmentMeshBank"
                                      || key == "ScenarioExplicitEnvironmentInstancing"
                                      || key == "ScenarioCheapWallShading"
                                      || key == "ScenarioTerrainSubstitution"
@@ -926,7 +925,6 @@ internal static class ConfigCatalog
                                      || key == "ScenarioDistantTerrainDetailPercent"
                                      || key == "ScenarioTerrainDistanceMeters"
                                      || key == "ScenarioTerrainCameraSourceLimitCount"
-                                     || key == "SharedUiWindowReads"
                                      || key == "ScenarioFigureClothSimulation"
                                      || key == "ReduceScenarioGenerationDetail"))
             return ConfigTopic.Visual;
