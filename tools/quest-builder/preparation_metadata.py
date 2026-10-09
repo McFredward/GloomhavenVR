@@ -1,11 +1,12 @@
 """Journal a small current-input refresh after fully qualified asset preparation.
 
 Every original/Android asset producer and latest contract remains qualified by
-preparation_identity and Preparation. This transaction changes only four JSON
-documents whose input identity was written after the immutable asset producers.
+preparation_identity and Preparation. This transaction refreshes four JSON
+documents whose input identity was written after the immutable asset producers,
+alongside exact reviewed late Editor scripts.
 It never copies or recompresses archives, discards a later owner, or edits Unity
-Library. A kill between document publication and journal publication is replayed
-from the exact old/new byte records before normal checkpoint qualification.
+Library or script .meta GUIDs. A kill between file publication and journal
+publication is replayed from exact old/new bytes before normal qualification.
 """
 from __future__ import annotations
 
@@ -15,6 +16,7 @@ from pathlib import Path
 import re
 
 from storage import BuildError, _ordinary_owned, canonical, digest, value_hash, write_json
+import editor_overlay
 
 OWNER = "Quest completed preparation identity refresh"
 MANIFESTS = {
@@ -122,13 +124,17 @@ def _plan(preparation, inputs):
         plan["files"].append({"path": relative, "step": index, "before": record,
                               "after": _record(relative, replacement), "original": document,
                               "replacement": replacement})
+    overlays = editor_overlay.plan(preparation, previous, inputs, latest)
+    if overlays:
+        plan["schema"] = 2
+        plan["files"].extend(overlays)
     updated = _replacement_journal(value, plan, preparation.source_stamps)
     plan["afterJournalSha256"] = value_hash(updated)
     return plan
 
 
 def refresh(preparation, inputs, *, recovering=False):
-    """Refresh or replay the exact four documents, then atomically publish their owner."""
+    """Refresh exact current-input documents and reviewed scripts as one owner."""
     path = _ordinary_owned(preparation.root / "metadata-refresh.json")
     if (not isinstance(inputs, dict) or inputs.get("inputKey") != preparation.identity["inputKey"]
             or value_hash({name: item for name, item in inputs.items() if name != "inputKey"}) != inputs["inputKey"]):
@@ -136,16 +142,21 @@ def refresh(preparation, inputs, *, recovering=False):
     if not path.exists():
         if recovering: return False
         plan = _plan(preparation, inputs)
+        # The retained outputs have already transferred their qualified warm
+        # witnesses. Make those durable before the plan: replay runs before
+        # ordinary qualification, so a cut immediately after plan publication
+        # must not lose the only transferred proofs under the new identity.
+        preparation.copies.commit()
         write_json(path, plan)  # Durable before the first project mutation.
     else: plan = _read(path)
     value = preparation.value
     if (not isinstance(inputs, dict) or inputs.get("inputKey") != preparation.identity["inputKey"]
-            or plan.get("schema") != 1 or plan.get("owner") != OWNER
+            or plan.get("schema") not in (1, 2) or plan.get("owner") != OWNER
             or plan.get("project") != value["project"] or plan.get("toInputKey") != inputs["inputKey"]
             or value["inputKey"] not in (plan.get("fromInputKey"), plan.get("toInputKey"))
             or not isinstance(plan.get("files"), list)
             or not all(isinstance(row, dict) for row in plan["files"])
-            or [row.get("path") for row in plan["files"]] != list(PATHS)):
+            or [row.get("path") for row in plan["files"][:len(PATHS)]] != list(PATHS)):
         raise BuildError("Preparation identity refresh transaction belongs to another input/project.")
     old = value["inputKey"] == plan["fromInputKey"]
     expected_journal = plan.get("beforeJournalSha256") if old else plan.get("afterJournalSha256")
@@ -153,8 +164,14 @@ def refresh(preparation, inputs, *, recovering=False):
         raise BuildError("Preparation identity refresh journal changed; existing assets and transaction were retained.")
     latest = _latest(value)
     previous = _previous(preparation, plan["fromInputKey"])
+    overlays = editor_overlay.changes(previous, inputs)
+    expected_paths = list(PATHS) + [name[len(editor_overlay.PREFIX):] for name, _, _ in overlays]
+    if ([row.get("path") for row in plan["files"]] != expected_paths
+            or plan["schema"] != (2 if overlays else 1)):
+        raise BuildError("Preparation identity refresh transaction has an unreviewed Editor write set.")
+    payloads = {}
     # Validate the whole bounded write set before publishing any new bytes.
-    for row in plan["files"]:
+    for row in plan["files"][:len(PATHS)]:
         relative = row["path"]
         expected_owner = MANIFESTS[relative][0] if relative in MANIFESTS else "final-settings"
         if (type(row.get("step")) is not int or not 0 <= row["step"] < len(value["steps"])
@@ -170,7 +187,9 @@ def refresh(preparation, inputs, *, recovering=False):
         actual = {"path": relative, "size": member.stat().st_size, "sha256": digest(member)}
         if actual not in (row["before"], row["after"]):
             raise BuildError("Preparation identity refresh document changed outside its transaction: " + relative)
-    counter = preparation.progress.Counter("prepare-metadata-refresh", len(PATHS), "files",
+    for row, (_, before, after) in zip(plan["files"][len(PATHS):], overlays):
+        payloads[row["path"]] = editor_overlay.validate(preparation, row, before, after, latest, old=old)
+    counter = preparation.progress.Counter("prepare-metadata-refresh", len(plan["files"]), "files",
             "Refreshing current mod identity in retained preparation") if preparation.progress else None
     # Persist the transferred warm proofs before the journal can acquire its
     # new identity. A kill just after journal publication then requalifies only
@@ -178,12 +197,17 @@ def refresh(preparation, inputs, *, recovering=False):
     preparation.copies.commit()
     for row in plan["files"]:
         member = preparation.project / row["path"]
-        if not old or _record(row["path"], _read(member)) == row["after"]:
+        editor = row.get("kind") == "editor"
+        actual = editor_overlay._record(row["path"], editor_overlay._read(member)) if editor else _record(row["path"], _read(member))
+        if actual not in (row["before"], row["after"]):
+            raise BuildError("Preparation identity refresh output changed before publication: " + row["path"])
+        if not old or actual == row["after"]:
             if counter: counter.add(1, row["path"])
             continue
         preparation.witnesses.invalidate(member)
         preparation.checked.pop(row["path"], None)
-        write_json(member, row["replacement"])
+        if editor: editor_overlay.publish(member, payloads[row["path"]])
+        else: write_json(member, row["replacement"])
         preparation.witnesses.remember(member, row["after"]["sha256"])
         if counter: counter.add(1, row["path"])
     updated = _replacement_journal(value, plan, preparation.source_stamps)
@@ -194,5 +218,6 @@ def refresh(preparation, inputs, *, recovering=False):
     preparation.copies.commit()
     path.unlink()
     if counter: counter.finish()
-    print("preparation resume: refreshed four current-input JSON documents; all completed asset producers and Unity Library retained", flush=True)
+    print("preparation resume: refreshed four current-input JSON documents and " + str(len(overlays)) +
+          " reviewed Editor scripts; all completed asset producers and Unity Library retained", flush=True)
     return True

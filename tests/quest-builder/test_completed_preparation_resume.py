@@ -60,6 +60,8 @@ class CompletedPreparationTests(unittest.TestCase):
                 kwargs.setdefault("current_inputs", fixture.inputs)
                 super().__init__(*args, **kwargs)
         self.f.stack.enter_context(patch.object(builder.prepare_resume, "Preparation", PreparationWithCurrentInputs))
+        for name, raw in getattr(self, "editor_sources", {}).items():
+            self.f.write(self.f.source, name, raw)
         self.before = self.fixture.inputs()
         self.old_source = self.f.output / "inputs/mod" / self.before["mod"]["key"]
         shutil.copytree(self.f.source, self.old_source, dirs_exist_ok=True)
@@ -293,7 +295,7 @@ class CompletedPreparationTests(unittest.TestCase):
         self.assertEqual(self.f.calls, self.calls)
 
     def test_current_metadata_helper_profile_is_exact_and_unknown_edits_remain_consumed(self):
-        profile = recovery_resume.OBSERVATION_COMPLETED_METADATA
+        profile = getattr(recovery_resume, "OBSERVATION_EDITOR_OVERLAY", recovery_resume.OBSERVATION_COMPLETED_METADATA)
         actual = {name: {"path": name, "size": (ROOT / name).stat().st_size,
                          "sha256": hashlib.sha256((ROOT / name).read_bytes()).hexdigest()} for name in profile}
         self.assertEqual(actual, profile)
