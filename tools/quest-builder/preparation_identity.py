@@ -58,6 +58,8 @@ PREFIX_PLAYER_REFERENCES = {
     "libs/RuntimeDeps/wizard-dependencies.json",
 }
 PREFIX_MEMORY_HELPER = "tools/quest-builder/native_admission.py"
+MEMORY_HELPER_FIXED = {"path": PREFIX_MEMORY_HELPER, "size": 2053,
+    "sha256": "a6459ceed7c9cad382778ba1cfa78b3a44ef41af4f04d0b257c7850fd78d78f0"}
 # Exact reviewed host-observer repair: available commit and scheduling change,
 # while original converters, arguments, publication and hashes remain identical.
 # Unknown host-policy source edits cannot silently claim this compatibility.
@@ -338,7 +340,7 @@ def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=Fal
                     and row["path"] not in PREFIX_MOD_BANK_HELPERS]
         rows = [row for row in rows if row["path"] not in PREFIX_DELIVERY_HELPERS
                 and row["path"] not in PREFIX_PLAYER_REFERENCES
-                and row["path"] != PREFIX_MEMORY_HELPER
+                and row != MEMORY_HELPER_FIXED
                 and not row["path"].startswith(PREFIX_PLAYER_ROOTS)]
         rows = [MEMORY_POLICY_PREVIOUS if row == MEMORY_POLICY_FIXED else row for row in rows]
         if ui_unconsumed:

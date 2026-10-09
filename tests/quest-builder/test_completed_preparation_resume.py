@@ -207,7 +207,7 @@ class CompletedPreparationTests(unittest.TestCase):
 
     def test_changed_game_profile_template_graphics_and_bank_producers_refuse_complete_reuse(self):
         current = self.updated()
-        for change in ("game", "profile", "template", "graphics", "bank", "environment-script", "authored-link", "metadata-helper"):
+        for change in ("game", "profile", "template", "graphics", "bank", "environment-script", "authored-link", "metadata-helper", "memory-helper", "memory-policy"):
             with self.subTest(change=change):
                 bad = copy.deepcopy(current)
                 if change == "game": bad["game"]["files"][0]["sha256"] = "f" * 64
@@ -218,7 +218,9 @@ class CompletedPreparationTests(unittest.TestCase):
                         "bank": "unity/GloomhavenVR.Assets/Assets/Editor/QuestModBundles.cs",
                         "environment-script": "scripts/generate-environment-meshes.py",
                         "authored-link": "unity/GloomhavenVR.Assets/Assets/Editor/GrabBarMeshLink.cs",
-                        "metadata-helper": identity.METADATA_IDENTITY}[change]
+                        "metadata-helper": identity.METADATA_IDENTITY,
+                        "memory-helper": identity.PREFIX_MEMORY_HELPER,
+                        "memory-policy": identity.MEMORY_POLICY_PREVIOUS["path"]}[change]
                     found = next((row for row in bad["mod"]["files"] if row["path"] == selected), None)
                     if found is None: bad["mod"]["files"].append({"path": selected, "size": 1, "sha256": "f" * 64})
                     else: found["sha256"] = "f" * 64
