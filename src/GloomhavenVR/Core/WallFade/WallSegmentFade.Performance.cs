@@ -96,6 +96,8 @@ internal static partial class WallSegmentFade
         private int _performanceRoomCount = -1, _performanceWallCount = -1;
         private readonly HashSet<GameObject> _performanceHeldRoots = new();
         private readonly List<GameObject> _performanceHeldScratch = new();
+        private readonly HashSet<GameObject> _performanceHeldNext = new();
+        private readonly List<Renderer> _performanceHeldRenderers = new();
         private float _performanceRetryAt, _performanceReadySince = -1f;
 
         internal bool HasPerformanceMask(Renderer renderer) => _performanceMasks.ContainsKey(renderer);
@@ -207,7 +209,7 @@ internal static partial class WallSegmentFade
             }
             // Exact root identity catches same-count swaps too. With no hands occupied this
             // is two managed count reads; occupied roots are a tiny already-owned registry.
-            if (ObservePerformanceHeldRoots()) ReconcilePerformanceMasks();
+            ObservePerformanceHeldRoots();
             if (_rescanStage == RescanStage.Idle
                 && _performanceCollectedRevision == _performanceRevision) return;
             // During native generation coalesce changes. Recollect when native loading has
@@ -255,27 +257,40 @@ internal static partial class WallSegmentFade
             }
         }
 
-        private bool ObservePerformanceHeldRoots()
+        private void ObservePerformanceHeldRoots()
         {
-            if (HeldProps.Count == 0 && NetHeldProps.Count == 0)
-            {
-                if (_performanceHeldRoots.Count == 0) return false;
-                _performanceHeldRoots.Clear();
-                return true;
-            }
-            _performanceHeldScratch.Clear();
+            if (HeldProps.Count == 0 && NetHeldProps.Count == 0 && _performanceHeldRoots.Count == 0)
+                return;
+            _performanceHeldScratch.Clear(); _performanceHeldNext.Clear();
             for (int i = 0; i < HeldProps.Count; i++)
                 if (HeldProps.TryGetSlot(i, out _, out GameObject visual, out _, out _))
                     _performanceHeldScratch.Add(visual);
             NetHeldProps.CopyVisualRoots(_performanceHeldScratch);
-            bool changed = _performanceHeldRoots.Count != _performanceHeldScratch.Count;
-            if (!changed)
-                foreach (GameObject visual in _performanceHeldScratch)
-                    if (!_performanceHeldRoots.Contains(visual)) { changed = true; break; }
-            if (!changed) return false;
+            foreach (GameObject visual in _performanceHeldScratch) _performanceHeldNext.Add(visual);
+            if (_performanceHeldRoots.SetEquals(_performanceHeldNext)) return;
+
+            // Only changed visual roots need renderer discovery. A held prop uses its SAME
+            // native visual (GrabbableProp.OnGrab), so revoke exact wall masks this LateUpdate,
+            // before the material path's hidden-member early-out. Same-count swaps work too.
+            foreach (GameObject visual in _performanceHeldNext)
+            {
+                if (_performanceHeldRoots.Contains(visual) || visual == null) continue;
+                _performanceHeldRenderers.Clear();
+                visual.GetComponentsInChildren(includeInactive: true, _performanceHeldRenderers);
+                foreach (Renderer renderer in _performanceHeldRenderers) ReleasePerformanceMask(renderer);
+            }
+            // HeldProps retains ownership through ordinary return flight/landing. An exact
+            // formerly eligible member can resume hiding when its root really leaves the hand.
+            foreach (GameObject visual in _performanceHeldRoots)
+            {
+                if (_performanceHeldNext.Contains(visual) || visual == null) continue;
+                _performanceHeldRenderers.Clear();
+                visual.GetComponentsInChildren(includeInactive: true, _performanceHeldRenderers);
+                foreach (Renderer renderer in _performanceHeldRenderers)
+                    if (_performanceWanted.Contains(renderer)) AcquirePerformanceMask(renderer);
+            }
             _performanceHeldRoots.Clear();
-            foreach (GameObject visual in _performanceHeldScratch) _performanceHeldRoots.Add(visual);
-            return true;
+            foreach (GameObject visual in _performanceHeldNext) _performanceHeldRoots.Add(visual);
         }
 
         private void SetPerformanceCollectionMasks(bool hide)
@@ -322,17 +337,19 @@ internal static partial class WallSegmentFade
                     || _performanceProtected.Contains(entry.Key) || !PerformanceCanHide(entry.Key))
                     _performanceRetired.Add(entry.Key!); // destroyed Unity wrapper is a non-null ledger key
             foreach (Renderer renderer in _performanceRetired) ReleasePerformanceMask(renderer);
-            foreach (Renderer renderer in _performanceWanted)
-            {
-                if (_performanceProtected.Contains(renderer) || _performanceMasks.ContainsKey(renderer)
-                    || !PerformanceCanHide(renderer)) continue;
-                // Release current native-material/substitute consumers BEFORE registering
-                // ownership, otherwise their undo path could clear the new wall mask.
-                ScenarioEnvironmentBudget.BeforeNativeRendererWrite(renderer);
-                bool prior = renderer.forceRenderingOff;
-                _performanceMasks.Add(renderer, prior);
-                renderer.forceRenderingOff = true;
-            }
+            foreach (Renderer renderer in _performanceWanted) AcquirePerformanceMask(renderer);
+        }
+
+        private void AcquirePerformanceMask(Renderer renderer)
+        {
+            if (_performanceProtected.Contains(renderer) || _performanceMasks.ContainsKey(renderer)
+                || !PerformanceCanHide(renderer)) return;
+            // Release current native-material/substitute consumers BEFORE registering
+            // ownership, otherwise their undo path could clear the new wall mask.
+            ScenarioEnvironmentBudget.BeforeNativeRendererWrite(renderer);
+            bool prior = renderer.forceRenderingOff;
+            _performanceMasks.Add(renderer, prior);
+            renderer.forceRenderingOff = true;
         }
 
         private bool PerformanceCanHide(Renderer renderer)
@@ -370,6 +387,7 @@ internal static partial class WallSegmentFade
             _performanceScene = -1; _performanceGenerator = null; _performanceReadySince = -1f;
             _performanceRevision = _performanceCollectedRevision = _performanceCycleRevision = 0;
             _performanceHeldRoots.Clear(); _performanceHeldScratch.Clear();
+            _performanceHeldNext.Clear(); _performanceHeldRenderers.Clear();
             _performanceRetryAt = 0f; _performanceRoomCount = _performanceWallCount = -1;
             if (!wasHidden) return;
             AbandonRescanCycle(); _nextRescan = 0f; _nextEvalTime = 0f; _lastEvalTime = 0f;

@@ -50,7 +50,10 @@ broadcast to other players.
 The settled path reads room/wall counters. When nobody holds a prop, held-state
 observation is two managed registry-count reads; occupied hands compare the tiny
 existing exact visual-root set. This catches same-count swaps without inspecting
-all wall renderer ancestors every frame.
+all wall renderer ancestors every frame. Only new/released visual subtrees are
+visited on an actual root-identity edge: current native held renderers immediately
+lose wall masks before camera culling; returning exact members resume hiding after
+ordinary landing. No full wall-table reconciliation runs for a grab/release.
 
 True native room/content changes still need discovery. The root integration calls
 `NotifyPerformanceContentChange()` and `NotifyPerformanceRendererReady(renderer)`
