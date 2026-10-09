@@ -17,6 +17,8 @@ import shutil
 import sqlite3
 
 from storage import BuildError, CONTENT_PATHS, ValidatedFileWitnesses, _ordinary_owned, digest, invocation_file_matches, value_hash, write_json
+import preparation_identity
+import preparation_metadata
 
 SCHEMA = 1
 OWNER = "Quest preparation substage journal"
@@ -103,9 +105,10 @@ def copy_changed(source, target, *, observed=None, transfer=None):
 
 
 class Preparation:
-    def __init__(self, output, project, *, input_key, target, recipe, source_files=(), progress=None, reset=None, content_proofs=(), compatible_input_key=None):
+    def __init__(self, output, project, *, input_key, target, recipe, source_files=(), progress=None, reset=None, content_proofs=(), compatible_input_key=None, current_inputs=None):
         self.output, self.project = Path(output), _ordinary_owned(Path(project))
         self.progress, self.checked, self.index = progress, {}, 0
+        self.current_inputs = current_inputs
         self.copy_qualified = set()
         self.copy_counter = None
         self.content_proofs = {}
@@ -180,6 +183,10 @@ class Preparation:
                 if prior_path.is_file():
                     self.prior_copies = sqlite3.connect(prior_path)
                     self.prior_witnesses = ValidatedFileWitnesses(self.prior_copies, self.project, prior_identity)
+            if (self.root / "metadata-refresh.json").exists():
+                if not preparation_identity._completed_game_preparation(self.value, target):
+                    raise BuildError("Preparation identity refresh requires its complete ordered game journal.")
+                preparation_metadata.refresh(self, current_inputs, recovering=True)
             self._rollback_pending()
             try:
                 self._qualify()
@@ -364,6 +371,12 @@ class Preparation:
 
     def _rebind_compatible_input(self):
         """Retain a byte-qualified pre-archive prefix after a proved tool repair."""
+        if self.value["inputKey"] == self.identity["inputKey"]: return
+        if preparation_identity._completed_game_preparation(self.value, self.identity["target"]):
+            if self.current_inputs is None:
+                raise BuildError("Completed preparation reuse requires the qualified current input manifest.")
+            preparation_metadata.refresh(self, self.current_inputs)
+            return
         steps = self.value["steps"]
         boundary = next((index for index, step in enumerate(steps) if step["name"] == "startup-archive"), len(steps))
         prefix = {row["path"] for step in steps[:boundary] for row in step["outputs"]}

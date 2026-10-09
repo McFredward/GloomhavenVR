@@ -19,6 +19,7 @@ from storage import BuildError, _ordinary_owned, value_hash
 BUILDER = "tools/quest-builder/builder.py"
 IDENTITY = "tools/quest-builder/preparation_identity.py"
 RECIPE_IDENTITY = "tools/quest-builder/recovery_resume.py"
+METADATA_IDENTITY = "tools/quest-builder/preparation_metadata.py"
 DELIVERY_PREFIXES = ("tools/quest-wizard/", "tools/quest-wizard-ui/", "tools/quest-installer/")
 HEX = re.compile(r"[0-9a-f]{64}\Z")
 # Before UI reconstruction the only mod files copied or read by the closed
@@ -35,6 +36,11 @@ PREFIX_UNUSED_TOOLS = {"tools/quest-builder/ui_assets.py", "tools/quest-builder/
 PREFIX_MOD_BANK_ROOTS = ("unity/GloomhavenVR.Assets/", "unity/GloomhavenVR.FigureMeshes/",
                          "tools/environment-mesh/")
 PREFIX_MOD_BANK_HELPERS = {"tools/quest-builder/environment_bank.py"}
+# Static weaving starts after prepare() returns. These managed runtime adapters
+# cannot produce any retained preparation asset; the real current input key
+# still owns compilation and weaving, including engine-boundary specialization.
+# The complete Builder AST rejects an added earlier consumer of these sources.
+PREFIX_PLAYER_ROOTS = ("tools/QuestWeaver/",)
 # Inventory/release/support validation is complete before preparation begins.
 # Its immutable records remain qualified; these helpers do not generate assets.
 PREFIX_DELIVERY_HELPERS = {"tools/quest-builder/release.py", "tools/quest-builder/support.py",
@@ -192,9 +198,10 @@ def builder_producer_digest(raw, *, original_prefix=False):
                         or ast.dump(call.func, include_attributes=False) != ast.dump(PREPARATION_CALL, include_attributes=False)):
                     continue
                 call.keywords = [keyword for keyword in call.keywords
-                                 if not (keyword.arg == "compatible_input_key"
-                                         and isinstance(keyword.value, ast.Name)
-                                         and keyword.value.id == "prior_preparation_key")]
+                                 if not (isinstance(keyword.value, ast.Name)
+                                         and (keyword.arg, keyword.value.id) in (
+                                             ("compatible_input_key", "prior_preparation_key"),
+                                             ("current_inputs", "inputs")))]
     if original_prefix:
         # The complete preparation body, import bindings and top-level constants
         # still qualify these producers. CLI inspection, APK update, signing and
@@ -225,9 +232,31 @@ def _builder_bytes(root, records):
     return raw
 
 
-def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=False, native_unconsumed=False, graphics_unconsumed=False):
+def _completed_game_preparation(value, target):
+    """Accept only the complete audited game schedule, including later owners."""
+    if target != "game" or value.get("pending") is not None: return False
+    names = [("base-project", "project-files")]
+    names += [(name, "startup-content") for name in (
+        "post-effects", "loading-resources", "startup-movies", "native-sprites",
+        "loading-sprite", "startup-audio", "ui-recipes", "startup-ui", "startup-blur",
+        "dlc-selection", "file-extras")]
+    names += [("native-runtime", "native-runtime"), ("bundled-audio", "audio")]
+    names += [(name, "textures") for name in ("native-cubemaps", "ordinary-texture-audit", "native-texture2d")]
+    names += [(name, "graphics") for name in ("campaign-compute", "campaign-shaders")]
+    names += [(name, "mod-banks") for name in ("startup-archive", "archive-cleanup", "package-settings", "mod-resource-banks")]
+    names += [(name, "preparation-contracts") for name in ("compiler-contracts", "case-paths", "script-orders", "final-settings")]
+    steps = value.get("steps")
+    return (isinstance(steps, list) and len(steps) == len(names)
+            and all(isinstance(step, dict) and (step.get("name"), step.get("operation")) == expected
+                    for step, expected in zip(steps, names)))
+
+
+def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=False, native_unconsumed=False, graphics_unconsumed=False, completed=False):
     records = recovery._records(inputs["mod"]["files"], "size")
-    builder = builder_producer_digest(_builder_bytes(source, records), original_prefix=original_prefix)
+    # Before authored banks, only the original-prefix helpers have run. Once
+    # all phases close, late archive/package/compiler function bodies have also
+    # produced retained bytes; require the complete reviewed Builder AST.
+    builder = builder_producer_digest(_builder_bytes(source, records), original_prefix=original_prefix and not completed)
     rows = _reviewed_startup_rows(recovery.preparation_source_rows(inputs["mod"]["files"]))
     # These modules validate/select identity; neither generates game assets.
     # Delivery tools are never read by generate_files or its conversion tools.
@@ -238,9 +267,13 @@ def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=Fal
                 or row["path"] in PREFIX_MOD_INPUTS]
         # Developer checks and release/install launchers are not read by any
         # producer in this prefix. Keep all conversion tools and template files.
-        rows = [row for row in rows if not row["path"].startswith("scripts/")]
-        rows = [row for row in rows if not row["path"].startswith(PREFIX_MOD_BANK_ROOTS)
-                and row["path"] not in PREFIX_MOD_BANK_HELPERS | PREFIX_DELIVERY_HELPERS]
+        rows = [row for row in rows if not row["path"].startswith("scripts/")
+                or completed and row["path"] == "scripts/generate-environment-meshes.py"]
+        if not completed:
+            rows = [row for row in rows if not row["path"].startswith(PREFIX_MOD_BANK_ROOTS)
+                    and row["path"] not in PREFIX_MOD_BANK_HELPERS]
+        rows = [row for row in rows if row["path"] not in PREFIX_DELIVERY_HELPERS
+                and not row["path"].startswith(PREFIX_PLAYER_ROOTS)]
         if ui_unconsumed:
             rows = [row for row in rows if row["path"] not in PREFIX_UNUSED_TOOLS]
         if native_unconsumed:
@@ -259,6 +292,7 @@ def rebind_key(output, project, inputs, source, *, target, recipe, recovery):
     output, project = Path(output), _ordinary_owned(Path(project))
     journal = _ordinary_owned(output / "cache/prepare-resume" / project.name / "journal.json")
     if not journal.exists():
+        print("preparation resume: no retained preparation journal; a new owned preparation is required", flush=True)
         return None
     value = recovery._read(journal)
     previous_key = value.get("inputKey")
@@ -284,17 +318,30 @@ def rebind_key(output, project, inputs, source, *, target, recipe, recovery):
         # UI recipes are consumed immediately after this prefix. A current UI
         # repair may retry there; it cannot claim any already completed UI work.
         if not ui_unconsumed:
+            print("preparation resume: reuse unavailable; the UI producer changed after its completed owner; "
+                  "existing project and Unity Library remain owned", flush=True)
             return None
-    original_prefix = _original_game_prefix(value, target)
+    completed = _completed_game_preparation(value, target)
+    original_prefix = _original_game_prefix(value, target) or completed
     native_unconsumed = _native_unconsumed(value, target)
     graphics_unconsumed = (target == "game" and original_prefix
                            and not any(step["name"] == "campaign-compute" for step in value["steps"]))
     before = _scope(previous, previous_source, recovery, original_prefix=original_prefix,
-                    ui_unconsumed=ui_unconsumed, native_unconsumed=native_unconsumed, graphics_unconsumed=graphics_unconsumed)
+                    ui_unconsumed=ui_unconsumed, native_unconsumed=native_unconsumed, graphics_unconsumed=graphics_unconsumed, completed=completed)
     after = _scope(inputs, source, recovery, original_prefix=original_prefix,
-                   ui_unconsumed=ui_unconsumed, native_unconsumed=native_unconsumed, graphics_unconsumed=graphics_unconsumed)
+                   ui_unconsumed=ui_unconsumed, native_unconsumed=native_unconsumed, graphics_unconsumed=graphics_unconsumed, completed=completed)
     if value_hash(before) != value_hash(after):
+        old = {row["path"]: row for row in before["mod"]["producerFiles"]}
+        new = {row["path"]: row for row in after["mod"]["producerFiles"]}
+        changed = sorted(name for name in old.keys() | new.keys() if old.get(name) != new.get(name))
+        if changed:
+            reason = "consumed producer inputs changed: " + ", ".join(changed[:8])
+            if len(changed) > 8: reason += " (+" + str(len(changed) - 8) + " more)"
+        elif before["mod"]["builderProducerAstSha256"] != after["mod"]["builderProducerAstSha256"]:
+            reason = "the qualified preparation orchestration changed"
+        else: reason = "game/profile/preparation scope changed"
+        print("preparation resume: reuse unavailable; " + reason + "; existing project and Unity Library remain owned", flush=True)
         return None
-    print("preparation resume: retaining witnessed conversions across compatible producer inputs; "
+    print("preparation resume: retaining " + str(len(value["steps"])) + " witnessed conversions across compatible producer inputs; "
           "mutable content and final settings retain the current input key", flush=True)
     return previous_key

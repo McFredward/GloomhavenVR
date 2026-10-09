@@ -183,8 +183,17 @@ TEXTURE_PROGRESS_FIXED = {'tools/quest-builder/full_textures.py': {'path': 'tool
 SHADER_PROGRESS_PREVIOUS = {'tools/quest-builder/full_shaders.py': {'path': 'tools/quest-builder/full_shaders.py', 'size': 84578, 'sha256': '0f56be28c906e8127391ddd999f2a0b5aaa5a00106093126e8d1037a96687f5b'}, 'tools/quest-builder/campaign_shaders.py': {'path': 'tools/quest-builder/campaign_shaders.py', 'size': 4896, 'sha256': '11399faafd4d00e90ed5786dbc1e9243f3094678fefec80c82eca48bd499dc2a'}}
 SHADER_PROGRESS_FIXED = {'tools/quest-builder/full_shaders.py': {'path': 'tools/quest-builder/full_shaders.py', 'size': 88647, 'sha256': 'c7ad08e0da987d87b7ad1a821db2c483079a0739440fb244da5a27cac71e4e6d'}, 'tools/quest-builder/campaign_shaders.py': {'path': 'tools/quest-builder/campaign_shaders.py', 'size': 6591, 'sha256': 'bde246e6a665e8a68d85b08dd3fe5fcdaca64236cf42cca40d09f8d1832dfbd6'}}
 
+# Completed preparation metadata rebinding changes no asset producer. Keep
+# the entire reviewed observer profile; the private refresh helper is qualified
+# separately by its exact four-document transaction and source identity.
+OBSERVATION_COMPLETED_METADATA = {
+    "tools/quest-builder/preparation_metadata.py": {'path': 'tools/quest-builder/preparation_metadata.py', 'size': 11448, 'sha256': '5daccdfabf1032f70871c2023b232bb5ff82a1935a539f1924015de84cef3547'},
+    **OBSERVATION_GRAPHICS_CONTRACT,
+    "tools/quest-builder/prepare_resume.py": {'path': 'tools/quest-builder/prepare_resume.py', 'size': 41507, 'sha256': 'eec74e440ae1f31fe780573abab4d2f8bf8ec651be5b499f5f1eeee1f101cef7'},
+}
+
 OBSERVATION_PROFILES = (OBSERVATION_BYTE_WITNESSES, OBSERVATION_FIXED,
-                        OBSERVATION_INPUT_INDEX, OBSERVATION_INPUT_ORDER, OBSERVATION_DIRECTORY_BATCH, OBSERVATION_GRAPHICS_CONTRACT)
+                        OBSERVATION_INPUT_INDEX, OBSERVATION_INPUT_ORDER, OBSERVATION_DIRECTORY_BATCH, OBSERVATION_GRAPHICS_CONTRACT, OBSERVATION_COMPLETED_METADATA)
 # Shipped d4cc44eeb adds an exporter-log observer and invocation-local proof
 # caches. The current reference-audit update changes no raw export identities.
 # Preserve this exact whole profile as well as the previous shipped profiles.
@@ -234,7 +243,8 @@ def preparation_source_rows(rows):
         by_path.setdefault(row["path"], []).append(row)
     if any(profile and all(by_path.get(name) == [fixed] for name, fixed in profile.items())
            for profile in OBSERVATION_PROFILES):
-        rows = [OBSERVATION_PREVIOUS.get(row["path"], row) for row in rows]
+        rows = [OBSERVATION_PREVIOUS.get(row["path"], row) for row in rows
+                if row != OBSERVATION_COMPLETED_METADATA["tools/quest-builder/preparation_metadata.py"]]
     for fixed, previous in ((TEXTURE_PROGRESS_FIXED, TEXTURE_PROGRESS_PREVIOUS),
                             (SHADER_PROGRESS_FIXED, SHADER_PROGRESS_PREVIOUS)):
         by_path = {}
