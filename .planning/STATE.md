@@ -1,5 +1,20 @@
 # State — where the project stands
 
+**Build659 configured pillar viewing radius, 2026-10-09: 1.1.0 development candidate.**
+
+After pushed NPC658, admitted pillars retain original geometry throughout the
+saved viewing radius (default0.75m from the radial surface), even with near/far
+caps at0%. Existing4cm hysteresis and live edits remain; ordinary wall/touch and
+figure policies are unchanged. No new keys, defaults or wire layout is added.
+
+All61 inputs match the inherited95-variant terrain proof. Final integrated2669
+runtime assertions/three new controls, three focused scopes, source16, strict
+Debug/Release0 warnings/errors and300297 portable assertions pass. Private
+compiled/surface scope and final main Debug are recorded in
+[FRAME-PILLAR-DISTANCE-REVIEW.md](FRAME-PILLAR-DISTANCE-REVIEW.md). Unchanged NPC
+areas inherit658's composed197-scope evidence. This is focused integration, not
+a second uninterrupted complete local gate or headset/FPS acceptance.
+
 **Build658 paired NPC flights, offer latency and enhancement borders, 2026-10-09: 1.1.0 development candidate.**
 
 The supplied paired656 logs/videos show the returning print/body divergence and

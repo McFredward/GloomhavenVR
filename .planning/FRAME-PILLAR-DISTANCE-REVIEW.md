@@ -86,3 +86,25 @@ Compact receipts and verified worker archives are retained in the main checkout'
 `.planning/debug/frame-pillar-distance/`. The two owned worktrees and generated
 caches are removed after their archive contents/hashes and clean commits have
 been verified; no parallel NPC/Quest worktree is touched.
+
+
+## Final Build659 integration
+
+Integrated after pushed NPC658 `e92ef8e53` from the exact private committed658
+baseline. All61 production, fixture and original-asset inputs match the worker's
+complete95-variant proof, so its2669 assertions and94 causal controls are reused.
+The final integrated production probe repeats2669 assertions and all three new
+pillar-radius controls. Focused scenario-scenery, wall-performance and player-help
+checks pass, as do final source16, strict Debug/Release0 warnings/errors and300297
+portable assertions. The initial player-help check rejected the worker's long
+EN/DE radius description; both now retain the same behavior explanation within
+the existing limit. The original failure and passing rerun remain separate.
+
+Private surface/compiled comparison and final main Debug receipts live in the
+main checkout's gitignored `.planning/debug/frame-pillar-distance/integrator/`.
+The private658→659 comparison retains1,248 types and changes only three
+intended runtime types plus eight numeric build consumers. All665 config keys,
+235 patches and4,795 log tokens remain.
+This limited follow-up inherits unchanged NPC658 composed197-scope evidence;
+it does not claim a second uninterrupted complete local gate. Matching-headset
+pillar appearance and NPC acceptance remain pending; no Frame FPS gain is claimed.

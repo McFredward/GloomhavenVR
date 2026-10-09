@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-09 for Build658: paired NPC first-picture, return-flight and offered-overlay follow-up.
+Updated 2026-10-09 for Build659: paired NPC658 presentation fixes and configured near-view pillar originals.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
@@ -14,6 +14,7 @@ status; it is not the player manual.
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [FRAME-PILLAR-DISTANCE-REVIEW.md](FRAME-PILLAR-DISTANCE-REVIEW.md) | Configured full-detail pillar radius, matched inherited proof and final659 integration |
 | [NPC-658-REVIEW.md](NPC-658-REVIEW.md) | Paired656 videos/logs, reproduced defects, integrated validation and hardware limits |
 | [NPC-658-LATENCY.md](NPC-658-LATENCY.md) | Complete native card preparation, exact compact originals and retained full recovery |
 | [NPC-658-FLIGHTS.md](NPC-658-FLIGHTS.md) | Bounded common native return clocks, original partitions and cancellation/clock controls |

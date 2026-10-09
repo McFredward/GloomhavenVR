@@ -601,7 +601,16 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 658;
+    public const ushort ModBuild = 659;
+
+    // ModBuild659 — configured near-view pillar originals, after paired NPC658.
+    // Pillars retain100% authored geometry throughout the existing adjustable
+    // ScenarioTerrainDistanceMeters radius (default0.75m from the radial surface),
+    // including near/far0% caps. Existing4cm hysteresis and live edits stay.
+    // Ordinary walls retain18cm leaning/touch guards; figure policies are unchanged.
+    // No new keys/defaults, actor discovery or wire changes. Focused inherited
+    // terrain source/95-variant proof and final integration boundaries are in
+    // .planning/FRAME-PILLAR-DISTANCE-REVIEW.md. No new headset/FPS evidence.
 
     // ModBuild658 — paired656 NPC first-picture, return and overlay follow-up.
     // Real partitioned ability originals now use exact native-basis metadata;
