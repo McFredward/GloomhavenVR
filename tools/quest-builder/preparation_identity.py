@@ -22,6 +22,13 @@ RECIPE_IDENTITY = "tools/quest-builder/recovery_resume.py"
 METADATA_IDENTITY = "tools/quest-builder/preparation_metadata.py"
 DELIVERY_PREFIXES = ("tools/quest-wizard/", "tools/quest-wizard-ui/", "tools/quest-installer/")
 HEX = re.compile(r"[0-9a-f]{64}\Z")
+# The completed preparation journal lists original output contracts, rather than
+# only a small control manifest. Capture134446 reports25,864,174 journal bytes
+# before ownership or contents can be checked. Bound this inventory separately;
+# retain the
+# recovery reader's regular-file, bounded-read and JSON checks and its ordinary
+# 16MiB limit for input/control manifests. Reading metadata never reopens assets.
+MAX_JOURNAL_BYTES = 64 * 1024 * 1024
 # Before UI reconstruction the only mod files copied or read by the closed
 # startup producers are the Quest template, localization and loading logo.
 # Runtime C# and mod bundles are consumed later, under the new real input key.
@@ -294,7 +301,7 @@ def rebind_key(output, project, inputs, source, *, target, recipe, recovery):
     if not journal.exists():
         print("preparation resume: no retained preparation journal; a new owned preparation is required", flush=True)
         return None
-    value = recovery._read(journal)
+    value = recovery._read(journal, max_bytes=MAX_JOURNAL_BYTES)
     previous_key = value.get("inputKey")
     if (value.get("schema") != 1 or value.get("owner") != "Quest preparation substage journal"
             or value.get("project") != project.relative_to(output).as_posix()
