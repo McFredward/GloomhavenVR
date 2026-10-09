@@ -18,6 +18,20 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def declaration(text, signature):
+    """Keep an actual declaration, including its complete cleanup body."""
+    match = re.search(r'^([ \t]*)' + re.escape(signature), text, re.MULTILINE)
+    if match is None:
+        raise RuntimeError('Production lifecycle binding drift: ' + signature)
+    line_end = text.index('\n', match.end())
+    if ';' in text[match.end():line_end]:
+        return text[match.start():line_end]
+    end = re.search(r'^' + re.escape(match.group(1)) + r'}\s*$', text[match.end():], re.MULTILINE)
+    if end is None:
+        raise RuntimeError('Production lifecycle end drift: ' + signature)
+    return text[match.start():match.end() + end.end()]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source-root', type=Path, default=ROOT)
@@ -34,6 +48,9 @@ def main():
         'TownServiceFrame.cs': args.source_root / 'src/GloomhavenVR/Net/TownServices/TownServiceFrame.cs',
         'NetPacket.cs': args.source_root / 'src/GloomhavenVR/Net/NetPacket.cs',
         'NetProtocol.cs': protocol_root / 'src/GloomhavenVR/Net/NetProtocol.cs',
+        'TownServiceMirror.OriginalRequests.cs': args.source_root / 'src/GloomhavenVR/Net/TownServices/TownServiceMirror.OriginalRequests.cs',
+        'TownServiceMirror.NativePublication.cs': args.source_root / 'src/GloomhavenVR/Net/TownServices/TownServiceMirror.NativePublication.cs',
+        'TownServiceLaneSendQueue.OriginalRepairs.cs': args.source_root / 'src/GloomhavenVR/Net/TownServices/TownServiceLaneSendQueue.OriginalRepairs.cs',
     }
     sources = {name: path.read_text() for name, path in paths.items()}
     if 'MsgTownOriginalReceipt = 28' not in sources['NetProtocol.cs'] or 'ExtIdTownOriginalReceipt = 112' not in sources['NetProtocol.cs']:
@@ -42,6 +59,29 @@ def main():
     run = Path(tempfile.mkdtemp(prefix='run-', dir=args.output_dir))
     (run / 'source-hashes.json').write_text(json.dumps({str(paths[name]): hashlib.sha256(text.encode()).hexdigest()
         for name, text in sources.items()}, indent=2) + '\n')
+    # Receipt disconnect/reset now also retires missing-original requests. Bind
+    # the real request storage and cleanup, rather than replacing those calls
+    # with empty fixture methods. Admission, encoding and scheduling of requests
+    # remain outside this receipt-only proof and have their separate full checks.
+    requests = sources.pop('TownServiceMirror.OriginalRequests.cs')
+    publication = sources.pop('TownServiceMirror.NativePublication.cs')
+    queue = sources.pop('TownServiceLaneSendQueue.OriginalRepairs.cs')
+    storage_start = requests.index('    private sealed class OriginalRequest\n')
+    storage_end = requests.index('    private static void RecordOriginalRequest(', storage_start)
+    cleanup = '\n'.join(declaration(requests, signature) for signature in (
+        'private static void RemoveOriginalRequestsPeer(int peer)',
+        'private static void ResetOriginalRequests()',
+    ))
+    repair_storage = '\n'.join(declaration(publication, signature) for signature in (
+        'private static readonly System.Collections.Generic.List<LocalModule> RequestedRepairCandidates',
+        'private static int _requestedRepairCursor',
+    ))
+    sources['OriginalRequestCleanup.cs'] = (
+        'using System; using System.Collections.Generic; namespace GloomhavenVR.Net.TownServices;\n'
+        + 'internal static partial class TownServiceMirror {\n'
+        + requests[storage_start:storage_end] + cleanup + '\n' + repair_storage + '\n}\n'
+        + declaration(queue, 'internal static class TownRequestedOriginalRepair') + '\n'
+    )
     # NetProtocol also contains unrelated engine board-tuning helpers. Compile its
     # required actual declarations verbatim, without mocking their numeric values or
     # importing those unrelated runtime helpers into this receipt-only proof.

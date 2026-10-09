@@ -55,6 +55,21 @@ internal static partial class TownServiceMirror
     { if (ReceivedBaselines.TryGetValue(owner, out var lane)) lane.Remove(module); }
     internal static int PendingCount => PendingOriginalReceipts.Values.Sum(owner => owner.Modules.Count);
     internal static int ReceiptCount => ReceivedOriginalReceipts.Count;
+    internal static void SeedRequestCleanup()
+    {
+        OriginalRequests[2] = new OriginalRequestOwner();
+        OriginalRequests[3] = new OriginalRequestOwner();
+        OriginalRequestOwners.Add(2); OriginalRequestsRemoved.Add(3);
+        OriginalRequestBatch.Add(new TownServiceOriginalReceiptEntry(3, 111));
+        RequestedOriginalRepairPending = true; _requestedRepairCursor = 4;
+        RequestedRepairCandidates.Add(new LocalModule());
+        TownRequestedOriginalRepair.Source = _ => true;
+    }
+    internal static bool OnlyOtherRequestPeer => !OriginalRequests.ContainsKey(2) && OriginalRequests.ContainsKey(3);
+    internal static bool RequestCleanupCleared => OriginalRequests.Count == 0 && OriginalRequestOwners.Count == 0
+        && OriginalRequestsRemoved.Count == 0 && OriginalRequestBatch.Count == 0
+        && !RequestedOriginalRepairPending && RequestedRepairCandidates.Count == 0
+        && _requestedRepairCursor == 0 && TownRequestedOriginalRepair.Source == null;
 }
 
 internal static class ReceiptProof
@@ -336,6 +351,11 @@ internal static class ReceiptProof
         { var frame = Full(); TownServiceMirror.Store(owner, frame); TownServiceMirror.RecordOriginalReceipt(owner, frame); }
         Check(TownServiceMirror.PendingCount == 24, "pending owners bounded24 against unknown owner growth");
         Check(Capture().Count == 24 && TownServiceMirror.PendingCount == 0, "bounded owner batches eventually drain");
+        TownServiceMirror.SeedRequestCleanup();
+        TownServiceMirror.RemoveOriginalReceiptPeer(2);
+        Check(TownServiceMirror.OnlyOtherRequestPeer, "receipt disconnect retires only the departed peer's requests");
+        TownServiceMirror.Fresh();
+        Check(TownServiceMirror.RequestCleanupCleared, "receipt reset clears actual request and repair scheduling storage");
     }
 
     private static int Main()
