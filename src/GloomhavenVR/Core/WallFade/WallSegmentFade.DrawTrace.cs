@@ -63,7 +63,7 @@ internal static partial class WallSegmentFade
 
         private void NoteWallDrawWrite(Segment seg, MeshRenderer renderer, MaterialPropertyBlock? block)
         {
-            if (!VRLog.Wants(VRLogLevel.Debug) || _drawTraceFailed) return;
+            if (PerformanceWallsHidden || !VRLog.Wants(VRLogLevel.Debug) || _drawTraceFailed) return;
             try { RecordWallDrawWrite(seg, renderer, block); }
             catch (System.Exception error) { StopWallDrawTrace(error); }
         }
