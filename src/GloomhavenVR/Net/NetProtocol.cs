@@ -598,7 +598,17 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 655;
+    public const ushort ModBuild = 656;
+
+    // ModBuild656 — live Auto wall threshold recovery and nearby pillar detail.
+    // Effective threshold edits in Auto restore the existing native wall path and
+    // restart its observation window; manual Hide all and equivalent values retain
+    // their state. The FPS control now spans5–30, retaining the15FPS default/key.
+    // Positively admitted pillars use an authored-bounds enclosing cylinder for
+    // head distance instead of a view-dependent world AABB; hand guards, budgets,
+    // percentages, hysteresis and all other surfaces retain their existing rules.
+    // Includes655 NPC delivery, flight clocks and comfort. Focused final scope is
+    // .planning/FRAME-WALL-LOD-REVIEW.md; no asset or wire-layout changes.
 
     // ModBuild655 — native NPC presentation latency, return clocks and map comfort.
     // Continuous native hover changes previously replaced useful in-flight originals
