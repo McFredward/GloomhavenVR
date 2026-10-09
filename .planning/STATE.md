@@ -1,5 +1,29 @@
 # State — where the project stands
 
+**Build661 paired660 NPC follow-up, 2026-10-10: 1.1.0 development candidate.**
+
+The exact offered body/front handoff publishes their measured original109
+relationship and mounts the backing on the final rendered print each frame.
+Return/held ownership, terminal floors and native census retirement supersede it.
+Purchased ItemChip returns carry the frozen complete native Kind1 canvas recipe
+beside each113 subset, restoring the real zero-scale preparation atomically with
+the flight. Source acknowledgements preserve newer roots; the native exponential
+last frame and subsequent ordinary root handoff remain authoritative.
+
+Current model105 geometry is owner-authored without relaxing omitted-content
+basis verification. Separate114 requests recover an exact refused private original
+through the existing reliable message28/budget; genuine112 receipts retain their
+distinct meaning. Retry cooldown/rotation and source-session sequence dominance
+preserve later valid requests. Existing stable enhancement paint is preserved.
+
+The stricter cold one-second diagnostic remains red; prepared actual-stock
+numeric delivery measures0.994s, material rejection1.075s versus1.226s without
+known-repair priority, and deliberate cold numeric delivery1.817s. Full native
+HUD initialization is a declared fixture port. These are desktop source/runtime
+measurements, not universal first-picture bounds or a new headset acceptance.
+Integrated gate evidence is pending below; see [NPC-661-REVIEW.md](NPC-661-REVIEW.md)
+and its separate geometry, merchant and latency reviews.
+
 **Build660 remote NPC regression repair, 2026-10-09: 1.1.0 development candidate.**
 
 The failed paired hardware run is658 `e92ef8e53` on both peers, not659. Its

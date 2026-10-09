@@ -80,5 +80,52 @@ internal static class TownOriginalRequest661Vectors
         t.True(scheduler.NextBatch(.001) == null, "114 cannot bypass fifty-millisecond send clock");
         scheduler.Clear();
         t.True(scheduler.NextBatch(1) == null, "114 reset discards old requests");
+        KnownOriginalQueue(t);
+    }
+
+    private static void KnownOriginalQueue(Harness t)
+    {
+        t.Case("An accepted rejected original borrows the existing urgent turn without ordinary priority");
+        var original = new TownServiceFrame { Service = 3, Session = 661, Sequence = 1,
+            Module = 42, Template = 1, TemplateAddress = "face.333|row", Structure = 7,
+            Visible = true, Nodes = new[] { new TownServiceNode { Binding = 1 } },
+            Pose = new[] { 0f, 0f, 0f, 0f, 0f, 0f, 1f, 1f, 1f, 1f } };
+        byte[] bytes = TownServiceCodec.Write(original);
+        var ordinary = new TownServiceLaneSendQueue(0);
+        ordinary.Enqueue(bytes, bytes.Length, original);
+        t.True(ordinary.NextUrgent(0) == null, "ordinary non-priority original earns no rejected-original turn");
+        ordinary.Clear();
+        Func<TownServiceFrame, bool>? previous = TownRequestedOriginalRepair.Source;
+        try
+        {
+            TownRequestedOriginalRepair.Source = frame => ReferenceEquals(frame, original);
+            var queue = new TownServiceLaneSendQueue(0);
+            queue.Enqueue(bytes, bytes.Length, original);
+            byte[]? page = queue.NextUrgent(0);
+            t.True(page != null, "known refused ordinary original is eligible without another high-priority widget");
+            if (page != null)
+            {
+                t.True(page.Length <= PresentationBatch.MaxSize, "known repair retains the existing event bound");
+                var receiver = new TownServiceFragments();
+                byte[]? complete = receiver.Accept(2, page, page.Length, 0);
+                t.True(complete != null, "small known original completes its actual module stream");
+                if (complete != null) t.Wire(bytes, complete, complete.Length, "known repair is the exact immutable source bytes");
+            }
+            t.True(queue.NextUrgent(.051) == null && queue.Next(1) == null,
+                "completed requested original leaves no borrowed work or repeated bytes");
+            queue.Enqueue(bytes, bytes.Length, original);
+            queue.Clear();
+            t.True(queue.NextUrgent(2) == null && queue.Next(2) == null,
+                "reset retires a queued accepted request");
+            queue.Enqueue(bytes, bytes.Length, original);
+            var withdrawn = new TownServiceFrame { Service = 3, Session = 661, Sequence = 2,
+                Module = TownServiceFrame.ManifestModule, Visible = true,
+                Modules = Array.Empty<ushort>(), Pose = original.Pose };
+            byte[] census = TownServiceCodec.Write(withdrawn);
+            queue.Enqueue(census, census.Length, withdrawn);
+            t.True(queue.NextUrgent(3) == null, "withdrawn source retires the requested original before paint");
+            queue.Clear();
+        }
+        finally { TownRequestedOriginalRepair.Source = previous; }
     }
 }

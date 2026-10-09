@@ -604,7 +604,28 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 660;
+    public const ushort ModBuild = 661;
+
+    // ModBuild661 — remaining paired660 NPC presentation defects.
+    // The actual enchantress backing/front pair shares the rendered print frame
+    // through measured original109 affinity; returns, held roots and retirement
+    // supersede obsolete offers. Original overlay depth/order remains unchanged.
+    // Purchased ItemChip returns stage each frozen native Kind1 canvas recipe
+    // beside its existing113 subset, restoring prepared zero-scale fronts before
+    // coherent flight paint. Reordered subsets and newer terminal roots retain
+    // exact source identity; no previous numeric grammar is reinterpreted.
+    // Native exponential release stays exponential through its last active frame;
+    // the received native terminal then owns the settled pose and ordinary root.
+    // Additive114 requests the exact refused compact original on message28,
+    // independently of112 acknowledgements and the15Hz sampling gate. Existing
+    // reliable event budgets remain; full same-sequence repair survives driver
+    // coalescing. First-picture diagnostics retain transaction age across census.
+    // Model105 geometry is owner-authored; omitted native content still requires
+    // its exact basis. Accepted missing ordinary originals borrow existing urgent
+    // turns; retry cooldown/rotation and session order preserve later repairs.
+    // Cold preparation, delivery, causal controls and hardware limits are recorded
+    // in .planning/NPC-661-REVIEW.md and its geometry/merchant/latency reviews.
+    // Version3 and previous records remain unchanged; next free additive ID115.
 
     // ModBuild660 — paired658 NPC regression, after pillar659.
     // Complete received pictures no longer reject the two audited native GPU-only
