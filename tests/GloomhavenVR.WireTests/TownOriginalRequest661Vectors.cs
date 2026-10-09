@@ -80,14 +80,16 @@ internal static class TownOriginalRequest661Vectors
         t.True(scheduler.NextBatch(.001) == null, "114 cannot bypass fifty-millisecond send clock");
         scheduler.Clear();
         t.True(scheduler.NextBatch(1) == null, "114 reset discards old requests");
-        KnownOriginalQueue(t);
+        KnownOriginalQueue(t, 1);
+        KnownOriginalQueue(t, 3);
+        KnownOriginalInFlight(t);
     }
 
-    private static void KnownOriginalQueue(Harness t)
+    private static void KnownOriginalQueue(Harness t, byte service)
     {
-        t.Case("An accepted rejected original borrows the existing urgent turn without ordinary priority");
-        var original = new TownServiceFrame { Service = 3, Session = 661, Sequence = 1,
-            Module = 42, Template = 1, TemplateAddress = "face.333|row", Structure = 7,
+        t.Case("An accepted rejected original borrows the existing urgent turn without ordinary priority service=" + service);
+        var original = new TownServiceFrame { Service = service, Session = 661, Sequence = 1,
+            Module = 42, Template = 1, TemplateAddress = service == 1 ? "card.7|row" : "face.333|row", Structure = 7,
             Visible = true, Nodes = new[] { new TownServiceNode { Binding = 1 } },
             Pose = new[] { 0f, 0f, 0f, 0f, 0f, 0f, 1f, 1f, 1f, 1f } };
         byte[] bytes = TownServiceCodec.Write(original);
@@ -118,12 +120,84 @@ internal static class TownOriginalRequest661Vectors
             t.True(queue.NextUrgent(2) == null && queue.Next(2) == null,
                 "reset retires a queued accepted request");
             queue.Enqueue(bytes, bytes.Length, original);
-            var withdrawn = new TownServiceFrame { Service = 3, Session = 661, Sequence = 2,
+            var withdrawn = new TownServiceFrame { Service = service, Session = 661, Sequence = 2,
                 Module = TownServiceFrame.ManifestModule, Visible = true,
                 Modules = Array.Empty<ushort>(), Pose = original.Pose };
             byte[] census = TownServiceCodec.Write(withdrawn);
             queue.Enqueue(census, census.Length, withdrawn);
             t.True(queue.NextUrgent(3) == null, "withdrawn source retires the requested original before paint");
+            queue.Clear();
+        }
+        finally { TownRequestedOriginalRepair.Source = previous; }
+    }
+
+    private static void KnownOriginalInFlight(Harness t)
+    {
+        t.Case("An old compact source identity finishes before the pinned full repair and its dependent delta");
+        var random = new Random(661);
+        var characters = new char[6000];
+        for (int i = 0; i < characters.Length; i++) characters[i] = (char)('a' + random.Next(26));
+        var node = new TownServiceNode { Binding = 1 };
+        node.Values.Add(TownServiceProperty.TmpText, new TownServiceValue { Numbers = new float[40],
+            Text = new[] { new string(characters), "originalFont", "originalSprites" } });
+        var source = new TownServiceFrame { Service = 3, Session = 661, Sequence = 1,
+            Module = 42, Template = 1, TemplateAddress = "face.333|row", Structure = 7,
+            Visible = true, Nodes = new[] { node },
+            Pose = new[] { 0f, 0f, 0f, 0f, 0f, 0f, 1f, 1f, 1f, 1f } };
+        var compact = TownServiceDelta.Retain(source); compact.NativeTemplateBasisKey = 123;
+        byte[] compactBytes = TownServiceCodec.Write(compact), fullBytes = TownServiceCodec.Write(source);
+        var current = TownServiceDelta.Retain(source); current.Sequence = 2; current.Pose[0] = .4f;
+        var delta = TownServiceDelta.Create(source, current); byte[] deltaBytes = TownServiceCodec.Write(delta);
+        Func<TownServiceFrame, bool>? previous = TownRequestedOriginalRepair.Source;
+        bool accepted = false;
+        try
+        {
+            TownRequestedOriginalRepair.Source = frame => accepted && ReferenceEquals(frame, source);
+            var queue = new TownServiceLaneSendQueue(0);
+            queue.Enqueue(compactBytes, compactBytes.Length, source);
+            // Port only the pre-existing direct-module in-flight state. Actual
+            // per-module fragmentation, lane arbitration and identities run unchanged.
+            var modules = (Dictionary<ushort, ExtrasSendQueue>)typeof(TownServiceLaneSendQueue)
+                .GetField("_queues", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+                .GetValue(queue)!;
+            var requested = (Dictionary<ushort, TownServiceFrame>)typeof(TownServiceLaneSendQueue)
+                .GetField("_requestedOriginals", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+                .GetValue(queue)!;
+            byte[] first = modules[42].Next(0)!;
+            var receiver = new TownServiceFragments();
+            t.True(receiver.Accept(2, first, first.Length, 0) == null && modules[42].HasInFlight,
+                "actual compact module has unfinished pages before the request arrives");
+            accepted = true;
+            queue.Enqueue(fullBytes, fullBytes.Length, source);
+            queue.Enqueue(deltaBytes, deltaBytes.Length, delta);
+            bool compactArrived = false, fullArrived = false, deltaArrived = false;
+            for (int i = 1; i < 100; i++)
+            {
+                double now = i * .051;
+                byte[]? page = queue.NextUrgent(now) ?? queue.Next(now);
+                if (page == null) continue;
+                t.True(page.Length <= PresentationBatch.MaxSize, "in-flight repair keeps the existing event cap");
+                byte[]? result = receiver.Accept(2, page, page.Length, now); if (result == null) continue;
+                byte[][] children = TownServiceCodec.TryReadBundle(result, result.Length, out var bundle) ? bundle! : new[] { result };
+                foreach (byte[] child in children)
+                {
+                    t.True(TownServiceCodec.TryRead(child, child.Length, out var frame), "every retained source page decodes");
+                    if (frame!.NativeTemplateBasisKey != 0)
+                    {
+                        t.Wire(compactBytes, child, child.Length, "started compact remains byte-exact");
+                        t.True(requested.ContainsKey(source.Module), "old compact completion preserves urgency for the still-pinned full source");
+                        compactArrived = true;
+                    }
+                    else if (frame.BaseSequence == 0)
+                    { t.True(compactArrived, "old compact completes before its requested full source"); t.Wire(fullBytes, child, child.Length, "requested full source is retained exactly"); fullArrived = true; }
+                    else
+                    { t.True(fullArrived, "new dependent revision follows its usable full baseline"); t.Wire(deltaBytes, child, child.Length, "dependent delta survives requested repair"); deltaArrived = true; }
+                }
+            }
+            t.True(compactArrived && fullArrived && deltaArrived, "all source dependencies make finite progress");
+            t.True(requested.Count == 0, "completed ordinary repair retires its exact urgency marker");
+            t.True(queue.NextUrgent(10) == null && queue.Next(10) == null,
+                "ordinary repair and later delta leave no stale urgency or duplicate source");
             queue.Clear();
         }
         finally { TownRequestedOriginalRepair.Source = previous; }
