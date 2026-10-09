@@ -194,7 +194,12 @@ internal static class Program
         {
             var feature = CreateSession(native);
             Check(!feature.TryEnterPassthrough(1), "deadline case requests alpha");
-            Check(!feature.TryEnterPassthrough(1 + OpenXrEnvironmentBlendFeature.ActivationTimeoutSeconds), "opaque readback after bounded deadline fails activation");
+            for (int i = 1; i < OpenXrEnvironmentBlendFeature.MinimumPendingObservations; i++)
+            {
+                Check(!feature.TryEnterPassthrough(1 + OpenXrEnvironmentBlendFeature.ActivationTimeoutSeconds), "pending deadline grace remains opaque");
+                Check(FrameNativePassthrough.IsAvailable, "application pause cannot fail before native maintenance gets a chance");
+            }
+            Check(!feature.TryEnterPassthrough(1 + OpenXrEnvironmentBlendFeature.ActivationTimeoutSeconds), "never-accepted readback fails after deadline and bounded observations");
             Check(FrameNativePassthrough.Status == FrameNativePassthroughStatus.ActivationFailed && !FrameNativePassthrough.IsAvailable, "failed transition disables native MR");
             Check(OpenXRFeature.RequestedMode == XrEnvironmentBlendMode.Opaque, "deadline cancels delayed alpha request");
             int logs = VRLog.Lines.Count, calls = OpenXRFeature.GetCalls;
@@ -203,6 +208,37 @@ internal static class Program
             feature.OnSessionEnd(7);
             feature.OnSessionBegin(7);
             Check(FrameNativePassthrough.IsAvailable, "new session begin resets activation failure");
+            feature.Destroy(native.Instance);
+        }
+        using (var native = new FakeNative { Modes = new[] { 1, 3 } })
+        {
+            var feature = CreateSession(native);
+            Check(!feature.TryEnterPassthrough(1), "pause case queues native request");
+            Check(!feature.TryEnterPassthrough(100) && FrameNativePassthrough.IsAvailable, "first resumed observation cannot prematurely fail activation");
+            OpenXRFeature.ActualMode = XrEnvironmentBlendMode.AlphaBlend;
+            Check(feature.TryEnterPassthrough(100.1) && FrameNativePassthrough.IsActive, "native acceptance after paused application's first resumed frame succeeds");
+            feature.Destroy(native.Instance);
+        }
+        foreach (XrEnvironmentBlendMode original in new[] { XrEnvironmentBlendMode.Opaque, XrEnvironmentBlendMode.Additive })
+        {
+            using var native = new FakeNative { Modes = new[] { 1, 2, 3 } };
+            var feature = CreateSession(native);
+            OpenXRFeature.ActualMode = original;
+            Check(!feature.TryEnterPassthrough(1), "rapid toggle case queues alpha");
+            OpenXRFeature.ActualMode = XrEnvironmentBlendMode.AlphaBlend;
+            Check(feature.TryEnterPassthrough(2), "rapid toggle case accepts alpha");
+            FrameNativePassthrough.Exit();
+            Check(OpenXRFeature.RequestedMode == original && OpenXRFeature.ActualMode == XrEnvironmentBlendMode.AlphaBlend, "off queues original before actual composition changes");
+            Check(!feature.TryEnterPassthrough(3), "rapid on cancels restoration instead of assuming external alpha ownership");
+            Check(OpenXRFeature.RequestedMode == XrEnvironmentBlendMode.AlphaBlend && FrameNativePassthrough.IsAvailable, "rapid on replaces queued original with alpha without disabling MR");
+            Check(feature.TryEnterPassthrough(4) && FrameNativePassthrough.IsActive, "cancelled restoration keeps rapid reenable active");
+            FrameNativePassthrough.Exit();
+            Check(OpenXRFeature.RequestedMode == original, "rapid toggle retains original ownership for the next off");
+            OpenXRFeature.ActualMode = original;
+            feature.Active(original);
+            Check(!feature.TryEnterPassthrough(5), "after restoration is consumed, next on requests alpha normally");
+            OpenXRFeature.ActualMode = XrEnvironmentBlendMode.AlphaBlend;
+            Check(feature.TryEnterPassthrough(6), "normal reenable after completed restoration succeeds");
             feature.Destroy(native.Instance);
         }
         foreach (string fault in new[] { "read", "write", "query" })

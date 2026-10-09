@@ -27,8 +27,11 @@ internal sealed class OpenXrEnvironmentBlendFeature : OpenXRFeature
     private bool _pending;
     private bool _activationFailed;
     private XrEnvironmentBlendMode? _previousMode;
+    private XrEnvironmentBlendMode? _restoringMode;
     private double _requestStartedSeconds;
+    private int _pendingObservations;
     internal const double ActivationTimeoutSeconds = 3;
+    internal const int MinimumPendingObservations = 3;
 
     internal bool PassthroughActive => _active && _instance != 0 && _sessionBegun;
     internal FrameNativePassthroughStatus PassthroughStatus
@@ -55,6 +58,7 @@ internal sealed class OpenXrEnvironmentBlendFeature : OpenXRFeature
         _sessionBegun = false;
         _capabilities = null;
         _activationFailed = false;
+        _restoringMode = null;
         _systemResults.Clear();
         _reportedActiveMode = null;
         _probe.Clear(); // A recreated instance may reuse the previous native handle value.
@@ -104,6 +108,8 @@ internal sealed class OpenXrEnvironmentBlendFeature : OpenXRFeature
     public override void OnEnvironmentBlendModeChange(XrEnvironmentBlendMode xrEnvironmentBlendMode)
     {
         int mode = (int)xrEnvironmentBlendMode;
+        if (_restoringMode.HasValue && mode != 3)
+            _restoringMode = null; // Original accepted, or another mode author superseded it.
         if ((_active && mode != 3) || (_pending && mode != 3 &&
             _previousMode.HasValue && xrEnvironmentBlendMode != _previousMode.Value))
         {
@@ -144,7 +150,11 @@ internal sealed class OpenXrEnvironmentBlendFeature : OpenXRFeature
     {
         if (_session == 0 || _session != session) return;
         if (canRestore) ExitPassthrough();
-        else ForgetOwnership(); // Lost/destroyed native handles may not be called.
+        else
+        {
+            ForgetOwnership(); // Lost/destroyed native handles may not be called.
+            _restoringMode = null;
+        }
         _sessionBegun = false;
         if (discardSession) _session = 0;
     }
@@ -159,6 +169,7 @@ internal sealed class OpenXrEnvironmentBlendFeature : OpenXRFeature
             XrEnvironmentBlendMode actual = GetEnvironmentBlendMode();
             if (_pending)
             {
+                _pendingObservations++;
                 if (actual == XrEnvironmentBlendMode.AlphaBlend)
                 {
                     _pending = false;
@@ -172,7 +183,12 @@ internal sealed class OpenXrEnvironmentBlendFeature : OpenXRFeature
                     FailActivation("active mode changed outside the pending passthrough request");
                     return false;
                 }
-                if (nowSeconds - _requestStartedSeconds >= ActivationTimeoutSeconds)
+                // A paused application may resume after the wall-clock deadline
+                // before Unity has submitted even one frame with the queued request.
+                // Allow three actual observations so that one resumed tick cannot
+                // reject a compatible runtime before it can consume the request.
+                if (_pendingObservations >= MinimumPendingObservations &&
+                    nowSeconds - _requestStartedSeconds >= ActivationTimeoutSeconds)
                 {
                     ExitPassthrough(); // Cancel the queued request even if actual mode stayed opaque.
                     FailActivation("alpha composition was not accepted within the activation deadline");
@@ -180,15 +196,25 @@ internal sealed class OpenXrEnvironmentBlendFeature : OpenXRFeature
                 return false;
             }
             if ((int)actual <= 0) throw new InvalidOperationException("invalid active environment blend mode");
+            if (_restoringMode.HasValue && actual == XrEnvironmentBlendMode.AlphaBlend)
+            {
+                // OFF queued the original mode but it has not reached submission.
+                // A quick ON must cancel that queued restoration; otherwise the
+                // still-alpha readback is mistaken for somebody else's stable mode
+                // and the pending original unexpectedly disables the new request.
+                XrEnvironmentBlendMode original = _restoringMode.Value;
+                _restoringMode = null;
+                RequestAlpha(original, nowSeconds);
+                return false;
+            }
+            _restoringMode = null;
             _previousMode = actual;
             if (actual == XrEnvironmentBlendMode.AlphaBlend)
             {
                 _active = true;
                 return true; // No write or ownership claim if already selected externally.
             }
-            _requestStartedSeconds = nowSeconds;
-            _pending = true; // Before Set: a synchronous callback must see the pending request.
-            SetEnvironmentBlendMode(XrEnvironmentBlendMode.AlphaBlend);
+            RequestAlpha(actual, nowSeconds);
             return false; // The native submission path accepts or rejects this later.
         }
         catch (Exception e)
@@ -197,6 +223,15 @@ internal sealed class OpenXrEnvironmentBlendFeature : OpenXRFeature
             FailActivation("native blend control exception " + e.GetType().Name);
             return false;
         }
+    }
+
+    private void RequestAlpha(XrEnvironmentBlendMode previous, double nowSeconds)
+    {
+        _previousMode = previous;
+        _requestStartedSeconds = nowSeconds;
+        _pendingObservations = 0;
+        _pending = true; // Before Set: a synchronous callback must see the pending request.
+        SetEnvironmentBlendMode(XrEnvironmentBlendMode.AlphaBlend);
     }
 
     internal void ExitPassthrough()
@@ -221,12 +256,14 @@ internal sealed class OpenXrEnvironmentBlendFeature : OpenXRFeature
                     return;
                 }
             }
-            SetEnvironmentBlendMode(previous!.Value);
+            _restoringMode = previous!.Value;
+            SetEnvironmentBlendMode(previous.Value);
             VRLog.Info("Core", "Steam Frame native passthrough: previous composition requested; mode=" +
                 OpenXrEnvironmentBlendProbe.DescribeMode((int)previous.Value) + ".");
         }
         catch (Exception e)
         {
+            _restoringMode = null;
             FailActivation("native blend restoration exception " + e.GetType().Name);
         }
     }
@@ -234,6 +271,7 @@ internal sealed class OpenXrEnvironmentBlendFeature : OpenXRFeature
     private void ForgetOwnership()
     {
         _active = _pending = false;
+        _pendingObservations = 0;
         _previousMode = null;
     }
 
@@ -261,6 +299,7 @@ internal sealed class OpenXrEnvironmentBlendFeature : OpenXRFeature
         _capabilities = null;
         _systemResults.Clear();
         _activationFailed = false;
+        _restoringMode = null;
         _reportedActiveMode = null;
     }
 
