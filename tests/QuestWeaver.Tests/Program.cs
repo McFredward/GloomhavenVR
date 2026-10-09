@@ -29,6 +29,12 @@ int assertions = 0;
 void Check(bool condition, string message) { assertions++; if (!condition) throw new Exception(message); }
 try
 {
+    if (args.Length == 2 && args[0] == "--native-camera-boundary-only")
+    {
+        NativeCameraBoundaryTests.Run(projectRoot, Path.GetFullPath(args[1]), temp, Check);
+        Console.WriteLine($"Quest native camera boundary: {assertions} assertions passed.");
+        return;
+    }
     if (args.Length == 2 && args[0] == "--current-mod-only")
     {
         CurrentModCompatibilityTests.Run(projectRoot, Path.GetFullPath(args[1]), temp, Check);
