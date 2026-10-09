@@ -130,6 +130,13 @@ additional cloth physics; off keeps clothing attached without flapping or hand i
 with lower figure detail, clothing simulation off and reduced generation on. All controls
 also work on PC; saved choices are retained.
 
+## Mixed reality
+
+Choose **Mixed reality** under **VR Options → World** to place the table in your
+room. Standalone uses the Frame's native passthrough when the active runtime supports it.
+If the choice is grey, hover over it for the explanation. Update **SteamVR** and the
+**Proton version selected for Gloomhaven**, then restart the game and check again.
+
 ## Updating
 
 When a newer release is available, the VR main menu offers an update. You can also extract the

@@ -458,13 +458,12 @@ internal static partial class MixedReality
             return;
         _file = ModuleConfig.Create("mixedreality");
         Enabled = _file.Bind("MixedReality", "Enabled", Defaults.MixedReality_Enabled,
-            "Mixed-reality (chroma-key passthrough) mode. When ON the sky/background of the " +
-            "whole game turns the flat solid KeyColor and every skybox is disabled, so Virtual " +
-            "Desktop (or any compositor) can chroma-key that color and show the diorama/table " +
-            "floating over your real room. The 3D geometry keeps rendering — only the sky becomes " +
-            "the flat key color. While ON, the mod's floating UI (menus, captions, name tags) " +
-            "additionally gets opaque backing plates so text stays readable over the passthrough " +
-            "room. Restored fully (plates included) when turned off.");
+            "Place the game table in your real room. Steam Frame standalone uses native " +
+            "passthrough when the active Proton/OpenXR/SteamVR combination supports alpha " +
+            "composition; otherwise this choice is unavailable. PC streaming keeps the " +
+            "selected solid KeyColor for compatible chroma-key software such as Virtual " +
+            "Desktop. Sky backgrounds are hidden, game geometry stays visible and floated " +
+            "UI gets readable backing plates. Turning off restores the previous environment.");
         KeyColor = _file.Bind("MixedReality", "KeyColor", Defaults.KeyColor,
             "The solid chroma-key color the sky/background clears to in mixed-reality mode " +
             "(default pure green RGBA 0,1,0,1). The in-VR settings panel cycles the presets " +

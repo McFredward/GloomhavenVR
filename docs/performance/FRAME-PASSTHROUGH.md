@@ -1,22 +1,25 @@
 # Steam Frame mixed reality: implementation decision
 
-Updated: 2026-10-09. No native Frame mixed-reality presentation has been
-implemented or verified on the maintainer's headset. The bounded diagnostic
-probe prepared in this round is read-only; it does not turn passthrough on.
+Updated: 2026-10-09. Build653 implements capability-gated native alpha
+composition for Steam Frame standalone. The renderer and menu have automated
+coverage; actual Proton/compositor output is still awaiting a headset test.
 
 ## What the current mod does
 
-`Core/MixedReality/MixedReality.cs` removes the sky/background geometry and
-clears the VR camera to the selected key colour with **alpha fixed at one**.
-Virtual Desktop can replace that colour with its local camera image. Steam
-Link has not been shown to do that replacement. Green or black alone is not
-an instruction to the headset compositor to display the room.
+`Core/MixedReality/MixedReality.cs` selects native OpenXR alpha composition
+for a Frame standalone installation detected by the existing setup marker.
+That marker is cached when the XR instance starts; a Frame headset streamed
+from a PC does not select this backend merely by its headset name.
 
-The desired Frame implementation keeps the existing table, scenario, cards,
-figures and windows, but clears the empty background transparently. The
-headset compositor supplies its own passthrough image behind that content.
-It should not send the real-room camera image over multiplayer or ask the
-game to render a second camera for it.
+The actual Wine/OpenXR system must enumerate `ALPHA_BLEND` for `PRIMARY_STEREO`
+and begin a live session. Unity must then accept the requested mode before
+camera transparency or sky suppression begins. Empty background pixels become
+transparent black; table, scenario, figures, cards and windows keep rendering.
+No room-camera image is copied, networked or rendered by a second game camera.
+
+PC installations retain the original opaque selected key colour for compatible
+streaming software such as Virtual Desktop. This implementation does not claim
+native passthrough for stock Steam Link.
 
 ## Evidence and the two different paths
 
@@ -61,80 +64,80 @@ are enumerated separately and are absent from the supplied diagnostic report.
 There is no second, current PC/Steam-Link blend-mode measurement in these
 logs. A standalone result must never be labelled a streaming result.
 
-## Recommended implementation: standalone first
+## Implemented standalone path
 
-### 1. Measure capability without changing the renderer
+### Compatibility and the menu
 
-Register one diagnostic `OpenXRFeature` alongside the existing controller
-profiles, before `InitXRSDK`. It receives the real instance and system IDs
-through `OnInstanceCreate` and `OnSystemChange`. Resolve
+`OpenXrEnvironmentBlendFeature` receives the existing Unity instance, system
+and session callbacks. Its bounded probe resolves
 `xrEnumerateEnvironmentBlendModes` through Unity's existing
-`xrGetInstanceProcAddr` pointer, and enumerate `PRIMARY_STEREO` with the
-standard two-call count/data pattern. Bound the count, validate both return
-codes and report query failure separately from a supported-mode list.
+`xrGetInstanceProcAddr` pointer. It queries each actual instance/system once,
+using the standard count/data calls and validated return codes/counts. It never
+creates another XR instance or requires a vendor-specific passthrough extension.
+The enumeration is part of [core OpenXR1.0][enumerate].
 
-Do this once per instance/system, with lifetime reset on instance teardown.
-Never create another XR instance/session, replace `xrEndFrame`, reset the
-swapchain, copy camera images or do per-frame probing. The successful log
-must say whether `Opaque`, `Additive` and/or `AlphaBlend` were actually returned.
-The query is part of [core OpenXR 1.0][enumerate], so vendor passthrough
-extensions are not a prerequisite.
+`FrameNativePassthrough` exposes checking, unsupported, failed-query,
+failed-activation and available states. There is no fabricated minimum Proton
+or SteamVR version: a version string cannot prove Wine bridge support and may
+misclassify backports. Successful enumeration through the active bridge is the
+compatibility check. Query failures remain distinct from a list containing only
+Opaque/Additive.
 
-Run the capability probe once on standalone and independently once on the
-PC with Steam Frame connected through Steam Link. A successful enumeration
-only establishes the runtime mode; it does not certify the final picture.
+On standalone, unavailable MR tiles/switches are grey and remain hoverable.
+The bilingual hint explains that the selected Proton and SteamVR need updating,
+followed by a game restart. A pending check has its own explanation. Controls
+already open repaint when capability/session status changes; generic/Advanced
+writes cannot bypass the gate. An existing enabled preference remains removable
+and is preserved without exposing a green/black substitute. Native passthrough
+has no chromakey-colour control. Other environment choices remain available.
 
-### 2. If the standalone runtime offers AlphaBlend, use Unity's existing API
+### Blend ownership and asynchronous acceptance
 
-Unity OpenXR **1.10 already exposes** protected
+Unity OpenXR1.10 already exposes protected
 `OpenXRFeature.SetEnvironmentBlendMode` and `GetEnvironmentBlendMode`.
-An MR-specific feature can wrap those for the current session. Its public
-documentation says an unsupported selection falls back to runtime preference,
-so read the selected mode back and fail back to ordinary VR if it was rejected.
-An engine/package upgrade or a new Meta-specific passthrough layer is not
-the first required step. [Unity 1.10 feature API][unity-feature]
+An unsupported request falls back to runtime preference, so the feature checks
+actual readback. [Unity1.10 feature API][unity-feature]
 
-The presentation integration then needs these concrete changes:
+The shipped native plugin **queues** the requested mode. Its getter reads the
+actual submission mode, not that queue. The controller therefore requests
+AlphaBlend once and leaves ordinary VR visible while waiting for acceptance.
+A bounded activation deadline avoids indefinite unavailable presentation; its
+maintenance grace prevents a single suspended frame from being treated as
+an immediate incompatibility. Steady state performs no repeated enumeration
+or native mode write.
 
-1. Keep the existing sky/environment hiding and UI-only MR backings.
-2. For the verified native backend, clear the head camera to transparent
-   black `(0, 0, 0, 0)` instead of an opaque key colour.
-3. Select `AlphaBlend` through the feature, and validate the selected mode.
-4. Check that the native projection layer permits source-alpha blending and
-   that eye targets and every active post-processing pass preserve useful
-   alpha. A transparent Unity clear does not prove that the submitted eye
-   image still has transparent background pixels.
-5. Keep normal game geometry opaque and test both eyes, text, card art,
-   particles, water, fades and window materialisation. Save/restore the
-   original camera and blend state on MR-off, scene transitions, XR-stop and
-   reload; do not change another backend's key colour or settings.
+The controller records its previous mode, cancels queued activation on off,
+restores only its owned selection and respects external mode changes. Session
+end/exiting restores while handles remain live; loss/destroy discards stale
+ownership without dereferencing dead handles. New instances and sessions reset
+capability/failure lifetime. Rapid off/on must handle queued restoration rather
+than mistake an unconsumed AlphaBlend readback for externally owned composition.
 
-The preferred backend arrangement is **native alpha when verified**, with
-the existing **Virtual Desktop chromakey** retained as a separate backend.
-An unsupported Frame mode should produce an actionable, bounded explanation,
-not silently claim mixed reality while displaying green or black.
+### Camera, sky and alpha
 
-This requires no camera-frame access inside the game. The [OpenXR definition
-of AlphaBlend][blend] assigns real-world composition to the runtime. Raw camera
-copying, calibration and stereo reprojection become unnecessary if this path
-works. Actual compositor behaviour remains a hardware acceptance check.
+Native MR clears the rig head to `(0,0,0,0)` only after mode acceptance. It reuses
+existing sky suppression and UI-only MR backings. Unsupported, pending or failed
+native activation leaves the normal selected environment. Turning off/VR stop
+restores saved camera flags, colours, head HDR permission, sky and blend state.
+No MR backing geometry is added inside the play area.
 
-### 3. If the Windows bridge offers only Opaque
+The head's HDR permission is temporarily disabled to avoid RGB-only HDR
+intermediates. The head is created with Camera, TrackedPoseDriver and listener,
+without an image-effect stack. Native post-processing/fog components remain
+unconditionally suppressed by the existing VR compatibility path. MSAA, eye
+resolution, other camera HDR permissions and gameplay materials are untouched.
 
-Record this as a blocker for the current game/runtime combination, even if a
-native ARM64 sample supports AlphaBlend. First compare updated runtime/bridge
-support with a minimal native local scene sample. A sample working on native
-ARM64 does not fix a Windows game under Proton by itself.
+The shipped `UnityOpenXR.dll` hash is
+`2275da2750ebc9c815386604f73f0450b03fed6f44dafdeb15e978633e4866f5`.
+The projection builder sets flags6 (`SOURCE_ALPHA`2 + `UNPREMULTIPLIED_ALPHA`4).
+Frame-end submission retains source alpha for actual mode3 and removes it for
+other modes, then writes that actual mode into `XrFrameEndInfo`. This allows the
+official feature API path without a private compositor hook or `xrEndFrame`
+replacement. Flag meaning: [OpenXR composition flags][flags].
 
-OpenVR's `IVRTrackedCamera.HasCamera` is only an initial check for an alternate
-camera-layer approach. Also require a successful actual frame read and camera
-poses/calibration; the Frame developer report has `HasCamera=true` while
-frame operations fail. Do not implement a heavy camera-copy/reprojection path
-on that boolean alone, especially on the performance-limited standalone device.
-
-If neither alpha composition nor readable camera frames reaches our game,
-runtime/bridge support is needed. Keep normal VR available and avoid speculative
-changes to the existing working rendering path.
+The actual compositor, both eye swapchains, game shader edges, particles and
+water still need hardware verification. A real Unity RGBA test is evidence for
+camera output; it cannot establish what Proton/SteamVR shows in the headset.
 
 ## Streaming implementation boundary
 
@@ -160,34 +163,28 @@ other flat games, as explicitly requested by the maintainer.
 
 ## Acceptance and current delivery
 
-The next useful hardware evidence is the one-shot blend-mode diagnostic in
-the actual mod startup. If standalone reports AlphaBlend, the next bounded
-implementation is the native transparent-background backend described above,
-followed by an actual both-eye table-over-room test. If it reports only Opaque,
-the Wine/runtime blocker is explicit instead of another ambiguous green-screen
-test.
+Build653 supplies the native backend, availability UI and original PC fallback.
+Focused native-boundary tests cover enumeration, lifecycle, asynchronous mode
+acceptance/cancellation, refusal, failure and restoration. Real Unity graphics
+tests execute the production MR tick and restoration, checking transparent
+background/opaque geometry pixels and camera/HDR state. Actual uGUI/TMP tests
+cover disabled MR choice hover and dynamic availability.
 
-This round does not claim working headset passthrough, read-access to Frame
-cameras, stock Steam Link chromakey or a measured MR performance gain. The
-capability probe is an isolated diagnostic handover to the parallel Build652
-integrator; the existing MR rendering behaviour remains unchanged.
+The latest supplied hardware log is still Build651/SteamVR2.17.10 and contains
+no environment blend enumeration. It does not establish whether that specific
+combination supports alpha. Test the new build on Frame, retain its one-shot
+`OpenXR environment blend capabilities` report, then check:
 
-Prepared probe commit: `ae363bd0dddcafffbc09ba8963f801987e365264`.
-It passed 400 focused fake-native/lifecycle assertions and a strict Release
-build with zero warnings/errors. The shipped Unity 1.10 dispatcher and loader
-were also inspected to check feature callback routing and resolver ordering.
-These checks do not establish an actual headset callback or passthrough image.
-Small receipts are retained in the main checkout under
-`.planning/debug/frame-mr-investigation/`.
+1. Unsupported runtime: grey MR choice, readable update hint, ordinary VR intact.
+2. Compatible runtime: enable MR; table/windows stay solid over the real room in
+   both eyes, with no green screen or duplicate room-camera draw.
+3. Toggle off/on, including quickly, open map/scenario and stop/restart VR;
+   normal environments and windows remain usable.
+4. PC streaming: selected chromakey and existing MR UI backings still work.
 
-After the probe is included in the next integrated build, simply launch the
-game on standalone and attach the usual `LogOutput.log`. No MR toggle or new
-configuration is needed. Search for `OpenXR environment blend capabilities`:
-`query=complete; supported=...; alphaBlend=yes` admits the alpha backend
-experiment; `alphaBlend=no` after a complete query establishes its absence
-for that runtime/system; `query=unavailable` needs a probe/runtime investigation
-and must not be interpreted as no support. Repeat independently with the
-PC game connected through Steam Link if the streaming runtime is to be checked.
+No stock Steam Link passthrough, room-camera access, headset result or measured
+MR performance gain is claimed. Exact check receipts and boundaries are in
+[FRAME-653-MR-REVIEW.md](../../.planning/FRAME-653-MR-REVIEW.md).
 
 [valve-frame]: https://partner.steamgames.com/doc/steamhardware/steamframe
 [overlay-issue]: https://github.com/ValveSoftware/openvr/issues/1926
@@ -195,3 +192,5 @@ PC game connected through Steam Link if the streaming runtime is to be checked.
 [enumerate]: https://registry.khronos.org/OpenXR/specs/1.1/man/html/xrEnumerateEnvironmentBlendModes.html
 [blend]: https://registry.khronos.org/OpenXR/specs/1.1/man/html/XrEnvironmentBlendMode.html
 [unity-feature]: https://docs.unity3d.com/Packages/com.unity.xr.openxr@1.10/api/UnityEngine.XR.OpenXR.Features.OpenXRFeature.html
+
+[flags]: https://registry.khronos.org/OpenXR/specs/1.1/man/html/XrCompositionLayerFlags.html
