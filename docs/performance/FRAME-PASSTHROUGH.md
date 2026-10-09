@@ -172,6 +172,23 @@ cameras, stock Steam Link chromakey or a measured MR performance gain. The
 capability probe is an isolated diagnostic handover to the parallel Build652
 integrator; the existing MR rendering behaviour remains unchanged.
 
+Prepared probe commit: `ae363bd0dddcafffbc09ba8963f801987e365264`.
+It passed 400 focused fake-native/lifecycle assertions and a strict Release
+build with zero warnings/errors. The shipped Unity 1.10 dispatcher and loader
+were also inspected to check feature callback routing and resolver ordering.
+These checks do not establish an actual headset callback or passthrough image.
+Small receipts are retained in the main checkout under
+`.planning/debug/frame-mr-investigation/`.
+
+After the probe is included in the next integrated build, simply launch the
+game on standalone and attach the usual `LogOutput.log`. No MR toggle or new
+configuration is needed. Search for `OpenXR environment blend capabilities`:
+`query=complete; supported=...; alphaBlend=yes` admits the alpha backend
+experiment; `alphaBlend=no` after a complete query establishes its absence
+for that runtime/system; `query=unavailable` needs a probe/runtime investigation
+and must not be interpreted as no support. Repeat independently with the
+PC game connected through Steam Link if the streaming runtime is to be checked.
+
 [valve-frame]: https://partner.steamgames.com/doc/steamhardware/steamframe
 [overlay-issue]: https://github.com/ValveSoftware/openvr/issues/1926
 [rectus-compat]: https://github.com/Rectus/openxr-steamvr-passthrough/wiki/Compatibility
