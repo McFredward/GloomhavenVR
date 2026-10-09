@@ -74,6 +74,47 @@ public static class ConfirmationProgram
   Check(confirm ? scene.Confirmed==1 && scene.Cancelled==1 : scene.Confirmed==0 && scene.Cancelled==2,
     "old chosen outcome and new cancellation each complete exactly once");
  }
+ private static void CheckOwnedWrapper()
+ {
+  var scene=new Scene();scene.Raise(EGuildmasterMode.Temple);
+  var rect=(RectTransform)scene.Dialog.transform;
+  var callback=scene.Box.ConfirmCallback;
+  int edges=CanvasConversion.Transfers;
+  rect.GetComponent<CanvasGroup>().ignoreParentGroups=true;
+  var mask=new TownServiceWindowMask(rect);
+  var wrapper=rect.parent;
+  Check(wrapper!=scene.Temple.transform && wrapper.GetComponent<CanvasGroup>().alpha==0f,
+    "actual native presentation mask owns a zero-alpha wrapper");
+  TownServicePresentation.Owned=true;
+  var ownedPosition=new Vector3(25f,-17f,.04f);var ownedRotation=Quaternion.Euler(17f,12f,3f);
+  rect.anchoredPosition3D=ownedPosition;rect.localRotation=ownedRotation;rect.gameObject.layer=7;
+  MapDialogSeat.Tick();
+  Check(rect.parent==wrapper,"owned tick cannot pull the native root out of its zero-alpha mask");
+  Check(rect.anchoredPosition3D==ownedPosition && Quaternion.Angle(rect.localRotation,ownedRotation)<.01f && rect.gameObject.layer==7,
+    "owned tick leaves the presentation owner's pose and layer untouched");
+  scene.Temple.Hide();MapDialogSeat.Tick();
+  Check(rect.parent==wrapper && scene.Dialog.IsOpen && scene.Pending && scene.Confirmed==0 && scene.Cancelled==0,
+    "owned host closing preserves the masked native root and pending callback");
+  Check(ReferenceEquals(callback,scene.Box.ConfirmCallback) && CanvasConversion.Transfers==edges,
+    "owned ticks neither replace callback nor transfer presentation snapshots");
+  scene.Box.Cancel.onClick.Invoke();scene.Dialog.FinishTransition();
+  Check(scene.Cancelled==1 && !scene.Pending,"original native cancellation still completes while presentation is masked");
+  mask.Dispose();TownServicePresentation.Owned=false;
+  MapDialogSeat.Tick();
+  Check(rect.parent==wrapper && TownServiceWindowMask.OwnsRetiring(scene.Dialog),
+    "closed native confirmation remains inside its actual retiring mask");
+  for(int i=0;i<2;i++) {TownServiceWindowMask.TickRetirements();MapDialogSeat.Tick();}
+  Check(rect.parent==wrapper && CanvasConversion.Transfers==edges,
+    "all owned retirement ticks preserve wrapper and original flat snapshot");
+  TownServiceWindowMask.TickRetirements();MapDialogSeat.Tick();
+  Check(rect.parent==scene.Mage.transform && !TownServiceWindowMask.OwnsRetiring(scene.Dialog),
+    "only actual mask disposal permits original native home restoration");
+  Check(rect.anchorMin==Vector2.zero && rect.anchorMax==Vector2.one && rect.sizeDelta==Vector2.zero,
+    "released ownership restores original authored stretch geometry");
+  Check(rect.GetComponent<CanvasGroup>().ignoreParentGroups && CanvasConversion.Transfers==edges+1,
+    "mask and flat ownership each restore once without an extra transfer");
+ }
+ public static int RunOwned(string variant) { checks=0;CheckOwnedWrapper();MapDialogSeat.Reset();return checks; }
  public static int Run(string variant)
  {
   checks=0;CanvasConversion.Transfers=0;
@@ -113,9 +154,7 @@ public static class ConfirmationProgram
   Check(CanvasConversion.Transfers>=12,"seating and home restoration call explicit conversion handoff edges");
   var quiet=new Scene(false,true);quiet.Raise(EGuildmasterMode.Temple);quiet.Temple.Hide();
   Check(quiet.Dialog.IsOpen && quiet.Dialog.transform.parent==quiet.Mage.transform,"unconverted immersive controller has no flat cancellation or seating owner");
-  var retiring=new Scene();retiring.Raise(EGuildmasterMode.Temple);TownServicePresentation.Owned=true;retiring.Temple.Hide();MapDialogSeat.Tick();
-  Check(retiring.Dialog.IsOpen && retiring.Pending,"immersive retiring or palm mask is not cancelled by a former flat host");
-  Check(retiring.Dialog.transform.parent==retiring.Mage.transform,"immersive ownership hands back flat presentation without hiding native continuation");
+  CheckOwnedWrapper();
   var unconverted=new Scene(false);unconverted.Raise(EGuildmasterMode.Temple);unconverted.Switch(EGuildmasterMode.Enchantress);unconverted.Finish();
   Check(unconverted.Cancelled==1 && !unconverted.Pending,"flat host closing before conversion still cancels native pending choice");
   var late=new Scene();MapDialogSeat.Reset();late.Raise(EGuildmasterMode.Temple);

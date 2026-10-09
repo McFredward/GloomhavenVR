@@ -29,7 +29,7 @@ public static class ConfirmationRunner
    {
     try
     {
-     int count=(int)Assembly.LoadFile(entry.dll).GetType("ConfirmationProgram").GetMethod("Run").Invoke(null,new object[]{entry.name});
+     int count=(int)Assembly.LoadFile(entry.dll).GetType("ConfirmationProgram").GetMethod(entry.name.StartsWith("owned-") ? "RunOwned" : "Run").Invoke(null,new object[]{entry.name});
      if(!String.IsNullOrEmpty(entry.expected)) throw new Exception("negative control escaped: "+entry.name);
      output.WriteLine("PASS "+entry.name+": "+count+" native runtime assertions");
     }

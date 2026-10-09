@@ -180,18 +180,19 @@ internal static class MapDialogSeat
             : null;
         var window = box != null ? box.GetComponent<UIWindow>() : null;
         ObserveEnhancementWindow(window);
-        if (window == null || !StillShowing(window))
+        // A native station mask may have reparented this exact root into its
+        // zero-alpha wrapper, including while a confirmation is already hidden
+        // but retiring. Preserve the flat seat snapshot; neither pose nor parent
+        // belongs to this seat until that real presentation owner releases it.
+        if (window != null && TownServicePresentation.OwnsWindow(window))
         {
-            Release(EnhancementSeat, "the enhancement confirmation box has finished hiding");
-            EnhancementSeat.RequestedMode = null;
-            EnhancementSeat.Closing = false;
+            DetachHostCancellation(EnhancementSeat);
             Wait(EnhancementSeat, string.Empty);
             return;
         }
-
-        if (TownServicePresentation.OwnsWindow(window))
+        if (window == null || !StillShowing(window))
         {
-            Release(EnhancementSeat, "the immersive station owns this native confirmation");
+            Release(EnhancementSeat, "the enhancement confirmation box has finished hiding");
             EnhancementSeat.RequestedMode = null;
             EnhancementSeat.Closing = false;
             Wait(EnhancementSeat, string.Empty);

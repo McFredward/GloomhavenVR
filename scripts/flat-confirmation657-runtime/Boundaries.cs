@@ -49,7 +49,7 @@ namespace GloomhavenVR.WorldUI.MapRoom
 }
 namespace GloomhavenVR.WorldUI
 {
- internal static class TownServicePresentation { internal static bool Quiet, Owned; internal static bool OwnsWindow(UIWindow window) => Owned; internal static bool IsQuietController(UIWindow window,byte service) => Quiet; }
+ internal static class TownServicePresentation { internal static bool Quiet, Owned; internal static bool OwnsWindow(UIWindow window) => Owned || TownServiceWindowMask.OwnsRetiring(window); internal static bool IsQuietController(UIWindow window,byte service) => Quiet; }
  internal static class ChromeParkTuning { internal const float OffsetEpsilonPx = .02f; }
  internal sealed class ConvertedPanel { internal readonly UIWindow Window; internal ConvertedPanel(UIWindow window) { Window=window; } }
  internal static class ModalFallback

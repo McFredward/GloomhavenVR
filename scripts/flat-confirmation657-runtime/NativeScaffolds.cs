@@ -55,6 +55,7 @@ public partial class UIEnhancementConfirmationBox : MonoBehaviour
  private UIWindow _confirmationBox = null!;
  private Action? _onConfirmCallback;
  private SkipFrameKeyActionHandlerBlocker _skipFrameKeyActionHandlerBlocker = new();
+ public Action? ConfirmCallback => _onConfirmCallback;
  public ExtendedButton Confirm => confirmButton;
  public ExtendedButton Cancel => cancelButton;
  public ControllerInputAreaLocal Area => controllerArea;

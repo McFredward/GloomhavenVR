@@ -56,13 +56,18 @@ def main():
     path = "src/GloomhavenVR/WorldUI/Composites/MapDialogSeat.cs"
     source = (root/path).read_text()
     old = subprocess.run(["git", "show", "bf3444cb5:"+path], cwd=root, check=True, capture_output=True, text=True).stdout
+    owned_before = subprocess.run(["git", "show", "526957a40:"+path], cwd=root, check=True, capture_output=True, text=True).stdout
+    mask_source = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceWindowMask.cs").read_text()
     variants = [("production", source, ""),
+        ("owned-mask-production", source, ""),
+        ("owned-mask-release", owned_before, "owned tick cannot pull the native root out of its zero-alpha mask"),
         ("published656", old, "destination change does not reidentify an existing temple request"),
         ("without-host-hide", source.replace("host.OnHide += seat.HostHidden;", "// Causal control: omitted original host cancellation edge."), "native prompt cancels before next destination enters"),
         ("slow-host-cancel", source.replace("seat.NativeDialog.Hide(instant: true);", "seat.NativeDialog.Hide();"), "departing host completes native cancellation before another request"),
         ("lost-cancel-fade", source.replace("seat.NativeDialog.StartAlphaTween(0f, 0f, ignoreTimeScale: true);", "{ } // Causal control: lost chosen-outcome tween completion."), "pending cancelled fade completes before singleton reuse"),
         ("lost-confirm-fade", source.replace("seat.NativeDialog.StartAlphaTween(0f, 0f, ignoreTimeScale: true);", "{ } // Causal control: lost chosen-outcome tween completion."), "pending confirmed fade completes before singleton reuse")]
-    if variants[2][1] == source or variants[3][1] == source: raise RuntimeError("Host cancellation control binding drift")
+    if any(before == source for name, before, expected in variants if name in ("without-host-hide", "slow-host-cancel")):
+        raise RuntimeError("Host cancellation control binding drift")
     if args.case:
         if set(args.case)-{entry[0] for entry in variants}: parser.error("Unknown case")
         variants = [entry for entry in variants if entry[0] in args.case]
@@ -76,7 +81,7 @@ def main():
     hashes={}; cases=[]
     for name, seat, expected in variants:
         build=run/name; production=build/"production"; production.mkdir(parents=True)
-        sources={"MapDialogSeat.cs":seat,"NativeWindowMethods.cs":native_window,"NativeBoxMethods.cs":native_box}
+        sources={"MapDialogSeat.cs":seat,"NativeWindowMethods.cs":native_window,"NativeBoxMethods.cs":native_box,"TownServiceWindowMask.cs":mask_source}
         hashes[name]={filename:hashlib.sha256(value.encode()).hexdigest() for filename,value in sources.items()}
         for filename,value in sources.items(): (production/filename).write_text(value)
         shutil.copyfile(fixture/"Confirmation.csproj",build/"Confirmation.csproj")

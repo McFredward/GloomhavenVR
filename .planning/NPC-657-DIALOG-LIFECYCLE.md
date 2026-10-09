@@ -28,9 +28,13 @@ NPC immediately raises a new prompt can discard the old callback. Ordinary
 button-driven fades retain their behavior while their host stays open.
 
 Flat host cancellation is bound before its first conversion if necessary.
-Quiet immersive controllers, native palm/confirmation masks and retiring masks
-are excluded using the actual presentation ownership guards. Their native
-continuations are not canceled or moved by this seat.
+Quiet immersive controllers and native palm/confirmation or retiring masks are
+excluded using the actual presentation ownership guards. An existing flat seat
+keeps its original snapshot without changing any parent, pose or layer while that
+owner holds the root. Calling `Release` while the owner holds it would pull the
+root out of its zero-alpha mask. After the actual mask releases the native root,
+ordinary native-home restoration resumes. Native continuations are not canceled
+by this ownership handoff.
 
 Parking and returning a subtree call the new conversion transfer API at the two
 reparent edges. The independent conversion/input work owns the exact adopted
@@ -49,13 +53,13 @@ and deterministic tween completion are explicit fixture ports. Zero-duration
 completion follows the installed TweenRunner's synchronous Finished behavior.
 This is not an end-to-end headset or network test.
 
-Final worker receipt `run-13z0agl6`: **42 runtime assertions and five causal
+Initial worker receipt `run-13z0agl6`: **42 runtime assertions and five causal
 controls passed**. The actual published Build 656 source reproduces destination
 migration. Omitting the host Hide binding, using slow host cancellation, or
 omitting already-hidden Cancel/Confirm completion fails its specific native
 continuation assertion. Coverage includes both destination-switch directions,
 reopening, original size/anchors/home restoration, reset detachment, early
-unconverted flat closing, quiet/retiring ownership and immediate singleton reuse
+unconverted flat closing, the quiet-controller port and immediate singleton reuse
 without losing or duplicating the old outcome.
 
 Final Release compilation with the independently owned transfer API and input
@@ -63,3 +67,30 @@ changes: **zero warnings, zero errors**. Evidence lives in the worker's
 `.planning/debug/flat-confirmation657/`, with source and native assembly hashes.
 The integrator must bind both repaired runtime parts and run the focused combined
 input check. No new full-gate or hardware acceptance is claimed.
+
+## Ownership proof correction
+
+Integration review caught a fixture blind spot: the earlier `Owned` boolean did
+not reparent the native root as `TownServiceWindowMask` does. Its two ownership
+assertions therefore did not establish that a masked root stays masked. Those
+claims are superseded by the focused real-mask case, not treated as inherited
+geometry evidence.
+
+The new fixture compiles the production `TownServiceWindowMask`, creates its
+actual zero-alpha CanvasGroup wrapper and exercises the original native callback
+inside it. Ownership is checked before zero native visibility, so a closed
+retiring prompt cannot be handed back prematurely. The test covers extra owned
+ticks, host closing, unchanged callback/pose/layer, actual three-tick retirement,
+mask disposal and exactly one native-home restoration. Receipt `run-vpv_2p_b`
+passes the initial ten wrapper assertions and causally rejects the prior
+`526957a40` release-on-ownership implementation. Final receipt `run-ytapbxkd`
+passes **eleven real-mask assertions and that causal control**, including an
+explicit arbitrary mask-owned pose/layer assertion. No full-suite or Release
+rerun is claimed for this limited guard correction; unchanged native lifecycle
+and cancellation controls retain their earlier evidence.
+
+The ownership deferral applies to active and retiring presentation ticks. The
+terminal `WorldUIModule.Shutdown` resets station/palm ownership before
+`ModalFallback.Detach` invokes `MapDialogSeat.Reset`; the terminal hand-back still
+restores the authored native source. Ordinary options or destination changes do
+not invoke this terminal reset path.
