@@ -9,9 +9,41 @@ using UnityEngine;
 public static class ClockProgram
 {
     private static int _checks;
+    private static Comfort? _transientObserver;
     private static void Check(bool condition, string message)
     { _checks++; if (!condition) throw new InvalidOperationException(message); }
     private static void Tick(MonoBehaviour component) => component.GetType().GetMethod("Update", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(component, null);
+    public static void BeginTransientClock()
+    {
+        _checks = 0;
+        GloomhavenVR.Core.VRLog.WantsDebug = true;
+        GloomhavenVR.Core.VRLog.Messages.Clear();
+        RigTarget.Current = new GameObject("TransientRigRoot").transform;
+        VRHands.Left = new GameObject("TransientTrackedLeft").AddComponent<VRHand>();
+        VRHands.Left.ThumbstickClick = true;
+        VRHands.Right = null;
+        _transientObserver = new GameObject("TransientClockObserver").AddComponent<Comfort>();
+        _transientObserver.enabled = false;
+        typeof(Comfort).GetMethod("LateUpdate", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(_transientObserver, null);
+    }
+    public static int CheckTransientClock()
+    {
+        Check(Time.timeScale == 1f && Time.deltaTime > 0f, "native Unity resumed frame has a live scaled clock");
+        MethodInfo sample = typeof(Comfort).GetMethod("LateUpdate", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        FieldInfo nextAt = typeof(Comfort).GetField("_nextMotionSampleAt", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        nextAt.SetValue(_transientObserver, Time.unscaledTime - 1f);
+        sample.Invoke(_transientObserver, null);
+        string observation = GloomhavenVR.Core.VRLog.Messages[0];
+        Check(observation.Contains("unityTimeScale=1.000") && observation.Contains("zeroScaledRequestFrames=1 ")
+            && observation.Contains("minRequestedTimeScale=0.000 "),
+            "bounded window retains a requested zero-clock interval after the clock resumes");
+        nextAt.SetValue(_transientObserver, Time.unscaledTime - 1f);
+        sample.Invoke(_transientObserver, null);
+        observation = GloomhavenVR.Core.VRLog.Messages[1];
+        Check(observation.Contains("zeroScaledRequestFrames=0 ") && observation.Contains("minRequestedTimeScale=1.000 "),
+            "transient clock counters reset with the existing diagnostic window");
+        return _checks;
+    }
     public static int Run()
     {
         Check(Application.isPlaying && Time.timeScale == 0f && Time.deltaTime == 0f && Time.unscaledDeltaTime > 0f,

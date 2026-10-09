@@ -60,7 +60,8 @@ rig lookup, sampling or diagnostic string construction.
   diagnostic bypass.
 - Three old-source controls fail exactly `paused one-hand drag remains movable`,
   `paused two-hand rotate and scale remain movable`, and `paused smooth turn
-  remains movable`. Source hashes match the final production source. The final
+  remains movable`. The clock-repaired motion source hashes match the final
+  production source; the follow-up changes only diagnostic counters. The final
   positive rerun reused these passing causal controls rather than repeating
   unrelated suites. The fixture's scroll-rest expectation was corrected to
   respect the unchanged production Override-to-Blocked-to-Open transition while
@@ -74,6 +75,24 @@ Receipts in this worker, also archived under the main checkout's
 `.planning/debug/locomotion-clock-runtime/run-h_12o175` (final positive) and
 `run-1k4cnltk` (the three behavioral causal controls). The initial fixture runs
 are not claimed as passing production evidence.
+
+## Bounded follow-up: transient clock evidence
+
+A five-second report's current clock values could miss a pause that has already
+ended. The existing Debug window now also accumulates requested-motion frames
+with zero scaled delta and the minimum Unity timeScale across requested-motion
+frames. These counters reset with the existing report window. No additional line,
+scan, normal-level sampling, input gate or motion behavior was added.
+
+The focused final positive rerun `run-2_0i_v2l` passes the original **24** native
+runtime assertions and **3** additional assertions. It captures a real paused
+request, resumes Unity's clock across real frames, and verifies the bounded line
+still records `zeroScaledRequestFrames=1` and `minRequestedTimeScale=0.000` while
+its current `unityTimeScale=1.000`; the next window correctly resets to zero/one.
+The resumed native delta was `0.000452669`. The unchanged three causal motion
+controls from `run-1k4cnltk` are reused; no complete build/gate was repeated for
+this observational refinement. The new receipt is also archived in the main
+checkout's `.planning/debug/npc655-locomotion/`.
 
 ## Next hardware evidence
 

@@ -19,6 +19,8 @@ internal sealed partial class Comfort
     private float _motionTravelMeters;
     private float _motionTurnDegrees;
     private int _motionRequestFrames;
+    private int _motionZeroScaledRequestFrames;
+    private float _motionMinRequestedTimeScale = float.PositiveInfinity;
 
     // Build653's remote log keeps the map rig, TableIdle and tracked hands alive, but
     // contains no axis/click readings or final rig displacement. It cannot distinguish
@@ -56,7 +58,8 @@ internal sealed partial class Comfort
             _motionWindowRotation = rotation;
             _nextMotionSampleAt = now + 5f;
             _motionTravelMeters = _motionTurnDegrees = 0f;
-            _motionRequestFrames = 0;
+            _motionRequestFrames = _motionZeroScaledRequestFrames = 0;
+            _motionMinRequestedTimeScale = float.PositiveInfinity;
         }
         else
         {
@@ -67,7 +70,12 @@ internal sealed partial class Comfort
         _motionSamplePosition = position;
         _motionSampleRotation = rotation;
         _motionSampleScale = scale;
-        if (requested) _motionRequestFrames++;
+        if (requested)
+        {
+            _motionRequestFrames++;
+            if (Time.deltaTime <= 0f) _motionZeroScaledRequestFrames++;
+            _motionMinRequestedTimeScale = Mathf.Min(_motionMinRequestedTimeScale, Time.timeScale);
+        }
         if (now < _nextMotionSampleAt) return;
 
         // Idle samples distinguish a runtime delivering zeros from a mod suppression.
@@ -76,6 +84,8 @@ internal sealed partial class Comfort
         float netMeters = scale > 0f ? Vector3.Distance(position, _motionWindowPosition) / scale : 0f;
         VRLog.Debug("Comfort", $"LOCOMOTION SAMPLE phase=Comfort.LateUpdate frame={Time.frameCount} mode={mode} "
             + $"window={now - _motionSampleAt:F2}s requestFrames={_motionRequestFrames} "
+            + $"zeroScaledRequestFrames={_motionZeroScaledRequestFrames} "
+            + $"minRequestedTimeScale={(_motionRequestFrames > 0 ? _motionMinRequestedTimeScale.ToString("F3") : "none")} "
             + $"net={netMeters:F3}m netTurn={Quaternion.Angle(rotation, _motionWindowRotation):F1}deg "
             + $"sampledTravel={_motionTravelMeters:F3}m sampledTurn={_motionTurnDegrees:F1}deg scale={_motionSampleScale:F2} "
             + $"unityTimeScale={Time.timeScale:F3} dt={Time.deltaTime:F4}/{Time.unscaledDeltaTime:F4} "
@@ -88,7 +98,8 @@ internal sealed partial class Comfort
         _motionWindowPosition = position;
         _motionWindowRotation = rotation;
         _motionTravelMeters = _motionTurnDegrees = 0f;
-        _motionRequestFrames = 0;
+        _motionRequestFrames = _motionZeroScaledRequestFrames = 0;
+        _motionMinRequestedTimeScale = float.PositiveInfinity;
     }
 
     private static bool RequestsMotion(VRHand? hand) => hand != null && hand.HasPose

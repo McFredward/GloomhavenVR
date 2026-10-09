@@ -11,6 +11,7 @@ public static class ClockRunner
     private static Manifest manifest;
     private static int waitFrame;
     private static bool started, ran;
+    private static Type transientProgram;
     public static void Start()
     {
         string[] args = Environment.GetCommandLineArgs();
@@ -40,6 +41,7 @@ public static class ClockRunner
                     int count = (int)Assembly.LoadFile(entry.dll).GetType("ClockProgram").GetMethod("Run").Invoke(null, null);
                     if (!String.IsNullOrEmpty(entry.expected)) throw new Exception("negative control escaped: " + entry.name);
                     output.WriteLine("PASS " + entry.name + ": " + count + " native runtime assertions");
+                    if (entry.name == "production") transientProgram = Assembly.LoadFile(entry.dll).GetType("ClockProgram");
                 }
                 catch (Exception error)
                 {
@@ -52,7 +54,36 @@ public static class ClockRunner
                 output.Flush();
             }
         }
+        if (passed && transientProgram != null)
+        {
+            // Capture a real paused request before resuming the native Unity clock.
+            transientProgram.GetMethod("BeginTransientClock").Invoke(null, null);
+            Time.timeScale = 1f; waitFrame = Time.frameCount + 2;
+            EditorApplication.update -= RunWhenPaused;
+            EditorApplication.update += RunWhenResumed;
+            return;
+        }
         Time.timeScale = 1f;
+        EditorApplication.Exit(passed ? 0 : 1);
+    }
+    private static void RunWhenResumed()
+    {
+        if (Time.frameCount < waitFrame || Time.deltaTime <= 0f) return;
+        EditorApplication.update -= RunWhenResumed;
+        bool passed = true;
+        using (var output = new StreamWriter(manifest.result, true))
+        {
+            try
+            {
+                int count = (int)transientProgram.GetMethod("CheckTransientClock").Invoke(null, null);
+                output.WriteLine("PASS production transient clock: " + count + " native runtime assertions; resumed delta=" + Time.deltaTime);
+            }
+            catch (Exception error)
+            {
+                while (error is TargetInvocationException && error.InnerException != null) error = error.InnerException;
+                passed = false; output.WriteLine("FAIL production transient clock: " + error);
+            }
+        }
         EditorApplication.Exit(passed ? 0 : 1);
     }
 }

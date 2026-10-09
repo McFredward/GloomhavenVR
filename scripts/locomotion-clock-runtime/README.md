@@ -16,7 +16,10 @@ compilation error or unrelated assertion is never a passing causal control.
 The proof covers paused comfort motion and preserved ownership semantics. It
 does not establish that the Build653 user's intermittent translation freeze was
 caused by a Unity clock pause. New phase-labelled diagnostics record that missing
-hardware evidence without changing any gate or pose.
+hardware evidence without changing any gate or pose. The positive case also
+samples a real paused request, resumes Unity across native frames, and proves
+that the same bounded window retains the transient zero-clock evidence and
+resets those counters for the next window.
 
 `--case production` or a named old-source control supports focused repairs. Run
 receipts retain production/fixture hashes, source copies, native Unity logs and
