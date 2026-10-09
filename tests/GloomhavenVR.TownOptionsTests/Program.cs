@@ -32,6 +32,8 @@ namespace UnityEngine.UI
         }
         internal readonly Event onValueChanged = new();
         internal bool isOn;
+        internal bool interactable = true;
+        internal readonly UnityEngine.GameObject gameObject = new();
         internal void SetIsOnWithoutNotify(bool on) => isOn = on;
     }
 }
@@ -41,12 +43,22 @@ namespace GloomhavenVR.Core
     internal static partial class Loc
     {
         internal static string CurrentLanguage = "English";
+        internal static string? ConfigHelpForPlayers(string section, string key) => null;
         internal static (string En, string De) Pair(string en, string de) => (en, de);
         internal static string Mod(string key) => Texts.TryGetValue(key, out var pair)
             ? CurrentLanguage == "German" ? pair.De : pair.En : key;
     }
     internal static class VRLog { internal static void Warn(string module, string message) => throw new Exception(message); }
     internal static class VRSession { internal static bool IsRunning { get; set; } }
+    // XR capability is an explicit port; native Frame availability is tested
+    // by its own runtime suite, while this fixture exercises town option binding.
+    internal enum FrameNativePassthroughStatus { Checking, Available }
+    internal static class FrameNativePassthrough
+    {
+        internal static bool Required => FrameDefaults.Active;
+        internal static bool IsAvailable => true;
+        internal static FrameNativePassthroughStatus Status => FrameNativePassthroughStatus.Available;
+    }
 }
 namespace GloomhavenVR.Cards
 {
@@ -126,6 +138,8 @@ namespace GloomhavenVR.WorldUI
     internal static partial class VROptionsTab
     {
         private static int _curated;
+        private static bool IsOpen => false;
+        private static void AttachHoverHint(object target, string hint, string key) { }
         private static Transform ContentRoot = new();
         private static readonly Dictionary<string, ConfigCatalog.ConfigItem> ByKey = new(512);
         private static int _lookupSignature = -1;

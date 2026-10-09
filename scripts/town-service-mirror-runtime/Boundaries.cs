@@ -78,6 +78,11 @@ namespace GloomhavenVR.WorldUI
         internal static readonly HashSet<Transform> Bound = new();
         internal static void Bind(Transform root) => Bound.Add(root);
         internal static void Refresh(Transform root) { }
+        // Offered paint ordering is exercised by npc658-overlay-runtime with the
+        // real helper/ladder. Unrelated transport suites keep this API boundary.
+        internal static void BindOffered(Transform root, Transform print) { }
+        internal static void UnbindOffered(Transform root) { }
+        internal static void ClearOffered() { }
     }
 
 }

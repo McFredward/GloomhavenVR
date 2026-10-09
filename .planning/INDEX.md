@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-09 for the Quest Builder repair and integrated current dev654.
+Updated 2026-10-09 for Quest import progress and integrated dev659.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
@@ -14,11 +14,18 @@ status; it is not the player manual.
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [QUEST-UNITY-IMPORT-184004-20261009.md](QUEST-UNITY-IMPORT-184004-20261009.md) | Actual initial import, live Unity/API/content counters, retained preparation and storage/timing evidence |
 | [QUEST-JOURNAL-134446-20261009.md](QUEST-JOURNAL-134446-20261009.md) | Captured large-journal resume rejection, dedicated bounded reader and compact support frontier |
 | [QUEST-COMPLETED-PREP-123047-20261009.md](QUEST-COMPLETED-PREP-123047-20261009.md) | Captured CoreModule deployment failure, retained27 completed owners, measured Unity compiler work and dev654 merge |
 | [QUEST-GRAPHICS-093454-20261009.md](QUEST-GRAPHICS-093454-20261009.md) | Captured scalar compute failure, retained17-step prefix and measured texture/compute/Shader work |
 | [QUEST-BUILD-REUSE-20261008.md](QUEST-BUILD-REUSE-20261008.md) | Original-source/output roles, retained14-phase staging and preparation, persistent change-time witnesses and bounded speed evidence |
 | [QUEST-BUILD-NATIVE-BYTES-20261008.md](QUEST-BUILD-NATIVE-BYTES-20261008.md) | Exact Windows native overlays, retained642 staging, measured native progress and dev643 Builder |
+| [FRAME-PILLAR-DISTANCE-REVIEW.md](FRAME-PILLAR-DISTANCE-REVIEW.md) | Configured full-detail pillar radius, matched inherited proof and final659 integration |
+| [NPC-658-REVIEW.md](NPC-658-REVIEW.md) | Paired656 videos/logs, reproduced defects, integrated validation and hardware limits |
+| [NPC-658-LATENCY.md](NPC-658-LATENCY.md) | Complete native card preparation, exact compact originals and retained full recovery |
+| [NPC-658-FLIGHTS.md](NPC-658-FLIGHTS.md) | Bounded common native return clocks, original partitions and cancellation/clock controls |
+| [NPC-658-OVERLAYS.md](NPC-658-OVERLAYS.md) | Actual native frame ordering, causal old-source readbacks and shader boundaries |
+| [FLAT-657-CONFIRMATION-REVIEW.md](FLAT-657-CONFIRMATION-REVIEW.md) | Native shared donation prompt input, physical-window ownership and continuation |
 | [WRIST-649-REVIEW.md](WRIST-649-REVIEW.md) | Conditional ordinary wrist offsets, live original board placement and focused validation |
 | [BUGFIX-651-REVIEW.md](BUGFIX-651-REVIEW.md) | All eleven external patches, adoption decisions, unmodified-client contract and final scope |
 | [BUGFIX-ITEMS-AUDIT.md](BUGFIX-ITEMS-AUDIT.md) | Original item predicates/replay, exact actor identity, mixed directions and causal controls |

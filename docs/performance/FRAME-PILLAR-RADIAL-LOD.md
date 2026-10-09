@@ -4,12 +4,15 @@ This is a bounded correction of a visible quality defect, not a new FPS-saving
 optimization. It applies to every pillar definition already admitted by the
 existing immutable-bank/structural-owner policy, wherever the game or DLC uses
 those originals. Other pillar families retain their existing native rendering.
+The sections below record the Build656 metric correction. The subsequent
+[viewing-radius repair](../../.planning/FRAME-PILLAR-DISTANCE-REVIEW.md) expands
+original pillar detail to the adjustable viewing radius instead of only18cm.
 
 ## Cause and scope
 
 The supplied Frame logs identify Build 654 / deb989570 in both sinks and report
-`terrainNear=0% terrainFar=0%`. Those settings intentionally keep coarse geometry
-until the existing 18 cm head or 12 cm tracked-hand protection applies. The private
+`terrainNear=0% terrainFar=0%`. In Build656 those settings kept coarse geometry
+until the existing 18 cm head or 12 cm tracked-hand protection applied. The private
 owner already measures head distance during Update, independently of head gaze.
 Its prior closest-point distance to a **world axis-aligned box** nevertheless
 changes while a player circles a square column at a constant physical radius.

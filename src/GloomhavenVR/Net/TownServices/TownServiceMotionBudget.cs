@@ -10,6 +10,7 @@ internal class TownServiceMotionPending
     internal bool Dirty = true;
     internal float SentAt = float.NegativeInfinity;
     internal uint AdmittedReturnRevision;
+    internal TownServiceMotionBudget.ReturnSnapshot? ReturnSnapshot;
 }
 
 /// <summary>Live controls and held targets get a finite turn before cold fan heartbeats.
@@ -17,6 +18,7 @@ internal class TownServiceMotionPending
 internal static class TownServiceMotionBudget
 {
     private static readonly List<TownServiceMotionPending> NoVisibleFan = new();
+    private static int _returnRecoveryTurn;
     private readonly struct Selected
     {
         internal readonly TownServiceMotionPending Slot;
@@ -39,35 +41,62 @@ internal static class TownServiceMotionBudget
         var seen = new HashSet<TownServiceMotionPending>();
         int initial = packet.Entries.Count, size = 21;
         foreach (TownServiceMotionEntry entry in packet.Entries) size += TownServiceMotionCodec.EntryBytes(entry);
-        // A new short original return must begin before routine material and hover numbers.
-        // Admit at most two complete clock/root pairs, preserving ordinary finite turns
-        // and the same event size. Compression trimming retains or removes each pair together.
-        int pairs = 0;
-        for (int i = 0; i < live.Count && pairs < 2; i++)
+        bool nativeReturn = live.Exists(slot => slot.Entry.Kind == 8);
+        if (nativeReturn)
+        {
+            // Reserve one finite ordinary turn before an incompressible cohort.
+            // Rotate all three categories even while the same physical return
+            // continuously republishes. Empty categories lend their turn.
+            int first = _returnRecoveryTurn; _returnRecoveryTurn = (first + 1) % 3;
+            for (int attempt = 0; attempt < 3; attempt++)
+            {
+                int group = (first + attempt) % 3; List<TownServiceMotionPending> waiting = groups[group];
+                TownServiceMotionPending? oldest = null; int next = 0;
+                for (int i = 0; i < waiting.Count; i++)
+                {
+                    int index = (cursors[group] + i) % waiting.Count; TownServiceMotionPending slot = waiting[index];
+                    if (slot.SentAt == now || slot.Entry.Kind == 8
+                        || slot.Entry.Kind == 1 && HasNativeReturn(live, slot.Entry)) continue;
+                    // A cohort advances the same live cursor. Use the existing
+                    // per-original last-send clock so that cannot repeatedly
+                    // reserve only the first ordinary live module.
+                    if (oldest == null || slot.SentAt < oldest.SentAt) { oldest = slot; next = index + 1; }
+                }
+                if (oldest == null) continue;
+                packet.Entries.Add(oldest.Entry);
+                if (TownServiceMotionCodec.TryWritePacked(packet) == null)
+                { packet.Entries.RemoveAt(packet.Entries.Count - 1); continue; }
+                seen.Add(oldest); selected.Add(new Selected(oldest, group, next));
+                size += TownServiceMotionCodec.EntryBytes(oldest.Entry); break;
+            }
+        }
+        // One physical card can contain thirteen or more native print partitions.
+        // Repeating its common 28-float root receipt per module both split the
+        // first picture and could exceed this event forever. TLV113 retains that
+        // exact receipt once plus the original ten-float child geometry. Large
+        // cohorts make bounded subset progress against one frozen source instant;
+        // the receiver exposes them together only after every original is ready.
+        int bundles = 0;
+        for (int i = 0; i < live.Count && bundles < 2; i++)
         {
             int index = (liveCursor + i) % live.Count;
             TownServiceMotionPending clock = live[index];
-            if (clock.Entry.Kind != 8 || clock.SentAt == now || !clock.Dirty
-                || clock.AdmittedReturnRevision == clock.Entry.Revision) continue;
-            int rootIndex = -1;
-            for (int n = 0; n < live.Count; n++)
-            {
-                TownServiceMotionEntry root = live[n].Entry, flight = clock.Entry;
-                if (root.Kind == 1 && root.Lane == flight.Lane && root.Service == flight.Service
-                    && root.Session == flight.Session && root.PublicClaim == flight.PublicClaim
-                    && root.Module == flight.Module && root.Structure == flight.Structure && root.Hand == flight.Hand)
-                { rootIndex = n; break; }
-            }
-            if (rootIndex < 0) continue;
-            TownServiceMotionPending anchor = live[rootIndex];
-            int pairBytes = TownServiceMotionCodec.EntryBytes(anchor.Entry) + TownServiceMotionCodec.EntryBytes(clock.Entry);
-            if (size + pairBytes > TownServiceMotionCodec.MaxExpandedBytes
-                || packet.Entries.Count + 2 > TownServiceMotionCodec.MaxExpandedEntries) break;
-            int bundle = ++pairs;
-            packet.Entries.Add(anchor.Entry); packet.Entries.Add(clock.Entry);
-            selected.Add(new Selected(anchor, 0, rootIndex + 1, bundle));
-            selected.Add(new Selected(clock, 0, index + 1, bundle));
-            seen.Add(anchor); seen.Add(clock); size += pairBytes;
+            if (seen.Contains(clock) || clock.Entry.Kind != 8 || clock.SentAt == now || !clock.Dirty) continue;
+            ReturnSnapshot? snapshot = clock.ReturnSnapshot;
+            if (snapshot == null || !snapshot.Matches(clock.Entry, live)) snapshot = CaptureReturn(live, clock.Entry, now);
+            if (snapshot == null) continue;
+            foreach (TownServiceMotionPending part in snapshot.Sources)
+            { seen.Add(part); int root = ReturnRoot(live, part.Entry); if (root >= 0) seen.Add(live[root]); }
+            TownServiceMotionEntry cohort = snapshot.Subset(snapshot.Parts.Length - snapshot.Cursor);
+            packet.Entries.Add(cohort);
+            while (TownServiceMotionCodec.TryWritePacked(packet) == null && cohort.ReturnParts.Length > 1)
+            { cohort = snapshot.Subset(Math.Max(1, cohort.ReturnParts.Length * 3 / 4)); packet.Entries[packet.Entries.Count - 1] = cohort; }
+            if (TownServiceMotionCodec.TryWritePacked(packet) == null)
+            { packet.Entries.RemoveAt(packet.Entries.Count - 1); continue; }
+            bundles++;
+            var staged = new TownServiceMotionPending { Entry = cohort, ReturnSnapshot = snapshot };
+            selected.Add(new Selected(staged, 0, index + 1, bundles));
+            size += TownServiceMotionCodec.EntryBytes(cohort);
         }
         int turn = 0;
         while (packet.Entries.Count < TownServiceMotionCodec.MaxExpandedEntries
@@ -81,9 +110,9 @@ internal static class TownServiceMotionBudget
             int index = (cursors[group] + visited[group]++) % waiting.Count;
             TownServiceMotionPending slot = waiting[index];
             if (slot.SentAt == now || !seen.Add(slot)) continue;
-            // A first clock waits for its complete priority pair rather than taking a
-            // later unpaired ordinary turn. Admitted clocks use normal bounded repair.
-            if (slot.Entry.Kind == 8 && slot.AdmittedReturnRevision != slot.Entry.Revision) continue;
+            // The common return receipt owns its member roots and clocks; ordinary
+            // numeric turns cannot split a physical picture during staging.
+            if (slot.Entry.Kind == 8 || slot.Entry.Kind == 1 && HasNativeReturn(live, slot.Entry)) continue;
             int bytes = TownServiceMotionCodec.EntryBytes(slot.Entry);
             if (size + bytes > TownServiceMotionCodec.MaxExpandedBytes) break;
             packet.Entries.Add(slot.Entry); selected.Add(new Selected(slot, group, index + 1)); size += bytes;
@@ -94,7 +123,7 @@ internal static class TownServiceMotionBudget
             // At most logarithmically many compression probes; real random float
             // payloads must retain a legacy-sized finite turn too.
             int keep = Math.Max(0, selected.Count * 3 / 4);
-            if (keep > 0 && keep < selected.Count && selected[keep - 1].Bundle != 0
+            while (keep > 0 && keep < selected.Count && selected[keep - 1].Bundle != 0
                 && selected[keep - 1].Bundle == selected[keep].Bundle) keep--;
             selected.RemoveRange(keep, selected.Count - keep);
             packet.Entries.RemoveRange(initial + keep, packet.Entries.Count - initial - keep);
@@ -104,7 +133,17 @@ internal static class TownServiceMotionBudget
         foreach (Selected accepted in selected)
         {
             accepted.Slot.Dirty = false; accepted.Slot.SentAt = now;
-            if (accepted.Slot.Entry.Kind == 8) accepted.Slot.AdmittedReturnRevision = accepted.Slot.Entry.Revision;
+            if (accepted.Slot.Entry.Kind == 10)
+            {
+                ReturnSnapshot snapshot = accepted.Slot.ReturnSnapshot!;
+                snapshot.Cursor += accepted.Slot.Entry.ReturnParts.Length;
+                foreach (TownServiceMotionPending source in snapshot.Sources)
+                {
+                    source.SentAt = now;
+                    if (snapshot.Cursor == snapshot.Parts.Length)
+                    { source.Dirty = false; source.AdmittedReturnRevision = source.Entry.Revision; source.ReturnSnapshot = null; }
+                }
+            }
             cursors[accepted.Group] = accepted.Next;
         }
         liveCursor = cursors[0]; visibleCursor = cursors[1]; ordinaryCursor = cursors[2];
@@ -154,4 +193,100 @@ internal static class TownServiceMotionBudget
             cursor = index + 1;
         }
     }
+    private static int ReturnRoot(List<TownServiceMotionPending> live, TownServiceMotionEntry flight)
+    {
+        for (int n = 0; n < live.Count; n++)
+        {
+            TownServiceMotionEntry root = live[n].Entry;
+            if (root.Kind == 1 && root.Lane == flight.Lane && root.Service == flight.Service
+                && root.Session == flight.Session && root.PublicClaim == flight.PublicClaim
+                && root.Module == flight.Module && root.Structure == flight.Structure && root.Hand == flight.Hand) return n;
+        }
+        return -1;
+    }
+    private static bool HasNativeReturn(List<TownServiceMotionPending> live, TownServiceMotionEntry root)
+    {
+        foreach (TownServiceMotionPending clock in live)
+            if (clock.Entry.Kind == 8
+                && clock.Entry.Lane == root.Lane && clock.Entry.Service == root.Service
+                && clock.Entry.Session == root.Session && clock.Entry.PublicClaim == root.PublicClaim
+                && clock.Entry.Module == root.Module && clock.Entry.Structure == root.Structure) return true;
+        return false;
+    }
+    private static bool SameReturnRoot(TownServiceMotionEntry first, TownServiceMotionEntry second)
+    {
+        if (second.Kind != 8 || first.Lane != second.Lane || first.Service != second.Service
+            || first.Session != second.Session || first.PublicClaim != second.PublicClaim
+            || first.Hand != second.Hand || first.Revision != second.Revision
+            || first.Numbers.Length != 38 || second.Numbers.Length != 38) return false;
+        for (int n = 0; n < 28; n++) if (first.Numbers[n] != second.Numbers[n]) return false;
+        return true;
+    }
+
+    internal sealed class ReturnSnapshot
+    {
+        internal TownServiceMotionEntry Header = null!;
+        internal TownServiceReturnPart[] Parts = null!;
+        internal TownServiceMotionPending[] Sources = null!;
+        internal int Cursor;
+        internal bool Matches(TownServiceMotionEntry entry, List<TownServiceMotionPending> live)
+        {
+            if (Header.Lane != entry.Lane || Header.Service != entry.Service || Header.Session != entry.Session
+                || Header.PublicClaim != entry.PublicClaim || Header.Hand != entry.Hand || Header.Revision != entry.Revision) return false;
+            for (int i = 0; i < Sources.Length; i++)
+            {
+                TownServiceMotionEntry current = Sources[i].Entry;
+                if (!live.Contains(Sources[i]) || current.Kind != 8 || current.Module != Header.ReturnMembers[i]
+                    || current.Structure != Header.ReturnStructures[i] || current.Hand != Header.Hand
+                    || current.Session != Header.Session || current.Service != Header.Service
+                    || current.PublicClaim != Header.PublicClaim || current.Revision != Header.Revision
+                    || current.Numbers.Length != 38 || current.Numbers[2] != Header.Numbers[2]
+                    || current.Numbers[3] != Header.Numbers[3]) return false;
+                int root = ReturnRoot(live, current);
+                if (root < 0 || live[root].Entry.Visible != Parts[i].Visible
+                    || live[root].Entry.ParentAlpha != Parts[i].ParentAlpha) return false;
+                // The native destination can animate within this same return
+                // revision (merchant home/pop/fan rotation). Finish the frozen
+                // exact source instant; the next receipt carries that movement.
+                // Restarting every subset would starve its later child originals.
+            }
+            int members = 0;
+            foreach (TownServiceMotionPending candidate in live)
+                if (SameReturnRoot(entry, candidate.Entry)) members++;
+            return members == Sources.Length;
+        }
+        internal TownServiceMotionEntry Subset(int count)
+        {
+            var parts = new TownServiceReturnPart[count]; Array.Copy(Parts, Cursor, parts, 0, count);
+            return new TownServiceMotionEntry { Kind = 10, Lane = Header.Lane, Service = Header.Service,
+                Session = Header.Session, PublicClaim = Header.PublicClaim, Module = Header.Module, Structure = Header.Structure,
+                Hand = Header.Hand, Revision = Header.Revision, ReturnSampleTime = Header.ReturnSampleTime,
+                Numbers = Header.Numbers, ReturnMembers = Header.ReturnMembers, ReturnStructures = Header.ReturnStructures, ReturnParts = parts };
+        }
+    }
+    private static ReturnSnapshot? CaptureReturn(List<TownServiceMotionPending> live, TownServiceMotionEntry clock, float now)
+    {
+        var members = new List<TownServiceMotionPending>();
+        foreach (TownServiceMotionPending part in live) if (SameReturnRoot(clock, part.Entry)) members.Add(part);
+        members.Sort((first, second) => first.Entry.Module.CompareTo(second.Entry.Module));
+        if (members.Count == 0 || members.Count > 64) return null;
+        var header = new TownServiceMotionEntry { Kind = 10, Lane = clock.Lane, Service = clock.Service, Session = clock.Session,
+            PublicClaim = clock.PublicClaim, Module = members[0].Entry.Module, Structure = members[0].Entry.Structure,
+            Hand = clock.Hand, Revision = clock.Revision, ReturnSampleTime = now, Numbers = new float[28],
+            ReturnMembers = new ushort[members.Count], ReturnStructures = new uint[members.Count] };
+        Array.Copy(clock.Numbers, header.Numbers, 28);
+        var snapshot = new ReturnSnapshot { Header = header, Sources = members.ToArray(), Parts = new TownServiceReturnPart[members.Count] };
+        for (int i = 0; i < members.Count; i++)
+        {
+            TownServiceMotionEntry member = members[i].Entry;
+            int root = ReturnRoot(live, member); if (root < 0) return null;
+            header.ReturnMembers[i] = member.Module; header.ReturnStructures[i] = member.Structure;
+            var part = new TownServiceReturnPart { Index = (byte)i, Visible = live[root].Entry.Visible,
+                ParentAlpha = live[root].Entry.ParentAlpha, Child = new float[10] };
+            Array.Copy(member.Numbers, 28, part.Child, 0, 10); snapshot.Parts[i] = part;
+        }
+        foreach (TownServiceMotionPending source in members) source.ReturnSnapshot = snapshot;
+        return snapshot;
+    }
+
 }

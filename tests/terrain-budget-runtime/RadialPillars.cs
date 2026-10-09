@@ -17,18 +17,37 @@ public static partial class TerrainProgram
         Vector3 centre = source.transform.TransformPoint(authored.center);
         float radius = new Vector2(authored.extents.x, authored.extents.z).magnitude * scale;
         PerfConfig.TerrainDetailPercent = PerfConfig.DistantTerrainDetailPercent = 0;
-        PerfConfig.CheapWallShadingOn = false;
+        PerfConfig.CheapWallShadingOn = false; PerfConfig.TerrainDistanceMeters = .75f;
         for (int index = 0; index < 8; index++)
         {
-            camera.transform.position = centre + Quaternion.Euler(0f, index * 45f, 0f) * Vector3.forward * (radius + .15f);
-            camera.transform.LookAt(centre); Morph(host);
-            Check(!ScenarioTerrainBudget.OwnsRenderSubstitute(source), "native captured pillar restores exact endpoint throughout a constant-radius orbit: " + original.name);
-            Color[] native = Pixels(camera);
-            PerfConfig.CheapWallShadingOn = true; Tick(host);
-            Check(DuringRender(camera, () => source.forceRenderingOff) && PerfMonitor.Counts["Terrain.SubmittedTriangles"] == Triangles(original),
-                "native pillar radial guard submits exact source topology when private shading owns the camera: " + original.name);
-            Check(SameCoverage(native, Pixels(camera)), "native pillar radial original endpoint preserves exact orbit camera silhouette pixels: " + original.name);
-            PerfConfig.CheapWallShadingOn = false;
+            foreach (float gap in new[] { .5f, .65f, .85f, 1f })
+            {
+                bool distant = gap > .75f;
+                camera.transform.position = centre + Quaternion.Euler(0f, index * 45f, 0f) * Vector3.forward * (radius + gap);
+                camera.transform.LookAt(centre); Morph(host);
+                Check(ScenarioTerrainBudget.OwnsRenderSubstitute(source) == distant,
+                    "native captured pillar uses the configurable viewing radius despite identical zero near and distant caps: " + original.name);
+                Color[] baselinePixels = Pixels(camera);
+                Check(Visible(baselinePixels) > 10, "native captured pillar radius comparison has nonempty geometry pixels: " + original.name);
+                int expectedTriangles = Triangles(distant ? Bank[original][1] : original);
+                if (distant)
+                    Check(PerfMonitor.Counts["Terrain.SubmittedTriangles"] == expectedTriangles && expectedTriangles < Triangles(original),
+                        "native captured distant pillar retains the audited triangle reduction outside its viewing radius: " + original.name);
+                PerfConfig.CheapWallShadingOn = true; Tick(host);
+                Check(DuringRender(camera, () => source.forceRenderingOff) && PerfMonitor.Counts["Terrain.SubmittedTriangles"] == expectedTriangles,
+                    "native pillar viewing radius submits the selected exact or coarse topology when private shading owns the camera: " + original.name);
+                Check(SameCoverage(baselinePixels, Pixels(camera)),
+                    "native pillar radius preserves exact or coarse orbit camera silhouette through private shading: " + original.name);
+                foreach (float gaze in new[] { 35f, 180f })
+                {
+                    camera.transform.rotation *= Quaternion.Euler(0f, gaze, 0f); Morph(host);
+                    PerfConfig.CheapWallShadingOn = false;
+                    Check(ScenarioTerrainBudget.OwnsRenderSubstitute(source) == distant,
+                        "native captured pillar viewing distance selection remains independent of head yaw: " + original.name);
+                    PerfConfig.CheapWallShadingOn = true;
+                }
+                PerfConfig.CheapWallShadingOn = false;
+            }
         }
         // Compare the actual primitive paths with warm, paired, alternating
         // batches. Reflection binds the actual method only once, outside timing.
@@ -75,14 +94,15 @@ public static partial class TerrainProgram
         ScenarioTerrainBudget.Install(host); ScenarioTerrainBudget.QueueRoot(scenario);
         try
         {
-            // Same physical radius: the old AABB was 0.357m away on axis and
-            // 0.150m away on the diagonal. Settle each morph before observing.
-            float radius = Mathf.Sqrt(.5f);
+            // Same physical radius: the old AABB is 0.857m away on axis and
+            // 0.650m away on the diagonal. The configurable .75m viewing radius
+            // must restore the near geometry on both. Settle each morph first.
+            float radius = Mathf.Sqrt(.5f); PerfConfig.TerrainDistanceMeters = .75f;
             camera.transform.position = new Vector3(0f, 0f, -4f); Morph(host);
             Check(ScenarioTerrainBudget.OwnsRenderSubstitute(source), "far radial pillar still uses the configured coarse geometry");
             foreach (float angle in new[] { 0f, 45f, 90f, 135f, 180f, 225f, 270f, 315f })
             {
-                camera.transform.position = Quaternion.Euler(0f, angle, 0f) * Vector3.forward * (radius + .15f);
+                camera.transform.position = Quaternion.Euler(0f, angle, 0f) * Vector3.forward * (radius + .65f);
                 camera.transform.LookAt(Vector3.zero); Morph(host);
                 Check(!ScenarioTerrainBudget.OwnsRenderSubstitute(source), "fixed-radius pillar head proximity restores exact geometry at every orbit angle");
                 foreach (float gaze in new[] { 0f, 35f, 180f })
@@ -91,8 +111,29 @@ public static partial class TerrainProgram
                     Check(!ScenarioTerrainBudget.OwnsRenderSubstitute(source), "head yaw alone cannot change settled nearby pillar detail");
                 }
             }
-            camera.transform.position = Vector3.forward * (radius + .24f); Morph(host);
-            Check(ScenarioTerrainBudget.OwnsRenderSubstitute(source), "radial pillar outside the unchanged 18cm guard retains the configured coarse endpoint");
+            camera.transform.position = Vector3.forward * (radius + .85f); Morph(host);
+            Check(ScenarioTerrainBudget.OwnsRenderSubstitute(source), "radial pillar outside the configured viewing radius retains the configured coarse endpoint");
+            foreach (var edge in new[] { (.65f, false), (.77f, false), (.8f, true), (.73f, true), (.70f, false) })
+            {
+                camera.transform.position = Vector3.forward * (radius + edge.Item1); Morph(host);
+                Check(ScenarioTerrainBudget.OwnsRenderSubstitute(source) == edge.Item2,
+                    "pillar viewing radius retains separate entry and exit edges without boundary chatter");
+            }
+            camera.transform.position = Vector3.forward * (radius + .5f);
+            foreach (float live in new[] { .2f, .9f, .2f, .75f })
+            {
+                PerfConfig.TerrainDistanceMeters = live; Morph(host);
+                Check(ScenarioTerrainBudget.OwnsRenderSubstitute(source) == (live < .5f),
+                    "live pillar viewing radius edits change settled detail even with identical zero caps");
+            }
+            scenario.transform.localScale = camera.transform.localScale = Vector3.one * 2f;
+            foreach (float gap in new[] { .65f, .85f })
+            {
+                camera.transform.position = Vector3.forward * ((radius + gap) * 2f); Morph(host);
+                Check(ScenarioTerrainBudget.OwnsRenderSubstitute(source) == (gap > .75f),
+                    "scaled board and headset preserve the same physical pillar viewing radius");
+            }
+            scenario.transform.localScale = camera.transform.localScale = Vector3.one;
             PerfConfig.TerrainDetailPercent = 100; PerfConfig.DistantTerrainDetailPercent = 0; PerfConfig.TerrainDistanceMeters = .75f;
             foreach (float gap in new[] { .65f, .85f }) for (int index = 0; index < 8; index++)
             {
@@ -112,13 +153,13 @@ public static partial class TerrainProgram
             float stretchedRadius = Mathf.Sqrt(1f + .09f);
             for (int index = 0; index < 8; index++)
             {
-                camera.transform.position = centre + tilt * Quaternion.Euler(0f, index * 45f, 0f) * Vector3.forward * (stretchedRadius + .15f);
+                camera.transform.position = centre + tilt * Quaternion.Euler(0f, index * 45f, 0f) * Vector3.forward * (stretchedRadius + .65f);
                 camera.transform.LookAt(centre); Morph(host);
                 Check(!ScenarioTerrainBudget.OwnsRenderSubstitute(source), "tilted nonuniform off-centre pillar retains exact geometry throughout a constant-radius orbit");
             }
             for (int index = 0; index < 8; index++)
             {
-                camera.transform.position = centre + tilt * Quaternion.Euler(0f, index * 45f, 0f) * Vector3.forward * (stretchedRadius + .24f);
+                camera.transform.position = centre + tilt * Quaternion.Euler(0f, index * 45f, 0f) * Vector3.forward * (stretchedRadius + .85f);
                 camera.transform.LookAt(centre); Morph(host);
                 Check(ScenarioTerrainBudget.OwnsRenderSubstitute(source), "tilted pillar outside its source-axis cylinder retains configured coarse geometry at every orbit angle");
             }
@@ -130,7 +171,7 @@ public static partial class TerrainProgram
             GloomhavenVR.Hands.VRHands.Left = null; Object.DestroyImmediate(hand.gameObject);
             scenario.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity); scenario.transform.localScale = Vector3.one;
             source.GetComponent<MeshFilter>().sharedMesh = original; ScenarioTerrainBudget.QueueRoot(source.gameObject);
-            camera.transform.position = new Vector3(0f, 0f, -(radius + .15f)); camera.transform.LookAt(Vector3.zero);
+            camera.transform.position = new Vector3(0f, 0f, -(radius + .65f)); camera.transform.LookAt(Vector3.zero);
             var costly = Surface(scenario, "CV_Wall_Generic_01", new Vector3(0f, 0f, 1f), material);
             Mesh oldCostly = costly.GetComponent<MeshFilter>().sharedMesh; Mesh[] costlyBank = Bank[oldCostly];
             Mesh costlyExact = Object.Instantiate(costlyBank[0]); costlyExact.triangles = costlyExact.triangles.Concat(costlyExact.triangles).ToArray();
@@ -151,7 +192,7 @@ public static partial class TerrainProgram
         finally
         {
             ScenarioTerrainBudget.Shutdown(); Object.DestroyImmediate(host); Object.DestroyImmediate(scenario); Object.DestroyImmediate(material); ProceduralWall.m_WallCache.Clear();
-            PerfConfig.CheapWallShadingOn = false; PerfConfig.TerrainCameraSourceLimit = 0; PerfConfig.TerrainDetailPercent = PerfConfig.DistantTerrainDetailPercent = 100; camera.transform.localScale = Vector3.one;
+            PerfConfig.CheapWallShadingOn = false; PerfConfig.TerrainCameraSourceLimit = 0; PerfConfig.TerrainDetailPercent = PerfConfig.DistantTerrainDetailPercent = 100; PerfConfig.TerrainDistanceMeters = .75f; camera.transform.localScale = Vector3.one;
         }
     }
 }

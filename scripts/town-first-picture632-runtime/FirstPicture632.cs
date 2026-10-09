@@ -158,7 +158,14 @@ public static partial class MirrorProgram
             var scheduler=new ExtrasSendScheduler(0,3,4);var fragments=new TownServiceFragments();
             FillOtherQueues632(scheduler,stress);
             var snapshots=new List<TownServiceFrame>();var originals=new List<byte[]>();
-            Action<byte[],int,object?> publish=(bytes,length,identity)=>{snapshots.Add((TownServiceFrame)identity!);originals.Add(bytes);scheduler.Enqueue(bytes,length,identity:identity);};
+            // This legacy value-pool challenge publishes the actual immutable full
+            // capture (or cumulative delta), with the same transport identity.
+            // Compact105 first-picture publication is covered by the658 suite.
+            Action<byte[],int,object?> publish=(bytes,length,identity)=>{
+                var original=(TownServiceFrame)identity!;
+                byte[] full=TownServiceCodec.Write(original);
+                snapshots.Add(original);originals.Add(full);scheduler.Enqueue(full,full.Length,identity:identity);
+            };
             NativeSenderCapture629(publish);double clock=0;
             var visit=NativeVisitorReady629(scheduler,fragments,observer,3,value=>clock=value);while(visit.MoveNext())yield return visit.Current;
             snapshots.Clear();originals.Clear();
@@ -203,6 +210,25 @@ public static partial class MirrorProgram
                     Check(clone!=null&&clone.text==text.text&&clone.fontSize==text.fontSize,"all exact original row glyph content and owner appearance are present on first publication");
                 }
             }
+            // Acknowledge received complete baselines through the actual reverse112
+            // path before the warm revision. Sending bytes alone is never a receipt.
+            TownServiceMirror.CollectOriginalReceiptPeers=peers=>{
+                peers.Clear();peers.Add(NetPlayerActors.Peer==2?10:2);
+            };
+            int acknowledged=0;
+            for(int batch=0;batch<3;batch++)
+            {
+                NetPlayerActors.Peer=10;
+                TownServiceMirror.CaptureOriginalReceipts((bytes,length)=>{
+                    Check(TownServiceOriginalReceiptCodec.TryRead(bytes,length,out var receipt),
+                        "full fallback completion publishes an actual compatible original receipt");
+                    NetPlayerActors.Peer=2;
+                    Check(TownServiceMirror.ReceiveOriginalReceipt(10,bytes,length),
+                        "owner accepts exact received full dependencies before the warm revision");
+                    acknowledged+=receipt!.Entries.Length;NetPlayerActors.Peer=10;
+                });
+            }
+            Check(acknowledged>=44,"every first-visible full dependency is acknowledged before its warm delta");
             // Reuse the actually admitted44-module picture; change one native row's
             // selected content and pose through CaptureCore, not a handcrafted delta.
             // Observers keep all prior originals while the new bounded packet assembles.

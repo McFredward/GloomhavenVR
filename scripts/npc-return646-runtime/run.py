@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Exact native card return across newer artwork and moving approved rig holders."""
+"""Current return receiver across newer artwork using legacy107 transport.
+
+The exact Build656 sender budget retains independent numeric/artwork receipts.
+Current113 atomic publication is covered by the separate npc658 flight suite.
+"""
 import argparse
 import hashlib
 import importlib.util
@@ -26,6 +30,15 @@ def main():
     spec = importlib.util.spec_from_file_location('return646_sources', root / 'scripts/check-town-service-mirror.py')
     loader = importlib.util.module_from_spec(spec); spec.loader.exec_module(loader)
     bound, hashes = loader.sources(root)
+    legacy_budget_commit = 'bf3444cb502e1eff52bcf0e5194a255109879d36'
+    legacy_budget = subprocess.check_output(['git', 'show', legacy_budget_commit + ':src/GloomhavenVR/Net/TownServices/TownServiceMotionBudget.cs'], cwd=root, text=True)
+    bound['TownServiceMotionBudget.cs'] = legacy_budget
+    hashes['TownServiceMotionBudget.cs (legacy107 Build656 boundary)'] = hashlib.sha256(legacy_budget.encode()).hexdigest()
+    old_motion = subprocess.check_output(['git', 'show', '2d77ffb65:src/GloomhavenVR/Net/TownServices/TownServiceMirror.Motion.cs'], cwd=root, text=True)
+    old_filter = '                    || entry.Kind != 9 && slot.SampleTime < module.LastFrame.SampleTime) continue;'
+    if old_motion.count(old_filter) != 1: raise RuntimeError('Historical artwork filter source drift')
+    hashes['TownServiceMirror.Motion.cs (historical artwork filter source)'] = hashlib.sha256(old_motion.encode()).hexdigest()
+    (run / 'historical-artwork-filter.cs.txt').write_text(old_motion)
     fixture = run / 'fixture'; shutil.copytree(root / 'scripts/town-service-mirror-runtime', fixture)
     shutil.copyfile(Path(__file__).with_name('Return646.cs'), fixture / 'Return646.cs')
     card_source = (root / 'src/GloomhavenVR/Cards/VRCard.cs').read_text()
@@ -54,7 +67,7 @@ internal sealed partial class VRCard {
     hashes['NativeReturnSource646.cs'] = hashlib.sha256(bound['NativeReturnSource646.cs'].encode()).hexdigest()
     # Deterministic transport/render time only; actual source curve and codec stay
     # intact. A real-clock focused suite remains separate inherited evidence.
-    for name in ['TownServiceMirror.cs', 'TownServiceMirror.Motion.cs', 'TownServiceMotion.cs']:
+    for name in ['TownServiceMirror.cs', 'TownServiceMirror.Motion.cs', 'TownServiceMotion.cs', 'TownServiceMirror.CardReturnCohorts.cs']:
         bound[name] = bound[name].replace('Time.unscaledTime', 'global::FlightTime646.Now')
     text = (fixture / 'Program.cs').read_text()
     text = text.replace('            DelayedCensusRace();', '            if (suite != "return646") DelayedCensusRace();', 1)
@@ -62,7 +75,7 @@ internal sealed partial class VRCard {
     assert text.count(anchor) == 1
     text = text.replace(anchor, anchor + '''
             if (suite == "return646") {
-                var flight = Return646(variant == "moving-hand");
+                var flight = Return646(variant == "moving-hand" || variant == "old-duration-only-clock");
                 while (flight.MoveNext()) yield return flight.Current;
                 File.WriteAllText(Path.Combine(_output,"assertions.txt"),_assertions+" assertions\\n"); yield break;
             }
@@ -72,14 +85,20 @@ internal sealed partial class VRCard {
     if args.case: cases = [case for case in cases if case[0] == args.case]
     if not args.no_negative_controls:
         cases.append(('old-artwork-filter', 'old'))
+        if args.case is None or args.case == 'moving-hand': cases.append(('old-duration-only-clock', 'duration'))
     unity = Path(os.environ.get('UNITY_PATH', '/home/claw/unity-2021.3.5/Editor/Unity'))
     manifest = {'suite': 'return646', 'result': str(run / 'results.txt'), 'evidence': str(run), 'cases': []}
     receipts = {}
     for name, mutation in cases:
         files = dict(bound)
         if mutation == 'old':
-            old = subprocess.check_output(['git', 'show', '2d77ffb65:src/GloomhavenVR/Net/TownServices/TownServiceMirror.Motion.cs'], cwd=root, text=True)
-            files['TownServiceMirror.Motion.cs'] = old.replace('Time.unscaledTime', 'global::FlightTime646.Now')
+            current_filter = '                    || entry.Kind != 9 && !liveCardReturn && slot.SampleTime < module.LastFrame.SampleTime) continue;'
+            if files['TownServiceMirror.Motion.cs'].count(current_filter) != 1: raise RuntimeError('Current artwork filter source drift')
+            files['TownServiceMirror.Motion.cs'] = files['TownServiceMirror.Motion.cs'].replace(current_filter, old_filter, 1)
+        if mutation == 'duration':
+            current_progress = 'entry.Numbers[2] == 1f ? entry.Numbers[0] - entry.Numbers[1] : entry.Numbers[0];'
+            if files['TownServiceMirror.Motion.cs'].count(current_progress) != 1: raise RuntimeError('Exponential receive progress source drift')
+            files['TownServiceMirror.Motion.cs'] = files['TownServiceMirror.Motion.cs'].replace(current_progress, 'entry.Numbers[2] == 1f ? -entry.Numbers[1] : entry.Numbers[0];', 1)
         production = run / name / 'production'; production.mkdir(parents=True)
         for file, content in files.items(): (production / file).write_text(content)
         project = run / name / 'Mirror.csproj'; shutil.copyfile(fixture / 'Mirror.csproj', project)
@@ -102,7 +121,7 @@ internal sealed partial class VRCard {
     subprocess.run([os.environ.get('UNITYPY_PYTHON', str(Path.home() / 'unitypy-venv/bin/python')),
         str(root / 'scripts/town-purse-runtime/export-native.py'), str(root), str(run / 'native-purse.json')], check=True)
     path = run / 'manifest.json'; path.write_text(json.dumps(manifest, indent=2) + '\n')
-    (run / 'source-hashes.json').write_text(json.dumps({'production': hashes, 'cases': receipts,
+    (run / 'source-hashes.json').write_text(json.dumps({'boundaries': {'sender': 'exact Build656 legacy107 motion budget', 'sender_commit': legacy_budget_commit, 'receiver': 'current source', 'artwork_control': 'historical 2d77ffb65 filter conditional only'}, 'production': hashes, 'cases': receipts,
         'fixture': {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in fixture.glob('*.cs')}}, indent=2) + '\n')
     print('Evidence: ' + str(run), flush=True)
     result = subprocess.run(['xvfb-run', '-a', str(unity), '-batchmode', '-force-glcore', '-projectPath', str(project),

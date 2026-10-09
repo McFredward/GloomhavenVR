@@ -71,8 +71,10 @@ def main():
     parser.add_argument('--delivery-only', action='store_true', help='Measure real first-visible native transport and publication failure recovery')
     parser.add_argument('--bank-split-only', action='store_true')
     parser.add_argument('--lifecycle-only', action='store_true', help='Run only cold-template disconnect and existing-bank reset preparation proofs')
-    parser.add_argument('--negative-control', action='append', choices=['inert-artwork', 'owner-text', 'complete-picture', 'split-headers', 'owner-state', 'overridden-basis', 'cold-original', 'retained-canvas', 'eager-bank', 'departed-cold-peer', 'reset-preparation', 'repeated-native-baseline', 'fragile-mage-keyframe', 'published-baseline', 'all-prepared-picture', 'hidden-publication', 'warm-priority', 'structural-bound', 'retained-visible-census'])
+    parser.add_argument('--preparation658-only', action='store_true', help='Run first-map and immersive-off bounded original preparation')
+    parser.add_argument('--negative-control', action='append', choices=['inert-artwork', 'owner-text', 'complete-picture', 'split-headers', 'owner-state', 'overridden-basis', 'omitted-numeric-basis', 'cold-original', 'retained-canvas', 'eager-bank', 'departed-cold-peer', 'reset-preparation', 'repeated-native-baseline', 'fragile-mage-keyframe', 'queued-native-repair', 'ordinary-native-repair', 'published-baseline', 'all-prepared-picture', 'hidden-publication', 'warm-priority', 'structural-bound', 'retained-visible-census'])
     args = parser.parse_args()
+    if args.preparation658_only: args.lifecycle_only = True
     root = args.source_root.resolve()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix='run-', dir=args.output_dir.resolve()))
@@ -83,6 +85,7 @@ def main():
     fixture = run / 'fixture'; shutil.copytree(root / 'scripts/town-service-mirror-runtime', fixture)
     shutil.copyfile(Path(__file__).resolve().parent / 'town-native-state623-runtime/NativeState623.cs', fixture / 'NativeState623.cs')
     shutil.copyfile(Path(__file__).resolve().parent / 'town-native-state623-runtime/NativeDelivery629.cs', fixture / 'NativeDelivery629.cs')
+    shutil.copyfile(root / 'scripts/npc658-latency-runtime/NativeRepair658.cs', fixture / 'NativeRepair658.cs')
     if args.lifecycle_only:
         if args.bank_split_only: parser.error('--lifecycle-only and --bank-split-only are mutually exclusive')
         preparation = root / 'src/GloomhavenVR/WorldUI/TownServices/NativeTemplates.EnhancementPreparation.cs'
@@ -95,10 +98,26 @@ def main():
             if text.count(before) != 1: raise RuntimeError('Lifecycle adapter binding drift: ' + before)
             text = text.replace(before, after, 1)
         publisher.write_text(text)
+        if args.preparation658_only:
+            shutil.copyfile(root / 'scripts/npc658-latency-runtime/NativePreparation658.cs', fixture / 'NativePreparation658.cs')
+            raw_sync = (root / 'src/GloomhavenVR/WorldUI/TownServices/TownServiceSync.cs').read_text()
+            bound['PrepareCore658.cs'] = 'using System; using UnityEngine; using GloomhavenVR.Net; using GloomhavenVR.WorldUI.MapRoom; namespace GloomhavenVR.WorldUI; internal sealed partial class TownServiceSync {\n' + loader.method(raw_sync, 'private void PrepareCore()') + '\n}'
+            raw_templates = (root / 'src/GloomhavenVR/WorldUI/TownServices/NativeTemplates.cs').read_text()
+            initialize = loader.method(raw_templates, 'internal static bool Initialize()')
+            tail = initialize[initialize.rindex('_ready = true;'):]
+            if tail.count('PrepareEnhancementOriginals();') != 1 or tail.count('return true;') != 1: raise RuntimeError('First Initialize return binding drift')
+            bound['NativeInitialReturn658.cs'] = 'namespace GloomhavenVR.WorldUI; internal static partial class NativeTemplates { internal static bool FixtureInitialReturn658() {\n' + tail + '\n}'
+            text = publisher.read_text().replace('private void PrepareCore() { }', '', 1)
+            publisher.write_text(text)
+            for filename, before in [('Boundaries.cs', 'internal static class TownServicePopulation'), ('CabinetAudioBoundaries.cs', 'internal static class WorldUIConfig')]:
+                target = fixture / filename; text = target.read_text()
+                if text.count(before) != 1: raise RuntimeError('Preparation availability port drift: ' + filename)
+                target.write_text(text.replace(before, before.replace('static class', 'static partial class'), 1))
     program = fixture / 'Program.cs'
     anchor = '            if (variant == "production") PublisherNoCloth();'
     branch = '''            if (suite == "native-state623") {
                 var state = NativeState623(); while (state.MoveNext()) yield return state.Current;
+                var repair = NativeRepair658(); while (repair.MoveNext()) yield return repair.Current;
                 File.WriteAllText(Path.Combine(_output,"assertions.txt"),_assertions+" assertions\\n"); yield break;
             }
             if (suite == "native-bank-split623") {
@@ -125,12 +144,18 @@ def main():
             }
 '''
         program.write_text(text.replace(anchor, branch + anchor, 1))
+        if args.preparation658_only:
+            text = program.read_text()
+            program.write_text(text.replace('var state = NativeTemplateLifecycle625();', 'var state = NativePreparation658();', 1))
     variants = [('production', None, None, None, '')]
     if args.lifecycle_only and not args.no_negative_controls:
-        variants += [
+        variants += ([
+            ('late-visitor-preparation658', 'PrepareCore658.cs', 'if (!MapRoomDriver.Active || Time.unscaledTime < _prepareAfter) return;', 'if (!MapRoomDriver.Active || Time.unscaledTime < _prepareAfter) return;\n        if (!WorldUIConfig.ImmersiveTownServices.Value && !TownServicePopulation.HasRemoteVisitors) return;', 'immersive-off first map prepares originals before any remote visitor'),
+            ('initial-return-preparation658', 'NativeInitialReturn658.cs', 'PrepareEnhancementOriginals();', '// omit first Initialize preparation', 'first Initialize return starts bounded native original preparation immediately'),
+        ] if args.preparation658_only else [
             ('departed-cold-peer', 'TownServiceMirror.cs', 'ForgetUnpreparedNativePeer(peer);', '// omit departed deferred admission lifetime', 'departed cold metadata cannot recreate pending or baseline state'),
             ('reset-preparation', 'NativeTemplates.EnhancementPreparation.cs', '|| _enhancementBasisRevision != TownServiceMirror.NativeTemplatePreparationRevision)', '|| false)', 'network reset rewarms existing frozen originals without changing asset identities'),
-        ]
+        ])
     if not args.no_negative_controls and not args.lifecycle_only and not args.delivery_only:
         variants += [
             ('eager-bank', 'TownServiceMirror.CatalogBank.cs',
@@ -146,17 +171,20 @@ def main():
         ]
     if not args.no_negative_controls and not args.bank_split_only and not args.lifecycle_only and not args.delivery_only:
         variants += [
-            ('fragile-mage-keyframe', 'TownServiceMirror.NativeTemplateState.cs',
-             'if (complete.Service == 3 && Local.ContainsKey(complete.Module)) return false;',
-             'if (false && complete.Service == 3 && Local.ContainsKey(complete.Module)) return false;',
-             'first captured enhancement original carries complete owner state without a template-repair wait'),
+            ('queued-native-repair', 'TownServiceSendQueue.cs', 'if (retainedNativeOriginal) queue.PrependTownOriginal(bytes, frame, preserveInFlight: true);', 'if (false && retainedNativeOriginal) queue.PrependTownOriginal(bytes, frame, preserveInFlight: true);', 'actual retained full repair survives continuous same-baseline coalescing'),
+            ('ordinary-native-repair', 'TownServiceSendQueue.cs', '(frame.HighPriority || frame.Service == 3)', 'frame.HighPriority', 'ordinary original retained full repair survives continuous same-baseline coalescing'),
+            ('fragile-mage-keyframe', 'TownServiceMirror.NativePublication.cs',
+             'if (now < repair.After) return;',
+             'if (true) return; // omit retained full-original repair\n#pragma warning disable CS0162',
+             'mismatched originals receive their retained full source without periodic repair debt'),
             ('repeated-native-baseline', 'TownServiceMirror.cs',
              'bool completeOriginal = openingOriginal || frame.CatalogBank != null || module.Baseline == null || now >= module.NextBaseline || !TownServiceDelta.Compatible(module.Baseline, frame);',
              'bool completeOriginal = UsesNativeTemplateState(frame) || openingOriginal || frame.CatalogBank != null || module.Baseline == null || now >= module.NextBaseline || !TownServiceDelta.Compatible(module.Baseline, frame);',
              'after the exact native original actual hover capture uses the existing cumulative owner delta'),
             ('inert-artwork', 'TownServiceMirror.NativeTemplateState.cs', 'binding.Read(Assets, includeInactiveGraphics: true)', 'binding.Read(Assets)', 'actual original prefab produces compact native metadata without a prior network baseline'),
-            ('owner-text', 'TownServiceMirror.NativeTemplateState.cs', 'index == 0 || NativeTextProperty(key)\n        || !TownServiceFastNumbers.IsMaterial(key);', 'index == 0 || (!NativeTextProperty(key) && !TownServiceFastNumbers.IsMaterial(key));', 'localized observer defaults never replace exact owner text or font'),
-            ('owner-state', 'TownServiceMirror.NativeTemplateState.cs', '|| !TownServiceFastNumbers.IsMaterial(key);', '|| key == TownServiceProperty.Sibling;', 'localized observer defaults never replace exact owner text or font'),
+            ('owner-text', 'TownServiceMirror.NativeTemplateState.cs', 'NativeTextProperty(key)\n        || index == 0 && !TownServiceFastNumbers.IsMaterial(key);', 'index == 0 && !TownServiceFastNumbers.IsMaterial(key);', 'localized observer defaults never replace exact owner text or font'),
+            ('owner-state', 'TownServiceMirror.NativeTemplateState.cs', '|| index == 0 && !TownServiceFastNumbers.IsMaterial(key);', '|| index == 0 && key == TownServiceProperty.Sibling;', 'every owner root pose and state remains explicit in native metadata'),
+            ('omitted-numeric-basis', 'TownServiceMirror.NativeTemplateState.cs', 'writer.Write((ushort)value.Numbers.Length);\n                    foreach (float number in value.Numbers) writer.Write(number == 0f ? 0f : number);', '// omit native numeric basis from exact hash', 'changed omitted native numeric state rejects before any observer paint'),
             ('overridden-basis', 'TownServiceMirror.NativeTemplateState.cs', 'if (OwnerProperty(index, key) || basis.Coverage.Length != 0\n                        && (basis.Coverage[index] & (1u << key)) != 0) continue;', 'if (OwnerProperty(index, key)) continue;', 'a fully transmitted owner material replaces a different observer native default immediately'),
             ('cold-original', 'TownServiceMirror.NativeTemplateState.cs', 'bool ready = attempt && TryExpandNativeTemplateState(received, out _);', 'bool ready = false;', 'a retained first sparse offer replays immediately after its original becomes available'),
             ('complete-picture', 'TownServiceMirror.NativeTemplateState.cs', 'if (peer <= 0 || session.Service != 3 || session.Modules.Length == 0) return true;', 'return true;\n#pragma warning disable CS0162', 'a missing offered card prevents a partial ring or options picture'),

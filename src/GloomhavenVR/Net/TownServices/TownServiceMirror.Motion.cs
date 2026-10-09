@@ -23,9 +23,11 @@ internal static partial class TownServiceMirror
         private readonly float _offset;
         private TownServiceMotionEntry _current;
         private TownServiceMotionEntry? _pending;
-        private float _sampleTime, _pendingSampleTime;
+        private float _sampleTime, _pendingSampleTime, _rate = 1f, _pendingRate = 1f, _renderedProgress = float.NegativeInfinity;
+        private float _observedSampleTime, _observedAge;
         internal CardReturnClock(TownServiceMotionEntry entry, float sampleTime, float offset)
-        { _current = entry; _sampleTime = sampleTime; _offset = offset; }
+        { _current = entry; _sampleTime = _observedSampleTime = sampleTime;
+          _observedAge = ReturnProgress(entry); _offset = offset; }
         internal void Observe(TownServiceMotionEntry entry, float sampleTime, float receivedAt)
         {
             // One native return has one source-to-observer clock mapping. Restarting
@@ -33,9 +35,19 @@ internal static partial class TownServiceMirror
             // The merchant's exponential sampler is a rolling current-pose/remaining-
             // lifetime receipt; preserve that exact source receipt and extrapolate it
             // to the retained source time rather than inventing another easing curve.
+            // VRCard advances by min(ownerDelta,.05). Its authored age can
+            // therefore progress slower than wall time at low FPS or a hitch.
+            // Retain the rate of exact source receipts, without changing the
+            // native easing/duration or rewinding an already rendered phase.
+            float rate = _rate;
+            if (sampleTime > _observedSampleTime)
+            {
+                rate = Mathf.Clamp01((ReturnProgress(entry) - _observedAge) / (sampleTime - _observedSampleTime));
+                _observedSampleTime = sampleTime; _observedAge = ReturnProgress(entry);
+            }
             if (sampleTime + _offset <= receivedAt)
-            { _current = entry; _sampleTime = sampleTime; _pending = null; }
-            else { _pending = entry; _pendingSampleTime = sampleTime; }
+            { _current = entry; _sampleTime = sampleTime; _rate = rate; _pending = null; }
+            else { _pending = entry; _pendingSampleTime = sampleTime; _pendingRate = rate; }
         }
         internal TownServiceMotionEntry Current(float now, out float age)
         {
@@ -43,10 +55,16 @@ internal static partial class TownServiceMirror
             // this flight's rendered clock. Keep the previous exact receipt until
             // that instant; never jump forward and then hold at a negative age.
             if (_pending != null && _pendingSampleTime + _offset <= now)
-            { _current = _pending; _sampleTime = _pendingSampleTime; _pending = null; }
-            age = _current.Numbers[0] + Mathf.Max(0f, now - _sampleTime - _offset);
+            { _current = _pending; _sampleTime = _pendingSampleTime; _rate = _pendingRate; _pending = null; }
+            float progress = ReturnProgress(_current) + Mathf.Max(0f, now - _sampleTime - _offset) * _rate;
+            progress = Mathf.Max(progress, _renderedProgress); _renderedProgress = progress;
+            age = _current.Numbers[0] + progress - ReturnProgress(_current);
             return _current;
         }
+        // Exponential receipts may carry increasing age or decreasing remaining
+        // duration. Age minus duration retains progress for both wire shapes.
+        private static float ReturnProgress(TownServiceMotionEntry entry) =>
+            entry.Numbers[2] == 1f ? entry.Numbers[0] - entry.Numbers[1] : entry.Numbers[0];
     }
     private sealed class SourceMotion
     {
@@ -58,6 +76,7 @@ internal static partial class TownServiceMirror
     private sealed class PeerMotion
     {
         internal readonly Dictionary<TownServiceMotionKey, MotionSlot> Slots = new();
+        internal readonly Dictionary<TownServiceMotionKey, ReturnCohortAssembly> ReturnCohorts = new();
         internal ulong CueSequence, MerchantReadySequence;
         internal bool HasReturnOffset;
         internal float ReturnOffset, ReturnReportAt;
@@ -258,13 +277,28 @@ internal static partial class TownServiceMirror
             if (previous == null || previous.Structure != frame.Structure || previous.Session != frame.Session
                 || previous.PublicClaim != frame.PublicClaim)
                 source.Slots.Clear();
+            // Prepared originals were deliberately hidden while offered. A first
+            // exact return clock must carry the live native root visibility/mount,
+            // even when artwork capture is still retrying that module. Reusing
+            // its last prepared header parks the printed front until a slower
+            // repair arrives. Read only the original numeric root, in its actual
+            // lane; no artwork, visibility guess or native continuation is added.
+            TownServiceFrame rootFrame = frame;
+            if (cardFlight != null)
+            {
+                rootFrame = new TownServiceFrame { ParentModule = TownServiceFrame.ManifestModule,
+                    Visible = module.Binding.Root.gameObject.activeInHierarchy,
+                    Pose = ReadPose(module.Binding.Root, lane.SharedFrame) };
+                using (new LaneScope(lane))
+                { ReadParent(module, rootFrame); ReadCanvasFrame(module.Binding.Root, rootFrame); }
+            }
             TownServiceMotionEntry root = MotionHeader(frame, laneId, 1);
-            root.ParentModule = frame.ParentModule; root.Binding = frame.ParentBinding;
-            root.ParentAlpha = frame.ParentAlpha; root.Visible = frame.Visible;
-            root.Pose = frame.Pose; root.HasCanvasFrame = frame.HasCanvasFrame;
-            root.CanvasPose = frame.CanvasPose; root.CanvasRect = frame.CanvasRect;
-            root.CanvasSettings = frame.CanvasSettings; root.CanvasSortingLayer = frame.CanvasSortingLayer;
-            root.CanvasSortingOrder = frame.CanvasSortingOrder;
+            root.ParentModule = rootFrame.ParentModule; root.Binding = rootFrame.ParentBinding;
+            root.ParentAlpha = rootFrame.ParentAlpha; root.Visible = rootFrame.Visible;
+            root.Pose = rootFrame.Pose; root.HasCanvasFrame = rootFrame.HasCanvasFrame;
+            root.CanvasPose = rootFrame.CanvasPose; root.CanvasRect = rootFrame.CanvasRect;
+            root.CanvasSettings = rootFrame.CanvasSettings; root.CanvasSortingLayer = rootFrame.CanvasSortingLayer;
+            root.CanvasSortingOrder = rootFrame.CanvasSortingOrder;
             VRHand? hand = MotionHand(module.Binding.Root, out bool followsRotation);
             // StockSync prepares a merchant return against its actual destination
             // hand without making that card a held prop. That verified native
@@ -438,7 +472,13 @@ internal static partial class TownServiceMirror
         if (!source.Slots.TryGetValue(entry.Key, out MotionSlot? slot))
         { source.Slots[entry.Key] = new MotionSlot { Entry = entry, DirtySince = Time.unscaledTime }; return; }
         if (SameMotion(slot.Entry, entry))
-        { if (entry.Kind == 1 && entry.HasCanvasUpdate) slot.Entry = entry; return; }
+        {
+            if (entry.Kind == 1 && entry.HasCanvasUpdate) slot.Entry = entry;
+            // A sampled native pause is meaningful clock data, even though its
+            // age/pose did not change. Publish it at the unchanged15-Hz cadence.
+            if (entry.Kind == 8) { if (!slot.Dirty) slot.DirtySince = Time.unscaledTime; slot.Dirty = true; }
+            return;
+        }
         bool visibilityChanged = entry.Kind == 1
             && (slot.Entry.Visible != entry.Visible || slot.Entry.ParentAlpha != entry.ParentAlpha);
         slot.VisibilityTransition = visibilityChanged || slot.Dirty && slot.VisibilityTransition;
@@ -452,6 +492,8 @@ internal static partial class TownServiceMirror
         { if (MotionPeers.Count >= 8) return false; state = new PeerMotion(); MotionPeers.Add(peer, state); }
         foreach (TownServiceMotionEntry entry in packet.Entries)
         {
+            if (entry.Kind == 10)
+            { ReceiveReturnCohort(peer, state, packet, entry); continue; }
             if (entry.Kind == 3)
             { ObserveTempleDonationCommit(peer, entry.Session, entry.Revision, entry.CommitAge); continue; }
             if (entry.Kind == 5)
@@ -466,6 +508,7 @@ internal static partial class TownServiceMirror
                 continue;
             }
             if (state.Slots.TryGetValue(entry.Key, out MotionSlot? old) && packet.Sequence <= old.ReceivedSequence) continue;
+            CancelReturnCohorts(peer, state, packet, entry);
             if (state.Slots.Count >= 3 * TownServiceFrame.MaxModules * 4 && !state.Slots.ContainsKey(entry.Key)) continue;
             // A compact pose preserves the last full canvas update; repeating it at
             // one-second heartbeats also recovers a lost independent event.
@@ -484,7 +527,7 @@ internal static partial class TownServiceMirror
                     && old.Entry.Structure == entry.Structure && old.Entry.Revision == entry.Revision
                     && old.Entry.Hand == entry.Hand;
                 returnClock = sameReturn ? old!.ReturnClock
-                    : new CardReturnClock(entry, packet.SampleTime, ReturnOffset(state, packet.SampleTime, receivedAt));
+                    : new CardReturnClock(entry, packet.SampleTime, entry.HasReturnVisibility ? entry.CohortOffset : ReturnOffset(state, packet.SampleTime, receivedAt));
                 if (sameReturn) returnClock!.Observe(entry, packet.SampleTime, receivedAt);
                 else if (VRLog.WantsDebug && receivedAt >= state.ReturnReportAt)
                 {
@@ -517,6 +560,7 @@ internal static partial class TownServiceMirror
 
     internal static void ApplyRemoteMotion(float now)
     {
+        ActivateReturnCohorts(now);
         foreach (RemoteMotion frame in MotionRemoteFrames.Values) frame.Slots.Clear();
         foreach (var pair in MotionPeers)
         {
@@ -563,6 +607,8 @@ internal static partial class TownServiceMirror
             MotionSlot? root = null, flight = null;
             foreach (MotionSlot slot in composed.Slots)
             { if (slot.Entry.Kind == 1) root = slot; else if (slot.Entry.Kind is 7 or 8) flight = slot; }
+            if (flight?.Entry.HasReturnVisibility == true) root = null;
+            if (PendingReturnModule(composed.Owner, module)) continue;
             if (changed)
             {
                 try
@@ -574,6 +620,8 @@ internal static partial class TownServiceMirror
                     { frame.SampleTime = Mathf.Max(frame.SampleTime, slot.SampleTime);
                       if (slot.Entry.Kind is 2 or 4) PatchMotionProperty(frame, slot.Entry); }
                     if (root != null) PatchMotionRootFrame(frame, root.Entry);
+                    if (flight?.Entry.HasReturnVisibility == true)
+                    { frame.Visible = flight.Entry.Visible; frame.ParentAlpha = flight.Entry.ParentAlpha; }
                     module.Binding.Validate(frame, Assets);
                     float sampleInterval = composed.LastSampleTime >= 0f && frame.SampleTime > composed.LastSampleTime
                         ? frame.SampleTime - composed.LastSampleTime : TownServiceMotionCodec.SendInterval;
@@ -582,6 +630,8 @@ internal static partial class TownServiceMirror
                     PrepareOfferedRootMotion(module, composed, root, now);
                     module.Motion.BeforeApply(now);
                     module.Binding.Apply(frame, Assets);
+                    if (flight?.Entry.HasReturnVisibility == true)
+                    { module.Host.GetComponent<CanvasGroup>().alpha = frame.ParentAlpha; module.Host.SetActive(frame.Visible); }
                     if (root != null) ApplyMotionRoot(module, root.Entry, composed, frame, now);
                     module.Motion.AfterApply(now, sampleInterval, sparseFan: root != null && root.Entry.Hand > 2, sourceSampleTime: frame.SampleTime);
                     TownServiceDepthOrder.Refresh(module.Host.transform);
@@ -618,6 +668,7 @@ internal static partial class TownServiceMirror
             // distance tick; reassert native sorting only after binding above.
         }
         ApplyOfferedFrames(now);
+        RestorePendingReturnPictures();
         foreach (RemoteModule removed in MotionFrameRemoval) MotionRemoteFrames.Remove(removed);
         MotionDiagnostics(now);
     }
@@ -841,7 +892,7 @@ internal static partial class TownServiceMirror
 
     internal static void ForgetRemoteMotion(int peer) { MotionPeers.Remove(peer); TownServiceSharedCue.Forget(peer); }
     internal static void ResetMotionNetwork()
-    { MotionSources.Clear(); MotionPeers.Clear(); MotionHands.Clear(); MotionOfferings.Clear(); OfferedFrames.Clear(); ActiveOfferedFrames.Clear(); DeadOfferedFrames.Clear(); OfferedRemoteMotion.Clear(); DeadOfferedRemoteMotion.Clear(); OfferedApplyOrder.Clear(); _offeredDiagnosticAt = 0f; MotionReturns.Clear(); CardReturns.Clear(); MotionWaiting.Clear(); MotionLive.Clear(); MotionVisibleFan.Clear(); MotionRemoteFrames.Clear(); TownServiceSharedCue.Reset();
+    { ResetReturnCohorts(); MotionSources.Clear(); MotionPeers.Clear(); MotionHands.Clear(); MotionOfferings.Clear(); ClearOfferedFrames(); ActiveOfferedFrames.Clear(); DeadOfferedFrames.Clear(); OfferedRemoteMotion.Clear(); DeadOfferedRemoteMotion.Clear(); OfferedApplyOrder.Clear(); _offeredDiagnosticAt = 0f; MotionReturns.Clear(); CardReturns.Clear(); MotionWaiting.Clear(); MotionLive.Clear(); MotionVisibleFan.Clear(); MotionRemoteFrames.Clear(); TownServiceSharedCue.Reset();
       MotionSourceRemoval.Clear(); MotionRemoval.Clear(); _nextMotionSend = 0f; _motionCursor = _motionLiveCursor = _motionVisibleCursor = 0;
       _motionCommitSession = _motionCommitRevision = 0; _nextMotionCommit = 0f;
       _motionCue = null; _nextMotionCue = 0f;

@@ -145,6 +145,7 @@ internal static partial class NativeTemplates
         TownServiceMirror.ResolveTemplate = Resolve;
         TownServiceMirror.PrepareInertGeometry = PrepareInertGeometry;
         TownServiceMirror.FinishInertPresentation = TownServiceBookInk.ApplyRemote; _ready = true;
+        PrepareEnhancementOriginals();
         return true;
     }
 

@@ -546,7 +546,7 @@ internal static partial class TownServiceMirror
         _publicClaim = _observedPublicClaim + 1; _observedPublicClaim = _publicClaim;
         PublicLane.NextManifest = 0;
         foreach (LocalModule module in PublicLane.Modules.Values)
-        { module.Last = null; module.Baseline = null; module.NextBaseline = module.NextRefresh = 0; }
+        { module.Last = null; module.Baseline = null; module.NativeRepair = null; module.NextBaseline = module.NextRefresh = 0; }
     }
     internal static TownRackState? PublicRack
     {
@@ -624,6 +624,7 @@ internal static partial class TownServiceMirror
         internal TownServiceBinding Binding = null!;
         internal TownServiceFrame? Last;
         internal TownServiceFrame? Baseline;
+        internal NativeTemplateRepair? NativeRepair;
         internal float NextBaseline;
         internal float NextRefresh;
         internal float RetryAfter;
@@ -778,7 +779,11 @@ internal static partial class TownServiceMirror
         module.LastSent = Math.Max(module.LastSent, frame.Sequence);
         float now = Time.unscaledTime;
         if (frame.BaseSequence == 0 && module.Baseline?.Sequence == frame.Sequence)
+        {
             module.NextBaseline = now + 5f + module.Id % 13 * .07f;
+            if (module.NativeRepair is NativeTemplateRepair repair
+                && ReferenceEquals(repair.Original, frame)) repair.After = now + .15f;
+        }
         // A single small ordinary module maintains session liveness; unchanged stock
         // does not need 2,000 separate subsecond heartbeat packets behind it.
         module.NextRefresh = now + (NeedsHeartbeat(module) ? .75f : 5f + module.Id % 7 * .03f);
@@ -842,6 +847,8 @@ internal static partial class TownServiceMirror
             RefreshVisibleCensus();
             foreach (LocalModule module in _local.CaptureOrder)
             {
+                try { CaptureNativeOriginalRepair(module, send, now); }
+                catch (Exception e) { Report("native original repair " + module.Id, e); }
                 if (now < module.RetryAfter || module.CatalogDormant && !module.CatalogDirty && module.Last != null) continue;
                 // The frozen local originals are already prepared. Never serialize an
                 // unseen enhancement inventory merely to unblock a visible offer.
@@ -853,12 +860,12 @@ internal static partial class TownServiceMirror
                     Transform source = module.Binding.Root;
                     if (source == null) continue;
                     TownServiceNode[] nodes;
-                    try { nodes = module.Binding.Read(Assets); }
+                    try { nodes = NativePublicationNodes(module.Binding.Read(Assets, includeInactiveGraphics: _service == 3)); }
                     catch (InvalidDataException e) when (e.Message == "Native town-service topology changed.")
                     {
                         module.Binding.Dispose(); module.Binding = new TownServiceBinding(source, module.Exclude);
                         _local.ParentLinksDirty = true;
-                        nodes = module.Binding.Read(Assets);
+                        nodes = NativePublicationNodes(module.Binding.Read(Assets, includeInactiveGraphics: _service == 3));
                     }
                     // Reuse only the unpublished probe. Emitted headers/node arrays are
                     // retained separately, so a later read cannot mutate queued artwork.
@@ -878,6 +885,7 @@ internal static partial class TownServiceMirror
                     ReadParent(module, frame); ReadCanvasFrame(source, frame);
                     TraceNativeVisibility(0, module.Binding, frame, source.gameObject, now);
                     if (frame.VisitorStock && HidePreparedCardReturn(source)) frame.Visible = false;
+                    PreserveReturningCardHeader(module, frame);
                     if (frame.RackMember != null)
                     {
                         float alpha = ReadRackAlpha(module);
@@ -1189,6 +1197,7 @@ internal static partial class TownServiceMirror
                 {
                     if (!frame.Visible && !PrepareHiddenCardReturnOriginal(frame))
                     { if (module != null) { module.Host.SetActive(false); module.Motion.Reset(); module.Sequence = frame.Sequence; module.LastFrame = frame; } continue; }
+                    bool heldReturn = module != null && HoldIncomingReturnPicture(entry.Key, module, frame);
                     Transform mount = parent;
                     if (frame.ParentModule != TownServiceFrame.ManifestModule)
                     {
@@ -1258,6 +1267,7 @@ internal static partial class TownServiceMirror
                     FinishInertPresentation?.Invoke(frame.TemplateAddress, root, parent);
                     TownServiceDepthOrder.Refresh(module.Host.transform);
                     HideDormantCatalogOriginal(entry.Key, frame, module);
+                    RestoreIncomingReturnPicture(module, heldReturn);
                 }
                 catch (Exception e)
                 {
@@ -1538,7 +1548,7 @@ internal static partial class TownServiceMirror
     internal static void RequestFullRefresh()
     {
         foreach (LocalModule module in AllLocalModules())
-        { module.Last = null; module.Baseline = null; module.NextRefresh = module.NextBaseline = 0; }
+        { module.Last = null; module.Baseline = null; module.NativeRepair = null; module.NextRefresh = module.NextBaseline = 0; }
         PrivateLane.NextManifest = PublicLane.NextManifest = StockLane.NextManifest = 0;
     }
     private static IEnumerable<LocalModule> AllLocalModules()
@@ -1557,7 +1567,7 @@ internal static partial class TownServiceMirror
             TownServiceGrantSync.SetOffer(PrivateLane.Service, PrivateLane.Session, false);
         foreach (int peer in new List<int>(Remote.Keys)) ClearRemoteModules(peer);
         MerchantOfferings.Clear(); ClearVoiceNetwork(); Pending.Clear(); ReceivedBaselines.Clear(); ReceivedCatalogBanks.Clear(); IncomingCatalogKeys.Clear(); CatalogOriginalBanks.Clear(); Sessions.Clear(); VisitorSessions.Clear(); RemoteRetry.Clear(); foreach (LocalModule module in AllLocalModules())
-        { module.Last = null; module.Baseline = null; module.NextRefresh = module.NextBaseline = 0; }
+        { module.Last = null; module.Baseline = null; module.NativeRepair = null; module.NextRefresh = module.NextBaseline = 0; }
         PrivateLane.NextManifest = PublicLane.NextManifest = StockLane.NextManifest = 0;
         PrivateLane.TempleDonationKnown = PrivateLane.TempleDonationAvailable = false;
         PrivateLane.TempleDonationRevision = 0; PrivateLane.TempleDonationChangedTime = 0f;

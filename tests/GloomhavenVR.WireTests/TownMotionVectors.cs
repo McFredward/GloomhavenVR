@@ -49,11 +49,18 @@ internal static class TownMotionVectors
             foreach (var entry in packet.Entries)
             {
                 if (entry.Kind == 2) ordinary.Add(entry.Module);
-                if (entry.Kind != 8 || first.ContainsKey(entry.Module)) continue;
-                first.Add(entry.Module,tick);
-                t.True(packet.Entries.Exists(root => root.Kind == 1 && root.Module == entry.Module
-                    && root.Lane == entry.Lane && root.Session == entry.Session && root.Structure == entry.Structure),
-                    "the first short return arrives atomically with its own matching original root");
+                if (entry.Kind != 10) continue;
+                t.True(entry.ReturnMembers.Length==entry.ReturnParts.Length && entry.ReturnMembers.Length==3
+                    && entry.ReturnSampleTime==now && entry.Numbers[0]==Math.Min(.35f,now),
+                    "matching complete physical roots retain their exact common native source clock");
+                foreach(var part in entry.ReturnParts)
+                {
+                    ushort member=entry.ReturnMembers[part.Index];
+                    t.True(entry.ReturnStructures[part.Index]==2 && part.Visible && part.ParentAlpha==1f
+                        && part.Child.Length==10 && part.Child[0]==.01f && part.Child[9]==1f,
+                        "the complete cohort retains each actual original's visibility and exact child geometry");
+                    if(!first.ContainsKey(member))first.Add(member,tick);
+                }
             }
         }
         t.Equal(3,first.Count,"every exact original card part receives a first clock under busy live contention");

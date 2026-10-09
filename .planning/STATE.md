@@ -1,5 +1,21 @@
 # State — where the project stands
 
+**Quest measured first-import progress, 2026-10-09 (Builder; current dev659 integrated).**
+
+Capture184004 is source8063/657 and still running: all27 preparation owners
+are reused before the first actual Unity asset database import. After60 minutes
+it continues textures; the initial child log was omitted from the Wizard's
+observer and its work incorrectly labelled package API preparation. Actual
+completed imports, last action and elapsed time now remain visible; no unknown
+asset total is fabricated. Import precedes API binding in the Unity block.
+API assemblies and four native content byte passes move their parent/global
+bars, while late closed logs cannot reopen work. Exact observer compatibility
+preserves27-owner qualification and the retained Library across this update.
+Focused integration/browser/C# and actual delivered source/launcher checks are
+recorded in [QUEST-UNITY-IMPORT-184004-20261009.md](QUEST-UNITY-IMPORT-184004-20261009.md).
+Historical cold import95.9min and successful warm SDK41–71s are scoped references,
+not whole-APK ETA or new Windows/headset acceptance. Keep the current run alive.
+
 **Quest measured native memory and automatic recovery, 2026-10-09 (Builder; Runtime657).**
 
 Capture165405 is sourcea1fec/657: all27 preparation owners are closed, but the
@@ -237,6 +253,44 @@ executable original-game profile getters. Actual merged645 full weaving closes
 and832 existing Weaver assertions. Windows end-to-end builds and updated
 headset behavior remain unverified.
 See [APK update workflow and proof limits](QUEST-APK-UPDATES-20261008.md).
+**Build659 configured pillar viewing radius, 2026-10-09: 1.1.0 development candidate.**
+
+After pushed NPC658, admitted pillars retain original geometry throughout the
+saved viewing radius (default0.75m from the radial surface), even with near/far
+caps at0%. Existing4cm hysteresis and live edits remain; ordinary wall/touch and
+figure policies are unchanged. No new keys, defaults or wire layout is added.
+
+All61 inputs match the inherited95-variant terrain proof. Final integrated2669
+runtime assertions/three new controls, three focused scopes, source16, strict
+Debug/Release0 warnings/errors and300297 portable assertions pass. Private
+compiled/surface scope and final main Debug are recorded in
+[FRAME-PILLAR-DISTANCE-REVIEW.md](FRAME-PILLAR-DISTANCE-REVIEW.md). Unchanged NPC
+areas inherit658's composed197-scope evidence. This is focused integration, not
+a second uninterrupted complete local gate or headset/FPS acceptance.
+
+**Build658 paired NPC flights, offer latency and enhancement borders, 2026-10-09: 1.1.0 development candidate.**
+
+The supplied paired656 logs/videos show the returning print/body divergence and
+intermittent enhancement borders. Physical return parts now share one authored
+clock and atomic publication; prepared originals retain their exact return pose
+and visibility. Native enhancement canvases follow their card print's exact
+furniture depth/order without changing original state, geometry or effects.
+
+Private mage compact originals now verify their exact prepared basis and retain
+a same-sequence full recovery source. Preparation begins before visitors arrive;
+actual complete transport callbacks and112 receipts govern bounded recovery.
+The integrated warm complete render takes0.828866s. Cold/mismatched preparation
+and saturated queues remain slower; this is not a universal elimination of2–3s
+latency or new headset evidence. A legal legacy exponential clock is repaired.
+
+The uninterrupted197-scope attempt recorded190 passes/seven failures. Affected
+reruns repair and pass all seven; composed coverage retains original failures.
+Final source16,300297 portable assertions, strict Debug/Release0 warnings/errors,
+bundles/surfaces and private compiled scope are recorded with precise boundaries
+in [NPC-658-REVIEW.md](NPC-658-REVIEW.md). Headset smoothness, first-picture latency
+and enhancement stability still need matching-build acceptance. Worker and
+integrator evidence is archived in the main checkout's gitignored debug folder.
+
 **Build657 native window-mode donation confirmations, 2026-10-09: 1.1.0 development candidate.**
 
 The supplied656 local log reproduces the temple's shared confirmation migrating

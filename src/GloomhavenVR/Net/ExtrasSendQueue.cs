@@ -150,9 +150,9 @@ internal sealed class ExtrasSendQueue
         && older.PublicClaim == current.PublicClaim && older.Session == current.Session
         && older.Service == current.Service && older.Module == current.Module;
 
-    internal void PrependTownOriginal(byte[] bytes, TownServices.TownServiceFrame frame)
+    internal void PrependTownOriginal(byte[] bytes, TownServices.TownServiceFrame frame, bool preserveInFlight = false)
     {
-        if (frame.BaseSequence != 0 || HasInFlight)
+        if (frame.BaseSequence != 0 || HasInFlight && !preserveInFlight)
             throw new InvalidOperationException("Cannot migrate an unfinished town module or delta.");
         var pending = _pending.ToArray(); _pending.Clear();
         var copy = new byte[bytes.Length]; Buffer.BlockCopy(bytes, 0, copy, 0, bytes.Length);

@@ -162,6 +162,9 @@ internal static class NetProtocol
     /// <summary>Receipt for exact retained original metadata, never gameplay permission.</summary>
     public const byte MsgTownOriginalReceipt = 28;
     public const byte ExtIdTownOriginalReceipt = 112;
+    /// <summary>One owner-authored native card return clock with exact public
+    /// member geometry. Additive to message26; existing motion records stay unchanged.</summary>
+    public const byte ExtIdTownCardReturnCohort = 113;
     /// <summary>Owner fan insertion gap: one byte gap + 1; zero clears the marker.</summary>
     public const byte ExtIdFanInsertionGap = 71;
     /// <summary>Native video source and shared pose, independent of the legacy window record21.</summary>
@@ -598,7 +601,34 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 657;
+    public const ushort ModBuild = 659;
+
+    // ModBuild659 — configured near-view pillar originals, after paired NPC658.
+    // Pillars retain100% authored geometry throughout the existing adjustable
+    // ScenarioTerrainDistanceMeters radius (default0.75m from the radial surface),
+    // including near/far0% caps. Existing4cm hysteresis and live edits stay.
+    // Ordinary walls retain18cm leaning/touch guards; figure policies are unchanged.
+    // No new keys/defaults, actor discovery or wire changes. Focused inherited
+    // terrain source/95-variant proof and final integration boundaries are in
+    // .planning/FRAME-PILLAR-DISTANCE-REVIEW.md. No new headset/FPS evidence.
+
+    // ModBuild658 — paired656 NPC first-picture, return and overlay follow-up.
+    // Real partitioned ability originals now use exact native-basis metadata;
+    // every omitted value is validated before paint, with retained same-sequence
+    // full repair after actual transport completion and compatible peer receipts.
+    // Original text/font output and changed native properties remain owner-authored.
+    // Actual native returns retain their prior artwork header while additive113
+    // carries one common curve/clock with exact original child geometry and live
+    // visibility. Large groups make bounded progress within the unchanged864-byte
+    // numeric event; coherent originals present together, with newer actual roots,
+    // withdrawal and session retirement taking precedence. Native gameplay never
+    // waits for artwork, a return clock or an observer receipt.
+    // Native offered overlay canvases follow their exact physical print's tier at
+    // submission, preserving original hover alpha, hierarchy and material/depth.
+    // The supplied656 videos and old-source controls expose earlier fixture gaps.
+    // Full/native timing, causal source proofs and GL/D3D11/headset limits are in
+    // .planning/NPC-658-REVIEW.md and its three lane reviews. Includes657.
+    // Version3 and existing record97/107 bytes stay;113 is additive, next free114.
 
     // ModBuild657 — native window-mode donation confirmation ownership.
     // The shared temple/enhancement prompt now retains its actual raising window

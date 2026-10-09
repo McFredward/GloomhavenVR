@@ -180,8 +180,16 @@ internal static partial class TownServiceMirror
     internal static void RegisterOfferedFrame(Transform nativeHolder, Transform? physicalPrint)
     {
         if (ReferenceEquals(nativeHolder, null)) return;
-        if (physicalPrint == null) OfferedFrames.Remove(nativeHolder);
-        else if (nativeHolder != null) OfferedFrames[nativeHolder] = physicalPrint;
+        if (physicalPrint == null)
+        { OfferedFrames.Remove(nativeHolder); GloomhavenVR.WorldUI.TownServiceDepthOrder.UnbindOffered(nativeHolder); }
+        else if (nativeHolder != null)
+        { OfferedFrames[nativeHolder] = physicalPrint; GloomhavenVR.WorldUI.TownServiceDepthOrder.BindOffered(nativeHolder, physicalPrint); }
+    }
+
+    private static void ClearOfferedFrames()
+    {
+        OfferedFrames.Clear();
+        GloomhavenVR.WorldUI.TownServiceDepthOrder.ClearOffered();
     }
 
     private static bool FindOfferedOriginal(LocalLane lane, Transform original, out LocalModule? module, out uint binding)
@@ -202,7 +210,8 @@ internal static partial class TownServiceMirror
         ActiveOfferedFrames.Clear(); DeadOfferedFrames.Clear();
         foreach (var stale in OfferedFrames)
             if (stale.Key == null || stale.Value == null) DeadOfferedFrames.Add(stale.Key!);
-        foreach (Transform stale in DeadOfferedFrames) OfferedFrames.Remove(stale);
+        foreach (Transform stale in DeadOfferedFrames)
+        { OfferedFrames.Remove(stale); GloomhavenVR.WorldUI.TownServiceDepthOrder.UnbindOffered(stale); }
         if (lane.Active && lane.Service == 3) foreach (var pair in OfferedFrames)
         {
             if (pair.Key == null || pair.Value == null || !ValidMotionScale(pair.Value.lossyScale)
@@ -288,7 +297,8 @@ internal static partial class TownServiceMirror
         // separate planes, even when the numeric budget delivers them separately.
         DeadOfferedRemoteMotion.Clear();
         foreach (RemoteModule old in OfferedRemoteMotion.Keys) if (!old.Alive) DeadOfferedRemoteMotion.Add(old);
-        foreach (RemoteModule old in DeadOfferedRemoteMotion) OfferedRemoteMotion.Remove(old);
+        foreach (RemoteModule old in DeadOfferedRemoteMotion)
+        { if (old.Host != null) GloomhavenVR.WorldUI.TownServiceDepthOrder.UnbindOffered(old.Host.transform); OfferedRemoteMotion.Remove(old); }
         OfferedApplyOrder.Clear();
         foreach (var candidate in MotionRemoteFrames)
         {
@@ -304,7 +314,8 @@ internal static partial class TownServiceMirror
         DeadOfferedRemoteMotion.Clear();
         foreach (RemoteModule old in OfferedRemoteMotion.Keys)
             if (!OfferedApplyOrder.Contains(old)) DeadOfferedRemoteMotion.Add(old);
-        foreach (RemoteModule old in DeadOfferedRemoteMotion) OfferedRemoteMotion.Remove(old);
+        foreach (RemoteModule old in DeadOfferedRemoteMotion)
+        { if (old.Host != null) GloomhavenVR.WorldUI.TownServiceDepthOrder.UnbindOffered(old.Host.transform); OfferedRemoteMotion.Remove(old); }
         OfferedApplyOrder.Sort(CompareOfferedParentage);
         foreach (RemoteModule module in OfferedApplyOrder)
         {
@@ -341,6 +352,7 @@ internal static partial class TownServiceMirror
                     motion.Ring != null ? 1f : blend);
                 motion.Ring?.Draw(holder, print, Time.timeAsDouble, Vector3.Scale(print.lossyScale, Scale(relation.Numbers)),
                     EffectiveRemoteFrame(module)!);
+                GloomhavenVR.WorldUI.TownServiceDepthOrder.BindOffered(module.Host.transform, print);
                 slot.Dirty = false;
             }
         }

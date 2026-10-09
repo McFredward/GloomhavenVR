@@ -208,7 +208,17 @@ public static partial class MirrorProgram
                     "prepared wire clocks stay sparse while sampler metadata retains exact repair originals");
                 frames.Add(TownServiceDelta.Retain(source));
             }
-            else frames.Add(decoded!);
+            else if (decoded!.NativeTemplateBasisKey != 0)
+            {
+                // The production receiver expands a validated native original
+                // before caching its complete values or deriving catalogue deltas.
+                // Keep that boundary here too: a compact wire DTO intentionally
+                // omits unchanged material/graphic values and is not a full basis.
+                Check(TownServiceMirror.TryExpandNativeTemplateState(decoded, out TownServiceFrame complete),
+                    "captured compact catalogue original validates its exact native property basis");
+                frames.Add(complete);
+            }
+            else frames.Add(decoded);
         };
         typeof(TownServiceMirror).GetMethod("CaptureCore", PrivateStatic)!
             .Invoke(null, new object[] { send, false });

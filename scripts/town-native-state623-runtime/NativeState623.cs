@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using GloomhavenVR.Net;
 using GloomhavenVR.Net.TownServices;
@@ -95,6 +96,9 @@ public static partial class MirrorProgram
         Check(TownServiceCodec.TryRead(unchanged, unchanged.Length, out TownServiceFrame? sparse)
             && sparse!.NativeTemplateBasisKey != 0 && sparse.BaseSequence == 0,
             "native metadata remains a complete independent original module");
+        Check(original.Nodes[0].Values.Keys.Where(key => !TownServiceFastNumbers.IsMaterial(key))
+            .All(key => sparse!.Nodes[0].Values.ContainsKey(key)),
+            "every owner root pose and state remains explicit in native metadata");
         byte[] full = TownServiceCodec.Write(original);
         File.WriteAllText(Path.Combine(_output, "native-state625-initial-wire-cost.txt"),
             "Original bytes=" + full.Length + "; robust native bytes=" + unchanged.Length + "\n");
@@ -113,6 +117,17 @@ public static partial class MirrorProgram
         observerFill.GetComponent<Image>().color = Color.blue;
         observerFill.GetComponent<Image>().fillAmount = .99f;
         templates[key].transform.Find("Background").gameObject.SetActive(false);
+        typeof(TownServiceMirror).GetMethod("ResetNativeTemplateState", PrivateStatic)!.Invoke(null, null);
+        Check(!TownServiceMirror.TryExpandNativeTemplateState(sparse!, out _),
+            "changed omitted native numeric state rejects before any observer paint");
+        // The compact source genuinely omitted unchanged geometry and graphics.
+        // A different local basis requires the retained complete source, rather
+        // than silently using those observer defaults. Text remains owner-authored.
+        observerFill.sizeDelta = ((RectTransform)source.Find("Filled")).sizeDelta;
+        observerFill.anchoredPosition = ((RectTransform)source.Find("Filled")).anchoredPosition;
+        observerFill.GetComponent<Image>().color = source.Find("Filled").GetComponent<Image>().color;
+        observerFill.GetComponent<Image>().fillAmount = source.Find("Filled").GetComponent<Image>().fillAmount;
+        templates[key].transform.Find("Background").gameObject.SetActive(source.Find("Background").gameObject.activeSelf);
         typeof(TownServiceMirror).GetMethod("ResetNativeTemplateState", PrivateStatic)!.Invoke(null, null);
         Check(TownServiceMirror.TryExpandNativeTemplateState(sparse!, out TownServiceFrame expanded),
             "localized observer defaults never replace exact owner text or font");
@@ -294,7 +309,8 @@ public static partial class MirrorProgram
             Check(idle == 3, "native original queue drains without delayed periodic repair");
         };
         capture();
-        Check(samples.Count == 1 && samples[0].BaseSequence == 0 && samples[0].NativeTemplateBasisKey == 0,
+        Check(samples.Count == 1 && samples[0].BaseSequence == 0
+            && TownServiceMirror.TryExpandNativeTemplateState(samples[0], out _),
             "first captured enhancement original carries complete owner state without a template-repair wait");
         TownServiceFrame first = samples[0]; int initialBytes = lengths[0];
         pump();
@@ -311,7 +327,8 @@ public static partial class MirrorProgram
             && samples[1].NativeTemplateBasisKey == 0,
             "after the exact native original actual hover capture uses the existing cumulative owner delta");
         TownServiceFrame changed = samples[1];
-        Check(lengths[1] < initialBytes,
+        Check(TownServiceMirror.TryExpandNativeTemplateState(first, out TownServiceFrame firstComplete)
+            && lengths[1] < TownServiceCodec.Write(firstComplete).Length,
             "actual cumulative hover avoids repeating the complete owner native property table");
         Check(TownServiceDelta.Expand(null, changed) == null,
             "a missing genuine owner baseline never reconstructs hover from viewer defaults");
@@ -343,7 +360,9 @@ public static partial class MirrorProgram
         module.GetType().GetField("NextBaseline", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(module, 0f);
         module.GetType().GetField("NextRefresh", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(module, 0f);
         capture();
-        Check(samples.Count == 3 && samples[2].BaseSequence == 0,
+        TownServiceFrame periodic = samples.Last();
+        Check(periodic.BaseSequence == 0 && periodic.Sequence > first.Sequence
+            && samples.Count(x => x.BaseSequence == 0 && x.Sequence > first.Sequence) == 1,
             "periodic complete native repair still supplies a new exact owner baseline");
         pump(); TownServiceMirror.TickRemote(_ => observer);
         Check(Remote(2, 41)!.Root.Find("Name").GetComponent<TextMeshProUGUI>().text == _text.text,
@@ -351,7 +370,7 @@ public static partial class MirrorProgram
         File.WriteAllText(Path.Combine(_output, "native-queued-delta626.txt"),
             "Actual CaptureCore -> immutable queue -> native bundle/fragments -> ReceiveParsed -> TickRemote.\n"
             + "Initial original=" + initialBytes + " bytes; cumulative hover=" + lengths[1]
-            + " bytes; current complete repair=" + lengths[2] + " bytes.\n"
+            + " bytes; current complete repair=" + lengths[lengths.Count - 1] + " bytes.\n"
             + "Reordered delta requires its exact independently expanded original baseline.\n");
     }
 

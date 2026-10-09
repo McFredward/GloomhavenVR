@@ -22,8 +22,11 @@ internal static partial class TownServiceMirror
     }
     private static readonly Dictionary<string, NativeTemplateBasis> NativeTemplateBases = new(StringComparer.Ordinal);
     internal static uint NativeTemplatePreparationRevision { get; private set; }
-    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<LocalModule, NativeTemplateRepair> NativeTemplateRepairs = new();
-    private sealed class NativeTemplateRepair { internal float After; }
+    private sealed class NativeTemplateRepair
+    {
+        internal float After;
+        internal TownServiceFrame? Original;
+    }
     private sealed class MageValidatedOriginal
     {
         internal TownServiceFrame Received = null!;
@@ -250,16 +253,21 @@ internal static partial class TownServiceMirror
         NativeBasis(new TownServiceFrame { Service = service, Template = 1, TemplateAddress = address });
     }
 
+    // Text/content/font selection always comes from the owner. An unchanged
+    // original text material can use its exactly validated native basis, just
+    // like an Image material; any changed shader/property/texture is transmitted.
+    // A different observer default changes the basis key and waits for the full
+    // retained original. It can never silently substitute its local material.
     private static bool NativeTextProperty(ushort key) => key is TownServiceProperty.TmpText
-        or TownServiceProperty.LegacyText or TownServiceProperty.TextMaterial;
-    private static bool OwnerProperty(int index, ushort key) => index == 0 || NativeTextProperty(key)
-        || !TownServiceFastNumbers.IsMaterial(key);
+        or TownServiceProperty.LegacyText;
+    private static bool OwnerProperty(int index, ushort key) => NativeTextProperty(key)
+        || index == 0 && !TownServiceFastNumbers.IsMaterial(key);
 
-    // Native layout, active states, masks and even authored sprite selection can
-    // differ after the observer's own UI initialization. They are owner output,
-    // never reconstruction defaults. Only omitted immutable material descriptors
-    // require equality; an explicitly supplied original property replaces its
-    // local template default before normal asset validation.
+    // Native layout, active states, masks, sprite selection and materials can
+    // differ after local UI initialization. Every changed owner property is sent;
+    // every omitted property participates in this exact native basis hash. No
+    // observer default can be used merely because its template address matches.
+    // Explicit owner output replaces the verified basis before asset validation.
     private static ulong NativeBasisKey(NativeTemplateBasis basis, TownServiceNode[] overrides)
     {
         uint[] coverage = basis.CoverageScratch;
@@ -279,9 +287,9 @@ internal static partial class TownServiceMirror
 
     private static ulong NativeBasisKey(NativeTemplateBasis basis)
     {
-        // Owner text, font, style and text-material output always accompanies the
-        // patch. Its native template defaults can be localized differently on the
-        // observer, so those defaults never participate in the shared basis key.
+        // Owner text, font and style always accompany the patch; localized text
+        // defaults therefore do not participate in this key. Every other omitted
+        // value, including unchanged text/image materials, is hashed byte exactly.
         using var bytes = new MemoryStream();
         using (var writer = new BinaryWriter(bytes, NativeTemplateUtf8, true))
         {
@@ -318,14 +326,11 @@ internal static partial class TownServiceMirror
             || complete.Module >= TownServiceFrame.VoiceModule || complete.BaseSequence != 0
             || complete.NativeTemplateBasisKey != 0 || complete.Nodes.Length == 0
             || complete.CatalogBank != null || complete.Rack != null) return false;
-        // A newly offered mage picture must not depend on the observer having
-        // borrowed precisely the same native material defaults. Build625's compact
-        // grammar saved little for these owner-authored widgets, but a genuine
-        // original-basis difference deferred first appearance until ten-second
-        // repair. Published mage keyframes carry the complete exact owner state;
-        // the existing lossless transport compression and cumulative deltas own
-        // bandwidth. The prepared public cabinet retains sparse native metadata.
-        if (complete.Service == 3 && Local.ContainsKey(complete.Module)) return false;
+        // A compact original is accepted only against the exact frozen native
+        // structure/material basis below. Real mage publications retain their
+        // full original until that exact baseline has been acknowledged by all
+        // compatible observers. A cold or different basis gets that full source
+        // promptly, rather than Build625's ten-second periodic repair.
         if (complete.Service == 1 && !complete.PublicCatalog && !complete.VisitorStock
             && complete.TemplateAddress.StartsWith("item.confirm.part.", StringComparison.Ordinal)
             && Local.ContainsKey(complete.Module)) return false;
@@ -342,10 +347,10 @@ internal static partial class TownServiceMirror
             // An unchanged full original remains a staggered repair for an observer
             // whose real game template differs. It does not sit ahead of the first
             // immediately reconstructable native state in the urgent artwork lane.
-            if (Local.TryGetValue(complete.Module, out LocalModule? source))
+            if (complete.Service != 3 && Local.TryGetValue(complete.Module, out LocalModule? source))
             {
-                NativeTemplateRepair repair = NativeTemplateRepairs.GetValue(source,
-                    module => new NativeTemplateRepair { After = Time.unscaledTime + 10f + module.Id % 11 * .09f });
+                NativeTemplateRepair repair = source.NativeRepair ??= new NativeTemplateRepair
+                    { After = Time.unscaledTime + 10f + source.Id % 11 * .09f };
                 if (Time.unscaledTime >= repair.After)
                 { repair.After = Time.unscaledTime + 10f + source.Id % 11 * .09f; return false; }
             }

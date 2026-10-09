@@ -36,6 +36,8 @@ public static partial class MirrorProgram
         var first = Capture();
         var actual = first.Select(bytes => { TownServiceCodec.TryRead(bytes, bytes.Length, out var frame); return frame!; }).First(x => x.Module == id);
         Check(actual.BaseSequence == 0, "published visible dynamic native row owns an actual complete original baseline");
+        Check(TownServiceMirror.TryExpandNativeTemplateState(actual,out TownServiceFrame original),
+            "initial complete native original validates before becoming a reveal dependency");
         source.gameObject.SetActive(false);
         GloomhavenVR.WorldUI.TownServiceSync.Tick(owner, owner);
         var modules = (IDictionary)typeof(TownServiceMirror).GetProperty("Local", PrivateStatic)!.GetValue(null)!;
@@ -53,7 +55,42 @@ public static partial class MirrorProgram
             "reveal reuses stable original identity without retiring and recreating its baseline");
         var visible = Capture();
         var restored = visible.Select(bytes => { TownServiceCodec.TryRead(bytes, bytes.Length, out var frame); return frame!; }).First(x => x.Module == id);
-        Check(restored.BaseSequence == 0, "newly visible original publishes one current complete dependency");
+        Check(restored.Service==original.Service&&restored.Session==original.Session&&restored.Module==original.Module
+            &&restored.Template==original.Template&&restored.TemplateAddress==original.TemplateAddress&&restored.Structure==original.Structure
+            &&restored.Visible&&restored.Sequence>original.Sequence,
+            "reveal retains the exact original identity and publishes a newer visible state");
+        TownServiceFrame? complete;
+        if(restored.BaseSequence==0)
+        {
+            Check(TownServiceMirror.TryExpandNativeTemplateState(restored,out TownServiceFrame full),
+                "complete reveal validates its original native basis");complete=full;
+        }
+        else
+        {
+            Check(restored.BaseSequence==original.Sequence&&TownServiceDelta.Expand(null,restored)==null,
+                "cumulative reveal requires the exact captured original dependency");
+            complete=TownServiceDelta.Expand(original,restored);
+        }
+        Check(complete!=null,"reveal resolves to a complete current original through production expansion");
+        object local=modules[id]!;
+        var last=(TownServiceFrame)local.GetType().GetField("Last",BindingFlags.Instance|BindingFlags.NonPublic|BindingFlags.Public)!.GetValue(local)!;
+        AssertNativeEqual623(last,complete!);
+        Check(complete!.Visible==last.Visible&&complete.ParentModule==last.ParentModule&&complete.ParentBinding==last.ParentBinding
+            &&complete.ParentAlpha==last.ParentAlpha&&complete.HasCanvasFrame==last.HasCanvasFrame
+            &&complete.CanvasSortingOrder==last.CanvasSortingOrder&&complete.CanvasSortingLayer==last.CanvasSortingLayer
+            &&complete.Pose.SequenceEqual(last.Pose)&&complete.CanvasPose.SequenceEqual(last.CanvasPose)
+            &&complete.CanvasRect.SequenceEqual(last.CanvasRect)&&complete.CanvasSettings.SequenceEqual(last.CanvasSettings),
+            "expanded reveal retains exact owner visibility, pose, parent and canvas geometry");
+        Receive(2,first);Receive(2,hidden);Receive(2,visible);
+        var received=(Dictionary<int,Dictionary<ushort,TownServiceFrame>>)typeof(TownServiceMirror).GetField("ReceivedBaselines",PrivateStatic)!.GetValue(null)!;
+        var pending=(Dictionary<int,Dictionary<ushort,TownServiceFrame>>)typeof(TownServiceMirror).GetField("Pending",PrivateStatic)!.GetValue(null)!;
+        Check(received.TryGetValue(2,out var bases)&&bases.TryGetValue(id,out var dependency)
+            &&dependency.Sequence==(restored.BaseSequence==0?restored.Sequence:original.Sequence)
+            &&pending.TryGetValue(2,out var current)&&current.ContainsKey(id),
+            "actual ordered receiver retains the exact complete dependency and current reveal");
+        TownServiceFrame? painted=TownServiceDelta.Expand(received[2][id],pending[2][id]);
+        Check(painted!=null&&painted.Visible,"actual receiver reconstructs the visible reveal without another baseline");
+        AssertNativeEqual623(last,painted!);
         File.WriteAllText(Path.Combine(_output,"first-picture638-lifecycle.txt"),
             "Actual production PublishNative -> TickCore removal/prune -> CaptureCore\n"
             + "native prefab nodes=26; stable original module=" + id + "; hidden retained=true; reveal baseline=" + restored.BaseSequence + "\n");
