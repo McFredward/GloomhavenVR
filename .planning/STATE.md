@@ -1,5 +1,25 @@
 # State — where the project stands
 
+**Quest completed27-step reuse, native engine boundary and shader progress,
+2026-10-09 (Builder; current dev654 integrated).**
+
+Capture123047 is0d675/651: all27 preparation transactions close, weaving291
+targets succeeds, then deploying a genuinely rewritten Player CoreModule fails.
+The generated Quest mod now qualifies the exact engine detour and its native
+restoration/capture guards, uses existing fallback and emits290 non-engine targets.
+Desktop source remains unchanged; the two optional final-pre-cull-dependent
+environment/world-material budgets cannot claim desktop optimization on Quest.
+
+Completed preparation now retains all27 owners, archives and Unity Library across
+qualified runtime/weaver updates. Four small current-input JSON documents refresh
+with durable crash/retry evidence; unknown consumed producers still differ.
+UI counters expose current ordinal, named passes and real Unity variant counts;
+unknown compiler totals stay unknown. Support exports record the bounded journal
+frontier that was missing from this capture. Merged654 retains Quest Meta passthrough
+alongside Frame's separately selected native composition and shared mobile defaults.
+Focused source/compiled/Unity-pixel controls pass; Windows build/headset acceptance
+is still owed. See [completed preparation and engine repair](QUEST-COMPLETED-PREP-123047-20261009.md).
+
 **Quest compute contract and measured graphics progress, 2026-10-09 (Builder only).**
 
 Capture093454 identifies07ebc472d / ModBuild647: all17 preparation steps close,

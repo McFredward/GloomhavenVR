@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-09 for Build651: individual native Bug Fixes audit and safe local UI repairs.
+Updated 2026-10-09 for the Quest Builder repair and integrated current dev654.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
@@ -14,6 +14,7 @@ status; it is not the player manual.
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [QUEST-COMPLETED-PREP-123047-20261009.md](QUEST-COMPLETED-PREP-123047-20261009.md) | Captured CoreModule deployment failure, retained27 completed owners, measured Unity compiler work and dev654 merge |
 | [QUEST-GRAPHICS-093454-20261009.md](QUEST-GRAPHICS-093454-20261009.md) | Captured scalar compute failure, retained17-step prefix and measured texture/compute/Shader work |
 | [QUEST-BUILD-REUSE-20261008.md](QUEST-BUILD-REUSE-20261008.md) | Original-source/output roles, retained14-phase staging and preparation, persistent change-time witnesses and bounded speed evidence |
 | [QUEST-BUILD-NATIVE-BYTES-20261008.md](QUEST-BUILD-NATIVE-BYTES-20261008.md) | Exact Windows native overlays, retained642 staging, measured native progress and dev643 Builder |
