@@ -83,6 +83,7 @@ internal static class TownOriginalRequest661Vectors
         KnownOriginalQueue(t, 1);
         KnownOriginalQueue(t, 3);
         KnownOriginalInFlight(t);
+        OpeningReservationEnds(t);
     }
 
     private static void KnownOriginalQueue(Harness t, byte service)
@@ -201,5 +202,63 @@ internal static class TownOriginalRequest661Vectors
             queue.Clear();
         }
         finally { TownRequestedOriginalRepair.Source = previous; }
+    }
+
+    private static void OpeningReservationEnds(Harness t)
+    {
+        t.Case("Finite opening debt retires with no ordinary non-town traffic");
+        var source = new TownServiceFrame { Service = 3, Session = 661, Sequence = 1,
+            Module = 42, Template = 1, TemplateAddress = "face.333|row", Structure = 7,
+            Visible = true, HighPriority = true,
+            Pose = new[] { 0f, 0f, 0f, 0f, 0f, 0f, 1f, 1f, 1f, 1f } };
+        var census = new TownServiceFrame { Service = 3, Session = 661, Sequence = 2,
+            Module = TownServiceFrame.ManifestModule, Visible = true, TransactionActive = true,
+            Modules = new ushort[] { 42 }, RequiredVisibleModules = new ushort[] { 42 }, Pose = source.Pose };
+        byte[] manifest = TownServiceCodec.Write(census);
+        bool eightPages = false; byte[] original = Array.Empty<byte>();
+        for (int length = 8000; length <= 14000 && !eightPages; length += 100)
+        {
+            var random = new Random(661); var characters = new char[length];
+            for (int i = 0; i < length; i++) characters[i] = (char)('a' + random.Next(26));
+            var node = new TownServiceNode { Binding = 1 };
+            node.Values.Add(TownServiceProperty.TmpText, new TownServiceValue { Numbers = new float[40],
+                Text = new[] { new string(characters), "originalFont", "originalSprites" } });
+            source.Nodes = new[] { node }; original = TownServiceCodec.Write(source);
+            var pool = new TownServiceCodec.OriginalValuePoolBuilder();
+            t.True(pool.TryAdd(manifest) && pool.TryAdd(original), "exact opening originals fit their existing atomic pool");
+            byte[] bytes = pool.Write();
+            eightPages = ExtrasFragments.Encode(bytes, bytes.Length, TownServiceFrame.UrgentBundleStream,
+                TownServiceCodec.MessageType, TownServiceCodec.FragmentType, TownServiceFrame.MaxBytes, compress: true).Length == 8;
+        }
+        t.True(eightPages, "actual opening pool fills two four-page reservations");
+        if (!eightPages) return;
+        var sender = new ExtrasSendScheduler(0, NetProtocol.MsgUseBarAnimation, NetProtocol.MsgUseBarAnimationFragments);
+        sender.Enqueue(original, original.Length, identity: source); sender.Enqueue(manifest, manifest.Length, identity: census);
+        var receiver = new TownServiceFragments(); bool full = false, advanced = false;
+        var current = TownServiceDelta.Retain(source); current.Sequence = 3; current.Pose[0] = .4f;
+        var delta = TownServiceDelta.Create(source, current); delta.HighPriority = true;
+        byte[] revision = TownServiceCodec.Write(delta);
+        for (int tick = 0; tick < 100; tick++)
+        {
+            double now = tick * .051; byte[]? packet = sender.NextBatch(now); if (packet == null) continue;
+            t.True(packet.Length <= PresentationBatch.MaxSize && sender.NextBatch(now) == null,
+                "reservation completion preserves the shared event bound and send clock");
+            byte[][] pages = PresentationBatch.TryRead(packet, packet.Length, out var batch) ? batch! : new[] { packet };
+            foreach (byte[] page in pages)
+            {
+                byte[]? result = receiver.Accept(2, page, page.Length, now); if (result == null) continue;
+                byte[][] children = TownServiceCodec.TryReadBundle(result, result.Length, out var bundle) ? bundle! : new[] { result };
+                foreach (byte[] child in children)
+                {
+                    if (!TownServiceCodec.TryRead(child, child.Length, out var frame) || frame!.Module != 42) continue;
+                    if (frame.BaseSequence == 0 && !full)
+                    { t.Wire(original, child, child.Length, "opening delivers the complete exact original"); full = true; sender.Enqueue(revision, revision.Length, identity: delta); }
+                    else if (frame.BaseSequence == 1)
+                    { t.Wire(revision, child, child.Length, "ordinary revision survives the completed opening reservation"); advanced = true; }
+                }
+            }
+        }
+        t.True(full && advanced, "town revisions progress after opening even when all other streams are empty");
+        sender.Clear();
     }
 }
