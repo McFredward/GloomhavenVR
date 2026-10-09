@@ -227,6 +227,14 @@ nullable ring root and zero rate; these fields are ports for absent ring motion,
 not substituted artwork or changed source behavior. Strict Debug build passed
 with zero warnings/errors after the source checkpoint.
 
+The final queue rerun (`final-queue-controls/run-ismqqhxd`) passed2,353
+production assertions and both targeted dependency mutations, including the
+ordinary-original bookkeeping omission. Ordinary-start recovery was2.3626222s
+with46 bounded events/31 artwork revisions/exactly one full dependency; its
+older fragmented delta callback precedes that full callback. This is an
+adversarial progress check, not an added1s latency pass. Both shared-adapter
+lifecycle modes compiled and passed after the adapter fields were consolidated.
+
 ## Audit of setbacks
 
 Exploratory receipts remain under the worker debug directory. They include the
