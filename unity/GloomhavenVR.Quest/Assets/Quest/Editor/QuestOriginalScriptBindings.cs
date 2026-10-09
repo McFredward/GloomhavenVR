@@ -28,7 +28,7 @@ namespace GloomhavenVR.Quest.Editor
         }
         [Serializable] public sealed class Replacement
         {
-            public string assemblyName, fullName, oldGuid, newGuid;
+            public string assemblyName, fullName, oldGuid, newGuid, newAssetPath;
             public long oldFileId, newFileId;
         }
         [Serializable] public sealed class ChangedAsset
@@ -83,7 +83,8 @@ namespace GloomhavenVR.Quest.Editor
                 if (!AssetDatabase.TryGetGUIDAndLocalFileIdentifier(matches[0], out guid, out fileId) || fileId == 0 || guid == binding.oldGuid)
                     throw new InvalidOperationException("Package script has no independent imported identity: " + binding.fullName);
                 var replacement = new Replacement { assemblyName = binding.assemblyName, fullName = binding.fullName,
-                    oldGuid = binding.oldGuid, oldFileId = binding.oldFileId, newGuid = guid, newFileId = fileId };
+                    oldGuid = binding.oldGuid, oldFileId = binding.oldFileId, newGuid = guid, newFileId = fileId,
+                    newAssetPath = AssetDatabase.GetAssetPath(matches[0]) };
                 var oldKey = binding.oldGuid + ":" + binding.oldFileId.ToString(CultureInfo.InvariantCulture);
                 if (replacements.ContainsKey(oldKey)) throw new InvalidOperationException("Duplicate source script identity: " + oldKey);
                 replacements.Add(oldKey, replacement);
@@ -92,7 +93,10 @@ namespace GloomhavenVR.Quest.Editor
             bindingProgress.Complete("Original package script identities mapped");
             var disabled = new HashSet<string>(input.disabledPluginGuids, StringComparer.Ordinal);
             var plans = new List<KeyValuePair<string, string>>();
-            var changed = new List<ChangedAsset>();
+            // Preserve the first original-to-package transition across reruns.
+            // Publish its complete write set before asset mutation so a kill
+            // during the loop leaves independently verifiable original hashes.
+            var changed = ReadRetainedTransitions(input, replacements);
             var projectRoot = Path.GetFullPath(".") + Path.DirectorySeparatorChar;
             var assetProgress = new QuestWizardProgress.Counter("unity-script-assets", "unity-validation", input.assetPaths.Length, "files", "Validate original serialized script pointers");
             int assetsDone = 0;
@@ -103,6 +107,17 @@ namespace GloomhavenVR.Quest.Editor
                     !Path.GetFullPath(path).StartsWith(projectRoot, StringComparison.Ordinal) || !File.Exists(path))
                     throw new InvalidOperationException("Invalid original binding asset path: " + path);
                 var before = File.ReadAllText(path);
+                var normalizedBefore = Pointer.Replace(before, "m_Script: <identity>");
+                string beforeSha256 = null, nonScriptSha256 = null;
+                ChangedAsset retained;
+                if (changed.TryGetValue(path, out retained))
+                {
+                    beforeSha256 = Hash(before);
+                    nonScriptSha256 = Hash(normalizedBefore);
+                    if ((beforeSha256 != retained.beforeSha256 && beforeSha256 != retained.afterSha256) ||
+                        nonScriptSha256 != retained.nonScriptSha256)
+                        throw new InvalidOperationException("Retained original script asset changed: " + path);
+                }
                 var count = 0;
                 var after = Pointer.Replace(before, match =>
                 {
@@ -118,28 +133,82 @@ namespace GloomhavenVR.Quest.Editor
                 if (Pointer.Matches(after).Cast<Match>().Any(m => disabled.Contains(m.Groups[2].Value)))
                     throw new InvalidOperationException("Disabled SDK script remained after remapping: " + path);
                 // Normalize only script pointers: callbacks, fields, asset GUIDs and object IDs must remain byte-for-byte equal.
-                var normalizedBefore = Pointer.Replace(before, "m_Script: <identity>");
                 var normalizedAfter = Pointer.Replace(after, "m_Script: <identity>");
                 if (normalizedBefore != normalizedAfter) throw new InvalidOperationException("Non-script serialization changed: " + path);
                 assetProgress.Report(++assetsDone, path);
                 if (count == 0) continue;
                 plans.Add(new KeyValuePair<string, string>(path, after));
-                changed.Add(new ChangedAsset { path = path, beforeSha256 = Hash(before), afterSha256 = Hash(after),
-                    nonScriptSha256 = Hash(normalizedBefore), replacementCount = count });
+                var transition = new ChangedAsset { path = path, beforeSha256 = beforeSha256 ?? Hash(before), afterSha256 = Hash(after),
+                    nonScriptSha256 = nonScriptSha256 ?? Hash(normalizedBefore), replacementCount = count };
+                if (changed.TryGetValue(path, out retained))
+                {
+                    if (retained.beforeSha256 != transition.beforeSha256 || retained.afterSha256 != transition.afterSha256 ||
+                        retained.nonScriptSha256 != transition.nonScriptSha256 || retained.replacementCount != count)
+                        throw new InvalidOperationException("Retained original script transition differs: " + path);
+                }
+                else changed.Add(path, transition);
             }
             assetProgress.Complete("Original serialized script pointer inputs validated");
             // Validate the entire transaction before touching any original-derived file.
+            PublishTransitions(new Receipt {
+                replacements = replacements.Values.OrderBy(r => r.fullName).ToArray(),
+                assets = changed.Values.OrderBy(a => a.path, StringComparer.Ordinal).ToArray(),
+                callbacksAndOtherSerializedBytesPreserved = true });
             var writeProgress = new QuestWizardProgress.Counter("unity-script-write", "unity-validation", plans.Count, "files", "Apply validated original package script pointers");
             int written = 0;
             foreach (var plan in plans)
             { writeProgress.Report(written, plan.Key); File.WriteAllText(plan.Key, plan.Value, new UTF8Encoding(false)); writeProgress.Report(++written, plan.Key); }
             writeProgress.Complete("Validated original package script pointers applied");
-            Directory.CreateDirectory("QuestStartupEvidence");
-            File.WriteAllText("QuestStartupEvidence/script-remap.json", JsonUtility.ToJson(new Receipt {
-                replacements = replacements.Values.OrderBy(r => r.fullName).ToArray(), assets = changed.ToArray(),
-                callbacksAndOtherSerializedBytesPreserved = true }, true));
             AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
-            Debug.Log("[Quest startup] Rebound " + changed.Sum(a => a.replacementCount) + " SDK script pointers; original callbacks retained.");
+            Debug.Log("[Quest startup] Rebound " + plans.Sum(plan => changed[plan.Key].replacementCount) + " SDK script pointers; original callbacks retained.");
+        }
+
+        private static Dictionary<string, ChangedAsset> ReadRetainedTransitions(Input input, Dictionary<string, Replacement> replacements)
+        {
+            var result = new Dictionary<string, ChangedAsset>(StringComparer.Ordinal);
+            const string path = "QuestStartupEvidence/script-remap.json";
+            if (!File.Exists(path)) return result;
+            if (new FileInfo(path).Length > 16 * 1024 * 1024)
+                throw new InvalidOperationException("Retained original script transition evidence is too large.");
+            var receipt = JsonUtility.FromJson<Receipt>(File.ReadAllText(path));
+            if (receipt == null || receipt.schema != 1 || !receipt.callbacksAndOtherSerializedBytesPreserved ||
+                receipt.replacements == null || receipt.assets == null || receipt.replacements.Length != replacements.Count)
+                throw new InvalidOperationException("Retained original script transition evidence is invalid.");
+            var mapped = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var row in receipt.replacements)
+            {
+                Replacement expected;
+                string key = row == null ? "" : row.oldGuid + ":" + row.oldFileId.ToString(CultureInfo.InvariantCulture);
+                if (row == null || !mapped.Add(key) || !replacements.TryGetValue(key, out expected) ||
+                    row.assemblyName != expected.assemblyName || row.fullName != expected.fullName ||
+                    row.newGuid != expected.newGuid || row.newFileId != expected.newFileId ||
+                    (!string.IsNullOrEmpty(row.newAssetPath) && row.newAssetPath != expected.newAssetPath))
+                    throw new InvalidOperationException("Retained original package script mapping changed.");
+            }
+            var allowed = new HashSet<string>(input.assetPaths, StringComparer.Ordinal);
+            foreach (var row in receipt.assets)
+            {
+                if (row == null || !allowed.Contains(row.path) || result.ContainsKey(row.path) || row.replacementCount <= 0 ||
+                    !Regex.IsMatch(row.beforeSha256 ?? "", "^[0-9a-f]{64}$") || !Regex.IsMatch(row.afterSha256 ?? "", "^[0-9a-f]{64}$") ||
+                    !Regex.IsMatch(row.nonScriptSha256 ?? "", "^[0-9a-f]{64}$"))
+                    throw new InvalidOperationException("Retained original script asset evidence is invalid.");
+                result.Add(row.path, row);
+            }
+            return result;
+        }
+
+        private static void PublishTransitions(Receipt receipt)
+        {
+            const string path = "QuestStartupEvidence/script-remap.json";
+            Directory.CreateDirectory("QuestStartupEvidence");
+            string temporary = path + ".tmp-" + Guid.NewGuid().ToString("N");
+            try
+            {
+                File.WriteAllText(temporary, JsonUtility.ToJson(receipt, true), new UTF8Encoding(false));
+                if (File.Exists(path)) File.Replace(temporary, path, null);
+                else File.Move(temporary, path);
+            }
+            finally { if (File.Exists(temporary)) File.Delete(temporary); }
         }
 
         private static string Hash(string value)
