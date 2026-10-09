@@ -88,7 +88,7 @@ internal static partial class WallSegmentFade
         private readonly HashSet<Renderer> _performanceWanted = new();
         private readonly HashSet<Renderer> _performanceProtected = new();
         private readonly List<Renderer> _performanceRetired = new();
-        private int _performanceMode = -1, _performanceScene = -1;
+        private int _performanceMode = -1, _performanceScene = -1, _performanceAutoBelowFps = -1;
         private TilesOcclusionGenerator? _performanceGenerator;
         private bool _performanceAutoLatched;
         private uint _performanceRevision, _performanceCollectedRevision, _performanceCycleRevision;
@@ -133,12 +133,21 @@ internal static partial class WallSegmentFade
         private bool TickPerformanceVisibility()
         {
             int mode = PerfConfig.WallVisibilityMode;
-            if (mode != _performanceMode)
+            // A live Auto threshold edit is a new experiment, including while already
+            // latched: restore masks/material/terrain consumers and native sender keys,
+            // then start the existing grace and full window from zero. Compare the cached
+            // effective scalar so repeated/clamped-equivalent edits do no recovery work.
+            // Manual Hide all remains hidden when its inactive threshold is edited.
+            int autoBelowFps = mode == 2 ? PerfConfig.WallAutoHideBelowFps : _performanceAutoBelowFps;
+            bool modeChanged = mode != _performanceMode;
+            bool autoThresholdChanged = mode == 2 && autoBelowFps != _performanceAutoBelowFps;
+            if (modeChanged || autoThresholdChanged)
             {
                 bool recoverWireKeys = _performanceWallsHidden && mode != 1
                     && PerformanceScenarioStillCurrent();
-                ResetPerformanceVisibility("mode changed");
+                ResetPerformanceVisibility(modeChanged ? "mode changed" : "automatic threshold changed");
                 _performanceMode = mode;
+                _performanceAutoBelowFps = autoBelowFps;
                 // Hidden lifecycle commits do not need sender keys. New segments can have
                 // WireKey=0, so recover once before ordinary fading resumes on this SAME table.
                 // Teardown/scene departure and Hide-to-Hide do not enter this recovery path.
@@ -187,10 +196,10 @@ internal static partial class WallSegmentFade
                 // edge. Allow half a second of ordinary frames before observing gameplay.
                 bool settled = eligible && now - _performanceReadySince >= .5f;
                 if (_performanceClock.Observe(Time.frameCount, settled, Time.unscaledDeltaTime,
-                    PerfConfig.WallAutoHideBelowFps))
+                    autoBelowFps))
                 {
                     _performanceAutoLatched = true;
-                    VRLog.Info(Name, $"PERFORMANCE WALLS AUTO: loaded gameplay stayed below {PerfConfig.WallAutoHideBelowFps} FPS for two seconds; walls remain absent until Regular is selected or this scenario ends.");
+                    VRLog.Info(Name, $"PERFORMANCE WALLS AUTO: loaded gameplay stayed below {autoBelowFps} FPS for two seconds; walls remain absent until Regular is selected, the automatic threshold changes, or this scenario ends.");
                 }
             }
             if (mode != 1 && !_performanceAutoLatched) return false;
