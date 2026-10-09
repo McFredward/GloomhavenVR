@@ -354,6 +354,11 @@ class Supervisor:
                 # completed logs must not overwrite live stage counters.
                 candidates = sorted((entry for entry in folder.iterdir()
                                      if re.fullmatch(r"(?:unity-(?:build|launch)|update-(?:code|sdk)-unity|recovery|recover|dotnet|mod|weave)[A-Za-z0-9_.-]*\.log", entry.name)
+                                     # A memory retry renames this run's old
+                                     # log without changing its mtime. It stays
+                                     # available for support, but reopening it
+                                     # here would replay an earlier compiler.
+                                     and not re.search(r"\.memory-attempt-[1-9][0-9]*\.log$", entry.name)
                                      and entry.is_file() and not entry.is_symlink() and entry.stat().st_mtime >= started),
                                     key=lambda entry: entry.stat().st_mtime, reverse=True)[:15]
                 for path in list(tails):

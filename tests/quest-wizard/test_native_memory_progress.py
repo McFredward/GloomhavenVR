@@ -1,14 +1,16 @@
 """Actual child observation keeps native retries inside the qualified frontier."""
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools/quest-wizard"))
-from processes import ProgressParser, Supervisor
+from processes import LogTail, ProgressParser, Supervisor
 import stage_plan
 import state
 import wizard
@@ -108,6 +110,44 @@ class NativeMemoryProgressTests(unittest.TestCase):
         self.assertNotIn("player", saved["stages"][5]["progressPlan"]["completed"])
         logged = (self.store.session_dir(self.session) / "logs/progress.log").read_text()
         self.assertIn('"phase":"native-memory-wait"', logged)
+
+    def test_renamed_memory_attempt_logs_never_replay_into_the_live_compiler(self):
+        self.store.operation(self.session, "build", "player")
+        folder = self.store.root / "build/logs"; folder.mkdir(parents=True)
+        current = folder / "unity-build-player.log"
+        started = time.time() - 10
+        current.write_text("[4/10 0s] Clang first-attempt.cpp\n")
+        parser, tails = ProgressParser(), {}
+        supervisor = Supervisor(self.store, self.session); supervisor.set_stage("build")
+        supervisor._tail_progress(tails, parser, started)
+        before = self.row()["progress"]["stagePercent"]
+        self.assertEqual(self.row()["progress"]["detail"], "Clang first-attempt.cpp")
+        # The first log had unread trailing output when the failed child was
+        # archived. Its mtime still falls inside this parent run and is newer
+        # than the replacement, so the old discovery also read it LAST.
+        with current.open("a") as stream: stream.write("[9/10 0s] Clang archived-unread.cpp\n")
+        archive = folder / "unity-build-player.memory-attempt-1.log"
+        current.rename(archive)
+        os.utime(archive, (time.time() + 1, time.time() + 1))
+        current.write_text("[1/10 0s] Clang current-retry.cpp\n")
+        # Also remove an already registered historical tail: filtering only
+        # new discoveries would leave such a reader active after the retry.
+        tails[archive] = LogTail(archive)
+        supervisor._tail_progress(tails, parser, started)
+        progress = self.row()["progress"]
+        self.assertEqual(progress["detail"], "Clang current-retry.cpp")
+        self.assertEqual(progress["done"], 1)
+        self.assertEqual(progress["stagePercent"], before)
+        self.assertNotIn(archive, tails)
+        self.assertIn(current, tails)
+        self.assertTrue(archive.is_file(), "diagnostic history must remain on disk")
+        self.assertIn("archived-unread.cpp", archive.read_text())
+        with current.open("a") as stream: stream.write("[2/10 0s] Clang current-next.cpp\n")
+        supervisor._tail_progress(tails, parser, started, final=True)
+        self.assertEqual(self.row()["progress"]["detail"], "Clang current-next.cpp")
+        self.assertEqual(self.row()["progress"]["done"], 2)
+        log = (self.store.session_dir(self.session) / "logs/progress.log").read_text()
+        self.assertNotIn("archived-unread.cpp", log)
 
 
 if __name__ == "__main__": unittest.main()
