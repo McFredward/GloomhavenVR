@@ -158,7 +158,7 @@ def preparation_receipt_stats(build_root):
                            recipe=value.get('recipe') if type(value.get('recipe')) is int else None,
                            completedCount=len(steps) if isinstance(steps, list) else None,
                            completed=[checkpoint(step) for step in steps[:128]] if isinstance(steps, list) else [],
-                           metadataRefreshPending=isinstance(value.get('metadataRefresh'), dict))
+                           metadataRefreshPending=ordinary(folder / 'metadata-refresh.json').is_file())
                 pending = value.get('pending')
                 row['pending'] = checkpoint(pending) if pending is not None else None
         except (OSError, ValueError, BuildError):

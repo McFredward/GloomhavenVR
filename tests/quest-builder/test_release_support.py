@@ -179,6 +179,7 @@ class SupportTests(unittest.TestCase):
                  'pending': {'name': 'compiler-adapters', 'operation': 'compiler-adapters', 'undo': ['PRIVATE PATH']},
                  'profile': 'SecretName', 'metadataRefresh': {'before': 'PRIVATE CONTENT'}}
         write_json(folder / 'journal.json', value)
+        write_json(folder / 'metadata-refresh.json', {'private': 'PRIVATE CONTENT'})
         before = (folder / 'journal.json').read_bytes()
         _, files = self.export()
         rows = json.loads(files['diagnostic.json'])['preparationReceipts']
