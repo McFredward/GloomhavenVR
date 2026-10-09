@@ -152,3 +152,111 @@ Correctness, exact reconstruction, admission retry and closed-session retirement
 are gated separately. All original performance assertions and failed receipts
 remain available; the complete local gate must not be described as certifying
 universal subsecond first-picture performance.
+
+## Final transport and lifecycle review
+
+An accepted missing-original request retains its exact full source at the queue
+head. The former compact packet can already be in flight and deliberately shares
+that source identity. Its final fragment must therefore not retire the repair
+marker while the matching complete original remains pending. Conversely, a newer
+based revision must not keep the marker alive after the full original finishes.
+The expanded real Driver/FFS proof exercises compact fragments, the requested
+full source, the newer revision and eventual queue quiescence together.
+
+That proof exposed a separate outer scheduler failure: an exhausted four-page
+opening reservation could continue masking ordinary town turns when all other
+ordinary streams were empty. The full repair completed, but its newer dependent
+revision remained stored indefinitely. The scheduler now releases that finite
+reservation when no opening page remains. Event size, send clocks, urgent debt
+and ordinary fairness retain their previous bounds. The supplied recording does
+not establish this conditional source failure as its unique cause; ordinary
+presence traffic could also release the former wait.
+
+Repair cooldowns now consume no encoding slot, and attempted candidates rotate
+within the existing two-original/two-millisecond pass. At least one eligible
+original is attempted before the elapsed-time limit. Closed sessions retire the
+repair. Census and monotonic source-sequence guards reject delayed old-session
+compact originals before they can replace a newer repair bank, including when a
+future-session original arrives before its census. These paths neither accept
+a transaction nor acknowledge an original on behalf of another player.
+
+The actual Driver/FFS/global scheduler proof passes708 assertions. Restoring only
+the old opening-counter assignment fails dependent-revision completion; restoring
+only the old compact-completion rule fails the exact pending-source marker
+assertion. Both controls compile and fail their specifically named assertions.
+The independent portable opening-reservation vector also verifies that a complete
+eight-page opening and its ordinary newer revision progress without any non-town
+traffic. Existing wire version3 and records112/113 remain unchanged;114 is
+additive and115 remains the next free record.
+
+## Preserved worker evidence
+
+Main-checkout `.planning/debug/npc661/` retains the immutable hardware inputs,
+earlier failed hypotheses and source-bound controls. Geometry worker and final
+integration archives contain9974 and3004 files; the final merchant archive
+contains7490 members. The delivery archive indexes27607 file entries and1444
+unique blobs, with cache roots excluded and symlink targets recorded without
+following them. All three lanes' archives were fully SHA-256 verified. The
+delivery payload digest is
+`45a75ddaefe3baae19cfcdce56ad35b6fb944a4d72f9173a421d018346ec64c2`;
+its index digest is
+`6fc8ca113ac76fcb4faa69a506218545c04782f35a86002f1aa24917af2f2c83`.
+Worker worktrees remain available. None of the failed latency receipts is
+reclassified as a passing first-picture performance test.
+
+
+## Complete-gate follow-up and deterministic return handoff
+
+The complete local runner recorded all205 suites at source6e5c93b4d with
+189 passes and16 failures (jobs8,1503.745s). Its failed run and logs are retained;
+this is not a green complete-gate receipt. The golden-vector executable separately
+passes300419 assertions at that source. Unchanged scopes may reuse that evidence;
+affected repairs must state their own source/fixture hashes and focused coverage.
+
+Several failures expose stale fixture bindings: current Driver helper bodies,
+request-aware full-repair selection, real receipt/request cleanup, and exact
+historical originals must compile together. Return fixtures must replay the actual
+same-packet Kind1 companions beside113, rather than silently discarding a real
+canvas dependency. The continuation ring test must start at a fresh Unity frame:
+its old UnscaledTime origin could precede lengthy same-frame native preparation,
+leaving only0.055s of a1.25s observation interval despite0.069s actual elapsed time.
+The original duration, speed, visibility, geometry and travel assertions remain.
+Receipt cleanup now binds actual request storage and reset/disconnect bodies;
+377 assertions include selective peer removal and full scheduling-state cleanup.
+
+Serial reruns at unchanged production source pass the previously failing mage
+first picture, unacknowledged reoffer, live mage census, full-card first picture,
+native panel replacement, old-overlay control and scenario-scenery checks. The
+original failing receipts remain evidence of the loaded complete run; these
+focused passes neither rewrite that receipt nor establish headset latency.
+
+A genuine return geometry error is now reproduced deterministically. The offered
+source and observer clocks previously differed in the fixture, so its anisotropic
+predecessor depended on editor load. With the same explicit clock on both sides,
+the first native return picture separates by0.7141613mm at source6e5c93b4d. Its
+new atomic canvas scale is isotropic, but the observer still adopts its older
+anisotropic host scale/rotation before the external return clock. Root-scale
+division cannot compensate arbitrary shear from that old parent. Removing only
+the new owner-authored model105 geometry policy produces the identical failure;
+that policy is not required for this cause.
+
+The correction commits the already received atomic root/canvas target before the
+native return sampler, then adopts the final external pose as before. It changes
+neither native duration/easing nor child/color/alpha clocks. The geometry proof
+passes3115 assertions with224 offered frames,896 camera readbacks,72 real native
+return renders,46 held renders and21 new-card/census renders; seven compiled
+causal controls include the exact old-host failure. The actual native merchant
+proof also passes6815 assertions,2306 width/geometry assertions and all five
+original engine controls on this integrated handoff correction.
+
+The deterministic handoff follow-up and its preceding failures are preserved in
+`.planning/debug/npc661/geometry-worker/geometry-native-target-6abaf162c.tar.gz`
+(703741894 bytes,25303 verified entries,
+SHA25654d12a723a14cbf9f74dc26dc66db15b93c3850c0a8de0312d5c8308df20f899).
+Its manifest verifies every archived file/link; generated engine caches are
+excluded. The archive includes the private source, original clock-dependent
+failure, corrected-clock old-host failure, policy-only countercheck, seven
+geometry controls, actual capacity payloads, and integrated merchant/646/motion
+checks. Main-checkout focused receipts preserve the complete205-suite failure,
+its nine successful serial repeats, the initially missing cleanup binding and
+unused-field compile failure, and the final377-assertion receipt lifecycle proof.
