@@ -84,7 +84,7 @@ internal static partial class TownServiceMirror
             NativeTemplateRepair? repair = source.NativeRepair;
             if (repair?.Requested != true) continue;
             if (repair.Original == null) { repair.Requested = false; continue; }
-            if (count >= 2 || (System.Diagnostics.Stopwatch.GetTimestamp() - started)
+            if (count >= 2 || count > 0 && (System.Diagnostics.Stopwatch.GetTimestamp() - started)
                 / (double)System.Diagnostics.Stopwatch.Frequency >= .002)
             { RequestedOriginalRepairPending = true; continue; }
             count++;
