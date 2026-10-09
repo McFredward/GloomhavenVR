@@ -56,7 +56,7 @@ def main():
     path = "src/GloomhavenVR/WorldUI/Composites/MapDialogSeat.cs"
     source = (root/path).read_text()
     old = subprocess.run(["git", "show", "bf3444cb5:"+path], cwd=root, check=True, capture_output=True, text=True).stdout
-    owned_before = subprocess.run(["git", "show", "526957a40:"+path], cwd=root, check=True, capture_output=True, text=True).stdout
+    owned_before = subprocess.run(["git", "show", "38bef39fd:"+path], cwd=root, check=True, capture_output=True, text=True).stdout
     mask_source = (root / "src/GloomhavenVR/WorldUI/TownServices/TownServiceWindowMask.cs").read_text()
     variants = [("production", source, ""),
         ("owned-mask-production", source, ""),

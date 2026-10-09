@@ -598,7 +598,22 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 656;
+    public const ushort ModBuild = 657;
+
+    // ModBuild657 — native window-mode donation confirmation ownership.
+    // The shared temple/enhancement prompt now retains its actual raising window
+    // until native hide completion. Closing that window completes the original
+    // cancel or already-chosen confirm/cancel callback before another HUD mode
+    // can reset this pooled singleton's native transition listeners.
+    // Explicit seat reparent edges transfer the converted canvas's original
+    // restoration and input ownership to its physical host; stale owners must
+    // not keep writing its camera, sorting, layers or reveal state. The moved
+    // ordinary dialog uses its physical host's stable input tier, so the host
+    // paper cannot defeat visible buttons. Native gates and overlay tiers stay.
+    // Active/retiring immersive masks retain their actual root and native callback.
+    // Native confirm/cancel callbacks and multiplayer transaction rules remain
+    // authoritative. Focused evidence: .planning/FLAT-657-CONFIRMATION-REVIEW.md.
+    // Includes656 Frame/NPC changes; no asset, config or wire-layout change.
 
     // ModBuild656 — live Auto wall threshold recovery and nearby pillar detail.
     // Effective threshold edits in Auto restore the existing native wall path and

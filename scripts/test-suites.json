@@ -2371,6 +2371,28 @@
         "local"
       ],
       "weight": 35
+    },
+    {
+      "id": "flat-confirmation-lifecycle",
+      "command": [
+        "python3",
+        "scripts/check-flat-confirmation657-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
+    },
+    {
+      "id": "seated-subtree-input",
+      "command": [
+        "python3",
+        "scripts/check-seated-subtree-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
     }
   ]
 }
