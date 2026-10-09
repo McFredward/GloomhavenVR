@@ -168,6 +168,9 @@ internal static class NetProtocol
     /// <summary>Request the exact retained town original after native template
     /// metadata cannot expand. Additive to message28; never acknowledges receipt.</summary>
     public const byte ExtIdTownOriginalRequest = 114;
+    /// <summary>Losslessly packed exact native return roots, referencing only
+    /// their same-packet cohort and IEEE child bits. Additive to message26.</summary>
+    public const byte ExtIdTownPackedReturnRoots = 115;
     /// <summary>Owner fan insertion gap: one byte gap + 1; zero clears the marker.</summary>
     public const byte ExtIdFanInsertionGap = 71;
     /// <summary>Native video source and shared pose, independent of the legacy window record21.</summary>
@@ -625,7 +628,10 @@ internal static class NetProtocol
     // turns; retry cooldown/rotation and session order preserve later repairs.
     // Cold preparation, delivery, causal controls and hardware limits are recorded
     // in .planning/NPC-661-REVIEW.md and its geometry/merchant/latency reviews.
-    // Version3 and previous records remain unchanged; next free additive ID115.
+    // Exact return roots retain every canvas field with lossless same-packet
+    // root/child bit packing115. Proven-fit cohorts survive extra-tail rollback;
+    // terminal geometry receives its bounded render grace at atomic activation.
+    // Version3 and previous records remain unchanged; next free additive ID116.
 
     // ModBuild660 — paired658 NPC regression, after pillar659.
     // Complete received pictures no longer reject the two audited native GPU-only
