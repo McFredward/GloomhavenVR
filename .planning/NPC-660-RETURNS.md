@@ -164,7 +164,7 @@ fixture compilation errors are retained separately, not relabelled as passes.
 | `town-service-mirror/run-_gf_57so` |Offered orientation602 assertions and nine controls; overlay geometry and independent spin clocks remain correct. |
 | `town-merchant-handoff/run-mfpabdn7` |Actual merchant outcome207 assertions and four controls. |
 | `town-motion-wire/run-c4o7vdrh` |15294 portable motion assertions; existing event budget and goldens pass. |
-| `test-runs/20261009-215440-2e0487ca` |Source16/16 complete source group. |
+| `test-runs/20261009-215440-2e0487ca` / `20261009-220450-76cc25ca` |Source16/16 complete source group; latter rerun binds the final declared-native restriction. |
 | `npc660-return-known-native-strict.log` |Final strict plugin/preloader Debug build, zero warnings/errors. |
 
 The initial shared motion binder omitted actual `VRCard.Holder`; adding the
