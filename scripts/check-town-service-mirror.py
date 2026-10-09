@@ -84,6 +84,8 @@ def sources(root):
     bound["ExtrasFragments.cs"] = (base / "Net/ExtrasFragments.cs").read_text()
     bound["TownServiceFragments.cs"] = (base / "Net/TownServices/TownServiceFragments.cs").read_text()
     bound["TownServiceSendQueue.cs"] = (base / "Net/TownServices/TownServiceSendQueue.cs").read_text()
+    requested_queue = base / "Net/TownServices/TownServiceLaneSendQueue.OriginalRepairs.cs"
+    if requested_queue.exists(): bound[requested_queue.name] = requested_queue.read_text()
     # Inline only production compile-time constants omitted by the small fixture
     # protocol seam. Their values and full source are retained in the source hashes.
     protocol = (base / "Net/NetProtocol.cs").read_text()

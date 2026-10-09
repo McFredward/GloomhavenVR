@@ -15,6 +15,7 @@ internal static partial class TownServiceMirror
     {
         internal byte Service;
         internal uint Session;
+        internal ulong Sequence;
         internal readonly Dictionary<ushort, OriginalRequest> Modules = new();
     }
     private static readonly Dictionary<int, OriginalRequestOwner> OriginalRequests = new();
@@ -38,11 +39,18 @@ internal static partial class TownServiceMirror
             owner = new OriginalRequestOwner(); OriginalRequests.Add(peer, owner);
         }
         if (owner.Service != frame.Service || owner.Session != frame.Session)
-        { owner.Modules.Clear(); owner.Service = frame.Service; owner.Session = frame.Session; }
+        {
+            // Private source sequences stay monotonic across native sessions.
+            // A future-session module can arrive before its census; a delayed
+            // different module from the old session must not clear that bank.
+            if (frame.Sequence <= owner.Sequence) return;
+            owner.Modules.Clear(); owner.Service = frame.Service; owner.Session = frame.Session;
+        }
         if (owner.Modules.TryGetValue(frame.Module, out OriginalRequest? previous)
             && previous.Frame.Sequence >= frame.Sequence) return;
         if (owner.Modules.Count >= TownServiceFrame.MaxModules && !owner.Modules.ContainsKey(frame.Module)) return;
         owner.Modules[frame.Module] = new OriginalRequest { Frame = frame, Created = UnityEngine.Time.unscaledTime };
+        owner.Sequence = Math.Max(owner.Sequence, frame.Sequence);
     }
 
     private static bool OriginalRequestCurrent(int peer, TownServiceFrame frame)
@@ -123,5 +131,7 @@ internal static partial class TownServiceMirror
     {
         OriginalRequests.Clear(); OriginalRequestOwners.Clear(); OriginalRequestsRemoved.Clear();
         OriginalRequestBatch.Clear(); RequestedOriginalRepairPending = false;
+        RequestedRepairCandidates.Clear(); _requestedRepairCursor = 0;
+        TownRequestedOriginalRepair.Source = null;
     }
 }

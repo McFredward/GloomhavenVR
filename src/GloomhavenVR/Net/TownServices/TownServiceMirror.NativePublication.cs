@@ -68,32 +68,56 @@ internal static partial class TownServiceMirror
         return packet;
     }
 
+    private static readonly System.Collections.Generic.List<LocalModule> RequestedRepairCandidates = new();
+    private static int _requestedRepairCursor;
+
     /// <summary>A known original rejection needs no speculative receipt grace or
     /// another 15Hz artwork sampling turn. Encode only the retained immutable
     /// requested source, using the same bounded transport admission as capture.</summary>
     internal static void CaptureRequestedOriginalRepairs(System.Action<byte[], int, object?> send)
     {
         if (!RequestedOriginalRepairPending) return;
+        TownRequestedOriginalRepair.Source ??= IsRequestedOriginalRepair;
         RequestedOriginalRepairPending = false;
         using var lane = new LaneScope(PrivateLane);
         int count = 0;
         float now = UnityEngine.Time.unscaledTime;
         long started = System.Diagnostics.Stopwatch.GetTimestamp();
         foreach (LocalModule source in Local.Values)
+            if (source.NativeRepair?.Requested == true) RequestedRepairCandidates.Add(source);
+        int candidates = RequestedRepairCandidates.Count;
+        int start = candidates == 0 ? 0 : _requestedRepairCursor % candidates;
+        for (int visited = 0; visited < candidates; visited++)
         {
+            int index = (start + visited) % candidates;
+            LocalModule source = RequestedRepairCandidates[index];
             NativeTemplateRepair? repair = source.NativeRepair;
             if (repair?.Requested != true) continue;
             if (repair.Original == null) { repair.Requested = false; continue; }
+            if (!Local.TryGetValue(source.Id, out LocalModule? current) || !ReferenceEquals(current, source))
+            { repair.Original = null; repair.Requested = false; continue; }
+            // A failed source in its retry cooldown owns no encoding slot.
+            // Rotate attempted candidates as well: slow render frames must not
+            // let two persistently bad sources monopolize every bounded pass.
+            if (now < repair.After) { RequestedOriginalRepairPending = true; continue; }
             if (count >= 2 || count > 0 && (System.Diagnostics.Stopwatch.GetTimestamp() - started)
                 / (double)System.Diagnostics.Stopwatch.Frequency >= .002)
             { RequestedOriginalRepairPending = true; continue; }
-            count++;
+            count++; _requestedRepairCursor = index + 1;
             try { CaptureNativeOriginalRepair(source, send, now); }
             catch (System.Exception error) { Report("requested native original repair " + source.Id, error); }
             if (repair.Original == null) repair.Requested = false;
             else RequestedOriginalRepairPending = true;
         }
+        RequestedRepairCandidates.Clear();
     }
+
+    private static bool IsRequestedOriginalRepair(TownServiceFrame frame) => PrivateLane.Active
+        && !frame.PublicCatalog && !frame.VisitorStock && frame.BaseSequence == 0
+        && frame.Service == PrivateLane.Service && frame.Session == PrivateLane.Session
+        && PrivateLane.Modules.TryGetValue(frame.Module, out LocalModule? source)
+        && source.NativeRepair?.Requested == true && ReferenceEquals(source.NativeRepair.Original, frame)
+        && ReferenceEquals(source.Baseline, frame);
 
     private static void CaptureNativeOriginalRepair(LocalModule module,
         System.Action<byte[], int, object?> send, float now)

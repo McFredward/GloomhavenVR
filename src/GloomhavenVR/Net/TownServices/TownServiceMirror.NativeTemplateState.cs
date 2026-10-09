@@ -177,12 +177,21 @@ internal static partial class TownServiceMirror
     private static bool RetainUnpreparedNativeTemplate(int peer, TownServiceFrame frame)
     {
         if (peer <= 0 || frame.NativeTemplateBasisKey == 0) return false;
-        RecordOriginalRequest(peer, frame);
+        int mappedPeer = peer;
+        if (frame.VisitorStock && !TryStockPeerKey(peer, out mappedPeer)) return false;
+        if (frame.PublicCatalog) mappedPeer = -mappedPeer;
+        // Expansion precedes census admission in ReceiveParsed. A late refused
+        // old-session original must not replace the current request/repair bank.
+        // A genuinely newer source arriving before its census remains eligible.
+        if (Sessions.TryGetValue(mappedPeer, out TownServiceSessionInfo? session)
+            && session.Sequence >= frame.Sequence && (!session.Active || session.Service != frame.Service
+                || session.Session != frame.Session || Array.BinarySearch(session.Modules, frame.Module) < 0)) return true;
         var key = new UnpreparedKey(peer, frame);
-        if (UnpreparedNativeTemplates.TryGetValue(key, out UnpreparedNativeTemplate? previous))
+        UnpreparedNativeTemplates.TryGetValue(key, out UnpreparedNativeTemplate? previous);
+        if (previous != null && previous.Frame.Sequence >= frame.Sequence) return true;
+        RecordOriginalRequest(peer, frame);
+        if (previous != null)
         {
-            if (previous.Frame.Session == frame.Session && previous.Frame.Service == frame.Service
-                && previous.Frame.Sequence >= frame.Sequence) return true;
             previous.Frame = frame; previous.Received = Time.unscaledTime; previous.RetryAt = 0f; return true;
         }
         if (UnpreparedNativeTemplates.Count >= TownServiceFrame.MaxModules) return false;
@@ -276,6 +285,10 @@ internal static partial class TownServiceMirror
         or TownServiceProperty.LegacyText;
     private static bool OwnerProperty(int index, ushort key) => NativeTextProperty(key)
         || index == 0 && !TownServiceFastNumbers.IsMaterial(key);
+
+    private static bool NativeModelGeometry(TownServiceFrame frame, ushort property) =>
+        property == TownServiceProperty.Transform && (frame.TemplateAddress.StartsWith("face.", StringComparison.Ordinal)
+            || frame.TemplateAddress.StartsWith("card.", StringComparison.Ordinal));
 
     // Native layout, active states, masks, sprite selection and materials can
     // differ after local UI initialization. Every changed owner property is sent;
@@ -374,7 +387,12 @@ internal static partial class TownServiceMirror
                 TownServiceNode current = complete.Nodes[i], before = basis.Nodes[i];
                 TownServiceNode? changed = null;
                 foreach (var property in current.Values)
-                    if (OwnerProperty(i, property.Key) || !property.Value.Same(before.Values[property.Key]))
+                    // Native card model generation lays out its Row Containers
+                    // at runtime. Even unchanged local numeric defaults are
+                    // owner output, not an observer's separately laid-out default.
+                    // Omitted original materials/sprites remain exactly hashed.
+                    if (OwnerProperty(i, property.Key) || NativeModelGeometry(complete, property.Key)
+                        || !property.Value.Same(before.Values[property.Key]))
                     { changed ??= new TownServiceNode { Binding = current.Binding }; changed.Values.Add(property.Key, property.Value); }
                 if (changed != null) patch.Add(changed);
             }

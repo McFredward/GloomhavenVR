@@ -4,7 +4,7 @@ using System.Collections.Generic;
 namespace GloomhavenVR.Net.TownServices;
 
 /// <summary>Independent bounded module queues inside the existing global event budget.</summary>
-internal sealed class TownServiceLaneSendQueue
+internal sealed partial class TownServiceLaneSendQueue
 {
     private readonly Dictionary<ushort, ExtrasSendQueue> _queues = new();
     private readonly List<ushort> _order = new();
@@ -68,6 +68,8 @@ internal sealed class TownServiceLaneSendQueue
         bool retainedNativeOriginal = frame.Service == 3 && !frame.PublicCatalog && !frame.VisitorStock
             && frame.BaseSequence == 0 && _latestOriginals.TryGetValue(frame.Module, out var sameOriginal)
             && ReferenceEquals(sameOriginal, frame);
+        if (TownRequestedOriginalRepair.Source?.Invoke(frame) == true)
+            _requestedOriginals[frame.Module] = frame;
         // Ordinary mage originals can precede the offer that promotes their
         // deltas. Their exact full repair needs the same bounded dependency pin
         // as an original which was already urgent on its first capture.
@@ -94,7 +96,7 @@ internal sealed class TownServiceLaneSendQueue
             {
                 ushort id = _order[i];
                 if (id == TownServiceFrame.ManifestModule || Array.BinarySearch(frame.Modules, id) >= 0 || _catalogOriginals.Contains(id)) continue;
-                _sequences[id] = _queues[id].Sequence; _queues[id].Clear(); _queues.Remove(id); _order.RemoveAt(i); _priority.Remove(id); _coldPriority.Remove(id); _latestOriginals.Remove(id);
+                _sequences[id] = _queues[id].Sequence; _queues[id].Clear(); _queues.Remove(id); _order.RemoveAt(i); _priority.Remove(id); _coldPriority.Remove(id); _latestOriginals.Remove(id); _requestedOriginals.Remove(id);
                 if (_clocks.TryGetValue(id, out var clock)) { _sequences[id] = Math.Max(_sequences[id], clock.Sequence); clock.Clear(); _clocks.Remove(id); }
             }
         }
@@ -247,7 +249,7 @@ internal sealed class TownServiceLaneSendQueue
     internal byte[]? NextOpening(double now)
     {
         if (!_openingPending) return null;
-        if (_coldPriority.Count == 0) return null;
+        if (_coldPriority.Count == 0 && _requestedOriginals.Count == 0) return null;
         if (double.IsNaN(_openingStarted)) _openingStarted = now;
         if (_openingPages >= 16 || now - _openingStarted >= 1)
         { _openingPending = false; return null; }
@@ -263,7 +265,8 @@ internal sealed class TownServiceLaneSendQueue
         // may borrow a bounded early turn. Numeric pose/hover already has its own
         // lane. The global debt cap and this lane's background arbitration still
         // repay every borrowed page, so a sustained visit cannot starve the cabinet.
-        bool waiting = _catalogRepairs.Count > 0 || _priority.Count > 0 && (_urgentBundle.HasInFlight || _urgentBundle.HasPending);
+        bool waiting = _requestedOriginals.Count > 0 || _catalogRepairs.Count > 0
+            || _priority.Count > 0 && (_urgentBundle.HasInFlight || _urgentBundle.HasPending);
         foreach (ushort id in _priority)
             if (_queues.TryGetValue(id, out var queue) && (queue.HasPending || queue.HasInFlight)) { waiting = true; break; }
         if (!waiting) return null;
@@ -370,6 +373,10 @@ internal sealed class TownServiceLaneSendQueue
     }
     private byte[]? Take(double now, bool urgent)
     {
+        // A peer has actually refused this exact original. Its finite existing
+        // module queue must not wait for a new bundle of speculative full repairs.
+        // Existing atomic bundles remain intact and resume at their next turn.
+        if (urgent && TakeRequestedOriginal(now) is byte[] requested) return requested;
         ushort? active = urgent ? _priorityActive : _normalActive;
         if (active.HasValue && _queues.TryGetValue(active.Value, out ExtrasSendQueue? running) && running.HasInFlight)
         {
@@ -484,6 +491,7 @@ internal sealed class TownServiceLaneSendQueue
             { _sequences[id] = Math.Max(_sequences[id], clock.Sequence); clock.Clear(); _clocks.Remove(id); }
             _catalogBases.Remove(id); _catalogBaseKeys.Remove(id); _catalogQueuedKeys.Remove(id); _catalogRepairs.Remove(id);
             _catalogOriginals.Remove(id); _priority.Remove(id); _coldPriority.Remove(id); _latestOriginals.Remove(id);
+            _requestedOriginals.Remove(id);
             _bundleBytes.Remove(id); _promotedBundle.Remove(id);
             if (_normalActive == id) _normalActive = null;
             if (_priorityActive == id) _priorityActive = null;
@@ -504,7 +512,7 @@ internal sealed class TownServiceLaneSendQueue
         return true;
     }
     internal void Clear()
-    { foreach (var pair in _queues) { _sequences[pair.Key] = pair.Value.Sequence; pair.Value.Clear(); }
+    { _requestedOriginals.Clear(); foreach (var pair in _queues) { _sequences[pair.Key] = pair.Value.Sequence; pair.Value.Clear(); }
         foreach (var pair in _clocks) { _sequences[pair.Key] = Math.Max(_sequences.TryGetValue(pair.Key, out var sequence) ? sequence : 0, pair.Value.Sequence); pair.Value.Clear(); }
         _clocks.Clear(); _catalogOriginals.Clear(); _catalogBases.Clear(); _catalogBaseKeys.Clear(); _catalogQueuedKeys.Clear(); _catalogRepairs.Clear(); _clockCursor = 0; _clockRepairDue = false;
         _bundle.Clear(); _urgentBundle.Clear(); _bundleFrames.Clear(); _urgentBundleFrames.Clear(); _bundleBytes.Clear(); _urgentBundleBytes.Clear(); _promotedBundle.Clear(); _queues.Clear(); _order.Clear(); _priority.Clear(); _coldPriority.Clear(); _latestOriginals.Clear(); _cursor = _priorityCursor = _priorityTurns = 0;
