@@ -885,6 +885,7 @@ internal static partial class TownServiceMirror
                     ReadParent(module, frame); ReadCanvasFrame(source, frame);
                     TraceNativeVisibility(0, module.Binding, frame, source.gameObject, now);
                     if (frame.VisitorStock && HidePreparedCardReturn(source)) frame.Visible = false;
+                    PreserveReturningCardHeader(module, frame);
                     if (frame.RackMember != null)
                     {
                         float alpha = ReadRackAlpha(module);
@@ -1196,6 +1197,7 @@ internal static partial class TownServiceMirror
                 {
                     if (!frame.Visible && !PrepareHiddenCardReturnOriginal(frame))
                     { if (module != null) { module.Host.SetActive(false); module.Motion.Reset(); module.Sequence = frame.Sequence; module.LastFrame = frame; } continue; }
+                    bool heldReturn = module != null && HoldIncomingReturnPicture(entry.Key, module, frame);
                     Transform mount = parent;
                     if (frame.ParentModule != TownServiceFrame.ManifestModule)
                     {
@@ -1265,6 +1267,7 @@ internal static partial class TownServiceMirror
                     FinishInertPresentation?.Invoke(frame.TemplateAddress, root, parent);
                     TownServiceDepthOrder.Refresh(module.Host.transform);
                     HideDormantCatalogOriginal(entry.Key, frame, module);
+                    RestoreIncomingReturnPicture(module, heldReturn);
                 }
                 catch (Exception e)
                 {

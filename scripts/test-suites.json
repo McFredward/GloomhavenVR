@@ -2442,6 +2442,53 @@
         "local"
       ],
       "weight": 35
+    },
+    {
+      "id": "npc658-full-card-old-control",
+      "command": [
+        "python3",
+        "scripts/npc658-latency-runtime/run.py",
+        "--latency658-native",
+        "--latency658-old",
+        "--live-hover-census",
+        "--required35",
+        "--expect-incomplete"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 55
+    },
+    {
+      "id": "npc658-unprepared-picture-limit",
+      "command": [
+        "python3",
+        "scripts/npc658-latency-runtime/run.py",
+        "--latency658-startup",
+        "--live-hover-census",
+        "--required35",
+        "--expect-incomplete"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 55
+    },
+    {
+      "id": "npc658-different-basis-recovery",
+      "command": [
+        "python3",
+        "scripts/npc658-latency-runtime/run.py",
+        "--latency658-native",
+        "--latency658-mismatch",
+        "--live-hover-census",
+        "--required35",
+        "--expect-incomplete"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 55
     }
   ]
 }
