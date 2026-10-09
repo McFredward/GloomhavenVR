@@ -73,11 +73,16 @@ internal sealed class CoreModule : IVRModule
         WorldMaterialBudget.ConfigureAssetPreparation(ScenarioEnvironmentAssets.EnsureLoaded);
         WorldMaterialBudget.ConfigureAmbientWeight(() => PerfConfig.WorldMaterialAmbientWeight);
         WorldMaterialBudget.ConfigurePerformanceWallVisibility(WallSegmentFade.IsPerformanceHidden);
+        ScenarioTerrainBudget.ConfigurePerformanceWallVisibility(WallSegmentFade.IsPerformanceHidden);
         ScenarioEnvironmentBudget.ConfigurePerformanceWallIntegration(WallSegmentFade.IsPerformanceHidden,
             WallSegmentFade.NotifyPerformanceContentChange, WallSegmentFade.NotifyPerformanceRendererReady);
         ScenarioSceneryBudget.ConfigurePerformanceWallMasks(WallSegmentFade.RetainPerformanceMaskOnForeignRelease,
             WallSegmentFade.NotifyPerformanceContentChange);
-        WallSegmentFade.ConfigurePerformanceMaskRestored(ScenarioSceneryBudget.AfterPerformanceWallRestore);
+        WallSegmentFade.ConfigurePerformanceMaskRestored(renderer =>
+        {
+            ScenarioSceneryBudget.AfterPerformanceWallRestore(renderer);
+            ScenarioTerrainBudget.MaterialReady(renderer);
+        });
         WorldMaterialBudget.ConfigureBeforeVariantDisposal(ScenarioEnvironmentBudget.BeforeWorldMaterialDisposal);
         WorldMaterialBudget.ConfigureCanonicalSource(ScenarioEnvironmentBudget.CanonicalMaterial);
         WorldMaterialBudget.ConfigureSourceChanged(ScenarioEnvironmentBudget.WorldMaterialChanged);
