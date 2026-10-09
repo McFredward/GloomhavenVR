@@ -377,7 +377,7 @@ internal static partial class TownServiceMirror
             source.Live = flight != null || cardFlight != null || LiveMotion(module.Address, root.Hand) || MotionOffering(module.Binding.Root);
             source.VisibleFan = root.Hand is 3 or 4 && root.Visible && root.ParentAlpha > 0f;
             source.Slots.TryGetValue(root.Key, out MotionSlot? priorRoot);
-            root.HasCanvasUpdate = priorRoot == null || now - priorRoot.SentAt >= TownServiceMotionCodec.Heartbeat
+            root.HasCanvasUpdate = priorRoot == null || priorRoot.Dirty && priorRoot.Entry.HasCanvasUpdate || now - priorRoot.SentAt >= TownServiceMotionCodec.Heartbeat
                 || priorRoot.Entry.HasCanvasFrame != root.HasCanvasFrame || priorRoot.Entry.CanvasOnHand != root.CanvasOnHand
                 || !SameNumbers(priorRoot.Entry.CanvasPose, root.CanvasPose)
                 || !SameNumbers(priorRoot.Entry.CanvasRect, root.CanvasRect)
@@ -577,6 +577,7 @@ internal static partial class TownServiceMirror
                 TownServiceSharedCue.ObserveMerchantVisitor(peer, entry.Session, entry.CueReady);
                 continue;
             }
+            if (StageReturnRoot(state, packet, entry)) continue;
             if (state.Slots.TryGetValue(entry.Key, out MotionSlot? old) && packet.Sequence <= old.ReceivedSequence) continue;
             CancelReturnCohorts(peer, state, packet, entry);
             if (state.Slots.Count >= 3 * TownServiceFrame.MaxModules * 4 && !state.Slots.ContainsKey(entry.Key)) continue;
@@ -641,6 +642,10 @@ internal static partial class TownServiceMirror
                 if (now - slot.ReceivedAt > NetProtocol.StaleTimeoutSeconds)
                 { MotionRemoval.Add(slotPair.Key); continue; }
                 bool liveCardReturn = entry.Kind == 8 && LiveCardReturn(slot, now);
+                bool liveReturnRoot = entry.Kind == 1 && entry.HasReturnVisibility
+                    && peer.Slots.TryGetValue(new TownServiceMotionKey(8, entry.Lane, entry.Module, 0, 0, 0), out MotionSlot? exactFlight)
+                    && exactFlight.Entry.HasReturnVisibility && exactFlight.ReceivedSequence == slot.ReceivedSequence
+                    && exactFlight.SampleTime == slot.SampleTime && LiveCardReturn(exactFlight, now);
                 int key = pair.Key;
                 if (entry.Lane == 1) key = -key;
                 else if (entry.Lane == 2 && !TryStockPeerKey(key, out key)) continue;
@@ -658,7 +663,7 @@ internal static partial class TownServiceMirror
                     // of those property timestamps, just like print affinity.
                     // Session, structure, census and its bounded lifetime still
                     // guard it; a true withdrawal never retains a visible clone.
-                    || entry.Kind != 9 && !liveCardReturn && slot.SampleTime < module.LastFrame.SampleTime) continue;
+                    || entry.Kind != 9 && !liveCardReturn && !liveReturnRoot && slot.SampleTime < module.LastFrame.SampleTime) continue;
                 if (entry.Kind == 2 && entry.Property == TownServiceProperty.Transform
                     && entry.Binding == module.Binding.Bindings[0]
                     && StagedReturnLayout(pair.Key, module, slot.SampleTime, now)) continue;
@@ -680,7 +685,8 @@ internal static partial class TownServiceMirror
             MotionSlot? root = null, flight = null;
             foreach (MotionSlot slot in composed.Slots)
             { if (slot.Entry.Kind == 1) root = slot; else if (slot.Entry.Kind is 7 or 8) flight = slot; }
-            if (flight?.Entry.HasReturnVisibility == true) root = null;
+            if (flight?.Entry.HasReturnVisibility == true
+                && (root == null || root.ReceivedSequence != flight.ReceivedSequence || root.SampleTime != flight.SampleTime)) root = null;
             if (PendingReturnModule(composed.Owner, module)) continue;
             if (changed)
             {
@@ -906,7 +912,7 @@ internal static partial class TownServiceMirror
         // not divide through a singular frame or overwrite a last valid pose.
         Transform selectedRoot = module.AddedCanvas != null && !authored.HasCanvasFrame ? module.Host.transform : module.Binding.Root;
         if (!ValidMotionScale(shared.lossyScale) || !ValidMotionScale(mount.lossyScale)
-            || selectedRoot.parent == null || !ValidMotionScale(selectedRoot.parent.lossyScale)
+            || selectedRoot.parent == null
             || authored.HasCanvasFrame && !ValidMotionScale(Scale(authored.CanvasPose))) return;
         float blend = motion.HandDuration > 0f ? Mathf.Clamp01((now - motion.HandStarted) / motion.HandDuration) : 1f;
         if (authored.HasCanvasFrame && module.AddedCanvas != null)
@@ -919,6 +925,10 @@ internal static partial class TownServiceMirror
                     ? Vector3.LerpUnclamped(motion.CanvasFrom, Position(entry.CanvasPose), blend) : Position(entry.CanvasPose));
               if (entry.Hand <= 2) module.Host.transform.rotation = mount.rotation * Rotation(entry.CanvasPose); }
         }
+        // A prepared purchase's real canvas starts collapsed. Its valid authored
+        // canvas update must restore that parent before the root's scale division
+        // can be validated; checking the old parent first stranded its front at0.
+        if (selectedRoot.parent == null || !ValidMotionScale(selectedRoot.parent.lossyScale)) return;
         module.Binding.ApplyRootLayout(authored, module.AddedCanvas != null && !authored.HasCanvasFrame);
         Transform root = module.AddedCanvas != null && !authored.HasCanvasFrame ? module.Host.transform : module.Binding.Root;
         root.position = mount.TransformPoint(continuousHand && entry.Hand > 2
