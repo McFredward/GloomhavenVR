@@ -31,6 +31,78 @@ class ProgressParser:
     """Recognize measured counters, never infer a percentage from elapsed time."""
     def __init__(self):
         self.bee_runs = {}
+        self.unity_operations = {}
+        self.shader_runs = {}
+
+    def _unity_operation(self, source):
+        """Compiler logs belong to their actual child build, not Player import."""
+        if re.fullmatch(r"mod-bundle(?:-launch)?-[A-Za-z0-9_.-]+\.log", source): return "mod-banks"
+        if source.startswith(("update-code-unity", "update-sdk-unity")): return "update-code"
+        if source in self.unity_operations: return self.unity_operations[source]
+        if re.fullmatch(r"unity-(?:build|launch)[A-Za-z0-9_.-]*\.log", source): return "unity-import"
+        return None
+
+    def _shader_fields(self, source, run, *, failed=False):
+        current = run["current"]
+        detail = ("Unity shader compilation: " + current["name"] + " / " + (current["pass"] or "unnamed pass") +
+                  " · pass #" + str(run["started"]) + " · completed passes " + str(run["passes"]) +
+                  " · completed variants " + str(run["variants"]))
+        if failed: detail += " · compiler reported an error; this pass is incomplete"
+        fields = {"phase": "unity-shader-compile", "done": current["done"], "total": current["total"],
+                  "unit": "variants", "detail": detail[:1024], "status": "failed" if failed else "progress"}
+        operation = self._unity_operation(source)
+        if operation: fields["operation"] = operation
+        return fields
+
+    def _shader_progress(self, line, source):
+        # Unity 2021.3 writes the retained variant total before scheduling a
+        # pass, and a real ready counter each minute for a long compilation.
+        # The 123047 capture contains 4903/12288 and 9467/12288, followed by
+        # 12288 actual outputs. Stripping is work scheduled, not work completed.
+        # One pass reaching its total never closes its owning bank/Player build.
+        match = re.fullmatch(r'Compiling shader "([^\"]+)" pass "([^\"]*)" \(([^)]+)\)', line)
+        if match:
+            if len(self.shader_runs) >= 64 and source not in self.shader_runs: self.shader_runs.clear()
+            owner = self._unity_operation(source)
+            run = self.shader_runs.setdefault(source, {"owner": owner, "started": 0, "passes": 0, "variants": 0, "current": None})
+            if run["owner"] != owner:
+                run.update(owner=owner, started=0, passes=0, variants=0)
+            run["started"] += 1
+            run["current"] = {"name": match[1], "pass": match[2], "done": None, "total": None, "closed": False}
+            return self._shader_fields(source, run)
+        run = self.shader_runs.get(source)
+        if not run or not run["current"] or run["current"]["closed"]: return None
+        current = run["current"]
+        match = re.fullmatch(r"(\d+)\s*/\s*(\d+) variants left after stripping, processed in [\d.]+ seconds", line)
+        if match:
+            retained, original = int(match[1]), int(match[2])
+            if retained > original or current["total"] is not None: return None
+            current.update(done=0, total=retained)
+            return self._shader_fields(source, run)
+        match = re.fullmatch(r"\[\s*\d+(?:\.\d+)?s\]\s*(\d+)\s*/\s*(\d+) variants ready", line)
+        if match:
+            done, total = int(match[1]), int(match[2])
+            if (not total or done > total or current["total"] != total or
+                    current["done"] is None or done < current["done"]): return None
+            current["done"] = done
+            return self._shader_fields(source, run)
+        match = re.fullmatch(r"finished in [\d.]+ seconds\. Local cache hits (\d+) \([^)]*\), "
+                             r"remote cache hits (\d+) \([^)]*\), compiled (\d+) variants \([^)]*\), skipped (\d+) variants", line)
+        if match:
+            done = sum(map(int, match.groups()))
+            if current["total"] is None or done != current["total"]: return None
+            current.update(done=done, closed=True)
+            run["passes"] += 1; run["variants"] += done
+            fields = self._shader_fields(source, run)
+            fields["detail"] += " · pass finished"
+            # This is deliberately progress, not complete: Unity may compile
+            # more passes, serialize a bank or fail after its final shader.
+            return fields
+        if re.search(r"^(?:Shader error in |Error compiling shader|Shader compiler (?:process )?(?:crashed|failed))", line, re.I):
+            fields = self._shader_fields(source, run, failed=True)
+            current["closed"] = True
+            return fields
+        return None
 
     def parse(self, line, source="tool"):
         line = line.strip()
@@ -46,8 +118,25 @@ class ProgressParser:
                 if value.get("status") is not None:
                     if value["status"] not in ("start", "progress", "complete", "reuse", "failed"): return None
                     fields["status"] = value["status"]
+                # Public Editor task counters can be observed before/after the
+                # native compiler log. Preserve their supplied fraction and
+                # distinguish them from one native shader pass's variants.
+                if fields["phase"] in ("unity-progress", "unity-shader-task"):
+                    detail = fields.get("detail") or ""
+                    task_name = detail.split(" — ", 1)[0]
+                    shader_task = (re.search(r"\bshaders?\b", task_name, re.I) and
+                                   re.search(r"\bcompil(?:e|ing|ation)\b", task_name, re.I))
+                    if fields["phase"] == "unity-shader-task" or shader_task:
+                        fields["phase"] = "unity-shader-task"
+                        if "operation" not in fields:
+                            operation = self._unity_operation(source)
+                            if operation: fields["operation"] = operation
+                if fields.get("operation") and fields["phase"] == "operation:" + fields["operation"]:
+                    self.unity_operations[source] = fields["operation"]
                 return fields
             except (ValueError, TypeError, WizardError): return None
+        shader = self._shader_progress(line, source)
+        if shader is not None: return shader
         match = re.fullmatch(r"\[\s*(\d+)/(\d+)\s+\d+(?:\.\d+)?s\]\s+(Csc|Clang|Compile|Link|CopyFiles|IL2CPP\w*|Generate\w*|Archive|Lump|Pch|MoveFiles|DeleteFiles)\b(.*)", line)
         if match:
             done, total = int(match[1]), int(match[2])
