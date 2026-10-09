@@ -2340,7 +2340,9 @@
         "python3",
         "scripts/npc-admission646-runtime/run.py",
         "--live-hover-census",
-        "--withdraw-hover"
+        "--withdraw-hover",
+        "--prior-inflight",
+        "--pre-offer-growth"
       ],
       "groups": [
         "local"
@@ -2357,6 +2359,18 @@
         "local"
       ],
       "weight": 15
+    },
+    {
+      "id": "npc655-native-hover-paint",
+      "command": [
+        "python3",
+        "scripts/npc-admission646-runtime/run.py",
+        "--paint-only"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
     }
   ]
 }

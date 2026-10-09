@@ -159,7 +159,12 @@ def main():
                 var proof=FirstPicture639(suite=="first-picture639-mage"); while(proof.MoveNext()) yield return proof.Current;
                 File.WriteAllText(Path.Combine(_output,"assertions.txt"),_assertions+" assertions\\n");yield break;
             }
-'''+anchor,1);program.write_text(text)
+'''+anchor,1)
+ if not args.paint_only:
+  begin=text.index('            if (suite == \"native-paint655\") {')
+  end=text.index('            if (suite == \"admission646-census\") {',begin)
+  text=text[:begin]+text[end:]
+ program.write_text(text)
  production=run/'production';production.mkdir()
  for name,text in bound.items():(production/name).write_text(text)
  project=run/'Mirror.csproj';shutil.copyfile(fixture/'Mirror.csproj',project)

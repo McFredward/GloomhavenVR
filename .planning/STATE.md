@@ -1,5 +1,29 @@
 # State — where the project stands
 
+**Build655 paired NPC delivery/returns and map comfort, 2026-10-09: 1.1.0 development candidate.**
+
+The supplied owner and participant banners both identify653. Native continuous
+hover capture canceled still-useful fragmented originals and reissued baselines;
+first pictures now finish independently of current census changes while genuine
+identity/removal still wins. The actual combined native scheduler/receive/render
+proof and controls retain the one-second deadline. No image pixels or new wire
+layout is added. Cabinet native price/quantity sit closer and use larger text.
+
+Actual merchant returns now carry destination-hand affinity, and observer flight
+clocks retain one source timeline across packet jitter and separate front/body
+receipts. World drag/smooth turn use unscaled tracking time. The hardware freeze's
+unique cause is not established; bounded Debug samples retain raw inputs,
+ownership, output and transient Unity clock stops without normal-log streams.
+
+Native hover fill state matches across actual perspective/furniture readbacks;
+no separate depth failure was reproduced. The GL reader cannot validate the full
+D3D11 procedural frame, so headset overlay blinking remains an acceptance limit.
+Focused native proofs, source16 composite, strict Debug/Release,299961 direct
+wire goldens and private compiled/surface scope are recorded in
+[NPC-655-REVIEW.md](NPC-655-REVIEW.md). This is not a fresh full188-suite local gate.
+Unchanged areas inherit the recorded previous evidence. Own generated worker
+artifacts are compactly archived before cleanup; hardware inputs remain intact.
+
 **Build654 reliable Auto walls and Graphics placement, 2026-10-09: 1.1.0 development candidate.**
 
 New Build 653 Frame evidence confirms useful manual wall removal: 845 renderers hidden,
