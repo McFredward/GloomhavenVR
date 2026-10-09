@@ -165,6 +165,9 @@ internal static class NetProtocol
     /// <summary>One owner-authored native card return clock with exact public
     /// member geometry. Additive to message26; existing motion records stay unchanged.</summary>
     public const byte ExtIdTownCardReturnCohort = 113;
+    /// <summary>Request the exact retained town original after native template
+    /// metadata cannot expand. Additive to message28; never acknowledges receipt.</summary>
+    public const byte ExtIdTownOriginalRequest = 114;
     /// <summary>Owner fan insertion gap: one byte gap + 1; zero clears the marker.</summary>
     public const byte ExtIdFanInsertionGap = 71;
     /// <summary>Native video source and shared pose, independent of the legacy window record21.</summary>

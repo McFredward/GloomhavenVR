@@ -282,6 +282,8 @@
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/ExtrasSendScheduler.OriginalReceipts.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/TownServices/TownServiceOriginalReceiptCodec.cs" />
     <Compile Include="TownOriginalReceipt639Vectors.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/TownServices/TownServiceOriginalRequestCodec.cs" />
+    <Compile Include="TownOriginalRequest661Vectors.cs" />
     <Compile Include="TownServiceTransportVectors.cs" />
     <Compile Include="TownCatalogBankVectors.cs" />
     <Compile Include="TownVisibleCensusVectors.cs" />
