@@ -61,8 +61,8 @@ internal static partial class ScenarioTerrainBudget
             if (!Pillar) return Vector3.Distance(position, currentBounds.ClosestPoint(position));
             // The Frame pillar report exposed an angle-dependent *distance* before
             // any camera admission: a square world AABB is closer at its corners.
-            // Walking around one column at a fixed radius could cross the 18cm
-            // original-detail guard (and near/far boundary) without approaching it.
+            // Walking around one column at a fixed radius could cross the
+            // original-detail radius (and near/far boundary) without approaching it.
             // Use its authored enclosing cylinder instead. Current source axes keep
             // this radial metric valid through diorama tilt/nonuniform scale. Read
             // the matrix only in the existing Update, never in either eye's loop.

@@ -465,14 +465,25 @@ internal static partial class ScenarioTerrainBudget
             Bounds bounds = !surface.Pillar || detail.Left.Tracked || detail.Right.Tracked
                 ? surface.Renderer.bounds : default;
             float metres = surface.HeadDistance(detail.Position, bounds) / detail.Scale;
-            // Leaning into the scenery, or touching it with either tracked side, restores
-            // exact original geometry. Interactive and held objects are excluded separately.
-            if (metres < .18f || NearHand(detail.Left, bounds) || NearHand(detail.Right, bounds)) return 100;
-            int near = detail.Near;
             // Small hysteresis keeps a parked threshold from repeatedly morphing the same mesh.
             float edge = detail.Distance + (surface.Distant ? -.04f : .04f);
+            bool protectedNear = metres < .18f || NearHand(detail.Left, bounds) || NearHand(detail.Right, bounds);
+            if (surface.Pillar)
+            {
+                // The maintainer's radial follow-up (2026-10-09): the old 18cm touch
+                // guard still left visibly coarse pillars throughout normal close viewing.
+                // Frame's saved near/far0% made the configured distance inert (0 -> 0).
+                // Protect original pillar geometry throughout that adjustable VR radius,
+                // including with both caps at0. Figures retain their size-based policy;
+                // this radius does not depend on head yaw or a pillar's full height.
+                surface.Distant = metres > edge;
+                return protectedNear || !surface.Distant ? 100 : Mathf.Min(detail.Near, detail.Distant);
+            }
+            // Other scenery keeps its existing leaning/touch guard and near/far caps.
+            // Interactive and held objects are excluded separately.
+            if (protectedNear) return 100;
             surface.Distant = metres > edge;
-            return surface.Distant ? Mathf.Min(near, detail.Distant) : near;
+            return surface.Distant ? Mathf.Min(detail.Near, detail.Distant) : detail.Near;
         }
         private static bool NearHand(HandProximity hand, Bounds bounds) => hand.Tracked
             && Vector3.Distance(hand.Position, bounds.ClosestPoint(hand.Position)) / hand.Scale < .12f;
