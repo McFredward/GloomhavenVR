@@ -341,7 +341,10 @@ internal static partial class ScenarioTerrainBudget
                 {
                     Transform node = _pending.Dequeue();
                     if (node == null) continue;
-                    _queued.Remove(node.GetInstanceID());
+                    // QueueRoot keys GameObjects. Removing the Transform identity
+                    // leaves permanent membership and loses later readiness/unmask
+                    // callbacks for a source that has already been traversed once.
+                    _queued.Remove(node.gameObject.GetInstanceID());
                     for (int child = 0; child < node.childCount; child++) QueueRoot(node.GetChild(child).gameObject);
                     MeshRenderer renderer = node.GetComponent<MeshRenderer>();
                     // The wall owner queues its exact released source through
