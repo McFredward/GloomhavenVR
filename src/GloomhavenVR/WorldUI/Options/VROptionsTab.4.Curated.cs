@@ -380,10 +380,6 @@ internal static partial class VROptionsTab
                     LocKey = "sec_visibility",
                     Entries = new CuratedEntry[]
                     {
-                        // Independent wall policy: instant hiding is a deliberate graphics
-                        // compromise; regular retains the existing comfort fade controls.
-                        new("Optimize", "WallVisibilityModeCount", ""),
-                        new("Optimize", "WallAutoHideBelowFpsCount", ""),
                         new("Compat", "WallFade", "wall_see_through"),
                         // Fort superstructures fade with the walls — ruling 18 put the switch
                         // directly beside the walls-transparent toggle it extends. Folds under
@@ -489,6 +485,11 @@ internal static partial class VROptionsTab
                     LocKey = "sec_graphics_details",
                     Entries = new CuratedEntry[]
                     {
+                        // Build654: the maintainer places instant wall removal under Graphics
+                        // because it trades scenery for performance. Keep its Auto threshold
+                        // beside the policy; the ordinary view-dependent fade stays in Comfort.
+                        new("Optimize", "WallVisibilityModeCount", ""),
+                        new("Optimize", "WallAutoHideBelowFpsCount", ""),
                         new("Optimize", "ScenarioExplicitEnvironmentInstancing", ""),
                         new("Optimize", "ScenarioCheapWallShading", ""),
                         new("Optimize", "ScenarioTerrainSubstitution", ""),

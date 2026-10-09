@@ -66,8 +66,12 @@ def static_contract(source):
     for key in ["WallVisibilityModeCount", "WallAutoHideBelowFpsCount"]:
         curated = source[base + "WorldUI/Options/VROptionsTab.4.Curated.cs"]
         assert curated.count('new("Optimize", "' + key + '", "")') == 1, "Each new wall setting has exactly one curated door"
+        graphics = curated.index('LocKey = "cat_graphics"')
+        details = curated.index('LocKey = "sec_graphics_details"', graphics)
+        details_end = curated.index('LocKey = "sec_windows_panels"', details)
+        assert graphics < details < curated.index('new("Optimize", "' + key + '", "")') < details_end, "Wall modes and threshold sit in Graphics beside the geometry controls"
         visibility = curated.index('LocKey = "sec_visibility"')
-        assert visibility < curated.index('new("Optimize", "' + key + '", "")') < curated.index('new("Compat", "WallFade", "wall_see_through")'), "Wall modes sit beside the existing visibility controls"
+        assert visibility < curated.index('new("Compat", "WallFade", "wall_see_through")') < graphics, "Regular wall fading remains in Comfort visibility"
         catalog = source[base + "WorldUI/Options/ConfigCatalog.cs"]
         topic = member(catalog, "private static ConfigTopic TopicOf(")
         assert '|| key == "' + key + '"' in topic, "Wall settings remain reachable in Advanced graphics"
