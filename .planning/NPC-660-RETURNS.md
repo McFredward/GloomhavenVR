@@ -184,3 +184,61 @@ This is worker-focused/composite evidence. It is not a new complete local gate,
 a WAN guarantee, or confirmation that the user's headset regression is resolved.
 The primary agent owns final combined validation, stamp, release summary and dev
 push; the paired hardware picture remains the final acceptance evidence.
+
+## Follow-up: a prior snapshot cannot acknowledge a newer terminal entry
+
+Final source review identified one remaining source-level overlap and added a
+separate reproduction before integration. An already staged24-part snapshot can
+finish on the same capture turn that the native sampler ends. The terminal path
+replaces each slot's `Entry` with its exact final physical receipt, but deliberately
+allows the older frozen picture to finish rather than starving its last members.
+The budget's former completion loop then unconditionally set every current source
+slot `Dirty=false`, even when that source now held the newer terminal entry.
+On the next capture, the terminal retention condition saw no dirty receipt and
+removed Kind8. Ordinary roots then individually cancelled the prior cohort. Thus
+the final cohort was never delivered, and a simultaneous terminal geometry change
+could appear without its other physical members.
+
+This was not merely a redundant completion receipt. The old-source proof
+`npc660-returns/run-2zfb69fe` first detects ordinary roots replacing an
+unacknowledged final cohort. Its follow-up `run-b2oggix2` deliberately lets that
+packet reach the real receiver and renderer, measuring a **25.886mm front-origin
+error and63.353mm printed-centre error on frame66**. Earlier24-part tests changed
+the source geometry at frame24 and ended the source near63; that separate timing
+did not cover the newly identified overlap.
+
+The narrow fix saves each source `TownServiceMotionEntry` identity when its
+snapshot freezes. Completing that snapshot clears Dirty and records admission
+only if the source still holds that exact entry. The finished ReturnSnapshot is
+released in either case; the newer dirty terminal entry then starts and completes
+its own physical cohort. Older active snapshots still finish finite staging, and
+current unchanged entries still acknowledge normally. No wire, layout semantics,
+native clock, source curve, event budget or gameplay ownership changes.
+
+The new native terminal test runs108 frames with24 physical originals and the
+actual VRCard .65s sampler/update. It detects the real `_flying` termination, then
+deliberately calls actual ItemChip `CanonicalizeHostedFace` on the source print at
+that instant to change its child TRS **and** rect layout while the older snapshot
+is incomplete. This is an adversarial source-layout input; it does not claim that
+ordinary VRCard completion itself invokes the merchant method. Both involved
+methods and all network/render machinery are actual source. Every visible frame
+keeps either the prior or the newly completed root and printed-plane relationship,
+with matching pivot, at50µm tolerance. The proof explicitly accumulates all final
+native cohort members, rejects premature ordinary-root substitution, verifies the
+actual native endpoint after activation and requires overlap to have occurred.
+The prior picture survives until that exact final cohort completes.
+
+| Additional receipt | Result |
+| --- | --- |
+| `npc660-returns/run-34sq09jv` |3128 assertions after the exact-entry acknowledgement repair. |
+| `npc660-returns/run-dboq6tlf` |3128 assertions and five causal controls; removing only the identity guard reproduces the frame66 visible mismatch above. |
+| `town-motion-wire/run-xu8ng8r3` |15294 assertions with final acknowledgement source; unchanged goldens/event budget. |
+| `npc658-flights/run-7eyx99qq` |Capacity212 assertions and its starvation control; continuously active native staging and live/fan/ordinary progress remain finite, including64-member staging. |
+| `test-runs/20261009-222108-2c792c89` |Complete source16/16 on the acknowledgement repair. |
+| `npc660-terminal-ack-strict.log` |Strict Debug, zero warnings/errors. |
+
+The prior complete660 archive remains unchanged. Follow-up failed-first/positive/
+negative generated inputs, CSV traces and unchanged picture comparisons are kept
+in the separate `returns-worker-terminal-followup` archive beside it. This is a
+bounded repair after the first integrated freeze, not a replacement claim for the
+primary agent's complete final validation or paired headset acceptance.

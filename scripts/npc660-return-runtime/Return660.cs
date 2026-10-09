@@ -129,6 +129,7 @@ public static partial class MirrorProgram
         }
         foreach(bool drop in new[]{false,true})
         { var staged=StagedLayout660(drop);while(staged.MoveNext())yield return staged.Current; }
+        var terminal=TerminalOverlap660();while(terminal.MoveNext())yield return terminal.Current;
         var interrupted=Interruption660();while(interrupted.MoveNext())yield return interrupted.Current;
         ExternalPoseChannels660();
         yield break;
@@ -290,6 +291,102 @@ public static partial class MirrorProgram
             yield return null;
         }
         Check(partialObserved && repaired && (!drop || dropped),"actual 24-part budget stages then repairs changed native rect dependency after loss and late receipt");
+        TownServiceMirror.Shutdown();
+    }
+    private static IEnumerator TerminalOverlap660()
+    {
+        TownServiceMirror.Shutdown();NetPlayerActors.Peer=1;FlightTime655.Now=100f;
+        Transform owner=Go("Terminal overlap native source").transform,observer=Go("Terminal overlap observer").transform;
+        observer.position=Vector3.right*8f;TownServiceMirror.SharedFrameForRemote=_=>observer;
+        Transform card=Go("Actual terminal-overlap VRCard",owner).transform;card.localPosition=new Vector3(.1f,1f,.03f);
+        VRCard native=card.gameObject.AddComponent<VRCard>();var parts=new Transform[24];var random=new System.Random(660);
+        RectTransform canvas=(RectTransform)Go("Actual terminal canonicalization canvas",card).transform;
+        canvas.sizeDelta=new Vector2(400,260);canvas.localScale=Vector3.one*.0005f;
+        for(int i=0;i<parts.Length;i++)
+        {
+            parts[i]=i==0?TownServiceCardBody.Create(card).transform:Go("Actual terminal original "+i,card).transform;
+            if(i==0){parts[i].localScale=new Vector3(.2f,.13f,1f);using(var b=new TownServiceBinding(parts[i]))b.Read(TownServiceMirror.Assets);}
+            else
+            {
+                var rect=(RectTransform)parts[i];rect.sizeDelta=new Vector2(400,260);rect.pivot=new Vector2(.2f,.8f);
+                rect.localPosition=new Vector3((float)random.NextDouble()*.06f,(float)random.NextDouble()*.04f,(float)random.NextDouble()*.03f);
+                rect.localRotation=Quaternion.Euler((float)random.NextDouble()*5f,(float)random.NextDouble()*9f,(float)random.NextDouble()*13f);
+                rect.localScale=Vector3.one*((float)random.NextDouble()*.0001f+.0004f);
+            }
+        }
+        using(TownServiceMirror.UseStockLane())
+        {
+            TownServiceMirror.BeginSession(1,6603,owner,owner);
+            for(int i=0;i<parts.Length;i++)
+            {
+                string address=i==0?"map.cardbody|660terminal":"face.6604|part"+i;
+                TownServiceMirror.RegisterTemplate(1,(ushort)(i+1),parts[i],address:address);
+                TownServiceMirror.RegisterModule((ushort)(i+1),(ushort)(i+1),parts[i],address:address);
+                TownServiceMirror.PrepareCardReturn(parts[i],native.CaptureNativeTownReturn655);
+            }
+        }
+        Canvas.ForceUpdateCanvases();yield return null;
+        FastCapture warm=CaptureFast();Receive(2,warm.Artwork);DeliverMotion(2,warm);TownServiceMirror.TickRemote(_=>observer);
+        int peer=((Dictionary<int,int>)typeof(TownServiceMirror).GetField("StockKeys",PrivateStatic)!.GetValue(null)!)[2];
+        Vector3 priorRoot=parts[0].InverseTransformPoint(parts[1].position);
+        Vector3 priorCenter=parts[0].InverseTransformPoint(parts[1].TransformPoint(((RectTransform)parts[1]).rect.center));
+        Vector3 finalRoot=Vector3.zero,finalCenter=Vector3.zero;bool changed=false,oldOverlap=false,terminalComplete=false,earlyOrdinary=false;
+        float changedAt=0f,terminalTime=-1f;var terminalParts=new HashSet<byte>();
+        var trace=new System.Text.StringBuilder("frame,terminalComplete,rootError,centerError,pivotX,pivotY\n");
+        native.BeginNative655(new Vector3(.42f,1.1f,.12f),.65f);
+        for(int frame=1;frame<=108;frame++)
+        {
+            FlightTime655.Now=100f+frame/90f;FlightTime655.Delta=1f/90f;
+            bool before=native.CaptureNativeTownReturn655(parts[1],owner,null,out _,out _);
+            native.StepNative655();
+            if(before && !native.CaptureNativeTownReturn655(parts[1],owner,null,out _,out _))
+            {
+                changed=true;changedAt=FlightTime655.Now;NativeMerchant655.Canonicalize660(parts[1],canvas);
+                finalRoot=parts[0].InverseTransformPoint(parts[1].position);
+                finalCenter=parts[0].InverseTransformPoint(parts[1].TransformPoint(((RectTransform)parts[1]).rect.center));
+            }
+            if(frame%6==0)TownServiceMirror.CaptureMotion((bytes,length,identity)=>
+            {
+                Check(TownServiceMotionCodec.TryRead(bytes,length,out var packet),"terminal-overlap actual bounded receipt decodes");
+                foreach(TownServiceMotionEntry entry in packet!.Entries)
+                {
+                    if(entry.Kind==10)
+                    {
+                        if(changed && entry.ReturnSampleTime<changedAt)oldOverlap=true;
+                        bool exactTerminal=entry.Numbers[0]==entry.Numbers[1];
+                        for(int n=0;n<10;n++)exactTerminal &= entry.Numbers[4+n]==entry.Numbers[14+n];
+                        if(exactTerminal)
+                        {
+                            if(terminalTime!=entry.ReturnSampleTime){terminalParts.Clear();terminalTime=entry.ReturnSampleTime;}
+                            foreach(var part in entry.ReturnParts)terminalParts.Add(part.Index);
+                            terminalComplete=terminalParts.Count==entry.ReturnMembers.Length;
+                        }
+                    }
+                    if(changed && entry.Kind==1 && !terminalComplete)
+                        earlyOrdinary=true;
+                }
+                TownServiceMirror.ReceiveMotion(2,packet);
+            });
+            TownServiceMirror.TickRemote(_=>observer);
+            Transform body=Remote(peer,1)!.Root,front=Remote(peer,2)!.Root;
+            Check(body.gameObject.activeInHierarchy==front.gameObject.activeInHierarchy,"terminal-overlap originals retain visibility together on every frame");
+            if(body.gameObject.activeInHierarchy)
+            {
+                Vector3 relation=terminalComplete?finalRoot:priorRoot,center=terminalComplete?finalCenter:priorCenter;
+                float rootError=Vector3.Distance(front.position,body.TransformPoint(relation));
+                float centerError=Vector3.Distance(front.TransformPoint(((RectTransform)front).rect.center),body.TransformPoint(center));
+                Check(rootError<.00005f && centerError<.00005f,"terminal overlap keeps one native physical picture through exact terminal acknowledgement frame="+frame+" root="+rootError+" center="+centerError);
+                Check(((RectTransform)front).pivot==(terminalComplete?Vector2.one*.5f:new Vector2(.2f,.8f)),"terminal rect dependency activates only with its exact final child geometry");
+                if(terminalComplete)
+                    Check(Vector3.Distance(body.position,observer.TransformPoint(owner.InverseTransformPoint(parts[0].position)))<.00005f,
+                        "completed terminal-overlap body arrives at the actual native endpoint");
+                trace.AppendLine(frame+","+terminalComplete+","+rootError+","+centerError+","+((RectTransform)front).pivot.x+","+((RectTransform)front).pivot.y);
+            }
+            Check(!earlyOrdinary,"terminal overlap never substitutes ordinary roots for an unacknowledged final native cohort");
+            File.WriteAllText(Path.Combine(_output,"terminal-overlap660.csv"),trace.ToString());
+            yield return null;
+        }
+        Check(changed && oldOverlap && terminalComplete,"new final native cohort finishes after prior frozen snapshot despite concurrent terminal child and rect change");
         TownServiceMirror.Shutdown();
     }
     private static int FlightInk658(Color32[] pixels)

@@ -159,11 +159,20 @@ internal static class TownServiceMotionBudget
             {
                 ReturnSnapshot snapshot = accepted.Slot.ReturnSnapshot!;
                 snapshot.Cursor += accepted.Slot.Entry.ReturnParts.Length;
-                foreach (TownServiceMotionPending source in snapshot.Sources)
+                for (int i = 0; i < snapshot.Sources.Length; i++)
                 {
+                    TownServiceMotionPending source = snapshot.Sources[i];
                     source.SentAt = now;
                     if (snapshot.Cursor == snapshot.Parts.Length)
-                    { source.Dirty = false; source.AdmittedReturnRevision = source.Entry.Revision; source.ReturnSnapshot = null; }
+                    {
+                        // A staged instant may finish after native completion
+                        // replaced this slot with its final physical geometry.
+                        // Acknowledge only the exact entry we froze; keep that
+                        // newer receipt dirty for the next complete cohort.
+                        if (ReferenceEquals(source.Entry, snapshot.SourceEntries[i]))
+                        { source.Dirty = false; source.AdmittedReturnRevision = source.Entry.Revision; }
+                        source.ReturnSnapshot = null;
+                    }
                 }
             }
             cursors[accepted.Group] = accepted.Next;
@@ -250,6 +259,7 @@ internal static class TownServiceMotionBudget
         internal TownServiceMotionEntry Header = null!;
         internal TownServiceReturnPart[] Parts = null!;
         internal TownServiceMotionPending[] Sources = null!;
+        internal TownServiceMotionEntry[] SourceEntries = null!;
         internal TownServiceMotionPending?[] Layouts = null!;
         internal TownServiceMotionEntry?[] LayoutEntries = null!;
         internal int Cursor;
@@ -299,11 +309,13 @@ internal static class TownServiceMotionBudget
             Hand = clock.Hand, Revision = clock.Revision, ReturnSampleTime = now, Numbers = new float[28],
             ReturnMembers = new ushort[members.Count], ReturnStructures = new uint[members.Count] };
         Array.Copy(clock.Numbers, header.Numbers, 28);
-        var snapshot = new ReturnSnapshot { Header = header, Sources = members.ToArray(), Parts = new TownServiceReturnPart[members.Count],
+        var snapshot = new ReturnSnapshot { Header = header, Sources = members.ToArray(),
+            SourceEntries = new TownServiceMotionEntry[members.Count], Parts = new TownServiceReturnPart[members.Count],
             Layouts = new TownServiceMotionPending?[members.Count], LayoutEntries = new TownServiceMotionEntry?[members.Count] };
         for (int i = 0; i < members.Count; i++)
         {
             TownServiceMotionEntry member = members[i].Entry;
+            snapshot.SourceEntries[i] = member;
             int root = ReturnRoot(live, member); if (root < 0) return null;
             header.ReturnMembers[i] = member.Module; header.ReturnStructures[i] = member.Structure;
             var part = new TownServiceReturnPart { Index = (byte)i, Visible = live[root].Entry.Visible,
