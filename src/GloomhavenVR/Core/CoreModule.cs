@@ -72,6 +72,12 @@ internal sealed class CoreModule : IVRModule
         ScenarioIdleAnimationBudget.Install(_hostGo, () => PerfConfig.OffscreenIdleAnimationOn);
         WorldMaterialBudget.ConfigureAssetPreparation(ScenarioEnvironmentAssets.EnsureLoaded);
         WorldMaterialBudget.ConfigureAmbientWeight(() => PerfConfig.WorldMaterialAmbientWeight);
+        WorldMaterialBudget.ConfigurePerformanceWallVisibility(WallSegmentFade.IsPerformanceHidden);
+        ScenarioEnvironmentBudget.ConfigurePerformanceWallIntegration(WallSegmentFade.IsPerformanceHidden,
+            WallSegmentFade.NotifyPerformanceContentChange, WallSegmentFade.NotifyPerformanceRendererReady);
+        ScenarioSceneryBudget.ConfigurePerformanceWallMasks(WallSegmentFade.RetainPerformanceMaskOnForeignRelease,
+            WallSegmentFade.NotifyPerformanceContentChange);
+        WallSegmentFade.ConfigurePerformanceMaskRestored(ScenarioSceneryBudget.AfterPerformanceWallRestore);
         WorldMaterialBudget.ConfigureBeforeVariantDisposal(ScenarioEnvironmentBudget.BeforeWorldMaterialDisposal);
         WorldMaterialBudget.ConfigureCanonicalSource(ScenarioEnvironmentBudget.CanonicalMaterial);
         WorldMaterialBudget.ConfigureSourceChanged(ScenarioEnvironmentBudget.WorldMaterialChanged);

@@ -2264,6 +2264,41 @@
         "local"
       ],
       "weight": 10
+    },
+    {
+      "id": "wall-performance-runtime",
+      "command": [
+        "python3",
+        "scripts/check-wall-performance-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 75
+    },
+    {
+      "id": "wall-options",
+      "command": [
+        "python3",
+        "scripts/check-wall-options.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 14
+    },
+    {
+      "id": "openxr-blend-probe",
+      "command": [
+        "bash",
+        "scripts/openxr-blend-probe-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 4
     }
   ]
 }

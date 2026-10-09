@@ -23,6 +23,7 @@ internal static partial class WorldMaterialBudget
     private static Func<bool>? _ensureAssets;
     private static Action? _beforeVariantDisposal;
     private static Func<float>? _ambientWeight;
+    private static Func<Renderer, bool>? _performanceWallHidden;
 
     internal static void ConfigureCanonicalSource(Func<Material, Material> source) => _canonicalSource = source;
     internal static void ConfigureSourceChanged(Action<Renderer> changed) => _sourceChanged = changed;
@@ -34,6 +35,7 @@ internal static partial class WorldMaterialBudget
     internal static void ConfigureAssetPreparation(Func<bool> ensureLoaded) => _ensureAssets = ensureLoaded;
     internal static void ConfigureBeforeVariantDisposal(Action restoreConsumers) => _beforeVariantDisposal = restoreConsumers;
     internal static void ConfigureAmbientWeight(Func<float> weight) => _ambientWeight = weight;
+    internal static void ConfigurePerformanceWallVisibility(Func<Renderer, bool> hidden) => _performanceWallHidden = hidden;
     internal static void Install(GameObject host)
     {
         if (_driver != null) return;
@@ -44,7 +46,7 @@ internal static partial class WorldMaterialBudget
             "WorldMaterial.NativeSlots", "WorldMaterial.MaterialRefreshes", "WorldMaterial.ScopeRefusals",
             "WorldMaterial.ShaderRefusals", "WorldMaterial.EffectRefusals", "WorldMaterial.FactoryVariantRefreshes",
             "WorldMaterial.PropRootReads", "WorldMaterial.ScopeNodeReads", "WorldMaterial.InactiveCandidates",
-            "WorldMaterial.CameraExcludedCandidates" }) PerfMonitor.RegisterDebug(counter);
+            "WorldMaterial.CameraExcludedCandidates", "WorldMaterial.PerformanceHiddenCandidates" }) PerfMonitor.RegisterDebug(counter);
     }
     internal static void Shutdown()
     {
@@ -95,6 +97,7 @@ internal static partial class WorldMaterialBudget
         internal MeshFilter? Filter;
         internal Mesh? Mesh;
         internal bool Refused;
+        internal bool PerformanceHidden;
         internal Surface(MeshRenderer renderer, MeshFilter filter)
         {
             Renderer = renderer; Object = renderer.gameObject; Transform = renderer.transform;
@@ -248,7 +251,7 @@ internal static partial class WorldMaterialBudget
                     _passAmbient = _shareReads ? _ambientWeight?.Invoke() ?? 1f : 1f;
                     _refreshes = 0; _propRootReads = 0; _scopeNodeReads = 0;
                 }
-                int candidates = 0, changed = 0, native = 0, scopeRefusals = 0, shaderRefusals = 0, effectRefusals = 0, inactive = 0, cameraExcluded = 0;
+                int candidates = 0, changed = 0, native = 0, scopeRefusals = 0, shaderRefusals = 0, effectRefusals = 0, inactive = 0, cameraExcluded = 0, performanceHidden = 0;
                 foreach (KeyValuePair<int, Surface> pair in _surfaces)
                 {
                     Surface surface = pair.Value;
@@ -272,6 +275,22 @@ internal static partial class WorldMaterialBudget
                         return needsRevocation;
                     }
                     candidates++;
+                    // Build652's explicit wall compromise removes these exact native
+                    // sources from rendering. Retire our slots/consumers once, then skip
+                    // mesh, ancestry, material and MPB work for either eye. The predicate
+                    // remains live: Regular, new native membership and scene teardown
+                    // immediately restore the complete current-state validation path.
+                    if (_performanceWallHidden?.Invoke(renderer) == true)
+                    {
+                        if (!surface.PerformanceHidden)
+                        {
+                            RestoreRenderer(renderer);
+                            _changedSources.Add(renderer);
+                            surface.PerformanceHidden = true;
+                        }
+                        performanceHidden++; continue;
+                    }
+                    surface.PerformanceHidden = false;
                     // Options-panel captures do not draw world layers, but used to repeat
                     // every world scope/material/MPB read anyway. Ask this camera's actual
                     // mask and each source's current layer, never a cached layer union or
@@ -352,6 +371,7 @@ internal static partial class WorldMaterialBudget
                     PerfMonitor.Count("WorldMaterial.ScopeNodeReads", _scopeNodeReads);
                     PerfMonitor.Count("WorldMaterial.InactiveCandidates", inactive);
                     PerfMonitor.Count("WorldMaterial.CameraExcludedCandidates", cameraExcluded);
+                    PerfMonitor.Count("WorldMaterial.PerformanceHiddenCandidates", performanceHidden);
                     if (Time.unscaledTime >= _nextDebug)
                     {
                         _nextDebug = Time.unscaledTime + 10f;
@@ -359,6 +379,7 @@ internal static partial class WorldMaterialBudget
                             + ", effectiveSlots=" + changed + ", nativeSlots=" + native + ", uniqueRefreshes=" + _refreshes
                             + ", refusedScope=" + scopeRefusals + ", refusedShader=" + shaderRefusals
                             + ", refusedEffect=" + effectRefusals + ", cameraExcluded=" + cameraExcluded
+                            + ", performanceHidden=" + performanceHidden
                             + "; source work, not visible GPU draws.");
                     }
                 }

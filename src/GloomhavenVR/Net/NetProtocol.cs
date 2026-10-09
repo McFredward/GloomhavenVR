@@ -598,7 +598,23 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 651;
+    public const ushort ModBuild = 652;
+
+    // ModBuild652 — explicit wall visibility compromise and cheap loaded-game Auto.
+    // Normal keeps the current view-dependent fade; Hide all instantly masks exact
+    // existing wall/attachment members and pauses decisions, animations, recurring
+    // collectors and wall-fade snapshots. Door/gate arches retain their protections.
+    // Auto is the common fresh default: below15 application FPS across a loaded
+    // two-second window, keep walls hidden for the scenario to avoid oscillation.
+    // Both mode and threshold remain editable; loading/focus/options do not trigger.
+    // Native placement/readiness/room changes still refresh the exact inventory.
+    // Hidden wall sources retire their material/substitute work; consumer and
+    // scenery-mask restitution preserve current independent visibility choices.
+    // Retains650 redundant-work removal and651 guarded UI fixes. Startup also
+    // reports bounded read-only OpenXR blend capabilities for the independent MR
+    // investigation; it does not activate passthrough or change render state.
+    // Hardware comparison, causal controls, budgets and integration evidence:
+    // .planning/FRAME-652-REVIEW.md. Both VR peers use the common652 build.
 
     // ModBuild651 — selected native game UI repairs from Bug Fixes 5.0.0.
     // Resolve the item bar's actual incoming inventory/action owner before
