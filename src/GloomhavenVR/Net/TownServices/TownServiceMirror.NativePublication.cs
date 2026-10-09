@@ -32,6 +32,37 @@ internal static partial class TownServiceMirror
             + " parent=" + frame.ParentModule + " required=" + (_local.RequiredVisibleModules?.Length ?? -1)
             + " prepared=" + _local.Modules.Count + " kind=" + (frame.BaseSequence == 0 ? "cold-original" : "owner-delta") + ".");
     }
-    private static byte[] WriteNativeTownFrame(TownServiceFrame frame) =>
-        TryWriteNativeTemplateState(frame, out byte[] packet) ? packet : TownServiceCodec.Write(frame);
+    private static byte[] WriteNativeTownFrame(TownServiceFrame frame)
+    {
+        if (!TryWriteNativeTemplateState(frame, out byte[] packet)) return TownServiceCodec.Write(frame);
+        if (frame.Service == 3 && !frame.PublicCatalog && !frame.VisitorStock && frame.BaseSequence == 0
+            && Local.TryGetValue(frame.Module, out LocalModule? source))
+        {
+            NativeTemplateRepair repair = NativeTemplateRepairs.GetValue(source, _ => new NativeTemplateRepair());
+            repair.Original = frame;
+            // Sending a partial fragment is not receipt. The complete actual
+            // transport callback starts the short acknowledgment grace below.
+            repair.After = float.PositiveInfinity;
+        }
+        return packet;
+    }
+
+    private static void CaptureNativeOriginalRepair(LocalModule module,
+        System.Action<byte[], int, object?> send, float now)
+    {
+        if (!NativeTemplateRepairs.TryGetValue(module, out NativeTemplateRepair? repair)
+            || repair.Original == null) return;
+        TownServiceFrame original = repair.Original;
+        if (!ReferenceEquals(module.Baseline, original) || original.Session != _session
+            || original.Service != _service || HasReceivedOriginal(module))
+        { repair.Original = null; return; }
+        if (now < repair.After) return;
+        // Keep every byte of the exact owner original, including its sequence.
+        // This full fallback can satisfy a waiting cumulative delta and replaces
+        // no newer source identity. It uses the existing bounded town arbitration.
+        byte[] packet = TownServiceCodec.Write(original);
+        send(packet, packet.Length, original);
+        repair.Original = null;
+        TraceNativePublication(module, original, packet.Length);
+    }
 }

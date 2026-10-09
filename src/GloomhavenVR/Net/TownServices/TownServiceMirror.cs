@@ -778,7 +778,11 @@ internal static partial class TownServiceMirror
         module.LastSent = Math.Max(module.LastSent, frame.Sequence);
         float now = Time.unscaledTime;
         if (frame.BaseSequence == 0 && module.Baseline?.Sequence == frame.Sequence)
+        {
             module.NextBaseline = now + 5f + module.Id % 13 * .07f;
+            if (NativeTemplateRepairs.TryGetValue(module, out NativeTemplateRepair? repair)
+                && ReferenceEquals(repair.Original, frame)) repair.After = now + .15f;
+        }
         // A single small ordinary module maintains session liveness; unchanged stock
         // does not need 2,000 separate subsecond heartbeat packets behind it.
         module.NextRefresh = now + (NeedsHeartbeat(module) ? .75f : 5f + module.Id % 7 * .03f);
@@ -842,6 +846,8 @@ internal static partial class TownServiceMirror
             RefreshVisibleCensus();
             foreach (LocalModule module in _local.CaptureOrder)
             {
+                try { CaptureNativeOriginalRepair(module, send, now); }
+                catch (Exception e) { Report("native original repair " + module.Id, e); }
                 if (now < module.RetryAfter || module.CatalogDormant && !module.CatalogDirty && module.Last != null) continue;
                 // The frozen local originals are already prepared. Never serialize an
                 // unseen enhancement inventory merely to unblock a visible offer.
