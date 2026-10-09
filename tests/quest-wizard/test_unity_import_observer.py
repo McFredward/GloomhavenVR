@@ -149,14 +149,17 @@ class LiveImportTests(unittest.TestCase):
         cache = self.store.root / "build/projects/retained/Library/Artifacts/owned"
         cache.parent.mkdir(parents=True); cache.write_bytes(b"already imported")
         stamp = cache.stat().st_mtime_ns
+        boundary = json.dumps({"schema": 1, "phase": "operation:unity-import",
+                               "operation": "unity-import", "status": "start"})
         script = ("from pathlib import Path;import sys,time;"
+                  "print('GHVRQ_PROGRESS '+sys.argv[3],flush=True);"
                   "Path(sys.argv[1]).write_text(sys.argv[2]+'\\n'+sys.argv[2]+'\\n');time.sleep(.2)")
         seen = []
         def poll(process):
             row = self.store._state(self.session)["stages"][5]
             if row["progress"].get("phase") == "unity-asset-import": seen.append(dict(row["progress"]))
         with self.store.active(self.state):
-            self.supervisor.run([sys.executable, "-I", "-c", script, str(log), IMPORTED],
+            self.supervisor.run([sys.executable, "-I", "-c", script, str(log), IMPORTED, boundary],
                                 self.store.session_dir(self.session) / "logs/build.log", on_poll=poll)
         self.assertTrue(seen)
         self.assertEqual(seen[-1]["done"], 2)

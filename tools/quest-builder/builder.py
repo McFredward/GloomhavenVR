@@ -1508,7 +1508,6 @@ def build(args, inputs: dict, output: Path, source: Path, game: Path, project: P
                  "--cache", str(output / "tool-cache/openxr-headers")],
                 output / "logs" / ("native-" + key[:12] + ".log"), cwd=source)
         if args.target in ("startup", "game"):
-            build_progress.operation("package-api", detail="Binding recovered original scripts to Android Unity package APIs")
             bind_startup_package_apis(args, output, source, project, tools, key)
         if args.target == "game":
             import campaign_native
@@ -1525,7 +1524,7 @@ def build(args, inputs: dict, output: Path, source: Path, game: Path, project: P
                     "GHVR_QUEST_KEYALIAS_PASSWORD": private["password"],
                     "GHVR_QUEST_ANDROID_SDK": tools["androidSdk"],
                     "GHVR_QUEST_ANDROID_NDK": tools["androidNdk"], "GHVR_QUEST_JDK": tools["jdk"]})
-        env = content_pack_environment(env)
+        env = content_pack_environment(env, progress_log=output / "logs" / ("content-pack-" + key[:12] + ".log"))
         env = native_admission.player_environment(env, target=args.target)
         if args.target == "game":
             env = campaign_native_shader_environment(env, source)
@@ -1536,7 +1535,8 @@ def build(args, inputs: dict, output: Path, source: Path, game: Path, project: P
         dotnet = tool_path(args.dotnet, "dotnet")
         launcher = host_resources.prepare_bee_launcher(dotnet, output)
         env = host_resources.unity_native_environment(tools["editor"], launcher, policy["jobs"], dotnet, env)
-        build_progress.operation("unity-import", detail="Unity imports the prepared project and compiles Editor scripts")
+        build_progress.operation("unity-validation" if args.target in ("startup", "game") else "unity-import",
+                                 detail="Unity resumes the imported project and validates the Android Player build")
         native_admission.run_player(host_resources, build_progress, output, policy, command,
                 unity_launcher(tools["editor"], graphics=args.target == "game") + ["-quit", "-projectPath", str(project),
                  "-buildTarget", "Android", "-executeMethod", "GloomhavenVR.Quest.Editor.QuestBuildConcurrency.Build",
@@ -1656,14 +1656,20 @@ def campaign_native_shader_environment(base, source):
     return result
 
 
-def content_pack_environment(base):
+def content_pack_environment(base, *, progress_log=None):
     """Only the captured builder selects the literal standard-library packer."""
     helper = Path(__file__).with_name("native_content_pack.py").resolve()
     if not helper.is_file():
         raise BuildError("The captured native content packer is missing.")
     result = dict(base)
+    # The Editor buffers the packer's stdout until it exits. Keep its one-line
+    # result contract and publish live counters to the supervisor-owned sidecar.
+    # Never inherit an arbitrary host destination for this build's observer.
+    result.pop("GHVR_QUEST_CONTENT_PROGRESS_LOG", None)
     result.update(GHVR_QUEST_CONTENT_PACK_PYTHON=str(Path(sys.executable).resolve()),
                   GHVR_QUEST_CONTENT_PACK_HELPER=str(helper))
+    if progress_log is not None:
+        result["GHVR_QUEST_CONTENT_PROGRESS_LOG"] = str(_ordinary_owned(Path(progress_log)).absolute())
     return result
 
 
@@ -1684,6 +1690,7 @@ def bind_startup_package_apis(args, output: Path, source: Path, project: Path,
     # imported, Unity 2021.3's Null graphics host crashes in native cursor setup
     # before this SDK method runs. Preserve the cursor and use the same real
     # editor graphics host as the complete Campaign player build.
+    build_progress.operation("unity-import", detail="Importing the retained Unity project and compiling Android package SDK references")
     command(unity_launcher(tools["editor"], graphics=args.target == "game") + ["-quit", "-projectPath", str(project),
              "-buildTarget", "Android", "-executeMethod", "GloomhavenVR.Quest.Editor.QuestBuild.CompileStartupSdk", "-logFile",
              str(output / "logs" / ("package-import-" + build_key[:12] + ".log"))],
@@ -1692,6 +1699,8 @@ def bind_startup_package_apis(args, output: Path, source: Path, project: Path,
     if evidence != {"schema": 1, "target": "Android", "backend": "IL2CPP", "compilation": "Player",
                     "options": "DevelopmentBuild|Assertions", "unityVersion": "2021.3.5f1"}:
         raise BuildError("Package compatibility requires actual Android IL2CPP player SDK compilation.")
+    build_progress.operation("unity-import", complete=True, detail="Unity import and Android package SDK compilation completed; imported Library is retained")
+    build_progress.operation("package-api", detail="Binding recovered original scripts to the imported Android Unity package APIs")
     sdk_files = inventory(sdk, [name + ".dll" for name in REPLACED_PACKAGES])
     plugins = {}
     for path in sorted((project / "Assets").rglob("*.dll")):
@@ -1750,8 +1759,10 @@ def bind_startup_package_apis(args, output: Path, source: Path, project: Path,
 
     Stages(output).run("package-api", key, audit)
     report = validate_report()
+    counter = build_progress.Counter("package-api-publish", len(plugins), "assemblies") if build_progress.enabled() else None
     for name, path in plugins.items():
         shutil.copyfile(rewritten / name, path)
+        if counter: counter.add(1, name)
     shutil.copyfile(report_path, project / "Assets/Quest/Resources/quest-package-api-report.json")
     write_json(project / "Assets/Quest/Resources/quest-package-api-contract.json", {
         "schema": 1, "complete": True, "reportSha256": digest(report_path),
@@ -1759,6 +1770,8 @@ def bind_startup_package_apis(args, output: Path, source: Path, project: Path,
         "plugins": [record_file(path, path.relative_to(project).as_posix())
                     for name, path in sorted(plugins.items())],
         "sdk": sdk_files})
+    if counter: counter.finish()
+    build_progress.operation("package-api", complete=True, detail="All original and mod assemblies are bound to the imported package APIs")
     return report
 
 

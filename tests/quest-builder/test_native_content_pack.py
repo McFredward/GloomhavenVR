@@ -103,11 +103,16 @@ class NativeContentPack(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "links"): packer.pack(self.request)
 
     def test_builder_overwrites_inherited_packer_paths_without_mutating_parent_env(self):
-        inherited = {"GHVR_QUEST_CONTENT_PACK_PYTHON": "untrusted executable", "GHVR_QUEST_CONTENT_PACK_HELPER": "untrusted helper", "OTHER": "kept"}
+        inherited = {"GHVR_QUEST_CONTENT_PACK_PYTHON": "untrusted executable", "GHVR_QUEST_CONTENT_PACK_HELPER": "untrusted helper", "GHVR_QUEST_CONTENT_PROGRESS_LOG": "untrusted destination", "OTHER": "kept"}
         actual = builder.content_pack_environment(inherited)
         self.assertEqual(actual["GHVR_QUEST_CONTENT_PACK_PYTHON"], str(Path(sys.executable).resolve()))
         self.assertEqual(actual["GHVR_QUEST_CONTENT_PACK_HELPER"], str(Path(packer.__file__).resolve()))
         self.assertEqual(inherited["GHVR_QUEST_CONTENT_PACK_HELPER"], "untrusted helper"); self.assertEqual(actual["OTHER"], "kept")
+        self.assertNotIn("GHVR_QUEST_CONTENT_PROGRESS_LOG", actual)
+        owned = self.root / "output/logs/content-pack-012345678abc.log"
+        actual = builder.content_pack_environment(inherited, progress_log=owned)
+        self.assertEqual(actual["GHVR_QUEST_CONTENT_PROGRESS_LOG"], str(owned.absolute()))
+        self.assertEqual(inherited["GHVR_QUEST_CONTENT_PROGRESS_LOG"], "untrusted destination")
 
     def test_campaign_gate_uses_host_helper_and_exact_frozen_source(self):
         inherited = {"GHVR_QUEST_NATIVE_SHADER_PYTHON": "untrusted interpreter", "GHVR_QUEST_NATIVE_SHADER_HELPER": "untrusted helper", "GHVR_QUEST_NATIVE_SHADER_SOURCE": "untrusted source", "OTHER": "kept"}

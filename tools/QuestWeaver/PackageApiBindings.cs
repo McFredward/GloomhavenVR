@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text.Json;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
@@ -26,6 +27,18 @@ public sealed record PackageApiBinding(string Assembly, string OriginalMember, s
 /// <summary>Validate player package ABI before IL2CPP; repair only source-proven compatible bindings.</summary>
 internal static class PackageApiBindings
 {
+    static void Progress(string phase, int done, int total, string? detail = null)
+    {
+        if (Environment.GetEnvironmentVariable("GHVRQ_WIZARD_PROGRESS") != "1") return;
+        // The CLI log is tailed independently while binding. These actual
+        // assembly boundaries never claim completion of the parent API gate.
+        Console.WriteLine("GHVRQ_PROGRESS " + JsonSerializer.Serialize(new
+        {
+            schema = 1, phase, done, total, unit = "assemblies", detail,
+            status = done == 0 ? "start" : done == total ? "complete" : "progress",
+            operation = "package-api"
+        }));
+    }
     // These original DLLs are disabled in the generated player in favour of actual
     // imported Unity packages. Script GUID rebinding cannot repair CLR member refs.
     internal static readonly string[] ReplacedAssemblies =
@@ -73,10 +86,12 @@ internal static class PackageApiBindings
         var metadataStreams = new List<MemoryStream>();
         try
         {
-            foreach (string path in Directory.EnumerateFiles(managed, "*.dll").Order(StringComparer.Ordinal))
+            string[] active = Directory.EnumerateFiles(managed, "*.dll").Order(StringComparer.Ordinal)
+                .Where(path => !ReplacedAssemblies.Contains(Path.GetFileNameWithoutExtension(path), StringComparer.Ordinal)).ToArray();
+            Progress("package-api-bind", 0, active.Length);
+            foreach (string path in active)
             {
                 string name = Path.GetFileName(path);
-                if (ReplacedAssemblies.Contains(Path.GetFileNameWithoutExtension(path), StringComparer.Ordinal)) continue;
                 var assembly = AssemblyDefinition.ReadAssembly(path, new ReaderParameters { AssemblyResolver = resolver, InMemory = true });
                 inputs.Add((path, assembly, false));
                 report.InputAssemblies[name] = Hash(path);
@@ -142,6 +157,7 @@ internal static class PackageApiBindings
                     report.UnchangedTypesVerified++;
                 }
                 inputs[^1] = (path, assembly, changed);
+                Progress("package-api-bind", inputs.Count, active.Length, name);
             }
             if (inputs.Count == 0) throw new InvalidDataException("Package API preflight has no active managed assemblies.");
             if (report.Issues.Count != 0) return report; // No partial adapted payload can escape.
@@ -149,6 +165,8 @@ internal static class PackageApiBindings
                 if (Hash(Path.Combine(sdk, pair.Key)) != pair.Value)
                     throw new InvalidDataException("Imported SDK changed during package API preflight: " + pair.Key);
             Directory.CreateDirectory(output);
+            Progress("package-api-output", 0, inputs.Count);
+            int published = 0;
             foreach (var input in inputs)
             {
                 string name = Path.GetFileName(input.Path), destination = Path.Combine(output, name);
@@ -156,6 +174,7 @@ internal static class PackageApiBindings
                 if (input.Changed) input.Assembly.Write(destination);
                 else File.Copy(input.Path, destination);
                 report.OutputAssemblies[name] = Hash(destination);
+                Progress("package-api-output", ++published, inputs.Count, name);
             }
             report.Complete = true;
             return report;

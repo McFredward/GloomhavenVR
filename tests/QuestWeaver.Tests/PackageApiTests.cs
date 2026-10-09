@@ -32,6 +32,36 @@ internal static class PackageApiTests
         check(idempotent.CheckedTypeReferences > 0 && idempotent.CheckedMemberReferences >= 6 && idempotent.UnchangedTypesVerified > 0,
             "Preflight did not audit the entire referenced type/member surface, including inherited calls and fields.");
 
+        string? previousProgress = Environment.GetEnvironmentVariable("GHVRQ_WIZARD_PROGRESS");
+        TextWriter previousOutput = Console.Out;
+        using var observed = new StringWriter();
+        string progressOutput = Path.Combine(root, "package-progress");
+        try
+        {
+            Environment.SetEnvironmentVariable("GHVRQ_WIZARD_PROGRESS", "1");
+            Console.SetOut(observed);
+            PackageApiReport observedReport = PackageApiBindings.Write(output, target, progressOutput);
+            check(observedReport.Complete && observedReport.OutputAssemblies.Count == idempotent.OutputAssemblies.Count,
+                "Progress observation changed the package ABI result.");
+        }
+        finally
+        {
+            Console.SetOut(previousOutput);
+            Environment.SetEnvironmentVariable("GHVRQ_WIZARD_PROGRESS", previousProgress);
+        }
+        var counters = observed.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => System.Text.Json.JsonDocument.Parse(line[15..])).ToArray();
+        try
+        {
+            check(counters.Length == 4 && counters.All(item => item.RootElement.GetProperty("operation").GetString() == "package-api"),
+                "CLI progress lost actual binding/publication owners or emitted unrelated diagnostics.");
+            check(counters.Select(item => item.RootElement.GetProperty("done").GetInt32()).SequenceEqual(new[] { 0, 1, 0, 1 }),
+                "Package progress did not record actual completed assembly boundaries.");
+            check(File.ReadAllBytes(Path.Combine(progressOutput, "PackageConsumer.dll")).SequenceEqual(File.ReadAllBytes(Path.Combine(second, "PackageConsumer.dll"))),
+                "Progress observation changed emitted assembly bytes.");
+        }
+        finally { foreach (var item in counters) item.Dispose(); }
+
         foreach (string mutation in new[] { "missing-field", "return", "parameter", "instance", "unknown-getter", "no-subtype", "type", "generic-arity", "generic-method" })
         {
             string badSdk = Path.Combine(root, "package-bad-" + mutation); Directory.CreateDirectory(badSdk);

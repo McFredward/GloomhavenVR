@@ -81,6 +81,17 @@ items and retry a failed item alone. These changes never alter system paging
 settings. Whole Windows builds and lower-memory headset delivery remain hardware
 acceptance work; the native actions have passed real4GiB address-space limits.
 
+The first full Android SDK invocation imports the complete project before package
+API binding. The Wizard reads the native Editor log even before its own Editor
+scripts have compiled, showing actual completed import operations and activity.
+Native import rows have no trustworthy total; known task/assembly/byte counters
+retain measured fractions without inventing a percentage from time. API binding
+and content packing expose their actual passes without resetting their parent bar.
+The project and imported `Library` stay under
+`<workspace>/build/projects/<original-workspace-key>` across compatible mod updates.
+An externally installed Editor, global UPM cache and Gradle user cache can occupy
+other locations. See [import evidence and storage](../../.planning/QUEST-UNITY-IMPORT-184004-20261009.md).
+
 Install the verified latest APK with ADB (one authorized device or `--serial`):
 
 ```sh

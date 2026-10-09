@@ -29,6 +29,12 @@ int assertions = 0;
 void Check(bool condition, string message) { assertions++; if (!condition) throw new Exception(message); }
 try
 {
+    if (args.Length == 1 && args[0] == "--package-api-only")
+    {
+        PackageApiTests.Run(temp + "-package-api", Check);
+        Console.WriteLine($"Quest package API binding: {assertions} assertions passed.");
+        return;
+    }
     if (args.Length == 2 && args[0] == "--native-camera-boundary-only")
     {
         NativeCameraBoundaryTests.Run(projectRoot, Path.GetFullPath(args[1]), temp, Check);

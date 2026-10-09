@@ -76,6 +76,13 @@ MEMORY_POLICY_ADAPTIVE = {"path": "tools/quest-builder/host_resources.py", "size
 MEMORY_HELPER_ADAPTIVE = {"path": PREFIX_MEMORY_HELPER, "size": 10337,
     "sha256": "6276af8830d071d0a119f0d5e6da1803a1166d8110f90c4b67394fee405f2dd4"}
 MEMORY_OBSERVER_PROFILES = {
+    # The live content-pack observer reads the same bytes through the same
+    # archival/hash operations. Only its explicitly owned sidecar is new.
+    "tools/quest-builder/native_content_pack.py": (
+        {"path": "tools/quest-builder/native_content_pack.py", "size": 16256,
+         "sha256": "18bb1c74ec6da61c1c4500b0c94ba3b505762da645de10c338694bbb1c163ddd"},
+        {"path": "tools/quest-builder/native_content_pack.py", "size": 9829,
+         "sha256": "d619a988a88b9a9ac92440cc91a38a46613a3ef5e9d434ea41ff475fed4e32bd"}),
     "tools/quest-builder/asset_jobs.py": (
         {"path": "tools/quest-builder/asset_jobs.py", "size": 15970,
          "sha256": "d2b87a6ac15f11d027d35d1ad770a61ff3978790a50477ae49e4c662b8d6cfdc"},
@@ -119,6 +126,13 @@ BUILDER_PROGRESS_AST = {
     True: ("1a6f7d2798bf6d0106a4765bb24b382fd9cd51a1ab55d8c8ba3fd2885380585e",
            "cc09e2c539f383d447f494d386bd5fa6dd8df9989a964543d98c33f4bea6385f"),
 }
+# This exact reviewed AST adds import/API boundaries, assembly counters and the
+# owned content-pack log path after preparation. Producer arguments and retained
+# asset bytes are unchanged. An unknown orchestration edit is still a new scope.
+BUILDER_UNITY_OBSERVER_AST = (
+    "cd66aec43971e36bdabaebc9b7afd8b1adc74704ef1e7696ecc6445ac358775e",
+    "6905242806bb695c86e84be373112f21804c425afa710398cb40b665f4d608d1",
+)
 
 
 # Exact producer profiles reviewed against the original movie/audio outputs.
@@ -323,6 +337,8 @@ def builder_producer_digest(raw, *, original_prefix=False):
             if isinstance(node, ast.ImportFrom) and node.module == "storage":
                 node.names = [name for name in node.names if not (name.name == "persistent_inventory" and name.asname is None)]
     result = hashlib.sha256(ast.dump(tree, include_attributes=False).encode("utf-8")).hexdigest()
+    if not original_prefix and result == BUILDER_UNITY_OBSERVER_AST[0]:
+        result = BUILDER_UNITY_OBSERVER_AST[1]
     observed, preceding = BUILDER_PROGRESS_AST[bool(original_prefix)]
     return preceding if result == observed else result
 

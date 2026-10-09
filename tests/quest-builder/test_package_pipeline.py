@@ -1,6 +1,9 @@
 """Execute private mod-art/package stages; mocked compiler receipts are not hardware evidence."""
 import copy
+from contextlib import redirect_stdout
+import io
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -281,6 +284,35 @@ class PackageApiStageTests(Temporary):
 
     def bind(self):
         return builder.bind_startup_package_apis(self.args, self.output, self.source, self.project, self.tools, "controlled-build-key")
+
+    def test_first_unity_import_finishes_before_api_binding_and_retains_library(self):
+        retained = self.write(self.project / "Library/Artifacts/already-imported", b"retained native import")
+        before = retained.stat().st_mtime_ns
+        observed = io.StringIO()
+        with patch.dict(os.environ, {"GHVRQ_WIZARD_PROGRESS": "1"}), redirect_stdout(observed), \
+                patch.object(builder, "command", side_effect=self.command):
+            self.bind()
+            self.bind()
+        events = [json.loads(line[15:]) for line in observed.getvalue().splitlines() if line.startswith("GHVRQ_PROGRESS ")]
+        boundaries = [(v["operation"], v["status"]) for v in events if v["phase"].startswith("operation:")]
+        self.assertEqual(boundaries, [("unity-import", "start"), ("unity-import", "complete"),
+                                      ("package-api", "start"), ("package-api", "complete")] * 2)
+        self.assertEqual(retained.read_bytes(), b"retained native import")
+        self.assertEqual(retained.stat().st_mtime_ns, before)
+        self.assertEqual(self.cli_count, 1)
+        publications = [v for v in events if v["phase"] == "package-api-publish" and v["status"] == "complete"]
+        self.assertEqual([(v["done"], v["total"]) for v in publications], [(2, 2), (2, 2)])
+
+    def test_failed_sdk_evidence_cannot_claim_import_or_api_completion(self):
+        self.player_evidence["target"] = "Editor"
+        observed = io.StringIO()
+        with patch.dict(os.environ, {"GHVRQ_WIZARD_PROGRESS": "1"}), redirect_stdout(observed), \
+                patch.object(builder, "command", side_effect=self.command), self.assertRaises(storage.BuildError):
+            self.bind()
+        events = [json.loads(line[15:]) for line in observed.getvalue().splitlines() if line.startswith("GHVRQ_PROGRESS ")]
+        self.assertEqual([(v["operation"], v["status"]) for v in events if v["phase"].startswith("operation:")],
+                         [("unity-import", "start")])
+        self.assertEqual(self.cli_count, 0)
 
     def test_all_eight_sdk_hashes_exact_plugins_and_meta_guids_survive_reuse(self):
         self.assertEqual(set(builder.REPLACED_PACKAGES), set(SDK_NAMES))
