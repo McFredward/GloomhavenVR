@@ -10,7 +10,7 @@ namespace GloomhavenVR.WorldUI;
 /// observers receive the same originals and geometry rather than composing a second caption.</summary>
 internal sealed class TownServiceMerchantCaption
 {
-    private const float FontSize = 36f;
+    private const float FontSize = 40f;
     private readonly RemoteWidgetMirror _mirror;
     // These paths are the serialized UIShopItemSlot variant in sharedassets4.assets (GO330).
     // Content contains only the duplicate name, item icon and their highlight/warning copies.

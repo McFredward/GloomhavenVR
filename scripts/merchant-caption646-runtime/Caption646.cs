@@ -34,7 +34,7 @@ public static partial class MirrorProgram
         Check(!shown.Find("Content").gameObject.activeSelf, "duplicate native name and item icon are absent from the caption");
         Check(original.Find("Content").gameObject.activeSelf, "original backend name and icon remain intact");
         var price = CaptionText646(shown, "Price/TextMeshPro Text"); var amount = CaptionText646(shown, "Amount");
-        Check(price.fontSize >= 36f && amount.fontSize >= 36f, "legible native caption uses the enlarged price and quantity");
+        Check(price.fontSize >= 40f && amount.fontSize >= 40f, "legible native caption uses the enlarged price and quantity");
         Check(price.text == CaptionText646(original, "Price/TextMeshPro Text").text && amount.text == CaptionText646(original, "Amount").text,
             "native economic text is never reconstructed or changed by caption layout");
         Check(price.color.Equals(CaptionText646(original, "Price/TextMeshPro Text").color), "native affordability colour remains exact");
@@ -81,15 +81,29 @@ public static partial class MirrorProgram
         Transform native = NativeRow632(backend, "Laufstiefel");
         Transform mount = Go("Merchant local caption mount").transform;
         var canvas = mount.gameObject.AddComponent<Canvas>(); canvas.renderMode = RenderMode.WorldSpace;
-        mount.localScale = Vector3.one * (.5f / 2400f);
+        ((RectTransform)mount).sizeDelta = Vector2.zero;
+        // Match the production row's 118 mm width fit, rather than omitting its
+        // density clamp. Both card height and caption position are cabinet-local.
+        mount.localScale = Vector3.one * (.118f / ((RectTransform)native).rect.width);
         using var mirror = new RemoteWidgetMirror(native, mount);
         var actual = new Caption646Driver(mirror, native);
         Economic646(native, 20, 2, 2, -1, true);
         mirror.TickLive();
         CaptionRender646(mirror.Root, "caption646-before");
         actual.Present(); CaptionGeometry646(native, mirror.Root);
+        foreach (float height in new[] { .112f, .08f, .06f })
+        {
+            Caption646Driver.Seat(mount.gameObject, new Vector2(.14f, height));
+            var corners = new Vector3[4];
+            ((RectTransform)mirror.Root.Find("Amount")).GetWorldCorners(corners);
+            float gap = -height * .5f - corners.Max(v => v.y);
+            Check(gap >= 0f && gap <= .002f,
+                "caption sits just below the actual card edge without a large vertical gap");
+        }
+        Caption646Driver.Seat(mount.gameObject, new Vector2(.14f, .112f));
         Transform observerMount = Go("Merchant remote caption mount").transform;
-        observerMount.position = Vector3.right * .3f; observerMount.localScale = mount.localScale;
+        ((RectTransform)observerMount).sizeDelta = Vector2.zero;
+        observerMount.position = mount.position + Vector3.right * .3f; observerMount.localScale = mount.localScale;
         var observerCanvas = observerMount.gameObject.AddComponent<Canvas>(); observerCanvas.renderMode = RenderMode.WorldSpace;
         var replica = Object.Instantiate(native.gameObject, observerMount, false);
         replica.SetActive(false); TownServiceNeutralize.Apply(replica); replica.SetActive(true);
@@ -120,7 +134,8 @@ public static partial class MirrorProgram
                     && localRects[i].anchoredPosition3D.Equals(remoteRects[i].anchoredPosition3D),
                     "remote caption has every original local intermediate rectangle exactly");
             }
-            picture.Add(price + "," + stock + ",12," + discount + "," + affordable + ",36,36");
+            picture.Add(price + "," + stock + ",12," + discount + "," + affordable + ","
+                + CaptionText646(mirror.Root, "Amount").fontSize + "," + CaptionText646(observer.Root, "Amount").fontSize);
         }
         Economic646(native, 30, 2, 4, -2, true); mirror.TickLive(); actual.Present();
         using (var binding = new TownServiceBinding(mirror.Root)) observer.Apply(new TownServiceFrame { Service = 1, Session = 646,
@@ -139,7 +154,8 @@ public static partial class MirrorProgram
         int gold = localPixels.Count(p => p.r > 140 && p.g > 90 && p.b < 120);
         Check(white > 150 && gold > 150, "rendered caption has both white quantity glyphs and gold price glyphs");
         Check(different < localPixels.Length * .005f, "rendered native caption remains identical across the shared codec");
-        File.WriteAllText(Path.Combine(_output, "caption646-pixels.txt"), "different=" + different + "/" + localPixels.Length + " pixels; white="+white+" gold="+gold+"; em=7.5mm at cabinet scale\n");
+        File.WriteAllText(Path.Combine(_output, "caption646-pixels.txt"), "different=" + different + "/" + localPixels.Length + " pixels; white="+white+" gold="+gold
+            +"; cabinet-local em="+CaptionText646(mirror.Root, "Amount").fontSize * mount.localScale.x * 1000f+"mm\n");
         for (int rebuild = 0; rebuild < 4; rebuild++)
         {
             mirror.Rebuild(); mirror.TickLive(); actual.Present(); CaptionGeometry646(native, mirror.Root);
