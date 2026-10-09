@@ -6,6 +6,13 @@ using UnityEngine;
 namespace GloomhavenVR.Core;
 internal sealed class Entry<T> { internal T Value; internal Entry(T value) => Value = value; }
 internal static class VRSession { internal static bool IsRunning = true; }
+internal static class QuestStandalonePlatform
+{
+    internal static bool Enabled { get; set; }
+    internal static bool PassthroughActive { get; private set; }
+    internal static bool SetPassthrough(bool enabled) => PassthroughActive = enabled;
+    internal static Color MixedRealityClearColor(Color desktop) => Enabled ? Color.clear : desktop;
+}
 internal static class VRCameraPolicy
 {
     internal static Camera? AllowedHead;

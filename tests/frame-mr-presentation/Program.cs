@@ -88,6 +88,21 @@ public static class FrameMrPresentationProgram
             Check(MixedReality.BackingsWanted, "existing PC backings remain enabled");
             MixedReality.RestoreAll();
 
+            QuestStandalonePlatform.Enabled = true;
+            MixedReality.Tick();
+            Check(QuestStandalonePlatform.PassthroughActive && MixedReality.BackingsWanted,
+                "Quest uses its existing Meta underlay and allows its UI backings");
+            Check(FrameNativePassthrough.Requests == requests,
+                "shared mobile defaults never request Frame composition on Quest");
+            Check(head.backgroundColor == Color.clear, "Quest keeps its transparent background");
+            clear = Pixel(head, 2, 2); face = Pixel(head, 32, 32);
+            Check(clear.a < .01f && face.b > .95f && face.a > .99f,
+                "merged Quest clear preserves actual transparent and opaque Unity pixels");
+            MixedReality.Enabled.Value = false; MixedReality.Tick();
+            Check(!QuestStandalonePlatform.PassthroughActive && head.backgroundColor == original,
+                "Quest MR off restores the underlay and original camera");
+            QuestStandalonePlatform.Enabled = false; MixedReality.Enabled.Value = true;
+
             FrameNativePassthrough.Required = true; FrameNativePassthrough.Ready = true;
             MixedReality.Tick(); VRSession.IsRunning = false; MixedReality.Tick();
             Check(head.backgroundColor == original && head.allowHDR && sky.enabled, "XR stop restores active presentation");

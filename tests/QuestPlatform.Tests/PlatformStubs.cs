@@ -206,6 +206,23 @@ namespace GloomhavenVR.Rig
 }
 namespace GloomhavenVR.Core
 {
+    // The native OpenXR feature has its own lifecycle/ABI suite. Compile the real
+    // Frame backend selector against an explicit feature boundary here.
+    internal sealed class OpenXrEnvironmentBlendFeature : UnityEngine.XR.OpenXR.Features.OpenXRFeature
+    {
+        internal FrameNativePassthroughStatus PassthroughStatus => FrameNativePassthroughStatus.Available;
+        internal bool PassthroughActive => false;
+        internal bool TryEnterPassthrough(double now) => true;
+        internal void ExitPassthrough() { }
+    }
+    internal static class WallSegmentFade
+    {
+        internal static bool IsPerformanceHidden(UnityEngine.Renderer renderer) => false;
+        internal static void NotifyPerformanceContentChange(UnityEngine.GameObject root) { }
+        internal static void NotifyPerformanceRendererReady(UnityEngine.Renderer renderer) { }
+        internal static void RetainPerformanceMaskOnForeignRelease(UnityEngine.Renderer renderer) { }
+        internal static void ConfigurePerformanceMaskRestored(Action<UnityEngine.Renderer> restored) { }
+    }
     internal enum VRLogLevel { Debug }
     internal static class VRLayers { internal static int ModLayer => 27; }
     internal static class VRSession
@@ -253,7 +270,12 @@ namespace GloomhavenVR.Core
     internal static class ExceptionTraces { internal static int Starts, Stops; internal static void Install() { Starts++; } internal static void Shutdown() { Stops++; } }
     internal static class PerfMonitor { internal static int Starts, Stops; internal static void Install(UnityEngine.GameObject host) { Starts++; } internal static void Shutdown() { Stops++; } }
     internal static class AutoLod { internal static void Install(UnityEngine.GameObject host) { } internal static void Shutdown() { } }
-    internal static class ScenarioSceneryBudget { internal static void Install(UnityEngine.GameObject host) { } internal static void Shutdown() { } }
+    internal static class ScenarioSceneryBudget
+    {
+        internal static void Install(UnityEngine.GameObject host) { } internal static void Shutdown() { }
+        internal static void ConfigurePerformanceWallMasks(Action<UnityEngine.Renderer> retained, Action<UnityEngine.GameObject> changed) { }
+        internal static void AfterPerformanceWallRestore(UnityEngine.Renderer renderer) { }
+    }
     internal static class ScenarioGenerationDetail { internal static void Install() { } internal static void Shutdown() { } }
     internal static class ScenarioFigureDetailBudget { internal static void Install(UnityEngine.GameObject host) { } internal static void Shutdown() { } }
     // These are explicit unrelated performance-module boundaries. The fixture
@@ -277,6 +299,7 @@ namespace GloomhavenVR.Core
     }
     internal static class WorldMaterialBudget
     {
+        internal static void ConfigurePerformanceWallVisibility(Func<UnityEngine.Renderer, bool> hidden) { }
         internal static void ConfigureAssetPreparation(Func<bool> ready) { }
         internal static void ConfigureAmbientWeight(Func<float> weight) { }
         internal static void ConfigureBeforeVariantDisposal(Action before) { }
@@ -309,6 +332,7 @@ namespace GloomhavenVR.Core
     }
     internal static class ScenarioTerrainBudget
     {
+        internal static void ConfigurePerformanceWallVisibility(Func<UnityEngine.Renderer, bool> hidden) { }
         internal delegate bool MeshLookup(UnityEngine.Mesh source, int percent, out UnityEngine.Mesh target);
         internal static void ConfigureWorldMaterialIntegration(Func<UnityEngine.Material, UnityEngine.Material> variant, Func<IDisposable> pass, Func<bool> enabled, Func<UnityEngine.Material, bool> owns) { }
         internal static void ConfigureMeshBank(Func<UnityEngine.Mesh, bool> eligible, MeshLookup lookup) { }
@@ -326,6 +350,7 @@ namespace GloomhavenVR.Core
     }
     internal static class ScenarioEnvironmentBudget
     {
+        internal static void ConfigurePerformanceWallIntegration(Func<UnityEngine.Renderer, bool> hidden, Action<UnityEngine.GameObject> content, Action<UnityEngine.Renderer> ready) { }
         internal static void ConfigureWorldMaterialIntegration(Action<UnityEngine.GameObject> queue, Action<UnityEngine.Renderer> ready, Action<UnityEngine.Renderer> before, Action<UnityEngine.GameObject> content, Func<UnityEngine.Material, UnityEngine.Material> canonical, Func<UnityEngine.Material, bool> owns, Func<bool> enabled) { }
         internal static void ConfigureTerrainIntegration(Action<UnityEngine.GameObject> queue, Action<UnityEngine.Renderer> ready, Action<UnityEngine.Renderer> before, Action<UnityEngine.GameObject> content, Func<UnityEngine.Renderer, bool> owns) { }
         internal static void ConfigureStructuralBatching(Func<bool> enabled) { }

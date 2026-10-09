@@ -15,6 +15,7 @@ def main():
         "QuestStandalonePlatform.cs": core / "QuestStandalonePlatform.cs",
         "QuestEyeResolution.cs": root / "src/GloomhavenVR/Rig/QuestEyeResolution.cs",
         "FrameDefaults.cs": core / "Startup/FrameDefaults.cs",
+        "FrameNativePassthrough.cs": core / "MixedReality/FrameNativePassthrough.cs",
         "RuntimeDepsLoader.cs": core / "Startup/RuntimeDepsLoader.cs",
         "OpenXRBootstrap.cs": core / "Startup/OpenXRBootstrap.cs",
         "CoreModule.cs": core / "CoreModule.cs",
@@ -65,6 +66,8 @@ internal static class RenderQualityAllocationFixture {
     for name, target, before, after, expected in (
         ("vulkan-live-msaa-restored", "RenderQualityAllocation.fixture", "\n            || QuestStandalonePlatform.FixedEyeTextureAllocation) return;", ") return;", "vulkan-render-controller"),
         ("quest-standalone-defaults-removed", "FrameDefaults.cs", "Core.QuestStandalonePlatform.Enabled\n        || ", "", "quest-mobile-defaults"),
+        ("quest-native-backend-gate", "FrameNativePassthrough.cs", "_required ??= !QuestStandalonePlatform.Enabled && FrameDefaults.Active", "_required ??= FrameDefaults.Active", "quest-native-backend"),
+        ("quest-native-reattach-gate", "FrameNativePassthrough.cs", "_required = !QuestStandalonePlatform.Enabled && FrameDefaults.Active", "_required = FrameDefaults.Active", "quest-native-reattach"),
         ("vulkan-eye-cap-removed", "QuestEyeResolution.cs", "Mathf.Clamp(requested, 0.5f, 1f)", "requested", "vulkan-eye-cap"),
         ("vulkan-eye-allocation-restored", "QuestEyeResolution.cs", "XRSettings.renderViewportScale = effective;", "XRSettings.eyeTextureResolutionScale = effective;", "vulkan-eye-viewport"),
         ("vulkan-eye-log-unbounded", "QuestEyeResolution.cs", "if (changed || Mathf.Abs(effective - _lastViewport) > 0.0005f)", "if (true)", "vulkan-eye-bounded"),
@@ -96,7 +99,7 @@ internal static class RenderQualityAllocationFixture {
     guard = "if (QuestEyeResolution.TryApply(wanted))\n            return;"
     if guard not in eye_apply or "XRSettings.eyeTextureResolutionScale =" in eye_apply or eye_apply.index(guard) > eye_apply.index("float viewport ="):
         raise SystemExit("FAIL actual Quest controller must precede the desktop viewport path without live native allocation")
-    if "Color key = QuestStandalonePlatform.MixedRealityClearColor(KeyColor.Value);" not in mixed_reality.read_text():
+    if "key = QuestStandalonePlatform.MixedRealityClearColor(key);" not in mixed_reality.read_text():
         raise SystemExit("FAIL actual MR Tick is not bound to the tested Quest clear policy")
     evidence = {"sources": {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path in sources.items()},
                 "mixedRealitySource": hashlib.sha256(mixed_reality.read_bytes()).hexdigest(), "cases": []}

@@ -17,6 +17,7 @@ namespace GloomhavenVR.Core
         internal static bool IsAvailable { get; set; }
         internal static FrameNativePassthroughStatus Status { get; set; }
     }
+    internal static class QuestStandalonePlatform { internal static bool Enabled => false; }
     internal enum SkyStyle { Default, Cellar, SwampNight, OffBlack }
     internal sealed class BoolEntry
     {
@@ -50,6 +51,9 @@ namespace GloomhavenVR.Core
 }
 namespace GloomhavenVR.WorldUI
 {
+    // The Quest-only filter's behavior has its separate production platform suite.
+    internal static class QuestOptionVisibility
+    { internal static bool IsOffered(string section, string key, bool standalone) => true; }
     internal static class ConfigCatalog
     {
         internal sealed class ConfigItem

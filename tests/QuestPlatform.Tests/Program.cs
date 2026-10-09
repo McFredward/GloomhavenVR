@@ -58,7 +58,7 @@ internal static class Program
         SubsystemManager.Descriptors.Add(new Descriptor { id = "OpenXR Input" });
         Check(OpenXRBootstrap.Start(null, null, true), "desktop-init: original desktop bootstrap no longer initialized its own loader");
         var desktopManager = XRGeneralSettings.Instance.Manager;
-        Check(ScriptableObject.Creations == 6 && XRGeneralSettings.Initializations == 1 && desktopManager.Starts == 1, "desktop-init: original settings/profiles/init/start path changed");
+        Check(ScriptableObject.Creations == 7 && XRGeneralSettings.Initializations == 1 && desktopManager.Starts == 1, "desktop-init: original settings/profiles/blend feature/init/start path changed");
         Check(SubsystemManager.Displays.Count == 1 && !SubsystemManager.Displays[0].running && VRSession.IsRunning, "desktop-existence: asynchronous display existence criterion changed to synchronous running");
         OpenXRBootstrap.Stop();
         Check(desktopManager.Stops == 1 && desktopManager.Deinitializations == 1 && Object.Destroyed.Contains(desktopManager), "desktop-teardown: owned desktop session was not stopped/deinitialized/destroyed");
@@ -92,6 +92,9 @@ internal static class Program
         QuestStandalonePlatform.Configure(directory, setNative, () => nativeActive, () => ownerRunning, () => sessionGeneration);
         Check(FrameDefaults.Active && QuestStandalonePlatform.StandaloneMsaaDefault == FrameDefaults.MsaaLevel,
             "quest-mobile-defaults: Quest must share current Frame defaults without a desktop opt-in marker");
+        Check(!FrameNativePassthrough.Required, "quest-native-backend: shared defaults must not select Frame composition on Quest");
+        FrameNativePassthrough.Attach(new OpenXrEnvironmentBlendFeature());
+        Check(!FrameNativePassthrough.Required, "quest-native-reattach: a new native feature must retain Quest's own backend");
         Check(QuestStandalonePlatform.Enabled && QuestStandalonePlatform.ResourceDirectory == Path.GetFullPath(directory) && RuntimeDepsLoader.PluginDir == Path.GetFullPath(directory), "android-resource: player-owned resource root was not used");
         Check(QuestStandalonePlatform.SelectFlatScreenShader(desktopScreen) == Resources.ScreenShader,
             "quest-screen: enabled platform selects validated Tex2D world shader");

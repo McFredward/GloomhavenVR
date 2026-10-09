@@ -6,6 +6,7 @@
     <Compile Include="$(RuntimeSource)/QuestStandalonePlatform.cs" />
     <Compile Include="$(RuntimeSource)/QuestEyeResolution.cs" />
     <Compile Include="$(RuntimeSource)/FrameDefaults.cs" />
+    <Compile Include="$(RuntimeSource)/FrameNativePassthrough.cs" />
     <Compile Include="$(RuntimeSource)/RenderQualityAllocation.fixture" />
     <Compile Include="$(RuntimeSource)/RuntimeDepsLoader.cs" />
     <Compile Include="$(RuntimeSource)/OpenXRBootstrap.cs" />
