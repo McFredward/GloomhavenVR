@@ -95,7 +95,7 @@ internal sealed partial class VRCard {
     for name, mutation in cases:
         files = dict(bound)
         if mutation == 'old':
-            current_filter = '                    || entry.Kind != 9 && !liveCardReturn && slot.SampleTime < module.LastFrame.SampleTime) continue;'
+            current_filter = '                    || entry.Kind != 9 && !liveCardReturn && !liveReturnRoot && slot.SampleTime < module.LastFrame.SampleTime) continue;'
             if files['TownServiceMirror.Motion.cs'].count(current_filter) != 1: raise RuntimeError('Current artwork filter source drift')
             files['TownServiceMirror.Motion.cs'] = files['TownServiceMirror.Motion.cs'].replace(current_filter, old_filter, 1)
         if mutation == 'duration':

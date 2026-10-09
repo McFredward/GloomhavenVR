@@ -31,10 +31,30 @@ def main():
  depth=module('depth655',root/'scripts/check-town-depth-order.py')
  real_depth,depth_hashes=depth.sources(root);bound.update(real_depth)
  if args.old_depth_source:
-  bound['TownServiceDepthOrder.cs']=subprocess.run(['git','-C',str(root),'show','bf3444cb502e1eff52bcf0e5194a255109879d36:src/GloomhavenVR/WorldUI/TownServices/TownServiceDepthOrder.cs'],check=True,capture_output=True,text=True).stdout
- if args.old_depth_source:
-  bound['TownServiceMirror.Offerings.cs']=subprocess.run(['git','-C',str(root),'show','bf3444cb502e1eff52bcf0e5194a255109879d36:src/GloomhavenVR/Net/TownServices/TownServiceMirror.Offerings.cs'],check=True,capture_output=True,text=True).stdout
+  revision='bf3444cb502e1eff52bcf0e5194a255109879d36'
+  historical={}
+  for name,path in (
+   ('TownServiceDepthOrder.cs','WorldUI/TownServices/TownServiceDepthOrder.cs'),
+   ('TownServiceMirror.Offerings.cs','Net/TownServices/TownServiceMirror.Offerings.cs'),
+   ('TownServiceMirror.cs','Net/TownServices/TownServiceMirror.cs'),
+   ('PublisherTick.cs','WorldUI/TownServices/TownServiceSync.cs')):
+   historical[name]=subprocess.run(['git','-C',str(root),'show',revision+':src/GloomhavenVR/'+path],check=True,capture_output=True,text=True).stdout
+  for name in ('TownServiceDepthOrder.cs','TownServiceMirror.Offerings.cs'):bound[name]=historical[name]
+  # The old physical-print lifecycle has neither the661 registration nor mount
+  # restoration seam. Bind its genuine caller bodies from the same revision;
+  # no empty compatibility hook may substitute the historical native behavior.
+  methods={}
+  for name,signature in (
+   ('TownServiceMirror.cs','internal static void TickRemote(Func<int, Transform?> sharedFrame)'),
+   ('PublisherTick.cs','private void TickCore(Transform sharedFrame, Transform? stationRoot)')):
+   current=loader.method(bound[name],signature);previous=loader.method(historical[name],signature)
+   if bound[name].count(current)!=1:raise RuntimeError('Historical offered lifecycle binding drift: '+signature)
+   bound[name]=bound[name].replace(current,previous,1)
+   methods[signature]=hashlib.sha256(previous.encode()).hexdigest()
   bound['TownServiceMirror.Motion.cs']=bound['TownServiceMirror.Motion.cs'].replace('ClearOfferedFrames();','OfferedFrames.Clear();')
+  (run/'historical-offered-lifecycle658.json').write_text(json.dumps({
+   'revision':revision,'full_source_sha256':{name:hashlib.sha256(text.encode()).hexdigest()for name,text in historical.items()},
+   'bound_methods_sha256':methods,'boundary':'Historical depth/Offerings and actual TickRemote/TickCore callers only; current positive source bindings and native paint assertions unchanged.'},indent=2)+'\n')
  # Existing unused suite methods reference this registration instrumentation.
  bound['TownServiceDepthOrder.cs']=bound['TownServiceDepthOrder.cs'].replace('internal static class TownServiceDepthOrder\n{','internal static class TownServiceDepthOrder\n{\n    internal static readonly System.Collections.Generic.HashSet<Transform> Bound = new();',1)
  bound['TownServiceDepthOrder.cs']=bound['TownServiceDepthOrder.cs'].replace('if (root == null) return;','if (root == null) return; Bound.Add(root);',1)
