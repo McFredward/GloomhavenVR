@@ -66,6 +66,17 @@ ordinary mod edits rebuild their affected project/integration/player outputs.
 Failed stages have no success receipt. Completed stage outputs are hash-verified
 before reuse; partially written snapshots are discarded atomically.
 
+XR compilation references use a recipe/compiler/original-reference cache shared
+across Wizard source releases. They do not invalidate the already converted
+original assets. The complete Player's native compiler currently needs40GiB of
+additional allocation capacity, including future Unity/transient reserves. This
+is available RAM/commit capacity, not a requirement for40GiB installed RAM.
+Windows16/32GiB hosts can use one compiler when adequate free paging-file commit
+is measured; Linux can use known free swap within cgroup limits. Complete builds
+with paging are not yet validated and may be slower. The Wizard reports capacity
+before expensive preparation and again at launch; it never changes system paging
+settings. Finished conversion/import results remain owned when this check stops.
+
 Install the verified latest APK with ADB (one authorized device or `--serial`):
 
 ```sh

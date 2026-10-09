@@ -1,5 +1,19 @@
 # State — where the project stands
 
+**Quest XR reuse and early native memory admission, 2026-10-09 (Builder; Runtime657).**
+
+Capture160059 actually repeats preparation because release-specific desktop XR
+references change. Their owned recipe/compiler/game-reference cache now survives
+mod updates, and exact later compile references no longer invalidate original
+asset preparation. Complete27-step fixtures retain original archives/Library.
+The same capture has64GB RAM but only24.5GiB additional commit; corrected native
+admission requires40GiB, preserving the evidenced32GiB worker reserve. Smaller
+hosts may use one paged compiler with sufficient measured commit/swap. A typed
+early prerequisite replaces the late generic stop; finished work stays green.
+Published dev657 is merged, preserving the Quest feature branch. Focused scope,
+real XR cache timing, remaining memory/hardware limits and delivery checks are
+recorded in [QUEST-XR-MEMORY-160059-20261009.md](QUEST-XR-MEMORY-160059-20261009.md).
+
 **Quest large preparation journal, 2026-10-09 (Builder only; Runtime 654).**
 
 Capture134446 identifies dfdb3a43f/654. Recovery reuses 191415 files with zero
