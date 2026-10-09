@@ -181,7 +181,10 @@ class ScriptRemap:
         self.paths, self.inverse, self.loaded = set(paths), inverse, True
 
     def accept(self, name, previous):
-        if (not isinstance(name, str) or not name.startswith("Assets/") or Path(name).suffix not in (".asset", ".prefab", ".unity", ".anim")):
+        # Match the original producer's full YAML closure. The Editor consumes
+        # every declared assetPath, including controller and Timeline assets;
+        # each still requires membership and inverse full original-byte proof.
+        if (not isinstance(name, str) or not name.startswith("Assets/") or Path(name).suffix not in (".asset", ".prefab", ".unity", ".anim", ".controller", ".overrideController", ".playable")):
             return None
         if not self.loaded:
             self._load()

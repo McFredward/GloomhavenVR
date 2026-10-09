@@ -68,6 +68,27 @@ class ScriptRemapResumeTests(unittest.TestCase):
         self.assertEqual((self.project / ASSET).read_bytes(), self.changed)
         self.assertEqual(library.stat().st_mtime_ns, before)
 
+    def test_all_production_serialized_extensions_use_the_same_original_hash_proof(self):
+        # The producer scans seven YAML extensions; the actual Editor consumes
+        # all assetPaths without a suffix filter. A controller/playable must
+        # retain exactly the same pointer-only and full original-byte proof.
+        names = ["Assets/Serialized/Original" + suffix for suffix in
+                 (".asset", ".prefab", ".unity", ".anim", ".controller", ".overrideController", ".playable")]
+        self.input["assetPaths"] = names
+        self.write(repair.MANIFESTS[0], encoded(self.input), retain=True)
+        for name in names:
+            self.write(name, self.original, retain=True)
+            self.write(name, self.changed)
+        helper = repair.ScriptRemap(self.project, self.latest)
+        for name in names:
+            with self.subTest(name=name):
+                self.assertEqual(helper.accept(name, self.latest[name][1]), frozen(name, self.changed))
+                self.write(name, self.changed.replace(b"unchanged", b"foreign"))
+                self.assertIsNone(helper.accept(name, self.latest[name][1]))
+        unlisted = "Assets/Serialized/Unlisted.controller"
+        self.write(unlisted, self.changed)
+        self.assertIsNone(helper.accept(unlisted, frozen(unlisted, self.original)))
+
     def test_metadata_reader_runs_once_for_multiple_changed_files(self):
         second = "Assets/Prefabs/Second.prefab"
         self.input["assetPaths"].append(second)

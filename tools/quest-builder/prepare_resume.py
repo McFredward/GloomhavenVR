@@ -19,6 +19,7 @@ import sqlite3
 from storage import BuildError, CONTENT_PATHS, ValidatedFileWitnesses, _ordinary_owned, digest, invocation_file_matches, value_hash, write_json
 import preparation_identity
 import preparation_metadata
+import import_workspace
 import shaders as post_effects
 import script_remap_resume
 
@@ -317,47 +318,53 @@ class Preparation:
         self.prior_copies, self.prior_witnesses = None, None
 
     def _accept_post_effect_import(self, latest, relative, row):
-        """Accept only the three audited full-file Unity2021 shader upgrades.
+        """Recognize the three pinned Unity upgrades using their real producers.
 
-        Capture205914 retained every preparation owner after the first Editor
-        import, but case-paths still described the old UnityObjectToClipPos
-        helper. Unity's own importer rewrote these exact official sources. The
-        existing restoration and Editor validation already pin both complete
-        fingerprints. No other source edit, GUID or receipt is authorized here.
-        Only a failed original row enters this small reader; warm resumes do not
-        read the shaders, their source receipt or their metas again.
+        Capture232406 still rejected BlendForBloom after the prior repair:
+        post-effects records four outputs (its receipt and three sources), and
+        case-paths references those sources through campaign-shaders. Neither
+        producer owns their unchanged metas. The frozen restoration receipt
+        already binds each meta hash and original GUID; require that proof,
+        rather than inventing a meta output contract. Unlisted sources, changed
+        receipts/metas and every unpinned upgrade remain errors. Warm qualified
+        files never enter this reader or open these controls again.
         """
-        if not preparation_identity._completed_game_preparation(self.value, self.identity["target"]):
-            return False
         name = next((name for name in post_effects.SHADERS
                      if relative == "Assets/Shader/Hidden_" + name + ".shader"), None)
-        if name is None or self.value["steps"][latest[relative][0]]["name"] != "case-paths":
+        if name is None: return False
+        def reject(reason):
+            self.import_rejection = "audited Shader import rejected: " + reason
             return False
+        if not preparation_identity._completed_game_preparation(self.value, self.identity["target"]):
+            return reject("the complete ordered game preparation is missing")
+        if self.value["steps"][latest[relative][0]]["name"] != "case-paths":
+            return reject("the Shader is outside its retained case-paths owner")
         spec = post_effects.SHADERS[name]
         if row != {"path": relative, "size": spec["sourceBytes"], "sha256": spec["sourceSha256"]}:
-            return False
+            return reject("retained original fingerprint differs from the official source pin")
         receipt_owner, meta_owner = latest.get(post_effects.RECEIPT), latest.get(relative + ".meta")
-        if (receipt_owner is None or meta_owner is None
-                or self.value["steps"][receipt_owner[0]]["name"] != "post-effects"
-                or self.value["steps"][meta_owner[0]]["name"] != "case-paths"):
-            return False
+        if receipt_owner is None or self.value["steps"][receipt_owner[0]]["name"] != "post-effects":
+            return reject("the original restoration receipt has no retained post-effects owner")
         receipt_path, meta_path, shader_path = (self._path(path) for path in
                                                (post_effects.RECEIPT, relative + ".meta", relative))
         if any(not path.is_file() or path.stat().st_size > 65536 or path.stat().st_nlink != 1
                for path in (receipt_path, meta_path, shader_path)):
-            return False
-        # The receipt and meta are ordinary existing output contracts. Their
-        # original hashes must survive; a new self-declared receipt is not proof.
-        if (self._observe(post_effects.RECEIPT) != receipt_owner[1]
-                or self._observe(relative + ".meta") != meta_owner[1]):
-            return False
+            return reject("a Shader/provenance file is missing, linked or exceeds its byte bound")
+        before = [_stamp(path) for path in (receipt_path, meta_path)]
+        # A producer which does record this meta still retains its own exact
+        # contract. Ordinarily the meta has no journal row; its full hash lives
+        # in the unchanged original restoration receipt instead.
+        if self._observe(post_effects.RECEIPT) != receipt_owner[1]:
+            return reject("the retained restoration receipt changed")
+        if meta_owner is not None and self._observe(relative + ".meta") != meta_owner[1]:
+            return reject("the independently retained Shader meta changed")
         try:
             with receipt_path.open("rb") as stream: receipt_bytes = stream.read(65537)
             with meta_path.open("rb") as stream: metadata = stream.read(65537)
             if (len(receipt_bytes) > 65536 or len(metadata) > 65536
-                    or hashlib.sha256(receipt_bytes).hexdigest() != receipt_owner[1]["sha256"]
-                    or hashlib.sha256(metadata).hexdigest() != meta_owner[1]["sha256"]):
-                return False
+                    or len(receipt_bytes) != receipt_owner[1].get("size")
+                    or hashlib.sha256(receipt_bytes).hexdigest() != receipt_owner[1]["sha256"]):
+                return reject("the bounded restoration receipt read differs from its original fingerprint")
             receipt = json.loads(receipt_bytes)
             if (post_effects.GUID.findall(metadata.decode("utf-8")) != [spec["guid"]]
                     or b"ShaderImporter:" not in metadata
@@ -367,13 +374,86 @@ class Preparation:
                     or receipt.get("effectsPackageSha256") != post_effects.PACKAGE_SHA256
                     or [entry for entry in receipt.get("shaders", []) if entry.get("assetPath") == relative]
                     != [post_effects._entry(name, spec, metadata)]):
-                return False
+                return reject("Shader GUID, complete meta hash or official source receipt differs")
         except (UnicodeError, ValueError, AttributeError, TypeError):
-            return False
+            return reject("the Shader restoration receipt or meta is malformed")
+        if before != [_stamp(path) for path in (receipt_path, meta_path)]:
+            return reject("Shader provenance changed during its bounded read")
         observed = self._observe(relative)
         if observed.get("sha256") != spec["importUpgradeSha256"]:
-            return False
+            return reject("current Shader fingerprint=" + str(observed.get("sha256", "missing")) +
+                          "; expected Unity upgrade=" + spec["importUpgradeSha256"])
         row.clear(); row.update(observed)
+        return True
+
+    def _accept_editor_settings(self, latest, relative, row):
+        """Retain the one Editor-authoritative build configuration, not assets.
+
+        The final-settings producer bootstraps Linear/Vulkan before import and
+        freezes its receipt. CompileStartupSdk then calls ConfigureAndroid and
+        saves PlayerSettings (IL2CPP, ABI, input, product identity, GC and more).
+        A completed import must not turn those expected build-configuration
+        writes into an original-asset error. Bind this exception to the original
+        unchanged bootstrap receipt and a durable chain of accepted rows. The
+        two mandatory import fields must still be exact; no other settings file
+        or original serialized content is mutable through this path.
+        """
+        if relative != "ProjectSettings/ProjectSettings.asset": return False
+        def reject(reason):
+            self.import_rejection = "audited Editor settings rejected: " + reason
+            return False
+        if (not preparation_identity._completed_game_preparation(self.value, self.identity["target"])
+                or self.value["steps"][latest[relative][0]]["name"] != "final-settings"):
+            return reject("the complete game preparation/final-settings owner is missing")
+        receipt_owner = latest.get(import_workspace.RECEIPT)
+        if receipt_owner is None or self.value["steps"][receipt_owner[0]]["name"] != "final-settings":
+            return reject("the original Android import receipt has no retained final-settings owner")
+        receipt_path, settings_path = self._path(import_workspace.RECEIPT), self._path(relative)
+        if any(not path.is_file() or path.stat().st_nlink != 1 for path in (receipt_path, settings_path)):
+            return reject("the receipt or settings is missing or linked")
+        if receipt_path.stat().st_size > 65536 or settings_path.stat().st_size > 1024 * 1024:
+            return reject("the receipt or PlayerSettings exceeds its bounded serialized size")
+        before = [_stamp(path) for path in (receipt_path, settings_path)]
+        accepted_stamp = self.witnesses.current(settings_path)
+        with receipt_path.open("rb") as stream: receipt_bytes = stream.read(65537)
+        with settings_path.open("rb") as stream: settings = stream.read(1024 * 1024 + 1)
+        if (len(receipt_bytes) != receipt_owner[1].get("size") or len(receipt_bytes) > 65536
+                or hashlib.sha256(receipt_bytes).hexdigest() != receipt_owner[1].get("sha256")
+                or len(settings) > 1024 * 1024):
+            return reject("the bounded original import receipt fingerprint changed")
+        try:
+            receipt = json.loads(receipt_bytes)
+            if (not isinstance(receipt, dict) or type(receipt.get("schema")) is not int
+                    or set(receipt) != {*import_workspace.contract("game"), "source", "assetPath", "beforeSha256", "sha256", "changed", "unityImportTimingVerified"}
+                    or any(receipt.get(key) != value for key, value in import_workspace.contract("game").items())
+                    or receipt.get("source") != "QuestBuild.ConfigureAndroid audited serialized Unity2021 fields"
+                    or receipt.get("assetPath") != relative
+                    or any(not isinstance(receipt.get(key), str) or not re.fullmatch(r"[0-9a-f]{64}", receipt[key])
+                           for key in ("beforeSha256", "sha256"))
+                    or type(receipt.get("changed")) is not bool or receipt.get("unityImportTimingVerified") is not False):
+                return reject("the original Android import receipt contract differs")
+            settings.decode("utf-8")
+            if (b"\0" in settings or not re.match(rb"\A%YAML 1\.1\r?\n", settings)
+                    or re.findall(rb"(?m)^--- [^\r\n]+", settings) != [b"--- !u!129 &1"]
+                    or re.findall(rb"(?m)^[A-Za-z_][A-Za-z0-9_]*:", settings) != [b"PlayerSettings:"]
+                    or len(re.findall(rb"(?m)^PlayerSettings:\r?$", settings)) != 1
+                    or import_workspace.patch_settings(settings, "game") != settings):
+                return reject("PlayerSettings is malformed or its mandatory Linear/Vulkan import fields changed")
+        except (ValueError, UnicodeError, TypeError, BuildError):
+            return reject("the import receipt or mandatory PlayerSettings fields are malformed")
+        marker = self.value.get("editorSettings")
+        previous = {"schema": 1, "assetPath": relative, "receiptSha256": receipt_owner[1]["sha256"],
+                    "preparedSha256": receipt["sha256"], "accepted": dict(row)}
+        if marker is not None and marker != previous:
+            return reject("the prior accepted PlayerSettings row is not bound to this original receipt")
+        if marker is None and row.get("sha256") != receipt["sha256"]:
+            return reject("the retained preparation row is not the original bootstrapped PlayerSettings")
+        if before != [_stamp(path) for path in (receipt_path, settings_path)]:
+            return reject("PlayerSettings/provenance changed during the bounded read")
+        observed = {"path": relative, "size": len(settings), "sha256": hashlib.sha256(settings).hexdigest()}
+        self.witnesses.remember(settings_path, observed["sha256"], stamp=accepted_stamp)
+        row.clear(); row.update(observed)
+        self.value["editorSettings"] = {**previous, "accepted": dict(observed)}
         return True
 
     def _qualify(self):
@@ -388,7 +468,7 @@ class Preparation:
                 latest[relative] = (index, row)
         counter = self.progress.Counter("prepare-resume-verify-files", len(latest), "files", "Qualifying retained preparation contracts") if self.progress else None
         replaced = False
-        imported_effects, remapped_assets = 0, 0
+        imported_effects, remapped_assets, editor_settings = 0, 0, 0
         remapping = None
         # Closed output contracts share the same reliable metadata proofs as
         # outer stages. Group their observation by directory instead of opening
@@ -401,21 +481,38 @@ class Preparation:
         qualified = set()
         for row, valid in witness.qualify_many(ordinary, hasher=digest):
             relative = row["path"]
+            self.import_rejection = None
             if not valid and self._accept_post_effect_import(latest, relative, row):
                 valid, replaced = True, True
                 imported_effects += 1
-            if (not valid and self.value["steps"][latest[relative][0]]["name"] == "case-paths"
+            if not valid and self._accept_editor_settings(latest, relative, row):
+                valid, replaced = True, True
+                editor_settings += 1
+            if (not valid and self.value["steps"][latest[relative][0]]["name"] in ("case-paths", "script-orders")
                     and preparation_identity._completed_game_preparation(self.value, self.identity["target"])
                     and relative.startswith("Assets/") and not relative.endswith((".meta", ".shader", ".cs", ".cginc"))):
                 # Final Editor validation legitimately maps original SDK DLL
-                # pointers to imported package scripts. Accept only unchanged
-                # original bytes under the inverse of that exact mapping. The
+                # pointers to imported package scripts. script-orders records
+                # the complete assetIdentityEvidence census after case-paths,
+                # and is therefore the latest owner of most serialized assets.
+                # Accept only unchanged original bytes under the inverse of
+                # that exact mapping, whichever of those producers owns it. The
                 # helper reads its small controls once, on the first changed
                 # eligible file; unchanged warm owners take no extra read.
                 if remapping is None: remapping = script_remap_resume.ScriptRemap(self.project, latest)
                 path = self._path(relative)
                 before = self.witnesses.current(path) if path.is_file() else None
-                observed = remapping.accept(relative, row)
+                try:
+                    observed = remapping.accept(relative, row)
+                except BuildError as error:
+                    name = self.value["steps"][latest[relative][0]]["name"]
+                    self.invalid_step = name
+                    raise BuildError("Retained preparation output changed in " + name + ": " + relative +
+                                     "; audited package-script import rejected: " + str(error) +
+                                     "; completed steps and Unity Library were retained.") from error
+                if observed is None:
+                    self.import_rejection = ("audited package-script import rejected: retained manifest membership or "
+                                             "inverse complete original fingerprint/size differs; original=" + row.get("sha256", "missing"))
                 if observed is not None:
                     # The helper hashes the complete bytes while proving the
                     # inverse. Bind that read to its surrounding strong stamp;
@@ -429,6 +526,7 @@ class Preparation:
                 name = self.value["steps"][latest[relative][0]]["name"]
                 self.invalid_step = name
                 raise BuildError("Retained preparation output changed in " + name + ": " + relative +
+                                 ("; " + self.import_rejection if self.import_rejection else "") +
                                  "; completed steps and Unity Library were retained. Restore the file or use a fresh output folder.")
             if self.prior_witnesses:
                 # The old owner just qualified this exact ID/ChangeTime/hash.
@@ -454,8 +552,8 @@ class Preparation:
         self._close_prior_witnesses(commit=True)
         if counter:
             counter.detail = "Qualifying retained preparation contracts: " + self.witnesses.summary()
-            if imported_effects or remapped_assets:
-                counter.detail += "; retained Unity upgrades: " + str(imported_effects) + " shaders, " + str(remapped_assets) + " script-bound assets"
+            if imported_effects or remapped_assets or editor_settings:
+                counter.detail += "; retained Unity upgrades: " + str(imported_effects) + " shaders, " + str(remapped_assets) + " script-bound assets, " + str(editor_settings) + " Editor settings"
             counter.finish()
         if replaced:
             # Publish the accepted closed-read stamps before their new rows.
