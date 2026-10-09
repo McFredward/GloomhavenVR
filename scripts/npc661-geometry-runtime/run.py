@@ -61,6 +61,11 @@ def main():
                 'child.Motion.Reparent(mount);',
                 'if (child.Host.transform.parent == null) child.Motion.Reparent(mount);',
                 'native census preserves the visible mounted backing before retiring its old printed parent'))
+            handoff = 'ordinaryRoot.Dirty = true;'
+            if handoff in (root / 'src/GloomhavenVR/Net/TownServices/TownServiceMirror.Motion.cs').read_text():
+                variants.append(('no-native-root-handoff', 'TownServiceMirror.Motion.cs', handoff,
+                    'ordinaryRoot.Dirty |= ordinaryRoot.Entry.Kind == 255;',
+                    'real native cohort starts, completes and hands its original roots back to ordinary pose ownership'))
     if args.old_code: variants = variants[1:]
     anchor = '    print(f"Production binding: {args.source_root.resolve()}; evidence: {run}", flush=True)'
     assert source.count(anchor) == 1
@@ -78,6 +83,7 @@ def main():
         'card artwork/native pooled UI constructor and transport scheduling are declared fixtures, not headset proof.',
         'old_offerings_raw_sha256': raw_old_sha256,
         'old_offerings_boundary_adapter_sha256': hashlib.sha256(old.encode()).hexdigest(),
+        'variants': [variant[0] for variant in variants],
         'source_sha256': {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in [root/path, geometry, Path(__file__), checker, binder]}
     }, indent=2) + '\n')
     print('Evidence: ' + str(run), flush=True)

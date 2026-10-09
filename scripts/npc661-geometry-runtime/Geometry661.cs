@@ -231,6 +231,13 @@ public static partial class MirrorProgram
                 if (loseWithdrawal && entry.Kind == 9 && (entry.Module == 12 || entry.Module == 16) && !entry.Visible) packet.Entries.RemoveAt(i);
             }
             packet.Sequence = ++_offeredSequence629;
+            if (GeometryClock661.Controlled)
+            {
+                string line = "packet=" + packet.Sequence + " authored=" + packet.SampleTime + " now=" + GeometryClock661.Now;
+                foreach (var value in packet.Entries) line += " kind=" + value.Kind + "/module=" + value.Module
+                    + (value.Kind == 10 ? "/nativeAge=" + value.Numbers[0] + "/parts=" + value.ReturnParts.Length : "");
+                File.AppendAllText(Path.Combine(_output, "geometry661-native-packets.txt"), line + "\n");
+            }
             ReceiveGeometry661(packet, GeometryClock661.Now);
         }
     }
@@ -302,6 +309,8 @@ public static partial class MirrorProgram
                 for (int budget = 0; budget < 4; budget++) DeliverNative661(CaptureNative661(), true);
             RenderGeometry661(GeometryClock661.Now); Canvas.ForceUpdateCanvases();
             began |= TownServiceMirror.NativeReturnActive661(1, 12);
+            File.AppendAllText(Path.Combine(_output, "geometry661-native-frames.txt"), "frame=" + frame + " now=" + GeometryClock661.Now
+                + " nativeFlying=" + native.NativeFlying661 + " began=" + began + " " + TownServiceMirror.NativeReturnState661(1, 12) + "\n");
             if (began)
             {
                 LifecyclePicture661(body, print, bodyCopy.Root, frontCopy.Root,
@@ -312,6 +321,7 @@ public static partial class MirrorProgram
             }
             yield return null;
         }
+        File.WriteAllText(Path.Combine(_output, "geometry661-native-handoff.txt"), "began=" + began + " ended=" + ended + " count=" + _geometry661Returns + "\n");
         Check(began && ended && _geometry661Returns >= 60, "real native cohort starts, completes and hands its original roots back to ordinary pose ownership");
         Check(TownServiceMirror.PhysicalMounts661 == 0, "terminal native return cannot inherit the old offered mount graph");
 
@@ -522,6 +532,21 @@ namespace GloomhavenVR.Net.TownServices
     {
         internal static bool NativeReturnActive661(int peer, ushort id) => Remote.TryGetValue(peer, out var modules)
             && modules.TryGetValue(id, out var module) && MotionRemoteFrames.TryGetValue(module, out var motion) && motion.HadCardReturn;
+        internal static string NativeReturnState661(int peer, ushort id)
+        {
+            string value = "active=" + NativeReturnActive661(peer, id);
+            if (!MotionPeers.TryGetValue(peer, out var state)) return value;
+            value += " cohorts=" + state.ReturnCohorts.Count;
+            foreach (var slot in state.Slots.Values)
+                if (slot.Entry.Module == id && slot.Entry.Kind is 1 or 8)
+                {
+                    value += " slot=" + slot.Entry.Kind + "/seq=" + slot.ReceivedSequence + "/time=" + slot.SampleTime
+                        + "/received=" + slot.ReceivedAt + "/returnVisibility=" + slot.Entry.HasReturnVisibility;
+                    if (slot.Entry.Kind == 8 && slot.ReturnClock != null)
+                        value += "/renderedProgress=" + slot.ReturnClock.GetType().GetField("_renderedProgress", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(slot.ReturnClock);
+                }
+            return value;
+        }
         internal static int PhysicalMounts661 => (typeof(TownServiceMirror).GetField("OfferedPhysicalMounts", BindingFlags.NonPublic | BindingFlags.Static)
             ?.GetValue(null) as IDictionary)?.Count ?? 0;
         internal static int PhysicalSources661 => (typeof(TownServiceMirror).GetField("OfferedPhysicalFrames", BindingFlags.NonPublic | BindingFlags.Static)

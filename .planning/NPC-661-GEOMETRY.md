@@ -140,3 +140,33 @@ Final front/back, return and direct-reclaim PNGs were personally inspected. Nati
 back lattice and facing front remain the original mesh/material output. Real headset
 acceptance, universally bounded network latency and general sheared-canvas support
 are not claimed. The integrator's final composed source run remains separate evidence.
+
+## Integration ownership transition
+
+Actual integration726c5fbe6 additionally stages the matching roots with each
+physical return cohort and acknowledges them on publication. That exposed an
+ownership handoff regression in the unchanged geometry/lifecycle assertion:
+the native source stopped at frame31 and its terminal661060 packet at frame32
+was complete, but no ordinary body/print roots followed before frame71. Their
+TRS matched the already acknowledged terminal recipe, so they stayed clean
+until a heartbeat. Every source world vertex and rendered picture still passed;
+the receiver's old `HasReturnVisibility`/Kind8 owner did not retire. Both failed
+integration attempts and detailed actual source packets/receiver frames are
+retained (`run-2l7i6isa/proof/run-uztwdx_y`, then bounded diagnostic
+`run-59m5bo_5/proof/run-r35m_lk6`). They are not passing evidence.
+
+The integrator's8bbe0a6c2 forces the existing ordinary root dirty once when an
+actual native return ends and no return sampler remains. The unchanged final
+integration run `run-h9b2rolu/proof/run-7yfvb5yw` passes production and all six
+controls. Its genuine ordinary661061 packet at frame36 retires both the physical
+cohort and Kind8; the receiver root has `HasReturnVisibility=False`, keeping all
+world vertices and both rendered sides correct. The new control removes only
+that dirty handoff and reproduces the exact lifecycle failure, after compiling
+and rendering the original path. No heartbeat wait or assertion deadline was
+extended. Per-frame/packet diagnostics exist only in the fixture.
+
+The first five controls remain available on the worker660 motion source; the
+sixth applies when the production ordinary-root handoff exists. Each run records
+its actual variant list and raw/adapted source hashes. Future integrator changes
+to merchant easing or native delivery require the final composed gate; this
+specific integration receipt does not silently inherit those later changes.
