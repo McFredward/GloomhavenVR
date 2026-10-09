@@ -437,7 +437,8 @@ internal static partial class TownServiceMirror
                     // or reflected canvases. World quaternion/lossyScale division
                     // cannot retain that geometry under a sheared ancestor.
                     if (module.AddedCanvas == null || relation.HasCanvasFrame
-                        || holderIndex != 0 || module.Host.transform.parent == null) continue;
+                        || holderIndex != 0 || module.Host.transform.parent == null
+                        || print == module.Host.transform || print.IsChildOf(module.Host.transform)) continue;
                     if (!OfferedPhysicalMounts.ContainsKey(module))
                         OfferedPhysicalMounts.Add(module, new OfferedPhysicalMount(module.Host.transform.parent, composed.Owner));
                     module.Motion.Reparent(print);

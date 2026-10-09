@@ -4,10 +4,19 @@ using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using GloomhavenVR.Cards;
+using GloomhavenVR.Hands;
+using GloomhavenVR.Net;
 using GloomhavenVR.Net.TownServices;
 using GloomhavenVR.WorldUI;
 using UnityEngine;
 using UnityEngine.UI;
+
+internal static class GeometryClock661
+{
+    internal static bool Controlled;
+    internal static float Now, Delta = .011f;
+    internal static float Read => Controlled ? Now : Time.unscaledTime;
+}
 
 public static partial class MirrorProgram
 {
@@ -31,6 +40,7 @@ public static partial class MirrorProgram
     private static IEnumerator Geometry661()
     {
         TownServiceMirror.Shutdown(); Baselines.Clear(); _offeredSequence629 = 661000; _geometry661Frames = 0;
+        GeometryClock661.Controlled = false;
         Transform owner = Go("661 owner shared world").transform;
         Transform observer = Go("661 observer shared world").transform;
         owner.localScale = Vector3.one * .8f;
@@ -187,22 +197,260 @@ public static partial class MirrorProgram
                 }
             }
         }
-        mask.Restore();
-        bool withdrawn = false;
-        for (int turn = 0; turn < 8 && !withdrawn; turn++)
+        IEnumerator lifecycle = PhysicalLifecycle661(owner, observer, card, ownerCard, body, canvas, physical,
+            holder, mask, frontCopy, bodyCopy, clock);
+        while (lifecycle.MoveNext()) yield return lifecycle.Current;
+        File.WriteAllText(Path.Combine(_output, "geometry661-receipt.txt"), "renders=" + _geometry661Frames + "\nassertions=" + _assertions + "\n");
+        TownServiceEnhancementHandoff.PhysicalCardFace = null; TownServiceMirror.Shutdown();
+        GeometryClock661.Controlled = false; VRHands.Left = VRHands.Right = null; NetAvatarDriver.MotionHandFrames.Clear();
+    }
+
+    private static int _geometry661Returns, _geometry661Hands, _geometry661Reoffers;
+    private static TownServiceMotionEntry? _geometry661OldAffinity;
+
+    private static List<TownServiceMotionPacket> CaptureNative661()
+    {
+        typeof(TownServiceMirror).GetField("_nextMotionSend", PrivateStatic)!.SetValue(null, 0f);
+        var packets = new List<TownServiceMotionPacket>();
+        TownServiceMirror.CaptureMotion((bytes, length, _) =>
         {
-            FastCapture withdraw = OfferedCapture629(); OfferedReceive629(withdraw, clock + .2f + turn * .08f);
-            RenderGeometry661(clock + .2f + turn * .08f);
-            foreach (byte[] bytes in withdraw.Motion)
+            Check(TownServiceMotionCodec.TryRead(bytes, length, out var packet), "actual native lifecycle capture retains bounded wire records");
+            packets.Add(packet!);
+        });
+        return packets;
+    }
+
+    private static void DeliverNative661(List<TownServiceMotionPacket> packets, bool loseWithdrawal)
+    {
+        foreach (TownServiceMotionPacket packet in packets)
+        {
+            for (int i = packet.Entries.Count - 1; i >= 0; i--)
             {
-                TownServiceMotionCodec.TryRead(bytes, bytes.Length, out var packet);
-                foreach (var entry in packet!.Entries) if (entry.Kind == 9 && entry.Module == 12 && !entry.Visible) withdrawn = true;
+                TownServiceMotionEntry entry = packet.Entries[i];
+                if (entry.Kind == 9 && entry.Module == 12 && entry.Visible) _geometry661OldAffinity = entry;
+                if (loseWithdrawal && entry.Kind == 9 && (entry.Module == 12 || entry.Module == 16) && !entry.Visible) packet.Entries.RemoveAt(i);
+            }
+            packet.Sequence = ++_offeredSequence629;
+            ReceiveGeometry661(packet, GeometryClock661.Now);
+        }
+    }
+
+    private static void LifecyclePicture661(Transform sourceBody, Transform sourcePrint, Transform observerBody,
+        Transform observerPrint, string invariant, string phase, int frame)
+    {
+        float error = GeometryError661(sourceBody, sourcePrint, observerBody, observerPrint);
+        if (error >= .00005f)
+        {
+            File.AppendAllText(Path.Combine(_output, "geometry661-lifecycle-failure.txt"), phase + "," + frame + "," + error + "\n");
+            File.AppendAllText(Path.Combine(_output, "geometry661-lifecycle-failure.txt"),
+                "source body/print " + sourceBody.position.ToString("F7") + " / " + sourcePrint.position.ToString("F7")
+                + " scales " + sourceBody.lossyScale.ToString("F7") + " / " + sourcePrint.lossyScale.ToString("F7")
+                + " remote body/print " + observerBody.position.ToString("F7") + " / " + observerPrint.position.ToString("F7")
+                + " scales " + observerBody.lossyScale.ToString("F7") + " / " + observerPrint.lossyScale.ToString("F7")
+                + " local body/print " + observerBody.localPosition.ToString("F7") + " / " + observerPrint.localPosition.ToString("F7")
+                + " parents " + observerBody.parent.name + " / " + observerPrint.parent.name + "\n");
+            RenderPhysical661(sourceBody, sourcePrint, 8, false, "lifecycle-failure-owner");
+            RenderPhysical661(observerBody, observerPrint, 9, false, "lifecycle-failure-observer");
+        }
+        Check(error < .00005f, invariant);
+        Check(observerBody.gameObject.activeInHierarchy && observerPrint.gameObject.activeInHierarchy,
+            "actual offered, returned and held originals never blink during native ownership transitions");
+        foreach (bool back in new[] { false, true })
+        {
+            Color32[] reference = RenderPhysical661(sourceBody, sourcePrint, 8, back, null);
+            Color32[] observed = RenderPhysical661(observerBody, observerPrint, 9, back,
+                frame % 20 == 0 ? phase + "-" + frame + (back ? "-back" : "-front") : null);
+            int union = 0, changed = 0;
+            for (int i = 0; i < reference.Length; i++)
+            {
+                bool a = reference[i].r > 40 || reference[i].g > 40 || reference[i].b > 40;
+                bool b = observed[i].r > 40 || observed[i].g > 40 || observed[i].b > 40;
+                if (a || b) union++;
+                if (a != b) changed++;
+            }
+            Check(union > 3000 && changed < 80, "native lifecycle preserves actual opposing body/front silhouettes on every render");
+        }
+    }
+
+    private static IEnumerator PhysicalLifecycle661(Transform owner, Transform observer, Transform card, VRCard native,
+        Transform body, RectTransform canvas, RectTransform print, RectTransform holder,
+        TownServiceNativeEnhancementCardMask mask, TownServiceBinding frontCopy, TownServiceBinding bodyCopy, float previousClock)
+    {
+        owner.localScale = Vector3.one * .8f; observer.localScale = Vector3.one * 1.2f;
+        GeometryClock661.Controlled = true; GeometryClock661.Now = previousClock + .25f;
+        for (int budget = 0; budget < 8; budget++) DeliverNative661(CaptureNative661(), false);
+        RenderGeometry661(GeometryClock661.Now);
+        // The preceding synthetic sheared-room extension is a body-affinity
+        // challenge only. Reestablish the actual scalar room Canvas through its
+        // ordinary production interpolation before testing native return TRS.
+        GeometryClock661.Now += .4f; RenderGeometry661(GeometryClock661.Now);
+        Check(GeometryError661(body, print, bodyCopy.Root, frontCopy.Root) < .00005f,
+            "actual scalar room offered picture is coherent before native ownership transfer");
+        Check(_geometry661OldAffinity != null, "lifecycle starts from a genuine still-visible source body affinity");
+        // Stop the real source mask. Drop its actual withdrawal on the transport
+        // only: the observer still holds the older visible109 during the return.
+        mask.Restore();
+        canvas.localScale *= .83f; canvas.localPosition += new Vector3(-.004f, .003f, 0f);
+        native.BeginNative661(owner.TransformPoint(new Vector3(-.3f, .25f, .22f)), .35f);
+        TownServiceMirror.RegisterCardReturn(card, native.TryTownReturnMotion);
+        bool began = false, ended = false;
+        for (int frame = 0; frame < 72; frame++)
+        {
+            GeometryClock661.Now += GeometryClock661.Delta;
+            if (native.NativeFlying661) native.StepNative661();
+            if (frame % 6 == 0 || frame == 32)
+                for (int budget = 0; budget < 4; budget++) DeliverNative661(CaptureNative661(), true);
+            RenderGeometry661(GeometryClock661.Now); Canvas.ForceUpdateCanvases();
+            began |= TownServiceMirror.NativeReturnActive661(1, 12);
+            if (began)
+            {
+                LifecyclePicture661(body, print, bodyCopy.Root, frontCopy.Root,
+                    "native return supersedes lost old offered-body affinity on every render", "return", frame);
+                CheckNativeWorld661(owner, observer, body, print, bodyCopy.Root, frontCopy.Root);
+                _geometry661Returns++;
+                ended |= !TownServiceMirror.NativeReturnActive661(1, 12);
             }
             yield return null;
         }
-        Check(withdrawn, "ending the exact native offer withdraws physical body affinity before reuse or return");
-        File.WriteAllText(Path.Combine(_output, "geometry661-receipt.txt"), "renders=" + _geometry661Frames + "\nassertions=" + _assertions + "\n");
-        TownServiceEnhancementHandoff.PhysicalCardFace = null; TownServiceMirror.Shutdown();
+        Check(began && ended && _geometry661Returns >= 60, "real native cohort starts, completes and hands its original roots back to ordinary pose ownership");
+        Check(TownServiceMirror.PhysicalMounts661 == 0, "terminal native return cannot inherit the old offered mount graph");
+
+        var hand = new VRHand { Side = HandSide.Left, HasPose = true, WorldScale = .8f };
+        hand.Rig.Root = Go("Actual left reclaim hand", owner).transform;
+        hand.Rig.Root.localPosition = new Vector3(-.12f, .6f, -.2f);
+        hand.Rig.GrabAnchor = Go("Actual left grab anchor", hand.Rig.Root).transform;
+        VRHands.Left = hand; VRHands.Right = null;
+        Transform remoteHand = Go("Observed left reclaim hand", observer).transform;
+        remoteHand.localPosition = hand.Rig.Root.localPosition;
+        NetAvatarDriver.MotionHandFrames[1] = new[] { remoteHand, remoteHand };
+        native.ReclaimNative661(hand); card.SetParent(hand.Rig.GrabAnchor, true);
+        TownServiceMirror.RegisterMotionHand(card, hand);
+        for (int frame = 0; frame < 28; frame++)
+        {
+            GeometryClock661.Now += GeometryClock661.Delta;
+            hand.Rig.Root.localPosition += new Vector3(.001f, .0006f, .0003f);
+            hand.Rig.Root.localRotation = Quaternion.Euler(0f, frame * 3f, frame * .7f);
+            remoteHand.localPosition = hand.Rig.Root.localPosition; remoteHand.localRotation = hand.Rig.Root.localRotation;
+            if (frame % 3 == 0) for (int budget = 0; budget < 4; budget++) DeliverNative661(CaptureNative661(), true);
+            RenderGeometry661(GeometryClock661.Now); Canvas.ForceUpdateCanvases();
+            LifecyclePicture661(body, print, bodyCopy.Root, frontCopy.Root,
+                "reclaimed hand motion supersedes the obsolete offered body relation on every render", "reclaim", frame);
+            CheckNativeWorld661(owner, observer, body, print, bodyCopy.Root, frontCopy.Root);
+            Check(TownServiceMirror.PhysicalMounts661 == 0, "actual held root owns its original body without an obsolete offer mount");
+            _geometry661Hands++; yield return null;
+        }
+
+        // A different native card reuses the same backing recipe/address, never
+        // the old print identity. Census retirement must happen before its first
+        // mount and cannot destroy a backing still parented beneath an old face.
+        TownServiceMirror.UnregisterModule(11); TownServiceMirror.UnregisterModule(12);
+        native.Holder = null; card.gameObject.SetActive(false);
+        Transform replacement = Go("Second actual source card", owner).transform;
+        replacement.localPosition = new Vector3(.15f, .36f, -.08f);
+        var nextCard = replacement.gameObject.AddComponent<VRCard>(); nextCard.FixtureBacking(new Vector2(.14406f, .2205f));
+        Transform nextBody = replacement.Find("Visual/Backing");
+        RectTransform nextCanvas = (RectTransform)Go("FaceCanvas", replacement).transform;
+        nextCanvas.sizeDelta = new Vector2(294f, 450f); nextCanvas.localScale = Vector3.one * .00049f;
+        nextCanvas.localPosition = new Vector3(0f, 0f, -.0012f);
+        nextCanvas.gameObject.AddComponent<Canvas>().renderMode = RenderMode.WorldSpace;
+        RectTransform nextPrint = (RectTransform)Go("FullAbilityCard", nextCanvas).transform;
+        nextPrint.sizeDelta = nextCanvas.sizeDelta; nextPrint.gameObject.AddComponent<CanvasGroup>();
+        Image("Second actual blue front", nextPrint, Vector2.zero, nextPrint.sizeDelta, Color.blue);
+        TownServiceEnhancementHandoff.PhysicalCardFace = nextPrint; mask.Mask(); mask.SendMessage("LateUpdate");
+        RegisterPhysical661(nextBody, nextPrint); TownServiceMirror.RegisterMotionOffering(nextBody, true);
+        TownServiceMirror.RegisterMotionOffering(nextPrint, true);
+        TownServiceMirror.RegisterTemplate(3, 4, nextPrint, address: "face.662|");
+        TownServiceMirror.RegisterModule(15, 4, nextPrint, address: "face.662|");
+        TownServiceMirror.RegisterModule(16, 3, nextBody, address: TownServiceAbilityBody.Key(nextCard) + "|");
+        TownServiceMirror.SetPriority(15, true); TownServiceMirror.SetPriority(16, true);
+        FastCapture reoffer = OfferedCapture629(); Receive(1, reoffer.Artwork); DeliverNative661(DecodeNative661(reoffer.Motion), false);
+        TownServiceMirror.TickRemote(_ => observer);
+        Check(Remote(1, 11) == null && Remote(1, 12) == null, "new exact source census retires the first body and print before reoffer");
+        IEnumerator settle = FastSettle(observer, .14f); while (settle.MoveNext()) yield return settle.Current;
+        TownServiceBinding newFront = Remote(1, 15)!, newBody = Remote(1, 16)!;
+        Check(newFront != null && newBody != null, "new native card prepares its own original print and exact backing recipe");
+        var obsolete = new TownServiceMotionPacket { SampleTime = previousClock, Sequence = ++_offeredSequence629 };
+        obsolete.Entries.Add(_geometry661OldAffinity!); ReceiveGeometry661(obsolete, GeometryClock661.Now);
+        for (int frame = 0; frame < 21; frame++)
+        {
+            GeometryClock661.Now += GeometryClock661.Delta;
+            replacement.localRotation = Quaternion.Euler(5f, frame * 17f, 3f);
+            replacement.localPosition += new Vector3(.0002f, .0004f * Mathf.Sin(frame), 0f);
+            mask.SendMessage("LateUpdate");
+            if (frame % 3 == 0) for (int budget = 0; budget < 4; budget++) DeliverNative661(CaptureNative661(), false);
+            RenderGeometry661(GeometryClock661.Now); Canvas.ForceUpdateCanvases();
+            LifecyclePicture661(nextBody, nextPrint, newBody.Root, newFront.Root,
+                "new actual source identity alone owns the backing despite an obsolete visible109", "reoffer", frame);
+            Check(Remote(1, 11) == null && Remote(1, 12) == null, "late old-body affinity cannot revive either retired original");
+            _geometry661Reoffers++; yield return null;
+        }
+        Check(TownServiceMirror.PhysicalMounts661 == 1, "retirement challenge starts with a real backing mounted below its current original print");
+        Transform retainedBody = newBody.Root;
+        TownServiceMirror.UnregisterModule(15);
+        TownServiceMirror.RegisterModule(17, 4, nextPrint, address: "face.662|"); TownServiceMirror.SetPriority(17, true);
+        FastCapture remap = OfferedCapture629(); Receive(1, remap.Artwork);
+        Check(retainedBody != null && retainedBody.gameObject.activeInHierarchy && ReferenceEquals(Remote(1, 16)!.Root, retainedBody),
+            "native census preserves the visible mounted backing before retiring its old printed parent");
+        DeliverNative661(DecodeNative661(remap.Motion), false); TownServiceMirror.TickRemote(_ => observer);
+        newFront = Remote(1, 17)!;
+        Check(Remote(1, 15) == null && newFront != null && ReferenceEquals(Remote(1, 16)!.Root, retainedBody),
+            "original print identity remap retains the exact existing body and creates only the declared new print");
+        for (int budget = 0; budget < 4; budget++) DeliverNative661(CaptureNative661(), false);
+        GeometryClock661.Now += .2f; RenderGeometry661(GeometryClock661.Now); Canvas.ForceUpdateCanvases();
+        LifecyclePicture661(nextBody, nextPrint, retainedBody, newFront.Root,
+            "retained physical backing immediately follows only its replacement native print", "census", 0);
+        mask.Restore();
+        Check(TownServiceMirror.PhysicalSources661 == 0, "actual source withdrawal releases all pooled physical offer references");
+        nextCanvas.localPosition += new Vector3(.003f, -.002f, 0f);
+        nextCard.ReclaimNative661(hand); replacement.SetParent(hand.Rig.GrabAnchor, true);
+        TownServiceMirror.RegisterMotionHand(replacement, hand);
+        for (int frame = 0; frame < 18; frame++)
+        {
+            GeometryClock661.Now += GeometryClock661.Delta;
+            hand.Rig.Root.localPosition += Vector3.right * .001f;
+            remoteHand.localPosition = hand.Rig.Root.localPosition;
+            if (frame % 3 == 0) for (int budget = 0; budget < 4; budget++) DeliverNative661(CaptureNative661(), true);
+            RenderGeometry661(GeometryClock661.Now); Canvas.ForceUpdateCanvases();
+            LifecyclePicture661(nextBody, nextPrint, newBody.Root, newFront.Root,
+                "direct hand reclaim supersedes lost old offered-body affinity on every render", "direct-reclaim", frame);
+            CheckNativeWorld661(owner, observer, nextBody, nextPrint, newBody.Root, newFront.Root);
+            Check(TownServiceMirror.PhysicalMounts661 == 0, "a hand without any previous return clock supersedes the still-visible old offer");
+            _geometry661Hands++; yield return null;
+        }
+        GeometryClock661.Now += TownServiceMotionCodec.Heartbeat + .01f;
+        bool withdrawn = false;
+        for (int budget = 0; budget < 8; budget++)
+        {
+            var packets = CaptureNative661();
+            foreach (var packet in packets) foreach (var entry in packet.Entries)
+                if (entry.Module == 16 && entry.Kind == 9 && !entry.Visible) withdrawn = true;
+            DeliverNative661(packets, false);
+        }
+        RenderGeometry661(GeometryClock661.Now);
+        Check(withdrawn, "ending the exact native offer withdraws physical body affinity within eight actual bounded budget turns");
+        Check(TownServiceMirror.PhysicalMounts661 == 0, "withdrawal releases the final physical mount without keeping stale buttons or artwork");
+        File.WriteAllText(Path.Combine(_output, "geometry661-lifecycle-receipt.txt"),
+            "native-return-renders=" + _geometry661Returns + "\nheld-renders=" + _geometry661Hands + "\nnew-card-renders=" + _geometry661Reoffers + "\n");
+    }
+
+    private static List<TownServiceMotionPacket> DecodeNative661(List<byte[]> bytes)
+    {
+        var packets = new List<TownServiceMotionPacket>();
+        foreach (byte[] wire in bytes) { TownServiceMotionCodec.TryRead(wire, wire.Length, out var packet); packets.Add(packet!); }
+        return packets;
+    }
+
+    private static void CheckNativeWorld661(Transform owner, Transform observer, Transform body, RectTransform print,
+        Transform remoteBody, Transform remotePrint)
+    {
+        float error = 0f;
+        foreach (Vector3 vertex in body.GetComponent<MeshFilter>().sharedMesh.vertices)
+            error = Mathf.Max(error, Vector3.Distance(observer.TransformPoint(owner.InverseTransformPoint(body.TransformPoint(vertex))),
+                remoteBody.TransformPoint(vertex)));
+        var corners = new Vector3[4]; var remote = new Vector3[4];
+        print.GetWorldCorners(corners); ((RectTransform)remotePrint).GetWorldCorners(remote);
+        for (int i = 0; i < 4; i++) error = Mathf.Max(error, Vector3.Distance(observer.TransformPoint(owner.InverseTransformPoint(corners[i])), remote[i]));
+        Check(error < .00005f, "every returned and held native world vertex follows the actual source curve and owner hand, error=" + error);
     }
 
     private static void ReceiveGeometry661(TownServiceMotionPacket packet, float receipt)
@@ -265,5 +513,18 @@ public static partial class MirrorProgram
             _camera.ResetWorldToCameraMatrix();
             UnityEngine.Object.DestroyImmediate(target); UnityEngine.Object.DestroyImmediate(image);
         }
+    }
+}
+
+namespace GloomhavenVR.Net.TownServices
+{
+    internal static partial class TownServiceMirror
+    {
+        internal static bool NativeReturnActive661(int peer, ushort id) => Remote.TryGetValue(peer, out var modules)
+            && modules.TryGetValue(id, out var module) && MotionRemoteFrames.TryGetValue(module, out var motion) && motion.HadCardReturn;
+        internal static int PhysicalMounts661 => (typeof(TownServiceMirror).GetField("OfferedPhysicalMounts", BindingFlags.NonPublic | BindingFlags.Static)
+            ?.GetValue(null) as IDictionary)?.Count ?? 0;
+        internal static int PhysicalSources661 => (typeof(TownServiceMirror).GetField("OfferedPhysicalFrames", BindingFlags.NonPublic | BindingFlags.Static)
+            ?.GetValue(null) as IDictionary)?.Count ?? 0;
     }
 }

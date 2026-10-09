@@ -75,3 +75,68 @@ for a reflected custom view it also restores the camera's correct winding with
 mirror-camera fixture failure and plain-back readback are retained at
 `run-k74swp83/proof/run-ik9g8rbg`. Strict Debug passes0 warnings/errors.
 Return/hand/reoffer evidence remains pending; this is not a final lifecycle pass.
+
+## Completed worker lifecycle verification
+
+`run-e0bvaion/proof/run-g4zg0en0` passes3117 assertions. It retains the224
+offered intermediate frames/896 front-and-back readbacks, then72 actual native
+return renders,46 held renders,21 new-card renders and the first census remap
+picture. Each lifecycle picture also reads both actual native sides; return and
+held frames independently compare all body vertices and printed world corners
+against the actual owner curve/hand, within50micrometres. No observer transform
+is corrected by the fixture.
+
+The native return binding compiles the complete actual `VRCard.TryTownReturnMotion`
+and its actual `Update` flight-curve writes. Initial native flight fields, final
+gameplay callback and tracked hand construction are explicit ports. A controlled
+transport/render clock replaces only time reads, with both original/adapted hashes
+retained. The owner returns through the production cohort, numeric codec and
+receiver; all real old-body109 withdrawals are dropped throughout return/hand.
+After completion the terminal floor must still prevent old visible109 mounting.
+The next real VRCard reuses the backing recipe but has its own exact print/module
+identity; an authentic late old109 cannot revive the retired originals. A retained
+backing is then still mounted beneath a retiring print when the real census
+remaps that print; existing `PreserveCensusChildren` sees the actual Unity ancestry,
+detaches before `Dispose` and retains the same visible backing object. The opening
+restore seam precedes every ordinary motion pass, and the physical mount rejects
+self/descendant cycles.
+
+All five controls compile and fail their named rendered/identity invariant:
+
+| Control | Measured failure |
+| --- | --- |
+| Build660 original Offerings methods, empty new API adapters |5.79943mm at offered sample0/render1 |
+| Disable return/hand supersession |32.32301mm at first native return render |
+| Remove saved terminal return sample floor |22.62798mm at terminal render32 |
+| Disable held-root supersession | Direct-reclaim original geometry fails on first render |
+| Remove existing census-child detachment | Retained mounted backing becomes inactive when its old print retires |
+
+The old implementation's raw SHA is separate from the namespace/no-op API adapter
+SHA. This adapter permits compiling actual integration callers without introducing
+new behavior; a compile failure never counts as a geometric red control.
+
+The final worker checks pass source16/16, unchanged offered-orientation production
+and nine controls, unchanged native-return660 production and five controls, strict
+Debug0 warnings/errors, and private compiled scope (one changed type:
+`TownServiceMirror`). All665 configuration keys/235 patch types/4795 log tokens
+are unchanged. These are focused worker checks, not a new complete local gate.
+
+The retained `run-ol67o7si/proof/run-m06vti2g` demonstrates a separate synthetic
+hand boundary: changing FaceCanvas.scale at the same direct reclaim leaves its
+enclosing-host scale tween behind the current physical body. `ApplyCanvasFrame`
+writes the target, `AfterApply` interpolates it, and the continuous hand pass writes
+position/rotation without reasserting canvas scale. Its first render differs by
+15.88913mm. The final hand guard control uses the native factory's constant canvas
+scale and an actual position change. This is not evidence that arbitrary hand
+canvas-scale changes are fixed, nor a demonstrated cause of the supplied headset
+failure. It has been reported separately to the integrator. Similarly, the initial
+lifecycle attempt `run-305jab5x/proof/run-_pwfg5ku` transferred directly from the
+synthetic sheared-room challenge while its old canvas interpolation remained
+unfinished (0.63995mm). The final lifecycle first reestablishes the actual scalar
+room through ordinary source capture/interpolation; the unrelated general overlay
+world-TRS limitation remains explicit above.
+
+Final front/back, return and direct-reclaim PNGs were personally inspected. Native
+back lattice and facing front remain the original mesh/material output. Real headset
+acceptance, universally bounded network latency and general sheared-canvas support
+are not claimed. The integrator's final composed source run remains separate evidence.
