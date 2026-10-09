@@ -47,8 +47,8 @@ there is no Harmony timing observer in the CPU region.
 
 The wall scope proves immediate absence of actual wall/shelf/column pixels and
 continued floor/actor/gate/shared-arch pixels. Native enabled, active, collider and
-Light state remain intact. It checks every attachment category through the real
-membership gather, shared corner/segment exceptions, native arch-family hierarchy,
+Light state remain intact. It checks wall, shelf, column, mounted and unit-dressing membership through the real
+gather, shared corner/segment exceptions, native arch-family hierarchy,
 water bounds, exact held identity changes, native ready reassertion, current MPB
 preservation, foreign force-off ownership, real scenery release, lifecycle additions,
 retirements, destroyed renderers, loading coalescence, collector finally/backoff,
