@@ -50,7 +50,7 @@ the next build number and final integrated checks.
 
 The production Unity 2021.3.5f1 wall policy case passes **730 assertions**, up
 from 695 with all existing assertions retained. It executes the complete
-unchanged production Performance partial and extracted native wall entry,
+current production Performance partial and extracted native wall entry,
 wire-key recovery, ClearAllBlocks, diagnostics, protection primitives, plus the
 actual production effective FPS getter. New cases cover raised/lowered edits
 while latched, raised edits while observing, exact visible renderer/attachment
