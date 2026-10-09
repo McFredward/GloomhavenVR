@@ -598,7 +598,22 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 652;
+    public const ushort ModBuild = 653;
+
+    // ModBuild653 — capability-gated native Steam Frame standalone mixed reality.
+    // Detect the existing installed Frame opt-in marker, then query the actual
+    // Wine/OpenXR PrimaryStereo blend modes. Alpha support plus a live session
+    // enables the choice; unavailable choices stay grey with localized Proton/
+    // SteamVR update guidance. Version strings alone cannot prove bridge support.
+    // Use Unity's official queued blend setter and validate actual acceptance
+    // before transparent head clearing. Restore owned modes/camera HDR/sky state
+    // on off/VR stop; preserve external authors and safe session lifetimes.
+    // PC chromakey remains unchanged. No private camera API, compositor hook,
+    // second rendering camera, asset change or network layout change is added.
+    // Actual Unity RGBA/native-tooltip checks, async/lifecycle causal controls
+    // and shipped native-plugin submission proof are recorded separately from
+    // the still-unverified Proton/headset result in FRAME-653-MR-REVIEW.md.
+    // Retains652 wall compromise and651 game UI fixes. Both VR peers use653.
 
     // ModBuild652 — explicit wall visibility compromise and cheap loaded-game Auto.
     // Normal keeps the current view-dependent fade; Hide all instantly masks exact

@@ -2299,6 +2299,29 @@
         "ci"
       ],
       "weight": 4
+    },
+    {
+      "id": "frame-mr-presentation",
+      "command": [
+        "python3",
+        "scripts/frame-mr-presentation-tests.py",
+        "--all"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
+    },
+    {
+      "id": "frame-mr-options",
+      "command": [
+        "python3",
+        "scripts/check-frame-mr-options-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
     }
   ]
 }

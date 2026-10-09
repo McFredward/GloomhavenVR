@@ -129,7 +129,9 @@ resolution, other camera HDR permissions and gameplay materials are untouched.
 
 The shipped `UnityOpenXR.dll` hash is
 `2275da2750ebc9c815386604f73f0450b03fed6f44dafdeb15e978633e4866f5`.
-The projection builder sets flags6 (`SOURCE_ALPHA`2 + `UNPREMULTIPLIED_ALPHA`4).
+The projection builder resets flags6 (`SOURCE_ALPHA`2 + `UNPREMULTIPLIED_ALPHA`4)
+on every submitted primary frame, before frame-end mode adjustment. An earlier
+opaque frame therefore cannot permanently clear alpha for a subsequent MR toggle.
 Frame-end submission retains source alpha for actual mode3 and removes it for
 other modes, then writes that actual mode into `XrFrameEndInfo`. This allows the
 official feature API path without a private compositor hook or `xrEndFrame`

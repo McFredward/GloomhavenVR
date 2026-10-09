@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,7 +32,16 @@ def main():
     parser.add_argument('--unity', type=Path, default=Path('/home/claw/unity-2021.3.5/Editor/Unity'))
     parser.add_argument('--output-dir', type=Path, default=ROOT / '.planning/debug/frame-mr-presentation')
     parser.add_argument('--mutation', choices=['opaque-native', 'hdr-restore'])
+    parser.add_argument('--all', action='store_true', help='Run production and both causal negative controls')
     args = parser.parse_args()
+    if args.all:
+        if args.mutation:
+            parser.error('--all cannot be combined with --mutation')
+        common = [sys.executable, str(Path(__file__).resolve()), '--unity', str(args.unity),
+                  '--output-dir', str(args.output_dir)]
+        for mutation in (None, 'opaque-native', 'hdr-restore'):
+            subprocess.run(common + (['--mutation', mutation] if mutation else []), check=True)
+        return
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix='run-', dir=args.output_dir))
     source_path = ROOT / 'src/GloomhavenVR/Core/MixedReality/MixedReality.cs'
