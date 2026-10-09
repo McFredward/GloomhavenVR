@@ -4,7 +4,6 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using GloomhavenVR.Board.FigureGrab;
 using ScenarioRuleLibrary;
-using GloomhavenVR.WorldUI;
 
 namespace GloomhavenVR.Core;
 
@@ -169,14 +168,19 @@ internal static partial class WallSegmentFade
             }
 
             float now = Time.unscaledTime;
+            // Build654 Frame logs: cosmetic card/figure preparation remained true for90s
+            // after native room loading/reveal had finished. It is background interaction
+            // work, not an unloaded scenario, and must not indefinitely veto Auto or dirty
+            // hidden-wall discovery. Only actual native loading/reveal pauses these paths.
             bool loaded = !controller.IsLoading && !controller.ScenarioIsLoading
-                && !ScenarioInteractionPreparation.IsPreparing && !ScenarioRoomLoading.HasPendingReveal;
+                && !ScenarioRoomLoading.HasPendingReveal;
             if (mode == 2 && !_performanceAutoLatched)
             {
-                // Options rendering is temporary UI overhead, not the fully loaded closed-
-                // options gameplay this policy targets. Existing IsOpen is queried once per
-                // application frame only while observing, never per eye or while hidden.
-                bool eligible = loaded && Application.isFocused && !VROptionsTab.IsOpen;
+                // Open VR Options must not suspend protection during sustained poor gameplay.
+                // The Wine desktop window's focus is unrelated to headset input focus. Use
+                // the cached OpenXR session signal; unknown focus adds no permanent veto.
+                // No desktop/UI poll, native focus query or extra per-eye work is introduced.
+                bool eligible = loaded && VRSession.InputFocus != false;
                 if (!eligible) _performanceReadySince = -1f;
                 else if (_performanceReadySince < 0f) _performanceReadySince = now;
                 // The first measured delta after a loading edge partly belongs to the old
