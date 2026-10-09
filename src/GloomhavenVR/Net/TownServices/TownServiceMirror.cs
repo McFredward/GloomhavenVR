@@ -1182,7 +1182,6 @@ internal static partial class TownServiceMirror
                 if (entry.Key > 0 && PrivateMerchantCatalogModule(received.Service,
                     received.TemplateAddress, received.ParentModule)) continue;
                 long retryKey = ((long)entry.Key << 16) | received.Module;
-                if (RemoteRetry.TryGetValue(retryKey, out float retryAt) && now < retryAt) continue;
                 standing.TryGetValue(received.Module, out RemoteModule? module);
                 if (module != null && received.Sequence <= module.Sequence) continue;
                 TownServiceFrame? baseline = null;
@@ -1193,10 +1192,17 @@ internal static partial class TownServiceMirror
                 if (HoldReorderedPublicRackMember(entry.Key, frame)) continue;
                 if (secondaryVisitor && !IndependentVisitorModule(frame, entry.Key, !session.TransactionActive)) continue;
                 if (frame.Session != session.Session || frame.Service != session.Service || Array.BinarySearch(session.Modules, frame.Module) < 0) continue;
+                bool needsCandidate = module == null || module.Template != frame.Template || module.Address != frame.TemplateAddress || module.Session != frame.Session
+                    || module.Binding.Structure != frame.Structure
+                    || (module.AddedCanvas != null) != NeedsCanvas(frame);
+                bool preparingReplacement = module != null && needsCandidate;
                 try
                 {
                     if (!frame.Visible && !PrepareHiddenCardReturnOriginal(frame))
-                    { if (module != null) { module.Host.SetActive(false); module.Motion.Reset(); module.Sequence = frame.Sequence; module.LastFrame = frame; } continue; }
+                    { RemoteRetry.Remove(retryKey); if (module != null) { module.Host.SetActive(false); module.Motion.Reset(); module.Sequence = frame.Sequence; module.LastFrame = frame; } continue; }
+                    // A pending replacement may retry its native original, but must
+                    // never delay the owner's withdrawal behind that retry clock.
+                    if (RemoteRetry.TryGetValue(retryKey, out float retryAt) && now < retryAt) continue;
                     bool heldReturn = module != null && HoldIncomingReturnPicture(entry.Key, module, frame);
                     Transform mount = parent;
                     if (frame.ParentModule != TownServiceFrame.ManifestModule)
@@ -1209,8 +1215,7 @@ internal static partial class TownServiceMirror
                         if (module != null && mount.IsChildOf(module.Host.transform))
                             throw new InvalidDataException("Cyclic town-service module parent.");
                     }
-                    if (module == null || module.Template != frame.Template || module.Address != frame.TemplateAddress || module.Session != frame.Session
-                        || (module.AddedCanvas != null) != NeedsCanvas(frame))
+                    if (module == null || needsCandidate)
                     {
                         RemoteModule candidate = BuildRemote(frame, mount);
                         try { candidate.Binding.Validate(frame, Assets); candidate.Binding.Apply(frame, Assets); }
@@ -1279,13 +1284,16 @@ internal static partial class TownServiceMirror
                         // Validation resolves every original asset BEFORE changing the
                         // picture. A transient missing dependency may not turn an already
                         // validated item grey or erase a complete cabinet page. Retain only
-                        // this exact original/session/structure; a changed card identity or
-                        // hierarchy is a new module and cannot borrow the preceding artwork.
+                        // this exact original/session. A changed hierarchy is prepared
+                        // in a separate inactive candidate; its preceding validated
+                        // picture remains until the exact native replacement is ready.
+                        // A changed card identity cannot borrow the preceding artwork.
                         if (module.Alive)
                         {
                             bool sameOriginal = module.LastFrame != null
                                 && module.Session == frame.Session && module.Template == frame.Template
-                                && module.Address == frame.TemplateAddress && module.Binding.Structure == frame.Structure;
+                                && module.Address == frame.TemplateAddress
+                                && (module.Binding.Structure == frame.Structure || preparingReplacement);
                             if (!sameOriginal) { module.Host.SetActive(false); module.Motion.Reset(); }
                         }
                         else { module.Dispose(); standing.Remove(frame.Module); }
@@ -1471,7 +1479,8 @@ internal static partial class TownServiceMirror
     private static RemoteModule BuildRemote(TownServiceFrame frame, Transform sharedFrame)
     {
         string key = TemplateKey(frame.Service, frame.Template, frame.TemplateAddress);
-        if (!Templates.ContainsKey(key)) ResolveTemplate?.Invoke(frame.Service, frame.Template, frame.TemplateAddress);
+        if (!Templates.TryGetValue(key, out GameObject? original) || original == null)
+            ResolveTemplate?.Invoke(frame.Service, frame.Template, frame.TemplateAddress);
         if (!Templates.TryGetValue(key, out GameObject? template) || template == null)
             throw new InvalidDataException("Original town-service template is not registered on this client.");
         var host = new GameObject("GloomhavenVR.TownService.Observer", typeof(RectTransform));

@@ -1,4 +1,4 @@
-# NPC660 native layout and retained-mount review
+# NPC660 native layout, retained-mount and panel replacement review
 
 Worker base: current `dev` Build659, `c0b5e9a1b`. Supplied owner and observer
 banners both identify Build658, assembly1.1.0.0. The immutable paired inputs are
@@ -106,3 +106,69 @@ The stable `TownServiceDepthOrder` implementation is unchanged. No new native
 controller, gameplay callback, viewer-facing pose, wire record, config key,
 periodic layout recall or diagnostic stream is introduced. The integration must
 rerun its final affected/native asset checks and build/push the single660 stamp.
+
+## Separate source-proven native panel replacement hole
+
+The follow-up read-only review reconstructed a merchant button panel whose live
+Unity hierarchy gained a real visible Image child. Actual production Capture
+detected that revision, rebuilt its binding and emitted a complete newer frame
+under the same template/address/session. TickRemote reused the old observer
+binding because its replacement condition omitted Structure. Validate rejected
+the new hierarchy, then the failure catch deactivated the old visible panel.
+The owner remained visible. The expected-red `blink-review/proof/run-ulyvubuj`
+has personally inspected owner ink and blank observer readbacks, with the exact
+bounded template mismatch report (sender A9F9BF23/3, observer47D87048/2).
+
+Structural changes now prepare a separate inactive native candidate. Its exact
+binding and all artwork must validate and apply before the old module is
+disposed. The preceding validated panel remains while that same original's
+native candidate is pending. An original with a different address/template or
+session cannot display its predecessor's artwork. The original-bank resolver
+also runs when its old frozen Unity object has actually died, rather than
+treating a dead dictionary entry as a ready original. Normal bounded failure
+reporting, exact structure/asset validation and MagePictureReady are unchanged.
+
+The old retry check ran before expanding and inspecting a newer owner withdrawal.
+During native preparation it could skip that withdrawal for250ms. The genuine
+hidden/withdrawal branch now runs first and clears the obsolete retry. Module
+removal and native session closure retain their immediate retirement paths.
+
+This is an exchange, not merely stale-picture retention: the proof ends the old
+frozen native asset lifetime, supplies a real matching original through the
+actual ResolveTemplate/RegisterTemplate seam, and verifies the full new native
+mask/child hierarchy and owner artwork. RegisterTemplate freezes that original
+below its inactive bank and applies the production neutralizer. No hierarchy or
+component is invented from network IDs, and native gameplay Awake/OnEnable,
+Buttons and callbacks never run on the prepared or displayed clone. Unknown
+new topology still needs its exact native provenance; this repair does not
+guess a missing original or relax the native gate.
+
+`scripts/npc660-lifecycle-runtime/run-topology.py --controls` binds the actual
+production capture/codec/receive/playback and native neutralizer. It runs the
+positive case plus five isolated controls in one Unity process. The ordinary
+Canvas/Image hierarchy and delayed native-original provider are explicit engine
+and asset-lifetime boundaries, not the game's complete prefab or headset proof.
+
+- Final combined run `topology/run-bpx1s56q/proof/run-rvq5_l3g`: production151
+  assertions and all five named controls pass. Removing structural replacement
+  or preparation retention loses continuously visible button ink; omitting the
+  dead-original resolution fails the full native exchange; restoring the old
+  retry placement delays withdrawal; removing address validation displays the
+  previous original's artwork. Unrelated exceptions or escaped controls fail.
+- Every checked cold/render-exchange frame keeps its validated button ink.
+  Complete native replacement and changed-identity artwork both render23840
+  owner ink pixels with0 changed pixels/channel error. Corresponding PNGs were
+  personally inspected. The changed identity reuses the same module number.
+- Existing focused lifecycle suite and its cancel-target causal control pass
+  in `lifecycle/run-5mqf3tg3`. Final source16 passes in
+  `.planning/debug/test-runs/20261009-220710-9da08487/results.json`.
+  Strict Debug builds with0 warnings/errors. These are focused worker checks,
+  not a new complete local-gate pass.
+
+Both supplied Build658 hardware log pairs contain no matching topology/template
+or remote-module failure report. The required mage picture gate retains its old
+visible modules before the tested catch can run on an invalid native basis.
+The user's hardware mage button blink therefore remains causally unassigned;
+the panel replacement defect is a separate source-proven repair. Bounded,
+sampled visibility diagnostics do not establish every headset render's pose,
+canvas cull or pixels. Existing stable enhancement depth order remains untouched.
