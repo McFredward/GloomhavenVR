@@ -1,5 +1,33 @@
 # State — where the project stands
 
+**Build660 remote NPC regression repair, 2026-10-09: 1.1.0 development candidate.**
+
+The failed paired hardware run is658 `e92ef8e53` on both peers, not659. Its
+complete23/23 and30/30 original sets still reject native GPU-only FX textures;
+its normal local VRCard has valid procedural geometry while publication requires
+an unused prefab.660 admits only the two audited exact native originals, assigns
+the shared CardMesh backing texture its actual factory identity, and publishes
+the owner's exact body construction/dimensions with late contour registration.
+Observer interpolation preserves position across rect-layout changes and rebases
+running enclosing-host animation during census retirement. Same-original native
+panel replacements validate an inactive candidate before replacing visible
+buttons; true withdrawal remains immediate. Native returns retain exact atomic
+root layout, enclosing-host pose, terminal hand affinity and source completion.
+Older frozen packet completion acknowledges only its own entries, preserving a
+newer terminal cohort until fully sent. The hardware-confirmed658 overlay paint
+repair is preserved.
+
+Validation is **composed202/202**, not a fresh complete-gate pass: the first full
+202-scope attempt recorded197 passes/five failures, all receipts retained. Four
+native-return/mirror scopes, three unchanged serial timing scopes and the full
+52-variant scenery scope then passed. Historical646 fixture ports and the
+scenery setup's real pending discovery were corrected without weakening asserts.
+Final dedicated golden executable passes300297 assertions; complete source16,
+strict Debug/Release zero warnings/errors, unchanged665/235/4795 surfaces and
+private659→660 compiled scope also pass. Exact source/log evidence, prior failed
+assumptions and hardware limits are in [NPC-660-REVIEW.md](NPC-660-REVIEW.md).
+The real headset picture and universal cold-network latency remain unverified.
+
 **Build659 configured pillar viewing radius, 2026-10-09: 1.1.0 development candidate.**
 
 After pushed NPC658, admitted pillars retain original geometry throughout the

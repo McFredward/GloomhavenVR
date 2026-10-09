@@ -118,5 +118,75 @@ These are source/runtime-proven failures and corrections. The supplied logs
 prove the asset and null-prefab failures; they do not establish that each new
 geometry reproduction is the unique cause of each hardware frame. Universal
 internet first-picture latency and the final HMD image remain separate evidence.
-The final integrated validation and exact pushed build are recorded below after
-all source changes and checks finish.
+The integration validation below records its exact scope and inherited evidence.
+
+## Final integration and retained failures
+
+Build660 is based on dev659 `c0b5e9a1b`. The complete local entry point
+`scripts/wire-tests.sh --jobs8` actually ran all202 registered scopes on frozen
+source `3852af75a`: **197 passed, five failed** in1627.236s. That original report
+remains `.planning/debug/npc660-fullgate/results.json`; it is not rewritten as a
+successful complete run. Because the local group failed, that invocation did not
+execute its final golden-vector executable.
+
+The final review then exposed a genuine native-return acknowledgement race:
+completion of an older frozen24-part source instant could clear a newer terminal
+entry without sending it. Actual native canonicalization exactly at completion
+reproduces25.886mm front-origin and63.353mm print-centre displacement on frame66.
+The sender now acknowledges only the source-entry identities it actually froze;
+newer final geometry remains dirty until its own complete cohort is sent. Its
+final3128-assertion production proof and five causal controls cover the terminal
+receipt, every rendered transition, loss/reorder, final hand continuation and
+independent child/color/alpha clocks. See [NPC-660-RETURNS.md](NPC-660-RETURNS.md).
+
+Four affected scopes were rerun on this final production source:
+`town-service-mirror`, `npc658-card-returns`, `npc660-native-return-completion`
+and `npc646-card-returns`: **4/4 pass**. The latter historical107 fixture needed
+its duplicate Holder declaration removed and an unused ReturnLayout compile
+field, matching the already repaired655/658 binders. Its original656 budget/hash,
+assertions and controls are retained; it is not a current113 sender proof.
+
+The three other NPC failures were the unchanged639 continuous-ring assertion,
+639 unacknowledged reoffer1s assertion and658 full native-card1s assertion.
+Measured software-render/scheduling stalls are recorded, not relabeled as a
+proved production defect or as proof of external contention. All three exact
+scopes subsequently pass **3/3 with jobs1**, unchanged timing and semantic
+assertions, after other Unity jobs stopped. Their real prepared-native boundary
+renders33/59 originals at0.6543972s/0.6649819s; its unacknowledged reoffer renders
+at0.535043s. The fuller45/82 native-card boundary renders at0.8327004s. Preparation
+before each measured edge remains separately reported; these values are not a
+universal cold-network or headset deadline. Stopwatch stage labels historically
+say CPU but measure elapsed wall time and include preemption.
+
+The unrelated scenery production proof passed922 assertions in the first run;
+two controls failed an earlier preparation assertion before their intended
+challenge. Scenery discovery has a real per-update time budget, so50 fixture
+updates did not guarantee completed setup under load. The existing bounded
+DrainQueuedDiscovery helper now finishes pending setup before those unchanged
+assertions; no game code, loading-close hook or expected control reason changed.
+The full scenery scope then passes **all52 production/control variants**.
+
+`.planning/debug/npc660-composed/results.json` joins these exact reports with
+**202/202 composed passes:194 inherited, eight refreshed**. The final dedicated
+wire build/executable passes **300297 assertions**, including golden bytes,
+current motion budget, full64-member staging and fairness. Complete source16/16,
+strict Debug and Release builds (zero warnings/errors), bundle validation from
+the full inventory, unchanged surfaces665 config/235 patches/4795 log tokens,
+and a private compiled comparison against659 also pass. The compiled comparison
+has1248→1249 types:18 changed, one new exact body-address helper, no removed types;
+seven changed types contain only the expected inlined659→660 stamp.
+
+Worker archives under the main checkout's `.planning/debug/npc660/` retain failed
+hypotheses, generated sources, actual DLLs, original-object hashes, readback PNGs
+and final controls. Their payloads are fully SHA256-verified. Root integration
+receipts and the private659/current compiled snapshots are preserved by the
+separate `integration-evidence` deduplicated archive. This is evidence retention,
+not another test pass.
+
+Hardware-confirmed stable658 enhancement overlay/depth code remains unchanged.
+The supplied logs prove the resolved asset/body failures. Source/runtime tests
+prove the layout, panel-replacement and return corrections. They do not uniquely
+identify every reported headset blink or prove final headset smoothness and
+first-picture timing. The main checkout receives a fresh strict Debug build of
+the committed660 integration before the authorized direct push to origin/dev.
+
