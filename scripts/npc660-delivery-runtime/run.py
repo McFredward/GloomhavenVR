@@ -33,6 +33,9 @@ def main():
     delivery = module('delivery660_transport', root / 'scripts/check-town-native-state623.py')
     bound, _ = loader.sources(root)
     delivery.bind_delivery_transport(root, bound, loader)
+    protocol = (root / 'src/GloomhavenVR/Net/NetProtocol.cs').read_text()
+    bound['ReceiptConstant660.cs'] = 'public static partial class MirrorProgram {\n' \
+        + loader.expression(protocol, 'public const byte MsgTownOriginalReceipt').replace('public const', 'private const', 1) + '\n}\n'
     fixture = run / 'fixture'
     shutil.copytree(root / 'scripts/town-service-mirror-runtime', fixture)
     shutil.copyfile(Path(__file__).with_name('AbilityBody660.cs'), fixture / 'AbilityBody660.cs')
@@ -61,6 +64,10 @@ def main():
              'CardMesh.AttachBody(filter, CardBodyKind.Ability, width, height);',
              '// omit exact late contour consumer registration',
              'observer body follows the real later original contour completion'),
+            ('first-size-pattern-alias', 'TownServiceTemplateAssets.cs',
+             'if (CardMesh.IsOriginalBackTexture(texture))',
+             'if (texture == null)',
+             'independently frozen observer expands exact compact body after inverse owner-size borrow order'),
         ]
     unity = Path(os.environ.get('UNITY_PATH', '/home/claw/unity-2021.3.5/Editor/Unity'))
     dotnet = shutil.which('dotnet') or str(Path.home() / '.dotnet/dotnet')
@@ -68,6 +75,7 @@ def main():
     raw_sources = [root / 'src/GloomhavenVR/Cards/VRCard.cs', root / 'src/GloomhavenVR/Cards/Art/CardMesh.cs',
                    root / 'src/GloomhavenVR/Cards/Art/CardContour.cs', root / 'src/GloomhavenVR/WorldUI/TownServices/NativeTemplates.cs',
                    root / 'src/GloomhavenVR/WorldUI/TownServices/TownServiceAbilityBody.cs',
+                   root / 'src/GloomhavenVR/WorldUI/TownServices/TownServiceTemplateAssets.cs',
                    root / 'src/GloomhavenVR/WorldUI/TownServices/TownServiceSync.cs',
                    root / 'src/GloomhavenVR/WorldUI/TownServices/TownServiceSync.Stock.cs',
                    root / 'src/GloomhavenVR/Net/ExtrasSendQueue.cs']

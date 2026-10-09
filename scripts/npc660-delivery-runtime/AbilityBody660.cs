@@ -16,6 +16,7 @@ public static partial class MirrorProgram
     private const BindingFlags PrivateInstance = BindingFlags.Instance | BindingFlags.NonPublic;
     private static IEnumerator AbilityBody660()
     {
+        AbilityBodyBorrowOrder660();
         TownServiceMirror.Shutdown(); Baselines.Clear(); NetPlayerActors.Peer = 10;
         GameObject bank = Go("660 inactive canonical original bank"); bank.SetActive(false);
         Transform owner = Go("660 actual owner").transform, observer = Go("660 actual observer").transform;
@@ -23,6 +24,9 @@ public static partial class MirrorProgram
         TownServiceMirror.SharedFrameForRemote = _ => observer;
         TownServiceMirror.ResolveTemplate = LazyTemplateProbe.Resolve;
         TownServiceMirror.PrepareInertGeometry = (address, clone) => TownServiceAbilityBody.RebindClone(address, clone);
+        TownServiceMirror.CollectOriginalReceiptPeers = peers => {
+            peers.Clear(); peers.Add(NetPlayerActors.Peer == 2 ? 10 : 2);
+        };
         var publications = new List<TownServiceFrame>();
         try
         {
@@ -59,6 +63,9 @@ public static partial class MirrorProgram
                 NetPlayerActors.Peer = 2; Sender660(true);
                 try { TownServiceMirror.Capture((byte[] bytes, int length, object? identity) => {
                     if (identity is TownServiceFrame frame) publications.Add(frame);
+                    if (TownServiceCodec.TryRead(bytes, length, out TownServiceFrame? sent) && sent!.Module == 1)
+                        Check(sent.NativeTemplateBasisKey != 0,
+                            "actual first physical body uses independent compact105 metadata, not a supplied full fixture original");
                     scheduler.Enqueue(bytes, length, identity: identity);
                 }); }
                 finally { Sender660(false); NetPlayerActors.Peer = 10; }
@@ -100,6 +107,26 @@ public static partial class MirrorProgram
                 ComparePixels(ownerPixels, observerPixels, key);
                 Check(watch.Elapsed.TotalSeconds <= 1,
                     "actual null-prefab body first rendered picture completes within1s, not merely its receipt");
+                var receipts = new ExtrasSendScheduler(0, 3, 4);
+                TownServiceMirror.CaptureOriginalReceipts((bytes, length) => receipts.Enqueue(bytes, length));
+                FillRepairQueues660(receipts);
+                byte[]? reverse = receipts.NextBatch(watch.Elapsed.TotalSeconds);
+                bool acknowledged = false;
+                if (reverse != null)
+                    foreach (byte[] page in PresentationBatch.TryRead(reverse, reverse.Length, out var pages) ? pages! : new[] { reverse })
+                        if (page.Length >= 6 && page[5] == MsgTownOriginalReceipt)
+                        {
+                            NetPlayerActors.Peer = 2;
+                            Check(TownServiceMirror.ReceiveOriginalReceipt(10, page, page.Length),
+                                "real reverse scheduler receipt credits only the exact complete body baseline");
+                            acknowledged = true;
+                        }
+                Check(acknowledged, "actual body receiver publishes its real stored-original receipt");
+                object lane = typeof(TownServiceMirror).GetField("PrivateLane", PrivateStatic)!.GetValue(null)!;
+                var modules = (IDictionary)lane.GetType().GetField("Modules", PrivateInstance)!.GetValue(lane)!;
+                Check((bool)typeof(TownServiceMirror).GetMethod("HasReceivedOriginal", PrivateStatic)!.Invoke(null, new[] { modules[(ushort)1] })!,
+                    "exact source-object body baseline owns the real observer acknowledgment");
+                NetPlayerActors.Peer = 10;
                 var held = remote.Root.GetComponent<MeshFilter>();
                 // The complete real contour engine upgrades original, frozen and
                 // receiver consumers, with no synthetic replacement event.
@@ -118,7 +145,77 @@ public static partial class MirrorProgram
                 TownServiceMirror.PrepareInertGeometry = (a, c) => TownServiceAbilityBody.RebindClone(a, c);
             }
         }
-        finally { LazyTemplateProbe.Close(); TownServiceMirror.Shutdown(); CardsDriver.CardBackingPrefab = null; }
+        finally { LazyTemplateProbe.Close(); TownServiceMirror.Shutdown(); CardsDriver.CardBackingPrefab = null;
+            TownServiceMirror.CollectOriginalReceiptPeers = null; NetPlayerActors.Peer = 10; }
+    }
+
+    private static void AbilityBodyBorrowOrder660()
+    {
+        TownServiceMirror.Shutdown(); CardsDriver.CardBackingPrefab = null;
+        var sources = new Dictionary<string, TownServiceFrame>(); var sparse = new Dictionary<string, byte[]>();
+        var keys = new List<string>();
+        foreach (Vector2 size in new[] { new Vector2(.0635f, .088f), new Vector2(.14f, .195f) })
+        {
+            var owner = Go("660 real original owner dimensions").AddComponent<VRCard>();
+            owner.FixtureBacking(size); keys.Add(TownServiceAbilityBody.Key(owner));
+        }
+        try
+        {
+            for (int peer = 0; peer < 2; peer++)
+            {
+                // Each role prepares a fresh real canonical bank and asset registry.
+                // Shutdown resets actual native bases and material read caches;
+                // no sender/observer hash or asset alias is handed to the other role.
+                TownServiceMirror.Shutdown(); LazyTemplateProbe.Close();
+                var bank = Go("660 independent role canonical bank " + peer); bank.SetActive(false);
+                LazyTemplateProbe.Open(bank);
+                foreach (string key in peer == 0 ? keys : keys.AsEnumerable().Reverse())
+                {
+                    var part = LazyTemplateProbe.Parts(key)[0];
+                    Check(LazyTemplateProbe.Resolve(3, 1, key + "|"), "independent body role resolves the real frozen template");
+                    using var binding = new TownServiceBinding(part.Original);
+                    var actual = new TownServiceFrame { Service = 3, Session = 660, Module = 1, Sequence = 1,
+                        Template = 1, TemplateAddress = key + "|", Visible = true, Structure = binding.Structure,
+                        Nodes = binding.Read(TownServiceMirror.Assets, includeInactiveGraphics: true),
+                        Pose = new[] { 0f, 0f, 0f, 0f, 0f, 0f, 1f, 1f, 1f, 1f } };
+                    if (peer == 0)
+                    {
+                        sources.Add(key, actual);
+                        Check(TownServiceMirror.TryWriteNativeTemplateState(actual, out byte[] packet),
+                            "actual body source uses a compact native basis from its independently frozen original");
+                        sparse.Add(key, packet);
+                    }
+                    else
+                    {
+                        Check(TownServiceCodec.TryRead(sparse[key], sparse[key].Length, out var received)
+                            && received!.NativeTemplateBasisKey != 0,
+                            "body105 packet decodes with its exact sender basis identity");
+                        Check(TownServiceMirror.TryExpandNativeTemplateState(received!, out var complete),
+                            "independently frozen observer expands exact compact body after inverse owner-size borrow order");
+                        binding.Validate(complete, TownServiceMirror.Assets);
+                        for (int n = 0; n < actual.Nodes.Length; n++)
+                            foreach (var property in sources[key].Nodes[n].Values)
+                            {
+                                Check(property.Value.Same(complete.Nodes[n].Values[property.Key]),
+                                    "independent body expansion retains every exact owner property");
+                                if (TownServiceFastNumbers.IsMaterial(property.Key))
+                                    Check(property.Value.Same(actual.Nodes[n].Values[property.Key]),
+                                        "independent body basis retains every immutable original material value");
+                                else if (!property.Value.Same(actual.Nodes[n].Values[property.Key]))
+                                    // Different original-bank sibling order is owner state,
+                                    // transmitted explicitly by compact105's root policy.
+                                    File.AppendAllText(Path.Combine(_output, "ability-body660-owner-overrides.txt"),
+                                        key + " node=" + n + " property=" + property.Key + " owner="
+                                        + string.Join(",", property.Value.Numbers) + " observerDefault="
+                                        + string.Join(",", actual.Nodes[n].Values[property.Key].Numbers) + "\n");
+                            }
+                        File.AppendAllText(Path.Combine(_output, "ability-body660-bases.txt"), key + " basis="
+                            + received!.NativeTemplateBasisKey.ToString("X16") + " inverse-order exact\n");
+                    }
+                }
+            }
+        }
+        finally { LazyTemplateProbe.Close(); TownServiceMirror.Shutdown(); }
     }
 
     private static void Sender660(bool active)

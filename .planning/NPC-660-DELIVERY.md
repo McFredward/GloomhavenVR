@@ -101,7 +101,8 @@ completion changes geometry; the exported `.QuadMask/.QuadBack` textures are
 for separate quad consumers. The first generated body/inspection size could
 previously choose this pattern's original template alias. The parent supplies
 an exact factory-reference canonical key, tested separately and integrated
-into the extended body proof below.
+into the extended body proof below. The source seam is parent checkpoint
+`3e46f5d99`, imported here as prerequisite `3d9602dd8`.
 
 ## Focused evidence and explicit boundaries
 
@@ -115,6 +116,20 @@ activates its native source. Geometry/material identities and world poses are
 checked before camera-only image isolation. Late contour consumers are checked
 against the complete original engine.
 
+The extended proof freezes two independent role banks, resets actual asset,
+template-basis and material read caches between roles, and borrows the owner
+dimensions in reverse order at the observer. No sender basis/alias is injected.
+Actual compact105 encoding, decoding, exact basis expansion and full native
+material/property validation agree. Original sibling defaults legitimately
+differ between the two banks (`Sibling`, property17:1 versus3); those root
+properties are explicit owner state and the expanded output retains the exact
+owner order. The immutable original material values match independently. A
+fourth compiled control removes only the factory-proven common texture identity
+and fails actual compact expansion against the observer's inverse-order bank.
+The rendered body also produces an actual stored-original112 receipt through
+the reverse saturated scheduler, credits the exact retained source object and
+never treats that ACK as evidence of pixels.
+
 The fixture's external card construction port sets owner fields as
 `VRCard.Build` does; the entire game card driver, native face initialization,
 hardware network and full peripheral `VRCard.Build` lifecycle are not executed.
@@ -127,10 +142,24 @@ integration scopes. No1s universal cold-network or headset result is inferred.
 | --- | --- |
 | `body/run-em7n39b_` | Real null-prefab body at0.244s/0.059s including rendered readback; zero differing pixels at both owner sizes. Three controls fail exactly for missing original, wrong owner dimensions and omitted late consumer. |
 | `body-origin/run-mn3bqjaj` | Repeated production and all three controls pass after replacing mesh-name inference with direct Build provenance. |
-| `legacy-delivery/run-dkw2_dky` | Actual623 delivery/rejected publication/census/hidden work: production plus six existing controls pass. |
-| `legacy-publisher-fixed/run-iuh8f6jg` | Actual622 cold original assets/native dynamic publisher: production plus nine existing controls pass; all original semantic assertions retained. |
+| `body-independent/run-07zpaijk` |90 assertions plus four controls pass. Both independent roles produce basis `82604518A2255F48`; exact rendered output0.227s/0.061s, zero differing pixels; genuine exact-source112 receipts through reverse transport. |
+| `legacy-delivery/run-dkw2_dky` | Actual623 delivery/rejected publication/census/hidden work:328 assertions plus six existing controls pass. |
+| `legacy-publisher-fixed/run-iuh8f6jg` | Actual622 cold original assets/native dynamic publisher:210 assertions plus nine existing controls pass; all original semantic assertions retained. |
+| `legacy-final/run-wvtxqngm` | Actual registered final world-UI publisher:30 assertions plus five existing controls pass. |
+| `/tmp/town-card-body-e6uigzi8` | Merchant body:15 unchanged assertions plus all four existing controls pass. Binder now compiles complete actual CardMesh/CardContour and all new actual helper seams instead of a fake CardMesh implementation. |
 | `legacy-counter/run-qpgby1cw` and exact659 `baseline-counter/run-ussh5d1e` | Both fail the existing expectation of two private `merchant.counter` copies. Current native-author policy explicitly permits only the elected counter author. No assertion or product behavior is weakened to conceal this pre-existing failure. |
 | `.planning/debug/npc660-delivery-debug.log` | Strict Debug source build passes with zero warnings/errors at the initial source checkpoint; integrated final builds belong to the parent. |
+| `.planning/debug/npc660-delivery-final-debug.log` | Strict Debug build of the final worker source plus the exact parent factory-pattern seam:zero errors/warnings. |
+
+The standalone historical merchant proof still assigns its final mesh event
+externally; it now observes the actual production registered consumers through
+a readonly partial-class test accessor. The ability proof executes the complete
+real contour event. Four old merchant semantic controls remain unchanged; their
+frozen-registration mutation now targets the actual maintained production Freeze
+binding. Both scripts bind the exact new ability factory/helper, rather than
+adding a fake new factory to make the old scaffold compile. This standalone
+merchant script and `counter-final` are not entries in the existing suite
+manifest; the new NPC660 body proof is registered by the parent.
 
 Initial proof compile failures (missing unrelated cap enum/layout and scenario
 fade compile ports), the first wrongly targeted dimension control that correct
@@ -138,6 +167,12 @@ clone rebind repaired itself, and the publisher fixture's missing MeshFilter
 Unity-fake-null failure are retained. The dimension control now changes the
 actual owner key; direct construction provenance removes the fake-null/name
 heuristic. These fixture setbacks are not attributed to the hardware report.
+The independent-bank proof's additional missing receipt-type compile port,
+unreachable constant-false control, and initial assertion requiring identical
+observer-local bank siblings are also retained. The corrected proof verifies
+every expanded owner value and separately every immutable material value;
+it records the exact legitimate sibling differences instead of substituting
+observer defaults. The first-alias control reaches its actual105 basis rejection.
 
 Useful original source/fixture hashes, exact binaries, screenshots, failed
 controls and complete local output remain under this worker's gitignored
