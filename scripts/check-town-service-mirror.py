@@ -30,12 +30,15 @@ def sources(root):
     bound = {name + ".cs": (base / "Net/TownServices" / (name + ".cs")).read_text() for name in names}
     for path in sorted((base / "Net/TownServices").glob("TownServiceAssets.*.cs")):
         bound[path.name] = path.read_text()
-    for name in ("TownServiceOriginalReceiptCodec.cs", "TownServiceMirror.OriginalReceipts.cs", "TownServiceMirror.NativeVisibility.cs"):
+    for name in ("TownServiceOriginalReceiptCodec.cs", "TownServiceOriginalRequestCodec.cs",
+                 "TownServiceMirror.OriginalReceipts.cs", "TownServiceMirror.OriginalRequests.cs",
+                 "TownServiceMirror.NativeVisibility.cs"):
         path = base / "Net/TownServices" / name
         if path.exists():
             text = path.read_text()
             protocol = (base / "Net/NetProtocol.cs").read_text()
-            for constant in ("MsgTownOriginalReceipt", "ExtIdTownOriginalReceipt"):
+            for constant in ("MsgTownOriginalReceipt", "ExtIdTownOriginalReceipt", "ExtIdTownOriginalRequest"):
+                if "NetProtocol." + constant not in text: continue
                 value = re.search(r"public const byte " + constant + r" = (\d+);", protocol)
                 if value is None: raise RuntimeError("Town original-receipt protocol binding drift: " + constant)
                 text = re.sub(r"\bNetProtocol\." + constant + r"\b", value[1], text)

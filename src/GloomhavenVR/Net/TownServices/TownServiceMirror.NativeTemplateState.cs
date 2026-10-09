@@ -26,6 +26,7 @@ internal static partial class TownServiceMirror
     {
         internal float After;
         internal TownServiceFrame? Original;
+        internal bool Requested;
     }
     private sealed class MageValidatedOriginal
     {
@@ -38,7 +39,7 @@ internal static partial class TownServiceMirror
     {
         internal uint Session;
         internal ushort[] Modules = Array.Empty<ushort>();
-        internal float Started, ReportAt;
+        internal float Started, CensusStarted, ReportAt;
         internal int Reports;
         internal bool Ready, Displayed, DelayReported;
     }
@@ -55,20 +56,29 @@ internal static partial class TownServiceMirror
         string address = "")
     {
         // Debug traces describe bounded first-picture progress. Ordinary users get
-        // only one significant delay report per exact transaction/census, with the
+        // only one significant delay report per exact transaction, with the
         // missing dependency needed to investigate a hardware bug report.
         if (!session.TransactionActive) { TraceMageAdmissionReset(peer); return; }
         ushort[] required = session.RequiredVisibleModules ?? session.Modules;
-        bool same = MageAdmissionTraces.TryGetValue(peer, out MageAdmissionTrace? trace)
-            && trace.Session == session.Session && trace.Modules.Length == required.Length;
+        bool sameSession = MageAdmissionTraces.TryGetValue(peer, out MageAdmissionTrace? trace)
+            && trace.Session == session.Session;
+        bool same = sameSession && trace!.Modules.Length == required.Length;
         for (int i = 0; same && i < required.Length; i++)
             same = trace!.Modules[i] == required[i];
-        if (!same)
+        if (!sameSession)
         {
             if (MageAdmissionTraces.Count >= 24) TraceMageAdmissionReset();
             trace = new MageAdmissionTrace { Session = session.Session,
-                Modules = (ushort[])required.Clone(), Started = Time.unscaledTime };
+                Modules = (ushort[])required.Clone(), Started = Time.unscaledTime, CensusStarted = Time.unscaledTime };
             MageAdmissionTraces[peer] = trace;
+        }
+        else if (!same)
+        {
+            // Native hover/scroll changes may revise required membership before
+            // the first complete picture. Retain the transaction's first arrival
+            // clock; a new census is not a new first picture or new log budget.
+            trace!.Modules = (ushort[])required.Clone(); trace.CensusStarted = Time.unscaledTime;
+            trace.Ready = false; trace.Displayed = false;
         }
         float now = Time.unscaledTime;
         if (blocker == null)
@@ -76,11 +86,12 @@ internal static partial class TownServiceMirror
             if (!trace!.Ready && VRLog.WantsDebug)
                 VRLog.Info("TownServices", "Native enhancement picture admitted: peer=" + peer
                     + " session=" + session.Session + " required=" + required.Length + " prepared=" + session.Modules.Length
-                    + " age=" + (now - trace.Started).ToString("F3", System.Globalization.CultureInfo.InvariantCulture) + "s.");
+                    + " age=" + (now - trace.Started).ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
+                    + "s censusAge=" + (now - trace.CensusStarted).ToString("F3", System.Globalization.CultureInfo.InvariantCulture) + "s.");
             trace!.Ready = true; return;
         }
         bool debug = VRLog.WantsDebug;
-        if (!debug && (trace!.DelayReported || now - trace.Started < 1f)) return;
+        if (!debug && (trace!.DelayReported || now - trace.CensusStarted < 1f)) return;
         if (debug && (now < trace!.ReportAt || trace.Reports >= 8)) return;
         trace!.ReportAt = now + 1f; trace.Reports++;
         if (!debug) trace.DelayReported = true;
@@ -96,7 +107,8 @@ internal static partial class TownServiceMirror
             + " received=" + received + " blocker=" + blocker + " module=" + module
             + " address=" + address + " sequence=" + (blocked?.Sequence ?? 0)
             + " needsBase=" + (blocked?.BaseSequence ?? 0) + " hasBase=" + (available?.Sequence ?? 0) + " age="
-            + (now - trace.Started).ToString("F3", System.Globalization.CultureInfo.InvariantCulture) + "s.";
+            + (now - trace.Started).ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
+            + "s censusAge=" + (now - trace.CensusStarted).ToString("F3", System.Globalization.CultureInfo.InvariantCulture) + "s.";
         if (debug) VRLog.Info("TownServices", message);
         else VRLog.Note("TownServices", message);
     }
@@ -121,6 +133,7 @@ internal static partial class TownServiceMirror
         VRLog.Info("TownServices", "Native enhancement picture displayed: peer=" + peer
             + " session=" + session.Session + " required=" + trace.Modules.Length + " painted=" + ink
             + " age=" + (Time.unscaledTime - trace.Started).ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
+            + "s censusAge=" + (Time.unscaledTime - trace.CensusStarted).ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
             + "s; exact original clones validated, applied, mounted and active.");
     }
 
@@ -164,6 +177,7 @@ internal static partial class TownServiceMirror
     private static bool RetainUnpreparedNativeTemplate(int peer, TownServiceFrame frame)
     {
         if (peer <= 0 || frame.NativeTemplateBasisKey == 0) return false;
+        RecordOriginalRequest(peer, frame);
         var key = new UnpreparedKey(peer, frame);
         if (UnpreparedNativeTemplates.TryGetValue(key, out UnpreparedNativeTemplate? previous))
         {

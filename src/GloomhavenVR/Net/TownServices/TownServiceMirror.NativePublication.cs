@@ -55,16 +55,44 @@ internal static partial class TownServiceMirror
     private static byte[] WriteNativeTownFrame(TownServiceFrame frame)
     {
         if (!TryWriteNativeTemplateState(frame, out byte[] packet)) return TownServiceCodec.Write(frame);
-        if (frame.Service == 3 && !frame.PublicCatalog && !frame.VisitorStock && frame.BaseSequence == 0
+        if (!frame.PublicCatalog && !frame.VisitorStock && frame.BaseSequence == 0
             && Local.TryGetValue(frame.Module, out LocalModule? source))
         {
             NativeTemplateRepair repair = source.NativeRepair ??= new NativeTemplateRepair();
             repair.Original = frame;
+            repair.Requested = false;
             // Sending a partial fragment is not receipt. The complete actual
             // transport callback starts the short acknowledgment grace below.
             repair.After = float.PositiveInfinity;
         }
         return packet;
+    }
+
+    /// <summary>A known original rejection needs no speculative receipt grace or
+    /// another 15Hz artwork sampling turn. Encode only the retained immutable
+    /// requested source, using the same bounded transport admission as capture.</summary>
+    internal static void CaptureRequestedOriginalRepairs(System.Action<byte[], int, object?> send)
+    {
+        if (!RequestedOriginalRepairPending) return;
+        RequestedOriginalRepairPending = false;
+        using var lane = new LaneScope(PrivateLane);
+        int count = 0;
+        float now = UnityEngine.Time.unscaledTime;
+        long started = System.Diagnostics.Stopwatch.GetTimestamp();
+        foreach (LocalModule source in Local.Values)
+        {
+            NativeTemplateRepair? repair = source.NativeRepair;
+            if (repair?.Requested != true) continue;
+            if (repair.Original == null) { repair.Requested = false; continue; }
+            if (count >= 2 || (System.Diagnostics.Stopwatch.GetTimestamp() - started)
+                / (double)System.Diagnostics.Stopwatch.Frequency >= .002)
+            { RequestedOriginalRepairPending = true; continue; }
+            count++;
+            try { CaptureNativeOriginalRepair(source, send, now); }
+            catch (System.Exception error) { Report("requested native original repair " + source.Id, error); }
+            if (repair.Original == null) repair.Requested = false;
+            else RequestedOriginalRepairPending = true;
+        }
     }
 
     private static void CaptureNativeOriginalRepair(LocalModule module,
