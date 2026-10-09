@@ -122,6 +122,51 @@ def recovery_receipt_stats(folders):
     return result
 
 
+def preparation_receipt_stats(build_root):
+    """Export checkpoint identities/counts, never output paths or original data.
+
+    The previous support capture showed a repeated preparation but omitted its
+    journal frontier. Read at most two small owned journals without touching the
+    retained project, Library, output manifests or asset verification indexes.
+    """
+    root = ordinary(build_root / 'cache/prepare-resume')
+    if not root.is_dir(): return []
+    folders = sorted((row for row in root.iterdir() if re.fullmatch(r'[0-9a-f]{64}', row.name)
+                      and not row.is_symlink() and row.is_dir()),
+                     key=lambda row: row.stat().st_mtime_ns, reverse=True)[:2]
+    operations = {'project-files', 'startup-content', 'native-runtime', 'audio',
+                  'textures', 'graphics', 'mod-banks', 'compiler-adapters'}
+    def checkpoint(value):
+        if not isinstance(value, dict) or not re.fullmatch(r'[a-z][a-z0-9-]{0,79}', str(value.get('name', ''))):
+            return {'invalid': True}
+        return {'name': value['name'], 'operation': value.get('operation') if value.get('operation') in operations else 'unknown',
+                'outputCount': len(value['outputs']) if isinstance(value.get('outputs'), list) else None}
+    result = []
+    for folder in folders:
+        row = {'workspaceKey': folder.name, 'contentVerified': False}
+        try:
+            value = read_object(folder / 'journal.json', limit=1048576)
+            if (not isinstance(value, dict) or value.get('schema') != 1
+                    or value.get('owner') != 'Quest preparation substage journal'
+                    or value.get('project') != 'projects/' + folder.name):
+                row['journalStatus'] = 'missing-or-unowned'
+            else:
+                steps = value.get('steps')
+                row.update(journalStatus='observed', inputKey=value.get('inputKey')
+                           if re.fullmatch(r'[0-9a-f]{64}', str(value.get('inputKey', ''))) else None,
+                           target=value.get('target') if value.get('target') in ('game', 'startup', 'probe') else None,
+                           recipe=value.get('recipe') if type(value.get('recipe')) is int else None,
+                           completedCount=len(steps) if isinstance(steps, list) else None,
+                           completed=[checkpoint(step) for step in steps[:128]] if isinstance(steps, list) else [],
+                           metadataRefreshPending=isinstance(value.get('metadataRefresh'), dict))
+                pending = value.get('pending')
+                row['pending'] = checkpoint(pending) if pending is not None else None
+        except (OSError, ValueError, BuildError):
+            row['journalStatus'] = 'unreadable-or-oversized'
+        result.append(row)
+    return result
+
+
 def recovery_logs(build_root, failure=None, *, workspaces=None):
     """Known export logs only; never enumerate assets or recurse through caches."""
     folders = recovery_workspaces(build_root, failure) if workspaces is None else workspaces
@@ -205,6 +250,8 @@ def export_support(state_root, session, destination=None):
         meta['buildFailure'] = {key: safe_json(failure[key], replacements) for key in ('stage', 'error', 'message') if key in failure}
     recovery_folders = recovery_workspaces(build_root, failure)
     if recovery_folders: meta['recoveryReceipts'] = recovery_receipt_stats(recovery_folders)
+    preparation = preparation_receipt_stats(build_root)
+    if preparation: meta['preparationReceipts'] = preparation
     # Include only the selected build's small identity fields, never copy complete
     # receipts (which contain profile data, full game inventories and file paths).
     for name in ('latest-input.json', 'latest-build.json'):

@@ -169,6 +169,37 @@ class SupportTests(unittest.TestCase):
         result = support.export_support(self.root, self.session)
         with zipfile.ZipFile(result['path']) as archive:
             return result, {name: archive.read(name).decode() for name in archive.namelist()}
+    def test_preparation_frontier_is_exported_without_asset_or_profile_paths(self):
+        key = 'a' * 64
+        folder = self.root / 'build/cache/prepare-resume' / key
+        value = {'schema': 1, 'owner': 'Quest preparation substage journal',
+                 'project': 'projects/' + key, 'inputKey': 'c' * 64, 'recipe': 1, 'target': 'game',
+                 'steps': [{'name': 'campaign-shaders', 'operation': 'graphics',
+                            'outputs': [{'path': 'PRIVATE ASSET', 'profile': 'SecretName'}]}],
+                 'pending': {'name': 'compiler-adapters', 'operation': 'compiler-adapters', 'undo': ['PRIVATE PATH']},
+                 'profile': 'SecretName', 'metadataRefresh': {'before': 'PRIVATE CONTENT'}}
+        write_json(folder / 'journal.json', value)
+        before = (folder / 'journal.json').read_bytes()
+        _, files = self.export()
+        rows = json.loads(files['diagnostic.json'])['preparationReceipts']
+        self.assertEqual(rows[0]['completedCount'], 1)
+        self.assertEqual(rows[0]['completed'][0]['outputCount'], 1)
+        self.assertEqual(rows[0]['pending']['name'], 'compiler-adapters')
+        self.assertTrue(rows[0]['metadataRefreshPending'])
+        self.assertFalse(rows[0]['contentVerified'])
+        self.assertNotIn('PRIVATE', '\n'.join(files.values()))
+        self.assertEqual(before, (folder / 'journal.json').read_bytes())
+    def test_preparation_summary_is_bounded_and_skips_linked_or_unowned_journals(self):
+        cache = self.root / 'build/cache/prepare-resume'
+        write_json(cache / ('a' * 64) / 'journal.json', {'owner': 'unknown', 'profile': 'PRIVATE'})
+        write_json(cache / 'not-owned' / 'journal.json', {'profile': 'PRIVATE'})
+        stats = support.preparation_receipt_stats(self.root / 'build')
+        self.assertEqual(len(stats), 1)
+        self.assertEqual(stats[0]['journalStatus'], 'missing-or-unowned')
+        self.assertNotIn('PRIVATE', json.dumps(stats))
+        with (cache / ('a' * 64) / 'journal.json').open('wb') as stream:
+            stream.truncate(1048577)
+        self.assertEqual(support.preparation_receipt_stats(self.root / 'build')[0]['journalStatus'], 'unreadable-or-oversized')
     def test_cleanup_operation_summaries_survive_cache_deletion_in_support_archive(self):
         logs = self.root / 'logs'
         logs.mkdir()
