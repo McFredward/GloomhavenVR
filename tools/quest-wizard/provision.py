@@ -317,6 +317,16 @@ def derive_runtime_dependencies(checkout, game_root, details, supervisor, logs, 
     versions = dict(packages); actual = {}; pending = []
     store, session = getattr(supervisor, 'store', None), getattr(supervisor, 'session', None)
     if store and session: store.operation(session, 'source', 'xr-sources', detail='Preparing declared XR package sources')
+    # The same declared XR compile references must survive a source-only mod
+    # update. Rebuilding in release-specific directories changes embedded PDB
+    # paths (and Git-derived informational versions), even for identical input.
+    # The owned cache qualifies just their recipe/compiler/game references.
+    if store and isinstance(getattr(store, 'root', None), Path) and isinstance(session, str):
+        import runtime_dependencies
+        return runtime_dependencies.derive(checkout, managed, details, supervisor, logs,
+                                           check_cancel, versions, environment(details))
+    previous_manifest = checkout / 'libs/RuntimeDeps/wizard-dependencies.json'
+    previous = read_json(previous_manifest) if previous_manifest.is_file() else None
     for project in projects:
         text = project.read_text(encoding="utf-8")
         version = re.search(r"<PackageSourceVersion>([^<]+)</PackageSourceVersion>", text)
@@ -324,7 +334,12 @@ def derive_runtime_dependencies(checkout, game_root, details, supervisor, logs, 
         if not version or versions.get(package) != version[1]: raise WizardError("runtime_recipe", "XR source package/project versions disagree.")
         directory = checkout / "tools/RuntimeDepsBuild/sources" / package
         target = checkout / "libs/RuntimeDeps" / (project.stem + ".dll")
-        if target.is_file(): actual[project.stem] = {"sha256": digest(target), "source": "supplied-local-assembly"}; continue
+        if target.is_file():
+            hashed = digest(target)
+            declared = (previous or {}).get('assemblies', {}).get(project.stem)
+            actual[project.stem] = (declared if declared and declared.get('sha256') == hashed
+                                   else {"sha256": hashed, "source": "supplied-local-assembly"})
+            continue
         directory.mkdir(parents=True, exist_ok=True)
         env = environment(details); git = details["git"]
         if not (directory / ".git").is_dir():
@@ -338,12 +353,16 @@ def derive_runtime_dependencies(checkout, game_root, details, supervisor, logs, 
     # present before the first .NET build (the Bash recipe has the same order).
     if store and session: store.operation(session, 'source', 'xr-build', detail='Compiling the selected source\'s XR dependency projects')
     for project, target, package, version in pending:
-        supervisor.run([details["dotnet8"], "build", project, "-c", "Release", "--nologo", "-v", "quiet", "-p:GameManaged=" + str(managed)], logs / (package + "-build.log"), env=environment(details))
+        import runtime_dependencies
+        supervisor.run([details["dotnet8"], "build", project, "-c", "Release", "--nologo", "-v", "quiet",
+                        *runtime_dependencies.deterministic_options(checkout, managed)],
+                       logs / (package + "-build.log"), env=environment(details))
         check_cancel(); built = project.parent / "bin/Release/net472" / target.name
         target.parent.mkdir(parents=True, exist_ok=True); shutil.copyfile(built, target)
         actual[project.stem] = {"sha256": digest(target), "source": "declared-provisional-project", "package": package, "version": version}
     manifest = checkout / "libs/RuntimeDeps/wizard-dependencies.json"
-    atomic_json(manifest, {"schema": 1, "kind": "compile-time dependency inputs; Quest uses Android PlayerSdk packages", "assemblies": actual})
+    expected = {"schema": 1, "kind": "compile-time dependency inputs; Quest uses Android PlayerSdk packages", "assemblies": actual}
+    if previous != expected: atomic_json(manifest, expected)
     if store and session: store.operation(session, 'source', 'xr-build', complete=True, detail='XR compile-time dependencies verified')
     return manifest
 
