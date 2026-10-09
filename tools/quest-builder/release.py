@@ -82,7 +82,9 @@ REQUIRED |= PROMOTIONAL_ASSETS | {'tools/quest-wizard-ui/promo-artwork.json',
     'tools/environment-mesh/roles.py',
     'scripts/generate-environment-meshes.py',
     'tools/quest-wizard/stage_plan.py',
+    'tools/quest-wizard/runtime_dependencies.py',
     'tools/quest-wizard/timing.py',
+    'tools/quest-builder/native_admission.py',
     'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestWizardProgress.cs'}
 
 
