@@ -115,9 +115,11 @@ that negative, versus 3,030 with the current native tier113 above paper112.
 
 ## Commands, receipts and integration
 
-Register two local scopes with a common `unity-editor` resource lock and a 360s
-suite budget. Each scope compiles independently and has a 240s internal Unity
-timeout. The primary agent owns the shared suite registry.
+Register two local scopes. The existing runner supplies separate per-suite
+checkout locks and temporary directories; each scope compiles independently in
+its private editor project and has a 240s internal Unity timeout. The primary
+agent owns the shared suite registry. No new shared editor-lock or timeout
+configuration is added to the runner.
 
 ```sh
 python3 scripts/npc658-overlay-runtime/run.py

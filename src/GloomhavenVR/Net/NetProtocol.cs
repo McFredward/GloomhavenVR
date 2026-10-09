@@ -601,7 +601,25 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 657;
+    public const ushort ModBuild = 658;
+
+    // ModBuild658 — paired656 NPC first-picture, return and overlay follow-up.
+    // Real partitioned ability originals now use exact native-basis metadata;
+    // every omitted value is validated before paint, with retained same-sequence
+    // full repair after actual transport completion and compatible peer receipts.
+    // Original text/font output and changed native properties remain owner-authored.
+    // Actual native returns retain their prior artwork header while additive113
+    // carries one common curve/clock with exact original child geometry and live
+    // visibility. Large groups make bounded progress within the unchanged864-byte
+    // numeric event; coherent originals present together, with newer actual roots,
+    // withdrawal and session retirement taking precedence. Native gameplay never
+    // waits for artwork, a return clock or an observer receipt.
+    // Native offered overlay canvases follow their exact physical print's tier at
+    // submission, preserving original hover alpha, hierarchy and material/depth.
+    // The supplied656 videos and old-source controls expose earlier fixture gaps.
+    // Full/native timing, causal source proofs and GL/D3D11/headset limits are in
+    // .planning/NPC-658-REVIEW.md and its three lane reviews. Includes657.
+    // Version3 and existing record97/107 bytes stay;113 is additive, next free114.
 
     // ModBuild657 — native window-mode donation confirmation ownership.
     // The shared temple/enhancement prompt now retains its actual raising window

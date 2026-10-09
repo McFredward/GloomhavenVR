@@ -2393,6 +2393,55 @@
         "local"
       ],
       "weight": 35
+    },
+    {
+      "id": "npc658-card-returns",
+      "command": [
+        "python3",
+        "scripts/npc658-flight-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 55
+    },
+    {
+      "id": "npc658-full-card-first-picture",
+      "command": [
+        "python3",
+        "scripts/npc658-latency-runtime/run.py",
+        "--latency658-native",
+        "--live-hover-census",
+        "--required35"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 55
+    },
+    {
+      "id": "npc658-native-overlay-paint",
+      "command": [
+        "python3",
+        "scripts/npc658-overlay-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
+    },
+    {
+      "id": "npc658-native-overlay-old-control",
+      "command": [
+        "python3",
+        "scripts/npc658-overlay-runtime/run.py",
+        "--old-depth-source",
+        "--expect-incomplete"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
     }
   ]
 }

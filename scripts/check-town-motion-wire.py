@@ -26,7 +26,8 @@ def main():
              "src/GloomhavenVR/Net/TownServices/TownServiceFastNumbers.cs",
              "src/GloomhavenVR/Net/TownServices/TownServiceMotionBudget.cs",
              "tests/GloomhavenVR.WireTests/TownMotionVectors.cs",
-             "tests/GloomhavenVR.WireTests/TownOfferedFrameVectors.cs"]
+             "tests/GloomhavenVR.WireTests/TownOfferedFrameVectors.cs",
+             "tests/GloomhavenVR.WireTests/TownCardReturnCohortVectors.cs"]
     stamp = {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in names}
     stamp["src/GloomhavenVR/Net/TownServices/TownServiceSendQueue.cs"] = hashlib.sha256((root / "src/GloomhavenVR/Net/TownServices/TownServiceSendQueue.cs").read_bytes()).hexdigest()
     stamp["src/GloomhavenVR/Net/ExtrasSendQueue.cs"] = hashlib.sha256((root / "src/GloomhavenVR/Net/ExtrasSendQueue.cs").read_bytes()).hexdigest()
