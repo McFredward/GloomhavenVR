@@ -17,6 +17,8 @@ internal static class Program
 
     private static void Main()
     {
+        TestInputFocus();
+        int focusAssertions = _assertions;
         foreach (int[] modes in new[] { new[] { 1 }, new[] { 1, 3 }, new[] { 2, 1 }, new[] { 1, 1000000123 } })
         {
             using var native = new FakeNative { Modes = modes };
@@ -130,7 +132,133 @@ internal static class Program
             OpenXrEnvironmentBlendProbe.DescribeMode(2) == "Additive" &&
             OpenXrEnvironmentBlendProbe.DescribeMode(3) == "AlphaBlend", "OpenXR enum meanings match ABI");
         TestPassthrough();
-        Console.WriteLine("OpenXR environment blend probe: " + _assertions + " assertions passed; fake-native/lifecycle/control boundary only, no headset or passthrough support claim.");
+        Console.WriteLine("OpenXR environment blend probe: " + _assertions + " assertions passed (" +
+            (_assertions - focusAssertions) + " retained blend assertions; " + focusAssertions +
+            " focus/lifecycle assertions); fake-native/lifecycle/control boundary only, no headset or passthrough support claim.");
+    }
+
+    private static void TestInputFocus()
+    {
+        Check(VRSession.InputFocus == null, "focus is unknown before the first actual session-state event");
+        var uncreated = new OpenXrEnvironmentBlendFeature();
+        uncreated.OnSessionStateChange(0, 5);
+        Check(VRSession.InputFocus == null, "state without an actual instance/session cannot fabricate focus");
+
+        foreach (bool frameProfile in new[] { false, true })
+        {
+            GloomhavenVR.FrameDefaults.Active = frameProfile;
+            using var native = new FakeNative { Modes = new[] { 1, 3 } };
+            var feature = CreateSession(native, false);
+            Check(VRSession.InputFocus == null, "new unbegun session remains unknown on either profile");
+            feature.OnSessionStateChange(2, 5);
+            Check(VRSession.InputFocus == null, "state before matched begin cannot grant input focus");
+            feature.OnSessionBegin(99);
+            Check(VRSession.InputFocus == null, "mismatched session begin cannot alter focus");
+            feature.OnSessionBegin(7);
+            Check(VRSession.InputFocus != false, "unknown initial XR focus cannot permanently veto Auto");
+            int reads = OpenXRFeature.GetCalls, writes = OpenXRFeature.SetCalls;
+            int resolve = native.ResolveCalls, enumerate = native.EnumCalls;
+            int markerReads = GloomhavenVR.FrameDefaults.ActiveReads, logs = VRLog.Lines.Count;
+            feature.OnSessionStateChange(3, 5);
+            Check(VRSession.InputFocus == true, "actual FOCUSED state5 grants focus independent of profile");
+            feature.OnSessionBegin(7);
+            Check(VRSession.InputFocus == true, "duplicate begin retains the current observation");
+            feature.OnSessionStateChange(5, 4);
+            Check(VRSession.InputFocus == false, "VISIBLE state4 is not input FOCUSED");
+            feature.OnSessionStateChange(4, 3);
+            Check(VRSession.InputFocus == false, "SYNCHRONIZED state3 is not input FOCUSED");
+            feature.OnSessionStateChange(3, 5);
+            Check(VRSession.InputFocus == true, "focus return is visible without desktop-window queries");
+            feature.OnSessionStateChange(5, 6);
+            Check(VRSession.InputFocus == false, "STOPPING state6 must revoke focus, never grant it");
+            for (int state = 0; state <= 9; state++)
+            {
+                feature.OnSessionStateChange(5, state);
+                Check(VRSession.InputFocus == (state == 5), "only exact FOCUSED state5 grants focus: " + state);
+            }
+            feature.OnSessionStateChange(4, 5);
+            for (int i = 0; i < 100; i++) Check(VRSession.InputFocus == true, "cached focus is cheaply readable");
+            Check(OpenXRFeature.GetCalls == reads && OpenXRFeature.SetCalls == writes &&
+                native.ResolveCalls == resolve && native.EnumCalls == enumerate &&
+                GloomhavenVR.FrameDefaults.ActiveReads == markerReads && VRLog.Lines.Count == logs,
+                "focus state events/reads add no native blend/capability/marker calls or logging");
+            feature.OnSessionEnd(99);
+            feature.OnSessionExiting(99);
+            feature.OnSessionDestroy(99);
+            feature.OnSessionLossPending(99);
+            feature.Destroy(native.Instance + 1);
+            feature.Loss(native.Instance + 1);
+            Check(VRSession.InputFocus == true, "mismatched session/instance teardown cannot revoke current focus");
+            feature.OnSessionEnd(7);
+            Check(VRSession.InputFocus == false, "matched session end explicitly revokes focus");
+            feature.OnSessionStateChange(4, 5);
+            Check(VRSession.InputFocus == false, "late unaddressed state cannot revive an ended session");
+            feature.OnSessionBegin(7);
+            Check(VRSession.InputFocus == null, "actual restart forgets the prior ended session's focus");
+            feature.OnSessionStateChange(4, 5);
+            Check(VRSession.InputFocus == true, "restarted current session accepts actual focus");
+            feature.Destroy(native.Instance);
+        }
+
+        foreach (string ending in new[] { "end", "exiting", "destroy", "loss", "instanceLoss", "instanceDestroy" })
+        {
+            using var native = new FakeNative();
+            var feature = CreateSession(native);
+            feature.OnSessionStateChange(4, 5);
+            Check(VRSession.InputFocus == true, "teardown case begins focused: " + ending);
+            int reads = OpenXRFeature.GetCalls, writes = OpenXRFeature.SetCalls, queries = native.EnumCalls;
+            switch (ending)
+            {
+                case "end": feature.OnSessionEnd(7); break;
+                case "exiting": feature.OnSessionExiting(7); break;
+                case "destroy": feature.OnSessionDestroy(7); break;
+                case "loss": feature.OnSessionLossPending(7); break;
+                case "instanceLoss": feature.Loss(native.Instance); break;
+                case "instanceDestroy": feature.Destroy(native.Instance); break;
+            }
+            Check(VRSession.InputFocus == false, "matching teardown revokes focus: " + ending);
+            feature.OnSessionStateChange(4, 5);
+            Check(VRSession.InputFocus == false, "late state after teardown cannot regrant focus: " + ending);
+            Check(OpenXRFeature.GetCalls == reads && OpenXRFeature.SetCalls == writes && native.EnumCalls == queries,
+                "focus teardown adds no native operations: " + ending);
+            feature.Destroy(native.Instance);
+            Check(feature.Create(native.Instance), "instance may reuse a destroyed numerical handle");
+            Check(VRSession.InputFocus == null, "recreated instance never inherits the old focused/ended state");
+            feature.OnSessionCreate(8);
+            feature.OnSessionBegin(8);
+            Check(VRSession.InputFocus == null, "recreated begun session waits for its first observation");
+            feature.OnSessionStateChange(3, 5);
+            Check(VRSession.InputFocus == true, "recreated actual session receives new focus");
+            feature.OnSessionEnd(7);
+            feature.OnSessionDestroy(7);
+            Check(VRSession.InputFocus == true, "prior session handle cannot end the replacement");
+            feature.Destroy(native.Instance);
+        }
+
+        using (var native = new FakeNative())
+        {
+            var old = CreateSession(native);
+            old.OnSessionStateChange(4, 5);
+            var current = new OpenXrEnvironmentBlendFeature();
+            Check(current.Create(native.Instance), "replacement feature owns its actual recreated instance");
+            Check(VRSession.InputFocus == null, "replacement owner starts with unknown focus");
+            current.OnSessionCreate(9);
+            current.OnSessionBegin(9);
+            current.OnSessionStateChange(3, 5);
+            old.OnSessionStateChange(5, 4);
+            old.OnSessionEnd(7);
+            old.OnSessionCreate(8);
+            old.OnSessionBegin(8);
+            old.OnSessionStateChange(4, 5);
+            old.Destroy(native.Instance);
+            Check(VRSession.InputFocus == true, "old feature state/lifecycle callbacks cannot alter the current owner's cache");
+            current.OnSessionStateChange(5, 4);
+            Check(VRSession.InputFocus == false, "current owner can still report genuine focus loss");
+            old.OnSessionStateChange(4, 5);
+            Check(VRSession.InputFocus == false, "stale feature cannot fabricate focus return");
+            current.Destroy(native.Instance);
+        }
+        GloomhavenVR.FrameDefaults.Active = false;
     }
 
     private static void TestPassthrough()
