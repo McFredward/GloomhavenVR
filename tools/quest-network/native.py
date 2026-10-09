@@ -6,18 +6,31 @@ codec uses Xiph's BSD source; the four CTL wrappers are our platform ABI seam.
 from __future__ import annotations
 
 import hashlib
+import http.client
 import json
 import os
 from pathlib import Path
+import re
 import shutil
+import ssl
 import subprocess
 import sys
 import tarfile
+import urllib.error
+import urllib.parse
 import urllib.request
 
 OPUS_VERSION = "1.5.2"
 OPUS_SHA256 = "65c1d2f78b9f2fb20082c38cbe47c951ad5839345876e46941612ee87f9a7ce1"
-OPUS_URL = f"https://downloads.xiph.org/releases/opus/opus-{OPUS_VERSION}.tar.gz"
+OPUS_ARCHIVE_BYTES = 7_839_412
+# The 2026-10-09 Windows capture fails in urllib's certificate validation of
+# Xiph's download route after the original Proton payload has been staged.
+# Xiph also publishes this exact release archive (not GitHub's generated source
+# snapshot) on its official repository. Prefer that independently certified
+# route, then try the original endpoint once. Neither path weakens HTTPS or the
+# unchanged archive pin; a failed source fetch must not erase earlier work.
+OPUS_URL = f"https://github.com/xiph/opus/releases/download/v{OPUS_VERSION}/opus-{OPUS_VERSION}.tar.gz"
+OPUS_FALLBACK_URL = f"https://downloads.xiph.org/releases/opus/opus-{OPUS_VERSION}.tar.gz"
 CTL_EXPORTS = tuple(f"quest_opus_{kind}_ctl_{operation}"
                     for kind in ("encoder", "decoder") for operation in ("get", "set"))
 ORIGINAL_EXPORTS = ("opus_encoder_get_size", "opus_encoder_init", "opus_get_version_string",
@@ -69,17 +82,94 @@ def android_compiler(ndk: Path, *, platform: str | None = None) -> tuple[list[st
             "--sysroot=" + str(bin_root.parent / "sysroot")], nm
 
 
+def _download_location(url: str) -> str:
+    """Keep the requested host/path; GitHub CDN query strings are credentials."""
+    parsed = urllib.parse.urlsplit(url)
+    host = parsed.hostname or ""
+    if ":" in host: host = "[" + host + "]"
+    if parsed.port is not None: host += ":" + str(parsed.port)
+    location = urllib.parse.urlunsplit((parsed.scheme, host, parsed.path, "", ""))
+    return re.sub(r"[\x00-\x1f\x7f]", "", location)[:512]
+
+
+class _HttpsOnlyRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if urllib.parse.urlsplit(newurl).scheme.lower() != "https":
+            raise RuntimeError("Opus source download refused a redirect outside verified HTTPS.")
+        print("native-voice: HTTPS redirect to " + _download_location(newurl), flush=True)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _download_progress(done: int, location: str) -> None:
+    # These measured byte counts describe only the source download. They never
+    # claim completion of its parent native-runtime preparation checkpoint.
+    if os.environ.get("GHVRQ_WIZARD_PROGRESS") == "1":
+        print("GHVRQ_PROGRESS " + json.dumps({"schema": 1, "phase": "native-opus-download",
+              "done": done, "total": OPUS_ARCHIVE_BYTES, "unit": "bytes", "status": "progress",
+              "operation": "native-runtime", "detail": "Opus source: " + location}), flush=True)
+
+
+def _download_reason(error: BaseException) -> str:
+    if isinstance(error, urllib.error.HTTPError):
+        return "HTTP " + str(error.code)
+    reason = error.reason if isinstance(error, urllib.error.URLError) else error
+    if isinstance(reason, ssl.SSLCertVerificationError):
+        detail = "TLS certificate validation failed: " + reason.verify_message
+    else:
+        detail = type(reason).__name__ + ": " + str(reason)
+    # Response URLs can contain signed CDN parameters, including in exceptions.
+    detail = re.sub(r"https?://[^\s<>]+", lambda match: _download_location(match.group()), detail)
+    return re.sub(r"[\x00-\x1f\x7f]", " ", detail)[:512]
+
+
+def _download_source() -> bytes:
+    context = ssl.create_default_context()
+    opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=context), _HttpsOnlyRedirect())
+    failures = []
+    for attempt, url in enumerate((OPUS_URL, OPUS_FALLBACK_URL), 1):
+        location = _download_location(url)
+        print(f"native-voice: downloading pinned Opus {OPUS_VERSION} from {location} ({attempt}/2)", flush=True)
+        try:
+            request = urllib.request.Request(url, headers={"Accept-Encoding": "identity", "User-Agent": "GloomhavenVR-Quest-Builder"})
+            with opener.open(request, timeout=60) as response:
+                actual = _download_location(response.geturl())
+                if urllib.parse.urlsplit(response.geturl()).scheme.lower() != "https":
+                    raise RuntimeError("Opus source download returned a response outside verified HTTPS.")
+                print("native-voice: reading pinned source from " + actual, flush=True)
+                _download_progress(0, actual)
+                content = bytearray()
+                next_report = 512 * 1024
+                while chunk := response.read(min(256 * 1024, OPUS_ARCHIVE_BYTES - len(content) + 1)):
+                    content.extend(chunk)
+                    if len(content) > OPUS_ARCHIVE_BYTES:
+                        raise RuntimeError("Opus source archive exceeds its pinned size.")
+                    if len(content) >= next_report:
+                        _download_progress(len(content), actual)
+                        next_report = len(content) + 512 * 1024
+            if len(content) != OPUS_ARCHIVE_BYTES or hashlib.sha256(content).hexdigest() != OPUS_SHA256:
+                raise RuntimeError("Opus source archive failed its pinned checksum/size.")
+            _download_progress(len(content), actual)
+            print(f"native-voice: verified Opus source ({len(content)} bytes, SHA-256 {OPUS_SHA256})", flush=True)
+            return bytes(content)
+        except (urllib.error.URLError, ssl.SSLError, OSError, http.client.HTTPException) as error:
+            detail = location + ": " + _download_reason(error)
+            failures.append(detail)
+            print("native-voice: verified HTTPS download failed: " + detail, flush=True)
+    raise RuntimeError("Opus source download failed with verified HTTPS: " + "; ".join(failures) +
+                       ". Keep the workspace and retry after checking connectivity, system CA certificates and any proxy certificate.")
+
+
 def fetch_source(cache: Path) -> Path:
     cache.mkdir(parents=True, exist_ok=True)
     archive = cache / f"opus-{OPUS_VERSION}.tar.gz"
     if not archive.exists():
-        with urllib.request.urlopen(OPUS_URL, timeout=60) as response:
-            content = response.read(16 * 1024 * 1024 + 1)
-        if hashlib.sha256(content).hexdigest() != OPUS_SHA256:
-            raise RuntimeError("Opus source archive failed its pinned checksum.")
+        content = _download_source()
         temporary = archive.with_suffix(".partial")
-        temporary.write_bytes(content)
-        os.replace(temporary, archive)
+        try:
+            temporary.write_bytes(content)
+            os.replace(temporary, archive)
+        finally:
+            temporary.unlink(missing_ok=True)
     if digest(archive) != OPUS_SHA256:
         raise RuntimeError("Cached Opus source archive failed its pinned checksum.")
     source = cache / f"opus-{OPUS_VERSION}"
