@@ -80,7 +80,8 @@ for owner, namespace, text in [('Defaults','GloomhavenVR',constants),('FrameDefa
     extra += 'namespace '+namespace+' { internal static class '+owner+' { '+'\n'.join(fields)+' } }\n'
 (run/'Defaults.cs').write_text(extra)
 (run/'RenderQuality.cs').write_text(original)
-dotnet = os.environ.get('DOTNET',str(Path.home()/'.dotnet/dotnet'))
+# setup-dotnet installs on PATH; ~/.dotnet is only the local-development fallback.
+dotnet = os.environ.get('DOTNET') or shutil.which('dotnet') or str(Path.home()/'.dotnet/dotnet')
 project = fixture/'GloomhavenVR.RenderQualityTests.csproj'
 command = [dotnet,'build',str(project),'--configuration','Release',
            '-p:ProductionDir='+str(run),'-p:FixtureDir='+str(fixture),
