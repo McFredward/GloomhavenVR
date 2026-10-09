@@ -101,7 +101,7 @@ internal static partial class TownServiceMirror
         NativeTemplateRepair? repair = module.NativeRepair;
         if (repair?.Original == null) return;
         TownServiceFrame original = repair.Original;
-        if (!ReferenceEquals(module.Baseline, original) || original.Session != _session
+        if (!_active || !ReferenceEquals(module.Baseline, original) || original.Session != _session
             || original.Service != _service || HasReceivedOriginal(module))
         { repair.Original = null; return; }
         if (now < repair.After) return;
