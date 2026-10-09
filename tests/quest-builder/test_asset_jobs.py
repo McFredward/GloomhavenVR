@@ -53,10 +53,67 @@ class PipelineTests(unittest.TestCase):
             outputs.append(result)
         self.assertEqual(*outputs)
 
-    def test_oversized_work_fails_before_worker_or_publication(self):
-        with self.assertRaisesRegex(storage.BuildError,'memory budget'):
-            asset_jobs.ordered_pipeline([1],lambda index:Job(index,3),lambda *args:self.fail('oversized worker'),
-                lambda *args:self.fail('oversized publication'),jobs=4,byte_budget=2)
+    def test_oversized_item_runs_alone_and_small_items_keep_parallel_work(self):
+        active,peak=0,0;lock=threading.Lock();published=[];isolated=[]
+        def execute(job,cancel):
+            nonlocal active,peak
+            with lock:
+                active+=1;peak=max(active,peak)
+                if job.memory_bytes>2:isolated.append(active)
+            time.sleep(.01)
+            with lock:active-=1
+            return job.index
+        with mock.patch.object(asset_jobs,'_pressure_event') as evidence:
+            asset_jobs.ordered_pipeline(range(6),lambda index:Job(index,3 if index==2 else 1),
+                execute,lambda job,value:published.append(value),jobs=4,byte_budget=2)
+        self.assertEqual(peak,2);self.assertEqual(isolated,[1]);self.assertEqual(published,list(range(6)))
+        evidence.assert_called_once_with('serial-oversized',estimated_bytes=3)
+        # A zero detected budget still allows one disk-backed attempt rather
+        # than turning an advisory estimate into an unconditional build stop.
+        output=[]
+        with mock.patch.object(asset_jobs,'_pressure_event'):
+            asset_jobs.ordered_pipeline([4],Job,lambda job,cancel:job.index,
+                lambda job,value:output.append(value),jobs=4,byte_budget=0)
+        self.assertEqual(output,[4])
+
+    def test_actual_allocation_failure_retries_alone_retaining_successful_siblings(self):
+        active=0;lock=threading.Lock();attempts={};isolated=[];published=[]
+        def execute(job,cancel):
+            nonlocal active
+            with lock:
+                active+=1;attempts[job.index]=attempts.get(job.index,0)+1
+                attempt=attempts[job.index]
+                if job.index==0 and attempt>1:isolated.append(active)
+            try:
+                time.sleep(.02)
+                if job.index==0 and attempt==1:raise asset_jobs.MemoryPressure('witnessed allocation failure')
+                return job.index
+            finally:
+                with lock:active-=1
+        with mock.patch.object(asset_jobs,'_pressure_event') as evidence:
+            asset_jobs.ordered_pipeline(range(6),Job,execute,
+                lambda job,value:published.append(value),jobs=3,byte_budget=8)
+        self.assertEqual(isolated,[1]);self.assertEqual(published,list(range(6)))
+        self.assertEqual(attempts,{0:2,1:1,2:1,3:1,4:1,5:1})
+        self.assertEqual([call.args[0] for call in evidence.call_args_list],['retrying','recovered'])
+
+    def test_repeated_allocation_pressure_waits_until_cancelled_without_publishing(self):
+        token=asset_jobs.Cancellation();waiting=threading.Event();failures=[];attempts=[]
+        def execute(job,cancel):attempts.append(job.index);raise asset_jobs.MemoryPressure('allocation failure')
+        def observe(kind,**value):
+            if kind=='waiting':waiting.set()
+        def run():
+            try:
+                with mock.patch.object(asset_jobs,'_pressure_event',side_effect=observe):
+                    asset_jobs.ordered_pipeline([0],Job,execute,
+                        lambda *args:self.fail('failed output published'),jobs=3,cancellation=token)
+            except BaseException as error:failures.append(error)
+        thread=threading.Thread(target=run);thread.start()
+        try:
+            self.assertTrue(waiting.wait(3));token.event.set();thread.join(3)
+            self.assertFalse(thread.is_alive());self.assertEqual(len(failures),1)
+            self.assertIsInstance(failures[0],asset_jobs.Cancelled);self.assertEqual(attempts,[0,0])
+        finally:token.event.set();thread.join(5)
 
     def test_parent_failure_cancels_and_joins_running_workers(self):
         stopped=threading.Event();token=asset_jobs.Cancellation()
@@ -89,6 +146,9 @@ class PipelineTests(unittest.TestCase):
         for memory in (-1,True,float('nan'),1.5):
             with self.assertRaisesRegex(storage.BuildError,'memory estimate'):
                 asset_jobs.ordered_pipeline([0],lambda index:Job(index,memory),None,None,jobs=1)
+        for budget in (-1,True,float('nan'),1.5):
+            with self.assertRaisesRegex(storage.BuildError,'memory budget'):
+                asset_jobs.ordered_pipeline([],Job,None,None,jobs=1,byte_budget=budget)
 
     def test_prepare_stop_iteration_is_failure_not_false_inventory_completion(self):
         def prepare(index):raise StopIteration('native object missing')
@@ -97,6 +157,51 @@ class PipelineTests(unittest.TestCase):
 
 
 class CommandTests(unittest.TestCase):
+    def test_pressure_progress_is_neutral_measured_and_never_claims_texture_completion(self):
+        progress=mock.Mock();progress.enabled.return_value=True
+        with mock.patch.object(asset_jobs,'build_progress',progress),mock.patch.dict(os.environ,{},clear=True), \
+             mock.patch('sys.stdout',new_callable=__import__('io').StringIO):
+            asset_jobs._pressure_event('retrying',attempt=1,estimated_bytes=9)
+            asset_jobs._pressure_event('waiting',attempt=2,estimated_bytes=9,wait_seconds=2)
+            asset_jobs._pressure_event('recovered',attempt=2,estimated_bytes=9)
+        self.assertEqual([call.args[0] for call in progress.event.call_args_list],
+                         ['asset-memory-retry','asset-memory-wait','asset-memory-retry'])
+        self.assertEqual([call.kwargs['status'] for call in progress.event.call_args_list],
+                         ['start','progress','complete'])
+        self.assertTrue(all(len(call.args)==1 for call in progress.event.call_args_list))
+        self.assertTrue(all(call.kwargs['nativeMemory']['compilerProfile']=='independent-codec'
+                            for call in progress.event.call_args_list))
+
+    def test_only_witnessed_allocation_failures_receive_retry_classification(self):
+        for code,text in ((1,'Unhandled exception. System.OutOfMemoryException: Insufficient memory'),
+                          (1,'LLVM ERROR: out of memory'),(1,'MemoryError'),
+                          (0xc0000017,''),(-1073741801,''),(0xc000012d,'')):
+            self.assertTrue(asset_jobs.allocation_failure(code,text),(code,text))
+        for code,text in ((137,''),(-9,''),(1,'decoder format mismatch'),(1,'file not found'),
+                          (1,'this fixture is not an allocation failure')):
+            self.assertFalse(asset_jobs.allocation_failure(code,text),(code,text))
+        with self.assertRaises(asset_jobs.MemoryPressure):
+            asset_jobs.run_command([sys.executable],('-c',
+                'import sys;sys.stderr.write("System.OutOfMemoryException\\n"+"stack frame\\n"*3000);sys.exit(1)'),
+                asset_jobs.Cancellation())
+
+    @unittest.skipIf(os.name=='nt','Actual constrained child allocation uses POSIX RLIMIT_AS')
+    def test_actual_low_memory_child_failure_recovers_without_reexecuting_good_output(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);published=[]
+            code=('import resource,sys;from pathlib import Path;'
+                  'marker=Path(sys.argv[1]);first=not marker.exists();marker.write_text("attempt");'
+                  'resource.setrlimit(resource.RLIMIT_AS,(32*1024*1024,32*1024*1024)) if first else None;'
+                  'pixels=bytearray(64*1024*1024);Path(sys.argv[2]).write_bytes(b"accepted output")')
+            def execute(job,cancel):
+                asset_jobs.run_command([sys.executable],('-c',code,root/'attempt',root/'output'),cancel)
+                return (root/'output').read_bytes()
+            with mock.patch.object(asset_jobs,'_pressure_event') as evidence:
+                asset_jobs.ordered_pipeline([0],Job,execute,
+                    lambda job,result:published.append(result),jobs=2,byte_budget=1)
+            self.assertEqual(published,[b'accepted output'])
+            self.assertEqual([call.args[0] for call in evidence.call_args_list],['retrying','recovered'])
+
     def test_actual_command_has_literal_args_and_bounded_diagnostics(self):
         token=asset_jobs.Cancellation()
         result=asset_jobs.run_command([sys.executable],('-c','import sys; print(sys.argv[1]);print("x"*4000)','literal & 100% $value'),token)

@@ -8,6 +8,8 @@ gain reusable cache receipts. Cancellation joins and reaps all supervised tools.
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+import errno
+import gc
 import json
 import os
 from pathlib import Path
@@ -18,13 +20,63 @@ import subprocess
 import tempfile
 import threading
 
-from storage import BuildError, ValidatedFileWitnesses, _ordinary_owned, value_hash, write_json
+from storage import BuildError, ValidatedFileWitnesses, _ordinary_owned, value_hash, write_json, build_progress
 
 GIB = 1024 ** 3
 
 
 class Cancelled(BuildError):
     pass
+
+
+class MemoryPressure(BuildError):
+    """A witnessed codec allocation failure; isolated outputs are not accepted."""
+    pass
+
+
+def allocation_failure(returncode, text):
+    """Recognize actual allocation diagnostics, not every killed/error process."""
+    # Windows NTSTATUS codes retain their meaning whether Python reports the
+    # process's unsigned DWORD exit value or its signed representation.
+    if returncode & 0xffffffff in (0xc0000017, 0xc000012d):
+        return True
+    lowered = text.casefold()
+    return any(marker in lowered for marker in (
+        "system.outofmemoryexception", "std::bad_alloc", "llvm error: out of memory",
+        "memoryerror", "cannot allocate memory", "not enough memory resources",
+        "not enough storage is available to process this command"))
+
+
+def _pressure_event(kind, *, attempt=0, jobs=1, estimated_bytes=None, wait_seconds=0):
+    """Bounded public resource evidence, with no command lines or source paths."""
+    import host_resources
+    root = os.environ.get(host_resources.EVIDENCE_ENV)
+    event = {"event": "memory-pressure", "phase": "asset-codec", "state": kind,
+             "attempt": attempt, "jobs": jobs, "estimatedBytes": estimated_bytes,
+             "waitSeconds": wait_seconds}
+    observed = {}
+    if root:
+        try:
+            host = host_resources.detect_host(root)
+            event["host"] = {name: host.get(name) for name in (
+                "availableMemoryBytes", "commitHeadroomBytes", "availableSwapBytes")}
+            observed = {name: host[name] for name in (
+                "availableMemoryBytes", "commitHeadroomBytes", "processWorkingSetBytes", "processPrivateCommitBytes")
+                if type(host.get(name)) is int and 0 <= host[name] <= 9007199254740991}
+            host_resources.emit_resource_evidence(root, event)
+        except (OSError, ValueError):
+            # Diagnostics must not turn recoverable allocation pressure into a
+            # new failure. The caller still retains semantic cache ownership.
+            pass
+    print("resources: " + json.dumps(event, sort_keys=True), flush=True)
+    if kind != "serial-oversized" and build_progress and build_progress.enabled():
+        phase = "asset-memory-wait" if kind == "waiting" else "asset-memory-retry"
+        status = "complete" if kind == "recovered" else "progress" if kind == "waiting" else "start"
+        reason = "retry-ready" if kind == "recovered" else "pressure" if kind == "waiting" else "allocation-failed"
+        build_progress.event(phase, detail="Waiting for asset codec memory" if kind == "waiting"
+            else "Asset codec memory recovered" if kind == "recovered" else "Retrying isolated asset codec",
+            status=status, nativeMemory={"compilerProfile": "independent-codec", "jobs": 1,
+                "attempt": max(1,min(attempt,1000000)), "reason": reason, "resources": observed})
 
 
 class Cancellation:
@@ -66,8 +118,13 @@ def run_command(command, arguments, cancellation):
     with tempfile.TemporaryFile() as log:
         settings = {"start_new_session": True} if os.name != "nt" else {
             "creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
-        process = subprocess.Popen([*map(str, command), *map(str, arguments)],
-            stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, **settings)
+        try:
+            process = subprocess.Popen([*map(str, command), *map(str, arguments)],
+                stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, **settings)
+        except OSError as error:
+            if error.errno == errno.ENOMEM or getattr(error, "winerror", None) in (8, 14, 1455):
+                raise MemoryPressure("Pinned native codec could not start because of allocation pressure.") from error
+            raise
         try:
             while True:
                 cancellation.check()
@@ -75,7 +132,14 @@ def run_command(command, arguments, cancellation):
                 except subprocess.TimeoutExpired: pass
             log.seek(0, os.SEEK_END); size = log.tell(); log.seek(max(0, size - 2000))
             text = log.read(2000).decode("utf-8", errors="replace")
-            if code: raise BuildError("Pinned native codec failed: " + text)
+            if code:
+                # A managed stack trace may follow its allocation exception.
+                # Inspect both bounded ends while leaving public diagnostics at
+                # their existing 2 KiB bound and all full output on disk.
+                log.seek(0); first = log.read(8192).decode("utf-8", errors="replace")
+                log.seek(max(0, size - 8192)); last = log.read(8192).decode("utf-8", errors="replace")
+                error = MemoryPressure if allocation_failure(code, first + last) else BuildError
+                raise error("Pinned native codec failed: " + text)
             return text
         finally:
             if process.poll() is None: _terminate(process)
@@ -86,24 +150,60 @@ def ordered_pipeline(items, prepare, execute, publish, *, jobs, byte_budget=None
 
     A prepared package exposes memory_bytes. Reserve it until publication, so
     completed out-of-order results cannot form an unbounded memory queue.
-    Failure anywhere cancels other tools before the caller's rollback begins.
+    An oversized estimate drains other work and runs alone. A witnessed codec
+    allocation failure drains in-flight work, retains successful results and
+    retries the failed disk-backed item alone. A second failure waits with a
+    cancellable backoff; allocation pressure never silently closes the stage.
+    Other failures cancel tools before the caller's rollback begins. Execute
+    must overwrite only its isolated, unaccepted temporary output on retries.
     """
     if not isinstance(jobs, int) or isinstance(jobs, bool) or jobs < 1 or jobs > 1024:
         raise BuildError("Independent asset workers require a bounded positive job count.")
+    if byte_budget is not None and (not isinstance(byte_budget, int)
+            or isinstance(byte_budget, bool) or byte_budget < 0):
+        raise BuildError("Independent asset work has an invalid memory budget.")
     cancellation = cancellation or Cancellation()
     pending, reserved, held = deque(), 0, None
-    iterator = iter(items); exhausted = False
+    iterator = iter(items); exhausted = False; dispatch_limit = jobs
     pool = ThreadPoolExecutor(max_workers=jobs, thread_name_prefix="quest-asset-codec")
     def work(package):
         try: cancellation.check(); return execute(package, cancellation)
+        except MemoryPressure: raise
         except BaseException as error: cancellation.fail(error); raise
+
+    def recover(package):
+        nonlocal dispatch_limit
+        dispatch_limit = 1
+        # A failed isolated item owns no accepted output. Let siblings finish
+        # before retrying it, retaining their successful disk-backed results.
+        for _, future in pending:
+            try: future.result()
+            except MemoryPressure: pass
+        gc.collect()
+        attempt = 1
+        while True:
+            cancellation.check()
+            wait_seconds = 0 if attempt == 1 else min(30, 2 ** min(attempt - 1, 5))
+            _pressure_event("retrying" if not wait_seconds else "waiting", attempt=attempt,
+                            estimated_bytes=package.memory_bytes, wait_seconds=wait_seconds)
+            if wait_seconds and cancellation.event.wait(wait_seconds): cancellation.check()
+            try:
+                result = pool.submit(work, package).result()
+                _pressure_event("recovered", attempt=attempt, estimated_bytes=package.memory_bytes)
+                return result
+            except MemoryPressure:
+                attempt += 1
+                gc.collect()
     try:
         while pending or held is not None or not exhausted:
             cancellation.check()
             # Accept a ready prefix before loading another native container.
-            if pending and (pending[0][1].done() or len(pending) >= jobs or exhausted or held is not None):
+            if pending and (pending[0][1].done() or len(pending) >= dispatch_limit
+                    or exhausted or held is not None
+                    or (byte_budget is not None and reserved >= byte_budget)):
                 package, future = pending.popleft()
-                result = future.result()
+                try: result = future.result()
+                except MemoryPressure: result = recover(package)
                 cancellation.check(); publish(package, result)
                 reserved -= package.memory_bytes
                 continue
@@ -113,11 +213,11 @@ def ordered_pipeline(items, prepare, execute, publish, *, jobs, byte_budget=None
                 held = prepare(item)
                 if not isinstance(held.memory_bytes,int) or isinstance(held.memory_bytes,bool) or held.memory_bytes < 0:
                     raise BuildError("Independent asset work has an invalid memory estimate.")
-                if byte_budget is not None and held.memory_bytes > byte_budget:
-                    raise BuildError("An independent codec job exceeds the detected host memory budget.")
             if held is not None:
-                if byte_budget is not None and reserved + held.memory_bytes > byte_budget:
+                if byte_budget is not None and reserved + held.memory_bytes > byte_budget and pending:
                     continue
+                if byte_budget is not None and held.memory_bytes > byte_budget:
+                    _pressure_event("serial-oversized", estimated_bytes=held.memory_bytes)
                 pending.append((held, pool.submit(work, held))); reserved += held.memory_bytes; held = None
     except BaseException as error:
         cancellation.fail(error)

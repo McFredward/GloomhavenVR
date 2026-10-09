@@ -1,17 +1,15 @@
 """Host-only scheduling and bounded support evidence; never a content-cache input.
 
-The B625 native retry measured one frontend with VmHWM24,172,988 KiB plus
-VmSwap3,093,152 KiB (approximately 26 GiB combined). Native IL2CPP admission
-therefore reserves 32 GiB for the first translation unit and 28 GiB for each
-additional worker. Reported available memory already excludes current OS and
-parent allocations; only future Unity growth and bounded transient headroom are
-reserved again. Windows admission uses commit, not a requirement for free RAM. It must not
-reuse the much smaller CMake codec budget. Overrides are upper limits, not an
-instruction to exceed measured host capacity. On Windows, a physically constrained
-host may admit exactly one native job only with known sufficient commit headroom.
-Linux paging admission additionally requires reported, cgroup-bounded free swap.
-That explicitly requires paging and may be substantially slower; Windows paging
-performance and end-to-end execution remain unverified.
+The B625 native retry measured a single exceptional frontend with
+VmHWM24,172,988 KiB plus VmSwap3,093,152 KiB. Replaying its exact original
+translation unit with line-table debug information, retaining Release -Os,
+peaks at 456,724 KiB instead. The larger 26.5 MB InvokerTable translation unit
+peaks at 1,662,372 KiB, so native workers reserve 2 GiB each; the old
+32 GiB estimate remains separate historical evidence. A shortfall selects one
+supervised worker rather than rejecting the build. Reported free memory already
+excludes existing OS and parent use.
+Windows commit and Linux cgroup-bounded free swap are observed without changing
+system settings or assuming future paging-file growth.
 """
 from __future__ import annotations
 
@@ -35,7 +33,7 @@ EVIDENCE_ENV = "GHVRQ_RESOURCE_EVIDENCE_ROOT"
 INPUT_ENV = "GHVRQ_RESOURCE_INPUT_KEY"
 RUN_ENV = "GHVRQ_RESOURCE_RUN_ID"
 # (largest first worker, each additional worker, parent/Unity headroom, CPU cap)
-PROFILES = {"il2cpp": (32 * GIB, 28 * GIB, 6 * GIB, 32),
+PROFILES = {"il2cpp": (2 * GIB, 2 * GIB, 6 * GIB, 32),
             "unity": (3 * GIB, 2 * GIB, 4 * GIB, 16),
             "box64": (4 * GIB, 2 * GIB, 0, 32),
             "opus": (2 * GIB, GIB, 0, 32),
@@ -43,6 +41,9 @@ PROFILES = {"il2cpp": (32 * GIB, 28 * GIB, 6 * GIB, 32),
             # readers and the single parent YAML publisher outside their pool.
             # Admission also checks each job's actual estimated payload memory.
             "asset-codec": (2 * GIB, GIB, 6 * GIB, 16)}
+NATIVE_REPLAY_PEAK_BYTES = 1662372 * 1024
+NATIVE_DISPATCH_REPLAY_PEAK_BYTES = 456724 * 1024
+NATIVE_HISTORICAL_RESERVE_BYTES = 32 * GIB
 
 
 class ResourceError(ValueError):
@@ -221,7 +222,7 @@ def parse_jobs(value):
 
 
 def choose_jobs(host, phase, override=None):
-    """Return a resource-bounded policy; requested jobs never bypass RAM limits."""
+    """Select concurrency from live resources; estimates never prohibit one job."""
     if phase not in PROFILES:
         raise ResourceError("Unknown host build phase: " + phase)
     requested = parse_jobs(os.environ.get(JOBS_ENV) if override is None else override)
@@ -250,25 +251,31 @@ def choose_jobs(host, phase, override=None):
     if phase == "il2cpp" and physical is not None:
         physical_budget = max(0, physical - os_reserve - parent)
         physical_limit = max(1, 1 + (physical_budget - first) // extra)
-        # Use commit/swap only to admit ONE memory-heavy compiler on smaller
-        # machines. More workers require actual physical headroom as well.
+        # Paging may cover one frontend; additional workers need actual physical
+        # headroom as well, so a large nominal pagefile cannot cause thrashing.
         memory_limit = min(memory_limit, physical_limit)
     jobs = min(cpu_limit, memory_limit, requested or cpu_limit)
     insufficient = budget is not None and budget < first
     required_commit = first + parent + os_reserve
     physical_shortfall = max(0, required_commit - physical) if physical is not None else None
     commit_shortfall = max(0, required_commit - commit) if commit is not None else None
-    memory_known = budget is not None and physical is not None
-    launch_allowed = phase != "il2cpp" or (memory_known and not insufficient
-                      and (host.get("platform") != "win32" or commit is not None))
-    paging = (phase == "il2cpp" and launch_allowed and bool(physical_shortfall)
-              and (host.get("platform") == "win32" or bool(host.get("availableSwapBytes"))))
-    # Paging is the smaller-machine fallback, never permission to parallelize
-    # several giant native frontends against a nominal swap/commit capacity.
+    memory_known = budget is not None and physical is not None and (
+        phase != "il2cpp" or host.get("platform") != "win32" or commit is not None)
+    if phase == "il2cpp" and not memory_known:
+        jobs = 1
+    # Capture165405 has 64 GiB installed, 36.1 GiB physically available and
+    # 27.5 GiB of additional commit. Requiring the old exceptional compiler's
+    # 40 GiB estimate stopped it before any work, even though earlier Linux
+    # builds completed on a 32 GiB host. Estimates choose an execution strategy;
+    # actual allocation pressure belongs to the supervised compiler/codec retry.
+    launch_allowed = True
+    paging = (phase == "il2cpp" and bool(physical_shortfall)
+              and ((host.get("platform") == "win32" and commit is not None
+                    and physical is not None and commit > physical)
+                   or bool(host.get("availableSwapBytes"))))
+    # Paging is a fallback, not permission to parallelize against nominal swap.
     if paging:
         jobs = 1
-    failure = ("commit-unknown" if host.get("platform") == "win32" and commit is None else
-               "physical-memory-unknown" if physical is None else "memory-headroom-insufficient") if not launch_allowed else None
     policy = {"schema": 1, "phase": phase, "requestedJobs": requested, "jobs": jobs,
             "cpuLimit": cpu_limit, "memoryLimit": memory_limit, "memoryBudgetBytes": budget,
             "osReserveBytes": os_reserve, "parentReserveBytes": parent,
@@ -278,42 +285,24 @@ def choose_jobs(host, phase, override=None):
             "nativeLaunchAllowed": launch_allowed, "pagingRequired": paging,
             "requiredCommitHeadroomBytes": required_commit, "pagingExecutionVerified": False,
             "windowsExecutionVerified": False, "physicalShortfallBytes": physical_shortfall,
-            "commitShortfallBytes": commit_shortfall, "admissionFailure": failure}
+            "commitShortfallBytes": commit_shortfall, "admissionFailure": None}
     if phase == "il2cpp":
+        strategy = "single-worker-unmeasured" if not memory_known else (
+            "single-worker-pressure" if insufficient or paging else "resource-bounded-parallel")
         policy.update(transientReserveBytes=os_reserve, availablePhysicalMemoryBytes=physical,
                       availableCommitHeadroomBytes=commit,
-                      peakEvidenceScope="B625-Linux-Release-single-translation-unit",
+                      nativeMemoryStrategy=strategy, workerReserveIsAdvisory=True,
+                      measuredWorkerPeakBytes=NATIVE_REPLAY_PEAK_BYTES,
+                      measuredDispatchPeakBytes=NATIVE_DISPATCH_REPLAY_PEAK_BYTES,
+                      historicalWorkerReserveBytes=NATIVE_HISTORICAL_RESERVE_BYTES,
+                      peakEvidenceScope="B625-Linux-Release-line-tables-dispatch-and-invokers",
                       hostMemoryEvidence={name: host.get(name) for name in (
                           "platform", "totalMemoryBytes", "availableMemoryBytes", "commitHeadroomBytes",
                           "processCommitHeadroomBytes", "currentCommitLimitBytes", "systemCommitLimitBytes",
                           "systemCommittedBytes", "systemCommitHeadroomBytes", "processWorkingSetBytes",
                           "processPrivateCommitBytes", "availableSwapBytes")},
-                      admissionMessage=native_admission_error(host, policy))
+                      admissionMessage=None)
     return policy
-
-
-def native_admission_error(host, policy):
-    """Actionable native preflight text; no guesses about future pagefile growth."""
-    if policy["nativeLaunchAllowed"]:
-        return None
-    required = policy["requiredCommitHeadroomBytes"] / GIB
-    physical = host.get("availableMemoryBytes")
-    commit = host.get("commitHeadroomBytes")
-    physical_text = "unknown" if physical is None else f"{physical / GIB:.1f} GiB"
-    commit_text = "unknown" if commit is None else f"{commit / GIB:.1f} GiB"
-    if host.get("platform") == "win32":
-        shortfall = policy["commitShortfallBytes"]
-        missing = "" if shortfall is None else f" ({shortfall / GIB:.1f} GiB short)"
-        return (f"Native compiler needs {required:.1f} GiB of additional available commit for one job; "
-                f"Windows reports {commit_text}{missing}, with {physical_text} of available physical RAM. "
-                "Close memory-heavy applications or increase the Windows paging-file capacity, then retry. "
-                "Installed RAM is not the same as available commit. Automatic paging-file growth is not assumed; "
-                "the Builder does not change system settings. Completed work is retained.")
-    swap = host.get("availableSwapBytes")
-    swap_text = "unknown" if swap is None else f"{swap / GIB:.1f} GiB"
-    return (f"Native compiler needs {required:.1f} GiB of available RAM plus known free swap for one job; "
-            f"reported RAM is {physical_text}, free swap is {swap_text}. Close memory-heavy applications "
-            "or provide more swap within any cgroup limit, then retry. Completed work is retained.")
 
 
 def _atomic_json(path, value):
@@ -379,11 +368,13 @@ def phase_budget(phase, path):
           "pagingRequired": policy["pagingRequired"], "nativeLaunchAllowed": policy["nativeLaunchAllowed"],
           "requiredCommitHeadroomBytes": policy["requiredCommitHeadroomBytes"],
           "hostMemoryEvidence": policy.get("hostMemoryEvidence"),
+          "nativeMemoryStrategy": policy.get("nativeMemoryStrategy"),
+          "measuredWorkerPeakBytes": policy.get("measuredWorkerPeakBytes"),
           "admissionFailure": policy["admissionFailure"],
           "admissionMessage": policy.get("admissionMessage")}), flush=True)
     if policy["pagingRequired"]:
-        print("resources: native compilation requires paging; admitting exactly one job within the reported memory capacity. "
-              "This may be significantly slower; paging execution/performance is not yet qualified.", flush=True)
+        print("resources: native compilation uses one worker because physical memory is constrained; "
+              "available paging capacity is observed. Actual allocation failures are retried with retained outputs.", flush=True)
     return policy
 
 
