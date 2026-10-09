@@ -64,7 +64,7 @@ def main():
         raise SystemExit('FAIL native map audit compilation: ' + str(run))
     # dotnet run re-evaluates its launch path without the redirected OutputPath
     # on this SDK. Execute the successfully built isolated DLL explicitly.
-    result = subprocess.run([dotnet, str(run / 'bin/net8.0/MapAudit.dll')],
+    result = subprocess.run([dotnet, str(run / 'bin/MapAudit.dll')],
         cwd=args.source_root, env=environment, capture_output=True, text=True)
     (run / 'execution.log').write_text(result.stdout + result.stderr)
     print(result.stdout + result.stderr, end='')
