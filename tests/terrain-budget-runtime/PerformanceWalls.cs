@@ -9,6 +9,7 @@ public static partial class TerrainProgram
 {
     private static void HiddenWallWork(Camera camera)
     {
+        int originalCullingMask = camera.cullingMask;
         ScenarioTerrainBudget.Shutdown(); ProceduralWall.m_WallCache.Clear();
         PerfConfig.TerrainSubstitutionOn = true; PerfConfig.CheapWallShadingOn = true;
         PerfConfig.TerrainDetailPercent = PerfConfig.DistantTerrainDetailPercent = 0;
@@ -129,6 +130,7 @@ public static partial class TerrainProgram
             ScenarioTerrainBudget.Shutdown(); Object.DestroyImmediate(host); Object.DestroyImmediate(scenario);
             if (changedMaterial != null) Object.DestroyImmediate(changedMaterial);
             Object.DestroyImmediate(material); ProceduralWall.m_WallCache.Clear();
+            camera.cullingMask = originalCullingMask;
         }
     }
 }

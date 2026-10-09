@@ -337,8 +337,7 @@ public static partial class TerrainProgram
         ShaderPixels(camera);
         NoisePixels(camera);
         Check(VRLog.Faults.FindAll(text=>text.Contains("presentation failed")).Count==1,"optional failure reports once with useful normal-level context");
-        scenario.SetActive(false); NativeCoverage(camera);
-        HiddenWallWork(camera);
+        scenario.SetActive(false); HiddenWallWork(camera); RadialPillars(camera); NativeCoverage(camera);
         Object.DestroyImmediate(host); Object.DestroyImmediate(scenario); Object.DestroyImmediate(camera.targetTexture); Object.DestroyImmediate(cameraGo); Object.DestroyImmediate(material); DisposeBank();
         return _checks;
     }

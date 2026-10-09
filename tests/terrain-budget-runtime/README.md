@@ -1,7 +1,7 @@
 # Private terrain runtime fixture
 
 Run `python3 scripts/check-terrain-budget-runtime.py`. The complete focused suite
-compiles the actual two `ScenarioTerrainBudget` production source files and
+compiles the actual three `ScenarioTerrainBudget` production source files and
 imports the actual `ScenarioCheapTerrain.shader` into an isolated Unity 2021.3.5f1
 project. Its CPU-side boundaries are explicit substitutes for native scene types,
 configuration, held props/hands, logging, shader loading and bank lookup.
@@ -10,7 +10,7 @@ verified native structural streams through the actual production mesh decoder. A
 command buffers and `Camera.Render` callbacks execute; there is no simulated
 renderer or pixel oracle substituted for the production fragment.
 
-The production case makes 335 assertions. Fifty-seven independently compiled
+The production case makes 818 assertions. Ninety-one independently compiled
 negative variants each corrupt a production statement and must fail at a named
 assertion. Shader compilation failures and unrelated exceptions never count as
 passing negative controls. `--production-only` and repeatable `--case NAME` are
@@ -140,3 +140,25 @@ graphics device is appropriate for engine/pixel contracts and cannot establish
 Frame GPU costs, multiplayer performance or a correct headset picture. The
 integrator must run the affected integration checks required by AGENTS.md and the maintainer must compare
 the independently adjustable controls on hardware with every room revealed.
+
+## Radial pillar proximity
+
+All ten positively admitted crypt/cave/city pillar definitions are independently
+read from their native bundles by `verify-pillar-coverage.py`, in addition to the
+original ten captured city structural cases. Every original channel/index byte
+and complete exact/coarse digest is checked. Eight orbit angles per pillar
+execute the actual private owner and compare exact endpoint topology and rendered
+silhouette pixels. Synthetic cases separately reproduce the former square-AABB
+distance defect, retained near/far settings, head yaw, offset bounds, tilted and
+nonuniform source parents, late cap-deferred native fallback and foreign masks.
+Existing wall-hide/recovery, animation and camera-lifecycle cases remain.
+
+The correction reads a pillar's current source matrix during the existing Update.
+Without tracked hands this replaces the native bounds getter; tracked hands keep
+their unchanged native bounds touch guard as well. Actual primitive observers
+verify these counts. A warm paired primitive benchmark binds the actual proximity
+method once outside timing and compares 21 alternating batches of 512 calls with
+the former Unity bounds/closest-point path. Delegate/observer overhead is included
+in this diagnostic. The separate two-source complete Update timer is diagnostic
+only. Neither timer establishes Steam Frame frame rate or GPU cost. Native LOD
+controllers and far source-cap/frustum selection are unchanged.
