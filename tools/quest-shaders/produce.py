@@ -22,6 +22,11 @@ import integer_bits
 import load_bounds
 import instance_nan
 
+_progress_spec = importlib.util.spec_from_file_location('quest_shader_producer_progress',
+    Path(__file__).resolve().parents[1] / 'quest-builder/progress.py')
+build_progress = importlib.util.module_from_spec(_progress_spec)
+_progress_spec.loader.exec_module(build_progress)
+
 
 PROGRAM_PATH_SCHEME = 'sha256-dxbc-interface-pair-v1'
 PROGRAM_DIRECTORY = 'Assets/QuestOriginalCampaign/ShaderPrograms'
@@ -453,6 +458,7 @@ def restore_project(project, inventory_path, cache, output, preserved_sources=No
     output.mkdir(parents=True, exist_ok=True)
     native = recovery_module()
     includes, programs = {}, {}
+    program_counter = build_progress.Counter('prepare-items:campaign-shaders-programs', len(names), 'programs')
     for shader in inventory['shaders']:
         if not shader.get('allOriginalInstructionsExtracted') or not shader.get('allOriginalInterfacesBound'):
             raise ValidationError('Original shader bank lacks complete instruction/binding proof.')
@@ -460,6 +466,7 @@ def restore_project(project, inventory_path, cache, output, preserved_sources=No
             key = (row['originalDxbcSha256'], row['originalInterfaceSha256'])
             if key in includes:
                 continue
+            program_counter.update(program_counter.done, shader['originalName'] + ' / ' + row['stage'])
             bound = Path(row['boundHlslPath'])
             if sha256(bound) != row['boundHlslSha256']:
                 raise ValidationError('Bound original shader bytes changed before reconstruction.')
@@ -493,8 +500,12 @@ def restore_project(project, inventory_path, cache, output, preserved_sources=No
                                    'originalInputSignature': input_signature, 'originalOutputSignature': output_signature,
                                    'integerCarrierProof': integer_proof, 'textureLoadProofs': load_proofs,
                                    'nativeNaNInstanceReadProofs': instance_read_proofs}
+            program_counter.add(1)
+    program_counter.finish()
     shaders = []
+    shader_counter = build_progress.Counter('prepare-items:campaign-shaders-sources', len(inventory['shaders']), 'shaders')
     for shader in inventory['shaders']:
+        shader_counter.update(shader_counter.done, shader['originalName'], force=True)
         form = json.loads((cache / 'forms' / (shader['originalParsedFormSha256'] + '.json')).read_text())
         source, variants = shader_source(form, shader, cache, includes, graphics_api)
         retained = preserved_sources.get(shader['guid'])
@@ -515,6 +526,8 @@ def restore_project(project, inventory_path, cache, output, preserved_sources=No
                         'sourceSha256': sha256(target), 'variants': variants,
                         'sourceRestoration': 'retained-source-contract' if retained else 'exact-original-dxbc',
                         'retainedSourceContract': retained})
+        shader_counter.add(1)
+    shader_counter.finish()
     manifest = {'schema': 1, 'scope': 'campaign-compiler', 'graphicsApi': graphics_api,
                 'programPathScheme': PROGRAM_PATH_SCHEME,
                 'compilerPlatform': 'Vulkan' if graphics_api == 'Vulkan' else 'GLES3x',

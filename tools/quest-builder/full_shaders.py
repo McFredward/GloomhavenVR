@@ -6,13 +6,19 @@ This module recovers those exact interfaces before an open-source DXBC compiler
 translates the instruction stream. Unknown layouts stop conversion explicitly.
 """
 import ast
+import codecs
 import hashlib
+import importlib.util
 import json
 import collections
 from pathlib import Path
 import re
 import struct
 import subprocess
+
+_progress_spec = importlib.util.spec_from_file_location("quest_full_shader_progress", Path(__file__).with_name("progress.py"))
+build_progress = importlib.util.module_from_spec(_progress_spec)
+_progress_spec.loader.exec_module(build_progress)
 
 
 class ShaderRecoveryError(RuntimeError):
@@ -721,7 +727,7 @@ def restore_uniforms(hlsl, interface, input_signature=(), resource_layouts=()):
     return "\n".join(declarations.values()) + "\n" + hlsl, observed
 
 
-def original_programs(shader, unitypy=None):
+def original_programs(shader, unitypy=None, *, progress_scope=None):
     """Read actual D3D11 program blocks and retain every pass/keyword alias."""
     if unitypy is None:
         import UnityPy as unitypy
@@ -750,10 +756,16 @@ def original_programs(shader, unitypy=None):
         raise ShaderRecoveryError("Malformed original shader program directory.")
     table = [struct.unpack_from("<3i", directory, 4 + index * 12) for index in range(count)]
     cache, records = {}, []
+    stages = (("vertex", "progVertex"), ("fragment", "progFragment"),
+              ("geometry", "progGeometry"), ("hull", "progHull"), ("domain", "progDomain"))
+    total = sum(len(owner.m_SubPrograms) for subshader in shader.m_ParsedForm.m_SubShaders
+        for shader_pass in subshader.m_Passes for _, attribute in stages
+        if (owner := getattr(shader_pass, attribute, None)) is not None) if progress_scope else 0
+    counter = build_progress.Counter("prepare-items:" + progress_scope, total, "variants",
+        shader.m_ParsedForm.m_Name) if progress_scope else None
     for subshader_index, subshader in enumerate(shader.m_ParsedForm.m_SubShaders):
         for pass_index, shader_pass in enumerate(subshader.m_Passes):
-            for stage, attribute in (("vertex", "progVertex"), ("fragment", "progFragment"),
-                                     ("geometry", "progGeometry"), ("hull", "progHull"), ("domain", "progDomain")):
+            for stage, attribute in stages:
                 owner = getattr(shader_pass, attribute, None)
                 if owner is None:
                     continue
@@ -785,6 +797,8 @@ def original_programs(shader, unitypy=None):
                                     "keywords": sorted(keywords), "interface": interface,
                                     "originalDxbcSha256": actual["dxbcSha256"], "raw": actual["raw"], "dxbc": actual["dxbc"],
                                     "programVersion": actual["programVersion"], "programType": actual["programType"]})
+                    if counter: counter.add(1, shader.m_ParsedForm.m_Name + " / " + stage)
+    if counter: counter.finish()
     return records
 
 
@@ -817,7 +831,7 @@ def _objects(identities):
     return objects
 
 
-def native_assets(game_data, identities, cab_bundles, unitypy=None, classes=(48,)):
+def native_assets(game_data, identities, cab_bundles, unitypy=None, classes=(48,), *, progress_scope=None):
     """Yield exact original native objects selected by captured export identities."""
     if unitypy is None:
         import UnityPy as unitypy
@@ -834,7 +848,9 @@ def native_assets(game_data, identities, cab_bundles, unitypy=None, classes=(48,
         if game_data not in source.parents or not source.is_file():
             raise ShaderRecoveryError("Original shader container is absent/outside owned game: " + relative)
         groups[relative][key] = obj
+    counter = build_progress.Counter("prepare-items:" + progress_scope, len(groups), "containers") if progress_scope else None
     for relative, targets in sorted(groups.items()):
+        if counter: counter.update(counter.done, relative, force=True)
         environment = unitypy.load(str(game_data / relative))
         found = set()
         for original in environment.objects:
@@ -847,6 +863,30 @@ def native_assets(game_data, identities, cab_bundles, unitypy=None, classes=(48,
             yield targets[key], original, relative
         if found != targets.keys():
             raise ShaderRecoveryError("Original shader identities are missing from their actual CAB: " + repr(sorted(targets.keys() - found)))
+        if counter: counter.add(1, relative)
+    if counter: counter.finish()
+
+
+def inventory_identities(identities):
+    """Read the same captured identities once for Shader and Material planning.
+
+    Original inventory parsed the large ledger again before materials. The same
+    invocation-local rows retain its original object ordering/validation while
+    measured bounded reads expose the existing parse to the running Wizard.
+    """
+    if not isinstance(identities, (str, Path)):
+        return identities
+    path = Path(identities)
+    counter = build_progress.Counter("prepare-items:campaign-shaders-identities", path.stat().st_size, "bytes", path.name)
+    chunks, decoder = [], codecs.getincrementaldecoder("utf-8")()
+    with path.open("rb") as source:
+        while block := source.read(1024 * 1024):
+            chunks.append(decoder.decode(block))
+            counter.add(len(block))
+        chunks.append(decoder.decode(b"", final=True))
+    value = json.loads("".join(chunks))
+    counter.finish()
+    return value.get("identities", value) if isinstance(value, dict) else value
 
 
 def inventory(project, game_data, identities, cab_bundles, cache, *, unitypy=None,
@@ -866,7 +906,13 @@ def inventory(project, game_data, identities, cab_bundles, cache, *, unitypy=Non
     binder_sha256 = hashlib.sha256(binder_source.encode()).hexdigest()
     bound_cache = {}
     shaders, errors, unique_programs, total_aliases = [], [], set(), 0
-    for obj, original, source_container in native_assets(game_data, identities, cab_bundles, unitypy):
+    identity_rows = inventory_identities(identities)
+    object_index = _objects(identity_rows)
+    shader_count = sum(obj["classId"] == 48 for obj in object_index.values())
+    shader_counter = build_progress.Counter("prepare-items:campaign-shaders-inventory", shader_count, "shaders")
+    for obj, original, source_container in native_assets(game_data, identity_rows, cab_bundles, unitypy,
+            progress_scope="campaign-shaders-containers"):
+        shader_counter.update(shader_counter.done, obj["path"], force=True)
         shader = original.read()
         form = attrs.asdict(shader.m_ParsedForm)
         record = {"guid": obj["guid"], "assetPath": obj["path"], "originalName": shader.m_ParsedForm.m_Name,
@@ -882,11 +928,16 @@ def inventory(project, game_data, identities, cab_bundles, cache, *, unitypy=Non
                 record["nativePasses"].append({"subshader": si, "pass": pi, "type": shader_pass["m_Type"],
                                              "state": shader_pass["m_State"], "tags": shader_pass["m_Tags"],
                                              "useName": shader_pass["m_UseName"], "textureName": shader_pass["m_TextureName"]})
+        variant_counter = None
         try:
-            programs = original_programs(shader, unitypy)
+            programs = original_programs(shader, unitypy, progress_scope="campaign-shaders-extract")
+            variant_counter = build_progress.Counter("prepare-items:campaign-shaders-variants", len(programs), "variants",
+                record["originalName"])
             total_aliases += len(programs)
             _json(cache / "forms" / (record["originalParsedFormSha256"] + ".json"), form)
             for program in programs:
+                variant_counter.update(variant_counter.done, record["originalName"] + " / " + str(program.get("stage", "original")) +
+                    " / " + str(program.get("blobIndex", "native")))
                 unique_programs.add(program["originalDxbcSha256"])
                 _, chunks = dxbc_container(program["dxbc"])
                 outputs = signature(chunks[b"OSGN"]) if b"OSGN" in chunks else []
@@ -940,21 +991,30 @@ def inventory(project, game_data, identities, cab_bundles, cache, *, unitypy=Non
                     variant["boundHlslSha256"] = proof["boundHlslSha256"]
                     variant["outputInterfaceAdapters"] = proof.get("outputInterfaceAdapters", [])
                 record["variants"].append(variant)
+                variant_counter.add(1)
+            variant_counter.finish()
             record["originalDxbcSha256"] = sorted({row["originalDxbcSha256"] for row in programs})
             record["allOriginalInstructionsExtracted"] = True
             record["allOriginalInterfacesBound"] = bool(bind_programs)
         except (ShaderRecoveryError, ValueError, KeyError, TypeError, IndexError, struct.error) as error:
+            if variant_counter: variant_counter.fail(error)
             record["status"] = "original-instruction-recovery-blocked"
             record["recoveryError"] = str(error)
             errors.append({"guid": obj["guid"], "name": record["originalName"], "assetPath": obj["path"], "error": str(error)})
         shaders.append(record)
+        shader_counter.add(1, record["originalName"])
         _json(cache / "progress.json", {"schema": 1, "shaderCount": len(shaders), "blockedShaderCount": len(errors),
                                        "uniqueOriginalProgramCount": len(unique_programs), "originalProgramAliasCount": total_aliases})
+    if errors:
+        shader_counter.fail(ShaderRecoveryError("Original instruction recovery has blocked banks."))
+    else:
+        shader_counter.finish()
     _json(cache / "original-shader-stages.json", {"schema": 1, "shaders": shaders, "errors": errors,
                                                  "uniqueOriginalProgramCount": len(unique_programs),
                                                  "originalProgramAliasCount": total_aliases})
     materials, binary_materials = [], []
-    object_index = _objects(identities)
+    material_counter = build_progress.Counter("prepare-items:campaign-shaders-materials",
+        sum(obj["classId"] == 21 for obj in object_index.values()), "materials")
     for obj in object_index.values():
         if obj["classId"] != 21:
             continue
@@ -962,25 +1022,32 @@ def inventory(project, game_data, identities, cab_bundles, cache, *, unitypy=Non
             text = (project / obj["path"]).read_text()
         except UnicodeDecodeError:
             binary_materials.append(obj)
+            material_counter.add(1, obj["path"])
             continue
         shader = re.search(r"^  m_Shader: \{fileID: (-?\d+), guid: ([0-9a-f]{32}), type: \d+\}$", text, re.M)
         if shader is None:
             if re.search(r"^  m_Shader: \{fileID: 0\}$", text, re.M):
                 binary_materials.append(obj)
+                material_counter.add(1, obj["path"])
                 continue
             raise ShaderRecoveryError("Original material has no actual shader PPtr: " + obj["path"])
         builtin = shader[2] in ENGINE_SHADER_GUIDS
         materials.append({"guid": obj["guid"], "assetPath": obj["path"], "shaderGuid": shader[2],
                           **({"originalEngineBuiltinShader": True, "shaderFileId": int(shader[1])} if builtin else {}),
                           "originalSerializedFile": obj["collection"], "originalPathId": obj["pathId"]})
+        material_counter.add(1, obj["path"])
+    material_counter.finish()
     if binary_materials:
         rows = [{"guid": obj["guid"], "path": obj["path"], "objects": [obj]} for obj in binary_materials]
-        for obj, original, _ in native_assets(game_data, rows, cab_bundles, unitypy, (21,)):
+        binary_counter = build_progress.Counter("prepare-items:campaign-shaders-binary-materials", len(binary_materials), "materials")
+        for obj, original, _ in native_assets(game_data, rows, cab_bundles, unitypy, (21,),
+                progress_scope="campaign-shaders-material-containers"):
             pointer = original.read().m_Shader
             if not pointer.m_PathID:
                 materials.append({"guid": obj["guid"], "assetPath": obj["path"], "shaderGuid": None,
                                   "originalShaderNull": True, "originalSerializedFile": obj["collection"],
                                   "originalPathId": obj["pathId"]})
+                binary_counter.add(1, obj["path"])
                 continue
             collection = original.assets_file.name
             if pointer.m_FileID:
@@ -994,12 +1061,15 @@ def inventory(project, game_data, identities, cab_bundles, cache, *, unitypy=Non
                                   "shaderGuid": "0" * 16 + "e" + "0" * 15, "shaderFileId": 10101,
                                   "originalEngineBuiltinShader": True, "nativeFontImporterSubObject": True,
                                   "originalSerializedFile": obj["collection"], "originalPathId": obj["pathId"]})
+                binary_counter.add(1, obj["path"])
                 continue
             if target is None or target["classId"] != 48:
                 raise ShaderRecoveryError("Native font material lost its original shader identity: " + obj["path"] + " " + collection + ":" + str(pointer.m_PathID))
             materials.append({"guid": obj["guid"], "assetPath": obj["path"], "shaderGuid": target["guid"],
                               "nativeFontImporterSubObject": True,
                               "originalSerializedFile": obj["collection"], "originalPathId": obj["pathId"]})
+            binary_counter.add(1, obj["path"])
+        binary_counter.finish()
     report = {"schema": 1, "scope": "campaign", "shaders": shaders, "materials": materials, "renderCases": [],
               "shaderCount": len(shaders), "materialCount": len(materials), "uniqueOriginalProgramCount": len(unique_programs),
               "originalProgramAliasCount": total_aliases, "blockedShaderCount": len(errors), "errors": errors,
