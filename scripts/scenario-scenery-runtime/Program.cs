@@ -846,7 +846,6 @@ public static class InteractionProgram
             foreach(var root in proceduralScene.GetRootGameObjects())UnityEngine.Object.DestroyImmediate(root);
             SceneManager.UnloadSceneAsync(proceduralScene);
         }
-        _count += ArchitectureProgram.Run();
         return _count;
     }
 }

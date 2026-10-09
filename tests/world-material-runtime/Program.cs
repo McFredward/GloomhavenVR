@@ -134,15 +134,6 @@ public static partial class WorldMaterialProgram
         {
             first.SetFloat(effect,1f);Center(camera);Check(source.sharedMaterial==first,"live original effect retains native material family: "+effect);first.SetFloat(effect,0f);Center(camera);
         }
-        foreach(string effect in new[]{"_Fresnel_On","_AdvancedEmission","_MossTexture_ON","_MossTexture_Noise_ON","_ToggleDissolve","_Cutout_VertexPos_Influence"})
-        {
-            var copied=new MaterialPropertyBlock();copied.SetFloat(effect,1f);
-            Check(WorldMaterialBudget.HasUnsupportedBlock(copied,source.sharedMaterial),
-                "geometry consumers retain the world material effect veto for already-read native blocks: "+effect);
-        }
-        var safeCopied=new MaterialPropertyBlock();safeCopied.SetColor("_Tint",Color.green);
-        Check(!WorldMaterialBudget.HasUnsupportedBlock(safeCopied,source.sharedMaterial),
-            "geometry consumers retain safe native color overrides without extra renderer block reads");
         block.SetFloat("_AddVertexAnim",1f);source.SetPropertyBlock(block,1);Center(camera);
         Check(source.sharedMaterials[1]==second&&WorldMaterialBudget.IsOwnedVariant(source.sharedMaterials[0]),"live native effect veto is per material subslot and preserves independent safe slot");
         source.SetPropertyBlock(null,1);Center(camera);
@@ -152,15 +143,15 @@ public static partial class WorldMaterialProgram
             first.SetShaderPassEnabled(pass,true);Center(camera);Check(WorldMaterialBudget.IsOwnedVariant(source.sharedMaterial),"native pass re-enable regains safe world shading: "+pass);
         }
         var dynamicTexture=new RenderTexture(1,1,0);dynamicTexture.Create();block.Clear();block.SetTexture("_MainTex",dynamicTexture);source.SetPropertyBlock(block,1);Center(camera);
-        Check(source.sharedMaterials[1]==second&&WorldMaterialBudget.IsOwnedVariant(source.sharedMaterials[0]),"current per-slot native video/render texture remains original while unrelated static slot is simplified");
-        Check(WorldMaterialBudget.HasUnsupportedBlock(block,first),"geometry consumers refuse a native render-texture override from the already-read block");
-        source.SetPropertyBlock(null,1);Object.DestroyImmediate(dynamicTexture);Center(camera);
+        Check(source.sharedMaterials[1]==second&&WorldMaterialBudget.IsOwnedVariant(source.sharedMaterials[0]),"current per-slot native video/render texture remains original while unrelated static slot is simplified");source.SetPropertyBlock(null,1);Object.DestroyImmediate(dynamicTexture);Center(camera);
         first.EnableKeyword("_WORLDSPACE_ON");first.EnableKeyword("_DIFUSE_ALPHA_ON_ON");Center(camera);
         Check(source.sharedMaterial==first,"unproven native worldspace alpha program combination retains original shader");
         first.DisableKeyword("_WORLDSPACE_ON");first.DisableKeyword("_DIFUSE_ALPHA_ON_ON");
         var unknown=source.gameObject.AddComponent<UnknownNativeAnimation>();Center(camera);
         Check(source.sharedMaterial==first,"unknown scripted animation remains native despite positive world ancestry");Object.DestroyImmediate(unknown);
         Families(source,first,second,camera);
+        EmptyBlockParity(source,first,second,camera);
+        CurrentOwnerParity(room,source,first,second,camera);
         NativeScenarioScopes(host,room,source,first,second,camera);
         MapScopes(host,originalMesh,first,camera);
         Scale(host,room,source,first,second,camera);
@@ -283,10 +274,7 @@ public static partial class WorldMaterialProgram
         Check(WorldMaterialBudget.IsOwnedVariant(source.sharedMaterial)&&source.sharedMaterial.GetFloat("_GHVRWorldNativeRoute")==9,"opaque Standard black RGB emission remains supported independently from alpha");
         var texture=new Texture2D(1,1);var block=new MaterialPropertyBlock();block.SetTexture("_EmissionMap",texture);source.SetPropertyBlock(block);Center(camera);
         Check(WorldMaterialBudget.IsOwnedVariant(source.sharedMaterial),"Standard texture-valued MPB emission channel is never misread as AMP float switch");
-        Check(!WorldMaterialBudget.HasUnsupportedBlock(block,source.sharedMaterial),"geometry consumers preserve Standard texture-typed emission admission");
-        block.SetFloat("_Mode",1f);source.SetPropertyBlock(block);Center(camera);
-        Check(WorldMaterialBudget.HasUnsupportedBlock(block,standard),"geometry consumers veto a native Standard blend-mode override");
-        Check(source.sharedMaterial==standard,"native MPB blend mode override remains original rather than fixed opaque private pass");source.SetPropertyBlock(null);
+        block.SetFloat("_Mode",1f);source.SetPropertyBlock(block);Center(camera);Check(source.sharedMaterial==standard,"native MPB blend mode override remains original rather than fixed opaque private pass");source.SetPropertyBlock(null);
         standard.EnableKeyword("_ALPHATEST_ON");Center(camera);Check(source.sharedMaterial==standard,"actual stripped native Standard alpha-test program is not invented by private shader");standard.DisableKeyword("_ALPHATEST_ON");
         standard.SetFloat("_Mode",1f);Center(camera);Check(source.sharedMaterial==standard,"unsupported actual native Standard cutout mode remains original");
         source.sharedMaterials=new[]{first,second};Center(camera);Object.DestroyImmediate(standard);Object.DestroyImmediate(texture);

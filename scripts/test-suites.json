@@ -2539,16 +2539,37 @@
       "weight": 40
     },
     {
-      "id": "environment-catalog647",
+      "id": "native-bugfix-items",
       "command": [
         "python3",
-        "scripts/check-environment-catalog647.py",
-        "--morph"
+        "scripts/native-bugfix-items-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 30
+    },
+    {
+      "id": "native-bugfix-cards",
+      "command": [
+        "python3",
+        "scripts/native-bugfix-cards-runtime/run.py"
       ],
       "groups": [
         "local"
       ],
       "weight": 40
+    },
+    {
+      "id": "native-bugfix-map-audit",
+      "command": [
+        "python3",
+        "scripts/check-native-bugfix-map-audit.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 10
     }
   ]
 }

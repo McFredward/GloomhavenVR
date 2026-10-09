@@ -1613,7 +1613,7 @@ internal static class ConfigCatalog
         return v.ToString("0." + new string('#', decimals), CultureInfo.InvariantCulture);
     }
 
-    private static double Component(object? boxed, int c) => boxed switch
+    internal static double Component(object? boxed, int c) => boxed switch
     {
         Vector2 v2 => c == 0 ? v2.x : v2.y,
         Vector3 v3 => c == 0 ? v3.x : c == 1 ? v3.y : v3.z,
@@ -1701,7 +1701,7 @@ internal static class ConfigCatalog
         }
     }
 
-    private static object? WithComponent(object? boxed, int c, float v)
+    internal static object? WithComponent(object? boxed, int c, float v)
     {
         switch (boxed)
         {

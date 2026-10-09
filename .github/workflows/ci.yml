@@ -161,6 +161,11 @@ jobs:
           python3 -m unittest discover -s tests -p 'test_parallel_ci.py'
           python3 -m unittest discover -s tests -p 'test_parallel_test_suites.py'
 
+      - name: .NET harness executable regression tests
+        # setup-dotnet exposes the SDK on PATH; its installation need not be
+        # ~/.dotnet. Keep local and hosted executable lookup covered together.
+        run: python3 -m unittest discover -s tests -p 'test_ci_dotnet*.py'
+
       - name: Release upload recovery regression tests
         run: python3 -m unittest discover -s tests -p 'test_release_upload.py'
 

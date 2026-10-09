@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems><Nullable>enable</Nullable>
+    <NoWarn>SYSLIB0050</NoWarn><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(FixtureDir)/Program.cs" />
+    <Reference Include="MapRuleLibrary"><HintPath>$(GameManaged)/MapRuleLibrary.dll</HintPath></Reference>
+    <Reference Include="ScenarioRuleLibrary"><HintPath>$(GameManaged)/ScenarioRuleLibrary.dll</HintPath></Reference>
+    <Reference Include="SharedLibrary"><HintPath>$(GameManaged)/SharedLibrary.dll</HintPath></Reference>
+  </ItemGroup>
+</Project>

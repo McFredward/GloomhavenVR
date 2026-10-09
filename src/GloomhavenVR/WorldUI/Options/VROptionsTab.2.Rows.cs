@@ -111,7 +111,7 @@ internal static partial class VROptionsTab
     /// catalog clamps against LIVE ranges, so one setting can move another (BoardPitchMin against
     /// BoardPitchMax), and only the labels used to follow.</para>
     /// </summary>
-    private static readonly List<(Slider bar, ConfigCatalog.ConfigItem item)> Sliders = new(32);
+    private static readonly List<(Slider bar, ConfigCatalog.ConfigItem item, int component)> Sliders = new(32);
 
     /// <summary>
     /// Components on a cloned row that belong to the GAME's binding of it. Matched by type NAME
@@ -1295,6 +1295,12 @@ internal static partial class VROptionsTab
             && BuildChoiceRow(parent, item, caption, hintKey))
             return;
 
+        // The wrist position has a practical drag range, without clamping saved
+        // vectors or changing the other axes. Reuse the ordinary bar/arrow kit.
+        if (item.Section == "Cards" && item.Key == "WristBoardOffsetMeters"
+            && BuildBarAndArrowsRow(parent, item, caption, hintKey, component, -.5f, .5f))
+            return;
+
         // A bar needs a scalar with both ends known; a vector component or an open-ended number has
         // no bar to sit on and gets the arrows alone. …and two bounded scalars ASK for the arrows
         // alone anyway (PrefersStepper, VROptionsTab.4.Curated.cs): a bar is a gesture, a stepper is
@@ -1561,7 +1567,8 @@ internal static partial class VROptionsTab
     /// the ONLY bar-less path a bounded scalar has now, which is why it must keep working.</para>
     /// </summary>
     private static bool BuildBarAndArrowsRow(Transform parent, ConfigCatalog.ConfigItem item,
-                                             string? caption, string? hintKey)
+                                             string? caption, string? hintKey, int component = 0,
+                                             double? minimum = null, double? maximum = null)
     {
         GameObject row = StampRow(_toggleTemplate, parent, out TMP_Text? title, out Transform? option);
         if (option == null || _sliderControl == null)
@@ -1573,7 +1580,9 @@ internal static partial class VROptionsTab
 
         if (title != null)
         {
-            title.text = Caption(item, caption);
+            title.text = item.Components > 1
+                ? $"{Caption(item, caption)} · {ConfigCatalog.ComponentLabel(item, component)}"
+                : Caption(item, caption);
             ApplyOptionCaption(title);
             IndentDependent(title, item);
             ProbeCaptionFit(title, item.Key);
@@ -1605,7 +1614,7 @@ internal static partial class VROptionsTab
         // hold is not what makes this row usable — but a row where the arrows behave differently
         // from every other row's arrows is its own small lie, and the fine steps ConfigSteps hands
         // out now are exactly as fine on a bounded dial as on an unbounded one.
-        BuildArrow(strip, flip: true, () => Edit(item, 0, -1), repeat: true);
+        BuildArrow(strip, flip: true, () => Edit(item, component, -1), repeat: true);
 
         // The bar gets its own holder so PlaceControl can stretch the harvested slider into it
         // while the layout group decides how wide "it" is: the arrows keep their 26 px, the bar
@@ -1625,20 +1634,23 @@ internal static partial class VROptionsTab
         }
 
         slider.onValueChanged.RemoveAllListeners();
-        slider.minValue = (float)item.Min;
-        slider.maxValue = (float)item.Max;
+        double min = minimum ?? item.Min;
+        double max = maximum ?? item.Max;
+        slider.minValue = (float)min;
+        slider.maxValue = (float)max;
         slider.wholeNumbers = item.Integral;
-        slider.SetValueWithoutNotify(ReadNumber(item));
-        slider.onValueChanged.AddListener(v => Apply(item, () => WriteNumber(item, SnapToStep(item, v))));
+        slider.SetValueWithoutNotify(ReadNumber(item, component));
+        slider.onValueChanged.AddListener(v => Apply(item,
+            () => WriteNumber(item, SnapToStep(item, v, min, max), component)));
 
-        BuildArrow(strip, flip: false, () => Edit(item, 0, +1), repeat: true);
+        BuildArrow(strip, flip: false, () => Edit(item, component, +1), repeat: true);
 
         // Every non-caption label in the row follows the live value — the slider's own amount text
         // included, which is the number the player reads between the arrows. Registering the
         // SLIDER as well is what keeps the bar's handle under an ARROW press: Apply repaints the
         // labels, and without this the handle would sit where the last drag left it.
-        BindValueLabels(row, title, item, component: 0);
-        Sliders.Add((slider, item));
+        BindValueLabels(row, title, item, component);
+        Sliders.Add((slider, item, component));
 
         AttachTooltip(row, item, title, hintKey);
         return true;
@@ -1650,13 +1662,13 @@ internal static partial class VROptionsTab
     /// feature. A step that is zero or worse (there is no such entry today, but a future
     /// <see cref="ConfigSteps"/> line could produce one) leaves the value exactly as dragged.
     /// </summary>
-    private static float SnapToStep(ConfigCatalog.ConfigItem item, float value)
+    private static float SnapToStep(ConfigCatalog.ConfigItem item, float value, double min, double max)
     {
         double step = item.BaseStep;
         if (step <= 0d || double.IsNaN(step) || double.IsInfinity(step))
             return value;
-        double snapped = item.Min + Math.Round((value - item.Min) / step) * step;
-        return (float)Math.Min(item.Max, Math.Max(item.Min, snapped));
+        double snapped = min + Math.Round((value - min) / step) * step;
+        return (float)Math.Min(max, Math.Max(min, snapped));
     }
 
     /// <summary>
@@ -1803,12 +1815,12 @@ internal static partial class VROptionsTab
         // drag and re-enter Apply.
         for (int i = 0; i < Sliders.Count; i++)
         {
-            (Slider bar, ConfigCatalog.ConfigItem owner) = Sliders[i];
+            (Slider bar, ConfigCatalog.ConfigItem owner, int component) = Sliders[i];
             if (bar == null)
                 continue;
             try
             {
-                bar.SetValueWithoutNotify(ReadNumber(owner));
+                bar.SetValueWithoutNotify(ReadNumber(owner, component));
             }
             catch
             {
@@ -1827,11 +1839,13 @@ internal static partial class VROptionsTab
 
 
 
-    private static float ReadNumber(ConfigCatalog.ConfigItem item)
+    private static float ReadNumber(ConfigCatalog.ConfigItem item, int component = 0)
     {
         try
         {
-            return Convert.ToSingle(item.Entry.BoxedValue);
+            return item.Kind == ConfigCatalog.ConfigKind.Components
+                ? (float)ConfigCatalog.Component(item.Entry.BoxedValue, component)
+                : Convert.ToSingle(item.Entry.BoxedValue);
         }
         catch
         {
@@ -1844,8 +1858,13 @@ internal static partial class VROptionsTab
     /// and the setting silently stops responding, so the conversion happens here where it can be
     /// reported.
     /// </summary>
-    private static void WriteNumber(ConfigCatalog.ConfigItem item, float value)
+    private static void WriteNumber(ConfigCatalog.ConfigItem item, float value, int component = 0)
     {
+        if (item.Kind == ConfigCatalog.ConfigKind.Components)
+        {
+            item.Entry.BoxedValue = ConfigCatalog.WithComponent(item.Entry.BoxedValue, component, value);
+            return;
+        }
         Type type = item.Entry.SettingType;
         item.Entry.BoxedValue = item.Integral
             ? Convert.ChangeType(Mathf.RoundToInt(value), type)

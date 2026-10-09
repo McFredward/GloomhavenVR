@@ -75,9 +75,6 @@ public static partial class TerrainProgram
     public static int Run()
     {
         PerfConfig.SharedEnvironmentMaterialReadsOn=false; PerfConfig.TerrainCameraSourceLimit=0; PerfConfig.TerrainSubstitutionOn=true;
-        ScenarioTerrainBudget.ConfigureRoomArchitecture(() => false, () => 100);
-        ScenarioTerrainBudget.ConfigureRoomFloorPreparation(() => false);
-        ScenarioTerrainBudget.ConfigureBlockEffectAdmission(TerrainWorldBlockProof.HasUnsupportedBlock);
         _checks=0; Bank.Clear(); ProceduralWall.m_WallCache.Clear(); VRLog.Faults.Clear(); BundleShaders.Throw=false;
         PerfConfig.CheapWallShadingOn=true; PerfConfig.TerrainDetailPercent=100; PerfConfig.DistantTerrainDetailPercent=100;
         var host=new GameObject("GloomhavenVR.TerrainOwner"); var scenario=new GameObject("Scenario"); scenario.AddComponent<ProceduralScenario>();
@@ -340,7 +337,7 @@ public static partial class TerrainProgram
         ShaderPixels(camera);
         NoisePixels(camera);
         Check(VRLog.Faults.FindAll(text=>text.Contains("presentation failed")).Count==1,"optional failure reports once with useful normal-level context");
-        scenario.SetActive(false); NativeCoverage(camera); RoomArchitectureCoverage(camera); RoomFloorScale(camera); RoomOwnerAdmission(camera); NativeRoomCoverage(camera);
+        scenario.SetActive(false); NativeCoverage(camera);
         Object.DestroyImmediate(host); Object.DestroyImmediate(scenario); Object.DestroyImmediate(camera.targetTexture); Object.DestroyImmediate(cameraGo); Object.DestroyImmediate(material); DisposeBank();
         return _checks;
     }
@@ -356,7 +353,7 @@ public static partial class TerrainProgram
         var variant=new Material(original) {name="Fixture.PrivateWorldMaterial"};
         bool allowed=true,world=true;
         int calls=0;
-        ScenarioTerrainBudget.ConfigureWorldMaterialIntegration(material=>{calls++;return allowed&&material.renderQueue<=2500?variant:material;},
+        ScenarioTerrainBudget.ConfigureWorldMaterialIntegration(material=>{calls++;return allowed?variant:material;},
             ()=>new MaterialPass(),()=>world,material=>material==variant);
         ScenarioTerrainBudget.QueueRoot(source.gameObject); Tick(host);
         try
@@ -512,7 +509,7 @@ public static partial class TerrainProgram
         ScenarioTerrainBudget.ConfigureCanonicalMaterial(material=>
         { canonicalReads++;return material==alias?native:material; });
         ScenarioTerrainBudget.ConfigureWorldMaterialIntegration(material=>
-        { variantReads++; variant.CopyPropertiesFromMaterial(material); return allowed&&material.renderQueue<=2500?variant:material; },
+        { variantReads++; variant.CopyPropertiesFromMaterial(material); return allowed?variant:material; },
             ()=>new MaterialPass(),()=>{modeReads++;return true;},material=>material==variant);
         try
         {
@@ -546,7 +543,7 @@ public static partial class TerrainProgram
             { canonicalReads++;return material==alias?native:material; });
             PerfConfig.SharedEnvironmentMaterialReadsOn=false; canonicalReads=variantReads=modeReads=0;
             Check(DuringRender(camera,()=>original.forceRenderingOff&&clones.TrueForAll(clone=>clone.forceRenderingOff))
-                &&canonicalReads==96&&variantReads==96&&modeReads==1,
+                &&canonicalReads==192&&variantReads==96&&modeReads==1,
                 "shared-read off restores repeated canonical and world factory calls for the complete legacy terrain path");
         }
         finally
@@ -562,9 +559,9 @@ public static partial class TerrainProgram
     }
     private static void PropertyBridgeChannels(GameObject host,GameObject scenario,Material material)
     {
-        // The legacy wall-only owner never admits floors. Directly execute the
-        // shared proxy helper to pin both shader safety channels independently
-        // of the separately verified room-architecture floor admission.
+        // Floors are intentionally never admitted by the production owner. Directly
+        // execute the shared proxy helper to pin its compatibility contract for the
+        // world and legacy shaders, without broadening actual floor admission.
         var floor=Surface(scenario,"CV_Floor_Basic",new Vector3(12,0,0),material,false);
         Type type=typeof(ScenarioTerrainBudget).GetNestedType("Surface",BindingFlags.NonPublic)!;
         object surface=Activator.CreateInstance(type,BindingFlags.Instance|BindingFlags.NonPublic,null,

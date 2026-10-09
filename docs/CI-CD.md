@@ -58,6 +58,12 @@ against freshly fetched refs; no force-push is used. Nothing commits to `main`.
 Full CI and release builds explicitly install `ripgrep`; hosted runner images are not
 assumed to provide the `rg` command.
 
+The graphics-profile, render-quality and player-help harnesses resolve an explicit
+`DOTNET` override first, then the SDK exposed on `PATH`, then the local
+`~/.dotnet/dotnet` fallback. Hosted SDKs are not assumed to live in the developer's
+home directory. CI runs executable-lookup regressions before building, including
+a home directory without a local SDK.
+
 `global.json` prefers stable .NET SDK 8.0.4xx and permits a later SDK family when absent.
 Both workflows install .NET 8 and verify that 8.0.4xx was selected. Local .NET 10-only
 installations are supported by the major roll-forward policy introduced in build 496.

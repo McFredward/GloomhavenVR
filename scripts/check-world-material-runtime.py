@@ -87,11 +87,16 @@ def main():
     world_combined='\n'.join(value for name,value in sources.items() if name!='WallAttachmentDelivery.cs')
     assert 'new Mesh' not in world_combined and 'SetPropertyBlock(' not in world_combined and 'forceRenderingOff =' not in world_combined
     assert 'Camera.onPreCull +=' not in combined,'commit must use the final native boundary'
+    # Exact component owners may be stored once; their mutable layer stays live.
+    current_layer='surface.Object.layer' if 'surface.Object.layer' in sources['WorldMaterialBudget.cs'] else 'renderer.gameObject.layer'
+    video_guard=('if (!rendererBlockEmpty && _block.HasTexture(MainTextureId) && _block.GetTexture(MainTextureId) is RenderTexture\n                || !slotBlockEmpty && _slotBlock.HasTexture(MainTextureId) && _slotBlock.GetTexture(MainTextureId) is RenderTexture) return true;'
+        if 'bool rendererBlockEmpty' in sources['WorldMaterialBudget.Materials.cs'] else
+        'if (_block.HasTexture(MainTextureId) && _block.GetTexture(MainTextureId) is RenderTexture\n                || _slotBlock.HasTexture(MainTextureId) && _slotBlock.GetTexture(MainTextureId) is RenderTexture) return true;')
     changes=[
         ('camera-ui-read-pass-bypassed',[('WorldMaterialBudget.cs','using IDisposable timing = PerfMonitor.Scope("WorldMaterial.PreCull");','if (camera != null && camera.name == "UI capture" && camera.commandBufferCount == 0) return;\n                using IDisposable timing = PerfMonitor.Scope("WorldMaterial.PreCull");',1)],'every UI capture retains its actual current native final callback and read-pass lifecycle'),
         ('camera-exclusion-omitted',[('WorldMaterialBudget.cs','if (camera != null && camera.commandBufferCount == 0','if (false && camera != null && camera.commandBufferCount == 0',1)],'two unreachable UI captures perform zero world material mesh scope or prop traversal'),
-        ('camera-current-mask-ignored',[('WorldMaterialBudget.cs','(camera.cullingMask & (1 << renderer.gameObject.layer))','((camera.name == "UI capture" ? (1 << 31) : camera.cullingMask) & (1 << renderer.gameObject.layer))',1)],'current native camera mask change immediately validates newly reachable world sources'),
-        ('camera-current-source-layer-ignored',[('WorldMaterialBudget.cs','(camera.cullingMask & (1 << renderer.gameObject.layer))','(camera.cullingMask & (1 << (camera.name == "UI capture" ? 0 : renderer.gameObject.layer)))',1)],'late native source re-layer into current UI mask immediately retains its native effect'),
+        ('camera-current-mask-ignored',[('WorldMaterialBudget.cs','(camera.cullingMask & (1 << '+current_layer+'))','((camera.name == "UI capture" ? (1 << 31) : camera.cullingMask) & (1 << '+current_layer+'))',1)],'current native camera mask change immediately validates newly reachable world sources'),
+        ('camera-current-source-layer-ignored',[('WorldMaterialBudget.cs','(camera.cullingMask & (1 << '+current_layer+'))','(camera.cullingMask & (1 << (camera.name == "UI capture" ? 0 : '+current_layer+')))',1)],'late native source re-layer into current UI mask immediately retains its native effect'),
         ('camera-native-commands-ignored',[('WorldMaterialBudget.cs','camera.commandBufferCount == 0','true',1)],'late native DrawRenderer beyond UI mask retains complete current world effect validation and pixels'),
         ('camera-current-consumer-ignored',[('WorldMaterialBudget.cs','&& !NeedsSubstituteRevocation())','&& true)',1)],'unreachable original with current differently layered consumer retains same-camera native revocation'),
         ('foreign-hide-ownership-adopted',[('WallAttachmentDelivery.cs','r.enabled = false;\n                _hidByEnable.Add(r);\n            }','r.enabled = false;\n            }\n            _hidByEnable.Add(r);',1)],'foreign disabled renderer without owned hide still drives its native endpoint'),
@@ -132,7 +137,7 @@ def main():
         ('disabled-native-pass-admitted',[('WorldMaterialBudget.Materials.cs',' || !NativePassesEnabled(original)','',1)],'live disabled native material pass remains original: FORWARD'),
         ('disabled-native-fallback-caster-admitted',[('WorldMaterialBudget.Materials.cs','return original.GetShaderPassEnabled("ShadowCaster") && original.GetShaderPassEnabled("CUSTOM_SHADOW_PASS");','return original.GetShaderPassEnabled("CUSTOM_SHADOW_PASS");',1)],'live disabled native material pass remains original: ShadowCaster'),
         ('disabled-native-low-caster-admitted',[('WorldMaterialBudget.Materials.cs','return original.GetShaderPassEnabled("ShadowCaster") && original.GetShaderPassEnabled("CUSTOM_SHADOW_PASS");','return original.GetShaderPassEnabled("ShadowCaster");',1)],'live disabled native material pass remains original: CUSTOM_SHADOW_PASS'),
-        ('video-mpb-admitted',[('WorldMaterialBudget.Materials.cs','if (_block.HasTexture(MainTextureId) && _block.GetTexture(MainTextureId) is RenderTexture\n                || _slotBlock.HasTexture(MainTextureId) && _slotBlock.GetTexture(MainTextureId) is RenderTexture) return true;','/* injected animated texture admission */',1)],'current per-slot native video/render texture remains original'),
+        ('video-mpb-admitted',[('WorldMaterialBudget.Materials.cs',video_guard,'/* injected animated texture admission */',1)],'current per-slot native video/render texture remains original'),
         ('off-read-pass-allocates',[('WorldMaterialBudget.cs','if (!Requested && _originalByVariant.Count == 0) return EmptyPass.Instance;','/* injected allocating Off pass */',1)],'settled Off reuses a no-op read pass'),
         ('off-renderer-material-read',[('WorldMaterialBudget.cs','if (_originalByVariant.Count == 0) return false;','/* injected unused native Off slot read */',1)],'settled Off performs no native renderer slot reads'),
         ('off-scene-inventory',[('WorldMaterialBudget.cs','private void SceneLoaded(Scene scene, LoadSceneMode mode) { if (Requested) Seed(); }','private void SceneLoaded(Scene scene, LoadSceneMode mode) { if (VRSession.IsRunning) Seed(); }',1)],'settled Off additive scene loading performs no scene material inventory'),
@@ -157,6 +162,22 @@ def main():
             ('WorldMaterialBudget.cs','refused && (!surface.Refused || NeedsSubstituteRevocation())','refused && (!surface.Refused || NeedsSubstituteRevocation() && bool.Parse("false"))',1)],'successive actual camera culls revoke each renewed scope substitute, eye=1'),
         ('prepared-membership-used-for-revocation',[('WorldMaterialBudget.cs','needsRevocation = _substituteRevocation(renderer);','needsRevocation = HasSubstitute();',1)],'unchanged prepared-only refused source does not revoke or re-adopt'),
     ]
+    if 'bool rendererBlockEmpty' in sources['WorldMaterialBudget.Materials.cs']:
+        changes.extend([
+            ('nonempty-renderer-block-skipped',[('WorldMaterialBudget.Materials.cs','bool rendererBlockEmpty = _block.isEmpty;','bool rendererBlockEmpty = true;',1)],
+                'native MPB blend mode override remains original rather than fixed opaque private pass'),
+            ('nonempty-slot-block-skipped',[('WorldMaterialBudget.Materials.cs','bool slotBlockEmpty = _slotBlock.isEmpty;','bool slotBlockEmpty = true;',1)],
+                'live native effect veto is per material subslot'),
+            ('either-empty-block-skips-both',[('WorldMaterialBudget.Materials.cs','if (rendererBlockEmpty && slotBlockEmpty) return false;','if (rendererBlockEmpty || slotBlockEmpty) return false;',1)],
+                'live native effect veto is per material subslot'),
+        ])
+    if 'string name = node.name;' in sources['WorldMaterialBudget.Scope.cs']:
+        changes.append(('scope-name-cross-eye-stale',[
+            ('WorldMaterialBudget.Scope.cs','private readonly List<Transform> _ancestry = new();',
+                'private readonly List<Transform> _ancestry = new();\n        private readonly Dictionary<Transform,string> _cachedNames = new();',1),
+            ('WorldMaterialBudget.Scope.cs','string name = node.name;',
+                'string name = _cachedNames.TryGetValue(node, out string cached) ? cached : _cachedNames[node] = node.name;',1)],
+            'same native Transform renamed to Preview immediately restores original material ownership'))
     variants=[('production',sources,'')]
     if not args.production_only:
         for name,edits,expected in changes:

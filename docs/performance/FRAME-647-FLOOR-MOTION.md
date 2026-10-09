@@ -1,5 +1,9 @@
 # Private room-floor groups follow board motion
 
+**Historical647 experiment; withdrawn in648 after a measured Frame regression.**
+The active renderer and asset bank are restored to646. New647 controls are INERT
+saved-value storage. See [rollback review](../../.planning/FRAME-648-REVIEW.md). The following records647's experiment and proof limits.
+
 The new broader floor groups are outside native Tile/scenario cloning roots.
 Their old combined coordinates were tied to the private Core host, however, so
 moving a Tile changed every source-to-chunk matrix. The group stopped acquiring

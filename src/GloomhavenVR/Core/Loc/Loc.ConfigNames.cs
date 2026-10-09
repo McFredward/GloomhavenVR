@@ -394,7 +394,7 @@ internal static partial class Loc
             ["Cards/TrayScale"] = Pair("Board: size", "Brett: Größe"),
             ["Cards/WristBoardEnabled"] = Pair("Wrist-mounted control board", "Steuerbrett am Handgelenk"),
             ["Cards/WristBoardHand"] = Pair("Wrist board: hand", "Handgelenk-Brett: Hand"),
-            ["Cards/WristBoardOffsetMeters"] = Pair("Wrist board: offset (m)", "Handgelenk-Brett: Versatz (m)"),
+            ["Cards/WristBoardOffsetMeters"] = Pair("Wrist position (m)", "Position am Handgelenk (m)"),
             ["Cards/WristBoardAnglesDegrees"] = Pair("Wrist board: angles (°)", "Handgelenk-Brett: Winkel (°)"),
             ["Cards/WristBoardScale"] = Pair("Wrist board: size", "Handgelenk-Brett: Größe"),
             ["Cards/TrayFollow"] = Pair("Board: follows you", "Brett: folgt dir"),

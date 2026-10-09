@@ -487,11 +487,6 @@ internal static partial class VROptionsTab
                     {
                         new("Optimize", "ScenarioExplicitEnvironmentInstancing", ""),
                         new("Optimize", "ScenarioCheapWallShading", ""),
-                        new("Optimize", "ScenarioRoomArchitecture", ""),
-                        new("Optimize", "ScenarioRoomFloorDetailPercent", ""),
-                        new("Optimize", "ScenarioRoomArchitectureDensityPercent", ""),
-                        new("Optimize", "ScenarioRoomFloorBatching", ""),
-                        new("Optimize", "ScenarioRoomFloorCameraSourceLimitCount", ""),
                         new("Optimize", "ScenarioTerrainSubstitution", ""),
                         new("Optimize", "WorldMaterialQualityModeCount", ""),
                         new("Optimize", "WorldMaterialAmbientPercent", ""),
@@ -891,6 +886,7 @@ internal static partial class VROptionsTab
                         new("Cards", "Board", "control_board"),
                         new("Cards", "TrayScale", "vr_o_trayscale"),
                         new("Cards", "WristBoardEnabled", "vr_o_wristboard"),
+                        new("Cards", "WristBoardOffsetMeters", "vr_o_wristoffset"),
                         new("Cards", "TrayFollow", "vr_o_trayfollow"),
                         // "Finger-Druck: Zusatz-Hitbox …(px)" ([Cards] PokePadPixels, ModBuild 403)
                         // STOOD HERE and is GONE from the curated page — 2026-09-05 ruling (b),

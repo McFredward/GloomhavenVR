@@ -157,6 +157,113 @@ executable original-game profile getters. Actual merged645 full weaving closes
 and832 existing Weaver assertions. Windows end-to-end builds and updated
 headset behavior remain unverified.
 See [APK update workflow and proof limits](QUEST-APK-UPDATES-20261008.md).
+**CI SDK lookup repair, 2026-10-09; runtime remains Build651.**
+
+The recurring649/651 CI failures came from three regression scripts assuming
+`~/.dotnet/dotnet` exists on hosted runners. They now respect explicit `DOTNET`,
+then the installed SDK on `PATH`, then the existing local fallback. All three
+full affected suites pass with an empty temporary home directory. Nine fast
+lookup regressions are required in CI; all original hosted gates remain strict.
+No runtime, asset, wire or build-number change. Scope and evidence:
+[CI-SDK-RESOLUTION-REVIEW.md](CI-SDK-RESOLUTION-REVIEW.md).
+
+**Build651 selected native game UI repairs, 2026-10-09: 1.1.0 development candidate.**
+
+Every patch in the supplied Bug Fixes5.0.0 package has an individual current-game,
+VR and unmodified-multiplayer verdict. Three guarded local UI adaptations ship:
+item-bar owner before ownership checks, exact native action owner for hidden
+item replay, and stale extra-turn UI restriction during matching-owner cached
+card choices. Original replay/SetPhase, tokens, rules, inventories and native
+network version remain unchanged. No foreign DLL is distributed.
+
+Shared extra-turn stack, damage redirect, summon ownership and achievement
+changes are excluded because mixed-client equivalence is not established. The
+save-path replacement is obsolete in this game; debug-provider activation and
+version branding are features rather than fixes. Both READMEs credit fingoldfish
+(gummyboars), with the upstream MIT notice retained in release archives.
+
+Native fixtures prove the adopted defects and repairs; they do not run a connected
+Bolt/headset session or fix another participant's unmodified local bugs. Final
+integration/check scope is recorded in [BUGFIX-651-REVIEW.md](BUGFIX-651-REVIEW.md).
+The independent650 CPU change,649 wrist sliders,648 rollback and646 NPC repairs
+are retained. No config, artwork, native network grammar or Frame-profile change.
+
+---
+
+**Build650 reduces recurring world-material CPU work, 2026-10-09: 1.1.0 development candidate.**
+
+The existing native-renderer path retains only immutable component-owner
+references, samples each current ancestry name once and skips absent-effect
+probes on freshly empty renderer/indexed property blocks. Current layers,
+activation, parent chains, components, meshes, held roots and material/effect
+values retain their original per-eye/native-write validation. No new quality
+option, rendering coverage, shader, geometry, profile or wire layout is added.
+
+Matched complete PreCull paths in the same actual Unity Mono process show
+12.46–18.99% paired CPU reductions in representative populated-MPB cases and
+16.52% without MPBs. Repeated both-populated/early-veto/Standard stress cases
+also support a net gain. An initial adverse stress P95 remains documented;
+two isolated fresh repeats do not reproduce it. These are local CPU results,
+not an observed Steam Frame whole-game FPS or GPU improvement.
+
+Actual camera checks retain all736 previous assertions and add29; the focused
+runtime/control suite covers68 variants. Source16, direct299,714 golden vectors,
+strict Debug/Release0 warnings/errors and private1238-type compiled comparison
+cover the bounded integration. Only WorldMaterialBudget behavior and eight
+numeric build consumers differ. This is not a new complete176-suite pass.
+See [FRAME-650-REVIEW.md](FRAME-650-REVIEW.md) for exact receipts and failures.
+
+Retains649 wrist controls,648 rollback and646 NPC repairs. A fully loaded,
+same-view Frame run with options closed is still needed to establish actual
+frame-time savings; both VR peers use the common650 build.
+
+---
+
+**Build649 wrist-board position controls, 2026-10-09: 1.1.0 development candidate.**
+
+Enabling wrist attachment immediately shows three offset sliders directly below
+the switch in Board & Cards. They reuse the normal slider/arrow kit, edit the
+existing saved Vector3 by axis and adjust the original board live. Disabling
+attachment hides the rows without resetting their values. Advanced keeps its
+hand/angle/size controls. No placement, wire, asset or Frame-profile change.
+
+Focused validation and its boundaries are recorded in
+[WRIST-649-REVIEW.md](WRIST-649-REVIEW.md). The unchanged648 rollback and646 NPC
+repairs remain; a new headset result is still required for those earlier changes.
+
+---
+
+**Build648 withdraws the647 room-render regression, 2026-10-08: 1.1.0 development candidate.**
+
+The supplied647 Frame run supports the reported slowdown: comparable fully
+loaded closed-options windows average123.976ms versus94.107ms in645, with
+26.281ms more named mod work. Terrain alone adds15.607ms/frame. Different
+head poses and window lengths prevent a controlled identical-view benchmark.
+A bounded actual647 Unity reproduction additionally proves unnecessary private
+admission for256 exact floor endpoints while only64 sources save geometry.
+
+The maintainer requests rollback unless a real net improvement over the prior
+run is established.648 restores646's complete terrain/environment/world/scenery
+render implementation and its exact environment bank and generated assets.
+646's NPC/map repairs remain. Five647 keys survive solely as INERT saved-value
+storage, with bilingual explanations, no curated controls, preset writes or
+render consumers. No experimental647 repair or new quality compromise ships.
+
+Rollback validation passes source16, focused4/4, goldens299,714 and strict
+Debug/Release with0 warnings/errors. Compiled1238 types retain exact646 renderer/
+NPC behavior. The additional176-suite attempt records170 direct passes; all six
+remaining scopes pass bounded unchanged-source repeats. This composite evidence
+is not a new single-run complete-gate pass; original failures remain archived.
+
+Final local validation and integration are recorded in
+[FRAME-648-REVIEW.md](FRAME-648-REVIEW.md). Independent hardware/source diagnosis:
+[FRAME-648-LOG-AUDIT.md](FRAME-648-LOG-AUDIT.md),
+[terrain reproduction](../docs/performance/FRAME-648-TERRAIN.md).
+A648 Frame run is still required to confirm restored headset performance;
+automated checks do not demonstrate a new FPS gain. Both VR peers install the
+complete648 archive, including its restored bank.
+
+---
 
 **Build647 broader simplified 3D rooms, 2026-10-08: 1.1.0 development candidate.**
 

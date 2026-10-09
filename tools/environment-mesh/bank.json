@@ -3,22 +3,15 @@
   "editor": "2021.3.5f1",
   "target": "StandaloneWindows64",
   "file": "ghvr-environment.bundle",
-  "sha256": "c3648422dedaf3197ae1738ccbb4eff50aad0491113bbd263855fe6c04ea1802",
-  "bytes": 70999748,
-  "textAssets": 4058,
+  "sha256": "f64bd5813d4c587ae848d6291d6de4d0a3b66ce15babab0953cfbf45119895f9",
+  "bytes": 56858683,
+  "textAssets": 3171,
   "shaderAssets": 2,
   "builder": "unity/GloomhavenVR.Assets/Assets/Editor/BuildEnvironmentBank.cs",
   "sourceSha256": {
-    "unity/GloomhavenVR.Assets/Assets/Editor/BuildEnvironmentBank.cs": "c5464ffb44f02dec21fd15e0c6e1397c51df67a24b9f8d9a2b5a89f2e5a3e2bd",
+    "unity/GloomhavenVR.Assets/Assets/Editor/BuildEnvironmentBank.cs": "76619c8aa5d520c5e697eae715b9c283022af057d3b61b6d4f054f2ecf1f144a",
     "unity/GloomhavenVR.Assets/Assets/Bundle/Environments/ScenarioCheapTerrain.shader": "bb54a6164dcfcfd66b6ef954ca864ecb375a8031a97a2b626cc91a017b7cdabe",
-    "unity/GloomhavenVR.Assets/Assets/Bundle/Environments/WorldSimpleMaterial.shader": "969d7f841e4188c28fe68887fcb23911b9fc825e7a0dec89ca2a15984d22fafe",
-    "unity/GloomhavenVR.Assets/Assets/Bundle/EnvironmentMeshes/index.json": "7f5862f08bf3e990bb09b703242bf5eeddedec69aecc4f3da04889c2a9b65df2",
-    "scripts/generate-environment-meshes.py": "ad87e603e4da41941fb618c843159eb9522fc2eab2074f5a7b7d2577f300ee71",
-    "tools/environment-mesh/export-native.py": "f6b81a10dd08efa088ceeda5d069c1da7ecddede084968b8717ed621817dd2b3",
-    "tools/environment-mesh/geometry.py": "d3c9d213cd41f17e225b6a0407da8e4da718078cb0612d831843cfa046ff6480",
-    "tools/environment-mesh/roles.py": "f0945537d2f46a033d7453a682213a586f30f3ea35a976e343a641ffbe7a2e37",
-    "tools/environment-mesh/catalog.json.gz": "121d18bb0c54d5338226b8744e25a0b728d9debee046dbdf5ccd1055fc0808c5",
-    "tools/environment-mesh/ornaments.json": "fdda019d5bafda066f188389809bf185336a06d6ed01e888252b51e1bd23a10c"
+    "unity/GloomhavenVR.Assets/Assets/Bundle/Environments/WorldSimpleMaterial.shader": "969d7f841e4188c28fe68887fcb23911b9fc825e7a0dec89ca2a15984d22fafe"
   },
   "colorSpace": "Gamma",
   "variantRetention": {
@@ -30,17 +23,5 @@
       "Exp2"
     ],
     "stereo": "MultiPass"
-  },
-  "originals": 1434,
-  "sourceBundles": 129,
-  "roles": {
-    "floor": 133,
-    "structure": 531,
-    "none": 770
-  },
-  "ornamentSignatures": 21,
-  "buildDependencies": {
-    "com.unity.modules.assetbundle": "1.0.0"
-  },
-  "packing": "ForceRebuildAssetBundle; actual loaded container verified"
+  }
 }

@@ -28,14 +28,6 @@ internal static partial class ScenarioTerrainBudget
     private static Func<bool>? _worldEnabled;
     private static Func<Material, bool>? _worldOwns;
     private static Func<bool>? _assetsReady, _assetsUnavailable;
-    private static Func<bool>? _roomEnabled;
-    private static Func<int>? _floorDetailPercent;
-    private static Func<Mesh, int>? _roomRole;
-    private static Func<Renderer, bool>? _floorGrouping;
-    private static Action<Renderer>? _floorMeshReady;
-    private static Func<int>? _floorCameraLimit;
-    private static Func<bool>? _floorPreparation;
-    private static Func<MaterialPropertyBlock, Material, bool>? _unsupportedBlock;
     private static Driver? _driver;
     private static bool _failed;
     private const string ShaderName = "GloomhavenVR/ScenarioCheapTerrain";
@@ -53,47 +45,6 @@ internal static partial class ScenarioTerrainBudget
     { _worldVariant = variant; _worldReadPass = readPass; _worldEnabled = enabled; _worldOwns = owns; }
     internal static void ConfigureAssetPreparation(Func<bool> assetsReady, Func<bool> assetsUnavailable)
     { _assetsReady = assetsReady; _assetsUnavailable = assetsUnavailable; }
-    internal static void ConfigureRoomArchitecture(Func<bool> enabled, Func<int> floorDetailPercent)
-    { _roomEnabled = enabled; _floorDetailPercent = floorDetailPercent; }
-    internal static void ConfigureArchitectureBank(Func<Mesh, int> role) => _roomRole = role;
-    internal static void ConfigureFloorGrouping(Func<Renderer, bool> hasPreparedFloorGroup) => _floorGrouping = hasPreparedFloorGroup;
-    internal static void ConfigureFloorMeshReady(Action<Renderer> meshReady) => _floorMeshReady = meshReady;
-    internal static void ConfigureRoomFloorCameraSourceLimit(Func<int> sourceLimit) => _floorCameraLimit = sourceLimit;
-    internal static void ConfigureRoomFloorPreparation(Func<bool> required) => _floorPreparation = required;
-    internal static void ConfigureBlockEffectAdmission(Func<MaterialPropertyBlock, Material, bool> unsupported) => _unsupportedBlock = unsupported;
-    internal static IDisposable BeginFloorReadPass() => new FloorReadPass(_driver);
-    private static int CurrentFloorRole(Mesh mesh) => _driver != null
-        ? _driver.CurrentFloorRole(mesh) : _roomRole?.Invoke(mesh) ?? 0;
-    private sealed class FloorReadPass : IDisposable
-    {
-        private Driver? _owner;
-        internal FloorReadPass(Driver? owner)
-        {
-            _owner = owner;
-            if (owner == null) return;
-            // Nesting always invalidates the interrupted pass. Native writers and
-            // camera recovery clear the same reads before a resumed caller runs.
-            owner.InvalidateFloorReadPass(); owner.FloorReadDepth++;
-        }
-        public void Dispose()
-        {
-            if (_owner == null) return;
-            _owner.InvalidateFloorReadPass(); _owner.FloorReadDepth--; _owner = null;
-        }
-    }
-    // Discovery may use the exact catalog role without confusing it with settled
-    // geometry. Native ownership/effects and every camera's mutable guard remain
-    // the responsibility of the renderer owner which actually submits the group.
-    internal static bool CanGroupRoomFloor(Mesh mesh) => RoomArchitectureOn && (_roomRole?.Invoke(mesh) ?? 0) == 1;
-    internal static bool TryGetSettledRoomFloor(Renderer renderer, out Mesh mesh)
-    {
-        mesh = null!;
-        return !_failed && _driver != null && _driver.isActiveAndEnabled && VRSession.IsRunning
-            && renderer != null && _driver.TryGetSettledRoomFloor(renderer, out mesh);
-    }
-    private static bool RoomArchitectureOn => _roomEnabled?.Invoke() == true;
-    private static int FloorDetailPercent => Mathf.Clamp(_floorDetailPercent?.Invoke() ?? 100, 0, 100);
-    private static bool AnySubstitutionOn => PerfConfig.TerrainSubstitutionOn || RoomArchitectureOn;
     private static Material CanonicalMaterial(Material material) =>
         material != null ? _canonicalMaterial?.Invoke(material) ?? material : material!;
     internal static void Install(GameObject host)
@@ -106,9 +57,6 @@ internal static partial class ScenarioTerrainBudget
         PerfMonitor.Register("Terrain.OriginalTriangles");
         PerfMonitor.Register("Terrain.SubmittedTriangles");
         PerfMonitor.Register("Terrain.CheapSurfaces");
-        PerfMonitor.RegisterDebug("Terrain.FloorSubstitutes");
-        PerfMonitor.RegisterDebug("Terrain.StructuralSubstitutes");
-        PerfMonitor.RegisterDebug("Terrain.FloorCameraCandidates");
         PerfMonitor.RegisterDebug("Terrain.CameraCandidates");
         PerfMonitor.RegisterDebug("Terrain.CameraSubstitutes");
         PerfMonitor.RegisterDebug("Terrain.CameraBudgetFallback");
@@ -200,10 +148,10 @@ internal static partial class ScenarioTerrainBudget
     private static bool Gate(Material material, string key) =>
         material.HasProperty(key) && material.GetFloat(key) != 0f;
 
-    private struct ScopeState { internal bool Valid, Generated, Structural, Tile, Scenario, Prop; }
+    private struct ScopeState { internal bool Valid, Generated, Structural, Scenario, Prop; }
     private static bool NativeScope(MeshRenderer renderer, Dictionary<Transform, ScopeState> scopes,
         Dictionary<int, bool> scenes, List<Transform> ancestry, List<GameObject> roots, List<Component> components,
-        HashSet<Transform>? propRoots, bool architecture = false, bool floor = false)
+        HashSet<Transform>? propRoots)
     {
         ancestry.Clear();
         ScopeState state = new() { Valid = true };
@@ -229,7 +177,6 @@ internal static partial class ScenarioTerrainBudget
                 ComponentRole role = Classify(component);
                 blocked |= (role & ComponentRole.Blocked) != 0;
                 state.Structural |= (role & ComponentRole.Structural) != 0;
-                state.Tile |= (role & ComponentRole.Tile) != 0;
                 state.Scenario |= (role & ComponentRole.Scenario) != 0;
             }
             components.Clear();
@@ -239,8 +186,7 @@ internal static partial class ScenarioTerrainBudget
             scopes[node] = state;
         }
         ancestry.Clear();
-        if (!state.Valid || !state.Generated
-            || (floor ? !state.Tile : !state.Structural && !(architecture && state.Tile))) return false;
+        if (!state.Valid || !state.Generated || !state.Structural) return false;
         if (!state.Scenario)
         {
             Scene scene = renderer.gameObject.scene;
@@ -291,28 +237,14 @@ internal static partial class ScenarioTerrainBudget
         private readonly HashSet<int> _discovered = new();
         private readonly int[] _refusals = new int[4];
         private readonly List<Surface> _leases = new();
-        private readonly List<Renderer> _floorNotifications = new();
         private readonly Dictionary<Transform, ScopeState> _scopeThisInvocation = new();
         private readonly Dictionary<int, bool> _sceneThisInvocation = new();
         private readonly List<Transform> _ancestry = new();
         private readonly List<GameObject> _sceneRoots = new();
         private readonly List<Component> _scopeComponents = new();
         private readonly Dictionary<Mesh, bool> _meshThisInvocation = new();
-        private readonly Dictionary<Mesh, int> _roomRoleThisInvocation = new();
-        private readonly Dictionary<Mesh, int> _floorRolesThisPass = new();
-        internal int FloorReadDepth;
-        internal void ClearFloorReads() => _floorRolesThisPass.Clear();
-        internal void InvalidateFloorReadPass() => ClearValidation();
-        internal int CurrentFloorRole(Mesh mesh)
-        {
-            if (FloorReadDepth <= 0) return _roomRole?.Invoke(mesh) ?? 0;
-            if (!_floorRolesThisPass.TryGetValue(mesh, out int role))
-            { role = _roomRole?.Invoke(mesh) ?? 0; _floorRolesThisPass[mesh] = role; }
-            return role;
-        }
         private Camera? _leaseCamera;
         private bool _active;
-        private bool _roomWasEnabled;
         private int _walls;
         private int _reportedSurfaces = -1, _reportedSettings;
         private int _reportedDiscovery = -1;
@@ -338,9 +270,8 @@ internal static partial class ScenarioTerrainBudget
         }
         private void SceneLoaded(Scene scene, LoadSceneMode mode) { _active = false; ClearValidation(); }
         private void SceneUnloaded(Scene scene) { RestoreAll(); _active = false; }
-        private bool Enabled => AnySubstitutionOn && VRSession.IsRunning && (PerfConfig.CheapWallShadingOn
-            || PerfConfig.TerrainDetailPercent < 100 || PerfConfig.DistantTerrainDetailPercent < 100
-            || RoomArchitectureOn && (FloorDetailPercent < 100 || _floorPreparation?.Invoke() == true));
+        private bool Enabled => PerfConfig.TerrainSubstitutionOn && VRSession.IsRunning && (PerfConfig.CheapWallShadingOn
+            || PerfConfig.TerrainDetailPercent < 100 || PerfConfig.DistantTerrainDetailPercent < 100);
         internal void QueueRoot(GameObject root)
         {
             if (Enabled && root != null && _queued.Add(root.GetInstanceID())) _pending.Enqueue(root.transform);
@@ -369,16 +300,14 @@ internal static partial class ScenarioTerrainBudget
                 // settings and cheap native-slot world shading. Off has no terrain
                 // geometry/preparation work after this release; On reseeds from exact
                 // native sources and uses the existing continuous morph again.
-                if (!AnySubstitutionOn)
+                if (!PerfConfig.TerrainSubstitutionOn)
                 {
                     if (_active || _surfaces.Count != 0 || _pending.Count != 0) RestoreAll();
                     _active = false;
                     return;
                 }
                 bool active = Enabled;
-                bool room = RoomArchitectureOn;
-                if (active && (!_active || room != _roomWasEnabled)) Seed();
-                _roomWasEnabled = room;
+                if (active && !_active) Seed();
                 bool ready = !active || (_assetsReady?.Invoke() ?? true);
                 bool unavailable = !ready && _assetsUnavailable?.Invoke() == true;
                 if (active && ready && !_assetsWereReady) Seed();
@@ -417,18 +346,11 @@ internal static partial class ScenarioTerrainBudget
                     // Reject unsupported identities before decoding any bank member.
                     // Preparation can be expensive during loading, but it should prepare
                     // only sources which can actually save work on the settled board.
-                    int role = 0;
-                    if (room && !_roomRoleThisInvocation.TryGetValue(filter.sharedMesh, out role))
-                    { role = _roomRole?.Invoke(filter.sharedMesh) ?? 0; _roomRoleThisInvocation[filter.sharedMesh] = role; }
-                    bool architecture = role != 0;
-                    bool floor = role == 1;
-                    int refusal = !architecture && FloorIdentity(filter.sharedMesh) ? 1
-                        : !architecture && !StructuralIdentity(filter.sharedMesh) ? 2
-                        : !CurrentScope(renderer, architecture, floor) ? 0
-                        : !EligibleMesh(filter.sharedMesh) ? 3 : -1;
+                    int refusal = FloorIdentity(filter.sharedMesh) ? 1 : !StructuralIdentity(filter.sharedMesh) ? 2
+                        : !CurrentScope(renderer) ? 0
+                        : _eligibleMesh?.Invoke(filter.sharedMesh) != true ? 3 : -1;
                     if (refusal >= 0) { if (first) _refusals[refusal]++; continue; }
-                    if (!_surfaces.ContainsKey(id)) { _surfaces.Add(id, new Surface(renderer, filter, transform, architecture, floor, role == 3)); _priorityDirty = true; }
-                    else if (architecture) _surfaces[id].RoomArchitecture = true;
+                    if (!_surfaces.ContainsKey(id)) { _surfaces.Add(id, new Surface(renderer, filter, transform)); _priorityDirty = true; }
                 }
                 Camera? camera = Rig.VRRigDriver.HeadCamera;
                 // Frame636's settled three-room capture spends about 1.7ms per frame
@@ -441,26 +363,15 @@ internal static partial class ScenarioTerrainBudget
                 foreach (KeyValuePair<int, Surface> item in _surfaces)
                 {
                     Surface surface = item.Value;
-                    if (!surface.Validate(_meshThisInvocation))
-                    {
-                        if (surface.HadFloorEndpoint && surface.Renderer != null) _floorNotifications.Add(surface.Renderer);
-                        surface.Dispose(); _dead.Add(item.Key); continue;
-                    }
+                    if (!surface.Validate(_meshThisInvocation)) { surface.Dispose(); _dead.Add(item.Key); continue; }
                     int percent = active && camera != null ? DetailFor(surface, detail) : 100;
                     surface.StepGeometry(percent, delta);
-                    if (surface.TakeFloorEndpointChange()) _floorNotifications.Add(surface.Renderer);
                 }
                 foreach (int id in _dead) { _surfaces.Remove(id); _priorityDirty = true; }
                 _dead.Clear();
-                // Native-owner callbacks may release/reseed/dispose presentation.
-                // No callback runs inside the surface dictionary enumeration.
-                for (int notice = 0; notice < _floorNotifications.Count; notice++)
-                    if (_floorNotifications[notice] != null) _floorMeshReady?.Invoke(_floorNotifications[notice]);
-                _floorNotifications.Clear();
                 if (!active) { _pending.Clear(); _queued.Clear(); }
                 int settings = (PerfConfig.CheapWallShadingOn ? 1 : 0) + PerfConfig.TerrainDetailPercent * 2
-                    + PerfConfig.DistantTerrainDetailPercent * 202 + FloorDetailPercent * 20402
-                    + (RoomArchitectureOn ? 2060602 : 0);
+                    + PerfConfig.DistantTerrainDetailPercent * 202;
                 if (_pending.Count == 0 && (_reportedSurfaces != _surfaces.Count || _reportedSettings != settings
                     || _reportedDiscovery != _discovered.Count)
                     && Time.unscaledTime >= _nextReport)
@@ -469,8 +380,7 @@ internal static partial class ScenarioTerrainBudget
                     _reportedDiscovery = _discovered.Count;
                     VRLog.Note("Perf", "Scenario terrain budget: surfaces=" + _surfaces.Count + ", cheap="
                         + PerfConfig.CheapWallShadingOn + ", detail=" + PerfConfig.TerrainDetailPercent
-                        + "%, distantDetail=" + PerfConfig.DistantTerrainDetailPercent
-                        + "%, roomArchitecture=" + RoomArchitectureOn + ", floorDetail=" + FloorDetailPercent + "%.");
+                        + "%, distantDetail=" + PerfConfig.DistantTerrainDetailPercent + "%.");
                     if (VRLog.Level >= VRLogLevel.Debug)
                         VRLog.Debug("Perf", "Scenario terrain coverage: prepared=" + _surfaces.Count
                             + ", distinctRendererVisits=" + _discovered.Count + ", refusedScope=" + _refusals[0]
@@ -481,25 +391,17 @@ internal static partial class ScenarioTerrainBudget
                 ClearValidation();
             }
         }
-        private bool CurrentScope(MeshRenderer renderer, bool architecture = false, bool floor = false)
+        private bool CurrentScope(MeshRenderer renderer)
         {
             bool shared = PerfConfig.SharedEnvironmentMaterialReadsOn;
             if (shared) ReadCurrentPropRoots();
             return NativeScope(renderer, _scopeThisInvocation, _sceneThisInvocation,
-                _ancestry, _sceneRoots, _scopeComponents, shared ? _propRoots : null, architecture, floor);
-        }
-        private bool EligibleMesh(Mesh mesh)
-        {
-            if (!_meshThisInvocation.TryGetValue(mesh, out bool eligible))
-            { eligible = _eligibleMesh?.Invoke(mesh) == true; _meshThisInvocation[mesh] = eligible; }
-            return eligible;
+                _ancestry, _sceneRoots, _scopeComponents, shared ? _propRoots : null);
         }
         private void ClearValidation()
         {
             _scopeThisInvocation.Clear(); _sceneThisInvocation.Clear(); _ancestry.Clear(); _sceneRoots.Clear();
             _scopeComponents.Clear(); _meshThisInvocation.Clear();
-            _roomRoleThisInvocation.Clear();
-            ClearFloorReads();
             _propRoots.Clear(); _propVisuals.Clear(); _propRootsReady = false;
         }
         private readonly struct HandProximity
@@ -519,7 +421,6 @@ internal static partial class ScenarioTerrainBudget
             internal readonly Vector3 Position;
             internal readonly float Scale, Distance;
             internal readonly int Near, Distant;
-            internal readonly int Floor;
             internal readonly HandProximity Left, Right;
             internal DetailState(Camera camera)
             {
@@ -529,16 +430,11 @@ internal static partial class ScenarioTerrainBudget
                 Left = new HandProximity(VRHands.Left); Right = new HandProximity(VRHands.Right);
                 Near = PerfConfig.TerrainDetailPercent; Distant = PerfConfig.DistantTerrainDetailPercent;
                 Distance = PerfConfig.TerrainDistanceMeters;
-                Floor = FloorDetailPercent;
             }
         }
         private static int DetailFor(Surface surface, DetailState detail)
         {
-            // Floor tiers preserve native heights, 3D bounds and open boundaries in
-            // the audited asset bank. A global tier needs no per-tile proximity
-            // or bounds query; floors are never part of the wall-fade system.
-            if (surface.FloorBudget) return RoomArchitectureOn ? detail.Floor : 100;
-            if (!surface.GeometryEnabled) return 100;
+            if (surface.Floor) return 100;
             Bounds bounds = surface.Renderer.bounds;
             Vector3 nearest = bounds.ClosestPoint(detail.Position);
             float metres = Vector3.Distance(detail.Position, nearest) / detail.Scale;
@@ -554,27 +450,9 @@ internal static partial class ScenarioTerrainBudget
         private static bool NearHand(HandProximity hand, Bounds bounds) => hand.Tracked
             && Vector3.Distance(hand.Position, bounds.ClosestPoint(hand.Position)) / hand.Scale < .12f;
 
-        internal bool OwnsRenderSubstitute(Renderer renderer) => AnySubstitutionOn
+        internal bool OwnsRenderSubstitute(Renderer renderer) => PerfConfig.TerrainSubstitutionOn
             && _surfaces.TryGetValue(renderer.GetInstanceID(), out Surface surface)
-            && surface.WantsSubstitute(_active) && !FloorGroupOwns(surface);
-        private static bool FloorGroupOwns(Surface surface) => surface.Floor
-            && _floorGrouping?.Invoke(surface.Renderer) == true && surface.TryGetSettledRoomFloor(out _);
-        internal bool TryGetSettledRoomFloor(Renderer renderer, out Mesh mesh)
-        {
-            mesh = null!;
-            // Group discovery/camera scopes share only this invocation's genuine
-            // ancestry and held-root reads. An isolated lookup gets an independent
-            // pass, so callers cannot accidentally retain a mutable scope verdict.
-            bool independent = FloorReadDepth <= 0;
-            if (independent) ClearValidation();
-            try
-            {
-                return _surfaces.TryGetValue(renderer.GetInstanceID(), out Surface surface)
-                    && surface.TryGetSettledRoomFloor(out mesh)
-                    && CurrentScope(surface.Renderer, true, true);
-            }
-            finally { if (independent) ClearValidation(); }
-        }
+            && surface.WantsSubstitute(_active);
         internal bool HasCurrentRenderLease(Renderer renderer) => _surfaces.TryGetValue(renderer.GetInstanceID(), out Surface surface)
             && surface.HasCurrentRenderLease;
         internal void ReleaseLease(Renderer renderer)
@@ -600,7 +478,7 @@ internal static partial class ScenarioTerrainBudget
         private void HandlePostRender(Camera camera)
         {
             if (camera != _leaseCamera) return;
-            int originals = 0, submitted = 0, cheap = 0, floors = 0, structures = 0;
+            int originals = 0, submitted = 0, cheap = 0;
             foreach (Surface surface in _leases)
             {
                 // A later native MPB/material/visibility writer can revoke a pre-cull
@@ -609,16 +487,10 @@ internal static partial class ScenarioTerrainBudget
                 if (!surface.IsMasked) continue;
                 originals += surface.OriginalTriangles; submitted += surface.DrawTriangles;
                 if (surface.CheapLease) cheap++;
-                if (surface.FloorBudget) floors++; else structures++;
             }
             PerfMonitor.Count("Terrain.OriginalTriangles", originals);
             PerfMonitor.Count("Terrain.SubmittedTriangles", submitted);
             PerfMonitor.Count("Terrain.CheapSurfaces", cheap);
-            if (PerfMonitor.StepsActive && VRLog.Level >= VRLogLevel.Debug)
-            {
-                PerfMonitor.Count("Terrain.FloorSubstitutes", floors);
-                PerfMonitor.Count("Terrain.StructuralSubstitutes", structures);
-            }
             RecoverLeases();
         }
         private void HandlePreCull(Camera camera)
@@ -629,11 +501,10 @@ internal static partial class ScenarioTerrainBudget
                 // DrawRenderer retains its original identity, shader and geometry too.
                 RecoverLeases();
                 if (camera == null || camera != Rig.VRRigDriver.HeadCamera || !VRSession.IsRunning
-                    || !isActiveAndEnabled || !AnySubstitutionOn
+                    || !isActiveAndEnabled || !PerfConfig.TerrainSubstitutionOn
                     || (_nativeCameraConsumers?.Invoke(camera) ?? camera.commandBufferCount > 0)) return;
                 using (PerfMonitor.Scope("ScenarioTerrain.PreCull"))
                 using (_worldReadPass?.Invoke())
-                using (BeginFloorReadPass())
                 {
                     _leaseCamera = camera;
                     PreparePriority();
@@ -642,11 +513,10 @@ internal static partial class ScenarioTerrainBudget
                     Matrix4x4 ownerPose = shared ? transform.localToWorldMatrix : default;
                     Vector3 ownerScale = shared ? transform.lossyScale : default;
                     int limit = PerfConfig.TerrainCameraSourceLimit;
-                    int floorLimit = Mathf.Max(0, _floorCameraLimit?.Invoke() ?? limit);
                     bool substitute = Enabled;
                     bool world = _worldEnabled?.Invoke() == true;
                     bool cheap = PerfConfig.CheapWallShadingOn;
-                    int candidates = 0, floorCandidates = 0, budgetFallback = 0, budgetDeferred = 0, frustumFallback = 0;
+                    int candidates = 0, budgetFallback = 0, budgetDeferred = 0, frustumFallback = 0;
                     for (int index = 0; index < _priority.Count; index++)
                     {
                         // Build638 still reads native visibility for ~455 sources/frame
@@ -656,34 +526,26 @@ internal static partial class ScenarioTerrainBudget
                         // remainder native without crossing Unity for each rejected source.
                         // This is a prepared-source count, NOT an examined active fallback.
                         if (shared && limit > 0 && candidates >= limit)
-                        {
-                            budgetDeferred += Mathf.Max(0, _firstFloor - index);
-                            index = Mathf.Max(index, _firstFloor);
-                            if (index >= _priority.Count) break;
-                        }
-                        if (shared && floorLimit > 0 && floorCandidates >= floorLimit && index >= _firstFloor)
-                        { budgetDeferred += _priority.Count - index; break; }
+                        { budgetDeferred = _priority.Count - index; break; }
                         Surface surface = _priority[index];
                         // Prepared surfaces include unopened rooms. Reject their native
                         // disabled/inactive renderers before bank/material/proxy work.
                         // No admission verdict survives this camera invocation.
                         if (surface.Renderer == null || !surface.Renderer.enabled
                             || !surface.Renderer.gameObject.activeInHierarchy || surface.Renderer.forceRenderingOff
-                            || !surface.WantsSubstitute(substitute) || FloorGroupOwns(surface)) continue;
+                            || !surface.WantsSubstitute(substitute)) continue;
                         // Bound full guard/copy work, not merely successful masks. Rejected
                         // candidates also cost CPU; budget fallback keeps original output.
-                        if (!surface.FloorBudget && limit > 0 && candidates >= limit) { budgetFallback++; continue; }
-                        if (surface.FloorBudget && floorLimit > 0 && floorCandidates >= floorLimit) { budgetFallback++; continue; }
+                        if (limit > 0 && candidates >= limit) { budgetFallback++; continue; }
                         if (OutsideFrustum(surface.Renderer)) { frustumFallback++; continue; }
-                        if (surface.FloorBudget) floorCandidates++; else candidates++;
+                        candidates++;
                         if (!surface.Validate(_meshThisInvocation)
                             || surface.Renderer.isPartOfStaticBatch || surface.Renderer.additionalVertexStreams != null
-                            || !CurrentScope(surface.Renderer, surface.RoomArchitecture, surface.Floor)) continue;
+                            || !CurrentScope(surface.Renderer)) continue;
                         surface.Renderer.GetSharedMaterials(_materialScratch);
                         if (_materialScratch.Count != surface.Original.subMeshCount) continue;
                         bool supported = true;
-                        if (!world)
-                            foreach (Material material in _materialScratch) supported &= CurrentMaterialRoute(CurrentCanonicalMaterial(material, shared)) >= 0;
+                        foreach (Material material in _materialScratch) supported &= CurrentMaterialRoute(CurrentCanonicalMaterial(material, shared)) >= 0;
                         if (!supported) continue;
                         // Never mask until ALL required slot submissions have valid materials.
                         surface.EnsureSlots(_materialScratch.Count);
@@ -698,7 +560,6 @@ internal static partial class ScenarioTerrainBudget
                             surface.SetMaterial(slot, next);
                         }
                         if (!supported || Array.Exists(surface.Materials, material => material == null)) continue;
-                        surface.WorldLease = world;
                         if (!surface.PrepareProxy(shared, ownerPose, ownerScale)) continue;
                         surface.CheapLease = world || cheap;
                         // Canonical/world material callbacks may render another camera,
@@ -709,8 +570,7 @@ internal static partial class ScenarioTerrainBudget
                     }
                     if (PerfMonitor.StepsActive && VRLog.Level >= VRLogLevel.Debug)
                     {
-                        PerfMonitor.Count("Terrain.CameraCandidates", candidates + floorCandidates);
-                        PerfMonitor.Count("Terrain.FloorCameraCandidates", floorCandidates);
+                        PerfMonitor.Count("Terrain.CameraCandidates", candidates);
                         PerfMonitor.Count("Terrain.CameraSubstitutes", _leases.Count);
                         PerfMonitor.Count("Terrain.CameraBudgetFallback", budgetFallback);
                         PerfMonitor.Count("Terrain.CameraFrustumFallback", frustumFallback);
@@ -769,7 +629,6 @@ internal static partial class ScenarioTerrainBudget
             RecoverLeases();
             foreach (Surface surface in _surfaces.Values) surface.Dispose();
             _surfaces.Clear(); _priority.Clear(); _priorityDirty = false; _pending.Clear(); _queued.Clear();
-            _floorNotifications.Clear();
             foreach (Material material in _cheap.Values) if (material != null) UnityEngine.Object.Destroy(material);
             _cheap.Clear();
             _reportedSurfaces = -1;

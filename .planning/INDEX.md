@@ -1,8 +1,7 @@
 # Planning index
 
-Updated 2026-10-08 for Build647: verified whole-game/DLC floor and structural
-simplification, independently configurable room quality and board-following private
-floor groups retain646 NPC/map repairs.
+Updated 2026-10-09 for Build651: individual native Bug Fixes audit and safe local UI repairs.
+
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
 status; it is not the player manual.
@@ -17,6 +16,15 @@ status; it is not the player manual.
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
 | [QUEST-BUILD-REUSE-20261008.md](QUEST-BUILD-REUSE-20261008.md) | Original-source/output roles, retained14-phase staging and preparation, persistent change-time witnesses and bounded speed evidence |
 | [QUEST-BUILD-NATIVE-BYTES-20261008.md](QUEST-BUILD-NATIVE-BYTES-20261008.md) | Exact Windows native overlays, retained642 staging, measured native progress and dev643 Builder |
+| [WRIST-649-REVIEW.md](WRIST-649-REVIEW.md) | Conditional ordinary wrist offsets, live original board placement and focused validation |
+| [BUGFIX-651-REVIEW.md](BUGFIX-651-REVIEW.md) | All eleven external patches, adoption decisions, unmodified-client contract and final scope |
+| [BUGFIX-ITEMS-AUDIT.md](BUGFIX-ITEMS-AUDIT.md) | Original item predicates/replay, exact actor identity, mixed directions and causal controls |
+| [BUGFIX-RULES-AUDIT.md](BUGFIX-RULES-AUDIT.md) | Native cached UI restriction and excluded shared turn/damage/summon changes |
+| [BUGFIX-MAP-AUDIT.md](BUGFIX-MAP-AUDIT.md) | Native achievement defect/divergence, obsolete save replacement and non-fix features |
+| [FRAME-650-REVIEW.md](FRAME-650-REVIEW.md) | Retained material CPU work removal, original-runtime benchmark and inherited render scope |
+| [FRAME-648-REVIEW.md](FRAME-648-REVIEW.md) | User-requested rollback, exact646 render/bank identity, validation scope and hardware limits |
+| [FRAME-648-LOG-AUDIT.md](FRAME-648-LOG-AUDIT.md) | Independent loaded647 regression, CPU attribution, camera work and false wall ownership |
+| [../docs/performance/FRAME-648-TERRAIN.md](../docs/performance/FRAME-648-TERRAIN.md) | Actual old647 useless floor admissions and unshipped repair boundary |
 | [FRAME-647-REVIEW.md](FRAME-647-REVIEW.md) | Whole-game/DLC room simplification, final validation scope, archives and headset limits |
 | [../docs/performance/FRAME-647-ROOM-ARCHITECTURE.md](../docs/performance/FRAME-647-ROOM-ARCHITECTURE.md) | Five independent choices, native ownership and universal work removal |
 | [../docs/performance/FRAME-647-ASSET-CATALOG.md](../docs/performance/FRAME-647-ASSET-CATALOG.md) | Full original bundle census, certified geometry tiers, bank decoder and proof limits |

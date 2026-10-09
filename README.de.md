@@ -228,6 +228,8 @@ standalone · zwei getrackte Controller · Room-Scale. Entwickelt wurde die Mod 
   übernimmt.
 - **[UUVR](https://github.com/Raicuparta/uuvr)** (GPL-3.0), für das Muster „flacher Bildschirm in
   VR“, das überall dort greift, wo ein Weltpanel nicht die richtige Antwort ist.
+- **fingoldfish (gummyboars)**, Autor von [Bug Fixes](https://www.nexusmods.com/gloomhaven/mods/8?tab=description)
+  (MIT), für ausgewählte Spiel-UI-Fixes, die in diese Mod übernommen wurden.
 - **Demeo** (Resolution Games), dessen Interaktionsmodell diese Mod folgt. Es werden weder Assets
   noch Code daraus verwendet.
 

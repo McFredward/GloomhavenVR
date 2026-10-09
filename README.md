@@ -221,6 +221,8 @@ standalone · two tracked controllers · room-scale. It was developed on a Quest
   (GPL-3.0), for the VR startup pattern, headset failover and finger curling this mod adapts.
 - **[UUVR](https://github.com/Raicuparta/uuvr)** (GPL-3.0), for the flat-screen-in-VR pattern, used
   where a world panel is not the right answer.
+- **fingoldfish (gummyboars)**, author of [Bug Fixes](https://www.nexusmods.com/gloomhaven/mods/8?tab=description)
+  (MIT), for selected game UI fixes adapted into this mod.
 - **Demeo** (Resolution Games), whose interaction model this mod follows. No assets or code from it
   are used.
 

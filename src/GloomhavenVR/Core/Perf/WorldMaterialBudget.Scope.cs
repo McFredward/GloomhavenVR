@@ -62,13 +62,14 @@ internal static partial class WorldMaterialBudget
             }
             _propVisuals.Clear(); _propRootsReady = true;
         }
-        private bool InWorld(MeshRenderer renderer)
+        private bool InWorld(MeshRenderer renderer, GameObject? owner = null, Transform? transform = null)
         {
-            if (!_shareReads && (HeldProps.OwnsRendererOf(renderer.transform) || PropGrab.OwnsRendererOf(renderer.transform))) return false;
+            transform ??= renderer.transform;
+            if (!_shareReads && (HeldProps.OwnsRendererOf(transform) || PropGrab.OwnsRendererOf(transform))) return false;
             if (_shareReads) ReadPropRoots();
             _ancestry.Clear();
             WorldScope scope = new() { Valid = true };
-            for (Transform? node = renderer.transform; node != null; node = node.parent)
+            for (Transform? node = transform; node != null; node = node.parent)
             {
                 if (_scopes.TryGetValue(node, out scope)) break;
                 scope = new WorldScope { Valid = true }; _ancestry.Add(node);
@@ -78,7 +79,10 @@ internal static partial class WorldMaterialBudget
                 Transform node = _ancestry[i];
                 _scopeNodeReads++;
                 node.GetComponents(_components);
-                bool allowed = node.name != "Preview";
+                // No callback occurs between these two name predicates. Sample
+                // the current name once here; the next pass still reads it again.
+                string name = node.name;
+                bool allowed = name != "Preview";
                 foreach (Component component in _components)
                 {
                     if (component is null) continue;
@@ -103,7 +107,7 @@ internal static partial class WorldMaterialBudget
                 }
                 _components.Clear();
                 scope.Valid &= allowed;
-                scope.Generated |= node.name == "Generated Content";
+                scope.Generated |= name == "Generated Content";
                 scope.Registered |= _worldRoots.Contains(node);
                 scope.Prop |= _shareReads && _propRoots.Contains(node);
                 _scopes[node] = scope;
@@ -111,7 +115,7 @@ internal static partial class WorldMaterialBudget
             _ancestry.Clear();
             if (scope.Valid && scope.Generated && !scope.Scenario)
             {
-                Scene scene = renderer.gameObject.scene;
+                Scene scene = (owner ?? renderer.gameObject).scene;
                 if (!scene.IsValid() || !scene.isLoaded) return false;
                 if (!_sceneScopes.TryGetValue(scene.handle, out bool scenario))
                 {

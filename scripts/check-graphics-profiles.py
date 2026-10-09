@@ -62,7 +62,9 @@ extra += '''namespace GloomhavenVR.WorldUI { internal static class WindowMateria
 (run/'Defaults.cs').write_text(extra)
 shutil.copyfile(source/'Core/Startup/FrameDefaults.cs',run/'FrameDefaults.cs')
 fixture = ROOT/'scripts/graphics-profiles-runtime'
-cmd = [os.environ.get('DOTNET', str(Path.home()/'.dotnet/dotnet')), 'build', str(fixture/'Profiles.csproj'), '-c', 'Release', '-p:ProductionDir='+str(run), '-p:FixtureDir='+str(fixture), '-p:BaseIntermediateOutputPath='+str(run/'obj')+'/', '-p:OutputPath='+str(run/'bin')+'/']
+# setup-dotnet installs on PATH; ~/.dotnet is only the local-development fallback.
+dotnet = os.environ.get('DOTNET') or shutil.which('dotnet') or str(Path.home()/'.dotnet/dotnet')
+cmd = [dotnet, 'build', str(fixture/'Profiles.csproj'), '-c', 'Release', '-p:ProductionDir='+str(run), '-p:FixtureDir='+str(fixture), '-p:BaseIntermediateOutputPath='+str(run/'obj')+'/', '-p:OutputPath='+str(run/'bin')+'/']
 result = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
 (run/'build.txt').write_text(result.stdout+result.stderr)
 if result.returncode: raise SystemExit(result.stdout+result.stderr)

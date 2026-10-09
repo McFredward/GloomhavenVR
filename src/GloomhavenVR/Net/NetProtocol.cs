@@ -598,34 +598,57 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 647;
+    public const ushort ModBuild = 651;
 
-    // ModBuild647 — broader source-verified simplified 3D room presentation.
-    // Audit every local PCG MeshFilter use across the game and DLC source bundles.
-    // Only unambiguous static floor/structure/ornament families are admitted by
-    // exact native metadata and source hashes. Stronger prepared tiers retain
-    // original channels, vertex indexing, bounds, open seams and floor convex
-    // perimeter slots; interior coverage/holes/height remain sampled certificates.
-    // Unsafe derivatives keep original geometry. No 2.5D board,
-    // native static batching, source mesh writes or room/actor/door hiding.
-    // The room master, floor detail, ornament density, private floor grouping
-    // and individual floor source budget are distinct live quality controls.
-    // Fresh Frame/Standalone profiles select this same shared implementation;
-    // ordinary PC defaults keep native room quality. Saved choices always win.
-    // Geometry transitions and native continuous wall/pillar/shelf fades remain.
-    // Verified settled floors may delegate from terrain to private environment
-    // groups outside native cloning roots. Current visibility/material/MPB/pose,
-    // source scope, native consumers and morph endpoints revoke stale groups.
-    // Floor budget is independent of the existing wall/pillar budget; complete
-    // camera counters distinguish floors, structures and surviving group leases.
-    // Five exact bank-proven floor supports share floor detail/budget, without
-    // entering core-floor groups. FloorShelf furniture retains native fades.
-    // Native LODGroup sources keep original level selection. Owned world variants
-    // use their complete current shader and wide/indexed block effect contract.
-    // Unused settled-floor morph buffers and repeated current-pass native reads
-    // are removed universally, without an option. Gameplay and wire schemas stay.
-    // Full asset-bank installation is required. Scope, measurements and limits:
-    // docs/performance/FRAME-647-ROOM-ARCHITECTURE.md. Peers install647 together.
+    // ModBuild651 — selected native game UI repairs from Bug Fixes 5.0.0.
+    // Resolve the item bar's actual incoming inventory/action owner before
+    // original predicates/replay. Restore only stale extra-turn UI restrictions
+    // in owner-matching cached choice phases; native SetPhase retains every
+    // played-half/ownership/bonus restriction. Original actions/tokens, native
+    // NetworkVersion and ScenarioRuleLibrary remain unchanged for flat crossplay.
+    // Shared stack/damage/summoner/achievement changes and obsolete save/debug
+    // patches are excluded. All11 supplied patches have individual verdicts in
+    // BUGFIX-651-REVIEW. Retains650 CPU work removal and649 wrist offsets.
+    // Bounded native proofs, source16, strict builds, goldens and compiled scope
+    // are recorded separately; no new full-catalog or connected-HMD claim.
+
+    // ModBuild650 — reduce existing world-material CPU work without a quality trade.
+    // Cache only the exact GameObject/Transform owned for a Renderer lifetime;
+    // layer, activation, ancestry, mesh, native components and held roots stay live.
+    // Read each current ancestry name once inside its callback-free iteration.
+    // Freshly empty renderer/indexed property blocks skip absent effect probes;
+    // emptiness is sampled after callback-capable source resolution for every slot.
+    // Native materials, effects, wall fading, per-eye/nested camera invalidation
+    // and consumer restitution retain their existing guards. No renderer coverage,
+    // shader/asset, graphics setting, profile or wire layout change is introduced.
+    // Old/candidate complete PreCull paths are compared in the same actual Unity
+    // Mono process; local CPU evidence is not a new Steam Frame FPS result.
+    // Source, benchmark shape, causal controls and inherited/focused validation:
+    // .planning/FRAME-650-REVIEW.md. Both VR peers use the same common build650.
+
+    // ModBuild649 — live wrist-board position sliders below the ordinary mode switch.
+    // The existing enabled dependency folds all three axes immediately. Reuse
+    // the native options bar/arrow kit and saved Vector3; axis edits preserve
+    // the other components and use the existing1mm catalog step. A +/-0.5m
+    // gesture range does not rewrite or clamp hand-tuned saved offsets on open.
+    // Actual board placement and owner-authored remote pose stay unchanged.
+    // Focused validation and inherited648 evidence: .planning/WRIST-649-REVIEW.md.
+
+    // ModBuild648 — withdraw the647 room renderer after the Frame regression.
+    // Fully loaded comparable645/647 log windows average94.107/123.976ms;
+    // named mod work increases58.846 to85.127ms, especially terrain5.641 to21.248ms.
+    // Different head poses/window lengths prevent a controlled hardware A/B claim.
+    // The maintainer requests rollback unless a real net gain over the previous
+    // run is established. Offline repairs cannot demonstrate that gain.
+    // Restore646 terrain/environment/world/scenery ownership, profiles, catalog,
+    // generated meshes and the exact646 environment bank. Keep646 NPC/map work.
+    // Five647 config keys remain INERT compatibility storage, outside curated
+    // controls/presets and every render consumer; existing values survive.
+    // Retain the independent corrected646 offered-card test binding. No new
+    // gameplay, wire layout, quality compromise or hardware FPS claim is added.
+    // Diagnosis and actual old-source reproduction: .planning/FRAME-648-LOG-AUDIT.md,
+    // docs/performance/FRAME-648-TERRAIN.md. Validation scope and rollback receipt:
+    // .planning/FRAME-648-REVIEW.md. Peers install the complete648 archive together.
 
     // ModBuild646 — paired645 town presentation and map-entry review.
     // A complete newer native original supersedes older cumulative deltas from

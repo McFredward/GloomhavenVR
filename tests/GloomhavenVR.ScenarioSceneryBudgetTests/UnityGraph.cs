@@ -67,12 +67,10 @@ namespace UnityEngine
     internal class Rigidbody:Component { }
     internal class Collider:Component { internal bool enabled=true; internal bool isTrigger; internal Rigidbody? attachedRigidbody; }
     internal class MeshCollider:Collider { internal Mesh? sharedMesh; }
-    internal struct LOD { internal Renderer[] renderers; }
-    internal class LODGroup:Component { internal LOD[] GetLODs()=>Array.Empty<LOD>(); }
+    internal class LODGroup:Component { }
     internal class Light:Component { }
     internal class RuntimeAnimatorController:Object { }
     internal class Animator:Component { internal RuntimeAnimatorController? runtimeAnimatorController; }
-    internal class Animation:Component { }
     internal class ParticleSystem:Component { }
     internal class Canvas:Component { }
 }
@@ -110,10 +108,6 @@ namespace GloomhavenVR.Board.FigureGrab
         internal static UnityEngine.Transform? Held;
         internal static bool OwnsRendererOf(UnityEngine.Transform leaf)=>Held!=null&&leaf.IsChildOf(Held);
     }
-    internal static class PropGrab
-    {
-        internal static bool OwnsRendererOf(UnityEngine.Transform leaf)=>false;
-    }
 }
 
 namespace GloomhavenVR.Core
@@ -123,13 +117,5 @@ namespace GloomhavenVR.Core
     internal static class ScenarioEnvironmentBudget
     {
         internal static void BeforeNativeRendererWrite(UnityEngine.Renderer renderer) { }
-    }
-    // The portable legacy graph has no verified bank. New architecture therefore
-    // fails open here; its exact catalog/signature and real engine controls belong
-    // to the complete Unity scenery runtime fixture.
-    internal static class ScenarioEnvironmentMeshBank
-    {
-        internal static bool IsArchitecturalOrnament(UnityEngine.Mesh mesh)=>false;
-        internal static int RoomArchitectureRole(UnityEngine.Mesh mesh)=>0;
     }
 }

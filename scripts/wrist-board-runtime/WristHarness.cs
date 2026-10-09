@@ -88,7 +88,7 @@ public sealed class WristHarness : MonoBehaviour
         Wrist(left).localPosition-=Vector3.one*6f;Set(left,"IsTracked",true);Call(tray,"TickPlacement");PoseProof(left,"valid tracking resumes same wrist");
         rig.localScale=Vector3.one*7.5f;rig.rotation=Quaternion.Euler(0,65,0);Call(tray,"TickPlacement");PoseProof(left,"world scaling and snap/recenter rotations preserve real-metre wrist offsets");
         Check(Root.parent==anchor,"same rig parent survives every wrist pose, never visual parent");
-        Render("original-wrist-board.png");MenuProof();RemoteProof();
+        Render("original-wrist-board.png");MenuProof();yield return CuratedMenuProof();RemoteProof();
         // Inverted control ownership is detectable in actual presentation nodes.
         var follow=(Transform)Get(tray,"_followAnchor");follow.gameObject.SetActive(true);Control(follow.GetComponentsInChildren<Collider>(false).Any(),"a wrongly retained original follow collider is visible to the negative control");follow.gameObject.SetActive(false);
         float beforeScale=Root.lossyScale.x;Root.localScale*=.4f;Control(Mathf.Abs(Root.lossyScale.x-beforeScale)>.1f,"inheriting hand-art scale is rejected by actual root-size measurement");Root.localScale/=.4f;
@@ -169,6 +169,7 @@ public sealed class WristHarness : MonoBehaviour
         GameObject title=new GameObject("Title",typeof(RectTransform),typeof(TextMeshProUGUI));title.transform.SetParent(donor.transform,false);title.GetComponent<TMP_Text>().font=TMP_Settings.defaultFontAsset;title.GetComponent<TMP_Text>().fontSize=24;
         GameObject option=new GameObject("Option",typeof(RectTransform));option.transform.SetParent(donor.transform,false);new GameObject("Toggle",typeof(RectTransform),typeof(Toggle)).transform.SetParent(option.transform,false);
         Set(options,"_toggleTemplate",donor);GameObject dropdown=new GameObject("Original dropdown control seam",typeof(RectTransform),typeof(TMP_Dropdown));Set(options,"_dropdownControl",dropdown);
+        GameObject slider=new GameObject("Original slider control seam",typeof(RectTransform),typeof(Slider));GameObject amount=new GameObject("Amount",typeof(RectTransform),typeof(TextMeshProUGUI));amount.transform.SetParent(slider.transform,false);amount.GetComponent<TMP_Text>().font=TMP_Settings.defaultFontAsset;Set(options,"_sliderControl",slider);
         Transform parent=new GameObject("Actual settings output",typeof(RectTransform)).transform;
         foreach(string key in new[]{"WristBoardEnabled","WristBoardHand","WristBoardOffsetMeters","WristBoardAnglesDegrees"}){
             object entry=Get(T("Cards.CardsConfig"),key);object item=Call(catalog,"Describe","cards",Get(entry,"Definition"),entry);Set(item,"BaseStep",.001d);
@@ -178,7 +179,68 @@ public sealed class WristHarness : MonoBehaviour
         var toggle=parent.GetChild(0).GetComponentsInChildren<Toggle>(true).Single();Check(toggle!=null,"actual settings-only wrist switch is a usable toggle");
         bool enabled=(bool)Get(Get(T("Cards.CardsConfig"),"WristBoardEnabled"),"Value");toggle.onValueChanged.Invoke(!enabled);Check((bool)Get(Get(T("Cards.CardsConfig"),"WristBoardEnabled"),"Value")==!enabled,"actual ordinary-menu toggle callback writes wrist setting");toggle.onValueChanged.Invoke(enabled);
         selector.onValueChanged.Invoke(1);Check(Get(Get(T("Cards.CardsConfig"),"WristBoardHand"),"Value").ToString()=="Left","actual advanced translated choice callback selects left wrist");Value("WristBoardHand",EnumValue("Cards.WristBoardHand","NonMain"));
-        Object.DestroyImmediate(donor);Object.DestroyImmediate(dropdown);Object.DestroyImmediate(parent.gameObject);
+        Object.DestroyImmediate(dropdown);Object.DestroyImmediate(parent.gameObject);
+        // The original donor shapes remain available for the actual curated rebuild below.
+    }
+    object[] SliderBindings(Type options,string key)=>((IEnumerable)Get(options,"Sliders")).Cast<object>().Where(x=>(string)Get(Get(x,"Item2"),"Key")==key).OrderBy(x=>(int)Get(x,"Item3")).ToArray();
+    GameObject[] LiveRows(Type options)=>((IEnumerable)Get(options,"Rows")).Cast<GameObject>().Where(x=>x!=null).ToArray();
+    GameObject RowOf(Type options,Slider slider)=>LiveRows(options).Single(row=>slider.transform.IsChildOf(row.transform));
+    Vector3 WristOffsets()=>(Vector3)Get(Get(T("Cards.CardsConfig"),"WristBoardOffsetMeters"),"Value");
+    Toggle WristToggle(Type options)=>LiveRows(options).Single(row=>row.transform.Find("Title")?.GetComponent<TMP_Text>()?.text==(string)Call(T("Core.Loc"),"Mod","vr_o_wristboard")).GetComponentInChildren<Toggle>(true);
+    IEnumerator CuratedMenuProof()
+    {
+        Type options=T("WorldUI.VROptionsTab");
+        Array categories=(Array)Get(options,"Curated");int category=-1;
+        for(int i=0;i<categories.Length;i++)if((string)Get(categories.GetValue(i),"LocKey")=="cat_boardcards")category=i;
+        Check(category>=0,"actual everyday board category is selected from the production curated declaration");
+        var parent=new GameObject("Actual everyday wrist settings output",typeof(RectTransform)).GetComponent<RectTransform>();
+        Set(options,"ContentRoot",parent);Set(options,"_curated",category);Set(options,"_view",EnumValue("WorldUI.VROptionsTab+View","Curated"));
+        Vector3 saved=WristOffsets();Value("WristBoardEnabled",false);Call(tray,"TickPlacement");yield return Settle();
+        Call(options,"Rebuild");
+        Check(SliderBindings(options,"WristBoardOffsetMeters").Length==0,"actual curated menu has no wrist position sliders while wrist attachment is off");
+        Near(saved,WristOffsets(),"opening the ordinary menu preserves the saved wrist offset vector");
+        WristToggle(options).isOn=true;
+        Check((bool)Get(Get(T("Cards.CardsConfig"),"WristBoardEnabled"),"Value"),"the actual ordinary wrist toggle enables attachment through its original callback");
+        object[] bindings=SliderBindings(options,"WristBoardOffsetMeters");Check(bindings.Length==3,"toggle callback immediately rebuilds all three position sliders without reopening the menu");
+        GameObject[] rows=LiveRows(options);GameObject toggleRow=rows.Single(row=>WristToggle(options).transform.IsChildOf(row.transform));int toggleIndex=Array.IndexOf(rows,toggleRow);
+        for(int axis=0;axis<3;axis++){
+            Slider bar=(Slider)Get(bindings[axis],"Item1");
+            Check((int)Get(bindings[axis],"Item3")==axis,"production slider registry retains its own wrist component "+axis);
+            Check(ReferenceEquals(rows[toggleIndex+1+axis],RowOf(options,bar)),"wrist axis row is immediately below the enabled mode switch in draw order "+axis);
+            Check(Mathf.Abs(bar.minValue+.5f)<.000001f&&Mathf.Abs(bar.maxValue-.5f)<.000001f,"wrist drag gesture spans half a metre in each direction "+axis);
+            Check(Mathf.Abs(bar.value-WristOffsets()[axis])<.000001f,"first rendered slider handle reads the saved corresponding axis "+axis);
+        }
+        Call(tray,"TickPlacement");yield return Settle();PoseProof(left,"actual wrist-toggle activation finishes at the original tracked root");
+        for(int axis=0;axis<3;axis++){
+            Slider bar=(Slider)Get(bindings[axis],"Item1");Vector3 before=WristOffsets();float requested=new[]{.1234f,-.0876f,.2044f}[axis];bar.value=requested;
+            Vector3 after=WristOffsets();float expected=new[]{.123f,-.088f,.204f}[axis];
+            Check(Mathf.Abs(after[axis]-expected)<.000001f,"actual wrist slider snaps only the selected axis to a millimetre "+axis);
+            for(int other=0;other<3;other++){
+                if(other!=axis)Check(after[other]==before[other],"actual wrist slider preserves other persisted component "+axis+"/"+other);
+                Slider sibling=(Slider)Get(bindings[other],"Item1");Check(Mathf.Abs(sibling.value-after[other])<.000001f,"live repaint keeps every other wrist handle on its own component "+axis+"/"+other);
+            }
+            GameObject row=RowOf(options,bar);string readout=(string)Call(T("WorldUI.ConfigCatalog"),"ValueText",Get(bindings[axis],"Item2"),axis);
+            Check(row.GetComponentsInChildren<TMP_Text>(true).Any(x=>x.transform.name=="Amount"&&x.text==readout),"original harvested slider amount label displays its own live axis "+axis);
+            row.GetComponentsInChildren<Button>(true).Single(x=>x.name=="ArrowRight").onClick.Invoke();
+            Vector3 stepped=WristOffsets();Check(Mathf.Abs(stepped[axis]-after[axis]-.001f)<.000001f,"original fine-adjustment arrow steps the selected wrist axis by one millimetre "+axis);
+            Check(Mathf.Abs(bar.value-stepped[axis])<.000001f,"arrow presses repaint the corresponding slider handle "+axis);
+            for(int other=0;other<3;other++)if(other!=axis)Check(stepped[other]==after[other],"original wrist arrow preserves independent other axis "+axis+"/"+other);
+            yield return null;yield return null;PoseProof(left,"actual original late tick applies the slider and arrow offset without a placement helper call "+axis);
+        }
+        // The shared hybrid kit still edits bounded scalar entries in their original type.
+        object scalar=SliderBindings(options,"TrayScale").Single();Slider scalarBar=(Slider)Get(scalar,"Item1");float scalarSaved=(float)Get(Get(T("Cards.CardsConfig"),"TrayScale"),"Value");
+        scalarBar.value=1.273f;Check(Mathf.Abs((float)Get(Get(T("Cards.CardsConfig"),"TrayScale"),"Value")-1.25f)<.000001f,"shared actual hybrid builder retains scalar range/step and float conversion");
+        RowOf(options,scalarBar).GetComponentsInChildren<Button>(true).Single(x=>x.name=="ArrowRight").onClick.Invoke();Check(Mathf.Abs(scalarBar.value-1.3f)<.000001f,"shared scalar arrow still updates the ordinary scalar slider");Value("TrayScale",scalarSaved);
+        Vector3 edited=WristOffsets();WristToggle(options).isOn=false;
+        Check(SliderBindings(options,"WristBoardOffsetMeters").Length==0,"ordinary wrist-toggle callback immediately removes all three position sliders when disabled");
+        Near(edited,WristOffsets(),"hiding the wrist controls never resets the edited vector");
+        // A practical gesture range must not silently clamp an older saved calibration.
+        Vector3 outside=new Vector3(.725f,-.63f,.012f);Value("WristBoardOffsetMeters",outside);WristToggle(options).isOn=true;
+        Near(outside,WristOffsets(),"rebuilding enabled wrist sliders preserves saved values beyond their drag range");
+        bindings=SliderBindings(options,"WristBoardOffsetMeters");Slider z=(Slider)Get(bindings[2],"Item1");z.value=.05f;
+        Check(WristOffsets().x==outside.x&&WristOffsets().y==outside.y,"editing one in-range slider preserves other saved axes outside the drag range");
+        Value("WristBoardOffsetMeters",edited);Call(options,"Rebuild");Call(tray,"TickPlacement");yield return Settle();PoseProof(left,"rebuilt normal menu leaves original board and owner world pose on the final saved calibration");
+        Object.DestroyImmediate((GameObject)Get(options,"_toggleTemplate"));Object.DestroyImmediate((GameObject)Get(options,"_sliderControl"));Call(options,"ClearRows");Set(options,"ContentRoot",null);Object.DestroyImmediate(parent.gameObject);
     }
     void RemoteProof()
     {

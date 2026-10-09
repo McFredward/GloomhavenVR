@@ -69,7 +69,6 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source-root',type=Path,default=ROOT);args=parser.parse_args()
     source=(args.source_root/'src/GloomhavenVR/Core/Perf/ScenarioSceneryBudget.cs').read_text()
-    architecture=(args.source_root/'src/GloomhavenVR/Core/Perf/ScenarioArchitecturalDetailBudget.cs').read_text()
     fixture=ROOT/'tests/GloomhavenVR.ScenarioSceneryBudgetTests'
     metadata=json.loads((fixture/'NativeDetailProvenance.json').read_text())
     review=metadata['scenery_review']
@@ -141,7 +140,6 @@ def main():
         shutil.copyfile(fixture/'UnityGraph.cs',folder/'UnityGraph.cs');shutil.copyfile(fixture/'Checks.cs',folder/'Checks.cs')
         (folder/'NativeSceneryMetadata.cs').write_text('internal static class NativeSceneryMetadata { internal static readonly string[] CompositeMeshes = {'+mesh_values+'}; internal static readonly string[] GroundMeshes = {'+ground_values+'}; internal static readonly string[] SmallMeshes = {'+small_values+'}; }')
         shutil.copyfile(args.source_root/'src/GloomhavenVR/Core/FigureRendererGuard.cs',folder/'FigureGuard.cs')
-        (folder/'Architecture.cs').write_text(architecture)
         for name,text,expected in variants:
             (folder/'Production.cs').write_text(production(text))
             run=subprocess.run([dotnet,'run','--project',str(folder/'Classifier.csproj'),'-c','Release','--no-launch-profile'],env=env,capture_output=True,text=True)

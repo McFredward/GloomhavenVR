@@ -1,5 +1,9 @@
 # Build 647 architecture asset preparation
 
+**Historical647 experiment; withdrawn in648 after a measured Frame regression.**
+The active renderer and asset bank are restored to646. New647 controls are INERT
+saved-value storage. See [rollback review](../../.planning/FRAME-648-REVIEW.md). The following records647's experiment and proof limits.
+
 This is the offline asset half of the maintainer's approved proposal 2: broader,
 stronger private 3D architecture and floor derivatives across the original game
 and its installed DLCs. Runtime admission, optional density, room grouping and
