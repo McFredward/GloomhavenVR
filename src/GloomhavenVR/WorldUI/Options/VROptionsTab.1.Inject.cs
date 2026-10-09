@@ -1527,6 +1527,9 @@ internal static partial class VROptionsTab
         _host = null;
         _toggle = null;
         _window = null;
+        // Shutdown can reach Forget without rebuilding/clearing the rows first.
+        // Release their availability delegates even when native objects are already gone.
+        ClearMixedRealityAvailabilityRefreshers();
         ContentRoot = null;
         TabBarRoot = null;
         IsStandalone = false;

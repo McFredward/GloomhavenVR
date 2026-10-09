@@ -96,6 +96,7 @@ def main():
     tick = (base / "VROptionsTab.1.Inject.cs").read_text()
     assert "RefreshMixedRealityAvailability();" in method(tick, "internal static void Tick()"), "Live options tick must refresh capability controls"
     assert "ClearMixedRealityAvailabilityRefreshers();" in method(rows, "private static void ClearRows()"), "Page teardown must release native compatibility callbacks"
+    assert "ClearMixedRealityAvailabilityRefreshers();" in method(tick, "private static void Forget()"), "Shutdown and stale-pane teardown must release native compatibility callbacks"
     assert "RegisterMixedRealityAvailabilityRefresh(() => RepaintVariantTiles(built));" in tiles, "Actual environment tile strip must subscribe to native compatibility changes"
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
     manifest = {"result": str(run / "results.txt"), "evidence": str(run), "cases": []}
