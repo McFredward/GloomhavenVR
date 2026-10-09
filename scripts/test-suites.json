@@ -2322,6 +2322,28 @@
         "local"
       ],
       "weight": 35
+    },
+    {
+      "id": "npc655-card-returns",
+      "command": [
+        "python3",
+        "scripts/npc-return655-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 55
+    },
+    {
+      "id": "locomotion-clock-runtime",
+      "command": [
+        "python3",
+        "scripts/check-locomotion-clock-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 15
     }
   ]
 }
