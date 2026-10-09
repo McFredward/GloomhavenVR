@@ -95,6 +95,61 @@ STARTUP_ITEM_CHECKPOINTS = {name: checkpoint for checkpoint, parts in STARTUP_IT
 STARTUP_ITEM_CHECKPOINTS["startup-audio-decode"] = "startup-audio"
 PREPARATION_ITEMS.update({name: "startup-content" for name in STARTUP_ITEM_CHECKPOINTS})
 
+# Count each actual pass inside its one open checkpoint. The codec's final
+# decoded file cannot consume the shares reserved for references and publication.
+for checkpoint in ("native-cubemaps", "native-texture2d"):
+    STARTUP_ITEM_SCHEDULES[checkpoint] = {
+        checkpoint + "-identities": .02, checkpoint + "-pointer-owners": .08,
+        checkpoint + "-backup": .10, checkpoint: .55,
+        checkpoint + "-manifests": .10, checkpoint + "-reference-discovery": .01,
+        checkpoint + "-reference-scan": .10, checkpoint + "-reference-receipts": .02,
+        checkpoint + "-contracts": .02,
+    }
+STARTUP_ITEM_SCHEDULES["campaign-compute"] = {
+    "campaign-compute-identities": .025, "campaign-compute-pointer-owners": .075,
+    "campaign-compute-backup": .10, "campaign-compute-discovery": .005,
+    "campaign-compute-inventory": .01, "campaign-compute-inputs": .01,
+    "campaign-compute-kernels": .34, "campaign-compute-shaders": .01,
+    "campaign-compute-original-check": .01, "campaign-compute-verify": .025,
+    "campaign-compute-apply": .05, "campaign-compute-manifests": .10,
+    "campaign-compute-reference-identities": .01, "campaign-compute-reference-index": .01,
+    "campaign-compute-reference-targets": .01, "campaign-compute-reference-discovery": .01,
+    "campaign-compute-reference-scan": .14, "campaign-compute-reference-write": .015,
+    "campaign-compute-reference-identity-verify": .02,
+    "campaign-compute-publish": .005, "campaign-compute-contracts": .02,
+}
+STARTUP_ITEM_SCHEDULES["campaign-shaders"] = {
+    "campaign-shaders-backup": .03, "campaign-shaders-identities": .015,
+    "campaign-shaders-bundles": .005, "campaign-shaders-containers": .005,
+    "campaign-shaders-inventory": .53, "campaign-shaders-materials": .02,
+    "campaign-shaders-binary-materials": .005, "campaign-shaders-material-containers": .005,
+    "campaign-shaders-programs": .20, "campaign-shaders-sources": .12,
+    "campaign-shaders-copy": .03, "campaign-shaders-publish": .02,
+    "campaign-shaders-contracts": .015,
+}
+CHECKPOINT_OWNERS = {
+    "base-project": "project-files", "native-runtime": "native-runtime", "bundled-audio": "audio",
+    **{name: "startup-content" for name in ("post-effects", "loading-resources", "startup-movies",
+       "native-sprites", "loading-sprite", "startup-audio", "ui-recipes", "startup-ui", "startup-blur",
+       "dlc-selection", "file-extras")},
+    **{name: "textures" for name in ("native-cubemaps", "ordinary-texture-audit", "native-texture2d")},
+    **{name: "graphics" for name in ("campaign-compute", "campaign-shaders")},
+    **{name: "mod-banks" for name in ("startup-archive", "archive-cleanup", "package-settings", "mod-resource-banks")},
+    **{name: "preparation-contracts" for name in ("compiler-contracts", "case-paths", "startup-compute", "script-orders", "final-settings")},
+}
+for checkpoint, owner in CHECKPOINT_OWNERS.items():
+    for suffix in ("backup", "contracts"):
+        name = checkpoint + "-" + suffix
+        STARTUP_ITEM_CHECKPOINTS[name] = checkpoint
+        PREPARATION_ITEMS[name] = owner
+for checkpoint in ("native-cubemaps", "native-texture2d", "campaign-compute", "campaign-shaders"):
+    for name in STARTUP_ITEM_SCHEDULES[checkpoint]:
+        STARTUP_ITEM_CHECKPOINTS[name] = checkpoint
+        PREPARATION_ITEMS[name] = CHECKPOINT_OWNERS[checkpoint]
+for name in ("campaign-shaders-extract", "campaign-shaders-variants"):
+    STARTUP_ITEM_CHECKPOINTS[name] = "campaign-shaders"
+    PREPARATION_ITEMS[name] = "graphics"
+
 
 def _item_checkpoint(name):
     return STARTUP_ITEM_CHECKPOINTS.get(name, "mod-resource-banks" if name in ENVIRONMENT_ITEM_SHARES else name)
@@ -371,9 +426,11 @@ def _preparation_fraction(plan, operation, value):
     scope = plan.get("preparationScopes", {}).get(operation, {})
     nested_movie_bytes = phase == "file-hash" and scope.get("name") == "startup-movies"
     nested_audio_blocks = phase == "prepare-items:startup-audio-decode" and scope.get("name") == "startup-audio"
-    if nested_movie_bytes or nested_audio_blocks:
+    nested_shader_aliases = phase in ("prepare-items:campaign-shaders-extract", "prepare-items:campaign-shaders-variants") and scope.get("name") == "campaign-shaders"
+    if nested_movie_bytes or nested_audio_blocks or nested_shader_aliases:
         parent = scope.get("itemCounter", {})
-        allowed = ("startup-audio-preflight", "startup-audio-write") if nested_audio_blocks else ("startup-movies-media",)
+        allowed = (("campaign-shaders-inventory",) if nested_shader_aliases else
+                   ("startup-audio-preflight", "startup-audio-write") if nested_audio_blocks else ("startup-movies-media",))
         if parent.get("name") not in allowed or not parent.get("total"): return None
         name = parent["name"]
     elif phase.startswith("prepare-items:"):
@@ -383,11 +440,20 @@ def _preparation_fraction(plan, operation, value):
     if not scope.get("open") or scope.get("name") != _item_checkpoint(name) or not scope.get("total"): return None
     ratio = _ratio(value)
     if ratio is None: return None
-    if nested_movie_bytes or nested_audio_blocks:
+    if nested_movie_bytes or nested_audio_blocks or nested_shader_aliases:
         # Repeated source/derived hashes belong to at most the currently open
         # media file. They never count another delivered movie or close it.
+        if nested_shader_aliases:
+            parts = scope.setdefault("shaderParts", {})
+            part = phase.split(":", 1)[1]
+            parts[part] = max(parts.get(part, 0.), ratio)
+            ratio = .10 * parts.get("campaign-shaders-extract", 0.) + .90 * parts.get("campaign-shaders-variants", 0.)
         ratio = min(1., (parent["done"] + min(.99, ratio)) / parent["total"])
     else:
+        if name == "campaign-shaders-inventory":
+            parent = scope.get("itemCounter", {})
+            if parent.get("name") != name or parent.get("done") != value["done"]:
+                scope.pop("shaderParts", None)
         scope["itemCounter"] = {"name": name, "done": value["done"], "total": value["total"]}
     if name in ENVIRONMENT_ITEM_SHARES:
         offset, share = ENVIRONMENT_ITEM_SHARES[name]

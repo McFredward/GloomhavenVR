@@ -166,8 +166,25 @@ OBSERVATION_DIRECTORY_BATCH = {
         "path": "tools/quest-builder/prepare_resume.py", "size": 36948,
         "sha256": "d62d02196cf330e960c076781bcf3f59a029de9e812fd636431648f4139592cf"},
 }
+# 093454 completes seventeen stages then mistakes a scalar compute checksum
+# for output paths. This exact observer profile repairs receipt-role parsing
+# and reports existing backup/contract/rollback work without producer changes.
+OBSERVATION_GRAPHICS_CONTRACT = {
+    **OBSERVATION_DIRECTORY_BATCH,
+    "tools/quest-builder/prepare_resume.py": {'path': 'tools/quest-builder/prepare_resume.py', 'size': 40621, 'sha256': '40f9669dfc3bfef45e7a3f243321ab007ce4c2bda981c5fe297ef0356539f73e'},
+}
+# Exact native-image progress pair: one existing directory census and the same
+# texel/reference writes. Old/new fixture artifacts and receipts are byte equal.
+TEXTURE_PROGRESS_PREVIOUS = {'tools/quest-builder/full_textures.py': {'path': 'tools/quest-builder/full_textures.py', 'size': 18130, 'sha256': '07e94f8171f236c5120e1b2180dcdbb7a7461252274c6df6d4193ec5429edfc8'}, 'tools/quest-builder/full_texture2d.py': {'path': 'tools/quest-builder/full_texture2d.py', 'size': 20383, 'sha256': 'ad834b71e9b778378247a478d86ed5ca4c5f5b9f960fc10be9d72a5fd78ba7e8'}}
+TEXTURE_PROGRESS_FIXED = {'tools/quest-builder/full_textures.py': {'path': 'tools/quest-builder/full_textures.py', 'size': 21252, 'sha256': '28d1cc918520130e4aa87624bea479b13ea3ee60cf333613c953e754ca68d0f2'}, 'tools/quest-builder/full_texture2d.py': {'path': 'tools/quest-builder/full_texture2d.py', 'size': 20518, 'sha256': '789f55d605db997eba7d45ad17e7f5e3453dc11480a71da3e309bb260808574a'}}
+
+# Exact Shader observer pair: native inventory/extraction and generated source
+# bytes match the preceding producer. Earlier CAB readers retain their semantics.
+SHADER_PROGRESS_PREVIOUS = {'tools/quest-builder/full_shaders.py': {'path': 'tools/quest-builder/full_shaders.py', 'size': 84578, 'sha256': '0f56be28c906e8127391ddd999f2a0b5aaa5a00106093126e8d1037a96687f5b'}, 'tools/quest-builder/campaign_shaders.py': {'path': 'tools/quest-builder/campaign_shaders.py', 'size': 4896, 'sha256': '11399faafd4d00e90ed5786dbc1e9243f3094678fefec80c82eca48bd499dc2a'}}
+SHADER_PROGRESS_FIXED = {'tools/quest-builder/full_shaders.py': {'path': 'tools/quest-builder/full_shaders.py', 'size': 88647, 'sha256': 'c7ad08e0da987d87b7ad1a821db2c483079a0739440fb244da5a27cac71e4e6d'}, 'tools/quest-builder/campaign_shaders.py': {'path': 'tools/quest-builder/campaign_shaders.py', 'size': 6591, 'sha256': 'bde246e6a665e8a68d85b08dd3fe5fcdaca64236cf42cca40d09f8d1832dfbd6'}}
+
 OBSERVATION_PROFILES = (OBSERVATION_BYTE_WITNESSES, OBSERVATION_FIXED,
-                        OBSERVATION_INPUT_INDEX, OBSERVATION_INPUT_ORDER, OBSERVATION_DIRECTORY_BATCH)
+                        OBSERVATION_INPUT_INDEX, OBSERVATION_INPUT_ORDER, OBSERVATION_DIRECTORY_BATCH, OBSERVATION_GRAPHICS_CONTRACT)
 # Shipped d4cc44eeb adds an exporter-log observer and invocation-local proof
 # caches. The current reference-audit update changes no raw export identities.
 # Preserve this exact whole profile as well as the previous shipped profiles.
@@ -217,7 +234,14 @@ def preparation_source_rows(rows):
         by_path.setdefault(row["path"], []).append(row)
     if any(profile and all(by_path.get(name) == [fixed] for name, fixed in profile.items())
            for profile in OBSERVATION_PROFILES):
-        return [OBSERVATION_PREVIOUS.get(row["path"], row) for row in rows]
+        rows = [OBSERVATION_PREVIOUS.get(row["path"], row) for row in rows]
+    for fixed, previous in ((TEXTURE_PROGRESS_FIXED, TEXTURE_PROGRESS_PREVIOUS),
+                            (SHADER_PROGRESS_FIXED, SHADER_PROGRESS_PREVIOUS)):
+        by_path = {}
+        for row in rows:
+            by_path.setdefault(row["path"], []).append(row)
+        if all(by_path.get(name) == [value] for name, value in fixed.items()):
+            rows = [previous.get(row["path"], row) for row in rows]
     return rows
 
 

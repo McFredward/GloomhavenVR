@@ -1,5 +1,75 @@
+const preparationCheckpoints = [
+  'base-project','post-effects','loading-resources','startup-movies','native-sprites',
+  'loading-sprite','startup-audio','ui-recipes','startup-ui','startup-blur','dlc-selection',
+  'file-extras','native-runtime','bundled-audio','native-cubemaps','ordinary-texture-audit',
+  'native-texture2d','campaign-compute','campaign-shaders','startup-archive','archive-cleanup',
+  'package-settings','mod-resource-banks','compiler-contracts','case-paths','startup-compute',
+  'script-orders','final-settings'
+];
+const preparationActions = {
+  backup: ['Originaldaten für die Fortsetzung sichern','Preserve original inputs for resume'],
+  contracts: ['Ergebnis des Teilabschnitts speichern','Commit substage results'],
+  'rollback-verify': ['Gesicherte Eingaben der unterbrochenen Arbeit zuordnen','Qualify interrupted-work input backups'],
+  'rollback-restore': ['Eingaben der unterbrochenen Arbeit wiederherstellen','Restore interrupted-work inputs'],
+};
+const graphicsActions = {
+  identities: ['Asset-Verzeichnis einlesen','Read asset index'],
+  'pointer-owners': ['Betroffene Asset-Verweise ermitteln','Find affected asset reference owners'],
+  manifests: ['Asset-Verzeichnisse aktualisieren','Update asset ledgers'],
+  'reference-discovery': ['Dateien für die Verweisanpassung erfassen','Enumerate reference-owner files'],
+  'reference-scan': ['Asset-Verweise verarbeiten','Process asset references'],
+  'reference-receipts': ['Ergebnisse der Verweisanpassung speichern','Publish reference results'],
+};
+const computeActions = {
+  discovery: ['Compute-Dateien erfassen','Enumerate compute files'],
+  inventory: ['Compute-Programme zuordnen','Inventory compute programs'],
+  inputs: ['Originale Compute-Daten einlesen','Read original compute inputs'],
+  kernels: ['Compute-Kernel konvertieren','Convert compute kernels'],
+  shaders: ['Compute-Programme speichern','Publish compute programs'],
+  'original-check': ['Unveränderte Compute-Eingaben zuordnen','Qualify unchanged compute inputs'],
+  verify: ['Konvertierte Compute-Ausgaben zuordnen','Qualify converted compute outputs'],
+  apply: ['Compute-Dateien übernehmen','Apply compute files'],
+  'reference-identities': ['Compute-Asset-Verzeichnis einlesen','Read compute asset index'],
+  'reference-index': ['Compute-Verweise zuordnen','Index compute references'],
+  'reference-targets': ['Compute-Verweisziele bestimmen','Select compute reference targets'],
+  'reference-write': ['Compute-Verweise aktualisieren','Update compute reference owners'],
+  'reference-identity-verify': ['Compute-Verzeichnis abschließend zuordnen','Qualify final compute asset index'],
+  publish: ['Compute-Ergebnisse speichern','Publish compute results'],
+};
+const shaderActions = {
+  extract: ['Originale Shader-Varianten auslesen','Extract original shader variants'],
+  bundles: ['Originale Shader-Pakete zuordnen','Map original shader bundles'],
+  identities: ['Shader-Asset-Verzeichnis einlesen','Read shader asset index'],
+  containers: ['Originale Shader-Daten einlesen','Read original shader containers'],
+  inventory: ['Shader-Programme konvertieren','Convert native shader instructions'],
+  variants: ['Varianten des aktuellen Shaders konvertieren','Convert current shader variants'],
+  materials: ['Materialien zu ihren Shadern zuordnen','Map materials to shaders'],
+  'binary-materials': ['Native Material-Verweise zuordnen','Map native material references'],
+  'material-containers': ['Native Material-Daten einlesen','Read native material containers'],
+  programs: ['Shader-Programmdateien erstellen','Write shader program files'],
+  sources: ['Shader-Quelldateien erstellen','Write shader source files'],
+  copy: ['Konvertierte Shader-Dateien übernehmen','Apply converted shader files'],
+  publish: ['Shader-Ergebnisse speichern','Publish shader results'],
+};
+function preparationLabels(language) {
+  const index = language === 'de' ? 0 : 1;
+  const result = {};
+  for (const checkpoint of preparationCheckpoints)
+    for (const [action, labels] of Object.entries(preparationActions))
+      result['phase_prepare-items:'+checkpoint+'-'+action] = labels[index];
+  for (const checkpoint of ['native-cubemaps','native-texture2d','campaign-compute'])
+    for (const [action, labels] of Object.entries(graphicsActions))
+      result['phase_prepare-items:'+checkpoint+'-'+action] = labels[index];
+  for (const [action, labels] of Object.entries(computeActions))
+    result['phase_prepare-items:campaign-compute-'+action] = labels[index];
+  for (const [action, labels] of Object.entries(shaderActions))
+    result['phase_prepare-items:campaign-shaders-'+action] = labels[index];
+  return result;
+}
+
 export const strings = {
   de: {
+    ...preparationLabels('de'),
     storageScanned:'{done} Dateien im aktuellen Ordner erfasst',storageSkipped:'{count} geschützte oder nicht zuordenbare Ordner bleiben erhalten',
     storageTitle:'Arbeitsordner und Speicherplatz',storageManage:'Speicher freigeben',storageFree:'{size} frei',storageDuplicatesHint:'Eine Vorschau zeigt nicht mehr verwendete Duplikate. Aktuelle Ergebnisse und Fortsetzungsdaten bleiben erhalten.',storageFindDuplicates:'Ungenutzte Duplikate suchen',storagePlanCache:'Build-Zwischendaten prüfen',storageCacheConsequence:'Build-Zwischendaten löschen: APK, Spiel-Datenpakete, Signierschlüssel und heruntergeladene Werkzeuge bleiben erhalten. Vollständige Builds benötigen danach erneut Konvertierung und Unity-Import. APK-Updates bleiben möglich.',storagePlanning:'Dateien für die Bereinigung werden ermittelt …',storageDeleting:'Angezeigte Dateien werden gelöscht …',storagePreview:'{files} Dateien · {size} können freigegeben werden.',storageNoFiles:'Es wurden keine löschbaren Dateien gefunden.',storageMeasured:'{done} / {total} Dateien',storageComplete:'Bereinigung abgeschlossen: {size} freigegeben, {files} Dateien gelöscht.',storageFailed:'Bereinigung fehlgeschlagen: {message}',storageConfirmCopy:'Nur die oben angezeigten Ordner und Dateien werden gelöscht. Die Aktion lässt sich nicht rückgängig machen.',storageConfirm:'Angezeigte Dateien löschen',storageDismiss:'Vorschau schließen',storagePlanSize:'{size} · {files} Dateien',storageBusy:'Die Speicherbereinigung läuft. Warte auf ihr Ende, bevor du einen Build startest.',
     'phase_operation_update-owned-game':'Vorhandene PC-Spielkopie zuordnen', 'phase_operation_update-mod-source':'Aktuelle Mod-Dateien übernehmen', 'phase_operation_update-code':'Geänderten Spiel- und Mod-Code kompilieren', 'phase_operation_update-art':'Geänderte Mod-Assets erstellen', 'phase_operation_update-profile':'Eingebettetes Profil vorbereiten', 'phase_operation_update-repack':'APK-Inhalte übernehmen und signieren', 'phase_operation_update-verify':'Update-Ergebnis abschließen',
@@ -266,6 +336,7 @@ export const strings = {
     ownershipUnknown:'DLC-Besitz wird geprüft', baseGame:'Basisspiel', cannotBrowse:'Der native Ordnerdialog ist auf diesem Rechner nicht verfügbar. Trage den vollständigen Pfad ein.'
   },
   en: {
+    ...preparationLabels('en'),
     storageScanned:'{done} files indexed in the current folder',storageSkipped:'{count} protected or unqualified folders are retained',
     storageTitle:'Workspace and disk space',storageManage:'Free disk space',storageFree:'{size} free',storageDuplicatesHint:'The preview lists unused duplicates. Current results and resume data are retained.',storageFindDuplicates:'Find unused duplicates',storagePlanCache:'Review build intermediates',storageCacheConsequence:'Delete build intermediates: APK, game content banks, signing keys and downloaded tools are retained. Later full builds need conversion and Unity import again. APK updates remain available.',storagePlanning:'Finding files eligible for cleanup …',storageDeleting:'Deleting the displayed files …',storagePreview:'{files} files · {size} can be freed.',storageNoFiles:'No eligible files were found.',storageMeasured:'{done} / {total} files',storageComplete:'Cleanup complete: {size} freed, {files} files deleted.',storageFailed:'Cleanup failed: {message}',storageConfirmCopy:'Only the folders and files displayed above will be deleted. This action cannot be undone.',storageConfirm:'Delete displayed files',storageDismiss:'Close preview',storagePlanSize:'{size} · {files} files',storageBusy:'Storage cleanup is running. Wait for it to finish before starting a build.',
     'phase_operation_update-owned-game':'Qualify the existing PC installation', 'phase_operation_update-mod-source':'Capture current mod files', 'phase_operation_update-code':'Compile changed game and mod code', 'phase_operation_update-art':'Build changed mod assets', 'phase_operation_update-profile':'Prepare the embedded profile', 'phase_operation_update-repack':'Retain APK payloads and sign', 'phase_operation_update-verify':'Publish the verified update',

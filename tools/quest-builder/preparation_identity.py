@@ -44,6 +44,23 @@ PREFIX_DELIVERY_HELPERS = {"tools/quest-builder/release.py", "tools/quest-builde
 # transaction. Its Opus downloader cannot produce any earlier original assets.
 # Once that transaction closes, this source again qualifies the native outputs.
 PREFIX_NATIVE_DOWNLOAD_HELPERS = {"tools/quest-network/native.py"}
+# These generators first run in campaign-compute/campaign-shaders. Before the
+# exact seventeen-step frontier none can produce a completed original prefix.
+# Keep all shared observers, converters and original CAB readers qualified.
+PREFIX_UNCONSUMED_GRAPHICS = {"tools/quest-builder/campaign_compute.py",
+    "tools/quest-compute/recovery.py", "tools/quest-compute/references.py",
+    "tools/quest-shaders/produce.py"}
+
+# Exact AST alias for bounded identity/reference progress in the Builder. Every
+# producer statement and argument remains qualified; no general logger stripping.
+# Unknown orchestration edits still differ, including an added earlier consumer.
+BUILDER_PROGRESS_AST = {
+    False: ("274710930270adb41b33ed225247fbf35c8e06044d32f9ae726ed5b28dac6e73",
+            "4b1ff16c22bc3b351d9e714d91df56285c5b005c4b975e2385f65ece7ee890c4"),
+    True: ("1a6f7d2798bf6d0106a4765bb24b382fd9cd51a1ab55d8c8ba3fd2885380585e",
+           "cc09e2c539f383d447f494d386bd5fa6dd8df9989a964543d98c33f4bea6385f"),
+}
+
 
 # Exact producer profiles reviewed against the original movie/audio outputs.
 # These are aliases for this repair, never a general exclusion from identity.
@@ -190,7 +207,9 @@ def builder_producer_digest(raw, *, original_prefix=False):
         for node in tree.body:
             if isinstance(node, ast.ImportFrom) and node.module == "storage":
                 node.names = [name for name in node.names if not (name.name == "persistent_inventory" and name.asname is None)]
-    return hashlib.sha256(ast.dump(tree, include_attributes=False).encode("utf-8")).hexdigest()
+    result = hashlib.sha256(ast.dump(tree, include_attributes=False).encode("utf-8")).hexdigest()
+    observed, preceding = BUILDER_PROGRESS_AST[bool(original_prefix)]
+    return preceding if result == observed else result
 
 
 def _builder_bytes(root, records):
@@ -206,7 +225,7 @@ def _builder_bytes(root, records):
     return raw
 
 
-def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=False, native_unconsumed=False):
+def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=False, native_unconsumed=False, graphics_unconsumed=False):
     records = recovery._records(inputs["mod"]["files"], "size")
     builder = builder_producer_digest(_builder_bytes(source, records), original_prefix=original_prefix)
     rows = _reviewed_startup_rows(recovery.preparation_source_rows(inputs["mod"]["files"]))
@@ -226,6 +245,8 @@ def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=Fal
             rows = [row for row in rows if row["path"] not in PREFIX_UNUSED_TOOLS]
         if native_unconsumed:
             rows = [row for row in rows if row["path"] not in PREFIX_NATIVE_DOWNLOAD_HELPERS]
+        if graphics_unconsumed:
+            rows = [row for row in rows if row["path"] not in PREFIX_UNCONSUMED_GRAPHICS]
     scope = copy.deepcopy({key: value for key, value in inputs.items() if key not in ("inputKey", "mod")})
     scope["mod"] = {"producerFiles": rows, "builderProducerAstSha256": builder}
     if not original_prefix:
@@ -266,10 +287,12 @@ def rebind_key(output, project, inputs, source, *, target, recipe, recovery):
             return None
     original_prefix = _original_game_prefix(value, target)
     native_unconsumed = _native_unconsumed(value, target)
+    graphics_unconsumed = (target == "game" and original_prefix
+                           and not any(step["name"] == "campaign-compute" for step in value["steps"]))
     before = _scope(previous, previous_source, recovery, original_prefix=original_prefix,
-                    ui_unconsumed=ui_unconsumed, native_unconsumed=native_unconsumed)
+                    ui_unconsumed=ui_unconsumed, native_unconsumed=native_unconsumed, graphics_unconsumed=graphics_unconsumed)
     after = _scope(inputs, source, recovery, original_prefix=original_prefix,
-                   ui_unconsumed=ui_unconsumed, native_unconsumed=native_unconsumed)
+                   ui_unconsumed=ui_unconsumed, native_unconsumed=native_unconsumed, graphics_unconsumed=graphics_unconsumed)
     if value_hash(before) != value_hash(after):
         return None
     print("preparation resume: retaining witnessed conversions across compatible producer inputs; "

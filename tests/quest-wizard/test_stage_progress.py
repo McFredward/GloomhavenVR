@@ -467,13 +467,13 @@ class StageProgressTests(unittest.TestCase):
         before = self.progress()['stagePercent']
         self.store.progress(self.session, 'build', 'prepare-items:native-texture2d', 250, 1000, 'items', status='complete')
         row = self.store.load(self.session)['stages'][5]
-        self.assertEqual(row['progressPlan']['fractions']['textures'], 2.25 / 3)
+        self.assertAlmostEqual(row['progressPlan']['fractions']['textures'], (2 + .25 * .55) / 3)
         self.assertGreater(row['progress']['stagePercent'], before)
         scope = row['progressPlan']['preparationScopes']['textures']
-        self.assertEqual(scope['itemFraction'], .25)
+        self.assertAlmostEqual(scope['itemFraction'], .25 * .55)
         self.assertEqual(scope['items'], {'done': 250, 'total': 1000})
         self.assertEqual(row['progress']['activeWork'], {'operation': 'textures', 'done': 2, 'total': 3,
-                                                       'unit': 'steps', 'percent': 75.0})
+                                                       'unit': 'steps', 'percent': 71.25})
         self.assertNotIn('textures', row['progressPlan']['completed'])
         self.store.progress(self.session, 'build', 'prepare-items:native-texture2d', 1000, 1000, 'items', status='complete')
         self.assertNotIn('textures', self.store.load(self.session)['stages'][5]['progressPlan']['completed'])
@@ -606,7 +606,7 @@ class StageProgressTests(unittest.TestCase):
         self.store.progress(self.session, 'build', 'prepare-items:native-texture2d', 250, 1000, 'items')
         row = self.store.load(self.session)['stages'][5]
         self.assertEqual(row['progressPlan']['fractions']['player'], .2)
-        self.assertEqual(row['progressPlan']['fractions']['textures'], .75)
+        self.assertAlmostEqual(row['progressPlan']['fractions']['textures'], (2 + .25 * .55) / 3)
         self.assertEqual(row['progress']['stagePercent'], previous)
         self.assertNotIn('player', row['progressPlan']['completed'])
 

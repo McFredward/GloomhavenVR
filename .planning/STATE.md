@@ -1,5 +1,24 @@
 # State — where the project stands
 
+**Quest compute contract and measured graphics progress, 2026-10-09 (Builder only).**
+
+Capture093454 identifies07ebc472d / ModBuild647: all17 preparation steps close,
+then a scalar compute `manifestSha256` is iterated as output paths and fails on
+`e`. The parser now retains scalar provenance and requires every mapped output.
+Measured backup/rollback, reference, compute and Shader counters expose the
+contiguous209s/336s/100s gaps without timer progress or another full asset census.
+Per-step/global progress incorporates these passes; Shader aliases remain
+within their current Shader's share.
+
+Exact previous source-byte and actual Preparation fixtures retain17 closed
+receipts, repeat no closed producer and keep Unity Library; only the pending
+compute transaction is restored/retried. Current dev651 is merged into the
+user-confirmed Quest feature branch, including Frame rendering rollback and
+native local UI repairs. Quest/Frame share standalone graphics defaults.
+Focused checks, unchanged output comparisons, strict651 builds and actual
+static weave pass. No new Windows whole build or headset outcome is claimed.
+See [graphics preparation repair](QUEST-GRAPHICS-093454-20261009.md).
+
 **Quest retained-result hierarchy, fast qualification and download preflight,
 2026-10-09 (Builder only).**
 

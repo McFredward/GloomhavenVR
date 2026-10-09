@@ -873,7 +873,8 @@ class PreparationPipelineTests(unittest.TestCase):
             "manifestSha256": storage.digest(project / "Assets/QuestOriginalCampaign/campaign-computes.json"),
             "androidCompiled": False, "hardwareVerified": False})
         return value
-    def shaders(self, source, project, *_):
+    def shaders(self, source, project, *_, cab_bundles=None):
+        self.assertEqual(cab_bundles, {})  # The invocation-local original owner fixture.
         self.tick("shaders")
         self.write(project, "Assets/Shader/Original.shader", b"all native shader instructions")
         self.write(project, "Assets/QuestOriginalCampaign/ShaderPrograms/native.hlsl", b"native program")

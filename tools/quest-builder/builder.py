@@ -564,14 +564,24 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path, *, conve
         if inputs.get("probeAssets"):
             base_contracts += ["Assets/Quest/Recovered/" + row["path"] for row in inputs["probeAssets"]["files"]]
         identities = None
-        def original_objects():
+        def original_objects(progress_scope=None):
             nonlocal identities
             if identities is None:
                 path = project / "QuestRecovery/original-asset-identities.json"
-                identities = json.loads(path.read_text())["identities"] if path.is_file() else []
+                if path.is_file() and progress_scope:
+                    counter = build_progress.Counter("prepare-items:" + progress_scope + "-identities", path.stat().st_size, "bytes", path.name)
+                    raw = bytearray()
+                    with path.open("rb") as stream:
+                        for chunk in iter(lambda: stream.read(1048576), b""):
+                            raw.extend(chunk); counter.add(len(chunk))
+                    # The final count closes only after parsing has actually returned.
+                    identities = json.loads(raw)["identities"]
+                    counter.finish()
+                else:
+                    identities = json.loads(path.read_text())["identities"] if path.is_file() else []
             return identities
-        def class_paths(classes):
-            return list(dict.fromkeys(row["path"] for row in original_objects()
+        def class_paths(classes, progress_scope=None):
+            return list(dict.fromkeys(row["path"] for row in original_objects(progress_scope)
                          if any(obj.get("classId") in classes for obj in row["objects"])))
         def with_meta(paths):
             return list(dict.fromkeys(name for path in paths for name in (path, path + ".meta")))
@@ -581,25 +591,31 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path, *, conve
                 result += ["Assets/" + folder + "/" + name for name in
                            ("startup-addressables.json", "campaign-addressables.json", "script-bindings.json")]
             return result
-        def pointer_owners(targets):
-            guids = {row["guid"].encode() for row in original_objects() if row["path"] in targets}
+        def pointer_owners(targets, progress_scope):
+            guids = {row["guid"].encode() for row in original_objects(progress_scope) if row["path"] in targets}
             if not guids: return []
             # The existing native identity rows supply the candidates. Preserve
             # actual matching owners, rather than copying every serialized asset.
             owners = []
-            for row in original_objects():
+            records = original_objects()
+            counter = build_progress.Counter("prepare-items:" + progress_scope + "-pointer-owners", len(records), "items", "Find affected native reference owners")
+            for row in records:
                 path = project / row["path"]
                 if path.suffix.lower() in (".unity", ".prefab", ".asset", ".mat", ".controller", ".anim", ".playable") and path.is_file():
                     with path.open("rb") as stream:
                         prefix = stream.read(128)
                         # Native texel payloads have no external texture PPtrs.
-                        if re.search(rb"--- !u!(?:28|89) &", prefix): continue
+                        if re.search(rb"--- !u!(?:28|89) &", prefix):
+                            counter.add(1, row["path"])
+                            continue
                         data = prefix + stream.read()
                     if guids.intersection(re.findall(rb"\bguid:\s*([0-9a-f]{32})\b", data)): owners.append(row["path"])
+                counter.add(1, row["path"])
+            counter.finish()
             return owners
-        def texture_mutations(targets, suffix):
+        def texture_mutations(targets, suffix, progress_scope):
             paths = with_meta(targets + [Path(path).with_suffix(suffix).as_posix() for path in targets])
-            paths += pointer_owners(set(targets)) + remap_ledgers()
+            paths += pointer_owners(set(targets), progress_scope) + remap_ledgers()
             paths += ["Assets/QuestOriginalCampaign/" + name for name in
                       ("native-sprites.json", "native-cubemaps.json", "native-texture2d.json", "native-platform-images.json",
                        "bundled-audio.json", "native-texture-references.json", "ordinary-texture2d-audit.json")]
@@ -662,23 +678,23 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path, *, conve
                 with resume.operation("textures", 3):
                     resume.run("native-cubemaps", "textures", lambda: full_textures.stage(project, game, dotnet=tool_path(args.dotnet, "dotnet"), tool_cache=codec, cab_bundles=owners()),
                                contracts("Assets/QuestOriginalCampaign/native-cubemaps.json", "Assets/QuestOriginalCampaign/native-platform-images.json", "Assets/QuestOriginalCampaign/native-texture-references.json"),
-                               mutations=lambda: texture_mutations(class_paths({89}), ".asset"))
+                               mutations=lambda: texture_mutations(class_paths({89}, "native-cubemaps"), ".asset", "native-cubemaps"))
                     identities = None
                     resume.run("ordinary-texture-audit", "textures", lambda: full_texture2d.audit(project, game, cab_bundles=owners(), output=project / "Assets/QuestOriginalCampaign/ordinary-texture2d-audit.json"),
                                contracts("Assets/QuestOriginalCampaign/ordinary-texture2d-audit.json"))
                     def texture_audit(): return json.loads((project / "Assets/QuestOriginalCampaign/ordinary-texture2d-audit.json").read_text())
                     resume.run("native-texture2d", "textures", lambda: full_texture2d.restore_float_textures(project, game, texture_audit(), dotnet=tool_path(args.dotnet, "dotnet"), tool_cache=codec, cab_bundles=owners()),
                                contracts("Assets/QuestOriginalCampaign/native-texture2d.json", "Assets/QuestOriginalCampaign/native-texture-references.json", "Assets/QuestOriginalCampaign/ordinary-texture2d-audit.json"),
-                               mutations=lambda: texture_mutations([row["assetPath"] for row in texture_audit()["assets"] if row["nativeFloatOrHdr"]], ".texture2D"))
+                               mutations=lambda: texture_mutations([row["assetPath"] for row in texture_audit()["assets"] if row["nativeFloatOrHdr"]], ".texture2D", "native-texture2d"))
                 identities = None
                 def compute_mutations():
-                    targets = class_paths({72})
-                    return with_meta(targets + [Path(path).with_suffix(".compute").as_posix() for path in targets]) + remap_ledgers() + pointer_owners(set(targets)) + [
+                    targets = class_paths({72}, "campaign-compute")
+                    return with_meta(targets + [Path(path).with_suffix(".compute").as_posix() for path in targets]) + remap_ledgers() + pointer_owners(set(targets), "campaign-compute") + [
                            "Assets/QuestOriginalCampaign/campaign-computes.json", "QuestStartupEvidence/compute-source-restoration.json"]
                 with resume.operation("graphics", 2):
                     resume.run("campaign-compute", "graphics", lambda: campaign_compute.stage(source, project, output / "tool-cache/campaign-compute" / inputs["inputKey"]),
                                contracts("Assets/QuestOriginalCampaign/campaign-computes.json", "QuestStartupEvidence/compute-source-restoration.json"), mutations=compute_mutations)
-                    resume.run("campaign-shaders", "graphics", lambda: campaign_shaders.stage(source, project, game, campaign_shader_cache(output, inputs["game"]["key"])),
+                    resume.run("campaign-shaders", "graphics", lambda: campaign_shaders.stage(source, project, game, campaign_shader_cache(output, inputs["game"]["key"]), cab_bundles=owners()),
                                contracts("Assets/QuestOriginalCampaign/campaign-shaders.json", "QuestCampaignEvidence/shader-reconstruction.json"),
                                mutations=lambda: with_meta(class_paths({48})) + ["Assets/QuestOriginalCampaign/ShaderPrograms", "Assets/QuestOriginalCampaign/campaign-shaders.json", "QuestCampaignEvidence/shader-reconstruction.json"])
             editor = tool_path(args.unity_editor, "Unity")

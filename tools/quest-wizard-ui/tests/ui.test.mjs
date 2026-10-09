@@ -266,3 +266,18 @@ test('durations and ETA retain measured scope, honest missing history and finite
   for(const status of ['paused','learning','complete','unknown'])assert.equal(timingView({...row,estimate:{status,scope:'phase'}}).estimate.status,status);
   assert.equal(timingView({elapsedSeconds:12}).elapsedBasis,'recorded-active');
 });
+
+test('measured graphics and restoration tasks have localized readable labels', () => {
+  const phases = ['campaign-compute-kernels','campaign-compute-reference-scan',
+    'campaign-compute-reference-index','campaign-compute-publish',
+    ...['bundles','identities','inventory','containers','extract','variants','materials','binary-materials',
+      'material-containers','programs','sources','copy','publish','backup','contracts'].map(name=>'campaign-shaders-'+name),
+    ...['native-cubemaps','native-texture2d','campaign-compute'].flatMap(name =>
+      ['identities','pointer-owners','backup','contracts','manifests','reference-discovery',
+        'reference-scan','reference-receipts','rollback-verify','rollback-restore'].map(action => name+'-'+action))];
+  for (const language of ['de','en']) for (const phase of phases) {
+    const key='phase_prepare-items:'+phase, label=translate(language,key);
+    assert.notEqual(label,key,language+': '+phase);
+    assert.ok(label.length > 3 && label.length < 70,language+': '+phase);
+  }
+});
