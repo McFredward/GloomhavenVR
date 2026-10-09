@@ -219,6 +219,9 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     private Transform? _backing;
     private Vector3 _backingBaseScale;
     private Vector2 _backingBaseSize; // design size the base scale was authored for
+    private bool _proceduralBacking;
+    internal Vector2 OriginalBackingSize => _backingBaseSize;
+    internal bool HasProceduralBacking => _proceduralBacking;
     private BoxCollider? _box;
     private Vector3 _fullColliderSize;
 
@@ -399,6 +402,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     /// <summary>Create geometry (called once by the factory right after AddComponent).</summary>
     internal void Build(GameObject? backingPrefab)
     {
+        _proceduralBacking = backingPrefab == null;
         float w = CardsConfig.CardWidth.Value;
         float h = CardsConfig.CardHeight;
 
@@ -554,7 +558,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
               "line above is a change the player can see."));
     }
 
-    private static Transform BuildProceduralBacking(Transform parent, float w, float h)
+    internal static Transform BuildProceduralBacking(Transform parent, float w, float h)
     {
         // P7 (test #10): a REAL 3D card body with ~1.5 mm thickness, dark rim, opaque decorative
         // back (see CardMesh). ROUND 17 (2026-08-11 ruling: "das mesh der Karte auf das outline

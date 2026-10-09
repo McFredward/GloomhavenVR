@@ -107,7 +107,9 @@ public static partial class MirrorProgram
             Check(painted.HasVisibleOutput(), "the delayed offered face submits visible original artwork");
         using (var painted = new TownServiceBinding(body))
             Check(painted.HasVisibleOutput(), "the offered backing submits visible original artwork");
-        var handoff = new TownServiceEnhancementHandoff { OfferedCardId = 62201, Card = card, Face = face,
+        var ownerCard = card.gameObject.AddComponent<GloomhavenVR.Cards.VRCard>();
+        ownerCard.FixtureBacking(new Vector2(.15f, .23f), body);
+        var handoff = new TownServiceEnhancementHandoff { OfferedCardId = 62201, Card = ownerCard, Face = face,
             NativeSource = null, Zone = Go("Visitor local pre-drop guide", author).transform };
         ritual.Handoff = handoff;
         // Resident readiness is authored by the original handoff/presentation

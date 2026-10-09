@@ -1198,11 +1198,13 @@ public static partial class MirrorProgram
                 var offeringCard = Go("owned-offering-card").transform;
                 var visual = Go("Visual").transform; visual.SetParent(offeringCard, false);
                 var backing = Go("Backing").transform; backing.SetParent(visual, false);
+                var ownedCard = offeringCard.gameObject.AddComponent<GloomhavenVR.Cards.VRCard>();
+                ownedCard.FixtureBacking(new Vector2(.14f, .22f), backing);
                 var native = Go("native-offering").AddComponent<GloomhavenVR.WorldUI.AbilityCardUI>();
                 native.CardID = 123; native.fullAbilityCard = Go("native-full-face").transform;
                 GloomhavenVR.WorldUI.NativeTemplates.Originals["enchant.tooltip"] = Go("native-folio-price-tooltip").transform;
                 ritual.Handoff = new GloomhavenVR.WorldUI.TownServiceEnhancementHandoff
-                { Card = offeringCard, OfferedCardId = 123, NativeSource = native, Face = Go("offered-full-face").transform, Zone = Go("palm-zone").transform };
+                { Card = ownedCard, OfferedCardId = 123, NativeSource = native, Face = Go("offered-full-face").transform, Zone = Go("palm-zone").transform };
             }
             GloomhavenVR.WorldUI.TownServicePresentation.Ritual = ritual;
             calls.Clear(); GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, shared);
@@ -1219,7 +1221,8 @@ public static partial class MirrorProgram
                 Check(calls.Exists(c => c.Key == "face.123" && c.Source == offered.Face
                     && c.Provenance == null && c.CloneOf == null && c.Prewarm),
                     "offered owned card publishes its actual front independently of pooled native provenance");
-                Check(calls.Exists(c => c.Key == "map.cardbody" && c.Source == offered.Card!.Find("Visual/Backing")),
+                Check(calls.Exists(c => c.Key == GloomhavenVR.WorldUI.TownServiceAbilityBody.Key(offered.Card!)
+                    && c.Source == offered.Card!.transform.Find("Visual/Backing")),
                     "offered owned card mirrors actual backing");
                 Check(!calls.Exists(c => c.Key == "merchant.zone" && c.Source == offered.Zone), "mage pre-drop card guide remains local while offered face and body stay shared");
             }
@@ -1245,11 +1248,12 @@ public static partial class MirrorProgram
         { CardId = 123, Face = Go("actual-return-face").transform, Body = Go("actual-return-body").transform,
             Session = GloomhavenVR.WorldUI.TownServicePresentation.Session, SessionAge = 3f };
         returning.Card=returning.Face!.gameObject.AddComponent<GloomhavenVR.Cards.VRCard>();
+        returning.Card.FixtureBacking(new Vector2(.14f, .22f), returning.Body);
         GloomhavenVR.WorldUI.TownServiceEnhancementHandoff.Returning.Add(returning);
         calls.Clear(); GloomhavenVR.WorldUI.TownServiceSync.Tick(shared, null);
         Check(calls.Exists(c => c.Key == "face.123" && c.Source == returning.Face && c.Provenance == null),
             "closed window retains actual return face without recycled native provenance");
-        Check(calls.Exists(c => c.Key == "map.cardbody" && c.Source == returning.Body),
+        Check(calls.Exists(c => c.Key == GloomhavenVR.WorldUI.TownServiceAbilityBody.Key(returning.Card) && c.Source == returning.Body),
             "closed window retains actual return backing");
         Check(!calls.Exists(c => c.Source == window.transform), "closed return session does not resurrect native window");
         GloomhavenVR.WorldUI.TownServiceEnhancementHandoff.Returning.Clear();

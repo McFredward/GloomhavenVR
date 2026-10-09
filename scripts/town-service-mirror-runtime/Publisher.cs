@@ -93,7 +93,8 @@ namespace GloomhavenVR.WorldUI
         { height=PhysicalCardFace!=null?PhysicalCardFace.rect.height*PhysicalCardFace.TransformVector(Vector3.up).magnitude:0f;return height>0f; }
         internal sealed class ReturnPresentation { internal GloomhavenVR.Cards.VRCard Card=null!; internal Transform? Face, Body, StationRoot; internal int CardId; internal uint Session; internal float SessionAge; }
         internal static readonly List<ReturnPresentation> Returning = new();
-        internal Transform? Card, Face, Zone; internal AbilityCardUI? NativeSource;
+        internal GloomhavenVR.Cards.VRCard? Card;
+        internal Transform? Face, Zone; internal AbilityCardUI? NativeSource;
         internal int OfferedCardId = -1;
         internal Transform? CloneOf(Transform original) => NativeSource != null && original == NativeSource.fullAbilityCard ? Face : null;
     }

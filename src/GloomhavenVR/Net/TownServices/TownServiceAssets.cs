@@ -187,6 +187,17 @@ internal sealed partial class TownServiceAssets
                && texture.format == TextureFormat.DXT5 && texture.mipmapCount == 11
             || texture.name == "CoinIcon2_White" && texture.width == 128 && texture.height == 128
                && texture.format == TextureFormat.DXT5 && texture.mipmapCount == 1
+            // Build658's exact full enhancement capture exposed dormant material
+            // dependencies, not just more transport debt. Both paired logs have
+            // complete originals blocked by duplicate wrappers of these textures.
+            // Read-only census of every original *.assets finds one source each:
+            // resources.assets/207 and sharedassets1.assets/364. Keep their full
+            // descriptors canonical across native model borrow order, like the
+            // audited originals above; arbitrary same-name textures still refuse.
+            || texture.name == "Default-Particle" && texture.width == 64 && texture.height == 64
+               && texture.format == TextureFormat.RGBA32 && texture.mipmapCount == 7
+            || texture.name == "T_sphere_norm" && texture.width == 512 && texture.height == 512
+               && texture.format == TextureFormat.RGBA32 && texture.mipmapCount == 10
             || texture.name.StartsWith("sactx-", StringComparison.Ordinal)
                && texture.name.Contains("BattleOverlayCanvas-");
     }

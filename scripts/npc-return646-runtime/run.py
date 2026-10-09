@@ -32,7 +32,11 @@ def main():
     bound, hashes = loader.sources(root)
     legacy_budget_commit = 'bf3444cb502e1eff52bcf0e5194a255109879d36'
     legacy_budget = subprocess.check_output(['git', 'show', legacy_budget_commit + ':src/GloomhavenVR/Net/TownServices/TownServiceMotionBudget.cs'], cwd=root, text=True)
-    bound['TownServiceMotionBudget.cs'] = legacy_budget
+    pending_anchor = '    internal uint AdmittedReturnRevision;'
+    if legacy_budget.count(pending_anchor) != 1: raise RuntimeError('Historical107 pending port drift')
+    # Unused compile port for the current capture lane; original107 packing stays unchanged.
+    bound['TownServiceMotionBudget.cs'] = legacy_budget.replace(pending_anchor,
+        pending_anchor + '\n    internal bool ReturnLayout;', 1)
     hashes['TownServiceMotionBudget.cs (legacy107 Build656 boundary)'] = hashlib.sha256(legacy_budget.encode()).hexdigest()
     old_motion = subprocess.check_output(['git', 'show', '2d77ffb65:src/GloomhavenVR/Net/TownServices/TownServiceMirror.Motion.cs'], cwd=root, text=True)
     old_filter = '                    || entry.Kind != 9 && slot.SampleTime < module.LastFrame.SampleTime) continue;'
@@ -50,7 +54,6 @@ using UnityEngine;
 using GloomhavenVR.Hands;
 namespace GloomhavenVR.Cards;
 internal sealed partial class VRCard {
-    internal VRHand? Holder;
     private bool _flying, _flyIntro;
     private float _flyElapsed, _flyDuration, _flyArcHeight;
     private uint _townReturnRevision;

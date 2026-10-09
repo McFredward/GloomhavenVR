@@ -25,6 +25,7 @@ internal static partial class TownServiceMirror
         private TownServiceMotionEntry? _pending;
         private float _sampleTime, _pendingSampleTime, _rate = 1f, _pendingRate = 1f, _renderedProgress = float.NegativeInfinity;
         private float _observedSampleTime, _observedAge;
+        internal float CurrentSampleTime => _sampleTime;
         internal CardReturnClock(TownServiceMotionEntry entry, float sampleTime, float offset)
         { _current = entry; _sampleTime = _observedSampleTime = sampleTime;
           _observedAge = ReturnProgress(entry); _offset = offset; }
@@ -71,6 +72,9 @@ internal static partial class TownServiceMirror
         internal TownServiceFrame? Previous;
         internal ulong HandRevision;
         internal bool Live, VisibleFan;
+        internal bool TerminalCardReturn;
+        internal CardReturnSampler? ReturnSample;
+        internal VRHand? ReturnHand;
         internal readonly Dictionary<TownServiceMotionKey, MotionSlot> Slots = new();
     }
     private sealed class PeerMotion
@@ -92,6 +96,7 @@ internal static partial class TownServiceMirror
         internal Vector3 OfferedFrom, OfferedTarget, OfferedScaleFrom, OfferedScaleTarget;
         internal Quaternion OfferedRotationFrom, OfferedRotationTarget;
         internal float LastSampleTime = -1f, HandStarted, HandDuration;
+        internal bool HadCardReturn;
         internal Vector3 HandFrom, CanvasFrom, HandTarget, CanvasTarget;
         internal readonly List<MotionSlot> Slots = new();
     }
@@ -251,8 +256,17 @@ internal static partial class TownServiceMirror
             { source = new SourceMotion(); MotionSources.Add(module, source); }
             TownServiceFrame? previous = source.Previous;
             TownServiceMotionEntry? cardFlight = null;
+            source.Slots.TryGetValue(MotionHeader(frame, laneId, 8).Key, out MotionSlot? previousCardFlight);
             CardReturnReference? returningCard = frame.Service != 2 && laneId != 1
                 ? CardReturn(module.Binding.Root) : null;
+            bool sameNativeReturn = returningCard != null && Equals(source.ReturnSample, returningCard.Sample)
+                && ReferenceEquals(source.ReturnHand, returningCard.Hand)
+                && returningCard.Sample.Target is Component currentNative && currentNative != null
+                && NativeReturnAvailable(currentNative)
+                && module.Binding.Root.IsChildOf(currentNative.transform)
+                && (returningCard.Hand == null || currentNative.transform.IsChildOf(returningCard.Hand.Rig.Root));
+            bool revokedReturn = source.TerminalCardReturn && !sameNativeReturn;
+            if (revokedReturn) source.TerminalCardReturn = false;
             if (returningCard != null
                 && returningCard.Sample(module.Binding.Root, lane.SharedFrame, returningCard.Hand,
                     out uint cardRevision, out float[] cardNumbers))
@@ -261,12 +275,39 @@ internal static partial class TownServiceMirror
                 cardFlight.Hand = returningCard.Hand != null && cardNumbers[2] == 1f
                     ? (byte)(returningCard.Hand.Side == HandSide.Left ? 3 : 4) : (byte)0;
                 cardFlight.Revision = cardRevision; cardFlight.Numbers = cardNumbers;
+                source.TerminalCardReturn = false;
+                source.ReturnSample = returningCard.Sample; source.ReturnHand = returningCard.Hand;
+            }
+            // The immutable header is intentionally frozen during a return. The
+            // actual native terminal frame must still cross the numeric lane;
+            // otherwise its stale Kind1 heartbeat pulls the settled print/body
+            // back toward their last in-flight pose. Publish the final physical
+            // root and every child together once, then resume fresh ordinary
+            // roots. This retains no native callback or transaction ownership.
+            bool endedCardReturn = cardFlight == null && previousCardFlight != null;
+            if (endedCardReturn && source.TerminalCardReturn && previousCardFlight!.Dirty)
+                cardFlight = previousCardFlight.Entry;
+            else if (endedCardReturn && !source.TerminalCardReturn && sameNativeReturn && returningCard?.Sample.Target is Component native
+                && native != null && NativeReturnFinished(previousCardFlight!.Entry)
+                && NativeReturnAvailable(native)
+                && ValidMotionScale(native.transform.lossyScale))
+            {
+                TownServiceMotionEntry prior = previousCardFlight.Entry;
+                cardFlight = MotionHeader(frame, laneId, 8);
+                cardFlight.Hand = prior.Hand; cardFlight.Revision = prior.Revision;
+                float duration = prior.Numbers[1];
+                Transform physical = native.transform;
+                cardFlight.Numbers = TownCardReturnMotion.Capture(module.Binding.Root, physical, lane.SharedFrame,
+                    cardFlight.Hand != 0 ? returningCard.Hand : null, duration, duration,
+                    (byte)prior.Numbers[2], prior.Numbers[3], physical.localToWorldMatrix, physical.rotation,
+                    physical.localToWorldMatrix, physical.rotation, Vector3.zero);
+                source.TerminalCardReturn = true;
             }
             if (cardFlight == null) source.Slots.Remove(MotionHeader(frame, laneId, 8).Key);
             if (MotionReturn(module.Binding.Root)?.HasReturnMotion != true)
                 source.Slots.Remove(MotionHeader(frame, laneId, 7).Key);
             if (ReferenceEquals(previous, frame) && source.HandRevision == _motionHandRevision
-                && MotionReturn(module.Binding.Root)?.HasReturnMotion != true && cardFlight == null)
+                && MotionReturn(module.Binding.Root)?.HasReturnMotion != true && cardFlight == null && !endedCardReturn && !revokedReturn)
             {
                 foreach (MotionSlot slot in source.Slots.Values)
                     if (slot.Dirty || now - slot.SentAt >= TownServiceMotionCodec.Heartbeat) AddMotionWaiting(slot, source);
@@ -284,7 +325,7 @@ internal static partial class TownServiceMirror
             // repair arrives. Read only the original numeric root, in its actual
             // lane; no artwork, visibility guess or native continuation is added.
             TownServiceFrame rootFrame = frame;
-            if (cardFlight != null)
+            if (cardFlight != null || endedCardReturn || revokedReturn)
             {
                 rootFrame = new TownServiceFrame { ParentModule = TownServiceFrame.ManifestModule,
                     Visible = module.Binding.Root.gameObject.activeInHierarchy,
@@ -305,8 +346,9 @@ internal static partial class TownServiceMirror
             // sampler must also anchor the matching numeric root. Otherwise the
             // first clock has Hand3/4 but its root has Hand0: the atomic budget
             // rejects every pair and observers fall back to sampled artwork.
-            if (hand == null && cardFlight != null && cardFlight.Hand != 0)
-            { hand = returningCard!.Hand; followsRotation = false; }
+            if (hand == null && returningCard?.Hand != null
+                && (cardFlight != null && cardFlight.Hand != 0 || source.TerminalCardReturn))
+            { hand = returningCard.Hand; followsRotation = false; }
             if (hand != null && hand.HasPose)
             {
                 followsRotation &= !module.Address.StartsWith("ritual.purse", StringComparison.Ordinal);
@@ -341,7 +383,7 @@ internal static partial class TownServiceMirror
                 || !SameNumbers(priorRoot.Entry.CanvasRect, root.CanvasRect)
                 || !SameNumbers(priorRoot.Entry.CanvasSettings, root.CanvasSettings)
                 || priorRoot.Entry.CanvasSortingOrder != root.CanvasSortingOrder || priorRoot.Entry.CanvasSortingLayer != root.CanvasSortingLayer;
-            if (cardFlight != null || hand != null || module.HighPriority || previous != null && (!SameNumbers(previous.Pose, frame.Pose)
+            if (cardFlight != null || endedCardReturn || revokedReturn || hand != null || module.HighPriority || previous != null && (!SameNumbers(previous.Pose, frame.Pose)
                 || previous.ParentAlpha != frame.ParentAlpha || previous.Visible != frame.Visible
                 || previous.ParentModule != frame.ParentModule || previous.ParentBinding != frame.ParentBinding
                 || !SameNumbers(previous.CanvasPose, frame.CanvasPose)
@@ -390,12 +432,40 @@ internal static partial class TownServiceMirror
                         }
                         UpdateMotionSlot(source, entry);
                     }
+            if ((cardFlight != null || endedCardReturn) && module.Binding.Root is RectTransform liveRect
+                && frame.Nodes[0].Values.TryGetValue(TownServiceProperty.Transform, out TownServiceValue? originalRect))
+            {
+                // Native ItemChip reclaim canonicalizes its pooled face pivot
+                // before flight. TRS alone cannot locate its printed geometry:
+                // an old pivot shifts the ink while the root itself is correct.
+                // Sample the actual root layout even when immutable artwork is
+                // quiet, and stage it with that part's existing return receipt.
+                var layout = MotionHeader(frame, laneId, 2);
+                layout.Binding = frame.Nodes[0].Binding; layout.Property = TownServiceProperty.Transform;
+                layout.Numbers = new float[18];
+                layout.Numbers[6] = layout.Numbers[7] = layout.Numbers[8] = layout.Numbers[9] = 1f;
+                layout.Numbers[10] = liveRect.anchorMin.x; layout.Numbers[11] = liveRect.anchorMin.y;
+                layout.Numbers[12] = liveRect.anchorMax.x; layout.Numbers[13] = liveRect.anchorMax.y;
+                layout.Numbers[14] = liveRect.pivot.x; layout.Numbers[15] = liveRect.pivot.y;
+                layout.Numbers[16] = liveRect.rect.width; layout.Numbers[17] = liveRect.rect.height;
+                bool changedLayout = !SameRootLayout(originalRect.Numbers, layout.Numbers)
+                    || source.Slots.TryGetValue(layout.Key, out MotionSlot? oldLayout)
+                        && !SameRootLayout(oldLayout.Entry.Numbers, layout.Numbers);
+                if (changedLayout) UpdateMotionSlot(source, layout);
+                if (source.Slots.TryGetValue(layout.Key, out MotionSlot? returnLayout))
+                { returnLayout.ReturnLayout = true; if (cardFlight != null) returnLayout.Dirty = true; }
+            }
             source.Previous = frame; source.HandRevision = _motionHandRevision;
             foreach (MotionSlot slot in source.Slots.Values)
                 if (slot.Dirty || now - slot.SentAt >= TownServiceMotionCodec.Heartbeat)
                     AddMotionWaiting(slot, source);
         }
     }
+    private static bool NativeReturnFinished(TownServiceMotionEntry entry) => entry.Numbers.Length == 38
+        && (entry.Numbers[2] == 1f ? entry.Numbers[1] <= TownServiceMotionCodec.SendInterval * 1.5f
+            : entry.Numbers[0] >= entry.Numbers[1] - TownServiceMotionCodec.SendInterval * 1.5f);
+    private static bool NativeReturnAvailable(Component native) => native is VRCard card ? card.Holder == null
+        : native is ItemsPile.ItemChip chip && chip.Holder == null && !chip.TownOffering;
     private static bool SameRootLayout(float[] before, float[] after)
     {
         if (before.Length != 18 || after.Length != 18) return false;
@@ -589,6 +659,9 @@ internal static partial class TownServiceMirror
                     // Session, structure, census and its bounded lifetime still
                     // guard it; a true withdrawal never retains a visible clone.
                     || entry.Kind != 9 && !liveCardReturn && slot.SampleTime < module.LastFrame.SampleTime) continue;
+                if (entry.Kind == 2 && entry.Property == TownServiceProperty.Transform
+                    && entry.Binding == module.Binding.Bindings[0]
+                    && StagedReturnLayout(pair.Key, module, slot.SampleTime, now)) continue;
                 if (!MotionRemoteFrames.TryGetValue(module, out RemoteMotion? composed))
                 { composed = new RemoteMotion(); MotionRemoteFrames.Add(module, composed); }
                 composed.Owner = RealPeer(key);
@@ -634,6 +707,8 @@ internal static partial class TownServiceMirror
                     { module.Host.GetComponent<CanvasGroup>().alpha = frame.ParentAlpha; module.Host.SetActive(frame.Visible); }
                     if (root != null) ApplyMotionRoot(module, root.Entry, composed, frame, now);
                     module.Motion.AfterApply(now, sampleInterval, sparseFan: root != null && root.Entry.Hand > 2, sourceSampleTime: frame.SampleTime);
+                    if (composed.HadCardReturn && flight == null && root != null)
+                        module.Motion.AdoptExternalRootPose(applyTarget: true);
                     TownServiceDepthOrder.Refresh(module.Host.transform);
                     composed.LastSampleTime = frame.SampleTime;
                     composed.Author = module.LastFrame; composed.Merged = frame;
@@ -663,6 +738,7 @@ internal static partial class TownServiceMirror
                 && composed.Merged.Visible && composed.Merged.ParentAlpha > 0f
                 && module.Host.activeInHierarchy)
                 ApplyCardReturnMotion(module, flight, composed, composed.Merged, now);
+            composed.HadCardReturn = flight?.Entry.Kind == 8;
             // This continuous path writes only rig transforms. The registered
             // furniture anchor already measures those live transforms in its own
             // distance tick; reassert native sorting only after binding above.
@@ -705,6 +781,7 @@ internal static partial class TownServiceMirror
             ? module.Host.transform : module.Binding.Root;
         TownCardReturnMotion.Apply(root, holder, shared, entry.Hand, entry.Numbers, age);
         if (module.AddedCanvas != null && !authored.HasCanvasFrame) NormalizeDetachedRoot(module);
+        module.Motion.AdoptExternalRootPose();
     }
 
     private static TownServiceMotionEntry CardReturnSample(MotionSlot sample, float now, out float age)

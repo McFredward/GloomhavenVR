@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Verify production physical-card fades and all inert clone registration boundaries in real Unity."""
 import importlib.util
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -9,38 +10,59 @@ import subprocess
 import tempfile
 
 repo = Path(__file__).resolve().parent.parent
-fixture = repo / "scripts/town-card-body-runtime"
 out = Path(tempfile.mkdtemp(prefix="town-card-body-", dir=os.environ.get("TMPDIR", "/tmp")))
 base = repo / "src/GloomhavenVR"
-spec = importlib.util.spec_from_file_location("bindings", repo / "scripts/check-town-service-catalog.py")
+spec = importlib.util.spec_from_file_location("bindings", repo / "scripts/check-town-service-mirror.py")
 bindings = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bindings)
+source, _ = bindings.sources(repo)
+# Use the maintained complete production mirror binder. The legacy fixture's
+# silhouette assertions now observe the actual CardMesh consumer registry;
+# its external final mesh assignment remains explicit, not an ability factory.
+fixture = out / "fixture"
+shutil.copytree(repo / "scripts/town-service-mirror-runtime", fixture)
+shutil.copyfile(repo / "scripts/town-card-body-runtime/Program.cs", fixture / "MerchantBodyProgram.cs")
+shutil.copyfile(repo / "scripts/town-card-body-runtime/Boundaries.cs", fixture / "MerchantBodyBoundaries.cs")
+lazy = fixture / "LazyTemplate.cs"
+text = lazy.read_text()
+noop = "    internal static class TownServiceCardBody\n    { internal static void RebindClone(string key,GameObject clone) { } }\n"
+if text.count(noop) != 1: raise RuntimeError("Merchant body compile boundary drift")
+lazy.write_text(text.replace(noop, "", 1))
+raw_mesh = source["CardMesh.cs"]
+if raw_mesh.count("internal static class CardMesh\n") != 1: raise RuntimeError("Actual CardMesh shape drift")
+source["CardMesh.cs"] = raw_mesh.replace("internal static class CardMesh\n", "internal static partial class CardMesh\n", 1)
+source["TownServiceCardBody.cs"] = (base / "WorldUI/TownServices/TownServiceCardBody.cs").read_text()
 native = (base / "WorldUI/TownServices/NativeTemplates.cs").read_text()
 freeze = bindings.method(native, "private static void Freeze(string key, Entry entry)")
 frozen_registration = next(line.strip() for line in freeze.splitlines()
     if line.strip().startswith("TownServiceCardBody.RebindClone("))
-scaffold = """using System; using System.Collections.Generic; using GloomhavenVR.Net.TownServices; using UnityEngine; using Object = UnityEngine.Object;
-namespace GloomhavenVR.WorldUI { internal static class TownServiceNativeAssets { internal static void PrepareRoot(Transform root) { } }
-internal static class NativeTemplates {
- private sealed class Entry { internal Transform Original = null!; internal GameObject Copy = null!; internal List<int> Parts = new(); }
- private static GameObject? _bank;
- internal static bool IsBoundary(Transform node) => false; // Body fixture has no nested pooled game widgets.
- private static void Prune(Transform source, Transform clone) { }
- private static void Partition(Transform root, string address, List<int> parts) { }
- internal static Transform TestFreeze(Transform original) { _bank = new GameObject("bank"); _bank.SetActive(false); var entry = new Entry { Original = original }; Freeze("merchant.cardbody", entry); return entry.Copy.transform; }
- internal static void Clean() { if (_bank != null) Object.DestroyImmediate(_bank); }
-""" + freeze + "\n" + bindings.method(native, "internal static string Append(string path, Transform child)") + "\n}}\n"
-source = {name + ".cs": (base / "Net/TownServices" / (name + ".cs")).read_text() for name in
-          ("TownServiceAssets", "TownServiceBinding", "TownServiceCodec", "TownServiceDelta", "TownServiceFrame", "TownRackState", "TownCatalogLayout", "TownCassetteMotion", "TownServiceFlameClock", "TownServiceMirror.Racks", "TownServiceMirror.Offerings", "TownServiceMirror.Voice", "TownServiceMaterial", "TownServiceMirror", "TownServiceMotion", "TownServiceNeutralize")}
-stock = base / "Net/TownServices/TownServiceMirror.Stock.cs"
-if stock.exists(): source[stock.name] = stock.read_text()
-source["TownServiceTemplateAssets.cs"] = (base / "WorldUI/TownServices/TownServiceTemplateAssets.cs").read_text()
-source["TownServiceOfferingPose.cs"] = (base / "WorldUI/TownServices/TownServiceOfferingPose.cs").read_text()
-source["TownServiceCardBody.cs"] = (base / "WorldUI/TownServices/TownServiceCardBody.cs").read_text()
-source["Freeze.cs"] = scaffold
+source["FreezeProbe.cs"] = """using System; using UnityEngine;
+namespace GloomhavenVR.WorldUI {
+internal static partial class LazyTemplateProbe {
+ internal static Transform FixtureFreezeMerchant(Transform original, GameObject bank) {
+  Open(bank); var entry = new Entry { Original = original };
+  Freeze("merchant.cardbody", entry); return entry.Copy.transform;
+ }
+}
+internal static partial class NativeTemplates {
+ private static GameObject? _merchantFixtureBank;
+ internal static Transform TestFreeze(Transform original) {
+  _merchantFixtureBank = new GameObject("merchant fixture inactive bank"); _merchantFixtureBank.SetActive(false);
+  return LazyTemplateProbe.FixtureFreezeMerchant(original, _merchantFixtureBank);
+ }
+ internal static void Clean() {
+  LazyTemplateProbe.Close(); if (_merchantFixtureBank != null) UnityEngine.Object.DestroyImmediate(_merchantFixtureBank);
+ }
+}}
+"""
+(out / "source-hashes.json").write_text(json.dumps({
+    "production": {name: hashlib.sha256(value.encode()).hexdigest() for name, value in source.items()},
+    "actual_unmodified_cardmesh": hashlib.sha256(raw_mesh.encode()).hexdigest(),
+    "fixture": {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in fixture.glob("*.cs")},
+}, indent=2) + "\n")
 variants = [("production", None, None, None, ""),
     ("no-body-fade", "TownServiceCardBody.cs", "color.a *= value;", "color.a *= 1f;", "body disappears with zero-opacity original face"),
-    ("no-frozen-registration", "Freeze.cs", frozen_registration, "", "native frozen body joins silhouette updates"),
+    ("no-frozen-registration", "LazyNativeTemplates.cs", frozen_registration, "", "native frozen body joins silhouette updates"),
     ("no-template-registration", "TownServiceMirror.cs", "PrepareInertGeometry?.Invoke(address, clone);", "", "transport template joins silhouette updates"),
     ("no-observer-registration", "TownServiceMirror.cs", "PrepareInertGeometry?.Invoke(frame.TemplateAddress, clone);", "", "every inert observer body joins silhouette updates")]
 manifest = {"result": str(out / "results.txt"), "cases": []}
@@ -49,9 +71,10 @@ managed = repo / "ressources/GH_Data/Managed"
 for name, target, before, after, expected in variants:
     run = out / name; production = run / "production"; production.mkdir(parents=True)
     for filename, text in source.items():
-        if filename == target: text = bindings.replace_once(text, before, after)
+        if filename == target:
+            if text.count(before) != 1: raise RuntimeError("Exact merchant body control drift: " + name)
+            text = text.replace(before, after, 1)
         (production / filename).write_text(text)
-    shutil.copyfile(repo / "scripts/town-service-mirror-runtime/Boundaries.cs", production / "ExternalBoundaries.cs")
     project = run / "Body.csproj"; shutil.copyfile(repo / "scripts/town-service-mirror-runtime/Mirror.csproj", project)
     command = [str(Path.home() / ".dotnet/dotnet"), "build", str(project), "-c", "Release", "-v", "quiet", "--nologo",
                "-p:CaseName=Body_" + name.replace("-", "_"), f"-p:FixtureDir={fixture}", f"-p:ProductionDir={production}",

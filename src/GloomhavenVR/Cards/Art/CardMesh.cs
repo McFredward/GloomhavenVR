@@ -2718,6 +2718,9 @@ internal static class CardMesh
     /// diamond lattice, double border — reads as "card back" at fan distance without
     /// any bundled art. Replaced wholesale when CardBacking.prefab ships in the bundle.
     /// </summary>
+    internal static bool IsOriginalBackTexture(Texture texture)
+        => ReferenceEquals(texture, _backTexture);
+
     private static Texture2D GetBackTexture()
     {
         if (_backTexture != null)

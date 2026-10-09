@@ -1,33 +1,24 @@
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
-// Shader/materials, cloning and production capture code use real Unity. The established
-// CardMesh consumer registry is an explicit boundary: its later silhouette event is simulated.
+// Production CardMesh/CardContour, materials and the ability helper compile in full.
+// These read-only registry/cleanup ports retain the historical merchant assertions.
+// Its final direct mesh assignment still models an external contour completion;
+// the separate NPC660 ability proof executes the actual SetSilhouette engine.
 namespace GloomhavenVR.Cards
 {
-    internal enum CardBodyKind { Item }
-    internal static class CardMesh
+    internal static partial class CardMesh
     {
-        internal static readonly HashSet<MeshFilter> Registered = new();
-        private static Material? _edge, _back;
-        internal static void AttachBody(MeshFilter filter, CardBodyKind kind, float width, float height)
-        { Registered.Add(filter); filter.sharedMesh = new Mesh(); }
-        private static Material Material()
-        {
-            var result = new Material(Shader.Find("Standard")); result.color = Color.white;
-            result.SetFloat("_Mode", 1); result.SetFloat("_ZWrite", 1); result.EnableKeyword("_ALPHATEST_ON"); result.renderQueue = 2450; return result;
-        }
-        internal static Material CreateEdgeMaterial(CardBodyKind kind) => _edge ??= Material();
-        internal static Material CreateBackMaterial(CardBodyKind kind) => _back ??= Material();
+        internal static HashSet<MeshFilter> Registered => new(_bodies.Select(body => body.Filter).Where(filter => filter != null));
         internal static void Clean()
         {
-            Registered.Clear(); if (_edge != null) Object.DestroyImmediate(_edge); if (_back != null) Object.DestroyImmediate(_back);
-            _edge = _back = null;
+            _bodies.Clear();
+            for (int i = 0; i < _edgeMaterials.Length; i++)
+            {
+                if (_edgeMaterials[i] != null) Object.DestroyImmediate(_edgeMaterials[i]);
+                if (_backMaterials[i] != null) Object.DestroyImmediate(_backMaterials[i]);
+                _edgeMaterials[i] = _backMaterials[i] = null;
+            }
         }
     }
-}
-
-// This silhouette fixture has one local observer and does not exercise author election.
-namespace GloomhavenVR.Net
-{
-    internal static class NetPlayerActors { internal static int LocalPlayerId() => 1; }
 }

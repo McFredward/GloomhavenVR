@@ -78,7 +78,7 @@ internal sealed partial class TownServiceSync
             Publish("face." + offeredAbility.OfferedCardId.ToString(CultureInfo.InvariantCulture), offeredAbility.Face, prewarm: true);
             Transform? backing = offeredAbility.Card.transform.Find("Visual/Backing");
             if (backing != null)
-            { TownServiceMirror.PrepareCardReturn(backing, offeredAbility.Card.TryTownReturnMotion); Publish("map.cardbody", backing); }
+            { TownServiceMirror.PrepareCardReturn(backing, offeredAbility.Card.TryTownReturnMotion); Publish(TownServiceAbilityBody.Key(offeredAbility.Card), backing); }
         }
         foreach (TownServiceEnhancementHandoff.ReturnPresentation returningCard in abilityReturns)
         {
@@ -92,7 +92,7 @@ internal sealed partial class TownServiceSync
             if (body != null)
             {
                 TownServiceMirror.RegisterCardReturn(body, returningCard.Card.TryTownReturnMotion);
-                PriorityRoots.Add(body); Publish("map.cardbody", body);
+                PriorityRoots.Add(body); Publish(TownServiceAbilityBody.Key(returningCard.Card), body);
             }
         }
         Removed.Clear();

@@ -68,6 +68,77 @@ internal sealed class TownServiceMotion
             { State current = Read(_nodes[i]); if (!current.Same(_to[i])) Write(_nodes[i], current, _to[i], 1f); }
         _active = false; _hasTarget = false;
     }
+    /// <summary>The independent native card clock owns the physical host/root
+    /// pose. Keep only those channels in the interpolation state aligned with
+    /// that rendered pose; otherwise an old enclosing canvas and a new child
+    /// root tween apart as soon as the external clock finishes. Native child,
+    /// color and alpha clocks continue independently.</summary>
+    internal void AdoptExternalRootPose(bool applyTarget = false)
+    {
+        if (!_hasTarget) return;
+        for (int i = 0; i < Math.Min(2, _nodes.Length); i++)
+        {
+            Node node = _nodes[i];
+            if (node.Transform == null) continue;
+            State pose = applyTarget ? _to[i] : Read(node);
+            if (!applyTarget && i == 1 && node.Rect != null)
+            {
+                // The external TRS and its atomic rect dependency describe one
+                // source instant. Interpolating that pivot separately displaces
+                // the printed plane even though its physical root is correct.
+                Vector3 position = node.Transform.position;
+                node.Rect.anchorMin = _to[i].Min; node.Rect.anchorMax = _to[i].Max;
+                node.Rect.pivot = _to[i].Pivot; node.Rect.sizeDelta = _to[i].Size;
+                node.Transform.position = position; pose = Read(node);
+            }
+            if (applyTarget)
+            {
+                if (node.Rect != null)
+                { node.Rect.anchorMin = pose.Min; node.Rect.anchorMax = pose.Max;
+                  node.Rect.pivot = pose.Pivot; node.Rect.sizeDelta = pose.Size; }
+                node.Transform.localPosition = pose.Position;
+                node.Transform.localRotation = pose.Rotation; node.Transform.localScale = pose.Scale;
+            }
+            AdoptPose(ref _from[i], pose); AdoptPose(ref _to[i], pose);
+        }
+    }
+    private static void AdoptPose(ref State state, State pose)
+    {
+        state.Parent = pose.Parent; state.Position = pose.Position; state.Rotation = pose.Rotation; state.Scale = pose.Scale;
+        state.Min = pose.Min; state.Max = pose.Max; state.Pivot = pose.Pivot; state.Size = pose.Size;
+    }
+    internal void Reparent(Transform? parent)
+    {
+        Transform host = _nodes[0].Transform;
+        Transform? previous = host.parent;
+        if (previous == parent) return;
+        // A retained census child keeps its original animation when its old
+        // pooled holder retires. SetParent(true) preserves only the current
+        // picture; the enclosing canvas's retained tween still stores positions
+        // in the old holder. Rebase that one animation frame before disposal,
+        // preserving clocks and unrelated native child/color interpolation.
+        for (int i = 0; _hasTarget && i < _nodes.Length; i++)
+        {
+            if (_nodes[i].Transform != host) continue;
+            _from[i] = ReparentState(_from[i], previous, parent);
+            _to[i] = ReparentState(_to[i], previous, parent);
+            _before[i] = ReparentState(_before[i], previous, parent);
+        }
+        host.SetParent(parent, true);
+    }
+    private static State ReparentState(State state, Transform? previous, Transform? parent)
+    {
+        Vector3 position = previous != null ? previous.TransformPoint(state.Position) : state.Position;
+        Quaternion rotation = previous != null ? previous.rotation * state.Rotation : state.Rotation;
+        Vector3 scale = previous != null ? Vector3.Scale(previous.lossyScale, state.Scale) : state.Scale;
+        state.Parent = parent;
+        state.Position = parent != null ? parent.InverseTransformPoint(position) : position;
+        state.Rotation = parent != null ? Quaternion.Inverse(parent.rotation) * rotation : rotation;
+        if (parent != null)
+        { Vector3 basis = parent.lossyScale; state.Scale = new Vector3(scale.x / basis.x, scale.y / basis.y, scale.z / basis.z); }
+        else state.Scale = scale;
+        return state;
+    }
     internal void BeforeApply(float now)
     {
         Tick(now);
@@ -154,7 +225,16 @@ internal sealed class TownServiceMotion
             if (from.Pivot != to.Pivot) node.Rect.pivot = Vector2.LerpUnclamped(from.Pivot, to.Pivot, t);
             if (from.Size != to.Size) node.Rect.sizeDelta = Vector2.LerpUnclamped(from.Size, to.Size, t);
         }
-        if (from.Position != to.Position) node.Transform.localPosition = Vector3.LerpUnclamped(from.Position, to.Position, t);
+        // Binding preserves the separately authored local position when native
+        // anchors/pivot change. RectTransform's setters move that position again
+        // during interpolation even if both sampled positions are identical.
+        // Build658 could still drift sideways after the correct binding pass.
+        // Restore the sampled position on each layout
+        // tick as well as during an actual position tween.
+        bool layoutMovesPosition = node.Rect != null
+            && (from.Min != to.Min || from.Max != to.Max || from.Pivot != to.Pivot || from.Size != to.Size);
+        if (from.Position != to.Position || layoutMovesPosition)
+            node.Transform.localPosition = Vector3.LerpUnclamped(from.Position, to.Position, t);
         if (from.Rotation != to.Rotation) node.Transform.localRotation = Quaternion.SlerpUnclamped(from.Rotation, to.Rotation, t);
         if (from.Scale != to.Scale) node.Transform.localScale = Vector3.LerpUnclamped(from.Scale, to.Scale, t);
         if (node.Group != null && from.Alpha != to.Alpha) node.Group.alpha = Mathf.LerpUnclamped(from.Alpha, to.Alpha, t);

@@ -601,7 +601,24 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 659;
+    public const ushort ModBuild = 660;
+
+    // ModBuild660 — paired658 NPC regression, after pillar659.
+    // Complete received pictures no longer reject the two audited native GPU-only
+    // FX textures; shared CardMesh back artwork has an exact factory identity.
+    // A real null-prefab VRCard publishes its original procedural construction
+    // and owner dimensions, with body clones bound to later native contour work.
+    // Observer layout interpolation preserves owner position through anchor/pivot
+    // changes and rebases active enclosing-host motion across census reparenting.
+    // Native return completion retains the actual final root, destination hand,
+    // atomic original RectTransform layout and synchronized enclosing-host pose;
+    // child/color/alpha animation and the original flight clock remain intact.
+    // Same-original structural panel replacements validate a separate native
+    // candidate before replacing visible buttons; actual withdrawal stays immediate.
+    // Hardware-confirmed658 overlay ordering is unchanged. Exact causal controls,
+    // failed historical assumptions, final checks and hardware limits are recorded
+    // in .planning/NPC-660-REVIEW.md and its asset/delivery/lifecycle/return reviews.
+    // Version3 and existing records remain unchanged; next free additive ID114.
 
     // ModBuild659 — configured near-view pillar originals, after paired NPC658.
     // Pillars retain100% authored geometry throughout the existing adjustable
