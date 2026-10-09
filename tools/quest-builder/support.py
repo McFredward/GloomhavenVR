@@ -16,8 +16,8 @@ from release import ordinary
 MAX_FILE_BYTES = 2 * 1048576
 MAX_TOTAL_BYTES = 24 * 1048576
 MAX_FILES = 64
-# Completed preparation retains per-output receipts: capture 134446's legitimate
-# journal is 25,864,174 bytes. This is a journal input bound, not an archive or
+# Completed preparation retains per-output receipts: capture 134446 reports
+# 25,864,174 journal bytes. This is a journal input bound, not an archive or
 # generic metadata allowance; only identities/counts enter the support package.
 MAX_PREPARATION_JOURNAL_BYTES = 64 * 1048576
 SAFE_DETAIL_KEYS = {'schema', 'inputKey', 'gameKey', 'sourceHash', 'commit', 'modBuild', 'apkSha256',

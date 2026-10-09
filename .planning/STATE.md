@@ -1,5 +1,16 @@
 # State — where the project stands
 
+**Quest large preparation journal, 2026-10-09 (Builder only; Runtime 654).**
+
+Capture134446 identifies dfdb3a43f/654. Recovery reuses 191415 files with zero
+payload rechecks, then the selector rejects 25,864,174 journal bytes against a
+16MiB control-manifest bound. Preparation journals now receive their own 64MiB
+bounded read; generic recovery/input limits and producer identities stay intact.
+Support's separate 1MiB frontier limit is corrected without exporting original
+output paths/data or widening general metadata/archive limits. No completed
+producer needs to rerun because of this helper-only change. See
+[journal size repair](QUEST-JOURNAL-134446-20261009.md). Windows acceptance remains open.
+
 **Quest completed27-step reuse, native engine boundary and shader progress,
 2026-10-09 (Builder; current dev654 integrated).**
 

@@ -23,11 +23,10 @@ METADATA_IDENTITY = "tools/quest-builder/preparation_metadata.py"
 DELIVERY_PREFIXES = ("tools/quest-wizard/", "tools/quest-wizard-ui/", "tools/quest-installer/")
 HEX = re.compile(r"[0-9a-f]{64}\Z")
 # The completed preparation journal lists original output contracts, rather than
-# only a small control manifest. Capture134446 reports25,864,174 journal bytes
+# only a small control manifest. Capture134446 reports 25,864,174 journal bytes
 # before ownership or contents can be checked. Bound this inventory separately;
-# retain the
-# recovery reader's regular-file, bounded-read and JSON checks and its ordinary
-# 16MiB limit for input/control manifests. Reading metadata never reopens assets.
+# retain the recovery reader's regular-file, bounded-read and JSON checks.
+# Its ordinary 16MiB limit still owns input/control manifests. No assets reopen.
 MAX_JOURNAL_BYTES = 64 * 1024 * 1024
 # Before UI reconstruction the only mod files copied or read by the closed
 # startup producers are the Quest template, localization and loading logo.

@@ -14,6 +14,7 @@ status; it is not the player manual.
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [QUEST-JOURNAL-134446-20261009.md](QUEST-JOURNAL-134446-20261009.md) | Captured large-journal resume rejection, dedicated bounded reader and compact support frontier |
 | [QUEST-COMPLETED-PREP-123047-20261009.md](QUEST-COMPLETED-PREP-123047-20261009.md) | Captured CoreModule deployment failure, retained27 completed owners, measured Unity compiler work and dev654 merge |
 | [QUEST-GRAPHICS-093454-20261009.md](QUEST-GRAPHICS-093454-20261009.md) | Captured scalar compute failure, retained17-step prefix and measured texture/compute/Shader work |
 | [QUEST-BUILD-REUSE-20261008.md](QUEST-BUILD-REUSE-20261008.md) | Original-source/output roles, retained14-phase staging and preparation, persistent change-time witnesses and bounded speed evidence |
