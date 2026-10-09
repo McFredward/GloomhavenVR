@@ -2489,6 +2489,39 @@
         "local"
       ],
       "weight": 55
+    },
+    {
+      "id": "npc660-native-material-identity",
+      "command": [
+        "python3",
+        "scripts/npc660-assets-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
+    },
+    {
+      "id": "npc660-owner-ability-body",
+      "command": [
+        "python3",
+        "scripts/npc660-delivery-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 40
+    },
+    {
+      "id": "npc660-layout-lifetime",
+      "command": [
+        "python3",
+        "scripts/npc660-lifecycle-runtime/run-motion.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
     }
   ]
 }
