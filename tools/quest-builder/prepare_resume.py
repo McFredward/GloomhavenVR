@@ -19,6 +19,7 @@ import sqlite3
 from storage import BuildError, CONTENT_PATHS, ValidatedFileWitnesses, _ordinary_owned, digest, invocation_file_matches, value_hash, write_json
 import preparation_identity
 import preparation_metadata
+import shaders as post_effects
 
 SCHEMA = 1
 OWNER = "Quest preparation substage journal"
@@ -314,6 +315,66 @@ class Preparation:
         self.prior_copies.close()
         self.prior_copies, self.prior_witnesses = None, None
 
+    def _accept_post_effect_import(self, latest, relative, row):
+        """Accept only the three audited full-file Unity2021 shader upgrades.
+
+        Capture205914 retained every preparation owner after the first Editor
+        import, but case-paths still described the old UnityObjectToClipPos
+        helper. Unity's own importer rewrote these exact official sources. The
+        existing restoration and Editor validation already pin both complete
+        fingerprints. No other source edit, GUID or receipt is authorized here.
+        Only a failed original row enters this small reader; warm resumes do not
+        read the shaders, their source receipt or their metas again.
+        """
+        if not preparation_identity._completed_game_preparation(self.value, self.identity["target"]):
+            return False
+        name = next((name for name in post_effects.SHADERS
+                     if relative == "Assets/Shader/Hidden_" + name + ".shader"), None)
+        if name is None or self.value["steps"][latest[relative][0]]["name"] != "case-paths":
+            return False
+        spec = post_effects.SHADERS[name]
+        if row != {"path": relative, "size": spec["sourceBytes"], "sha256": spec["sourceSha256"]}:
+            return False
+        receipt_owner, meta_owner = latest.get(post_effects.RECEIPT), latest.get(relative + ".meta")
+        if (receipt_owner is None or meta_owner is None
+                or self.value["steps"][receipt_owner[0]]["name"] != "post-effects"
+                or self.value["steps"][meta_owner[0]]["name"] != "case-paths"):
+            return False
+        receipt_path, meta_path, shader_path = (self._path(path) for path in
+                                               (post_effects.RECEIPT, relative + ".meta", relative))
+        if any(not path.is_file() or path.stat().st_size > 65536 or path.stat().st_nlink != 1
+               for path in (receipt_path, meta_path, shader_path)):
+            return False
+        # The receipt and meta are ordinary existing output contracts. Their
+        # original hashes must survive; a new self-declared receipt is not proof.
+        if (self._observe(post_effects.RECEIPT) != receipt_owner[1]
+                or self._observe(relative + ".meta") != meta_owner[1]):
+            return False
+        try:
+            with receipt_path.open("rb") as stream: receipt_bytes = stream.read(65537)
+            with meta_path.open("rb") as stream: metadata = stream.read(65537)
+            if (len(receipt_bytes) > 65536 or len(metadata) > 65536
+                    or hashlib.sha256(receipt_bytes).hexdigest() != receipt_owner[1]["sha256"]
+                    or hashlib.sha256(metadata).hexdigest() != meta_owner[1]["sha256"]):
+                return False
+            receipt = json.loads(receipt_bytes)
+            if (post_effects.GUID.findall(metadata.decode("utf-8")) != [spec["guid"]]
+                    or b"ShaderImporter:" not in metadata
+                    or receipt.get("schema") != 1 or receipt.get("target") != "startup"
+                    or receipt.get("changeset") != post_effects.CHANGESET
+                    or receipt.get("installerSha256") != post_effects.SOURCE_SHA256
+                    or receipt.get("effectsPackageSha256") != post_effects.PACKAGE_SHA256
+                    or [entry for entry in receipt.get("shaders", []) if entry.get("assetPath") == relative]
+                    != [post_effects._entry(name, spec, metadata)]):
+                return False
+        except (UnicodeError, ValueError, AttributeError, TypeError):
+            return False
+        observed = self._observe(relative)
+        if observed.get("sha256") != spec["importUpgradeSha256"]:
+            return False
+        row.clear(); row.update(observed)
+        return True
+
     def _qualify(self):
         latest = {}
         for index, step in enumerate(self.value["steps"]):
@@ -337,6 +398,8 @@ class Preparation:
         qualified = set()
         for row, valid in witness.qualify_many(ordinary, hasher=digest):
             relative = row["path"]
+            if not valid and self._accept_post_effect_import(latest, relative, row):
+                valid, replaced = True, True
             if not valid:
                 name = self.value["steps"][latest[relative][0]]["name"]
                 self.invalid_step = name
@@ -367,7 +430,12 @@ class Preparation:
         if counter:
             counter.detail = "Qualifying retained preparation contracts: " + self.witnesses.summary()
             counter.finish()
-        if replaced: write_json(self.journal, self.value)
+        if replaced:
+            # Publish the accepted closed-read stamps before their new rows.
+            # A cut after journal publication can then retain the imported work
+            # without reopening all shader/asset bytes to establish witnesses.
+            self.copies.commit()
+            write_json(self.journal, self.value)
 
     def _rebind_compatible_input(self):
         """Retain a byte-qualified pre-archive prefix after a proved tool repair."""
