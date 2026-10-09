@@ -1,12 +1,16 @@
 """Owned local wizard sessions and atomic, hash-verified stage receipts."""
 from __future__ import annotations
 from contextlib import contextmanager
+from functools import lru_cache
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
 import math
+import sqlite3
+import stat
 import threading
 import time
 import uuid
@@ -65,6 +69,16 @@ def digest(path, algorithm="sha256", progress=None):
             result.update(block); done += len(block)
             if progress: progress(done)
     return result.hexdigest()
+
+
+@lru_cache(maxsize=1)
+def _receipt_storage():
+    """Load the shared standard-library witness code without global aliases."""
+    path = Path(__file__).resolve().parents[1] / "quest-builder/storage.py"
+    spec = importlib.util.spec_from_file_location("_ghvrq_wizard_receipt_storage", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def ordinary(path):
@@ -382,7 +396,47 @@ class Store:
         if stage not in STAGES: raise WizardError("invalid_stage", "Invalid wizard stage.")
         return self.session_dir(session) / "receipts" / (stage + ".json")
 
-    def records(self, paths, progress=None):
+    @contextmanager
+    def _receipt_witnesses(self, session, stage, key):
+        """Schema-1 receipts keep authority; the small DB only caches byte proofs."""
+        helper = _receipt_storage()
+        directory = ordinary(self.session_dir(session) / "receipts")
+        directory.mkdir(parents=True, exist_ok=True)
+        database = ordinary(directory / ".file-witnesses.sqlite3")
+        paths = (database, *(database.with_name(database.name + suffix) for suffix in ("-wal", "-shm", "-journal")))
+        def guard():
+            for path in paths:
+                ordinary(path)
+                if path.exists():
+                    value = path.lstat()
+                    if not stat.S_ISREG(value.st_mode) or value.st_nlink != 1 or getattr(value, "st_file_attributes", 0) & 0x400:
+                        raise WizardError("receipt_path", "Receipt witness files must be regular wizard-owned files.")
+        guard()
+        connection = sqlite3.connect(database, timeout=30)
+        try:
+            try:
+                connection.execute("PRAGMA journal_mode=WAL")
+                connection.execute("PRAGMA synchronous=NORMAL")
+            except sqlite3.DatabaseError as error:
+                if getattr(error, "sqlite_errorcode", None) not in (sqlite3.SQLITE_CORRUPT, sqlite3.SQLITE_NOTADB): raise
+                # This is a derived metadata cache, not the authoritative
+                # receipt. A corrupt cache loses all trust and is byte-seeded
+                # again; it must never force deletion of actual build outputs.
+                connection.close(); guard()
+                for path in paths: path.unlink(missing_ok=True)
+                connection = sqlite3.connect(database, timeout=30)
+                connection.execute("PRAGMA journal_mode=WAL")
+                connection.execute("PRAGMA synchronous=NORMAL")
+            witnesses = helper.ValidatedFileWitnesses(connection, self.root,
+                {"schema": 1, "owner": "Quest wizard stage output", "session": session, "stage": stage, "key": key})
+            yield witnesses
+            connection.commit()
+        except helper.BuildError as error:
+            raise WizardError("output_changed", str(error)) from error
+        finally:
+            connection.close()
+
+    def records(self, paths, progress=None, *, witnesses=None):
         paths = [ordinary(raw) for raw in paths]
         total = sum(path.stat().st_size for path in paths)
         done = 0
@@ -392,10 +446,12 @@ class Store:
             if self.root not in path.parents or not path.is_file():
                 raise WizardError("receipt_path", "Stage outputs must be regular files inside this wizard workspace.")
             before = path.stat()
-            hashed = digest(path, progress=lambda count: progress(done + count, total, path.name) if progress else None)
+            hasher = lambda candidate: digest(candidate, progress=lambda count: progress(done + count, total, path.name) if progress else None)
+            hashed = witnesses.observe(path, hasher=hasher) if witnesses else hasher(path)
             after = path.stat(); done += after.st_size
             if progress: progress(done, total, path.name)
-            if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+            stamp = lambda value: (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+            if stamp(before) != stamp(after):
                 raise WizardError("output_changed", "A stage output changed while being recorded.")
             result.append({"path": path.relative_to(self.root).as_posix(), "size": after.st_size, "sha256": hashed})
         return result
@@ -406,7 +462,8 @@ class Store:
         try:
             value = read_json(path, limit=64 * 1048576)
             if value.get("stage") != stage or value.get("key") != key or not value.get("outputs"): return None
-            if any(type(row.get("size")) is not int or row["size"] < 0 for row in value["outputs"]): return None
+            if not isinstance(value["outputs"], list) or any(not isinstance(row, dict) or type(row.get("size")) is not int or row["size"] < 0
+                    or not isinstance(row.get("sha256"), str) or not re.fullmatch(r"[0-9a-f]{64}", row["sha256"]) for row in value["outputs"]): return None
             total = sum(row["size"] for row in value["outputs"]); done = 0
             for row in value["outputs"]:
                 raw = row["path"]
@@ -414,22 +471,39 @@ class Store:
                 relative = PurePosixPath(raw)
                 if (relative.is_absolute() or PureWindowsPath(raw).drive
                         or "\\" in raw or ":" in raw or ".." in relative.parts): return None
-                target = ordinary(self.root / relative)
-                if not target.is_file() or target.stat().st_size != row["size"]: return None
-                def report(count):
-                    self.check_cancel(session)
-                    self.progress(session, stage, "receipt-verify", done + count, total, "bytes", target.name)
-                if digest(target, progress=report if report_progress else None) != row["sha256"]: return None
-                done += row["size"]
+            with self._receipt_witnesses(session, stage, key) as witnesses:
+                def hasher(target):
+                    if report_progress and witnesses.counters["files_read"] == 0:
+                        known = witnesses.db.execute("SELECT 1 FROM validated_file_witnesses WHERE owner=? LIMIT 1", (witnesses.namespace,)).fetchone()
+                        detail = ("First qualification of this legacy receipt: one-time byte read; later resumes use strong metadata. "
+                                  if known is None else "Output has no matching strong witness: qualify its actual bytes. ")
+                        self.progress(session, stage, "receipt-verify", done, total, "bytes", detail + target.name)
+                    def report(count):
+                        self.check_cancel(session)
+                        self.progress(session, stage, "receipt-verify", done + count, total, "bytes", target.name)
+                    return digest(target, progress=report if report_progress else None)
+                if report_progress: self.check_cancel(session)
+                # The common fast path enumerates each directory once and
+                # checks its real leaf identities; it does not reopen every
+                # SDK file just to request a Windows attribute handle.
+                for row, valid in witnesses.qualify_many(value["outputs"], hasher=hasher):
+                    if not valid: return None
+                    done += row["size"]
+                    if report_progress:
+                        self.check_cancel(session)
+                        self.progress(session, stage, "receipt-verify", done, total, "bytes", PurePosixPath(row["path"]).name)
+                if report_progress:
+                    self.progress(session, stage, "receipt-verify", done, total, "bytes", witnesses.summary())
             return value
         except Cancelled: raise
-        except (OSError, ValueError, TypeError, KeyError, WizardError): return None
+        except (OSError, ValueError, TypeError, KeyError, WizardError, sqlite3.Error): return None
 
     def publish(self, session, stage, key, paths, details):
         def report(done, total, name):
             self.check_cancel(session)
             self.progress(session, stage, "output-verify", done, total, "bytes", name)
-        value = {"schema": 1, "stage": stage, "key": key, "outputs": self.records(paths, report), "details": details}
+        with self._receipt_witnesses(session, stage, key) as witnesses:
+            value = {"schema": 1, "stage": stage, "key": key, "outputs": self.records(paths, report, witnesses=witnesses), "details": details}
         if not value["outputs"]: raise WizardError("empty_stage", "Stage completed without verified output.")
         atomic_json(self.receipt(session, stage), value)
         return value
