@@ -2,9 +2,18 @@ using System;
 using System.Collections.Generic;
 
 // Explicit feature-lifecycle/native-call boundary, not a headset or runtime support claim.
+namespace HarmonyLib { public sealed class Harmony { } }
+namespace UnityEngine { public abstract class MonoBehaviour { } }
 namespace UnityEngine.XR.OpenXR.NativeTypes
 {
     public enum XrEnvironmentBlendMode { Opaque = 1, Additive = 2, AlphaBlend = 3 }
+    // Exact public enum in the shipped Unity.XR.OpenXR 1.10 assembly; its
+    // native getter forwards these raw OpenXR values without an offset.
+    public enum XrSessionState
+    {
+        Unknown = 0, Idle = 1, Ready = 2, Synchronized = 3, Visible = 4,
+        Focused = 5, Stopping = 6, LossPending = 7, Exiting = 8
+    }
 }
 namespace UnityEngine.XR.OpenXR
 {
@@ -38,6 +47,7 @@ namespace UnityEngine.XR.OpenXR.Features
         public virtual void OnInstanceLossPending(ulong instance) { }
         public virtual void OnSessionCreate(ulong session) { }
         public virtual void OnSessionBegin(ulong session) { }
+        public virtual void OnSessionStateChange(int oldState, int newState) { }
         public virtual void OnSessionEnd(ulong session) { }
         public virtual void OnSessionExiting(ulong session) { }
         public virtual void OnSessionDestroy(ulong session) { }
@@ -52,6 +62,9 @@ namespace UnityEngine.XR.OpenXR.Features
 }
 namespace GloomhavenVR.Core
 {
+    // Type-only dependencies of the actual VRSession source; no lifecycle is modeled here.
+    internal sealed class CoreModule { }
+    internal sealed class OpenXRBootstrap { }
     internal static class VRLog
     {
         public static readonly List<string> Lines = new();
@@ -61,6 +74,11 @@ namespace GloomhavenVR.Core
 }
 namespace GloomhavenVR
 {
+    internal sealed class Plugin : UnityEngine.MonoBehaviour
+    {
+        internal void Awake() { }
+        internal void OnDestroy() { }
+    }
     internal static class FrameDefaults
     {
         private static bool _active;
