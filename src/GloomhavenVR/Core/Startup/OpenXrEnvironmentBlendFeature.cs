@@ -154,12 +154,14 @@ internal sealed class OpenXrEnvironmentBlendFeature : OpenXRFeature
         // Build654: Auto wall removal must use XR input focus, not Unity's
         // desktop Application.isFocused, which can remain false on a headset.
         // Unity1.10 already dispatches this actual native session-state event;
-        // cache it without adding a per-frame native read. FOCUSED is state6.
+        // cache it without adding a per-frame native read. The shipped native
+        // getter forwards raw XrSessionState values: Focused=5, Stopping=6.
+        // Use the shipped managed enum instead of a guessed numeric mapping.
         // State events carry no session handle: only our current begun session
         // may publish them. End/loss/destroy closes it before late events arrive,
         // and a recreated session starts unknown rather than inheriting false.
         if (_instance == 0 || _session == 0 || !_sessionBegun) return;
-        SetInputFocus(newState == 6);
+        SetInputFocus(newState == (int)XrSessionState.Focused);
     }
 
     private void SetInputFocus(bool? focus)
