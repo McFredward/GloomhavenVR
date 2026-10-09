@@ -350,8 +350,8 @@ function renderProgress() {
   // failure with a misleading "waiting for user" presentation.
   const waiting=(active||blocked)?state.stages?.find(row=>row.waiting)?.waiting:null;
   $('action-needed-title').textContent=t(waiting||blocked?'actionNeeded':'failureTitle');
-  $('progress-title').textContent=t(failure?'failureTitle':waiting?'actionNeeded':done?'completeTitle':blocked?'blockedTitle':stopped?'stoppedTitle':state.status==='ready'?'readyTitle':'progressTitle');
-  $('progress-copy').textContent=t(failure?'failureCopy':done?'completeCopy':blocked?'blockedCopy':stopped?'stoppedCopy':state.status==='ready'?'readyCopy':'progressCopy');
+  $('progress-title').textContent=t(failure?.blocked?'blockedTitle':failure?'failureTitle':waiting?'actionNeeded':done?'completeTitle':blocked?'blockedTitle':stopped?'stoppedTitle':state.status==='ready'?'readyTitle':'progressTitle');
+  $('progress-copy').textContent=t(failure?.blocked?'nativeMemoryBlockedCopy':failure?'failureCopy':done?'completeCopy':blocked?'blockedCopy':stopped?'stoppedCopy':state.status==='ready'?'readyCopy':'progressCopy');
   const progress=progressView(state);
   if(!logSelectionManual&&(progress.active??progress.current)?.id)$('log-stage').value=(progress.active??progress.current).id;
   $('phase-label').textContent=t(done?'done':t('stage_'+progress.phase)==='stage_'+progress.phase?'waiting':'stage_'+progress.phase);
@@ -394,6 +394,7 @@ function renderProgress() {
   $('failure-cause').hidden=!failure?.cause;
   $('failure-cause').textContent=failure?.cause?t('failureCause',{cause:failure.cause}):'';
   $('failure-next').hidden=!failure;$('failure-actions').hidden=!failure;
+  $('failure-next').textContent=t(failure?.blocked?'nativeMemoryNext':'failureNext');
   $('failure-retry').disabled=busy||storageActive()||!canConnect||Boolean(resumeFailed);
   $('failure-support').hidden=preview||discovery?.capabilities?.support!==true;
   $('failure-support').disabled=!sessionId(state.session);

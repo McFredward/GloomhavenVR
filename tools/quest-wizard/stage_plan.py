@@ -840,6 +840,10 @@ def _build_overview(row, plan):
     """
     active = plan.get("liveOperation", plan.get("current"))
     if row["status"] == "complete": active = None
+    if row["status"] in ("blocked", "failed", "cancelled", "interrupted") and plan.get("liveStatus") in ("complete", "reuse"):
+        # A host preflight or launcher can reject the next job after an actual
+        # completed operation. Do not paint that previous success as failed.
+        active = None
     operations = _overview_rows(planned_operations(row), plan["completed"], plan.get("liveFractions", plan["fractions"]), active,
                                plan.get("operationProofs"), row["status"] == "failed", plan.get("liveStatus"))
     for item in operations:
@@ -893,6 +897,13 @@ def advance(row, value, operation=None, status=None):
     for key in ("recoverySection", "recoveryBatchIndex", "recoveryBatchTotal", "recoveryNativeIndex", "recoveryNativeTotal", "activeWork", "buildOverview"):
         value.pop(key, None)
     plan = initialize(row); operations = planned_operations(row)
+    if row["id"] == "build" and value["phase"] == "native-memory-check":
+        # Capacity is a prerequisite to launch, never an asset producer. Keep
+        # the high-water/completed frontier, but detach the old live owner.
+        plan["liveOperation"] = None
+        plan["liveStatus"] = "progress"
+        value.pop("reportedOperation", None)
+        operation = None
     # One observed attempt boundary, never a status read, marks old completion
     # as retained. Later explicit completion/reuse restores current evidence.
     if value["phase"] == "starting" and value.get("updatedAt") != plan.get("attemptBoundary"):

@@ -62,6 +62,86 @@ class FailureTests(unittest.TestCase):
         self.assertNotIn("old private", error.parameters["cause"])
         self.assertEqual(error.parameters["logs"], [str(self.log)])
 
+    def test_memory_rejection_is_retryable_and_names_actual_capacity_not_conversion(self):
+        cause = ('Available RAM/commit is insufficient or unknown for the large native game compiler; '
+                 'close other programs or provide sufficient Windows pagefile commit headroom and retry.')
+        resources = {'phase': 'il2cpp', 'availableMemoryBytes': 35246387200,
+                     'commitHeadroomBytes': 26303938560, 'totalMemoryBytes': 68438433792,
+                     'requiredCommitHeadroomBytes': 47646032691, 'nativeLaunchAllowed': False}
+        self.log.write_text('resources: ' + json.dumps(resources) + '\nQuest builder: ' + cause)
+        atomic_json(self.root / 'build/last-failure.json', {'schema': 1, 'stage': 'build', 'message': cause})
+        error = tool_failure(self.root, 'build', self.log, time.time() - 1, 'python.exe', 1)
+        self.assertEqual(error.code, 'native_memory_unavailable')
+        self.assertEqual(error.parameters['failureStage'], 'native-memory-check')
+        self.assertTrue(error.parameters['completedWorkRetained'])
+        self.assertIn('32.8 GiB', error.message['de'])
+        self.assertIn('24.5 GiB', error.message['de'])
+        self.assertIn('44.4 GiB', error.message['de'])
+        self.assertIn('Auslagerungsdatei', error.message['de'])
+        self.assertNotIn('Konvertierung der Spielassets ist fehlgeschlagen', error.message['de'])
+        self.assertEqual(error.parameters['resources']['commitHeadroomBytes'], 26303938560)
+        self.assertEqual(error.parameters['cause'], 'Quest builder: ' + cause)
+
+    def test_real_child_memory_stop_blocks_retry_without_failed_closed_weave(self):
+        capacity = {'phase': 'il2cpp', 'availableMemoryBytes': 35246387200,
+                    'commitHeadroomBytes': 26303938560, 'totalMemoryBytes': 68438433792,
+                    'requiredCommitHeadroomBytes': 47646032691, 'nativeLaunchAllowed': False}
+        child = ('import pathlib,json,sys;root=pathlib.Path(sys.argv[1]);resources=json.loads(sys.argv[2]);'
+                 "p=root/'build/last-failure.json';p.parent.mkdir(parents=True,exist_ok=True);"
+                 "p.write_text(json.dumps(dict(schema=1,stage='build',code='native_memory_unavailable',"
+                 "message='Native compiler capacity rejected',resources=resources)));"
+                 "print('resources: '+json.dumps(resources));print('Quest builder: Native compiler capacity rejected');sys.exit(1)")
+        actions = {}
+        for name in wizard.STAGES:
+            def action(saved, supervisor, name=name):
+                if name == 'build':
+                    self.store.operation(self.session, 'build', 'weave', complete=True)
+                    supervisor.run([sys.executable, '-c', child, str(self.root), json.dumps(capacity)], self.log)
+                output = self.store.session_dir(self.session) / (name + '.output')
+                output.write_text(name)
+                return [output], {}
+            actions[name] = action
+        result = wizard.Engine(self.store, actions=actions).run(self.session)
+        self.assertEqual(result['status'], 'blocked')
+        self.assertEqual(result['needsActions'][0]['code'], 'native_memory_unavailable')
+        self.assertIn('32.8 GiB', result['needsActions'][0]['message']['de'])
+        loaded = self.store.load(self.session)
+        overview = loaded['stages'][5]['progress']['buildOverview']
+        self.assertIsNone(overview['active'])
+        operations = [item for group in overview['groups'] for item in group['operations']]
+        self.assertTrue(all(item['status'] in ('complete', 'retained', 'reused') for item in operations if item['closed']))
+        self.assertEqual(next(item for item in operations if item['id'] == 'weave')['status'], 'complete')
+        self.assertFalse(any(item['status'] == 'failed' for item in operations))
+        self.assertNotIn('build', result['completed'])
+        self.assertFalse(self.store.receipt(self.session, 'build').exists())
+        self.assertFalse((self.store.session_dir(self.session) / 'child.json').exists())
+
+    def test_structured_current_memory_rejection_has_bounded_fields_and_no_false_unknown_zero(self):
+        atomic_json(self.root / 'build/last-failure.json', {
+            'schema': 1, 'stage': 'build', 'code': 'native_memory_unavailable', 'message': 'Native compile capacity rejected',
+            'resources': {'host': {'availableMemoryBytes': 0, 'commitHeadroomBytes': True,
+                                  'totalMemoryBytes': 'sensitive arbitrary input'},
+                          'policy': {'requiredCommitHeadroomBytes': 12 * 1024 ** 3},
+                          'profileName': 'must-not-leak', 'path': 'must-not-leak'}})
+        self.log.write_text('Quest builder: Native compile capacity rejected')
+        error = tool_failure(self.root, 'build', self.log, time.time() - 1, 'python.exe', 1)
+        self.assertEqual(error.code, 'native_memory_unavailable')
+        self.assertEqual(error.parameters['resources'], {'availableMemoryBytes': 0,
+                                                       'requiredCommitHeadroomBytes': 12 * 1024 ** 3})
+        self.assertIn('0.0 GiB', error.message['en'])
+        self.assertIn('not reported', error.message['en'])
+        self.assertNotIn('must-not-leak', str(error.parameters))
+
+    def test_old_capacity_record_cannot_override_actual_current_compiler_failure(self):
+        self.log.write_text('Quest builder: error CS1002: ; expected')
+        failure = self.root / 'build/last-failure.json'
+        atomic_json(failure, {'schema': 1, 'stage': 'build', 'code': 'native_memory_unavailable',
+                              'resources': {'availableMemoryBytes': 123}})
+        os.utime(failure, (1, 1))
+        error = tool_failure(self.root, 'build', self.log, time.time() - 1, 'python.exe', 1)
+        self.assertEqual(error.code, 'build_tool_failed')
+        self.assertNotIn('resources', error.parameters)
+
     def test_saved_export_reader_failure_names_evidence_and_keeps_exact_size_context(self):
         cause = 'Recovery resume evidence is oversized: core-recovery.json (19000000 bytes; limit 16777216 bytes)'
         self.log.write_text('Quest builder: ' + cause)

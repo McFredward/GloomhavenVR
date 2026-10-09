@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import {readFile} from 'node:fs/promises';
 import {existsSync} from 'node:fs';
+import {execFileSync} from 'node:child_process';
 import {resolve,extname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {browser,chrome,delay} from './browser-harness.mjs';
@@ -13,13 +14,14 @@ const ids=['tools','source','unity','profile','inspect','build','install'];
 const retained='visible-failure-session';
 test('failed status survives unavailable events and prominently shows cause, retry and diagnostics',
   {skip:!existsSync(chrome),timeout:30000},async()=>{
+    const capacity=JSON.parse(execFileSync(process.env.QUEST_WIZARD_PYTHON??'python3',['-B',fileURLToPath(new URL('./native_memory_fixture.py',import.meta.url)),resolve(root,'../..')],{encoding:'utf8'}));
     let mode='running',client;const posts=[];
-    const state=()=>({session:retained,status:mode,choices:{gameRoot:'C:\\Owned game',provider:'gog',acceptUnityTerms:true,install:false},
+    const state=()=>({session:retained,status:mode==='memory'?'blocked':mode,choices:{gameRoot:'C:\\Owned game',provider:'gog',acceptUnityTerms:true,install:false},
       needsActions:mode==='failed'?[{code:'build_tool_failed',stage:'build',message:{de:'Die Konvertierung der Spielassets ist fehlgeschlagen.',en:'Game asset conversion failed.'},
-        parameters:{failureStage:'recovery',cause:"ModuleNotFoundError: No module named 'recover'"}}]:[],artwork:[],
-      stages:ids.map((id,index)=>({id,status:index<5?'complete':index===5?mode:'pending',
+        parameters:{failureStage:'recovery',cause:"ModuleNotFoundError: No module named 'recover'"}}]:mode==='memory'?[capacity.action]:[],artwork:[],
+      stages:ids.map((id,index)=>index===5&&mode==='memory'?capacity.stage:({id,status:index<5?'complete':index===5?mode:'pending',
         ...(index===5&&mode==='failed'?{waiting:{since:100}}:{}), // An old prerequisite cannot disguise terminal failure.
-        progress:{stagePercent:index<5?100:index===5?46.3:0,phase:index===5?'recovery-asset-references':'complete',percent:null,updatedAt:Date.now()/1000-180}}))});
+        progress:{stagePercent:index<5?100:index===5?46.3:0,phase:index===5?(mode==='memory'?'native-memory-check':'recovery-asset-references'):'complete',percent:null,updatedAt:Date.now()/1000-180}}))});
     const server=createServer(async(request,response)=>{
       try {
         const url=new URL(request.url,'http://localhost');let value;
@@ -83,6 +85,22 @@ test('failed status survives unavailable events and prominently shows cause, ret
       assert.equal(posts.filter(row=>row.path==='/api/plan').length,0,'retry resumes the retained owner session');
       assert.equal(await client.evaluate("document.getElementById('failure-cause').hidden"),true);
       assert.equal(await client.evaluate("document.getElementById('failure-actions').hidden"),true);
+      mode='memory';
+      await client.wait("document.getElementById('progress-title').textContent==='Prerequisite missing'");
+      assert.equal(await client.evaluate("document.getElementById('action-needed').getAttribute('role')"),'alert');
+      assert.equal(await client.evaluate("document.getElementById('failure-actions').hidden"),false);
+      assert.match(await client.evaluate("document.getElementById('action-needed-copy').textContent"),/Native compilation memory capacity:.*32\.8 GiB.*24\.5 GiB.*44\.4 GiB/);
+      assert.match(await client.evaluate("document.getElementById('failure-next').textContent"),/Free memory capacity/);
+      assert.doesNotMatch(await client.evaluate("document.getElementById('failure-next').textContent"),/corrected builder/);
+      assert.equal(await client.evaluate("document.querySelector('[data-operation=weave]').classList.contains('complete')"),true,'the next compiler prerequisite cannot mark completed weaving as failed');
+      assert.equal(await client.evaluate("document.querySelectorAll('#build-groups .failed,#build-groups .running,#build-groups .checking').length"),0);
+      await client.evaluate("document.querySelector('[data-language=de]').click()");
+      assert.match(await client.evaluate("document.getElementById('action-needed-copy').textContent"),/Speicherkapazität.*Auslagerungsdatei/);
+      assert.equal(await client.evaluate("document.getElementById('progress-title').textContent"),'Voraussetzung fehlt');
+      await client.picture('native-memory-prerequisite-de');
+      await client.evaluate("document.getElementById('failure-retry').click()");
+      await client.wait("document.getElementById('action-needed').hidden");
+      assert.deepEqual(posts.at(-1),{path:'/api/run',body:{session:retained}});
       assert.equal(client.events.filter(row=>row.method==='Runtime.exceptionThrown').length,0);
     }finally{try{await client?.close();}finally{await new Promise(resolve=>server.close(resolve));}}
   });

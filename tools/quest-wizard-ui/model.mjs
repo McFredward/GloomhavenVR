@@ -47,15 +47,17 @@ export function macroStep(state) {
 }
 export function isActive(state) { return ['running','cancelling','cancel_requested'].includes(state?.status); }
 export function failureView(state) {
-  if(state?.status!=='failed')return null;
-  const action=state.needsActions?.find(value=>value&&typeof value==='object')??{};
+  const action=state?.needsActions?.find(value=>value&&typeof value==='object')??{};
+  const memoryBlocked=state?.status==='blocked'&&action.code==='native_memory_unavailable';
+  if(state?.status!=='failed'&&!memoryBlocked)return null;
   const parameters=action.parameters??{};
   const cause=typeof parameters.cause==='string'?parameters.cause:typeof parameters.builderError==='string'?parameters.builderError:'';
   // Show one concrete, bounded diagnostic rather than a traceback wall. Text
   // stays untrusted textContent; the complete original remains in the logs.
   const lines=cause.split(/\r?\n/).map(line=>line.trim()).filter(Boolean);
   return {stage:typeof parameters.failureStage==='string'?parameters.failureStage:action.stage??state.stages?.find(row=>row.status==='failed')?.id,
-    message:action.message??null,cause:lines.at(-1)?.replace(/[\u0000-\u001f\u007f]/g,' ').slice(0,360)??''};
+    message:action.message??null,cause:lines.at(-1)?.replace(/[\u0000-\u001f\u007f]/g,' ').slice(0,360)??'',
+    ...(memoryBlocked?{blocked:true}:{})};
 }
 export function activityView(stage,now=Date.now()/1000) {
   const updated=stage?.progress?.updatedAt;

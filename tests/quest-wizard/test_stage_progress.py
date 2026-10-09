@@ -54,6 +54,55 @@ class StageProgressTests(unittest.TestCase):
         self.assertIsNone(after['percent'])
         self.assertEqual(after['stageOperation'], 'xr-sources')
 
+    def test_native_capacity_rejection_preserves_closed_project_and_weave(self):
+        self.store.begin_stage(self.session, 'build', 'input-a')
+        self.store.operation(self.session, 'build', 'weave', complete=True)
+        before = self.progress()['stagePercent']
+        parser = ProgressParser()
+        resource = {'phase': 'il2cpp', 'availableMemoryBytes': 35246387200,
+                    'commitHeadroomBytes': 26303938560, 'requiredCommitHeadroomBytes': 47646032691,
+                    'nativeLaunchAllowed': False}
+        fields = parser.parse('resources: ' + json.dumps(resource), 'build.log')
+        self.store.progress(self.session, 'build', **fields)
+        self.assertIsNone(parser.parse('GHVRQ_PROGRESS ' + json.dumps({
+            'schema': 1, 'phase': 'stage:build', 'detail': 'Failed: BuildError', 'status': 'failed'}), 'build.log'))
+        self.assertIsNone(parser.parse('GHVRQ_PROGRESS ' + json.dumps({
+            'schema': 1, 'phase': 'builder-python-handoff', 'done': 1, 'total': 1,
+            'unit': 'commands', 'detail': 'Isolated build Python exited', 'status': 'failed'}), 'build.log'))
+        saved = self.store.load(self.session)
+        saved['status'] = saved['stages'][5]['status'] = 'blocked'
+        self.store.save(saved)
+        after = self.progress()
+        self.assertEqual(after['phase'], 'native-memory-check')
+        self.assertEqual(after['stagePercent'], before)
+        self.assertIsNone(after['buildOverview']['active'])
+        self.assertIsNone(after['stageOperation'])
+        self.assertNotIn('activeWork', after)
+        operations = [item for group in after['buildOverview']['groups'] for item in group['operations']]
+        self.assertTrue(all(item['status'] in ('complete', 'retained', 'reused') for item in operations if item['closed']))
+        self.assertFalse(any(item['status'] in ('running', 'checking', 'failed') for item in operations))
+        self.assertTrue(next(item for item in operations if item['id'] == 'weave')['closed'])
+        self.assertFalse(next(item for item in operations if item['id'] == 'package-api')['closed'])
+        # Capacity cannot claim a compile fraction or alter an unrelated child.
+        self.assertIsNone(after['percent'])
+        self.assertIsNone(parser.parse('resources: ' + json.dumps(dict(resource, phase='opus')), 'other.log'))
+        self.assertIsNone(parser.parse('resources: ' + json.dumps(dict(resource, nativeLaunchAllowed=True)), 'build.log'),
+                          'successful scheduling observations cannot detach a running update-code operation')
+        self.assertIsNotNone(parser.parse('GHVRQ_PROGRESS ' + json.dumps({
+            'schema': 1, 'phase': 'stage:build', 'detail': 'Failed: BuildError', 'status': 'failed'}), 'build.log'),
+                             'a later actual build failure is not hidden by an old memory rejection')
+
+    def test_generic_post_completion_launch_failure_does_not_relabel_success(self):
+        self.store.begin_stage(self.session, 'build', 'input-a')
+        self.store.operation(self.session, 'build', 'weave', complete=True)
+        saved = self.store.load(self.session)
+        saved['status'] = saved['stages'][5]['status'] = 'failed'
+        self.store.save(saved)
+        overview = self.progress()['buildOverview']
+        self.assertIsNone(overview['active'])
+        weave = next(item for group in overview['groups'] for item in group['operations'] if item['id'] == 'weave')
+        self.assertEqual(weave['status'], 'complete')
+
     def test_same_input_retry_and_new_process_restore_high_water_but_new_input_resets(self):
         self.store.begin_stage(self.session, 'build', 'input-a')
         self.store.operation(self.session, 'build', 'content-bank')

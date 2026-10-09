@@ -9,6 +9,46 @@ import shutil
 from state import WizardError, ordinary
 
 
+def memory_resources(value):
+    """Expose only bounded, measured capacity fields from the current attempt."""
+    if not isinstance(value, dict): return {}
+    source = {**(value.get("host") if isinstance(value.get("host"), dict) else {}),
+              **(value.get("policy") if isinstance(value.get("policy"), dict) else {}), **value}
+    fields = {}
+    for name in ("totalMemoryBytes", "availableMemoryBytes", "commitHeadroomBytes",
+                 "requiredCommitHeadroomBytes", "largestWorkerReserveBytes", "parentReserveBytes"):
+        number = source.get(name)
+        if type(number) is int and 0 <= number <= 2 ** 64 - 1: fields[name] = number
+    if "commitHeadroomBytes" not in fields:
+        number = source.get("availableCommitBytes")
+        if type(number) is int and 0 <= number <= 2 ** 64 - 1: fields["commitHeadroomBytes"] = number
+    return fields
+
+
+def native_memory_error(parameters, resources):
+    """A retryable host prerequisite; it is never failed game conversion."""
+    measured = memory_resources(resources)
+    def amount(name, unknown):
+        return f"{measured[name] / 1024 ** 3:.1f} GiB" if name in measured else unknown
+    en = ("Native compilation cannot start with the current memory capacity. "
+          f"Installed RAM: {amount('totalMemoryBytes', 'unknown')}; "
+          f"Available RAM: {amount('availableMemoryBytes', 'unknown')}; "
+          f"available commit (RAM plus paging capacity): {amount('commitHeadroomBytes', 'not reported')}; "
+          f"required headroom: {amount('requiredCommitHeadroomBytes', 'unknown')}. "
+          "Close other memory-intensive programs; on Windows, check that the paging file is enabled and has space to grow. "
+          "Then continue in the same workspace. Completed conversions remain saved.")
+    de = ("Die native Kompilierung kann mit der aktuellen Speicherkapazität nicht starten. "
+          f"Installierter RAM: {amount('totalMemoryBytes', 'unbekannt')}; "
+          f"Verfügbarer RAM: {amount('availableMemoryBytes', 'unbekannt')}; "
+          f"verfügbarer Commit (RAM und Auslagerungskapazität): {amount('commitHeadroomBytes', 'nicht gemeldet')}; "
+          f"benötigter Spielraum: {amount('requiredCommitHeadroomBytes', 'unbekannt')}. "
+          "Andere speicherintensive Programme schließen; unter Windows prüfen, ob die Auslagerungsdatei aktiviert ist und Platz zum Wachsen hat. "
+          "Danach im selben Arbeitsordner fortsetzen. Fertige Konvertierungen bleiben gespeichert.")
+    return WizardError("native_memory_unavailable", en, de,
+                       **dict(parameters, failureStage="native-memory-check",
+                              completedWorkRetained=True, resources=measured))
+
+
 def disk_full(error):
     return isinstance(error, OSError) and (error.errno == errno.ENOSPC or getattr(error, "winerror", None) in (39, 112))
 
@@ -37,6 +77,7 @@ def tail(path, limit=8192):
 def tool_failure(root, stage, log, started, executable, exit_code):
     """Read only this attempt's failure and explicitly named child logs."""
     parameters = {"executable": executable, "exitCode": exit_code, "log": str(log), "failureStage": stage}
+    resources, failure_code = {}, None
     logs = [ordinary(log)]
     failure_path = ordinary(root / "build/last-failure.json")
     if stage in ("inspect", "build") and failure_path.is_file() and failure_path.stat().st_mtime >= started:
@@ -44,6 +85,8 @@ def tool_failure(root, stage, log, started, executable, exit_code):
             if failure_path.stat().st_size <= 65536:
                 failure = json.loads(failure_path.read_text(encoding="utf-8"))
                 if isinstance(failure, dict) and failure.get("schema") == 1:
+                    resources = memory_resources(failure.get("resources"))
+                    failure_code = failure.get("code")
                     name = failure.get("stage")
                     if isinstance(name, str) and re.fullmatch(r"[a-z][a-z0-9-]{0,80}", name):
                         parameters["failureStage"] = name
@@ -59,6 +102,12 @@ def tool_failure(root, stage, log, started, executable, exit_code):
         text = tail(path)
         disk_failure |= bool(re.search(r"(?i)(no space left on device|disk (?:is )?full|\[Errno 28\]|\[WinError (?:39|112)\]|not enough space on (?:the )?disk)", text))
         for line in text.splitlines():
+            if line.startswith("resources: "):
+                try:
+                    observed = json.loads(line[len("resources: "):])
+                    if isinstance(observed, dict) and observed.get("phase") == "il2cpp":
+                        resources = {**memory_resources(observed), **resources}
+                except (ValueError, TypeError): pass
             if re.search(r"(?i)(FAILED:|Quest builder:|(?:Error|Exception):|error (?:CS|MSB|BC)\d+|fatal error:)", line):
                 error_line = line.strip()[:2048]
     parameters["cause"] = error_line or parameters.get("builderError") or "No error summary was emitted; inspect the retained tool log."
@@ -66,6 +115,8 @@ def tool_failure(root, stage, log, started, executable, exit_code):
     if disk_failure or re.search(r"(?i)(no space left on device|\[Errno 28\]|\[WinError (?:39|112)\])", parameters.get("builderError", "")):
         failed_stage = parameters.pop("failureStage")
         return disk_full_error(root, failed_stage, **parameters)
+    if failure_code == "native_memory_unavailable" or "Available RAM/commit is insufficient or unknown for the large native game compiler" in (parameters["cause"] + " " + parameters.get("builderError", "")):
+        return native_memory_error(parameters, resources)
     import_failure = ("helper import failed before game conversion" in parameters.get("builderError", "")
                       or "ModuleNotFoundError:" in parameters["cause"])
     certificate_failure = re.search(r"(?i)(CERTIFICATE_VERIFY_FAILED|certificate verify failed|TLS certificate (?:verification|validation) failed)",

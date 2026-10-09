@@ -27,6 +27,16 @@ test('terminal failure exposes its concrete bounded cause; stale activity never 
   for(const updatedAt of [null,undefined,NaN,Infinity,-1,0,'100'])assert.equal(activityView({progress:{updatedAt}},140),null);
 });
 
+test('native memory prerequisite exposes retry context without resurrecting an old failure',()=>{
+  const action={code:'native_memory_unavailable',stage:'build',message:{de:'Verfügbarer RAM: 32.8 GiB; Commit: 24.5 GiB; benötigt: 44.4 GiB.',en:'Available RAM: 32.8 GiB; commit: 24.5 GiB; required: 44.4 GiB.'},
+    parameters:{failureStage:'native-memory-check',cause:'Native compiler memory admission refused.'}};
+  assert.deepEqual(failureView({status:'blocked',needsActions:[action]}),{stage:'native-memory-check',message:action.message,cause:action.parameters.cause,blocked:true});
+  for(const status of ['running','complete','cancelled'])assert.equal(failureView({status,needsActions:[action]}),null);
+  assert.equal(translate('de','phase_stage_native-memory-check'),'Speicherkapazität für native Kompilierung');
+  assert.match(translate('de','nativeMemoryNext'),/erneut versuchen/);
+  assert.doesNotMatch(translate('de','nativeMemoryNext'),/korrigierten Builder/);
+});
+
 test('overview uses retained completion and explicit active work, never wizard setup counts',()=>{
   const raw={schema:1,active:'recovery',groups:[{id:'inputs',operations:[{id:'game-inputs',status:'retained',closed:true,percent:100}]},
     {id:'recovery',operations:[{id:'recovery',status:'running',closed:false,percent:97}]}],recovery:{batches:{done:16,total:16},sections:[],staging:[]}};

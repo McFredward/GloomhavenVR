@@ -33,6 +33,7 @@ class ProgressParser:
         self.bee_runs = {}
         self.unity_operations = {}
         self.shader_runs = {}
+        self.memory_rejections = set()
 
     def _unity_operation(self, source):
         """Compiler logs belong to their actual child build, not Player import."""
@@ -106,10 +107,37 @@ class ProgressParser:
 
     def parse(self, line, source="tool"):
         line = line.strip()
+        if line.startswith("resources: "):
+            try:
+                value = json.loads(line[len("resources: "):])
+                if not isinstance(value, dict) or value.get("phase") != "il2cpp": return None
+                from failures import memory_resources
+                capacity = memory_resources(value)
+                if value.get("nativeLaunchAllowed") is not False:
+                    # A successful scheduling observation may occur inside an
+                    # update-code job. It cannot detach that running owner.
+                    self.memory_rejections.discard(source)
+                    return None
+                if len(self.memory_rejections) >= 64: self.memory_rejections.clear()
+                self.memory_rejections.add(source)
+                detail = "Native compiler memory check: " + "; ".join(
+                    name + "=" + str(number) for name, number in capacity.items())
+                # This capacity observation has no known work denominator and
+                # cannot reopen the completed weave/preparation operation.
+                return {"phase": "native-memory-check", "done": None, "total": None,
+                        "unit": None, "detail": detail[:1024], "status": "failed"}
+            except (ValueError, TypeError): return None
         if line.startswith("GHVRQ_PROGRESS "):
             try:
                 value = json.loads(line[15:])
                 if not isinstance(value, dict) or value.get("schema") != 1: return None
+                if value.get("phase") in ("stage:build", "builder-python-handoff") and value.get("status") == "failed" and source in self.memory_rejections:
+                    # Generic stage/launcher exit summaries must not conceal
+                    # the specific pre-launch memory rejection just emitted.
+                    return None
+                if value.get("phase") == "native-memory-check" and value.get("status") == "failed":
+                    if len(self.memory_rejections) >= 64: self.memory_rejections.clear()
+                    self.memory_rejections.add(source)
                 fields = {name: value.get(name) for name in ("phase", "done", "total", "unit", "detail")}
                 stage_progress(**fields)  # The same strict bounds apply at ingestion.
                 if value.get("operation") is not None:
