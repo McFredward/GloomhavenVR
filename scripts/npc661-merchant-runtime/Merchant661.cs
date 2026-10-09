@@ -78,12 +78,14 @@ public static partial class MirrorProgram
             var purchased=new ScenarioRuleLibrary.CItem {ID=7};native.AdoptMerchantPurchase(purchased);
             Check(ReferenceEquals(native.Item,purchased),"actual purchase adoption preserves authoritative native item identity");
             native.BeginMerchantPurchase(owner,card.position,card.rotation,purchaseWidth);
+            var ordinary=new Dictionary<int,bool>();bool terminalReceived=false;int previousCohorts=0,retired=0,retiredAt=-1,terminalAt=-1,phaseGapFrames=0;float previousGap=float.PositiveInfinity;
             var queue=new List<(int due,byte[] bytes)>();var pictures=new Dictionary<int,Color32[]>();var positions=new Dictionary<int,Vector3>();
             TownServiceMirror.RootAck661? rootAck=null;
             int packetIndex=0,partial=0,activated=-1;var packets=new List<int>();
             for(int frame=0;frame<=120;frame++)
             {
                 FlightTime655.Now=began+frame/90f;FlightTime655.Delta=1f/90f;
+                ordinary[frame]=frame>0 && native.RemainingGlide661<=0f;
                 if(frame>0)native.StepNative655();
                 positions[frame]=front.position;
                 pictures[frame]=FlightPixels658(owner,8,"owner661-"+zero+"-stress"+stress+"-drop"+drop+"-width"+purchaseWidth+"-"+frame);
@@ -114,6 +116,12 @@ public static partial class MirrorProgram
                 {
                     Check(!paintedBody.gameObject.activeInHierarchy && extras.Select((x,i)=>Remote(peer,(ushort)(20+i))!.Root).All(x=>!x.gameObject.activeInHierarchy),"partial frozen native receipt never exposes a grey body or blank front");partial++;yield return null;continue;
                 }
+                var receipt=TownServiceMirror.Receipt661(2,11,out float receiptAge,out float receiptTime);
+                bool terminalNow=receipt!=null && receipt.Numbers[0]>=receipt.Numbers[1] && Enumerable.Range(0,10).All(i=>receipt.Numbers[4+i]==receipt.Numbers[14+i]);
+                if(terminalNow && !terminalReceived){terminalReceived=true;terminalAt=frame;}
+                int cohorts=TownServiceMirror.Cohorts658(2);
+                if(terminalReceived && previousCohorts>0 && cohorts==0){retired++;retiredAt=frame;}
+                previousCohorts=cohorts;
                 if(activated<0)activated=frame;
                 Check(paintedBody.gameObject.activeInHierarchy && paintedFront.gameObject.activeInHierarchy,"merchant purchased body/front stay active at first and every flight frame="+frame+" zero="+zero+" body="+paintedBody.gameObject.activeInHierarchy+" front="+paintedFront.gameObject.activeInHierarchy);
                 Check(float.IsFinite(paintedFront.lossyScale.x) && paintedFront.lossyScale.x>.00001f,"actual zero-scale preparation releases a finite printed face frame="+frame+" zero="+zero+" scale="+paintedFront.lossyScale.x);
@@ -121,7 +129,8 @@ public static partial class MirrorProgram
                 Quaternion nativeFacing=Quaternion.Inverse(body.rotation)*front.rotation,paintedFacing=Quaternion.Inverse(paintedBody.rotation)*paintedFront.rotation;
                 Vector3 nativeScale=new(front.lossyScale.x/body.lossyScale.x,front.lossyScale.y/body.lossyScale.y,front.lossyScale.z/body.lossyScale.z);
                 Vector3 paintedScale=new(paintedFront.lossyScale.x/paintedBody.lossyScale.x,paintedFront.lossyScale.y/paintedBody.lossyScale.y,paintedFront.lossyScale.z/paintedBody.lossyScale.z);
-                Check(Vector3.Distance(nativeChild,paintedChild)<.00005f && Quaternion.Angle(nativeFacing,paintedFacing)<.01f && Vector3.Distance(nativeScale,paintedScale)<.00005f,
+                float physicalChildError=Vector3.Distance(paintedFront.position-paintedBody.position,paintedBody.TransformVector(nativeChild));
+                Check(physicalChildError<.00005f && Vector3.Distance(nativeChild,paintedChild)<.00005f && Quaternion.Angle(nativeFacing,paintedFacing)<.01f && Vector3.Distance(nativeScale,paintedScale)<.00005f,
                     "actual native canvas-relative front/body geometry remains coherent every frame="+frame+" zero="+zero+" offset="+Vector3.Distance(nativeChild,paintedChild)+" scale="+Vector3.Distance(nativeScale,paintedScale));
                 Image rendered=paintedFront.GetComponent<Image>();
                 Check(rendered.sprite==background.sprite,"original item artwork survives native preparation and return every frame");
@@ -139,9 +148,30 @@ public static partial class MirrorProgram
                     union++;if(Math.Abs(a[i].r-b[i].r)+Math.Abs(a[i].g-b[i].g)+Math.Abs(a[i].b-b[i].b)>60)different++;
                     if(Math.Max(b[i].r,Math.Max(b[i].g,b[i].b))-Math.Min(b[i].r,Math.Min(b[i].g,b[i].b))>20)colored++;
                 }
-                Check(union>50 && colored>20 && different<=Math.Max(5,union*.1f),"actual merchant artwork matches through zero-scale purchase handoff frame="+frame+" zero="+zero+" union="+union+" colored="+colored+" different="+different);
+                int sourceFrame=stress?Math.Max(0,frame-6):frame;
+                bool unseenOrdinary=ordinary[sourceFrame] && !terminalReceived;
+                if(unseenOrdinary)
+                {
+                    phaseGapFrames++;
+                    Check(receipt!=null && receipt.Numbers[2]==1f,"unsampled source ordinary branch retains its actual received exponential recipe");
+                    float[] v=receipt!.Numbers;float ease=1f-Mathf.Exp(-v[3]*receiptAge);
+                    Vector3 P(int n)=>new(v[n],v[n+1],v[n+2]);Quaternion Q(int n)=>new(v[n],v[n+1],v[n+2],v[n+3]);
+                    Matrix4x4 pose=Matrix4x4.TRS(observer.TransformPoint(Vector3.LerpUnclamped(P(4),P(14),ease)),observer.rotation*Quaternion.SlerpUnclamped(Q(7),Q(17),ease),Vector3.LerpUnclamped(P(11),P(21),ease))*Matrix4x4.TRS(P(28),Q(31),P(35));
+                    Vector3 expected=pose.MultiplyPoint3x4(Vector3.zero);Matrix4x4 target=Matrix4x4.TRS(observer.TransformPoint(P(14)),observer.rotation*Q(17),P(21))*Matrix4x4.TRS(P(28),Q(31),P(35));float gap=Vector3.Distance(paintedBody.position,target.MultiplyPoint3x4(Vector3.zero));
+                    Check(Vector3.Distance(paintedBody.position,expected)<.00005f,"observer follows the exact received exponential pose until terminal source delivery");
+                    Check(gap>0.000001f && gap<=previousGap+.000001f,"unsampled ordinary interval approaches home monotonically without invented early snap");previousGap=gap;
+                }
+                // Between the native discrete ordinary branch and its first received
+                // source receipt, the retained exponential recipe cannot know that
+                // unseen transition. Geometry/artwork remain strict every frame;
+                // whole-picture phase comparison resumes at authoritative terminal.
+                File.AppendAllText(Path.Combine(_output,"native-phase661.csv"),frame+","+purchaseWidth+","+stress+","+drop+","+native.RemainingGlide661+","+ordinary[frame]+","+sourceFrame+","+receiptTime+","+receiptAge+","+terminalReceived+","+unseenOrdinary+","+card.position+","+(paintedBody.position-observer.position)+","+different+","+union+"\n");
+                if(!unseenOrdinary)Check(union>50 && colored>20 && different<=Math.Max(5,union*.1f),"actual merchant artwork matches through zero-scale purchase handoff frame="+frame+" zero="+zero+" union="+union+" colored="+colored+" different="+different);
                 yield return null;
             }
+            Check(terminalReceived && terminalAt>=36 && terminalAt<75,"actual authoritative terminal source arrives on bounded numeric turns");
+            Check(retired==1 && retiredAt>terminalAt && retiredAt<85 && TownServiceMirror.Cohorts658(2)==0 && TownServiceMirror.ReturnClocks658(2)==0,"authoritative terminal hands ownership to an ordinary root once without heartbeat delay");
+            if(!stress)Check(phaseGapFrames==3 && terminalAt==36,"only frames33-35 are the unsampled native ordinary interval before15Hz terminal delivery");
             if(stress)Check(partial>0 && activated>6 && activated<40 && packets.Any(x=>x>0 && x<26),"out-of-order complete multipart native receipt makes bounded progress and atomically releases all canvas recipes");
         }
         TownServiceMirror.Shutdown();

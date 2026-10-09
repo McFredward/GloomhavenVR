@@ -115,7 +115,7 @@ Actual brown/gray armor-region samples are now required on both source and
 observer every frame; a uniformly white/gray surface is insufficient. Whole
 untouched source/observer pictures retain their existing 10% changed-pixel
 threshold. Every visible frame additionally checks the physical front/body
-relative position/rotation/scale, including first receipt and terminal/ordinary
+relative position/rotation/scale and plane-offset error below 50 micrometres, including first receipt and terminal/ordinary
 frames. Neither picture nor observer transform is normalized or manually fixed.
 The real `BeginMerchantPurchase` is tested at both .14m and .16m, after .14m
 preview/preparation. This exercises configured purchase width on the actual
@@ -136,9 +136,28 @@ while the observer has prematurely snapped. Removing that invented snap fixes
 frame 32, but the next source ordinary settle at 33 is not sampled until 36. The
 unclamped observer continues exponential motion and still differs94 / 643 pixels
 at 33. Relative front/body geometry and original content remain coherent; this is
-an independent whole-card phase boundary. The strict proof is still red until
-that actual terminal boundary is transported coherently. Its threshold is not
-weakened and neither this candidate nor a complete hardware fix is claimed.
+an independent whole-card phase boundary. The source receipt contract matters here: without a new packet, the observer
+cannot know that the owner took a discrete future branch. The initial no-delay
+case has ReturnOffset 0; its next source receipt at 36 is the first authoritative
+ordinary/terminal geometry. Comparing it against unseen current owner state
+at 33–35 assumed information the protocol had not transmitted.
+
+`5d16bca67` removes only the premature duration clamp; native exponential speed,
+endpoints, clocks, source sampler and packet cadence remain unchanged. The
+root-owned `8bbe0a6c2` publishes the ordinary root once after terminal snapshot
+acknowledgement, handing ownership back without waiting for a quiet heartbeat.
+
+The final phase proof retains the same strict original pixel comparison through
+native crossing 32 and from authoritative terminal receipt 36. During the
+explicitly recorded33–35 unsampled branch interval it instead requires the exact
+already received exponential pose, monotone nonzero approach with no invented
+snap, original visible armor/material and physical front/body coherence every
+frame. Source's actual negative remaining time, ordinary snap, physical pose,
+received source time/age and pixel differences are recorded without modifying
+pictures. Multipart delay/loss uses the same received-state rule until its
+actual complete terminal source instant is available, with bounded delivery.
+This is an explicit network information boundary, not a changed pixel tolerance
+or a claim that the unseen source branch can be replayed exactly in advance.
 
 ## Evidence and current validation
 
@@ -161,11 +180,29 @@ weakened and neither this candidate nor a complete hardware fix is claimed.
   fresh effects and old clamp fail at 32; the first effects-adapter nullable
   compilation failure is retained in `run-_q_hlpoh`.
 - `npc661-merchant-native-exp/run-kpxz72ch`: unclamped native exponential passes
-  crossing32 but fails strict ordinary-settle picture at 33.
+  crossing 32 but fails strict ordinary-settle picture at 33.
 - `npc661-merchant-native-width/run-4u98t5vn`: actual .16 purchase from .14 preview
   passes geometry/material/armor through 32; same terminal phase failure at 33.
 - Unchanged portable `town-card-return-cohort658`: 261 assertions, including
   bounded 17/40/64-member progress, after expanded-payload preflight.
+
+The final focused suite at `npc661-merchant-final-geometry/run-c59a40bh`
+passes native 6815 plus separate .16-width 2306 assertions and all five causal
+controls: old collapsed canvas, global subset-sequence gate, unconditional
+newer-root ACK, premature duration clamp at 32 and opaque white effect port.
+Actual complete terminal delivery is below 75 frames and the ordinary root
+retires the cohort/clock exactly once below 85 frames; source originals stay
+visible. Direct receipts mark exactly 33–35 as unsampled; no other direct frame
+skips its original pixel phase comparison. The initial terminal-proof gap
+calculation forgot target-child rotation and failed in the late multipart tail;
+that failed `run-g0ohkexy` is preserved beside the corrected strict run.
+
+Prerequisites are the source canvas/budget checkpoints, root Motion guard and
+staging hooks, root ordinary handoff `8bbe0a6c2`, and original fixture/audit
+checkpoint `b6c4a6d81`. The final narrow curve source is `5d16bca67`.
+Final current-source focused checks: Debug build 0 warnings/0 errors; source
+group 16/16; unchanged portable cohort vectors 261 assertions. These are worker
+focused checks, not a new complete local gate.
 
 Runner command: `python3 scripts/npc661-merchant-runtime/run.py`. Suggested
 inventory id: `npc661-merchant-runtime`. Every run retains exact source/adapter,
