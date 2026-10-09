@@ -15,6 +15,7 @@ namespace GloomhavenVR.Core;
 [Serializable]
 internal sealed class OpenXrEnvironmentBlendFeature : OpenXRFeature
 {
+    private static OpenXrEnvironmentBlendFeature? _inputFocusOwner;
     private readonly OpenXrEnvironmentBlendProbe _probe = new();
     private readonly Dictionary<ulong, OpenXrEnvironmentBlendProbe.QueryResult> _systemResults = new();
     private ulong _instance;
@@ -56,6 +57,8 @@ internal sealed class OpenXrEnvironmentBlendFeature : OpenXRFeature
         _instance = xrInstance;
         _system = _session = 0;
         _sessionBegun = false;
+        _inputFocusOwner = this;
+        VRSession.InputFocus = null;
         _capabilities = null;
         _activationFailed = false;
         _restoringMode = null;
@@ -131,14 +134,38 @@ internal sealed class OpenXrEnvironmentBlendFeature : OpenXRFeature
         ExitPassthrough();
         _session = _instance != 0 ? xrSession : 0;
         _sessionBegun = false;
+        SetInputFocus(null);
         _activationFailed = false;
     }
 
     public override void OnSessionBegin(ulong xrSession)
     {
         if (_instance == 0 || _session == 0 || _session != xrSession) return;
-        if (!_sessionBegun) _activationFailed = false;
+        if (!_sessionBegun)
+        {
+            _activationFailed = false;
+            SetInputFocus(null);
+        }
         _sessionBegun = true;
+    }
+
+    public override void OnSessionStateChange(int oldState, int newState)
+    {
+        // Build654: Auto wall removal must use XR input focus, not Unity's
+        // desktop Application.isFocused, which can remain false on a headset.
+        // Unity1.10 already dispatches this actual native session-state event;
+        // cache it without adding a per-frame native read. FOCUSED is state6.
+        // State events carry no session handle: only our current begun session
+        // may publish them. End/loss/destroy closes it before late events arrive,
+        // and a recreated session starts unknown rather than inheriting false.
+        if (_instance == 0 || _session == 0 || !_sessionBegun) return;
+        SetInputFocus(newState == 6);
+    }
+
+    private void SetInputFocus(bool? focus)
+    {
+        // A stale feature instance must not alter the recreated instance's cache.
+        if (ReferenceEquals(_inputFocusOwner, this)) VRSession.InputFocus = focus;
     }
 
     public override void OnSessionEnd(ulong xrSession) => EndSession(xrSession, false, true);
@@ -149,6 +176,7 @@ internal sealed class OpenXrEnvironmentBlendFeature : OpenXRFeature
     private void EndSession(ulong session, bool discardSession, bool canRestore)
     {
         if (_session == 0 || _session != session) return;
+        SetInputFocus(false);
         if (canRestore) ExitPassthrough();
         else
         {
@@ -291,6 +319,8 @@ internal sealed class OpenXrEnvironmentBlendFeature : OpenXRFeature
         _probe.EndInstance(xrInstance);
         if (_instance != xrInstance)
             return;
+        SetInputFocus(false);
+        if (ReferenceEquals(_inputFocusOwner, this)) _inputFocusOwner = null;
         ForgetOwnership();
         FrameNativePassthrough.Detach(this);
         _instance = 0;
