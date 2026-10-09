@@ -131,6 +131,10 @@ internal static partial class VROptionsTab
 
         internal Func<bool> Selected = () => false;
 
+        internal Func<bool> Available = () => true;
+
+        internal Func<string>? Hint;
+
         /// <summary>
         /// Write the choice. Returns TRUE when the write changed which rows the pane should have,
         /// so the page needs a rebuild rather than a repaint.
@@ -248,6 +252,8 @@ internal static partial class VROptionsTab
         // Paint the initial selection through the same function the clicks use, so "what selected
         // looks like" is written down once.
         RepaintVariantTiles(built);
+        if (item.Section == "Sky" && item.Key == "Style")
+            RegisterMixedRealityAvailabilityRefresh(() => RepaintVariantTiles(built));
 
         // HW-VERIFY: the next hardware round has to answer whether the strips drew and whether the
         // embedded art decoded on the headset; both are one number each and neither is visible in
@@ -587,6 +593,9 @@ internal static partial class VROptionsTab
     {
         try
         {
+            if (!tile.Available())
+                return;
+
             // Apply() repaints the pane's value labels and rebuilds the page by itself when the
             // edited entry is a variant selector (hand style) or a dependency parent.
             bool rebuild = false;
@@ -613,29 +622,29 @@ internal static partial class VROptionsTab
         {
             BuiltTile made = built[i];
             bool on;
+            bool available;
             try
             {
                 on = made.Tile.Selected();
+                available = made.Tile.Available();
             }
             catch
             {
                 on = false; // an unreadable entry must not stop the rest of the strip repainting
+                available = false;
             }
 
             if (made.Button != null)
             {
+                made.Button.interactable = available;
+                if (made.Tile.Hint != null)
+                    AttachHoverHint(made.Button.gameObject, made.Tile.Hint(), made.Tile.Resource);
                 ColorBlock colors = made.Button.colors;
                 colors.normalColor = on ? TileBorderOn : TileBorderOff;
                 colors.highlightedColor = on ? TileBorderOnHot : TileBorderOffHot;
                 colors.pressedColor = TileBorderPressed;
                 colors.selectedColor = colors.normalColor;
-                // NOT TileBorderOff, which is what an available UN-PICKED tile is painted: the two
-                // were byte-identical, so a tile that could not be chosen would have looked exactly
-                // like one that simply was not chosen yet (2026-09 redundancy audit, B6). Nothing
-                // sets interactable = false on these buttons today, so this has never been on
-                // screen — which is precisely why it would have shipped wrong the day something
-                // did. Half the un-picked border's luminance, alpha kept: a disabled tile reads as
-                // sunk into the pane rather than as a choice waiting to be made.
+                // A blocked runtime choice is visibly distinct from an available unpicked tile.
                 colors.disabledColor = TileBorderDisabled;
                 colors.colorMultiplier = 1f;
                 colors.fadeDuration = VROptionsTab.HoverTintFadeSeconds;
@@ -643,11 +652,11 @@ internal static partial class VROptionsTab
             }
 
             if (made.Picture != null)
-                made.Picture.color = on ? TilePictureOn : TilePictureOff;
+                made.Picture.color = !available ? TileBorderDisabled : on ? TilePictureOn : TilePictureOff;
 
             if (made.Label != null)
             {
-                made.Label.color = on ? TileLabelOn : TileLabelOff;
+                made.Label.color = !available ? TilePictureOff : on ? TileLabelOn : TileLabelOff;
                 made.Label.fontStyle = on ? FontStyles.Bold : FontStyles.Normal;
             }
         }

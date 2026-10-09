@@ -599,7 +599,7 @@ internal static partial class Loc
             ["h_key_color"] = Pair("Background color that compatible passthrough software replaces with your real surroundings.", "Hintergrundfarbe, die kompatible Passthrough-Software durch deine reale Umgebung ersetzt."),
             ["h_mask_size"] = Pair("Size of your avatar's head mask. Other players see the same size.", "Größe deiner Avatar-Kopfmaske. Andere Spieler sehen dieselbe Größe."),
             ["h_mirror"] = Pair("Show a local mirror to preview your mask and hands.", "Zeigt einen lokalen Spiegel zur Vorschau deiner Maske und Hände."),
-            ["h_mixed_reality"] = Pair("Clears the sky to one colour so your room can show through it.", "Färbt den Himmel einfarbig, damit dein Zimmer durchscheinen kann."),
+            ["h_mixed_reality"] = Pair("Show your surroundings around the game. Steam Frame uses native passthrough when supported; PC streaming needs compatible chroma-key software.", "Zeigt deine Umgebung um das Spiel herum. Steam Frame nutzt unterstütztes natives Passthrough; PC-Streaming benötigt kompatible Chroma-Key-Software."),
             ["h_remote_boards"] = Pair("Choose when other players' control boards are visible: never, during actions, or always.", "Wählt, wann Mitspieler-Kontrollbretter sichtbar sind: nie, während Aktionen oder immer."),
             ["h_show_combat_log"] = Pair("Show the combat log when a scenario starts. You can open or close it later.", "Zeigt das Kampflog beim Szenariostart. Du kannst es später öffnen oder schließen."),
             ["h_turning"] = Pair("Choose snap turning or continuous turning with the turning stick.", "Wählt schrittweises oder kontinuierliches Drehen mit dem Drehstick."),

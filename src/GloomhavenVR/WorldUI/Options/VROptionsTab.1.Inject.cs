@@ -292,6 +292,8 @@ internal static partial class VROptionsTab
         if (!InjectionRetryReady(host))
             return;
 
+        RefreshMixedRealityAvailability();
+
         // THE GUARD MUST ASK FOR WHAT THIS MODE ACTUALLY BUILDS. It used to require a toggle, and
         // a standalone menu never has one — so the guard could never be satisfied and Inject would
         // have run EVERY FRAME, cloning a fresh pane per frame. The fire exit keeps the old

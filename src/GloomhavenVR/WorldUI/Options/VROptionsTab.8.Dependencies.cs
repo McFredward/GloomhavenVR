@@ -1,4 +1,5 @@
 using System;
+using GloomhavenVR.Core;
 using System.Collections.Generic;
 
 namespace GloomhavenVR.WorldUI;
@@ -444,5 +445,8 @@ internal static partial class VROptionsTab
     /// </summary>
     private static bool IsRowVisible(ConfigCatalog.ConfigItem item) =>
         !HasItsOwnPage(item)
+        // Native alpha passthrough uses no chroma-key color. Keep its saved value
+        // for PC streaming without offering an ineffective Frame-only control.
+        && !(FrameNativePassthrough.Required && item.Section == "MixedReality" && item.Key == "KeyColor")
         && IsShownForCurrentVariant(item) && DependencyMet(item);
 }
