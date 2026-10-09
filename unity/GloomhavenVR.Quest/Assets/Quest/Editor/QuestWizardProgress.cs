@@ -24,6 +24,7 @@ namespace GloomhavenVR.Quest.Editor
         static readonly Dictionary<int, double> LastReported = new Dictionary<int, double>();
         static readonly System.Diagnostics.Stopwatch Clock = System.Diagnostics.Stopwatch.StartNew();
         static double lastSample;
+        static string activeOperation;
         static bool Enabled { get { return Environment.GetEnvironmentVariable("GHVRQ_WIZARD_PROGRESS") == "1"; } }
 
         static QuestWizardProgress()
@@ -81,8 +82,54 @@ namespace GloomhavenVR.Quest.Editor
 
         public static void Operation(string name, bool complete, string detail)
         {
+            if (!complete) activeOperation = name;
             Publish("operation:" + name, detail, complete ? 1 : -1, complete ? 1 : -1, "operations", name,
                     complete ? "complete" : "start");
+        }
+
+        /// <summary>Count existing work only; observing never loads or hashes an additional asset.</summary>
+        public sealed class Counter
+        {
+            readonly string phase, operation, unit;
+            readonly long total;
+            long done;
+            double last = double.NegativeInfinity;
+            public Counter(string phase, string operation, long total, string unit, string detail)
+            {
+                this.phase = phase; this.operation = operation; this.total = total; this.unit = unit;
+                Publish(phase, detail, 0, total, unit, operation, "start");
+            }
+            public void Report(long completed, string detail)
+            {
+                done = completed;
+                if (!Enabled || Clock.Elapsed.TotalSeconds - last < .5) return;
+                last = Clock.Elapsed.TotalSeconds;
+                Publish(phase, detail, done, total, unit, operation);
+            }
+            public void Complete(string detail)
+            {
+                // Completion belongs to this actual child loop, never its
+                // Editor/Player owner. A failed last task must remain open.
+                Publish(phase, detail, total, total, unit, operation, "complete");
+            }
+        }
+
+        public sealed class TaskSequence
+        {
+            readonly string phase, operation;
+            readonly int total;
+            int done;
+            public TaskSequence(string phase, string operation, int total)
+            { this.phase = phase; this.operation = operation; this.total = total; }
+            public void Run(string detail, Action action)
+            {
+                Publish(phase, detail, done, total, "steps", operation, done == 0 ? "start" : "progress");
+                try { action(); }
+                catch (Exception)
+                { Publish(phase, detail, done, total, "steps", operation, "failed"); throw; }
+                ++done;
+                Publish(phase, detail, done, total, "steps", operation, done == total ? "complete" : "progress");
+            }
         }
 
         internal static void Publish(string phase, string detail, double done = -1, double total = -1,
@@ -94,7 +141,7 @@ namespace GloomhavenVR.Quest.Editor
                 : "\"done\":null,\"total\":null";
             Debug.Log("GHVRQ_PROGRESS {\"schema\":1,\"phase\":" + Quote(phase) + "," + counts +
                       ",\"unit\":" + (unit == null ? "null" : Quote(unit)) + ",\"detail\":" + Quote(detail) +
-                      ",\"status\":" + Quote(status) + (operation == null ? "" : ",\"operation\":" + Quote(operation)) + "}");
+                      ",\"status\":" + Quote(status) + (operation == null && activeOperation == null ? "" : ",\"operation\":" + Quote(operation ?? activeOperation)) + "}");
         }
 
         static string Quote(string text)
@@ -113,15 +160,28 @@ namespace GloomhavenVR.Quest.Editor
 
     public sealed class QuestWizardBuildProgress : IPreprocessBuildWithReport, IProcessSceneWithReport, IPostprocessBuildWithReport
     {
+        int processedScenes;
         public int callbackOrder { get { return int.MinValue; } }
         public void OnPreprocessBuild(BuildReport report)
-        { QuestWizardProgress.Operation("player", false, "Unity Player build: processing scenes, IL2CPP and native Android compilation."); }
+        {
+            processedScenes = 0;
+            QuestWizardProgress.Operation("player", false, "Unity Player build: processing scenes, IL2CPP and native Android compilation.");
+        }
         public void OnProcessScene(Scene scene, BuildReport report)
-        { QuestWizardProgress.Publish("unity-player-scene", "Unity Player scene: " + scene.path); }
+        {
+            // Addressables also processes scenes with a null Player report.
+            // Do not let those scenes enter the later Player scene counter.
+            if (report == null) return;
+            ++processedScenes;
+            int total = Array.FindAll(EditorBuildSettings.scenes, row => row.enabled).Length;
+            QuestWizardProgress.Publish("unity-player-scenes", "Unity Player scene: " + scene.path,
+                processedScenes, total, "scenes", "player");
+        }
         public void OnPostprocessBuild(BuildReport report)
         {
             if (report.summary.result == BuildResult.Succeeded)
-                QuestWizardProgress.Operation("player", true, "Unity Android Player build succeeded; host delivery verification follows.");
+                QuestWizardProgress.Publish("unity-player-native-result", "Native Android Player succeeded; original final evidence is still being written.",
+                    1, 1, "steps", "player");
         }
     }
 }

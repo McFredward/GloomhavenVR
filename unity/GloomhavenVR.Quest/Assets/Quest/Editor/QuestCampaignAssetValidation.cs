@@ -114,9 +114,13 @@ namespace GloomhavenVR.Quest.Editor
             var imported = new List<ImportedObject>();
             var nativeIdentities = new HashSet<string>(StringComparer.Ordinal);
             var objectCache = new Dictionary<string, UnityEngine.Object[]>(StringComparer.Ordinal);
+            var progress = new QuestWizardProgress.Counter("unity-campaign-objects", androidAssetsBuilt ? "content-bank" : "unity-validation", input.entries.Length, "assets", "Validate original typed Campaign objects");
+            int examined = 0;
             foreach (var row in input.entries)
             {
-                if (row.status == "serialized-value-location-excluded") continue;
+                progress.Report(examined, row.assetPath);
+                if (row.status == "serialized-value-location-excluded")
+                { progress.Report(++examined, row.assetPath); continue; }
                 // Previous associations have already been checked and recorded as
                 // plain receipts. Release their native prefab/texture closures
                 // before loading the next bounded group on the player's PC.
@@ -170,7 +174,9 @@ namespace GloomhavenVR.Quest.Editor
                     type = selected.GetType().FullName, localFileId = row.nativeFileId,
                     originalCollection = row.originalCollection, originalPathId = row.originalPathId,
                     originalLocationIndex = row.originalLocationIndex });
+                progress.Report(++examined, row.assetPath);
             }
+            progress.Complete("Original typed Campaign objects validated");
             if (imported.Count != input.associatedEntryCount)
                 throw new InvalidDataException("Campaign typed-object inventory count differs.");
             objectCache.Clear();
@@ -182,8 +188,10 @@ namespace GloomhavenVR.Quest.Editor
             Exception validationError = null;
             try
             {
+                var sceneProgress = new QuestWizardProgress.Counter("unity-campaign-scenes", androidAssetsBuilt ? "content-bank" : "unity-validation", sceneInput.scenes.Length, "scenes", "Validate original Campaign scene closures");
                 foreach (var original in sceneInput.scenes.OrderBy(scene => scene.index))
                 {
+                    sceneProgress.Report(closures.Count, original.path);
                     if (original.index != closures.Count || original.originalCollection != "level" + original.index)
                         throw new InvalidDataException("Original build scene order/native collection differs.");
                     SafeAsset(original.path);
@@ -194,9 +202,12 @@ namespace GloomhavenVR.Quest.Editor
                     var roots = scene.GetRootGameObjects();
                     var gameObjects = roots.SelectMany(root => root.GetComponentsInChildren<Transform>(true))
                         .Select(transform => transform.gameObject).ToArray();
+                    var objectsProgress = new QuestWizardProgress.Counter("unity-scene-objects", androidAssetsBuilt ? "content-bank" : "unity-validation", gameObjects.Length, "objects", original.path);
+                    int objectsDone = 0;
                     int componentCount = 0;
                     foreach (var go in gameObjects)
                     {
+                        objectsProgress.Report(objectsDone, original.path + "/" + go.name);
                         if (GameObjectUtility.GetMonoBehavioursWithMissingScriptCount(go) != 0)
                             throw new InvalidDataException("Original scene has missing gameplay script: " + original.path + "/" + go.name);
                         foreach (var component in go.GetComponents<Component>())
@@ -205,20 +216,29 @@ namespace GloomhavenVR.Quest.Editor
                             componentCount++;
                             RequireSerializedReferences(component, original.path + "/" + go.name);
                         }
+                        objectsProgress.Report(++objectsDone, original.path + "/" + go.name);
                     }
+                    objectsProgress.Complete("Original scene objects validated: " + original.path);
                     string[] dependencies = AssetDatabase.GetDependencies(original.path, true)
                         .OrderBy(path => path, StringComparer.Ordinal).ToArray();
+                    var dependencyProgress = new QuestWizardProgress.Counter("unity-scene-dependencies", androidAssetsBuilt ? "content-bank" : "unity-validation", dependencies.Length, "dependencies", original.path);
+                    int dependenciesDone = 0;
                     foreach (string dependency in dependencies)
                     {
+                        dependencyProgress.Report(dependenciesDone, dependency);
                         if (dependency.StartsWith("Assets/", StringComparison.Ordinal) &&
                             (string.IsNullOrEmpty(AssetDatabase.AssetPathToGUID(dependency)) ||
                              AssetDatabase.LoadMainAssetAtPath(dependency) == null))
                             throw new InvalidDataException("Original scene dependency failed import: " + dependency);
+                        dependencyProgress.Report(++dependenciesDone, dependency);
                     }
+                    dependencyProgress.Complete("Original scene dependencies validated: " + original.path);
                     closures.Add(new SceneClosure { index = original.index, path = original.path,
                         guid = original.guid, rootCount = roots.Length, gameObjectCount = gameObjects.Length,
                         componentCount = componentCount, dependencies = dependencies });
+                    sceneProgress.Report(closures.Count, original.path);
                 }
+                sceneProgress.Complete("All original Campaign scene closures validated");
             }
             catch (Exception error)
             {
@@ -267,8 +287,11 @@ namespace GloomhavenVR.Quest.Editor
             var input = Read<BundledAudio>(BundledAudioInputPath);
             if (input.schema != 1 || input.assets == null || input.bundledAudioClipCount != input.assets.Length)
                 throw new InvalidDataException("Original bundled-audio inventory is incomplete.");
+            var progress = new QuestWizardProgress.Counter("unity-campaign-audio", null, input.assets.Length, "assets", "Validate original bundled audio identities");
+            int done = 0;
             foreach (var row in input.assets)
             {
+                progress.Report(done, row.assetPath);
                 SafeAsset(row.assetPath);
                 var clip = AssetDatabase.LoadAssetAtPath<AudioClip>(row.assetPath);
                 string guid; long localId;
@@ -277,7 +300,9 @@ namespace GloomhavenVR.Quest.Editor
                     guid != row.guid || localId != row.fileId || clip.channels != row.channels ||
                     clip.frequency != row.frequency || Math.Abs((long)clip.samples - row.samples) > 2)
                     throw new InvalidDataException("Original bundled AudioClip channel/sample identity failed import: " + row.assetPath);
+                progress.Report(++done, row.assetPath);
             }
+            progress.Complete("Original bundled audio identities validated");
             return input;
         }
 
@@ -287,8 +312,11 @@ namespace GloomhavenVR.Quest.Editor
             if (input.schema != 1 || input.atlases == null || input.sprites == null ||
                 input.spriteCount != input.sprites.Length)
                 throw new InvalidDataException("Original packed-Sprite source inventory is incomplete.");
+            var atlasProgress = new QuestWizardProgress.Counter("unity-campaign-atlases", null, input.atlases.Length, "assets", "Validate original packed Sprite atlases");
+            int atlasesDone = 0;
             foreach (var row in input.atlases)
             {
+                atlasProgress.Report(atlasesDone, row.assetPath);
                 SafeAsset(row.assetPath);
                 var atlas = AssetDatabase.LoadAssetAtPath<SpriteAtlas>(row.assetPath);
                 if (AssetDatabase.AssetPathToGUID(row.assetPath) != row.guid || atlas == null || atlas.spriteCount != row.spriteCount)
@@ -296,9 +324,14 @@ namespace GloomhavenVR.Quest.Editor
                 var values = new Sprite[row.spriteCount];
                 if (atlas.GetSprites(values) != row.spriteCount || values.Any(value => value == null || value.texture == null))
                     throw new InvalidDataException("Original native packed atlas lost a drawable member: " + row.assetPath);
+                atlasProgress.Report(++atlasesDone, row.assetPath);
             }
+            atlasProgress.Complete("Original packed Sprite atlases validated");
+            var spriteProgress = new QuestWizardProgress.Counter("unity-campaign-packed-sprites", null, input.sprites.Length, "sprites", "Validate original packed Sprite geometry");
+            int spritesDone = 0;
             foreach (var row in input.sprites)
             {
+                spriteProgress.Report(spritesDone, row.assetPath);
                 SafeAsset(row.assetPath);
                 var sprite = AssetDatabase.LoadAssetAtPath<Sprite>(row.assetPath);
                 if (sprite == null || AssetDatabase.AssetPathToGUID(row.assetPath) != row.guid || sprite.texture == null ||
@@ -311,7 +344,9 @@ namespace GloomhavenVR.Quest.Editor
                     throw new InvalidDataException("Original packed-Sprite rectangle/pivot differs: " + row.assetPath);
                 RequireVectors(sprite.vertices, row.vertices, row.assetPath + " vertices");
                 RequireVectors(sprite.uv, row.uv, row.assetPath + " UV");
+                spriteProgress.Report(++spritesDone, row.assetPath);
             }
+            spriteProgress.Complete("Original packed Sprite geometry validated");
             return input;
         }
 

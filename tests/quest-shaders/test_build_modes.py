@@ -140,8 +140,8 @@ class BuildModeDispatch(unittest.TestCase):
     def test_native_player_and_all_other_gates_remain_in_build(self):
         source = SOURCE.read_text()
         self.assertIn("report = BuildPipeline.BuildPlayer", source)
-        self.assertIn("campaignShaderMode = PrepareCampaignShaders();", source)
-        for gate in ("QuestCampaignAssetValidation.Validate();", "QuestCampaignTextureValidation.Validate();", "QuestCampaignSpriteValidation.Validate();", "QuestCampaignComputeValidation.ValidateSources();"):
+        self.assertIn("campaignShaderMode = PrepareCampaignShaders()", source)
+        for gate in ("QuestCampaignAssetValidation.Validate", "QuestCampaignTextureValidation.Validate", "QuestCampaignSpriteValidation.Validate", "QuestCampaignComputeValidation.ValidateSources"):
             self.assertIn(gate, source)
         self.assertNotIn("QuestCampaignShaderValidation.Validate();", source)
 

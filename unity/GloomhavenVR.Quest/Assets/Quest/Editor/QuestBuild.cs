@@ -77,6 +77,7 @@ namespace GloomhavenVR.Quest.Editor
             // managed objects and unused imported assets; keep the saved startup
             // scene, live references, settings and all actual content intact.
             // This does not guarantee an RSS reduction or cure Player peak RAM.
+            QuestWizardProgress.Publish("unity-player-memory", "Release unreachable imported objects before Player compilation; the saved original scene stays intact.", operation: "player");
             var before = SampleCampaignMemory("before-player-memory-release");
             GC.Collect();
             GC.WaitForPendingFinalizers();
@@ -129,18 +130,24 @@ namespace GloomhavenVR.Quest.Editor
             if (manifest == null || manifest.mod == null || manifest.mod.modBuild <= 0
                 || !System.Text.RegularExpressions.Regex.IsMatch(manifest.inputKey ?? "", "^[0-9a-f]{64}$"))
                 throw new InvalidDataException("Android build identity is missing.");
-            ConfigureAndroid(package, target != "probe");
-            PlayerSettings.bundleVersion = "0.1.0.B" + manifest.mod.modBuild + "." + manifest.inputKey.Substring(0, 12);
-            PlayerSettings.Android.bundleVersionCode = manifest.mod.modBuild;
-            var nativeContract = ConfigureNativePlugin(manifest.proceduralBackend);
-            ConfigureXr(target != "probe");
-            PrepareDiagnosticMaterials();
-            PrepareDiagnosticResources();
-            if (target == "probe") ValidateOwnedModel();
-            File.WriteAllText("Assets/Quest/Resources/quest-build.json", JsonUtility.ToJson(new BuildStamp
-            {
-                modBuild = manifest.mod.modBuild, inputKey = manifest.inputKey
-            }));
+            var configuration = new QuestWizardProgress.TaskSequence("unity-configuration", "unity-validation", 6);
+            configuration.Run("Configure original mobile Android settings", () => {
+                ConfigureAndroid(package, target != "probe");
+                PlayerSettings.bundleVersion = "0.1.0.B" + manifest.mod.modBuild + "." + manifest.inputKey.Substring(0, 12);
+                PlayerSettings.Android.bundleVersionCode = manifest.mod.modBuild;
+            });
+            QuestNativePluginContract.Contract nativeContract = null;
+            configuration.Run("Configure the selected procedural runtime", () => nativeContract = ConfigureNativePlugin(manifest.proceduralBackend));
+            configuration.Run("Configure Quest XR", () => ConfigureXr(target != "probe"));
+            configuration.Run("Prepare required diagnostic materials", PrepareDiagnosticMaterials);
+            configuration.Run("Prepare required diagnostic resources", PrepareDiagnosticResources);
+            configuration.Run("Record the current build identity", () => {
+                if (target == "probe") ValidateOwnedModel();
+                File.WriteAllText("Assets/Quest/Resources/quest-build.json", JsonUtility.ToJson(new BuildStamp
+                {
+                    modBuild = manifest.mod.modBuild, inputKey = manifest.inputKey
+                }));
+            });
             string[] scenes;
             if (target != "probe")
             {
@@ -163,6 +170,7 @@ namespace GloomhavenVR.Quest.Editor
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
             Directory.CreateDirectory(Path.GetDirectoryName(apk));
+            QuestWizardProgress.Operation("player", false, "Preparing original content delivery and the Android Player build.");
             BuildReport report;
 #if GHVR_QUEST_GAME
             using (target == "game" ? new QuestCampaignContentBuild(apk, manifest.inputKey) : null)
@@ -205,6 +213,7 @@ namespace GloomhavenVR.Quest.Editor
             }, true));
             if (report.summary.result != BuildResult.Succeeded)
                 throw new InvalidOperationException("Android build failed: " + report.summary.result + ", errors=" + report.summary.totalErrors);
+            QuestWizardProgress.Operation("player", true, "Unity Android Player and required final evidence completed; host delivery verification follows.");
             Debug.Log("[GloomhavenVR Quest] signed ARM64 IL2CPP " + target
                 + (target == "game" ? " player built: " : " diagnostic built: ") + apk);
         }
@@ -322,18 +331,20 @@ namespace GloomhavenVR.Quest.Editor
         {
             using (new AndroidToolsOverride())
             {
-                ConfigureAndroid(Required("GHVR_QUEST_PACKAGE"), true, false);
+                var tasks = new QuestWizardProgress.TaskSequence("unity-sdk-tasks", "unity-import", 3);
+                tasks.Run("Configure the actual Android Player SDK compilation", () => ConfigureAndroid(Required("GHVR_QUEST_PACKAGE"), true, false));
                 const string output = "QuestStartupEvidence/PlayerSdk";
                 if (Directory.Exists(output)) Directory.Delete(output, true);
                 Directory.CreateDirectory(output);
-                var result = PlayerBuildInterface.CompilePlayerScripts(new ScriptCompilationSettings
+                ScriptCompilationResult result = default(ScriptCompilationResult);
+                tasks.Run("Compile the actual Android Player SDK assemblies", () => result = PlayerBuildInterface.CompilePlayerScripts(new ScriptCompilationSettings
                 {
                     group = BuildTargetGroup.Android, target = BuildTarget.Android,
                     options = ScriptCompilationOptions.DevelopmentBuild | ScriptCompilationOptions.Assertions
-                }, output);
+                }, output));
                 if (result.assemblies == null || result.assemblies.Count == 0)
                     throw new InvalidOperationException("Actual Android player script compilation produced no assemblies.");
-                File.WriteAllText(output + "/compilation.json", JsonUtility.ToJson(new PlayerSdkEvidence { unityVersion = Application.unityVersion }, true));
+                tasks.Run("Publish the compiled Android Player SDK evidence", () => File.WriteAllText(output + "/compilation.json", JsonUtility.ToJson(new PlayerSdkEvidence { unityVersion = Application.unityVersion }, true)));
                 Debug.Log("[Quest startup] actual Android IL2CPP Development player SDK compiled; assemblies=" + result.assemblies.Count);
             }
         }
@@ -375,60 +386,76 @@ namespace GloomhavenVR.Quest.Editor
         }
         static string[] PrepareOriginalStartup(bool campaign = false)
         {
-            ValidatePackageApiContract();
+            // Capture200517 had several minutes of actual validation with no
+            // visible work before its Sprite identity failure. Count each real
+            // task and publish its label BEFORE entering a synchronous native
+            // call; exceptions leave that task open and name it in the log.
+            var tasks = new QuestWizardProgress.TaskSequence("unity-validation-tasks", "unity-validation", campaign ? 17 : 11);
+            tasks.Run("Validate imported package API inputs", ValidatePackageApiContract);
             const string evidencePath = "Assets/Quest/Resources/quest-startup-report.json";
             const string adapterPath = "Assets/Quest/Resources/quest-standalone-report.json";
-            var evidence = JsonUtility.FromJson<StartupEvidence>(File.ReadAllText(evidencePath));
-            var adapter = JsonUtility.FromJson<StandaloneEvidence>(File.ReadAllText(adapterPath));
-            if (evidence == null || evidence.schema != 1 || evidence.target != (campaign ? "campaign" : "startup") || evidence.fullGameReady ||
-                adapter == null || !adapter.startupAdapterComplete || adapter.fullGameReady)
-                throw new InvalidOperationException("Original startup evidence is absent or claims an unsupported full game.");
-            string[] names = { "Bootstrap", "Intro", "Gloomhaven_unified", "MainMenu" };
-            if (evidence.selectedScenes == null || (!campaign && !evidence.selectedScenes.Select(Path.GetFileNameWithoutExtension).SequenceEqual(names))
-                || campaign && (evidence.selectedScenes.Length != 13 || names.Any(name => !evidence.selectedScenes.Any(path => Path.GetFileNameWithoutExtension(path) == name))))
-                throw new InvalidOperationException("Original Bootstrap/Intro/menu scene names or order were lost.");
-            if (campaign) ValidateCampaignBuildContract();
-            foreach (string path in evidence.selectedScenes)
-                if (AssetDatabase.LoadAssetAtPath<SceneAsset>(path) == null)
-                    throw new InvalidOperationException("Required original scene is unavailable: " + path);
-            // The recovery helper remaps exact original package-script identities
-            // before any original scene runs. Unsupported references remain a build error.
-            QuestOriginalScriptBindings.RemapAndValidate();
-            QuestOriginalScriptOrders.RestoreAndVerify();
-            QuestAudioValidation.Validate();
-            QuestSpriteGeometryValidation.ValidateStartupAssets();
-            QuestUiAssetValidation.Validate(false);
-            QuestPostEffectValidation.Validate(false);
-            QuestVideoValidation.Validate(false);
-            QuestWorldScreenValidation.Validate(false);
+            StartupEvidence evidence = null;
+            tasks.Run("Read original scene and standalone startup evidence", () => {
+                evidence = JsonUtility.FromJson<StartupEvidence>(File.ReadAllText(evidencePath));
+                var adapter = JsonUtility.FromJson<StandaloneEvidence>(File.ReadAllText(adapterPath));
+                if (evidence == null || evidence.schema != 1 || evidence.target != (campaign ? "campaign" : "startup") || evidence.fullGameReady ||
+                    adapter == null || !adapter.startupAdapterComplete || adapter.fullGameReady)
+                    throw new InvalidOperationException("Original startup evidence is absent or claims an unsupported full game.");
+                string[] names = { "Bootstrap", "Intro", "Gloomhaven_unified", "MainMenu" };
+                if (evidence.selectedScenes == null || (!campaign && !evidence.selectedScenes.Select(Path.GetFileNameWithoutExtension).SequenceEqual(names))
+                    || campaign && (evidence.selectedScenes.Length != 13 || names.Any(name => !evidence.selectedScenes.Any(path => Path.GetFileNameWithoutExtension(path) == name))))
+                    throw new InvalidOperationException("Original Bootstrap/Intro/menu scene names or order were lost.");
+            });
+            if (campaign) tasks.Run("Validate the complete Campaign build inputs", ValidateCampaignBuildContract);
+            tasks.Run("Load the required original scene assets", () => {
+                var scenes = new QuestWizardProgress.Counter("unity-original-scenes", "unity-validation", evidence.selectedScenes.Length, "scenes", "Loading original scene assets");
+                int done = 0;
+                foreach (string path in evidence.selectedScenes)
+                {
+                    scenes.Report(done, path);
+                    if (AssetDatabase.LoadAssetAtPath<SceneAsset>(path) == null)
+                        throw new InvalidOperationException("Required original scene is unavailable: " + path);
+                    scenes.Report(++done, path);
+                }
+                scenes.Complete("Required original scene assets loaded");
+            });
+            // Preserve original package-script identities before original scenes run.
+            tasks.Run("Remap and validate original script bindings", QuestOriginalScriptBindings.RemapAndValidate);
+            tasks.Run("Restore original script execution orders", QuestOriginalScriptOrders.RestoreAndVerify);
+            tasks.Run("Validate original audio", QuestAudioValidation.Validate);
+            tasks.Run("Validate startup Sprite geometry", QuestSpriteGeometryValidation.ValidateStartupAssets);
+            tasks.Run("Validate original UI assets", () => QuestUiAssetValidation.Validate(false));
+            tasks.Run("Validate original post effects", () => QuestPostEffectValidation.Validate(false));
+            tasks.Run("Validate original video assets", () => QuestVideoValidation.Validate(false));
+            tasks.Run("Validate original world screens", () => QuestWorldScreenValidation.Validate(false));
             if (campaign)
             {
-                QuestCampaignAssetValidation.Validate();
-                QuestCampaignTextureValidation.Validate();
-                QuestCampaignSpriteValidation.Validate();
-                QuestCampaignComputeValidation.ValidateSources();
-                campaignShaderMode = PrepareCampaignShaders();
+                tasks.Run("Validate original Campaign assets", QuestCampaignAssetValidation.Validate);
+                tasks.Run("Validate original Campaign textures", () => QuestCampaignTextureValidation.Validate());
+                tasks.Run("Validate original Campaign Sprite geometry", () => QuestCampaignSpriteValidation.Validate());
+                tasks.Run("Validate original Campaign compute sources", QuestCampaignComputeValidation.ValidateSources);
+                tasks.Run("Retain original Campaign Shader identities", () => campaignShaderMode = PrepareCampaignShaders());
             }
             QuestWizardProgress.Operation("unity-validation", true, "Required original scene and graphics contracts validated.");
             QuestWizardProgress.Operation("content-bank", false, "Building original Android Addressables and complete game content bank.");
             QuestStartupAddressablesBuild.Build();
-            QuestWizardProgress.Operation("content-bank", true, "Original Android content bank built and verified.");
-            if (campaign) QuestCampaignAssetValidation.ValidateAfterAndroidBuild();
-            QuestPostEffectValidation.Validate(true);
-            QuestUiAssetValidation.Validate(true);
-            QuestVideoValidation.Validate(true);
-            QuestWorldScreenValidation.Validate(true);
-            var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
-            GameObject bootstrap = new GameObject(campaign ? "Gloomhaven Quest Campaign" : "Original Gloomhaven startup diagnostic");
-            bootstrap.AddComponent<QuestGameBootstrap>();
-            // Preserve the logo import and neutral startup camera. The reusable
-            // artwork is created only when actual content installation needs it;
-            // cached starts continue directly into the original native flow.
-            PrepareLoadingLogo();
-            bootstrap.AddComponent<QuestGameModLifecycle>().PrepareStartupView();
-            Directory.CreateDirectory("Assets/Quest/Scenes");
+            var post = new QuestWizardProgress.TaskSequence("unity-content-post-tasks", "content-bank", campaign ? 6 : 5);
+            if (campaign) post.Run("Validate built Android Campaign assets", QuestCampaignAssetValidation.ValidateAfterAndroidBuild);
+            post.Run("Validate built original post effects", () => QuestPostEffectValidation.Validate(true));
+            post.Run("Validate built original UI assets", () => QuestUiAssetValidation.Validate(true));
+            post.Run("Validate built original videos", () => QuestVideoValidation.Validate(true));
+            post.Run("Validate built original world screens", () => QuestWorldScreenValidation.Validate(true));
             const string startupScene = "Assets/Quest/Scenes/QuestOriginalStartup.unity";
-            EditorSceneManager.SaveScene(scene, startupScene);
+            post.Run("Prepare and save the original VR startup scene", () => {
+                var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+                GameObject bootstrap = new GameObject(campaign ? "Gloomhaven Quest Campaign" : "Original Gloomhaven startup diagnostic");
+                bootstrap.AddComponent<QuestGameBootstrap>();
+                PrepareLoadingLogo();
+                bootstrap.AddComponent<QuestGameModLifecycle>().PrepareStartupView();
+                Directory.CreateDirectory("Assets/Quest/Scenes");
+                EditorSceneManager.SaveScene(scene, startupScene);
+            });
+            QuestWizardProgress.Operation("content-bank", true, "Original Android content bank and startup scene built and verified.");
             return new[] { startupScene }.Concat(evidence.selectedScenes).ToArray();
         }
 

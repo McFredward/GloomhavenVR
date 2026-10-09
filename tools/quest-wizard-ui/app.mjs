@@ -1,5 +1,5 @@
 import {translate} from './i18n.mjs';
-import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,sessionId,savedSession,activeWorkView,timingView,durationText,failureView,activityView,buildOverviewView,nativeMemoryView,unityImportView} from './model.mjs';
+import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,sessionId,savedSession,activeWorkView,timingView,durationText,failureView,activityView,buildOverviewView,nativeMemoryView,unityImportView,unityTaskView} from './model.mjs';
 import {LocalApi,PreviewApi} from './transport.mjs';
 
 const $ = id => document.getElementById(id);
@@ -135,10 +135,11 @@ function phaseLabel(phase='') {
 }
 function counters(value) {
   if(value.unit==='assets'&&Number.isSafeInteger(value.done)&&value.done>=0&&value.total==null)return t('counterImportsCompleted',{done:new Intl.NumberFormat(language).format(value.done)});
+  if(value.unit==='tasks'&&Number.isSafeInteger(value.done)&&value.done>=0&&value.total==null)return t('counterTasksReported',{done:new Intl.NumberFormat(language).format(value.done)});
   if(!Number.isFinite(value.done)||!Number.isFinite(value.total)||value.total<=0)return '';
   const number=n=>new Intl.NumberFormat(language,{maximumFractionDigits:1}).format(n);
   if(value.unit==='bytes')return t('counterBytes',{done:number(value.done/1048576)+' MiB',total:number(value.total/1048576)+' MiB'});
-  const key={files:'counterFiles',actions:'counterActions',checks:'counterChecks',dependencies:'counterDependencies',batches:'counterBatches',steps:'counterSteps',checkpoints:'counterSteps',variants:'counterVariants',objects:'counterObjects',assets:'counterImports',assemblies:'counterAssemblies'}[value.unit]??'counterUnits';
+  const key={files:'counterFiles',actions:'counterActions',checks:'counterChecks',dependencies:'counterDependencies',batches:'counterBatches',steps:'counterSteps',checkpoints:'counterSteps',variants:'counterVariants',objects:'counterObjects',assets:'counterImports',assemblies:'counterAssemblies',tasks:'counterSteps',scenes:'counterScenes',sprites:'counterSprites',shaders:'counterShaders'}[value.unit]??'counterUnits';
   return t(key,{done:number(value.done),total:number(value.total)});
 }
 function substepLabel(value) {
@@ -213,14 +214,21 @@ function overviewList(rows,prefix,children) {
   return list;
 }
 function preparationDetail(operation,openPlans) {
-  const data=operation.preparation,compiler=operation.compiler,imported=operation.import,packed=operation.pack,api=operation.api;
-  if(!data&&!compiler&&!imported&&!packed&&!api)return null;
+  const data=operation.preparation,compiler=operation.compiler,imported=operation.import,packed=operation.pack,api=operation.api,validation=operation.validation,task=operation.unityTask;
+  if(!data&&!compiler&&!imported&&!packed&&!api&&!validation&&!task)return null;
   const container=document.createElement('div');container.className='preparation-detail';
-  for(const [record,id,key] of [[packed,'content-pack','contentPackSummary'],[api,'package-api','packageApiSummary']])if(record){
+  for(const [record,id,key] of [[packed,'content-pack','contentPackSummary'],[api,'package-api','packageApiSummary'],[validation,'unity-validation','unityValidationSummary']])if(record){
     const plan=document.createElement('details');plan.className='build-subplan';plan.dataset.plan=id;
     plan.open=openPlans.has(plan.dataset.plan);
     const label=document.createElement('summary');label.textContent=t(key,{done:record.done,total:record.total});
     plan.append(label,overviewList(record.passes,'phase_'));container.append(plan);
+  }
+  if(task){
+    const box=document.createElement('section');box.className='unity-task '+task.status;box.dataset.taskOwner=operation.id;
+    const measured=document.createElement('p');measured.className='hint';measured.textContent=[phaseLabel(task.phase),counters(task),task.elapsedSeconds===null?'':t('unityTaskElapsed',{duration:durationText(task.elapsedSeconds)})].filter(Boolean).join(' · ');
+    box.append(measured);
+    if(task.detail){const detail=document.createElement('p');detail.className='hint';detail.textContent=task.detail;box.append(detail);}
+    container.append(box);
   }
   if(imported){
     const box=document.createElement('section');box.className='unity-import '+imported.status;box.dataset.importOwner=operation.id;

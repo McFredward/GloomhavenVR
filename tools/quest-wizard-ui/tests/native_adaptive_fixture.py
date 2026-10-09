@@ -24,7 +24,8 @@ def event(value):
 event({"phase": "operation:weave", "operation": "weave", "status": "complete"})
 event({"phase": "operation:player", "operation": "player", "status": "start"})
 fields = parser.parse("[6/10 0s] Clang retained.cpp", "unity-build.log")
-row["progress"] = stage_plan.advance(row, stage_progress(**fields))
+operation, status = (fields.pop(name, None) for name in ("operation", "status"))
+row["progress"] = stage_plan.advance(row, stage_progress(**fields), operation, status)
 row["timing"] = {"schema": 1, "elapsedSeconds": 300, "elapsedBasis": "run",
                  "estimate": {"status": "estimated", "scope": "stage", "lowerSeconds": 120, "upperSeconds": 180}}
 states = {}
@@ -38,7 +39,8 @@ for name, phase, status in (("retry", "native-memory-retry", "start"),
     event({"phase": phase, "status": status, "nativeMemory": memory})
     states[name] = copy.deepcopy(row)
 fields = parser.parse("[8/10 0s] Clang actual-next.cpp", "unity-build.log")
-row["progress"] = stage_plan.advance(row, stage_progress(**fields))
+operation, status = (fields.pop(name, None) for name in ("operation", "status"))
+row["progress"] = stage_plan.advance(row, stage_progress(**fields), operation, status)
 states["counter"] = copy.deepcopy(row)
 event({"phase": "operation:player", "operation": "player", "status": "complete"})
 event({"phase": "operation:output-verify", "operation": "output-verify", "status": "complete"})

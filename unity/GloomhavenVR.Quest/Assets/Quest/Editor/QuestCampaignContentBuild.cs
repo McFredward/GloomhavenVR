@@ -359,12 +359,19 @@ namespace GloomhavenVR.Quest.Editor
                 using (var output = new FileStream(pending, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                 {
                     byte[] buffer = new byte[1024 * 1024]; int count;
+                    var progress = new QuestWizardProgress.Counter("unity-content-delivery", "player", input.Length, "bytes", "Copy the complete Campaign bank for installation");
+                    long copied = 0;
                     while ((count = input.Read(buffer, 0, buffer.Length)) > 0)
-                    { output.Write(buffer, 0, count); sha.TransformBlock(buffer, 0, count, buffer, 0); }
+                    {
+                        output.Write(buffer, 0, count); sha.TransformBlock(buffer, 0, count, buffer, 0);
+                        copied += count;
+                        progress.Report(copied, "Copy the complete Campaign bank for installation");
+                    }
                     sha.TransformFinalBlock(buffer, 0, 0);
                     if (BitConverter.ToString(sha.Hash).Replace("-", "").ToLowerInvariant() != expectedHash)
                         throw new InvalidDataException("Complete Campaign bank differs from the actual native content manifest.");
                     output.Flush(true);
+                    progress.Complete("Complete Campaign bank copied and validated");
                 }
                 if (File.Exists(destination)) File.Replace(pending, destination, null); else File.Move(pending, destination);
             }

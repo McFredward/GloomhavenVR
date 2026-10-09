@@ -46,6 +46,7 @@ class ProgressParser:
         self.import_runs = {}
         self.import_pending = {}
         self.shader_runs = {}
+        self.gradle_runs = {}
         self.memory_rejections = set()
 
     def _unity_operation(self, source):
@@ -263,6 +264,24 @@ class ProgressParser:
             fields.update(detail=("Active compiler action: " + match[2] + match[3] + " · elapsed: " + match[1] + " s")[:1024],
                           status="progress")
             return self._unity_fields(fields, source)
+        if self._unity_child(source):
+            match = re.fullmatch(r"> Task (:[A-Za-z0-9_:.\-]+)(?: (UP-TO-DATE|FROM-CACHE|NO-SOURCE|SKIPPED|FAILED))?", line)
+            if match:
+                if len(self.gradle_runs) >= 64 and source not in self.gradle_runs: self.gradle_runs.clear()
+                tasks = self.gradle_runs.setdefault(source, set())
+                tasks.add(match[1])
+                # Gradle's plain task messages have no full graph denominator
+                # and do not prove execution versus cache reuse. Count reported
+                # task identities, keep the actual status and never guess ETA.
+                return self._unity_fields({"phase": "unity-gradle-tasks", "done": len(tasks), "total": None,
+                    "unit": "tasks", "detail": "Gradle tasks reported: " + str(len(tasks)) + " · " + line,
+                    "status": "progress"}, source)
+            match = re.fullmatch(r"(\d+) actionable tasks?: ((?:\d+ (?:executed|up-to-date|from cache)(?:, )?)+)", line)
+            if match:
+                total = int(match[1]); observed = sum(int(number) for number in re.findall(r"\d+", match[2]))
+                if total and total == observed:
+                    return self._unity_fields({"phase": "unity-gradle-tasks", "done": total, "total": total,
+                        "unit": "tasks", "detail": line, "status": "progress"}, source)
         match = re.fullmatch(r"Installed content files: (\d+)/(\d+)\.", line)
         if match and 0 < int(match[2]) >= int(match[1]):
             return {"phase": "install-content", "done": int(match[1]), "total": int(match[2]), "unit": "files", "detail": line}

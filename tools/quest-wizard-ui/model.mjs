@@ -78,6 +78,19 @@ export function unityImportView(progress,now=Date.now()/1000) {
     percent:done!==null&&total!==null?100*done/total:null,
     status};
 }
+export function unityTaskView(progress,now=Date.now()/1000) {
+  const value=progress?.unityTask??progress;
+  if(!value||typeof value.phase!=='string'||!value.phase.startsWith('unity-'))return null;
+  const done=Number.isSafeInteger(value.done)&&value.done>=0?value.done:null;
+  const total=Number.isSafeInteger(value.total)&&value.total>0&&(done===null||done<=value.total)?value.total:null;
+  if(done===null)return null;
+  const started=value.startedAt,status=['running','failed','complete','pending'].includes(value.status)?value.status:'running';
+  const endpoint=status==='running'?now:value.updatedAt;
+  return {phase:value.phase,done,total,unit:typeof value.unit==='string'?value.unit.slice(0,40):'',
+    detail:typeof value.detail==='string'?value.detail.replace(/[\u0000-\u001f\u007f]/g,' ').slice(0,1024):'',status,
+    percent:total===null?null:100*done/total,
+    elapsedSeconds:typeof started==='number'&&Number.isFinite(started)&&started>0&&Number.isFinite(endpoint)?Math.max(0,endpoint-started):null};
+}
 export function nativeMemoryView(stage) {
   const value=stage?.progress??{},phases=['native-compiler-profile','native-memory-retry','native-memory-wait','asset-memory-retry','asset-memory-wait'];
   if(!phases.includes(value.phase))return null;
@@ -164,7 +177,8 @@ export function buildOverviewView(state) {
     const source=group.operations.find(item=>item.id===row.id);
     return {...row,preparation:preparation(source.preparation),compiler:compiler(source.compiler),import:unityImportView(source.import),
       pack:observedPasses(source.pack,['native-content-source-hash','native-content-native-hash','native-content-write','native-content-final-hash']),
-      api:observedPasses(source.api,['package-api-bind','package-api-output','package-api-publish'])};
+      api:observedPasses(source.api,['package-api-bind','package-api-output','package-api-publish']),
+      validation:observedPasses(source.validation,['unity-configuration','unity-validation-tasks']),unityTask:unityTaskView(source.unityTask)};
   })}));
   const operations=groups.flatMap(group=>group.operations);
   if(!operations.length||operations.length>32||new Set(operations.map(row=>row.id)).size!==operations.length)return null;

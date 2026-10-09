@@ -94,15 +94,25 @@ namespace GloomhavenVR.Quest.Editor
                 Association[] objects = mapping.entries.Where(row => campaign ? row.status == "associated" : row.initialObjectLoadEligible).ToArray();
                 if (objects.Length == 0) throw new InvalidDataException("Original startup contains no proven Unity object locations.");
                 var keyTargets = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+                var keyProgress = new QuestWizardProgress.Counter("unity-addressables-keys", "content-bank", objects.Length, "assets", "Map original catalog keys");
+                int keysDone = 0;
                 foreach (Association association in objects)
+                {
+                    keyProgress.Report(keysDone, association.assetPath);
                     foreach (string key in association.keys ?? Array.Empty<string>())
                     {
                         if (!keyTargets.TryGetValue(key, out HashSet<string> targets))
                             keyTargets.Add(key, targets = new HashSet<string>(StringComparer.Ordinal));
                         targets.Add(NativeKey(association));
                     }
+                    keyProgress.Report(++keysDone, association.assetPath);
+                }
+                keyProgress.Complete("Original catalog keys mapped");
+                var entryProgress = new QuestWizardProgress.Counter("unity-addressables-entries", "content-bank", objects.Length, "assets", "Create original Addressables entries");
+                int entriesDone = 0;
                 foreach (Association association in objects)
                 {
+                    entryProgress.Report(entriesDone, association.assetPath);
                     if (string.IsNullOrEmpty(association.assetPath) || string.IsNullOrEmpty(association.recoveredGuid))
                         throw new InvalidDataException("Startup mapping contains an unresolved source asset.");
                     string guid = AssetDatabase.AssetPathToGUID(association.assetPath);
@@ -155,7 +165,9 @@ namespace GloomhavenVR.Quest.Editor
                             aliases.Add(key, nativeKeys = new HashSet<string>(StringComparer.Ordinal));
                         nativeKeys.Add(NativeKey(association));
                     }
+                    entryProgress.Report(++entriesDone, association.assetPath);
                 }
+                entryProgress.Complete("Original Addressables entries prepared");
                 if (campaign) AddCampaignShaderRetention(settings);
                 foreach (string label in required)
                     if (!labels.Contains(label)) throw new InvalidDataException("Required original startup label was not recovered: " + label);
@@ -166,12 +178,17 @@ namespace GloomhavenVR.Quest.Editor
                 AssetDatabase.StopAssetEditing();
             }
             AssetDatabase.SaveAssets();
+            QuestWizardProgress.Publish("unity-addressables-build", "Unity builds the original Android Addressables bundles; native task and Shader counters follow.", operation: "content-bank");
             AddressableAssetSettings.BuildPlayerContent(out AddressablesPlayerBuildResult result);
             if (!string.IsNullOrEmpty(result.Error)) throw new InvalidOperationException("Native startup Addressables failed: " + result.Error);
             string built = Addressables.BuildPath;
             if (!File.Exists(Path.Combine(built, "settings.json")))
                 throw new InvalidDataException("Native Android Addressables did not produce actual RuntimeSettings.");
-            if (campaign) ValidateNativeCampaignShaders(built);
+            if (campaign)
+            {
+                QuestWizardProgress.Publish("unity-native-shader-audit", "Read actual native bundle Shader identities; no compiler matrix is run.", operation: "content-bank");
+                ValidateNativeCampaignShaders(built);
+            }
             RepackContent(built);
             var content = JsonUtility.FromJson<ContentManifest>(File.ReadAllText("Assets/Quest/Resources/quest-startup-content.json"));
             File.WriteAllText("Assets/Quest/Resources/quest-startup-addressables.json", JsonUtility.ToJson(new RuntimeManifest
@@ -254,8 +271,11 @@ namespace GloomhavenVR.Quest.Editor
                 collection == null || collection.shaderCount != input.shaders.Length)
                 throw new InvalidDataException("Original native shader collection is incomplete before Addressables.");
             var retained = new HashSet<string>(StringComparer.Ordinal);
+            var shaderProgress = new QuestWizardProgress.Counter("unity-addressables-shaders", "content-bank", input.shaders.Length, "shaders", "Verify original native Shader retention");
+            int shadersDone = 0;
             foreach (var row in input.shaders)
             {
+                shaderProgress.Report(shadersDone, row.assetPath);
                 var shader = AssetDatabase.LoadAssetAtPath<Shader>(row.assetPath);
                 if (shader == null || shader.name != row.originalName || AssetDatabase.AssetPathToGUID(row.assetPath) != row.guid ||
                     row.variants == null || row.variants.Length == 0)
@@ -268,7 +288,9 @@ namespace GloomhavenVR.Quest.Editor
                         throw new InvalidDataException("Native Addressables collection omits an original shader alias.");
                     retained.Add(row.guid + "/" + pass + "/" + string.Join(" ", bank.keywords.OrderBy(key => key, StringComparer.Ordinal)));
                 }
+                shaderProgress.Report(++shadersDone, row.assetPath);
             }
+            shaderProgress.Complete("Original native Shader aliases retained");
             if (collection.variantCount != retained.Count)
                 throw new InvalidDataException("Native Addressables collection adds or removes original keyword aliases.");
             // Addressables owns an independent copy outside Resources. Never
@@ -316,8 +338,11 @@ namespace GloomhavenVR.Quest.Editor
             // Never move the existing original catalog's public Shader roots
             // or alter their labels, addresses, ownership or runtime aliases.
             int addedShaderRoots = 0;
+            var rootProgress = new QuestWizardProgress.Counter("unity-addressables-shader-roots", "content-bank", input.shaders.Length, "shaders", "Preserve original Shader root ownership");
+            int rootsDone = 0;
             foreach (var row in input.shaders)
             {
+                rootProgress.Report(rootsDone, row.assetPath);
                 var existing = settings.FindAssetEntry(row.guid);
                 if (existing != null)
                 {
@@ -325,6 +350,7 @@ namespace GloomhavenVR.Quest.Editor
                         throw new InvalidDataException("A native shader root changes original asset ownership.");
                     if (existing.parentGroup == group && (existing.address != row.guid || existing.labels.Count != 0))
                         throw new InvalidDataException("Private shader retention root changes its address or runtime labels.");
+                    rootProgress.Report(++rootsDone, row.assetPath);
                     continue;
                 }
                 var shaderRoot = settings.CreateOrMoveEntry(row.guid, group, false, false);
@@ -332,7 +358,9 @@ namespace GloomhavenVR.Quest.Editor
                 if (shaderRoot.AssetPath != row.assetPath || shaderRoot.labels.Count != 0)
                     throw new InvalidDataException("Private shader retention root changes original identity or runtime labels.");
                 addedShaderRoots++;
+                rootProgress.Report(++rootsDone, row.assetPath);
             }
+            rootProgress.Complete("Original Shader root ownership preserved");
             EditorUtility.SetDirty(group);
             Debug.Log("[Quest Campaign] Native Addressables shader retention input: shaders=" + collection.shaderCount +
                 " unique original aliases=" + collection.variantCount + " new private shader roots=" + addedShaderRoots +

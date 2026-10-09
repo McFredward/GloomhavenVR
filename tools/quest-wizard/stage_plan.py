@@ -76,6 +76,32 @@ UNITY_IMPORT_OBSERVATIONS = frozenset(("unity-asset-import", "unity-import-activ
 CONTENT_PACK_SHARES = {"native-content-source-hash": .15, "native-content-native-hash": .15,
                        "native-content-write": .55, "native-content-final-hash": .15}
 PACKAGE_API_SHARES = {"package-api-bind": .65, "package-api-output": .20, "package-api-publish": .15}
+UNITY_VALIDATION_SHARES = {"unity-configuration": .1, "unity-validation-tasks": .9}
+# These counters describe real child work, not the entire import/bank/Player.
+# Only the complete known validation schedule contributes a parent fraction.
+UNITY_CHILD_COUNTERS = frozenset(("unity-sdk-tasks", "unity-original-scenes", "unity-validation-sprites",
+    "unity-validation-campaign-sprites", "unity-addressables-keys", "unity-addressables-entries",
+    "unity-addressables-shaders", "unity-addressables-shader-roots", "unity-content-post-tasks",
+    "unity-content-delivery", "unity-player-scenes", "unity-player-native-result", "unity-gradle-tasks",
+    "unity-script-bindings", "unity-script-assets", "unity-script-write", "unity-campaign-objects", "unity-campaign-scenes", "unity-campaign-audio", "unity-campaign-atlases", "unity-campaign-packed-sprites",
+    "unity-scene-objects", "unity-scene-dependencies", "unity-texture-cubes", "unity-texture-targets",
+    "unity-texture-owners", "unity-texture-floating", "unity-texture-platform", "unity-compute-identities", "unity-compute-kernels",
+    "unity-shader-materials", "unity-shader-identities", "unity-shader-retention", "unity-shader-programs"))
+# Actual known loop plans inside one TaskSequence call. These are work shares,
+# not elapsed-time estimates. Unlisted counters remain useful local detail.
+UNITY_VALIDATION_TASK_PARTS = {
+    "Load the required original scene assets": {"unity-original-scenes": 1.},
+    "Remap and validate original script bindings": {"unity-script-bindings": .05, "unity-script-assets": .9, "unity-script-write": .05},
+    "Validate startup Sprite geometry": {"unity-validation-sprites": 1.},
+    "Validate original Campaign Sprite geometry": {"unity-validation-campaign-sprites": 1.},
+    "Validate original Campaign assets": {"unity-campaign-objects": .6, "unity-campaign-atlases": .05,
+        "unity-campaign-packed-sprites": .05, "unity-campaign-audio": .1, "unity-campaign-scenes": .2},
+    "Validate original Campaign textures": {"unity-texture-cubes": .05, "unity-texture-platform": .05,
+        "unity-texture-floating": .4, "unity-texture-targets": .05, "unity-texture-owners": .45},
+    "Validate original Campaign compute sources": {"unity-compute-identities": 1.},
+    "Retain original Campaign Shader identities": {"unity-shader-programs": .2, "unity-shader-retention": .4,
+        "unity-shader-identities": .2, "unity-shader-materials": .2},
+}
 PREPARATION_ITEMS = {"bundled-audio": "audio", "native-cubemaps": "textures",
                      "ordinary-texture-audit": "textures", "native-texture2d": "textures",
                      "native-sprites": "startup-content", "environment-bundles": "mod-banks",
@@ -357,6 +383,8 @@ def begin_attempt(row, boundary):
     plan["unityImports"] = {}
     plan["contentPack"] = {}
     plan["packageApi"] = {}
+    plan["unityValidation"] = {}
+    plan["unityTasks"] = {}
     recovery = plan.get("recovery", {})
     recovery.pop("liveSection", None)
 
@@ -821,6 +849,11 @@ def _active_work(plan, current):
         work = plan["packageApi"]
         done, total = len(work.get("completed", [])), len(PACKAGE_API_SHARES)
         fraction = _observed_pass_ratio(work, PACKAGE_API_SHARES)
+    elif current == "unity-validation" and plan.get("unityValidation"):
+        work = plan["unityValidation"]
+        counter = work.get("counters", {}).get(work.get("current"), {})
+        done, total = counter.get("done", 0), counter.get("total", 1)
+        fraction = _observed_pass_ratio(work, UNITY_VALIDATION_SHARES)
     else:
         done, total = (int(current in plan["completed"]), 1)
         fraction = 1. if done else plan.get("liveFractions", plan["fractions"]).get(current, 0.)
@@ -915,6 +948,13 @@ def _build_overview(row, plan):
             api = _observed_pass_overview(plan, "packageApi", PACKAGE_API_SHARES,
                                           "failed" if row["status"] == "failed" and item["id"] == active else item["status"])
             if api: item["api"] = api
+        if item["id"] == "unity-validation":
+            checks = _observed_pass_overview(plan, "unityValidation", UNITY_VALIDATION_SHARES,
+                "failed" if row["status"] == "failed" and item["id"] == active else item["status"])
+            if checks: item["validation"] = checks
+        task = plan.get("unityTasks", {}).get(item["id"])
+        if task: item["unityTask"] = dict(task, status="failed" if row["status"] == "failed" and item["id"] == active
+                                        else "complete" if item["closed"] else "running" if item["id"] == active else "pending")
     groups = []
     shares = build_shares(plan)
     for name, names in UPDATE_GROUPS.get(workflow(row), BUILD_GROUPS).items():
@@ -1002,9 +1042,11 @@ def advance(row, value, operation=None, status=None):
     if status is not None: value["operationStatus"] = status
     pack_counter = value["phase"] in CONTENT_PACK_SHARES
     api_counter = value["phase"] in PACKAGE_API_SHARES
-    if pack_counter or api_counter:
+    validation_counter = value["phase"] in UNITY_VALIDATION_SHARES
+    unity_child = value["phase"] in UNITY_CHILD_COUNTERS
+    if pack_counter or api_counter or validation_counter:
         live_owner = plan.get("liveOperation")
-        owner = "content-bank" if pack_counter else "package-api"
+        owner = "content-bank" if pack_counter else "package-api" if api_counter else "unity-validation"
         if live_owner != owner or operation not in (None, live_owner):
             if value is row.get("progress"):
                 value.update(phase="operation:" + live_owner if live_owner in operations else "starting",
@@ -1015,8 +1057,8 @@ def advance(row, value, operation=None, status=None):
             value.clear(); value.update(previous)
             return value
         operation, measured = live_owner, False
-        work = plan.setdefault("contentPack" if pack_counter else "packageApi", {})
-        shares = CONTENT_PACK_SHARES if pack_counter else PACKAGE_API_SHARES
+        work = plan.setdefault("contentPack" if pack_counter else "packageApi" if api_counter else "unityValidation", {})
+        shares = CONTENT_PACK_SHARES if pack_counter else PACKAGE_API_SHARES if api_counter else UNITY_VALIDATION_SHARES
         # The Unity content-bank task owns the first half, its packer's passes
         # the remaining half. API binding has its own complete three-pass plan.
         # An already measured partial fraction anchors the remaining work
@@ -1024,6 +1066,11 @@ def advance(row, value, operation=None, status=None):
         work.setdefault("origin", max(.5 if pack_counter else 0., plan["fractions"].get(live_owner, 0.)))
         name = value["phase"]
         work.update(current=name, liveStatus=status or "progress")
+        if validation_counter and name == "unity-validation-tasks":
+            task = work.get("task", {})
+            if task.get("done") != value.get("done") or task.get("detail") != value.get("detail"):
+                task = work["task"] = {"done": value.get("done"), "total": value.get("total"),
+                    "detail": value.get("detail"), "fractions": {}}
         ratio = _ratio(value)
         if ratio is not None: work.setdefault("fractions", {})[name] = max(work.get("fractions", {}).get(name, 0.), ratio)
         if status in ("complete", "reuse"):
@@ -1033,6 +1080,37 @@ def advance(row, value, operation=None, status=None):
         fraction = min(.99, work["origin"] + (1. - work["origin"]) * _observed_pass_ratio(work, shares))
         plan.setdefault("liveFractions", {})[live_owner] = fraction
         plan["fractions"][live_owner] = max(plan["fractions"].get(live_owner, 0.), fraction)
+    if unity_child or validation_counter:
+        live_owner = plan.get("liveOperation")
+        if live_owner not in ("mod-banks", "unity-import", "package-api", "unity-validation", "content-bank", "player", "update-code", "update-art") or operation not in (None, live_owner):
+            if value is row.get("progress"):
+                value.update(phase="operation:" + live_owner if live_owner in operations else "starting",
+                             done=None, total=None, percent=None, unit=None, detail=None)
+                value.pop("reportedOperation", None)
+                return advance(row, value, live_owner, plan.get("liveStatus", "progress"))
+            previous = dict(row.get("progress", {})); value.clear(); value.update(previous)
+            return value
+        operation, measured = live_owner, False
+        task = plan.setdefault("unityTasks", {}).setdefault(live_owner, {})
+        if task.get("phase") != value["phase"] or status == "start": task["startedAt"] = value.get("updatedAt")
+        task.update({key: value.get(key) for key in ("phase", "done", "total", "unit", "detail", "updatedAt")})
+        value["unityTask"] = dict(task)
+        if unity_child and live_owner == "unity-validation":
+            work = plan.get("unityValidation", {})
+            current_task = work.get("task", {})
+            parts = UNITY_VALIDATION_TASK_PARTS.get(current_task.get("detail"), {})
+            ratio = _ratio(value)
+            done, total = current_task.get("done"), current_task.get("total")
+            if value["phase"] in parts and ratio is not None and type(done) is int and type(total) is int and 0 <= done < total:
+                current_task.setdefault("fractions", {})[value["phase"]] = max(current_task.get("fractions", {}).get(value["phase"], 0.), ratio)
+                child_fraction = sum(share * current_task["fractions"].get(name, 0.) for name, share in parts.items())
+                # A last loop item proves that loop, not its caller's final
+                # checks/receipt. The real TaskSequence return owns the boundary.
+                step_fraction = (done + min(.99, child_fraction)) / total
+                work.setdefault("fractions", {})["unity-validation-tasks"] = max(work["fractions"].get("unity-validation-tasks", 0.), step_fraction)
+                fraction = min(.99, work.get("origin", 0.) + (1. - work.get("origin", 0.)) * _observed_pass_ratio(work, UNITY_VALIDATION_SHARES))
+                plan.setdefault("liveFractions", {})[live_owner] = fraction
+                plan["fractions"][live_owner] = max(plan["fractions"].get(live_owner, 0.), fraction)
     import_counter = value["phase"] in UNITY_IMPORT_OBSERVATIONS
     if import_counter:
         # A child log may still be read after the next SDK/player boundary.
@@ -1101,6 +1179,10 @@ def advance(row, value, operation=None, status=None):
                     fraction = (scope["done"] + min(.99, scope["itemFraction"])) / scope["total"]
                     plan.setdefault("liveFractions", {})[live_owner] = min(.99, fraction)
                     plan["fractions"][live_owner] = max(plan["fractions"].get(live_owner, 0.), min(.99, fraction))
+    if operation == "unity-validation" and plan.get("unityValidation"):
+        # A public Editor task may finish inside one validation call. Its
+        # local 100% is not completion of our known remaining task schedule.
+        measured = False
     if row["id"] == "build" and value["phase"].startswith("prepare-items:"):
         # Counter producers need no duplicated parent argument. The actual
         # opened checkpoint, not a historical frontier, establishes ownership.
@@ -1133,6 +1215,8 @@ def advance(row, value, operation=None, status=None):
                       or import_counter
                       or pack_counter
                       or api_counter
+                      or validation_counter
+                      or unity_child
                       or workflow(row) in UPDATE_PLANS and value.get("childOperation") is not None)
     parent_status = "progress" if child_boundary else status
     preparation_counter = row["id"] == "build" and (value["phase"].startswith(("prepare-substage:", "prepare-items:")) or movie_file_counter)

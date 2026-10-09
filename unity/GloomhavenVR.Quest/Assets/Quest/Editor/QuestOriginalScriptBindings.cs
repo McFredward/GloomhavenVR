@@ -69,8 +69,11 @@ namespace GloomhavenVR.Quest.Editor
                 if (!bucket.Contains(script)) bucket.Add(script);
             }
             var replacements = new Dictionary<string, Replacement>(StringComparer.Ordinal);
+            var bindingProgress = new QuestWizardProgress.Counter("unity-script-bindings", "unity-validation", input.bindings.Length, "bindings", "Map original package script identities");
+            int bindingsDone = 0;
             foreach (var binding in input.bindings)
             {
+                bindingProgress.Report(bindingsDone, binding.fullName);
                 List<MonoScript> matches;
                 if (!scripts.TryGetValue(binding.assemblyName + "|" + binding.fullName, out matches))
                     throw new InvalidOperationException("Package script is unavailable: " + binding.assemblyName + ":" + binding.fullName);
@@ -84,13 +87,18 @@ namespace GloomhavenVR.Quest.Editor
                 var oldKey = binding.oldGuid + ":" + binding.oldFileId.ToString(CultureInfo.InvariantCulture);
                 if (replacements.ContainsKey(oldKey)) throw new InvalidOperationException("Duplicate source script identity: " + oldKey);
                 replacements.Add(oldKey, replacement);
+                bindingProgress.Report(++bindingsDone, binding.fullName);
             }
+            bindingProgress.Complete("Original package script identities mapped");
             var disabled = new HashSet<string>(input.disabledPluginGuids, StringComparer.Ordinal);
             var plans = new List<KeyValuePair<string, string>>();
             var changed = new List<ChangedAsset>();
             var projectRoot = Path.GetFullPath(".") + Path.DirectorySeparatorChar;
+            var assetProgress = new QuestWizardProgress.Counter("unity-script-assets", "unity-validation", input.assetPaths.Length, "files", "Validate original serialized script pointers");
+            int assetsDone = 0;
             foreach (var path in input.assetPaths)
             {
+                assetProgress.Report(assetsDone, path);
                 if (string.IsNullOrEmpty(path) || !path.StartsWith("Assets/", StringComparison.Ordinal) ||
                     !Path.GetFullPath(path).StartsWith(projectRoot, StringComparison.Ordinal) || !File.Exists(path))
                     throw new InvalidOperationException("Invalid original binding asset path: " + path);
@@ -113,13 +121,19 @@ namespace GloomhavenVR.Quest.Editor
                 var normalizedBefore = Pointer.Replace(before, "m_Script: <identity>");
                 var normalizedAfter = Pointer.Replace(after, "m_Script: <identity>");
                 if (normalizedBefore != normalizedAfter) throw new InvalidOperationException("Non-script serialization changed: " + path);
+                assetProgress.Report(++assetsDone, path);
                 if (count == 0) continue;
                 plans.Add(new KeyValuePair<string, string>(path, after));
                 changed.Add(new ChangedAsset { path = path, beforeSha256 = Hash(before), afterSha256 = Hash(after),
                     nonScriptSha256 = Hash(normalizedBefore), replacementCount = count });
             }
+            assetProgress.Complete("Original serialized script pointer inputs validated");
             // Validate the entire transaction before touching any original-derived file.
-            foreach (var plan in plans) File.WriteAllText(plan.Key, plan.Value, new UTF8Encoding(false));
+            var writeProgress = new QuestWizardProgress.Counter("unity-script-write", "unity-validation", plans.Count, "files", "Apply validated original package script pointers");
+            int written = 0;
+            foreach (var plan in plans)
+            { writeProgress.Report(written, plan.Key); File.WriteAllText(plan.Key, plan.Value, new UTF8Encoding(false)); writeProgress.Report(++written, plan.Key); }
+            writeProgress.Complete("Validated original package script pointers applied");
             Directory.CreateDirectory("QuestStartupEvidence");
             File.WriteAllText("QuestStartupEvidence/script-remap.json", JsonUtility.ToJson(new Receipt {
                 replacements = replacements.Values.OrderBy(r => r.fullName).ToArray(), assets = changed.ToArray(),

@@ -21,7 +21,7 @@ def main():
     for name in ("Assets/Editor", "Packages", "ProjectSettings"):
         (project / name).mkdir(parents=True)
     editor = ROOT / "unity/GloomhavenVR.Quest/Assets/Quest/Editor"
-    for name in ("QuestOriginalScriptBindings.cs", "QuestOriginalScriptBindingsFixture.cs"):
+    for name in ("QuestOriginalScriptBindings.cs", "QuestWizardProgress.cs", "QuestOriginalScriptBindingsFixture.cs"):
         shutil.copyfile(editor / name, project / "Assets/Editor" / name)
     shutil.copyfile(args.startup_project / "Assets/QuestOriginalStartup/script-bindings.json", project / "quest-original-fixture.json")
     (project / "Packages/manifest.json").write_text(json.dumps({"dependencies": {

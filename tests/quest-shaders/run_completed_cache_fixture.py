@@ -39,7 +39,7 @@ def prepare(project: Path) -> None:
         raise ValueError("Use a new empty private fixture directory; existing projects are never overwritten.")
     editor = project / "Assets/Quest/Editor"
     editor.mkdir(parents=True)
-    for name in ("QuestCampaignShaderValidation.cs", "QuestCampaignShaderCache.cs", "QuestVulkanShaderValidation.cs", "QuestSmolvDecoder.cs"):
+    for name in ("QuestCampaignShaderValidation.cs", "QuestWizardProgress.cs", "QuestCampaignShaderCache.cs", "QuestVulkanShaderValidation.cs", "QuestSmolvDecoder.cs"):
         shutil.copyfile(EDITOR_SOURCES / name, editor / name)
     shutil.copyfile(Path(__file__).parent / "UnityHost/QuestShaderCacheWitness.cs", editor / "QuestShaderCacheWitness.cs")
     assets = project / "Assets/QuestOriginalCampaign"

@@ -7,6 +7,7 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using UnityEditor;
+using GloomhavenVR.Quest.Editor;
 using UnityEditor.Rendering;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -109,8 +110,10 @@ public static class QuestCampaignComputeValidation
             || !PlayerSettings.GetGraphicsAPIs(BuildTarget.Android).SequenceEqual(new[] { requiredApi }))
             throw new InvalidOperationException("Original compute gate requires Unity 2021.3.5f1 Android " + requiredApi + ".");
         var rows = new List<ShaderCompilation>();
+        var progress = new QuestWizardProgress.Counter("unity-compute-identities", requireCompiledBank ? "player" : "unity-validation", recovery.shaders.Length, "shaders", "Validate original compute identities and compiled metadata");
         foreach (var contract in recovery.shaders)
         {
+            progress.Report(rows.Count, contract.assetPath);
             if (contract.classId != 72 || contract.localFileId != 7200000 || contract.kernels == null
                 || contract.kernels.Length != contract.kernelCount || !contract.assetPath.StartsWith("Assets/", StringComparison.Ordinal)
                 || contract.assetPath.Contains("..") || Path.GetExtension(contract.assetPath) != ".compute"
@@ -133,14 +136,18 @@ public static class QuestCampaignComputeValidation
             if (!declaredKernels.SequenceEqual(contract.kernels.Select(kernel => kernel.name))
                 || declaredGroups.Length != contract.kernelCount)
                 throw new InvalidDataException("Original compute kernel source order changed: " + contract.name);
+            var kernelProgress = new QuestWizardProgress.Counter("unity-compute-kernels", requireCompiledBank ? "player" : "unity-validation", contract.kernels.Length, "kernels", contract.name);
             for (int index = 0; index < contract.kernels.Length; index++)
             {
                 var kernel = contract.kernels[index];
+                kernelProgress.Report(index, contract.name + "/" + kernel.name);
                 var groups = declaredGroups[index];
                 if (groups.Groups[4].Value != kernel.name || kernel.threadGroups == null || kernel.threadGroups.Length != 3
                     || Enumerable.Range(0, 3).Any(axis => int.Parse(groups.Groups[axis + 1].Value) != kernel.threadGroups[axis]))
                     throw new InvalidDataException("Original compute kernel order/dispatch extent changed: " + contract.name + "/" + kernel.name);
+                kernelProgress.Report(index + 1, contract.name + "/" + kernel.name);
             }
+            kernelProgress.Complete("Original compute dispatch extent retained: " + contract.name);
             var messages = ShaderUtil.GetComputeShaderMessages(shader);
             var errors = messages.Where(message => message.severity == ShaderCompilerMessageSeverity.Error).ToArray();
             if (errors.Length != 0) throw new InvalidOperationException("Android compute compilation failed: " + contract.name + " "
@@ -166,7 +173,9 @@ public static class QuestCampaignComputeValidation
                 compiledVulkanKernels = requiredApi == GraphicsDeviceType.Vulkan ? compiledKernels : null,
                 warnings = messages.Where(message => message.severity != ShaderCompilerMessageSeverity.Error)
                     .Select(message => message.platform + ": " + message.message).Distinct().Take(16).ToArray() });
+            progress.Report(rows.Count, contract.name);
         }
+        progress.Complete("Original compute identities and native metadata validated");
         var receipt = new CompilationReceipt { shaderCount = rows.Count, kernelCount = rows.Sum(row => row.kernelCount),
             unityVersion = Application.unityVersion, buildTarget = BuildTarget.Android.ToString(), graphicsApi = requiredApi.ToString(),
             recoveryManifestSha256 = Sha(manifestPath), androidCompiled = requireCompiledBank, allOriginalKernelIdentitiesRetained = true,

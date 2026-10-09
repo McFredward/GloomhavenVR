@@ -105,8 +105,10 @@ namespace GloomhavenVR.Quest.Editor
                 throw new InvalidDataException("Original native Cubemap inventory is incomplete.");
             var receipt = new Receipt { unityVersion = Application.unityVersion,
                 graphicsDeviceType = SystemInfo.graphicsDeviceType.ToString(), sourceManifestSha256 = Hash(File.ReadAllBytes(InputPath)) };
+            var progress = new QuestWizardProgress.Counter("unity-texture-cubes", "unity-validation", input.assets.Length, "assets", "Validate original Cubemap face and mip data");
             foreach (var row in input.assets)
             {
+                progress.Report(receipt.nativeCubemapCount, row.assetPath);
                 var cube = AssetDatabase.LoadAssetAtPath<Cubemap>(row.assetPath);
                 string guid; long fileId;
                 if (!row.sourceMipChainPreserved || cube == null || Hash(File.ReadAllBytes(row.assetPath)) != row.sha256 ||
@@ -147,7 +149,9 @@ namespace GloomhavenVR.Quest.Editor
                     }
                 }
                 receipt.nativeCubemapCount++;
+                progress.Report(receipt.nativeCubemapCount, row.assetPath);
             }
+            progress.Complete("Original Cubemap face and mip data validated");
             receipt.nativePlatformImageCount=ValidatePlatformImages();
             receipt.nativeTexture2DCount=ValidateTexture2D().nativeTexture2DCount;
             receipt.nativeTextureReferenceCount=ValidateTextureReferences().referenceCount;
@@ -162,16 +166,22 @@ namespace GloomhavenVR.Quest.Editor
                input.nativeTextureTargetCount!=input.targets.Length||input.ownerCount!=input.owners.Length)
                 throw new InvalidDataException("Native texture consuming-reference inventory is incomplete.");
             var targets=new Dictionary<string,string>();
+            var targetProgress = new QuestWizardProgress.Counter("unity-texture-targets", "unity-validation", input.targets.Length, "assets", "Map original consuming texture targets");
             foreach(var target in input.targets)
             {
+                targetProgress.Report(targets.Count, target.assetPath);
                 var key=target.guid+":"+target.fileId;
                 if(target.type!=2||targets.ContainsKey(key))throw new InvalidDataException("Native texture target type is ambiguous.");
                 targets.Add(key,target.assetPath);
+                targetProgress.Report(targets.Count, target.assetPath);
             }
+            targetProgress.Complete("Original consuming texture targets mapped");
+            var ownerProgress = new QuestWizardProgress.Counter("unity-texture-owners", "unity-validation", input.owners.Length, "assets", "Validate original consuming material references");
             var receipt=new TextureReferenceReceipt {nativeTextureTargetCount=input.targets.Length,
                 unityVersion=Application.unityVersion,sourceManifestSha256=Hash(File.ReadAllBytes(TextureReferenceInputPath))};
             foreach(var row in input.owners)
             {
+                ownerProgress.Report(receipt.ownerCount, row.assetPath);
                 if(receipt.ownerCount>0&&receipt.ownerCount%16==0)EditorUtility.UnloadUnusedAssetsImmediate();
                 if(Path.GetExtension(row.assetPath)!=".mat"||Hash(File.ReadAllBytes(row.assetPath))!=row.sha256||row.references==null)
                     throw new InvalidDataException("Native texture consuming owner changed: "+row.assetPath);
@@ -201,7 +211,9 @@ namespace GloomhavenVR.Quest.Editor
                 }
                 if(expected.Values.Any(count=>count!=0))throw new InvalidDataException("Native texture consuming material has unresolved references: "+row.assetPath);
                 receipt.ownerCount++;
+                ownerProgress.Report(receipt.ownerCount, row.assetPath);
             }
+            ownerProgress.Complete("Original consuming material references validated");
             if(receipt.referenceCount!=input.referenceCount)throw new InvalidDataException("Native texture consuming-reference count changed.");
             receipt.importedConsumingMaterialReferencesVerified=true;
             Directory.CreateDirectory("QuestCampaignEvidence");
@@ -216,8 +228,10 @@ namespace GloomhavenVR.Quest.Editor
                 throw new InvalidDataException("Native floating Texture2D inventory is incomplete.");
             var receipt=new Texture2DReceipt {unityVersion=Application.unityVersion,
                 graphicsDeviceType=SystemInfo.graphicsDeviceType.ToString(),sourceManifestSha256=Hash(File.ReadAllBytes(Texture2DInputPath))};
+            var progress = new QuestWizardProgress.Counter("unity-texture-floating", "unity-validation", input.assets.Length, "assets", "Validate original floating texture mip data");
             foreach(var row in input.assets)
             {
+                progress.Report(receipt.nativeTexture2DCount, row.assetPath);
                 if(receipt.nativeTexture2DCount>0&&receipt.nativeTexture2DCount%4==0)EditorUtility.UnloadUnusedAssetsImmediate();
                 var texture=AssetDatabase.LoadAssetAtPath<Texture2D>(row.assetPath);string guid;long fileId;
                 if(texture==null||Hash(File.ReadAllBytes(row.assetPath))!=row.sha256||!row.sourceMipChainPreserved||
@@ -251,7 +265,9 @@ namespace GloomhavenVR.Quest.Editor
                 else if(row.sourceFormat==24)receipt.originalBc6hTextureCount++;
                 else throw new InvalidDataException("Native floating Texture2D source format changed.");
                 receipt.nativeTexture2DCount++;
+                progress.Report(receipt.nativeTexture2DCount, row.assetPath);
             }
+            progress.Complete("Original floating texture mip data validated");
             if(receipt.originalHalfTextureCount!=input.originalHalfTextureCount||receipt.originalBc6hTextureCount!=input.originalBc6hTextureCount)
                 throw new InvalidDataException("Native floating Texture2D source coverage changed.");
             receipt.originalHalfGpuBytesVerified=true;
@@ -264,8 +280,11 @@ namespace GloomhavenVR.Quest.Editor
             var input=JsonUtility.FromJson<PlatformImages>(File.ReadAllText(PlatformInputPath));
             if(input==null||input.schema!=1||input.unsupportedImageClassCount!=0||input.assets==null||input.nativePlatformImageCount!=input.assets.Length)
                 throw new InvalidDataException("Native platform-sensitive image inventory is incomplete.");
+            var progress = new QuestWizardProgress.Counter("unity-texture-platform", "unity-validation", input.assets.Length, "assets", "Validate original platform-sensitive image assets");
+            int done = 0;
             foreach(var row in input.assets)
             {
+                progress.Report(done, row.assetPath);
                 var value=AssetDatabase.LoadMainAssetAtPath(row.assetPath);string guid;long fileId;
                 if(value==null||Hash(File.ReadAllBytes(row.assetPath))!=row.sha256||
                    !AssetDatabase.TryGetGUIDAndLocalFileIdentifier(value,out guid,out fileId)||guid!=row.guid||fileId!=row.fileId)
@@ -289,7 +308,9 @@ namespace GloomhavenVR.Quest.Editor
                     target.Release();
                 }
                 else throw new InvalidDataException("Unknown native platform-sensitive image class.");
+                progress.Report(++done, row.assetPath);
             }
+            progress.Complete("Original platform-sensitive image assets validated");
             return input.assets.Length;
         }
         private static void RequireMip(byte[] data, Mip witness, string source)

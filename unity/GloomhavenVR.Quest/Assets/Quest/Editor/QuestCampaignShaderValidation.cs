@@ -228,8 +228,11 @@ namespace GloomhavenVR.Quest.Editor
 
         public static void VerifyImportedMaterials(Manifest input, Dictionary<string, Shader> shaders)
         {
+            var progress = new QuestWizardProgress.Counter("unity-shader-materials", null, input.materials.Length, "assets", "Validate original Shader and material identities");
+            int done = 0;
             foreach (var row in input.materials)
             {
+                progress.Report(done, row.assetPath);
                 string path = ExactAsset(row.guid, row.assetPath);
                 var material = row.nativeFontImporterSubObject ? AssetDatabase.LoadAllAssetsAtPath(path).OfType<Material>().SingleOrDefault() : AssetDatabase.LoadAssetAtPath<Material>(path);
                 if (material == null) throw new InvalidOperationException("Campaign native material is missing: " + row.guid);
@@ -237,6 +240,7 @@ namespace GloomhavenVR.Quest.Editor
                 {
                     if (!Regex.IsMatch(File.ReadAllText(path), @"(?m)^  m_Shader: \{fileID: 0\}$"))
                         throw new InvalidOperationException("Original null shader PPtr has changed: " + row.guid);
+                    progress.Report(++done, row.assetPath);
                     continue;
                 }
                 if (row.originalEngineBuiltinShader)
@@ -244,12 +248,15 @@ namespace GloomhavenVR.Quest.Editor
                     string guid; long fileId;
                     if (!AssetDatabase.TryGetGUIDAndLocalFileIdentifier(material.shader, out guid, out fileId) || guid != row.shaderGuid || fileId != row.shaderFileId)
                         throw new InvalidOperationException("Original engine shader PPtr has changed: " + row.guid);
+                    progress.Report(++done, row.assetPath);
                     continue;
                 }
                 Shader shader;
                 if (!shaders.TryGetValue(row.shaderGuid, out shader) || material.shader != shader)
                     throw new InvalidOperationException("Campaign material no longer uses its exact original shader: " + row.guid);
+                progress.Report(++done, row.assetPath);
             }
+            progress.Complete("Original Shader and material identities validated");
         }
 
         public static void VerifyImportedIdentities(Manifest input)
@@ -257,8 +264,10 @@ namespace GloomhavenVR.Quest.Editor
             RequireGraphicsHost(input);
             VerifyProgramSources(input);
             var shaders = new Dictionary<string, Shader>(StringComparer.Ordinal);
+            var progress = new QuestWizardProgress.Counter("unity-shader-identities", null, input.shaders.Length, "shaders", "Validate imported original Shader identities");
             foreach (var row in input.shaders)
             {
+                progress.Report(shaders.Count, row.assetPath);
                 string path = ExactAsset(row.guid, row.assetPath);
                 if (!SourceMatches(row, Hash(File.ReadAllBytes(path)))) throw new InvalidOperationException("Campaign translated shader bytes differ: " + row.guid);
                 var shader = AssetDatabase.LoadAssetAtPath<Shader>(path);
@@ -266,7 +275,9 @@ namespace GloomhavenVR.Quest.Editor
                 RejectShaderErrors(shader);
                 foreach (var bank in row.variants.GroupBy(value => value.subshader + "/" + value.pass + "/" + value.passType).Select(group => group.First())) ImportedCollectionPassType(shader, bank);
                 shaders.Add(row.guid, shader);
+                progress.Report(shaders.Count, row.assetPath);
             }
+            progress.Complete("Imported original Shader identities validated");
             VerifyImportedMaterials(input, shaders);
         }
 
@@ -285,8 +296,10 @@ namespace GloomhavenVR.Quest.Editor
             var collection = new ShaderVariantCollection();
             var retained = new HashSet<string>(StringComparer.Ordinal);
             int nativeAliases = 0;
+            var progress = new QuestWizardProgress.Counter("unity-shader-retention", null, input.shaders.Sum(row => row.variants.Length), "variants", "Retain original native Shader aliases without compiling an extra matrix");
             foreach (var row in input.shaders)
             {
+                progress.Report(nativeAliases, row.assetPath);
                 var shader = AssetDatabase.LoadAssetAtPath<Shader>(ExactAsset(row.guid, row.assetPath));
                 if (shader == null || shader.name != row.originalName) throw new InvalidOperationException("Native shader source is missing before variant retention.");
                 var passTypes = new Dictionary<string, PassType>(StringComparer.Ordinal);
@@ -304,8 +317,10 @@ namespace GloomhavenVR.Quest.Editor
                     if (!collection.Contains(variant)) throw new InvalidOperationException("Original native shader collection entry was not retained.");
                     retained.Add(row.guid + "/" + type + "/" + string.Join(" ", bank.keywords.OrderBy(value => value, StringComparer.Ordinal)));
                     ++nativeAliases;
+                    progress.Report(nativeAliases, row.assetPath);
                 }
             }
+            progress.Complete("Original native Shader aliases retained");
             // SVC deliberately has no pass ordinal or hardware-tier field.
             // Exact bank coverage still lives in the original native manifest;
             // verify its complete projection into this coarser retention API.
@@ -360,14 +375,19 @@ namespace GloomhavenVR.Quest.Editor
         {
             if (input.scope != "campaign-compiler") return;
             if (input.programs == null || input.programs.Length == 0) throw new InvalidOperationException("Native instruction include manifest is missing.");
+            var progress = new QuestWizardProgress.Counter("unity-shader-programs", null, input.programs.Length, "files", "Validate original translated Shader include files");
+            int done = 0;
             foreach (var program in input.programs)
             {
                 string path = program.assetPath.Replace('\\', '/');
+                progress.Report(done, path);
                 if (!path.StartsWith("Assets/QuestOriginalCampaign/ShaderPrograms/", StringComparison.Ordinal) || path.Contains("..") ||
                     !HashValue(program.originalDxbcSha256) || !HashValue(program.originalInterfaceSha256) ||
                     Hash(File.ReadAllBytes(path)) != program.sourceSha256)
                     throw new InvalidOperationException("Native shader instruction include changed: " + path);
+                progress.Report(++done, path);
             }
+            progress.Complete("Original translated Shader include files validated");
         }
 
         private static void RequireGraphicsHost(Manifest input)
