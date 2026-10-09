@@ -66,6 +66,15 @@ class SupportIntegrationTests(unittest.TestCase):
             '--state-root', str(self.store.root), '--session', self.saved['session'], '--output', str(output)], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(json.loads(result.stdout)['event'], 'support_exported'); self.assertTrue(output.is_file())
+    def test_actual_builder_load_qualifies_metadata_helper_without_global_alias_leaks(self):
+        sentinel = object()
+        with mock.patch.dict(sys.modules, {'preparation_metadata': sentinel, 'preparation_identity': sentinel}):
+            helper = discovery.builder(ROOT)
+            self.assertEqual(len(helper.prepare_resume.preparation_metadata.PATHS), 4)
+            self.assertTrue(callable(helper.prepare_resume.preparation_metadata.refresh))
+            self.assertIs(sys.modules['preparation_metadata'], sentinel)
+            self.assertIs(sys.modules['preparation_identity'], sentinel)
+
     def test_helper_load_restores_application_modules(self):
         sentinel = object()
         with mock.patch.dict(sys.modules, {'storage': sentinel, 'release': sentinel, 'support': sentinel}):

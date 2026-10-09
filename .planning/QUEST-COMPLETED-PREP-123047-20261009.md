@@ -104,6 +104,11 @@ Compact evidence resides in
   native MR UI84 assertions plus six rejected mutations and affected scenario
   backing controls pass. These use declared external native/session boundaries,
   not a headset compositor.
+- Extracted delivery discovery exposed a missing isolated-loader dependency for
+  the new preparation identity/metadata helpers. The Installer now registers both
+  before loading Builder and restores prior application aliases afterward. The
+  actual helper integration8 and Installer64 checks pass; a checkout's import path
+  alone did not qualify the Git-free delivery.
 
 Delivery must additionally pass source ZIP CRC/content/mode/inventory audit,
 actual old0d675/new release selector qualification at the captured27-step frontier,
