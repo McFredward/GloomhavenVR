@@ -16,6 +16,10 @@ from release import ordinary
 MAX_FILE_BYTES = 2 * 1048576
 MAX_TOTAL_BYTES = 24 * 1048576
 MAX_FILES = 64
+# Completed preparation retains per-output receipts: capture 134446's legitimate
+# journal is 25,864,174 bytes. This is a journal input bound, not an archive or
+# generic metadata allowance; only identities/counts enter the support package.
+MAX_PREPARATION_JOURNAL_BYTES = 64 * 1048576
 SAFE_DETAIL_KEYS = {'schema', 'inputKey', 'gameKey', 'sourceHash', 'commit', 'modBuild', 'apkSha256',
                     'requested', 'hardwareVerified', 'status', 'version', 'backend', 'proceduralBackend', 'outcome'}
 SAFE_EVENT_KEYS = {'phase', 'done', 'total', 'unit', 'percent', 'detail', 'updatedAt', 'executable',
@@ -70,7 +74,10 @@ def read_object(path, limit=4 * 1048576):
     path = ordinary(path)
     if not path.is_file(): return None
     if path.stat().st_size > limit: raise BuildError('Diagnostic metadata is unexpectedly large.')
-    return json.loads(path.read_text(encoding='utf-8'))
+    # Stat alone cannot bound a read when the running build extends its journal.
+    with path.open('rb') as stream: raw = stream.read(limit + 1)
+    if len(raw) > limit: raise BuildError('Diagnostic metadata grew beyond its read limit.')
+    return json.loads(raw.decode('utf-8'))
 
 
 def recovery_workspaces(build_root, failure=None):
@@ -126,7 +133,7 @@ def preparation_receipt_stats(build_root):
     """Export checkpoint identities/counts, never output paths or original data.
 
     The previous support capture showed a repeated preparation but omitted its
-    journal frontier. Read at most two small owned journals without touching the
+    journal frontier. Read at most two bounded owned journals without touching the
     retained project, Library, output manifests or asset verification indexes.
     """
     root = ordinary(build_root / 'cache/prepare-resume')
@@ -135,7 +142,7 @@ def preparation_receipt_stats(build_root):
                       and not row.is_symlink() and row.is_dir()),
                      key=lambda row: row.stat().st_mtime_ns, reverse=True)[:2]
     operations = {'project-files', 'startup-content', 'native-runtime', 'audio',
-                  'textures', 'graphics', 'mod-banks', 'compiler-adapters'}
+                  'textures', 'graphics', 'mod-banks', 'compiler-adapters', 'preparation-contracts'}
     def checkpoint(value):
         if not isinstance(value, dict) or not re.fullmatch(r'[a-z][a-z0-9-]{0,79}', str(value.get('name', ''))):
             return {'invalid': True}
@@ -145,7 +152,7 @@ def preparation_receipt_stats(build_root):
     for folder in folders:
         row = {'workspaceKey': folder.name, 'contentVerified': False}
         try:
-            value = read_object(folder / 'journal.json', limit=1048576)
+            value = read_object(folder / 'journal.json', limit=MAX_PREPARATION_JOURNAL_BYTES)
             if (not isinstance(value, dict) or value.get('schema') != 1
                     or value.get('owner') != 'Quest preparation substage journal'
                     or value.get('project') != 'projects/' + folder.name):

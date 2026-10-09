@@ -1,5 +1,6 @@
 """Release completeness/tampering and support export's actual privacy boundaries."""
 import importlib.util
+import io
 import json
 import os
 import shutil
@@ -199,8 +200,97 @@ class SupportTests(unittest.TestCase):
         self.assertEqual(stats[0]['journalStatus'], 'missing-or-unowned')
         self.assertNotIn('PRIVATE', json.dumps(stats))
         with (cache / ('a' * 64) / 'journal.json').open('wb') as stream:
-            stream.truncate(1048577)
+            stream.truncate(support.MAX_PREPARATION_JOURNAL_BYTES + 1)
         self.assertEqual(support.preparation_receipt_stats(self.root / 'build')[0]['journalStatus'], 'unreadable-or-oversized')
+    def test_large_completed_preparation_journal_exports_only_compact_frontier(self):
+        key = 'a' * 64
+        folder = self.root / 'build/cache/prepare-resume' / key; folder.mkdir(parents=True)
+        journal = folder / 'journal.json'
+        names = ('base-project', 'post-effects', 'loading-resources', 'startup-movies',
+                 'native-sprites', 'loading-sprite', 'startup-audio', 'ui-recipes',
+                 'startup-ui', 'startup-blur', 'dlc-selection', 'file-extras',
+                 'native-runtime', 'bundled-audio', 'native-cubemaps',
+                 'ordinary-texture-audit', 'native-texture2d', 'campaign-compute',
+                 'campaign-shaders', 'startup-archive', 'archive-cleanup',
+                 'package-settings', 'mod-resource-banks', 'compiler-contracts',
+                 'case-paths', 'script-orders', 'final-settings')
+        # A legitimate journal grows through ordinary per-file output records,
+        # rather than one oversized artificial padding/string field.
+        header = {'schema': 1, 'owner': 'Quest preparation substage journal',
+                  'project': 'projects/' + key, 'inputKey': 'c' * 64,
+                  'recipe': 1, 'target': 'game', 'pending': None}
+        count = 100000
+        with journal.open('w', encoding='utf-8') as stream:
+            stream.write(json.dumps(header)[:-1] + ', "steps": [')
+            stream.write('{"name":"base-project","operation":"project-files","outputs":[')
+            for index in range(count):
+                if index: stream.write(',')
+                stream.write(json.dumps({'path': 'Assets/PRIVATE OWNED ORIGINAL/' + 'x' * 120 + '/' + str(index) + '.asset',
+                                         'size': 1234, 'sha256': 'd' * 64}))
+            stream.write(']}')
+            for name in names[1:]:
+                stream.write(',' + json.dumps({'name': name, 'operation': 'preparation-contracts', 'outputs': []}))
+            stream.write(']}')
+        before = journal.stat()
+        self.assertGreater(before.st_size, 16 * 1048576)
+        self.assertLess(before.st_size, support.MAX_PREPARATION_JOURNAL_BYTES)
+        _, files = self.export()
+        rows = json.loads(files['diagnostic.json'])['preparationReceipts']
+        self.assertEqual(rows[0]['journalStatus'], 'observed')
+        self.assertEqual(rows[0]['completedCount'], 27)
+        self.assertEqual(rows[0]['completed'][0]['outputCount'], count)
+        self.assertEqual(rows[0]['completed'][-1], {'name': 'final-settings', 'operation': 'preparation-contracts', 'outputCount': 0})
+        self.assertIsNone(rows[0]['pending'])
+        self.assertFalse(rows[0]['contentVerified'])
+        self.assertLess(len(json.dumps(rows).encode()), 4096)
+        self.assertNotIn('PRIVATE', '\n'.join(files.values()))
+        self.assertFalse(any('journal.json' in name for name in files))
+        self.assertEqual((before.st_size, before.st_mtime_ns), (journal.stat().st_size, journal.stat().st_mtime_ns))
+    def test_preparation_journal_over_64_mib_is_rejected_before_open_and_generic_caps_stay(self):
+        journal = self.root / 'build/cache/prepare-resume' / ('a' * 64) / 'journal.json'
+        journal.parent.mkdir(parents=True)
+        with journal.open('wb') as stream: stream.truncate(64 * 1048576 + 1)
+        self.assertEqual(support.MAX_PREPARATION_JOURNAL_BYTES, 64 * 1048576)
+        with mock.patch.object(Path, 'open', side_effect=AssertionError('Oversized journal must not be opened')):
+            self.assertEqual(support.preparation_receipt_stats(self.root / 'build')[0]['journalStatus'], 'unreadable-or-oversized')
+        generic = self.root / 'generic.json'
+        with generic.open('wb') as stream: stream.truncate(4 * 1048576 + 1)
+        with mock.patch.object(Path, 'open', side_effect=AssertionError('Generic metadata cap must not expand')):
+            with self.assertRaises(BuildError): support.read_object(generic)
+        self.assertEqual((support.MAX_FILE_BYTES, support.MAX_TOTAL_BYTES, support.MAX_FILES), (2 * 1048576, 24 * 1048576, 64))
+    def test_preparation_journal_read_stays_bounded_when_file_grows_after_stat(self):
+        journal = self.root / 'build/cache/prepare-resume' / ('a' * 64) / 'journal.json'
+        journal.parent.mkdir(parents=True); journal.write_bytes(b'{}')
+        reads = []
+        class Growing(io.BytesIO):
+            def read(self, size=-1):
+                reads.append(size); return super().read(size)
+        with mock.patch.object(support, 'MAX_PREPARATION_JOURNAL_BYTES', 128), \
+                mock.patch.object(Path, 'open', return_value=Growing(b' ' * 1024)):
+            rows = support.preparation_receipt_stats(self.root / 'build')
+        self.assertEqual(rows[0]['journalStatus'], 'unreadable-or-oversized')
+        self.assertEqual(reads, [129])
+    @unittest.skipIf(os.name == 'nt', 'symlink privilege varies')
+    def test_preparation_linked_journal_and_linked_workspace_are_never_followed(self):
+        cache = self.root / 'build/cache/prepare-resume'; folder = cache / ('a' * 64)
+        folder.mkdir(parents=True)
+        private = self.root / 'private.json'; private.write_text('{"profile":"PRIVATE"}')
+        (folder / 'journal.json').symlink_to(private)
+        (cache / ('b' * 64)).symlink_to(folder, target_is_directory=True)
+        with mock.patch.object(Path, 'open', side_effect=AssertionError('Linked journal must not be read')):
+            rows = support.preparation_receipt_stats(self.root / 'build')
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['journalStatus'], 'unreadable-or-oversized')
+    def test_preparation_malformed_and_unowned_documents_reject_frontier(self):
+        journal = self.root / 'build/cache/prepare-resume' / ('a' * 64) / 'journal.json'
+        journal.parent.mkdir(parents=True)
+        for value, expected in (('{broken', 'unreadable-or-oversized'), ('[]', 'missing-or-unowned'),
+                                ('{"schema":1,"owner":"unknown","profile":"PRIVATE"}', 'missing-or-unowned')):
+            with self.subTest(value=value):
+                journal.write_text(value)
+                rows = support.preparation_receipt_stats(self.root / 'build')
+                self.assertEqual(rows[0]['journalStatus'], expected)
+                self.assertNotIn('PRIVATE', json.dumps(rows))
     def test_cleanup_operation_summaries_survive_cache_deletion_in_support_archive(self):
         logs = self.root / 'logs'
         logs.mkdir()
