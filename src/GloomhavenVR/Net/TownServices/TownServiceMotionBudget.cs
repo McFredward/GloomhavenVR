@@ -66,7 +66,7 @@ internal static class TownServiceMotionBudget
                 }
                 if (oldest == null) continue;
                 packet.Entries.Add(oldest.Entry);
-                if (TownServiceMotionCodec.TryWritePacked(packet) == null)
+                if (TryPackedWithinBounds(packet) == null)
                 { packet.Entries.RemoveAt(packet.Entries.Count - 1); continue; }
                 seen.Add(oldest); selected.Add(new Selected(oldest, group, next));
                 size += TownServiceMotionCodec.EntryBytes(oldest.Entry); break;
@@ -91,12 +91,12 @@ internal static class TownServiceMotionBudget
             { seen.Add(part); int root = ReturnRoot(live, part.Entry); if (root >= 0) seen.Add(live[root]); }
             int cohortAt = packet.Entries.Count;
             TownServiceMotionEntry cohort = AddReturnSubset(packet, snapshot, snapshot.Parts.Length - snapshot.Cursor);
-            while (TownServiceMotionCodec.TryWritePacked(packet) == null && cohort.ReturnParts.Length > 1)
+            while (TryPackedWithinBounds(packet) == null && cohort.ReturnParts.Length > 1)
             {
                 packet.Entries.RemoveRange(cohortAt, packet.Entries.Count - cohortAt);
                 cohort = AddReturnSubset(packet, snapshot, Math.Max(1, cohort.ReturnParts.Length * 3 / 4));
             }
-            if (TownServiceMotionCodec.TryWritePacked(packet) == null)
+            if (TryPackedWithinBounds(packet) == null)
             { packet.Entries.RemoveRange(cohortAt, packet.Entries.Count - cohortAt); continue; }
             bundles++;
             var staged = new TownServiceMotionPending { Entry = cohort, ReturnSnapshot = snapshot };
@@ -138,7 +138,7 @@ internal static class TownServiceMotionBudget
             if (size + bytes > TownServiceMotionCodec.MaxExpandedBytes) break;
             packet.Entries.Add(slot.Entry); selected.Add(new Selected(slot, group, index + 1)); size += bytes;
         }
-        byte[]? encoded = packet.Entries.Count == 0 ? null : TownServiceMotionCodec.TryWritePacked(packet);
+        byte[]? encoded = packet.Entries.Count == 0 ? null : TryPackedWithinBounds(packet);
         while (encoded == null && selected.Count > 0)
         {
             // At most logarithmically many compression probes; real random float
@@ -148,7 +148,7 @@ internal static class TownServiceMotionBudget
                 && selected[keep - 1].Bundle == selected[keep].Bundle) keep--;
             selected.RemoveRange(keep, selected.Count - keep);
             packet.Entries.RemoveRange(initial + keep, packet.Entries.Count - initial - keep);
-            if (packet.Entries.Count > 0) encoded = TownServiceMotionCodec.TryWritePacked(packet);
+            if (packet.Entries.Count > 0) encoded = TryPackedWithinBounds(packet);
         }
         if (encoded == null) return System.Array.Empty<byte>();
         foreach (Selected accepted in selected)
@@ -251,6 +251,17 @@ internal static class TownServiceMotionBudget
                 && clock.Entry.Session == root.Session && clock.Entry.PublicClaim == root.PublicClaim
                 && clock.Entry.Module == root.Module && clock.Entry.Structure == root.Structure) return true;
         return false;
+    }
+    // Companions/layout dependencies belong to the same indivisible subset.
+    // Check the exact expanded grammar before compression; an oversized trial
+    // must shrink rather than throwing before the packet can take its turn.
+    private static byte[]? TryPackedWithinBounds(TownServiceMotionPacket packet)
+    {
+        int bytes = 21;
+        foreach (TownServiceMotionEntry entry in packet.Entries) bytes += TownServiceMotionCodec.EntryBytes(entry);
+        if (packet.Entries.Count > TownServiceMotionCodec.MaxExpandedEntries
+            || bytes > TownServiceMotionCodec.MaxExpandedBytes) return null;
+        return TownServiceMotionCodec.TryWritePacked(packet);
     }
     private static bool SameReturnRoot(TownServiceMotionEntry first, TownServiceMotionEntry second)
     {
