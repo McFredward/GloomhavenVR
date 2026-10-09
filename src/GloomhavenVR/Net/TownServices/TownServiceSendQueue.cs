@@ -65,6 +65,9 @@ internal sealed class TownServiceLaneSendQueue
                 counterMask: TownServiceFragments.StockLaneMarker - 1, fixedMarker: _seed & TownServiceFragments.StockLaneMarker);
             _queues.Add(frame.Module, queue); _order.Add(frame.Module);
         }
+        bool retainedNativeOriginal = frame.Service == 3 && !frame.PublicCatalog && !frame.VisitorStock
+            && frame.BaseSequence == 0 && _latestOriginals.TryGetValue(frame.Module, out var sameOriginal)
+            && ReferenceEquals(sameOriginal, frame);
         if (frame.Module == TownServiceFrame.ManifestModule)
         {
             // Reserve the first finite coherent picture of a physical offer, not
@@ -175,7 +178,13 @@ internal sealed class TownServiceLaneSendQueue
                         { if (!_coldPriority.ContainsKey(frame.Module)) _coldPriority[frame.Module] = baseline.Sequence; queue.Enqueue(baselineBytes, baselineBytes.Length, baseline); break; }
             }
             else { _priority.Remove(frame.Module); _coldPriority.Remove(frame.Module); }
-            queue.Enqueue(bytes, length, frame);
+            // The retained full original repairs this exact already sent compact
+            // identity. Keep it ahead of waiting dependent artwork revisions;
+            // first/latest coalescing must not evict their only usable baseline.
+            // Existing active pages still finish, with the same bounded pending
+            // capacity and genuine newer-original supersession/removal rules.
+            if (retainedNativeOriginal) queue.PrependTownOriginal(bytes, frame, preserveInFlight: true);
+            else queue.Enqueue(bytes, length, frame);
         }
         SupersedeUrgentBundle();
     }

@@ -14,7 +14,7 @@ def module(name,path):
 def main():
  p=argparse.ArgumentParser(description=__doc__)
  p.add_argument('--source-root',type=Path,default=ROOT)
- p.add_argument('--output-dir',type=Path,default=ROOT/'.planning/debug/npc-admission646/proof')
+ p.add_argument('--output-dir',type=Path,default=ROOT/'.planning/debug/npc658-latency/proof')
  p.add_argument('--native-dir',type=Path)
  p.add_argument('--atlas-bundle',type=Path,help='Read-only native BattleOverlayCanvas SpriteAtlas bundle')
  p.add_argument('--asset-source-root',type=Path,help='Explicit pending asset worker sources; exact hashes retained')
@@ -23,7 +23,9 @@ def main():
  p.add_argument('--live-hover-census',action='store_true',help='Continue owner15Hz capture and real native33→34 hover visibility while first originals are fragmented')
  p.add_argument('--withdraw-hover',action='store_true',help='Also retire/re-register the actual hover original from prepared membership before first delivery')
  p.add_argument('--latency658-startup',action='store_true',help='Include original-template basis and first TMP startup in the measured first offer')
+ p.add_argument('--latency658-native',action='store_true',help='Use exact shipped full native print and structural partitioning')
  p.add_argument('--latency658-old',action='store_true',help='Exact Build656 latency source causal control')
+ p.add_argument('--latency658-mismatch',action='store_true',help='Clock rejected native basis and exact full fallback without relaxing1s')
  p.add_argument('--paint-only',action='store_true',help='Compare each original native hover/selected graphic through the real observer furniture paint order')
  p.add_argument('--omit-hover-output',action='store_true',help='Named control drops only the actual original Image CanvasGroup output in observer Binding.Apply')
  p.add_argument('--old-depth-source',action='store_true',help='Exact published654 town depth helper in the same native-paint challenge')
@@ -115,8 +117,16 @@ def main():
  fixture=run/'fixture';shutil.copytree(root/'scripts/town-service-mirror-runtime',fixture)
  for name in ['NativeState623.cs','NativeDelivery629.cs']:
   shutil.copyfile(root/'scripts/town-native-state623-runtime'/name,fixture/name)
+ shutil.copyfile(root/'scripts/npc658-latency-runtime/NativeRepair658.cs',fixture/'NativeRepair658.cs')
  warm=loader.method((root/'src/GloomhavenVR/WorldUI/TownServices/NativeTemplates.EnhancementPreparation.cs').read_text(),'private static void WarmEnhancementBasis(string key)')
  bound['AdmissionWarm646.cs']='using System; using UnityEngine; using GloomhavenVR.Net.TownServices; namespace GloomhavenVR.WorldUI; internal static partial class LazyTemplateProbe {\n'+warm+'\n}\n'
+ bound['NativePrintPartitions658.cs']='using System.Collections.Generic; using UnityEngine; namespace GloomhavenVR.WorldUI; internal static partial class LazyTemplateProbe { internal static List<Part> NativePrintPartitions658(Transform root) { var parts=new List<Part>(); Partition(root,string.Empty,parts); return parts; } }'
+ native_templates=(root/'src/GloomhavenVR/WorldUI/TownServices/NativeTemplates.cs').read_text()
+ loading658=[loader.expression(native_templates,'internal static Transform? Original(string key)'),
+     loader.method(native_templates,'private static void BindOriginalBackdrops()'),
+     loader.expression(native_templates,'private static Transform? FrozenOriginal(string key)')]
+ bound['NativeRefreshAssets658.cs']='using System; using System.Collections.Generic; using UnityEngine; using GloomhavenVR.Net.TownServices; namespace GloomhavenVR.WorldUI; internal sealed class UIInfoTools { internal static object? Instance => null; } internal static partial class LazyTemplateProbe { private static uint _assetGeneration; internal static void RefreshAssets658()=>BindOriginalBackdrops(); '+'\n'.join(loading658)+' }'
+ bound['NativeCapturedValues658.cs']='namespace GloomhavenVR.Net.TownServices; internal static partial class TownServiceMirror { internal static TownServiceNode[]? CapturedValues658(ushort id) => PrivateLane.Modules.TryGetValue(id,out var module) ? module.Last?.Nodes : null; }'
  shutil.copyfile(root/'scripts/npc-admission646-runtime/Admission646.cs',fixture/'Admission646.cs')
  if args.paint_only:
   shutil.copyfile(root/'scripts/npc-admission646-runtime/NativePaint655.cs',fixture/'NativePaint655.cs')
@@ -133,7 +143,7 @@ def main():
  case_source=(root/'scripts/npc-first-picture639-runtime/FirstPicture639.cs').read_text()
  case_source=patch646(case_source,args.pre_offer_growth,args.required35)
  if args.live_hover_census:case_source=patch655(case_source,args.withdraw_hover)
- if args.latency658_startup:case_source=patch658(case_source)
+ if args.latency658_startup or args.latency658_native or args.latency658_mismatch:case_source=patch658(case_source,args.latency658_startup,args.latency658_mismatch)
  if args.latency658_old:
   for name in ['TownServiceMirror.cs','TownServiceMirror.NativePublication.cs','TownServiceMirror.NativeTemplateState.cs']:
    bound[name]=subprocess.run(['git','-C',str(root),'show','bf3444cb502e1eff52bcf0e5194a255109879d36:src/GloomhavenVR/Net/TownServices/'+name],check=True,capture_output=True,text=True).stdout
@@ -187,6 +197,8 @@ def main():
  else:
   python=os.environ.get('UNITYPY_PYTHON',str(Path.home()/'unitypy-venv/bin/python'))
   subprocess.run([python,str(root/'scripts/npc-first-picture639-runtime/export-native.py'),str(root),str(native)],check=True)
+  if args.latency658_native or args.latency658_startup or args.latency658_mismatch:
+   subprocess.run([python,str(root/'scripts/npc658-latency-runtime/export-native.py'),str(root),str(native)],check=True)
  if args.atlas_bundle:
   shutil.copyfile(args.atlas_bundle.resolve(),run/'original-atlas.bundle')
   # The byte-exact native Texture2D still names the game's original resS path.
@@ -296,6 +308,6 @@ def patch655(case_source,withdraw=False):
   assert case_source.count(anchor)==1, 'Live owner capture timing anchor changed'
   case_source=case_source.replace(anchor,replacement)
  return case_source
-def patch658(case_source):
- return case_source
+def patch658(case_source,cold=False,mismatch=False):
+ return module('latencycase658',Path(__file__).with_name('patch-case.py')).patch(case_source,cold,mismatch)
 if __name__=='__main__':main()

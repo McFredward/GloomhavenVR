@@ -546,7 +546,7 @@ internal static partial class TownServiceMirror
         _publicClaim = _observedPublicClaim + 1; _observedPublicClaim = _publicClaim;
         PublicLane.NextManifest = 0;
         foreach (LocalModule module in PublicLane.Modules.Values)
-        { module.Last = null; module.Baseline = null; module.NextBaseline = module.NextRefresh = 0; }
+        { module.Last = null; module.Baseline = null; module.NativeRepair = null; module.NextBaseline = module.NextRefresh = 0; }
     }
     internal static TownRackState? PublicRack
     {
@@ -624,6 +624,7 @@ internal static partial class TownServiceMirror
         internal TownServiceBinding Binding = null!;
         internal TownServiceFrame? Last;
         internal TownServiceFrame? Baseline;
+        internal NativeTemplateRepair? NativeRepair;
         internal float NextBaseline;
         internal float NextRefresh;
         internal float RetryAfter;
@@ -780,7 +781,7 @@ internal static partial class TownServiceMirror
         if (frame.BaseSequence == 0 && module.Baseline?.Sequence == frame.Sequence)
         {
             module.NextBaseline = now + 5f + module.Id % 13 * .07f;
-            if (NativeTemplateRepairs.TryGetValue(module, out NativeTemplateRepair? repair)
+            if (module.NativeRepair is NativeTemplateRepair repair
                 && ReferenceEquals(repair.Original, frame)) repair.After = now + .15f;
         }
         // A single small ordinary module maintains session liveness; unchanged stock
@@ -859,12 +860,12 @@ internal static partial class TownServiceMirror
                     Transform source = module.Binding.Root;
                     if (source == null) continue;
                     TownServiceNode[] nodes;
-                    try { nodes = module.Binding.Read(Assets); }
+                    try { nodes = NativePublicationNodes(module.Binding.Read(Assets, includeInactiveGraphics: _service == 3)); }
                     catch (InvalidDataException e) when (e.Message == "Native town-service topology changed.")
                     {
                         module.Binding.Dispose(); module.Binding = new TownServiceBinding(source, module.Exclude);
                         _local.ParentLinksDirty = true;
-                        nodes = module.Binding.Read(Assets);
+                        nodes = NativePublicationNodes(module.Binding.Read(Assets, includeInactiveGraphics: _service == 3));
                     }
                     // Reuse only the unpublished probe. Emitted headers/node arrays are
                     // retained separately, so a later read cannot mutate queued artwork.
@@ -1544,7 +1545,7 @@ internal static partial class TownServiceMirror
     internal static void RequestFullRefresh()
     {
         foreach (LocalModule module in AllLocalModules())
-        { module.Last = null; module.Baseline = null; module.NextRefresh = module.NextBaseline = 0; }
+        { module.Last = null; module.Baseline = null; module.NativeRepair = null; module.NextRefresh = module.NextBaseline = 0; }
         PrivateLane.NextManifest = PublicLane.NextManifest = StockLane.NextManifest = 0;
     }
     private static IEnumerable<LocalModule> AllLocalModules()
@@ -1563,7 +1564,7 @@ internal static partial class TownServiceMirror
             TownServiceGrantSync.SetOffer(PrivateLane.Service, PrivateLane.Session, false);
         foreach (int peer in new List<int>(Remote.Keys)) ClearRemoteModules(peer);
         MerchantOfferings.Clear(); ClearVoiceNetwork(); Pending.Clear(); ReceivedBaselines.Clear(); ReceivedCatalogBanks.Clear(); IncomingCatalogKeys.Clear(); CatalogOriginalBanks.Clear(); Sessions.Clear(); VisitorSessions.Clear(); RemoteRetry.Clear(); foreach (LocalModule module in AllLocalModules())
-        { module.Last = null; module.Baseline = null; module.NextRefresh = module.NextBaseline = 0; }
+        { module.Last = null; module.Baseline = null; module.NativeRepair = null; module.NextRefresh = module.NextBaseline = 0; }
         PrivateLane.NextManifest = PublicLane.NextManifest = StockLane.NextManifest = 0;
         PrivateLane.TempleDonationKnown = PrivateLane.TempleDonationAvailable = false;
         PrivateLane.TempleDonationRevision = 0; PrivateLane.TempleDonationChangedTime = 0f;

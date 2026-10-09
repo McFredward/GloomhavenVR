@@ -74,7 +74,9 @@ internal sealed partial class TownServiceSync
     private void PrepareCore()
     {
         if (!MapRoomDriver.Active || Time.unscaledTime < _prepareAfter) return;
-        if (!WorldUIConfig.ImmersiveTownServices.Value && !TownServicePopulation.HasRemoteVisitors) return;
+        // An observer with local immersion disabled still sees a visiting peer's
+        // exact original card/UI. Prepare the inactive bank before that peer's
+        // first manifest, rather than starting its assets on the offer frame.
         try
         {
             NativeTemplates.Initialize(); TownServiceNativeAssets.Tick();
