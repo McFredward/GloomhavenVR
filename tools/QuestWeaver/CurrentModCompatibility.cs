@@ -3,7 +3,7 @@ using Mono.Cecil.Cil;
 
 namespace QuestWeaver;
 
-/// <summary>Specializes the current mod's two verified runtime-code-generation paths.
+/// <summary>Specializes verified runtime-code-generation and native engine paths.
 /// Inputs stay read-only; all substitutions are proven against their actual metadata before
 /// the normal hook discovery runs. Unknown variants remain build errors.</summary>
 internal static class CurrentModCompatibility
@@ -14,6 +14,7 @@ internal static class CurrentModCompatibility
         {
             CameraBridge(model, report, find, track);
             WindowRegistry(model, report);
+            NativeCameraBoundary.Apply(model, report);
         }
         catch (Exception error) when (error is InvalidDataException or InvalidOperationException or AssemblyResolutionException)
         { report.Issues.Add(new IntegrationIssue("CURRENT_MOD_AOT_UNSUPPORTED", model.Mod.Name.Name, error.Message)); }

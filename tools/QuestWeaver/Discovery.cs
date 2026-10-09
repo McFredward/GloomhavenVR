@@ -334,6 +334,9 @@ internal sealed class Discovery : IDisposable
     private static string? ValidateHook(MethodDefinition patch, MethodDefinition target, string kind)
     {
         if (Protected(target.DeclaringType)) return "The target is protected by project contracts and must remain unmodified.";
+        string assembly = target.Module.Assembly.Name.Name;
+        if (assembly.StartsWith("UnityEngine.", StringComparison.Ordinal) && assembly.EndsWith("Module", StringComparison.Ordinal))
+            return "The Quest Player owns native Unity engine modules; this hook needs an explicit standalone adaptation.";
         if (kind is not ("prefix" or "postfix" or "finalizer")) return "Only Prefix, Postfix and Finalizer are supported, not " + kind;
         if (!target.HasBody || target.IsConstructor || target.HasGenericParameters || target.DeclaringType.HasGenericParameters)
             return "Target has no managed body, is a constructor, or requires generic wrapper specialization.";

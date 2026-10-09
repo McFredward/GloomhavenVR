@@ -26,7 +26,8 @@ internal static class CurrentModCompatibilityTests
             string[] applyBody = Body(camera.Methods.Single(m => m.Name == "Apply"));
             AuditReport report = model.Audit();
             check(report.Issues.Count == 0, "Actual current mod conversion blocked: " + string.Join("; ", report.Issues));
-            check(report.StaticSubstitutions.Count == 2, "Current mod did not qualify both AOT substitutions.");
+            int expected = model.Mod.MainModule.GetType("GloomhavenVR.Core.ScenarioCameraCullBoundary") == null ? 2 : 3;
+            check(report.StaticSubstitutions.Count == expected, "Current mod did not qualify its known AOT substitutions.");
             check(mainBody.SequenceEqual(Body(camera.Methods.Single(m => m.Name == "get_Main")))
                 && enumBody.SequenceEqual(Body(camera.Methods.Single(m => m.Name == "get_ProjectionCameras")))
                 && applyBody.SequenceEqual(Body(camera.Methods.Single(m => m.Name == "Apply"))), "Camera resolver/suspension semantics changed.");
