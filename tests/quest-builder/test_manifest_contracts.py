@@ -1,4 +1,4 @@
-"""Original CAB provenance must not become generated-project output contracts."""
+"""Producer evidence roles retain real outputs without inventing file names."""
 import json
 from pathlib import Path
 import sys
@@ -8,7 +8,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools/quest-builder"))
 import prepare_resume as resume
-from storage import BuildError, write_json
+from storage import BuildError, digest, write_json
 
 
 class ManifestRoles(unittest.TestCase):
@@ -104,6 +104,82 @@ class ManifestRoles(unittest.TestCase):
 
     def test_generated_output_traversal_is_not_hidden_by_valid_source_provenance(self):
         with self.assertRaises(BuildError): self.manifest(assets=[{"assetPath": "Assets/../outside.asset"}])
+
+    def test_actual_compute_files_map_and_scalar_restoration_hash_commit_and_resume(self):
+        campaign = "Assets/QuestOriginalCampaign/campaign-computes.json"
+        evidence = "QuestStartupEvidence/compute-source-restoration.json"
+        old, new = "Assets/Compute/Original.asset", "Assets/Compute/Original.compute"
+        ledger = "QuestRecovery/original-asset-identities.json"
+        self.put(new, b"#pragma kernel Original\nvoid Original() {}")
+        self.put(new + ".meta", b"guid: abc\nComputeShaderImporter:\n")
+        self.put(ledger, b'{"identities": []}')
+        # These are the shapes written by quest-compute/recovery.py and
+        # campaign_compute.stage, including optional removed original inputs.
+        document = {"schema": 1, "scope": "complete-original-campaign-compute", "graphicsApi": "Vulkan",
+                    "shaderCount": 1, "kernelCount": 1, "originalInputsUnchanged": True,
+                    "files": {name: {"sha256": digest(self.project / name), "bytes": (self.project / name).stat().st_size}
+                              for name in (new, new + ".meta")},
+                    "pathMap": {old: new}, "removePaths": [old, old + ".meta"],
+                    "originalInputs": {old: "a" * 64, old + ".meta": "b" * 64},
+                    "shaders": [{"originalPath": old, "assetPath": new, "sourceSha256": digest(self.project / new),
+                                 "metaSha256": digest(self.project / (new + ".meta")), "kernelCount": 1,
+                                 "kernels": [{"name": "Original", "originalDxbcSha256": "c" * 64}]}],
+                    "updatedManifests": [{"path": ledger}]}
+        write_json(self.project / campaign, document)
+        write_json(self.project / evidence, {"schema": 1, "manifestSha256": digest(self.project / campaign),
+                                             "androidCompiled": False, "hardwareVerified": False})
+        paths = resume.manifest_contracts(self.project, [campaign, evidence])
+        expected = {campaign, evidence, new, new + ".meta", old, old + ".meta", ledger}
+        self.assertEqual(set(paths), expected)
+        self.assertEqual(paths.absent, {old, old + ".meta"})
+        first = self.journal()
+        with first.operation("graphics", 1):
+            first.run("campaign-compute", "graphics", lambda: document, lambda _result: paths)
+        first.finish(); first.close()
+        second = self.journal()
+        with second.operation("graphics", 1):
+            second.run("campaign-compute", "graphics", lambda: self.fail("Completed compute repeated"), [])
+        second.finish(); second.close()
+
+    def test_case_migration_hash_map_retains_all_declared_outputs(self):
+        mapped = "QuestRecovery/original-asset-identities.json"
+        self.put(self.asset)
+        self.put(mapped, b'{"identities": []}')
+        paths = self.manifest(manifestSha256={mapped: digest(self.project / mapped)})
+        self.assertIn(mapped, paths)
+        self.assertNotIn(mapped, paths.absent)
+        first = self.journal()
+        (self.project / mapped).unlink()
+        with self.assertRaisesRegex(BuildError, "missing its required output.*original-asset-identities"):
+            with first.operation("project-files", 1):
+                first.run("case-migration", "project-files", lambda: None, paths)
+        self.assertEqual(first.value["steps"], [])
+        first.close()
+
+    def test_compute_metadata_in_files_map_is_required_despite_scalar_evidence_hash(self):
+        generated = "Assets/Compute/Original.compute"
+        evidence = "QuestStartupEvidence/compute-source-restoration.json"
+        self.put(generated, b"original instructions")
+        self.receipt = "Assets/QuestOriginalCampaign/campaign-computes.json"
+        write_json(self.project / evidence, {"schema": 1, "manifestSha256": "e" * 64})
+        paths = self.manifest(assets=[], files={generated: {"sha256": digest(self.project / generated)},
+                                               generated + ".meta": {"sha256": "a" * 64}})
+        paths = resume.manifest_contracts(self.project, [self.receipt, evidence])
+        first = self.journal()
+        with self.assertRaisesRegex(BuildError, "missing its required output.*Original.compute.meta"):
+            with first.operation("graphics", 1):
+                first.run("campaign-compute", "graphics", lambda: None, paths)
+        self.assertEqual(first.value["steps"], [])
+        self.assertEqual(first.value["pending"]["name"], "campaign-compute")
+        first.close()
+
+    def test_hash_evidence_rejects_malformed_scalar_and_map_shapes(self):
+        for value in (None, [], 123, "e", "a" * 63, "z" * 64, {"Assets/Output": "wrong"}, {"Assets/Output": None}):
+            with self.subTest(value=value), self.assertRaisesRegex(BuildError, "manifest hash"):
+                self.manifest(manifestSha256=value)
+        for name in ("../outside", "Library/cache", "C:/owned", "Assets/../outside"):
+            with self.subTest(name=name), self.assertRaises(BuildError):
+                self.manifest(manifestSha256={name: "a" * 64})
 
 
 if __name__ == "__main__": unittest.main()

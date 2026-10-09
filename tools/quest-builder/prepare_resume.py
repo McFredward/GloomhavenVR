@@ -452,16 +452,33 @@ class Preparation:
 
     def _undo(self, name, paths):
         paths = list(dict.fromkeys(paths))
-        # Movie source deletion needs the existing bounded undo copy. Report
-        # bytes from that writer itself, without a second read or a timer.
-        # Other phase contracts and directory undo semantics remain unchanged.
-        backup_counter = None
-        if self.progress and name == "startup-movies":
-            targets = [self._path(relative) for relative in paths]
-            if not any(path.is_dir() for path in targets):
-                total = sum(path.stat().st_size for path in targets if path.is_file())
-                backup_counter = self.progress.Counter("prepare-items:startup-movies-backup", total, "bytes",
-                                                       "Preserving original movie inputs for interrupted-build recovery")
+        # The 093454 Windows capture includes long preparation gaps around
+        # native conversion. Every destructive phase needs these bounded undo
+        # copies, not only startup movies. Enumerate each declared directory
+        # once, then report bytes from the existing writer; do not qualify its
+        # content a second time merely to obtain a percentage.
+        planned, total = [], 0
+        for relative in paths:
+            path = self._path(relative)
+            if not path.exists():
+                planned.append({"path": relative, "absent": True})
+            elif path.is_dir():
+                directories, members = [], []
+                for member in path.rglob("*"):
+                    member = _ordinary_owned(member)
+                    member_name = member.relative_to(self.project).as_posix()
+                    if member.is_dir(): directories.append(member_name)
+                    elif member.is_file():
+                        members.append(member_name)
+                        total += member.stat().st_size
+                    else: raise BuildError("Preparation undo subtree contains a non-file: " + member_name)
+                planned.append({"path": relative, "directory": True, "directories": directories, "files": members})
+            elif path.is_file():
+                total += path.stat().st_size
+                planned.append({"path": relative})
+            else: raise BuildError("Preparation undo can preserve only owned files/directories: " + relative)
+        backup_counter = self.progress.Counter("prepare-items:" + name + "-backup", total, "bytes",
+                                               "Preserving original inputs for interrupted-build recovery") if self.progress and total else None
         root = _ordinary_owned(self.root / ("undo-" + name))
         if root.exists(): shutil.rmtree(root)  # same exact journal-owned basename, before any phase mutation
         root.mkdir(parents=True)
@@ -480,20 +497,11 @@ class Preparation:
             row = {**self._observe(relative), "backup": str(sequence)}
             sequence += 1
             return row
-        for relative in paths:
-            path = self._path(relative)
-            if not path.exists(): rows.append({"path": relative, "absent": True}); continue
-            if path.is_dir():
-                directories, members = [], []
-                for member in path.rglob("*"):
-                    member = _ordinary_owned(member)
-                    name = member.relative_to(self.project).as_posix()
-                    if member.is_dir(): directories.append(name)
-                    elif member.is_file(): members.append(preserve(name))
-                    else: raise BuildError("Preparation undo subtree contains a non-file: " + name)
-                rows.append({"path": relative, "directory": True, "directories": directories, "files": members})
-            elif path.is_file(): rows.append(preserve(relative))
-            else: raise BuildError("Preparation undo can preserve only owned files/directories: " + relative)
+        for row in planned:
+            if row.get("absent"): rows.append(row)
+            elif row.get("directory"):
+                rows.append({**row, "files": [preserve(relative) for relative in row["files"]]})
+            else: rows.append(preserve(row["path"]))
         if backup_counter: backup_counter.finish()
         return rows
 
@@ -515,13 +523,21 @@ class Preparation:
         try:
             result = action()
             paths = contracts(result) if callable(contracts) else contracts
-            outputs = [self._observe(_relative(str(path))) for path in dict.fromkeys(paths)]
+            required = list(dict.fromkeys(paths))
+            counter = self.progress.Counter("prepare-items:" + name + "-contracts", len(required), "files",
+                                            "Recording produced output contracts") if self.progress else None
+            outputs = []
+            for path in required:
+                relative = _relative(str(path))
+                outputs.append(self._observe(relative))
+                if counter: counter.add(1, relative)
             allowed_absent = getattr(paths, "absent", set())
             for row in outputs:
                 if row.get("absent") and row["path"] not in allowed_absent:
                     raise BuildError("Preparation substage is missing its required output: " + name + ": " + row["path"])
             if not outputs or all(row.get("absent") for row in outputs):
                 raise BuildError("Preparation substage produced no verifiable output: " + name)
+            if counter: counter.finish()
             self.assert_sources()
             step = {"name": name, "operation": operation, "outputs": outputs}
             self.value["steps"].append(step)
@@ -598,7 +614,24 @@ def manifest_contracts(project, manifests, *, extra=()):
                 name = _relative(value["originalPath"])
                 if name != value.get("assetPath"):
                     result.append(name); absent.add(name)
-            for name in value.get("manifestSha256", {}): result.append(_relative(name))
+            if "manifestSha256" in value:
+                checksums = value["manifestSha256"]
+                # Compute restoration declares one scalar evidence hash; case
+                # migration declares a map of rewritten files to their hashes.
+                # The 093454 Windows failure iterated the scalar and mistook
+                # its first hex character, `e`, for a required output filename.
+                # A scalar is provenance for the already required manifest,
+                # while every key in a valid map remains an output contract.
+                if isinstance(checksums, str):
+                    if not re.fullmatch(r"[0-9a-f]{64}", checksums):
+                        raise BuildError("Preparation manifest hash evidence has an invalid SHA-256.")
+                elif isinstance(checksums, dict):
+                    for name, checksum in checksums.items():
+                        if not isinstance(checksum, str) or not re.fullmatch(r"[0-9a-f]{64}", checksum):
+                            raise BuildError("Preparation manifest hash map has an invalid SHA-256.")
+                        result.append(_relative(name))
+                else:
+                    raise BuildError("Preparation manifest hash evidence must be a SHA-256 or a path-to-SHA-256 map.")
             for key in ("updatedManifests", "refreshedManifests"):
                 for name in value.get(key, []):
                     if isinstance(name, str): result.append(_relative(name))

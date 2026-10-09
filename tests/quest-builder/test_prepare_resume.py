@@ -207,6 +207,66 @@ class JournalTests(unittest.TestCase):
         self.assertIsNone(second.value["pending"])
         second.close()
 
+    def test_directory_and_file_backups_report_real_bytes_and_restore_after_failed_compute(self):
+        from types import SimpleNamespace
+        rows = []
+        class Counter:
+            def __init__(self, phase, total, unit, detail=None):
+                self.phase, self.total, self.done = phase, total, 0
+                rows.append((phase, 0, total, unit))
+            def add(self, amount, detail=None):
+                self.done += amount; rows.append((self.phase, self.done, self.total, detail))
+            def finish(self):
+                if self.done != self.total: raise AssertionError("Measured work did not cover its declared total")
+        progress = SimpleNamespace(Counter=Counter, event=lambda *_args, **_kwargs: None)
+        large = b"original compute ledger" * 100000
+        original = self.put("QuestRecovery/original-asset-identities.json", large)
+        program = self.put("Assets/Compute/Programs/input.asset", b"original instructions")
+        empty = self.project / "Assets/Compute/Programs/empty"; empty.mkdir()
+        first = self.journal(progress=progress)
+        def action():
+            counts = [done for phase, done, total, _ in rows if phase == "prepare-items:campaign-compute-backup"]
+            self.assertGreater(len(counts), 2)
+            self.assertEqual(counts[-1], len(large) + len(b"original instructions"))
+            self.assertTrue(any(0 < done < counts[-1] for done in counts))
+            original.write_bytes(b"incomplete ledger")
+            program.unlink()
+            self.put("Assets/Compute/Programs/added.compute", b"partial generated instructions")
+            self.put("Assets/Compute/new.compute", b"partial")
+            raise storage.BuildError("Compute interrupted")
+        with self.assertRaisesRegex(storage.BuildError, "Compute interrupted"):
+            with first.operation("graphics", 1):
+                first.run("campaign-compute", "graphics", action, [], mutations=[
+                    "QuestRecovery/original-asset-identities.json", "Assets/Compute/Programs", "Assets/Compute/new.compute"])
+        first.close()
+        second = self.journal()
+        self.assertEqual(original.read_bytes(), large)
+        self.assertEqual(program.read_bytes(), b"original instructions")
+        self.assertTrue(empty.is_dir())
+        self.assertFalse((self.project / "Assets/Compute/Programs/added.compute").exists())
+        self.assertFalse((self.project / "Assets/Compute/new.compute").exists())
+        second.close()
+
+    def test_output_contract_counter_counts_required_and_explicitly_absent_paths_once(self):
+        from types import SimpleNamespace
+        rows = []
+        class Counter:
+            def __init__(self, phase, total, unit, detail=None):
+                self.phase, self.total, self.done = phase, total, 0
+                rows.append((phase, 0, total))
+            def add(self, amount, detail=None):
+                self.done += amount; rows.append((self.phase, self.done, self.total))
+            def finish(self):
+                if self.done != self.total: raise AssertionError("Incomplete output census")
+        first = self.journal(progress=SimpleNamespace(Counter=Counter, event=lambda *_args, **_kwargs: None))
+        def action(): self.put("Assets/result.compute", b"original instructions")
+        with first.operation("graphics", 1):
+            first.run("campaign-compute", "graphics", action,
+                      resume.Contracts(["Assets/result.compute", "Assets/old.asset", "Assets/result.compute"], absent=["Assets/old.asset"]))
+        self.assertEqual([done for phase, done, total in rows if phase == "prepare-items:campaign-compute-contracts"], [0, 1, 2])
+        self.assertEqual(len(first.value["steps"][0]["outputs"]), 2)
+        first.finish(); first.close()
+
     def test_corrupted_undo_preflight_changes_no_project_file(self):
         original = self.put("Assets/input", b"original")
         first = self.journal()
@@ -719,9 +779,25 @@ class PreparationPipelineTests(unittest.TestCase):
         if self.failure == "textures": raise storage.BuildError("fixture textures failure")
         return self.document(project, "Assets/QuestOriginalCampaign/native-texture2d.json", value)
     def compute(self, source, project, *_):
+        original = "Assets/Compute/Original.asset"
+        generated = "Assets/Compute/Original.compute"
+        inputs = {name: storage.digest(project / name) for name in (original, original + ".meta")}
         value = self.convert(project, "Assets/Compute/Original.asset", "Assets/Compute/Original.compute", b"original compute instructions")
-        self.document(project, "QuestStartupEvidence/compute-source-restoration.json", {})
-        return self.evidence(project, "compute", "Assets/QuestOriginalCampaign/campaign-computes.json", value)
+        value.pop("assets")
+        value.update({"scope": "complete-original-campaign-compute", "graphicsApi": "Vulkan",
+                      "shaderCount": 1, "kernelCount": 1, "originalInputsUnchanged": True,
+                      "files": {name: {"sha256": storage.digest(project / name), "bytes": (project / name).stat().st_size}
+                                for name in (generated, generated + ".meta")},
+                      "originalInputs": inputs, "removePaths": list(inputs),
+                      "shaders": [{"originalPath": original, "assetPath": generated, "kernelCount": 1,
+                                   "sourceSha256": storage.digest(project / generated),
+                                   "metaSha256": storage.digest(project / (generated + ".meta")),
+                                   "kernels": [{"name": "Original", "originalDxbcSha256": "a" * 64}]}]})
+        self.evidence(project, "compute", "Assets/QuestOriginalCampaign/campaign-computes.json", value)
+        self.document(project, "QuestStartupEvidence/compute-source-restoration.json", {
+            "manifestSha256": storage.digest(project / "Assets/QuestOriginalCampaign/campaign-computes.json"),
+            "androidCompiled": False, "hardwareVerified": False})
+        return value
     def shaders(self, source, project, *_):
         self.tick("shaders")
         self.write(project, "Assets/Shader/Original.shader", b"all native shader instructions")
