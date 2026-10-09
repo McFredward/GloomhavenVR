@@ -277,6 +277,81 @@ class JournalTests(unittest.TestCase):
         with self.assertRaisesRegex(storage.BuildError, "undo bytes changed"): self.journal()
         self.assertEqual(original.read_bytes(), b"partial")
 
+    def test_rollback_reports_qualify_and_restore_bytes_across_second_interruption(self):
+        from types import SimpleNamespace
+        events = []
+        class Counter:
+            def __init__(self, phase, total, unit, detail=None):
+                self.phase, self.total, self.done = phase, total, 0
+                events.append((phase, 0, total, "start"))
+            def add(self, amount, detail=None):
+                self.done += amount
+                if self.done > self.total: raise AssertionError("Rollback credited bytes twice")
+                events.append((self.phase, self.done, self.total, "progress"))
+            def finish(self):
+                if self.done != self.total: raise AssertionError("Incomplete rollback completed")
+                events.append((self.phase, self.done, self.total, "complete"))
+        progress = SimpleNamespace(Counter=Counter, event=lambda *_args, **_kwargs: None)
+        data = b"original compute payload" * 100000
+        left = self.put("Assets/left", data)
+        right = self.put("Assets/right", data)
+        first = self.journal()
+        def action():
+            left.write_bytes(b"partial left"); right.write_bytes(b"partial right")
+            raise storage.BuildError("Initial interruption")
+        with self.assertRaisesRegex(storage.BuildError, "Initial interruption"):
+            with first.operation("graphics", 1):
+                first.run("campaign-compute", "graphics", action, [], mutations=["Assets/left", "Assets/right"])
+        journal_path = first.journal
+        first.close()
+        actual_copy = resume.copy_changed
+        def interrupted(source, target, **kwargs):
+            if target == left: raise storage.BuildError("Restoration interrupted")
+            return actual_copy(source, target, **kwargs)
+        with patch.object(resume, "copy_changed", interrupted):
+            with self.assertRaisesRegex(storage.BuildError, "Restoration interrupted"):
+                self.journal(progress=progress)
+        self.assertEqual(right.read_bytes(), data)
+        self.assertEqual(left.read_bytes(), b"partial left")
+        self.assertIsNotNone(json.loads(journal_path.read_text())["pending"])
+        phase = "prepare-items:campaign-compute-rollback-restore"
+        self.assertFalse(any(status == "complete" for name, done, total, status in events if name == phase))
+        # The already restored right file takes the existing byte-qualified
+        # retained-copy path; the remaining left file uses streamed writes.
+        second = self.journal(progress=progress)
+        self.assertEqual(left.read_bytes(), data)
+        self.assertEqual(right.read_bytes(), data)
+        self.assertIsNone(second.value["pending"])
+        self.assertEqual([done for name, done, total, status in events if name == phase and status == "complete"], [2 * len(data)])
+        verify = "prepare-items:campaign-compute-rollback-verify"
+        self.assertEqual([done for name, done, total, status in events if name == verify and status == "complete"], [2 * len(data), 2 * len(data)])
+        self.assertTrue(any(0 < done < total for name, done, total, status in events if name in (phase, verify)))
+        second.close()
+
+    def test_corrupt_rollback_bytes_never_report_completed_verification_or_restoration(self):
+        from types import SimpleNamespace
+        events = []
+        class Counter:
+            def __init__(self, phase, total, unit, detail=None):
+                self.phase, self.done = phase, 0; events.append((phase, "start"))
+            def add(self, amount, detail=None): self.done += amount
+            def finish(self): events.append((self.phase, "complete"))
+        original = self.put("Assets/input", b"original")
+        first = self.journal()
+        def action(): original.write_bytes(b"partial"); raise storage.BuildError("Interrupted")
+        with self.assertRaises(storage.BuildError):
+            with first.operation("graphics", 1):
+                first.run("campaign-compute", "graphics", action, [], mutations=["Assets/input"])
+        backup = first.root / "undo-campaign-compute/0"
+        first.close(); backup.write_bytes(b"corrupt!")  # Same size; actual bytes must fail.
+        progress = SimpleNamespace(Counter=Counter, event=lambda *_args, **_kwargs: None)
+        with self.assertRaisesRegex(storage.BuildError, "undo bytes changed"):
+            self.journal(progress=progress)
+        self.assertEqual(original.read_bytes(), b"partial")
+        self.assertIn(("prepare-items:campaign-compute-rollback-verify", "start"), events)
+        self.assertNotIn(("prepare-items:campaign-compute-rollback-verify", "complete"), events)
+        self.assertFalse(any("rollback-restore" in phase for phase, status in events))
+
     def test_copy_cold_same_stamp_corruption_is_repaired_by_actual_bytes(self):
         source = self.root / "source"; source.write_bytes(b"original")
         first = self.journal(); target = self.project / "Assets/copied"

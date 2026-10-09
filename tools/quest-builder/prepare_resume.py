@@ -425,12 +425,37 @@ class Preparation:
                 for directory in row.get("directories", []): self._path(directory)
                 files.extend(row["files"])
             elif not row.get("absent"): files.append(row)
+        total = sum(row["size"] for row in files if not row.get("absent"))
+        verify_counter = self.progress.Counter("prepare-items:" + name + "-rollback-verify", total, "bytes",
+                                               "Qualifying saved inputs before interrupted-build restoration") if self.progress else None
         for row in files:
             self._path(row["path"])
             if row.get("absent"): continue
             saved = _ordinary_owned(undo / row["backup"])
-            if saved.parent != undo or not saved.is_file() or saved.stat().st_size != row["size"] or digest(saved) != row["sha256"]:
+            if saved.parent != undo or not saved.is_file() or saved.stat().st_size != row["size"]:
                 raise BuildError("Preparation undo bytes changed; no project file was overwritten: " + row["path"])
+            checksum = digest(saved, progress=lambda size: verify_counter.add(size, row["path"])) if verify_counter else digest(saved)
+            if checksum != row["sha256"]:
+                raise BuildError("Preparation undo bytes changed; no project file was overwritten: " + row["path"])
+        if verify_counter: verify_counter.finish()
+        restore_counter = self.progress.Counter("prepare-items:" + name + "-rollback-restore", total, "bytes",
+                                                "Restoring saved inputs for interrupted-build recovery") if self.progress else None
+        def restore(row):
+            streamed = 0
+            def transfer(size):
+                nonlocal streamed
+                streamed += size
+                restore_counter.add(size, row["path"])
+            def observed(_checksum):
+                # A second interruption can leave this original already
+                # restored. The existing copy qualifier reads it once and
+                # accepts it without another write; credit that accepted file
+                # only after its bytes and source/destination stamps qualify.
+                restore_counter.add(row["size"] - streamed, row["path"])
+            if restore_counter:
+                copy_changed(undo / row["backup"], self._path(row["path"]), observed=observed, transfer=transfer)
+            else:
+                copy_changed(undo / row["backup"], self._path(row["path"]))
         for row in reversed(rows):
             target = self._path(row["path"])
             self.witnesses.invalidate(target)
@@ -438,16 +463,17 @@ class Preparation:
                 if target.exists(): shutil.rmtree(target)
                 target.mkdir(parents=True)
                 for directory in row["directories"]: self._path(directory).mkdir(parents=True, exist_ok=True)
-                for member in row["files"]: copy_changed(undo / member["backup"], self._path(member["path"]))
+                for member in row["files"]: restore(member)
             elif row.get("absent"):
                 if target.is_dir(): shutil.rmtree(target)
                 else: target.unlink(missing_ok=True)
             else:
-                copy_changed(undo / row["backup"], target)
+                restore(row)
         # Keep the accepted pending journal until restoration is entirely done;
         # a second interruption can safely restore the same original files.
         self.value["pending"] = None
         write_json(self.journal, self.value)
+        if restore_counter: restore_counter.finish()
         if undo.exists(): shutil.rmtree(undo)
 
     def _undo(self, name, paths):
