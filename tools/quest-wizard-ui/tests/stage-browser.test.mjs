@@ -83,7 +83,7 @@ test('browser keeps a whole-stage total across phase resets and preserves the vi
     assert.equal(await client.evaluate("document.querySelectorAll('#stage-list progress')[5].value"),70);
     assert.equal(await client.evaluate("document.querySelectorAll('#gallery .art-card img').length"),6,'opening empty owned art preserves publisher slides');
     assert.match(await client.evaluate("document.getElementById('mod-source').textContent"),/1\.1\.0.*B627.*aaaaaaaaaa.*Builder-Paket/);
-    assert.equal(await client.evaluate("document.getElementById('progress-completed').textContent"),'Spielinhalte konvertieren: 2 / 22 Teilaufgaben abgeschlossen');
+    assert.equal(await client.evaluate("document.getElementById('progress-completed').textContent"),'Spielinhalte konvertieren: 2 / 22 Teilaufgaben abgeschlossen · 20 ausstehend');
     assert.equal(await client.evaluate("document.getElementById('elapsed-value').textContent"),'02:15:00');
     assert.equal(await client.evaluate("document.getElementById('stage-elapsed').textContent"),'Dieser Arbeitsschritt: 01:00:00');
     assert.equal(await client.evaluate("document.getElementById('eta-label').textContent"),'Geschätzte Restzeit der Datenpakete');
@@ -109,7 +109,7 @@ test('browser keeps a whole-stage total across phase resets and preserves the vi
     assert.equal(await client.evaluate("document.querySelectorAll('#stage-list progress')[5].value"),70.01);
     assert.equal(await client.evaluate("document.getElementById('substep-track').getAttribute('aria-valuenow')"),'25.2');
     assert.match(await client.evaluate("document.getElementById('progress-detail').textContent"),/4 \/ 20 Dateien/);
-    assert.equal(await client.evaluate("document.getElementById('progress-completed').textContent"),'Spielinhalte konvertieren: 4 / 22 Teilaufgaben abgeschlossen');
+    assert.equal(await client.evaluate("document.getElementById('progress-completed').textContent"),'Spielinhalte konvertieren: 4 / 22 Teilaufgaben abgeschlossen · 18 ausstehend');
     await delay(250);
     assert.equal(await client.evaluate("document.getElementById('progress-track').getAttribute('aria-valuenow')"),'70.01','elapsed time never invents additional progress');
     mode=3;
@@ -120,7 +120,7 @@ test('browser keeps a whole-stage total across phase resets and preserves the vi
     await client.wait("document.getElementById('progress-track').getAttribute('aria-valuenow')==='71.5'");
     assert.equal(await client.evaluate("document.getElementById('substep-track').hasAttribute('aria-valuenow')"),false,'unknown native progress is not fabricated');
     assert.match(await client.evaluate("document.getElementById('progress-detail').textContent"),/Unity is importing|nicht gemeldet/);
-    assert.equal(await client.evaluate("document.getElementById('progress-completed').textContent"),'Spielinhalte in Unity importieren: 0 / 1 Teilaufgaben abgeschlossen');
+    assert.equal(await client.evaluate("document.getElementById('progress-completed').textContent"),'Spielinhalte in Unity importieren: 0 / 1 Teilaufgaben abgeschlossen · 1 ausstehend');
     assert.equal(await client.evaluate("document.getElementById('stage-elapsed').textContent"),'Dieser Arbeitsschritt seit diesem Update: 01:00:04');
     assert.equal(await client.evaluate("document.getElementById('eta-value').textContent"),'Für diesen Abschnitt ist noch keine belastbare Schätzung möglich.');
     await client.picture('whole-stage-71-unknown-unity-phase-de');

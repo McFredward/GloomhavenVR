@@ -165,6 +165,11 @@ input::placeholder{color:#777e86}
 .build-operation-list li.has-subplan>.build-subplan{margin-left:12px;width:calc(100% - 12px)}
 .build-subplan{margin-top:10px;padding-top:10px;border-top:1px solid #ffffff12;font-size:11px;color:#b8c1ca}
 .build-subplan summary{cursor:pointer;line-height:1.6}
+.preparation-detail{width:100%;padding-left:12px}
+.unity-compiler{margin-top:12px;padding:12px;border:1px solid #ffffff20;border-radius:8px}
+.unity-compiler>strong{color:#e2c690}
+.unity-compiler>progress{width:100%;height:8px;accent-color:#d1b780}
+.unity-compiler .hint{margin:6px 0;overflow-wrap:anywhere}
 .setup-overview{margin:20px 0}
 .stage-list .failed{color:#f2b29f}
 .error-banner{border-color:#bb7f704b;background:#bb7f7009;color:var(--danger);font-size:12px;line-height:1.7}

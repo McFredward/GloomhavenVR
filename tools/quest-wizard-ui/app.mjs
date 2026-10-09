@@ -153,7 +153,11 @@ function workSummary(value) {
   const work=activeWorkView(value),operation=work?.operation;
   if(!work)return t('activeWorkUnknown');
   const label=operation?phaseLabel('operation:'+operation):t('activeWorkCurrent');
-  return t('activeWorkCompleted',{operation:label,done:new Intl.NumberFormat(language).format(work.done),total:new Intl.NumberFormat(language).format(work.total)});
+  const number=value=>new Intl.NumberFormat(language).format(value);
+  const lines=[t('activeWorkCompleted',{operation:label,done:number(work.done),total:number(work.total),remaining:number(work.total-work.done)})];
+  if(work.index)lines.push(t('activeWorkCheckpoint',{index:work.index,total:work.total,checkpoint:phaseLabel('prepare-substage:'+work.checkpoint)}));
+  if(work.passes)lines.push(t(work.passes.known?'activeWorkPasses':'buildPassObserved',{done:work.passes.done,total:work.passes.total,remaining:work.passes.total-work.passes.done}));
+  return lines.join(' · ');
 }
 function renderTiming(current) {
   const whole=timingView(state?.timing),stage=timingView(current?.timing),estimate=stage?.estimate;
@@ -174,14 +178,49 @@ function overviewList(rows,prefix,children) {
   const list=document.createElement('ol');list.className='build-operation-list';
   for(const row of rows){
     const item=document.createElement('li');item.className=row.status;item.dataset.operation=row.id;
-    const name=document.createElement('span');name.textContent=t(prefix+row.id);
-    const status=document.createElement('small');status.textContent=t('overview_'+row.status)+(row.closed?'':row.percent>0?' · '+t('measuredPercent',{percent:percentText(row.percent)}):'');
+    const name=document.createElement('span');name.textContent=t(prefix+row.id)+(row.conditional?' · '+t('buildPassConditional'):'');
+    const status=document.createElement('small');status.textContent=t('overview_'+row.status)+(row.closed?'':row.percent>0?' · '+t('measuredPercent',{percent:percentText(row.percent)}):'')+(row.counter&&!row.closed?' · '+counters(row.counter):'');
     item.append(name,status);
     const child=children?.(row);
     if(child){item.classList.add('has-subplan');item.append(child);}
     list.append(item);
   }
   return list;
+}
+function preparationDetail(operation,openPlans) {
+  const data=operation.preparation,compiler=operation.compiler;
+  if(!data&&!compiler)return null;
+  const container=document.createElement('div');container.className='preparation-detail';
+  if(data){
+    const plan=document.createElement('details');plan.className='build-subplan';plan.dataset.plan='prepare-'+operation.id;
+    plan.open=openPlans.has(plan.dataset.plan);
+    const label=document.createElement('summary');label.textContent=t('buildCheckpointSummary',{done:data.done,total:data.total,remaining:data.total-data.done});
+    plan.append(label,overviewList(data.checkpoints,'phase_prepare-substage:',checkpoint=>{
+      if(checkpoint.detail==='aggregate'){
+        const aggregate=document.createElement('p');aggregate.className='hint';aggregate.textContent=t('buildPreparationAggregate');return aggregate;
+      }
+      if(!checkpoint.passes.length)return null;
+      const part=document.createElement('details');part.className='build-subplan';part.dataset.plan='passes-'+checkpoint.id;
+      part.open=openPlans.has(part.dataset.plan);
+      const summary=document.createElement('summary');summary.textContent=t(checkpoint.passPlanKnown?'buildPassSummary':'buildPassObserved',{done:checkpoint.passDone,total:checkpoint.passTotal,remaining:checkpoint.passTotal-checkpoint.passDone});
+      part.append(summary,overviewList(checkpoint.passes,'phase_prepare-items:'));
+      if(checkpoint.nestedCounter){
+        const nested=document.createElement('p');nested.className='hint';nested.textContent=phaseLabel(checkpoint.nestedCounter.phase)+' · '+counters(checkpoint.nestedCounter);part.append(nested);
+      }
+      return part;
+    }));container.append(plan);
+  }
+  if(compiler){
+    const box=document.createElement('section');box.className='unity-compiler '+compiler.status;box.dataset.compilerOwner=operation.id;
+    const title=document.createElement('strong');title.textContent=t('phase_unity-shader-compile');
+    const scope=document.createElement('p');scope.className='hint';scope.textContent=t(compiler.scope==='task'?'shaderTaskScope':'shaderPassScope');
+    const status=document.createElement('p');status.className='hint';status.textContent=[t('overview_'+compiler.status),compiler.counter?counters(compiler.counter):'',compiler.percent===null?t('phaseUnknown'):t('phasePercent',{percent:percentText(compiler.percent)})].filter(Boolean).join(' · ');
+    const bar=document.createElement('progress');bar.max=100;bar.setAttribute('aria-label',t('phase_unity-shader-compile')+' · '+scope.textContent);
+    if(compiler.percent!==null)bar.value=compiler.percent;
+    const detail=document.createElement('p');detail.className='hint';detail.textContent=compiler.detail;
+    box.append(title,scope,status,bar,detail);container.append(box);
+  }
+  return container;
 }
 function renderBuildOverview() {
   const overview=buildOverviewView(state);$('build-overview').hidden=!overview;
@@ -201,7 +240,7 @@ function renderBuildOverview() {
     const heading=document.createElement('summary');
     const name=document.createElement('strong');name.textContent=t('buildGroup_'+group.id);
     const status=document.createElement('span');status.textContent=[t(active?'overviewCurrent':done===group.operations.length?'overviewSaved':'overviewRemaining'),done+' / '+group.operations.length].join(' · ');heading.append(name,status);heading.addEventListener('click',()=>buildGroupChoices.set(group.id,!card.open));card.append(heading);
-    card.append(overviewList(group.operations,'phase_operation_'));
+    card.append(overviewList(group.operations,'phase_operation_',operation=>preparationDetail(operation,openPlans)));
     if(group.id==='recovery'){
       const data=overview.recovery;
       if(data.batches){const packages=document.createElement('p');packages.className='hint';packages.textContent=t('buildBatchSummary',data.batches);card.append(packages);}

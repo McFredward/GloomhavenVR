@@ -473,7 +473,10 @@ class StageProgressTests(unittest.TestCase):
         self.assertAlmostEqual(scope['itemFraction'], .25 * .55)
         self.assertEqual(scope['items'], {'done': 250, 'total': 1000})
         self.assertEqual(row['progress']['activeWork'], {'operation': 'textures', 'done': 2, 'total': 3,
-                                                       'unit': 'steps', 'percent': 71.25})
+                                                       'unit': 'steps', 'percent': 71.25, 'remaining': 1,
+                                                       'index': 3, 'checkpoint': 'native-texture2d',
+                                                       'passes': {'done': 1, 'total': 9, 'remaining': 8,
+                                                                  'active': 'native-texture2d', 'known': True}})
         self.assertNotIn('textures', row['progressPlan']['completed'])
         self.store.progress(self.session, 'build', 'prepare-items:native-texture2d', 1000, 1000, 'items', status='complete')
         self.assertNotIn('textures', self.store.load(self.session)['stages'][5]['progressPlan']['completed'])

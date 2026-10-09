@@ -150,6 +150,34 @@ for name in ("campaign-shaders-extract", "campaign-shaders-variants"):
     STARTUP_ITEM_CHECKPOINTS[name] = "campaign-shaders"
     PREPARATION_ITEMS[name] = "graphics"
 
+# These are the producer's actual checkpoint plans. A denominator qualifies a
+# plan; an unfamiliar target is displayed from observed boundaries instead of
+# inventing unchecked children. Completed checkpoint counts and the current
+# checkpoint's ordinal are intentionally different numbers.
+PREPARATION_CHECKPOINTS = {
+    "project-files": ("base-project",),
+    "startup-content": ("post-effects", "loading-resources", "startup-movies", "native-sprites",
+                        "loading-sprite", "startup-audio", "ui-recipes", "startup-ui", "startup-blur",
+                        "dlc-selection", "file-extras"),
+    "native-runtime": ("native-runtime",), "audio": ("bundled-audio",),
+    "textures": ("native-cubemaps", "ordinary-texture-audit", "native-texture2d"),
+    "graphics": ("campaign-compute", "campaign-shaders"),
+    "mod-banks": ("startup-archive", "archive-cleanup", "package-settings", "mod-resource-banks"),
+    "preparation-contracts": ("compiler-contracts", "case-paths", "startup-compute", "script-orders", "final-settings"),
+}
+CONDITIONAL_PREPARATION_PASSES = {
+    "campaign-shaders": ("campaign-shaders-binary-materials", "campaign-shaders-material-containers"),
+}
+
+
+def _checkpoint_names(operation, total):
+    names = PREPARATION_CHECKPOINTS.get(operation, ())
+    if operation == "startup-content" and total == 8:
+        names = tuple(name for name in names if name not in ("native-sprites", "ui-recipes", "file-extras"))
+    if operation == "preparation-contracts" and total == 4:
+        names = tuple(name for name in names if name != "startup-compute")
+    return names if len(names) == total else ()
+
 
 def _item_checkpoint(name):
     return STARTUP_ITEM_CHECKPOINTS.get(name, "mod-resource-banks" if name in ENVIRONMENT_ITEM_SHARES else name)
@@ -215,6 +243,11 @@ def phase_operation(stage, phase, value):
         # reset affects only the secondary counter, never the stage high-water.
         if phase.startswith("bee-actions:"): return None, True
         if phase in ("unity-progress", "unity-asset-import"): return None, True
+        # A native Shader pass has its own variant denominator, not the total
+        # import/bank/player workload. Only the Editor's public task counter is
+        # a measured task fraction; native passes remain visible child detail.
+        if phase == "unity-shader-task": return None, True
+        if phase == "unity-shader-compile": return None, False
     if stage == "install" and phase == "install-content": return "content", True
     return None, False
 
@@ -288,6 +321,18 @@ def begin_attempt(row, boundary):
     plan.pop("liveStatus", None)
     plan["liveFractions"] = {}
     plan["preparationScopes"] = {}
+    # A retained checkpoint is durable; the previous run's open pass/variant
+    # counter is not. Preserve closed evidence and remove stale live detail.
+    for checkpoints in plan.get("preparationDetails", {}).values():
+        for checkpoint in checkpoints.values():
+            if checkpoint.get("closed"):
+                checkpoint["status"] = "retained"
+                for part in checkpoint.get("passes", {}).values():
+                    if part.get("closed"): part["status"] = "retained"
+            else:
+                checkpoint.update(status="pending", passes={})
+            checkpoint.pop("active", None)
+    plan["unityCompiler"] = {}
     recovery = plan.get("recovery", {})
     recovery.pop("liveSection", None)
 
@@ -405,6 +450,102 @@ def _ratio(value):
     done, total = value.get("done"), value.get("total")
     if done is None or total is None: return None
     return 1. if total == 0 else min(1., done / total)
+
+
+def _observe_preparation(plan, operation, value):
+    """Keep named checkpoint/pass evidence apart from weighted percentages.
+
+    Capture123047 showed a valid 1/2 closed checkpoint count for hundreds of
+    Shader bindings. The current second checkpoint and its distinct measured
+    passes were missing. Never convert a local alias 100% into completion of
+    the inventory pass, checkpoint, or operation.
+    """
+    phase, status = value["phase"], value.get("operationStatus", "progress")
+    if operation not in PREPARATION_CHECKPOINTS: return
+    records = plan.setdefault("preparationDetails", {}).setdefault(operation, {})
+    if phase.startswith("prepare-substage:"):
+        name = phase.split(":", 1)[1]
+        if CHECKPOINT_OWNERS.get(name) != operation: return
+        record = records.setdefault(name, {"passes": {}})
+        record.update(closed=status in ("complete", "reuse"), status=status)
+        if status == "start": record["active"] = None
+        return
+    scope = plan.get("preparationScopes", {}).get(operation, {})
+    if not scope.get("open") or plan.get("liveOperation") != operation: return
+    name = scope.get("name")
+    if CHECKPOINT_OWNERS.get(name) != operation: return
+    if not phase.startswith("prepare-items:"): return
+    part = phase.split(":", 1)[1]
+    if STARTUP_ITEM_CHECKPOINTS.get(part, _item_checkpoint(part)) != name: return
+    ratio = _ratio(value)
+    if ratio is None: return
+    record = records.setdefault(name, {"passes": {}})
+    record.update(closed=False, status="start")
+    if part in ("campaign-shaders-extract", "campaign-shaders-variants"):
+        # These repeat for every Shader and belong to the inventory's current
+        # item. Display their own counts, without adding another planned pass.
+        record["nestedCounter"] = {key: value.get(key) for key in ("phase", "done", "total", "unit", "detail")}
+        return
+    record.pop("nestedCounter", None)
+    previous = record["passes"].get(part, {})
+    closed = previous.get("closed", False) or status in ("complete", "reuse")
+    record["passes"][part] = {"closed": closed, "status": status, "percent": round(100 * ratio, 6),
+                               "done": value.get("done"), "total": value.get("total"), "unit": value.get("unit")}
+    record["active"] = part
+
+
+def _preparation_overview(plan, operation, failed=False):
+    scope = plan.get("preparationScopes", {}).get(operation, plan.get("preparationCompleted", {}).get(operation, {}))
+    total, done = scope.get("total"), scope.get("done")
+    if type(total) is not int or type(done) is not int or not 0 <= done <= total: return None
+    names = _checkpoint_names(operation, total)
+    if not names: return None
+    records = plan.get("preparationDetails", {}).get(operation, {})
+    active = scope.get("name") if scope.get("open") and plan.get("liveOperation") == operation else None
+    rows = []
+    for index, name in enumerate(names):
+        record = records.get(name, {})
+        closed = record.get("closed", False) or index < done or operation in plan["completed"]
+        status = ("failed" if failed else "checking" if closed else "running") if name == active else (
+            "reused" if record.get("status") == "reuse" else "complete" if record.get("status") == "complete"
+            else "retained") if closed else "pending"
+        parts = record.get("passes", {})
+        schedule = STARTUP_ITEM_SCHEDULES.get(name, {})
+        part_names = tuple(schedule) if name == active else tuple(parts)
+        conditional = CONDITIONAL_PREPARATION_PASSES.get(name, ())
+        branch_observed = any(part in parts for part in conditional)
+        branch_finished = any(part in parts for part in ("campaign-shaders-programs", "campaign-shaders-sources",
+                             "campaign-shaders-copy", "campaign-shaders-publish", "campaign-shaders-contracts"))
+        # Native binary materials are a conditional producer branch. Before
+        # witnessing that branch or the following producer, its possible plan
+        # is visible but cannot establish an exact remaining-task denominator.
+        if conditional and branch_finished and not branch_observed:
+            part_names = tuple(part for part in part_names if part not in conditional)
+        plan_known = bool(schedule) and (not conditional or branch_observed or branch_finished)
+        # A complete receipt may omit pass details on warm reuse. The aggregate
+        # proof is sufficient; do not expose freshly pending children below it.
+        aggregate = closed and (not parts or any(not part.get("closed") for part in parts.values())
+                                or bool(schedule) and not set(schedule).issubset(parts))
+        if aggregate: part_names = ()
+        child_rows = _overview_rows(part_names, [part for part, data in parts.items() if data.get("closed")],
+                                    {part: data.get("percent", 0.) / 100 for part, data in parts.items()},
+                                    record.get("active") if name == active else None,
+                                    {part: data.get("status") for part, data in parts.items()}, failed,
+                                    parts.get(record.get("active"), {}).get("status"))
+        for item in child_rows:
+            data = parts.get(item["id"], {})
+            if data: item["counter"] = {key: data.get(key) for key in ("done", "total", "unit")}
+            if item["id"] in conditional and not branch_observed: item["conditional"] = True
+        child_done = sum(item["closed"] for item in child_rows)
+        current_part = record.get("active")
+        rows.append({"id": name, "closed": closed, "status": status,
+                     "percent": 100. if closed else round(100 * scope.get("itemFraction", 0.), 6) if name == active else 0.,
+                     "passes": child_rows, "passDone": child_done, "passTotal": len(child_rows),
+                     "passPlanKnown": plan_known,
+                     "passActive": current_part if name == active else None, "detail": "aggregate" if aggregate else "observed",
+                     "nestedCounter": record.get("nestedCounter") if name == active else None})
+    return {"done": sum(item["closed"] for item in rows), "total": total, "remaining": sum(not item["closed"] for item in rows),
+            "active": active, "index": names.index(active) + 1 if active in names else None, "checkpoints": rows}
 
 
 def _preparation_fraction(plan, operation, value):
@@ -651,8 +792,18 @@ def _active_work(plan, current):
     else:
         done, total = (int(current in plan["completed"]), 1)
         fraction = 1. if done else plan.get("liveFractions", plan["fractions"]).get(current, 0.)
-    return {"operation": current, "done": done, "total": total, "unit": "steps",
-            "percent": None if fraction is None else round(100 * fraction, 6)}
+    value = {"operation": current, "done": done, "total": total, "unit": "steps",
+             "percent": None if fraction is None else round(100 * fraction, 6)}
+    preparation = _preparation_overview(plan, current)
+    if preparation:
+        value.update(done=preparation["done"], total=preparation["total"], remaining=preparation["remaining"],
+                     index=preparation["index"], checkpoint=preparation["active"])
+        active = next((item for item in preparation["checkpoints"] if item["id"] == preparation["active"]), None)
+        if active:
+            value["passes"] = {"done": active["passDone"], "total": active["passTotal"],
+                               "remaining": active["passTotal"] - active["passDone"], "active": active["passActive"],
+                               "known": active["passPlanKnown"]}
+    return value
 
 
 def _build_percent(plan):
@@ -691,6 +842,13 @@ def _build_overview(row, plan):
     if row["status"] == "complete": active = None
     operations = _overview_rows(planned_operations(row), plan["completed"], plan.get("liveFractions", plan["fractions"]), active,
                                plan.get("operationProofs"), row["status"] == "failed", plan.get("liveStatus"))
+    for item in operations:
+        detail = _preparation_overview(plan, item["id"], row["status"] == "failed" and item["id"] == active)
+        if detail: item["preparation"] = detail
+        compiler = plan.get("unityCompiler", {}).get(item["id"])
+        if compiler:
+            item["compiler"] = dict(compiler, status="failed" if row["status"] == "failed" and item["id"] == active
+                                     else "complete" if item["closed"] else "running" if item["id"] == active else "pending")
     groups = []
     shares = build_shares(plan)
     for name, names in UPDATE_GROUPS.get(workflow(row), BUILD_GROUPS).items():
@@ -752,6 +910,33 @@ def advance(row, value, operation=None, status=None):
     operation = operation or inferred or value.get("reportedOperation")
     status = status or value.get("operationStatus")
     if status is not None: value["operationStatus"] = status
+    compiler_counter = value["phase"] in ("unity-shader-compile", "unity-shader-task")
+    if compiler_counter:
+        # Child log readers can outlive their Unity job. An explicitly foreign
+        # bank/compiler cannot move the import or player frontier backwards.
+        live_owner = plan.get("liveOperation")
+        allowed = live_owner in ("mod-banks", "unity-import", "content-bank", "player", "update-code", "update-art")
+        if not allowed or operation not in (None, live_owner):
+            if operation is not None: value["reportedOperation"] = operation
+            operation, measured = None, False
+        else:
+            operation = live_owner
+            plan.setdefault("unityCompiler", {})[live_owner] = {
+                "phase": value["phase"], "done": value.get("done"), "total": value.get("total"),
+                "unit": value.get("unit"), "percent": value.get("percent"), "detail": value.get("detail"),
+                "scope": "pass" if value["phase"] == "unity-shader-compile" else "task"}
+            scope = plan.get("preparationScopes", {}).get(live_owner, {})
+            if value["phase"] == "unity-shader-task" and scope.get("open") and scope.get("name") == "mod-resource-banks":
+                measured = False
+                ratio = _ratio(value)
+                if ratio is not None and scope.get("total"):
+                    # Geometry owns the first half of this one checkpoint;
+                    # the Shader task gets a bounded compiler share, leaving
+                    # room for the bank's write/acceptance/publication work.
+                    scope["itemFraction"] = max(scope.get("itemFraction", 0.), .5 + .25 * ratio)
+                    fraction = (scope["done"] + min(.99, scope["itemFraction"])) / scope["total"]
+                    plan.setdefault("liveFractions", {})[live_owner] = min(.99, fraction)
+                    plan["fractions"][live_owner] = max(plan["fractions"].get(live_owner, 0.), min(.99, fraction))
     if row["id"] == "build" and value["phase"].startswith("prepare-items:"):
         # Counter producers need no duplicated parent argument. The actual
         # opened checkpoint, not a historical frontier, establishes ownership.
@@ -780,6 +965,7 @@ def advance(row, value, operation=None, status=None):
     child_boundary = (value["phase"].startswith(("recovery-section:", "staging-section:", "prepare-substage:", "prepare-items:"))
                       or value["phase"] in ("recovery-batches", "recovery-raw-reuse", "recovery-plan", "prepare-project-copy")
                       or movie_file_counter
+                      or compiler_counter
                       or workflow(row) in UPDATE_PLANS and value.get("childOperation") is not None)
     parent_status = "progress" if child_boundary else status
     preparation_counter = row["id"] == "build" and (value["phase"].startswith(("prepare-substage:", "prepare-items:")) or movie_file_counter)
@@ -806,6 +992,7 @@ def advance(row, value, operation=None, status=None):
         if fraction is not None:
             plan.setdefault("liveFractions", {})[operation] = min(.99, fraction)
             plan["fractions"][operation] = max(plan["fractions"].get(operation, 0.), min(.99, fraction))
+        _observe_preparation(plan, operation, value)
     elif row["id"] == "build" and value["phase"].startswith("operation:") and operation in operations:
         plan.get("preparationScopes", {}).pop(operation, None)
     if row["id"] == "build" and plan.get("liveOperation", current) == "recovery":

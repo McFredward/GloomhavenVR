@@ -91,16 +91,46 @@ export function activeWorkView(progress) {
   const work=progress?.activeWork;
   if(!work||!Number.isSafeInteger(work.done)||!Number.isSafeInteger(work.total)||work.total<1||work.done<0||work.done>work.total)return null;
   const operation=typeof work.operation==='string'&&/^[a-z0-9-]{1,64}$/.test(work.operation)?work.operation:null;
-  return {done:work.done,total:work.total,operation};
+  const value={done:work.done,total:work.total,operation};
+  if(Number.isSafeInteger(work.index)&&work.index>0&&work.index<=work.total&&typeof work.checkpoint==='string'&&/^[a-z0-9-]{1,80}$/.test(work.checkpoint)){
+    value.index=work.index;value.checkpoint=work.checkpoint;
+  }
+  const passes=work.passes;
+  if(passes&&Number.isSafeInteger(passes.done)&&Number.isSafeInteger(passes.total)&&passes.total>0&&passes.done>=0&&passes.done<=passes.total)
+    value.passes={done:passes.done,total:passes.total,active:typeof passes.active==='string'?passes.active:null,known:passes.known===true};
+  return value;
 }
 export function buildOverviewView(state) {
   const raw=state?.stages?.find(row=>row.id==='build')?.progress?.buildOverview;
   if(raw?.schema!==1||!Array.isArray(raw.groups)||raw.groups.length>8)return null;
-  const validId=id=>typeof id==='string'&&/^[a-z0-9-]{1,64}$/.test(id);
+  const validId=id=>typeof id==='string'&&/^[a-z0-9-]{1,80}$/.test(id);
+  const counter=value=>value&&Number.isSafeInteger(value.done)&&Number.isSafeInteger(value.total)&&value.done>=0&&value.total>=0&&value.done<=value.total
+    ?{done:value.done,total:value.total,unit:typeof value.unit==='string'?value.unit:null,phase:typeof value.phase==='string'?value.phase:null}:null;
   const normalize=rows=>Array.isArray(rows)&&rows.length<=32?rows.filter(row=>validId(row?.id)).map(row=>({id:row.id,
     status:['pending','running','checking','failed','retained','reused','complete'].includes(row.status)?row.status:'pending',
-    closed:row.closed===true,percent:typeof row.percent==='number'&&Number.isFinite(row.percent)&&row.percent>=0&&row.percent<=100?row.percent:0})):[];
-  const groups=raw.groups.filter(group=>validId(group?.id)).map(group=>({...group,operations:normalize(group.operations)}));
+    closed:row.closed===true,percent:typeof row.percent==='number'&&Number.isFinite(row.percent)&&row.percent>=0&&row.percent<=100?row.percent:0,
+    ...(counter(row.counter)?{counter:counter(row.counter)}:{}),...(row.conditional===true?{conditional:true}:{})})):[];
+  const preparation=value=>{
+    if(!value||!Array.isArray(value.checkpoints)||value.checkpoints.length>16)return null;
+    const checkpoints=normalize(value.checkpoints).map(row=>{
+      const source=value.checkpoints.find(item=>item.id===row.id),passes=normalize(source.passes);
+      return {...row,passes,passDone:passes.filter(item=>item.closed).length,passTotal:passes.length,passPlanKnown:source.passPlanKnown===true,
+        detail:source.detail==='aggregate'?'aggregate':'observed',nestedCounter:counter(source.nestedCounter)};
+    });
+    if(!checkpoints.length||new Set(checkpoints.map(item=>item.id)).size!==checkpoints.length)return null;
+    return {checkpoints,done:checkpoints.filter(item=>item.closed).length,total:checkpoints.length,
+      active:checkpoints.some(item=>item.id===value.active)?value.active:null};
+  };
+  const compiler=value=>{
+    if(!value||!['unity-shader-compile','unity-shader-task'].includes(value.phase))return null;
+    return {phase:value.phase,scope:value.scope==='task'?'task':'pass',counter:counter(value),
+      percent:typeof value.percent==='number'&&Number.isFinite(value.percent)&&value.percent>=0&&value.percent<=100?value.percent:null,
+      detail:typeof value.detail==='string'?value.detail.slice(0,1024):'',status:['running','failed','complete','pending'].includes(value.status)?value.status:'pending'};
+  };
+  const groups=raw.groups.filter(group=>validId(group?.id)).map(group=>({...group,operations:normalize(group.operations).map(row=>{
+    const source=group.operations.find(item=>item.id===row.id);
+    return {...row,preparation:preparation(source.preparation),compiler:compiler(source.compiler)};
+  })}));
   const operations=groups.flatMap(group=>group.operations);
   if(!operations.length||operations.length>32||new Set(operations.map(row=>row.id)).size!==operations.length)return null;
   const active=operations.some(row=>row.id===raw.active)?raw.active:null;

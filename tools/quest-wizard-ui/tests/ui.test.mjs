@@ -38,6 +38,27 @@ test('overview uses retained completion and explicit active work, never wizard s
   assert.equal(buildOverviewView({stages:[{id:'build',progress:{buildOverview:{...raw,groups:[...raw.groups,raw.groups[0]]}}}]}),null,'duplicate planned operations cannot inflate completion');
 });
 
+test('graphics ordinal, closed checkpoint count, named pass plan and native compiler scope stay distinct',()=>{
+  const work=activeWorkView({activeWork:{operation:'graphics',done:1,total:2,index:2,checkpoint:'campaign-shaders',passes:{done:4,total:14,active:'campaign-shaders-inventory',known:true}}});
+  assert.equal(work.done,1);assert.equal(work.index,2);assert.equal(work.passes.total,14);assert.equal(work.passes.known,true);
+  const checkpoints=[{id:'campaign-compute',closed:true,status:'retained',detail:'aggregate',percent:100,passes:[]},
+    {id:'campaign-shaders',closed:false,status:'running',percent:25,passPlanKnown:true,
+      passes:[{id:'campaign-shaders-backup',closed:true,status:'complete',percent:100},
+        {id:'campaign-shaders-inventory',closed:false,status:'running',percent:5,counter:{done:1,total:300,unit:'shaders'}}],
+      nestedCounter:{phase:'prepare-items:campaign-shaders-variants',done:10,total:10,unit:'variants'}}];
+  const raw={schema:1,active:'graphics',groups:[{id:'project',operations:[{id:'graphics',closed:false,status:'running',percent:51,
+    preparation:{checkpoints,active:'campaign-shaders'}}]}]};
+  const view=buildOverviewView({stages:[{id:'build',progress:{buildOverview:raw}}]});
+  const preparation=view.groups[0].operations[0].preparation;
+  assert.equal(preparation.done,1);assert.equal(preparation.total,2);
+  assert.equal(preparation.checkpoints[1].passDone,1);assert.equal(preparation.checkpoints[1].passTotal,2);
+  assert.equal(preparation.checkpoints[1].nestedCounter.done,10);
+  const compiler={phase:'unity-shader-compile',scope:'pass',done:4903,total:12288,unit:'variants',percent:100*4903/12288,status:'running'};
+  const compilerView=buildOverviewView({stages:[{id:'build',progress:{buildOverview:{...raw,groups:[{id:'project',operations:[{id:'mod-banks',closed:false,status:'running',percent:75,compiler}]}]}}}]}).groups[0].operations[0].compiler;
+  assert.equal(compilerView.scope,'pass');assert.equal(compilerView.counter.total,12288);
+  for(const language of ['de','en'])for(const key of ['activeWorkCheckpoint','activeWorkPasses','buildPassObserved','phase_unity-shader-compile','shaderPassScope','shaderTaskScope'])assert.notEqual(translate(language,key),key);
+});
+
 test('all fourteen project-staging sections and their file counters have plain localized labels',()=>{
   const sections=['catalog','canonical','copy','runtime','guid','layout','native','catalog-final','index','tmp','bindings','audit','scenes','report'];
   const phases=['recovery-asset-reference-file','recovery-section:staging','staging-copy','staging-copy-file','staging-report-hash',
