@@ -1,5 +1,15 @@
 # State — where the project stands
 
+**CI SDK lookup repair, 2026-10-09; runtime remains Build651.**
+
+The recurring649/651 CI failures came from three regression scripts assuming
+`~/.dotnet/dotnet` exists on hosted runners. They now respect explicit `DOTNET`,
+then the installed SDK on `PATH`, then the existing local fallback. All three
+full affected suites pass with an empty temporary home directory. Nine fast
+lookup regressions are required in CI; all original hosted gates remain strict.
+No runtime, asset, wire or build-number change. Scope and evidence:
+[CI-SDK-RESOLUTION-REVIEW.md](CI-SDK-RESOLUTION-REVIEW.md).
+
 **Build651 selected native game UI repairs, 2026-10-09: 1.1.0 development candidate.**
 
 Every patch in the supplied Bug Fixes5.0.0 package has an individual current-game,
