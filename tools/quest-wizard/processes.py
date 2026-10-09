@@ -13,6 +13,14 @@ import time
 from state import Cancelled, STAGES, WizardError, atomic_json, ordinary, stage_progress, native_memory_progress
 from stage_plan import PLANS, MEMORY_OBSERVATIONS
 
+# Pinned Unity2021.3 Bee actions witnessed in actual import/Android build logs.
+# A numeric frame plus an arbitrary word is deliberately not accepted as work.
+BEE_ACTIONS = (r"Csc|Clang|Compile|Link|CopyFiles|WriteText|WriteResponseFile|IL2CPP\w*|Generate\w*|"
+               r"Archive|Lump|Pch|MoveFiles|DeleteFiles|MovedFromExtractor(?:Combine)?|MakeLump|"
+               r"C_Android_arm64|Link_Android_arm64|UnityLinker|SplitFile|ActionGenerateProjectFiles|"
+               r"ExtractUsedFeatures|GuidGenerator|NdkObjCopy|ICallRegistrationGenerator|"
+               r"ClassRegistrationGenerator|Stripping|Adding")
+
 
 def diagnostic_command(argv):
     """Record tool invocation without credential flags or environment values."""
@@ -31,7 +39,12 @@ class ProgressParser:
     """Recognize measured counters, never infer a percentage from elapsed time."""
     def __init__(self):
         self.bee_runs = {}
+        self.bee_current = {}
         self.unity_operations = {}
+        self.active_operation = None
+        self.closed_operations = set()
+        self.import_runs = {}
+        self.import_pending = {}
         self.shader_runs = {}
         self.memory_rejections = set()
 
@@ -39,8 +52,54 @@ class ProgressParser:
         """Compiler logs belong to their actual child build, not Player import."""
         if re.fullmatch(r"mod-bundle(?:-launch)?-[A-Za-z0-9_.-]+\.log", source): return "mod-banks"
         if source.startswith(("update-code-unity", "update-sdk-unity")): return "update-code"
+        if re.fullmatch(r"package-import(?:-launch)?-[A-Za-z0-9_.-]+\.log", source): return "unity-import"
+        if re.fullmatch(r"package-api(?:-launch)?-[A-Za-z0-9_.-]+\.log", source): return "package-api"
+        if re.fullmatch(r"content-pack-[A-Za-z0-9_.-]+\.log", source): return "content-bank"
         if source in self.unity_operations: return self.unity_operations[source]
-        if re.fullmatch(r"unity-(?:build|launch)[A-Za-z0-9_.-]*\.log", source): return "unity-import"
+        if re.fullmatch(r"unity-(?:build|launch)[A-Za-z0-9_.-]*\.log", source):
+            if self.active_operation in ("unity-validation", "content-bank", "player"): return self.active_operation
+            return "unity-import"
+        return None
+
+    def _unity_fields(self, fields, source):
+        """Late child tails cannot reopen their successfully closed owner."""
+        operation = fields.get("operation") or self._unity_operation(source)
+        if operation in self.closed_operations: return None
+        if operation: fields["operation"] = operation
+        return fields
+
+    @staticmethod
+    def _unity_child(source):
+        return re.fullmatch(r"(?:package-(?:import|api)|content-pack|unity-(?:build|launch)|mod-bundle|update-(?:code|sdk)-unity)"
+                            r"[A-Za-z0-9_.-]*\.log", source) is not None
+
+    def _import_progress(self, line, source):
+        # In the pinned Unity 2021.3 log, "Start importing" is one completed
+        # synchronous call when its artifact and duration are already present.
+        # Count observed calls, including legitimate reimports. An AssetDatabase
+        # refresh has no public total before our Editor scripts have compiled;
+        # neither the source-file census nor elapsed time is its denominator.
+        start = re.match(r"Start importing (.+?) using Guid\([0-9a-f]{32}\) Importer\([^)]*\)", line)
+        # Importer warnings can insert a stack trace between the opening text
+        # and its artifact/duration suffix. Keep only one bounded current name
+        # for each source; an orphan suffix cannot invent a completed asset.
+        if len(self.import_runs) >= 64 and source not in self.import_runs:
+            self.import_runs.clear(); self.import_pending.clear()
+        if start: self.import_pending[source] = start[1].replace("\\", "/").rsplit("/", 1)[-1][:512]
+        match = re.search(r"-> \(artifact id: '[0-9a-f]{32}'\) in (\d+(?:\.\d+)?) seconds$", line)
+        completed = self.import_runs.get(source, 0)
+        if match and source in self.import_pending:
+            duration = float(match[1])
+            if not math.isfinite(duration): return None
+            completed += 1
+            self.import_runs[source] = completed
+            asset = self.import_pending.pop(source)
+            detail = f"Completed asset imports: {completed} · last: {asset} · last import: {duration:g} s"
+            return self._unity_fields({"phase": "unity-asset-import", "done": completed, "total": None,
+                                       "unit": "assets", "detail": detail[:1024], "status": "progress"}, source)
+        if line.startswith("Start importing "):
+            return self._unity_fields({"phase": "unity-import-activity", "done": completed, "total": None,
+                                       "unit": "assets", "detail": line[:1024], "status": "progress"}, source)
         return None
 
     def _shader_fields(self, source, run, *, failed=False):
@@ -168,20 +227,42 @@ class ProgressParser:
                             operation = self._unity_operation(source)
                             if operation: fields["operation"] = operation
                 if fields.get("operation") and fields["phase"] == "operation:" + fields["operation"]:
+                    # Only the runner can reopen a finished owner. Old Editor
+                    # logs may still contain an unread boundary from that job.
+                    owner = fields["operation"]
+                    if self._unity_child(source) and owner in self.closed_operations: return None
+                    if fields.get("status") in ("complete", "reuse"):
+                        self.closed_operations.add(owner)
+                    elif fields.get("status") == "start":
+                        self.closed_operations.discard(owner)
+                        self.active_operation = owner
                     self.unity_operations[source] = fields["operation"]
+                elif fields["phase"].startswith("unity-") or self._unity_child(source):
+                    return self._unity_fields(fields, source)
                 return fields
             except (ValueError, TypeError, WizardError): return None
         shader = self._shader_progress(line, source)
-        if shader is not None: return shader
-        match = re.fullmatch(r"\[\s*(\d+)/(\d+)\s+\d+(?:\.\d+)?s\]\s+(Csc|Clang|Compile|Link|CopyFiles|IL2CPP\w*|Generate\w*|Archive|Lump|Pch|MoveFiles|DeleteFiles)\b(.*)", line)
+        if shader is not None: return self._unity_fields(shader, source)
+        match = re.fullmatch(r"\[\s*(\d+)/(\d+)\s+\d+(?:\.\d+)?s\]\s+(" + BEE_ACTIONS + r")\b(.*)", line)
         if match:
             done, total = int(match[1]), int(match[2])
             if not total or done > total: return None
             previous, generation = self.bee_runs.get((source, total), (-1, 0))
             if done < previous: generation += 1
             self.bee_runs[(source, total)] = done, generation
-            return {"phase": f"bee-actions:{source}:{total}:{generation}"[:160], "done": done, "total": total,
-                    "unit": "actions", "detail": (match[3] + match[4])[:1024]}
+            fields = {"phase": f"bee-actions:{source}:{total}:{generation}"[:160], "done": done, "total": total,
+                      "unit": "actions", "detail": (match[3] + match[4])[:1024]}
+            self.bee_current[source] = fields
+            return self._unity_fields(dict(fields), source)
+        match = re.fullmatch(r"\[BUSY\s+(\d+(?:\.\d+)?)s\]\s+(" + BEE_ACTIONS + r")\b(.*)", line)
+        if match:
+            fields = dict(self.bee_current.get(source, {"phase": "unity-bee-activity", "done": None,
+                                                       "total": None, "unit": "actions"}))
+            # BUSY is a real activity heartbeat, not a newly completed action.
+            # Preserve the last measured DAG counter and its generation.
+            fields.update(detail=("Active compiler action: " + match[2] + match[3] + " · elapsed: " + match[1] + " s")[:1024],
+                          status="progress")
+            return self._unity_fields(fields, source)
         match = re.fullmatch(r"Installed content files: (\d+)/(\d+)\.", line)
         if match and 0 < int(match[2]) >= int(match[1]):
             return {"phase": "install-content", "done": int(match[1]), "total": int(match[2]), "unit": "files", "detail": line}
@@ -194,9 +275,9 @@ class ProgressParser:
         # before our source has compiled. No total is invented for a single asset.
         match = re.search(r"(?:Importing|Imported)\s+(\d+)\s+(?:assets|files)\s+(?:of|/)\s*(\d+)", line, re.I)
         if match and 0 < int(match[2]) >= int(match[1]):
-            return {"phase": "unity-asset-import", "done": int(match[1]), "total": int(match[2]), "unit": "assets", "detail": line[:1024]}
-        if line.startswith("Start importing "):
-            return {"phase": "unity-asset-import", "done": None, "total": None, "unit": None, "detail": line[:1024]}
+            return self._unity_fields({"phase": "unity-asset-import", "done": int(match[1]), "total": int(match[2]), "unit": "assets", "detail": line[:1024]}, source)
+        importing = self._import_progress(line, source)
+        if importing is not None: return importing
         milestones = ((r"^\[Package Manager\].*(?:Resolving|Registering|Installing)", "unity-packages"),
                       (r"^Begin MonoManager ReloadAssembly|^Reloading assemblies", "unity-domain"),
                       (r"^Compiling (?:shader|compute)|^Shader compiler", "unity-shaders"),
@@ -205,7 +286,10 @@ class ProgressParser:
                       (r"^Asset Pipeline Refresh", "unity-refresh"))
         for pattern, phase in milestones:
             if re.search(pattern, line):
-                return {"phase": phase, "done": None, "total": None, "unit": None, "detail": line[:1024]}
+                if re.fullmatch(r"package-import(?:-launch)?-[A-Za-z0-9_.-]+\.log", source):
+                    return self._unity_fields({"phase": "unity-import-activity", "done": self.import_runs.get(source, 0),
+                                              "total": None, "unit": "assets", "detail": line[:1024]}, source)
+                return self._unity_fields({"phase": phase, "done": None, "total": None, "unit": None, "detail": line[:1024]}, source)
         match = re.search(r"(?:Receiving objects|Resolving deltas|Counting objects):\s*\d+%\s*\((\d+)/(\d+)\)", line)
         if match and 0 < int(match[2]) >= int(match[1]):
             return {"phase": "git-transfer:" + source[:100], "done": int(match[1]), "total": int(match[2]), "unit": "objects", "detail": line[:1024]}
@@ -353,7 +437,7 @@ class Supervisor:
                 # Only known logs generated by this attempt are eligible. Old
                 # completed logs must not overwrite live stage counters.
                 candidates = sorted((entry for entry in folder.iterdir()
-                                     if re.fullmatch(r"(?:unity-(?:build|launch)|update-(?:code|sdk)-unity|recovery|recover|dotnet|mod|weave)[A-Za-z0-9_.-]*\.log", entry.name)
+                                     if re.fullmatch(r"(?:package-(?:import|api)|content-pack|unity-(?:build|launch)|update-(?:code|sdk)-unity|recovery|recover|dotnet|mod|weave)[A-Za-z0-9_.-]*\.log", entry.name)
                                      # A memory retry renames this run's old
                                      # log without changing its mtime. It stays
                                      # available for support, but reopening it
@@ -365,6 +449,7 @@ class Supervisor:
                     if path.parent == folder and path not in candidates: del tails[path]
                 for entry in candidates: tails.setdefault(entry, LogTail(entry))
         for tail in list(tails.values())[:16]:
+            pending_import = None
             for line in tail.read(final=final):
                 fields = parser.parse(line, tail.path.name)
                 if fields and self.stage:
@@ -373,7 +458,18 @@ class Supervisor:
                     # retain its raw task detail without letting it skip this
                     # stage's plan or turn logging into a build failure.
                     if fields.get("operation") not in PLANS[self.stage]: fields.pop("operation", None)
+                    if fields["phase"] in ("unity-asset-import", "unity-import-activity"):
+                        # A cold Editor imports 146903 assets in the measured
+                        # witness. Parse every completion, but publish the latest
+                        # count in each bounded tail read instead of rebuilding
+                        # the entire UI state for every asset in that read.
+                        pending_import = fields
+                        continue
+                    if pending_import:
+                        self.store.progress(self.session, self.stage, **pending_import)
+                        pending_import = None
                     self.store.progress(self.session, self.stage, **fields)
+            if pending_import: self.store.progress(self.session, self.stage, **pending_import)
 
     def run(self, argv, log, *, cwd=None, env=None, timeout=None, on_started=None, on_poll=None, acceptable_codes=(0,)):
         self.store.check_cancel(self.session)
