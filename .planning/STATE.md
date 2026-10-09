@@ -1,5 +1,56 @@
 # State — where the project stands
 
+**Quest retained-result hierarchy, fast qualification and download preflight,
+2026-10-09 (Builder only).**
+
+Capture 070011 identifies `07ebc472d` / ModBuild647 and an active Windows run at
+53%, not a new failed build. Opus and bundled audio succeed. The completed recovery
+project's absent inner counters were incorrectly shown as a fresh0/14 plan;
+aggregate closure now keeps its actual parent evidence without fabricated open
+children. Retained/reused/complete statuses share green styling. Actual capture
+replay remains monotone49→53 and browser-rendered snapshots preserve the same
+producer state.
+
+Recovery already reused191415 files/32.55GB with zero payload reads, but repeated
+per-file Windows metadata/path/database calls remain expensive. Guarded directory
+batches preserve true file IDs/change stamps and bound byte fallback to changed,
+legacy or unsupported records. The capture also repeats base/startup preparation;
+its complete manifests/journal are absent, so the exact reset trigger is not
+established. The exact reviewed observer profile retains all14 closed steps and
+Unity Library when migrating actual prior-release helper bytes. No Windows timing
+or headset acceptance is claimed. See [retained-output qualification](QUEST-FAST-RESUME-070011-20261009.md)
+and [progress hierarchy](QUEST-PROGRESS-070011-20261009.md).
+
+Independent outer Wizard stage receipts now retain the same strong witnesses.
+Publication records actual bytes; later unchanged qualification uses directory
+metadata. Legacy schema-1 receipts need one explicit byte qualification to seed
+their missing witnesses, then stay warm without rewriting the receipts. A real
+512MiB sparse output qualifies in a fresh process with payload reads prohibited;
+linked/changed/missing/corrupt evidence never becomes blind reuse. See
+[outer stage receipts](QUEST-WIZARD-RECEIPT-RESUME-20261009.md).
+
+Before conversion the Wizard probes actual missing HTTPS dependencies with tiny
+range reads; local artifacts avoid those requests. Failures name the dependency,
+keep the workspace and distinguish TLS/network failure from unavailable pins.
+Structured reports survive support log rollover. An actual cold-endpoint check
+finds the pinned FEX URL returning404; the current maintainer run already has its
+native runtime. Do not substitute a different native binary. A verified offline
+dependency preparation/store/pack is specified, but no fully offline closure or
+fresh disconnected Unity Personal activation is promised. See [preflight](QUEST-NETWORK-PREFLIGHT-20261009.md)
+and [offline feasibility](QUEST-OFFLINE-BUILDER-20261009.md).
+
+This repair keeps Runtime ModBuild647. Focused Builder/Wizard/browser checks and
+the extracted source release qualify these boundaries; earlier unchanged runtime
+compilation/AOT evidence remains applicable. No new APK, full shader audit or
+complete unrelated repository gate is asserted.
+
+Final integration checks:353 Wizard tests and23 UI/actual-browser tests pass.
+The195 focused Builder checks pass on the unchanged worker scope; the integrator
+also reruns46 witness,55 recovery and13 producer-identity checks, plus the exact
+prior-source14-checkpoint pipeline. Capacity qualification precedes networking
+and runs only once at tools entry. Space fixtures declare their base-game DLC
+selection and isolate download probing rather than depending on Internet state.
+
 **Quest Windows Opus download retry, 2026-10-09 (Builder only).**
 
 Capture 054817 identifies `085e037ce` / ModBuild 647: recovery reused, twelve preparation

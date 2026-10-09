@@ -140,10 +140,14 @@ class Engine:
                     helper = discovery.builder(self.repo)
                     helper._local_helper("update_driver").preflight(helper, state["choices"]["gameRoot"], state["choices"]["baseApk"], state["choices"]["mode"])
                 if stage == "tools" and not self.actions:
+                    # Capacity takes precedence over network setup, including
+                    # reused tools. Do this once before receipts/downloads.
+                    self.store.operation(session, "tools", "qualify", detail="Checking available memory, disk space and supported host.")
+                    self.qualify(state, stage=stage)
+                    self.store.operation(session, "tools", "qualify", complete=True, detail="Host capacity checked.")
                     self.check_downloads(state)
                 prior = self.store.valid(session, stage, key, report_progress=True)
                 if prior:
-                    if stage == "tools" and not self.actions: self.qualify(state, stage=stage)
                     row.update(status="complete", details=prior["details"], durationSeconds=round(time.monotonic() - started, 3))
                     self.store.clear_waiting(session, stage)
                     self.store.progress(session, stage, "complete", 1, 1, "stages", "Verified stage outputs reused.")
@@ -264,9 +268,7 @@ class Engine:
         return qualification
 
     def stage_tools(self, state, supervisor):
-        self.store.operation(state["session"], "tools", "qualify", detail="Checking available memory, disk space and supported host.")
-        self.qualify(state)
-        self.store.operation(state["session"], "tools", "qualify", complete=True, detail="Host capacity checked.")
+        # The runner qualifies capacity before receipt reuse and preflight.
         if (os.name != 'nt' and state['choices'].get('provider') == 'steam'
                 and state['choices'].get('mode', 'build') != 'update-profile'
                 and 'ownedDlc' not in state['choices']):

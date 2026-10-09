@@ -226,6 +226,7 @@ def probe(row, *, opener=None):
             elif isinstance(reason, ssl.SSLCertVerificationError): detail = 'TLS certificate verification failed: ' + getattr(reason, 'verify_message', str(reason))
             else: detail = str(reason)
             detail = re.sub(r'https?://[^\s<>]+', lambda m: location(m[0]), detail)
+            if isinstance(error, urllib.error.HTTPError): error.close()
             attempts.append({'url': location(url), 'status': 'unreachable', 'reason': detail[:512]})
     return {**public, 'status': 'unreachable', 'attempts': attempts}
 

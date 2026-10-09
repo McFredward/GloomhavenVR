@@ -6,7 +6,8 @@ The Wizard checks the known missing download endpoints before entering its long
 conversion stages. It reads small recipe declarations, pinned archive sizes and
 local tool markers; it does not launch compilers or hash game/recovered assets.
 Each producer retains authority over actual hashes, licensing and output reuse.
-The check is repeated on a new run, including a retry, so a fixed connection can
+Host/disk capacity is checked once first, before receipt qualification and
+endpoint access. The check is repeated on a new run, including a retry, so a fixed connection can
 continue the same session without discarding completed work.
 
 Windows x64 and Linux x86-64 select their own locked tools. Full builds include
@@ -57,7 +58,7 @@ compact endpoint evidence is retained outside the handoff folder at
 
 ## Focused verification
 
-- 23 preflight tests cover operation-specific dependencies, actual recipe and
+- 25 preflight tests cover capacity-before-network order, operation-specific dependencies, actual recipe and
   requirements identities, old native archive keys, local no-network paths,
   bounded fallback, cancellation, unavailable pins, retry and failure persistence.
 - Real ephemeral HTTPS servers verify an untrusted certificate is rejected,

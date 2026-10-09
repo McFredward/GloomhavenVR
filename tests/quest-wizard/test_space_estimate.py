@@ -172,12 +172,13 @@ class SpaceTests(unittest.TestCase):
             return run
         for stage in state.STAGES[1:]: setattr(engine, 'stage_' + stage, action(stage))
         with mock.patch.object(qualification.shutil, 'disk_usage', side_effect=lambda _: SimpleNamespace(free=free[0])), \
+             mock.patch.object(engine, 'check_downloads'), \
              mock.patch.object(provision, 'tools', side_effect=action('tools')):
             return engine.run(saved['session'])
 
     def test_insufficient_build_space_stops_before_tools_are_downloaded(self):
         store = state.Store(self.workspace)
-        saved = store.create(wizard.choices({'gameRoot': str(self.game)})); calls = []
+        saved = store.create(wizard.choices({'gameRoot': str(self.game), 'ownedDlc': []})); calls = []
         result = self.run_fixture(store, saved, calls, [8 * qualification.GIB])
         self.assertEqual(result['status'], 'blocked'); self.assertEqual(calls, [])
         self.assertEqual(result['needsActions'][0]['code'], 'workspace_build_space_low')
@@ -185,7 +186,7 @@ class SpaceTests(unittest.TestCase):
 
     def test_reused_tools_do_not_bypass_new_capacity_check_or_remove_receipts(self):
         store = state.Store(self.workspace)
-        saved = store.create(wizard.choices({'gameRoot': str(self.game)})); calls = []
+        saved = store.create(wizard.choices({'gameRoot': str(self.game), 'ownedDlc': []})); calls = []
         first = self.run_fixture(store, saved, calls, [32 * qualification.GIB], cancel_build=True)
         self.assertEqual(first['status'], 'cancelled')
         receipt = store.receipt(saved['session'], 'inspect').read_bytes()
@@ -203,7 +204,7 @@ class SpaceTests(unittest.TestCase):
         for previous, blocked in [('profile', 'inspect'), ('inspect', 'build')]:
             with self.subTest(blocked=blocked):
                 store = state.Store(self.workspace / blocked)
-                saved = store.create(wizard.choices({'gameRoot': str(self.game)})); calls = []; free = [32 * qualification.GIB]
+                saved = store.create(wizard.choices({'gameRoot': str(self.game), 'ownedDlc': []})); calls = []; free = [32 * qualification.GIB]
                 result = self.run_fixture(store, saved, calls, free,
                                           after=lambda stage: free.__setitem__(0, 8 * qualification.GIB) if stage == previous else None)
                 self.assertEqual(result['status'], 'blocked')

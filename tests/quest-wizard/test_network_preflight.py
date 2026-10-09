@@ -91,6 +91,13 @@ class ProbeTests(unittest.TestCase):
         self.assertIn('HTTP 404', caught.exception.parameters['failedDependencies'][0]['attempts'][0]['reason'])
         self.assertNotIn('Internetverbindung', caught.exception.message['de'])
 
+    def test_error_responses_are_closed_before_trying_fallback(self):
+        body = io.BytesIO(b'not found')
+        failure = urllib.error.HTTPError('https://primary.invalid/source', 404, 'Not Found', {}, body)
+        result = network.probe(dependency(), opener=Mock(side_effect=[failure, Response(b'archive byte')]))
+        self.assertEqual(result['status'], 'reachable')
+        self.assertTrue(body.closed)
+
 
 class InventoryTests(unittest.TestCase):
     def setUp(self):
@@ -171,6 +178,18 @@ class InventoryTests(unittest.TestCase):
 
 
 class EngineTests(unittest.TestCase):
+    def test_capacity_failure_precedes_endpoint_and_receipt_checks(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            store = state.Store(Path(temporary) / 'workspace')
+            saved = store.create(wizard.choices({'gameRoot': str(Path(temporary) / 'Game'), 'install': False}))
+            engine = wizard.Engine(store)
+            error = state.WizardError('workspace_build_space_low', 'Insufficient space', 'Zu wenig Speicherplatz')
+            with patch.object(engine, 'qualify', side_effect=error), \
+                 patch.object(engine, 'check_downloads') as endpoints, patch.object(store, 'valid') as receipts:
+                result = engine.run(saved['session'])
+            self.assertEqual(result['needsActions'][0]['code'], 'workspace_build_space_low')
+            endpoints.assert_not_called(); receipts.assert_not_called()
+
     def test_early_failure_preserves_outputs_and_never_launches_stages(self):
         with tempfile.TemporaryDirectory() as temporary:
             store = state.Store(Path(temporary) / 'workspace')
@@ -178,7 +197,7 @@ class EngineTests(unittest.TestCase):
             witness = store.root / 'retained.bin'; witness.write_bytes(b'retained completed data')
             engine = wizard.Engine(store)
             error = state.WizardError('network_preflight_failed', 'Opus unavailable', 'Opus nicht erreichbar', completedWorkRetained=True)
-            with patch.object(engine, 'check_downloads', side_effect=error), patch.object(engine, 'stage_tools', side_effect=AssertionError('No tool action should start')):
+            with patch.object(engine, 'qualify'), patch.object(engine, 'check_downloads', side_effect=error), patch.object(engine, 'stage_tools', side_effect=AssertionError('No tool action should start')):
                 result = engine.run(saved['session'])
             self.assertEqual(result['status'], 'blocked')
             self.assertEqual(result['needsActions'][0]['code'], 'network_preflight_failed')
@@ -192,7 +211,7 @@ class EngineTests(unittest.TestCase):
             engine = wizard.Engine(store); checked = []
             failed = {**dependency(), 'status': 'unreachable', 'attempts': [{'url': 'https://primary.invalid/source', 'reason': 'fixture DNS failure'}]}
             real_check = network.check
-            with patch.object(network, 'inventory', return_value=[dependency()]), \
+            with patch.object(engine, 'qualify'), patch.object(network, 'inventory', return_value=[dependency()]), \
                  patch.object(network, 'check', side_effect=lambda rows, **kw: real_check(rows, probe_fn=lambda _: failed, **kw)):
                 result = engine.run(saved['session'])
             report = json.loads((store.session_dir(saved['session']) / 'network-preflight.json').read_text())
