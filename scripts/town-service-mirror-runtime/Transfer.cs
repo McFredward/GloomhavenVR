@@ -39,6 +39,7 @@ namespace GloomhavenVR.Cards
         public bool TrySweepDistance(Vector3 point,out float distance) {distance=point.magnitude;return true;}
     }
     internal sealed partial class VRCard : TransferProbe {
+        internal VRHand? Holder;
         private Transform? _backing;
         private Vector2 _backingBaseSize;
         private bool _proceduralBacking;
