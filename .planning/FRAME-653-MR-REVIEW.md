@@ -73,6 +73,7 @@ intended algorithm. Explicit boundaries are recorded with every fixture.
 | MR scenario ownership |79 assertions +6 controls | Existing scenery-retirement and sky-furniture fixture |
 | Options notes |462 assertions +3 controls | Actual Unity native row layout/glyphs |
 | Graphics profiles |281 assertions | Existing profile/default boundary |
+| Player help |2302 lookup assertions +8 controls | Exact bilingual setting/help coverage |
 | Direct golden vectors |299715 assertions | Complete wire executable; not a new complete local-suite invocation |
 | Source group |16/16 | All registered source gates |
 | Strict Debug/Release |0 warnings,0 errors | Integrated production builds |
@@ -89,8 +90,16 @@ the MR scenario fixture's obsolete exact chromakey-only source assertion, and
 Build652's overlong wall-mode tooltip. The MR assertion now explicitly preserves
 the old VR/config guards and pins the new accepted-alpha guard; only its affected
 scope was repeated, passing79 assertions and all six causal controls. The wall
-help repair is owned by the independent652 integration; final evidence is added
-after rebasing that repair. These original failures remain in the receipts.
+help repair is owned by the independent652 integration. Rebase onto6aa8ca33f
+and its focused repeat pass2302 lookup assertions and all eight controls. These
+original failures remain in the receipts; all twelve scopes now have passing
+composite evidence, without repeating the ten unchanged successful scopes.
+
+Final independent source review found that Shutdown reaches Forget without
+ClearRows. Forget now also releases the MR availability delegates without
+touching dead native objects; the actual UI production variant repeats84
+assertions and binds both cleanup paths. The earlier six unchanged UI causal
+controls remain inherited rather than falsely reported as freshly repeated.
 
 The current private compiled comparison adds three MR types and changes only
 MixedReality, OpenXrEnvironmentBlendFeature, Loc and VROptionsTab behavior.
