@@ -227,3 +227,16 @@ The final matching-root Flight658 native/loss/census check also passes against
 that exact private production copy: `native-flight-proof/run-gv_6gmxd`, with
 8597assertions and both original admission/header controls. No capacity threshold
 or protocol grammar was changed by this geometry repair.
+
+
+The integrator reviewed and cherry-picked the repair as ea98f6b5c. Unchanged
+checks bound directly to that integration source pass: Merchant661 native6815
+and native-width2306assertions plus all five original controls
+(`merchant-integration-ea98/run-zfcut0v1`); legacy Return646500/324assertions
+plus both artwork/clock controls (`return646-integration-ea98/run-wqw6w867`);
+and current MotionWire15294assertions (`motion-wire-integration-ea98/run-mqhht1um`).
+Merchant was run first and Return646 afterwards. No geometry rerun or changed
+assertion was used to count these results. Final worker source checks also pass
+16/16 (`source-checks/results.json`). These are new focused checks only; no
+complete local gate or headset acceptance is inferred. Both sides of the first
+positive native-return front/back readbacks were personally inspected.
