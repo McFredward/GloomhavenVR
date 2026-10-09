@@ -40,6 +40,10 @@ PREFIX_MOD_BANK_HELPERS = {"tools/quest-builder/environment_bank.py"}
 PREFIX_DELIVERY_HELPERS = {"tools/quest-builder/release.py", "tools/quest-builder/support.py",
                            "tools/quest-builder/README.md", "Quest-Builder.cmd", "Quest-Builder.sh",
                            "QUEST-BUILDER-START.txt"}
+# The captured Windows TLS failure precedes the first completed native-runtime
+# transaction. Its Opus downloader cannot produce any earlier original assets.
+# Once that transaction closes, this source again qualifies the native outputs.
+PREFIX_NATIVE_DOWNLOAD_HELPERS = {"tools/quest-network/native.py"}
 
 # Exact producer profiles reviewed against the original movie/audio outputs.
 # These are aliases for this repair, never a general exclusion from identity.
@@ -126,6 +130,12 @@ def _original_game_prefix(value, target):
     return isinstance(pending, dict) and (pending.get("name"), pending.get("operation")) == next_phase
 
 
+def _native_unconsumed(value, target):
+    """Admit only the witnessed ordered prefix before native-runtime commits."""
+    return (target == "game" and _original_game_prefix(value, target)
+            and not any(step["name"] == "native-runtime" for step in value["steps"]))
+
+
 LOAD = ast.parse('preparation_identity = _local_helper("preparation_identity")').body[0]
 REBIND = ast.parse(
     "prior_preparation_key = preparation_identity.rebind_key("
@@ -196,7 +206,7 @@ def _builder_bytes(root, records):
     return raw
 
 
-def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=False):
+def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=False, native_unconsumed=False):
     records = recovery._records(inputs["mod"]["files"], "size")
     builder = builder_producer_digest(_builder_bytes(source, records), original_prefix=original_prefix)
     rows = _reviewed_startup_rows(recovery.preparation_source_rows(inputs["mod"]["files"]))
@@ -214,6 +224,8 @@ def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=Fal
                 and row["path"] not in PREFIX_MOD_BANK_HELPERS | PREFIX_DELIVERY_HELPERS]
         if ui_unconsumed:
             rows = [row for row in rows if row["path"] not in PREFIX_UNUSED_TOOLS]
+        if native_unconsumed:
+            rows = [row for row in rows if row["path"] not in PREFIX_NATIVE_DOWNLOAD_HELPERS]
     scope = copy.deepcopy({key: value for key, value in inputs.items() if key not in ("inputKey", "mod")})
     scope["mod"] = {"producerFiles": rows, "builderProducerAstSha256": builder}
     if not original_prefix:
@@ -253,8 +265,11 @@ def rebind_key(output, project, inputs, source, *, target, recipe, recovery):
         if not ui_unconsumed:
             return None
     original_prefix = _original_game_prefix(value, target)
-    before = _scope(previous, previous_source, recovery, original_prefix=original_prefix, ui_unconsumed=ui_unconsumed)
-    after = _scope(inputs, source, recovery, original_prefix=original_prefix, ui_unconsumed=ui_unconsumed)
+    native_unconsumed = _native_unconsumed(value, target)
+    before = _scope(previous, previous_source, recovery, original_prefix=original_prefix,
+                    ui_unconsumed=ui_unconsumed, native_unconsumed=native_unconsumed)
+    after = _scope(inputs, source, recovery, original_prefix=original_prefix,
+                   ui_unconsumed=ui_unconsumed, native_unconsumed=native_unconsumed)
     if value_hash(before) != value_hash(after):
         return None
     print("preparation resume: retaining witnessed conversions across compatible producer inputs; "

@@ -1,5 +1,17 @@
 # State — where the project stands
 
+**Quest Windows Opus download retry, 2026-10-09 (Builder only).**
+
+Capture 054817 identifies `085e037ce` / ModBuild 647: recovery reused, twelve preparation
+checkpoints closed, Proton static audit passed, then the Opus download's TLS
+certificate check failed. Prefer the exact official GitHub release with one
+verified HTTPS fallback; preserve the original checksum, report real download
+bytes and expose a specific certificate failure. The ordered pre-native journal
+retains all twelve earlier checkpoints across this helper repair. Actual ARM64
+codec compilation, TLS controls, preparation/recovery retries and delivery checks
+cover the boundary; Windows whole-build/HMD acceptance remains unverified.
+See [native download follow-up](QUEST-WINDOWS-OPUS-20261009.md).
+
 **Quest Linux and Windows Builder support, 2026-10-09 (Builder only).**
 
 The game-free source ZIP includes CMD and Bash launchers for Windows x64 and

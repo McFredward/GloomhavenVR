@@ -366,6 +366,64 @@ class ActualPreparationMigrationTests(unittest.TestCase):
         self.assertIsNone(identity.rebind_key(f.output, project, current, f.source,
                           target="game", recipe=builder.RECIPE, recovery=recovery_resume))
 
+    def test_native_download_repair_retains_twelve_steps_and_retries_only_native_runtime(self):
+        f = self.fixture
+        self.stop = False
+        native_file = 'tools/quest-network/native.py'
+        f.write(f.source, native_file, b'# Previous native downloader fixture.\n')
+        self.previous = self.inputs()
+        self.previous_source = f.output / 'inputs/mod' / self.previous['mod']['key']
+        shutil.copytree(f.source, self.previous_source, dirs_exist_ok=True)
+        attempts = []
+        def native(source, project, *_a, **_k):
+            attempts.append('native')
+            if len(attempts) == 1:
+                raise storage.BuildError('CERTIFICATE_VERIFY_FAILED native download fixture')
+            return f.native(source, project)
+        def audio(*_a, **_k):
+            raise storage.BuildError('Reached next audio producer')
+        f.stack.enter_context(patch.object(sys.modules['campaign_native'], 'stage', native))
+        f.stack.enter_context(patch.object(sys.modules['full_audio'], 'stage', audio))
+        with self.assertRaisesRegex(storage.BuildError, 'CERTIFICATE_VERIFY_FAILED'):
+            f.run_prepare()
+        project = f.project()
+        journal = f.output / 'cache/prepare-resume' / project.name / 'journal.json'
+        original = json.loads(journal.read_text())
+        self.assertEqual(len(original['steps']), 12)
+        self.assertEqual(original['pending']['name'], 'native-runtime')
+        calls = dict(f.calls)
+        library = f.write(project, 'Library/retained-import', b'existing original import')
+        f.write(f.source, native_file, b'# Corrected native downloader fixture.\n')
+        current = self.inputs()
+        self.assertEqual(identity.rebind_key(f.output, project, current, f.source,
+                         target='game', recipe=builder.RECIPE, recovery=recovery_resume), self.previous['inputKey'])
+        # An unknown completed producer still blocks migration at this boundary.
+        changed = copy.deepcopy(current)
+        next(row for row in changed['mod']['files'] if row['path'] == 'tools/quest-recovery/case_paths.py')['sha256'] = 'f' * 64
+        changed['mod']['key'] = storage.value_hash({'files': changed['mod']['files']})
+        changed.pop('inputKey'); changed['inputKey'] = storage.value_hash(changed)
+        storage.write_json(f.output / 'manifests' / (changed['inputKey'] + '.json'), changed)
+        self.assertIsNone(identity.rebind_key(f.output, project, changed, f.source,
+                          target='game', recipe=builder.RECIPE, recovery=recovery_resume))
+        with patch.object(builder.prepare_resume, 'copy_changed', side_effect=AssertionError('Closed startup files must not recopy')):
+            with self.assertRaisesRegex(storage.BuildError, 'Reached next audio producer'):
+                f.run_prepare()
+        calls['native'] = calls.get('native', 0) + 1
+        self.assertEqual(f.calls, calls)
+        self.assertEqual(len(attempts), 2)
+        retained = json.loads(journal.read_text())
+        self.assertEqual(len(retained['steps']), 13)
+        self.assertEqual(retained['steps'][:12], original['steps'])
+        self.assertEqual(retained['inputKey'], current['inputKey'])
+        self.assertEqual(library.read_bytes(), b'existing original import')
+        # Once native-runtime has committed, a later native edit must qualify
+        # a new recipe instead of claiming its completed output is unchanged.
+        shutil.copytree(f.source, f.output / 'inputs/mod' / current['mod']['key'], dirs_exist_ok=True)
+        f.write(f.source, native_file, b'# A later different native producer.\n')
+        newer = self.inputs()
+        self.assertIsNone(identity.rebind_key(f.output, project, newer, f.source,
+                          target='game', recipe=builder.RECIPE, recovery=recovery_resume))
+
     def test_partial_unknown_progress_profile_and_completed_ui_never_receive_transport_alias(self):
         project, journal, _, _ = self.startup_transport_failure()
         f = self.fixture

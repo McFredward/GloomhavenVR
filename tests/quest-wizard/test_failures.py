@@ -91,6 +91,30 @@ class FailureTests(unittest.TestCase):
         self.assertEqual(event["parameters"]["error"], "ValueError")
         self.assertIn("Invalid owned asset index", event["parameters"]["traceback"])
 
+    def test_current_certificate_failure_names_download_and_retained_work(self):
+        causes = ('<urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1082)>',
+                  'Opus source download failed with verified HTTPS: TLS certificate validation failed: unable to get local issuer certificate')
+        for cause in causes:
+            with self.subTest(cause=cause):
+                self.log.write_text('Quest builder: ' + cause)
+                atomic_json(self.root / 'build/last-failure.json', {
+                    'schema': 1, 'stage': 'prepare', 'error': 'URLError', 'message': cause})
+                error = tool_failure(self.root, 'build', self.log, time.time() - 1, 'python.exe', 1)
+                self.assertIn('HTTPS-Download', error.message['de'])
+                self.assertIn('Zertifikatsprüfung', error.message['de'])
+                self.assertTrue(error.parameters['completedWorkRetained'])
+                self.assertEqual(error.parameters['builderError'], cause)
+                self.assertEqual(error.parameters['failureStage'], 'prepare')
+
+    def test_old_certificate_failure_cannot_mislabel_current_compiler_failure(self):
+        self.log.write_text('Quest builder: error CS1002: ; expected')
+        failure = self.root / 'build/last-failure.json'
+        atomic_json(failure, {'schema': 1, 'stage': 'prepare', 'message': 'CERTIFICATE_VERIFY_FAILED'})
+        os.utime(failure, (1, 1))
+        error = tool_failure(self.root, 'build', self.log, time.time() - 1, 'python.exe', 1)
+        self.assertNotIn('HTTPS-Download', error.message['de'])
+        self.assertIn('CS1002', error.parameters['cause'])
+
     def test_child_disk_full_has_explicit_space_action_even_without_failure_json(self):
         self.log.write_text('Traceback (most recent call last):\nOSError: [Errno 28] No space left on device\n')
         error = tool_failure(self.root, 'build', self.log, time.time() - 1, 'python.exe', 1)
