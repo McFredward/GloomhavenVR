@@ -246,8 +246,13 @@ public static partial class MirrorProgram
         Canvas.ForceUpdateCanvases();
         var target = new RenderTexture(256, 192, 24, RenderTextureFormat.ARGB32) { antiAliasing = 1 };
         var image = new Texture2D(256, 192, TextureFormat.RGBA32, false);
+        bool previousCulling = GL.invertCulling;
         try
         {
+            // A reflected custom view matrix is a mirror camera. Its winding
+            // correction belongs to this normalization camera, never the native
+            // backing material or production world transform.
+            GL.invertCulling = previousCulling ^ (print.localToWorldMatrix.determinant < 0f);
             _camera.targetTexture = target; _camera.Render(); RenderTexture.active = target;
             image.ReadPixels(new Rect(0, 0, 256, 192), 0, 0); image.Apply();
             if (name != null) File.WriteAllBytes(Path.Combine(_output, name + ".png"), image.EncodeToPNG());
@@ -256,6 +261,7 @@ public static partial class MirrorProgram
         finally
         {
             RenderTexture.active = null; _camera.targetTexture = null;
+            GL.invertCulling = previousCulling;
             _camera.ResetWorldToCameraMatrix();
             UnityEngine.Object.DestroyImmediate(target); UnityEngine.Object.DestroyImmediate(image);
         }

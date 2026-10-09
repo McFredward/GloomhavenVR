@@ -64,3 +64,14 @@ proof of general native overlay affine support or headset acceptance.
 Checkpoint validation and additional return/reclaim/reoffer controls remain
 pending until appended below. No complete local gate or hardware acceptance is
 claimed by this worker checkpoint.
+
+The geometry-only positive run `run-360phbxd/proof/run-nd46skfb` passes2271
+assertions across224 intermediate render frames, including56 frames with
+anisotropic/reflected print ancestry, and896 actual front/back readbacks. Both
+physical body sides retain their original material/texture output. The camera
+normalizes the complete print matrix after the independent world-vertex check;
+for a reflected custom view it also restores the camera's correct winding with
+`GL.invertCulling`, leaving native materials untouched. The prior uncorrected
+mirror-camera fixture failure and plain-back readback are retained at
+`run-k74swp83/proof/run-ik9g8rbg`. Strict Debug passes0 warnings/errors.
+Return/hand/reoffer evidence remains pending; this is not a final lifecycle pass.
