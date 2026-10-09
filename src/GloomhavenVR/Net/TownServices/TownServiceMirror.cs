@@ -1105,7 +1105,7 @@ internal static partial class TownServiceMirror
                 while (mount != null && removed.Exists(parentId => standing[parentId].Alive
                     && (mount == standing[parentId].Host.transform
                         || mount.IsChildOf(standing[parentId].Host.transform)))) mount = mount.parent;
-                child.Host.transform.SetParent(mount, true);
+                child.Motion.Reparent(mount);
                 // A retained packet whose sequence was already applied must be
                 // eligible to mount under its current original once that arrives.
                 child.Sequence = 0;
@@ -1363,7 +1363,8 @@ internal static partial class TownServiceMirror
             // A released face/body can still be flying to its owner's ordinary
             // map fan while a different visitor is already using the enchantress.
             return returning && (address.StartsWith("face.", StringComparison.Ordinal)
-                || address.StartsWith("map.cardbody|", StringComparison.Ordinal));
+                || address.StartsWith("map.cardbody|", StringComparison.Ordinal)
+                || address.StartsWith("map.cardbody.", StringComparison.Ordinal));
         }
         if (service != 1) return false;
         // The public cabinet has a separate elected lane. A visitor's original
