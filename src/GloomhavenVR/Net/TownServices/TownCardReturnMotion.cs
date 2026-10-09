@@ -58,7 +58,10 @@ internal static class TownCardReturnMotion
         float t = Mathf.Clamp01(age / values[1]);
         float ease = (byte)values[2] switch
         {
-            1 => t >= 1f ? 1f : 1f - Mathf.Exp(-values[3] * age),
+            // ItemChip's final active Update still paints its exponential pose
+            // after remaining time crosses zero. Only the actual terminal source
+            // receipt knows the ordinary settle pose; keep the native ease until it.
+            1 => 1f - Mathf.Exp(-values[3] * age),
             2 => VRCard.SmootherStep(t),
             3 => t * t * ((values[3] + 1f) * t - values[3]),
             _ => t * t * (3f - 2f * t)
