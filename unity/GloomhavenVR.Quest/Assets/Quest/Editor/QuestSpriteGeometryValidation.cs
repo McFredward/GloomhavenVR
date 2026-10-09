@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Security.Cryptography;
+using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Sprites;
@@ -68,12 +69,16 @@ namespace GloomhavenVR.Quest.Editor
             var spinner = new List<ImportedSprite>();
             var names = new HashSet<string>(StringComparer.Ordinal);
             var identities = new HashSet<string>(StringComparer.Ordinal);
+            var progress = new QuestWizardProgress.Counter("unity-validation-sprites", "unity-validation",
+                source.assets.Length + 2, "sprites", "Loading and promotion sprites");
+            int completed = 0;
             foreach (var entry in source.assets)
             {
                 if (entry == null || (entry.name != "LoadingBase" && entry.name != "LoadingOverlay")
                     || !entry.asset.StartsWith("Assets/Sprite/Loading", StringComparison.Ordinal)
                     || entry.asset.Contains("..") || !identities.Add(entry.guid) || entry.sourcePathId <= 0)
                     throw new InvalidOperationException("Original loading sprite identity is invalid or duplicated.");
+                progress.Report(completed, entry.asset);
                 ImportedSprite imported = Read(entry.asset, entry.guid);
                 if (imported.sourceSha256 != entry.restoredSha256 || imported.metaSha256 != entry.metaSha256)
                     throw new InvalidOperationException("Restored loading sprite source changed before import: " + entry.asset);
@@ -94,13 +99,19 @@ namespace GloomhavenVR.Quest.Editor
                 Close(imported.padding.w, rect.height - entry.trimOffset.y - crop.height, entry.asset);
                 imported.originalDrawingGeometryVerified = true;
                 spinner.Add(imported); names.Add(entry.name);
+                progress.Report(++completed, entry.asset);
             }
             if (!names.SetEquals(new[] { "LoadingBase", "LoadingOverlay" }))
                 throw new InvalidOperationException("Original loading sprite receipt lacks an animation layer.");
-            var promotions = new[] {
-                Read("Assets/Sprite/DLC_Promo_JawsOfTheLion.asset", "6a311a97a581eab4b9f81cc6086c5687"),
-                Read("Assets/Sprite/DLC_Promo_SoloScenarios_0.asset", "b367427dabc0caf448ecaddc35152a04")
-            };
+            string[] promotionPaths = { "Assets/Sprite/DLC_Promo_JawsOfTheLion.asset",
+                "Assets/Sprite/DLC_Promo_SoloScenarios_0.asset" };
+            var promotions = new ImportedSprite[promotionPaths.Length];
+            for (int index = 0; index < promotionPaths.Length; index++)
+            {
+                progress.Report(completed, promotionPaths[index]);
+                promotions[index] = ReadPromotion(promotionPaths[index]);
+                progress.Report(++completed, promotionPaths[index]);
+            }
             var receipt = new ValidationReceipt {
                 unityVersion = Application.unityVersion, sourceReceiptSha256 = Hash(InputPath),
                 spinner = spinner.ToArray(), promotions = promotions, allImportedAssetsVerified = true,
@@ -108,13 +119,34 @@ namespace GloomhavenVR.Quest.Editor
             };
             Directory.CreateDirectory(Path.GetDirectoryName(ReceiptPath));
             File.WriteAllText(ReceiptPath, JsonUtility.ToJson(receipt, true) + "\n");
+            progress.Complete("Loading and promotion sprite import verified");
             Debug.Log("Quest original sprite import verified: spinner=" + spinner.Count + ", promotions=" + promotions.Length);
+        }
+
+        private static ImportedSprite ReadPromotion(string path)
+        {
+            // Capture200517 reaches this gate after a successful first import.
+            // AssetRipper assigns a new GUID to each independent export. The
+            // former literals came from our local export and cannot identify a
+            // player's Windows/GOG/Epic export. Preparation already qualifies
+            // these owned .meta bytes; retain their current export identity and
+            // require Unity to import that same identity. Campaign validation
+            // separately verifies native collection/pathID drawing provenance.
+            string metadata = path + ".meta";
+            if (!File.Exists(metadata) || new FileInfo(metadata).Length > 16384)
+                throw new InvalidOperationException("Original promotion sprite metadata is missing or oversized: " + path);
+            var matches = Regex.Matches(File.ReadAllText(metadata), @"^guid:[ \t]*([0-9a-f]{32})[ \t]*\r?$", RegexOptions.Multiline);
+            if (matches.Count != 1 || matches[0].Groups[1].Value == new string('0', 32))
+                throw new InvalidOperationException("Original promotion sprite metadata has no unique export GUID: " + path);
+            return Read(path, matches[0].Groups[1].Value);
         }
 
         private static ImportedSprite Read(string path, string guid)
         {
-            if (AssetDatabase.AssetPathToGUID(path) != guid)
-                throw new InvalidOperationException("Original sprite GUID does not match its imported asset: " + path);
+            string importedGuid = AssetDatabase.AssetPathToGUID(path);
+            if (importedGuid != guid)
+                throw new InvalidOperationException("Original sprite GUID does not match its imported asset: " + path
+                    + "; exported=" + guid + "; imported=" + importedGuid);
             var sprite = AssetDatabase.LoadAssetAtPath<Sprite>(path);
             if (sprite == null || sprite.texture == null)
                 throw new InvalidOperationException("Original sprite or texture failed to import: " + path);

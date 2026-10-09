@@ -42,8 +42,11 @@ namespace GloomhavenVR.Quest.Editor
                input.nativeSpriteCount!=input.restoredNonPackedSpriteCount+input.preservedPackedSpriteCount)
                 throw new InvalidDataException("Original full Sprite source inventory is incomplete.");
             int importedCount=0;
+            var progress=new QuestWizardProgress.Counter("unity-validation-campaign-sprites","unity-validation",
+                input.assets.Length,"sprites","Original Campaign sprites");
             foreach(var row in input.assets)
             {
+                progress.Report(importedCount,row.assetPath);
                 var sprite=AssetDatabase.LoadAssetAtPath<Sprite>(row.assetPath);
                 string guid;long fileId;
                 if(!row.nativeDrawingStateRestored||sprite==null||Hash(File.ReadAllBytes(row.assetPath))!=row.sha256||
@@ -68,12 +71,14 @@ namespace GloomhavenVR.Quest.Editor
                 // textureRect is not queried: Unity rejects that accessor for
                 // legitimate tight-packed geometry; original streams prove shape.
                 if(++importedCount%64==0)EditorUtility.UnloadUnusedAssetsImmediate();
+                progress.Report(importedCount,row.assetPath);
             }
             var receipt=new Receipt{unityVersion=Application.unityVersion,nativeSpriteCount=input.nativeSpriteCount,
                 importedNonPackedSpriteCount=input.assets.Length,preservedPackedSpriteCount=input.preservedPackedSpriteCount,
                 sourceManifestSha256=Hash(File.ReadAllBytes(InputPath))};
             Directory.CreateDirectory("QuestCampaignEvidence");
             File.WriteAllText("QuestCampaignEvidence/native-sprite-import.json",JsonUtility.ToJson(receipt,true));
+            progress.Complete("Original Campaign sprite import verified");
             return receipt;
         }
         private static void RequireVectors(Vector2[] actual,Vector2[] original,string source)
