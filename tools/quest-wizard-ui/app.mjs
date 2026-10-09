@@ -1,5 +1,5 @@
 import {translate} from './i18n.mjs';
-import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,sessionId,savedSession,activeWorkView,timingView,durationText,failureView,activityView,buildOverviewView,nativeMemoryView} from './model.mjs';
+import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,sessionId,savedSession,activeWorkView,timingView,durationText,failureView,activityView,buildOverviewView,nativeMemoryView,unityImportView} from './model.mjs';
 import {LocalApi,PreviewApi} from './transport.mjs';
 
 const $ = id => document.getElementById(id);
@@ -134,10 +134,11 @@ function phaseLabel(phase='') {
   return key?t('phase_'+key):phase;
 }
 function counters(value) {
+  if(value.unit==='assets'&&Number.isSafeInteger(value.done)&&value.done>=0&&value.total==null)return t('counterImportsCompleted',{done:new Intl.NumberFormat(language).format(value.done)});
   if(!Number.isFinite(value.done)||!Number.isFinite(value.total)||value.total<=0)return '';
   const number=n=>new Intl.NumberFormat(language,{maximumFractionDigits:1}).format(n);
   if(value.unit==='bytes')return t('counterBytes',{done:number(value.done/1048576)+' MiB',total:number(value.total/1048576)+' MiB'});
-  const key={files:'counterFiles',actions:'counterActions',checks:'counterChecks',dependencies:'counterDependencies',batches:'counterBatches',steps:'counterSteps',checkpoints:'counterSteps',variants:'counterVariants',objects:'counterObjects'}[value.unit]??'counterUnits';
+  const key={files:'counterFiles',actions:'counterActions',checks:'counterChecks',dependencies:'counterDependencies',batches:'counterBatches',steps:'counterSteps',checkpoints:'counterSteps',variants:'counterVariants',objects:'counterObjects',assets:'counterImports',assemblies:'counterAssemblies'}[value.unit]??'counterUnits';
   return t(key,{done:number(value.done),total:number(value.total)});
 }
 function substepLabel(value) {
@@ -151,6 +152,11 @@ function substepLabel(value) {
 }
 function workSummary(value) {
   const work=activeWorkView(value),operation=work?.operation;
+  const imported=unityImportView(value);
+  if(imported){
+    const owner=typeof value.stageOperation==='string'?phaseLabel('operation:'+value.stageOperation):t('activeWorkCurrent');
+    return [owner,imported.done===null?t('activeWorkUnknown'):counters({done:imported.done,total:imported.total,unit:'assets'})].join(' · ');
+  }
   if(!work)return t('activeWorkUnknown');
   const label=operation?phaseLabel('operation:'+operation):t('activeWorkCurrent');
   const number=value=>new Intl.NumberFormat(language).format(value);
@@ -171,6 +177,11 @@ function memorySummary(memory) {
     lines.push(t('memory_'+name,{size}));
   }
   return lines.join(' · ');
+}
+function importSummary(imported) {
+  if(!imported)return '';
+  const counts=imported.done===null?'':counters({done:imported.done,total:imported.total,unit:'assets'});
+  return [counts,imported.total===null?t('importTotalUnknown'):'',imported.elapsedSeconds===null?'':t(imported.status==='running'?'importElapsed':'importElapsedRecorded',{duration:durationText(imported.elapsedSeconds)})].filter(Boolean).join(' · ');
 }
 function renderTiming(current,resourceWait=false) {
   const whole=timingView(state?.timing),stage=timingView(current?.timing),estimate=stage?.estimate;
@@ -202,9 +213,21 @@ function overviewList(rows,prefix,children) {
   return list;
 }
 function preparationDetail(operation,openPlans) {
-  const data=operation.preparation,compiler=operation.compiler;
-  if(!data&&!compiler)return null;
+  const data=operation.preparation,compiler=operation.compiler,imported=operation.import,packed=operation.pack,api=operation.api;
+  if(!data&&!compiler&&!imported&&!packed&&!api)return null;
   const container=document.createElement('div');container.className='preparation-detail';
+  for(const [record,id,key] of [[packed,'content-pack','contentPackSummary'],[api,'package-api','packageApiSummary']])if(record){
+    const plan=document.createElement('details');plan.className='build-subplan';plan.dataset.plan=id;
+    plan.open=openPlans.has(plan.dataset.plan);
+    const label=document.createElement('summary');label.textContent=t(key,{done:record.done,total:record.total});
+    plan.append(label,overviewList(record.passes,'phase_'));container.append(plan);
+  }
+  if(imported){
+    const box=document.createElement('section');box.className='unity-import '+imported.status;box.dataset.importOwner=operation.id;
+    const measured=document.createElement('p');measured.className='hint';measured.textContent=importSummary(imported);box.append(measured);
+    if(imported.detail){const action=document.createElement('p');action.className='hint';action.textContent=imported.detail;box.append(action);}
+    container.append(box);
+  }
   if(data){
     const plan=document.createElement('details');plan.className='build-subplan';plan.dataset.plan='prepare-'+operation.id;
     plan.open=openPlans.has(plan.dataset.plan);
@@ -375,9 +398,10 @@ function renderProgress() {
   track.setAttribute('aria-valuenow',String(progress.percent));
   track.setAttribute('aria-valuetext',$('progress-count').textContent);$('progress-fill').style.width=progress.width+'%';
   const sub=stageProgress(progress.active??progress.current);
+  const imported=unityImportView(sub);
   const memory=nativeMemoryView(progress.active??progress.current),resourceWait=active&&memory?.waiting===true;
   const hasSubstep=!done&&sub.phase&&!['pending','starting','complete'].includes(sub.phase);
-  $('progress-detail').textContent=[progress.retaining?t('retainedProgress'):'',!hasSubstep&&sub.phase?substepLabel(sub):'',counters(sub),memory?memorySummary(memory):sub.detail??'',waiting?t('waitingSince',{seconds:Math.max(0,Math.floor(Date.now()/1000-waiting.since))}):''].filter(Boolean).join(' · ');
+  $('progress-detail').textContent=[progress.retaining?t('retainedProgress'):'',!hasSubstep&&sub.phase?substepLabel(sub):'',imported?importSummary(imported):counters(sub),memory?memorySummary(memory):sub.detail??'',waiting?t('waitingSince',{seconds:Math.max(0,Math.floor(Date.now()/1000-waiting.since))}):''].filter(Boolean).join(' · ');
   $('progress-completed').hidden=done;
   $('progress-completed').textContent=workSummary(sub);
   renderTiming(progress.current,resourceWait);
@@ -389,7 +413,7 @@ function renderProgress() {
   renderBuildOverview();
   $('substep-progress').hidden=!hasSubstep;
   $('substep-label').textContent=substepLabel(sub);
-  $('substep-count').textContent=resourceWait?t('memoryWaiting'):sub.phasePercent===null?t('phaseUnknown'):t('phasePercent',{percent:percentText(sub.phasePercent)});
+  $('substep-count').textContent=resourceWait?t('memoryWaiting'):sub.phasePercent===null?imported&&imported.done!==null?counters({done:imported.done,total:null,unit:'assets'}):t('phaseUnknown'):t('phasePercent',{percent:percentText(sub.phasePercent)});
   const subtrack=$('substep-track');subtrack.classList.toggle('indeterminate',sub.phasePercent===null&&active&&!waiting&&!resourceWait);
   subtrack.setAttribute('aria-valuemin','0');subtrack.setAttribute('aria-valuemax','100');
   if(sub.phasePercent===null)subtrack.removeAttribute('aria-valuenow');else subtrack.setAttribute('aria-valuenow',String(sub.phasePercent));

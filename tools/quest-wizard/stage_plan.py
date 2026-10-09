@@ -47,7 +47,7 @@ PLANS = {
     "unity": ("hub", "editor", "prerequisites", "output-verify"),
     "profile": ("logo", "identity", "output-verify"),
     "inspect": ("game-inputs", "mod-inputs", "profile-inputs", "manifest", "output-verify"),
-    "build": ("game-inputs", "mod-inputs", "profile-inputs", "source-snapshot", "game-snapshot", "snapshot-check", "recovery", "project-files", "startup-content", "native-runtime", "audio", "textures", "graphics", "mod-banks", "preparation-contracts", "weave", "package-api", "unity-import", "unity-validation", "content-bank", "player", "delivery", "output-verify"),
+    "build": ("game-inputs", "mod-inputs", "profile-inputs", "source-snapshot", "game-snapshot", "snapshot-check", "recovery", "project-files", "startup-content", "native-runtime", "audio", "textures", "graphics", "mod-banks", "preparation-contracts", "weave", "unity-import", "package-api", "unity-validation", "content-bank", "player", "delivery", "output-verify"),
     "install": ("connect", "apk", "content", "launch", "output-verify"),
 }
 
@@ -56,10 +56,10 @@ PLANS = {
 # operations had already consumed 28.6% of the equally weighted old bar. Give
 # conversion/import their own useful spans and count each scheduled package
 # inside conversion. Only actual counters and successful boundaries advance it.
-BUILD_SHARES = dict(zip(PLANS["build"], (1, 1, 1, 1, 2, 1, 40, 1, 1, 2, 2, 5, 2, 2, 1, 2, 1, 18, 1, 4, 8, 2, 1)))
+BUILD_SHARES = dict(zip(PLANS["build"], (1, 1, 1, 1, 2, 1, 40, 1, 1, 2, 2, 5, 2, 2, 1, 2, 18, 1, 1, 4, 8, 2, 1)))
 BUILD_GROUPS = {"inputs": PLANS["build"][:6], "recovery": ("recovery",),
-                "project": PLANS["build"][7:15], "code": ("weave", "package-api"),
-                "import": ("unity-import", "unity-validation"),
+                "project": PLANS["build"][7:15], "code": ("weave",),
+                "import": ("unity-import", "package-api", "unity-validation"),
                 "export": ("content-bank", "player", "delivery", "output-verify")}
 UPDATE_PLANS = {
     "update-mod": ("update-owned-game", "update-mod-source", "update-code", "update-art", "update-repack", "update-verify"),
@@ -72,6 +72,10 @@ UPDATE_GROUPS = {"update-mod": {"inputs": UPDATE_PLANS["update-mod"][:2], "code"
 WORK_REVISION = 6
 MEMORY_OBSERVATIONS = frozenset(("native-compiler-profile", "native-memory-retry", "native-memory-wait",
                                "asset-memory-retry", "asset-memory-wait"))
+UNITY_IMPORT_OBSERVATIONS = frozenset(("unity-asset-import", "unity-import-activity"))
+CONTENT_PACK_SHARES = {"native-content-source-hash": .15, "native-content-native-hash": .15,
+                       "native-content-write": .55, "native-content-final-hash": .15}
+PACKAGE_API_SHARES = {"package-api-bind": .65, "package-api-output": .20, "package-api-publish": .15}
 PREPARATION_ITEMS = {"bundled-audio": "audio", "native-cubemaps": "textures",
                      "ordinary-texture-audit": "textures", "native-texture2d": "textures",
                      "native-sprites": "startup-content", "environment-bundles": "mod-banks",
@@ -261,6 +265,17 @@ def initialize(row):
     if not isinstance(plan, dict) or plan.get("version") not in (1, 2) or plan.get("workflow", "build") != mode:
         plan = row["progressPlan"] = {"version": 2, "workRevision": WORK_REVISION, "workflow": mode, "current": None, "completed": [], "fractions": {}, "percent": 0.0}
     plan["workflow"] = mode
+    if row["id"] == "build" and mode == "build" and plan.get("unityOrderRevision") != 1:
+        # Older launchers labelled the first full import as package-api. A
+        # saved start is no proof that this newly earlier import returned.
+        # Translate that historical live owner without changing durable work
+        # or the saved bar. The next runner boundary removes this display seam.
+        plan["unityOrderRevision"] = 1
+        if plan.get("current") == "package-api" and "package-api" not in plan.get("completed", []) \
+                and "unity-import" not in plan.get("completed", []):
+            plan["legacyPackageApiImport"] = True
+            plan["current"] = "unity-import"
+            if plan.get("liveOperation") == "package-api": plan["liveOperation"] = "unity-import"
     # A replaced Builder preserves its saved operation/high-water evidence.
     # Older plans lack child scopes, so those are learned from the live producer
     # without interpreting a previously reset substep 100% as global completion.
@@ -318,6 +333,7 @@ def begin_attempt(row, boundary):
     plan = initialize(row)
     if row["id"] == "build": _retain_preparation(plan)
     plan["attemptBoundary"] = boundary
+    plan.pop("legacyPackageApiImport", None)
     plan["operationProofs"] = {name: "retained" for name in plan["completed"]}
     plan["liveOperation"] = None
     plan.pop("liveStatus", None)
@@ -335,6 +351,12 @@ def begin_attempt(row, boundary):
                 checkpoint.update(status="pending", passes={})
             checkpoint.pop("active", None)
     plan["unityCompiler"] = {}
+    # Counts describe one real Editor invocation. Unity's Library is retained
+    # independently; a new invocation must not claim the last invocation's
+    # completed import operations as fresh work. Closed owner evidence stays.
+    plan["unityImports"] = {}
+    plan["contentPack"] = {}
+    plan["packageApi"] = {}
     recovery = plan.get("recovery", {})
     recovery.pop("liveSection", None)
 
@@ -791,6 +813,14 @@ def _active_work(plan, current):
         scope = plan["preparationScopes"][current]
         done, total = scope["done"], scope["total"]
         fraction = 1. if current in plan["completed"] else plan.get("liveFractions", plan["fractions"]).get(current, 0.)
+    elif current == "content-bank" and plan.get("contentPack"):
+        work = plan["contentPack"]
+        done, total = len(work.get("completed", [])), len(CONTENT_PACK_SHARES)
+        fraction = _observed_pass_ratio(work, CONTENT_PACK_SHARES)
+    elif current == "package-api" and plan.get("packageApi"):
+        work = plan["packageApi"]
+        done, total = len(work.get("completed", [])), len(PACKAGE_API_SHARES)
+        fraction = _observed_pass_ratio(work, PACKAGE_API_SHARES)
     else:
         done, total = (int(current in plan["completed"]), 1)
         fraction = 1. if done else plan.get("liveFractions", plan["fractions"]).get(current, 0.)
@@ -813,6 +843,23 @@ def _build_percent(plan):
     weighted = sum(weight * (1. if name in plan["completed"] else plan["fractions"].get(name, 0.))
                    for name, weight in shares.items())
     return 100 * weighted / sum(shares.values())
+
+
+def _observed_pass_ratio(work, shares):
+    return sum(share * (1. if name in work.get("completed", []) else work.get("fractions", {}).get(name, 0.))
+               for name, share in shares.items())
+
+
+def _observed_pass_overview(plan, key, shares, status):
+    work = plan.get(key)
+    if not work: return None
+    rows = _overview_rows(tuple(shares), work.get("completed", []), work.get("fractions", {}),
+                          work.get("current"), work.get("proofs"), status == "failed", work.get("liveStatus"))
+    for row in rows:
+        counter = work.get("counters", {}).get(row["id"])
+        if counter: row["counter"] = dict(counter)
+    return {"passes": rows, "done": sum(row["closed"] for row in rows), "total": len(rows),
+            "active": work.get("current"), "percent": round(100 * _observed_pass_ratio(work, shares), 6)}
 
 
 def _overview_rows(steps, completed, fractions, active, proofs=None, failed=False, active_status=None):
@@ -855,6 +902,19 @@ def _build_overview(row, plan):
         if compiler:
             item["compiler"] = dict(compiler, status="failed" if row["status"] == "failed" and item["id"] == active
                                      else "complete" if item["closed"] else "running" if item["id"] == active else "pending")
+        imported = plan.get("unityImports", {}).get(item["id"])
+        if imported:
+            item["import"] = dict(imported, status="failed" if row["status"] == "failed" and item["id"] == active
+                                  else "complete" if item["closed"] or item["id"] == "content-bank" and plan.get("contentPack")
+                                  else "running" if item["id"] == active else "pending")
+        if item["id"] == "content-bank":
+            packed = _observed_pass_overview(plan, "contentPack", CONTENT_PACK_SHARES,
+                                             "failed" if row["status"] == "failed" and item["id"] == active else item["status"])
+            if packed: item["pack"] = packed
+        if item["id"] == "package-api":
+            api = _observed_pass_overview(plan, "packageApi", PACKAGE_API_SHARES,
+                                          "failed" if row["status"] == "failed" and item["id"] == active else item["status"])
+            if api: item["api"] = api
     groups = []
     shares = build_shares(plan)
     for name, names in UPDATE_GROUPS.get(workflow(row), BUILD_GROUPS).items():
@@ -931,7 +991,89 @@ def advance(row, value, operation=None, status=None):
         measured = False
     operation = operation or inferred or value.get("reportedOperation")
     status = status or value.get("operationStatus")
+    if plan.get("legacyPackageApiImport") and operation == "package-api":
+        if status in ("complete", "reuse") and value["phase"] == "operation:package-api":
+            # The historical SDK method returned only after its import; that
+            # actual successful boundary qualifies both owners.
+            plan.pop("legacyPackageApiImport", None)
+        else:
+            operation = "unity-import"
+            if value["phase"] == "operation:package-api": value["phase"] = "operation:unity-import"
     if status is not None: value["operationStatus"] = status
+    pack_counter = value["phase"] in CONTENT_PACK_SHARES
+    api_counter = value["phase"] in PACKAGE_API_SHARES
+    if pack_counter or api_counter:
+        live_owner = plan.get("liveOperation")
+        owner = "content-bank" if pack_counter else "package-api"
+        if live_owner != owner or operation not in (None, live_owner):
+            if value is row.get("progress"):
+                value.update(phase="operation:" + live_owner if live_owner in operations else "starting",
+                             done=None, total=None, percent=None, unit=None, detail=None)
+                value.pop("reportedOperation", None)
+                return advance(row, value, live_owner, plan.get("liveStatus", "progress"))
+            previous = dict(row.get("progress", {}))
+            value.clear(); value.update(previous)
+            return value
+        operation, measured = live_owner, False
+        work = plan.setdefault("contentPack" if pack_counter else "packageApi", {})
+        shares = CONTENT_PACK_SHARES if pack_counter else PACKAGE_API_SHARES
+        # The Unity content-bank task owns the first half, its packer's passes
+        # the remaining half. API binding has its own complete three-pass plan.
+        # An already measured partial fraction anchors the remaining work
+        # rather than moving an existing stage bar backwards.
+        work.setdefault("origin", max(.5 if pack_counter else 0., plan["fractions"].get(live_owner, 0.)))
+        name = value["phase"]
+        work.update(current=name, liveStatus=status or "progress")
+        ratio = _ratio(value)
+        if ratio is not None: work.setdefault("fractions", {})[name] = max(work.get("fractions", {}).get(name, 0.), ratio)
+        if status in ("complete", "reuse"):
+            work["completed"] = list(dict.fromkeys([*work.get("completed", []), name]))
+            work.setdefault("proofs", {})[name] = status
+        work.setdefault("counters", {})[name] = {key: value.get(key) for key in ("phase", "done", "total", "unit")}
+        fraction = min(.99, work["origin"] + (1. - work["origin"]) * _observed_pass_ratio(work, shares))
+        plan.setdefault("liveFractions", {})[live_owner] = fraction
+        plan["fractions"][live_owner] = max(plan["fractions"].get(live_owner, 0.), fraction)
+    import_counter = value["phase"] in UNITY_IMPORT_OBSERVATIONS
+    if import_counter:
+        # A child log may still be read after the next SDK/player boundary.
+        # Only the actually open Editor owner accepts its observations; no
+        # historical import can move the live heading or close an operation.
+        live_owner = plan.get("liveOperation")
+        allowed = live_owner in ("mod-banks", "unity-import", "package-api", "unity-validation",
+                                 "content-bank", "player", "update-code", "update-art")
+        if not allowed or operation not in (None, live_owner):
+            if value is row.get("progress"):
+                # A status read may project an older snapshot whose last
+                # child observation already outlived its owner. Recover the
+                # current owner's neutral display instead of clearing the
+                # same dictionary used as the historical source.
+                value.update(phase="operation:" + live_owner if live_owner in operations else "starting",
+                             done=None, total=None, percent=None, unit=None, detail=None)
+                value.pop("unityImport", None)
+                value.pop("reportedOperation", None)
+                return advance(row, value, live_owner, plan.get("liveStatus", "progress"))
+            previous = dict(row.get("progress", {}))
+            value.clear()
+            value.update(previous)
+            return value
+        operation = live_owner
+        observed = plan.setdefault("unityImports", {}).setdefault(live_owner, {})
+        done, total = value.get("done"), value.get("total")
+        if type(done) is int and 0 <= done <= 2 ** 53 - 1 and value.get("unit") == "assets":
+            done = max(done, observed.get("done", 0))
+            observed["done"] = done
+            value["done"] = done
+            if type(total) is int and done <= total <= 2 ** 53 - 1 and total > 0:
+                observed["total"] = total
+            else:
+                # Native artifact lines count operations, not unique assets.
+                # Unknown totals never borrow a different task's denominator.
+                observed["total"] = None
+            value["total"] = observed.get("total")
+            value["percent"] = None if value["total"] is None else round(100 * done / value["total"], 1)
+        observed.update(phase=value["phase"], detail=value.get("detail"), updatedAt=value.get("updatedAt"))
+        observed.setdefault("startedAt", value.get("updatedAt"))
+        value["unityImport"] = dict(observed)
     compiler_counter = value["phase"] in ("unity-shader-compile", "unity-shader-task")
     if compiler_counter:
         # Child log readers can outlive their Unity job. An explicitly foreign
@@ -988,6 +1130,9 @@ def advance(row, value, operation=None, status=None):
                       or value["phase"] in ("recovery-batches", "recovery-raw-reuse", "recovery-plan", "prepare-project-copy")
                       or movie_file_counter
                       or compiler_counter
+                      or import_counter
+                      or pack_counter
+                      or api_counter
                       or workflow(row) in UPDATE_PLANS and value.get("childOperation") is not None)
     parent_status = "progress" if child_boundary else status
     preparation_counter = row["id"] == "build" and (value["phase"].startswith(("prepare-substage:", "prepare-items:")) or movie_file_counter)
@@ -1041,10 +1186,13 @@ def advance(row, value, operation=None, status=None):
     # known aggregate counter or Unity's own task counter contributes a fraction.
     if current in operations and measured and (operation is None or operation == current) and value["percent"] is not None:
         fraction = min(.99, _ratio(value))
+        if current == "content-bank" and value["phase"].startswith(("unity-", "bee-actions:")): fraction *= .5
         plan["fractions"][current] = max(plan["fractions"].get(current, 0.), fraction)
     live = plan.get("liveOperation", current)
     if live in operations and measured and (operation is None or operation == live) and value["percent"] is not None:
-        plan.setdefault("liveFractions", {})[live] = min(.99, _ratio(value))
+        fraction = min(.99, _ratio(value))
+        if live == "content-bank" and value["phase"].startswith(("unity-", "bee-actions:")): fraction *= .5
+        plan.setdefault("liveFractions", {})[live] = fraction
     if row["status"] == "complete":
         plan["completed"] = list(operations)
         plan["current"] = operations[-1]

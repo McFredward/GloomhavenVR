@@ -65,6 +65,19 @@ export function activityView(stage,now=Date.now()/1000) {
   const seconds=Math.max(0,Math.floor(now-updated));
   return {seconds,quiet:seconds>=60};
 }
+export function unityImportView(progress,now=Date.now()/1000) {
+  const value=progress?.unityImport??progress;
+  if(!value||!['unity-asset-import','unity-import-activity'].includes(value.phase))return null;
+  const done=Number.isSafeInteger(value.done)&&value.done>=0?value.done:null;
+  const total=Number.isSafeInteger(value.total)&&value.total>0&&(done===null||done<=value.total)?value.total:null;
+  const text=typeof value.detail==='string'?value.detail.replace(/[\u0000-\u001f\u007f]/g,' ').slice(0,1024):'';
+  const started=value.startedAt,status=['running','failed','complete','pending'].includes(value.status)?value.status:'running';
+  const endpoint=status==='running'?now:value.updatedAt;
+  const elapsedSeconds=typeof started==='number'&&Number.isFinite(started)&&started>0&&Number.isFinite(endpoint)?Math.max(0,endpoint-started):null;
+  return {done,total,detail:text,elapsedSeconds,
+    percent:done!==null&&total!==null?100*done/total:null,
+    status};
+}
 export function nativeMemoryView(stage) {
   const value=stage?.progress??{},phases=['native-compiler-profile','native-memory-retry','native-memory-wait','asset-memory-retry','asset-memory-wait'];
   if(!phases.includes(value.phase))return null;
@@ -140,9 +153,18 @@ export function buildOverviewView(state) {
       percent:typeof value.percent==='number'&&Number.isFinite(value.percent)&&value.percent>=0&&value.percent<=100?value.percent:null,
       detail:typeof value.detail==='string'?value.detail.slice(0,1024):'',status:['running','failed','complete','pending'].includes(value.status)?value.status:'pending'};
   };
+  const observedPasses=(value,names)=>{
+    if(!value||!Array.isArray(value.passes)||value.passes.length!==names.length)return null;
+    const passes=normalize(value.passes);
+    if(passes.length!==names.length||new Set(passes.map(row=>row.id)).size!==names.length||passes.some(row=>!names.includes(row.id)))return null;
+    return {passes,done:passes.filter(row=>row.closed).length,total:names.length,
+      active:passes.some(row=>row.id===value.active)?value.active:null};
+  };
   const groups=raw.groups.filter(group=>validId(group?.id)).map(group=>({...group,operations:normalize(group.operations).map(row=>{
     const source=group.operations.find(item=>item.id===row.id);
-    return {...row,preparation:preparation(source.preparation),compiler:compiler(source.compiler)};
+    return {...row,preparation:preparation(source.preparation),compiler:compiler(source.compiler),import:unityImportView(source.import),
+      pack:observedPasses(source.pack,['native-content-source-hash','native-content-native-hash','native-content-write','native-content-final-hash']),
+      api:observedPasses(source.api,['package-api-bind','package-api-output','package-api-publish'])};
   })}));
   const operations=groups.flatMap(group=>group.operations);
   if(!operations.length||operations.length>32||new Set(operations.map(row=>row.id)).size!==operations.length)return null;
