@@ -167,7 +167,7 @@ def main():
             ('performance-hidden-read-guard-lost',[('WorldMaterialBudget.cs','if (_performanceWallHidden?.Invoke(renderer) == true)','if (false && _performanceWallHidden?.Invoke(renderer) == true)',1)],
                 'settled performance-hidden world sources make zero per-eye mesh material and MPB reads'),
             ('performance-hidden-renotified',[('WorldMaterialBudget.cs','surface.PerformanceHidden = true;','surface.PerformanceHidden = false;',1)],
-                'settled hidden source notifies geometry consumers once rather than every eye'),
+                'settled performance-hidden world sources make zero per-eye mesh material and MPB reads'),
         ])
     if 'bool rendererBlockEmpty' in sources['WorldMaterialBudget.Materials.cs']:
         changes.extend([
