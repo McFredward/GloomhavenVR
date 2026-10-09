@@ -23,9 +23,11 @@ internal static partial class TownServiceMirror
         private readonly float _offset;
         private TownServiceMotionEntry _current;
         private TownServiceMotionEntry? _pending;
-        private float _sampleTime, _pendingSampleTime;
+        private float _sampleTime, _pendingSampleTime, _rate = 1f, _renderedAge = -1f;
+        private float _observedSampleTime, _observedAge;
         internal CardReturnClock(TownServiceMotionEntry entry, float sampleTime, float offset)
-        { _current = entry; _sampleTime = sampleTime; _offset = offset; }
+        { _current = entry; _sampleTime = _observedSampleTime = sampleTime;
+          _observedAge = entry.Numbers[0]; _offset = offset; }
         internal void Observe(TownServiceMotionEntry entry, float sampleTime, float receivedAt)
         {
             // One native return has one source-to-observer clock mapping. Restarting
@@ -33,6 +35,16 @@ internal static partial class TownServiceMirror
             // The merchant's exponential sampler is a rolling current-pose/remaining-
             // lifetime receipt; preserve that exact source receipt and extrapolate it
             // to the retained source time rather than inventing another easing curve.
+            // VRCard advances by min(ownerDelta,.05). Its authored age can
+            // therefore progress slower than wall time at low FPS or a hitch.
+            // Retain the rate of exact source receipts, without changing the
+            // native easing/duration or rewinding an already rendered phase.
+            if (sampleTime > _observedSampleTime)
+            {
+                if (entry.Numbers[2] is 0f or 2f)
+                    _rate = Mathf.Clamp01((entry.Numbers[0] - _observedAge) / (sampleTime - _observedSampleTime));
+                _observedSampleTime = sampleTime; _observedAge = entry.Numbers[0];
+            }
             if (sampleTime + _offset <= receivedAt)
             { _current = entry; _sampleTime = sampleTime; _pending = null; }
             else { _pending = entry; _pendingSampleTime = sampleTime; }
@@ -44,7 +56,12 @@ internal static partial class TownServiceMirror
             // that instant; never jump forward and then hold at a negative age.
             if (_pending != null && _pendingSampleTime + _offset <= now)
             { _current = _pending; _sampleTime = _pendingSampleTime; _pending = null; }
-            age = _current.Numbers[0] + Mathf.Max(0f, now - _sampleTime - _offset);
+            age = _current.Numbers[0] + Mathf.Max(0f, now - _sampleTime - _offset) * _rate;
+            if (_current.Numbers[2] is 0f or 2f)
+            {
+                age = Mathf.Max(age, _renderedAge);
+                _renderedAge = age;
+            }
             return _current;
         }
     }
@@ -58,6 +75,7 @@ internal static partial class TownServiceMirror
     private sealed class PeerMotion
     {
         internal readonly Dictionary<TownServiceMotionKey, MotionSlot> Slots = new();
+        internal readonly Dictionary<TownServiceMotionKey, ReturnCohortAssembly> ReturnCohorts = new();
         internal ulong CueSequence, MerchantReadySequence;
         internal bool HasReturnOffset;
         internal float ReturnOffset, ReturnReportAt;
@@ -467,6 +485,8 @@ internal static partial class TownServiceMirror
         { if (MotionPeers.Count >= 8) return false; state = new PeerMotion(); MotionPeers.Add(peer, state); }
         foreach (TownServiceMotionEntry entry in packet.Entries)
         {
+            if (entry.Kind == 10)
+            { ReceiveReturnCohort(peer, state, packet, entry); continue; }
             if (entry.Kind == 3)
             { ObserveTempleDonationCommit(peer, entry.Session, entry.Revision, entry.CommitAge); continue; }
             if (entry.Kind == 5)
@@ -481,6 +501,7 @@ internal static partial class TownServiceMirror
                 continue;
             }
             if (state.Slots.TryGetValue(entry.Key, out MotionSlot? old) && packet.Sequence <= old.ReceivedSequence) continue;
+            CancelReturnCohorts(peer, state, packet, entry);
             if (state.Slots.Count >= 3 * TownServiceFrame.MaxModules * 4 && !state.Slots.ContainsKey(entry.Key)) continue;
             // A compact pose preserves the last full canvas update; repeating it at
             // one-second heartbeats also recovers a lost independent event.
@@ -499,7 +520,7 @@ internal static partial class TownServiceMirror
                     && old.Entry.Structure == entry.Structure && old.Entry.Revision == entry.Revision
                     && old.Entry.Hand == entry.Hand;
                 returnClock = sameReturn ? old!.ReturnClock
-                    : new CardReturnClock(entry, packet.SampleTime, ReturnOffset(state, packet.SampleTime, receivedAt));
+                    : new CardReturnClock(entry, packet.SampleTime, entry.HasReturnVisibility ? entry.CohortOffset : ReturnOffset(state, packet.SampleTime, receivedAt));
                 if (sameReturn) returnClock!.Observe(entry, packet.SampleTime, receivedAt);
                 else if (VRLog.WantsDebug && receivedAt >= state.ReturnReportAt)
                 {
@@ -532,6 +553,7 @@ internal static partial class TownServiceMirror
 
     internal static void ApplyRemoteMotion(float now)
     {
+        ActivateReturnCohorts(now);
         foreach (RemoteMotion frame in MotionRemoteFrames.Values) frame.Slots.Clear();
         foreach (var pair in MotionPeers)
         {
@@ -578,6 +600,8 @@ internal static partial class TownServiceMirror
             MotionSlot? root = null, flight = null;
             foreach (MotionSlot slot in composed.Slots)
             { if (slot.Entry.Kind == 1) root = slot; else if (slot.Entry.Kind is 7 or 8) flight = slot; }
+            if (flight?.Entry.HasReturnVisibility == true) root = null;
+            if (PendingReturnModule(composed.Owner, module)) continue;
             if (changed)
             {
                 try
@@ -589,6 +613,8 @@ internal static partial class TownServiceMirror
                     { frame.SampleTime = Mathf.Max(frame.SampleTime, slot.SampleTime);
                       if (slot.Entry.Kind is 2 or 4) PatchMotionProperty(frame, slot.Entry); }
                     if (root != null) PatchMotionRootFrame(frame, root.Entry);
+                    if (flight?.Entry.HasReturnVisibility == true)
+                    { frame.Visible = flight.Entry.Visible; frame.ParentAlpha = flight.Entry.ParentAlpha; }
                     module.Binding.Validate(frame, Assets);
                     float sampleInterval = composed.LastSampleTime >= 0f && frame.SampleTime > composed.LastSampleTime
                         ? frame.SampleTime - composed.LastSampleTime : TownServiceMotionCodec.SendInterval;
@@ -597,6 +623,8 @@ internal static partial class TownServiceMirror
                     PrepareOfferedRootMotion(module, composed, root, now);
                     module.Motion.BeforeApply(now);
                     module.Binding.Apply(frame, Assets);
+                    if (flight?.Entry.HasReturnVisibility == true)
+                    { module.Host.GetComponent<CanvasGroup>().alpha = frame.ParentAlpha; module.Host.SetActive(frame.Visible); }
                     if (root != null) ApplyMotionRoot(module, root.Entry, composed, frame, now);
                     module.Motion.AfterApply(now, sampleInterval, sparseFan: root != null && root.Entry.Hand > 2, sourceSampleTime: frame.SampleTime);
                     TownServiceDepthOrder.Refresh(module.Host.transform);
@@ -633,6 +661,7 @@ internal static partial class TownServiceMirror
             // distance tick; reassert native sorting only after binding above.
         }
         ApplyOfferedFrames(now);
+        RestorePendingReturnPictures();
         foreach (RemoteModule removed in MotionFrameRemoval) MotionRemoteFrames.Remove(removed);
         MotionDiagnostics(now);
     }
@@ -856,7 +885,7 @@ internal static partial class TownServiceMirror
 
     internal static void ForgetRemoteMotion(int peer) { MotionPeers.Remove(peer); TownServiceSharedCue.Forget(peer); }
     internal static void ResetMotionNetwork()
-    { MotionSources.Clear(); MotionPeers.Clear(); MotionHands.Clear(); MotionOfferings.Clear(); OfferedFrames.Clear(); ActiveOfferedFrames.Clear(); DeadOfferedFrames.Clear(); OfferedRemoteMotion.Clear(); DeadOfferedRemoteMotion.Clear(); OfferedApplyOrder.Clear(); _offeredDiagnosticAt = 0f; MotionReturns.Clear(); CardReturns.Clear(); MotionWaiting.Clear(); MotionLive.Clear(); MotionVisibleFan.Clear(); MotionRemoteFrames.Clear(); TownServiceSharedCue.Reset();
+    { ResetReturnCohorts(); MotionSources.Clear(); MotionPeers.Clear(); MotionHands.Clear(); MotionOfferings.Clear(); OfferedFrames.Clear(); ActiveOfferedFrames.Clear(); DeadOfferedFrames.Clear(); OfferedRemoteMotion.Clear(); DeadOfferedRemoteMotion.Clear(); OfferedApplyOrder.Clear(); _offeredDiagnosticAt = 0f; MotionReturns.Clear(); CardReturns.Clear(); MotionWaiting.Clear(); MotionLive.Clear(); MotionVisibleFan.Clear(); MotionRemoteFrames.Clear(); TownServiceSharedCue.Reset();
       MotionSourceRemoval.Clear(); MotionRemoval.Clear(); _nextMotionSend = 0f; _motionCursor = _motionLiveCursor = _motionVisibleCursor = 0;
       _motionCommitSession = _motionCommitRevision = 0; _nextMotionCommit = 0f;
       _motionCue = null; _nextMotionCue = 0f;

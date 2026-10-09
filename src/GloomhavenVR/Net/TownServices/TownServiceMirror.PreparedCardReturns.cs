@@ -32,6 +32,24 @@ internal static partial class TownServiceMirror
         return false;
     }
 
+    // Artwork repair retains its last published physical header only while the
+    // same live native sampler is returning this original. The independent exact
+    // cohort owns its pose/visibility; native nodes and gameplay keep advancing.
+    private static void PreserveReturningCardHeader(LocalModule module, TownServiceFrame frame)
+    {
+        TownServiceFrame? prior = module.Last;
+        if (!FastMotionCaptureEnabled || prior == null || prior.Session != frame.Session
+            || prior.Structure != frame.Structure || _sharedFrame == null || frame.PublicCatalog) return;
+        CardReturnReference? returning = CardReturn(module.Binding.Root);
+        if (returning == null || !returning.Sample(module.Binding.Root, _sharedFrame, returning.Hand, out _, out _)) return;
+        frame.Pose = (float[])prior.Pose.Clone(); frame.Visible = prior.Visible;
+        frame.ParentModule = prior.ParentModule; frame.ParentBinding = prior.ParentBinding;
+        frame.ParentAlpha = prior.ParentAlpha; frame.HasCanvasFrame = prior.HasCanvasFrame;
+        frame.CanvasPose = (float[])prior.CanvasPose.Clone(); frame.CanvasRect = (float[])prior.CanvasRect.Clone();
+        frame.CanvasSettings = (float[])prior.CanvasSettings.Clone();
+        frame.CanvasSortingOrder = prior.CanvasSortingOrder; frame.CanvasSortingLayer = prior.CanvasSortingLayer;
+    }
+
     internal static bool PrepareHiddenCardReturnOriginal(TownServiceFrame frame) => frame.VisitorStock
         && frame.Service == 1 && !frame.PublicCatalog
         && (TryStockItemId(frame.TemplateAddress, out _) || CosmeticAbilityFace(frame.TemplateAddress)

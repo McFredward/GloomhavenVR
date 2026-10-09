@@ -20,7 +20,20 @@ internal sealed class TownServiceMotionEntry
     internal float[] Pose = Array.Empty<float>(), CanvasPose = Array.Empty<float>(),
         CanvasRect = Array.Empty<float>(), CanvasSettings = Array.Empty<float>(), Numbers = Array.Empty<float>();
     internal int CanvasSortingOrder, CanvasSortingLayer, SharedGuideOwner;
+    internal float ReturnSampleTime, CohortOffset;
+    internal ushort[] ReturnMembers = Array.Empty<ushort>();
+    internal uint[] ReturnStructures = Array.Empty<uint>();
+    internal TownServiceReturnPart[] ReturnParts = Array.Empty<TownServiceReturnPart>();
+    internal bool HasReturnVisibility;
     internal TownServiceMotionKey Key => new(Kind, Lane, Module, Kind is 2 or 4 ? Binding : 0, Kind == 5 ? (ushort)31 : Property, Offset);
+}
+
+internal sealed class TownServiceReturnPart
+{
+    internal byte Index;
+    internal bool Visible;
+    internal float ParentAlpha;
+    internal float[] Child = Array.Empty<float>();
 }
 
 internal readonly struct TownServiceMotionKey : IEquatable<TownServiceMotionKey>
@@ -49,6 +62,7 @@ internal static partial class TownServiceMotionCodec
     // bytes without increasing the actual event size or its 15 Hz cadence. The
     // expanded payload is bounded independently; legacy record97 stays unchanged.
     internal const int MaxExpandedBytes = 8192, MaxExpandedEntries = 128;
+    internal const byte CardReturnCohortRecordId = 113;
     internal const byte PackedRecordId = 98, VisitorReadyRecordId = 99, ReturnRecordId = 106, CardReturnRecordId = 107;
     // Independent message rather than an art fragment: a several-second catalog
     // baseline must never sit in front of a visitor's current hand/hover/scroll.
@@ -67,8 +81,15 @@ internal static partial class TownServiceMotionCodec
         7 => 112,
         8 => 176,
         9 => 76 + (entry.HasCanvasFrame ? 40 : 0),
+        10 => CohortBytes(entry),
         _ => throw new InvalidDataException("Unknown fast motion kind.")
     };
+
+    private static int CohortBytes(TownServiceMotionEntry entry)
+    {
+        int body = 140 + entry.ReturnMembers.Length * 6 + entry.ReturnParts.Length * 46;
+        return body + (body + 250) / 251 * 6;
+    }
 
     internal static byte[] Write(TownServiceMotionPacket packet) => WriteRaw(packet, MaxBytes, MaxEntries);
 
@@ -107,10 +128,25 @@ internal static partial class TownServiceMotionCodec
         foreach (TownServiceMotionEntry entry in packet.Entries)
         {
             if (!keys.Add(entry.Key)) throw new InvalidDataException("Duplicate fast town motion entry.");
+            if (entry.Kind == 10 && entry.ReturnSampleTime > packet.SampleTime)
+                throw new InvalidDataException("Native return cohort source sample is in the future.");
             using var body = new MemoryStream(); using var part = new BinaryWriter(body);
             WriteEntry(part, entry); byte[] bytes = body.ToArray();
+            if (entry.Kind == 10)
+            {
+                // Keep the existing byte-length TLV grammar. A logical cohort
+                // uses contiguous bounded record113 fragments inside this one
+                // atomic numeric packet; old readers skip every fragment.
+                for (int at = 0; at < bytes.Length; at += 251)
+                {
+                    int count = Math.Min(251, bytes.Length - at);
+                    writer.Write(CardReturnCohortRecordId); writer.Write((byte)(count + 4));
+                    writer.Write((ushort)bytes.Length); writer.Write((ushort)at); writer.Write(bytes, at, count);
+                }
+                continue;
+            }
             if (bytes.Length > 255) throw new InvalidDataException("Fast town motion entry exceeds its record.");
-            writer.Write(entry.Kind == 9 ? OfferedFrameRecordId : entry.Kind == 6 ? VisitorReadyRecordId : entry.Kind == 7 ? ReturnRecordId : entry.Kind == 8 ? CardReturnRecordId : RecordId);
+            writer.Write(entry.Kind == 10 ? CardReturnCohortRecordId : entry.Kind == 9 ? OfferedFrameRecordId : entry.Kind == 6 ? VisitorReadyRecordId : entry.Kind == 7 ? ReturnRecordId : entry.Kind == 8 ? CardReturnRecordId : RecordId);
             writer.Write((byte)bytes.Length); writer.Write(bytes);
         }
         if (stream.Length > maxBytes) throw new InvalidDataException("Fast town motion exceeds one bounded event.");
@@ -132,12 +168,34 @@ internal static partial class TownServiceMotionCodec
             using var reader = new BinaryReader(stream);
             var result = new TownServiceMotionPacket(); var keys = new HashSet<TownServiceMotionKey>(); bool clock = false;
             byte[]? packed = null; int packedAt = 0, originalLength = 0;
+            byte[]? cohort = null; int cohortAt = 0;
             while (stream.Position < stream.Length)
             {
                 if (stream.Length - stream.Position < 2) return false;
                 byte id = reader.ReadByte(), count = reader.ReadByte();
                 if (count > stream.Length - stream.Position) return false;
                 long end = stream.Position + count;
+                if (id == CardReturnCohortRecordId)
+                {
+                    if (!clock || packed != null || count <= 4) return false;
+                    int total = reader.ReadUInt16(), at = reader.ReadUInt16();
+                    if (total < 192 || total > MaxExpandedBytes || at != cohortAt) return false;
+                    if (cohort == null) cohort = new byte[total];
+                    if (cohort.Length != total || cohortAt + count - 4 > total) return false;
+                    if (reader.Read(cohort, cohortAt, count - 4) != count - 4) return false;
+                    cohortAt += count - 4;
+                    if (cohortAt == total)
+                    {
+                        using var body = new MemoryStream(cohort, false); using var part = new BinaryReader(body);
+                        if (part.ReadByte() != 10) return false;
+                        TownServiceMotionEntry entry = ReadEntry(part, 10);
+                        if (entry.ReturnSampleTime > result.SampleTime || body.Position != body.Length || result.Entries.Count >= (expanded ? MaxExpandedEntries : MaxEntries)
+                            || !keys.Add(entry.Key)) return false;
+                        result.Entries.Add(entry); cohort = null; cohortAt = 0;
+                    }
+                    continue;
+                }
+                if (cohort != null) return false;
                 if (id == PackedRecordId)
                 {
                     if (expanded || !clock || result.Entries.Count != 0 || count <= 7 || reader.ReadByte() != 1) return false;
@@ -151,10 +209,10 @@ internal static partial class TownServiceMotionCodec
                     packedAt += readCount;
                     continue;
                 }
-                if (id != RecordId && id != VisitorReadyRecordId && id != ReturnRecordId && id != CardReturnRecordId && id != OfferedFrameRecordId) { stream.Position = end; continue; }
+                if (id != RecordId && id != VisitorReadyRecordId && id != ReturnRecordId && id != CardReturnRecordId && id != OfferedFrameRecordId && id != CardReturnCohortRecordId) { stream.Position = end; continue; }
                 if (count == 0) return false;
                 byte kind = reader.ReadByte();
-                if ((id == VisitorReadyRecordId) != (kind == 6) || (id == ReturnRecordId) != (kind == 7) || (id == CardReturnRecordId) != (kind == 8) || (id == OfferedFrameRecordId) != (kind == 9)) return false;
+                if ((id == VisitorReadyRecordId) != (kind == 6) || (id == ReturnRecordId) != (kind == 7) || (id == CardReturnRecordId) != (kind == 8) || (id == OfferedFrameRecordId) != (kind == 9) || (id == CardReturnCohortRecordId) != (kind == 10)) return false;
                 if (kind == 0)
                 {
                     if (clock || result.Entries.Count != 0 || count != 13) return false;
@@ -170,6 +228,7 @@ internal static partial class TownServiceMotionCodec
                 }
                 if (stream.Position != end) return false;
             }
+            if (cohort != null) return false;
             if (packed != null)
             {
                 if (packedAt != packed.Length) return false;
@@ -193,6 +252,16 @@ internal static partial class TownServiceMotionCodec
         if (e.Kind == 5) { w.Write(e.CueReady); w.Write(e.CueStrength); w.Write(e.HasSharedCue);
           if (e.HasSharedCue) { w.Write(e.SharedCueReady); w.Write(e.SharedCueStrength); w.Write(e.SharedGuideOwner); } return; }
         w.Write(e.PublicClaim); w.Write(e.Module); w.Write(e.Structure);
+        if (e.Kind == 10)
+        {
+            w.Write(e.Hand); w.Write(e.Revision); w.Write(e.ReturnSampleTime); Floats(w, e.Numbers);
+            w.Write((byte)e.ReturnMembers.Length);
+            for (int i = 0; i < e.ReturnMembers.Length; i++) { w.Write(e.ReturnMembers[i]); w.Write(e.ReturnStructures[i]); }
+            w.Write((byte)e.ReturnParts.Length);
+            foreach (TownServiceReturnPart part in e.ReturnParts)
+            { w.Write(part.Index); w.Write(part.Visible); w.Write(part.ParentAlpha); Floats(w, part.Child); }
+            return;
+        }
         if (e.Kind == 9) { WriteOfferedFrame(w, e); return; }
         if (e.Kind is 7 or 8)
         { w.Write(e.Hand); w.Write(e.Revision); Floats(w, e.Numbers); return; }
@@ -219,6 +288,18 @@ internal static partial class TownServiceMotionCodec
           if (e.HasSharedCue) { e.SharedCueReady = Bool(r); e.SharedCueStrength = r.ReadSingle(); e.SharedGuideOwner = r.ReadInt32(); }
           Validate(e); return e; }
         e.PublicClaim = r.ReadUInt32(); e.Module = r.ReadUInt16(); e.Structure = r.ReadUInt32();
+        if (kind == 10)
+        {
+            e.Hand = r.ReadByte(); e.Revision = r.ReadUInt32(); e.ReturnSampleTime = r.ReadSingle(); e.Numbers = Floats(r, 28);
+            int count = r.ReadByte(); if (count < 1 || count > 64) throw new InvalidDataException("Invalid native return member count.");
+            e.ReturnMembers = new ushort[count]; e.ReturnStructures = new uint[count];
+            for (int i = 0; i < count; i++) { e.ReturnMembers[i] = r.ReadUInt16(); e.ReturnStructures[i] = r.ReadUInt32(); }
+            count = r.ReadByte(); if (count < 1 || count > e.ReturnMembers.Length) throw new InvalidDataException("Invalid native return part count.");
+            e.ReturnParts = new TownServiceReturnPart[count];
+            for (int i = 0; i < count; i++) e.ReturnParts[i] = new TownServiceReturnPart
+                { Index = r.ReadByte(), Visible = Bool(r), ParentAlpha = r.ReadSingle(), Child = Floats(r, 10) };
+            Validate(e); return e;
+        }
         if (kind == 9) { ReadOfferedFrame(r, e); Validate(e); return e; }
         if (kind is 7 or 8)
         { e.Hand = r.ReadByte(); e.Revision = r.ReadUInt32(); e.Numbers = Floats(r, kind == 7 ? 22 : 38); Validate(e); return e; }
@@ -250,7 +331,7 @@ internal static partial class TownServiceMotionCodec
       foreach (float v in values) if (!Finite(v)) throw new InvalidDataException("Nonfinite fast motion value."); }
     private static void Validate(TownServiceMotionEntry e)
     {
-        if (e.Kind < 1 || e.Kind > 9 || e.Lane > 2 || e.Service < 1 || e.Service > 3 || e.Session == 0
+        if (e.Kind < 1 || e.Kind > 10 || e.Lane > 2 || e.Service < 1 || e.Service > 3 || e.Session == 0
             || e.Lane != 0 && e.Service != 1) throw new InvalidDataException("Invalid fast town motion affinity.");
         if (e.Kind == 3)
         { if (e.Lane != 0 || e.Service != 2 || e.Revision == 0 || !Finite(e.CommitAge) || e.CommitAge < 0f || e.CommitAge > 30f)
@@ -264,6 +345,32 @@ internal static partial class TownServiceMotionCodec
               throw new InvalidDataException("Invalid shared mage cue."); return; }
         if (e.Module >= TownServiceFrame.VoiceModule || e.Structure == 0 || e.Lane != 1 && e.PublicClaim != 0)
             throw new InvalidDataException("Invalid fast town module identity.");
+        if (e.Kind == 10)
+        {
+            CheckFloats(e.Numbers, 28);
+            if (e.ReturnMembers.Length < 1 || e.ReturnMembers.Length > 64
+                || e.ReturnStructures.Length != e.ReturnMembers.Length
+                || e.ReturnParts.Length < 1 || e.ReturnParts.Length > e.ReturnMembers.Length
+                || e.Module != e.ReturnMembers[0] || e.Structure != e.ReturnStructures[0]
+                || !Finite(e.ReturnSampleTime) || e.ReturnSampleTime < 0f)
+                throw new InvalidDataException("Invalid native return cohort.");
+            for (int i = 0; i < e.ReturnMembers.Length; i++)
+                if (e.ReturnMembers[i] >= TownServiceFrame.VoiceModule || e.ReturnStructures[i] == 0
+                    || i != 0 && e.ReturnMembers[i - 1] >= e.ReturnMembers[i])
+                    throw new InvalidDataException("Invalid native return cohort member.");
+            int previous = -1;
+            foreach (TownServiceReturnPart part in e.ReturnParts)
+            {
+                if (part.Index <= previous || part.Index >= e.ReturnMembers.Length
+                    || !Finite(part.ParentAlpha) || part.ParentAlpha < 0f || part.ParentAlpha > 1f)
+                    throw new InvalidDataException("Invalid native return cohort part.");
+                previous = part.Index; CheckFloats(part.Child, 10);
+                var clock = new TownServiceMotionEntry { Kind = 8, Lane = e.Lane, Service = e.Service, Session = e.Session,
+                    Module = e.Module, Structure = e.Structure, PublicClaim = e.PublicClaim, Hand = e.Hand, Revision = e.Revision, Numbers = new float[38] };
+                Array.Copy(e.Numbers, clock.Numbers, 28); Array.Copy(part.Child, 0, clock.Numbers, 28, 10); Validate(clock);
+            }
+            return;
+        }
         if (e.Kind == 9) { ValidateOfferedFrame(e); return; }
         if (e.Kind == 8)
         {
