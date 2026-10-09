@@ -1,5 +1,20 @@
 # State — where the project stands
 
+**Quest actual Editor output ownership, 2026-10-10 (Builder; Runtime660).**
+
+Capture232406 confirms3f/660 still rejects the same imported Bloom Shader before
+another Unity launch. The earlier fixture invented meta owners absent from the
+real producer. Shader metas now qualify through their complete hash in the
+unchanged restoration receipt. Original SDK references qualify under their actual
+final `script-orders` owner through inverse complete original-byte proof. The
+single PlayerSettings file has an explicit later Editor handoff, bound to its
+unchanged Android bootstrap receipt, exact Linear/Vulkan fields and a durable
+accepted-row chain. All27 preparation owners and Unity Library remain retained;
+warm resumes add no payload reads. Independent bounded audit found no further
+observed immutable drift.190 focused Python cases and native combined/cut/causal
+proof pass; whole Windows APK acceptance remains pending. Details and prior
+fixture correction: [QUEST-EDITOR-CONTRACTS-232406-20261010.md](QUEST-EDITOR-CONTRACTS-232406-20261010.md).
+
 **Quest retained Unity-import mutations, 2026-10-09 (Builder; dev660 integrated).**
 
 Capture205914 identifies the delivered d58d/659 and stops before another Unity

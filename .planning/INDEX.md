@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-09 for retained Unity import mutations and dev660.
+Updated 2026-10-10 for actual retained Editor output ownership and Runtime660.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
@@ -14,6 +14,7 @@ status; it is not the player manual.
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [QUEST-EDITOR-CONTRACTS-232406-20261010.md](QUEST-EDITOR-CONTRACTS-232406-20261010.md) | Real Shader/meta/script-order owners, explicit PlayerSettings handoff and corrected continuation proof |
 | [QUEST-RETAINED-UNITY-MUTATIONS-205914-20261009.md](QUEST-RETAINED-UNITY-MUTATIONS-205914-20261009.md) | Exact imported Shader and package-script transitions retain completed preparation and Library |
 | [QUEST-EDITOR-SPRITE-200517-20261009.md](QUEST-EDITOR-SPRITE-200517-20261009.md) | Completed first import, exporter-local promotion identity, retained Editor overlays and measured Unity steps |
 | [QUEST-UNITY-IMPORT-184004-20261009.md](QUEST-UNITY-IMPORT-184004-20261009.md) | Actual initial import, live Unity/API/content counters, retained preparation and storage/timing evidence |

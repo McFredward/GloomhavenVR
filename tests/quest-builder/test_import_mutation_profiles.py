@@ -23,11 +23,25 @@ class ImportMutationProfileTests(unittest.TestCase):
     def test_previous_and_fixed_reader_profiles_keep_the_same_original_producers(self):
         previous = recovery_resume.OBSERVATION_EDITOR_OVERLAY_PREVIOUS
         current = recovery_resume.OBSERVATION_EDITOR_OVERLAY
-        self.assertEqual(recovery_resume.preparation_source_rows(list(previous.values())),
-                         recovery_resume.preparation_source_rows(list(current.values())))
+        canonical = recovery_resume.preparation_source_rows(list(previous.values()))
+        for profile in (recovery_resume.OBSERVATION_EDITOR_IMPORT_PREVIOUS, current):
+            self.assertEqual(canonical, recovery_resume.preparation_source_rows(list(profile.values())))
         for name in current:
             with self.subTest(changed=name):
                 changed = copy.deepcopy(current)
+                changed[name]["sha256"] = "f" * 64
+                rows = recovery_resume.preparation_source_rows(list(changed.values()))
+                self.assertIn(changed[name], rows)
+                self.assertIn(changed["tools/quest-builder/script_remap_resume.py"], rows)
+
+    def test_preceding_shipped_import_reader_profile_is_qualified_as_a_whole(self):
+        previous = recovery_resume.OBSERVATION_EDITOR_IMPORT_PREVIOUS
+        current = recovery_resume.OBSERVATION_EDITOR_OVERLAY
+        self.assertEqual(recovery_resume.preparation_source_rows(list(previous.values())),
+                         recovery_resume.preparation_source_rows(list(current.values())))
+        for name in previous:
+            with self.subTest(changed=name):
+                changed = copy.deepcopy(previous)
                 changed[name]["sha256"] = "f" * 64
                 rows = recovery_resume.preparation_source_rows(list(changed.values()))
                 self.assertIn(changed[name], rows)

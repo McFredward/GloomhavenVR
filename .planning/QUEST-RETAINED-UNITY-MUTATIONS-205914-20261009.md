@@ -3,6 +3,13 @@
 This Builder repair stays on `feature/quest3-standalone`. Published dev660 is
 merged; it does not publish Quest changes to dev or build another local APK.
 
+Capture232406 subsequently rejected the same Shader in the real Windows graph.
+The fixtures below incorrectly supplied an independent Shader-meta owner and
+placed remapped Prefabs before their real script-order owner. Their positive
+results do not prove that production graph qualified. The corrected producer
+contracts and Editor settings handoff are recorded in
+[QUEST-EDITOR-CONTRACTS-232406-20261010.md](QUEST-EDITOR-CONTRACTS-232406-20261010.md).
+
 ## Current failure and preserved work
 
 `quest-build-support-20261009T205914Z-a038ae86.zip` identifies the delivered
