@@ -167,11 +167,12 @@ class OrdinaryTextureTests(unittest.TestCase):
         self.assertEqual(values[-1]['status'],'failed')
         self.assertEqual([row['done'] for row in values[:-1]],[0,1])
 
-    def test_final_native_receipt_failure_never_reports_one_hundred_percent(self):
+    def test_final_native_receipt_failure_keeps_actual_decode_completion_without_reference_acceptance(self):
         _,progress=self.staged_textures(receipt_failure=True)
         values=[row for row in progress if row['phase']=='prepare-items:native-texture2d']
-        self.assertEqual(values[-1]['status'],'failed')
-        self.assertFalse(any(row['status']=='complete' or row['done']==2 for row in values))
+        self.assertEqual((values[-1]['status'],values[-1]['done']),('complete',2))
+        self.assertFalse(any(row['phase']=='prepare-items:native-texture2d-reference-receipts' and
+                             row['status']=='complete' for row in progress))
 
     def test_float_vat_signed_out_of_range_components_are_byte_exact(self):
         pixels=struct.pack('<48e',*([-3.25,12.5,0.125,1.0]*12))

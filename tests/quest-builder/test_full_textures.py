@@ -73,21 +73,25 @@ class NativeCubeTests(unittest.TestCase):
         for phase in ('prepare-items:native-cubemaps','prepare-items:platform-images'):
             values=[row for row in progress if row['phase']==phase]
             self.assertEqual([(row['status'],row['done'],row['total']) for row in values],[('start',0,2),('progress',1,2),('complete',2,2)])
-        phases=[row['phase'] for row in progress if row['status']=='complete']
-        self.assertEqual(phases,['prepare-items:platform-images','prepare-items:native-cubemaps'])
+        phases=[row['phase'] for row in progress if row['status']=='complete' and
+                row['phase'] in ('prepare-items:platform-images','prepare-items:native-cubemaps')]
+        self.assertEqual(phases,['prepare-items:native-cubemaps','prepare-items:platform-images'])
 
-    def test_final_reference_failure_does_not_complete_native_cube_counter(self):
+    def test_final_reference_failure_preserves_actual_native_cube_decode_completion(self):
         _,progress=self.staged_cubes(final_reference_failure=True)
         cube_progress=[row for row in progress if row['phase']=='prepare-items:native-cubemaps']
-        self.assertEqual(cube_progress[-1]['status'],'failed')
-        self.assertFalse(any(row['done']==2 or row['status']=='complete' for row in cube_progress))
+        self.assertEqual((cube_progress[-1]['status'],cube_progress[-1]['done']),('complete',2))
+        self.assertFalse(any(row['phase']=='prepare-items:native-cubemaps-reference-receipts' and
+                             row['status']=='complete' for row in progress))
 
-    def test_failed_child_image_propagates_without_false_parent_completion(self):
+    def test_failed_child_image_preserves_decoded_cubes_but_never_completes_reference_restoration(self):
         _,progress=self.staged_cubes(platform_failure=True)
-        for phase in ('prepare-items:native-cubemaps','prepare-items:platform-images'):
-            values=[row for row in progress if row['phase']==phase]
-            self.assertEqual(values[-1]['status'],'failed')
-            self.assertFalse(any(row['done']==2 or row['status']=='complete' for row in values))
+        cubes=[row for row in progress if row['phase']=='prepare-items:native-cubemaps']
+        self.assertEqual((cubes[-1]['status'],cubes[-1]['done']),('complete',2))
+        images=[row for row in progress if row['phase']=='prepare-items:platform-images']
+        self.assertEqual(images[-1]['status'],'failed')
+        self.assertFalse(any(row['done']==2 or row['status']=='complete' for row in images))
+        self.assertFalse(any(row['phase']=='prepare-items:native-cubemaps-reference-receipts' for row in progress))
 
     def test_native_texture_reference_types_change_real_nodes_and_refresh_current_hashes(self):
         import hashlib,json

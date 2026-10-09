@@ -44,37 +44,81 @@ def native_yaml(fields, pixels, texture_format, file_id):
     return output
 
 
-def remap_manifests(project, path_map):
+def remap_manifests(project, path_map, *, progress_scope=None):
     """Retain captured native identities when their portable physical path changes."""
     changed = []
     files = ['QuestRecovery/original-asset-identities.json']
     for folder in ('QuestOriginalStartup', 'QuestOriginalCampaign'):
         for filename in ('startup-addressables.json', 'campaign-addressables.json', 'script-bindings.json'):
             files.append('Assets/' + folder + '/' + filename)
-    for relative in files:
-        path = project / relative
-        if not path.is_file(): continue
-        original = path.read_text(); document = json.loads(original); modified = False
-        if relative == files[0]:
-            for row in document['identities']:
-                if row['path'] in path_map:
-                    row['path'] = path_map[row['path']]; modified = True
-        elif relative.endswith('-addressables.json'):
-            for row in document['entries']:
-                if row.get('assetPath') in path_map:
-                    row['assetPath'] = path_map[row['assetPath']]; modified = True
-        else:
-            for index, value in enumerate(document['assetPaths']):
-                if value in path_map:
-                    document['assetPaths'][index] = path_map[value]; modified = True
-        if modified:
-            write_json(path,document); text = path.read_text()
-            changed.append({'path': relative, 'beforeSha256': hashlib.sha256(original.encode()).hexdigest(),
-                            'sha256': hashlib.sha256(text.encode()).hexdigest()})
+    counter = build_progress.Counter('prepare-items:' + progress_scope + '-manifests', len(files), 'files',
+                                     files[0]) if progress_scope else None
+    try:
+        for ordinal, relative in enumerate(files):
+            if counter: counter.update(ordinal, relative)
+            path = project / relative
+            if path.is_file():
+                original = path.read_text(); document = json.loads(original); modified = False
+                if relative == files[0]:
+                    for row in document['identities']:
+                        if row['path'] in path_map:
+                            row['path'] = path_map[row['path']]; modified = True
+                elif relative.endswith('-addressables.json'):
+                    for row in document['entries']:
+                        if row.get('assetPath') in path_map:
+                            row['assetPath'] = path_map[row['assetPath']]; modified = True
+                else:
+                    for index, value in enumerate(document['assetPaths']):
+                        if value in path_map:
+                            document['assetPaths'][index] = path_map[value]; modified = True
+                if modified:
+                    write_json(path,document); text = path.read_text()
+                    changed.append({'path': relative, 'beforeSha256': hashlib.sha256(original.encode()).hexdigest(),
+                                    'sha256': hashlib.sha256(text.encode()).hexdigest()})
+            if counter: counter.add(1, relative)
+        if counter: counter.finish()
+    except BaseException as error:
+        if counter: counter.fail(error)
+        raise
     return changed
 
 
-def restore_native_texture_pointer_types(project):
+def _reference_paths(project, progress_scope):
+    """Count the existing single walk, then measure its actual processing list.
+
+    Keep filesystem order and do not perform a second census. The optional
+    list lets the slower YAML/PPtr pass report an observed denominator; ordinary
+    command-line calls keep their original streaming behavior.
+    """
+    if not progress_scope or not build_progress.enabled():
+        yield from (project / 'Assets').rglob('*')
+        return
+    discovery = build_progress.Counter('prepare-items:' + progress_scope + '-reference-discovery',
+                                       None, 'entries', 'Discovering native texture reference owners')
+    paths = []
+    try:
+        for path in (project / 'Assets').rglob('*'):
+            paths.append(path)
+            discovery.add(1, path.relative_to(project).as_posix())
+        discovery.total = len(paths)  # The sole existing walk has now observed this exact inventory.
+        discovery.finish()
+    except BaseException as error:
+        discovery.fail(error)
+        raise
+    scan = build_progress.Counter('prepare-items:' + progress_scope + '-reference-scan',
+                                 len(paths), 'entries', 'Restoring native texture references')
+    previous = None
+    for ordinal, path in enumerate(paths):
+        # The previous yielded entry has been processed successfully. A failure
+        # in its caller never advances this count or publishes scan completion.
+        if ordinal: scan.update(ordinal, previous)
+        yield path
+        previous = path.relative_to(project).as_posix()
+    scan.update(len(paths), previous)
+    scan.finish()
+
+
+def restore_native_texture_pointer_types(project, *, progress_scope=None):
     """Retarget genuine PPtr nodes after an imported PNG becomes a native asset.
 
     Unity resolves type3 imported-image references differently from type2 native
@@ -96,7 +140,7 @@ def restore_native_texture_pointer_types(project):
             if not re.search(r'^guid: '+re.escape(row['guid'])+r'\s*$',meta,re.M) or 'NativeFormatImporter:' not in meta or not re.search(r'^\s+mainObjectFileID: '+str(row['fileId'])+r'\s*$',meta,re.M):
                 raise BuildError('Native texture reference target is not a witnessed native importer.')
             targets[key]={'assetPath':row['assetPath'],'guid':row['guid'],'fileId':int(row['fileId']),'type':2}
-    for path in (project/'Assets').rglob('*'):
+    for path in _reference_paths(project, progress_scope):
         if not path.is_file() or not is_unity_yaml(path):continue
         with path.open('rb') as source:prefix=source.read(128)
         if re.search(rb'--- !u!(?:28|89) &',prefix):continue # Source-proven texture payloads have no external texture PPtrs.
@@ -123,21 +167,35 @@ def restore_native_texture_pointer_types(project):
     manifests=list((project/'QuestRecovery').glob('packed-*.json'))
     for filename in ('native-sprites.json','native-cubemaps.json','native-texture2d.json','native-platform-images.json','bundled-audio.json'):
         manifests.append(project/'Assets/QuestOriginalCampaign'/filename)
-    for path in manifests:
-        if not path.is_file():continue
-        document=json.loads(path.read_text());modified=False
-        for row in document.get('assets',[])+document.get('restoredMembers',[]):
-            if row.get('assetPath') in changes:
-                before,after=changes[row['assetPath']]
-                if row['sha256']!=before:raise BuildError('Native texture owner receipt hash changed before reference repair.')
-                row['sha256']=after;row['nativeTextureReferenceTypesRestored']=True;modified=True
-        if modified:write_json(path,document);refreshed.append(path.relative_to(project).as_posix())
-    receipt={'schema':1,'nativeTextureTargetCount':len(targets),'ownerCount':len(owners),
-             'referenceCount':sum(len(row['references']) for row in owners),
-             'changedReferenceCount':sum(row['changedReferenceCount'] for row in owners),
-             'targets':list(targets.values()),'owners':owners,'refreshedManifests':refreshed,
-             'unityConsumingReferencesVerified':False}
-    write_json(project/'Assets/QuestOriginalCampaign/native-texture-references.json',receipt)
+    counter = build_progress.Counter('prepare-items:' + progress_scope + '-reference-receipts',
+                                     len(manifests), 'files', 'Refreshing restored texture reference receipts') if progress_scope else None
+    try:
+        for ordinal,path in enumerate(manifests):
+            relative=path.relative_to(project).as_posix()
+            if counter: counter.update(ordinal, relative)
+            if path.is_file():
+                document=json.loads(path.read_text());modified=False
+                for row in document.get('assets',[])+document.get('restoredMembers',[]):
+                    if row.get('assetPath') in changes:
+                        before,after=changes[row['assetPath']]
+                        if row['sha256']!=before:raise BuildError('Native texture owner receipt hash changed before reference repair.')
+                        row['sha256']=after;row['nativeTextureReferenceTypesRestored']=True;modified=True
+                if modified:write_json(path,document);refreshed.append(relative)
+            if counter: counter.add(1, relative)
+    except BaseException as error:
+        if counter: counter.fail(error)
+        raise
+    try:
+        receipt={'schema':1,'nativeTextureTargetCount':len(targets),'ownerCount':len(owners),
+                 'referenceCount':sum(len(row['references']) for row in owners),
+                 'changedReferenceCount':sum(row['changedReferenceCount'] for row in owners),
+                 'targets':list(targets.values()),'owners':owners,'refreshedManifests':refreshed,
+                 'unityConsumingReferencesVerified':False}
+        write_json(project/'Assets/QuestOriginalCampaign/native-texture-references.json',receipt)
+        if counter: counter.finish()
+    except BaseException as error:
+        if counter: counter.fail(error)
+        raise
     return receipt
 
 
@@ -156,6 +214,7 @@ def stage(project, game_data, *, dotnet, tool_cache, cab_bundles):
     owners = {key.casefold(): value for key, value in owners.items()}
     targets = [target for target in objects.values() if target['classId'] == 89]
     counter = build_progress.Counter('prepare-items:native-cubemaps', len(targets), "items")
+    decoded = False
     try:
         command = portable_decoder.build(tool_cache, dotnet)
         temporary = Path(tool_cache)/'original-cubemap-payloads'; temporary.mkdir(exist_ok=True)
@@ -199,17 +258,18 @@ def stage(project, game_data, *, dotnet, tool_cache, cab_bundles):
                   'width':width,'mipCount':count,'faceCount':6,'isReadable':fields['m_IsReadable'],'pixelByteCount':len(pixels),
                   'pixelSha256':hashlib.sha256(pixels).hexdigest(),'mips':mip_receipts,'sourceMipChainPreserved':True})
             counter.add(1, target['path'])
-        manifests = remap_manifests(project,path_map)
+        counter.finish()
+        decoded = True
+        manifests = remap_manifests(project,path_map,progress_scope='native-cubemaps')
         receipt={'schema':1,'nativeCubemapCount':len(assets),'assets':assets,'pathMap':path_map,'updatedManifests':manifests,
                  'source':'original-native-CAB-pathID-all-six-faces-all-original-mip-levels',
                  'unityImportVerified':False,'originalGpuParityVerified':False,'headsetGpuVerified':False}
         write_json(project/'Assets/QuestOriginalCampaign/native-cubemaps.json',receipt)
         receipt['platformImageAudit'] = audit_platform_images(project,game_data,objects,owners, source_hashes=source_hashes)
-        receipt['nativeTextureReferences']=restore_native_texture_pointer_types(project)
-        counter.finish()
+        receipt['nativeTextureReferences']=restore_native_texture_pointer_types(project,progress_scope='native-cubemaps')
         return receipt
     except BaseException as error:
-        counter.fail(error)
+        if not decoded: counter.fail(error)
         raise
 
 

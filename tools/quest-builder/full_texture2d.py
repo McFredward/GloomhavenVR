@@ -202,6 +202,7 @@ def restore_float_textures(project,game_data,source_audit,*,dotnet,tool_cache,ca
     groups=defaultdict(list)
     for row in selected:groups[row['sourceContainer']].append(row)
     counter = build_progress.Counter('prepare-items:native-texture2d', len(selected), "items")
+    decoded = False
     try:
         command=portable_decoder.build(tool_cache,dotnet)
         policy=host_resources.phase_budget('asset-codec',tool_cache)
@@ -273,18 +274,19 @@ def restore_float_textures(project,game_data,source_audit,*,dotnet,tool_cache,ca
 
             ordered=[row for _,rows in sorted(groups.items()) for row in rows]
             asset_jobs.ordered_pipeline(ordered,prepare,execute,publish,jobs=workers,byte_budget=policy['memoryBudgetBytes'])
+            counter.finish()
+            decoded = True
             print('asset-codecs: '+json.dumps({'phase':'native-texture2d','workers':workers,'items':len(selected),**cache.stats}),flush=True)
         native_objects.clear();environment=None;gc.collect()
         receipt={'schema':1,'nativeTexture2DCount':len(assets),'originalHalfTextureCount':sum(row['sourceFormat']==17 for row in assets),
                  'originalBc6hTextureCount':sum(row['sourceFormat']==24 for row in assets),'assets':assets,'pathMap':path_map,
-                 'updatedManifests':remap_manifests(project,path_map),'unityImportVerified':False,
+                 'updatedManifests':remap_manifests(project,path_map,progress_scope='native-texture2d'),'unityImportVerified':False,
                  'originalBc6GpuParityVerified':False,'headsetGpuVerified':False}
         write_json(project/'Assets/QuestOriginalCampaign/native-texture2d.json',receipt)
-        receipt['nativeTextureReferences']=restore_native_texture_pointer_types(project)
-        counter.finish()
+        receipt['nativeTextureReferences']=restore_native_texture_pointer_types(project,progress_scope='native-texture2d')
         return receipt
     except BaseException as error:
-        counter.fail(error)
+        if not decoded: counter.fail(error)
         raise
 
 
