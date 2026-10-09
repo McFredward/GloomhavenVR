@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Exact native card returns under variable packet delay and artwork refresh."""
+"""Current native return receiver under legacy107 independent-part transport.
+
+The exact Build656 motion budget is the declared historical sender boundary.
+Build658 current113 atomic publication is separately covered by npc658-card-returns.
+"""
 import argparse
 import hashlib
 import importlib.util
@@ -27,6 +31,18 @@ def main():
     spec = importlib.util.spec_from_file_location('return655_sources', root / 'scripts/check-town-service-mirror.py')
     loader = importlib.util.module_from_spec(spec); spec.loader.exec_module(loader)
     bound, hashes = loader.sources(root)
+    # Preserve the original independent-part/delayed-receipt challenge. The current
+    # sender uses atomic113 and cannot honestly simulate face-before-body delivery.
+    legacy_budget_commit = 'bf3444cb502e1eff52bcf0e5194a255109879d36'
+    legacy_budget = subprocess.check_output(['git', 'show', legacy_budget_commit + ':src/GloomhavenVR/Net/TownServices/TownServiceMotionBudget.cs'], cwd=root, text=True)
+    bound['TownServiceMotionBudget.cs'] = legacy_budget
+    hashes['TownServiceMotionBudget.cs (legacy107 Build656 boundary)'] = hashlib.sha256(legacy_budget.encode()).hexdigest()
+    old_motion = subprocess.check_output(['git', 'show', 'deb989570:src/GloomhavenVR/Net/TownServices/TownServiceMirror.Motion.cs'], cwd=root, text=True)
+    old_return = loader.method(old_motion, 'private static void ApplyCardReturnMotion(')
+    old_clock = '        TownServiceMotionEntry entry = sample.Entry;\n        float age = entry.Numbers[0] + Mathf.Max(0f, now - sample.ReceivedAt);'
+    if old_return.count(old_clock) != 1: raise RuntimeError('Historical receive-clock source drift')
+    hashes['ApplyCardReturnMotion (historical receive-clock source)'] = hashlib.sha256(old_return.encode()).hexdigest()
+    (run / 'historical-receive-clock.cs.txt').write_text(old_return)
     fixture = run / 'fixture'; shutil.copytree(root / 'scripts/town-service-mirror-runtime', fixture)
     shutil.copyfile(Path(__file__).with_name('Return655.cs'), fixture / 'Return655.cs')
     card_source = (root / 'src/GloomhavenVR/Cards/VRCard.cs').read_text()
@@ -83,7 +99,7 @@ internal sealed class NativeMerchant655 : MonoBehaviour {
     hashes['NativeReturnSource655.cs'] = hashlib.sha256(bound['NativeReturnSource655.cs'].encode()).hexdigest()
     # Deterministic transport/render time only; actual source curve and codec stay
     # intact. A real-clock focused suite remains separate inherited evidence.
-    for name in ['TownServiceMirror.cs', 'TownServiceMirror.Motion.cs', 'TownServiceMotion.cs']:
+    for name in ['TownServiceMirror.cs', 'TownServiceMirror.Motion.cs', 'TownServiceMotion.cs', 'TownServiceMirror.CardReturnCohorts.cs']:
         bound[name] = bound[name].replace('Time.unscaledTime', 'global::FlightTime655.Now')
     text = (fixture / 'Program.cs').read_text()
     text = text.replace('            DelayedCensusRace();', '            if (suite != "return655") DelayedCensusRace();', 1)
@@ -117,8 +133,10 @@ internal sealed class NativeMerchant655 : MonoBehaviour {
     for name, mutation in cases:
         files = dict(bound)
         if mutation == 'old':
-            old = subprocess.check_output(['git', 'show', 'deb989570:src/GloomhavenVR/Net/TownServices/TownServiceMirror.Motion.cs'], cwd=root, text=True)
-            files['TownServiceMirror.Motion.cs'] = old.replace('Time.unscaledTime', 'global::FlightTime655.Now')
+            current = loader.method(files['TownServiceMirror.Motion.cs'], 'private static TownServiceMotionEntry CardReturnSample(')
+            if files['TownServiceMirror.Motion.cs'].count(current) != 1: raise RuntimeError('Current receive-clock helper binding drift')
+            historical = '    private static TownServiceMotionEntry CardReturnSample(MotionSlot sample, float now, out float age)\n    {\n' + old_clock.replace('float age =', 'age =', 1) + '\n        return entry;\n    }'
+            files['TownServiceMirror.Motion.cs'] = files['TownServiceMirror.Motion.cs'].replace(current, historical, 1)
         if mutation == 'partition':
             anchor = 'ReturnOffset(state, packet.SampleTime, receivedAt)'
             if files['TownServiceMirror.Motion.cs'].count(anchor) != 1: raise RuntimeError('Return offset control binding drift')
@@ -149,7 +167,7 @@ internal sealed class NativeMerchant655 : MonoBehaviour {
     subprocess.run([os.environ.get('UNITYPY_PYTHON', str(Path.home() / 'unitypy-venv/bin/python')),
         str(root / 'scripts/town-purse-runtime/export-native.py'), str(root), str(run / 'native-purse.json')], check=True)
     path = run / 'manifest.json'; path.write_text(json.dumps(manifest, indent=2) + '\n')
-    (run / 'source-hashes.json').write_text(json.dumps({'production': hashes, 'cases': receipts,
+    (run / 'source-hashes.json').write_text(json.dumps({'boundaries': {'sender': 'exact Build656 legacy107 motion budget', 'sender_commit': legacy_budget_commit, 'receiver': 'current source', 'clock_control': 'historical deb989570 receive-age fragment only'}, 'production': hashes, 'cases': receipts,
         'fixture': {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in fixture.glob('*.cs')}}, indent=2) + '\n')
     print('Evidence: ' + str(run), flush=True)
     result = subprocess.run(['xvfb-run', '-a', str(unity), '-batchmode', '-force-glcore', '-projectPath', str(project),

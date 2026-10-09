@@ -61,10 +61,10 @@ internal static partial class TownServiceMirror
             age = _current.Numbers[0] + progress - ReturnProgress(_current);
             return _current;
         }
-        // The exponential merchant receipt starts at its current physical pose;
-        // its decreasing remaining duration measures the same native progress.
+        // Exponential receipts may carry increasing age or decreasing remaining
+        // duration. Age minus duration retains progress for both wire shapes.
         private static float ReturnProgress(TownServiceMotionEntry entry) =>
-            entry.Numbers[2] == 1f ? -entry.Numbers[1] : entry.Numbers[0];
+            entry.Numbers[2] == 1f ? entry.Numbers[0] - entry.Numbers[1] : entry.Numbers[0];
     }
     private sealed class SourceMotion
     {
