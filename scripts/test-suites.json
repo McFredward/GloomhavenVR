@@ -2522,6 +2522,17 @@
         "local"
       ],
       "weight": 35
+    },
+    {
+      "id": "npc660-native-return-completion",
+      "command": [
+        "python3",
+        "scripts/npc660-return-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 55
     }
   ]
 }

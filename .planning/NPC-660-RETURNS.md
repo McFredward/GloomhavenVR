@@ -4,7 +4,8 @@ Source checkpoint: `472290be1` plus the final restriction to declared native
 VRCard/ItemChip owner types, based on current dev Build659 plus the separately
 owned lifecycle pose/layout baseline and exact procedural-body factory. The new
 hardware inputs frozen at `.planning/debug/npc660/inputs` identify **Build658
-e92ef8e53 on both peers**. Host logging is Debug; the remote starts at Info. The
+e92ef8e53 on both peers**. Both Player logs retain Debug town-service traces;
+the LogOutput files omit those detailed rows. The
 logs establish this run and its native lifecycle, but contain no per-surface
 render output and do not uniquely identify the reported merchant split's time.
 No new video is assigned to that specific split. The earlier Build656 video is
