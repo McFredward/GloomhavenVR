@@ -119,7 +119,9 @@ internal static partial class WallSegmentFade
 
         private bool PerformanceScenarioStillCurrent()
         {
-            if (!VRSession.IsRunning || _performanceScene < 0
+            // Scene handles are opaque identities: actual Unity can return a valid
+            // loaded scene with a negative handle. Validate the scene itself below.
+            if (!VRSession.IsRunning
                 || Rig.VRRigDriver.HeadCamera == null
                 || _performanceGenerator == null || TilesOcclusionGenerator.s_Instance != _performanceGenerator)
                 return false;
