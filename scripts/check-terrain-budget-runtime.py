@@ -36,6 +36,7 @@ def main():
     parser.add_argument('--production-only', action='store_true')
     parser.add_argument('--case', action='append')
     parser.add_argument('--wall-source-root', type=Path, help='Explicit frozen wall worker source for the cross-owner native-write fixture; defaults to source-root')
+    parser.add_argument('--integration-root', type=Path, help='Frozen CoreModule source for exact wall-release callback; defaults to source-root')
     args = parser.parse_args()
     root=args.source_root.resolve(); fixture=ROOT/'tests/terrain-budget-runtime'
     paths=[root/'src/GloomhavenVR/Core/Perf/ScenarioTerrainBudget.cs',root/'src/GloomhavenVR/Core/Perf/ScenarioTerrainBudget.Geometry.cs',
@@ -43,6 +44,13 @@ def main():
         root/'unity/GloomhavenVR.Assets/Assets/Bundle/Environments/ScenarioCheapTerrain.shader',
         root/'src/GloomhavenVR/Core/Perf/ScenarioEnvironmentMeshStream.cs']
     source, geometry, admission, shader=[p.read_text() for p in paths[:4]]
+    core_path=(args.integration_root.resolve() if args.integration_root else root)/'src/GloomhavenVR/Core/CoreModule.cs'
+    core=core_path.read_text()
+    assert 'ScenarioTerrainBudget.ConfigurePerformanceWallVisibility(WallSegmentFade.IsPerformanceHidden);' in core, 'terrain exact wall-policy wiring missing'
+    callbacks=re.findall(r'WallSegmentFade.ConfigurePerformanceMaskRestored\((renderer\s*=>\s*\{.*?\})\);',core,re.S)
+    assert len(callbacks)==1, 'exact wall-release callback binding drift'
+    callback=callbacks[0]
+    assert callback.count('ScenarioTerrainBudget.MaterialReady(renderer);')==1, 'exact final wall release must queue the source once'
     ownership_paths=[root/'src/GloomhavenVR/Board/FigureGrab'/name for name in ('PropGrab.cs','HeldProps.cs','NetHeldProps.cs')]
     prop, held, remote=[p.read_text() for p in ownership_paths]
     assert 'internal static int Count => Held.Count;' in held, 'held source count binding drift'
@@ -66,6 +74,7 @@ def main():
     # between extraction and the native coverage export.
     extracted_hashes={str(p):hashlib.sha256(value.encode()).hexdigest()
         for p,value in zip(paths[:4]+ownership_paths+[wall_path], [source,geometry,admission,shader,prop,held,remote,wall_source])}
+    extracted_hashes[str(core_path)]=hashlib.sha256(core.encode()).hexdigest()
     hide='using System.Collections.Generic; using UnityEngine;\nnamespace GloomhavenVR.Core { internal sealed class TerrainWallHide {\nprivate readonly HashSet<Renderer> _hidByEnable = new();\ninternal bool Owns(Renderer r) => _hidByEnable.Contains(r);\nprivate static bool FloorNeverFades(Renderer r) => false;\nprivate static bool HeldNeverFades(Renderer r) => false;\n'+method(wall_source,'    internal void HideByEnable(Renderer r)')+'}\n}\n'
     assert 'StaticBatchingUtility' not in source+geometry and 'SetStaticBatchInfo' not in source+geometry
     assert not re.search(r'(?<![\w])(?:Filter\.sharedMesh|Renderer\.sharedMaterials)\s*=(?!=)', source+geometry), 'native cloning sources must stay unchanged'
@@ -104,6 +113,32 @@ def main():
         ('native-high-foundation-dropped','float foundation = min(max(1. - i.world.y, 0.), 5.) / 3.;','float foundation = 0.;','production HIGH and toggle-native map foundation',shader,1),
         ('native-high-enable-dropped','float M = m * _EnableOcclusionMap;','float M = 0.;','production HIGH and toggle-native map foundation',shader,1),
         ('native-high-cutoff-fixed','clip(value - _Cutoff);','clip(value - .5);','production HIGH and toggle-native map foundation',shader,1),
+    ]
+    controls += [
+        ('terrain-exact-hidden-update-skip-lost','\n                    if (PerformanceWallHidden(surface.Renderer)) continue;',
+         '\n                    /* injected hidden Update work */',
+         'exact performance-hidden terrain has zero per-source validation detail or geometry work',source,1),
+        ('terrain-exact-hidden-camera-skip-lost','\n                        if (PerformanceWallHidden(surface.Renderer)) continue;',
+         '\n                        /* injected hidden camera native reads */',
+         'exact performance-hidden terrain camera skips native visibility reads',source,1),
+        ('terrain-hidden-native-mask-overreach','\n                    if (PerformanceWallHidden(surface.Renderer)) continue;',
+         '\n                    if (PerformanceWallHidden(surface.Renderer) || surface.Renderer != null && surface.Renderer.forceRenderingOff) continue;',
+         'foreign native renderer masks do not suspend unrelated terrain maintenance',source,1),
+        ('terrain-exact-hidden-preparation-skip-lost','if (renderer != null && PerformanceWallHidden(renderer)) continue;',
+         '/* injected hidden discovery preparation */',
+         'exact already-hidden discovery performs no native filter reads or private preparation',source,1),
+        ('terrain-hidden-substitute-ownership-retained','            && !PerformanceWallHidden(renderer)',
+         '            /* injected hidden substitute ownership */',
+         'exact performance-hidden terrain camera skips native visibility reads',source,1),
+        ('terrain-hidden-current-mesh-replacement-lost','if (_surfaces.TryGetValue(id, out Surface previous) && previous.Original != filter.sharedMesh)',
+         'if (_surfaces.TryGetValue(id, out Surface previous) && _surfaces.Count < 0)',
+         'Regular restores current native mesh material and reparented terrain after exact release',source,1),
+        ('terrain-hidden-detail-pose-read-retained','bool detailReady = false;',
+         'bool detailReady = active && camera != null; detail = detailReady ? new DetailState(camera!) : default;',
+         'all exact hidden terrain skips even shared head and tracked detail reads',source,1),
+        ('terrain-hidden-discovery-identity-mismatch','_queued.Remove(node.gameObject.GetInstanceID());',
+         '_queued.Remove(node.GetInstanceID());',
+         'exact final wall release requeues previously hidden native discovery once',source,1),
     ]
     controls += [
         ('repeated-detail-pose-reads','int percent = active && camera != null ? DetailFor(surface, detail) : 100;',
@@ -235,11 +270,15 @@ def main():
          'prepared disabled wall without current terrain lease is never adopted or rewritten'),
     ]
     observed_wall={'production':hide}
+    observed_callback={'production':callback}
     if not args.production_only:
         for name,before,after,expected in wall_controls:
             assert hide.count(before)==1, 'actual wall mutation binding drift: '+name
             observed_wall[name]=hide.replace(before,after)
             variants.append((name,source,geometry,admission,shader,expected))
+        name='terrain-hidden-final-release-requeue-lost'
+        observed_callback[name]=callback.replace('ScenarioTerrainBudget.MaterialReady(renderer);','/* injected final source rediscovery lost */')
+        variants.append((name,source,geometry,admission,shader,'exact final wall release requeues previously hidden native discovery once'))
     if args.case:
         unknown=set(args.case)-{v[0] for v in variants}
         if unknown: raise SystemExit('Unknown selected variants: '+', '.join(sorted(unknown)))
@@ -252,7 +291,7 @@ def main():
     (run/'native-verification.log').write_text(native_result.stdout+native_result.stderr)
     print(native_result.stdout,end='')
     native=json.loads((run/'native-coverage.json').read_text())
-    inputs=paths+ownership_paths+[wall_path,Path(__file__).resolve(),Path(native['nativeBundle']),
+    inputs=paths+ownership_paths+[wall_path,core_path,Path(__file__).resolve(),Path(native['nativeBundle']),
         root/'tools/environment-mesh/export-native.py',
         root/'unity/GloomhavenVR.Assets/Assets/Bundle/EnvironmentMeshes/index.json']
     inputs+=sorted(p for p in fixture.rglob('*') if p.is_file())
@@ -267,6 +306,14 @@ def main():
         assert geo.count(pose_call)==1, 'actual production private pose observer binding drift'
         observed_geometry=geo.replace(pose_call,
             'TerrainWriteObserver.SetPositionAndRotation(_proxyTransform, _sourceTransform.position, _sourceTransform.rotation);')
+        for signature,observation in (
+            ('internal bool Validate(Dictionary<Mesh, bool> meshes)','TerrainWorkObserver.Validate(Renderer);'),
+            ('internal void StepGeometry(int percent, float delta)','TerrainWorkObserver.Geometry(Renderer);'),
+            ('internal Surface(MeshRenderer renderer, MeshFilter filter, Transform owner)','TerrainWorkObserver.Prepare(renderer);'),
+        ):
+            before=signature+'\n        {'
+            assert observed_geometry.count(before)==1, 'hidden work observer binding drift: '+signature
+            observed_geometry=observed_geometry.replace(before,before+'\n            '+observation)
         for before,after in (
             ('Renderer.HasPropertyBlock()', 'TerrainReadObserver.HasPropertyBlock(Renderer)'),
             ('Renderer.GetPropertyBlock(Block);', 'TerrainReadObserver.GetPropertyBlock(Renderer, Block);'),
@@ -285,12 +332,18 @@ def main():
             assert before in src, 'actual production primitive observer binding drift: '+before
             src=src.replace(before,after)
         src=src.replace('surface.Renderer.GetSharedMaterials(_materialScratch);', 'TerrainWriteObserver.MaterialReads++; surface.Renderer.GetSharedMaterials(_materialScratch);')
+        before='private static int DetailFor(Surface surface, DetailState detail)\n        {'
+        assert src.count(before)==1, 'hidden detail observer binding drift'
+        src=src.replace(before,before+'\n            TerrainWorkObserver.Detail(surface.Renderer);')
+        before='MeshFilter filter = node.GetComponent<MeshFilter>();'
+        assert src.count(before)==1, 'hidden preparation filter observer binding drift'
+        src=src.replace(before,'MeshFilter filter = TerrainWorkObserver.Filter(node, renderer);')
         for before,after in (
             ('surface.Renderer.enabled', 'TerrainReadObserver.Enabled(surface.Renderer)'),
             ('surface.Renderer.gameObject.activeInHierarchy', 'TerrainReadObserver.Active(surface.Renderer)'),
             ('surface.Renderer.forceRenderingOff', 'TerrainReadObserver.Mask(surface.Renderer)'),
         ):
-            expected_count=0 if name=='native-visibility-bypass' and before=='surface.Renderer.enabled' else 1
+            expected_count=0 if name=='native-visibility-bypass' and before=='surface.Renderer.enabled' else (2 if name=='terrain-hidden-native-mask-overreach' and before=='surface.Renderer.forceRenderingOff' else 1)
             assert src.count(before)==expected_count, 'actual production visibility observer binding drift: '+before
             src=src.replace(before,after)
         (production/'Terrain.cs').write_text(src); (production/'Geometry.cs').write_text(observed_geometry)
@@ -299,6 +352,7 @@ def main():
         (production/'Admission.cs').write_text(observed_admission)
         (production/'PropOwnership.cs').write_text(ownership)
         (production/'WallHide.cs').write_text(observed_wall.get(name,hide))
+        (production/'WallRelease.cs').write_text('using System; using UnityEngine; namespace GloomhavenVR.Core { internal static class TerrainFinalWallRelease { private static readonly Action<Renderer> Release = '+observed_callback.get(name,callback)+'; internal static void Invoke(Renderer renderer) => Release(renderer); } }')
         (production/'MeshStream.cs').write_text(paths[4].read_text())
         shutil.copyfile(fixture/'NativeCoverage.cs',production/'NativeCoverage.cs')
         for extra in fixture.glob('*.cs'):

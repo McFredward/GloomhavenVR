@@ -29,9 +29,9 @@ namespace GloomhavenVR.Core
     {
         internal static int HeadPositions, HeadScales, HandPositions, PropertyGuards, PropertyReads, PropertyWrites, EffectReads;
         internal static int EnabledReads, ActiveReads, MaskReads;
-        internal static bool Enabled(Renderer renderer) { EnabledReads++; return renderer.enabled; }
-        internal static bool Active(Renderer renderer) { ActiveReads++; return renderer.gameObject.activeInHierarchy; }
-        internal static bool Mask(Renderer renderer) { MaskReads++; return renderer.forceRenderingOff; }
+        internal static bool Enabled(Renderer renderer) { EnabledReads++; TerrainWorkObserver.Native(renderer); return renderer.enabled; }
+        internal static bool Active(Renderer renderer) { ActiveReads++; TerrainWorkObserver.Native(renderer); return renderer.gameObject.activeInHierarchy; }
+        internal static bool Mask(Renderer renderer) { MaskReads++; TerrainWorkObserver.Native(renderer); return renderer.forceRenderingOff; }
         internal static Vector3 HeadPosition(Transform head) { HeadPositions++; return head.position; }
         internal static float HeadScale(Transform head) { HeadScales++; return head.lossyScale.x; }
         internal static Vector3 HandPosition(GloomhavenVR.Hands.VRHand hand) { HandPositions++; return hand.transform.position; }
@@ -55,6 +55,24 @@ namespace GloomhavenVR.Core
         internal static Transform VisualTransform(GameObject visual) { VisualReads++; return visual.transform; }
         internal static void Reset() { VisualReads = RootCopies = 0; }
     }
+    // Observers wrap the extracted driver; every observed native operation still
+    // executes unchanged. Exact wall membership and final release are explicit
+    // external-owner boundaries rather than a copied wall algorithm.
+    internal static class TerrainWorkObserver
+    {
+        internal static Renderer? Target = null;
+        internal static int Validations, Details, GeometrySteps, Preparations, NativeReads, FilterReads;
+        private static bool IsTarget(Renderer? renderer) => Target is not null && ReferenceEquals(Target, renderer);
+        internal static void Validate(Renderer renderer) { if (IsTarget(renderer)) Validations++; }
+        internal static void Detail(Renderer renderer) { if (IsTarget(renderer)) Details++; }
+        internal static void Geometry(Renderer renderer) { if (IsTarget(renderer)) GeometrySteps++; }
+        internal static void Prepare(Renderer renderer) { if (IsTarget(renderer)) Preparations++; }
+        internal static void Native(Renderer renderer) { if (IsTarget(renderer)) NativeReads++; }
+        internal static MeshFilter Filter(Transform node, MeshRenderer? renderer)
+        { if (IsTarget(renderer)) FilterReads++; return node.GetComponent<MeshFilter>(); }
+        internal static void Reset(Renderer? renderer)
+        { Target = renderer; Validations = Details = GeometrySteps = Preparations = NativeReads = FilterReads = 0; }
+    }
     // The narrow wall-hide fixture executes actual Terrain ownership through the
     // production write contract. The independent environment chunks are covered
     // by the wall worker's actual-owner fixture, rather than modeled here.
@@ -64,6 +82,10 @@ namespace GloomhavenVR.Core
         internal static bool OwnsRenderSubstitute(Renderer renderer) => false;
         internal static void BeforeNativeRendererWrite(Renderer renderer)
         { Writes++; ScenarioTerrainBudget.BeforeNativeRendererWrite(renderer); }
+    }
+    internal static class ScenarioSceneryBudget
+    {
+        internal static void AfterPerformanceWallRestore(Renderer renderer) { }
     }
     internal static class VRSession { internal static bool IsRunning = true; }
     internal static class PerfConfig
