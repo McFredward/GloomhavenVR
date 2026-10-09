@@ -8,7 +8,9 @@ are changed. The owner's other bytes and every compute source/meta stay intact.
 from __future__ import annotations
 
 import argparse
+import codecs
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import re
@@ -23,9 +25,48 @@ RECEIPT = "QuestCampaignEvidence/compute-reference-types.json"
 IDENTITIES = "QuestRecovery/original-asset-identities.json"
 MANIFEST = "Assets/QuestOriginalCampaign/campaign-computes.json"
 
+_progress_spec = importlib.util.spec_from_file_location("quest_compute_reference_progress",
+    Path(__file__).resolve().parents[1] / "quest-builder/progress.py")
+build_progress = importlib.util.module_from_spec(_progress_spec)
+_progress_spec.loader.exec_module(build_progress)
+
 
 def digest(data):
     return hashlib.sha256(data).hexdigest()
+
+
+def identity_document(path):
+    """Observe the existing single identity read; keep identical JSON semantics."""
+    counter = build_progress.Counter("prepare-items:campaign-compute-reference-identities", path.stat().st_size, "bytes")
+    chunks, decoder = [], codecs.getincrementaldecoder("utf-8")()
+    with path.open("rb") as stream:
+        while block := stream.read(1024 * 1024):
+            chunks.append(decoder.decode(block))
+            counter.add(len(block), path.name)
+        chunks.append(decoder.decode(b"", final=True))
+    result = json.loads("".join(chunks))
+    counter.finish()
+    return result
+
+
+def identity_digest(path):
+    """Keep the original final-byte qualification, with bounded measured reads."""
+    counter = build_progress.Counter("prepare-items:campaign-compute-reference-identity-verify", path.stat().st_size, "bytes")
+    result = hashlib.sha256()
+    with path.open("rb") as stream:
+        while block := stream.read(1024 * 1024):
+            result.update(block)
+            counter.add(len(block), path.name)
+    counter.finish()
+    return result.hexdigest()
+
+
+def observed_paths(paths):
+    counter = build_progress.Counter("prepare-items:campaign-compute-reference-scan", len(paths), "entries")
+    for path in sorted(paths):
+        yield path
+        counter.add(1, path.name)
+    counter.finish()
 
 
 def asset(project, name):
@@ -54,16 +95,20 @@ def repair(project, manifest, *, expected_count=13, apply=True):
     from recover import is_unity_yaml, serialized_pointer_tokens
 
     identity_path = project / IDENTITIES
-    identities = json.loads(identity_path.read_text(encoding="utf-8"))
+    identities = identity_document(identity_path)
     if identities.get("schema") != 1 or not isinstance(identities.get("identities"), list):
         raise ComputeRecoveryError("Native compute reference identity manifest is invalid.")
     by_guid = {}
+    index_counter = build_progress.Counter("prepare-items:campaign-compute-reference-index", len(identities["identities"]), "identities")
     for row in identities["identities"]:
         by_guid.setdefault(row["guid"], []).append(row)
+        index_counter.add(1, str(row.get("path", row["guid"])))
+    index_counter.finish()
     rows = manifest.get("shaders", [])
     if len(rows) != expected_count:
         raise ComputeRecoveryError("Compute reference target census differs from the complete overlay.")
     targets, immutable = {}, {}
+    target_counter = build_progress.Counter("prepare-items:campaign-compute-reference-targets", len(rows), "shaders")
     for row in rows:
         guid, local_id = row.get("guid"), row.get("localFileId")
         name, original = row.get("assetPath"), row.get("originalPath")
@@ -90,12 +135,20 @@ def repair(project, manifest, *, expected_count=13, apply=True):
             "originalCollection": objects[0]["collection"], "originalPathId": objects[0]["pathId"],
             "classId": 72, "sourceSha256": source_hash, "metaSha256": meta_hash}
         immutable[name], immutable[name + ".meta"] = source_hash, meta_hash
+        target_counter.add(1, name)
+    target_counter.finish()
 
     # The literal GUID prefix makes this scan cheap even for native mesh payloads;
     # YAML parsing is restricted to documents containing a target GUID.
     candidate = re.compile(rb"guid:\s*(?:" + b"|".join(guid.encode() for guid in sorted(targets)) + rb")")
     plans, owners = [], []
-    for path in sorted((project / "Assets").rglob("*")):
+    paths = []
+    discovery = build_progress.Counter("prepare-items:campaign-compute-reference-discovery", None, "entries")
+    for path in (project / "Assets").rglob("*"):
+        paths.append(path)
+        discovery.add(1, path.name)
+    discovery.finish()
+    for path in observed_paths(paths):
         if not path.is_file() or not is_unity_yaml(path):
             continue
         raw = path.read_bytes()
@@ -147,12 +200,15 @@ def repair(project, manifest, *, expected_count=13, apply=True):
     if any(path.read_bytes() != before for path, before, _ in plans):
         raise ComputeRecoveryError("Compute owner changed while reference repair was planned.")
     if apply:
+        write_counter = build_progress.Counter("prepare-items:campaign-compute-reference-write", len(plans), "owners")
         for path, _, after in plans:
             path.write_bytes(after)
+            write_counter.add(1, path.name)
+        write_counter.finish()
     receipt = {"schema": 1, "scope": "native-class72-ComputeShaderImporter-PPtr-types",
         "targetCount": len(targets), "ownerCount": len(owners),
         "changedReferenceCount": sum(row["changedReferenceCount"] for row in owners),
-        "originalIdentityManifestSha256": digest(identity_path.read_bytes()),
+        "originalIdentityManifestSha256": identity_digest(identity_path),
         "generatorSha256": digest(Path(__file__).read_bytes()), "targets": list(targets.values()), "owners": owners,
         "unchangedComputeSourcesAndMetas": True, "unchangedOtherOwnerBytes": True,
         "applied": apply, "unityImportVerified": False, "hardwareVerified": False}

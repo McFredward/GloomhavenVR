@@ -23,6 +23,13 @@ NAMES = {"EyeHistogram", "Lut3DBaker", "MultiScaleVODownsample2", "Vectorscope",
     "Texture3DLerp", "GaussianDownsample", "MultiScaleVORender"}
 MANIFEST = "QuestCampaignEvidence/compute-recovery.json"
 
+# This standalone child resolves the same stdlib-only observer shipped beside
+# the Builder, without installing a global module alias or changing its tools.
+_progress_spec = importlib.util.spec_from_file_location("quest_compute_progress",
+    Path(__file__).resolve().parents[1] / "quest-builder/progress.py")
+build_progress = importlib.util.module_from_spec(_progress_spec)
+_progress_spec.loader.exec_module(build_progress)
+
 
 def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -39,12 +46,20 @@ def load_graphics(path: Path):
 
 def inventory(project: Path) -> list[tuple[Path, dict, str]]:
     result = []
-    for path in sorted((project / "Assets").rglob("*.asset")):
+    paths = []
+    discovery = build_progress.Counter("prepare-items:campaign-compute-discovery", None, "files")
+    for path in (project / "Assets").rglob("*.asset"):
+        paths.append(path)
+        discovery.add(1, path.name)
+    discovery.finish()
+    counter = build_progress.Counter("prepare-items:campaign-compute-inventory", len(paths), "files")
+    for path in sorted(paths):
         if path.is_symlink():
             raise ComputeRecoveryError("Recovered compute source must not be symlinked.")
         with path.open("rb") as stream:
             prefix = stream.read(512)
         if not re.search(rb"^--- !u!72 ", prefix, re.M):
+            counter.add(1, path.name)
             continue
         value = parse(path.read_text(encoding="utf-8"))
         meta = path.with_suffix(path.suffix + ".meta")
@@ -55,10 +70,12 @@ def inventory(project: Path) -> list[tuple[Path, dict, str]]:
         if len(guid) != 1 or "NativeFormatImporter:" not in text or "mainObjectFileID: 7200000" not in text:
             raise ComputeRecoveryError("Original compute GUID/importer/localID is unproven.")
         result.append((path, value, guid[0]))
+        counter.add(1, path.name)
     if len(result) != 13 or {value["name"] for _, value, _ in result} != NAMES:
         raise ComputeRecoveryError("Complete Campaign requires the exact 13 audited original compute objects.")
     if sum(len(value["kernels"]) for _, value, _ in result) != 36:
         raise ComputeRecoveryError("Original complete compute kernel census changed; re-audit it.")
+    counter.finish()
     return result
 
 
@@ -77,17 +94,27 @@ def stage(source_project: Path, overlay_directory: Path, *, graphics_module: Pat
     originals = inventory(source)
     if digest(source / "Assets/Plugins/Unity.Postprocessing.Runtime.dll") != POST_PROCESSING_SHA256:
         raise ComputeRecoveryError("Native post-processing image allocations changed; re-audit typed UAV storage.")
-    inputs = {path.relative_to(source).as_posix(): digest(path) for path, _, _ in originals}
-    inputs.update({path.relative_to(source).as_posix() + ".meta": digest(path.with_suffix(path.suffix + ".meta"))
-                   for path, _, _ in originals})
+    inputs = {}
+    input_counter = build_progress.Counter("prepare-items:campaign-compute-inputs", len(originals) * 2, "files")
+    for path, _, _ in originals:
+        inputs[path.relative_to(source).as_posix()] = digest(path)
+        input_counter.add(1, path.name)
+    for path, _, _ in originals:
+        inputs[path.relative_to(source).as_posix() + ".meta"] = digest(path.with_suffix(path.suffix + ".meta"))
+        input_counter.add(1, path.name + ".meta")
+    input_counter.finish()
     graphics = load_graphics(Path(graphics_module).resolve())
     cache = overlay / "QuestCampaignEvidence/ComputeInstructionProof"
     output_files, path_map, rows = {}, {}, []
+    kernel_counter = build_progress.Counter("prepare-items:campaign-compute-kernels",
+        sum(len(shader["kernels"]) for _, shader, _ in originals), "kernels")
+    shader_counter = build_progress.Counter("prepare-items:campaign-compute-shaders", len(originals), "shaders")
     for path, shader, guid in originals:
         relative = path.relative_to(source).as_posix()
         target = Path(relative).with_suffix(".compute").as_posix()
         pieces, kernels = [], []
         for index, kernel in enumerate(shader["kernels"]):
+            kernel_counter.update(kernel_counter.done, shader["name"] + " / " + kernel["name"], force=True)
             kernel["shaderName"] = shader["name"]
             translated = graphics.translate(kernel["code"], cache, vkd3d=vkd3d, spirv_cross=spirv_cross)
             hlsl, proof = restore(Path(translated["hlslPath"]).read_text(encoding="utf-8"), kernel, graphics)
@@ -98,6 +125,7 @@ def stage(source_project: Path, overlay_directory: Path, *, graphics_module: Pat
                 "spirvSha256": translated["spirvSha256"],
                 "translatedHlslSha256": translated["translatedHlslSha256"],
                 "restoredHlslSha256": hashlib.sha256(hlsl.encode()).hexdigest()})
+            kernel_counter.add(1)
         pragmas = "\n".join("#pragma kernel " + kernel["name"] + " QUEST_ORIGINAL_KERNEL_" + str(index)
                             for index, kernel in enumerate(shader["kernels"]))
         text = "// Generated from the owner's exact original DXBC instruction bank.\n" + pragmas + "\n\n" + "\n".join(pieces)
@@ -114,9 +142,15 @@ def stage(source_project: Path, overlay_directory: Path, *, graphics_module: Pat
             "classId": 72, "localFileId": 7200000, "sourceSha256": digest(destination), "metaSha256": digest(meta),
             "kernelCount": len(kernels), "kernels": kernels,
             "nativePlatformCapabilityEvidence": native_platform_contract(shader["name"])})
+        shader_counter.add(1, shader["name"])
+    kernel_counter.finish()
+    shader_counter.finish()
+    original_check = build_progress.Counter("prepare-items:campaign-compute-original-check", len(inputs), "files")
     for path, expected in inputs.items():
         if digest(source / path) != expected:
             raise ComputeRecoveryError("Original compute input changed during conversion: " + path)
+        original_check.add(1, path)
+    original_check.finish()
     manifest = {"schema": 1, "scope": "complete-original-campaign-compute", "shaderCount": 13, "kernelCount": 36, "graphicsApi": "Vulkan",
         "recovery": "exact-original-DXBC-to-SPIRV-to-HLSL-with-native-interface-restoration",
         "originalPostProcessingRuntimeSha256": digest(source / "Assets/Plugins/Unity.Postprocessing.Runtime.dll"),
