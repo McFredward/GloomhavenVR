@@ -123,7 +123,7 @@ The integration validation below records its exact scope and inherited evidence.
 ## Final integration and retained failures
 
 Build660 is based on dev659 `c0b5e9a1b`. The complete local entry point
-`scripts/wire-tests.sh --jobs8` actually ran all202 registered scopes on frozen
+`scripts/wire-tests.sh --jobs 8` actually ran all202 registered scopes on frozen
 source `3852af75a`: **197 passed, five failed** in1627.236s. That original report
 remains `.planning/debug/npc660-fullgate/results.json`; it is not rewritten as a
 successful complete run. Because the local group failed, that invocation did not
@@ -170,8 +170,8 @@ The full scenery scope then passes **all52 production/control variants**.
 **202/202 composed passes:194 inherited, eight refreshed**. The final dedicated
 wire build/executable passes **300297 assertions**, including golden bytes,
 current motion budget, full64-member staging and fairness. Complete source16/16,
-strict Debug and Release builds (zero warnings/errors), bundle validation from
-the full inventory, unchanged surfaces665 config/235 patches/4795 log tokens,
+strict Debug and Release builds (zero warnings/errors), separate validation of all four
+committed bundles and1594 figure-mesh derivatives, unchanged surfaces665 config/235 patches/4795 log tokens,
 and a private compiled comparison against659 also pass. The compiled comparison
 has1248→1249 types:18 changed, one new exact body-address helper, no removed types;
 seven changed types contain only the expected inlined659→660 stamp.
@@ -189,4 +189,3 @@ prove the layout, panel-replacement and return corrections. They do not uniquely
 identify every reported headset blink or prove final headset smoothness and
 first-picture timing. The main checkout receives a fresh strict Debug build of
 the committed660 integration before the authorized direct push to origin/dev.
-
