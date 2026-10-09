@@ -18,7 +18,7 @@ public static class WallPerformanceProgram
     private static void Check(bool yes,string message){assertions++;if(!yes)throw new Exception(message);}
     private static void Setup()
     {
-        PerfConfig.WallVisibilityMode=0;PerfConfig.WallAutoHideBelowFps=15;VRSession.IsRunning=true;
+        PerfConfig.WallVisibilityMode=0;PerfConfig.WallAutoHideBelowFps=15;VRSession.IsRunning=true;VRSession.InputFocus=true;
         ScenarioRuleLibrary.ScenarioManager.Scenario=new object();
         Scene game=SceneManager.GetSceneByName("Game");if(!game.IsValid())game=SceneManager.CreateScene("Game");
         SceneController.Instance=new SceneController{GetCurrentScene=game};
@@ -51,7 +51,7 @@ public static class WallPerformanceProgram
     public static int Run()
     {
         assertions=0;Setup();
-        try{Clock();Presentation();ProtectedFamilies();Ownership();SceneryOwnership();Lifecycle();Auto();WireRecovery();Exceptions();CommandDraw();return assertions;}
+        try{Clock();Presentation();ProtectedFamilies();Ownership();SceneryOwnership();Auto();Lifecycle();WireRecovery();Exceptions();CommandDraw();return assertions;}
         finally{Cleanup();}
     }
     private static void Clock()
@@ -179,8 +179,11 @@ public static class WallPerformanceProgram
         using(var f=new WallSegmentFade.Fixture())
         {
             int key=f.Add(wall);PerfConfig.WallVisibilityMode=1;f.Frame();
+            ScenarioInteractionPreparation.IsPreparing=true;
             f.SetCollector(x=>x.Add(late));WallSegmentFade.NotifyPerformanceContentChange();f.Frame();f.Frame();
             Check(late.forceRenderingOff&&f.Begins==1&&f.Steps==1,"same-count native generation collects fresh new wall membership");
+            Check(ScenarioInteractionPreparation.IsPreparing&&late.forceRenderingOff,"cosmetic prewarm does not veto dirty hidden inventory refresh");
+            ScenarioInteractionPreparation.IsPreparing=false;
             int b=f.Begins;f.SetCollector(null);for(int i=0;i<100;i++)f.Frame();Check(f.Begins==b,"completed lifecycle does not resume recurring census");
             SceneController.Instance.IsLoading=true;TilesOcclusionGenerator.s_Instance.m_RoomRenderers.Add(new object());f.Frame();
             Check(f.Begins==b&&wall.forceRenderingOff,"loading room change preserves old mask and coalesces inventory");
@@ -201,10 +204,37 @@ public static class WallPerformanceProgram
         using(var f=new WallSegmentFade.Fixture())
         {
             f.Add(wall);PerfConfig.WallVisibilityMode=2;
-            foreach(Action<bool> hold in new Action<bool>[]{x=>SceneController.Instance.IsLoading=x,x=>SceneController.Instance.ScenarioIsLoading=x,x=>ScenarioInteractionPreparation.IsPreparing=x,x=>ScenarioRoomLoading.HasPendingReveal=x,x=>WallFixtureFocus.isFocused=!x,x=>VROptionsTab.IsOpen=x})
-            {hold(true);for(int i=0;i<100;i++)f.Frame(.1f);Check(!wall.forceRenderingOff&&!f.Latched,"loading focus and options do not trigger Auto");hold(false);}
+            foreach(Action<bool> hold in new Action<bool>[]{x=>SceneController.Instance.IsLoading=x,x=>SceneController.Instance.ScenarioIsLoading=x,x=>ScenarioRoomLoading.HasPendingReveal=x,x=>VRSession.InputFocus=!x})
+            {
+                // Start with an incomplete slow window. Every genuine loading/focus edge
+                // must discard it, even after100 low-FPS frames in the blocked state.
+                RestartAuto(f);for(int i=0;i<15;i++)f.Frame(.1f);
+                hold(true);for(int i=0;i<100;i++)f.Frame(.1f);
+                Check(!wall.forceRenderingOff&&!f.Latched,"native loading reveal or explicit XR focus loss does not trigger Auto");
+                hold(false);for(int i=0;i<21;i++)f.Frame(.1f);
+                Check(!wall.forceRenderingOff&&!f.Latched,"native loading reveal or XR focus recovery starts a fresh grace and full window");
+                for(int i=0;i<12;i++)f.Frame(.1f);
+                Check(wall.forceRenderingOff&&f.Latched,"native loaded focused recovery eventually triggers Auto");
+            }
+            foreach(var policy in new (Action Start,Action Finish,string Assertion)[]{
+                (()=>ScenarioInteractionPreparation.IsPreparing=true,()=>ScenarioInteractionPreparation.IsPreparing=false,"cosmetic prewarm does not veto Auto in native settled gameplay"),
+                (()=>VROptionsTab.IsOpen=true,()=>VROptionsTab.IsOpen=false,"open VR Options do not veto sustained low-FPS Auto"),
+                (()=>WallFixtureFocus.isFocused=false,()=>WallFixtureFocus.isFocused=true,"desktop window focus is irrelevant to headset Auto"),
+                (()=>VRSession.InputFocus=null,()=>VRSession.InputFocus=true,"unknown XR focus does not permanently veto loaded Auto")})
+            {
+                RestartAuto(f);policy.Start();for(int i=0;i<32;i++)f.Frame(i%2==0?.1f:.125f);
+                Check(wall.forceRenderingOff&&f.Latched,policy.Assertion);policy.Finish();
+            }
+            RestartAuto(f);
             f.Frame(10f);for(int i=0;i<100;i++)f.Frame(1f/60);Check(!wall.forceRenderingOff,"one long post-load hitch does not trigger Auto");
-            for(int i=0;i<30;i++)f.Frame(.1f);Check(wall.forceRenderingOff&&f.Latched,"sustained loaded low FPS latches hidden policy");
+            // Replay the actual Frame653 policy inputs: native reveal settled, cosmetic
+            // preparation ongoing, open VR Options, unfocused Wine desktop, focused XR.
+            ScenarioInteractionPreparation.IsPreparing=true;VROptionsTab.IsOpen=true;WallFixtureFocus.isFocused=false;
+            for(int i=0;i<160;i++)f.Frame(1f/19);
+            Check(!wall.forceRenderingOff&&!f.Latched,"first room at19FPS remains visible with Frame653 policy inputs");
+            for(int i=0;i<32;i++)f.Frame(i%2==0?.1f:.125f);
+            Check(wall.forceRenderingOff&&f.Latched,"Frame653 fully opened low-FPS room replay latches hidden policy");
+            ScenarioInteractionPreparation.IsPreparing=false;VROptionsTab.IsOpen=false;WallFixtureFocus.isFocused=true;
             for(int i=0;i<300;i++)f.Frame(1f/90);Check(wall.forceRenderingOff&&f.Latched,"restored high FPS does not oscillate Auto walls");
             VROptionsTab.IsOpen=true;f.Frame();Check(wall.forceRenderingOff,"options opened after Auto trigger do not resurrect costly wallwork");VROptionsTab.IsOpen=false;
             PerfConfig.WallVisibilityMode=0;f.Frame();Check(!wall.forceRenderingOff&&!f.Latched,"manual Regular resets Auto latch immediately");
@@ -213,6 +243,8 @@ public static class WallPerformanceProgram
         }
         Object.DestroyImmediate(wall.gameObject);
     }
+    private static void RestartAuto(WallSegmentFade.Fixture f)
+    {PerfConfig.WallVisibilityMode=0;f.Frame();PerfConfig.WallVisibilityMode=2;}
     private static void Exceptions()
     {
         var wall=Piece("Retry wall");

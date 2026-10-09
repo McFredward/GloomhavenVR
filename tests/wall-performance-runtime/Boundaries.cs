@@ -49,7 +49,7 @@ namespace GloomhavenVR.Core
     internal static class WallFixtureClock { internal static int frameCount; internal static float unscaledTime, unscaledDeltaTime; }
     internal static class WallFixtureFocus { internal static bool isFocused=true; }
     internal static class PerfConfig { internal static int WallVisibilityMode, WallAutoHideBelowFps=15; }
-    internal static class VRSession { internal static bool IsRunning=true; }
+    internal static class VRSession { internal static bool IsRunning=true; internal static bool? InputFocus=true; }
     internal static class ScenarioInteractionPreparation { internal static bool IsPreparing; }
     internal static class ScenarioRoomLoading { internal static bool HasPendingReveal; }
     internal enum VRLogLevel { Debug }
