@@ -614,6 +614,11 @@ NAME_DIFFERS_ON_PURPOSE = {
 # joining a curated family with no row and no line here. Added by hand rather than by --bless, so
 # that every addition had to be argued instead of blessed in a batch.
 KNOWN_ORPHANS = {
+    # Build652: the new everyday wall-policy keys share only the "Wall" prefix with
+    # this pre-existing expert sampling cadence. Its regular-fade alias remains
+    # [WallFade] EvalIntervalSeconds; the legacy fallback stays reachable in Advanced.
+    # Do not promote a second expert cadence beside the user-requested wall policy.
+    ("Optimize", "WallFadeEvalInterval"),
     # Build648, maintainer-requested647 rollback: these bindings retain saved values
     # only. Their renderer and curated controls are withdrawn; EN/DE help says INERT.
     # No preset or render consumer reads them. Do not advertise inert storage as quality.

@@ -195,6 +195,7 @@ internal static class ConfigSteps
         ["Optimize/ScenarioEnemyFigureDetailPercent"] = 5d,
         ["Optimize/ScenarioFigureEffectsDensityPercent"] = 5d,
         ["Optimize/ScenarioEnvironmentEffectsDensityPercent"] = 5d,
+        ["Optimize/WallAutoHideBelowFpsCount"] = 1d, // tune the loaded-gameplay threshold one FPS at a time
 
         // ---- Brett & Karten ---------------------------------------------------------------
         ["Cards/TrayScale"] = 0.05d,             // 5 % of the board size

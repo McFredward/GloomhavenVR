@@ -1008,6 +1008,9 @@ internal static partial class Loc
         ["vr_o_keepplace"] = Pair("Keep place on re-don", "Platz nach Absetzen behalten"),
         ["h_vr_o_keepplace"] = Pair("Taking the headset off and putting it back on keeps you where you were at the table.", "Headset absetzen und wieder aufsetzen lässt dich am Tisch stehen, wo du warst."),
         // Komfort ▸ Sichtbarkeit
+        ["wall_visibility_regular"] = Pair("Regular", "Normal"),
+        ["wall_visibility_hidden"] = Pair("Hide all", "Alle ausblenden"),
+        ["wall_visibility_auto"] = Pair("Automatic", "Automatisch"),
         ["vr_o_stackedfade"] = Pair("Fade fort superstructures", "Festungs-Aufbauten ausblenden"),
         ["h_vr_o_stackedfade"] = Pair("Upper storeys and battlements fade with the walls below them.", "Obergeschosse und Zinnen verschwinden mit den Wänden darunter."),
         ["vr_o_walkin"] = Pair("All walls solid when inside", "Im Spielfeld: alle Wände massiv"),

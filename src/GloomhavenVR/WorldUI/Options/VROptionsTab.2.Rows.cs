@@ -1514,9 +1514,8 @@ internal static partial class VROptionsTab
 
         for (int i = 0; i < choices.Length; i++)
         {
-            string text = choices[i]?.ToString() ?? string.Empty;
-            labels.Add(new TMP_Dropdown.OptionData(text));
-            if (string.Equals(text, now, StringComparison.Ordinal))
+            labels.Add(new TMP_Dropdown.OptionData(choices[i] == null ? string.Empty : ConfigCatalog.ChoiceText(item, choices[i])));
+            if (string.Equals(choices[i]?.ToString() ?? string.Empty, now, StringComparison.Ordinal))
                 current = i;
         }
 
