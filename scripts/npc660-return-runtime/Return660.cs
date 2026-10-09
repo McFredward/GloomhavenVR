@@ -121,6 +121,8 @@ public static partial class MirrorProgram
                     File.WriteAllText(Path.Combine(_output,"terminal660-"+merchant+"-delay"+delay+".csv"),trace.ToString());
                     Check(paintedBody.gameObject.activeInHierarchy && paintedFront.gameObject.activeInHierarchy,"return originals remain visible through native completion");
                 }
+                else Check(!paintedBody.gameObject.activeInHierarchy && !paintedFront.gameObject.activeInHierarchy,
+                    "prepared body and front remain hidden on every render before their first native receipt");
                 yield return null;
             }
             TownServiceMirror.Shutdown();

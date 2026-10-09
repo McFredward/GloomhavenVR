@@ -118,7 +118,9 @@ Four owner/observer scenarios cover both source sampler types and0/6-frame
 receipt delay for150 render frames each. From the first numeric receipt through
 arrival and long afterwards, every visible frame checks absolute physical body,
 front origin, printed centre, body/front relationship and visibility at50µm
-tolerance. The actual destination hand moves after arrival. Both zero-delay
+tolerance. Every earlier render explicitly checks that both prepared originals
+stay hidden until their first native receipt. The actual destination hand moves
+after arrival. Both zero-delay
 scenarios also perform **290 owner/observer Camera.Render/ReadPixels pairs**
 with unchanged physical poses, yielding580 PNGs. The comparison admits a small
 declared raster threshold; gray body alone cannot satisfy printed-centre and
@@ -160,6 +162,7 @@ fixture compilation errors are retained separately, not relabelled as passes.
 | `npc660-returns/run-yj8a7iqa` |2550 assertions after adding explicit child/color/alpha clock isolation, same frozen production source. |
 | `npc660-returns/run-1_j3emhz` |All four controls pass independently against that expanded proof. |
 | `npc660-returns/run-ghnf73hf` |2554 assertions and all four controls on final source; actual registration targets VRCard or ItemChip and unknown Components cannot synthesize completion. |
+| `npc660-returns/run-lkt4hnrk` |2586 assertions and all four controls; additionally checks both prepared originals are hidden on every frame before first receipt. Final source unchanged. |
 | `town-service-mirror/run-km7xjegq` |Motion-fast853 assertions and five controls. |
 | `town-service-mirror/run-_gf_57so` |Offered orientation602 assertions and nine controls; overlay geometry and independent spin clocks remain correct. |
 | `town-merchant-handoff/run-mfpabdn7` |Actual merchant outcome207 assertions and four controls. |
