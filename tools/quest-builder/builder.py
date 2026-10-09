@@ -1526,6 +1526,7 @@ def build(args, inputs: dict, output: Path, source: Path, game: Path, project: P
                     "GHVR_QUEST_ANDROID_SDK": tools["androidSdk"],
                     "GHVR_QUEST_ANDROID_NDK": tools["androidNdk"], "GHVR_QUEST_JDK": tools["jdk"]})
         env = content_pack_environment(env)
+        env = native_admission.player_environment(env, target=args.target)
         if args.target == "game":
             env = campaign_native_shader_environment(env, source)
         if args.target in ("startup", "game"):
@@ -1536,10 +1537,13 @@ def build(args, inputs: dict, output: Path, source: Path, game: Path, project: P
         launcher = host_resources.prepare_bee_launcher(dotnet, output)
         env = host_resources.unity_native_environment(tools["editor"], launcher, policy["jobs"], dotnet, env)
         build_progress.operation("unity-import", detail="Unity imports the prepared project and compiles Editor scripts")
-        command(unity_launcher(tools["editor"], graphics=args.target == "game") + ["-quit", "-projectPath", str(project),
+        native_admission.run_player(host_resources, build_progress, output, policy, command,
+                unity_launcher(tools["editor"], graphics=args.target == "game") + ["-quit", "-projectPath", str(project),
                  "-buildTarget", "Android", "-executeMethod", "GloomhavenVR.Quest.Editor.QuestBuildConcurrency.Build",
                  "-logFile", str(output / "logs" / ("unity-build-" + key[:12] + ".log"))],
-                output / "logs" / ("unity-launch-" + key[:12] + ".log"), env=env)
+                output / "logs" / ("unity-launch-" + key[:12] + ".log"), env=env,
+                compiler_log=output / "logs" / ("unity-build-" + key[:12] + ".log"), project=project,
+                recover_delivery=lambda: recover_delivery_pending(output, key, provenance))
         build_progress.operation("delivery", detail="Validating the actual signed APK and complete delivered content banks")
         if build_provenance.capture(inputs, project, source, Path(__file__).resolve().parent, tools) != provenance:
             raise BuildError("Staged build tools changed during the Player build; retry after editing stops.")

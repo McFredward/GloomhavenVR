@@ -16,7 +16,7 @@ _last_event_at = 0.
 def enabled(): return os.environ.get(ENV) == "1"
 
 
-def event(phase, done=None, total=None, unit=None, detail=None, *, status="progress", stream=None, operation=None):
+def event(phase, done=None, total=None, unit=None, detail=None, *, status="progress", stream=None, operation=None, nativeMemory=None):
     if not isinstance(phase, str) or not phase or len(phase) > 160:
         raise ValueError("Progress phase must be a bounded non-empty string.")
     for count in (done, total):
@@ -32,6 +32,21 @@ def event(phase, done=None, total=None, unit=None, detail=None, *, status="progr
         if not isinstance(operation, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,79}", operation):
             raise ValueError("Invalid planned operation.")
         value["operation"] = operation
+    if nativeMemory is not None:
+        if not isinstance(nativeMemory, dict) or set(nativeMemory) - {"compilerProfile", "jobs", "attempt", "reason", "resources"}:
+            raise ValueError("Invalid resource progress fields.")
+        for name in ("compilerProfile", "reason"):
+            if name in nativeMemory and not re.fullmatch(r"[a-z0-9-]{1,64}", str(nativeMemory[name])):
+                raise ValueError("Invalid resource progress token.")
+        for name in ("jobs", "attempt"):
+            if name in nativeMemory and (type(nativeMemory[name]) is not int or not 1 <= nativeMemory[name] <= (4096 if name == "jobs" else 1000000)):
+                raise ValueError("Invalid resource progress count.")
+        resources = nativeMemory.get("resources", {})
+        if not isinstance(resources, dict) or set(resources) - {"availableMemoryBytes", "commitHeadroomBytes", "processWorkingSetBytes", "processPrivateCommitBytes"}:
+            raise ValueError("Invalid resource progress measurements.")
+        if any(type(v) is not int or not 0 <= v <= 9007199254740991 for v in resources.values()):
+            raise ValueError("Invalid resource progress measurement.")
+        value["nativeMemory"] = nativeMemory
     if enabled():
         global _last_event_at
         print(PREFIX + json.dumps(value, ensure_ascii=False, separators=(",", ":")), file=stream or sys.stdout, flush=True)

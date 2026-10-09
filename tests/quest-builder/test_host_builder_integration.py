@@ -17,7 +17,7 @@ import storage
 
 
 class BuilderHostIntegration(unittest.TestCase):
-    def test_native_admission_precedes_player_commands_and_preserves_previous_files(self):
+    def test_measured_scheduling_allows_player_and_cached_results_need_no_capacity_probe(self):
         class NativeCommandReached(Exception): pass
         gib = builder.host_resources.GIB
         for commit, cached in ((None, False), (41, False), (42, False), (None, True)):
@@ -52,17 +52,14 @@ class BuilderHostIntegration(unittest.TestCase):
                 if cached:
                     self.assertEqual(builder.build(args, inputs, root, source, root / "game", project), apk)
                     budgets.assert_not_called(); commands.assert_not_called()
-                elif commit == 42:
+                else:
                     with self.assertRaises(NativeCommandReached):
                         builder.build(args, inputs, root, source, root / "game", project)
                     self.assertEqual(commands.call_count, 1)
                     self.assertEqual(commands.call_args.args[0][1], str(source / "scripts/build-quest-native.py"))
-                    self.assertTrue(policy["pagingRequired"]); self.assertEqual(policy["jobs"], 1)
-                else:
-                    with self.assertRaisesRegex(storage.BuildError, "Available RAM/commit is insufficient or unknown"):
-                        builder.build(args, inputs, root, source, root / "game", project)
-                    commands.assert_not_called()
-                if cached or commit != 42:
+                    self.assertTrue(policy["nativeLaunchAllowed"])
+                    self.assertGreaterEqual(policy["jobs"], 1)
+                if cached:
                     self.assertEqual(apk.read_bytes(), b"previous player")
                     self.assertEqual(report.read_bytes(), b"previous report")
 

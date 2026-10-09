@@ -68,14 +68,18 @@ before reuse; partially written snapshots are discarded atomically.
 
 XR compilation references use a recipe/compiler/original-reference cache shared
 across Wizard source releases. They do not invalidate the already converted
-original assets. The complete Player's native compiler currently needs40GiB of
-additional allocation capacity, including future Unity/transient reserves. This
-is available RAM/commit capacity, not a requirement for40GiB installed RAM.
-Windows16/32GiB hosts can use one compiler when adequate free paging-file commit
-is measured; Linux can use known free swap within cgroup limits. Complete builds
-with paging are not yet validated and may be slower. The Wizard reports capacity
-before expensive preparation and again at launch; it never changes system paging
-settings. Finished conversion/import results remain owned when this check stops.
+original assets. Native compilation uses process-local line-table debug metadata
+while retaining the existing optimization and ABI. The formerly dominant message
+dispatcher now compiles below0.5GiB on the pinned Linux compiler, instead of its
+historical26GiB peak. Another measured translation unit needs1.6GiB; scheduling
+therefore budgets2GiB per worker plus Unity/transient reserves. Available physical
+memory and actual commit/swap capacity determine concurrency, with a single-worker
+fallback rather than a fixed minimum-RAM rejection. Genuine allocation failures
+retain Bee objects and preparation results, reduce concurrency, and resume after
+a visible, cancellable memory backoff. Codec workers similarly retain successful
+items and retry a failed item alone. These changes never alter system paging
+settings. Whole Windows builds and lower-memory headset delivery remain hardware
+acceptance work; the native actions have passed real4GiB address-space limits.
 
 Install the verified latest APK with ADB (one authorized device or `--serial`):
 

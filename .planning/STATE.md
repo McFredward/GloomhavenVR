@@ -1,5 +1,21 @@
 # State — where the project stands
 
+**Quest measured native memory and automatic recovery, 2026-10-09 (Builder; Runtime657).**
+
+Capture165405 is sourcea1fec/657: all27 preparation owners are closed, but the
+40GiB estimate rejects the64GB Windows host before any compiler runs. That fixed
+gate is superseded. The unchanged pinned `-Os` dispatcher with line-table debug
+metadata now uses446MiB instead of the historical~26GiB and takes26s instead of
+145s; real4GiB/8GiB process limits and four concurrent actions pass. Another unit
+needs1.59GiB, so measured2GiB worker budgets select9 jobs for the captured host.
+Genuine allocation failures retain successful outputs, reduce concurrency and
+resume automatically with visible, cancellable waits. Player exclusion/delivery
+journals recover inside the existing transaction; archived logs cannot replay
+old progress. Exact compatibility profiles preserve all27 preparation owners.
+Focused native/codec/resume/API/browser checks and delivery scope are recorded in
+[QUEST-ADAPTIVE-MEMORY-165405-20261009.md](QUEST-ADAPTIVE-MEMORY-165405-20261009.md).
+No new local whole APK is built; whole Windows completion remains acceptance work.
+
 **Quest XR reuse and early native memory admission, 2026-10-09 (Builder; Runtime657).**
 
 Capture160059 actually repeats preparation because release-specific desktop XR

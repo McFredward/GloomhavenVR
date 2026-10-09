@@ -170,6 +170,21 @@ class SupportTests(unittest.TestCase):
         result = support.export_support(self.root, self.session)
         with zipfile.ZipFile(result['path']) as archive:
             return result, {name: archive.read(name).decode() for name in archive.namelist()}
+    def test_memory_retry_metrics_and_archived_failure_survive_support_export(self):
+        memory = {'compilerProfile': 'release-line-tables', 'jobs': 4, 'attempt': 2,
+                  'reason': 'retry-ready', 'resources': {'commitHeadroomBytes': 8 * 1024 ** 3}}
+        self.state['events'] = [{'code': 'stage_progress', 'stage': 'build',
+                                'parameters': {'phase': 'native-memory-retry', 'nativeMemory': memory}}]
+        write_json(self.directory / 'state.json', self.state)
+        log = self.root / 'build/logs/unity-build-abcdef.memory-attempt-1.log'
+        log.parent.mkdir(parents=True)
+        log.write_text('LLVM ERROR: out of memory\nAuthorization: Bearer private-token\n')
+        _, files = self.export()
+        parameters = json.loads(files['diagnostic.json'])['events'][0]['parameters']
+        self.assertEqual(parameters['nativeMemory'], memory)
+        archived = files['build/' + log.name]
+        self.assertIn('LLVM ERROR: out of memory', archived)
+        self.assertNotIn('private-token', archived)
     def test_preparation_frontier_is_exported_without_asset_or_profile_paths(self):
         key = 'a' * 64
         folder = self.root / 'build/cache/prepare-resume' / key

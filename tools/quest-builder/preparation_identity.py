@@ -67,6 +67,33 @@ MEMORY_POLICY_PREVIOUS = {"path": "tools/quest-builder/host_resources.py", "size
     "sha256": "80b22e442ad27e621a2b153714dfe987d65d594db895729770c51285724429fd"}
 MEMORY_POLICY_FIXED = {"path": "tools/quest-builder/host_resources.py", "size": 27519,
     "sha256": "93da440e549b07568dfe5efca34b30133ff63ff3c025b05ac4ff6913303aea09"}
+# Capture165405's repair changes host concurrency/debug metadata only after
+# preparation. Codec retries accept the same bytes through the same existing
+# publication/receipt path, and the progress extension only reports resources.
+# Alias exact reviewed rows; an unknown helper edit remains a new producer scope.
+MEMORY_POLICY_ADAPTIVE = {"path": "tools/quest-builder/host_resources.py", "size": 26600,
+    "sha256": "d1e19a5e85955a085c58eff36db0fbaa694fbe41b8837bd4beacf364e103cd7a"}
+MEMORY_HELPER_ADAPTIVE = {"path": PREFIX_MEMORY_HELPER, "size": 10337,
+    "sha256": "6276af8830d071d0a119f0d5e6da1803a1166d8110f90c4b67394fee405f2dd4"}
+MEMORY_OBSERVER_PROFILES = {
+    "tools/quest-builder/asset_jobs.py": (
+        {"path": "tools/quest-builder/asset_jobs.py", "size": 15970,
+         "sha256": "d2b87a6ac15f11d027d35d1ad770a61ff3978790a50477ae49e4c662b8d6cfdc"},
+        {"path": "tools/quest-builder/asset_jobs.py", "size": 10285,
+         "sha256": "4056ba17d909ff4c42b85f4202179a90d346d1b3dfa7c606e9d41885c1d8a725"}),
+    "tools/quest-builder/progress.py": (
+        {"path": "tools/quest-builder/progress.py", "size": 7555,
+         "sha256": "fda1de48b41939e992da19c09a22f67669d247e07f7311f91cc866cc86c6ed7f"},
+        {"path": "tools/quest-builder/progress.py", "size": 6314,
+         "sha256": "f1baf3f33cb80959891d6d4864dec4b468458660d3c733a9aecb64406e340fcb"}),
+}
+
+
+def _memory_row(row):
+    if row in (MEMORY_POLICY_FIXED, MEMORY_POLICY_ADAPTIVE):
+        return MEMORY_POLICY_PREVIOUS
+    fixed, previous = MEMORY_OBSERVER_PROFILES.get(row["path"], (None, row))
+    return previous if row == fixed else row
 # Inventory/release/support validation is complete before preparation begins.
 # Its immutable records remain qualified; these helpers do not generate assets.
 PREFIX_DELIVERY_HELPERS = {"tools/quest-builder/release.py", "tools/quest-builder/support.py",
@@ -196,6 +223,19 @@ MEMORY_PREFLIGHT = ast.parse('''if args.command == "build" and args.target == "g
     native_admission.require_capacity(host_resources, build_progress, output, target=args.target)''').body[0]
 MEMORY_FAILURE = ast.parse("native_admission.persist_failure(exc, output, write_json)").body[0]
 MEMORY_LAUNCH = ast.parse("policy = native_admission.require_capacity(host_resources, build_progress, output, target=args.target)").body[0]
+MEMORY_ENVIRONMENT = ast.parse("env = native_admission.player_environment(env, target=args.target)").body[0]
+MEMORY_PLAYER = ast.parse('''native_admission.run_player(host_resources, build_progress, output, policy, command,
+    unity_launcher(tools["editor"], graphics=args.target == "game") + ["-quit", "-projectPath", str(project),
+        "-buildTarget", "Android", "-executeMethod", "GloomhavenVR.Quest.Editor.QuestBuildConcurrency.Build",
+        "-logFile", str(output / "logs" / ("unity-build-" + key[:12] + ".log"))],
+    output / "logs" / ("unity-launch-" + key[:12] + ".log"), env=env,
+    compiler_log=output / "logs" / ("unity-build-" + key[:12] + ".log"), project=project,
+    recover_delivery=lambda: recover_delivery_pending(output, key, provenance))''').body[0]
+MEMORY_PLAYER_PREVIOUS = ast.parse('''command(
+    unity_launcher(tools["editor"], graphics=args.target == "game") + ["-quit", "-projectPath", str(project),
+        "-buildTarget", "Android", "-executeMethod", "GloomhavenVR.Quest.Editor.QuestBuildConcurrency.Build",
+        "-logFile", str(output / "logs" / ("unity-build-" + key[:12] + ".log"))],
+    output / "logs" / ("unity-launch-" + key[:12] + ".log"), env=env)''').body[0]
 MEMORY_PREVIOUS_LAUNCH = ast.parse('''policy = host_resources.phase_budget("il2cpp" if args.target in ("startup", "game") else "unity", output)
 if not policy["nativeLaunchAllowed"]:
     raise BuildError("Available RAM/commit is insufficient or unknown for the large native game compiler; "
@@ -204,7 +244,7 @@ if not policy["nativeLaunchAllowed"]:
 
 
 def _without_memory_coordination(tree):
-    """Normalize only these exact read-only, non-producing admission seams."""
+    """Normalize exact host-only seams after prepare; all asset producers stay scoped."""
     same = lambda left, right: ast.dump(left, include_attributes=False) == ast.dump(right, include_attributes=False)
     tree.body = [node for node in tree.body if not same(node, MEMORY_LOAD)]
     for owner in tree.body:
@@ -220,8 +260,10 @@ def _without_memory_coordination(tree):
                 if not isinstance(node, ast.FunctionDef) or node.name != "compile_player_files": continue
                 body, index = [], 0
                 while index < len(node.body):
-                    if same(node.body[index], MEMORY_LAUNCH):
+                    if same(node.body[index], MEMORY_LAUNCH) or same(node.body[index], MEMORY_ENVIRONMENT):
                         index += 1
+                    elif same(node.body[index], MEMORY_PLAYER):
+                        body.append(copy.deepcopy(MEMORY_PLAYER_PREVIOUS)); index += 1
                     elif (index + 1 < len(node.body) and same(node.body[index], MEMORY_PREVIOUS_LAUNCH[0])
                           and same(node.body[index + 1], MEMORY_PREVIOUS_LAUNCH[1])):
                         index += 2
@@ -340,9 +382,9 @@ def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=Fal
                     and row["path"] not in PREFIX_MOD_BANK_HELPERS]
         rows = [row for row in rows if row["path"] not in PREFIX_DELIVERY_HELPERS
                 and row["path"] not in PREFIX_PLAYER_REFERENCES
-                and row != MEMORY_HELPER_FIXED
+                and row not in (MEMORY_HELPER_FIXED, MEMORY_HELPER_ADAPTIVE)
                 and not row["path"].startswith(PREFIX_PLAYER_ROOTS)]
-        rows = [MEMORY_POLICY_PREVIOUS if row == MEMORY_POLICY_FIXED else row for row in rows]
+        rows = [_memory_row(row) for row in rows]
         if ui_unconsumed:
             rows = [row for row in rows if row["path"] not in PREFIX_UNUSED_TOOLS]
         if native_unconsumed:

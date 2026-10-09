@@ -25,7 +25,7 @@ SAFE_DETAIL_KEYS = {'schema', 'inputKey', 'gameKey', 'sourceHash', 'commit', 'mo
 SAFE_EVENT_KEYS = {'phase', 'done', 'total', 'unit', 'percent', 'detail', 'updatedAt', 'executable',
                    'exitCode', 'durationSeconds', 'log', 'logs', 'cause', 'builderError', 'failureStage',
                    'error', 'message', 'traceback', 'outputCount', 'controlledStop', 'tool', 'version',
-                   'freeBytes', 'estimatedBytes', 'command'}
+                   'freeBytes', 'estimatedBytes', 'command', 'nativeMemory'}
 RESOURCE_FILES = ('resource-policy.json', 'resource-events.jsonl', 'build-metrics.json')
 WIZARD_LOG = re.compile(r'^(?:(?:tools|source|unity|profile|inspect|build|install)|progress(?:\.previous)?|(?:git|dotnet8|dotnet10)-version|unity-(?:hub-help|hub-window|install|install-path|version|license-probe|license-process|protocol-(?:query|recheck|register|confirm))|source-(?:clone(?:-complete)?|commit|checkout|selected-(?:present|commit)|(?:local|owned)-inventory\.json)|com\.unity\.xr\.(?:management|core-utils|openxr)-(?:init|fetch|checkout|build))\.log$')
 BUILD_LOG = re.compile(r'^(unity-(build|launch)|native|weave|mod|package-(import|api)|recovery|recover|dotnet|apk-(signature|badging)|adb-[a-z-]+|campaign-[a-z-]+|build)[a-zA-Z0-9_.-]*\.log$')
