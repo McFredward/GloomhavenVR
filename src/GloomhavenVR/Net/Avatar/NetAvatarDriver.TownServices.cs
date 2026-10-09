@@ -19,10 +19,30 @@ internal sealed partial class NetAvatarDriver
     private int _townCaptureFrame = -1;
     private Func<byte[], int, bool, bool>? _merchantControlSender;
     private Action<List<int>>? _originalReceiptPeers;
+    private Action<byte[], int>? _originalRequestSender;
+    private Action<byte[], int, object?>? _townPresentationSender;
     private void CollectOriginalReceiptPeers(List<int> peers) =>
         VersionGuard.CollectContinuationPeers(peers, _transport.LocalPlayerId);
     private bool SendMerchantControl(byte[] bytes, int length, bool hostOnly) =>
         _transport is FfsNetTransport ffs && ffs.SendTownControl(bytes, length, hostOnly);
+    private void QueueTownOriginalRequest(byte[] bytes, int length)
+    {
+        if (_transport is FfsNetTransport ffs)
+        {
+            if (!ffs.TrySendTownOriginalRequest(bytes, length))
+                throw new System.IO.IOException("Exact town-original request queue declined admission.");
+        }
+        else _transport.Send(bytes, length);
+    }
+    private void QueueTownPresentation(byte[] bytes, int length, object? identity)
+    {
+        if (_transport is FfsNetTransport ffs && identity is TownServiceFrame original)
+        {
+            if (!ffs.TrySendTownPresentation(bytes, length, original))
+                throw new System.IO.IOException("Native town presentation queue declined the immutable original.");
+        }
+        else _transport.Send(bytes, length, identity);
+    }
     private void SendTownServices()
     {
         TownServiceMirror.CollectOriginalReceiptPeers = _originalReceiptPeers ??= CollectOriginalReceiptPeers;
@@ -38,6 +58,13 @@ internal sealed partial class NetAvatarDriver
                 else _transport.Send(bytes, length);
             }); }
             catch (Exception error) { LogPhaseError("Queue exact town-original receipts", error); }
+            try { TownServiceMirror.CaptureOriginalRequests(_originalRequestSender ??= QueueTownOriginalRequest); }
+            catch (Exception error) { LogPhaseError("Queue exact town-original requests", error); }
+            // An observer's rejected compact basis needs its retained full source
+            // immediately. Keep this bounded repair pass independent of the next
+            // 15 Hz native sampling interval and reuse the same transport admission.
+            try { TownServiceMirror.CaptureRequestedOriginalRepairs(_townPresentationSender ??= QueueTownPresentation); }
+            catch (Exception error) { LogPhaseError("Queue requested town-original repairs", error); }
         }
         TownServiceGrantSync.Tick(_transport, UnityEngine.Time.unscaledTime);
         TownMerchantControlSync.SendReliable = _merchantControlSender ??= SendMerchantControl;
@@ -52,15 +79,7 @@ internal sealed partial class NetAvatarDriver
             _townCaptureFrame = UnityEngine.Time.frameCount;
             _nextTownCapture = now + 1f / 15f;
             using var capture = PerfMonitor.Scope("Net.Town.Capture");
-            try { TownServiceMirror.Capture((bytes, length, identity) =>
-            {
-                if (_transport is FfsNetTransport ffs && identity is TownServiceFrame original)
-                {
-                    if (!ffs.TrySendTownPresentation(bytes, length, original))
-                        throw new System.IO.IOException("Native town presentation queue declined the immutable original.");
-                }
-                else _transport.Send(bytes, length, identity);
-            }); }
+            try { TownServiceMirror.Capture(_townPresentationSender ??= QueueTownPresentation); }
             catch (Exception error) { LogPhaseError("Sample native town services", error); }
         }
         // Native widget capture is independent of resident facial motion.
@@ -103,7 +122,22 @@ internal sealed partial class NetAvatarDriver
         // with the same source sequence must survive until the main-thread pass.
         uint key = frame!.Module | (frame.BaseSequence != 0 ? 65536u : 0u) | (frame.PublicCatalog ? 131072u : 0u) | (frame.VisitorStock ? 262144u : 0u)
             | (frame.CatalogBank?.Updates.Length == 0 ? 524288u : 0u);
-        if (pending.TryGetValue(key, out TownPacket? previous) && frame.Sequence <= previous.Sequence) return true;
+        if (pending.TryGetValue(key, out TownPacket? previous) && frame.Sequence <= previous.Sequence)
+        {
+            // Compact native metadata and its exact full repair deliberately
+            // share one original sequence. Before the main-thread pass, retain
+            // the full source instead of coalescing it behind an unexpandable
+            // compact packet. A different identity or older revision still loses.
+            TownServiceFrame earlier = previous.Frame;
+            bool exactFullRepair = frame.Sequence == previous.Sequence
+                && frame.BaseSequence == 0 && earlier.BaseSequence == 0
+                && frame.NativeTemplateBasisKey == 0 && earlier.NativeTemplateBasisKey != 0
+                && frame.Service == earlier.Service && frame.Session == earlier.Session
+                && frame.PublicCatalog == earlier.PublicCatalog && frame.VisitorStock == earlier.VisitorStock
+                && frame.PublicClaim == earlier.PublicClaim && frame.Structure == earlier.Structure
+                && frame.Template == earlier.Template && frame.TemplateAddress == earlier.TemplateAddress;
+            if (!exactFullRepair) return true;
+        }
         if (pending.Count >= 6 * TownServiceFrame.MaxModules + 5 && !pending.ContainsKey(key)) return true;
         pending[key] = new TownPacket { Sequence = frame.Sequence, Frame = frame };
         return true;
