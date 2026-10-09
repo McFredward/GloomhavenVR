@@ -11,6 +11,7 @@ internal static partial class TownServiceMirror
         internal TownServiceMotionEntry Header = null!;
         internal CardReturnClock Clock = null!;
         internal TownServiceReturnPart?[] Parts = null!;
+        internal TownServiceMotionEntry?[] Roots = null!;
         internal ulong[] Sequences = null!;
         internal ulong Sequence;
         internal float ReceivedAt, Offset;
@@ -77,7 +78,7 @@ internal static partial class TownServiceMirror
             if (assembly == null && peer.ReturnCohorts.Count >= TownServiceFrame.MaxModules) return;
             bool retained = assembly != null && SameReturnMembers(assembly.Header, entry);
             assembly = new ReturnCohortAssembly { Header = entry,
-                Parts = new TownServiceReturnPart?[entry.ReturnMembers.Length], Sequences = new ulong[entry.ReturnMembers.Length],
+                Parts = new TownServiceReturnPart?[entry.ReturnMembers.Length], Roots = new TownServiceMotionEntry?[entry.ReturnMembers.Length], Sequences = new ulong[entry.ReturnMembers.Length],
                 ReceivedAt = now, Offset = retained ? assembly!.Offset : ReturnOffset(peer, entry.ReturnSampleTime, now),
                 HasPrior = retained && (assembly!.Activated || assembly.HasPrior) };
             CardReturnClock? priorClock = retained ? peer.ReturnCohorts[entry.Key].Clock : null;
@@ -99,6 +100,26 @@ internal static partial class TownServiceMirror
             foreach (ushort member in entry.ReturnMembers)
                 if (modules!.TryGetValue(member, out RemoteModule? module) && module.Alive)
                     HoldReturnPicture(owner, module);
+    }
+    // A root adjacent to its exact subset is part of that frozen physical
+    // instant. Stage it until all print/body members and their canvas recipes
+    // arrive; it cannot cancel the same return or expose one incomplete face.
+    private static bool StageReturnRoot(PeerMotion peer, TownServiceMotionPacket packet, TownServiceMotionEntry root)
+    {
+        if (root.Kind != 1) return false;
+        foreach (ReturnCohortAssembly assembly in peer.ReturnCohorts.Values)
+        {
+            TownServiceMotionEntry header = assembly.Header;
+            if (assembly.Activated || root.Lane != header.Lane
+                || root.Service != header.Service || root.Session != header.Session || root.PublicClaim != header.PublicClaim
+                || root.Hand != header.Hand) continue;
+            int index = Array.BinarySearch(header.ReturnMembers, root.Module);
+            if (index < 0 || root.Structure != header.ReturnStructures[index]
+                || assembly.Parts[index] == null || assembly.Sequences[index] != packet.Sequence
+                || root.Visible != assembly.Parts[index]!.Visible || root.ParentAlpha != assembly.Parts[index]!.ParentAlpha) continue;
+            assembly.Roots[index] = root; return true;
+        }
+        return false;
     }
     // Ordinary native roots are published only after this source sampler ends
     // (including regrab/hide). Their newer exact receipt cancels the physical
@@ -157,7 +178,7 @@ internal static partial class TownServiceMirror
                 if (assembly.Activated || !found) continue;
                 bool ready = true;
                 for (int i = 0; i < header.ReturnMembers.Length; i++)
-                    if (assembly.Parts[i] == null || !modules!.TryGetValue(header.ReturnMembers[i], out RemoteModule? module)
+                    if (assembly.Parts[i] == null || assembly.Roots[i] == null || !modules!.TryGetValue(header.ReturnMembers[i], out RemoteModule? module)
                         || !module.Alive || module.LastFrame == null || module.LastFrame.Structure != header.ReturnStructures[i])
                     { ready = false; break; }
                 if (!ready) continue;
@@ -171,6 +192,8 @@ internal static partial class TownServiceMirror
                         Numbers = new float[38], HasReturnVisibility = true, Visible = part.Visible,
                         ParentAlpha = part.ParentAlpha, CohortOffset = assembly.Offset };
                     Array.Copy(header.Numbers, clock.Numbers, 28); Array.Copy(part.Child, 0, clock.Numbers, 28, 10);
+                    assembly.Roots[i]!.HasReturnVisibility = true;
+                    packet.Entries.Add(assembly.Roots[i]!);
                     packet.Entries.Add(clock);
                     ReturnPictures.Remove(modules![header.ReturnMembers[i]]);
                 }

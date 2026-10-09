@@ -103,6 +103,10 @@ internal static class TownServiceMotionBudget
             selected.Add(new Selected(staged, 0, index + 1, bundles));
             size += TownServiceMotionCodec.EntryBytes(cohort);
             foreach (TownServiceReturnPart part in cohort.ReturnParts)
+            {
+                var rootDependency = new TownServiceMotionPending { Entry = snapshot.RootEntries[part.Index], ReturnSnapshot = snapshot };
+                selected.Add(new Selected(rootDependency, 0, index + 1, bundles));
+                size += TownServiceMotionCodec.EntryBytes(rootDependency.Entry);
                 if (snapshot.Layouts[part.Index] is TownServiceMotionPending layout)
                 {
                     seen.Add(layout);
@@ -112,6 +116,7 @@ internal static class TownServiceMotionBudget
                     selected.Add(new Selected(dependent, 0, index + 1, bundles));
                     size += TownServiceMotionCodec.EntryBytes(dependent.Entry);
                 }
+            }
         }
         int turn = 0;
         while (packet.Entries.Count < TownServiceMotionCodec.MaxExpandedEntries
@@ -171,6 +176,9 @@ internal static class TownServiceMotionBudget
                         // newer receipt dirty for the next complete cohort.
                         if (ReferenceEquals(source.Entry, snapshot.SourceEntries[i]))
                         { source.Dirty = false; source.AdmittedReturnRevision = source.Entry.Revision; }
+                        TownServiceMotionPending root = snapshot.Roots[i];
+                        if (ReferenceEquals(root.Entry, snapshot.RootSourceEntries[i]))
+                        { root.Dirty = false; root.SentAt = now; }
                         source.ReturnSnapshot = null;
                     }
                 }
@@ -260,6 +268,8 @@ internal static class TownServiceMotionBudget
         internal TownServiceReturnPart[] Parts = null!;
         internal TownServiceMotionPending[] Sources = null!;
         internal TownServiceMotionEntry[] SourceEntries = null!;
+        internal TownServiceMotionPending[] Roots = null!;
+        internal TownServiceMotionEntry[] RootSourceEntries = null!, RootEntries = null!;
         internal TownServiceMotionPending?[] Layouts = null!;
         internal TownServiceMotionEntry?[] LayoutEntries = null!;
         internal int Cursor;
@@ -310,13 +320,29 @@ internal static class TownServiceMotionBudget
             ReturnMembers = new ushort[members.Count], ReturnStructures = new uint[members.Count] };
         Array.Copy(clock.Numbers, header.Numbers, 28);
         var snapshot = new ReturnSnapshot { Header = header, Sources = members.ToArray(),
-            SourceEntries = new TownServiceMotionEntry[members.Count], Parts = new TownServiceReturnPart[members.Count],
+            SourceEntries = new TownServiceMotionEntry[members.Count], Roots = new TownServiceMotionPending[members.Count],
+            RootSourceEntries = new TownServiceMotionEntry[members.Count], RootEntries = new TownServiceMotionEntry[members.Count],
+            Parts = new TownServiceReturnPart[members.Count],
             Layouts = new TownServiceMotionPending?[members.Count], LayoutEntries = new TownServiceMotionEntry?[members.Count] };
         for (int i = 0; i < members.Count; i++)
         {
             TownServiceMotionEntry member = members[i].Entry;
             snapshot.SourceEntries[i] = member;
             int root = ReturnRoot(live, member); if (root < 0) return null;
+            snapshot.Roots[i] = live[root]; snapshot.RootSourceEntries[i] = live[root].Entry;
+            TownServiceMotionEntry captured = live[root].Entry;
+            // Canvas scale can legitimately be zero while a purchased original
+            // is prepared. Freeze its current complete native recipe with the
+            // physical receipt; a later ordinary heartbeat cannot release it.
+            snapshot.RootEntries[i] = new TownServiceMotionEntry { Kind = 1, Lane = captured.Lane,
+                Service = captured.Service, Session = captured.Session, PublicClaim = captured.PublicClaim,
+                Module = captured.Module, Structure = captured.Structure, Hand = captured.Hand,
+                ParentModule = captured.ParentModule, Binding = captured.Binding, ParentAlpha = captured.ParentAlpha,
+                Visible = captured.Visible, Pose = (float[])captured.Pose.Clone(), HasCanvasUpdate = true,
+                HasCanvasFrame = captured.HasCanvasFrame, CanvasOnHand = captured.CanvasOnHand,
+                CanvasPose = (float[])captured.CanvasPose.Clone(), CanvasRect = (float[])captured.CanvasRect.Clone(),
+                CanvasSettings = (float[])captured.CanvasSettings.Clone(),
+                CanvasSortingOrder = captured.CanvasSortingOrder, CanvasSortingLayer = captured.CanvasSortingLayer };
             header.ReturnMembers[i] = member.Module; header.ReturnStructures[i] = member.Structure;
             var part = new TownServiceReturnPart { Index = (byte)i, Visible = live[root].Entry.Visible,
                 ParentAlpha = live[root].Entry.ParentAlpha, Child = new float[10] };
@@ -335,7 +361,10 @@ internal static class TownServiceMotionBudget
     {
         TownServiceMotionEntry cohort = snapshot.Subset(count); packet.Entries.Add(cohort);
         foreach (TownServiceReturnPart part in cohort.ReturnParts)
+        {
+            packet.Entries.Add(snapshot.RootEntries[part.Index]);
             if (snapshot.LayoutEntries[part.Index] is TownServiceMotionEntry layout) packet.Entries.Add(layout);
+        }
         return cohort;
     }
 
