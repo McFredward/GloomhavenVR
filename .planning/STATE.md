@@ -1,5 +1,25 @@
 # State — where the project stands
 
+**Build654 reliable Auto walls and Graphics placement, 2026-10-09: 1.1.0 development candidate.**
+
+New Build 653 Frame evidence confirms useful manual wall removal: 845 renderers hidden,
+material camera work 21.082→7.811ms, wall scope 7.445→1.370ms. Pose/tracking/hitch
+and open options qualify the frame comparison; no closed-options post summary exists.
+Auto was blocked by optional background preparation after native rooms had loaded,
+then by the open options window. It now observes native-loaded gameplay while both
+continue. Cached actual OpenXR focus replaces desktop-window focus; the shipped
+Focused=5 enum and lifecycle/ownership checks avoid new native work or stale vetoes.
+
+The wall mode and threshold now belong to Graphics → Scene details. Stored choices,
+15 FPS default, two-second window/hitch protection, scenario latch and protected door
+frames/arches remain. The last manual Hide all selection is preserved: select
+Automatic again to test. Six final affected scopes, 16 source checks, strict
+Debug/Release, 299715 direct goldens and bounded compiled/surface comparisons pass.
+Unchanged areas inherit 652/653 evidence; this is not a fresh full 184-suite gate.
+Own worker trees/caches are removed after verified receipt archiving. Next-headset
+Auto timing/appearance remains acceptance. Scope and receipts:
+[FRAME-654-REVIEW.md](FRAME-654-REVIEW.md).
+
 **Build653 native Steam Frame standalone mixed reality, 2026-10-09: 1.1.0 development candidate.**
 
 The installed Frame launch marker selects native alpha composition; the actual
