@@ -340,7 +340,12 @@ class _WindowsFileMetadata:
                         ("NumberOfLinks", ctypes.c_uint32), ("DeletePending", ctypes.c_ubyte), ("Directory", ctypes.c_ubyte)]
         class Identity(ctypes.Structure):
             _fields_ = [("VolumeSerialNumber", ctypes.c_uint64), ("FileId", ctypes.c_ubyte * 16)]
+        class DirectoryEntry(ctypes.Structure):
+            _fields_ = [("NextEntryOffset", ctypes.c_uint32), ("FileIndex", ctypes.c_uint32)] + [
+                (name, ctypes.c_int64) for name in ("CreationTime", "LastAccessTime", "LastWriteTime", "ChangeTime", "EndOfFile", "AllocationSize")] + [
+                (name, ctypes.c_uint32) for name in ("FileAttributes", "FileNameLength", "EaSize", "ReparsePointTag")] + [("FileId", ctypes.c_ubyte * 16)]
         self.Basic, self.Standard, self.Identity = Basic, Standard, Identity
+        self.DirectoryEntry = DirectoryEntry
         self.kernel = kernel or ctypes.WinDLL("kernel32", use_last_error=True)
         self.filesystems = {}
         if kernel is None:
@@ -354,6 +359,61 @@ class _WindowsFileMetadata:
             self.kernel.GetVolumeInformationByHandleW.restype = ctypes.c_int
             self.kernel.CloseHandle.argtypes = [ctypes.c_void_p]
             self.kernel.CloseHandle.restype = ctypes.c_int
+
+    def directory(self, path):
+        """Read true change stamps in directory batches; unsupported drivers fall back.
+
+        FILE_ID_EXTD_DIR_INFO carries the same 128-bit FileId, LastWriteTime,
+        ChangeTime and EndOfFile used by individual persistent proofs. It does
+        not carry link counts: the caller separately retains its lstat check.
+        https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_id_extd_dir_info
+        """
+        c = self.ctypes
+        name = str(path)
+        if not name.startswith("\\\\?\\"):
+            name = "\\\\?\\UNC\\" + name[2:] if name.startswith("\\\\") else "\\\\?\\" + name
+        handle = self.kernel.CreateFileW(name, 0x81, 7, None, 3, 0x02200000, None)
+        if handle is None or handle == c.c_void_p(-1).value: return None
+        try:
+            basic, identity = self.Basic(), self.Identity()
+            if not self.kernel.GetFileInformationByHandleEx(handle, 0, c.byref(basic), c.sizeof(basic)): return None
+            if basic.FileAttributes & 0x400 or not basic.FileAttributes & 0x10:
+                raise BuildError("File witness directory is linked or not a directory: " + str(path))
+            if not self.kernel.GetFileInformationByHandleEx(handle, 18, c.byref(identity), c.sizeof(identity)): return None
+            volume = identity.VolumeSerialNumber
+            if volume not in self.filesystems:
+                filesystem = c.create_unicode_buffer(261)
+                ok = self.kernel.GetVolumeInformationByHandleW(handle, None, 0, None, None, None, filesystem, len(filesystem))
+                self.filesystems[volume] = filesystem.value.upper() if ok else ""
+            if self.filesystems[volume] not in ("NTFS", "REFS"): return None
+            result, restart = {}, True
+            buffer = c.create_string_buffer(65536)
+            while True:
+                ok = self.kernel.GetFileInformationByHandleEx(handle, 20 if restart else 19, buffer, len(buffer))
+                restart = False
+                if not ok:
+                    error = c.get_last_error() if hasattr(c, "get_last_error") else getattr(self.kernel, "last_error", 0)
+                    return result if error == 18 else None  # ERROR_NO_MORE_FILES, never a partial unsupported read
+                offset = 0
+                while True:
+                    if offset + c.sizeof(self.DirectoryEntry) > len(buffer): return None
+                    entry = self.DirectoryEntry.from_buffer_copy(buffer.raw, offset)
+                    length = entry.FileNameLength
+                    start = offset + c.sizeof(self.DirectoryEntry)
+                    if not length or length % 2 or start + length > len(buffer): return None
+                    try: leaf = buffer.raw[start:start + length].decode("utf-16-le")
+                    except UnicodeError: return None
+                    if leaf not in (".", ".."):
+                        if "/" in leaf or "\\" in leaf or leaf in result: return None
+                        good = (not entry.FileAttributes & (0x400 | 0x10) and not entry.ReparsePointTag
+                                and entry.ChangeTime and any(entry.FileId))
+                        result[leaf] = ("win32-v1", volume, bytes(entry.FileId).hex(), entry.EndOfFile,
+                                        entry.LastWriteTime, entry.ChangeTime) if good else None
+                    if not entry.NextEntryOffset: break
+                    if entry.NextEntryOffset < c.sizeof(self.DirectoryEntry) + length or entry.NextEntryOffset % 8: return None
+                    offset += entry.NextEntryOffset
+        finally:
+            self.kernel.CloseHandle(handle)
 
     def stamp(self, path):
         c = self.ctypes
@@ -568,6 +628,81 @@ class ValidatedFileWitnesses:
         path = self._path(path)
         if path.lstat().st_size != expected_size: return False
         return self._observe(path, hasher=hasher) == expected_sha256
+
+    def qualify_many(self, records, *, hasher=None):
+        """Qualify closed receipts with one metadata/database pass per directory.
+
+        The 070011 capture reopens 191,415 unchanged files without reading bytes,
+        yet those repeated Windows handle, ancestor and SQLite calls take
+        minutes. Batch only observation: unknown/changed rows still call the
+        original byte qualifier, and a copied database never proves new IDs.
+        No directory mtime, progress counter or receipt alone proves its files.
+        """
+        groups = {}
+        for record in records:
+            relative = record.get("path")
+            if (not isinstance(relative, str) or not relative or "\\" in relative or ":" in relative
+                    or relative.startswith("/") or any(part in ("", ".", "..") for part in relative.split("/"))):
+                raise BuildError("File witness receipt escapes its owned root.")
+            path = self.root / relative
+            groups.setdefault(path.parent, []).append((path, record))
+        cached = {row[0]: row[1:] for row in self.db.execute(
+            "SELECT path,size,sha,stamp,check_hash FROM validated_file_witnesses WHERE owner=?", (self.namespace,))}
+        global _windows_metadata
+        for directory, members in groups.items():
+            # One ordinary-directory guard per batch, including the real root.
+            # Leaf lstat below still rejects hardlinks and reparse points.
+            root = self.root.lstat()
+            if (not stat.S_ISDIR(root.st_mode) or getattr(root, "st_file_attributes", 0) & 0x400
+                    or (root.st_dev, root.st_ino) != self.root_identity):
+                raise BuildError("File witness owner root changed during conversion.")
+            self._path(directory / ".quest-metadata-guard")
+            metadata = None
+            if sys.platform == "win32":
+                try:
+                    if _windows_metadata is None: _windows_metadata = _WindowsFileMetadata()
+                    metadata = _windows_metadata.directory(directory)
+                except (OSError, AttributeError): metadata = None
+            for path, record in members:
+                try: value = path.lstat()
+                except FileNotFoundError:
+                    yield record, False
+                    continue
+                if not stat.S_ISREG(value.st_mode) or getattr(value, "st_file_attributes", 0) & 0x400:
+                    raise BuildError("File witness is not a regular owned file: " + str(path))
+                before = (metadata.get(path.name) if metadata is not None else
+                          _file_witness_stamp(path, value) if sys.platform != "win32" else None)
+                if value.st_nlink != 1: before = None
+                relative = path.relative_to(self.root).as_posix()
+                prior = cached.get(relative)
+                good = False
+                if prior is not None and before is not None:
+                    size, hashed, serialized, check = prior
+                    try:
+                        stamp = json.loads(serialized)
+                        good = (stamp == list(before) and size == value.st_size == before[3] == record["size"]
+                                and hashed == record["sha256"] and isinstance(hashed, str) and len(hashed) == 64
+                                and all(c in "0123456789abcdef" for c in hashed)
+                                and check == value_hash([self.namespace, relative, size, hashed, stamp]))
+                    except (ValueError, TypeError): good = False
+                if good:
+                    self.counters["cache_hits"] += 1
+                    _invocation_file_proofs[path] = (before, hashed)
+                    yield record, True
+                else:
+                    yield record, self.qualify(path, record["sha256"], record["size"], hasher=hasher)
+
+    def adopt_qualified(self, path):
+        """Transfer a just-qualified invocation proof to a compatible owner.
+
+        Persist its observed strong stamp, never fresh metadata paired with an
+        old hash. A subsequent mutation cannot match that stored stamp.
+        """
+        path = Path(path).absolute()
+        proof = _invocation_file_proofs.get(path)
+        if proof is None: return False
+        self._save(path, proof[1], proof[0])
+        return True
 
     def summary(self):
         c = self.counters
@@ -920,12 +1055,13 @@ class Stages:
             phase = "stage-receipt-verify:" + name
             counter = _counter(phase, sum(item["size"] for item in records), "bytes")
             with self._witnesses(name, key) as witnesses:
-                for item in records:
+                hasher = (lambda path: digest(path, progress=lambda size: counter.add(size, path.name))) if counter else None
+                previous_hits = witnesses.counters["cache_hits"]
+                for item, valid in witnesses.qualify_many(records, hasher=hasher):
                     candidate = self.output / item["path"]
-                    hits = witnesses.counters["cache_hits"]
-                    hasher = (lambda path: digest(path, progress=lambda size: counter.add(size, path.name))) if counter else None
-                    if not witnesses.qualify(candidate, item["sha256"], item["size"], hasher=hasher): return None
-                    if counter and witnesses.counters["cache_hits"] != hits: counter.add(item["size"], candidate.name)
+                    if not valid: return None
+                    if counter and witnesses.counters["cache_hits"] != previous_hits: counter.add(item["size"], candidate.name)
+                    previous_hits = witnesses.counters["cache_hits"]
                 if counter: counter.finish()
                 if build_progress: build_progress.event(phase, detail=witnesses.summary(), status="complete")
             return value

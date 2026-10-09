@@ -195,6 +195,81 @@ class WitnessTests(unittest.TestCase):
         self.assertIsNone(stages.valid("fixture", "key"))
 
 
+class BatchWitnessTests(unittest.TestCase):
+    setUp = WitnessTests.setUp
+    open = WitnessTests.open
+    def records(self, files=24):
+        rows = []
+        for index in range(files):
+            path = self.root / ("batch-a" if index % 2 else "batch-b") / (str(index) + ".bin")
+            path.parent.mkdir(exist_ok=True); path.write_bytes(("known " + str(index)).encode())
+            rows.append({"path": path.relative_to(self.root).as_posix(), "size": path.stat().st_size,
+                         "sha256": sha(path.read_bytes())})
+        witness = self.open()
+        self.assertTrue(all(valid for _, valid in witness.qualify_many(rows)))
+        witness.db.commit(); storage._invocation_file_proofs.clear()
+        return rows
+
+    def test_warm_many_uses_directory_guards_and_no_per_file_queries_or_byte_reads(self):
+        rows = self.records(); witness = self.open(); queries = []
+        witness.db.set_trace_callback(queries.append)
+        with mock.patch.object(witness, "_path", wraps=witness._path) as guards, \
+             mock.patch.object(witness, "qualify", side_effect=AssertionError("unchanged file requires no individual handle/query")), \
+             mock.patch.object(Path, "open", side_effect=AssertionError("warm receipt byte read")):
+            self.assertTrue(all(valid for _, valid in witness.qualify_many(rows)))
+        self.assertEqual(guards.call_count, 2)
+        self.assertEqual(sum(query.startswith("SELECT") for query in queries), 1)
+        self.assertEqual(witness.counters, {"cache_hits": 24, "files_read": 0, "bytes_read": 0})
+
+    def test_changed_and_unknown_records_read_only_their_actual_files(self):
+        rows = self.records(); changed = self.root / rows[0]["path"]; before = changed.stat()
+        changed.write_bytes(b"bad!! 0"); os.utime(changed, ns=(before.st_atime_ns, before.st_mtime_ns))
+        witness = self.open()
+        witness.db.execute("DELETE FROM validated_file_witnesses WHERE path=?", (rows[1]["path"],))
+        results = dict((row["path"], valid) for row, valid in witness.qualify_many(rows))
+        self.assertFalse(results[rows[0]["path"]]); self.assertTrue(results[rows[1]["path"]])
+        self.assertEqual(witness.counters["files_read"], 2)
+        self.assertEqual(witness.counters["cache_hits"], 22)
+
+    def test_missing_linked_and_hardlinked_files_do_not_acquire_batch_stamp_trust(self):
+        rows = self.records(); missing = self.root / rows[0]["path"]; missing.unlink()
+        self.assertFalse(dict((row["path"], valid) for row, valid in self.open().qualify_many(rows))[rows[0]["path"]])
+        hard = self.root / rows[1]["path"]; os.link(hard, self.root / "hard-preimage")
+        witness = self.open()
+        self.assertTrue(all(valid for _, valid in witness.qualify_many([rows[1]])))
+        self.assertEqual(witness.counters["files_read"], 1)
+        linked = self.root / rows[2]["path"]; linked.unlink(); linked.symlink_to(hard)
+        with self.assertRaises(storage.BuildError): list(self.open().qualify_many([rows[2]]))
+
+    def test_same_file_bytes_moved_to_replaced_root_and_copied_database_are_not_assumed_known(self):
+        rows = self.records(); witness = self.open()
+        original = self.root / "batch-a"; original.rename(self.root / "saved-directory")
+        original.symlink_to(self.root / "saved-directory", target_is_directory=True)
+        with self.assertRaisesRegex(storage.BuildError, "linked directory"):
+            list(witness.qualify_many([rows[1]]))
+        original.unlink(); original.mkdir()
+        saved = self.root / "saved-directory" / "1.bin"
+        shutil.copyfile(saved, original / "1.bin")
+        witness = self.open()
+        self.assertTrue(all(valid for _, valid in witness.qualify_many([rows[1]])))
+        self.assertEqual(witness.counters["files_read"], 1)
+
+    def test_changed_file_during_fallback_cannot_publish_a_bulk_byte_proof(self):
+        rows = self.records(); witness = self.open()
+        witness.db.execute("DELETE FROM validated_file_witnesses")
+        def changing(path):
+            raw = path.read_bytes(); path.write_bytes(b"corrupt")
+            return sha(raw)
+        with self.assertRaisesRegex(storage.BuildError, "changed while"):
+            list(witness.qualify_many(rows, hasher=changing))
+
+    def test_batch_metadata_never_accepts_an_escaped_output_receipt(self):
+        witness = self.open()
+        for name in ("../outside", "/outside", "C:/outside", "batch-a/../1.bin", "batch-a\\1.bin"):
+            with self.subTest(name=name), self.assertRaises(storage.BuildError):
+                list(witness.qualify_many([{"path": name, "size": 1, "sha256": "0" * 64}]))
+
+
 class FakeKernel:
     def __init__(self):
         self.closed, self.calls = [], []
@@ -260,6 +335,100 @@ class WindowsMetadataTests(unittest.TestCase):
             os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns)); kernel.change += 1
             self.assertFalse(witness.qualify(path, sha(b"known owned bytes"), 17))
             self.assertEqual(witness.counters["files_read"], 2)
+
+
+class DirectoryKernel(FakeKernel):
+    def __init__(self):
+        super().__init__(); self.attributes = 0x10; self.directory = True
+        self.pages, self.page_index, self.last_error, self.query_kinds = [], 0, 0, []
+    def GetFileInformationByHandleEx(self, handle, kind, pointer, size):
+        self.query_kinds.append(kind)
+        if kind not in (19, 20): return super().GetFileInformationByHandleEx(handle, kind, pointer, size)
+        if kind == 20: self.page_index = 0
+        if self.page_index == len(self.pages): self.last_error = 18; return False
+        page = self.pages[self.page_index]; self.page_index += 1
+        ctypes.memmove(pointer, page, len(page)); return True
+
+
+class WindowsDirectoryMetadataTests(unittest.TestCase):
+    def page(self, seam, names):
+        chunks = []
+        for index, (name, size, write, change, identity, attributes) in enumerate(names):
+            entry = seam.DirectoryEntry(); encoded = name.encode("utf-16-le")
+            entry.FileNameLength = len(encoded); entry.EndOfFile = size
+            entry.LastWriteTime, entry.ChangeTime = write, change
+            entry.FileId[:] = identity.to_bytes(16, "little"); entry.FileAttributes = attributes
+            width = (ctypes.sizeof(entry) + len(encoded) + 7) // 8 * 8
+            entry.NextEntryOffset = width if index + 1 < len(names) else 0
+            chunks.append(bytes(entry) + encoded + bytes(width - ctypes.sizeof(entry) - len(encoded)))
+        return b"".join(chunks)
+
+    def test_documented_abi_unicode_paging_and_true_change_time_match_single_file_stamps(self):
+        kernel = DirectoryKernel(); seam = storage._WindowsFileMetadata(kernel)
+        self.assertEqual(ctypes.sizeof(seam.DirectoryEntry), 88)
+        self.assertEqual(seam.DirectoryEntry.FileId.offset, 72)
+        kernel.pages = [self.page(seam, [("héllo.bin", 17, 10, 20, 123, 0), ("second.bin", 19, 13, 25, 321, 0)]),
+                        self.page(seam, [("third.bin", 11, 15, 30, 456, 0)])]
+        rows = seam.directory(Path("C:/owned"))
+        self.assertEqual(rows["héllo.bin"], ("win32-v1", 1234, (123).to_bytes(16, "little").hex(), 17, 10, 20))
+        self.assertEqual(rows["third.bin"][-2:], (15, 30))
+        self.assertEqual(kernel.query_kinds, [0, 18, 20, 19, 19]); self.assertEqual(kernel.closed, [99])
+        self.assertEqual(kernel.calls[0][1:], (0x81, 7, None, 3, 0x02200000, None))
+
+    def test_reparse_leaf_and_missing_change_stamp_remain_unknown(self):
+        kernel = DirectoryKernel(); seam = storage._WindowsFileMetadata(kernel)
+        kernel.pages = [self.page(seam, [("linked", 17, 10, 20, 123, 0x400), ("unknown", 17, 10, 0, 123, 0), ("directory", 0, 1, 2, 4, 0x10)])]
+        self.assertEqual(seam.directory(Path("C:/owned")), {"linked": None, "unknown": None, "directory": None})
+
+    def test_unknown_driver_invalid_structure_and_reparse_directory_are_conservative(self):
+        kernel = DirectoryKernel(); kernel.filesystem = "FAT32"
+        self.assertIsNone(storage._WindowsFileMetadata(kernel).directory(Path("C:/owned")))
+        kernel = DirectoryKernel(); kernel.pages = [b"invalid"]
+        self.assertIsNone(storage._WindowsFileMetadata(kernel).directory(Path("C:/owned")))
+        kernel = DirectoryKernel(); kernel.attributes |= 0x400
+        with self.assertRaises(storage.BuildError): storage._WindowsFileMetadata(kernel).directory(Path("C:/owned"))
+
+
+class WindowsBatchReceiptTests(unittest.TestCase):
+    def test_real_owned_directory_receipts_use_modeled_windows_batches_and_changed_id_fallback(self):
+        temporary = tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name); assets = root / "assets"; assets.mkdir()
+        records = []
+        for name in ("alpha.bin", "unicode-ß.bin"):
+            path = assets / name; path.write_bytes(("actual bytes " + name).encode())
+            records.append({"path": "assets/" + name, "size": path.stat().st_size, "sha256": sha(path.read_bytes())})
+        connection = sqlite3.connect(root / "receipts.sqlite3"); self.addCleanup(connection.close)
+        def stamp(path, value):
+            return ("win32-v1", 1234, value.st_ino.to_bytes(16, "little").hex(), value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+        class BatchMetadata:
+            def __init__(self): self.queries = []
+            def directory(self, directory):
+                self.queries.append(directory)
+                kernel = DirectoryKernel(); seam = storage._WindowsFileMetadata(kernel)
+                rows = [(path.name, path.stat().st_size, path.stat().st_mtime_ns, path.stat().st_ctime_ns, path.stat().st_ino, 0)
+                        for path in directory.iterdir() if path.is_file()]
+                kernel.pages = [WindowsDirectoryMetadataTests().page(seam, rows)]
+                return seam.directory(directory)
+        metadata = BatchMetadata()
+        with mock.patch.object(storage.sys, "platform", "win32"), mock.patch.object(storage, "_file_witness_stamp", stamp), \
+             mock.patch.object(storage, "_windows_metadata", metadata):
+            cold = storage.ValidatedFileWitnesses(connection, root, "fixture")
+            self.assertTrue(all(valid for _, valid in cold.qualify_many(records))); connection.commit()
+            storage._invocation_file_proofs.clear()
+            warm = storage.ValidatedFileWitnesses(connection, root, "fixture")
+            with mock.patch.object(warm, "_current", side_effect=AssertionError("warm per-file metadata handle")):
+                self.assertTrue(all(valid for _, valid in warm.qualify_many(records)))
+            self.assertEqual(warm.counters, {"cache_hits": 2, "files_read": 0, "bytes_read": 0})
+            self.assertEqual(metadata.queries, [assets, assets])
+            storage._invocation_file_proofs.clear()
+            original = assets / "alpha.bin"; before = original.stat()
+            replacement = assets / "replacement"; replacement.write_bytes(original.read_bytes())
+            os.utime(replacement, ns=(before.st_atime_ns, before.st_mtime_ns)); replacement.replace(original)
+            replaced = storage.ValidatedFileWitnesses(connection, root, "fixture")
+            self.assertTrue(all(valid for _, valid in replaced.qualify_many(records)))
+            self.assertEqual(replaced.counters["files_read"], 1)
+            storage._invocation_file_proofs.clear()
+        self.addCleanup(storage._invocation_file_proofs.clear)
 
 
 class SnapshotWitnessTests(unittest.TestCase):

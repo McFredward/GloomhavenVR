@@ -147,8 +147,27 @@ OBSERVATION_INPUT_ORDER = {
         "path": "tools/quest-builder/storage.py", "size": 54724,
         "sha256": "40ccd9aa5df2598e2a17471a60992b49261bf80302ab63070285030912d830ff"},
 }
+# 070011 already reuses 191,415 recovery files by true metadata, but repeated
+# per-file Windows opens/ancestor walks/SQLite calls still take minutes. This
+# exact batch-observer profile changes no producer bytes, checkpoint order,
+# rollback ownership or ordinary copied outputs. Alias only the complete set;
+# unknown observer edits still receive distinct preparation/derived identities.
+OBSERVATION_DIRECTORY_BATCH = {
+    "tools/quest-builder/storage.py": {
+        "path": "tools/quest-builder/storage.py", "size": 63287,
+        "sha256": "bae7ef9a544e83ac4b3b8985c8b792b071927de71fc323f78d83a7987b185a6e"},
+    "tools/quest-builder/full_assets.py": {
+        "path": "tools/quest-builder/full_assets.py", "size": 32663,
+        "sha256": "871186d12af12ab23dd59746acd9a0ade6d87feee03f6b654d4b6451e874206e"},
+    "tools/quest-builder/staging_resume.py": {
+        "path": "tools/quest-builder/staging_resume.py", "size": 21916,
+        "sha256": "1adbfa212166bc7266bb3da6a6750cb91f3547fad2806d69f59116a38f17b3d4"},
+    "tools/quest-builder/prepare_resume.py": {
+        "path": "tools/quest-builder/prepare_resume.py", "size": 36948,
+        "sha256": "d62d02196cf330e960c076781bcf3f59a029de9e812fd636431648f4139592cf"},
+}
 OBSERVATION_PROFILES = (OBSERVATION_BYTE_WITNESSES, OBSERVATION_FIXED,
-                        OBSERVATION_INPUT_INDEX, OBSERVATION_INPUT_ORDER)
+                        OBSERVATION_INPUT_INDEX, OBSERVATION_INPUT_ORDER, OBSERVATION_DIRECTORY_BATCH)
 # Shipped d4cc44eeb adds an exporter-log observer and invocation-local proof
 # caches. The current reference-audit update changes no raw export identities.
 # Preserve this exact whole profile as well as the previous shipped profiles.

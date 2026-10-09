@@ -238,11 +238,17 @@ class Journal:
         counter = build_progress.Counter("staging-resume-verify", size, "bytes")
         files = build_progress.Counter("staging-resume-verify-files", count, "files")
         try:
-            for relative, expected_size, expected, phase in self.db.execute("SELECT path,size,sha,phase FROM files ORDER BY path"):
+            records = [{"path": relative, "size": expected_size, "sha256": expected, "phase": phase}
+                       for relative, expected_size, expected, phase in self.db.execute("SELECT path,size,sha,phase FROM files ORDER BY path")]
+            for row, valid in self.witnesses.qualify_many(records):
+                relative, expected_size, expected, phase = row["path"], row["size"], row["sha256"], row["phase"]
                 try:
                     path = self.output / relative
-                    valid = _regular(path).st_size == expected_size and self.witnesses.qualify(path, expected, expected_size)
-                    if valid: self.proofs.files[path.absolute()] = self.proofs.current(path), expected
+                    observed = _regular(path)  # retain staging's stricter one-link writer rule
+                    valid = valid and observed.st_size == expected_size
+                    if valid:
+                        self.proofs.files[path.absolute()] = (observed.st_dev, observed.st_ino, observed.st_size,
+                                                             observed.st_mtime_ns, observed.st_ctime_ns), expected
                 except (OSError, BuildError) as error:
                     raise BuildError("Retained staged bytes could not be qualified (phase " + phase + "): " + relative) from error
                 if not valid:

@@ -319,7 +319,31 @@ class Preparation:
                 latest[relative] = (index, row)
         counter = self.progress.Counter("prepare-resume-verify-files", len(latest), "files", "Qualifying retained preparation contracts") if self.progress else None
         replaced = False
+        # Closed output contracts share the same reliable metadata proofs as
+        # outer stages. Group their observation by directory instead of opening
+        # a Windows handle, walking every ancestor and querying SQLite per file.
+        # Mutable Addressables pairs and absence contracts retain their explicit
+        # individual semantics; changed/legacy bytes still use the old reader.
+        ordinary = [row for relative, (_, row) in latest.items()
+                    if not row.get("absent") and relative not in self.content_proofs]
+        witness = self.prior_witnesses or self.witnesses
+        qualified = set()
+        for row, valid in witness.qualify_many(ordinary, hasher=digest):
+            relative = row["path"]
+            if not valid:
+                name = self.value["steps"][latest[relative][0]]["name"]
+                self.invalid_step = name
+                raise BuildError("Retained preparation output changed in " + name + ": " + relative +
+                                 "; completed steps and Unity Library were retained. Restore the file or use a fresh output folder.")
+            if self.prior_witnesses:
+                # The old owner just qualified this exact ID/ChangeTime/hash.
+                # Transfer that stamp rather than resampling and attaching old
+                # bytes to a possibly new file during input-key migration.
+                self.witnesses.adopt_qualified(self.project / relative)
+            qualified.add(relative)
+            if counter: counter.add(1, relative)
         for relative, (index, row) in latest.items():
+            if relative in qualified: continue
             observed = self._observe(relative)
             proof = self.content_proofs.get(relative)
             if proof and observed == {"path": relative, "size": proof["size"], "sha256": proof["sha256"]}:
