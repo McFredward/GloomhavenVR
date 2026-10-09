@@ -54,8 +54,9 @@ def main():
         ('diagnostics-not-paused','ProductionPrimitives.cs','if (PerformanceWallsHidden || !VRLog.Wants','if (false || !VRLog.Wants','hidden sender and diagnostic leave existing buffers untouched'),
         ('options-not-excluded','WallSegmentFade.Performance.cs','&& !VROptionsTab.IsOpen','&& true','loading focus and options do not trigger Auto'),
         ('collector-remask-lost','WallSegmentFade.Performance.cs','SetPerformanceCollectionMasks(true);','SetPerformanceCollectionMasks(false);','same-count native generation collects fresh new wall membership'),
+        ('valid-negative-scene-recovery-lost','WallSegmentFade.Performance.cs','if (!VRSession.IsRunning\n                || Rig.VRRigDriver.HeadCamera == null','if (!VRSession.IsRunning || _performanceScene < 0\n                || Rig.VRRigDriver.HeadCamera == null','Hidden to Regular rebuilds actual native wire keys once before sender resumes'),
         ('wire-recovery-omitted','WallSegmentFade.Performance.cs','if (recoverWireKeys) ComputeWireKeys();','/* injected: no key recovery */','Hidden to Regular rebuilds actual native wire keys once before sender resumes'),
-        ('wire-recovery-unconditional','WallSegmentFade.Performance.cs','if (recoverWireKeys) ComputeWireKeys();','if (recoverWireKeys || true) ComputeWireKeys();','Auto to Hide all skips recovery wire census'),
+        ('wire-recovery-unconditional','WallSegmentFade.Performance.cs','if (recoverWireKeys) ComputeWireKeys();','if (recoverWireKeys || true) ComputeWireKeys();','Regular to Hide all performs no wire recovery'),
         ('scenery-release-clears-wall','SceneryPrimitive.cs','&& _retainPerformanceWallMask?.Invoke(renderer) != true','&& true','actual scenery release retains wall-owned flag and relinquishes its own claim'),
         ('foreign-release-prior-stale','WallSegmentFade.Performance.cs','_performanceMasks[renderer] = false;','_performanceMasks[renderer] = true;','Regular preserves current native MPB and relinquished foreign flag'),
     ]

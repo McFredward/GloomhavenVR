@@ -86,6 +86,7 @@ internal static partial class WallSegmentFade
         private void StopWallDrawTrace(Exception error)=>_drawTraceFailed=true;
         internal void TouchUnused()=>GC.KeepAlive((_rescanUrgent,_pathAuditRunning,_nextRescan,_nextEvalTime,_lastEvalTime,_wireSent,_wireSampled));
 
+        internal string RecoveryContext=>"scene="+_performanceScene+", actual="+SceneController.Instance.GetCurrentScene.handle+", valid="+SceneController.Instance.GetCurrentScene.IsValid()+", loaded="+SceneController.Instance.GetCurrentScene.isLoaded+", current="+PerformanceScenarioStillCurrent()+", gen="+(_performanceGenerator==TilesOcclusionGenerator.s_Instance);
         internal int KeyRebuilds=>FixtureWireRebuilds;
         internal void ClearKeys(){foreach(Segment seg in _live.Segments.Values)seg.WireKey=0;}
         internal void Init(Fixture owner){Owner=owner;_live.BuiltRoomCount=TilesOcclusionGenerator.s_Instance.m_RoomRenderers.Count;}
@@ -117,6 +118,7 @@ internal static partial class WallSegmentFade
     internal sealed class Fixture : IDisposable
     {
         private readonly FadeDriver driver;
+        internal string RecoveryContext=>driver.RecoveryContext;
         internal int KeyRebuilds=>driver.KeyRebuilds;
         internal void ClearKeys()=>driver.ClearKeys();
         internal Fixture(){_driver=driver=new FadeDriver();driver.Init(this);}

@@ -164,10 +164,10 @@ public static class WallPerformanceProgram
         {
             int key=f.Add(wall);PerfConfig.WallVisibilityMode=1;f.Frame();f.ClearKeys();
             int rebuilt=f.KeyRebuilds;for(int i=0;i<100;i++)f.Frame();Check(f.KeyRebuilds==rebuilt,"settled Hide all performs no wire key rebuild");
-            PerfConfig.WallVisibilityMode=0;f.Frame();f.Fade(key,.4f,false);var dest=new uint[4];
-            Check(f.KeyRebuilds==rebuilt+1&&f.Sample(dest)==1&&dest[0]!=0,"Hidden to Regular rebuilds actual native wire keys once before sender resumes");
+            string context=f.RecoveryContext;PerfConfig.WallVisibilityMode=0;f.Frame();f.Fade(key,.4f,false);var dest=new uint[4];
+            int emitted=f.Sample(dest);Check(f.KeyRebuilds==rebuilt+1&&emitted==1&&dest[0]!=0,"Hidden to Regular rebuilds actual native wire keys once before sender resumes"+"; rebuilds="+f.KeyRebuilds+", before="+rebuilt+", emitted="+emitted+", key="+dest[0]+", "+context);
             uint stable=dest[0];for(int i=0;i<100;i++)f.Frame();Check(f.KeyRebuilds==rebuilt+1,"ordinary Regular frames do not repeat recovery wire census");
-            PerfConfig.WallVisibilityMode=1;f.Frame();f.ClearKeys();PerfConfig.WallVisibilityMode=2;f.Frame();f.Fade(key,.4f,false);
+            PerfConfig.WallVisibilityMode=1;f.Frame();Check(f.KeyRebuilds==rebuilt+1,"Regular to Hide all performs no wire recovery");f.ClearKeys();PerfConfig.WallVisibilityMode=2;f.Frame();f.Fade(key,.4f,false);
             Check(f.KeyRebuilds==rebuilt+2&&f.Sample(dest)==1&&dest[0]==stable,"Hidden to unlatched Auto rebuilds the same cross-machine stable key once");
             PerfConfig.WallVisibilityMode=1;f.Frame();Check(f.KeyRebuilds==rebuilt+2,"Auto to Hide all skips recovery wire census");int before=f.KeyRebuilds;f.Reset();Check(f.KeyRebuilds==before,"scenario teardown does not pay recovery wire census");
         }
