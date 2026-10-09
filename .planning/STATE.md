@@ -1,5 +1,16 @@
 # State — where the project stands
 
+**Large release archive audit, 2026-10-09; runtime remains Build651.**
+
+A fresh dev package is 530,088,154 bytes (505.53 MiB), well below GitHub's 2 GiB
+per-asset limit. It expands to 586,528,277 bytes across 102 files. Exact released
+updater sources from 0.9.0 through 1.0.8 accept/extract it; all output hashes match
+the independent archive manifest. The current updater also passes. Streaming
+download/upload and extraction avoid whole-archive RAM allocation. Allow roughly
+2 GB additional free disk space for download, staging, backup and replacement.
+No size-related runtime defect or asset change was found. Detailed evidence and
+scope: [LARGE-ARCHIVE-UPDATER-REVIEW.md](../docs/development/LARGE-ARCHIVE-UPDATER-REVIEW.md).
+
 **CI SDK lookup repair, 2026-10-09; runtime remains Build651.**
 
 The recurring649/651 CI failures came from three regression scripts assuming
