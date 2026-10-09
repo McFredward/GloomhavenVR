@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Execute the production read-only probe and feature callbacks against fake native delegates.
+# Execute the production probe, lifecycle and native blend controller against explicit native boundaries.
 set -euo pipefail
 task_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 task_dotnet="${DOTNET:-}"

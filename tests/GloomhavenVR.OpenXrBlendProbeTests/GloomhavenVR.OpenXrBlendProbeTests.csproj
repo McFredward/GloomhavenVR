@@ -9,5 +9,6 @@
     <Compile Include="Boundary.cs" />
     <Compile Include="../../src/GloomhavenVR/Core/Startup/OpenXrEnvironmentBlendProbe.cs" />
     <Compile Include="../../src/GloomhavenVR/Core/Startup/OpenXrEnvironmentBlendFeature.cs" />
+    <Compile Include="../../src/GloomhavenVR/Core/MixedReality/FrameNativePassthrough.cs" />
   </ItemGroup>
 </Project>
