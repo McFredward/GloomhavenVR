@@ -2533,6 +2533,18 @@
         "local"
       ],
       "weight": 55
+    },
+    {
+      "id": "npc660-native-panel-replacement",
+      "command": [
+        "python3",
+        "scripts/npc660-lifecycle-runtime/run-topology.py",
+        "--controls"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 40
     }
   ]
 }
