@@ -260,6 +260,7 @@ class CompletedPreparationTests(unittest.TestCase):
         before = (ROOT / identity.BUILDER).read_bytes()
         if b"current_inputs=inputs" in before:
             before = before.replace(b", current_inputs=inputs", b"")
+            before = before.replace(b",\n                                           current_inputs=inputs", b"")
         after = before.replace(b"compatible_input_key=prior_preparation_key)",
                                b"compatible_input_key=prior_preparation_key, current_inputs=inputs)")
         self.assertNotEqual(before, after)

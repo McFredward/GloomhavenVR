@@ -850,7 +850,8 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path, *, conve
         build_progress.operation("project-files", detail="Qualifying retained preparation checkpoints")
         resume = prepare_resume.Preparation(output, project, input_key=inputs["inputKey"], target=args.target,
                                            recipe=RECIPE, source_files=sources, progress=build_progress, reset=reset,
-                                           content_proofs=content_proofs, compatible_input_key=prior_preparation_key)
+                                           content_proofs=content_proofs, compatible_input_key=prior_preparation_key,
+                                           current_inputs=inputs)
         try:
             result = generate_files(resume)
             if args.target in ("startup", "game"): publish_project_content(output, project, inputs["inputKey"])
