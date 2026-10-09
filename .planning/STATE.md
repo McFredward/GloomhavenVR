@@ -1,5 +1,25 @@
 # State — where the project stands
 
+**Build653 native Steam Frame standalone mixed reality, 2026-10-09: 1.1.0 development candidate.**
+
+The installed Frame launch marker selects native alpha composition; the actual
+Wine/OpenXR PrimaryStereo capability and live session gate availability.
+Unsupported choices remain grey with bilingual Proton/SteamVR update hover
+guidance. Unity's queued mode must be accepted before transparent camera clearing
+and sky suppression. Off/VR stop restores owned blend, camera/HDR and sky state;
+PC chromakey remains unchanged. No guessed version floor, camera-image copy,
+extra rendering camera, asset change or wire-layout change is introduced.
+
+Native910, actual Unity RGBA27+2 controls, original uGUI/TMP84+6 controls,
+all twelve affected scopes through bounded repairs, source16, strict Debug/Release
+and direct299715 goldens pass. Private1244→1247 compiled comparison confines
+behavior to four MR/menu types plus three new MR types. Unchanged areas inherit
+652's honest182-scope composite evidence; this is not a new184-suite full run.
+The latest supplied headset log is still651/SteamVR2.17.10 without a core blend
+measurement. Proton/compositor and both-eye passthrough remain hardware acceptance,
+not established by local pixel tests. Exact scope and receipts:
+[FRAME-653-MR-REVIEW.md](FRAME-653-MR-REVIEW.md).
+
 **Build652 configurable instant wall removal, 2026-10-09: 1.1.0 development candidate.**
 
 VR Options now provide Regular, Hide all and Auto, with Auto as the common fresh
@@ -30,8 +50,8 @@ scopes through the complete attempt and bounded repairs,16 final source checks,
 composite evidence, not a fresh green complete-gate rerun. Full scope and receipts:
 [FRAME-652-REVIEW.md](FRAME-652-REVIEW.md).
 
-The independent startup-only OpenXR capability probe is read-only; actual
-standalone mixed reality remains the separately coordinated653 integration.
+The startup-only OpenXR capability probe in652 is read-only;653 above adds
+the separately reviewed native mixed-reality backend.
 
 **Large release archive audit, 2026-10-09; runtime remains Build651.**
 

@@ -101,14 +101,19 @@ touching dead native objects; the actual UI production variant repeats84
 assertions and binds both cleanup paths. The earlier six unchanged UI causal
 controls remain inherited rather than falsely reported as freshly repeated.
 
-The current private compiled comparison adds three MR types and changes only
+The final private compiled comparison against frozen652 source20ca247e9
+adds three MR types (1244→1247) and changes only
 MixedReality, OpenXrEnvironmentBlendFeature, Loc and VROptionsTab behavior.
 Eight existing build consumers differ only by652→653. BuildInfo differs only
 by the truthful worker branch stamp. No unrelated runtime type is changed.
-The final652 follow-up comparison is recorded before push.
+The exact final changed-type inventory and diff are retained in
+`.planning/debug/frame653-mr/compiled-scope-final.json` and its paired diff.
+This final comparison includes652's bounded terrain follow-up unchanged.
 
 Do not describe the focused scope as a new complete184-suite pass. Unchanged
-areas inherit the independent652 integration's full-catalog evidence; the
+areas inherit652's182-scope composite evidence:178 passes in the complete
+attempt and four passing bounded repairs, with all original failures preserved
+in its own review and receipts. The
 maintainer explicitly asks not to repeat already-passing unrelated checks.
 
 ## Hardware acceptance still required
