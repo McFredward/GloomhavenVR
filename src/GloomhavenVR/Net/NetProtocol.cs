@@ -598,7 +598,22 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 653;
+    public const ushort ModBuild = 654;
+
+    // ModBuild654 — reliable loaded-game Auto wall protection and Graphics placement.
+    // Frame653 logs prove that optional card/figure preparation vetoed Auto for90s
+    // after native room jobs finished; open VR Options then kept it blocked too.
+    // Observe actual loaded gameplay while cosmetic prewarming/options continue.
+    // Native scene loading and room reveal still reset the cheap two-second window;
+    // one long hitch cannot trigger it. XR input focus is cached from the existing
+    // native session lifecycle, using shipped XrSessionState.Focused (5), rather
+    // than desktop-window focus. No per-frame native focus or UI query is added.
+    // Wall mode and threshold now belong to Graphics/Details. Defaults, stored
+    // choices, scenario latch, door/arch exclusions and instant masking remain.
+    // Manual653 work savings are hardware evidence; repaired Auto timing still
+    // awaits the next Frame run. Retains653 MR,652 wall consumers and651 UI fixes.
+    // Focused actual Unity replay, native lifecycle/ABI evidence and inherited
+    // unchanged gates are recorded in .planning/FRAME-654-REVIEW.md.
 
     // ModBuild653 — capability-gated native Steam Frame standalone mixed reality.
     // Detect the existing installed Frame opt-in marker, then query the actual
