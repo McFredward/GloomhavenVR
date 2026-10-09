@@ -165,14 +165,14 @@ public static partial class MirrorProgram
                     TownServiceDepthOrder.Refresh(Remote(2,1)!.Root.parent);
                     TownServiceDepthOrder.Refresh(Remote(2,2)!.Root.parent);
                     Color32[] source=RenderNative655(owner,eye), painted=RenderNative655(observer,eye);
-                    Check(Remote(2,4)!.Root.GetComponentInParent<Canvas>().sortingOrder > Remote(2,1)!.Root.GetComponentInParent<Canvas>().sortingOrder,
-                        "original native frame remains above its physical print across actual panel ranks");
                     int changed=source.Zip(painted,(a,b)=>Math.Abs(a.r-b.r)+Math.Abs(a.g-b.g)+Math.Abs(a.b-b.b)>12?1:0).Sum();
                     string label="state"+state+"-hover"+hover+"-eye"+eye.x;
                     File.WriteAllBytes(Path.Combine(_output,"native-owner-"+label+".png"),source.TextureBytes639());
                     File.WriteAllBytes(Path.Combine(_output,"native-observer-"+label+".png"),painted.TextureBytes639());
                     File.AppendAllText(Path.Combine(_output,"native-paint655.txt"),label+" changed="+changed+" ownerPrint="+physical.GetComponent<Canvas>().sortingOrder+" ownerNative="+originalCanvas.sortingOrder
                         +" observerPrint="+Remote(2,1)!.Root.GetComponentInParent<Canvas>().sortingOrder+" observerNative="+Remote(2,4)!.Root.GetComponentInParent<Canvas>().sortingOrder+"\n");
+                    Check(Remote(2,4)!.Root.GetComponentInParent<Canvas>().sortingOrder > Remote(2,1)!.Root.GetComponentInParent<Canvas>().sortingOrder,
+                        "original native frame remains above its physical print across actual panel ranks");
                     Check(source.Count(pixel=>pixel.r>35&&pixel.r>pixel.g*1.3f&&pixel.r>pixel.b*1.3f)>500,
                         "actual perspective paint includes a meaningful visible physical offered-print boundary");
                     Check(painted.Count(pixel=>pixel.r>150&&pixel.g>100&&pixel.b<120)>100,
