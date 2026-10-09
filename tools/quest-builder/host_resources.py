@@ -3,10 +3,13 @@
 The B625 native retry measured one frontend with VmHWM24,172,988 KiB plus
 VmSwap3,093,152 KiB (approximately 26 GiB combined). Native IL2CPP admission
 therefore reserves 32 GiB for the first translation unit and 28 GiB for each
-additional worker, separately from Unity and OS headroom. It must not
+additional worker. Reported available memory already excludes current OS and
+parent allocations; only future Unity growth and bounded transient headroom are
+reserved again. Windows admission uses commit, not a requirement for free RAM. It must not
 reuse the much smaller CMake codec budget. Overrides are upper limits, not an
 instruction to exceed measured host capacity. On Windows, a physically constrained
 host may admit exactly one native job only with known sufficient commit headroom.
+Linux paging admission additionally requires reported, cgroup-bounded free swap.
 That explicitly requires paging and may be substantially slower; Windows paging
 performance and end-to-end execution remain unverified.
 """
@@ -52,23 +55,71 @@ class MemoryStatus(ctypes.Structure):
                                             "availPageFile", "totalVirtual", "availVirtual", "availExtendedVirtual")]
 
 
+
+class PerformanceInformation(ctypes.Structure):
+    _fields_ = [("cb", ctypes.c_uint32)] + [(name, ctypes.c_size_t) for name in
+        ("CommitTotal", "CommitLimit", "CommitPeak", "PhysicalTotal", "PhysicalAvailable",
+         "SystemCache", "KernelTotal", "KernelPaged", "KernelNonpaged", "PageSize")] + [
+        (name, ctypes.c_uint32) for name in ("HandleCount", "ProcessCount", "ThreadCount")]
+
+
+class ProcessMemoryCounters(ctypes.Structure):
+    _fields_ = [("cb", ctypes.c_uint32), ("PageFaultCount", ctypes.c_uint32)] + [
+        (name, ctypes.c_size_t) for name in ("PeakWorkingSetSize", "WorkingSetSize",
+        "QuotaPeakPagedPoolUsage", "QuotaPagedPoolUsage", "QuotaPeakNonPagedPoolUsage",
+        "QuotaNonPagedPoolUsage", "PagefileUsage", "PeakPagefileUsage", "PrivateUsage")]
+
 def _windows_snapshot(kernel=None):
     """Real Win32 memory/commit and current-process affinity, without PowerShell."""
     kernel = kernel or ctypes.WinDLL("kernel32", use_last_error=True)
     state = MemoryStatus(length=ctypes.sizeof(MemoryStatus))
-    if not kernel.GlobalMemoryStatusEx(ctypes.byref(state)):
+    memory_function = kernel.GlobalMemoryStatusEx
+    memory_function.argtypes = [ctypes.POINTER(MemoryStatus)]
+    memory_function.restype = ctypes.c_int
+    if not memory_function(ctypes.byref(state)):
         raise OSError("GlobalMemoryStatusEx failed")
     # HANDLE and masks are pointer-sized; default ctypes int truncates x64 handles.
     process_function = kernel.GetCurrentProcess
     process_function.restype = ctypes.c_void_p
+    process_function.argtypes = []
     affinity_function = kernel.GetProcessAffinityMask
     affinity_function.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_size_t), ctypes.POINTER(ctypes.c_size_t)]
+    affinity_function.restype = ctypes.c_int
     process_mask, system_mask = ctypes.c_size_t(), ctypes.c_size_t()
     affinity = None
     if affinity_function(process_function(), ctypes.byref(process_mask), ctypes.byref(system_mask)):
         affinity = process_mask.value.bit_count() or None
-    return {"totalMemoryBytes": state.totalPhys, "availableMemoryBytes": state.availPhys,
-            "commitHeadroomBytes": state.availPageFile, "affinityCpus": affinity}
+    result = {"totalMemoryBytes": state.totalPhys, "availableMemoryBytes": state.availPhys,
+              "commitHeadroomBytes": state.availPageFile, "affinityCpus": affinity,
+              "processCommitHeadroomBytes": state.availPageFile,
+              "currentCommitLimitBytes": state.totalPageFile}
+    # ullAvailPageFile is allocatable commit for THIS process, not pagefile size
+    # or necessarily system-wide headroom. Preserve both and do not assume that
+    # an administrator-configured automatic pagefile has already grown.
+    try:
+        performance = PerformanceInformation(cb=ctypes.sizeof(PerformanceInformation))
+        function = kernel.K32GetPerformanceInfo
+        function.argtypes = [ctypes.POINTER(PerformanceInformation), ctypes.c_uint32]
+        function.restype = ctypes.c_int
+        if function(ctypes.byref(performance), performance.cb) and performance.PageSize:
+            limit = performance.CommitLimit * performance.PageSize
+            used = performance.CommitTotal * performance.PageSize
+            result.update(systemCommitLimitBytes=limit, systemCommittedBytes=used,
+                          systemCommitHeadroomBytes=max(0, limit - used))
+            result["commitHeadroomBytes"] = min(state.availPageFile, max(0, limit - used))
+    except (AttributeError, OSError):
+        pass
+    try:
+        counters = ProcessMemoryCounters(cb=ctypes.sizeof(ProcessMemoryCounters))
+        function = kernel.K32GetProcessMemoryInfo
+        function.argtypes = [ctypes.c_void_p, ctypes.POINTER(ProcessMemoryCounters), ctypes.c_uint32]
+        function.restype = ctypes.c_int
+        if function(process_function(), ctypes.byref(counters), counters.cb):
+            result.update(processWorkingSetBytes=counters.WorkingSetSize,
+                          processPrivateCommitBytes=counters.PrivateUsage)
+    except (AttributeError, OSError):
+        pass
+    return result
 
 
 def _linux_snapshot(proc=Path("/proc"), cgroup=Path("/sys/fs/cgroup")):
@@ -81,7 +132,7 @@ def _linux_snapshot(proc=Path("/proc"), cgroup=Path("/sys/fs/cgroup")):
     if available is None:
         available = sum(values.get(name, 0) for name in ("MemFree", "Buffers", "Cached"))
     result = {"totalMemoryBytes": values.get("MemTotal"), "availableMemoryBytes": available,
-              "commitHeadroomBytes": None}
+              "commitHeadroomBytes": None, "availableSwapBytes": values.get("SwapFree")}
     # Respect unified cgroup constraints when exposed, including ancestor limits.
     roots = [cgroup]
     try:
@@ -101,6 +152,14 @@ def _linux_snapshot(proc=Path("/proc"), cgroup=Path("/sys/fs/cgroup")):
                 limit = int(limit)
                 result["totalMemoryBytes"] = min(result["totalMemoryBytes"] or limit, limit)
                 result["availableMemoryBytes"] = min(result["availableMemoryBytes"], max(0, limit - used))
+        except (OSError, ValueError):
+            pass
+        try:
+            swap_limit = (root / "memory.swap.max").read_text().strip()
+            swap_used = int((root / "memory.swap.current").read_text())
+            if swap_limit.isdigit():
+                free_swap = max(0, int(swap_limit) - swap_used)
+                result["availableSwapBytes"] = min(result.get("availableSwapBytes") or 0, free_swap)
         except (OSError, ValueError):
             pass
         try:
@@ -169,31 +228,92 @@ def choose_jobs(host, phase, override=None):
     first, extra, parent, phase_cap = PROFILES[phase]
     cpus = max(1, host["effectiveCpus"])
     cpu_limit = min(phase_cap, cpus if requested else max(1, cpus - (1 if cpus > 4 else 0)))
-    available = host.get("availableMemoryBytes")
+    physical = host.get("availableMemoryBytes")
     commit = host.get("commitHeadroomBytes")
-    if commit is not None:
-        if available is not None: available = min(available, commit)
     total = host.get("totalMemoryBytes")
-    os_reserve = max(4 * GIB, int((total or 0) * 0.10))
+    if phase == "il2cpp":
+        # Existing OS and Python allocations are already absent from both live
+        # headroom values. Reserving another 10% of installed RAM penalized large
+        # machines and double counted their current allocations. The 6 GiB parent
+        # reserve is FUTURE Unity growth, since admission runs before its launch.
+        os_reserve = 2 * GIB
+        available = commit if host.get("platform") == "win32" and commit is not None else physical
+        if host.get("platform") == "linux" and physical is not None:
+            available = physical + (host.get("availableSwapBytes") or 0)
+    else:
+        os_reserve = max(4 * GIB, int((total or 0) * 0.10))
+        available = physical
+        if commit is not None and available is not None:
+            available = min(available, commit)
     budget = max(0, available - os_reserve - parent) if available is not None else None
     memory_limit = 1 if budget is None else max(1, 1 + (budget - first) // extra)
+    if phase == "il2cpp" and physical is not None:
+        physical_budget = max(0, physical - os_reserve - parent)
+        physical_limit = max(1, 1 + (physical_budget - first) // extra)
+        # Use commit/swap only to admit ONE memory-heavy compiler on smaller
+        # machines. More workers require actual physical headroom as well.
+        memory_limit = min(memory_limit, physical_limit)
     jobs = min(cpu_limit, memory_limit, requested or cpu_limit)
     insufficient = budget is not None and budget < first
     required_commit = first + parent + os_reserve
-    paging = (phase == "il2cpp" and host.get("platform") == "win32" and insufficient
-              and host.get("availableMemoryBytes") is not None and commit is not None and commit >= required_commit)
+    physical_shortfall = max(0, required_commit - physical) if physical is not None else None
+    commit_shortfall = max(0, required_commit - commit) if commit is not None else None
+    memory_known = budget is not None and physical is not None
+    launch_allowed = phase != "il2cpp" or (memory_known and not insufficient
+                      and (host.get("platform") != "win32" or commit is not None))
+    paging = (phase == "il2cpp" and launch_allowed and bool(physical_shortfall)
+              and (host.get("platform") == "win32" or bool(host.get("availableSwapBytes"))))
+    # Paging is the smaller-machine fallback, never permission to parallelize
+    # several giant native frontends against a nominal swap/commit capacity.
     if paging:
         jobs = 1
-    launch_allowed = (phase != "il2cpp" or ((budget is not None and not insufficient) or paging)
-                      and (host.get("platform") != "win32" or commit is not None))
-    return {"schema": 1, "phase": phase, "requestedJobs": requested, "jobs": jobs,
+    failure = ("commit-unknown" if host.get("platform") == "win32" and commit is None else
+               "physical-memory-unknown" if physical is None else "memory-headroom-insufficient") if not launch_allowed else None
+    policy = {"schema": 1, "phase": phase, "requestedJobs": requested, "jobs": jobs,
             "cpuLimit": cpu_limit, "memoryLimit": memory_limit, "memoryBudgetBytes": budget,
             "osReserveBytes": os_reserve, "parentReserveBytes": parent,
             "largestWorkerReserveBytes": first, "additionalWorkerReserveBytes": extra,
-            "memoryKnown": budget is not None, "memoryInsufficient": insufficient,
+            "memoryKnown": memory_known, "memoryInsufficient": insufficient or paging,
+            "nativeCapacityInsufficient": insufficient,
             "nativeLaunchAllowed": launch_allowed, "pagingRequired": paging,
             "requiredCommitHeadroomBytes": required_commit, "pagingExecutionVerified": False,
-            "windowsExecutionVerified": False}
+            "windowsExecutionVerified": False, "physicalShortfallBytes": physical_shortfall,
+            "commitShortfallBytes": commit_shortfall, "admissionFailure": failure}
+    if phase == "il2cpp":
+        policy.update(transientReserveBytes=os_reserve, availablePhysicalMemoryBytes=physical,
+                      availableCommitHeadroomBytes=commit,
+                      peakEvidenceScope="B625-Linux-Release-single-translation-unit",
+                      hostMemoryEvidence={name: host.get(name) for name in (
+                          "platform", "totalMemoryBytes", "availableMemoryBytes", "commitHeadroomBytes",
+                          "processCommitHeadroomBytes", "currentCommitLimitBytes", "systemCommitLimitBytes",
+                          "systemCommittedBytes", "systemCommitHeadroomBytes", "processWorkingSetBytes",
+                          "processPrivateCommitBytes", "availableSwapBytes")},
+                      admissionMessage=native_admission_error(host, policy))
+    return policy
+
+
+def native_admission_error(host, policy):
+    """Actionable native preflight text; no guesses about future pagefile growth."""
+    if policy["nativeLaunchAllowed"]:
+        return None
+    required = policy["requiredCommitHeadroomBytes"] / GIB
+    physical = host.get("availableMemoryBytes")
+    commit = host.get("commitHeadroomBytes")
+    physical_text = "unknown" if physical is None else f"{physical / GIB:.1f} GiB"
+    commit_text = "unknown" if commit is None else f"{commit / GIB:.1f} GiB"
+    if host.get("platform") == "win32":
+        shortfall = policy["commitShortfallBytes"]
+        missing = "" if shortfall is None else f" ({shortfall / GIB:.1f} GiB short)"
+        return (f"Native compiler needs {required:.1f} GiB of additional available commit for one job; "
+                f"Windows reports {commit_text}{missing}, with {physical_text} of available physical RAM. "
+                "Close memory-heavy applications or increase the Windows paging-file capacity, then retry. "
+                "Installed RAM is not the same as available commit. Automatic paging-file growth is not assumed; "
+                "the Builder does not change system settings. Completed work is retained.")
+    swap = host.get("availableSwapBytes")
+    swap_text = "unknown" if swap is None else f"{swap / GIB:.1f} GiB"
+    return (f"Native compiler needs {required:.1f} GiB of available RAM plus known free swap for one job; "
+            f"reported RAM is {physical_text}, free swap is {swap_text}. Close memory-heavy applications "
+            "or provide more swap within any cgroup limit, then retry. Completed work is retained.")
 
 
 def _atomic_json(path, value):
@@ -257,10 +377,13 @@ def phase_budget(phase, path):
           "effectiveCpus": host["effectiveCpus"], "availableMemoryBytes": host["availableMemoryBytes"],
           "diskFreeBytes": host["diskFreeBytes"], "memoryInsufficient": policy["memoryInsufficient"],
           "pagingRequired": policy["pagingRequired"], "nativeLaunchAllowed": policy["nativeLaunchAllowed"],
-          "requiredCommitHeadroomBytes": policy["requiredCommitHeadroomBytes"]}), flush=True)
+          "requiredCommitHeadroomBytes": policy["requiredCommitHeadroomBytes"],
+          "hostMemoryEvidence": policy.get("hostMemoryEvidence"),
+          "admissionFailure": policy["admissionFailure"],
+          "admissionMessage": policy.get("admissionMessage")}), flush=True)
     if policy["pagingRequired"]:
-        print("resources: native compilation requires Windows paging; admitting exactly one job within the reported commit headroom. "
-              "This may be significantly slower; Windows paging execution/performance is not yet qualified.", flush=True)
+        print("resources: native compilation requires paging; admitting exactly one job within the reported memory capacity. "
+              "This may be significantly slower; paging execution/performance is not yet qualified.", flush=True)
     return policy
 
 

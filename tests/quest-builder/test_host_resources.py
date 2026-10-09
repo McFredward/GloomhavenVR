@@ -62,14 +62,14 @@ class HostResources(unittest.TestCase):
         self.assertTrue(policy["memoryInsufficient"])
         self.assertTrue(policy["pagingRequired"])
         self.assertTrue(policy["nativeLaunchAllowed"])
-        self.assertEqual(policy["requiredCommitHeadroomBytes"], 42 * GIB)
+        self.assertEqual(policy["requiredCommitHeadroomBytes"], 40 * GIB)
         self.assertFalse(policy["pagingExecutionVerified"])
-        for commit in (None, 41):
+        for commit in (None, 39):
             rejected = resources.choose_jobs(host(32, 29, commit=commit), "il2cpp", 32)
             self.assertFalse(rejected["nativeLaunchAllowed"])
             self.assertFalse(rejected["pagingRequired"])
             self.assertEqual(rejected["jobs"], 1)
-        threshold = resources.choose_jobs(host(32, 29, commit=42), "il2cpp", 32)
+        threshold = resources.choose_jobs(host(32, 29, commit=40), "il2cpp", 32)
         self.assertTrue(threshold["pagingRequired"])
         self.assertTrue(threshold["nativeLaunchAllowed"])
         linux = resources.choose_jobs({**constrained, "platform": "linux"}, "il2cpp", 32)
@@ -91,6 +91,60 @@ class HostResources(unittest.TestCase):
             self.assertTrue(metrics["policies"]["il2cpp"]["pagingRequired"])
             self.assertIn("may be significantly slower", console.getvalue())
             self.assertIn("not yet qualified", console.getvalue())
+
+    def test_installed_ram_does_not_add_a_second_os_allocation_reserve(self):
+        for installed in (64, 128, 256):
+            # The two hosts have the same free physical/commit memory: existing
+            # OS/parent allocations are already excluded. Installed RAM alone
+            # cannot require a larger additional native allocation.
+            policy = resources.choose_jobs(host(installed, 42, commit=42), "il2cpp", 32)
+            self.assertTrue(policy["nativeLaunchAllowed"])
+            self.assertEqual(policy["jobs"], 1)
+            self.assertEqual(policy["requiredCommitHeadroomBytes"], 40 * GIB)
+            self.assertEqual(policy["transientReserveBytes"], 2 * GIB)
+        self.assertEqual(resources.PROFILES["il2cpp"][:2], (32 * GIB, 28 * GIB))
+
+    def test_smaller_windows_hosts_use_known_commit_one_job_and_never_future_growth(self):
+        for installed, available in ((16, 11), (32, 25)):
+            policy = resources.choose_jobs(host(installed, available, commit=96), "il2cpp", 64)
+            self.assertTrue(policy["nativeLaunchAllowed"])
+            self.assertTrue(policy["pagingRequired"])
+            self.assertEqual(policy["jobs"], 1)
+            self.assertGreater(policy["physicalShortfallBytes"], 0)
+            self.assertEqual(policy["commitShortfallBytes"], 0)
+            self.assertIsNone(policy["admissionMessage"])
+        captured = {**host(64, 32, cores=16), "totalMemoryBytes": 68438433792,
+                    "availableMemoryBytes": 35246387200, "commitHeadroomBytes": 26303938560}
+        denied = resources.choose_jobs(captured, "il2cpp")
+        self.assertFalse(denied["nativeLaunchAllowed"])
+        self.assertEqual(denied["admissionFailure"], "memory-headroom-insufficient")
+        self.assertEqual(denied["requiredCommitHeadroomBytes"], 40 * GIB)
+        self.assertEqual(denied["hostMemoryEvidence"]["commitHeadroomBytes"], 26303938560)
+        self.assertEqual(denied["hostMemoryEvidence"]["availableMemoryBytes"], 35246387200)
+        self.assertIn("24.5 GiB", denied["admissionMessage"])
+        self.assertIn("15.5 GiB short", denied["admissionMessage"])
+        self.assertIn("does not change system settings", denied["admissionMessage"])
+        self.assertIn("Completed work is retained", denied["admissionMessage"])
+        unknown = resources.choose_jobs(host(16, 11), "il2cpp")
+        self.assertEqual(unknown["admissionFailure"], "commit-unknown")
+        self.assertIn("reports unknown", unknown["admissionMessage"])
+
+    def test_linux_single_native_job_requires_known_bounded_swap(self):
+        candidate = {**host(16, 11, cores=32), "platform": "linux", "availableSwapBytes": 64 * GIB}
+        policy = resources.choose_jobs(candidate, "il2cpp", 32)
+        self.assertTrue(policy["nativeLaunchAllowed"])
+        self.assertTrue(policy["pagingRequired"])
+        self.assertEqual(policy["jobs"], 1)
+        for swap in (None, 0, 28 * GIB):
+            failed = resources.choose_jobs({**candidate, "availableSwapBytes": swap}, "il2cpp", 32)
+            self.assertFalse(failed["nativeLaunchAllowed"])
+            self.assertFalse(failed["pagingRequired"])
+            self.assertIn("within any cgroup limit", failed["admissionMessage"])
+        for available in (40, 80):
+            policy = resources.choose_jobs({**candidate, "availableMemoryBytes": available * GIB,
+                                           "availableSwapBytes": 0}, "il2cpp", 32)
+            self.assertTrue(policy["nativeLaunchAllowed"])
+            self.assertFalse(policy["pagingRequired"])
 
     def test_commit_affinity_and_unknown_memory_are_conservative(self):
         constrained = host(128, 112, cores=4, commit=28)
@@ -151,19 +205,71 @@ class HostResources(unittest.TestCase):
         kernel.GlobalMemoryStatusEx = Function(lambda _: 0)
         with self.assertRaises(OSError): resources._windows_snapshot(kernel)
 
+    def test_windows_system_commit_and_parent_metrics_do_not_trust_nominal_pagefile(self):
+        class Function:
+            def __init__(self, call): self.call = call
+            def __call__(self, *args): return self.call(*args)
+        class Kernel:
+            def memory(self, pointer):
+                state = pointer._obj
+                state.totalPhys, state.availPhys = 64 * GIB, 40 * GIB
+                state.totalPageFile, state.availPageFile = 160 * GIB, 48 * GIB
+                return 1
+            def performance(self, pointer, size):
+                value = pointer._obj
+                self.performance_size = size
+                value.PageSize = 4096
+                value.CommitLimit = (160 * GIB) // value.PageSize
+                value.CommitTotal = (120 * GIB) // value.PageSize
+                return 1
+            def counters(self, process, pointer, size):
+                self.process, self.counters_size = process, size
+                pointer._obj.WorkingSetSize, pointer._obj.PrivateUsage = 5 * GIB, 7 * GIB
+                return 1
+        kernel = Kernel()
+        kernel.GlobalMemoryStatusEx = Function(kernel.memory)
+        kernel.GetCurrentProcess = Function(lambda: (1 << 63) - 1)
+        kernel.GetProcessAffinityMask = Function(lambda *args: 0)
+        kernel.K32GetPerformanceInfo = Function(kernel.performance)
+        kernel.K32GetProcessMemoryInfo = Function(kernel.counters)
+        state = resources._windows_snapshot(kernel)
+        self.assertEqual(state["systemCommitLimitBytes"], 160 * GIB)
+        self.assertEqual(state["systemCommittedBytes"], 120 * GIB)
+        self.assertEqual(state["systemCommitHeadroomBytes"], 40 * GIB)
+        self.assertEqual(state["processCommitHeadroomBytes"], 48 * GIB)
+        self.assertEqual(state["commitHeadroomBytes"], 40 * GIB)
+        self.assertEqual(state["processWorkingSetBytes"], 5 * GIB)
+        self.assertEqual(state["processPrivateCommitBytes"], 7 * GIB)
+        self.assertEqual(kernel.process, (1 << 63) - 1)
+        self.assertEqual(kernel.performance_size, ctypes.sizeof(resources.PerformanceInformation))
+        self.assertEqual(kernel.counters_size, ctypes.sizeof(resources.ProcessMemoryCounters))
+        self.assertEqual(kernel.K32GetPerformanceInfo.argtypes[0], ctypes.POINTER(resources.PerformanceInformation))
+        self.assertEqual(kernel.K32GetProcessMemoryInfo.argtypes[0], ctypes.c_void_p)
+        # Extra diagnostic APIs are optional: failed probes must preserve the
+        # original process-scoped headroom rather than lose all memory data.
+        kernel.K32GetPerformanceInfo = Function(lambda *args: 0)
+        kernel.K32GetProcessMemoryInfo = Function(lambda *args: 0)
+        fallback = resources._windows_snapshot(kernel)
+        self.assertEqual(fallback["commitHeadroomBytes"], 48 * GIB)
+        self.assertNotIn("systemCommitHeadroomBytes", fallback)
+        self.assertNotIn("processWorkingSetBytes", fallback)
+
     def test_linux_cgroup_ancestor_memory_and_cpu_limits(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder); proc = root / "proc"; proc.mkdir(); (proc / "self").mkdir()
-            (proc / "meminfo").write_text("MemTotal: 67108864 kB\nMemAvailable: 58720256 kB\n")
+            (proc / "meminfo").write_text("MemTotal: 67108864 kB\nMemAvailable: 58720256 kB\nSwapFree: 67108864 kB\n")
             group = root / "cgroup"; child = group / "build"; child.mkdir(parents=True)
             (proc / "self/cgroup").write_text("0::/build\n")
             for path, limit, used, quota in ((group, 32, 8, "400000 100000"), (child, 20, 4, "200000 100000")):
                 (path / "memory.max").write_text(str(limit * GIB)); (path / "memory.current").write_text(str(used * GIB))
                 (path / "cpu.max").write_text(quota)
+                (path / "memory.swap.max").write_text(str((limit // 2) * GIB))
+                (path / "memory.swap.current").write_text(str(4 * GIB))
             state = resources._linux_snapshot(proc, group)
             self.assertEqual(state["totalMemoryBytes"], 20 * GIB)
             self.assertEqual(state["availableMemoryBytes"], 16 * GIB)
             self.assertEqual(state["quotaCpus"], 2)
+            self.assertEqual(state["availableSwapBytes"], 6 * GIB)
 
     def test_detection_checks_nearest_existing_drive_and_degrades_without_memory(self):
         with tempfile.TemporaryDirectory() as folder, patch.object(resources, "_linux_snapshot", side_effect=OSError), \
