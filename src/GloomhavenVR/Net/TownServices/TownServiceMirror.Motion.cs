@@ -791,6 +791,10 @@ internal static partial class TownServiceMirror
         }
         Transform root = module.AddedCanvas != null && !authored.HasCanvasFrame
             ? module.Host.transform : module.Binding.Root;
+        // The atomic root recipe owns its enclosing Canvas at the same source
+        // instant. Commit that geometry before the external clock; adopting a
+        // tween's old host would retain its anisotropic scale for the whole return.
+        module.Motion.AdoptExternalRootPose(applyTarget: true);
         TownCardReturnMotion.Apply(root, holder, shared, entry.Hand, entry.Numbers, age);
         if (module.AddedCanvas != null && !authored.HasCanvasFrame) NormalizeDetachedRoot(module);
         module.Motion.AdoptExternalRootPose();

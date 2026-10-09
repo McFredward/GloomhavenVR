@@ -106,12 +106,16 @@ public static partial class MirrorProgram
             "observer retains actual original body vertices and back-facing triangle partitions");
         RectTransform remoteRow = (RectTransform)holderCopy.Root.Find("Native pooled card/FullAbilityCard/Original selected row");
         RectTransform remoteRing = (RectTransform)holderCopy.Root.Find("Aura/Original aura ink");
+        // Source sampling and receiver interpolation share one explicit clock.
+        // Advancing only the receiver made the anisotropic predecessor depend
+        // on editor frame load rather than the actual authored motion sequence.
         float clock = Time.unscaledTime + 1f;
+        GeometryClock661.Controlled = true; GeometryClock661.Now = clock;
         var delayed = new List<TownServiceMotionPacket>();
         for (int sample = 0; sample < 32; sample++)
         {
             yield return null;
-            clock += .08f;
+            clock += .08f; GeometryClock661.Now = clock;
             // The first24 samples retain the actual scalar room-scale contract
             // and nonuniform native converted canvas. Eight further body-only
             // samples challenge complete affine/reflected print ancestry; they
@@ -152,7 +156,7 @@ public static partial class MirrorProgram
             }
             for (int render = 0; render < 7; render++)
             {
-                float now = clock + render * .011f;
+                float now = clock + render * .011f; GeometryClock661.Now = now;
                 RenderGeometry661(now); Canvas.ForceUpdateCanvases(); _geometry661Frames++;
                 float error = GeometryError661(body, physical, bodyCopy.Root, frontCopy.Root);
                 if (error >= .00005f)

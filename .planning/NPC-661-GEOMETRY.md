@@ -170,3 +170,60 @@ sixth applies when the production ordinary-root handoff exists. Each run records
 its actual variant list and raw/adapted source hashes. Future integrator changes
 to merchant easing or native delivery require the final composed gate; this
 specific integration receipt does not silently inherit those later changes.
+
+
+## Final gate: native return Canvas handoff
+
+The frozen integration6e5c93b4d exposed a first-render return gap of0.7141613mm
+in the unchanged native body/print assertion. Both cohort members, matching full
+Kind1 roots, source time and native progress0.011 were present. The defect was
+not established by missing-packet telemetry. A private field-only diagnostic
+showed the return's new isotropic CanvasScale0.000406664 but the observer retained
+the predecessor's HostScale(0.00049422,0.00049010,0.00048625) and opposite old facing.
+`AfterApply` rendered its previous Host at interpolation t0; the following
+`AdoptExternalRootPose()` froze that displayed Host into both saved endpoints.
+Correcting only the printed child's lossy scale could not remove the resulting
+shear under the old, rotated anisotropic Canvas.
+
+The earlier offered fixture sampled source time from the editor while advancing
+only receiver/render time. That made the predecessor's Host facing sensitive to
+editor scheduling: an isolated run passed despite the same faulty adoption path.
+The fixture now advances source capture and receiver/render on the same explicit
+clock, beginning at the current editor time plus1second so every variant remains
+monotonic. Transport loss, jitter/order, all geometry/pixel/world assertions and
+time limits remain unchanged. A temporary fixed1.31second clock produced invalid
+later-control timestamps in a shared Unity process; that intermediate failing
+receipt is retained and is not passing control evidence.
+
+A private original-policy control removes only the new `NativeModelGeometry`
+owner numeric override predicate. It still reproduces exactly0.7141613mm at return
+frame0 (`old-owner-geometry-policy/proof/run-brcx0p97/proof/run-78r921gb`). Thus that
+policy is not necessary for this Canvas handoff defect. These deterministic
+source/render receipts do not assign the user's headset failure to this path.
+
+`ApplyCardReturnMotion` now calls the existing
+`AdoptExternalRootPose(applyTarget:true)` immediately before the actual native
+clock applies its physical root. This commits the matching enclosing Canvas and
+root rect geometry first. The original curve then writes the physical root and
+its existing final adoption preserves that pose. Native phase, waveform,
+source/return ownership, visibility and all other child/color/alpha clocks are
+unchanged. The separate direct-hand Canvas-scale boundary documented above is
+not claimed fixed.
+
+Private frozen6e plus this exact source change passes
+`committed-native-target/monotonic-proof/run-h938o90s/proof/run-pibqftof`:
+3115assertions,224offered render subframes with896front/back readbacks,
+72native-return renders,46held renders and21new-card renders. All seven controls
+compile and fail their original named engine assertion. The new
+`old-native-host-adoption` control removes only the added call and reproduces
+exactly the gate's0.7141613mm first-frame gap. The other six lifecycle controls
+retain their original expected failures. Strict worker Debug build is0/0;
+related focused motion-wire15294assertions, visitor-motion4variants and
+DepthOrder4variants pass. These checks are focused worker evidence, not a new
+complete gate. The positive private source is otherwise frozen6e; its raw
+source hashes and control receipts identify that boundary explicitly.
+
+The final matching-root Flight658 native/loss/census check also passes against
+that exact private production copy: `native-flight-proof/run-gv_6gmxd`, with
+8597assertions and both original admission/header controls. No capacity threshold
+or protocol grammar was changed by this geometry repair.

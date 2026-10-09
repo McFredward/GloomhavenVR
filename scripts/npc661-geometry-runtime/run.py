@@ -61,6 +61,10 @@ def main():
                 'child.Motion.Reparent(mount);',
                 'if (child.Host.transform.parent == null) child.Motion.Reparent(mount);',
                 'native census preserves the visible mounted backing before retiring its old printed parent'))
+            native_apply = '        module.Motion.AdoptExternalRootPose(applyTarget: true);\n        TownCardReturnMotion.Apply('
+            variants.append(('old-native-host-adoption', 'TownServiceMirror.Motion.cs', native_apply,
+                '        TownCardReturnMotion.Apply(',
+                'native return supersedes lost old offered-body affinity on every render'))
             handoff = 'ordinaryRoot.Dirty = true;'
             if handoff in (root / 'src/GloomhavenVR/Net/TownServices/TownServiceMirror.Motion.cs').read_text():
                 variants.append(('no-native-root-handoff', 'TownServiceMirror.Motion.cs', handoff,
