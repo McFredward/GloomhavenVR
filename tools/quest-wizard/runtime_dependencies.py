@@ -262,6 +262,12 @@ def derive(checkout, managed, details, supervisor, logs, check_cancel, packages,
                 source = ordinary(package_root / package); source.mkdir(parents=True, exist_ok=True)
                 if not (source / '.git').is_dir():
                     supervisor.run([details['git'], '-C', source, 'init', '-q'], logs / (package + '-init.log'), env=env)
+                # Even the allowed 70-character Windows workspace root can
+                # make pinned source files exceed MAX_PATH under this cache.
+                # Configure only this owned repository, including interrupted
+                # acquisitions, before any checkout; never change global Git.
+                supervisor.run([details['git'], '-C', source, 'config', '--local', 'core.longpaths', 'true'],
+                               logs / (package + '-longpaths.log'), env=env)
                 if not (source / 'package.json').is_file():
                     supervisor.run([details['git'], '-C', source, 'fetch', '--depth', '1',
                                     'https://github.com/needle-mirror/' + package + '.git', 'refs/tags/' + version],

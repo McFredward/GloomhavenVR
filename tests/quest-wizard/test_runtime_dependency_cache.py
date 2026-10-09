@@ -123,6 +123,20 @@ class RuntimeDependencyCacheTests(unittest.TestCase):
         self.assertEqual(len(self.supervisor.builds()), 3)
         self.assertEqual({row['source'] for row in json.loads(raw)['assemblies'].values()}, {'declared-provisional-project'})
 
+    def test_owned_git_long_paths_enabled_locally_before_each_checkout(self):
+        self.derive(self.source('release-one'))
+        configs = [row for row in self.supervisor.calls if 'config' in row]
+        self.assertEqual(len(configs), 3)
+        for config in configs:
+            self.assertEqual(config[3:], ['config', '--local', 'core.longpaths', 'true'])
+            self.assertIn('tools/xr-compile-inputs', config[2].replace('\\', '/'))
+            configured = self.supervisor.calls.index(config)
+            checkout = next(index for index, row in enumerate(self.supervisor.calls)
+                            if len(row) > 2 and row[2] == config[2] and 'checkout' in row)
+            self.assertLess(configured, checkout)
+        self.derive(self.source('release-two'))
+        self.assertEqual(sum('config' in row for row in self.supervisor.calls), 3)
+
     def test_partial_compile_receipts_do_not_repeat_successful_package(self):
         first = self.source('release-one'); self.supervisor.fail_build = xr.NAMES[1]
         with self.assertRaises(state.WizardError): self.derive(first)
