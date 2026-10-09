@@ -1,5 +1,38 @@
 # State — where the project stands
 
+**Build652 configurable instant wall removal, 2026-10-09: 1.1.0 development candidate.**
+
+VR Options now provide Regular, Hide all and Auto, with Auto as the common fresh
+default. Auto uses cheap application frame intervals below an editable15FPS
+threshold over a two-second loaded-game window, excluding loading, focus loss
+and open VR Options. It latches for the scenario to avoid repeated visibility
+changes caused by its own FPS savings; select Regular to restore walls earlier.
+
+The exact existing game/DLC wall inventory removes eligible walls and their
+attachments instantly while preserving door frames, gate arches, floors,
+figures, water and held props. Hidden mode stops normal fade decisions,
+animations, diagnostics, recurring collector sweeps and sender walks. Exact
+World/environment/terrain consumers skip hidden sources. Native generation and changed
+held roots still receive bounded lifecycle handling; mode recovery rebuilds
+native wall keys once before regular multiplayer fades resume.
+
+The supplied651 Frame capture does not show650's prior hardware gain: its loaded
+three-room mean is112.13ms (~8.92 application FPS), versus compatible645's94.11ms.
+Pose/wall activity and broad clock differences prevent a causal regression
+claim. Actual Unity whole-World CPU comparisons support the new visual compromise:
+220 hidden identities reduce this path by49.35% paired median;376 by98.14%.
+These are local CPU results, not measured Frame FPS. Native scene-handle evidence
+also fixes a sign assumption during wall recovery. Exact hidden terrain work stops;
+the final release requeues current native sources after correcting an existing
+GameObject/Transform deduplication identity mismatch. Validation covers182 local
+scopes through the complete attempt and bounded repairs,16 final source checks,
+299715 direct golden assertions and zero-warning Debug/Release builds. This is
+composite evidence, not a fresh green complete-gate rerun. Full scope and receipts:
+[FRAME-652-REVIEW.md](FRAME-652-REVIEW.md).
+
+The independent startup-only OpenXR capability probe is read-only; actual
+standalone mixed reality remains the separately coordinated653 integration.
+
 **Large release archive audit, 2026-10-09; runtime remains Build651.**
 
 A fresh dev package is 530,088,154 bytes (505.53 MiB), well below GitHub's 2 GiB
