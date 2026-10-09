@@ -324,6 +324,51 @@ class StageProgressTests(unittest.TestCase):
         self.assertIn('player', remaining)
         self.assertEqual(remaining[0], 'startup-content')
 
+    def test_whole_recovery_reuse_has_one_project_proof_and_no_invented_staging_tasks(self):
+        self.store.operation(self.session, 'build', 'recovery')
+        for section in stage_plan.RECOVERY_SECTIONS[:-1]:
+            self.store.progress(self.session, 'build', 'recovery-section:' + section, 1, 1, 'sections', status='reuse')
+        self.store.progress(self.session, 'build', 'recovery-section:staging', 1, 1, 'sections', status='complete')
+        self.store.operation(self.session, 'build', 'recovery', complete=True)
+        before = self.progress()['stagePercent']
+        self.store.operation(self.session, 'build', 'project-files')
+        overview = self.progress()['buildOverview']
+        self.assertEqual(overview['active'], 'project-files')
+        self.assertEqual(sum(item['closed'] for item in overview['recovery']['sections']), 8)
+        self.assertEqual(overview['recovery']['staging'], [])
+        self.assertEqual(overview['recovery']['stagingDetail'], 'aggregate')
+        self.assertEqual(self.progress()['stagePercent'], before)
+        self.assertEqual(self.store.load(self.session)['stages'][5]['progressPlan']['recovery']['sections']['staging']['completed'], [])
+
+    def test_pending_staging_detail_appears_only_after_an_actual_child_boundary(self):
+        self.store.operation(self.session, 'build', 'recovery')
+        self.assertEqual(self.progress()['buildOverview']['recovery']['staging'], [])
+        self.store.progress(self.session, 'build', 'recovery-section:staging', status='start')
+        self.assertEqual(self.progress()['buildOverview']['recovery']['stagingDetail'], 'unobserved')
+        self.store.progress(self.session, 'build', 'staging-section:catalog', 0, 1, 'steps', status='start')
+        detail = self.progress()['buildOverview']['recovery']
+        self.assertEqual(detail['stagingDetail'], 'observed')
+        self.assertEqual(len(detail['staging']), 14)
+        self.assertEqual(detail['staging'][0]['status'], 'running')
+        self.assertTrue(all(not item['closed'] for item in detail['staging']))
+
+    def test_live_inner_retry_can_reopen_detail_under_retained_whole_project_proof(self):
+        self.store.operation(self.session, 'build', 'recovery')
+        self.store.progress(self.session, 'build', 'recovery-section:staging', 1, 1, 'sections', status='complete')
+        self.store.operation(self.session, 'build', 'project-files')
+        before = self.progress()['stagePercent']
+        saved = self.store.load(self.session)
+        stage_plan.begin_attempt(saved['stages'][5], 'new-attempt')
+        self.store.save(saved)
+        self.store.operation(self.session, 'build', 'recovery')
+        self.store.progress(self.session, 'build', 'recovery-section:staging', status='start')
+        self.store.progress(self.session, 'build', 'staging-section:copy', 0, 1, 'steps', status='start')
+        detail = self.progress()['buildOverview']['recovery']
+        self.assertEqual(detail['stagingDetail'], 'observed')
+        self.assertEqual(next(item for item in detail['sections'] if item['id'] == 'staging')['status'], 'checking')
+        self.assertEqual(next(item for item in detail['staging'] if item['id'] == 'copy')['status'], 'running')
+        self.assertEqual(self.progress()['stagePercent'], before)
+
     def test_preparation_copy_counts_advance_total_without_publishing_parent_success(self):
         self.store.operation(self.session, 'build', 'project-files')
         first = self.progress()['stagePercent']

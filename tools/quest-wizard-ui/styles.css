@@ -158,7 +158,11 @@ input::placeholder{color:#777e86}
 .build-operation-list small{max-width:42%;text-align:right;font-size:10px;flex-shrink:0;color:#8f99a3}
 .build-operation-list .running,.build-operation-list .checking{color:#e2c690}
 .build-operation-list .failed{color:#f2b29f}
-.build-operation-list .complete,.build-operation-list .reused{color:#a9c7a1}
+.build-operation-list .complete,.build-operation-list .reused,.build-operation-list .retained{color:#a9c7a1}
+.build-operation-list li>small{color:inherit}
+.build-operation-list li.has-subplan{flex-wrap:wrap}
+.build-operation-list li.has-subplan>.build-subplan,.build-operation-list li.has-subplan>.hint,.build-operation-list li.has-subplan>div{flex-basis:100%;min-width:0}
+.build-operation-list li.has-subplan>.build-subplan{margin-left:12px;width:calc(100% - 12px)}
 .build-subplan{margin-top:10px;padding-top:10px;border-top:1px solid #ffffff12;font-size:11px;color:#b8c1ca}
 .build-subplan summary{cursor:pointer;line-height:1.6}
 .setup-overview{margin:20px 0}

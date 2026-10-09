@@ -645,13 +645,23 @@ def _build_overview(row, plan):
     steps = _overview_rows(STAGING_STEPS, staging.get("completed", []), staging.get("fractions", {}),
                           staging.get("live", staging.get("current")) if section == "staging" else None,
                           staging.get("proofs"), row["status"] == "failed", staging.get("liveStatus"))
+    # A reused recovery receipt closes the whole derived project without
+    # replaying its fourteen inner boundaries. Do not turn that absent detail
+    # into a new 0/14 plan, or invent fourteen individual completion proofs.
+    staging_live = any(item["status"] in ("running", "checking", "failed") for item in steps)
+    staging_observed = any(item["closed"] or item["percent"] > 0 for item in steps) or staging_live
+    if "staging" in work.get("completed", []) and not all(item["closed"] for item in steps) and not staging_live:
+        staging_detail = "aggregate"
+    else:
+        staging_detail = "observed" if staging_observed else "unobserved"
+    if staging_detail != "observed": steps = []
     batch = recovery.get("batch", {})
     total = recovery.get("plannedBatches", batch.get("total"))
     done = total if "batches" in work.get("completed", []) else batch.get("done", 0)
     if type(total) is not int or total < 0: total, done = None, None
     return {"schema": 1, "done": sum(item["closed"] for item in operations), "total": len(operations),
             "active": active, "groups": groups, "recovery": {"sections": sections,
-            "batches": {"done": done, "total": total}, "staging": steps,
+            "batches": {"done": done, "total": total}, "staging": steps, "stagingDetail": staging_detail,
             "section": section, "stagingCounter": staging.get("counter") if section == "staging" else None}}
 
 

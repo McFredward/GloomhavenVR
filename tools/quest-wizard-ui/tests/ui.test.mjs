@@ -53,9 +53,32 @@ test('all fourteen project-staging sections and their file counters have plain l
     assert.notEqual(label,key,language+': '+phase);
     assert.ok(label.length>3&&label.length<70,language+': '+phase);
   }
-  assert.equal(translate('de','phase_recovery-section:staging'),'Spielprojekt vorbereiten');
+  assert.equal(translate('de','phase_recovery-section:staging'),'Konvertierte Assets bereitstellen');
   assert.equal(translate('de','phase_staging-section:tmp'),'Schriften vorbereiten');
   assert.equal(translate('en','phase_staging-copy-file'),'Copy asset file');
+});
+
+test('whole project reuse does not expose fabricated pending children from an older saved overview',()=>{
+  const sections=[{id:'staging',status:'complete',closed:true,percent:100}];
+  const raw={schema:1,active:'textures',groups:[{id:'recovery',operations:[{id:'recovery',status:'complete',closed:true,percent:100}]},
+    {id:'project',operations:[{id:'textures',status:'running',closed:false,percent:0}]}],
+    recovery:{sections,staging:[{id:'catalog',status:'pending',closed:false,percent:0}]}};
+  const overview=value=>buildOverviewView({stages:[{id:'build',progress:{buildOverview:value}}]});
+  const view=overview(raw);
+  assert.equal(view.done,1);assert.equal(view.active,'textures');
+  assert.equal(view.recovery.stagingDetail,'aggregate');assert.deepEqual(view.recovery.staging,[]);
+  assert.equal(view.recovery.sections[0].status,'complete');
+  const live=overview({...raw,recovery:{...raw.recovery,staging:[{id:'catalog',status:'checking',closed:true,percent:100},
+    {id:'copy',status:'pending',closed:false,percent:0}]}});
+  assert.equal(live.recovery.stagingDetail,'observed');assert.equal(live.recovery.staging[0].status,'checking');
+  const finished=overview({...raw,recovery:{...raw.recovery,staging:[{id:'catalog',status:'retained',closed:true,percent:100}]}});
+  assert.equal(finished.recovery.stagingDetail,'observed');assert.equal(finished.recovery.staging[0].status,'retained');
+  const unobserved=overview({...raw,recovery:{...raw.recovery,sections:[{id:'staging',status:'pending',closed:false,percent:0}]}});
+  assert.equal(unobserved.recovery.stagingDetail,'unobserved');assert.deepEqual(unobserved.recovery.staging,[]);
+  for(const language of ['de','en']){
+    assert.notEqual(translate(language,'phase_network-preflight'),'phase_network-preflight');
+    assert.ok(translate(language,'counterDependencies',{done:2,total:3}).includes('2 / 3'));
+  }
 });
 
 test('ownership is never inferred from selected checkboxes unless explicitly declared',()=>{

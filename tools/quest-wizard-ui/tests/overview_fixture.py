@@ -1,9 +1,11 @@
 """UI snapshots from the real durable work planner; no game or Unity tools."""
 import copy
 import json
+import os
 from pathlib import Path
 import sys
 import time
+from zipfile import ZipFile
 
 sys.path.insert(0, str(Path(sys.argv[1]).resolve() / 'tools/quest-wizard'))
 import stage_plan
@@ -57,4 +59,28 @@ event('prepare-items:startup-movies-scenes', 13, 13, 'scenes', status='complete'
 event('prepare-items:startup-movies-assets', 0, 64 * 1048576, 'bytes'); states.append(copy.deepcopy(row))
 event('prepare-items:startup-movies-assets', 16 * 1048576, 64 * 1048576, 'bytes'); states.append(copy.deepcopy(row))
 event('prepare-items:startup-movies-assets', 48 * 1048576, 64 * 1048576, 'bytes'); states.append(copy.deepcopy(row))
+
+# Capture 070011 reused the entire recovered project, then prepared display
+# content. It emitted one staging receipt, not fourteen inner task boundaries.
+row = {'id': 'build', 'status': 'running'}
+event('operation:recovery', operation='recovery', status='start')
+for section in stage_plan.RECOVERY_SECTIONS[:-1]:
+    event('recovery-section:' + section, 1, 1, 'sections', status='reuse')
+event('recovery-section:staging', 1, 1, 'sections', status='complete')
+event('operation:recovery', 1, 1, 'operations', 'recovery', 'complete')
+for operation in ('project-files', 'startup-content', 'native-runtime', 'audio'):
+    event('operation:' + operation, 1, 1, 'operations', operation, 'complete')
+event('operation:textures', operation='textures', status='start')
+states.append(copy.deepcopy(row))
+stage_plan.begin_attempt(row, 'retained-display-attempt')
+event('operation:game-inputs', operation='game-inputs', status='start')
+states.append(copy.deepcopy(row))
+if os.environ.get('QUEST_WIZARD_PROGRESS_CAPTURE'):
+    # Optional replay uses only existing bounded support exports. It downloads
+    # no game data and preserves the capture's actual status/percent/owner.
+    with ZipFile(os.environ['QUEST_WIZARD_PROGRESS_CAPTURE']) as archive:
+        diagnostic = json.loads(archive.read('diagnostic.json'))
+        first = json.loads(archive.read('wizard/progress.previous.log').splitlines()[0])
+        states.append({'id': 'build', 'status': 'running', 'progress': first['parameters']})
+        states.append(next(item for item in diagnostic['stages'] if item['id'] == 'build'))
 print(json.dumps(states))

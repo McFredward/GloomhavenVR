@@ -137,7 +137,7 @@ function counters(value) {
   if(!Number.isFinite(value.done)||!Number.isFinite(value.total)||value.total<=0)return '';
   const number=n=>new Intl.NumberFormat(language,{maximumFractionDigits:1}).format(n);
   if(value.unit==='bytes')return t('counterBytes',{done:number(value.done/1048576)+' MiB',total:number(value.total/1048576)+' MiB'});
-  const key={files:'counterFiles',actions:'counterActions',checks:'counterChecks',batches:'counterBatches',steps:'counterSteps',checkpoints:'counterSteps',variants:'counterVariants',objects:'counterObjects'}[value.unit]??'counterUnits';
+  const key={files:'counterFiles',actions:'counterActions',checks:'counterChecks',dependencies:'counterDependencies',batches:'counterBatches',steps:'counterSteps',checkpoints:'counterSteps',variants:'counterVariants',objects:'counterObjects'}[value.unit]??'counterUnits';
   return t(key,{done:number(value.done),total:number(value.total)});
 }
 function substepLabel(value) {
@@ -170,13 +170,16 @@ function renderTiming(current) {
   $('eta-value').textContent=text;
   $('eta-value').title=t('etaScopeHint');
 }
-function overviewList(rows,prefix) {
+function overviewList(rows,prefix,children) {
   const list=document.createElement('ol');list.className='build-operation-list';
   for(const row of rows){
     const item=document.createElement('li');item.className=row.status;item.dataset.operation=row.id;
     const name=document.createElement('span');name.textContent=t(prefix+row.id);
     const status=document.createElement('small');status.textContent=t('overview_'+row.status)+(row.closed?'':row.percent>0?' · '+t('measuredPercent',{percent:percentText(row.percent)}):'');
-    item.append(name,status);list.append(item);
+    item.append(name,status);
+    const child=children?.(row);
+    if(child){item.classList.add('has-subplan');item.append(child);}
+    list.append(item);
   }
   return list;
 }
@@ -202,15 +205,26 @@ function renderBuildOverview() {
     if(group.id==='recovery'){
       const data=overview.recovery;
       if(data.batches){const packages=document.createElement('p');packages.className='hint';packages.textContent=t('buildBatchSummary',data.batches);card.append(packages);}
-      for(const [kind,rows,prefix] of [['sections',data.sections,'recoveryOverview_'],['staging',data.staging,'phase_staging-section:']]){
-        if(!rows.length)continue;
+      const subplan=(kind,rows,prefix,children)=>{
         const nested=document.createElement('details');nested.className='build-subplan';nested.dataset.plan=kind;nested.open=openPlans.has(kind);
-        const label=document.createElement('summary');label.textContent=t(kind==='sections'?'buildRecoverySummary':'buildStagingSummary',{done:rows.filter(row=>row.closed).length,total:rows.length});nested.append(label,overviewList(rows,prefix));card.append(nested);
+        const label=document.createElement('summary');label.textContent=t(kind==='sections'?'buildRecoverySummary':'buildStagingSummary',{done:rows.filter(row=>row.closed).length,total:rows.length});nested.append(label,overviewList(rows,prefix,children));
         const current=rows.find(row=>['running','checking','failed'].includes(row.status));
-        if(current){const line=document.createElement('p');line.className='hint';line.textContent=t('buildCurrent',{operation:t(prefix+current.id)});card.append(line);}
-      }
-      const outer=data.stagingCounter;
-      if(outer&&Number.isFinite(outer.done)&&Number.isFinite(outer.total)){const line=document.createElement('p');line.className='hint';line.textContent=counters(outer);card.append(line);}
+        if(current){const line=document.createElement('p');line.className='hint';line.textContent=t('buildCurrent',{operation:t(prefix+current.id)});nested.append(line);}
+        return nested;
+      };
+      if(data.sections.length)card.append(subplan('sections',data.sections,'recoveryOverview_',row=>{
+        if(row.id!=='staging')return null;
+        let child;
+        if(data.staging.length)child=subplan('staging',data.staging,'phase_staging-section:');
+        else if(data.stagingDetail==='aggregate'){
+          child=document.createElement('p');child.className='hint staging-aggregate';child.textContent=t('buildStagingAggregate');
+        }
+        const counter=data.stagingCounter;
+        if(counter&&Number.isFinite(counter.done)&&Number.isFinite(counter.total)){
+          child??=document.createElement('div');const line=document.createElement('p');line.className='hint';line.textContent=counters(counter);child.append(line);
+        }
+        return child;
+      }));
     }
     $('build-groups').append(card);
   }

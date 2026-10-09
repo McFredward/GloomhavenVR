@@ -106,8 +106,17 @@ export function buildOverviewView(state) {
   const active=operations.some(row=>row.id===raw.active)?raw.active:null;
   const recovery=raw.recovery??{},batches=recovery.batches??{};
   const validBatches=Number.isSafeInteger(batches.done)&&Number.isSafeInteger(batches.total)&&batches.total>=0&&batches.done>=0&&batches.done<=batches.total;
+  const sections=normalize(recovery.sections),staging=normalize(recovery.staging);
+  const stagingParent=sections.find(row=>row.id==='staging');
+  const stagingLive=staging.some(row=>['running','checking','failed'].includes(row.status));
+  const stagingObserved=stagingLive||staging.some(row=>row.closed||row.percent>0);
+  // Older snapshots fabricated pending children after the whole recovered
+  // project was reused. Keep the parent proof without inventing child proofs.
+  const aggregate=stagingParent?.closed&&!stagingLive&&
+    (!staging.length||staging.some(row=>!row.closed)||recovery.stagingDetail==='aggregate');
+  const stagingDetail=aggregate?'aggregate':stagingObserved?'observed':'unobserved';
   return {groups,active,done:operations.filter(row=>row.closed).length,total:operations.length,
-    recovery:{sections:normalize(recovery.sections),staging:normalize(recovery.staging),
+    recovery:{sections,staging:stagingDetail==='observed'?staging:[],stagingDetail,
       batches:validBatches?{done:batches.done,total:batches.total}:null,stagingCounter:recovery.stagingCounter??null}};
 }
 export function durationText(value) {

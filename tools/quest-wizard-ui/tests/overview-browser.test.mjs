@@ -58,6 +58,8 @@ test('resumed build names retained, current and remaining real work while observ
    await client.evaluate("document.querySelector('[data-plan=staging]').open=true");
    assert.equal(await client.evaluate("document.querySelectorAll('[data-plan=staging] li').length"),14);
    assert.match(await client.evaluate("document.querySelector('[data-plan=staging]').textContent"),/Schriften vorbereiten.*Ausstehend/s);
+   assert.equal(await client.evaluate("document.querySelector('[data-plan=staging]').closest('li').dataset.operation"),'staging','derived staging is nested under its actual conversion section');
+   assert.equal(await client.evaluate("document.querySelector('[data-plan=staging]').closest('[data-group]').dataset.group"),'recovery');
    await delay(1100);assert.equal(await client.evaluate("document.querySelector('[data-plan=staging]').open"),true,'polling preserves expanded work details');
    mode=3;await client.wait("document.getElementById('progress-track').getAttribute('aria-valuenow')==='"+rows[3].progress.stagePercent+"'");
    assert.ok(rows[3].progress.stagePercent>rows[2].progress.stagePercent,'real observed file counts advance whole-stage high-water');
@@ -85,6 +87,31 @@ test('resumed build names retained, current and remaining real work while observ
    await client.evaluate("document.querySelector('[data-language=de]').click()");
    assert.match(await client.evaluate("document.getElementById('substep-label').textContent"),/Videoreferenzen in den Spieldaten suchen/);
    await client.picture('startup-movie-measured-byte-progress-de');
+   mode=8;await client.wait("document.getElementById('build-current').textContent.includes('Texturen')");
+   assert.equal(await client.evaluate("document.querySelector('[data-plan=staging]')===null"),true,'whole-project reuse has no invented 0/14 task list');
+   assert.match(await client.evaluate("document.querySelector('[data-operation=staging]').textContent"),/Konvertierte Assets bereitstellen.*Abgeschlossen.*vollständiger Zwischenstand/s);
+   assert.equal(await client.evaluate("document.querySelectorAll('[data-group=project] [data-operation=staging]').length"),0,'conversion staging never migrates into the later display preparation group');
+   await client.evaluate("document.querySelector('[data-plan=sections]').open=true;document.querySelector('[data-group=recovery]').open=true;document.getElementById('build-overview').scrollIntoView({block:'start'})");
+   await client.picture('whole-recovery-reuse-no-pending-staging-de');
+   const completedColor=await client.evaluate("(()=>{const row=document.querySelector('.build-operation-list .complete');return {label:getComputedStyle(row.querySelector(':scope>span')).color,status:getComputedStyle(row.querySelector(':scope>small')).color}})()");
+   mode=9;await client.wait("document.querySelector('[data-operation=game-inputs]').classList.contains('checking')");
+   const colors=await client.evaluate("Object.fromEntries(['checking','retained'].map(status=>{const row=document.querySelector('.build-operation-list .'+status);return [status,row?{label:getComputedStyle(row.querySelector(':scope>span')).color,status:getComputedStyle(row.querySelector(':scope>small')).color}:null]}))");
+   assert.deepEqual(colors.retained,completedColor,'retained completion uses the same actual CSS color as completed work');
+   assert.equal(colors.retained.label,colors.retained.status,'retained label and status are both green');
+   assert.notEqual(colors.checking.label,colors.retained.label,'active requalification keeps its distinct current-work color');
+   assert.equal(await client.evaluate("document.getElementById('progress-track').getAttribute('aria-valuenow')"),String(rows[8].progress.stagePercent),'attempt start retains measured total');
+   await client.picture('retained-green-active-checking-de');
+   if(rows.length>10){
+     for(const index of [10,11]){
+       mode=index;await client.wait("document.getElementById('progress-track').getAttribute('aria-valuenow')==='"+rows[index].progress.stagePercent+"'");
+       assert.equal(await client.evaluate("document.querySelector('[data-plan=staging]')===null"),true,'actual older capture contains no newly pending staging work');
+       assert.equal(await client.evaluate("document.querySelector('.staging-aggregate')!==null"),true);
+       assert.equal(await client.evaluate("document.querySelector('[data-group=recovery] [data-operation=staging]').classList.contains('"+rows[index].progress.buildOverview.recovery.sections.find(row=>row.id==='staging').status+"')"),true,'capture parent status stays unchanged');
+       assert.equal(await client.evaluate("document.getElementById('progress-track').getAttribute('aria-valuenow')"),String(rows[index].progress.stagePercent),'capture measured high-water is not recomputed');
+     }
+     await client.evaluate("document.querySelector('[data-plan=sections]').open=true;document.querySelector('[data-group=recovery]').open=true;document.getElementById('build-overview').scrollIntoView({block:'start'})");
+     await client.picture('actual-capture-070011-retained-hierarchy-de');
+   }
    assert.equal(client.events.filter(row=>row.method==='Runtime.exceptionThrown').length,0);
   }finally{try{await client?.close();}finally{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}}
  });
