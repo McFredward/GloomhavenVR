@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-09 for the Quest completed-import Sprite repair and dev659.
+Updated 2026-10-09 for retained Unity import mutations and dev660.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
@@ -14,6 +14,7 @@ status; it is not the player manual.
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [QUEST-RETAINED-UNITY-MUTATIONS-205914-20261009.md](QUEST-RETAINED-UNITY-MUTATIONS-205914-20261009.md) | Exact imported Shader and package-script transitions retain completed preparation and Library |
 | [QUEST-EDITOR-SPRITE-200517-20261009.md](QUEST-EDITOR-SPRITE-200517-20261009.md) | Completed first import, exporter-local promotion identity, retained Editor overlays and measured Unity steps |
 | [QUEST-UNITY-IMPORT-184004-20261009.md](QUEST-UNITY-IMPORT-184004-20261009.md) | Actual initial import, live Unity/API/content counters, retained preparation and storage/timing evidence |
 | [QUEST-JOURNAL-134446-20261009.md](QUEST-JOURNAL-134446-20261009.md) | Captured large-journal resume rejection, dedicated bounded reader and compact support frontier |
@@ -22,6 +23,7 @@ status; it is not the player manual.
 | [QUEST-BUILD-REUSE-20261008.md](QUEST-BUILD-REUSE-20261008.md) | Original-source/output roles, retained14-phase staging and preparation, persistent change-time witnesses and bounded speed evidence |
 | [QUEST-BUILD-NATIVE-BYTES-20261008.md](QUEST-BUILD-NATIVE-BYTES-20261008.md) | Exact Windows native overlays, retained642 staging, measured native progress and dev643 Builder |
 | [FRAME-PILLAR-DISTANCE-REVIEW.md](FRAME-PILLAR-DISTANCE-REVIEW.md) | Configured full-detail pillar radius, matched inherited proof and final659 integration |
+| [NPC-660-REVIEW.md](NPC-660-REVIEW.md) | Published current dev repair, composed validation, paired658 failure and remaining hardware limits |
 | [NPC-658-REVIEW.md](NPC-658-REVIEW.md) | Paired656 videos/logs, reproduced defects, integrated validation and hardware limits |
 | [NPC-658-LATENCY.md](NPC-658-LATENCY.md) | Complete native card preparation, exact compact originals and retained full recovery |
 | [NPC-658-FLIGHTS.md](NPC-658-FLIGHTS.md) | Bounded common native return clocks, original partitions and cancellation/clock controls |

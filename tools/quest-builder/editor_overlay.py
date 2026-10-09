@@ -64,8 +64,8 @@ REVIEWED = {'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestBuild.cs': ({'pat
                                                                                   'sha256': '33fabcde96763c17366cc4324c781f489e37bf4d81c695eb732ff76423206f3d',
                                                                                   'size': 8092},
                                                                                  {'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestOriginalScriptBindings.cs',
-                                                                                  'size': 9371,
-                                                                                  'sha256': '45a1049a06597e1459f51b2ce7914d3bd8b28bf61f307c25ee6ec04633020b4e'}),
+                                                                                  'size': 13979,
+                                                                                  'sha256': '91519d0b53c61762f6b2bf415c1e6e8e11247a67554d3f39546fe5572490e783'}),
  'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCampaignAssetValidation.cs': ({'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCampaignAssetValidation.cs',
                                                                                    'sha256': '79b67e3eca87139294eaae1efdc32c0cd21478579076ee48227ca61d8ae96cba',
                                                                                    'size': 21453},
@@ -96,6 +96,22 @@ def _record(relative, raw):
     return {"path": relative, "size": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
 
 
+# The preceding delivered late-Editor profile remains a valid source of an
+# interrupted project. Only this script advances again: the new receipt keeps
+# the same serialized pointer transformation and retains its evidence on retry.
+PREVIOUS_BINDINGS = {
+    "path": PREFIX + "Assets/Quest/Editor/QuestOriginalScriptBindings.cs",
+    "size": 9371,
+    "sha256": "45a1049a06597e1459f51b2ce7914d3bd8b28bf61f307c25ee6ec04633020b4e",
+}
+
+
+def source_profiles():
+    """Whole reviewed source profiles, never independently mixed script rows."""
+    current = {name: pair[1] for name, pair in REVIEWED.items()}
+    return (current, {**current, PREVIOUS_BINDINGS["path"]: PREVIOUS_BINDINGS})
+
+
 def _read(path):
     path = _ordinary_owned(Path(path))
     if not path.is_file() or path.stat().st_size > MAX_SCRIPT_BYTES:
@@ -116,7 +132,9 @@ def changes(previous, inputs):
         if left == right: continue
         profile = REVIEWED.get(name)
         if (not isinstance(profile, tuple) or len(profile) != 2
-                or (left, right) != profile or left is None or right is None
+                or right != profile[1] or left not in (
+                    profile[0], PREVIOUS_BINDINGS if name == PREVIOUS_BINDINGS["path"] else profile[0])
+                or left is None or right is None
                 or set(left) != {"path", "size", "sha256"}
                 or set(right) != {"path", "size", "sha256"}
                 or left["path"] != name or right["path"] != name

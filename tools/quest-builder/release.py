@@ -62,6 +62,7 @@ REQUIRED = set(PUBLIC_PACKAGES) | {'Quest-Builder.cmd', 'QUEST-BUILDER-START.txt
             'tools/quest-wizard/wizard.py', 'tools/quest-wizard-ui/index.html', 'tools/quest-installer/bootstrap.ps1',
             'tools/quest-builder/builder.py', 'tools/quest-builder/release.py',
             'tools/quest-builder/preparation_metadata.py', 'tools/quest-builder/editor_overlay.py',
+            'tools/quest-builder/script_remap_resume.py',
             'tools/quest-recovery/full_recovery.py', 'tools/QuestWeaver/Program.cs',
             'tools/quest-procedural-runtime/worker.c', 'tools/quest-procedural-runtime/runtime.py',
             'tools/quest-procedural-runtime/proton_runtime.py', 'tools/quest-procedural-runtime/proton_layout.py',

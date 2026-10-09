@@ -388,7 +388,8 @@ def _completed_editor_rows(rows):
     by_path = {}
     for row in rows:
         by_path.setdefault(row["path"], []).append(row)
-    if profiles and all(by_path.get(name) == [pair[1]] for name, pair in profiles.items()):
+    if profiles and any(all(by_path.get(name) == [row] for name, row in source.items())
+                        for source in editor_overlay.source_profiles()):
         return [profiles[row["path"]][0] if row["path"] in profiles else row for row in rows]
     return rows
 

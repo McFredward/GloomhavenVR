@@ -621,7 +621,7 @@ class InstallerTests(unittest.TestCase):
     def test_builder_import_preserves_preexisting_profile_storage_and_startup_modules(self):
         names = ("profile", "storage", "script_order", "startup", "media", "shaders", "dlcs", "audio", "sprites", "ui_assets",
                  "build_provenance", "_ghvr_wireless_build_provenance", "native_plugins", "_ghvr_wireless_native_plugins",
-                 "staging_resume", "_ghvr_wireless_staging_resume", "editor_overlay", "_ghvr_wireless_editor_overlay")
+                 "staging_resume", "_ghvr_wireless_staging_resume", "editor_overlay", "_ghvr_wireless_editor_overlay", "script_remap_resume", "_ghvr_wireless_script_remap_resume")
         previous = {name: types.ModuleType("existing_" + name) for name in names}
         profile, storage, startup = (previous[name] for name in ("profile", "storage", "startup"))
         with mock.patch.dict(sys.modules, previous):
@@ -646,7 +646,7 @@ class InstallerTests(unittest.TestCase):
         with mock.patch.dict(sys.modules):
             names = ("profile", "storage", "script_order", "startup", "media", "shaders", "dlcs", "audio", "sprites", "ui_assets",
                      "build_provenance", "_ghvr_wireless_build_provenance", "native_plugins", "_ghvr_wireless_native_plugins",
-                     "staging_resume", "_ghvr_wireless_staging_resume", "editor_overlay", "_ghvr_wireless_editor_overlay")
+                     "staging_resume", "_ghvr_wireless_staging_resume", "editor_overlay", "_ghvr_wireless_editor_overlay", "script_remap_resume", "_ghvr_wireless_script_remap_resume")
             for name in names:
                 sys.modules.pop(name, None)
             module = installer.builder_module()
@@ -664,7 +664,7 @@ import types
 sys.path.insert(0, sys.argv[1])
 import installer
 names = ("profile", "storage", "script_order", "media", "shaders", "dlcs", "audio",
-         "sprites", "ui_assets", "staging_resume", "full_assets", "campaign", "mod_assets", "build_provenance", "import_workspace", "native_plugins", "editor_overlay", "preparation_identity", "preparation_metadata", "startup")
+         "sprites", "ui_assets", "staging_resume", "full_assets", "campaign", "mod_assets", "build_provenance", "import_workspace", "native_plugins", "script_remap_resume", "editor_overlay", "preparation_identity", "preparation_metadata", "startup")
 aliases = names + tuple("_ghvr_wireless_" + name for name in (*names, "builder"))
 assert all(name not in sys.modules for name in aliases), "test dependencies already loaded"
 if sys.argv[2] == "preexisting":
@@ -690,6 +690,8 @@ assert module.preparation_identity.editor_overlay is module.prepare_resume.prepa
 assert module.preparation_identity.editor_overlay.BuildError is module.BuildError
 assert Path(module.preparation_identity.editor_overlay.__file__) == installer.REPO / "tools/quest-builder/editor_overlay.py"
 assert callable(module.full_assets.Journal)
+assert module.prepare_resume.script_remap_resume.BuildError is module.BuildError
+assert Path(module.prepare_resume.script_remap_resume.__file__) == installer.REPO / "tools/quest-builder/script_remap_resume.py"
 assert sys.path == paths, "builder loader changed import search paths"
 for name, value in previous.items():
     assert sys.modules.get(name, missing) is value, "dependency alias was not restored: " + name

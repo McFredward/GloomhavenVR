@@ -1,5 +1,17 @@
 # State — where the project stands
 
+**Quest retained Unity-import mutations, 2026-10-09 (Builder; dev660 integrated).**
+
+Capture205914 identifies the delivered d58d/659 and stops before another Unity
+launch: the first completed import legitimately upgraded three pinned legacy
+Shaders, while the preparation journal still describes their original bytes.
+The earlier final Editor also rebound46352 package-script pointers. Exact Shader
+pins and inverse full-file proof now permit those narrowly scoped changes under
+their retained owners, without repeating conversions or invalidating Library.
+Script evidence survives repeat/cut writers; accepted stamps precede journal
+publication. Unknown edits remain errors. Focused proof and Windows limitations:
+[QUEST-RETAINED-UNITY-MUTATIONS-205914-20261009.md](QUEST-RETAINED-UNITY-MUTATIONS-205914-20261009.md).
+
 **Build660 remote NPC regression repair, 2026-10-09: 1.1.0 development candidate.**
 
 The failed paired hardware run is658 `e92ef8e53` on both peers, not659. Its

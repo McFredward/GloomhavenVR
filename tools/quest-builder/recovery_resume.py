@@ -194,10 +194,25 @@ OBSERVATION_COMPLETED_METADATA = {
 
 # Exact late Editor transaction and observer repair. Normalize this complete
 # source profile only; unknown refresh/overlay edits remain consumed.
-OBSERVATION_EDITOR_OVERLAY = {
+OBSERVATION_EDITOR_OVERLAY_PREVIOUS = {
     **OBSERVATION_COMPLETED_METADATA,
     'tools/quest-builder/preparation_metadata.py': {'path': 'tools/quest-builder/preparation_metadata.py', 'size': 13093, 'sha256': '49214de8c09314161b5604ca6374d127ad4463922491fcd6227a654a1bdf00f4'},
     'tools/quest-builder/editor_overlay.py': {'path': 'tools/quest-builder/editor_overlay.py', 'size': 15940, 'sha256': '61cda128a75081ff01e36587a61d847ee642de0cb8e1a141538aee5f29c53038'},
+}
+
+# These readers adopt only independently proven late Editor outputs. Original
+# producer bytes/arguments are unchanged; unknown reader edits remain consumed.
+OBSERVATION_EDITOR_OVERLAY = {
+    **OBSERVATION_EDITOR_OVERLAY_PREVIOUS,
+    'tools/quest-builder/prepare_resume.py': {'path': 'tools/quest-builder/prepare_resume.py',
+                                           'size': 47686,
+                                           'sha256': '7f1ea01b2495b4a9483a3325bf050850da5d2c700ff2a61fe18ea94e14e690a8'},
+    'tools/quest-builder/editor_overlay.py': {'path': 'tools/quest-builder/editor_overlay.py',
+                                           'size': 16758,
+                                           'sha256': 'd7445795e72d36fae6a3bebfa23612bc5c2fc7e9194de5589e81df4fc88b3ab6'},
+    'tools/quest-builder/script_remap_resume.py': {'path': 'tools/quest-builder/script_remap_resume.py',
+                                                'size': 11135,
+                                                'sha256': 'fe36cc2eadcb42715d2f2c70bc426cc49199cc0625c8922f18ff5444b9149c2c'}
 }
 
 OBSERVATION_PROFILES = (OBSERVATION_BYTE_WITNESSES, OBSERVATION_FIXED,
@@ -249,9 +264,13 @@ def preparation_source_rows(rows):
     current = {}
     for row in rows:
         current.setdefault(row["path"], []).append(row)
-    if all(current.get(name) == [fixed] for name, fixed in OBSERVATION_EDITOR_OVERLAY.items()):
+    profile = next((profile for profile in (OBSERVATION_EDITOR_OVERLAY_PREVIOUS, OBSERVATION_EDITOR_OVERLAY)
+                    if all(current.get(name) == [fixed] for name, fixed in profile.items())), None)
+    if profile is not None:
+        excluded = {"tools/quest-builder/editor_overlay.py"}
+        if profile is OBSERVATION_EDITOR_OVERLAY: excluded.add("tools/quest-builder/script_remap_resume.py")
         rows = [OBSERVATION_COMPLETED_METADATA.get(row["path"], row) for row in rows
-                if row["path"] != "tools/quest-builder/editor_overlay.py"]
+                if row["path"] not in excluded]
     by_path = {}
     for row in rows:
         by_path.setdefault(row["path"], []).append(row)

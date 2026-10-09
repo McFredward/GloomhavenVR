@@ -20,6 +20,7 @@ from storage import BuildError, CONTENT_PATHS, ValidatedFileWitnesses, _ordinary
 import preparation_identity
 import preparation_metadata
 import shaders as post_effects
+import script_remap_resume
 
 SCHEMA = 1
 OWNER = "Quest preparation substage journal"
@@ -387,6 +388,8 @@ class Preparation:
                 latest[relative] = (index, row)
         counter = self.progress.Counter("prepare-resume-verify-files", len(latest), "files", "Qualifying retained preparation contracts") if self.progress else None
         replaced = False
+        imported_effects, remapped_assets = 0, 0
+        remapping = None
         # Closed output contracts share the same reliable metadata proofs as
         # outer stages. Group their observation by directory instead of opening
         # a Windows handle, walking every ancestor and querying SQLite per file.
@@ -400,6 +403,28 @@ class Preparation:
             relative = row["path"]
             if not valid and self._accept_post_effect_import(latest, relative, row):
                 valid, replaced = True, True
+                imported_effects += 1
+            if (not valid and self.value["steps"][latest[relative][0]]["name"] == "case-paths"
+                    and preparation_identity._completed_game_preparation(self.value, self.identity["target"])
+                    and relative.startswith("Assets/") and not relative.endswith((".meta", ".shader", ".cs", ".cginc"))):
+                # Final Editor validation legitimately maps original SDK DLL
+                # pointers to imported package scripts. Accept only unchanged
+                # original bytes under the inverse of that exact mapping. The
+                # helper reads its small controls once, on the first changed
+                # eligible file; unchanged warm owners take no extra read.
+                if remapping is None: remapping = script_remap_resume.ScriptRemap(self.project, latest)
+                path = self._path(relative)
+                before = self.witnesses.current(path) if path.is_file() else None
+                observed = remapping.accept(relative, row)
+                if observed is not None:
+                    # The helper hashes the complete bytes while proving the
+                    # inverse. Bind that read to its surrounding strong stamp;
+                    # do not hash the same scene/prefab again on this cold repair.
+                    if before is None: raise BuildError("Remapped preparation output disappeared: " + relative)
+                    self.witnesses.remember(path, observed["sha256"], stamp=before)
+                    row.clear(); row.update(observed)
+                    valid, replaced = True, True
+                    remapped_assets += 1
             if not valid:
                 name = self.value["steps"][latest[relative][0]]["name"]
                 self.invalid_step = name
@@ -429,6 +454,8 @@ class Preparation:
         self._close_prior_witnesses(commit=True)
         if counter:
             counter.detail = "Qualifying retained preparation contracts: " + self.witnesses.summary()
+            if imported_effects or remapped_assets:
+                counter.detail += "; retained Unity upgrades: " + str(imported_effects) + " shaders, " + str(remapped_assets) + " script-bound assets"
             counter.finish()
         if replaced:
             # Publish the accepted closed-read stamps before their new rows.
