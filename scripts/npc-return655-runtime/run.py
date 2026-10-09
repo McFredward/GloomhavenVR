@@ -54,7 +54,6 @@ using UnityEngine;
 using GloomhavenVR.Hands;
 namespace GloomhavenVR.Cards;
 internal sealed partial class VRCard {
-    internal VRHand? Holder;
     private bool _flying, _flyIntro;
     private float _flyElapsed, _flyDuration, _flyArcHeight;
     private uint _townReturnRevision;

@@ -67,13 +67,13 @@ def main():
         path = root/'src/GloomhavenVR'/relative
         bound[path.name] = path.read_text(); hashes[path.name] = hashlib.sha256(path.read_bytes()).hexdigest()
     enums=(root/'src/GloomhavenVR/Cards/CardsEnums.cs').read_text()
-    bound['NativeControlBoard658.cs']='namespace GloomhavenVR.Cards; '+enums[enums.index('internal enum ControlBoard'):enums.index('\n}',enums.index('internal enum ControlBoard'))+2]
+    if 'ControlBoardEnum660.cs' not in bound: bound['NativeControlBoard658.cs']='namespace GloomhavenVR.Cards; '+enums[enums.index('internal enum ControlBoard'):enums.index('\n}',enums.index('internal enum ControlBoard'))+2]
     bound['NativeCohortProbe658.cs']='using System.Linq; namespace GloomhavenVR.Net.TownServices; internal static partial class TownServiceMirror { internal static int Cohorts658(int owner)=>MotionPeers.TryGetValue(owner,out var peer)?peer.ReturnCohorts.Count:0; internal static int ReturnClocks658(int owner)=>MotionPeers.TryGetValue(owner,out var peer)?peer.Slots.Values.Count(slot=>slot.Entry.Kind==8):0; }'
     bound['NativeClockProbe658.cs']='namespace GloomhavenVR.Net.TownServices; internal static partial class TownServiceMirror { internal sealed class ClockProbe658 { private readonly CardReturnClock clock; internal ClockProbe658(TownServiceMotionEntry entry,float time)=>clock=new CardReturnClock(entry,time,0f); internal void Observe(TownServiceMotionEntry entry,float time)=>clock.Observe(entry,time,time); internal TownServiceMotionEntry Current(float time,out float age)=>clock.Current(time,out age); } }'
     bound['NativePrintPartitions658.cs']='using System.Collections.Generic; using UnityEngine; namespace GloomhavenVR.WorldUI; internal static partial class LazyTemplateProbe { internal static List<Part> NativePrintPartitions658(Transform root) { var parts=new List<Part>(); Partition(root,string.Empty,parts); return parts; } }'
     lazy = fixture/'LazyTemplate.cs'
     lazy.write_text(lazy.read_text().replace('    internal static class TownServiceCardBody\n    { internal static void RebindClone(string key,GameObject clone) { } }\n',''))
-    (fixture/'NativeBodyCacheBoundary658.cs').write_text('namespace GloomhavenVR.Net { internal static class PeerBoardFade { internal static bool SetSubmeshMaterial(UnityEngine.MeshRenderer r,int i,UnityEngine.Material m) { var a=r.sharedMaterials;a[i]=m;r.sharedMaterials=a;return true; } } } namespace BepInEx { internal static class Paths { internal static string ConfigPath => System.IO.Path.Combine(UnityEngine.Application.dataPath,"IsolatedCardCache658"); } } namespace GloomhavenVR { internal static class MyPluginInfo { internal const string PLUGIN_GUID="flight658"; } }')
+    (fixture/'NativeBodyCacheBoundary658.cs').write_text('namespace GloomhavenVR.Net { internal static class PeerBoardFade { internal static bool SetSubmeshMaterial(UnityEngine.MeshRenderer r,int i,UnityEngine.Material m) { var a=r.sharedMaterials;a[i]=m;r.sharedMaterials=a;return true; } } } namespace GloomhavenVR { internal static class MyPluginInfo { internal const string PLUGIN_GUID="flight658"; } }')
 
     card_source = (root / 'src/GloomhavenVR/Cards/VRCard.cs').read_text()
     sampler = loader.method(card_source, 'internal bool TryTownReturnMotion(')
@@ -84,7 +84,6 @@ using UnityEngine;
 using GloomhavenVR.Hands;
 namespace GloomhavenVR.Cards;
 internal sealed partial class VRCard {
-    internal VRHand? Holder;
     private bool _flying, _flyIntro;
     private float _flyElapsed, _flyDuration, _flyArcHeight;
     private uint _townReturnRevision;
