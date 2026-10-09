@@ -45,7 +45,11 @@ coverage/evaluation, ramp/appliers, FastReclaim, periodic sweep/classification,
 wall audits, wall camera draw traces and wall sender table walks. Existing peer
 fade sets are cleared on entry, incoming peer decisions are ignored, and outgoing
 wall keys return an empty set immediately. The local performance policy is never
-broadcast to other players.
+broadcast to other players. When a mode change restores Regular or starts observing
+Auto again in the same live scenario, sender keys are rebuilt once after masks are
+released, before the old complete table can resume fading. Hidden lifecycle-created
+segments therefore never fade locally with an unkeyable outgoing wall. No such key
+rebuild occurs during teardown, scene departure, Hide-to-Hide or settled frames.
 
 The settled path reads room/wall counters. When nobody holds a prop, held-state
 observation is two managed registry-count reads; occupied hands compare the tiny

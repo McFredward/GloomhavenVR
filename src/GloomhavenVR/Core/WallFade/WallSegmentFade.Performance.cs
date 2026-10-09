@@ -117,13 +117,31 @@ internal static partial class WallSegmentFade
             if (_performanceMasks.ContainsKey(renderer)) renderer.forceRenderingOff = true;
         }
 
+        private bool PerformanceScenarioStillCurrent()
+        {
+            if (!VRSession.IsRunning || _performanceScene < 0
+                || Rig.VRRigDriver.HeadCamera == null
+                || _performanceGenerator == null || TilesOcclusionGenerator.s_Instance != _performanceGenerator)
+                return false;
+            SceneController controller = SceneController.Instance;
+            if (controller == null) return false;
+            Scene scene = controller.GetCurrentScene;
+            return scene.IsValid() && scene.isLoaded && scene.handle == _performanceScene && scene.name == "Game";
+        }
+
         private bool TickPerformanceVisibility()
         {
             int mode = PerfConfig.WallVisibilityMode;
             if (mode != _performanceMode)
             {
+                bool recoverWireKeys = _performanceWallsHidden && mode != 1
+                    && PerformanceScenarioStillCurrent();
                 ResetPerformanceVisibility("mode changed");
                 _performanceMode = mode;
+                // Hidden lifecycle commits do not need sender keys. New segments can have
+                // WireKey=0, so recover once before ordinary fading resumes on this SAME table.
+                // Teardown/scene departure and Hide-to-Hide do not enter this recovery path.
+                if (recoverWireKeys) ComputeWireKeys();
             }
             if (mode == 0) return false;
 
