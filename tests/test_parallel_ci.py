@@ -110,6 +110,16 @@ class ParallelWorkflowTests(unittest.TestCase):
         self.assertIn('--group source --jobs 2', source)
         self.assertIn('command -v rg', runtime)
 
+    def test_dotnet_lookup_regressions_are_required_before_build(self):
+        source = job('source_checks')
+        regression = source.split('      - name: .NET harness executable regression tests\n', 1)[1]
+        regression = regression.split('      - name:', 1)[0]
+        self.assertIn("python3 -m unittest discover -s tests -p 'test_ci_dotnet*.py'", regression)
+        self.assertNotIn('continue-on-error:', regression)
+        self.assertNotIn('if:', regression)
+        self.assertLess(source.index('.NET harness executable regression tests'),
+                        source.index('Build (0 errors, 0 warnings'))
+
 
 if __name__ == '__main__':
     unittest.main()
