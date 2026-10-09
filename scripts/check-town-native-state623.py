@@ -72,7 +72,7 @@ def main():
     parser.add_argument('--bank-split-only', action='store_true')
     parser.add_argument('--lifecycle-only', action='store_true', help='Run only cold-template disconnect and existing-bank reset preparation proofs')
     parser.add_argument('--preparation658-only', action='store_true', help='Run first-map and immersive-off bounded original preparation')
-    parser.add_argument('--negative-control', action='append', choices=['inert-artwork', 'owner-text', 'complete-picture', 'split-headers', 'owner-state', 'overridden-basis', 'omitted-numeric-basis', 'cold-original', 'retained-canvas', 'eager-bank', 'departed-cold-peer', 'reset-preparation', 'repeated-native-baseline', 'fragile-mage-keyframe', 'queued-native-repair', 'published-baseline', 'all-prepared-picture', 'hidden-publication', 'warm-priority', 'structural-bound', 'retained-visible-census'])
+    parser.add_argument('--negative-control', action='append', choices=['inert-artwork', 'owner-text', 'complete-picture', 'split-headers', 'owner-state', 'overridden-basis', 'omitted-numeric-basis', 'cold-original', 'retained-canvas', 'eager-bank', 'departed-cold-peer', 'reset-preparation', 'repeated-native-baseline', 'fragile-mage-keyframe', 'queued-native-repair', 'ordinary-native-repair', 'published-baseline', 'all-prepared-picture', 'hidden-publication', 'warm-priority', 'structural-bound', 'retained-visible-census'])
     args = parser.parse_args()
     if args.preparation658_only: args.lifecycle_only = True
     root = args.source_root.resolve()
@@ -171,6 +171,7 @@ def main():
     if not args.no_negative_controls and not args.bank_split_only and not args.lifecycle_only and not args.delivery_only:
         variants += [
             ('queued-native-repair', 'TownServiceSendQueue.cs', 'if (retainedNativeOriginal) queue.PrependTownOriginal(bytes, frame, preserveInFlight: true);', 'if (false && retainedNativeOriginal) queue.PrependTownOriginal(bytes, frame, preserveInFlight: true);', 'actual retained full repair survives continuous same-baseline coalescing'),
+            ('ordinary-native-repair', 'TownServiceSendQueue.cs', '(frame.HighPriority || frame.Service == 3)', 'frame.HighPriority', 'ordinary original retained full repair survives continuous same-baseline coalescing'),
             ('fragile-mage-keyframe', 'TownServiceMirror.NativePublication.cs',
              'if (now < repair.After) return;',
              'if (true) return; // omit retained full-original repair\n#pragma warning disable CS0162',
@@ -181,7 +182,7 @@ def main():
              'after the exact native original actual hover capture uses the existing cumulative owner delta'),
             ('inert-artwork', 'TownServiceMirror.NativeTemplateState.cs', 'binding.Read(Assets, includeInactiveGraphics: true)', 'binding.Read(Assets)', 'actual original prefab produces compact native metadata without a prior network baseline'),
             ('owner-text', 'TownServiceMirror.NativeTemplateState.cs', 'NativeTextProperty(key)\n        || index == 0 && !TownServiceFastNumbers.IsMaterial(key);', 'index == 0 && !TownServiceFastNumbers.IsMaterial(key);', 'localized observer defaults never replace exact owner text or font'),
-            ('owner-state', 'TownServiceMirror.NativeTemplateState.cs', '|| index == 0 && !TownServiceFastNumbers.IsMaterial(key);', '|| index == 0 && key == TownServiceProperty.Sibling;', 'missing owner root state cannot be replaced by observer template defaults'),
+            ('owner-state', 'TownServiceMirror.NativeTemplateState.cs', '|| index == 0 && !TownServiceFastNumbers.IsMaterial(key);', '|| index == 0 && key == TownServiceProperty.Sibling;', 'every owner root pose and state remains explicit in native metadata'),
             ('omitted-numeric-basis', 'TownServiceMirror.NativeTemplateState.cs', 'writer.Write((ushort)value.Numbers.Length);\n                    foreach (float number in value.Numbers) writer.Write(number == 0f ? 0f : number);', '// omit native numeric basis from exact hash', 'changed omitted native numeric state rejects before any observer paint'),
             ('overridden-basis', 'TownServiceMirror.NativeTemplateState.cs', 'if (OwnerProperty(index, key) || basis.Coverage.Length != 0\n                        && (basis.Coverage[index] & (1u << key)) != 0) continue;', 'if (OwnerProperty(index, key)) continue;', 'a fully transmitted owner material replaces a different observer native default immediately'),
             ('cold-original', 'TownServiceMirror.NativeTemplateState.cs', 'bool ready = attempt && TryExpandNativeTemplateState(received, out _);', 'bool ready = false;', 'a retained first sparse offer replays immediately after its original becomes available'),

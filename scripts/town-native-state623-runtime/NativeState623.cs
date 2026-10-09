@@ -96,6 +96,9 @@ public static partial class MirrorProgram
         Check(TownServiceCodec.TryRead(unchanged, unchanged.Length, out TownServiceFrame? sparse)
             && sparse!.NativeTemplateBasisKey != 0 && sparse.BaseSequence == 0,
             "native metadata remains a complete independent original module");
+        Check(original.Nodes[0].Values.Keys.Where(key => !TownServiceFastNumbers.IsMaterial(key))
+            .All(key => sparse!.Nodes[0].Values.ContainsKey(key)),
+            "every owner root pose and state remains explicit in native metadata");
         byte[] full = TownServiceCodec.Write(original);
         File.WriteAllText(Path.Combine(_output, "native-state625-initial-wire-cost.txt"),
             "Original bytes=" + full.Length + "; robust native bytes=" + unchanged.Length + "\n");
@@ -250,10 +253,10 @@ public static partial class MirrorProgram
             + "; changed native bytes=" + current.Length + "; complete native nodes=" + changed.Nodes.Length + "\n");
         IEnumerator coldProof = NativeColdOriginal625(author, observer);
         while (coldProof.MoveNext()) yield return coldProof.Current;
-        IEnumerator repairProof = NativeRepair658();
-        while (repairProof.MoveNext()) yield return repairProof.Current;
         IEnumerator deltaProof = NativeQueuedDelta626(author, observer);
         while (deltaProof.MoveNext()) yield return deltaProof.Current;
+        IEnumerator repairProof = NativeRepair658();
+        while (repairProof.MoveNext()) yield return repairProof.Current;
         IEnumerator bankProof = NativeBankSplit623(); while (bankProof.MoveNext()) yield return bankProof.Current;
         IEnumerator deliveryProof = NativeDelivery629(); while (deliveryProof.MoveNext()) yield return deliveryProof.Current;
         yield return null;

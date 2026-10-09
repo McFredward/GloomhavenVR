@@ -166,7 +166,9 @@ public static partial class MirrorProgram
             TownServiceMirror.UnregisterModule(1);Capture();
             Check(!modules.Contains((ushort)1),"retired source module releases its retained full repair lifetime");
             File.WriteAllText(Path.Combine(_output,"native-repair658.txt"),"Actual CaptureCore->bounded saturated scheduler->lossless pooled/compressed fragments->ReceiveParsed->TickRemote.\nseconds="+timer.Elapsed.TotalSeconds+" pages="+pages+" received="+received+" fullBytes="+TownServiceCodec.Write(original.Source).Length+" sparseBytes="+TownServiceCodec.Write(original.Wire).Length+"\n"+string.Join("\n",emitted.Where(x=>x.Source.Module<3).Select(x=>"module="+x.Source.Module+" sequence="+x.Source.Sequence+" baseline="+x.Source.BaseSequence+" basis="+x.Wire.NativeTemplateBasisKey+" published="+x.At))+"\n");
-            IEnumerator dependency=NativeQueuedRepair658(original.Source,original.Wire,observer);
+            IEnumerator dependency=NativeQueuedRepair658(original.Source,original.Wire,observer,ordinary:false);
+            while(dependency.MoveNext())yield return dependency.Current;
+            dependency=NativeQueuedRepair658(original.Source,original.Wire,observer,ordinary:true);
             while(dependency.MoveNext())yield return dependency.Current;
         }
         finally{TownServiceDelivery.Completed=actualCompletion;TownServiceMirror.Shutdown();}
@@ -186,11 +188,12 @@ public static partial class MirrorProgram
         return waiting.Cast<object>().Select(x=>(TownServiceFrame)x.GetType().GetField("Identity",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(x)!).ToList();
     }
 
-    private static IEnumerator NativeQueuedRepair658(TownServiceFrame actualFull,TownServiceFrame actualSparse,Transform observer)
+    private static IEnumerator NativeQueuedRepair658(TownServiceFrame actualFull,TownServiceFrame actualSparse,Transform observer,bool ordinary)
     {
         TownServiceMirror.ResetNetwork();
-        var full=TownServiceDelta.Copy(actualFull);full.Session=659;full.Sequence=100;full.HighPriority=true;
-        var sparse=TownServiceDelta.Copy(actualSparse);sparse.Session=659;sparse.Sequence=100;
+        uint session=ordinary?660u:659u;
+        var full=TownServiceDelta.Copy(actualFull);full.Session=session;full.Sequence=100;full.HighPriority=!ordinary;
+        var sparse=TownServiceDelta.Copy(actualSparse);sparse.Session=session;sparse.Sequence=100;
         var delta=ArtworkRevision658(full,101);byte[] deltaBytes=TownServiceCodec.Write(delta),fullBytes=TownServiceCodec.Write(full);
         // The primitive preserves already fragmented module pages as well as its
         // bounded pending full+latest3 dependency. The integration below uses the
@@ -230,7 +233,7 @@ public static partial class MirrorProgram
         }
         try
         {
-            InteractionManifest(2,3,659,1,modules:new ushort[]{1,2});
+            InteractionManifest(2,3,session,1,modules:new ushort[]{1,2});
             Enqueue(sparse,full);
             while(timer.Elapsed.TotalSeconds<2&&!completed.Any(x=>ReferenceEquals(x,full))){Turn();yield return null;}
             Check(completed.Any(x=>ReferenceEquals(x,full))&&Remote(2,1)==null,
@@ -247,7 +250,13 @@ public static partial class MirrorProgram
             var queues=(IDictionary)typeof(TownServiceLaneSendQueue).GetField("_queues",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(lane)!;
             var pending=QueuedOriginals658((ExtrasSendQueue)queues[(ushort)1]!);
             Check(pending.Count==4&&ReferenceEquals(pending[0],full),
-                "actual retained full repair survives continuous same-baseline coalescing");
+                ordinary?"ordinary original retained full repair survives continuous same-baseline coalescing"
+                    :"actual retained full repair survives continuous same-baseline coalescing");
+            if(ordinary)
+            {
+                var priority=(HashSet<ushort>)typeof(TownServiceLaneSendQueue).GetField("_priority",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(lane)!;
+                Check(priority.Contains(1),"ordinary original full repair preserves its later promoted offer priority");
+            }
             var other=TownServiceDelta.Copy(full);other.Module=2;other.Sequence=500;other.HighPriority=true;Enqueue(other,other);
             bool fullArrived=false;ulong seqNext=111;double nextChange=timer.Elapsed.TotalSeconds;
             while(timer.Elapsed.TotalSeconds<5&&(!fullArrived||Remote(2,1)==null||Remote(2,2)==null))
@@ -268,9 +277,9 @@ public static partial class MirrorProgram
             var newest=TownServiceDelta.Copy(full);newest.Sequence=1000;newest.HighPriority=true;Enqueue(newest,newest);
             Check(QueuedOriginals658((ExtrasSendQueue)queues[(ushort)1]!).All(x=>x.Sequence>=1000),
                 "genuine source replacement takes precedence over queued repair revisions");
-            TownServiceDelivery.Retire(false,false,3,659,1);lane.RetireSources(false,false);
+            TownServiceDelivery.Retire(false,false,3,session,1);lane.RetireSources(false,false);
             Check(!queues.Contains((ushort)1),"source removal retires queued exact repair and its dependencies");
-            File.WriteAllText(Path.Combine(_output,"native-queued-repair658.txt"),
+            File.WriteAllText(Path.Combine(_output,ordinary?"native-queued-repair-ordinary658.txt":"native-queued-repair658.txt"),
                 "Actual saturated global scheduler, early compact completion, older fragmented artwork, full+latest3 dependency, continued15Hz changes.\n"
                 +"seconds="+timer.Elapsed.TotalSeconds+" events="+events+" revisions="+(seqNext-101)+" fulls=1\n"
                 +string.Join("\n",completed.Select(x=>"module="+x.Module+" seq="+x.Sequence+" base="+x.BaseSequence))+"\n");

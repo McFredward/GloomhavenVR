@@ -155,7 +155,8 @@ namespace GloomhavenVR.WorldUI
     internal static partial class NativeTemplates
     {
         internal sealed partial class Part
-        { internal Transform Original = null!; internal readonly HashSet<Transform> Excluded = new(); }
+        { internal Transform Original = null!; internal readonly HashSet<Transform> Excluded = new();
+          internal Transform? NativeRingRoot; internal float NativeRingRate; }
         private sealed class Entry { internal readonly List<Part> Parts = new(); }
         private static readonly Dictionary<string, Entry> Entries = new();
         private static GameObject? _bank;

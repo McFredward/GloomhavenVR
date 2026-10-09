@@ -60,8 +60,6 @@ namespace GloomhavenVR.WorldUI
 {
     internal static partial class NativeTemplates
     {
-        internal sealed partial class Part
-        { internal Transform? NativeRingRoot; internal float NativeRingRate; }
         private static bool _ready;
         internal static int Initializations658, Purses658;
         internal static bool Initialize()

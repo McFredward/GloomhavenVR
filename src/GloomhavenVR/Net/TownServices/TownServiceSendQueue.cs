@@ -68,6 +68,13 @@ internal sealed class TownServiceLaneSendQueue
         bool retainedNativeOriginal = frame.Service == 3 && !frame.PublicCatalog && !frame.VisitorStock
             && frame.BaseSequence == 0 && _latestOriginals.TryGetValue(frame.Module, out var sameOriginal)
             && ReferenceEquals(sameOriginal, frame);
+        // Ordinary mage originals can precede the offer that promotes their
+        // deltas. Their exact full repair needs the same bounded dependency pin
+        // as an original which was already urgent on its first capture.
+        if (frame.Module != TownServiceFrame.ManifestModule && frame.BaseSequence == 0
+            && !frame.PublicCatalog && !frame.VisitorStock && (frame.HighPriority || frame.Service == 3)
+            && (!_latestOriginals.TryGetValue(frame.Module, out var previousOriginal)
+                || frame.Sequence > previousOriginal.Sequence)) _latestOriginals[frame.Module] = frame;
         if (frame.Module == TownServiceFrame.ManifestModule)
         {
             // Reserve the first finite coherent picture of a physical offer, not
@@ -148,7 +155,7 @@ internal sealed class TownServiceLaneSendQueue
                     return;
                 }
             }
-            if (frame.HighPriority)
+            if (frame.HighPriority || retainedNativeOriginal && _priority.Contains(frame.Module))
             {
                 _priority.Add(frame.Module);
                 if (frame.BaseSequence == 0)
@@ -164,8 +171,6 @@ internal sealed class TownServiceLaneSendQueue
                         _coldPriority[frame.Module] = frame.Sequence;
                     if (!frame.PublicCatalog && !frame.VisitorStock)
                     {
-                        if (!_latestOriginals.TryGetValue(frame.Module, out var previous) || frame.Sequence > previous.Sequence)
-                            _latestOriginals[frame.Module] = frame;
                         queue.SupersedeTownOriginal(frame);
                     }
                 }
