@@ -19,7 +19,6 @@ internal static partial class ScenarioTerrainBudget
         internal readonly MaterialPropertyBlock SlotBlock = new();
         internal Material[] Materials = Array.Empty<Material>();
         internal bool Distant;
-        internal bool PerformancePaused;
         internal bool CheapLease;
         private Mesh? _exact, _target, _morph, _current;
         private Vector3[]? _from, _to, _vertices;
