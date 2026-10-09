@@ -20,7 +20,7 @@ internal static partial class TownServiceMirror
     private static float _nativeVisibilityWindow;
     private static int _nativeVisibilityReports;
 
-    private static void ResetNativeVisibility()
+    private static void TraceResetNativeVisibility()
     { NativeVisibilityTraces.Clear(); _nativeVisibilityWindow = 0f; _nativeVisibilityReports = 0; }
 
     private static void TraceRemoteNativeVisibility(float now)
@@ -65,6 +65,15 @@ internal static partial class TownServiceMirror
         trace.SampleAt = now + .1f;
         int graphics = 0, enabled = 0, active = 0, culled = 0, transparent = 0, inheritedTransparent = 0;
         int canvases = 0, enabledCanvases = 0, groups = 0, hiddenGroups = 0;
+        int minOrder = int.MaxValue, maxOrder = int.MinValue, orders = 0;
+        ulong orderSignature = 0;
+        void ObserveOrder(int order, int layer)
+        {
+            orders++; minOrder = Mathf.Min(minOrder, order); maxOrder = Mathf.Max(maxOrder, order);
+            orderSignature = unchecked((orderSignature * 131UL + (uint)order) * 131UL + (uint)layer);
+        }
+        Canvas? hostCanvas = host.GetComponent<Canvas>();
+        if (hostCanvas != null) ObserveOrder(hostCanvas.sortingOrder, hostCanvas.sortingLayerID);
         foreach (Transform node in binding.Nodes)
         {
             if (node == null) continue;
@@ -72,18 +81,22 @@ internal static partial class TownServiceMirror
             if (graphic != null)
             {
                 graphics++; if (graphic.enabled) enabled++;
+                if (graphic.canvas != null) ObserveOrder(graphic.canvas.sortingOrder, graphic.canvas.sortingLayerID);
                 if (node.gameObject.activeInHierarchy) active++;
                 if (graphic.canvasRenderer.cull) culled++;
                 if (graphic.color.a <= 0f || graphic.canvasRenderer.GetColor().a <= 0f) transparent++;
                 if (graphic.canvasRenderer.GetInheritedAlpha() <= 0f) inheritedTransparent++;
             }
             Canvas? canvas = node.GetComponent<Canvas>();
-            if (canvas != null) { canvases++; if (canvas.isActiveAndEnabled) enabledCanvases++; }
+            if (canvas != null) { canvases++; if (canvas.isActiveAndEnabled) enabledCanvases++;
+                ObserveOrder(canvas.sortingOrder, canvas.sortingLayerID); }
+            Renderer? renderer = node.GetComponent<Renderer>();
+            if (renderer != null) ObserveOrder(renderer.sortingOrder, renderer.sortingLayerID);
             CanvasGroup? group = node.GetComponent<CanvasGroup>();
             if (group != null && group.enabled) { groups++; if (group.alpha <= 0f) hiddenGroups++; }
         }
         bool output = binding.HasVisibleOutput();
-        ulong signature = frame.Visible ? 1UL : 0UL;
+        ulong signature = unchecked(orderSignature * 131UL + (frame.Visible ? 1UL : 0UL));
         foreach (int value in new[] { host.activeInHierarchy ? 1 : 0, output ? 1 : 0,
             (int)(Mathf.Clamp01(frame.ParentAlpha) * 255f), graphics, enabled, active,
             culled, transparent, inheritedTransparent, canvases, enabledCanvases, groups, hiddenGroups })
@@ -98,6 +111,8 @@ internal static partial class TownServiceMirror
             + " headerVisible=" + frame.Visible + " parentAlpha=" + frame.ParentAlpha.ToString("F3", CultureInfo.InvariantCulture)
             + " member=" + member + " hostActive=" + host.activeInHierarchy + " visibleInk=" + output
             + " graphic(active/enabled/culled/transparent/inheritedTransparent/total)=" + active + "/" + enabled + "/" + culled + "/" + transparent + "/" + inheritedTransparent + "/" + graphics
-            + " canvas(enabled/total)=" + enabledCanvases + "/" + canvases + " group(hidden/total)=" + hiddenGroups + "/" + groups + ".");
+            + " canvas(enabled/total)=" + enabledCanvases + "/" + canvases + " group(hidden/total)=" + hiddenGroups + "/" + groups
+            + " paintOrder(min/max/count)=" + (orders != 0 ? minOrder : 0) + "/" + (orders != 0 ? maxOrder : 0) + "/" + orders
+            + " originalCanvasOrder=" + frame.CanvasSortingOrder + " hostCanvasOrder=" + (hostCanvas != null ? hostCanvas.sortingOrder : 0) + ".");
     }
 }

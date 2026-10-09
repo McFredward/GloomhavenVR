@@ -1549,7 +1549,7 @@ internal static partial class TownServiceMirror
     {
         ResetOriginalReceipts();
         ResetNativeTemplateState();
-        ResetNativeVisibility();
+        TraceResetNativeVisibility();
         ResetMotionNetwork();
         ResetPublicPicture();
         DonationCommits.Clear(); DonationCommitOrder.Clear();

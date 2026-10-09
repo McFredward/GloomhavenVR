@@ -22,6 +22,9 @@ def main():
  p.add_argument('--required35',action='store_true',help='Concrete Build645 worst-case census:35 visible originals and66 prepared hierarchies')
  p.add_argument('--live-hover-census',action='store_true',help='Continue owner15Hz capture and real native33→34 hover visibility while first originals are fragmented')
  p.add_argument('--withdraw-hover',action='store_true',help='Also retire/re-register the actual hover original from prepared membership before first delivery')
+ p.add_argument('--paint-only',action='store_true',help='Compare each original native hover/selected graphic through the real observer furniture paint order')
+ p.add_argument('--omit-hover-output',action='store_true',help='Named control drops only the actual original Image CanvasGroup output in observer Binding.Apply')
+ p.add_argument('--old-depth-source',action='store_true',help='Exact published654 town depth helper in the same native-paint challenge')
  p.add_argument('--census-only',action='store_true',help='Exercise actual mounted native children across manifest retirement and delayed owner reparenting')
  p.add_argument('--old-census',action='store_true',help='Exact published645 manifest retirement causal control')
  p.add_argument('--old-source',action='store_true',help='Compile exact unmodified published645 transport against the same fixture')
@@ -35,6 +38,7 @@ def main():
  args=p.parse_args();root=args.source_root.resolve();args.output_dir.mkdir(parents=True,exist_ok=True)
  if args.live_hover_census and args.service!='mage':p.error('--live-hover-census exercises the native enhancement picture')
  if args.withdraw_hover and not args.live_hover_census:p.error('--withdraw-hover requires --live-hover-census')
+ if args.omit_hover_output and not args.paint_only:p.error('--omit-hover-output requires --paint-only')
  if args.service=='mage' and args.atlas_bundle is None:
   native_bank=args.output_dir.resolve()/'native-original-atlas'
   exporter=root/'scripts/npc639-assets-runtime/export-native.py'
@@ -63,6 +67,27 @@ def main():
   bound[key]=bound[key].replace(anchor,'result = null; /*639 named causal control: finite opening reservation omitted*/')
   (run/'controlled-mutation639.txt').write_text('Both existing NextOpening calls omitted; all native assets, complete originals, ordinary queues, receipts and byte/event budgets unchanged.\n')
  actual,actual_hash=receiver.receiver_sources(root,loader);bound['ActualReceiver638.cs']=actual
+ if args.paint_only:
+  if args.omit_hover_output:
+   anchor='cg.alpha = n[1];'
+   if bound['TownServiceBinding.cs'].count(anchor)!=1:raise RuntimeError('Actual native group writer mutation drift')
+   bound['TownServiceBinding.cs']=bound['TownServiceBinding.cs'].replace(anchor,'cg.alpha = node.name == "Image" ? 0f : n[1];',1)
+   (run/'controlled-hover-mutation655.txt').write_text('Only the actual observer Image CanvasGroup output is omitted; original native OnHovered, source alpha, capture, numeric transport, templates, ordered receive and camera rendering unchanged.\n')
+  depth=module('depth655',root/'scripts/check-town-depth-order.py')
+  real_depth,depth_hashes=depth.sources(root);bound.update(real_depth)
+  if args.old_depth_source:
+   bound['TownServiceDepthOrder.cs']=subprocess.run(['git','-C',str(root),'show','deb989570:src/GloomhavenVR/WorldUI/TownServices/TownServiceDepthOrder.cs'],check=True,capture_output=True,text=True).stdout
+  # Existing unused suite methods reference this registration instrumentation.
+  bound['TownServiceDepthOrder.cs']=bound['TownServiceDepthOrder.cs'].replace('internal static class TownServiceDepthOrder\n{','internal static class TownServiceDepthOrder\n{\n    internal static readonly System.Collections.Generic.HashSet<Transform> Bound = new();',1)
+  bound['TownServiceDepthOrder.cs']=bound['TownServiceDepthOrder.cs'].replace('if (root == null) return;','if (root == null) return; Bound.Add(root);',1)
+  runtime=root/'ressources/GH_Data/Managed/GH.Runtime.dll'
+  env=dict(os.environ,DOTNET_ROOT=str(Path.home()/'.dotnet'))
+  native_controller=subprocess.run([str(Path.home()/'.dotnet/tools/ilspycmd'),'-t','UIEnhancementButtonHighlight',str(runtime)],check=True,capture_output=True,text=True,env=env).stdout
+  opening=native_controller.index('public void OnHovered(bool hovered)');end=native_controller.index('\n\tpublic void SetMode',opening)
+  hover=native_controller[opening:end]
+  bound['ActualNativeHover655.cs']='using UnityEngine; namespace GloomhavenVR.WorldUI; internal sealed partial class UIEnhancementButtonHighlight {\nprivate enum HighlightState { PREVIEW, SELECTED, SELECTABLE, INVALID }\nprivate CanvasGroup fillImage=null!; private HighlightState state; private float opacitySelected=.7f, opacityHovered=.2f;\ninternal void NativeInput655(CanvasGroup fill, int value) { fillImage=fill; state=(HighlightState)value; }\n'+hover+'\n}\n'
+  (run/'native-hover-provenance.json').write_text(json.dumps({'GH.Runtime.dll':hashlib.sha256(runtime.read_bytes()).hexdigest(),'decompiled_controller':hashlib.sha256(native_controller.encode()).hexdigest(),'OnHovered':hashlib.sha256(hover.encode()).hexdigest(),**depth_hashes},indent=2)+'\n')
+
  if args.old_source:
   for name, path in (('ExtrasSendQueue.cs','src/GloomhavenVR/Net/ExtrasSendQueue.cs'), ('TownServiceSendQueue.cs','src/GloomhavenVR/Net/TownServices/TownServiceSendQueue.cs')):
    original=subprocess.run(['git','-C',str(root),'show','2d77ffb65:'+path],check=True,capture_output=True,text=True).stdout
@@ -91,6 +116,8 @@ def main():
  warm=loader.method((root/'src/GloomhavenVR/WorldUI/TownServices/NativeTemplates.EnhancementPreparation.cs').read_text(),'private static void WarmEnhancementBasis(string key)')
  bound['AdmissionWarm646.cs']='using System; using UnityEngine; using GloomhavenVR.Net.TownServices; namespace GloomhavenVR.WorldUI; internal static partial class LazyTemplateProbe {\n'+warm+'\n}\n'
  shutil.copyfile(Path(__file__).with_name('Admission646.cs'),fixture/'Admission646.cs')
+ if args.paint_only:
+  shutil.copyfile(Path(__file__).with_name('NativePaint655.cs'),fixture/'NativePaint655.cs')
  reader_source=root/'scripts/town-first-picture632-runtime/FirstPicture632.cs'
  reader=reader_source.read_text().split('    private static IEnumerator FirstPicture632()')[0]+'}\n'
  reader=reader.replace('NativeRow632(Transform parent,string localized)', 'NativeRow632(Transform parent,string localized,string panel = "row")').replace('"NativeFirstPicture632"','"NativeFirstPicture639", panel')
@@ -110,10 +137,21 @@ def main():
  (fixture/'FirstPicture639.cs').write_text(case_source)
  boundaries=fixture/'Boundaries.cs';text=boundaries.read_text().replace('internal static bool WantsDebug => false;','internal static bool WantsDebug => true;',1)
  text=text.replace('internal static void Info(string channel, string message) { }','internal static void Info(string channel, string message) => Messages.Add(channel + ": " + message);',1)
+ if args.paint_only:
+  begin=text.index('    // The converted-window distance ladder has its own production harness.')
+  end=text.index('\n\n}',begin)
+  text=text[:begin]+text[end:]
+  text=text.replace('    internal static class VRLog\n', '    internal enum VRLogLevel { Debug }\n    internal static class VRLog\n',1)
+  text=text.replace('        internal static bool WantsDebug => true;', '        internal static bool Wants(VRLogLevel level) => false;\n        internal static bool WantsDebug => true;',1)
+  publisher=fixture/'Publisher.cs';publisher.write_text(publisher.read_text().replace('internal sealed class UIEnhancementButtonHighlight : MonoBehaviour { }','internal sealed partial class UIEnhancementButtonHighlight : MonoBehaviour { }',1))
  boundaries.write_text(text)
  program=fixture/'Program.cs';text=program.read_text();anchor='            if (variant == "production") PublisherNoCloth();'
  if text.count(anchor)!=1:raise RuntimeError('Native fixture entry drift')
  text=text.replace(anchor, '''
+            if (suite == "native-paint655") {
+                var proof=NativePaint655();while(proof.MoveNext())yield return proof.Current;
+                File.WriteAllText(Path.Combine(_output,"assertions.txt"),_assertions+" assertions\\n");yield break;
+            }
             if (suite == "admission646-census") {
                 var proof=AdmissionCensus646();while(proof.MoveNext())yield return proof.Current;
                 File.WriteAllText(Path.Combine(_output,"assertions.txt"),_assertions+" assertions\\n");yield break;
@@ -152,6 +190,9 @@ def main():
  for file in fixture.glob('*.cs'):hashes['fixture/'+file.name]=hashlib.sha256(file.read_bytes()).hexdigest()
  (run/'source-hashes.json').write_text(json.dumps(hashes,indent=2)+'\n')
  manifest={'suite':'first-picture639-'+args.service,'evidence':str(run),'result':str(run/'results.txt'),'cases':[{'name':'production','dll':str(run/'bin/Release/netstandard2.1/FirstPicture639.dll'),'expected':'all exact visible originals render within1s wall clock'if args.expect_incomplete else ''}]}
+ if args.paint_only:
+  manifest['suite']='native-paint655'
+  manifest['cases'][0]['expected']='each original enhancement fill settles to exact native controller output' if args.omit_hover_output else ('native selected/hover output paints exactly like owner with reordered native originals' if args.expect_incomplete else '')
  if args.census_only:
   manifest['suite']='admission646-census'
   manifest['cases'][0]['expected']='retained native child survives retired mount on every render' if args.old_census else ''

@@ -129,3 +129,78 @@ its census-continuity case pins aura alpha/turns off a native area variant. Thes
 proofs establish the named census/latency repairs, not per-graphic overlay parity.
 Final furniture sorting and actual native hover/selection output require a separate
 causal rendered comparison before claiming the reported flicker is repaired.
+
+## Separate per-graphic native hover/selection paint proof
+
+The new `--paint-only` case imports the real `TownServiceDepthOrder` and the exact
+production furniture registration, ranking, reassertion and order writers through
+`check-town-depth-order.py`. Their previous no-op boundary is absent. It retains
+original native highlight hierarchy/images, physical print, current card affinity,
+actual capture/receiver/binding, and repeated 15 Hz owner numeric capture. The
+native `UIEnhancementButtonHighlight.OnHovered` method is extracted unchanged
+from read-only `GH.Runtime.dll` and compiled into the boundary widget; the state
+input and serialized default opacities are explicit fixture inputs. This exercises
+the real method's 0/.2/.7 outputs, not alpha values forced onto the observer.
+Native card-holder population (its immediate `PlaceNewCard` branch) is a named
+initial model boundary; game pooling/selection controllers are not executed.
+
+The physical card and highlight originals are delivered in a different creation
+order. Each native preview, selected, selectable and invalid hover state then
+receives continuous real capture, followed by three actual perspective camera
+positions. Owner and observer use the same relative eye/forward; the real
+furniture writer receives that eye. Current selected output is also challenged
+with a late old manifest and area original. Every original Graphic's enabled/color
+state and fill alpha must remain correct, the physical card must paint meaningful
+pixels, and selected fill must add visible pixels beyond preview.
+
+- `paint-final/run-thun209h`: **12,910 assertions pass**, all 24 checked owner /
+  observer perspective readbacks have **zero** differing pixels at the stated
+  RGB threshold. Exact published depth helper also passes the same corrected
+  challenge (`paint-old/run-yx5i5kod`). This did **not** reproduce a causal depth
+  defect. No production depth-order or alpha override has been made.
+- `paint-control/run-bb8vm54l`: compiled negative control omits only the actual
+  observer `Image` CanvasGroup output in `TownServiceBinding.Apply`; the same
+  proof fails the expected exact native fill-output assertion. This confirms
+  that current capture/receive state is required, rather than merely checking
+  an active host or a template whose defaults happen to match.
+- Native method provenance: GH.Runtime SHA256
+  `fcfcd2e420299139b6cba9a5fedb52c9cae60bb5e1292adb84152c14d5e8f495`;
+  extracted `OnHovered` SHA256
+  `211049f17d691b6dd84eae13a4ca1730c829d57535611d329969e493f1b00642`.
+  Source/fixture/furniture hashes are retained with each run.
+
+There is a material limitation in the established GL native reader: original
+`GUI_FlexFrame_Shd` (`sharedassets1.assets`, pathID 874, referenced by enhancement
+frame material `sharedassets4.assets:18`) contains only platform 4 bytecode.
+The reader substitutes the editor TMP material; this produces an opaque frame
+rectangle covering the original hover fill. A full-picture comparison using that
+adapter can pass while the fill is never visible. The per-fill readback therefore
+temporarily excludes only that incompatible Frame renderer, restoring its enabled
+state before any capture. No runtime source, payload, native alpha or gameplay
+visibility is changed by this readback-only isolation. It proves native fill state
+and actual perspective paint through the tested pipeline, **not** full original
+procedural-frame pixels, all window occlusion configurations or HMD flicker.
+
+Exploratory paint runs are retained but not promoted to final evidence: the first
+omitted populated-card activity, one assumed every observer host owns a Canvas,
+one had a finite Editor-frame loop that could end before real time settled, and
+single-capture cases were throttled by the actual numeric interval without a
+continued owner capture. `run-yfemid7a` consequently escaped its incorrectly
+anticipated depth control; `run-69nsfxzw` retained the opaque material blind spot.
+`run-4u9zrytv` explicitly failed the meaningful-selected-ink assertion and exposed
+that material limitation. The corrected final case requires every state to render,
+continued real capture and actual selected pixels, and its omission control fails.
+
+Bounded hardware Debug traces now also hash and report actual effective canvas /
+renderer sorting orders and layers (including inherited canvas and added host),
+plus min/max order, captured canvas order and current host order. This can separate
+future source-visible/observer-hidden alpha or cull changes from a paint-order
+transition. The existing caps and sampling guard remain; ordinary player logs
+are unchanged. Diagnostic reset is explicitly named `TraceResetNativeVisibility`
+so instrumentation source checks do not misclassify it as a gameplay mechanism.
+
+The confirmed discarded/reissued-original repair can eliminate interruptions
+caused by that exact delivery behavior. The supplied Build653 logs cannot prove
+that it explains every reported overlay blink. The native fill proof did not find
+a separate authored alpha defect, and its platform/material limit prevents a
+claim that the HMD's complete procedural overlay is now verified.
