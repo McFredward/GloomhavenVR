@@ -44,6 +44,13 @@ asset, rather than only the Python wrapper. Stale, foreign, linked and archived
 logs cannot replace current failure context; incidental licensing retry messages
 cannot obscure the fatal cause.
 
+The first actual extracted-archive check also caught an isolated Wizard-loader
+dependency: its explicit import order omitted the new overlay module. That
+module is now registered before preparation identity/metadata and all temporary
+aliases restored afterward. Three focused loader cases cover absent/preexisting
+modules and the fresh `-I` process, including shared error types. The corrected
+archive must pass the real launcher check before replacing the handoff.
+
 ## Unity observation and opening the project
 
 Every Unity invocation remains observable through native import/build progress

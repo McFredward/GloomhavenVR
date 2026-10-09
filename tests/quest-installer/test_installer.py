@@ -621,7 +621,7 @@ class InstallerTests(unittest.TestCase):
     def test_builder_import_preserves_preexisting_profile_storage_and_startup_modules(self):
         names = ("profile", "storage", "script_order", "startup", "media", "shaders", "dlcs", "audio", "sprites", "ui_assets",
                  "build_provenance", "_ghvr_wireless_build_provenance", "native_plugins", "_ghvr_wireless_native_plugins",
-                 "staging_resume", "_ghvr_wireless_staging_resume")
+                 "staging_resume", "_ghvr_wireless_staging_resume", "editor_overlay", "_ghvr_wireless_editor_overlay")
         previous = {name: types.ModuleType("existing_" + name) for name in names}
         profile, storage, startup = (previous[name] for name in ("profile", "storage", "startup"))
         with mock.patch.dict(sys.modules, previous):
@@ -637,6 +637,8 @@ class InstallerTests(unittest.TestCase):
             self.assertIsNot(module.build_provenance, previous["build_provenance"])
             self.assertIsNot(module.native_plugins, previous["native_plugins"])
             self.assertIs(module.native_plugins.BuildError, module.BuildError)
+            self.assertIs(module.preparation_identity.editor_overlay.BuildError, module.BuildError)
+            self.assertIsNot(module.preparation_identity.editor_overlay, previous["editor_overlay"])
             self.assertTrue(callable(module.full_assets.Journal))
             for name, value in previous.items(): self.assertIs(sys.modules[name], value)
 
@@ -644,7 +646,7 @@ class InstallerTests(unittest.TestCase):
         with mock.patch.dict(sys.modules):
             names = ("profile", "storage", "script_order", "startup", "media", "shaders", "dlcs", "audio", "sprites", "ui_assets",
                      "build_provenance", "_ghvr_wireless_build_provenance", "native_plugins", "_ghvr_wireless_native_plugins",
-                     "staging_resume", "_ghvr_wireless_staging_resume")
+                     "staging_resume", "_ghvr_wireless_staging_resume", "editor_overlay", "_ghvr_wireless_editor_overlay")
             for name in names:
                 sys.modules.pop(name, None)
             module = installer.builder_module()
@@ -662,7 +664,7 @@ import types
 sys.path.insert(0, sys.argv[1])
 import installer
 names = ("profile", "storage", "script_order", "media", "shaders", "dlcs", "audio",
-         "sprites", "ui_assets", "staging_resume", "full_assets", "campaign", "mod_assets", "build_provenance", "import_workspace", "native_plugins", "startup")
+         "sprites", "ui_assets", "staging_resume", "full_assets", "campaign", "mod_assets", "build_provenance", "import_workspace", "native_plugins", "editor_overlay", "preparation_identity", "preparation_metadata", "startup")
 aliases = names + tuple("_ghvr_wireless_" + name for name in (*names, "builder"))
 assert all(name not in sys.modules for name in aliases), "test dependencies already loaded"
 if sys.argv[2] == "preexisting":
@@ -684,6 +686,9 @@ assert callable(module.native_plugins.verify_staged)
 assert Path(module.native_plugins.__file__) == installer.REPO / "tools/quest-builder/native_plugins.py"
 assert module.native_plugins.BuildError is module.BuildError
 assert module.native_plugins.digest is module.digest
+assert module.preparation_identity.editor_overlay is module.prepare_resume.preparation_metadata.editor_overlay
+assert module.preparation_identity.editor_overlay.BuildError is module.BuildError
+assert Path(module.preparation_identity.editor_overlay.__file__) == installer.REPO / "tools/quest-builder/editor_overlay.py"
 assert callable(module.full_assets.Journal)
 assert sys.path == paths, "builder loader changed import search paths"
 for name, value in previous.items():

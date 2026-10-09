@@ -54,11 +54,11 @@ def read_json(path):
 def builder_module():
     # The builder's historical profile/storage/startup imports must neither consume
     # nor replace an application's existing stdlib profile or cached test module.
-    # Preparation's metadata refresh imports its two helpers directly. Register
+    # Preparation's identity/refresh imports its reviewed overlay directly. Register
     # those dependencies before loading builder even in a Git-free isolated launch.
     missing = object()
     names = ["profile", "storage"]
-    names += [name for name in ("script_order", "media", "shaders", "dlcs", "audio", "sprites", "ui_assets", "staging_resume", "full_assets", "campaign", "mod_assets", "build_provenance", "import_workspace", "native_plugins", "preparation_identity", "preparation_metadata")
+    names += [name for name in ("script_order", "media", "shaders", "dlcs", "audio", "sprites", "ui_assets", "staging_resume", "full_assets", "campaign", "mod_assets", "build_provenance", "import_workspace", "native_plugins", "editor_overlay", "preparation_identity", "preparation_metadata")
               if (REPO / "tools/quest-builder" / (name + ".py")).is_file()]
     names += ["startup", "builder"]
     aliases = [name for name in names if name != "builder"] + ["_ghvr_wireless_" + name for name in names]
