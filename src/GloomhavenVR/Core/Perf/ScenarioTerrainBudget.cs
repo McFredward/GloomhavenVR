@@ -28,6 +28,7 @@ internal static partial class ScenarioTerrainBudget
     private static Func<bool>? _worldEnabled;
     private static Func<Material, bool>? _worldOwns;
     private static Func<bool>? _assetsReady, _assetsUnavailable;
+    private static Func<Renderer, bool>? _performanceWallHidden;
     private static Driver? _driver;
     private static bool _failed;
     private const string ShaderName = "GloomhavenVR/ScenarioCheapTerrain";
@@ -45,6 +46,10 @@ internal static partial class ScenarioTerrainBudget
     { _worldVariant = variant; _worldReadPass = readPass; _worldEnabled = enabled; _worldOwns = owns; }
     internal static void ConfigureAssetPreparation(Func<bool> assetsReady, Func<bool> assetsUnavailable)
     { _assetsReady = assetsReady; _assetsUnavailable = assetsUnavailable; }
+    internal static void ConfigurePerformanceWallVisibility(Func<Renderer, bool> hidden) =>
+        _performanceWallHidden = hidden;
+    private static bool PerformanceWallHidden(Renderer renderer) =>
+        _performanceWallHidden?.Invoke(renderer) == true;
     private static Material CanonicalMaterial(Material material) =>
         material != null ? _canonicalMaterial?.Invoke(material) ?? material : material!;
     internal static void Install(GameObject host)
@@ -336,9 +341,15 @@ internal static partial class ScenarioTerrainBudget
                 {
                     Transform node = _pending.Dequeue();
                     if (node == null) continue;
-                    _queued.Remove(node.GetInstanceID());
+                    // QueueRoot keys GameObjects. Removing the Transform identity
+                    // leaves permanent membership and loses later readiness/unmask
+                    // callbacks for a source that has already been traversed once.
+                    _queued.Remove(node.gameObject.GetInstanceID());
                     for (int child = 0; child < node.childCount; child++) QueueRoot(node.GetChild(child).gameObject);
                     MeshRenderer renderer = node.GetComponent<MeshRenderer>();
+                    // The wall owner queues its exact released source through
+                    // MaterialReady. No hidden-discovery polling set is necessary.
+                    if (renderer != null && PerformanceWallHidden(renderer)) continue;
                     MeshFilter filter = node.GetComponent<MeshFilter>();
                     if (renderer == null || filter == null || filter.sharedMesh == null) continue;
                     int id = renderer.GetInstanceID();
@@ -350,6 +361,12 @@ internal static partial class ScenarioTerrainBudget
                         : !CurrentScope(renderer) ? 0
                         : _eligibleMesh?.Invoke(filter.sharedMesh) != true ? 3 : -1;
                     if (refusal >= 0) { if (first) _refusals[refusal]++; continue; }
+                    // A genuine readiness/release callback may arrive after a native
+                    // mesh replacement. Replace the old private record at this lifecycle
+                    // boundary; otherwise its later validation would remove it after the
+                    // queued source had already been consumed and lose rediscovery.
+                    if (_surfaces.TryGetValue(id, out Surface previous) && previous.Original != filter.sharedMesh)
+                    { previous.Dispose(); _surfaces.Remove(id); _priorityDirty = true; }
                     if (!_surfaces.ContainsKey(id)) { _surfaces.Add(id, new Surface(renderer, filter, transform)); _priorityDirty = true; }
                 }
                 Camera? camera = Rig.VRRigDriver.HeadCamera;
@@ -359,11 +376,18 @@ internal static partial class ScenarioTerrainBudget
                 // crossing Unity's transform boundary for each prepared wall. Renderer
                 // bounds and mesh ownership remain current per source, and the next
                 // Update always captures new poses/settings (including tracking loss).
-                DetailState detail = active && camera != null ? new DetailState(camera) : default;
+                DetailState detail = default;
+                bool detailReady = false;
                 foreach (KeyValuePair<int, Surface> item in _surfaces)
                 {
                     Surface surface = item.Value;
+                    // Hide-all owns source visibility and has already released any
+                    // terrain lease. No native validation, detail reads or morph work
+                    // can contribute pixels here. A broad forceRenderingOff test would
+                    // also suspend unrelated native visibility and is deliberately absent.
+                    if (PerformanceWallHidden(surface.Renderer)) continue;
                     if (!surface.Validate(_meshThisInvocation)) { surface.Dispose(); _dead.Add(item.Key); continue; }
+                    if (!detailReady && active && camera != null) { detail = new DetailState(camera); detailReady = true; }
                     int percent = active && camera != null ? DetailFor(surface, detail) : 100;
                     surface.StepGeometry(percent, delta);
                 }
@@ -451,6 +475,7 @@ internal static partial class ScenarioTerrainBudget
             && Vector3.Distance(hand.Position, bounds.ClosestPoint(hand.Position)) / hand.Scale < .12f;
 
         internal bool OwnsRenderSubstitute(Renderer renderer) => PerfConfig.TerrainSubstitutionOn
+            && !PerformanceWallHidden(renderer)
             && _surfaces.TryGetValue(renderer.GetInstanceID(), out Surface surface)
             && surface.WantsSubstitute(_active);
         internal bool HasCurrentRenderLease(Renderer renderer) => _surfaces.TryGetValue(renderer.GetInstanceID(), out Surface surface)
@@ -528,6 +553,7 @@ internal static partial class ScenarioTerrainBudget
                         if (shared && limit > 0 && candidates >= limit)
                         { budgetDeferred = _priority.Count - index; break; }
                         Surface surface = _priority[index];
+                        if (PerformanceWallHidden(surface.Renderer)) continue;
                         // Prepared surfaces include unopened rooms. Reject their native
                         // disabled/inactive renderers before bank/material/proxy work.
                         // No admission verdict survives this camera invocation.

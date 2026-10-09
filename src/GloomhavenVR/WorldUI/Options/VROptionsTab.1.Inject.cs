@@ -292,6 +292,8 @@ internal static partial class VROptionsTab
         if (!InjectionRetryReady(host))
             return;
 
+        RefreshMixedRealityAvailability();
+
         // THE GUARD MUST ASK FOR WHAT THIS MODE ACTUALLY BUILDS. It used to require a toggle, and
         // a standalone menu never has one — so the guard could never be satisfied and Inject would
         // have run EVERY FRAME, cloning a fresh pane per frame. The fire exit keeps the old
@@ -1525,6 +1527,9 @@ internal static partial class VROptionsTab
         _host = null;
         _toggle = null;
         _window = null;
+        // Shutdown can reach Forget without rebuilding/clearing the rows first.
+        // Release their availability delegates even when native objects are already gone.
+        ClearMixedRealityAvailabilityRefreshers();
         ContentRoot = null;
         TabBarRoot = null;
         IsStandalone = false;

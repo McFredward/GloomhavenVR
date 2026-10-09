@@ -2,6 +2,8 @@ namespace GloomhavenVR;
 
 internal static partial class Defaults
 {
+    internal const int WallVisibilityModeCount = 2; // => [Optimize] WallVisibilityModeCount
+    internal const int WallAutoHideBelowFpsCount = 15; // => [Optimize] WallAutoHideBelowFpsCount
     internal const bool ScenarioRoomArchitecture = false; // => [Optimize] ScenarioRoomArchitecture
     internal const int ScenarioRoomFloorDetailPercent = 100; // => [Optimize] ScenarioRoomFloorDetailPercent
     internal const int ScenarioRoomArchitectureDensityPercent = 100; // => [Optimize] ScenarioRoomArchitectureDensityPercent

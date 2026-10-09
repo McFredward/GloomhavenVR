@@ -29,6 +29,14 @@ namespace GloomhavenVR.Core;
 /// </summary>
 internal static class ScenarioSceneryBudget
 {
+    private static Func<Renderer, bool>? _retainPerformanceWallMask;
+    private static Action? _performanceWallContentChanged;
+    internal static void ConfigurePerformanceWallMasks(Func<Renderer, bool> retain, Action contentChanged)
+    { _retainPerformanceWallMask = retain; _performanceWallContentChanged = contentChanged; }
+    // A wall mode can outlive a scenery-density change. On relinquishing the
+    // wall mask, revalidate the one current native record and its current density;
+    // a saved forceRenderingOff bit cannot describe that newer ownership choice.
+    internal static void AfterPerformanceWallRestore(Renderer renderer) => _driver?.AfterPerformanceWallRestore(renderer);
     private const string Scope = "Perf";
     private const string GrassShader = "Amp_Basic_Foliage";
     private const int NodesPerFrame = 96;
@@ -318,7 +326,7 @@ internal static class ScenarioSceneryBudget
         }
         else if (record.Owned)
         {
-            if (renderer.forceRenderingOff)
+            if (renderer.forceRenderingOff && _retainPerformanceWallMask?.Invoke(renderer) != true)
             {
                 ScenarioEnvironmentBudget.BeforeNativeRendererWrite(renderer);
                 renderer.forceRenderingOff = false;
@@ -3194,6 +3202,18 @@ internal static class ScenarioSceneryBudget
             record.Invalidated = true;
         }
 
+        internal void AfterPerformanceWallRestore(Renderer renderer)
+        {
+            if (renderer == null || !_byId.TryGetValue(renderer.GetInstanceID(), out Record record)) return;
+            // SetHidden releases only this owner's old render/collider claims.
+            // RevalidateKnown then uses the original classifier and live density;
+            // it runs on this lifecycle edge, never in the hidden frame loop.
+            SetHidden(record, false);
+            ProceduralMapTile? tile = TileAncestor(renderer.transform);
+            if (BudgetActive && tile != null && IsScenarioTile(tile))
+                RevalidateKnown(record, record.Renderer, tile);
+        }
+
         private int DensityFor(Record record) => record.Kind switch
         {
             Kind.Grass => _density,
@@ -3221,6 +3241,10 @@ internal static class ScenarioSceneryBudget
             if (_retuneIndex < _records.Count + _projectors.Count)
                 return;
             _retuneIndex = -1;
+            // The existing wall collector may have excluded already scenery-masked
+            // dressing. A completed density change can expose it: one coalesced
+            // lifecycle notification admits it without a recurring scene scan.
+            _performanceWallContentChanged?.Invoke();
             PerfMonitor.MarkChange($"Scenario scenery budget retune complete: grass {_density}%, "
                              + $"decoration {_decorationDensity}%, vegetation {_vegetationDensity}%");
             if (!BudgetActive)

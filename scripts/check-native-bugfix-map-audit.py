@@ -52,12 +52,20 @@ def main():
     dotnet = shutil.which('dotnet') or str(Path.home() / '.dotnet/dotnet')
     environment = dict(os.environ)
     environment['DOTNET_ROOT'] = str(Path(dotnet).resolve().parent)
-    result = subprocess.run([
-        dotnet, 'run', '--project', str(fixture / 'MapAudit.csproj'), '-c', 'Release',
+    build = subprocess.run([
+        dotnet, 'build', str(fixture / 'MapAudit.csproj'), '-c', 'Release',
         '-p:FixtureDir=' + str(fixture.resolve()), '-p:GameManaged=' + str(managed.resolve()),
         '-p:BaseIntermediateOutputPath=' + str(run / 'obj') + '/',
         '-p:OutputPath=' + str(run / 'bin') + '/', '-p:UseSharedCompilation=false'
     ], cwd=args.source_root, env=environment, capture_output=True, text=True)
+    (run / 'build.log').write_text(build.stdout + build.stderr)
+    if build.returncode:
+        print(build.stdout + build.stderr, end='')
+        raise SystemExit('FAIL native map audit compilation: ' + str(run))
+    # dotnet run re-evaluates its launch path without the redirected OutputPath
+    # on this SDK. Execute the successfully built isolated DLL explicitly.
+    result = subprocess.run([dotnet, str(run / 'bin/MapAudit.dll')],
+        cwd=args.source_root, env=environment, capture_output=True, text=True)
     (run / 'execution.log').write_text(result.stdout + result.stderr)
     print(result.stdout + result.stderr, end='')
     if result.returncode:

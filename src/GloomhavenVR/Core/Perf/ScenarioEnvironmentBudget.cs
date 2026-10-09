@@ -29,9 +29,16 @@ internal static class ScenarioEnvironmentBudget
     private static LeaseRecovery? _recovery;
     private static bool _failed;
     private static Func<bool>? _structuralEnabled;
+    private static Func<Renderer, bool>? _performanceWallHidden;
+    private static Action? _wallContentChanged;
+    private static Action<Renderer>? _wallRendererReady;
 
     internal static void ConfigureStructuralBatching(Func<bool> enabled) => _structuralEnabled = enabled;
     private static bool StructuralEnabled => _structuralEnabled?.Invoke() == true;
+    internal static void ConfigurePerformanceWallIntegration(Func<Renderer, bool> hidden,
+        Action contentChanged, Action<Renderer> rendererReady)
+    { _performanceWallHidden = hidden; _wallContentChanged = contentChanged; _wallRendererReady = rendererReady; }
+    private static bool PerformanceWallHidden(Renderer renderer) => _performanceWallHidden?.Invoke(renderer) == true;
     private static Action<GameObject>? _terrainQueue;
     private static Action<Renderer>? _terrainReady, _terrainBeforeWrite;
     private static Action? _terrainBeforeContent;
@@ -98,6 +105,7 @@ internal static class ScenarioEnvironmentBudget
     {
         try
         {
+            _wallContentChanged?.Invoke();
             try { _worldBeforeContent?.Invoke(); _terrainBeforeContent?.Invoke(); }
             finally { _driver?.RecoverRenderLeases(); }
         }
@@ -135,11 +143,16 @@ internal static class ScenarioEnvironmentBudget
         _failed = false;
     }
 
-    internal static void Placed(GameObject root) { _worldQueue?.Invoke(root); _terrainQueue?.Invoke(root); if (!_failed) _driver?.QueueRoot(root); }
+    internal static void Placed(GameObject root) { _wallContentChanged?.Invoke(); _worldQueue?.Invoke(root); _terrainQueue?.Invoke(root); if (!_failed) _driver?.QueueRoot(root); }
     internal static void MaterialReady(Renderer renderer)
     {
         if (renderer == null) return;
-        try { _worldReady?.Invoke(renderer); _terrainReady?.Invoke(renderer); if (!_failed) _driver?.MaterialReady(renderer); }
+        try
+        {
+            _worldReady?.Invoke(renderer); _terrainReady?.Invoke(renderer);
+            if (!_failed) _driver?.MaterialReady(renderer);
+            _wallRendererReady?.Invoke(renderer);
+        }
         catch (Exception error) { StopAfterFailure(error); }
     }
     internal static void BeforeLoadingComplete() { if (!_failed) _driver?.FinishLoading(); }
@@ -350,7 +363,7 @@ internal static class ScenarioEnvironmentBudget
         }
         internal void Unmask()
         {
-            if (_masked && Renderer != null && Renderer.forceRenderingOff) Renderer.forceRenderingOff = false;
+            if (_masked && Renderer != null && !PerformanceWallHidden(Renderer) && Renderer.forceRenderingOff) Renderer.forceRenderingOff = false;
             _masked = false;
         }
     }
@@ -396,7 +409,7 @@ internal static class ScenarioEnvironmentBudget
                 MeshRenderer r = source.Renderer;
                 _materialScratch.Clear();
                 if (r != null) r.GetSharedMaterials(_materialScratch);
-                valid = r != null && !TerrainOwns(r) && r.enabled && r.gameObject.activeInHierarchy && !r.HasPropertyBlock()
+                valid = r != null && !PerformanceWallHidden(r) && !TerrainOwns(r) && r.enabled && r.gameObject.activeInHierarchy && !r.HasPropertyBlock()
                     && NativeGeometryCompatible(r) && r.forceRenderingOff == _owned && source.Filter != null
                     && source.Filter.sharedMesh == source.Mesh && _materialScratch.Count == 1
                     && _materialScratch[0] == Material
@@ -414,7 +427,7 @@ internal static class ScenarioEnvironmentBudget
             // transform change. Never keep a combined room visible after a native hide.
             if (Renderer != null) Renderer.enabled = valid;
             foreach (Surface source in Sources)
-                if (source.Renderer != null && source.Renderer.forceRenderingOff == _owned)
+                if (source.Renderer != null && !PerformanceWallHidden(source.Renderer) && source.Renderer.forceRenderingOff == _owned)
                     source.Renderer.forceRenderingOff = valid;
             _owned = valid;
         }
@@ -424,7 +437,7 @@ internal static class ScenarioEnvironmentBudget
             if (Renderer != null) Renderer.enabled = false;
             if (_owned)
                 foreach (Surface source in Sources)
-                    if (source.Renderer != null && source.Renderer.forceRenderingOff)
+                    if (source.Renderer != null && !PerformanceWallHidden(source.Renderer) && source.Renderer.forceRenderingOff)
                         source.Renderer.forceRenderingOff = false;
             _owned = false;
         }
@@ -473,7 +486,7 @@ internal static class ScenarioEnvironmentBudget
             {
                 Surface source = Sources[index]; MeshRenderer r = source.Renderer;
                 _scratch.Clear(); if (r != null) r.GetSharedMaterials(_scratch);
-                if (r == null || TerrainOwns(r) || !r.enabled || !r.gameObject.activeInHierarchy || r.HasPropertyBlock()
+                if (r == null || PerformanceWallHidden(r) || TerrainOwns(r) || !r.enabled || !r.gameObject.activeInHierarchy || r.HasPropertyBlock()
                     || r.forceRenderingOff != _owned || source.Filter == null || source.Filter.sharedMesh != Mesh
                     || _scratch.Count != Materials.Length || !SameRenderFlags(r, prototype)
                     || r.gameObject.layer != prototype.gameObject.layer || !SupportedInstanceFlags(r)) return false;
@@ -537,7 +550,7 @@ internal static class ScenarioEnvironmentBudget
         internal void Unmask()
         {
             if (_owned) foreach (Surface source in Sources)
-                if (source.Renderer != null && source.Renderer.forceRenderingOff) source.Renderer.forceRenderingOff = false;
+                if (source.Renderer != null && !PerformanceWallHidden(source.Renderer) && source.Renderer.forceRenderingOff) source.Renderer.forceRenderingOff = false;
             _owned = false;
         }
         internal int ActiveBuffers(Camera camera)
@@ -793,6 +806,7 @@ internal static class ScenarioEnvironmentBudget
         {
             if (renderer == null || !VRSession.IsRunning || !(PerfConfig.StaticScenarioBatchesOn
                 || StructuralEnabled || PerfConfig.EnvironmentDrawInstancingOn || PerfConfig.SimpleEnvironmentShadingOn || PerfConfig.EnvironmentEffectsDensityPercent < 100)) return;
+            if (PerformanceWallHidden(renderer)) return;
             Settings();
             if (TileScope(renderer.transform, out _) == null)
             { AdoptAmbient(renderer.transform); return; }
@@ -903,6 +917,7 @@ internal static class ScenarioEnvironmentBudget
             if (tile == null) return;
             MeshRenderer renderer = node.GetComponent<MeshRenderer>();
             MeshFilter filter = node.GetComponent<MeshFilter>();
+            if (renderer != null && PerformanceWallHidden(renderer)) return;
             if (renderer != null && filter != null && filter.sharedMesh != null)
             {
                 Material[] materials = renderer.sharedMaterials;
@@ -1000,7 +1015,8 @@ internal static class ScenarioEnvironmentBudget
 
         private void ApplyMaterial(Surface surface)
         {
-            if (!_simpleOn || (surface.Structural && !_structuralOn) || surface.Renderer == null || TerrainOwns(surface.Renderer)) return;
+            if (!_simpleOn || (surface.Structural && !_structuralOn) || surface.Renderer == null
+                || PerformanceWallHidden(surface.Renderer) || TerrainOwns(surface.Renderer)) return;
             if (surface.Renderer.HasPropertyBlock()) return;
             foreach (Material original in surface.Original)
                 if (!CompatibleMaterial(original, surface.Floor || surface.Structural)) return;
@@ -1047,7 +1063,7 @@ internal static class ScenarioEnvironmentBudget
             {
                 MeshRenderer renderer = surface.Renderer;
                 RecordPreparationRefusals(renderer, false);
-                if (renderer == null || TerrainOwns(renderer) || _instanceBySource.ContainsKey(renderer.GetInstanceID()) || _batchBySource.ContainsKey(renderer.GetInstanceID())
+                if (renderer == null || PerformanceWallHidden(renderer) || TerrainOwns(renderer) || _instanceBySource.ContainsKey(renderer.GetInstanceID()) || _batchBySource.ContainsKey(renderer.GetInstanceID())
                     || !(surface.Floor ? _batchOn : surface.Structural && _structuralOn && surface.StructuralMaterialReady()) || surface.Tile == null || surface.Mesh == null
                     || renderer.transform.localToWorldMatrix.determinant <= 0f
                     || !renderer.enabled || !renderer.gameObject.activeInHierarchy || renderer.forceRenderingOff
@@ -1092,7 +1108,7 @@ internal static class ScenarioEnvironmentBudget
             {
                 MeshRenderer r = surface.Renderer;
                 RecordPreparationRefusals(r, true);
-                if (r == null || TerrainOwns(r) || _batchBySource.ContainsKey(surface.Id) || _instanceBySource.ContainsKey(surface.Id)
+                if (r == null || PerformanceWallHidden(r) || TerrainOwns(r) || _batchBySource.ContainsKey(surface.Id) || _instanceBySource.ContainsKey(surface.Id)
                     || surface.Mesh == null || surface.Filter == null || surface.Filter.sharedMesh != surface.Mesh
                     || !r.enabled || !r.gameObject.activeInHierarchy || r.forceRenderingOff || r.HasPropertyBlock()
                     || surface.Tile == null) continue;
@@ -1210,6 +1226,10 @@ internal static class ScenarioEnvironmentBudget
             {
                 Surface surface = pair.Value;
                 if (surface.Renderer == null) continue;
+                // Mask acquisition already returned this owner's material and geometry
+                // leases. A native ready callback must not re-adopt a deliberately absent
+                // wall; current membership, not a saved renderer flag, is authoritative.
+                if (PerformanceWallHidden(surface.Renderer)) continue;
                 if (TerrainOwns(surface.Renderer))
                 {
                     if (!surface.TerrainOwned) { InvalidateBatch(surface.Id); surface.RestoreMaterial(); surface.TerrainOwned = true; }

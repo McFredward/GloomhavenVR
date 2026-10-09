@@ -1260,9 +1260,31 @@ internal static partial class VROptionsTab
         dropdown.AddOptions(options);
         dropdown.SetValueWithoutNotify(Mathf.Clamp(current, 0, names.Length - 1));
         dropdown.RefreshShownValue();
-        dropdown.onValueChanged.AddListener(index => Apply(item, () => apply(index)));
-
+        dropdown.onValueChanged.AddListener(index =>
+        {
+            if (IsEnvironmentChoice(item) && index == MixedRealityEnvironmentIndex && !MixedRealityCanEnable)
+            {
+                dropdown.SetValueWithoutNotify(EnvironmentIndex());
+                return;
+            }
+            Apply(item, () => apply(index));
+        });
         AttachTooltip(row, item, title, hintKey);
+        if (IsEnvironmentChoice(item))
+            RegisterMixedRealityAvailabilityRefresh(() =>
+            {
+                if (dropdown == null)
+                    return;
+                if (dropdown.options.Count > MixedRealityEnvironmentIndex)
+                    dropdown.options[MixedRealityEnvironmentIndex].text = MixedRealityCanEnable
+                        ? names[MixedRealityEnvironmentIndex]
+                        : "<color=#8C8C8C>" + names[MixedRealityEnvironmentIndex] + "</color>";
+                dropdown.SetValueWithoutNotify(EnvironmentIndex());
+                dropdown.RefreshShownValue();
+                // A fallback dropdown still explains why its MR choice is unavailable.
+                if (title != null)
+                    AttachHoverHint(title, !MixedRealityCanEnable ? MixedRealityHint() : HintFor(item, hintKey), item.Key);
+            });
     }
 
     /// <summary>Pick the control shape from what the entry actually is, and build that row.</summary>
@@ -1484,6 +1506,8 @@ internal static partial class VROptionsTab
                 toggle.SetIsOnWithoutNotify(now);
         });
         AttachTooltip(row, item, title, hintKey);
+        if (IsMixedRealitySwitch(item))
+            RegisterMixedRealityAvailabilityRefresh(() => RefreshMixedRealitySwitch(item, toggle, title));
         return true;
     }
 
@@ -1514,9 +1538,8 @@ internal static partial class VROptionsTab
 
         for (int i = 0; i < choices.Length; i++)
         {
-            string text = choices[i]?.ToString() ?? string.Empty;
-            labels.Add(new TMP_Dropdown.OptionData(text));
-            if (string.Equals(text, now, StringComparison.Ordinal))
+            labels.Add(new TMP_Dropdown.OptionData(choices[i] == null ? string.Empty : ConfigCatalog.ChoiceText(item, choices[i])));
+            if (string.Equals(choices[i]?.ToString() ?? string.Empty, now, StringComparison.Ordinal))
                 current = i;
         }
 
@@ -1770,6 +1793,11 @@ internal static partial class VROptionsTab
     /// </summary>
     private static void Apply(ConfigCatalog.ConfigItem item, Action edit)
     {
+        // Reject an unavailable native-MR enable even from the generic Advanced
+        // row or a programmatic toggle event; a saved true value can still be cleared.
+        if (IsMixedRealitySwitch(item) && !CanEditMixedRealitySwitch(item))
+            return;
+
         // A wall-cadence edit has two differently named controls plus the older
         // [Optimize] fallback. The effective values matter more than the slider
         // position, and a map transition can end wall sampling before its next
@@ -2271,12 +2299,17 @@ internal static partial class VROptionsTab
     /// </summary>
     private static void AttachHoverHint(TMP_Text title, string text, string what)
     {
+        title.raycastTarget = true;
+        AttachHoverHint(title.gameObject, text, what);
+    }
+
+    /// <summary>Keep disabled controls raycastable so hovering explains their unavailability.</summary>
+    private static void AttachHoverHint(GameObject receiver, string text, string what)
+    {
         try
         {
-            title.raycastTarget = true;
-
-            var target = title.gameObject.GetComponent<UITextTooltipTarget>()
-                         ?? title.gameObject.AddComponent<UITextTooltipTarget>();
+            var target = receiver.GetComponent<UITextTooltipTarget>()
+                         ?? receiver.AddComponent<UITextTooltipTarget>();
             target.Initialize(UITooltip.Corner.Auto, Vector2.zero, anchorToExactMouseTargetInstead: false,
                               width: HintWidth, height: 50f, autoAdjustHeight: true, hideBackground: false);
 
@@ -2314,6 +2347,9 @@ internal static partial class VROptionsTab
     /// </summary>
     private static string HintFor(ConfigCatalog.ConfigItem item, string? hintKey)
     {
+        if (IsMixedRealitySwitch(item))
+            return MixedRealityHint();
+
         string text = Loc.ConfigHelpForPlayers(item.Section, item.Key) ?? string.Empty;
 
         if (text.Length == 0 && !string.IsNullOrEmpty(hintKey))
@@ -2364,6 +2400,7 @@ internal static partial class VROptionsTab
                 UnityEngine.Object.Destroy(Rows[i]);
         }
         Rows.Clear();
+        ClearMixedRealityAvailabilityRefreshers();
         ValueLabels.Clear();
         Sliders.Clear();
     }

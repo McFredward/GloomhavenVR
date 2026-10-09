@@ -40,7 +40,12 @@ def verify(root: Path):
         assert 'using (_worldReadPass?.Invoke())' in terrain and 'supported &= !world || _worldOwns?.Invoke(next) == true;' in terrain,'terrain requires all audited world slots in synchronous read pass'
         assert 'try { _worldBeforeWrite?.Invoke(renderer); _terrainBeforeWrite?.Invoke(renderer);' in env,'native writer first restores world references'
         assert 'try { _worldBeforeContent?.Invoke(); _terrainBeforeContent?.Invoke(); }' in env,'native clone first restores world references'
-        assert 'internal static void Placed(GameObject root) { _worldQueue?.Invoke(root);' in env and 'try { _worldReady?.Invoke(renderer); _terrainReady?.Invoke(renderer);' in env,'bounded native placement and material ready discovery'
+        placement=env[env.index('internal static void Placed(GameObject root)'):env.index('internal static void MaterialReady(Renderer renderer)')]
+        ready=env[env.index('internal static void MaterialReady(Renderer renderer)'):env.index('internal static void BeforeLoadingComplete()')]
+        assert '_worldQueue?.Invoke(root);' in placement and '_terrainQueue?.Invoke(root);' in placement and '_worldReady?.Invoke(renderer); _terrainReady?.Invoke(renderer);' in ready,'bounded native placement and material ready discovery'
+        if 'ConfigurePerformanceWallIntegration' in env:
+            assert '_wallContentChanged?.Invoke();' in placement,'native placement invalidates wall inventory'
+            assert '_wallRendererReady?.Invoke(renderer);' in ready and ready.index('_wallRendererReady?.Invoke(renderer);')>ready.index('_driver?.MaterialReady(renderer);'),'wall mask follows current native consumer readiness'
 
     check(text)
     controls=[
@@ -55,7 +60,7 @@ def verify(root: Path):
         ('environment','_parts.Clear();','/* retained queued consumers */','queued and live batch consumers released'),
         ('environment','try { _worldBeforeWrite?.Invoke(renderer); _terrainBeforeWrite?.Invoke(renderer);','try { _terrainBeforeWrite?.Invoke(renderer);','native writer first restores world references'),
         ('environment','try { _worldBeforeContent?.Invoke(); _terrainBeforeContent?.Invoke(); }','try { _terrainBeforeContent?.Invoke(); }','native clone first restores world references'),
-        ('environment','internal static void Placed(GameObject root) { _worldQueue?.Invoke(root);','internal static void Placed(GameObject root) {','bounded native placement and material ready discovery'),
+        ('environment','_worldQueue?.Invoke(root);','/* missing world placement */','bounded native placement and material ready discovery'),
     ]
     if ambient_bound:
         controls.append(('core','WorldMaterialBudget.ConfigureAmbientWeight(() => PerfConfig.WorldMaterialAmbientWeight);',

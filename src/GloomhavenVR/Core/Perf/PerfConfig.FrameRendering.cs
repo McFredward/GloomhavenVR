@@ -23,6 +23,8 @@ internal static partial class PerfConfig
     internal static ConfigEntry<int> ScenarioDistantTerrainDetailPercent = null!;
     internal static ConfigEntry<float> ScenarioTerrainDistanceMeters = null!;
     internal static ConfigEntry<int> ScenarioTerrainCameraSourceLimitCount = null!;
+    internal static ConfigEntry<int> WallVisibilityModeCount = null!;
+    internal static ConfigEntry<int> WallAutoHideBelowFpsCount = null!;
 
     internal static bool EnvironmentMeshBankOn => true;
     internal static bool EnvironmentDrawInstancingOn => ScenarioExplicitEnvironmentInstancing?.Value ?? Defaults.ScenarioExplicitEnvironmentInstancing;
@@ -34,6 +36,8 @@ internal static partial class PerfConfig
     internal static int DistantTerrainDetailPercent => Mathf.Clamp(ScenarioDistantTerrainDetailPercent?.Value ?? Defaults.ScenarioDistantTerrainDetailPercent, 0, 100);
     internal static float TerrainDistanceMeters => Mathf.Clamp(ScenarioTerrainDistanceMeters?.Value ?? Defaults.ScenarioTerrainDistanceMeters, .1f, 10f);
     internal static int TerrainCameraSourceLimit => Mathf.Clamp(ScenarioTerrainCameraSourceLimitCount?.Value ?? Defaults.ScenarioTerrainCameraSourceLimitCount, 0, 2048);
+    internal static int WallVisibilityMode => Mathf.Clamp(WallVisibilityModeCount?.Value ?? Defaults.WallVisibilityModeCount, 0, 2);
+    internal static int WallAutoHideBelowFps => Mathf.Clamp(WallAutoHideBelowFpsCount?.Value ?? Defaults.WallAutoHideBelowFpsCount, 5, 90);
     // Work removal is universal, not a player quality choice. The getter preserves
     // existing internal/test-reference read paths without binding a config entry.
     internal static bool SharedEnvironmentMaterialReadsOn => true;
@@ -41,6 +45,16 @@ internal static partial class PerfConfig
 
     private static void BindFrameRendering(ConfigFile file)
     {
+        // A visible quality trade is always editable. The maintainer explicitly requested
+        // Auto for every fresh profile (2026-10-09), with instant hiding rather than a fade.
+        // Unlike graphics presets, selecting a wall policy is independent of material detail.
+        WallVisibilityModeCount = file.Bind("Optimize", "WallVisibilityModeCount",
+            Defaults.WallVisibilityModeCount,
+            new ConfigDescription("Wall visibility: 0 = regular see-through settings, 1 = hide all walls instantly, 2 = automatic. Automatic hides walls after sustained low frame rate in loaded gameplay and keeps them hidden until the scenario ends. Select regular to restore them sooner. Hidden walls override look-dependent fading and the inside-play-area setting. Door frames and arches remain visible. Works live; automatic is the default on all platforms.", new AcceptableValueList<int>(0, 1, 2)));
+        WallAutoHideBelowFpsCount = file.Bind("Optimize", "WallAutoHideBelowFpsCount",
+            Defaults.WallAutoHideBelowFpsCount,
+            new ConfigDescription("Frame-rate threshold for automatic wall hiding, in frames per second. A sustained drop below this value during loaded gameplay hides walls for the rest of the scenario. Loading pauses do not trigger it. Higher values favor performance sooner. Used only in automatic wall mode; door frames and arches stay visible.", new AcceptableValueRange<int>(5, 90)));
+
         ScenarioRoomArchitecture = file.Bind("Optimize", "ScenarioRoomArchitecture",
             FrameDefaults.Active ? FrameDefaults.ScenarioRoomArchitecture : Defaults.ScenarioRoomArchitecture,
             "INERT — retained only to preserve your saved configuration. The broader room-architecture renderer from647 has been withdrawn after a Steam Frame performance regression. This value currently has no effect.");

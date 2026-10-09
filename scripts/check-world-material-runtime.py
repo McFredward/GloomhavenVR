@@ -162,6 +162,13 @@ def main():
             ('WorldMaterialBudget.cs','refused && (!surface.Refused || NeedsSubstituteRevocation())','refused && (!surface.Refused || NeedsSubstituteRevocation() && bool.Parse("false"))',1)],'successive actual camera culls revoke each renewed scope substitute, eye=1'),
         ('prepared-membership-used-for-revocation',[('WorldMaterialBudget.cs','needsRevocation = _substituteRevocation(renderer);','needsRevocation = HasSubstitute();',1)],'unchanged prepared-only refused source does not revoke or re-adopt'),
     ]
+    if '_performanceWallHidden?.Invoke(renderer)' in sources['WorldMaterialBudget.cs']:
+        changes.extend([
+            ('performance-hidden-read-guard-lost',[('WorldMaterialBudget.cs','if (_performanceWallHidden?.Invoke(renderer) == true)','if (false && _performanceWallHidden?.Invoke(renderer) == true)',1)],
+                'settled performance-hidden world sources make zero per-eye mesh material and MPB reads'),
+            ('performance-hidden-renotified',[('WorldMaterialBudget.cs','surface.PerformanceHidden = true;','surface.PerformanceHidden = false;',1)],
+                'settled performance-hidden world sources make zero per-eye mesh material and MPB reads'),
+        ])
     if 'bool rendererBlockEmpty' in sources['WorldMaterialBudget.Materials.cs']:
         changes.extend([
             ('nonempty-renderer-block-skipped',[('WorldMaterialBudget.Materials.cs','bool rendererBlockEmpty = _block.isEmpty;','bool rendererBlockEmpty = true;',1)],

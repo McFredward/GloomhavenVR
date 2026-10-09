@@ -138,6 +138,14 @@ Kleidung an der Figur befestigt, ohne Flattern oder Handinteraktion. **Sparsame 
 Frame beginnt mit weniger Figurendetails, ausgeschalteter Stoffsimulation und sparsamer
 Erzeugung. Alle Regler funktionieren auch auf PC; gespeicherte Werte bleiben erhalten.
 
+## Mixed Reality
+
+Wähle **Mixed Reality** unter **VR-Optionen → Umgebung**, um den Tisch in deinem Zimmer
+darzustellen. Standalone nutzt das native Passthrough der Frame, wenn die aktive Laufzeit
+es unterstützt. Ist die Auswahl grau, zeigt dir das Drüberzeigen den Grund. Aktualisiere
+**SteamVR** und die **für Gloomhaven ausgewählte Proton-Version**, starte das Spiel
+erneut und prüfe die Auswahl noch einmal.
+
 ## Updates
 
 Wenn ein neueres Release verfügbar ist, bietet das VR-Hauptmenü ein Update an. Du kannst auch

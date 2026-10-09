@@ -1,6 +1,6 @@
 using System;
-using System.Collections.Generic;
 using GloomhavenVR.Core;
+using System.Collections.Generic;
 
 namespace GloomhavenVR.WorldUI;
 
@@ -127,6 +127,11 @@ internal static partial class VROptionsTab
 
         // ---- Grafik ▸ Leistung: "Has no effect at all when EnableGraphicsJobs is false" --------
         ["Core/AutoRestartForGraphicsJobs"] = new("Core", "EnableGraphicsJobs", On),
+
+        // ---- Komfort ▸ Sichtbarkeit: instant all-wall hiding overrides look-dependent fading.
+        // Auto still starts with regular walls, so their saved tuning remains available there.
+        ["Optimize/WallAutoHideBelowFpsCount"] = new("Optimize", "WallVisibilityModeCount", static v => v is int mode && mode == 2),
+        ["Compat/WallFade"] = new("Optimize", "WallVisibilityModeCount", static v => v is int mode && mode != 1),
 
         // ---- Grafik ▸ Darstellung: the window supersample FACTOR is the tuning OF its switch,
         //      and the bound description says so in as many words ("Has no effect while
@@ -441,5 +446,6 @@ internal static partial class VROptionsTab
     private static bool IsRowVisible(ConfigCatalog.ConfigItem item) =>
         QuestOptionVisibility.IsOffered(item.Section, item.Key, QuestStandalonePlatform.Enabled)
         && !HasItsOwnPage(item)
+        && !(FrameNativePassthrough.Required && item.Section == "MixedReality" && item.Key == "KeyColor")
         && IsShownForCurrentVariant(item) && DependencyMet(item);
 }

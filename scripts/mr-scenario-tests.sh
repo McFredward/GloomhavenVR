@@ -49,11 +49,14 @@ assert 'RetireSceneryBackings();' in tick
 assert 'ForceUnseenOpaque();' not in tick
 assert mr.count('ForceUnseenOpaque(') == 1 # declaration, no creation caller
 assert 'HideSkyGeometry();' in tick and 'ForceSolid(head, key);' in tick
-backings=re.search(r'internal static bool BackingsWanted\s*=>([^;]+);', mr)
+# Native Frame backings must wait for accepted alpha composition. Preserve the
+# original VR/config guards without requiring the former chromakey-only expression.
+backings = re.search(r'internal static bool BackingsWanted\s*=>(.*?);', mr, re.S)
 assert backings is not None
 assert '_file != null && Enabled.Value && VRSession.IsRunning' in backings.group(1)
+assert '(!FrameNativePassthrough.Required || FrameNativePassthrough.IsActive)' in backings.group(1)
 assert '&& (!QuestStandalonePlatform.Enabled || QuestStandalonePlatform.PassthroughActive)' in backings.group(1)
-assert 'Color key = QuestStandalonePlatform.MixedRealityClearColor(KeyColor.Value);' in tick
+assert 'key = QuestStandalonePlatform.MixedRealityClearColor(key);' in tick
 assert mr.count('"INERT since build 532. MR backings are UI-only. Retained for configuration compatibility. "') == 7
 restore=mr[mr.index('private static void RestoreUnseenUnderlays('):mr.index('private static void RestoreSky(')]
 for name in ('plate', 'fill', 'rim'):

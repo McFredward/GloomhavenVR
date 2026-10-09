@@ -925,6 +925,8 @@ internal static class ConfigCatalog
                                      || key == "ScenarioDistantTerrainDetailPercent"
                                      || key == "ScenarioTerrainDistanceMeters"
                                      || key == "ScenarioTerrainCameraSourceLimitCount"
+                                     || key == "WallVisibilityModeCount"
+                                     || key == "WallAutoHideBelowFpsCount"
                                      || key == "ScenarioFigureClothSimulation"
                                      || key == "ReduceScenarioGenerationDetail"))
             return ConfigTopic.Visual;
@@ -1565,7 +1567,7 @@ internal static class ConfigCatalog
                 case ConfigKind.Bool:
                     return v is bool b && b ? Loc.Mod("vr_on") : Loc.Mod("vr_off");
                 case ConfigKind.Choice:
-                    return v?.ToString() ?? "-";
+                    return ChoiceText(item, v);
                 case ConfigKind.Number:
                     return Num(Convert.ToDouble(v, CultureInfo.InvariantCulture), item.Integral,
                                item.BaseStep);
@@ -1580,6 +1582,21 @@ internal static class ConfigCatalog
         {
             return "?";
         }
+    }
+
+    /// <summary>Localize named integer choices without changing their stored values.</summary>
+    internal static string ChoiceText(ConfigItem item, object? value)
+    {
+        if (item.Section == "Optimize" && item.Key == "WallVisibilityModeCount" && value is int mode)
+        {
+            switch (mode)
+            {
+                case 0: return Loc.Mod("wall_visibility_regular");
+                case 1: return Loc.Mod("wall_visibility_hidden");
+                case 2: return Loc.Mod("wall_visibility_auto");
+            }
+        }
+        return value?.ToString() ?? "-";
     }
 
     /// <summary>
@@ -1791,7 +1808,7 @@ internal static class ConfigCatalog
             sb.Append('\n').Append(Clip(Collapse(desc!), MaxDescriptionChars)).Append('\n');
 
         sb.Append('\n').Append(Loc.Mod("cfg_default")).Append(": ")
-          .Append(Clip(item.Entry.DefaultValue?.ToString() ?? "-", 40));
+          .Append(Clip(ChoiceText(item, item.Entry.DefaultValue), 40));
         if (item.HasRange)
         {
             sb.Append("   ").Append(Loc.Mod("cfg_range")).Append(": ")

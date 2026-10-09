@@ -176,6 +176,59 @@ executable original-game profile getters. Actual merged645 full weaving closes
 and832 existing Weaver assertions. Windows end-to-end builds and updated
 headset behavior remain unverified.
 See [APK update workflow and proof limits](QUEST-APK-UPDATES-20261008.md).
+**Build653 native Steam Frame standalone mixed reality, 2026-10-09: 1.1.0 development candidate.**
+
+The installed Frame launch marker selects native alpha composition; the actual
+Wine/OpenXR PrimaryStereo capability and live session gate availability.
+Unsupported choices remain grey with bilingual Proton/SteamVR update hover
+guidance. Unity's queued mode must be accepted before transparent camera clearing
+and sky suppression. Off/VR stop restores owned blend, camera/HDR and sky state;
+PC chromakey remains unchanged. No guessed version floor, camera-image copy,
+extra rendering camera, asset change or wire-layout change is introduced.
+
+Native910, actual Unity RGBA27+2 controls, original uGUI/TMP84+6 controls,
+all twelve affected scopes through bounded repairs, source16, strict Debug/Release
+and direct299715 goldens pass. Private1244→1247 compiled comparison confines
+behavior to four MR/menu types plus three new MR types. Unchanged areas inherit
+652's honest182-scope composite evidence; this is not a new184-suite full run.
+The latest supplied headset log is still651/SteamVR2.17.10 without a core blend
+measurement. Proton/compositor and both-eye passthrough remain hardware acceptance,
+not established by local pixel tests. Exact scope and receipts:
+[FRAME-653-MR-REVIEW.md](FRAME-653-MR-REVIEW.md).
+
+**Build652 configurable instant wall removal, 2026-10-09: 1.1.0 development candidate.**
+
+VR Options now provide Regular, Hide all and Auto, with Auto as the common fresh
+default. Auto uses cheap application frame intervals below an editable15FPS
+threshold over a two-second loaded-game window, excluding loading, focus loss
+and open VR Options. It latches for the scenario to avoid repeated visibility
+changes caused by its own FPS savings; select Regular to restore walls earlier.
+
+The exact existing game/DLC wall inventory removes eligible walls and their
+attachments instantly while preserving door frames, gate arches, floors,
+figures, water and held props. Hidden mode stops normal fade decisions,
+animations, diagnostics, recurring collector sweeps and sender walks. Exact
+World/environment/terrain consumers skip hidden sources. Native generation and changed
+held roots still receive bounded lifecycle handling; mode recovery rebuilds
+native wall keys once before regular multiplayer fades resume.
+
+The supplied651 Frame capture does not show650's prior hardware gain: its loaded
+three-room mean is112.13ms (~8.92 application FPS), versus compatible645's94.11ms.
+Pose/wall activity and broad clock differences prevent a causal regression
+claim. Actual Unity whole-World CPU comparisons support the new visual compromise:
+220 hidden identities reduce this path by49.35% paired median;376 by98.14%.
+These are local CPU results, not measured Frame FPS. Native scene-handle evidence
+also fixes a sign assumption during wall recovery. Exact hidden terrain work stops;
+the final release requeues current native sources after correcting an existing
+GameObject/Transform deduplication identity mismatch. Validation covers182 local
+scopes through the complete attempt and bounded repairs,16 final source checks,
+299715 direct golden assertions and zero-warning Debug/Release builds. This is
+composite evidence, not a fresh green complete-gate rerun. Full scope and receipts:
+[FRAME-652-REVIEW.md](FRAME-652-REVIEW.md).
+
+The startup-only OpenXR capability probe in652 is read-only;653 above adds
+the separately reviewed native mixed-reality backend.
+
 **Large release archive audit, 2026-10-09; runtime remains Build651.**
 
 A fresh dev package is 530,088,154 bytes (505.53 MiB), well below GitHub's 2 GiB

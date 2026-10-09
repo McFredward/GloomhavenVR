@@ -2098,6 +2098,7 @@ internal static partial class WallSegmentFade
 
         private void OnDisable()
         {
+            ResetPerformanceVisibility("driver disabled");
             SceneManager.sceneLoaded -= OnSceneLoaded;
             Camera.onPreRender -= HandleWallDrawTrace;
             ClearWallDrawTrace();
@@ -2107,6 +2108,10 @@ internal static partial class WallSegmentFade
 
         private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
         {
+            // Additive scene arrivals do not end a loaded scenario's Auto latch.
+            // A new Game scene does; other arrivals invalidate the hidden inventory.
+            if (scene.name == "Game") ResetPerformanceVisibility("scenario scene loaded");
+            else if (PerformanceWallsHidden) InvalidatePerformanceInventory();
             ClearWallDrawTrace();
             ClearCeilingCommitTrace();
             // Scenario scenes are additive; walls/volumes stream in — rescan promptly. Old
@@ -2182,6 +2187,10 @@ internal static partial class WallSegmentFade
                 // for the arithmetic and for why the applier tier is sampled.
                 using (PerfMonitor.Scope("WallFade.Late"))
                 {
+                    // The quality compromise replaces the ordinary pipeline entirely. Its
+                    // settled path does no wall census, fade animation or diagnostics.
+                    if (TickPerformanceVisibility())
+                        return;
                     BeginTickFrame();
                     try
                     {
@@ -5933,7 +5942,7 @@ internal static partial class WallSegmentFade
                 // MP sync (record 17): refresh every segment's cross-machine wire key — needs the
                 // final table and the room labels (part of the key derivation).
                 using (Phase(CommitPhase.WireKeys))
-                    ComputeWireKeys();
+                    if (!PerformanceWallsHidden) ComputeWireKeys();
                 // Gate-lift links (round 12): bind embedding walls to their gate columns.
                 using (Phase(CommitPhase.GateLift))
                     LinkGateLifts();
@@ -10220,6 +10229,8 @@ internal static partial class WallSegmentFade
         /// <summary>Full teardown: revert every renderer and destroy our textures.</summary>
         internal void Teardown()
         {
+            try { ResetPerformanceVisibility("teardown"); }
+            catch { /* renderers already dying with the scene */ }
             try { ClearAllBlocks("teardown"); }
             catch { /* renderers already dying with the scene */ }
             // Nothing we ever hid may survive a teardown — including a prop whose owner segment

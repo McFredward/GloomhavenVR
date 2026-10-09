@@ -722,6 +722,8 @@ internal static partial class Loc
             ["Optimize/ScenarioSimpleEnvironmentShading"] = Pair("Simpler environment shading", "Einfachere Umgebungsschattierung"),
             ["Optimize/ScenarioExplicitEnvironmentInstancing"] = Pair("Group repeated environment draws", "Wiederholte Umgebung gemeinsam zeichnen"),
             ["Optimize/ScenarioCheapWallShading"] = Pair("Simpler wall shading", "Einfachere Wandschattierung"),
+            ["Optimize/WallVisibilityModeCount"] = Pair("Wall visibility", "Wandsichtbarkeit"),
+            ["Optimize/WallAutoHideBelowFpsCount"] = Pair("Hide walls automatically below (FPS)", "Wände automatisch ausblenden unter (FPS)"),
             ["Optimize/ScenarioRoomArchitecture"] = Pair("Simplified 3D room architecture", "Vereinfachte 3D-Raumarchitektur"),
             ["Optimize/ScenarioRoomFloorDetailPercent"] = Pair("3D room floor detail (%)", "3D-Raumbodendetails (%)"),
             ["Optimize/ScenarioRoomArchitectureDensityPercent"] = Pair("Architectural dressing (%)", "Architektur-Zierelemente (%)"),

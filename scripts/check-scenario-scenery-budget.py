@@ -62,6 +62,9 @@ private static readonly Dictionary<Collider,bool> TreeColliderReadFacts=new();
 private static readonly Dictionary<Collider,TreeColliderOwner> TreeColliderOwners=new();
 private static readonly Dictionary<Collider,bool> BayColliderOwners=new();
 private static readonly Dictionary<Collider,bool> BayColliderReadFacts=new();
+// Wall visibility is inactive in this portable classifier boundary; exact
+// ownership overlap executes in the native wall-performance runtime lane.
+private static Func<Renderer,bool>? _retainPerformanceWallMask=null;
 '''
     return header+'\n'.join(methods)+'\n}\n'
 

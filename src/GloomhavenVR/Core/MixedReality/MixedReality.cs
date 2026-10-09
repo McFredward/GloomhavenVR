@@ -6,8 +6,11 @@ using UnityEngine;
 namespace GloomhavenVR.Core;
 
 /// <summary>
-/// Mixed-reality / chroma-key mode (hardware test #22 item 7). When ON, the whole
-/// SKY/BACKGROUND turns a flat, solid KEY COLOR (default green) so Virtual Desktop can
+/// Mixed-reality mode: capability-gated native OpenXR alpha composition on standalone
+/// Frame, otherwise the existing chroma-key backend (hardware test #22 item 7).
+/// Native mode clears transparently only after Unity accepts AlphaBlend; HDR permission
+/// is saved/restored to avoid intermediates that discard alpha. The PC backend turns the
+/// SKY/BACKGROUND into a flat, solid KEY COLOR (default green) so Virtual Desktop can
 /// chroma-key it and composite the game over the real room — the diorama/table geometry
 /// keeps rendering, only the sky/background becomes the flat key color the compositor
 /// punches out.
@@ -436,7 +439,8 @@ internal static partial class MixedReality
     /// </summary>
     internal static bool BackingsWanted =>
         _file != null && Enabled.Value && VRSession.IsRunning
-        && (!QuestStandalonePlatform.Enabled || QuestStandalonePlatform.PassthroughActive);
+        && (!QuestStandalonePlatform.Enabled || QuestStandalonePlatform.PassthroughActive)
+        && (!FrameNativePassthrough.Required || FrameNativePassthrough.IsActive);
 
     /// <summary>
     /// No-op (kept for its ModalFallback call sites). The floated-menu-vs-sky occlusion is now fixed
@@ -458,13 +462,12 @@ internal static partial class MixedReality
             return;
         _file = ModuleConfig.Create("mixedreality");
         Enabled = _file.Bind("MixedReality", "Enabled", Defaults.MixedReality_Enabled,
-            "Mixed-reality (chroma-key passthrough) mode. When ON the sky/background of the " +
-            "whole game turns the flat solid KeyColor and every skybox is disabled, so Virtual " +
-            "Desktop (or any compositor) can chroma-key that color and show the diorama/table " +
-            "floating over your real room. The 3D geometry keeps rendering — only the sky becomes " +
-            "the flat key color. While ON, the mod's floating UI (menus, captions, name tags) " +
-            "additionally gets opaque backing plates so text stays readable over the passthrough " +
-            "room. Restored fully (plates included) when turned off.");
+            "Place the game table in your real room. Steam Frame standalone uses native " +
+            "passthrough when the active Proton/OpenXR/SteamVR combination supports alpha " +
+            "composition; otherwise this choice is unavailable. PC streaming keeps the " +
+            "selected solid KeyColor for compatible chroma-key software such as Virtual " +
+            "Desktop. Sky backgrounds are hidden, game geometry stays visible and floated " +
+            "UI gets readable backing plates. Turning off restores the previous environment.");
         KeyColor = _file.Bind("MixedReality", "KeyColor", Defaults.KeyColor,
             "The solid chroma-key color the sky/background clears to in mixed-reality mode " +
             "(default pure green RGBA 0,1,0,1). The in-VR settings panel cycles the presets " +
@@ -607,13 +610,21 @@ internal static partial class MixedReality
         // See Core/ElementMood.cs, "MIXED REALITY KEEPS SENSING".
         ElementMood.Tick();
 
-        bool want = Enabled.Value && VRSession.IsRunning;
+        bool requested = Enabled.Value && VRSession.IsRunning;
+        bool native = FrameNativePassthrough.Required;
+        // Unity applies a blend request asynchronously. Keep the ordinary environment
+        // until the actual running session accepts AlphaBlend, rather than exposing
+        // an opaque black/green background or treating the pending write as a failure.
+        bool want = requested && (!native || (VRCameraPolicy.AllowedHead != null
+            && FrameNativePassthrough.TryEnter()));
         if (QuestStandalonePlatform.Enabled)
-            want = QuestStandalonePlatform.SetPassthrough(want) && want;
+            want = QuestStandalonePlatform.SetPassthrough(requested) && requested;
         if (!want)
         {
             if (_active)
                 RestoreAll();
+            else if (!requested)
+                FrameNativePassthrough.Exit();
             // MR OFF: the player's SKY CHOICE applies ([Sky] Style — SkyAlternative). Default:
             // the game's sky STAYS and is made a pure NON-OCCLUDING backdrop by SkyBackdrop
             // (ZWrite-off, or — when the shader hard-codes ZWrite On — the sky is left drawing
@@ -639,10 +650,10 @@ internal static partial class MixedReality
         // (restores the renderer/material first, so HideSkyGeometry disables a clean renderer).
         SkyBackdrop.Tick(skyOwnedElsewhere: true);
 
-        // Desktop keeps its exact chroma-key workflow. Quest composites the real
-        // room via the already active Unity session's native underlay, so the
-        // head/sky cameras must leave alpha zero rather than render a greenscreen.
-        Color key = QuestStandalonePlatform.MixedRealityClearColor(KeyColor.Value);
+        Color key = native ? Color.clear : KeyColor.Value;
+        key = QuestStandalonePlatform.MixedRealityClearColor(key);
+        if (!native && !QuestStandalonePlatform.Enabled)
+            key.a = 1f; // The PC chroma key stays fully opaque.
 
         // 1) Kill the global skybox (ambient/reflection contributions + any Skybox clear).
         if (!_skyboxSaved)
@@ -659,6 +670,8 @@ internal static partial class MixedReality
         if (head != null)
         {
             Record(head);
+            if (native)
+                MrNativeCamera.Apply(head);
             ForceSolid(head, key);
         }
 
@@ -694,10 +707,13 @@ internal static partial class MixedReality
             _loggedColor = key;
             if (QuestStandalonePlatform.Enabled)
                 VRLog.Info("Core", "Quest mixed reality ON — native passthrough active, transparent sky clear; existing UI backings and scenery rules retained.");
+            else if (native)
+                VRLog.Info("Core", "Mixed reality ON — native OpenXR AlphaBlend; " +
+                    "transparent background, diorama geometry stays visible.");
             else
                 VRLog.Info("Core", $"Mixed reality ON — skybox disabled, sky/background keyed to " +
-                               $"{KeyColorName} (RGBA {key.r:0.##},{key.g:0.##},{key.b:0.##},{key.a:0.##}); " +
-                               $"diorama geometry stays visible.");
+                                   $"{KeyColorName} (RGBA {key.r:0.##},{key.g:0.##},{key.b:0.##},{key.a:0.##}); " +
+                                   $"diorama geometry stays visible.");
         }
     }
 
@@ -2453,6 +2469,8 @@ internal static partial class MixedReality
             restored++;
         }
         CamOriginals.Clear();
+        MrNativeCamera.RestoreAll();
+        FrameNativePassthrough.Exit();
 
         if (_skyboxSaved)
         {

@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework><LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems><AssemblyName>$(CaseName)</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Boundary.cs"/><Compile Include="Program.cs"/>
+    <Compile Include="$(PresentationSource)"/><Compile Include="$(CameraSource)"/>
+    <Reference Include="$(UnityManaged)/UnityEngine/*.dll" Private="false"/>
+  </ItemGroup>
+</Project>

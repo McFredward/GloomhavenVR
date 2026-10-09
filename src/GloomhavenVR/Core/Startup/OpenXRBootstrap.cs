@@ -298,10 +298,12 @@ internal static class OpenXRBootstrap
         var oculusTouch = ScriptableObject.CreateInstance<OculusTouchControllerProfile>();
         var valveIndex = ScriptableObject.CreateInstance<ValveIndexControllerProfile>();
         var khrSimple = ScriptableObject.CreateInstance<KHRSimpleControllerProfile>();
+        var environmentBlendProbe = ScriptableObject.CreateInstance<OpenXrEnvironmentBlendFeature>();
         oculusTouch.enabled = true;
         valveIndex.enabled = true;
         khrSimple.enabled = true;
-        _features = [oculusTouch, valveIndex, khrSimple];
+        environmentBlendProbe.enabled = true;
+        _features = [oculusTouch, valveIndex, khrSimple, environmentBlendProbe];
         OpenXRSettings.Instance.features = _features;
 
         // Stereo render mode. MultiPass is the only mode that renders correctly on this game —

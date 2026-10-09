@@ -598,7 +598,38 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 651;
+    public const ushort ModBuild = 653;
+
+    // ModBuild653 — capability-gated native Steam Frame standalone mixed reality.
+    // Detect the existing installed Frame opt-in marker, then query the actual
+    // Wine/OpenXR PrimaryStereo blend modes. Alpha support plus a live session
+    // enables the choice; unavailable choices stay grey with localized Proton/
+    // SteamVR update guidance. Version strings alone cannot prove bridge support.
+    // Use Unity's official queued blend setter and validate actual acceptance
+    // before transparent head clearing. Restore owned modes/camera HDR/sky state
+    // on off/VR stop; preserve external authors and safe session lifetimes.
+    // PC chromakey remains unchanged. No private camera API, compositor hook,
+    // second rendering camera, asset change or network layout change is added.
+    // Actual Unity RGBA/native-tooltip checks, async/lifecycle causal controls
+    // and shipped native-plugin submission proof are recorded separately from
+    // the still-unverified Proton/headset result in FRAME-653-MR-REVIEW.md.
+    // Retains652 wall compromise and651 game UI fixes. Both VR peers use653.
+
+    // ModBuild652 — explicit wall visibility compromise and cheap loaded-game Auto.
+    // Normal keeps the current view-dependent fade; Hide all instantly masks exact
+    // existing wall/attachment members and pauses decisions, animations, recurring
+    // collectors and wall-fade snapshots. Door/gate arches retain their protections.
+    // Auto is the common fresh default: below15 application FPS across a loaded
+    // two-second window, keep walls hidden for the scenario to avoid oscillation.
+    // Both mode and threshold remain editable; loading/focus/options do not trigger.
+    // Native placement/readiness/room changes still refresh the exact inventory.
+    // Hidden wall sources retire their material/substitute work; consumer and
+    // scenery-mask restitution preserve current independent visibility choices.
+    // Retains650 redundant-work removal and651 guarded UI fixes. Startup also
+    // reports bounded read-only OpenXR blend capabilities for the independent MR
+    // investigation; it does not activate passthrough or change render state.
+    // Hardware comparison, causal controls, budgets and integration evidence:
+    // .planning/FRAME-652-REVIEW.md. Both VR peers use the common652 build.
 
     // ModBuild651 — selected native game UI repairs from Bug Fixes 5.0.0.
     // Resolve the item bar's actual incoming inventory/action owner before

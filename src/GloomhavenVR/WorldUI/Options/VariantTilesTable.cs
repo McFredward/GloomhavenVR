@@ -68,9 +68,10 @@ internal static partial class VROptionsTab
 
     // ---- environment ------------------------------------------------------------------------
 
-    /// <summary>Is mixed reality on? False whenever the entry has not been bound yet, which is the
-    /// same answer <c>MixedReality.BackingsWanted</c> gives before the rig has ticked.</summary>
-    private static bool MixedRealityOn => MixedReality.Enabled != null && MixedReality.Enabled.Value;
+    /// <summary>A supported MR choice is selected; a dormant incompatible saved preference
+    /// leaves the current sky selected and remains available to turn off through its switch.</summary>
+    private static bool MixedRealityOn => MixedReality.Enabled != null && MixedReality.Enabled.Value
+        && MixedRealityCanEnable;
 
     /// <summary>
     /// The sky the game is actually showing. Not a bare equality against the stored value:
@@ -98,7 +99,7 @@ internal static partial class VROptionsTab
         if (SkyAlternative.Style != null)
             SkyAlternative.Style.Value = style;
 
-        if (!MixedRealityOn)
+        if (MixedReality.Enabled == null || !MixedReality.Enabled.Value)
             return false;
         MixedReality.Enabled.Value = false;
         return true;
@@ -111,7 +112,7 @@ internal static partial class VROptionsTab
     /// </summary>
     private static bool ChooseMixedReality()
     {
-        if (MixedReality.Enabled == null || MixedReality.Enabled.Value)
+        if (!MixedRealityCanEnable || MixedReality.Enabled == null || MixedReality.Enabled.Value)
             return false;
         MixedReality.Enabled.Value = true;
         return true;
@@ -174,6 +175,8 @@ internal static partial class VROptionsTab
             Resource = TileResourcePrefix + "tile_env_mr.png",
             Label = () => Loc.Mod("vr_o_mrenabled"),
             Selected = () => EnvironmentIndex() == MixedRealityEnvironmentIndex,
+            Available = () => MixedRealityCanEnable,
+            Hint = MixedRealityHint,
             Choose = () => ChooseEnvironment(MixedRealityEnvironmentIndex),
         },
     };
