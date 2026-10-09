@@ -89,3 +89,23 @@ run the final affected checks for the actual merged source. This report records
 an isolated, source-reviewed candidate rather than claiming it is already on dev.
 Next hardware acceptance: edit the threshold while Auto is latched, then circle
 a nearby pillar at a fixed radius with one and all rooms open.
+
+
+## Final dev integration — Build656
+
+All six reviewed Frame checkpoints are integrated after the independently pushed
+NPC655 candidate (`60ced7497`). Build656 preserves those NPC/comfort repairs and
+adds only the reviewed wall-threshold and pillar-distance scope plus the build
+stamp. The actual merged source passes wall-performance-runtime, wall-options
+and terrain-budget-runtime together (149.7s, PARTIAL,3/3); unchanged NPC655 native
+proofs and controls are inherited rather than repeated. Native wall730+27 controls,
+options77/16 variants and terrain818+91 controls remain passing.
+
+Common source16, strict Debug/Release (zero errors/warnings) and rebuilt direct
+299961 wire goldens pass. Exact private655→656 compiled comparison preserves1247
+types and confines behavior to Loc, PerfConfig, WallSegmentFade and
+ScenarioTerrainBudget; eight build-consumer types change by the standalone
+655→656 token only. Config/Harmony/log surfaces are unchanged. Final receipts and
+hashes are retained under `.planning/debug/frame656/integration/`. This is not a
+new complete188-suite local gate or a hardware FPS measurement. The Frame
+threshold-reset and nearby-pillar appearance still await headset acceptance.

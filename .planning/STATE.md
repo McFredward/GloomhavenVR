@@ -1,5 +1,22 @@
 # State — where the project stands
 
+**Build656 live Auto threshold recovery and radial pillars, 2026-10-09: 1.1.0 development candidate.**
+
+Integrates the parallel Frame follow-up after the pushed655 NPC repairs. Effective
+Auto wall-threshold edits restore original wall consumers and restart observation;
+the control caps at30FPS while retaining its15FPS default/key. Nearby admitted
+pillars use authored radial proximity rather than world-AABB corners, preserving
+tracked-hand guards, other surfaces and existing budgets/detail percentages.
+
+Final three affected Frame scopes pass together; source16, strict Debug/Release,
+299961 direct wire goldens and private655→656 compiled/surface comparison pass.
+Unchanged NPC655 scopes inherit their recorded native evidence. This is focused
+integration, not a new188-suite full gate or a measured new Frame performance gain.
+Headset threshold/geometry acceptance and655 overlay-flicker attribution remain
+as documented in [FRAME-WALL-LOD-REVIEW.md](FRAME-WALL-LOD-REVIEW.md) and
+[NPC-655-REVIEW.md](NPC-655-REVIEW.md). Hardware logs and compact receipts remain;
+completed owned worktrees/caches are cleaned after the push.
+
 **Build655 paired NPC delivery/returns and map comfort, 2026-10-09: 1.1.0 development candidate.**
 
 The supplied owner and participant banners both identify653. Native continuous
