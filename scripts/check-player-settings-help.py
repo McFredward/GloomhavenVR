@@ -14,6 +14,7 @@ import importlib.util
 import json
 from pathlib import Path
 import re
+import shutil
 import sys
 import hashlib
 import os
@@ -32,6 +33,11 @@ DEVELOPER_PROSE = re.compile(
     r"single biggest performance gain|implementation details|plumbing|"
     r"Entwickler|Hardwaretest|Nutzerwunsch|auf deinen Wunsch|auf Wunsch des|"
     r"per Entscheidung|vorherigen Build|früheren Build)\b", re.IGNORECASE)
+
+
+def resolve_dotnet():
+    """Respect explicit hosts and find hosted CI's SDK before the local fallback."""
+    return os.environ.get("DOTNET") or shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
 
 
 def load_options_census():
@@ -138,7 +144,7 @@ def production_lookup(keys, hints, output: Path, negative_controls: bool):
     }
     if not negative_controls:
         mutations = {"original": mutations["original"]}
-    dotnet = os.environ.get("DOTNET", str(Path.home() / ".dotnet/dotnet"))
+    dotnet = resolve_dotnet()
 
     def execute(case):
         search, replacement, expected = mutations[case]
