@@ -68,7 +68,7 @@ namespace GloomhavenVR.Core
     }
     internal static class NativeWriteObserver
     {
-        internal static Renderer? TrackedRenderer;
+        internal static Renderer? TrackedRenderer=null;
         internal static int TrackedMaterials,TrackedMeshes,TrackedWideBlocks,TrackedSlotBlocks;
         internal static int MaterialCopies,ArrayWrites,MaterialReads,MapInventories,RendererBlockReads,SlotBlockReads,PropCopies,RegistryVisits,MeshReads;
         internal static void Copy(Material target,Material source){MaterialCopies++;target.CopyPropertiesFromMaterial(source);}
