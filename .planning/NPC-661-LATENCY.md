@@ -166,3 +166,44 @@ Its old fairness and old retention controls fail their specifically named
 progress/current-batch assertions. A separate owner-bank control removes only
 the sequence dominance guard, preserving the newer census/module guards, to
 challenge the uncensused cross-module case independently.
+
+## Compact-flight completion and bounded reservation retirement
+
+An already fragmented compact packet and its exact full repair share the same
+immutable owner object. Completing that older compact packet must not retire a
+known request while the matching full source is still the pending head. The
+queue now tests that exact head identity; a later dependent delta does not keep
+the marker alive after the full source itself completes. Marked module IDs do
+not enter a new ordinary bundle, while previously started background atomic
+bundles remain intact. Only the accepted exact-source classifier may give an
+ordinary merchant confirmation original the same bounded dependency pin.
+
+The expanded real driver/FFS test gives one native TMP widget legitimate long
+text, making its compact source span multiple compressed module pages. This is
+an explicit transport challenge, not a hardware card-density performance input.
+It starts that compact assembly, queues its newer based revision, admits the
+exact request/full repair, and verifies all three finish once with normal marker
+retirement. No packet content, owner identity or acknowledgment is substituted.
+The existing active-module cursor is a declared state port for the separately
+tested already-started lane.
+
+That challenge also exposed an outer scheduler failure: after four opening pages,
+an exhausted reservation could keep skipping every regular town turn when all
+other ordinary streams were empty. The requested full originals completed, but
+a newer delta remained pending while the actual FFS scheduler returned idle.
+The root-owned scheduler now resets that finite opening counter when no reserved
+page remains, preserving its event budget, clocks, urgent debt and ordinary
+fairness. This conditional source failure is not attributed to the supplied
+hardware recording; ordinary presence traffic may also release the old wait.
+
+The combined proof `requests-fixed-opening-flight/run-_jg8_2ml` passes 708
+assertions through the actual FFS/global scheduler, including the previous
+failure/fairness/session guards. Queue identity/readbacks are retained alongside
+the initial expanded failures, where the based delta was correctly still stored.
+Those failed runs are not counted as successful marker counter-controls.
+Restoring only the old scheduler counter assignment in
+`requests-old-opening-reset/run-o2ukpb7b` fails the unchanged dependent-revision
+completion assertion. Restoring only the old compact-completion rule in
+`requests-old-compact-marker-completion/run-iqtda6oj` fails the assertion that
+the matching pending full source still owns its request marker. Both controls
+compile and fail their specifically named production assertions.

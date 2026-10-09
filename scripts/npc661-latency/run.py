@@ -30,6 +30,8 @@ OLD_REPAIR_PRIORITY = option('--old-repair-priority')
 OLD_REPAIR_FAIRNESS = option('--old-repair-fairness')
 OLD_RECOVERY = option('--old-recovery-source')
 OLD_REQUEST_BANK = option('--old-request-bank')
+OLD_REPAIR_COMPLETION = option('--old-repair-completion')
+OLD_OPENING_RESET = option('--old-opening-reset')
 ACTUAL_STOCK = option('--actual-stock')
 PREPARED_CONTROL = '--prepared-control' in sys.argv
 if PREPARED_CONTROL:
@@ -133,6 +135,10 @@ def bound_module(name, path):
                 key='TownServiceMirror.OriginalRequests.cs'
                 bound[key]=replace_once(bound[key],'            if (frame.Sequence <= owner.Sequence) return;',
                     '            // Causal control: discard future source-bank sequence dominance.')
+            if OLD_REPAIR_COMPLETION:
+                key='TownServiceLaneSendQueue.OriginalRepairs.cs'
+                bound[key]=replace_once(bound[key],'            bool fullPending = queue.TryPeekPending(out _, out object? next)\n                && ReferenceEquals(next, original);\n','')
+                bound[key]=replace_once(bound[key],' && !fullPending','')
             if WITHOUT_REQUEST:
                 key = 'TownServiceMirror.NativeTemplateState.cs'
                 bound[key] = replace_once(bound[key], '        RecordOriginalRequest(peer, frame);',
@@ -149,6 +155,15 @@ internal static void InvalidateOnlyBasis661(string key) { if(NativeTemplateBases
             return bound, hashes
 
         result.sources = sources
+    if path.name == 'check-town-native-state623.py' and OLD_OPENING_RESET:
+        original_delivery = result.bind_delivery_transport
+        def delivery_sources(root, bound, loader):
+            value = original_delivery(root, bound, loader)
+            key = 'ActualScheduler629.cs'
+            bound[key] = replace_once(bound[key], '_openingTownTurns = result != null ? 1 : 0;',
+                'if (result != null) _openingTownTurns = 1;')
+            return value
+        result.bind_delivery_transport = delivery_sources
     return result
 
 
@@ -168,6 +183,8 @@ def fixture_copy(source, target, *args, **kwargs):
             'actual_stock': ACTUAL_STOCK,
             'old_repair_fairness': OLD_REPAIR_FAIRNESS, 'old_recovery_source': OLD_RECOVERY,
             'old_request_bank': OLD_REQUEST_BANK,
+            'old_repair_completion': OLD_REPAIR_COMPLETION,
+            'old_opening_reset': OLD_OPENING_RESET,
             'omitted_gameplay': 'HUD.Initialize, MakeAbilityAction and model/container population are declared inherited constructor ports',
         }, indent=2) + '\n')
     return value
@@ -190,6 +207,10 @@ def evidence_json(value, *args, **kwargs):
             value['cases'][0]['expected'] = 'late rejected old-session compact cannot erase the current complete request batch'
         elif OLD_REQUEST_BANK:
             value['cases'][0]['expected'] = 'future-census source identity survives a late older module with the same peer/lane/module key'
+        elif OLD_REPAIR_COMPLETION:
+            value['cases'][0]['expected'] = 'old compact completion leaves the requested matching full source marked at its pending head'
+        elif OLD_OPENING_RESET:
+            value['cases'][0]['expected'] = 'prior queued dependent revision survives the requested full repair'
     return ORIGINAL_DUMPS(value, *args, **kwargs)
 RUNNER.json = SimpleNamespace(dumps=evidence_json, loads=json.loads)
 if __name__ == '__main__':

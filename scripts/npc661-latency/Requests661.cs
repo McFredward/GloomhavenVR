@@ -21,12 +21,20 @@ public static partial class MirrorProgram
         for(ushort id=1;id<=4;id++)
         {
             Transform source=Source(owner); sources.Add(source);
+            if(id==2)
+            {
+                // Legitimate native text makes this one original genuinely span
+                // multiple compressed module pages; this is a queue challenge,
+                // not a hardware/card-density performance input.
+                var content661=new byte[1024];new System.Random(661).NextBytes(content661);
+                source.Find("Name").GetComponent<TMPro.TMP_Text>().text=Convert.ToBase64String(content661);
+            }
             TownServiceMirror.RegisterTemplate(3,id,source,address:"enchant.inventory."+id+"|");
             TownServiceMirror.PrepareNativeTemplateBasis(3,"enchant.inventory."+id+"|");
         }
         TownServiceMirror.BeginSession(3,661,owner,owner);
         for(ushort id=1;id<=4;id++)
-        { TownServiceMirror.RegisterModule(id,id,sources[id-1],address:"enchant.inventory."+id+"|");TownServiceMirror.SetPriority(id,true); }
+        { TownServiceMirror.RegisterModule(id,id,sources[id-1],address:"enchant.inventory."+id+"|");TownServiceMirror.SetPriority(id,id==1); }
         TownServiceMirror.SetLocalTransactionActive(3,true);
         var emitted=new List<(TownServiceFrame Full,TownServiceFrame Wire)>();
         void Publish(byte[] bytes,int length,object? identity)
@@ -46,6 +54,20 @@ public static partial class MirrorProgram
         var compact=emitted.ToArray();
         Check(compact.Length==4&&compact.All(x=>x.Wire.NativeTemplateBasisKey!=0),"four actual immutable sources use native compact originals");
         Check(ownerDriver.FixtureTransport661.RequestedMarkerCount661==0,"ordinary compact originals never invent a known rejection marker");
+        var flight661=new TownServiceLaneSendQueue(0);
+        byte[] initialFlight661=TownServiceCodec.Write(compact[1].Wire);
+        flight661.Enqueue(initialFlight661,initialFlight661.Length,compact[1].Full);
+        var flightQueues661=(IDictionary)typeof(TownServiceLaneSendQueue).GetField("_queues",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(flight661)!;
+        var oldModule661=(ExtrasSendQueue)flightQueues661[(ushort)2]!;
+        byte[]? oldFirstPage661=oldModule661.Next(0);
+        Check(oldFirstPage661!=null&&oldModule661.HasInFlight,"real compact native original begins an unfinished module stream before its rejection repair");
+        // Declare the existing active-module cursor, as the lane does after an
+        // ordinary module stream starts. No source, payload or marker is faked.
+        typeof(TownServiceLaneSendQueue).GetField("_normalActive",BindingFlags.Instance|BindingFlags.NonPublic)!.SetValue(flight661,(ushort)2);
+        TownServiceFrame afterFlight661=TownServiceDelta.Copy(compact[1].Full);afterFlight661.Sequence+=100;afterFlight661.Pose[0]+=.025f;
+        TownServiceFrame flightDelta661=TownServiceDelta.Create(compact[1].Full,afterFlight661);
+        byte[] flightDeltaBytes661=TownServiceCodec.Write(flightDelta661);
+        flight661.Enqueue(flightDeltaBytes661,flightDeltaBytes661.Length,flightDelta661);
         var type=typeof(TownServiceMirror);
         var modules=(IDictionary)type.GetProperty("Local",PrivateStatic)!.GetValue(null)!;
         object? Repair(ushort id)
@@ -92,6 +114,31 @@ public static partial class MirrorProgram
         byte[] dependentBytes661=TownServiceCodec.Write(dependent661);
         Check(ownerDriver.FixtureTransport661.TrySendTownPresentation(dependentBytes661,dependentBytes661.Length,dependent661),
             "actual queue retains a newer artwork revision naming the requested original baseline");
+        const BindingFlags queueFlags661=BindingFlags.Instance|BindingFlags.NonPublic;
+        object ffsScheduler661=typeof(FfsNetTransport).GetField("_extrasQueue",queueFlags661)!.GetValue(ownerDriver.FixtureTransport661)!;
+        object ffsTown661=typeof(ExtrasSendScheduler).GetField("_town",queueFlags661)!.GetValue(ffsScheduler661)!;
+        object ffsLane661=typeof(TownServiceSendQueue).GetField("_private",queueFlags661)!.GetValue(ffsTown661)!;
+        var queueTrace661=new System.Text.StringBuilder();
+        void QueueState661(string phase)
+        {
+            queueTrace661.AppendLine(phase);
+            foreach(string field in new[]{"_normalActive","_priorityActive","_priorityCursor","_cursor","_priorityTurns"})
+                queueTrace661.AppendLine(field+"="+typeof(TownServiceLaneSendQueue).GetField(field,queueFlags661)!.GetValue(ffsLane661));
+            var priorities=(IEnumerable)typeof(TownServiceLaneSendQueue).GetField("_priority",queueFlags661)!.GetValue(ffsLane661)!;
+            queueTrace661.Append("priority=");foreach(object id in priorities)queueTrace661.Append(id+",");queueTrace661.AppendLine();
+            var queues=(IDictionary)typeof(TownServiceLaneSendQueue).GetField("_queues",queueFlags661)!.GetValue(ffsLane661)!;
+            foreach(DictionaryEntry entry in queues)
+            {
+                var queue=(ExtrasSendQueue)entry.Value;queueTrace661.Append(entry.Key+" pending=");
+                var pending=(IEnumerable)typeof(ExtrasSendQueue).GetField("_pending",queueFlags661)!.GetValue(queue)!;
+                foreach(object item in pending)
+                { var frame= item.GetType().GetField("Identity",queueFlags661)!.GetValue(item) as TownServiceFrame;
+                  queueTrace661.Append(frame==null?"null,":frame.Sequence+"/"+frame.BaseSequence+","); }
+                queueTrace661.AppendLine(" active="+queue.HasInFlight);
+            }
+            File.WriteAllText(Path.Combine(_output,"queue-state661.txt"),queueTrace661.ToString());
+        }
+        QueueState661("after dependent enqueue");
         int originalCount661=emitted.Count;
         int repairAttempts661=0;
         ownerDriver.FixtureTransport661.AdmissionFailure661=frame=>
@@ -100,7 +147,11 @@ public static partial class MirrorProgram
             if(frame.Module<3)throw new InvalidOperationException("declared SDK admission failure for exact requested source "+frame.Module);
         };
         int before=emitted.Count;
-        ownerDriver.FixtureTransport661.Published=Publish;
+        ownerDriver.FixtureTransport661.Published=(bytes,length,identity)=>
+        {
+            Publish(bytes,length,identity);
+            if(identity is TownServiceFrame frame&&frame.Module==2)flight661.Enqueue(bytes,length,frame);
+        };
         ownerDriver.FixtureSend661();
         int firstPass=repairAttempts661;
         Check(firstPass>=1&&firstPass<=2,"expired pre-encode CPU budget still performs at least one requested repair");
@@ -132,10 +183,12 @@ public static partial class MirrorProgram
         Check(((IDictionary)markerField661.GetValue(ordinary661)!).Count==0,
             "already repaired ordinary high-priority originals cannot acquire a stale accepted-request marker");
         var fragments661=new TownServiceFragments();var queued661=new List<TownServiceFrame>();int empty661=0;
+        QueueState661("before drain");
         for(int turn661=0;turn661<256&&empty661<8;turn661++)
         {
             double clock661=turn661*.05;
             byte[]? batch661=ownerDriver.FixtureTransport661.NextOriginalBatch661(clock661);
+            QueueState661("turn "+turn661+" batch="+(batch661?.Length??0));
             if(batch661==null){empty661++;continue;}empty661=0;
             Check(batch661.Length<=PresentationBatch.MaxSize,"known repair queue preserves the global864-byte event cap");
             foreach(byte[] page661 in PresentationBatch.TryRead(batch661,batch661.Length,out var pages661)?pages661!:new[]{batch661})
@@ -152,8 +205,34 @@ public static partial class MirrorProgram
             Check(queued661.Count(frame=>frame.Module==reply661.Full.Module&&frame.Sequence==reply661.Full.Sequence
                 &&frame.BaseSequence==0&&frame.NativeTemplateBasisKey==0)==1,
                 "each exact requested full source completes once without a second speculative bundle copy");
+        File.WriteAllText(Path.Combine(_output,"queue661.txt"),string.Join("\n",queued661.Select(frame=>"module="+frame.Module+" sequence="+frame.Sequence+" base="+frame.BaseSequence+" native="+frame.NativeTemplateBasisKey)));
         Check(queued661.Any(frame=>frame.Module==dependent661.Module&&frame.Sequence==dependent661.Sequence
             &&frame.BaseSequence==compact[0].Full.Sequence),"prior queued dependent revision survives the requested full repair");
+        var flightFragments661=new TownServiceFragments();var flightFrames661=new List<TownServiceFrame>();
+        Check(flightFragments661.Accept(2,oldFirstPage661!,oldFirstPage661!.Length,0)==null,
+            "first compact fragment cannot manufacture a complete repair identity");
+        int flightIdle661=0;
+        for(int turn661=1;turn661<128&&flightIdle661<8;turn661++)
+        {
+            double clock661=turn661*.05;
+            byte[]? page661=flight661.NextUrgent(clock661)??flight661.Next(clock661);
+            if(page661==null){flightIdle661++;continue;}flightIdle661=0;
+            Check(page661.Length<=PresentationBatch.MaxSize,"old compact and requested full preserve the same864-byte page cap");
+            byte[]? packet661=flightFragments661.Accept(2,page661,page661.Length,clock661);if(packet661==null)continue;
+            foreach(byte[] child661 in TownServiceCodec.TryReadBundle(packet661,packet661.Length,out var children661)?children661!:new[]{packet661})
+            {
+                Check(TownServiceCodec.TryRead(child661,child661.Length,out var frame661),"old compact/full/dependent queue drains exact valid native records");flightFrames661.Add(frame661!);
+                if(frame661!.NativeTemplateBasisKey!=0)
+                    Check(((IDictionary)markerField661.GetValue(flight661)!).Count==1,
+                        "old compact completion leaves the requested matching full source marked at its pending head");
+            }
+        }
+        Check(flightIdle661==8&&((IDictionary)markerField661.GetValue(flight661)!).Count==0,
+            "ordinary known repair remains marked through old compact completion and then quiesces after its real full source");
+        Check(flightFrames661.Count(frame=>frame.NativeTemplateBasisKey!=0)==1
+            &&flightFrames661.Count(frame=>frame.BaseSequence==0&&frame.NativeTemplateBasisKey==0)==1
+            &&flightFrames661.Any(frame=>frame.Sequence==flightDelta661.Sequence&&frame.BaseSequence==compact[1].Full.Sequence),
+            "old compact flight, exact full repair and its newer dependent delta all finish once in the retained module stream");
 
         NetPlayerActors.Peer=10;SetNativeSenderActive629(false);
         foreach(var reply in replies)
