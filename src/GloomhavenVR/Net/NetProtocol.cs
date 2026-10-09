@@ -162,6 +162,9 @@ internal static class NetProtocol
     /// <summary>Receipt for exact retained original metadata, never gameplay permission.</summary>
     public const byte MsgTownOriginalReceipt = 28;
     public const byte ExtIdTownOriginalReceipt = 112;
+    /// <summary>One owner-authored native card return clock with exact public
+    /// member geometry. Additive to message26; existing motion records stay unchanged.</summary>
+    public const byte ExtIdTownCardReturnCohort = 113;
     /// <summary>Owner fan insertion gap: one byte gap + 1; zero clears the marker.</summary>
     public const byte ExtIdFanInsertionGap = 71;
     /// <summary>Native video source and shared pose, independent of the legacy window record21.</summary>
