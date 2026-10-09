@@ -102,6 +102,7 @@ public static partial class MirrorProgram
         for(int i=0;i<2;i++)extraNatives[i].BeginNative655(owner.TransformPoint(new Vector3(.27f,1f+(i==0?.32f:-.32f),.02f)),.55f);
         Vector3 prior=Vector3.zero;float largestStep=0;TownServiceMotionEntry? receipt=null;
         var receiptParts=new SortedDictionary<byte,TownServiceReturnPart>();
+        var receiptRoots=new Dictionary<ushort,TownServiceMotionEntry>();
         var sourceBindings=sources.Select((source,index)=>new TownServiceBinding(source,index==0?null:parts[index-1].Excluded.Contains)).ToArray();
         for(int frame=1;frame<=42;frame++)
         {
@@ -112,7 +113,21 @@ public static partial class MirrorProgram
                 FastCapture sample=CaptureFast();
                 foreach(byte[] bytes in sample.Motion)if(TownServiceMotionCodec.TryRead(bytes,bytes.Length,out var packet))
                     foreach(var entry in packet!.Entries)if(entry.Kind==10 && entry.Module==ids[0] && (receipt==null || receipt.ReturnSampleTime==entry.ReturnSampleTime))
-                    { receipt??=entry;foreach(var part in entry.ReturnParts)receiptParts[part.Index]=part; }
+                    {
+                        receipt??=entry;
+                        foreach(var part in entry.ReturnParts)
+                        {
+                            receiptParts[part.Index]=part;
+                            ushort member=entry.ReturnMembers[part.Index];
+                            TownServiceMotionEntry root=packet.Entries.Single(candidate=>candidate.Kind==1
+                                && candidate.Lane==entry.Lane && candidate.Service==entry.Service && candidate.Session==entry.Session
+                                && candidate.PublicClaim==entry.PublicClaim && candidate.Module==member
+                                && candidate.Structure==entry.ReturnStructures[part.Index] && candidate.Hand==entry.Hand);
+                            Check(root.Visible==part.Visible && root.ParentAlpha==part.ParentAlpha,
+                                "actual budget publishes each native subset beside its exact complete root recipe");
+                            receiptRoots[member]=root;
+                        }
+                    }
                 // Both receipt orders exercise exact source header preservation:
                 // repair metadata cannot independently reopen/move one surface.
                 if(frame%12==0){DeliverMotion(2,sample);Receive(2,sample.Artwork);}
@@ -188,6 +203,7 @@ public static partial class MirrorProgram
         }
         Check(largestStep<.012f,"native return advances smoothly each render between fifteen-Hz numeric receipts");
         Check(receipt!=null && receiptParts.Count==receipt.ReturnMembers.Length,"actual native large-cohort capture supplies the complete immutable lifecycle input");
+        Check(receiptRoots.Count==receipt!.ReturnMembers.Length,"actual native lifecycle input retains every budget-published companion root");
         receipt!.ReturnParts=receiptParts.Values.ToArray();
         for(int frame=43;frame<=54;frame++)
         {FlightTime655.Now=100f+frame/90f;FlightTime655.Delta=1f/90f;native.StepNative655();foreach(var extra in extraNatives)extra.StepNative655();}
@@ -197,11 +213,28 @@ public static partial class MirrorProgram
         DeliverMotion(2,ended);Receive(2,ended.Artwork);TownServiceMirror.TickRemote(_=>observer);
         Check(standalone && TownServiceMirror.Cohorts658(2)==0 && TownServiceMirror.ReturnClocks658(2)==0,
             "actual native sampler completion resumes standalone originals and retires every live return");
-        Lifecycle658(receipt,observer,peer);
+        Lifecycle658(receipt,receiptRoots,observer,peer);
         foreach(var binding in sourceBindings)binding.Dispose();
         TownServiceMirror.Shutdown();
     }
-    private static void Lifecycle658(TownServiceMotionEntry receipt,Transform observer,int stockPeer)
+    // Record113 and its root recipes are one physical sample. Loss/reorder probes
+    // replay the exact roots captured from FillPacked, never guessed DTO poses.
+    private static void AddNativeRoots658(TownServiceMotionPacket packet,TownServiceMotionEntry receipt,
+        IReadOnlyDictionary<ushort,TownServiceMotionEntry> roots)
+    {
+        if(receipt.Kind!=10)return;
+        foreach(var part in receipt.ReturnParts)
+        {
+            ushort member=receipt.ReturnMembers[part.Index];
+            Check(roots.TryGetValue(member,out var root) && root.Kind==1 && root.Lane==receipt.Lane
+                && root.Service==receipt.Service && root.Session==receipt.Session && root.PublicClaim==receipt.PublicClaim
+                && root.Module==member && root.Structure==receipt.ReturnStructures[part.Index] && root.Hand==receipt.Hand
+                && root.Visible==part.Visible && root.ParentAlpha==part.ParentAlpha,
+                "lifecycle replays each exact budget root in its subset's same bounded packet");
+            packet.Entries.Add(root!);
+        }
+    }
+    private static void Lifecycle658(TownServiceMotionEntry receipt,IReadOnlyDictionary<ushort,TownServiceMotionEntry> roots,Transform observer,int stockPeer)
     {
         TownServiceMotionEntry Copy(params TownServiceReturnPart[] parts)=>new() { Kind=10,Lane=receipt.Lane,Service=receipt.Service,
             Session=receipt.Session,PublicClaim=receipt.PublicClaim,Module=receipt.Module,Structure=receipt.Structure,
@@ -210,6 +243,7 @@ public static partial class MirrorProgram
         void Send(ulong sequence,TownServiceMotionEntry entry,float? time=null)
         {
             var packet=new TownServiceMotionPacket{Sequence=sequence,SampleTime=time??receipt.ReturnSampleTime};packet.Entries.Add(entry);
+            AddNativeRoots658(packet,entry,roots);
             byte[] encoded=TownServiceMotionCodec.TryWritePacked(packet)??throw new InvalidOperationException("native lifecycle packet exceeds its unchanged event");
             Check(TownServiceMotionCodec.TryRead(encoded,encoded.Length,out var read),"lifecycle receives actual validated113 bytes");
             TownServiceMirror.ReceiveMotion(2,read!);
@@ -248,9 +282,9 @@ public static partial class MirrorProgram
         Reset();Send(1300,Copy(receipt.ReturnParts[0]));TownServiceMirror.ResetMotionNetwork();
         Check(TownServiceMirror.Cohorts658(2)==0 && TownServiceMirror.ReturnClocks658(2)==0,"network reset retires all native pending state");
         NetAvatarDriver.MotionHandFrames.Clear();
-        Census658(receipt,observer,stockPeer);
+        Census658(receipt,roots,observer,stockPeer);
     }
-    private static void Census658(TownServiceMotionEntry native,Transform observer,int stockPeer)
+    private static void Census658(TownServiceMotionEntry native,IReadOnlyDictionary<ushort,TownServiceMotionEntry> roots,Transform observer,int stockPeer)
     {
         var owners=(IDictionary)typeof(TownServiceMirror).GetField("Remote",PrivateStatic)!.GetValue(null)!;
         var modules=(IDictionary)owners[stockPeer]!;
@@ -262,7 +296,7 @@ public static partial class MirrorProgram
             PublicClaim=native.PublicClaim,Module=native.Module,Structure=native.Structure,Hand=native.Hand,Revision=native.Revision,
             ReturnSampleTime=source,Numbers=native.Numbers,ReturnMembers=native.ReturnMembers,ReturnStructures=native.ReturnStructures,ReturnParts=parts};
         void Send(TownServiceMotionEntry entry)
-        {var packet=new TownServiceMotionPacket{Sequence=++motionSequence,SampleTime=source};packet.Entries.Add(entry);byte[] bytes=TownServiceMotionCodec.TryWritePacked(packet)!;
+        {var packet=new TownServiceMotionPacket{Sequence=++motionSequence,SampleTime=source};packet.Entries.Add(entry);AddNativeRoots658(packet,entry,roots);byte[] bytes=TownServiceMotionCodec.TryWritePacked(packet)!;
             Check(bytes!=null && TownServiceMotionCodec.TryRead(bytes,bytes.Length,out _),"native census control uses actual bounded113 bytes");TownServiceMotionCodec.TryRead(bytes,bytes.Length,out var decoded);TownServiceMirror.ReceiveMotion(2,decoded!);}
         void Manifest(ushort[] census,float time)
         {var frame=new TownServiceFrame{VisitorStock=true,Service=native.Service,Session=native.Session,PublicClaim=native.PublicClaim,
