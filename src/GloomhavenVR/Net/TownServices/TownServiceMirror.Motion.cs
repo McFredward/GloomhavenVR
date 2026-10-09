@@ -23,11 +23,11 @@ internal static partial class TownServiceMirror
         private readonly float _offset;
         private TownServiceMotionEntry _current;
         private TownServiceMotionEntry? _pending;
-        private float _sampleTime, _pendingSampleTime, _rate = 1f, _renderedAge = -1f;
+        private float _sampleTime, _pendingSampleTime, _rate = 1f, _pendingRate = 1f, _renderedProgress = float.NegativeInfinity;
         private float _observedSampleTime, _observedAge;
         internal CardReturnClock(TownServiceMotionEntry entry, float sampleTime, float offset)
         { _current = entry; _sampleTime = _observedSampleTime = sampleTime;
-          _observedAge = entry.Numbers[0]; _offset = offset; }
+          _observedAge = ReturnProgress(entry); _offset = offset; }
         internal void Observe(TownServiceMotionEntry entry, float sampleTime, float receivedAt)
         {
             // One native return has one source-to-observer clock mapping. Restarting
@@ -39,15 +39,15 @@ internal static partial class TownServiceMirror
             // therefore progress slower than wall time at low FPS or a hitch.
             // Retain the rate of exact source receipts, without changing the
             // native easing/duration or rewinding an already rendered phase.
+            float rate = _rate;
             if (sampleTime > _observedSampleTime)
             {
-                if (entry.Numbers[2] is 0f or 2f)
-                    _rate = Mathf.Clamp01((entry.Numbers[0] - _observedAge) / (sampleTime - _observedSampleTime));
-                _observedSampleTime = sampleTime; _observedAge = entry.Numbers[0];
+                rate = Mathf.Clamp01((ReturnProgress(entry) - _observedAge) / (sampleTime - _observedSampleTime));
+                _observedSampleTime = sampleTime; _observedAge = ReturnProgress(entry);
             }
             if (sampleTime + _offset <= receivedAt)
-            { _current = entry; _sampleTime = sampleTime; _pending = null; }
-            else { _pending = entry; _pendingSampleTime = sampleTime; }
+            { _current = entry; _sampleTime = sampleTime; _rate = rate; _pending = null; }
+            else { _pending = entry; _pendingSampleTime = sampleTime; _pendingRate = rate; }
         }
         internal TownServiceMotionEntry Current(float now, out float age)
         {
@@ -55,15 +55,16 @@ internal static partial class TownServiceMirror
             // this flight's rendered clock. Keep the previous exact receipt until
             // that instant; never jump forward and then hold at a negative age.
             if (_pending != null && _pendingSampleTime + _offset <= now)
-            { _current = _pending; _sampleTime = _pendingSampleTime; _pending = null; }
-            age = _current.Numbers[0] + Mathf.Max(0f, now - _sampleTime - _offset) * _rate;
-            if (_current.Numbers[2] is 0f or 2f)
-            {
-                age = Mathf.Max(age, _renderedAge);
-                _renderedAge = age;
-            }
+            { _current = _pending; _sampleTime = _pendingSampleTime; _rate = _pendingRate; _pending = null; }
+            float progress = ReturnProgress(_current) + Mathf.Max(0f, now - _sampleTime - _offset) * _rate;
+            progress = Mathf.Max(progress, _renderedProgress); _renderedProgress = progress;
+            age = _current.Numbers[0] + progress - ReturnProgress(_current);
             return _current;
         }
+        // The exponential merchant receipt starts at its current physical pose;
+        // its decreasing remaining duration measures the same native progress.
+        private static float ReturnProgress(TownServiceMotionEntry entry) =>
+            entry.Numbers[2] == 1f ? -entry.Numbers[1] : entry.Numbers[0];
     }
     private sealed class SourceMotion
     {
@@ -471,7 +472,13 @@ internal static partial class TownServiceMirror
         if (!source.Slots.TryGetValue(entry.Key, out MotionSlot? slot))
         { source.Slots[entry.Key] = new MotionSlot { Entry = entry, DirtySince = Time.unscaledTime }; return; }
         if (SameMotion(slot.Entry, entry))
-        { if (entry.Kind == 1 && entry.HasCanvasUpdate) slot.Entry = entry; return; }
+        {
+            if (entry.Kind == 1 && entry.HasCanvasUpdate) slot.Entry = entry;
+            // A sampled native pause is meaningful clock data, even though its
+            // age/pose did not change. Publish it at the unchanged15-Hz cadence.
+            if (entry.Kind == 8) { if (!slot.Dirty) slot.DirtySince = Time.unscaledTime; slot.Dirty = true; }
+            return;
+        }
         bool visibilityChanged = entry.Kind == 1
             && (slot.Entry.Visible != entry.Visible || slot.Entry.ParentAlpha != entry.ParentAlpha);
         slot.VisibilityTransition = visibilityChanged || slot.Dirty && slot.VisibilityTransition;

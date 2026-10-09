@@ -18,6 +18,7 @@ internal class TownServiceMotionPending
 internal static class TownServiceMotionBudget
 {
     private static readonly List<TownServiceMotionPending> NoVisibleFan = new();
+    private static int _returnRecoveryTurn;
     private readonly struct Selected
     {
         internal readonly TownServiceMotionPending Slot;
@@ -40,6 +41,31 @@ internal static class TownServiceMotionBudget
         var seen = new HashSet<TownServiceMotionPending>();
         int initial = packet.Entries.Count, size = 21;
         foreach (TownServiceMotionEntry entry in packet.Entries) size += TownServiceMotionCodec.EntryBytes(entry);
+        bool nativeReturn = live.Exists(slot => slot.Entry.Kind == 8);
+        if (nativeReturn)
+        {
+            // Reserve one finite ordinary turn before an incompressible cohort.
+            // Rotate all three categories even while the same physical return
+            // continuously republishes. Empty categories lend their turn.
+            int first = _returnRecoveryTurn++ % 3;
+            for (int attempt = 0; attempt < 3; attempt++)
+            {
+                int group = (first + attempt) % 3; List<TownServiceMotionPending> waiting = groups[group];
+                bool admitted = false;
+                for (int i = 0; i < waiting.Count; i++)
+                {
+                    int index = (cursors[group] + i) % waiting.Count; TownServiceMotionPending slot = waiting[index];
+                    if (slot.SentAt == now || slot.Entry.Kind == 8
+                        || slot.Entry.Kind == 1 && HasNativeReturn(live, slot.Entry)) continue;
+                    packet.Entries.Add(slot.Entry);
+                    if (TownServiceMotionCodec.TryWritePacked(packet) == null)
+                    { packet.Entries.RemoveAt(packet.Entries.Count - 1); continue; }
+                    seen.Add(slot); selected.Add(new Selected(slot, group, index + 1));
+                    size += TownServiceMotionCodec.EntryBytes(slot.Entry); admitted = true; break;
+                }
+                if (admitted) break;
+            }
+        }
         // One physical card can contain thirteen or more native print partitions.
         // Repeating its common 28-float root receipt per module both split the
         // first picture and could exceed this event forever. TLV113 retains that

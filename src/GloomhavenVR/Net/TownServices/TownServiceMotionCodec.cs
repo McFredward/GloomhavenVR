@@ -20,11 +20,11 @@ internal sealed class TownServiceMotionEntry
     internal float[] Pose = Array.Empty<float>(), CanvasPose = Array.Empty<float>(),
         CanvasRect = Array.Empty<float>(), CanvasSettings = Array.Empty<float>(), Numbers = Array.Empty<float>();
     internal int CanvasSortingOrder, CanvasSortingLayer, SharedGuideOwner;
-    internal float ReturnSampleTime, CohortOffset;
+    internal float ReturnSampleTime, CohortOffset = 0f;
     internal ushort[] ReturnMembers = Array.Empty<ushort>();
     internal uint[] ReturnStructures = Array.Empty<uint>();
     internal TownServiceReturnPart[] ReturnParts = Array.Empty<TownServiceReturnPart>();
-    internal bool HasReturnVisibility;
+    internal bool HasReturnVisibility = false;
     internal TownServiceMotionKey Key => new(Kind, Lane, Module, Kind is 2 or 4 ? Binding : 0, Kind == 5 ? (ushort)31 : Property, Offset);
 }
 
