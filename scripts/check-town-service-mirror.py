@@ -45,6 +45,22 @@ def sources(root):
     bound['BundleShaders.cs'] = (base / 'Core/BundleShaders.cs').read_text()
     vr = (base / "Cards/VRCard.cs").read_text()
     bound["CardCurve626.cs"] = "using UnityEngine; namespace GloomhavenVR.Cards; internal sealed partial class VRCard {\n" + method(vr, "internal static float SmootherStep(") + "\n" + expression(vr, "internal static Vector3 FlyArcOffset(") + "\n}"
+    # The map's optional bundled backing is normally absent. Bind the actual
+    # local factory and complete contour/mesh engine instead of injecting a
+    # handmade prefab that bypasses this valid production path.
+    body = base / "WorldUI/TownServices/TownServiceAbilityBody.cs"
+    if body.exists():
+        bound[body.name] = body.read_text()
+        bound["CardMesh.cs"] = (base / "Cards/Art/CardMesh.cs").read_text()
+        bound["CardContour.cs"] = (base / "Cards/Art/CardContour.cs").read_text()
+        bound["CapFaceLayout.cs"] = (base / "Cards/Caps/CapFaceLayout.cs").read_text()
+        enums = (base / "Cards/CardsEnums.cs").read_text()
+        declaration = enums.index("internal enum ControlBoard\n")
+        bound["ControlBoardEnum660.cs"] = "namespace GloomhavenVR.Cards;\n" + enums[declaration:enums.index("\n}", declaration) + 2]
+        bound["AbilityBacking660.cs"] = "using UnityEngine; namespace GloomhavenVR.Cards; internal sealed partial class VRCard {\n" \
+            + expression(vr, "internal Vector2 OriginalBackingSize") + "\n" \
+            + expression(vr, "internal bool HasProceduralBacking") + "\n" \
+            + method(vr, "internal static Transform BuildProceduralBacking(Transform parent, float w, float h)") + "\n}\n"
     bound["TownServiceNativeEnhancementCardMask.cs"] = (base / "WorldUI/TownServices/TownServiceNativeEnhancementCardMask.cs").read_text()
     bound["PresentationCompression.cs"] = (base / "Net/PresentationCompression.cs").read_text()
     bound["NetPacket.cs"] = (base / "Net/NetPacket.cs").read_text()

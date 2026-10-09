@@ -46,6 +46,7 @@ internal static partial class TownServiceMirror
     private static bool StockModule(string address) => address == "merchant.heldstock|"
         || address.StartsWith("inspectionbody.", StringComparison.Ordinal)
         || address.StartsWith("map.cardbody|", StringComparison.Ordinal)
+        || address.StartsWith("map.cardbody.", StringComparison.Ordinal)
         || CosmeticAbilityFace(address)
         || address.StartsWith("merchant.heldstock.body|", StringComparison.Ordinal)
         || address.StartsWith("merchant.heldstock.row|", StringComparison.Ordinal)

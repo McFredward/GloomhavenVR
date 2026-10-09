@@ -206,6 +206,7 @@ internal static partial class NativeTemplates
         bool ring = key == "enchant.holder" && TownServiceMirror.ReadNativeRingRate(entry.Copy.transform, out aura, out rate);
         TownServiceNeutralize.Apply(entry.Copy);
         TownServiceCardBody.RebindClone(key == "merchant.heldstock.body" ? "merchant.cardbody" : key, entry.Copy);
+        TownServiceAbilityBody.RebindClone(key, entry.Copy);
         entry.Copy.SetActive(false);
         Partition(entry.Copy.transform, string.Empty, entry.Parts);
         if (ring && aura != null) foreach (Part part in entry.Parts)
@@ -305,6 +306,7 @@ internal static partial class NativeTemplates
         TownServiceCardBody.RebindClone(key == "merchant.heldstock.body|" || key == "merchant.heldstock.body"
             ? "merchant.cardbody" : key, clone);
         TownServiceInspectionBody.RebindClone(key, clone);
+        TownServiceAbilityBody.RebindClone(key, clone);
         TownServiceWorkspacePractical.RebindClone(key, clone);
     }
     private static Transform? OriginalMapBacking()
@@ -321,11 +323,14 @@ internal static partial class NativeTemplates
     private static void EnsureNativeProp(string key)
     {
         Transform? source;
-        if (key.StartsWith("inspectionbody.", StringComparison.Ordinal))
+        if (key.StartsWith("inspectionbody.", StringComparison.Ordinal)
+            || key.StartsWith("map.cardbody.", StringComparison.Ordinal))
         {
             if (Entries.ContainsKey(key)) return;
             if (_bank == null) throw new InvalidDataException("Original item inspection bank is not ready.");
-            GameObject body = TownServiceInspectionBody.Create(key, _bank.transform);
+            GameObject body = key.StartsWith("map.cardbody.", StringComparison.Ordinal)
+                ? TownServiceAbilityBody.Create(key, _bank.transform)
+                : TownServiceInspectionBody.Create(key, _bank.transform);
             var bodyEntry = new Entry { Original = body.transform };
             try
             {

@@ -195,7 +195,7 @@ internal sealed partial class TownServiceSync
                         if (body != null) TownServiceMirror.RegisterMotionOffering(body, true);
                         Publish("face." + handoff.OfferedCardId.ToString(System.Globalization.CultureInfo.InvariantCulture),
                             handoff.Face, prewarm: true);
-                        Publish("map.cardbody", body);
+                        Publish(TownServiceAbilityBody.Key(handoff.Card), body);
                     }
                 }
                 foreach (TownServiceCardSlots.Point point in ritual.CardSlots.Points)

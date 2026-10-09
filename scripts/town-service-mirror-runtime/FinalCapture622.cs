@@ -224,7 +224,9 @@ public static partial class MirrorProgram
             Canvas canvas = face.gameObject.AddComponent<Canvas>(); canvas.renderMode = RenderMode.WorldSpace; canvas.overrideSorting = true;
             FinalCaptureState.Ring = Image("Original aura", face, Vector2.zero, new Vector2(.16f, .24f), Color.cyan).transform;
             FinalCaptureState.Rod = Image("Original drawn grab rod", face, Vector2.zero, new Vector2(.1f, .01f), Color.gray).transform;
-            ritual.Handoff = new TownServiceEnhancementHandoff { OfferedCardId = 62201, Card = card, Face = face, NativeSource = null };
+            var ownerCard = card.gameObject.AddComponent<GloomhavenVR.Cards.VRCard>();
+            ownerCard.FixtureBacking(new Vector2(.15f, .23f), card.Find("Visual/Backing"));
+            ritual.Handoff = new TownServiceEnhancementHandoff { OfferedCardId = 62201, Card = ownerCard, Face = face, NativeSource = null };
             Transform inventory = Rect("Original options", author, Vector2.zero, new Vector2(350, 400)); inventory.localScale = Vector3.one * .001f;
             inventory.gameObject.AddComponent<Canvas>().renderMode = RenderMode.WorldSpace;
             FinalCaptureState.Pool = inventory.gameObject.AddComponent<UINewEnhancementShopInventory>();

@@ -61,8 +61,9 @@ public static partial class MirrorProgram
         {
             ability = native.gameObject.AddComponent<GloomhavenVR.Cards.VRCard>();
             body.SetParent(Go("Visual", native).transform, true); body.name = "Backing";
+            ability.FixtureBacking(new Vector2(.14f, .22f), body);
             GloomhavenVR.WorldUI.TownServicePresentation.Ritual = new GloomhavenVR.WorldUI.TownServiceRitual
-            { Handoff = new GloomhavenVR.WorldUI.TownServiceEnhancementHandoff { Card = native, Face = face, OfferedCardId = 2129 } };
+            { Handoff = new GloomhavenVR.WorldUI.TownServiceEnhancementHandoff { Card = ability, Face = face, OfferedCardId = 2129 } };
         }
         GloomhavenVR.WorldUI.TownServiceSync.UseProductionPublish = true;
         TownServiceMirror.ResolveTemplate = (service, template, address) =>

@@ -39,6 +39,19 @@ namespace GloomhavenVR.Cards
         public bool TrySweepDistance(Vector3 point,out float distance) {distance=point.magnitude;return true;}
     }
     internal sealed partial class VRCard : TransferProbe {
+        private Transform? _backing;
+        private Vector2 _backingBaseSize;
+        private bool _proceduralBacking;
+        // External card construction port; geometry/materials are the actual
+        // production factory. Existing publisher fixtures supply only owners.
+        internal void FixtureBacking(Vector2 size, Transform? body = null)
+        {
+            _backingBaseSize = size;
+            _proceduralBacking = body == null;
+            Transform? visual = transform.Find("Visual");
+            if (visual == null) { visual = new GameObject("Visual").transform; visual.SetParent(transform, false); }
+            _backing = body ?? BuildProceduralBacking(visual, size.x, size.y);
+        }
         internal float[]? ReturnNumbers; internal float ReturnStarted;
         internal bool TryTownReturnMotion(Transform source,Transform shared,Hands.VRHand? hand,out uint revision,out float[] values)
         { revision=629; values=ReturnNumbers==null?System.Array.Empty<float>():(float[])ReturnNumbers.Clone();
@@ -71,6 +84,22 @@ namespace GloomhavenVR.Cards
         internal void Step(bool modal=false) {_modalInputBlocked=modal;UpdateHeldCardTransfer();}
         private void TransferHeldCard(VRCard card,VRHand from,VRHand to)
         {card.Adoptions++;from.Grabber.Held=null;to.Grabber.Held=card;}
+    }
+}
+namespace BepInEx
+{
+    // Per-run footprint persistence is outside this native renderer fixture.
+    internal static class Paths { internal static string ConfigPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "gvr-body-fixture-" + System.Diagnostics.Process.GetCurrentProcess().Id); }
+}
+namespace GloomhavenVR
+{ internal static class MyPluginInfo { internal const string PLUGIN_GUID = "dev.gloomhavenvr.fixture"; } }
+namespace GloomhavenVR.Net
+{
+    // Scenario board uniform-alpha replacement is outside town body construction.
+    internal static class PeerBoardFade
+    {
+        internal static bool SetSubmeshMaterial(Renderer renderer, int index, Material material)
+            => throw new System.NotSupportedException("Scenario board fade is outside this town fixture.");
     }
 }
 public static partial class MirrorProgram
