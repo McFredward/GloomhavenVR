@@ -470,6 +470,8 @@ public static class InteractionProgram
             driver=Driver(host); Tick(driver,10);
             Check(!grass.forceRenderingOff && !treeLeaf.forceRenderingOff, "both 100 settings retain original rendering");
             PerfConfig.ScenarioDecorationDensityPercentValue=0; Tick(driver,50);
+            // Discovery uses a wall-clock work budget; finish fixture preparation before checking content.
+            DrainQueuedDiscovery(driver);
             Check(!grass.forceRenderingOff&&!treeLeaf.forceRenderingOff&&caveLod.forceRenderingOff,"decoration budget is independent from grass and vegetation");
             Check(ornament.forceRenderingOff&&ornaments.All(r=>r.forceRenderingOff)&&bonepile.forceRenderingOff&&paper.forceRenderingOff,
                 "decoration zero removes all reviewed composite ornaments and original loose clutter");
