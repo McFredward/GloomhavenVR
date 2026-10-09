@@ -82,6 +82,7 @@ namespace GloomhavenVR.WorldUI
         // real helper/ladder. Unrelated transport suites keep this API boundary.
         internal static void BindOffered(Transform root, Transform print) { }
         internal static void UnbindOffered(Transform root) { }
+        internal static void ClearOffered() { }
     }
 
 }
