@@ -179,7 +179,9 @@ internal sealed class SnapTurn : MonoBehaviour
             if (ax <= SmoothDeadzone)
                 return;
             float response = (ax - SmoothDeadzone) / (1f - SmoothDeadzone);
-            Turn(rig, Mathf.Sign(x) * response * ComfortSettings.SmoothTurnSpeed.Value * Time.deltaTime);
+            // Turning is a tracking-space comfort control, independent of the game's
+            // animation clock. Preserve its speed while a game/menu clock is paused.
+            Turn(rig, Mathf.Sign(x) * response * ComfortSettings.SmoothTurnSpeed.Value * Time.unscaledDeltaTime);
         }
     }
 

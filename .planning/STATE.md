@@ -207,6 +207,66 @@ executable original-game profile getters. Actual merged645 full weaving closes
 and832 existing Weaver assertions. Windows end-to-end builds and updated
 headset behavior remain unverified.
 See [APK update workflow and proof limits](QUEST-APK-UPDATES-20261008.md).
+**Build657 native window-mode donation confirmations, 2026-10-09: 1.1.0 development candidate.**
+
+The supplied656 local log reproduces the temple's shared confirmation migrating
+to the enchantress while donation callbacks remain active. Explicit seat edges
+now transfer original conversion/input ownership; moved ordinary dialog canvases
+use their physical host's stable input tier so the host paper cannot defeat the
+buttons. Native raycast gates, dropdown/X tiers and unrelated nested surfaces stay.
+
+The original raising window is retained at native Show. Its closure finishes the
+chosen native continuation before another destination can reset the pooled box,
+including an already-started confirm/cancel fade. Quiet/retiring immersive owners
+retain their actual zero-alpha masked root. Native payments, multiplayer authority
+and wire format are unchanged. Nine final focused scopes, source16, strict
+Debug/Release,299961 direct goldens and a private1247-type compiled comparison
+pass. Behavior stays in three UI/input types;665 config keys,235 patches and4795
+log tokens remain. This is not a fresh190-scope full gate. Final evidence and
+headset limits are recorded in
+[FLAT-657-CONFIRMATION-REVIEW.md](FLAT-657-CONFIRMATION-REVIEW.md).
+
+**Build656 live Auto threshold recovery and radial pillars, 2026-10-09: 1.1.0 development candidate.**
+
+Integrates the parallel Frame follow-up after the pushed655 NPC repairs. Effective
+Auto wall-threshold edits restore original wall consumers and restart observation;
+the control caps at30FPS while retaining its15FPS default/key. Nearby admitted
+pillars use authored radial proximity rather than world-AABB corners, preserving
+tracked-hand guards, other surfaces and existing budgets/detail percentages.
+
+Final three affected Frame scopes pass together; source16, strict Debug/Release,
+299961 direct wire goldens and private655→656 compiled/surface comparison pass.
+Unchanged NPC655 scopes inherit their recorded native evidence. This is focused
+integration, not a new188-suite full gate or a measured new Frame performance gain.
+Headset threshold/geometry acceptance and655 overlay-flicker attribution remain
+as documented in [FRAME-WALL-LOD-REVIEW.md](FRAME-WALL-LOD-REVIEW.md) and
+[NPC-655-REVIEW.md](NPC-655-REVIEW.md). Hardware logs and compact receipts remain;
+completed owned worktrees/caches are cleaned after the push.
+
+**Build655 paired NPC delivery/returns and map comfort, 2026-10-09: 1.1.0 development candidate.**
+
+The supplied owner and participant banners both identify653. Native continuous
+hover capture canceled still-useful fragmented originals and reissued baselines;
+first pictures now finish independently of current census changes while genuine
+identity/removal still wins. The actual combined native scheduler/receive/render
+proof and controls retain the one-second deadline. No image pixels or new wire
+layout is added. Cabinet native price/quantity sit closer and use larger text.
+
+Actual merchant returns now carry destination-hand affinity, and observer flight
+clocks retain one source timeline across packet jitter and separate front/body
+receipts. World drag/smooth turn use unscaled tracking time. The hardware freeze's
+unique cause is not established; bounded Debug samples retain raw inputs,
+ownership, output and transient Unity clock stops without normal-log streams.
+
+Native hover fill state matches across actual perspective/furniture readbacks;
+no separate depth failure was reproduced. The GL reader cannot validate the full
+D3D11 procedural frame, so headset overlay blinking remains an acceptance limit.
+Focused native proofs, source16 composite, strict Debug/Release,299961 direct
+wire goldens and private compiled/surface scope are recorded in
+[NPC-655-REVIEW.md](NPC-655-REVIEW.md). This is not a fresh full188-suite local gate.
+Unchanged areas inherit the recorded previous evidence. Own generated worker
+artifacts are compactly archived before cleanup; hardware inputs remain intact.
+
 **Build654 reliable Auto walls and Graphics placement, 2026-10-09: 1.1.0 development candidate.**
 
 New Build 653 Frame evidence confirms useful manual wall removal: 845 renderers hidden,

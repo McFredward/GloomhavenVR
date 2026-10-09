@@ -30,7 +30,7 @@ def sources(root):
     bound = {name + ".cs": (base / "Net/TownServices" / (name + ".cs")).read_text() for name in names}
     for path in sorted((base / "Net/TownServices").glob("TownServiceAssets.*.cs")):
         bound[path.name] = path.read_text()
-    for name in ("TownServiceOriginalReceiptCodec.cs", "TownServiceMirror.OriginalReceipts.cs"):
+    for name in ("TownServiceOriginalReceiptCodec.cs", "TownServiceMirror.OriginalReceipts.cs", "TownServiceMirror.NativeVisibility.cs"):
         path = base / "Net/TownServices" / name
         if path.exists():
             text = path.read_text()

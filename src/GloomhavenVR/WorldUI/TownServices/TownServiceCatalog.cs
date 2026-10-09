@@ -620,7 +620,6 @@ internal sealed partial class TownServiceCatalog : IDisposable
             _canvas = face.GetComponent<Canvas>(); _canvas.renderMode = RenderMode.WorldSpace;
             VRLayers.Apply(face);
             var rowMount = new GameObject("Price"); rowMount.transform.SetParent(_display, false);
-            rowMount.transform.localPosition = new Vector3(0f, -.074f, -.002f);
             rowMount.transform.localRotation = Quaternion.identity;
             _row = new RemoteWidgetMirror("CatalogPrice", rowMount.transform, .118f, .030f, Vector2.zero,
                 externallyShownBranch: node => node.GetComponent<UIPartyItemInventoryTooltip>() != null, mrBacking: false);
@@ -650,6 +649,9 @@ internal sealed partial class TownServiceCatalog : IDisposable
                     source.GetComponentInChildren<TMP_Text>(true), GLOOM.LocalizationManager.GetTranslation("GUI_ITEM_SOLDOUT"));
                 RefreshSoldOutMarker(true);
                 Vector2 physicalSize = size * host.localScale.x;
+                // Follow the actual native card edge, including wider item variants.
+                // Leave a small clearance above the caption's 15 mm fitted strip.
+                rowMount.transform.localPosition = new Vector3(0f, -physicalSize.y * .5f - .008f, -.002f);
                 // With the cassette inside the carved cheeks, seat the native face
                 // about 3 mm ahead of the imported leather backing. The former 15 mm
                 // inset left the glass 18 mm in front of its own seat, so the whole

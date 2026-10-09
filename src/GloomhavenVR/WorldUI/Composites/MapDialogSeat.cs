@@ -1,3 +1,4 @@
+using Action = System.Action;
 using System.Collections.Generic;
 using GloomhavenVR.Core;
 using GloomhavenVR.WorldUI.MapRoom;
@@ -7,161 +8,12 @@ using UnityEngine.UI;
 namespace GloomhavenVR.WorldUI;
 
 /// <summary>
-/// <b>A MAP-ROOM WINDOW'S DIALOG OPENS ON THAT WINDOW.</b>
-///
-/// <para><b>USER REPORT, 2026-09-07, item 12, verbatim:</b> <i>"Ich habe das erste mal versucht
-/// wirklich einen Gegenstand zu kaufen. Und wie man in gegenstand_kaufen.jpg sehen kann ist das
-/// Dialogfenster nicht in dem Händler-Fenster aufgegangen, sondern in dem Fenster der Character-UI.
-/// Das soll nicht so sein - ich möchte das dieser Dialog beim Händler direkt auftaucht, da er den
-/// Händler auch betrifft. Bitte gehe systematisch den Code durch - das soll für alle Dialoge von
-/// Fenstern in der Map-Umgebung gelten, zB auch für die Zauberin etc."</i></para>
-///
-/// <para><b>HE HAS REPORTED THIS DEFECT BEFORE, ABOUT A DIFFERENT OBJECT.</b> On 2026-08-23 it was
-/// the enchantress' card list: <i>"Die Kartenauswahl für die Magierin spawnt hingegen auf dem
-/// Fenster der Character-UI"</i> — same window, same complaint, same word. That one was fixed for
-/// that one object by <see cref="EnchantressComposite"/>. This class is the reason he now asks for
-/// the CLASS instead of the instance, and it is the class.</para>
-///
-/// <para><b>THE MECHANISM, NAMED FROM THE LOG AND FROM THE GAME'S OWN SOURCE.</b> The dialog in the
-/// photograph is <c>UI Item Confirmation Box</c>. The single-player log's own scene census prints
-/// its full path at Player.log:1815:</para>
-/// <code>Canvas/MainMenu Manager/CustomPartySetup/New Party display Variant/UI Item Confirmation Box</code>
-/// <para>— that is the GAME's hierarchy, not this mod's. The box is a child transform of the party
-/// display prefab, and <c>UIItemConfirmationBox</c> is a <c>Singleton&lt;&gt;</c>
-/// (UIItemConfirmationBox.cs:10): ONE instance, shared by every surface that needs to confirm an
-/// item. In the flat game that parenting is invisible, because both windows are full-screen and
-/// stacked. In VR each converted window becomes a separate physical panel metres apart, and the
-/// parenting suddenly IS a place.</para>
-///
-/// <para><b>WHY THE MOD DID NOT FLOAT IT SEPARATELY, AND WHY THAT WAS RIGHT.</b>
-/// <c>ModalFallback.RendersInsideFloatedAncestor</c> (ModalFallback.7.Close.cs:1156) walks the
-/// dialog's parents, finds <c>New Party display</c> in <c>Converted</c>, and refuses the float:
-/// "the parent wins" (ModBuild 181/184/196). That rule is CORRECT and is not touched here — it is
-/// what draws a genuine sub-view (the equipment tab, the battle-goal picker) inside its host
-/// instead of beside it, and ModBuild 232 already shipped the opposite and the user photographed
-/// the result and complained (<c>.planning/debug/character_ui_quest_getrennt.jpg</c>). The rule's
-/// PREMISE was wrong here, not its mode: the ancestor it found is where the prefab happens to keep
-/// a shared singleton, not the window the dialog is about. So this class corrects the premise — it
-/// moves the dialog under the window that raised it — and the existing rule then produces the right
-/// answer with no change to it and no third code path
-/// ([[correct-the-premise-not-the-mode]]).</para>
-///
-/// <para><b>THE EVIDENCE THAT IT WAS NEVER FLOATED.</b> The log's own <c>MODAL WINDOW X AUDIT</c>
-/// line states its exhaustiveness: "a window that appears in NEITHER was never converted at all".
-/// <c>UI Item Confirmation Box</c> appears in <c>UIWindow SHOWN</c> once (:17879) and in ZERO
-/// <c>MODAL WINDOW</c> lines. Three further lines put it inside the character panel by name:
-/// <c>GRAB BAR PLATE FLOOR for 'New Party display' … the FULL-FRAME PLATE 'UI Item Confirmation
-/// Box' reaches down to y=-540 px</c> (:17891), and <c>MAP ROOM deselect REFUSED … the ray was on
-/// the floated window panel 'GloomhavenVR.Panel_Modal_New Party display' (widget 'UI Item
-/// Confirmation Box')</c> (:18066).</para>
-///
-/// <para><b>THE ENUMERATION — EVERY DIALOG A MAP-ROOM WINDOW CAN RAISE.</b> Taken by walking the
-/// call sites of every confirmation entry point in the decompiled game, not by name matching. The
-/// five destination window classes are <see cref="GuildmasterDestinations.IsDestination"/>'s own
-/// table (<c>UIShopItemWindow</c>, <c>UITempleWindow</c>, <c>UITrainerWindow</c>,
-/// <c>UINewEnhancementWindow</c>, <c>UITownRecordsWindow</c>), and the map table adds the character
-/// UI:</para>
-/// <list type="table">
-///   <item><description><b>Merchant</b> (<c>UIShopItemInventory</c>) — BUY :1108 and SELL :1079
-///   raise <c>UIItemConfirmationBox</c> with <c>BoxConfirmationType.Buy</c> / <c>.Sell</c>.
-///   <b>THIS IS THE REPORTED CASE.</b> Seated on the shop window.</description></item>
-///   <item><description><b>Enchantress</b> (<c>UINewEnhancementWindow</c>) — BUY :520 and SELL :559
-///   raise <c>UIEnhancementConfirmationBox</c>. Seated on the enhancement window.</description></item>
-///   <item><description><b>Temple</b> (<c>UITempleWindow</c>) — :176 raises the SAME
-///   <c>UIEnhancementConfirmationBox</c> singleton. Seated on the temple window.</description></item>
-///   <item><description><b>Character UI</b> (<c>UIPartyItemInventoryDisplay</c>) — :415 and :470
-///   raise <c>UIItemConfirmationBox</c> with <c>BoxConfirmationType.General</c>. Its home ALREADY
-///   IS the party display, so this class leaves it exactly where it is. The defect and the correct
-///   case are the same object; only the raiser differs, which is why a rule keyed on the OBJECT
-///   would have broken the working half.</description></item>
-///   <item><description><b>Trainer</b> and <b>Town Records / Mercenary Log</b> raise NO dialog —
-///   both go to <c>UIAdventureRewardsManager.ShowRewards</c> (UITrainerWindow.cs:138,
-///   UITownRecordsWindow.cs:132), which is a rewards panel and not a confirmation. Enumerated and
-///   found empty, which is a finding and not an omission.</description></item>
-///   <item><description>The generic <c>UIConfirmationBoxManager</c>
-///   (UIPartyItemInventoryDisplay.cs:403) is <c>UIWindowID.ConfirmationBox</c> and is already owned
-///   by <c>DialogSurface</c> — <c>ModalFallback.10.CatchAll.CatchAllKnownHandled</c> lists it. Not
-///   taken here; two owners for one window is the DOUBLE HOST defect.</description></item>
-/// </list>
-///
-/// <para><b>HOW THE RAISER IS RESOLVED — FROM THE GAME'S OWN ANSWER, NEVER FROM A NAME.</b> Two
-/// different questions, because the game answers them in two different places:</para>
-/// <list type="number">
-///   <item><description><c>UIItemConfirmationBox</c> is raisable from TWO surfaces that can be open
-///   at the same time (the photograph shows the merchant panel and the character panel both
-///   standing), so "which mode is current" is NOT sufficient. The game already carries the answer:
-///   <c>ShowConfirmation</c>'s first argument is a <c>BoxConfirmationType</c>, and it announces it
-///   on its own public event <c>ConfirmationBoxRequested</c> (UIItemConfirmationBox.cs:40, fired
-///   at :84 before anything else). <c>Buy</c>/<c>Sell</c> come only from the merchant,
-///   <c>General</c> only from the party inventory. This class subscribes to that event and reads
-///   nothing else. No Harmony patch, no game state written.</description></item>
-///   <item><description><c>UIEnhancementConfirmationBox</c> has no such discriminator and needs
-///   none: its only two raisers are the enchantress and the temple, both guildmaster DESTINATIONS,
-///   and the game permits exactly one destination mode at a time
-///   (<c>UIGuildmasterHUD.UpdateCurrentMode</c> holds a single <c>currentMode</c> and calls
-///   <c>modes[currentMode].Exit()</c> before entering the next, UIGuildmasterHUD.cs:435-448).
-///   Neither is raisable from the character UI. So <c>GuildmasterDestinations.ModeWindow(current)</c>
-///   is exact.</description></item>
-/// </list>
-///
-/// <para><b>CONCURRENT DIALOGS — THE USER'S THIRD REQUIREMENT, AND THE HONEST ANSWER.</b> He asked:
-/// <i>"Das es unabhängige Fenster sind soll es auch so möglich sein, dass ein Dialogfenster bei der
-/// Zauberin und beim Händler parallel offen sind."</i> This class does not forbid it — each dialog
-/// carries its OWN <see cref="Seat"/> with its own park state, so nothing here is a single slot.
-/// The mod's modal machinery does not forbid it either: <c>Converted</c>, <c>Open</c> and
-/// <c>OpenWindows</c> are collections, and <c>MenuExclusivity</c>'s rule for
-/// <c>MenuPlace.MapRoom</c> is <c>MenuArbitration.Parallel</c>.</para>
-///
-/// <para><b>IT IS REFUSED ONE LEVEL ABOVE ALL OF THAT, BY THE GAME.</b> The merchant window and the
-/// enchantress window can never be open together: <c>UIGuildmasterHUD</c> drives them from a Unity
-/// <c>ToggleGroup</c> through a single <c>currentMode</c> field, and <c>UpdateCurrentMode</c> exits
-/// the outgoing mode unconditionally (UIGuildmasterHUD.cs:441-448) — which for the merchant is
-/// <c>shopWindow.ExitShop()</c>. Two dialogs on two destinations therefore cannot arise, because
-/// their two windows cannot. <b>WHAT IT WOULD COST:</b> running two guildmaster modes at once means
-/// two <c>Enter()</c>ed modes writing one <c>banner.ShowMode</c>, two <c>ControllerInputArea</c>
-/// stacks against one focus stack, and one <c>UINavigation</c> state machine holding one state —
-/// i.e. rebuilding the guildmaster HUD's mode machinery rather than mirroring it. That is a change
-/// to the game's model driven from presentation code, which the standing rules forbid twice over
-/// ("never write game state from presentation code"; "mirror the real thing, never rebuild an
-/// approximation"). <b>SO IT IS NOT ATTEMPTED, AND THE INSTRUMENT REPORTS THE COUNT SO THE NEXT LOG
-/// SAYS SO WITHOUT A SCREENSHOT.</b> The one pairing that CAN stand today — a merchant dialog while
-/// the character panel is also open — already works, because those are two windows and two seats.
-/// </para>
-///
-/// <para><b>WHY A PARK AND NOT A FLOAT.</b> The three shapes are surveyed in
-/// <see cref="EnchantressComposite"/>'s class doc and the answer is the same one, for the same
-/// reason, plus one that is specific here: the dialog IS a <c>UIWindow</c>, so floating it would
-/// put it BESIDE its host — the exact presentation ModBuild 232 shipped and the user rejected in a
-/// photograph. He asked for it <i>"in dem Händler-Fenster"</i>. A park puts it in.</para>
-///
-/// <para><b>THE ModBuild 232 STRETCH-CHILD LESSON IS INHERITED, NOT RE-LEARNED.</b> The dialog is a
-/// full-frame plate (the log's GRAB BAR line measures it spanning the whole 1988x1080 frame), i.e.
-/// almost certainly a STRETCH child. Collapsing a stretch child's anchors to a point sets its drawn
-/// size to ZERO, so the size is MEASURED BEFORE the anchor write and re-asserted every tick, exactly
-/// as <c>StoryComposite</c> and <see cref="EnchantressComposite"/> do
-/// ([[anchors-own-a-stretch-child-size]]).</para>
-///
-/// <para><b>THE LAYER TRANSFER.</b> Both ends are converted panels and either may be supersampled
-/// onto a private capture layer, so the park writes the DESTINATION window root's own layer over the
-/// moved subtree and the hand-back writes the HOME PARENT's own layer, both read LIVE. Re-parenting
-/// without this is [[one-shared-layer-leaks]] in its purest form: a perfectly seated, perfectly
-/// sized, totally invisible dialog.</para>
-///
-/// <para><b>A WINDOW MUST NEVER BE INVISIBLE.</b> Every precondition that is not yet true is a WAIT,
-/// and a WAIT leaves the dialog exactly where the game drew it — which is today's shipped behaviour.
-/// Nothing here can produce a state in which the dialog is drawn nowhere. The park is also
-/// unconditionally handed back when the dialog hides, when its host stops being a live float, and on
-/// module reset.</para>
-///
-/// <para><b>MULTIPLAYER.</b> Local presentation only: transform re-parents and layer writes on this
-/// client's own scene objects, decided from this client's own <c>UIGuildmasterHUD</c> and the game's
-/// own event. Nothing is read from or written to the wire and no game state is touched — no
-/// <c>Show</c>, no <c>Hide</c>, no <c>Enter</c>, no <c>Exit</c>. A peer sees his OWN merchant dialog
-/// on his OWN merchant window by running this same code against his own scene; the map room's
-/// windows are per-client presentation and the purchase itself is committed by the game's own
-/// button, on the wire, exactly as before. A FLAT (unmodded) player is unaffected: nothing here
-/// reaches him, and the dialog he sees is the one the game draws. There is no per-sub-feature sync
-/// setting because there is nothing to sync.</para>
+/// Seats each native map confirmation inside the converted window that raised it.
+/// The item box announces its merchant/party discriminator. The shared temple/
+/// enhancement box records the destination at its own Show edge, rather than
+/// interpreting a later destination switch as a new request. Closing that original
+/// host cancels through the game's own Hide path before the next HUD mode enters.
+/// Native confirmation callbacks, navigation and fade completion remain authoritative.
 /// </summary>
 internal static class MapDialogSeat
 {
@@ -197,6 +49,7 @@ internal static class MapDialogSeat
         internal Seat(string label)
         {
             Label = label;
+            HostHidden = () => OnRaisingHostHidden(this);
         }
 
         /// <summary>Human name for the log — the dialog this seat is about.</summary>
@@ -204,8 +57,14 @@ internal static class MapDialogSeat
 
         internal RectTransform? Parked;
         internal UIWindow? Host;
+        internal UIWindow? CancellationHost;
+        internal readonly Action HostHidden;
+        internal UIWindow? NativeDialog;
+        internal EGuildmasterMode? RequestedMode;
+        internal bool Closing;
 
         internal Transform? Home;
+        internal UIWindow? HomeWindow;
         internal int HomeIndex;
         internal Vector2 HomeAnchorMin;
         internal Vector2 HomeAnchorMax;
@@ -238,6 +97,7 @@ internal static class MapDialogSeat
 
     private static readonly Seat ItemSeat = new("the item confirmation box (buy / sell / equip)");
     private static readonly Seat EnhancementSeat = new("the enhancement confirmation box (enchantress / temple)");
+    private static UIWindow? _enhancementWindow;
 
     /// <summary>
     /// One tick. Called from <c>ModalFallback.TickCatchAll</c> beside
@@ -318,39 +178,111 @@ internal static class MapDialogSeat
         UIEnhancementConfirmationBox? box = Singleton<UIEnhancementConfirmationBox>.IsInitialized
             ? Singleton<UIEnhancementConfirmationBox>.Instance
             : null;
-        if (box == null)
+        var window = box != null ? box.GetComponent<UIWindow>() : null;
+        ObserveEnhancementWindow(window);
+        // A native station mask may have reparented this exact root into its
+        // zero-alpha wrapper, including while a confirmation is already hidden
+        // but retiring. Preserve the flat seat snapshot; neither pose nor parent
+        // belongs to this seat until that real presentation owner releases it.
+        if (window != null && TownServicePresentation.OwnsWindow(window))
         {
-            Release(EnhancementSeat, "the enhancement confirmation box singleton is gone");
+            DetachHostCancellation(EnhancementSeat);
             Wait(EnhancementSeat, string.Empty);
             return;
         }
-
-        var window = box.GetComponent<UIWindow>();
         if (window == null || !StillShowing(window))
         {
-            Release(EnhancementSeat, "the enhancement confirmation box is closed and has finished "
-                                     + "fading out");
+            Release(EnhancementSeat, "the enhancement confirmation box has finished hiding");
+            EnhancementSeat.RequestedMode = null;
+            EnhancementSeat.Closing = false;
             Wait(EnhancementSeat, string.Empty);
             return;
         }
 
-        // Its only two raisers are destinations, and the game permits one destination at a time, so
-        // the current mode IS the raiser. Asked through GuildmasterDestinations so this class and the
-        // rail's close path can never disagree about which window a mode owns.
-        EGuildmasterMode mode = GuildmasterDestinations.CurrentDestinationMode();
+        // A singleton can first be discovered after its Show event. Resolve once on
+        // that first live observation; a destination switch is never another raise.
+        if (EnhancementSeat.RequestedMode == null && !EnhancementSeat.Closing)
+            OnEnhancementShown();
+        if (EnhancementSeat.Closing)
+        {
+            // A departing host completes cancellation instantly. Retain the
+            // original owner until native zero visibility permits hand-back.
+            if (EnhancementSeat.Parked != null && EnhancementSeat.Host != null)
+                ApplyPose(EnhancementSeat, (RectTransform)EnhancementSeat.Host.transform);
+            return;
+        }
+        EGuildmasterMode? mode = EnhancementSeat.RequestedMode;
         if (mode is not (EGuildmasterMode.Enchantress or EGuildmasterMode.Temple))
         {
-            Release(EnhancementSeat, $"the enhancement confirmation box is open but the current "
-                                     + $"guildmaster mode is {mode}, which is neither the enchantress "
-                                     + "nor the temple — no destination claims it, so it stays where "
-                                     + "the game drew it");
+            Release(EnhancementSeat, "no map destination raised this confirmation");
             Wait(EnhancementSeat, string.Empty);
             return;
         }
-
-        UIWindow? raiser = GuildmasterDestinations.ModeWindow(mode);
+        UIWindow? raiser = GuildmasterDestinations.ModeWindow(mode.Value);
         SeatOn(EnhancementSeat, window, raiser,
-               mode == EGuildmasterMode.Enchantress ? "the enchantress" : "the temple", mode);
+               mode == EGuildmasterMode.Enchantress ? "the enchantress" : "the temple", mode.Value);
+    }
+
+    private static void ObserveEnhancementWindow(UIWindow? window)
+    {
+        if (ReferenceEquals(_enhancementWindow, window)) return;
+        if (_enhancementWindow != null) _enhancementWindow.OnShow -= OnEnhancementShown;
+        Release(EnhancementSeat, "the native enhancement confirmation instance changed");
+        _enhancementWindow = window;
+        EnhancementSeat.NativeDialog = window;
+        EnhancementSeat.RequestedMode = null;
+        EnhancementSeat.Closing = false;
+        if (window != null) window.OnShow += OnEnhancementShown;
+    }
+
+    private static void OnEnhancementShown()
+    {
+        EnhancementSeat.Closing = false;
+        EnhancementSeat.RequestedMode = GuildmasterDestinations.CurrentDestinationMode();
+        EGuildmasterMode? mode = EnhancementSeat.RequestedMode;
+        UIWindow? host = mode is EGuildmasterMode.Enchantress or EGuildmasterMode.Temple
+            ? GuildmasterDestinations.ModeWindow(mode.Value) : null;
+        // A flat host can close before its initial conversion finishes. Bind its
+        // native Hide edge immediately, while leaving quiet immersive controllers
+        // and their separately owned transaction masks untouched.
+        if (host != null && host.IsOpen
+            && !TownServicePresentation.OwnsWindow(host)
+            && (_enhancementWindow == null || !TownServicePresentation.OwnsWindow(_enhancementWindow))
+            && !TownServicePresentation.IsQuietController(host,
+                mode == EGuildmasterMode.Temple ? (byte)2 : (byte)3))
+            BindHostCancellation(EnhancementSeat, host);
+    }
+
+    private static void BindHostCancellation(Seat seat, UIWindow host)
+    {
+        if (ReferenceEquals(seat.CancellationHost, host)) return;
+        DetachHostCancellation(seat);
+        seat.CancellationHost = host;
+        host.OnHide += seat.HostHidden;
+    }
+
+    private static void DetachHostCancellation(Seat seat)
+    {
+        if (seat.CancellationHost != null) seat.CancellationHost.OnHide -= seat.HostHidden;
+        seat.CancellationHost = null;
+    }
+
+    private static void OnRaisingHostHidden(Seat seat)
+    {
+        if (!ReferenceEquals(seat, EnhancementSeat) || seat.NativeDialog == null
+            || !StillShowing(seat.NativeDialog) || TownServicePresentation.OwnsWindow(seat.NativeDialog)) return;
+        seat.Closing = true;
+        // UIWindow.OnHide runs inside the outgoing HUD mode's Exit, before the
+        // HUD enters another mode. Complete the native cancellation here: a new
+        // ShowConfirmation resets this singleton's transition listeners and must
+        // not be able to discard the outgoing temple cancellation callback.
+        // Ordinary confirm/cancel button fades are unchanged.
+        if (seat.NativeDialog.IsOpen)
+            seat.NativeDialog.Hide(instant: true);
+        else
+            // A button already chose an outcome and started hiding. Complete that
+            // existing tween without firing another OnHide or changing its result.
+            seat.NativeDialog.StartAlphaTween(0f, 0f, ignoreTimeScale: true);
     }
 
     /// <summary>
@@ -411,7 +343,7 @@ internal static class MapDialogSeat
 
         if (ModalFallback.PanelFor(raiser) == null || !ModalFallback.FloatIsLive(raiser))
         {
-            Release(seat, $"{who}'s window stopped being a live float");
+            Release(seat, $"{who}'s window stopped being a live float", releaseCancellation: false);
             Wait(seat, $"{seat.Label} is open and {who} raised it, but '{raiser.name}' "
                        + $"(ID {raiser.ID}) is not a live floated panel yet. Until it is there is no "
                        + "world frame to seat into, and the dialog is drawn exactly where the game "
@@ -468,12 +400,14 @@ internal static class MapDialogSeat
             seat.HomeRotation = rect.localRotation;
             seat.HomeScale = rect.localScale;
             seat.HomeWindowName = "<none above the dialog>";
+            seat.HomeWindow = null;
             for (Transform? t = seat.Home; t != null; t = t.parent)
             {
                 var w = t.GetComponent<UIWindow>();
                 if (w == null)
                     continue;
                 seat.HomeWindowName = t.name;
+                seat.HomeWindow = w;
                 break;
             }
 
@@ -493,16 +427,18 @@ internal static class MapDialogSeat
             }
             le.ignoreLayout = true;
 
+            seat.ParkedSize = measured;
+            seat.Parked = rect;
+            seat.Host = raiser;
             rect.SetParent(hostRect, worldPositionStays: false);
+            CanvasConversion.TransferSeatedSubtree(rect, ModalFallback.PanelFor(raiser));
             rect.SetAsLastSibling();
             rect.anchorMin = new Vector2(0.5f, 0.5f);
             rect.anchorMax = new Vector2(0.5f, 0.5f);
             rect.pivot = new Vector2(0.5f, 0.5f);
             rect.sizeDelta = measured;      // ← the size this seat now owns (ModBuild 232)
             rect.localRotation = Quaternion.identity;
-            seat.ParkedSize = measured;
-            seat.Parked = rect;
-            seat.Host = raiser;
+            if (ReferenceEquals(seat, EnhancementSeat)) BindHostCancellation(seat, raiser);
 
             // THE LAYER, read live off the destination's own root — see the class note.
             seat.ParkedToLayer = hostRect.gameObject.layer;
@@ -590,8 +526,9 @@ internal static class MapDialogSeat
     }
 
     /// <summary>Hand the dialog back to the game VERBATIM. Idempotent and never throws out.</summary>
-    private static void Release(Seat seat, string why)
+    private static void Release(Seat seat, string why, bool releaseCancellation = true)
     {
+        if (releaseCancellation) DetachHostCancellation(seat);
         if (seat.Parked == null)
         {
             seat.Host = null;
@@ -617,6 +554,8 @@ internal static class MapDialogSeat
             if (rect == null || seat.Home == null)
                 return;
             rect.SetParent(seat.Home, worldPositionStays: false);
+            CanvasConversion.TransferSeatedSubtree(rect,
+                seat.HomeWindow != null ? ModalFallback.PanelFor(seat.HomeWindow) : null);
             rect.SetSiblingIndex(Mathf.Clamp(seat.HomeIndex, 0, Mathf.Max(0, seat.Home.childCount - 1)));
             rect.anchorMin = seat.HomeAnchorMin;
             rect.anchorMax = seat.HomeAnchorMax;
@@ -654,6 +593,7 @@ internal static class MapDialogSeat
         finally
         {
             seat.Home = null;
+            seat.HomeWindow = null;
             seat.ParkedLayerCount = 0;
             seat.ParkedFromLayer = -1;
             seat.ParkedToLayer = -1;
@@ -725,6 +665,7 @@ internal static class MapDialogSeat
     {
         Release(ItemSeat, "the module was reset");
         Release(EnhancementSeat, "the module was reset");
+        ObserveEnhancementWindow(null);
         ResetSeat(ItemSeat);
         ResetSeat(EnhancementSeat);
     }
@@ -734,6 +675,8 @@ internal static class MapDialogSeat
         seat.WaitReported = string.Empty;
         seat.RaiseReports = 0;
         seat.RequestedAs = null;
+        seat.RequestedMode = null;
+        seat.Closing = false;
         seat.HomeWindowName = "<unresolved>";
         // The event subscription is deliberately NOT dropped here: it is taken against the game's
         // own singleton, which outlives a module reset, and re-subscribing without unsubscribing

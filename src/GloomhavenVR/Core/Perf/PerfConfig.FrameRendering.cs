@@ -37,7 +37,7 @@ internal static partial class PerfConfig
     internal static float TerrainDistanceMeters => Mathf.Clamp(ScenarioTerrainDistanceMeters?.Value ?? Defaults.ScenarioTerrainDistanceMeters, .1f, 10f);
     internal static int TerrainCameraSourceLimit => Mathf.Clamp(ScenarioTerrainCameraSourceLimitCount?.Value ?? Defaults.ScenarioTerrainCameraSourceLimitCount, 0, 2048);
     internal static int WallVisibilityMode => Mathf.Clamp(WallVisibilityModeCount?.Value ?? Defaults.WallVisibilityModeCount, 0, 2);
-    internal static int WallAutoHideBelowFps => Mathf.Clamp(WallAutoHideBelowFpsCount?.Value ?? Defaults.WallAutoHideBelowFpsCount, 5, 90);
+    internal static int WallAutoHideBelowFps => Mathf.Clamp(WallAutoHideBelowFpsCount?.Value ?? Defaults.WallAutoHideBelowFpsCount, 5, 30);
     // Work removal is universal, not a player quality choice. The getter preserves
     // existing internal/test-reference read paths without binding a config entry.
     internal static bool SharedEnvironmentMaterialReadsOn => true;
@@ -50,10 +50,10 @@ internal static partial class PerfConfig
         // Unlike graphics presets, selecting a wall policy is independent of material detail.
         WallVisibilityModeCount = file.Bind("Optimize", "WallVisibilityModeCount",
             Defaults.WallVisibilityModeCount,
-            new ConfigDescription("Wall visibility: 0 = regular see-through settings, 1 = hide all walls instantly, 2 = automatic. Automatic hides walls after sustained low frame rate in loaded gameplay and keeps them hidden until the scenario ends. Select regular to restore them sooner. Hidden walls override look-dependent fading and the inside-play-area setting. Door frames and arches remain visible. Works live; automatic is the default on all platforms.", new AcceptableValueList<int>(0, 1, 2)));
+            new ConfigDescription("Wall visibility: 0 = regular see-through settings, 1 = hide all walls instantly, 2 = automatic. Automatic hides walls after sustained low frame rate in loaded gameplay and keeps them hidden until the scenario ends. Select regular to restore them sooner. Changing the threshold while automatic is selected restores walls and starts a fresh measurement. Hidden walls override look-dependent fading and the inside-play-area setting. Door frames and arches remain visible. Works live; automatic is the default on all platforms.", new AcceptableValueList<int>(0, 1, 2)));
         WallAutoHideBelowFpsCount = file.Bind("Optimize", "WallAutoHideBelowFpsCount",
             Defaults.WallAutoHideBelowFpsCount,
-            new ConfigDescription("Frame-rate threshold for automatic wall hiding, in frames per second. A sustained drop below this value during loaded gameplay hides walls for the rest of the scenario. Loading pauses do not trigger it. Higher values favor performance sooner. Used only in automatic wall mode; door frames and arches stay visible.", new AcceptableValueRange<int>(5, 90)));
+            new ConfigDescription("Frame-rate threshold for automatic wall hiding, in frames per second. A sustained drop below this value during loaded gameplay hides walls for the rest of the scenario. Loading pauses do not trigger it. Higher values favor performance sooner. Changing this value in automatic mode restores walls and starts a fresh measurement; an unchanged effective value keeps the current state. Used only in automatic wall mode; door frames and arches stay visible.", new AcceptableValueRange<int>(5, 30)));
 
         ScenarioRoomArchitecture = file.Bind("Optimize", "ScenarioRoomArchitecture",
             FrameDefaults.Active ? FrameDefaults.ScenarioRoomArchitecture : Defaults.ScenarioRoomArchitecture,

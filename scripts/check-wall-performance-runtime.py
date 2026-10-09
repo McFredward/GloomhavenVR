@@ -35,7 +35,10 @@ def main():
             extracted=method(read[filename],signature)
             if signature=='private void ComputeWireKeys()':extracted=extracted.replace('{','{ FixtureWireRebuilds++;',1)
             methods.append(extracted)
-    source={'WallSegmentFade.Performance.cs':read[names[0]],'WallSegmentFade.ArchMounted.cs':read[names[1]],
+    config=root/'src/GloomhavenVR/Core/Perf/PerfConfig.FrameRendering.cs';paths.append(config)
+    getter=next(line for line in config.read_text().splitlines() if 'internal static int WallAutoHideBelowFps =>' in line)
+    source={'Boundaries.cs':(fixture/'Boundaries.cs').read_text().replace('// @PRODUCTION_WALL_FPS_GETTER@',getter.strip()),
+        'WallSegmentFade.Performance.cs':read[names[0]],'WallSegmentFade.ArchMounted.cs':read[names[1]],
         'SceneryPrimitive.cs':(fixture/'SceneryFixture.cs').read_text().replace('// @PRODUCTION_SET_HIDDEN@',scenery_method),
         'ProductionPrimitives.cs':'using System; using UnityEngine; namespace GloomhavenVR.Core {internal static partial class WallSegmentFade {private sealed partial class FadeDriver {\n'+'\n'.join(methods)+'\n}}}'}
     baseline_sha=subprocess.check_output(['git','-C',str(ROOT),'rev-parse',args.baseline_ref],text=True).strip()
@@ -61,6 +64,11 @@ def main():
         ('native-reveal-ignored','WallSegmentFade.Performance.cs','!ScenarioRoomLoading.HasPendingReveal','true','native loading reveal or explicit XR focus loss does not trigger Auto'),
         ('auto-recovery-grace-lost','WallSegmentFade.Performance.cs','eligible && now - _performanceReadySince >= .5f','eligible','native loading reveal or XR focus recovery starts a fresh grace and full window'),
         ('cosmetic-hidden-inventory-veto-regression','WallSegmentFade.Performance.cs','TickPerformanceInventory(gen, now, loaded);','TickPerformanceInventory(gen, now, loaded && !ScenarioInteractionPreparation.IsPreparing);','same-count native generation collects fresh new wall membership'),
+        ('auto-threshold-reset-lost','WallSegmentFade.Performance.cs','modeChanged || autoThresholdChanged','modeChanged','latched Auto threshold edit restores exact walls immediately'),
+        ('auto-threshold-cache-lost','WallSegmentFade.Performance.cs','_performanceAutoBelowFps = autoBelowFps;','if (autoBelowFps != 20) _performanceAutoBelowFps = autoBelowFps;','edited Auto can relatch only after fresh sustained slow window'),
+        ('auto-threshold-grace-reset-lost','WallSegmentFade.Performance.cs','eligible && now - _performanceReadySince >= .5f','eligible && (_performanceAutoBelowFps == 20 || now - _performanceReadySince >= .5f)','threshold edit requires new half-second grace'),
+        ('auto-threshold-wire-recovery-lost','WallSegmentFade.Performance.cs','if (recoverWireKeys) ComputeWireKeys();','if (recoverWireKeys && modeChanged) ComputeWireKeys();','threshold recovery rebuilds native sender keys exactly once'),
+        ('auto-threshold-effective-clamp-lost','Boundaries.cs','Defaults.WallAutoHideBelowFpsCount, 5, 30)','Defaults.WallAutoHideBelowFpsCount, 5, 90)','out-of-range threshold uses thirty FPS effective maximum'),
         ('collector-remask-lost','WallSegmentFade.Performance.cs','SetPerformanceCollectionMasks(true);','SetPerformanceCollectionMasks(false);','same-count native generation collects fresh new wall membership'),
         ('valid-negative-scene-recovery-lost','WallSegmentFade.Performance.cs','if (!VRSession.IsRunning\n                || Rig.VRRigDriver.HeadCamera == null','if (!VRSession.IsRunning || _performanceScene < 0\n                || Rig.VRRigDriver.HeadCamera == null','Hidden to Regular rebuilds actual native wire keys once before sender resumes'),
         ('wire-recovery-omitted','WallSegmentFade.Performance.cs','if (recoverWireKeys) ComputeWireKeys();','/* injected: no key recovery */','Hidden to Regular rebuilds actual native wire keys once before sender resumes'),
@@ -80,8 +88,8 @@ def main():
     inputs=paths+[Path(__file__).resolve()]+sorted(p for p in fixture.rglob('*') if p.is_file())
     hashes={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in inputs}
     (run/'source-hashes.json').write_text(json.dumps({'sha256':hashes,'sourceRoot':str(root),'baselineEntryCommit':baseline_sha,'baselineWallSha256':hashlib.sha256(old_wall.encode()).hexdigest(),'limits':[
-        'Complete Performance partial and actual LateUpdate/ClearAllBlocks/SampleFadedKeys/draw-write guard/Water protection/arch-mounted hierarchy execute.',
-        'Native controller, scene/config/loading/focus/clock, held registry, staged collector, attachment restorers and broad floor/actor/mod classifiers are explicit model boundaries.',
+        'Complete Performance partial, actual effective FPS config getter and actual LateUpdate/ClearAllBlocks/SampleFadedKeys/draw-write guard/Water protection/arch-mounted hierarchy execute.',
+        'Native controller, scene/config storage/loading/focus/clock, held registry, staged collector, attachment restorers and broad floor/actor/mod classifiers are explicit model boundaries.',
         'Native Unity renderer/mesh/MPB/scene/bounds/hierarchy/camera pixels execute. Foreign native command draws are measured as an explicit boundary.',
         'Timing measures added entry overhead against the identical entry with guard removed and the same cheap Tick boundary; not saved whole-wall CPU or Frame FPS.'
     ],'transformations':['using aliases for Unity Time and Application to deterministic named clock/focus boundaries','Invocation count inserted only at actual ComputeWireKeys entry; no key algorithm replacement; no calls inside warmed timing region'],'variants':[v[0] for v in variants]},indent=2)+'\n')

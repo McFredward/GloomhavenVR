@@ -18,7 +18,7 @@ public static class WallPerformanceProgram
     private static void Check(bool yes,string message){assertions++;if(!yes)throw new Exception(message);}
     private static void Setup()
     {
-        PerfConfig.WallVisibilityMode=0;PerfConfig.WallAutoHideBelowFps=15;VRSession.IsRunning=true;VRSession.InputFocus=true;
+        PerfConfig.WallVisibilityMode=0;PerfConfig.WallAutoHideBelowFpsCount.Value=15;VRSession.IsRunning=true;VRSession.InputFocus=true;
         ScenarioRuleLibrary.ScenarioManager.Scenario=new object();
         Scene game=SceneManager.GetSceneByName("Game");if(!game.IsValid())game=SceneManager.CreateScene("Game");
         SceneController.Instance=new SceneController{GetCurrentScene=game};
@@ -51,7 +51,7 @@ public static class WallPerformanceProgram
     public static int Run()
     {
         assertions=0;Setup();
-        try{Clock();Presentation();ProtectedFamilies();Ownership();SceneryOwnership();Auto();Lifecycle();WireRecovery();Exceptions();CommandDraw();return assertions;}
+        try{Clock();Presentation();ProtectedFamilies();Ownership();SceneryOwnership();Auto();Lifecycle();WireRecovery();ThresholdEdits();Exceptions();CommandDraw();return assertions;}
         finally{Cleanup();}
     }
     private static void Clock()
@@ -242,6 +242,74 @@ public static class WallPerformanceProgram
             var replacement=new GameObject("Replacement scenario generator");owned.Add(replacement);TilesOcclusionGenerator.s_Instance=replacement.AddComponent<TilesOcclusionGenerator>();TilesOcclusionGenerator.s_Instance.m_RoomRenderers.Add(new object());f.Frame();Check(!wall.forceRenderingOff&&!f.Latched,"new scenario identity resets Auto instead of inheriting old hidden latch");
         }
         Object.DestroyImmediate(wall.gameObject);
+    }
+    private static void ThresholdEdits()
+    {
+        var wall=Piece("Live threshold wall");var shelf=Piece("Live threshold attachment",2);var door=Piece("Threshold protected gate",3);
+        using(var f=new WallSegmentFade.Fixture())
+        {
+            int key=f.Add(wall);f.Attach(key,shelf,"mounted");f.Add(door,gate:true);
+            PerfConfig.WallAutoHideBelowFpsCount.Value=15;PerfConfig.WallVisibilityMode=2;
+            for(int i=0;i<32;i++)f.Frame(.1f);
+            Check(wall.forceRenderingOff&&shelf.forceRenderingOff&&f.Latched,"threshold case starts with hidden latched Auto");
+            int ticks=f.Ticks,writes=ScenarioEnvironmentBudget.Writes,rebuilds=f.KeyRebuilds;
+            PerfConfig.WallAutoHideBelowFpsCount.Value=15;f.Frame(.1f);
+            Check(wall.forceRenderingOff&&f.Latched&&f.KeyRebuilds==rebuilds&&ScenarioEnvironmentBudget.Writes==writes,"same effective threshold leaves hidden state and recovery work untouched");
+            // Generated native keys may have been omitted by the hidden lifecycle. A live
+            // threshold change must perform the exact same recovery as hidden -> Regular.
+            f.ClearKeys();var native=new MaterialPropertyBlock();native.SetColor("_Color",Color.blue);wall.SetPropertyBlock(native);
+            PerfConfig.WallAutoHideBelowFpsCount.Value=20;f.Frame(.1f);
+            Check(!wall.forceRenderingOff&&!shelf.forceRenderingOff&&!f.Latched,"latched Auto threshold edit restores exact walls immediately");
+            Check(!door.forceRenderingOff&&f.Ticks==ticks+1&&f.Guarded,"threshold edit resumes regular wall entry while preserving gate");
+            var read=new MaterialPropertyBlock();wall.GetPropertyBlock(read);
+            Check(read.GetColor("_Color")==Color.blue&&Pixel(0).b>.6f,"threshold reset preserves current native material block and restored camera pixels");
+            Check(f.FadesCleared(key),"threshold recovery leaves retired hidden fade state cleared");
+            f.Fade(key,.4f,false);var dest=new uint[4];
+            Check(f.KeyRebuilds==rebuilds+1&&f.Sample(dest)==1&&dest[0]!=0,"threshold recovery rebuilds native sender keys exactly once");
+            uint stable=dest[0];for(int i=0;i<20;i++)f.Frame(.1f);
+            Check(!wall.forceRenderingOff&&!f.Latched&&f.KeyRebuilds==rebuilds+1,"threshold edit requires new half-second grace");
+            for(int i=0;i<14;i++)f.Frame(.1f);
+            Check(wall.forceRenderingOff&&f.Latched,"edited Auto can relatch only after fresh sustained slow window");
+            // Lowering while latched likewise restores first; old slow history cannot
+            // immediately overrule the changed threshold. 10FPS is now above 5FPS.
+            PerfConfig.WallAutoHideBelowFpsCount.Value=5;f.Frame(.1f);
+            Check(!wall.forceRenderingOff&&!f.Latched,"lowering latched threshold restores visible walls before remeasurement");
+            for(int i=0;i<40;i++)f.Frame(.1f);
+            Check(!wall.forceRenderingOff&&!f.Latched,"new lower threshold keeps sufficiently fast gameplay visible");
+            PerfConfig.WallAutoHideBelowFpsCount.Value=1000;f.Frame(.05f);
+            Check(PerfConfig.WallAutoHideBelowFps==30,"out-of-range threshold uses thirty FPS effective maximum");
+            for(int i=0;i<55;i++)f.Frame(.05f);
+            Check(wall.forceRenderingOff&&f.Latched,"clamped high threshold still relatches after fresh slow observation");
+            int clampedWrites=ScenarioEnvironmentBudget.Writes,clampedKeys=f.KeyRebuilds;
+            PerfConfig.WallAutoHideBelowFpsCount.Value=31;f.Frame(.05f);
+            Check(wall.forceRenderingOff&&f.Latched&&ScenarioEnvironmentBudget.Writes==clampedWrites&&f.KeyRebuilds==clampedKeys,"equivalent clamped threshold edit keeps latch without restoration work");
+            // A threshold edit midway through an unlatched window discards elapsed samples.
+            RestartAuto(f);PerfConfig.WallAutoHideBelowFpsCount.Value=15;
+            for(int i=0;i<18;i++)f.Frame(.1f);
+            PerfConfig.WallAutoHideBelowFpsCount.Value=20;f.Frame(.1f);
+            for(int i=0;i<18;i++)f.Frame(.1f);
+            Check(!wall.forceRenderingOff&&!f.Latched,"observing threshold edit discards earlier slow samples");
+            for(int i=0;i<14;i++)f.Frame(.1f);
+            Check(wall.forceRenderingOff&&f.Latched,"reset observing window eventually relatches on sustained slow gameplay");
+            // Active manual hiding does not expose walls or rebuild wire keys for an
+            // inactive Auto tuning change, including out-of-range values.
+            PerfConfig.WallVisibilityMode=1;f.Frame();int manualWrites=ScenarioEnvironmentBudget.Writes,manualKeys=f.KeyRebuilds;
+            foreach(int threshold in new[]{5,30,1000,15})
+            {
+                PerfConfig.WallAutoHideBelowFpsCount.Value=threshold;f.Frame(.1f);
+                Check(wall.forceRenderingOff&&shelf.forceRenderingOff&&!door.forceRenderingOff&&f.KeyRebuilds==manualKeys&&ScenarioEnvironmentBudget.Writes==manualWrites,"manual Hide all ignores inactive threshold edits without recovery work");
+            }
+            PerfConfig.WallVisibilityMode=2;f.Frame(.1f);f.Fade(key,.4f,false);
+            Check(!wall.forceRenderingOff&&!f.Latched&&f.Sample(dest)==1&&dest[0]==stable,"manual to Auto starts new observation and retains cross-machine native keys");
+            // Genuine native loading still vetoes a fresh window after a threshold edit.
+            SceneController.Instance.IsLoading=true;PerfConfig.WallAutoHideBelowFpsCount.Value=20;
+            for(int i=0;i<35;i++)f.Frame(.1f);
+            Check(!wall.forceRenderingOff&&!f.Latched,"threshold edit does not bypass native loading protection");
+            SceneController.Instance.IsLoading=false;for(int i=0;i<32;i++)f.Frame(.1f);
+            Check(wall.forceRenderingOff&&f.Latched,"loaded recovery after threshold edit eventually resumes Auto");
+            PerfConfig.WallAutoHideBelowFpsCount.Value=15;f.Frame(.1f);
+        }
+        foreach(var r in new[]{wall,shelf,door})Object.DestroyImmediate(r.gameObject);
     }
     private static void RestartAuto(WallSegmentFade.Fixture f)
     {PerfConfig.WallVisibilityMode=0;f.Frame();PerfConfig.WallVisibilityMode=2;}

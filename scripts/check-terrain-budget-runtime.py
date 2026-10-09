@@ -79,6 +79,16 @@ def main():
     assert 'StaticBatchingUtility' not in source+geometry and 'SetStaticBatchInfo' not in source+geometry
     assert not re.search(r'(?<![\w])(?:Filter\.sharedMesh|Renderer\.sharedMaterials)\s*=(?!=)', source+geometry), 'native cloning sources must stay unchanged'
     controls=[
+        ('pillar-radial-aabb-regression', 'float metres = surface.HeadDistance(detail.Position, bounds) / detail.Scale;',
+         'float metres = Vector3.Distance(detail.Position, surface.Renderer.bounds.ClosestPoint(detail.Position)) / detail.Scale;',
+         'fixed-radius pillar head proximity restores exact geometry at every orbit angle', source, 1),
+        ('pillar-radial-pivot-regression', 'native.MultiplyPoint3x4(_originalBounds.center)',
+         'native.MultiplyPoint3x4(Vector3.zero)', 'tilted nonuniform off-centre pillar retains exact geometry', geometry, 1),
+        ('pillar-radial-world-axis-regression', 'Vector3 axis = y / heightScale;',
+         'Vector3 axis = Vector3.up;', 'tilted pillar outside its source-axis cylinder retains configured coarse geometry', geometry, 1),
+        ('pillar-radial-camera-angle-regression', 'return Mathf.Sqrt(radial * radial + vertical * vertical);',
+         'return Mathf.Sqrt(radial * radial + vertical * vertical) + Mathf.Abs(GloomhavenVR.Rig.VRRigDriver.HeadCamera!.transform.forward.x);',
+         'head yaw alone cannot change settled nearby pillar detail', geometry, 1),
         ('world-refusal-falls-through', 'supported &= !world || _worldOwns?.Invoke(next) == true;', 'supported &= true;', 'changed world variant refusal between actual eyes keeps every repeated terrain source native', source, 1),
         ('world-variant-owner-bypassed', 'world ? CurrentWorldVariant(original, shared)', 'world ? CheapMaterial(original)', 'shared world terrain variants preserve every admitted native source', source, 1),
         ('floorhex-veto-missing','AuthoredName(mesh.name).IndexOf("Floor", StringComparison.OrdinalIgnoreCase) >= 0','false','complete floor identity veto recognizes FloorHex',source,1),
@@ -291,11 +301,18 @@ def main():
     (run/'native-verification.log').write_text(native_result.stdout+native_result.stderr)
     print(native_result.stdout,end='')
     native=json.loads((run/'native-coverage.json').read_text())
+    pillar_command=[str(Path.home()/'unitypy-venv/bin/python'),str(fixture/'verify-pillar-coverage.py'),
+        '--source-root',str(root),'--output-dir',str(run)]
+    pillar_result=subprocess.run(pillar_command,capture_output=True,text=True,check=True)
+    (run/'native-pillar-verification.log').write_text(pillar_result.stdout+pillar_result.stderr)
+    print(pillar_result.stdout,end='')
+    pillars=json.loads((run/'native-pillar-coverage.json').read_text())
     inputs=paths+ownership_paths+[wall_path,core_path,Path(__file__).resolve(),Path(native['nativeBundle']),
         root/'tools/environment-mesh/export-native.py',
         root/'unity/GloomhavenVR.Assets/Assets/Bundle/EnvironmentMeshes/index.json']
     inputs+=sorted(p for p in fixture.rglob('*') if p.is_file())
     inputs+=[Path(entry[k]) for entry in native['entries'] for k in ('exactPath','coarsePath')]
+    inputs+=[Path(entry[k]) for entry in pillars['entries'] for k in ('exactPath','coarsePath','nativeBundle')]
     input_hashes={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in inputs}
     assert all(input_hashes[path]==value for path,value in extracted_hashes.items()), 'source changed between extraction and receipt binding'
     dotnet=shutil.which('dotnet') or str(Path.home()/'.dotnet/dotnet')
@@ -306,6 +323,10 @@ def main():
         assert geo.count(pose_call)==1, 'actual production private pose observer binding drift'
         observed_geometry=geo.replace(pose_call,
             'TerrainWriteObserver.SetPositionAndRotation(_proxyTransform, _sourceTransform.position, _sourceTransform.rotation);')
+        radial_matrix = 'Matrix4x4 native = _sourceTransform.localToWorldMatrix;\n            Vector3 y'
+        assert observed_geometry.count(radial_matrix)==1, 'pillar radial Update matrix observer binding drift'
+        observed_geometry=observed_geometry.replace(radial_matrix,
+            'Matrix4x4 native = TerrainReadObserver.SourceMatrix(_sourceTransform);\n            Vector3 y')
         for signature,observation in (
             ('internal bool Validate(Dictionary<Mesh, bool> meshes)','TerrainWorkObserver.Validate(Renderer);'),
             ('internal void StepGeometry(int percent, float delta)','TerrainWorkObserver.Geometry(Renderer);'),
@@ -332,6 +353,7 @@ def main():
             assert before in src, 'actual production primitive observer binding drift: '+before
             src=src.replace(before,after)
         src=src.replace('surface.Renderer.GetSharedMaterials(_materialScratch);', 'TerrainWriteObserver.MaterialReads++; surface.Renderer.GetSharedMaterials(_materialScratch);')
+        src=src.replace('surface.Renderer.bounds', 'TerrainReadObserver.Bounds(surface.Renderer)')
         before='private static int DetailFor(Surface surface, DetailState detail)\n        {'
         assert src.count(before)==1, 'hidden detail observer binding drift'
         src=src.replace(before,before+'\n            TerrainWorkObserver.Detail(surface.Renderer);')
@@ -365,6 +387,10 @@ def main():
             'internal readonly string Name,Exact,Coarse; internal readonly int Triangles; '+
             'internal Entry(string n,string e,string c,int t) {Name=n;Exact=e;Coarse=c;Triangles=t;} } '+
             'internal static readonly Entry[] Entries={'+','.join(literals)+'}; }')
+        pillar_literals=['new TerrainCoverageData.Entry('+','.join([json.dumps(entry['name']),json.dumps(entry['exactPath']),
+            json.dumps(entry['coarsePath']),str(entry['sourceTriangles'])])+')' for entry in pillars['entries']]
+        (production/'PillarCoverageData.cs').write_text('internal static class PillarCoverageData { '+
+            'internal static readonly TerrainCoverageData.Entry[] Entries={'+','.join(pillar_literals)+'}; }')
         project=case/'Terrain.csproj'; shutil.copyfile(fixture/'Terrain.csproj',project)
         assembly='TerrainBudget_'+name.replace('-','_')
         command=[dotnet,'build',str(project),'-c','Release','--nologo','--verbosity','quiet','-p:CaseName='+assembly,

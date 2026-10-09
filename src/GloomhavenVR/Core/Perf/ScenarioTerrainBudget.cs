@@ -459,9 +459,12 @@ internal static partial class ScenarioTerrainBudget
         private static int DetailFor(Surface surface, DetailState detail)
         {
             if (surface.Floor) return 100;
-            Bounds bounds = surface.Renderer.bounds;
-            Vector3 nearest = bounds.ClosestPoint(detail.Position);
-            float metres = Vector3.Distance(detail.Position, nearest) / detail.Scale;
+            // The cylinder needs the current source matrix instead of a world AABB.
+            // Preserve the existing native bounds read only for ordinary surfaces
+            // or a tracked hand's exact, unchanged closest-bounds touch guard.
+            Bounds bounds = !surface.Pillar || detail.Left.Tracked || detail.Right.Tracked
+                ? surface.Renderer.bounds : default;
+            float metres = surface.HeadDistance(detail.Position, bounds) / detail.Scale;
             // Leaning into the scenery, or touching it with either tracked side, restores
             // exact original geometry. Interactive and held objects are excluded separately.
             if (metres < .18f || NearHand(detail.Left, bounds) || NearHand(detail.Right, bounds)) return 100;

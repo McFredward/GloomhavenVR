@@ -29,7 +29,7 @@ namespace GloomhavenVR.Rig;
 /// leaves them at, exactly like their horizontal position, which was never persisted either:
 /// it is scenario-world dependent, and recenter is the deterministic way back.
 /// </summary>
-internal sealed class Comfort : MonoBehaviour
+internal sealed partial class Comfort : MonoBehaviour
 {
     private float _chordHeldSeconds;
     private bool _chordFired;

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Original merchant row caption layout, repeated native overwrite and observer codec/render parity."""
-import argparse, hashlib, importlib.util, json, os, shutil, subprocess, tempfile
+import argparse, hashlib, importlib.util, json, os, re, shutil, subprocess, tempfile
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]
 
@@ -18,6 +18,8 @@ def main():
     start=catalog.index('        private void SuppressNativeBacking(')
     end=catalog.index('\n        }',start)+len('\n        }')
     method=catalog[start:end]
+    seat = re.findall(r'rowMount\.transform\.localPosition = new Vector3\([^;]+;', catalog)
+    assert len(seat) == 1, 'Bind the actual catalog caption mount writer'
     bridge='''using System.Collections.Generic; using GloomhavenVR.Net; using GloomhavenVR.WorldUI; using UnityEngine;
 internal sealed class Caption646Driver {
  private readonly RemoteWidgetMirror _row; private readonly TownServiceMerchantCaption _caption;
@@ -28,7 +30,7 @@ internal sealed class Caption646Driver {
  internal Caption646Driver(RemoteWidgetMirror row,Transform original) { _row=row;_caption=new(row,original);
  foreach(var image in original.GetComponentsInChildren<UnityEngine.UI.RawImage>(true))_rowBackgrounds.Add(image.transform); }
  internal void Present()=>SuppressNativeBacking();
-'''+method+'\n}\n'
+'''+method+'\n internal static void Seat(GameObject rowMount,Vector2 physicalSize) { '+seat[0]+' }\n}\n'
     bound['Caption646Driver.cs']=bridge
     fixture=run/'fixture';shutil.copytree(root/'scripts/town-service-mirror-runtime',fixture)
     for name in ['Caption646.cs','CaptionPort.cs']:shutil.copyfile(root/'scripts/merchant-caption646-runtime'/name,fixture/name)
@@ -50,7 +52,8 @@ internal sealed class Caption646Driver {
     variants=[('production',None,None,None,'')]
     if not a.no_negative_controls:
         variants.extend([
-            ('small-native-price',helper.name,'private const float FontSize = 36f;','private const float FontSize = 20f;','legible native caption uses the enlarged price and quantity'),
+            ('small-native-price',helper.name,'private const float FontSize = 40f;','private const float FontSize = 36f;','legible native caption uses the enlarged price and quantity'),
+            ('old-caption-gap','Caption646Driver.cs',seat[0],'rowMount.transform.localPosition = new Vector3(0f, -.074f, -.002f);','caption sits just below the actual card edge without a large vertical gap'),
             ('duplicate-name-and-icon',helper.name,'_clones[0]!.gameObject.SetActive(false);','_clones[0]!.gameObject.SetActive(true);','duplicate native name and item icon are absent from the caption'),
             ('catalog-skips-caption','Caption646Driver.cs','            _caption.Apply();','            // Deliberate missing final presentation.','duplicate native name and item icon are absent from the caption'),
         ])

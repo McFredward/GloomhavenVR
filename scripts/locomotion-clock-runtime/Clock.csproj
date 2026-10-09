@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>netstandard2.1</TargetFramework><LangVersion>latest</LangVersion><Nullable>enable</Nullable><AssemblyName>$(CaseName)</AssemblyName><EnableDefaultCompileItems>false</EnableDefaultCompileItems><GenerateDocumentationFile>false</GenerateDocumentationFile><NoWarn>CS0649</NoWarn><TreatWarningsAsErrors>true</TreatWarningsAsErrors></PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(FixtureDir)/*.cs"/><Compile Include="$(ProductionDir)/*.cs"/>
+    <Reference Include="$(UnityManaged)/UnityEngine/*.dll"><Private>false</Private></Reference>
+    <Reference Include="$(GameManaged)/UnityEngine.UI.dll"><Private>false</Private></Reference>
+  </ItemGroup>
+</Project>

@@ -48,7 +48,14 @@ namespace GloomhavenVR.Core
     // advanced by a synchronous editor test; receipts record this exact transformation.
     internal static class WallFixtureClock { internal static int frameCount; internal static float unscaledTime, unscaledDeltaTime; }
     internal static class WallFixtureFocus { internal static bool isFocused=true; }
-    internal static class PerfConfig { internal static int WallVisibilityMode, WallAutoHideBelowFps=15; }
+    internal sealed class WallFixtureIntEntry { internal int Value=15; }
+    internal static class Defaults { internal const int WallAutoHideBelowFpsCount=15; }
+    internal static class PerfConfig
+    {
+        internal static int WallVisibilityMode;
+        internal static readonly WallFixtureIntEntry WallAutoHideBelowFpsCount=new();
+        // @PRODUCTION_WALL_FPS_GETTER@
+    }
     internal static class VRSession { internal static bool IsRunning=true; internal static bool? InputFocus=true; }
     internal static class ScenarioInteractionPreparation { internal static bool IsPreparing; }
     internal static class ScenarioRoomLoading { internal static bool HasPendingReveal; }

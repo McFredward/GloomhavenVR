@@ -31,6 +31,8 @@ internal static partial class ScenarioTerrainBudget
         private readonly MeshRenderer _proxyRenderer;
         private readonly MeshFilter _proxyFilter;
         private readonly Transform _sourceTransform, _proxyTransform, _owner;
+        internal readonly bool Pillar;
+        private readonly Bounds _originalBounds;
         private Matrix4x4 _sourcePose, _ownerPose;
         private bool _hasPose, _hasRendererState, _materialsDirty = true;
         private bool _hasPropertyDefaults, _copiedNativeProperties;
@@ -42,6 +44,10 @@ internal static partial class ScenarioTerrainBudget
         {
             Renderer = renderer; Identity = renderer.GetInstanceID(); Filter = filter; Original = filter.sharedMesh;
             Floor = FloorIdentity(Original);
+            // Membership has already passed the exact structural/bank admission.
+            // This classification only changes the proximity metric of those sources.
+            Pillar = AuthoredName(Original.name).IndexOf("Pillar", StringComparison.OrdinalIgnoreCase) >= 0;
+            _originalBounds = Original.bounds;
             OriginalTriangles = TriangleCount(Original);
             _proxy = new GameObject("GloomhavenVR.TerrainProxy");
             _proxy.transform.SetParent(owner, false);
@@ -49,6 +55,33 @@ internal static partial class ScenarioTerrainBudget
             _proxyFilter = _proxy.AddComponent<MeshFilter>();
             _proxyRenderer = _proxy.AddComponent<MeshRenderer>();
             _proxyRenderer.enabled = false;
+        }
+        internal float HeadDistance(Vector3 position, Bounds currentBounds)
+        {
+            if (!Pillar) return Vector3.Distance(position, currentBounds.ClosestPoint(position));
+            // The Frame pillar report exposed an angle-dependent *distance* before
+            // any camera admission: a square world AABB is closer at its corners.
+            // Walking around one column at a fixed radius could cross the 18cm
+            // original-detail guard (and near/far boundary) without approaching it.
+            // Use its authored enclosing cylinder instead. Current source axes keep
+            // this radial metric valid through diorama tilt/nonuniform scale. Read
+            // the matrix only in the existing Update, never in either eye's loop.
+            Matrix4x4 native = _sourceTransform.localToWorldMatrix;
+            Vector3 y = native.MultiplyVector(Vector3.up);
+            float heightScale = y.magnitude;
+            if (heightScale < .0001f) return Vector3.Distance(position, Renderer.bounds.ClosestPoint(position));
+            Vector3 axis = y / heightScale;
+            Vector3 offset = position - native.MultiplyPoint3x4(_originalBounds.center);
+            float along = Vector3.Dot(offset, axis);
+            Vector3 x = native.MultiplyVector(Vector3.right * _originalBounds.extents.x);
+            Vector3 z = native.MultiplyVector(Vector3.forward * _originalBounds.extents.z);
+            float xAlong = Vector3.Dot(x, axis), zAlong = Vector3.Dot(z, axis);
+            float vertical = Mathf.Max(0f, Mathf.Abs(along) - heightScale * _originalBounds.extents.y
+                - Mathf.Abs(xAlong) - Mathf.Abs(zAlong));
+            x -= axis * xAlong; z -= axis * zAlong;
+            float radius = Mathf.Sqrt(Mathf.Max((x + z).sqrMagnitude, (x - z).sqrMagnitude));
+            float radial = Mathf.Max(0f, (offset - axis * along).magnitude - radius);
+            return Mathf.Sqrt(radial * radial + vertical * vertical);
         }
         internal bool Validate(Dictionary<Mesh, bool> meshes)
         {

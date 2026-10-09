@@ -28,6 +28,9 @@ namespace GloomhavenVR.Core
     internal static class TerrainReadObserver
     {
         internal static int HeadPositions, HeadScales, HandPositions, PropertyGuards, PropertyReads, PropertyWrites, EffectReads;
+        internal static int SourceMatrices, BoundsReads;
+        internal static Matrix4x4 SourceMatrix(Transform source) { SourceMatrices++; return source.localToWorldMatrix; }
+        internal static Bounds Bounds(Renderer source) { BoundsReads++; return source.bounds; }
         internal static int EnabledReads, ActiveReads, MaskReads;
         internal static bool Enabled(Renderer renderer) { EnabledReads++; TerrainWorkObserver.Native(renderer); return renderer.enabled; }
         internal static bool Active(Renderer renderer) { ActiveReads++; TerrainWorkObserver.Native(renderer); return renderer.gameObject.activeInHierarchy; }
@@ -46,7 +49,7 @@ namespace GloomhavenVR.Core
         { PropertyWrites++; renderer.SetPropertyBlock(block, slot); }
         internal static float Effect(MaterialPropertyBlock block, string key) { EffectReads++; return block.GetFloat(key); }
         internal static void Reset()
-        { HeadPositions=HeadScales=HandPositions=PropertyGuards=PropertyReads=PropertyWrites=EffectReads=0;
+        { HeadPositions=HeadScales=HandPositions=PropertyGuards=PropertyReads=PropertyWrites=EffectReads=SourceMatrices=BoundsReads=0;
             EnabledReads=ActiveReads=MaskReads=0; }
     }
     internal static class TerrainOwnershipObserver
