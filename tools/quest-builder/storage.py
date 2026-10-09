@@ -405,7 +405,11 @@ class _WindowsFileMetadata:
                     except UnicodeError: return None
                     if leaf not in (".", ".."):
                         if "/" in leaf or "\\" in leaf or leaf in result: return None
-                        good = (not entry.FileAttributes & (0x400 | 0x10) and not entry.ReparsePointTag
+                        # ReparsePointTag is undefined unless attributes mark
+                        # a reparse point. Only that documented flag decides;
+                        # ordinary entries may legitimately contain a nonzero
+                        # unused tag without requiring an individual fallback.
+                        good = (not entry.FileAttributes & (0x400 | 0x10)
                                 and entry.ChangeTime and any(entry.FileId))
                         result[leaf] = ("win32-v1", volume, bytes(entry.FileId).hex(), entry.EndOfFile,
                                         entry.LastWriteTime, entry.ChangeTime) if good else None

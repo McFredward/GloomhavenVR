@@ -154,8 +154,8 @@ OBSERVATION_INPUT_ORDER = {
 # unknown observer edits still receive distinct preparation/derived identities.
 OBSERVATION_DIRECTORY_BATCH = {
     "tools/quest-builder/storage.py": {
-        "path": "tools/quest-builder/storage.py", "size": 63287,
-        "sha256": "bae7ef9a544e83ac4b3b8985c8b792b071927de71fc323f78d83a7987b185a6e"},
+        "path": "tools/quest-builder/storage.py", "size": 63570,
+        "sha256": "fd62c43f346dd7673ff153c7e8cd2221a4a91400351e8285de7eed0fb3d604fe"},
     "tools/quest-builder/full_assets.py": {
         "path": "tools/quest-builder/full_assets.py", "size": 32663,
         "sha256": "871186d12af12ab23dd59746acd9a0ade6d87feee03f6b654d4b6451e874206e"},

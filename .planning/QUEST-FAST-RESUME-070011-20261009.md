@@ -46,6 +46,9 @@ via
 - Class20 restarts enumeration, class19 continues in64KiB pages. Only
   `ERROR_NO_MORE_FILES` closes a successful enumeration. Invalid/unsupported or
   partial structures never become accepted metadata.
+- ReparsePointTag is ignored for ordinary entries, as documented: its value is
+  undefined unless FILE_ATTRIBUTE_REPARSE_POINT is set. A nonzero unused tag
+  therefore cannot silently force ordinary files into the slow fallback.
 - The directory structure has no link count: leaf`lstat` remains required.
   Hardlinked files retain conservative individual byte checks; staging still
   enforces its stricter one-link writer rule. Leaf reparse points, linked
@@ -62,8 +65,8 @@ existing independent gates.
 
 ## Verification
 
-Focused suites: storage witnesses45, preparation42, derived staging17,
-recovery continuation55, preparation identity13, package pipeline22; all194
+Focused suites: storage witnesses46, preparation42, derived staging17,
+recovery continuation55, preparation identity13, package pipeline22; all195
 pass. Windows ABI/paging controls and a real-file fixture with modeled Windows
 responses cover Unicode, true ChangeTime, changed ID, unsupported metadata,
 linked paths, hardlinks, missing files and bounded changed-file fallback.

@@ -380,6 +380,18 @@ class WindowsDirectoryMetadataTests(unittest.TestCase):
         kernel.pages = [self.page(seam, [("linked", 17, 10, 20, 123, 0x400), ("unknown", 17, 10, 0, 123, 0), ("directory", 0, 1, 2, 4, 0x10)])]
         self.assertEqual(seam.directory(Path("C:/owned")), {"linked": None, "unknown": None, "directory": None})
 
+    def test_undefined_nonzero_reparse_tag_does_not_disable_ordinary_file_batches(self):
+        kernel = DirectoryKernel(); seam = storage._WindowsFileMetadata(kernel)
+        page = bytearray(self.page(seam, [("ordinary", 17, 10, 20, 123, 0), ("flagged", 17, 10, 20, 456, 0x400)]))
+        first = seam.DirectoryEntry.from_buffer(page)
+        first.ReparsePointTag = 0xDEADBEEF  # undefined for ordinary files; never consult it
+        flagged = seam.DirectoryEntry.from_buffer(page, first.NextEntryOffset)
+        flagged.ReparsePointTag = 0  # the attribute flag alone still rejects this leaf
+        kernel.pages = [bytes(page)]
+        rows = seam.directory(Path("C:/owned"))
+        self.assertEqual(rows["ordinary"], ("win32-v1", 1234, (123).to_bytes(16, "little").hex(), 17, 10, 20))
+        self.assertIsNone(rows["flagged"])
+
     def test_unknown_driver_invalid_structure_and_reparse_directory_are_conservative(self):
         kernel = DirectoryKernel(); kernel.filesystem = "FAT32"
         self.assertIsNone(storage._WindowsFileMetadata(kernel).directory(Path("C:/owned")))
