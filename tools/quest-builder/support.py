@@ -213,6 +213,9 @@ def export_support(state_root, session, destination=None):
             details = value.get('details', value)
             meta[name] = {key: safe_json(item, replacements) for key, item in details.items() if key in SAFE_DETAIL_KEYS}
     candidates = []
+    network_report = ordinary(session_root / 'network-preflight.json')
+    if network_report.is_file():
+        candidates.append((network_report.stat().st_mtime_ns, 'wizard/network-preflight.json', network_report, True))
     for name in ('wizard-requests.log', 'wizard-requests.previous.log', 'storage-cleanup.log', 'storage-cleanup.previous.log'):
         path = ordinary(root / 'logs' / name)
         if path.is_file(): candidates.append((path.stat().st_mtime_ns, 'wizard/' + name, path, False))

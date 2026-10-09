@@ -49,6 +49,17 @@ class SupportIntegrationTests(unittest.TestCase):
         with zipfile.ZipFile(io.BytesIO(raw)) as archive:
             self.assertEqual(archive.read('wizard/build.log'), b'important failure\n')
         status, _, _ = self.request(dict(selected, path='/arbitrary/private')); self.assertEqual(status, 400)
+    def test_network_preflight_report_is_included_after_progress_rollover(self):
+        path = self.store.session_dir(self.saved['session']) / 'network-preflight.json'
+        path.write_text(json.dumps({'schema': 1, 'offlineClosureVerified': False,
+                                    'results': [{'id': 'opus', 'status': 'unreachable', 'attempts': [{'reason': 'fixture TLS failure'}]}]}))
+        status, _, raw = self.request({'session': self.saved['session']})
+        self.assertEqual(status, 200)
+        with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+            report = json.loads(archive.read('wizard/network-preflight.json'))
+        self.assertEqual(report['results'][0]['attempts'][0]['reason'], 'fixture TLS failure')
+        self.assertFalse(report['offlineClosureVerified'])
+
     def test_isolated_support_cli_exports_selected_session(self):
         output = self.root / 'support.zip'
         result = subprocess.run([sys.executable, '-I', '-B', str(ROOT / 'tools/quest-wizard/wizard.py'), 'support',

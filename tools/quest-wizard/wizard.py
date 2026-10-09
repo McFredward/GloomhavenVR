@@ -139,6 +139,8 @@ class Engine:
                 if stage == "tools" and state["choices"].get("mode", "build") != "build":
                     helper = discovery.builder(self.repo)
                     helper._local_helper("update_driver").preflight(helper, state["choices"]["gameRoot"], state["choices"]["baseApk"], state["choices"]["mode"])
+                if stage == "tools" and not self.actions:
+                    self.check_downloads(state)
                 prior = self.store.valid(session, stage, key, report_progress=True)
                 if prior:
                     if stage == "tools" and not self.actions: self.qualify(state, stage=stage)
@@ -204,6 +206,42 @@ class Engine:
 
     def details(self, state, stage): return state["completed"][stage]["details"]
     def log(self, state, stage): return self.store.session_dir(state["session"]) / "logs" / (stage + ".log")
+
+    def check_downloads(self, state):
+        import network_preflight
+        pending = {stage for stage in STAGES if state.get("completed", {}).get(stage, {}).get("key") != self.key(state, stage)}
+        source = Path(state["choices"].get("sourceRoot") or self.repo)
+        if "source" not in pending:
+            source = Path(self.details(state, "source")["sourceRoot"])
+        editor = state["choices"].get("unityEditor") or state.get("completed", {}).get("unity", {}).get("details", {}).get("unityEditor")
+        hub = state["choices"].get("unityHub")
+        if state["choices"].get("mode", "build") != "update-profile":
+            from unity_setup import _editor
+            discovered_editor, discovered_hub = _editor(state, self.store.root if os.name != 'nt' else None)
+            editor = editor or discovered_editor
+            hub = hub or discovered_hub
+        try:
+            rows = network_preflight.inventory(self.store.root, source, state, pending=pending, editor=editor, hub=hub)
+        except (KeyError, TypeError, SyntaxError) as error:
+            raise WizardError("network_preflight_recipe", "The selected build dependency recipe cannot be read. Save diagnostics; completed conversions are retained.",
+                              "Die ausgewählten Build-Abhängigkeiten konnten nicht gelesen werden. Diagnosepaket speichern; fertige Konvertierungen bleiben erhalten.",
+                              recipeError=str(error), completedWorkRetained=True) from error
+        session = state["session"]; done = [0]; observed = []
+        self.emit(self.store.event(state, "network_preflight_started", "tools", dependencies=len(rows)))
+        self.store.progress(session, "tools", "network-preflight", 0, len(rows), "dependencies", "Checking required download servers before conversion.")
+        def report(row):
+            done[0] += 1
+            observed.append(row)
+            self.emit(self.store.event(state, "network_dependency_checked", "tools", **row))
+            self.store.progress(session, "tools", "network-preflight", done[0], len(rows), "dependencies", row["label"] + ': ' + row["status"])
+        try:
+            result = network_preflight.check(rows, check_cancel=lambda: self.store.check_cancel(session), report=report)
+        except WizardError as error:
+            atomic_json(self.store.session_dir(session) / "network-preflight.json",
+                        {"schema": 1, "status": error.code, "offlineClosureVerified": False, "results": observed})
+            raise
+        atomic_json(self.store.session_dir(session) / "network-preflight.json", result)
+        self.emit(self.store.event(state, "network_preflight_complete", "tools", checkedDependencies=result["checkedDependencies"], localDependencies=result["localDependencies"], offlineClosureVerified=False))
 
     def qualify(self, state, *, stage="tools"):
         from qualification import qualify
