@@ -465,7 +465,7 @@ internal static partial class TownServiceMirror
         && (entry.Numbers[2] == 1f ? entry.Numbers[1] <= TownServiceMotionCodec.SendInterval * 1.5f
             : entry.Numbers[0] >= entry.Numbers[1] - TownServiceMotionCodec.SendInterval * 1.5f);
     private static bool NativeReturnAvailable(Component native) => native is VRCard card ? card.Holder == null
-        : native is ItemsPile.ItemChip chip ? chip.Holder == null && !chip.TownOffering : true;
+        : native is ItemsPile.ItemChip chip && chip.Holder == null && !chip.TownOffering;
     private static bool SameRootLayout(float[] before, float[] after)
     {
         if (before.Length != 18 || after.Length != 18) return false;
