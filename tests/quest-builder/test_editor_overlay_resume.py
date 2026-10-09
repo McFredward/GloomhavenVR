@@ -46,15 +46,8 @@ class EditorOverlayTests(unittest.TestCase):
             self.original[name] = before
             self.f.write(self.f.source, name, after)
         self.f.stack.enter_context(patch.object(overlay, "REVIEWED", self.pairs))
-        # Production integration supplies these same exact row aliases to the
-        # completed-owner selector. Exercise its real remaining scope checks;
-        # unknown source edits and new earlier consumers remain unaliased.
-        for module in set((identity, builder.preparation_identity)):
-            original = module._memory_row
-            def reviewed(row, original=original):
-                pair = self.pairs.get(row["path"])
-                return pair[0] if pair and row == pair[1] else original(row)
-            self.f.stack.enter_context(patch.object(module, "_memory_row", reviewed))
+        # The real completed-owner selector reads this exact reviewed source
+        # profile. Unknown edits and new earlier consumers remain unaliased.
         self.current = self.fixture.updated()
 
     def assert_retained(self):
@@ -69,7 +62,7 @@ class EditorOverlayTests(unittest.TestCase):
             self.assertEqual((self.project / (relative + ".meta")).read_bytes(), self.metas[relative + ".meta"])
         self.assertFalse((self.journal.parent / "metadata-refresh.json").exists())
 
-    def test_exact_six_editor_updates_keep_all_twenty_seven_owners_and_library(self):
+    def test_exact_reviewed_editor_updates_keep_all_twenty_seven_owners_and_library(self):
         self.assertEqual(identity.rebind_key(self.f.output, self.project, self.current, self.f.source,
                 target="game", recipe=builder.RECIPE, recovery=recovery_resume), self.fixture.before["inputKey"])
         with patch.object(builder.prepare_resume, "copy_changed", side_effect=AssertionError("No retained producer can recopy its project")):
@@ -85,7 +78,7 @@ class EditorOverlayTests(unittest.TestCase):
         for cut in range(len(overlay.TARGETS)):
             with self.subTest(cut=cut):
                 # Each cut gets a fresh independent completed preparation.
-                test = EditorOverlayTests("test_exact_six_editor_updates_keep_all_twenty_seven_owners_and_library")
+                test = EditorOverlayTests("test_exact_reviewed_editor_updates_keep_all_twenty_seven_owners_and_library")
                 test.setUp()
                 try:
                     target = test.project / overlay.TARGETS[cut][len(overlay.PREFIX):]

@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-09 for Quest import progress and integrated dev659.
+Updated 2026-10-09 for the Quest completed-import Sprite repair and dev659.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
@@ -14,6 +14,7 @@ status; it is not the player manual.
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [QUEST-EDITOR-SPRITE-200517-20261009.md](QUEST-EDITOR-SPRITE-200517-20261009.md) | Completed first import, exporter-local promotion identity, retained Editor overlays and measured Unity steps |
 | [QUEST-UNITY-IMPORT-184004-20261009.md](QUEST-UNITY-IMPORT-184004-20261009.md) | Actual initial import, live Unity/API/content counters, retained preparation and storage/timing evidence |
 | [QUEST-JOURNAL-134446-20261009.md](QUEST-JOURNAL-134446-20261009.md) | Captured large-journal resume rejection, dedicated bounded reader and compact support frontier |
 | [QUEST-COMPLETED-PREP-123047-20261009.md](QUEST-COMPLETED-PREP-123047-20261009.md) | Captured CoreModule deployment failure, retained27 completed owners, measured Unity compiler work and dev654 merge |

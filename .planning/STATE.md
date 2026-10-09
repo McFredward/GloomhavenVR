@@ -1,5 +1,18 @@
 # State — where the project stands
 
+**Quest completed-import Sprite repair, 2026-10-09 (Builder; dev659 inherited).**
+
+Capture200517 completes its first Unity import (96m44s synchronous refresh),
+compiles17 Android SDK assemblies and passes package ABI qualification. Final
+startup validation then fails on a DLC promotion Sprite's hardcoded GUID from
+our independent export. Promotion identity now follows the current owned meta;
+texture, drawing geometry and native provenance gates remain active. Exact late
+Editor overlays retain all27 completed owners, original archives, GUIDs and
+Unity Library, including consecutive transaction cuts. The current failure card
+shows the actual Unity exception. Unity validation/export loops report existing
+work without another census or fabricated import denominator. Scope and pending
+Windows acceptance: [QUEST-EDITOR-SPRITE-200517-20261009.md](QUEST-EDITOR-SPRITE-200517-20261009.md).
+
 **Quest measured first-import progress, 2026-10-09 (Builder; current dev659 integrated).**
 
 Capture184004 is source8063/657 and still running: all27 preparation owners

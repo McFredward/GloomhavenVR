@@ -13,6 +13,7 @@ import copy
 import hashlib
 from pathlib import Path
 import re
+import editor_overlay
 
 from storage import BuildError, _ordinary_owned, value_hash
 
@@ -375,6 +376,23 @@ def _completed_game_preparation(value, target):
                     for step, expected in zip(steps, names)))
 
 
+def _completed_editor_rows(rows):
+    """Alias one exact late Editor repair, only after all asset owners close.
+
+    The actual current source snapshot stays qualified. The bounded refresh
+    transaction publishes reviewed scripts under their existing latest owners;
+    original assets, existing GUIDs and Library remain untouched. Unknown or
+    partially different template profiles cannot acquire this compatibility.
+    """
+    profiles = editor_overlay.REVIEWED
+    by_path = {}
+    for row in rows:
+        by_path.setdefault(row["path"], []).append(row)
+    if profiles and all(by_path.get(name) == [pair[1]] for name, pair in profiles.items()):
+        return [profiles[row["path"]][0] if row["path"] in profiles else row for row in rows]
+    return rows
+
+
 def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=False, native_unconsumed=False, graphics_unconsumed=False, completed=False):
     records = recovery._records(inputs["mod"]["files"], "size")
     # Before authored banks, only the original-prefix helpers have run. Once
@@ -382,6 +400,8 @@ def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=Fal
     # produced retained bytes; require the complete reviewed Builder AST.
     builder = builder_producer_digest(_builder_bytes(source, records), original_prefix=original_prefix and not completed)
     rows = _reviewed_startup_rows(recovery.preparation_source_rows(inputs["mod"]["files"]))
+    if completed:
+        rows = _completed_editor_rows(rows)
     # These modules validate/select identity; neither generates game assets.
     # Delivery tools are never read by generate_files or its conversion tools.
     rows = [row for row in rows if row["path"] not in (BUILDER, IDENTITY, RECIPE_IDENTITY, "quest-builder-release.json")

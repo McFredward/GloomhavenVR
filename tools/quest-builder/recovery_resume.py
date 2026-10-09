@@ -192,6 +192,14 @@ OBSERVATION_COMPLETED_METADATA = {
     "tools/quest-builder/prepare_resume.py": {'path': 'tools/quest-builder/prepare_resume.py', 'size': 41507, 'sha256': 'eec74e440ae1f31fe780573abab4d2f8bf8ec651be5b499f5f1eeee1f101cef7'},
 }
 
+# Exact late Editor transaction and observer repair. Normalize this complete
+# source profile only; unknown refresh/overlay edits remain consumed.
+OBSERVATION_EDITOR_OVERLAY = {
+    **OBSERVATION_COMPLETED_METADATA,
+    'tools/quest-builder/preparation_metadata.py': {'path': 'tools/quest-builder/preparation_metadata.py', 'size': 13093, 'sha256': '49214de8c09314161b5604ca6374d127ad4463922491fcd6227a654a1bdf00f4'},
+    'tools/quest-builder/editor_overlay.py': {'path': 'tools/quest-builder/editor_overlay.py', 'size': 15940, 'sha256': '61cda128a75081ff01e36587a61d847ee642de0cb8e1a141538aee5f29c53038'},
+}
+
 OBSERVATION_PROFILES = (OBSERVATION_BYTE_WITNESSES, OBSERVATION_FIXED,
                         OBSERVATION_INPUT_INDEX, OBSERVATION_INPUT_ORDER, OBSERVATION_DIRECTORY_BATCH, OBSERVATION_GRAPHICS_CONTRACT, OBSERVATION_COMPLETED_METADATA)
 # Shipped d4cc44eeb adds an exporter-log observer and invocation-local proof
@@ -238,6 +246,12 @@ def _native_byte_rows(rows):
 def preparation_source_rows(rows):
     """Return reviewed output-equivalent rows; actual source proof stays exact."""
     rows = _native_byte_rows(rows)
+    current = {}
+    for row in rows:
+        current.setdefault(row["path"], []).append(row)
+    if all(current.get(name) == [fixed] for name, fixed in OBSERVATION_EDITOR_OVERLAY.items()):
+        rows = [OBSERVATION_COMPLETED_METADATA.get(row["path"], row) for row in rows
+                if row["path"] != "tools/quest-builder/editor_overlay.py"]
     by_path = {}
     for row in rows:
         by_path.setdefault(row["path"], []).append(row)

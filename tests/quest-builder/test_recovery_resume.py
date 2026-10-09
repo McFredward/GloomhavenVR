@@ -75,7 +75,7 @@ class ResumeFixture(unittest.TestCase):
                      "tools/quest-recovery/export_identity.py", "tools/quest-recovery/tool-lock.json",
                      *recovery_resume.DERIVED_FILES,
                      *(recovery_resume.NATIVE_BYTES_PREVIOUS if self.native_byte_fixture else ()),
-                     *(recovery_resume.OBSERVATION_COMPLETED_METADATA if self.observation_fixture else ())):
+                     *(recovery_resume.OBSERVATION_EDITOR_OVERLAY if self.observation_fixture else ())):
             target = self.source / name
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / name, target)
@@ -803,8 +803,8 @@ class ObservationRecipeContinuationTests(unittest.TestCase):
         self.fixture.setUp()
         self.addCleanup(self.fixture.tearDown)
         f = self.fixture
-        actual = {row["path"]: row for row in f.current["mod"]["files"] if row["path"] in recovery_resume.OBSERVATION_COMPLETED_METADATA}
-        self.assertEqual(actual, recovery_resume.OBSERVATION_COMPLETED_METADATA)
+        actual = {row["path"]: row for row in f.current["mod"]["files"] if row["path"] in recovery_resume.OBSERVATION_EDITOR_OVERLAY}
+        self.assertEqual(actual, recovery_resume.OBSERVATION_EDITOR_OVERLAY)
         self.assertTrue(actual)
         for index, row in enumerate(f.previous["mod"]["files"]):
             if row["path"] in recovery_resume.OBSERVATION_PREVIOUS:
