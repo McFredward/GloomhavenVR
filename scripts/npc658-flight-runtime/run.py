@@ -73,7 +73,8 @@ def main():
     bound['NativePrintPartitions658.cs']='using System.Collections.Generic; using UnityEngine; namespace GloomhavenVR.WorldUI; internal static partial class LazyTemplateProbe { internal static List<Part> NativePrintPartitions658(Transform root) { var parts=new List<Part>(); Partition(root,string.Empty,parts); return parts; } }'
     lazy = fixture/'LazyTemplate.cs'
     lazy.write_text(lazy.read_text().replace('    internal static class TownServiceCardBody\n    { internal static void RebindClone(string key,GameObject clone) { } }\n',''))
-    (fixture/'NativeBodyCacheBoundary658.cs').write_text('namespace GloomhavenVR.Net { internal static class PeerBoardFade { internal static bool SetSubmeshMaterial(UnityEngine.MeshRenderer r,int i,UnityEngine.Material m) { var a=r.sharedMaterials;a[i]=m;r.sharedMaterials=a;return true; } } } namespace GloomhavenVR { internal static class MyPluginInfo { internal const string PLUGIN_GUID="flight658"; } }')
+    # Complete CardMesh now comes from the shared binder; its scenario-fade,
+    # plugin-identity and isolated-cache ports must have one declaration each.
 
     card_source = (root / 'src/GloomhavenVR/Cards/VRCard.cs').read_text()
     sampler = loader.method(card_source, 'internal bool TryTownReturnMotion(')
@@ -174,7 +175,12 @@ internal sealed class NativeMerchant655 : MonoBehaviour {
     for name, mutation in cases:
         files = dict(bound)
         if mutation in ('parts','native-parts'):
-            files['TownServiceMotionBudget.cs'] = subprocess.check_output(['git', 'show', 'bf3444cb502e1eff52bcf0e5194a255109879d36:src/GloomhavenVR/Net/TownServices/TownServiceMotionBudget.cs'], cwd=root, text=True)
+            legacy_budget = subprocess.check_output(['git', 'show', 'bf3444cb502e1eff52bcf0e5194a255109879d36:src/GloomhavenVR/Net/TownServices/TownServiceMotionBudget.cs'], cwd=root, text=True)
+            # Unused state port for the current source sampler; the restored old
+            # budget still admits independent parts and must fail the same render.
+            state = '    internal float SentAt = float.NegativeInfinity;'
+            if legacy_budget.count(state) != 1: raise RuntimeError('Historical pending-state binding drift')
+            files['TownServiceMotionBudget.cs'] = legacy_budget.replace(state, state + '\n    internal bool ReturnLayout;', 1)
         if mutation == 'priority':
             # Restore the prior exact priority seam: native groups came before
             # any ordinary turn. Keep the independently repaired snapshot lifetime.
@@ -184,7 +190,12 @@ internal sealed class NativeMerchant655 : MonoBehaviour {
             old = subprocess.check_output(['git','show','bf3444cb502e1eff52bcf0e5194a255109879d36:src/GloomhavenVR/Net/TownServices/TownServiceMirror.Motion.cs'],cwd=root,text=True)
             begin=old.index('    private sealed class CardReturnClock');end=old.index('    private sealed class SourceMotion',begin)
             motion=files['TownServiceMirror.Motion.cs'];first=motion.index('    private sealed class CardReturnClock');last=motion.index('    private sealed class SourceMotion',first)
-            files['TownServiceMirror.Motion.cs']=motion[:first]+old[begin:end]+motion[last:]
+            historical_clock = old[begin:end]
+            marker = '        internal CardReturnClock('
+            if historical_clock.count(marker) != 1: raise RuntimeError('Historical clock-state binding drift')
+            historical_clock = historical_clock.replace(marker,
+                '        internal float CurrentSampleTime => _sampleTime;\n' + marker, 1)
+            files['TownServiceMirror.Motion.cs']=motion[:first]+historical_clock+motion[last:]
         if mutation == 'native-header':
             files['TownServiceMirror.cs'] = files['TownServiceMirror.cs'].replace('                    PreserveReturningCardHeader(module, frame);','')
         if mutation == 'visibility':

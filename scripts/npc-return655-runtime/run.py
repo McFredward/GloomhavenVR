@@ -35,7 +35,15 @@ def main():
     # sender uses atomic113 and cannot honestly simulate face-before-body delivery.
     legacy_budget_commit = 'bf3444cb502e1eff52bcf0e5194a255109879d36'
     legacy_budget = subprocess.check_output(['git', 'show', legacy_budget_commit + ':src/GloomhavenVR/Net/TownServices/TownServiceMotionBudget.cs'], cwd=root, text=True)
-    bound['TownServiceMotionBudget.cs'] = legacy_budget
+    # The historical107 arbiter intentionally does not stage113 or its root-layout
+    # dependencies. Add only the current sampler's unused state field so this old
+    # independent-part/receive-clock challenge still compiles; retain the exact raw
+    # historical source separately and never describe this as current-budget proof.
+    pending_anchor = '    internal float SentAt = float.NegativeInfinity;'
+    if legacy_budget.count(pending_anchor) != 1: raise RuntimeError('Legacy pending-state binding drift')
+    bound['TownServiceMotionBudget.cs'] = legacy_budget.replace(pending_anchor,
+        pending_anchor + '\n    internal bool ReturnLayout;', 1)
+    (run / 'historical-budget107.cs.txt').write_text(legacy_budget)
     hashes['TownServiceMotionBudget.cs (legacy107 Build656 boundary)'] = hashlib.sha256(legacy_budget.encode()).hexdigest()
     old_motion = subprocess.check_output(['git', 'show', 'deb989570:src/GloomhavenVR/Net/TownServices/TownServiceMirror.Motion.cs'], cwd=root, text=True)
     old_return = loader.method(old_motion, 'private static void ApplyCardReturnMotion(')
@@ -141,9 +149,10 @@ internal sealed class NativeMerchant655 : MonoBehaviour {
             if files['TownServiceMirror.Motion.cs'].count(anchor) != 1: raise RuntimeError('Return offset control binding drift')
             files['TownServiceMirror.Motion.cs'] = files['TownServiceMirror.Motion.cs'].replace(anchor, 'receivedAt - packet.SampleTime')
         if mutation == 'affinity':
-            anchor = 'if (hand == null && cardFlight != null && cardFlight.Hand != 0)'
+            anchor = 'if (hand == null && returningCard?.Hand != null'
             if files['TownServiceMirror.Motion.cs'].count(anchor) != 1: raise RuntimeError('Publisher affinity control binding drift')
-            files['TownServiceMirror.Motion.cs'] = files['TownServiceMirror.Motion.cs'].replace(anchor, 'if (hand == null && cardFlight != null && cardFlight.Hand > 9)')
+            files['TownServiceMirror.Motion.cs'] = files['TownServiceMirror.Motion.cs'].replace(anchor,
+                'if (hand == null && returningCard?.Hand != null && (int)returningCard.Hand.Side > 9')
         production = run / name / 'production'; production.mkdir(parents=True)
         for file, content in files.items(): (production / file).write_text(content)
         project = run / name / 'Mirror.csproj'; shutil.copyfile(fixture / 'Mirror.csproj', project)
