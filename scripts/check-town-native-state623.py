@@ -117,6 +117,7 @@ def main():
     anchor = '            if (variant == "production") PublisherNoCloth();'
     branch = '''            if (suite == "native-state623") {
                 var state = NativeState623(); while (state.MoveNext()) yield return state.Current;
+                var repair = NativeRepair658(); while (repair.MoveNext()) yield return repair.Current;
                 File.WriteAllText(Path.Combine(_output,"assertions.txt"),_assertions+" assertions\\n"); yield break;
             }
             if (suite == "native-bank-split623") {

@@ -255,8 +255,6 @@ public static partial class MirrorProgram
         while (coldProof.MoveNext()) yield return coldProof.Current;
         IEnumerator deltaProof = NativeQueuedDelta626(author, observer);
         while (deltaProof.MoveNext()) yield return deltaProof.Current;
-        IEnumerator repairProof = NativeRepair658();
-        while (repairProof.MoveNext()) yield return repairProof.Current;
         IEnumerator bankProof = NativeBankSplit623(); while (bankProof.MoveNext()) yield return bankProof.Current;
         IEnumerator deliveryProof = NativeDelivery629(); while (deliveryProof.MoveNext()) yield return deliveryProof.Current;
         yield return null;

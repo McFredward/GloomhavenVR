@@ -49,6 +49,12 @@ def main():
     loader = module('mirror638', root / 'scripts/check-town-service-mirror.py')
     delivery = module('delivery638', root / 'scripts/check-town-native-state623.py')
     bound, _ = loader.sources(root); delivery.bind_delivery_transport(root, bound, loader)
+    if args.case == 'lifecycle' and args.expect_baseline_stall:
+        current='if (!sourceEntry.Complete && !prewarm && cloneOf == null'
+        historical='if (!prewarm && cloneOf == null'
+        if bound['PublisherNative.cs'].count(current)!=1: raise RuntimeError('Historical hidden-original guard binding drift')
+        bound['PublisherNative.cs']=bound['PublisherNative.cs'].replace(current,historical,1)
+        (run/'controlled-hidden-retirement.txt').write_text('Only the historical pre638 hidden-source guard is restored; all current receiver types and reveal dependency assertions remain.\n')
     receiver, receiver_hash = receiver_sources(root, loader)
     bound['ActualReceiver638.cs'] = receiver
     fixture = run / 'fixture'; shutil.copytree(root / 'scripts/town-service-mirror-runtime', fixture)
