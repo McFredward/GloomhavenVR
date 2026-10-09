@@ -195,12 +195,20 @@ internal sealed class TownServiceLaneSendQueue
             if (older.Module == TownServiceFrame.ManifestModule)
             {
                 if (census.Sequence <= older.Sequence) return;
-                changed |= !SameCensus(older, census);
+                // Hover can add/remove an original tooltip from the visible
+                // census while the first card/list is fragmented. The newer
+                // census already has its own immediate manifest path; restarting
+                // unchanged originals here repeatedly discards received pages.
+                // Only an actually superseded still-required original below justifies
+                // replacing this still-useful immutable assembly.
                 continue;
             }
             bool needed = Array.BinarySearch(census.Modules, older.Module) >= 0;
             _queues.TryGetValue(older.Module, out var queue);
-            if (!needed) { changed = true; continue; }
+            // A withdrawn hover partition is already absent from the current
+            // census. Its old bytes cannot reveal it on the observer and do not
+            // invalidate the useful card/list still being assembled beside it.
+            if (!needed) continue;
             if (_latestOriginals.TryGetValue(older.Module, out var current)
                 && ExtrasSendQueue.CanSupersedeTownRevision(older, current)
                 && (older.BaseSequence != 0 || queue == null || !queue.HasTownDelta(older.Sequence, current.Sequence)))

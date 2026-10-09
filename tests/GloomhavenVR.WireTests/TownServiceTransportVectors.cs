@@ -21,6 +21,7 @@ internal static class TownServiceTransportVectors
         OpeningBudget(t);
         RepeatedDistinctOpenings(t);
         ReplacingOfferedSourcesInFlight(t);
+        HoverCensusDoesNotRestartOriginals(t);
         ExactColdCompletion(t);
         OriginalSupersessionKeepsDependencies(t);
         t.Case("Town service original widgets use the real wire header and loss-safe module lanes");
@@ -702,6 +703,18 @@ internal static class TownServiceTransportVectors
                     foreach (byte[] module in modules)
                     {
                         if (!TownServiceCodec.TryRead(module, module.Length, out var frame)) continue;
+                        // The newer census has its independent immediate lane.
+                        // A useful old immutable bundle may finish with its older
+                        // census/withdrawn card; actual ReceiveParsed rejects that
+                        // census and current membership cannot render that card.
+                        // Neither byte group counts toward the current picture.
+                        if (retired && frame!.Module == TownServiceFrame.ManifestModule && frame.Sequence < 3) continue;
+                        if (retired && frame!.Module == 1)
+                        {
+                            t.Equal(1UL, frame.Sequence, "only the exact already-started retired original can finish");
+                            t.True(!currentIds.Contains(frame.Module), "current census excludes the withdrawn physical original");
+                            continue;
+                        }
                         t.True(expected.TryGetValue(frame!.Module, out var source), "retired old offered-card metadata is not replayed into the new picture");
                         if (!expected.TryGetValue(frame.Module, out source)) continue;
                         t.Equal(source.Length, module.Length, "obsolete differently shaped original metadata is not replayed into the new card");
@@ -748,6 +761,71 @@ internal static class TownServiceTransportVectors
         // old bundle's final page lands during the newer urgent assembly.
         for (int tick = 1; tick <= 3; tick++) queue.Next(tick * .051);
         t.True(queue.NextOpening(.204) != null, "a completion for sequence1 does not erase the pending exact sequence3 marker");
+    }
+
+    private static void HoverCensusDoesNotRestartOriginals(Harness t)
+    {
+        foreach (bool withdrawPrepared in new[] { false, true })
+        {
+            t.Case("Live hover census preserves useful fragmented originals: prepared withdrawal=" + withdrawPrepared);
+            var lane = new TownServiceLaneSendQueue(65536);
+            var receiver = new TownServiceFragments();
+            var originals = new Dictionary<ushort, TownServiceFrame>();
+            for (ushort id = 1; id <= 34; id++)
+            {
+                var original = PromotionFrame(id, 1); original.Service = 3; original.HighPriority = true;
+                originals.Add(id, original);
+                byte[] bytes = TownServiceCodec.Write(original); lane.Enqueue(bytes, bytes.Length, original);
+            }
+            void Census(ulong sequence, bool hover)
+            {
+                var manifest = Frame(TownServiceFrame.ManifestModule, sequence, 0); manifest.Service = 3;
+                manifest.Template = 0; manifest.Structure = 0; manifest.TransactionActive = true;
+                var members = new List<ushort>();
+                for (ushort id = 1; id <= 34; id++) if (id != 34 || !withdrawPrepared || hover) members.Add(id);
+                manifest.Modules = members.ToArray();
+                manifest.RequiredVisibleModules = hover ? members.ToArray() : members.GetRange(0, 33).ToArray();
+                byte[] bytes = TownServiceCodec.Write(manifest); lane.Enqueue(bytes, bytes.Length, manifest);
+            }
+            Census(100, true);
+            byte[] first = lane.Next(0)!;
+            t.Equal((int)TownServiceFrame.UrgentBundleStream, TownServiceFragments.Stream(first, first.Length),
+                "native originals really began on the fragmented urgent stream");
+            t.True(receiver.Accept(2, first, first.Length, 0) == null, "first page has not completed the native picture");
+            ulong sequence = BitConverter.ToUInt64(first, 8);
+            bool complete = false;
+            for (int tick = 1; tick <= 48; tick++)
+            {
+                // Twelve real enter/exit revisions, including prepared membership
+                // withdrawal, occur before this high-entropy original completes.
+                if (tick <= 12)
+                {
+                    bool hover = tick % 2 == 0;
+                    if (withdrawPrepared && hover)
+                    {
+                        TownServiceFrame restored = originals[34];
+                        byte[] bytes = TownServiceCodec.Write(restored); lane.Enqueue(bytes, bytes.Length, restored);
+                    }
+                    Census((ulong)(100 + tick), hover);
+                }
+                byte[]? page = lane.Next(tick * .051); if (page == null) continue;
+                t.True(page.Length <= ExtrasFragments.MaxDatagramBytes, "hover leaves the native datagram cap unchanged");
+                if (TownServiceFragments.Stream(page, page.Length) != TownServiceFrame.UrgentBundleStream) continue;
+                t.Equal(sequence, BitConverter.ToUInt64(page, 8),
+                    "required/prepared hover changes cannot reset useful original fragment progress");
+                byte[]? full = receiver.Accept(2, page, page.Length, tick * .051); if (full == null) continue;
+                t.True(TownServiceCodec.TryReadBundle(full, full.Length, out var bundled), "original atomic assembly stays valid across hover edits");
+                foreach (byte[] bytes in bundled!)
+                {
+                    t.True(TownServiceCodec.TryRead(bytes, bytes.Length, out var original), "retained exact original still decodes");
+                    if (original!.Module == TownServiceFrame.ManifestModule) continue;
+                    byte[] expected = TownServiceCodec.Write(originals[original.Module]);
+                    t.Wire(expected, bytes, expected.Length, "useful originals keep every owner-authored byte");
+                }
+                complete = true; break;
+            }
+            t.True(complete, "useful fragmented native picture completes despite repeated hover changes");
+        }
     }
 
     private static void OriginalSupersessionKeepsDependencies(Harness t)

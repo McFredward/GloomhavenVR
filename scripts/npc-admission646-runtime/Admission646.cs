@@ -106,6 +106,8 @@ public static partial class MirrorProgram
         }
         void Deliver(TownServiceFrame frame) => Check(receiver.FixtureQueue638(2, TownServiceCodec.Write(frame)), "actual original/census enters actual avatar queue");
         Capture(); RevisionDependencies646(captures.First(x => x.Module == 3)); foreach (var frame in captures) Deliver(frame);
+        TownServiceFrame initialManifest655 = captures.Single(x => x.Module == TownServiceFrame.ManifestModule);
+        TownServiceFrame initialHolder655 = captures.Single(x => x.Module == 1);
         foreach (var bytes in motions) Check(receiver.FixtureQueueMotion638(2, bytes), "actual kind9 offered relation enters receiver");
         receiver.FixtureApply638(); yield return null; receiver.FixtureApply638();
         Check(Remote(2, 2) != null && Remote(2, 2)!.Root.gameObject.activeInHierarchy, "initial original aura is mounted and visible");
@@ -182,9 +184,14 @@ public static partial class MirrorProgram
         TownServiceFrame manifest = captures.Single(x => x.Module == TownServiceFrame.ManifestModule);
         Check(manifest.Modules.Contains((ushort)2) && !manifest.Modules.Contains((ushort)1), "actual shrinking census retains child and withdraws old mount");
         Deliver(manifest); receiver.FixtureApply638();
+        // A sender may finish the old immutable bundle after the newer census.
+        // Both old metadata groups use the actual queue/ReceiveParsed path, not
+        // a fixture-side filter. They cannot reintroduce a retired holder.
+        Deliver(initialManifest655); Deliver(initialHolder655); receiver.FixtureApply638();
         for (int frame = 0; frame < 45; frame++)
         {
             receiver.FixtureApply638(); Canvas.ForceUpdateCanvases();
+            Check(Remote(2, 1) == null, "late old census/original cannot remount or render the withdrawn native holder");
             Check(remoteAura != null && remoteAura.gameObject.activeInHierarchy, "retained native child survives retired mount on every render");
             Check(ink[0] != null && ink[0].gameObject.activeInHierarchy && ink[0].color.a > .99f, "retained original Graphic alpha is never blanked by census shrink");
             Check(Vector3.Distance(remoteAura.position, before) < .00001f, "unchanged current physical offered plane survives while its new parent packet is pending");

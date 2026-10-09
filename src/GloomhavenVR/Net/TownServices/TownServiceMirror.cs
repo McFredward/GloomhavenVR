@@ -876,6 +876,7 @@ internal static partial class TownServiceMirror
                     frame.ParentModule = TownServiceFrame.ManifestModule; frame.ParentBinding = 0;
                     ResetCanvasFrame(frame);
                     ReadParent(module, frame); ReadCanvasFrame(source, frame);
+                    TraceNativeVisibility(0, module.Binding, frame, source.gameObject, now);
                     if (frame.VisitorStock && HidePreparedCardReturn(source)) frame.Visible = false;
                     if (frame.RackMember != null)
                     {
@@ -1295,6 +1296,7 @@ internal static partial class TownServiceMirror
             { UpdateRackClocks(entry.Key, pending, now); TickRackClocks(entry.Key, standing, now); }
         }
         ApplyRemoteMotion(now);
+        TraceRemoteNativeVisibility(now);
         // Public visibility follows the latest validated numeric picture, not
         // the slower immutable-art baseline retained for dependency recovery.
         SuppressRemoteStockDuplicates();
@@ -1547,6 +1549,7 @@ internal static partial class TownServiceMirror
     {
         ResetOriginalReceipts();
         ResetNativeTemplateState();
+        ResetNativeVisibility();
         ResetMotionNetwork();
         ResetPublicPicture();
         DonationCommits.Clear(); DonationCommitOrder.Clear();
@@ -1671,7 +1674,14 @@ internal static partial class TownServiceMirror
         foreach (LocalModule module in Local.Values)
         {
             bool required = _local.RequiredMounts.Contains(module.Id);
-            if (required && !module.WasRequired) module.NeedsOriginal = true;
+            if (required && !module.WasRequired)
+                // A real full original already queued for this source is still
+                // the exact dependency for its latest cumulative state. Hover
+                // visibility must not manufacture a new full revision on every
+                // entrance before that queued original has even finished. Once
+                // delivered, actual retained receipts govern reopening repair.
+                module.NeedsOriginal = module.NeedsOriginal || module.Baseline == null
+                    || module.LastSent >= module.Baseline.Sequence && !HasReceivedOriginal(module);
             module.WasRequired = required;
         }
         if (_service != 3) return;
