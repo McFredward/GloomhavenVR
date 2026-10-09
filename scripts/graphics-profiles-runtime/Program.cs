@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using GloomhavenVR.Core;
 using GloomhavenVR.Rig;
 using GloomhavenVR.WorldUI;
@@ -9,8 +10,29 @@ internal static class Program
     private static int _checks;
     private static void Check(bool value, string name)
     { _checks++; if (!value) throw new Exception(name); }
+    private static Dictionary<string, object?> ProfileValues()
+    {
+        var values = new Dictionary<string, object?>();
+        foreach (var module in ModuleConfig.Snapshot())
+            foreach (var entry in module.Value.Entries)
+                values.Add(module.Key + "/" + entry.Key.Section + "/" + entry.Key.Key,
+                    entry.Value.GetType().GetProperty("Value")!.GetValue(entry.Value));
+        return values;
+    }
     private static void Main()
     {
+        Check(!GloomhavenVR.FrameDefaults.Active, "ordinary PC without a marker retains its own fresh-default selector");
+        QuestStandalonePlatform.Enabled = true;
+        Check(GloomhavenVR.FrameDefaults.Active, "fresh Quest selects shared standalone defaults without a Frame marker");
+        QuestStandalonePlatform.Enabled = false;
+        GloomhavenVR.FrameLaunchOptIn.MarkerPresent = true;
+        Check(GloomhavenVR.FrameDefaults.Active, "fresh Steam Frame selects the same default family through its launch marker");
+        QuestStandalonePlatform.Enabled = true;
+        Check(GloomhavenVR.FrameDefaults.Active, "both platform signals still select one shared standalone family");
+        QuestStandalonePlatform.Enabled = false;
+        GloomhavenVR.FrameLaunchOptIn.MarkerPresent = false;
+        Check(!GloomhavenVR.FrameDefaults.Active && ModuleConfig.Files.Count == 0,
+            "platform detection neither binds profiles nor persists settings");
         Check(!GraphicsProfiles.Apply(-1) && !GraphicsProfiles.Apply(4), "invalid indices cannot change native/config state");
         Check(ModuleConfig.Files.Count == 0, "invalid profile does not bind or persist settings");
         Check(!GraphicsProfiles.Apply(0), "absent native UI fails closed before control changes");
@@ -56,7 +78,21 @@ internal static class Program
                         "profiles never bind retired idle or pure environment work-removal controls");
             foreach(var file in ModuleConfig.Snapshot()) Check(file.Value.SaveOnConfigSet, "autosave flags restored for every file");
         }
-        Check(GraphicsProfiles.Apply(0), "can return to standalone after high-end");
+        GloomhavenVR.FrameLaunchOptIn.MarkerPresent = true;
+        Check(GraphicsProfiles.Apply(0), "can return to shared standalone on Steam Frame after high-end");
+        var frameValues = ProfileValues();
+        int frameCalls = native.Calls;
+        GloomhavenVR.FrameLaunchOptIn.MarkerPresent = false;
+        QuestStandalonePlatform.Enabled = true;
+        Check(GraphicsProfiles.Apply(0) && native.Calls == frameCalls + 1 && native.Saves == native.Calls,
+            "Quest shared standalone profile invokes and persists the original native callback once");
+        var questValues = ProfileValues();
+        Check(questValues.Count == frameValues.Count, "Quest and Steam Frame expose the same complete profile controls");
+        foreach (var value in frameValues)
+            Check(questValues.TryGetValue(value.Key, out var actual) && Equals(actual, value.Value),
+                "Quest and Steam Frame share the actual production standalone choice: " + value.Key);
+        QuestStandalonePlatform.Enabled = false;
+        Check(!GloomhavenVR.FrameDefaults.Active, "returning to ordinary PC clears the platform signal without replacing chosen controls");
         Check(RenderQuality.TextureStreamingBudgetMB!.Value==GloomhavenVR.FrameDefaults.TextureStreamingBudgetMB, "standalone streaming memory matches Frame constant");
         Check(PerfConfig.UiMaintenanceIntervalSeconds.Value==GloomhavenVR.FrameDefaults.UiMaintenanceIntervalSeconds && WallFadeTuning.RescanIntervalSecondsEntry!.Value==GloomhavenVR.FrameDefaults.WallRescanIntervalSeconds, "standalone maintenance/wall cadence matches Frame constants");
         Check(PerfConfig.ScenarioSceneryDensityPercent.Value==0 && PerfConfig.ScenarioDecorationDensityPercent.Value==0 && PerfConfig.ScenarioVegetationDensityPercent.Value==0, "standalone removes eligible scenery classes");
