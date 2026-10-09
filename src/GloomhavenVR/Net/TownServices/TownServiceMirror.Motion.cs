@@ -389,6 +389,12 @@ internal static partial class TownServiceMirror
                 || !SameNumbers(previous.CanvasPose, frame.CanvasPose)
                 || !SameNumbers(previous.CanvasRect, frame.CanvasRect)
                 || !SameNumbers(previous.CanvasSettings, frame.CanvasSettings))) UpdateMotionSlot(source, root);
+            // The terminal cohort already acknowledged this exact root recipe.
+            // Ending its clock transfers ownership back to an ordinary root,
+            // even when the settled TRS is identical. Publish that transition
+            // once instead of waiting for the unchanged root's heartbeat.
+            if (endedCardReturn && cardFlight == null
+                && source.Slots.TryGetValue(root.Key, out MotionSlot? ordinaryRoot)) ordinaryRoot.Dirty = true;
             // The budget admits a new exact return together with its matching root, even
             // when that original mount has not moved since its already warmed baseline.
             if (cardFlight != null && source.Slots.TryGetValue(cardFlight.Key, out MotionSlot? returnClock)
