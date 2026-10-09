@@ -55,13 +55,16 @@ public static partial class MirrorProgram
                 TownServiceMirror.RegisterTemplate(1,(ushort)(i+4),faces[i],address:"face."+(6580+i)+"|");
                 // Body modules precede print modules, reproducing the actual
                 // independently published originals rather than an interleaved toy.
-                TownServiceMirror.RegisterModule((ushort)(10+i),(ushort)(i+1),bodies[i],address:"map.cardbody|"+i);
-                TownServiceMirror.RegisterModule((ushort)(13+i),(ushort)(i+4),faces[i],address:"face."+(6580+i)+"|");
                 if(prepared)
                 { TownServiceMirror.PrepareCardReturn(bodies[i],Sample);TownServiceMirror.PrepareCardReturn(faces[i],Sample); }
                 else
                 { TownServiceMirror.RegisterCardReturn(bodies[i],Sample);TownServiceMirror.RegisterCardReturn(faces[i],Sample); }
             }
+        }
+        using(TownServiceMirror.UseStockLane())
+        {
+            for(int i=0;i<3;i++)TownServiceMirror.RegisterModule((ushort)(10+i),(ushort)(i+1),bodies[i],address:"map.cardbody|"+i);
+            for(int i=0;i<3;i++)TownServiceMirror.RegisterModule((ushort)(13+i),(ushort)(i+4),faces[i],address:"face."+(6580+i)+"|");
         }
         Canvas.ForceUpdateCanvases();yield return null;
         FastCapture baseline=CaptureFast();Receive(2,baseline.Artwork);DeliverMotion(2,baseline);

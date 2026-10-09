@@ -258,13 +258,28 @@ internal static partial class TownServiceMirror
             if (previous == null || previous.Structure != frame.Structure || previous.Session != frame.Session
                 || previous.PublicClaim != frame.PublicClaim)
                 source.Slots.Clear();
+            // Prepared originals were deliberately hidden while offered. A first
+            // exact return clock must carry the live native root visibility/mount,
+            // even when artwork capture is still retrying that module. Reusing
+            // its last prepared header parks the printed front until a slower
+            // repair arrives. Read only the original numeric root, in its actual
+            // lane; no artwork, visibility guess or native continuation is added.
+            TownServiceFrame rootFrame = frame;
+            if (cardFlight != null)
+            {
+                rootFrame = new TownServiceFrame { ParentModule = TownServiceFrame.ManifestModule,
+                    Visible = module.Binding.Root.gameObject.activeInHierarchy,
+                    Pose = ReadPose(module.Binding.Root, lane.SharedFrame) };
+                using (new LaneScope(lane))
+                { ReadParent(module, rootFrame); ReadCanvasFrame(module.Binding.Root, rootFrame); }
+            }
             TownServiceMotionEntry root = MotionHeader(frame, laneId, 1);
-            root.ParentModule = frame.ParentModule; root.Binding = frame.ParentBinding;
-            root.ParentAlpha = frame.ParentAlpha; root.Visible = frame.Visible;
-            root.Pose = frame.Pose; root.HasCanvasFrame = frame.HasCanvasFrame;
-            root.CanvasPose = frame.CanvasPose; root.CanvasRect = frame.CanvasRect;
-            root.CanvasSettings = frame.CanvasSettings; root.CanvasSortingLayer = frame.CanvasSortingLayer;
-            root.CanvasSortingOrder = frame.CanvasSortingOrder;
+            root.ParentModule = rootFrame.ParentModule; root.Binding = rootFrame.ParentBinding;
+            root.ParentAlpha = rootFrame.ParentAlpha; root.Visible = rootFrame.Visible;
+            root.Pose = rootFrame.Pose; root.HasCanvasFrame = rootFrame.HasCanvasFrame;
+            root.CanvasPose = rootFrame.CanvasPose; root.CanvasRect = rootFrame.CanvasRect;
+            root.CanvasSettings = rootFrame.CanvasSettings; root.CanvasSortingLayer = rootFrame.CanvasSortingLayer;
+            root.CanvasSortingOrder = rootFrame.CanvasSortingOrder;
             VRHand? hand = MotionHand(module.Binding.Root, out bool followsRotation);
             // StockSync prepares a merchant return against its actual destination
             // hand without making that card a held prop. That verified native
