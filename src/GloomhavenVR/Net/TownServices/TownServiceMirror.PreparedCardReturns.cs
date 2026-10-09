@@ -54,5 +54,6 @@ internal static partial class TownServiceMirror
         && frame.Service == 1 && !frame.PublicCatalog
         && (TryStockItemId(frame.TemplateAddress, out _) || CosmeticAbilityFace(frame.TemplateAddress)
             || frame.TemplateAddress.StartsWith("inspectionbody.", System.StringComparison.Ordinal)
-            || frame.TemplateAddress.StartsWith("map.cardbody|", System.StringComparison.Ordinal));
+            || frame.TemplateAddress.StartsWith("map.cardbody|", System.StringComparison.Ordinal)
+            || frame.TemplateAddress.StartsWith("map.cardbody.", System.StringComparison.Ordinal));
 }

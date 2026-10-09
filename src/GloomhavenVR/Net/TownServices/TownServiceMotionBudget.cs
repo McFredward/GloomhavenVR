@@ -10,6 +10,7 @@ internal class TownServiceMotionPending
     internal bool Dirty = true;
     internal float SentAt = float.NegativeInfinity;
     internal uint AdmittedReturnRevision;
+    internal bool ReturnLayout = false;
     internal TownServiceMotionBudget.ReturnSnapshot? ReturnSnapshot;
 }
 
@@ -56,6 +57,7 @@ internal static class TownServiceMotionBudget
                 {
                     int index = (cursors[group] + i) % waiting.Count; TownServiceMotionPending slot = waiting[index];
                     if (slot.SentAt == now || slot.Entry.Kind == 8
+                        || slot.ReturnLayout && HasNativeReturn(live, slot.Entry)
                         || slot.Entry.Kind == 1 && HasNativeReturn(live, slot.Entry)) continue;
                     // A cohort advances the same live cursor. Use the existing
                     // per-original last-send clock so that cannot repeatedly
@@ -87,16 +89,29 @@ internal static class TownServiceMotionBudget
             if (snapshot == null) continue;
             foreach (TownServiceMotionPending part in snapshot.Sources)
             { seen.Add(part); int root = ReturnRoot(live, part.Entry); if (root >= 0) seen.Add(live[root]); }
-            TownServiceMotionEntry cohort = snapshot.Subset(snapshot.Parts.Length - snapshot.Cursor);
-            packet.Entries.Add(cohort);
+            int cohortAt = packet.Entries.Count;
+            TownServiceMotionEntry cohort = AddReturnSubset(packet, snapshot, snapshot.Parts.Length - snapshot.Cursor);
             while (TownServiceMotionCodec.TryWritePacked(packet) == null && cohort.ReturnParts.Length > 1)
-            { cohort = snapshot.Subset(Math.Max(1, cohort.ReturnParts.Length * 3 / 4)); packet.Entries[packet.Entries.Count - 1] = cohort; }
+            {
+                packet.Entries.RemoveRange(cohortAt, packet.Entries.Count - cohortAt);
+                cohort = AddReturnSubset(packet, snapshot, Math.Max(1, cohort.ReturnParts.Length * 3 / 4));
+            }
             if (TownServiceMotionCodec.TryWritePacked(packet) == null)
-            { packet.Entries.RemoveAt(packet.Entries.Count - 1); continue; }
+            { packet.Entries.RemoveRange(cohortAt, packet.Entries.Count - cohortAt); continue; }
             bundles++;
             var staged = new TownServiceMotionPending { Entry = cohort, ReturnSnapshot = snapshot };
             selected.Add(new Selected(staged, 0, index + 1, bundles));
             size += TownServiceMotionCodec.EntryBytes(cohort);
+            foreach (TownServiceReturnPart part in cohort.ReturnParts)
+                if (snapshot.Layouts[part.Index] is TownServiceMotionPending layout)
+                {
+                    seen.Add(layout);
+                    // Preserve the immutable dependency from the same physical
+                    // source instant, even if its latest layout changed meanwhile.
+                    var dependent = new TownServiceMotionPending { Entry = snapshot.LayoutEntries[part.Index]!, ReturnSnapshot = snapshot };
+                    selected.Add(new Selected(dependent, 0, index + 1, bundles));
+                    size += TownServiceMotionCodec.EntryBytes(dependent.Entry);
+                }
         }
         int turn = 0;
         while (packet.Entries.Count < TownServiceMotionCodec.MaxExpandedEntries
@@ -112,7 +127,8 @@ internal static class TownServiceMotionBudget
             if (slot.SentAt == now || !seen.Add(slot)) continue;
             // The common return receipt owns its member roots and clocks; ordinary
             // numeric turns cannot split a physical picture during staging.
-            if (slot.Entry.Kind == 8 || slot.Entry.Kind == 1 && HasNativeReturn(live, slot.Entry)) continue;
+            if (slot.Entry.Kind == 8 || slot.ReturnLayout && HasNativeReturn(live, slot.Entry)
+                || slot.Entry.Kind == 1 && HasNativeReturn(live, slot.Entry)) continue;
             int bytes = TownServiceMotionCodec.EntryBytes(slot.Entry);
             if (size + bytes > TownServiceMotionCodec.MaxExpandedBytes) break;
             packet.Entries.Add(slot.Entry); selected.Add(new Selected(slot, group, index + 1)); size += bytes;
@@ -133,6 +149,12 @@ internal static class TownServiceMotionBudget
         foreach (Selected accepted in selected)
         {
             accepted.Slot.Dirty = false; accepted.Slot.SentAt = now;
+            if (accepted.Slot.Entry.Kind == 2 && accepted.Slot.ReturnSnapshot is ReturnSnapshot layoutSnapshot)
+                for (int i = 0; i < layoutSnapshot.LayoutEntries.Length; i++)
+                    if (ReferenceEquals(layoutSnapshot.LayoutEntries[i], accepted.Slot.Entry)
+                        && layoutSnapshot.Layouts[i] is TownServiceMotionPending source
+                        && ReferenceEquals(source.Entry, accepted.Slot.Entry))
+                    { source.Dirty = false; source.SentAt = now; }
             if (accepted.Slot.Entry.Kind == 10)
             {
                 ReturnSnapshot snapshot = accepted.Slot.ReturnSnapshot!;
@@ -228,6 +250,8 @@ internal static class TownServiceMotionBudget
         internal TownServiceMotionEntry Header = null!;
         internal TownServiceReturnPart[] Parts = null!;
         internal TownServiceMotionPending[] Sources = null!;
+        internal TownServiceMotionPending?[] Layouts = null!;
+        internal TownServiceMotionEntry?[] LayoutEntries = null!;
         internal int Cursor;
         internal bool Matches(TownServiceMotionEntry entry, List<TownServiceMotionPending> live)
         {
@@ -275,7 +299,8 @@ internal static class TownServiceMotionBudget
             Hand = clock.Hand, Revision = clock.Revision, ReturnSampleTime = now, Numbers = new float[28],
             ReturnMembers = new ushort[members.Count], ReturnStructures = new uint[members.Count] };
         Array.Copy(clock.Numbers, header.Numbers, 28);
-        var snapshot = new ReturnSnapshot { Header = header, Sources = members.ToArray(), Parts = new TownServiceReturnPart[members.Count] };
+        var snapshot = new ReturnSnapshot { Header = header, Sources = members.ToArray(), Parts = new TownServiceReturnPart[members.Count],
+            Layouts = new TownServiceMotionPending?[members.Count], LayoutEntries = new TownServiceMotionEntry?[members.Count] };
         for (int i = 0; i < members.Count; i++)
         {
             TownServiceMotionEntry member = members[i].Entry;
@@ -284,9 +309,22 @@ internal static class TownServiceMotionBudget
             var part = new TownServiceReturnPart { Index = (byte)i, Visible = live[root].Entry.Visible,
                 ParentAlpha = live[root].Entry.ParentAlpha, Child = new float[10] };
             Array.Copy(member.Numbers, 28, part.Child, 0, 10); snapshot.Parts[i] = part;
+            foreach (TownServiceMotionPending candidate in live)
+                if (candidate.ReturnLayout && candidate.Dirty && candidate.Entry.Kind == 2
+                    && candidate.Entry.Lane == member.Lane && candidate.Entry.Service == member.Service
+                    && candidate.Entry.Session == member.Session && candidate.Entry.PublicClaim == member.PublicClaim
+                    && candidate.Entry.Module == member.Module && candidate.Entry.Structure == member.Structure)
+                { snapshot.Layouts[i] = candidate; snapshot.LayoutEntries[i] = candidate.Entry; break; }
         }
         foreach (TownServiceMotionPending source in members) source.ReturnSnapshot = snapshot;
         return snapshot;
+    }
+    private static TownServiceMotionEntry AddReturnSubset(TownServiceMotionPacket packet, ReturnSnapshot snapshot, int count)
+    {
+        TownServiceMotionEntry cohort = snapshot.Subset(count); packet.Entries.Add(cohort);
+        foreach (TownServiceReturnPart part in cohort.ReturnParts)
+            if (snapshot.LayoutEntries[part.Index] is TownServiceMotionEntry layout) packet.Entries.Add(layout);
+        return cohort;
     }
 
 }

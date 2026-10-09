@@ -193,6 +193,23 @@ internal static partial class TownServiceMirror
             }
         return false;
     }
+    private static bool StagedReturnLayout(int owner, RemoteModule module, float sourceTime, float now)
+    {
+        if (!MotionPeers.TryGetValue(owner, out PeerMotion? peer) || module.LastFrame == null) return false;
+        foreach (ReturnCohortAssembly assembly in peer.ReturnCohorts.Values)
+            if (sourceTime >= assembly.Header.ReturnSampleTime
+                && assembly.Header.Lane == (module.LastFrame.VisitorStock ? 2 : module.LastFrame.PublicCatalog ? 1 : 0)
+                && assembly.Header.Session == module.LastFrame.Session
+                && assembly.Header.Service == module.LastFrame.Service && assembly.Header.PublicClaim == module.LastFrame.PublicClaim)
+            {
+                int index = Array.BinarySearch(assembly.Header.ReturnMembers, module.LastFrame.Module);
+                if (index < 0 || assembly.Header.ReturnStructures[index] != module.LastFrame.Structure) continue;
+                if (!assembly.Activated) return assembly.HasPrior;
+                assembly.Clock.Current(now, out _);
+                if (assembly.Clock.CurrentSampleTime < assembly.Header.ReturnSampleTime) return true;
+            }
+        return false;
+    }
     private static void HoldReturnPicture(int owner, RemoteModule module)
     { if (!ReturnPictures.ContainsKey(module)) ReturnPictures.Add(module, new ReturnPicture(owner, module)); }
 
