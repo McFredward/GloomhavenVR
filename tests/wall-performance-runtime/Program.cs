@@ -51,7 +51,7 @@ public static class WallPerformanceProgram
     public static int Run()
     {
         assertions=0;Setup();
-        try{Clock();Presentation();ProtectedFamilies();Ownership();Lifecycle();Auto();Exceptions();CommandDraw();return assertions;}
+        try{Clock();Presentation();ProtectedFamilies();Ownership();SceneryOwnership();Lifecycle();Auto();WireRecovery();Exceptions();CommandDraw();return assertions;}
         finally{Cleanup();}
     }
     private static void Clock()
@@ -98,7 +98,7 @@ public static class WallPerformanceProgram
             Check(!wall.forceRenderingOff&&!shelf.forceRenderingOff&&!column.forceRenderingOff&&Pixel(-3).r>.6f,"returning Regular restores native visible pixels immediately");
             Check(f.Ticks==ticks+1&&f.Guarded,"Regular resumes the actual entry through ordinary Tick finally");
             f.Fade(a,.5f,false);f.Fade(b,.5f,false);f.Draw(a,wall);
-            Check(f.Sample(dest)==2&&dest[0]==(uint)a&&dest[1]==(uint)b&&f.DrawWrites==1,"Regular restores native sorted sender and diagnostic activity");
+            Check(f.Sample(dest)==2&&dest[0]!=0&&dest[1]>dest[0]&&f.DrawWrites==1,"Regular restores native sorted sender and diagnostic activity");
         }
         foreach(var r in new[]{wall,shelf,column,floor,actor,door,shared})Object.DestroyImmediate(r.gameObject);
     }
@@ -144,6 +144,34 @@ public static class WallPerformanceProgram
             Check(!WallSegmentFade.RetainPerformanceMaskOnForeignRelease(wall),"foreign release does not acquire absent wall ownership");
         }
         ScenarioEnvironmentBudget.BeforeWrite=null;Object.DestroyImmediate(wall.gameObject);Object.DestroyImmediate(prior.gameObject);
+    }
+    private static void SceneryOwnership()
+    {
+        var wall=Piece("Actual scenery overlap wall");var scenery=new ScenarioSceneryBudget.Fixture(wall);
+        using(var f=new WallSegmentFade.Fixture())
+        {
+            f.Add(wall);scenery.Hide(true);Check(wall.forceRenderingOff&&scenery.Owned,"actual scenery primitive acquires native mask before wall policy");
+            PerfConfig.WallVisibilityMode=1;f.Frame();scenery.Hide(false);
+            Check(wall.forceRenderingOff&&!scenery.Owned,"actual scenery release retains wall-owned flag and relinquishes its own claim");
+            PerfConfig.WallVisibilityMode=0;f.Frame();Check(!wall.forceRenderingOff,"wall Regular does not resurrect released actual scenery claim");
+        }
+        Object.DestroyImmediate(wall.gameObject);
+    }
+    private static void WireRecovery()
+    {
+        var wall=Piece("Fresh hidden wire wall");
+        using(var f=new WallSegmentFade.Fixture())
+        {
+            int key=f.Add(wall);PerfConfig.WallVisibilityMode=1;f.Frame();f.ClearKeys();
+            int rebuilt=f.KeyRebuilds;for(int i=0;i<100;i++)f.Frame();Check(f.KeyRebuilds==rebuilt,"settled Hide all performs no wire key rebuild");
+            PerfConfig.WallVisibilityMode=0;f.Frame();f.Fade(key,.4f,false);var dest=new uint[4];
+            Check(f.KeyRebuilds==rebuilt+1&&f.Sample(dest)==1&&dest[0]!=0,"Hidden to Regular rebuilds actual native wire keys once before sender resumes");
+            uint stable=dest[0];for(int i=0;i<100;i++)f.Frame();Check(f.KeyRebuilds==rebuilt+1,"ordinary Regular frames do not repeat recovery wire census");
+            PerfConfig.WallVisibilityMode=1;f.Frame();f.ClearKeys();PerfConfig.WallVisibilityMode=2;f.Frame();f.Fade(key,.4f,false);
+            Check(f.KeyRebuilds==rebuilt+2&&f.Sample(dest)==1&&dest[0]==stable,"Hidden to unlatched Auto rebuilds the same cross-machine stable key once");
+            PerfConfig.WallVisibilityMode=1;f.Frame();Check(f.KeyRebuilds==rebuilt+2,"Auto to Hide all skips recovery wire census");int before=f.KeyRebuilds;f.Reset();Check(f.KeyRebuilds==before,"scenario teardown does not pay recovery wire census");
+        }
+        Object.DestroyImmediate(wall.gameObject);
     }
     private static void Lifecycle()
     {

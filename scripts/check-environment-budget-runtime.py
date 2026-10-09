@@ -214,6 +214,14 @@ def main():
              'terrain native write and placement bridges survive an independent environment failure', 1),
         ]
         for name, before, after, expected, occurrences in changes:
+            if name=='native-continuation-fault-guard-removed' and 'ConfigurePerformanceWallIntegration' in source:
+                # Build652 appends wall readiness after the existing consumers and formats
+                # the same catch across lines. Remove the complete actual guard rather
+                # than weaken its old resolver-fault semantic negative control.
+                start=source.index('internal static void MaterialReady(Renderer renderer)')
+                end=source.index('internal static void BeforeLoadingComplete()',start)
+                before=source[start:end]
+                after='internal static void MaterialReady(Renderer renderer) { _driver?.MaterialReady(renderer); }\n    '
             assert source.count(before) == occurrences, 'negative control binding drift: '+name
             variants.append((name,source.replace(before,after),expected))
         storage = 'private readonly Dictionary<Material, bool> _preCullMaterialVerdicts = new();'
@@ -295,6 +303,22 @@ def main():
     if not args.production_only:
         variants.append(('native-camera-callback-failure-swallowed',source,
             'actual native camera callback assertions propagate after Render into the runner process status'))
+    if not args.production_only and 'ConfigurePerformanceWallIntegration' in source:
+        for name,before,after,expected in (
+            ('performance-wall-unmask-policy-lost',
+                'private static bool PerformanceWallHidden(Renderer renderer) => _performanceWallHidden?.Invoke(renderer) == true;',
+                'private static bool PerformanceWallHidden(Renderer renderer) => false;',
+                'late wall ownership survives actual active geometry consumer release'),
+            ('performance-ambient-unmask-guard-lost',
+                'if (_masked && Renderer != null && !PerformanceWallHidden(Renderer) && Renderer.forceRenderingOff)',
+                'if (_masked && Renderer != null && Renderer.forceRenderingOff)',
+                'ambient recovery cannot clear independently hidden wall attachment flag'),
+            ('performance-native-ready-mask-lost',
+                '_wallRendererReady?.Invoke(renderer);','/* dropped hidden native-ready notification */',
+                'actual native material-ready consumer handoff reapplies exact wall mask last'),
+        ):
+            assert source.count(before)==1,'performance wall consumer control binding drift: '+name
+            variants.append((name,source.replace(before,after),expected))
     if args.case:
         unknown = set(args.case)-{name for name,_,_ in variants}
         if unknown: raise SystemExit('Unknown selected case: '+', '.join(sorted(unknown)))

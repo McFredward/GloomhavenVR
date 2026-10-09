@@ -16,6 +16,7 @@ def main():
     parser.add_argument('--source-root',type=Path,default=ROOT)
     parser.add_argument('--output-dir',type=Path,default=ROOT/'.planning/debug/wall-performance-runtime')
     parser.add_argument('--unity',type=Path,default=Path(os.environ.get('UNITY_PATH','/home/claw/unity-2021.3.5/Editor/Unity')))
+    parser.add_argument('--baseline-ref',default='2f6819eee')
     parser.add_argument('--production-only',action='store_true')
     parser.add_argument('--compile-only',action='store_true')
     parser.add_argument('--case',action='append')
@@ -23,16 +24,25 @@ def main():
     directory=root/'src/GloomhavenVR/Core/WallFade'
     names=['WallSegmentFade.Performance.cs','WallSegmentFade.ArchMounted.cs','WallSegmentFade.cs','WallSegmentFade.Net.cs','WallSegmentFade.DrawTrace.cs','WallSegmentFade.Water.cs']
     paths=[directory/name for name in names];read={p.name:p.read_text() for p in paths}
+    scenery=root/'src/GloomhavenVR/Core/Perf/ScenarioSceneryBudget.cs';paths.append(scenery)
+    scenery_method=method(scenery.read_text(),'private static void SetHidden(Record record, bool hide)')
     methods=[]
     for filename,signatures in [('WallSegmentFade.cs',['private void LateUpdate()','private void ClearAllBlocks(string reason)']),
-        ('WallSegmentFade.Net.cs',['internal int SampleFadedKeys(uint[] dest)']),
+        ('WallSegmentFade.Net.cs',['internal int SampleFadedKeys(uint[] dest)','private void ComputeWireKeys()','private static uint Fnv1a32Key(string s)']),
         ('WallSegmentFade.DrawTrace.cs',['private void NoteWallDrawWrite(Segment seg, MeshRenderer renderer, MaterialPropertyBlock? block)']),
         ('WallSegmentFade.Water.cs',['private bool IsWaterProtected(Bounds b)'])]:
-        methods += [method(read[filename],signature) for signature in signatures]
+        for signature in signatures:
+            extracted=method(read[filename],signature)
+            if signature=='private void ComputeWireKeys()':extracted=extracted.replace('{','{ FixtureWireRebuilds++;',1)
+            methods.append(extracted)
     source={'WallSegmentFade.Performance.cs':read[names[0]],'WallSegmentFade.ArchMounted.cs':read[names[1]],
+        'SceneryPrimitive.cs':(fixture/'SceneryFixture.cs').read_text().replace('// @PRODUCTION_SET_HIDDEN@',scenery_method),
         'ProductionPrimitives.cs':'using System; using UnityEngine; namespace GloomhavenVR.Core {internal static partial class WallSegmentFade {private sealed partial class FadeDriver {\n'+'\n'.join(methods)+'\n}}}'}
-    baseline=dict(source);baseline['ProductionPrimitives.cs']=baseline['ProductionPrimitives.cs'].replace('if (TickPerformanceVisibility())\n                        return;','')
-    assert baseline!=source,'entry guard anchor drift'
+    baseline_sha=subprocess.check_output(['git','-C',str(ROOT),'rev-parse',args.baseline_ref],text=True).strip()
+    old_wall=subprocess.check_output(['git','-C',str(ROOT),'show',baseline_sha+':src/GloomhavenVR/Core/WallFade/WallSegmentFade.cs'],text=True)
+    old_entry=method(old_wall,'private void LateUpdate()')
+    baseline=dict(source);baseline['ProductionPrimitives.cs']=baseline['ProductionPrimitives.cs'].replace(method(read['WallSegmentFade.cs'],'private void LateUpdate()'),old_entry)
+    assert baseline!=source,'entry baseline drift'
     # These are deliberate causal controls, never silently transformed production inputs.
     changes=[
         ('entry-not-paused','ProductionPrimitives.cs','if (TickPerformanceVisibility())','if (TickPerformanceVisibility() && bool.Parse("false"))','settled hidden entry performs no old Tick collector or renderer writes'),
@@ -44,6 +54,9 @@ def main():
         ('diagnostics-not-paused','ProductionPrimitives.cs','if (PerformanceWallsHidden || !VRLog.Wants','if (false || !VRLog.Wants','hidden sender and diagnostic leave existing buffers untouched'),
         ('options-not-excluded','WallSegmentFade.Performance.cs','&& !VROptionsTab.IsOpen','&& true','loading focus and options do not trigger Auto'),
         ('collector-remask-lost','WallSegmentFade.Performance.cs','SetPerformanceCollectionMasks(true);','SetPerformanceCollectionMasks(false);','same-count native generation collects fresh new wall membership'),
+        ('wire-recovery-omitted','WallSegmentFade.Performance.cs','if (recoverWireKeys) ComputeWireKeys();','/* injected: no key recovery */','Hidden to Regular rebuilds actual native wire keys once before sender resumes'),
+        ('wire-recovery-unconditional','WallSegmentFade.Performance.cs','if (recoverWireKeys) ComputeWireKeys();','if (recoverWireKeys || true) ComputeWireKeys();','Auto to Hide all skips recovery wire census'),
+        ('scenery-release-clears-wall','SceneryPrimitive.cs','&& _retainPerformanceWallMask?.Invoke(renderer) != true','&& true','actual scenery release retains wall-owned flag and relinquishes its own claim'),
         ('foreign-release-prior-stale','WallSegmentFade.Performance.cs','_performanceMasks[renderer] = false;','_performanceMasks[renderer] = true;','Regular preserves current native MPB and relinquished foreign flag'),
     ]
     variants=[('production',source,'')]
@@ -57,12 +70,12 @@ def main():
     args.output_dir.mkdir(parents=True,exist_ok=True);run=Path(tempfile.mkdtemp(prefix='run-',dir=args.output_dir.resolve()))
     inputs=paths+[Path(__file__).resolve()]+sorted(p for p in fixture.rglob('*') if p.is_file())
     hashes={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in inputs}
-    (run/'source-hashes.json').write_text(json.dumps({'sha256':hashes,'sourceRoot':str(root),'limits':[
+    (run/'source-hashes.json').write_text(json.dumps({'sha256':hashes,'sourceRoot':str(root),'baselineEntryCommit':baseline_sha,'baselineWallSha256':hashlib.sha256(old_wall.encode()).hexdigest(),'limits':[
         'Complete Performance partial and actual LateUpdate/ClearAllBlocks/SampleFadedKeys/draw-write guard/Water protection/arch-mounted hierarchy execute.',
         'Native controller, scene/config/loading/focus/clock, held registry, staged collector, attachment restorers and broad floor/actor/mod classifiers are explicit model boundaries.',
         'Native Unity renderer/mesh/MPB/scene/bounds/hierarchy/camera pixels execute. Foreign native command draws are measured as an explicit boundary.',
         'Timing measures added entry overhead against the identical entry with guard removed and the same cheap Tick boundary; not saved whole-wall CPU or Frame FPS.'
-    ],'transformations':['using aliases for Unity Time and Application to deterministic named clock/focus boundaries'],'variants':[v[0] for v in variants]},indent=2)+'\n')
+    ],'transformations':['using aliases for Unity Time and Application to deterministic named clock/focus boundaries','Invocation count inserted only at actual ComputeWireKeys entry; no key algorithm replacement; no calls inside warmed timing region'],'variants':[v[0] for v in variants]},indent=2)+'\n')
     manifest={'result':str(run/'results.txt'),'cases':[]};dotnet=shutil.which('dotnet') or str(Path.home()/'.dotnet/dotnet')
     harmony=Path.home()/'.nuget/packages/harmonyx/2.7.0/lib/net45/0Harmony.dll'
     for name,texts,expected in variants:

@@ -17,12 +17,17 @@ public static partial class EnvironmentProgram
             ScenarioEnvironmentBudget.ConfigureStructuralBatching(()=>true);Configure(true,true,100);ScenarioEnvironmentBudget.BeforeLoadingComplete();
             Check(room.Chunks().Length>0,"performance wall fixture prepares actual environment geometry consumers");
             Tick("HandlePreCull",room.Camera);
+            // Explicit late-ownership boundary: a current consumer can still be present
+            // in a nested callback when another owner starts hiding the same source.
+            hidden.Add(first);first.forceRenderingOff=true;Tick("HandlePostRender",room.Camera);
+            Check(first.forceRenderingOff,"late wall ownership survives actual active geometry consumer release");
+            hidden.Clear();first.forceRenderingOff=false;ScenarioEnvironmentBudget.MaterialReady(first);ScenarioEnvironmentBudget.BeforeLoadingComplete();Tick("HandlePreCull",room.Camera);
             ScenarioEnvironmentBudget.BeforeNativeRendererWrite(first);hidden.Add(first);first.forceRenderingOff=true;
             ScenarioEnvironmentBudget.BeforeNativeRendererWrite(second);hidden.Add(second);second.forceRenderingOff=true;
             ScenarioEnvironmentBudget.BeforeNativeContentChange();
             Check(first.forceRenderingOff&&second.forceRenderingOff,"content clone recovery cannot unmask performance-owned native wall flags");
-            first.forceRenderingOff=false;ScenarioEnvironmentBudget.MaterialReady(first);
-            Check(first.forceRenderingOff&&ready==1,"actual native material-ready consumer handoff reapplies exact wall mask last");
+            int readyBefore=ready;first.forceRenderingOff=false;ScenarioEnvironmentBudget.MaterialReady(first);
+            Check(first.forceRenderingOff&&ready==readyBefore+1,"actual native material-ready consumer handoff reapplies exact wall mask last");
             ScenarioEnvironmentBudget.Placed(room.Generated);ScenarioEnvironmentBudget.BeforeLoadingComplete();Tick("HandlePreCull",room.Camera);Tick("HandlePostRender",room.Camera);
             Check(!ScenarioEnvironmentBudget.OwnsRenderSubstitute(first)&&!ScenarioEnvironmentBudget.OwnsRenderSubstitute(second)&&first.forceRenderingOff&&second.forceRenderingOff,"hidden walls cannot re-enter environment private chunks or lose masks on post-render");
             Check(floor.sharedMaterial.shader.name=="GloomhavenVR/ScenarioSimpleEnvironment","unhidden floor retains actual simplified material route beside absent walls");

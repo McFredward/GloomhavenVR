@@ -11,6 +11,8 @@ internal static partial class WallSegmentFade
     private sealed class Segment
     {
         internal Transform? DoorRoot;
+        internal Component? Anchor;
+        internal int RoomIndex=0;
         internal bool IsGateColumn,State,PendingRaw,SmoothInit,HasBlock;
         internal float Fade,Smooth;
         internal uint WireKey;
@@ -26,6 +28,7 @@ internal static partial class WallSegmentFade
         internal readonly List<Bounds> ArchRects=new();
         internal readonly List<WaterRect> WaterRects=new();
         internal int BuiltRoomCount;
+        internal readonly List<string> RoomLabels=new(){"Original room"};
     }
     private readonly struct WaterRect
     {
@@ -45,6 +48,7 @@ internal static partial class WallSegmentFade
         private float _nextRescan,_nextEvalTime,_lastEvalTime,_nextTruncateLog;
         private int _wireSampled,_wireSent;
         private const float WaterContainmentMin=.5f;
+        internal int FixtureWireRebuilds;
         internal int Ticks,Begins,Steps,TickBegins,TickEnds,DrawWrites,TraceClears,InsideClears,Restores;
         internal Action? DuringBegin,DuringStep;
         internal Action<Fixture>? CollectorCommit;
@@ -82,6 +86,8 @@ internal static partial class WallSegmentFade
         private void StopWallDrawTrace(Exception error)=>_drawTraceFailed=true;
         internal void TouchUnused()=>GC.KeepAlive((_rescanUrgent,_pathAuditRunning,_nextRescan,_nextEvalTime,_lastEvalTime,_wireSent,_wireSampled));
 
+        internal int KeyRebuilds=>FixtureWireRebuilds;
+        internal void ClearKeys(){foreach(Segment seg in _live.Segments.Values)seg.WireKey=0;}
         internal void Init(Fixture owner){Owner=owner;_live.BuiltRoomCount=TilesOcclusionGenerator.s_Instance.m_RoomRenderers.Count;}
         internal int Masks=>_performanceMasks.Count;
         internal bool Latched=>_performanceAutoLatched;
@@ -94,7 +100,7 @@ internal static partial class WallSegmentFade
         internal void SetArch(Bounds bounds)=>_live.ArchRects.Add(bounds);
         internal void SetWater(Bounds bounds)=>_live.WaterRects.Add(new WaterRect(bounds));
         internal int Add(MeshRenderer wall,bool gate=false,Transform? door=null)
-        {int key=_live.Segments.Count+1;var seg=new Segment{IsGateColumn=gate,DoorRoot=door,WireKey=(uint)key};seg.Renderers.Add(wall);_live.Segments.Add(key,seg);return key;}
+        {int key=_live.Segments.Count+1;var seg=new Segment{IsGateColumn=gate,DoorRoot=door,WireKey=(uint)key,Anchor=wall};seg.Renderers.Add(wall);_live.Segments.Add(key,seg);return key;}
         internal void Remove(int key)=>_live.Segments.Remove(key);
         internal void Attach(int key,Renderer renderer,string kind)
         {var seg=_live.Segments[key];switch(kind){case "foliage":seg.Foliage.Add((MeshRenderer)renderer);break;case "sibling":seg.Siblings.Add((MeshRenderer)renderer);break;case "body":seg.Body.Add(new MountedProp{Renderer=renderer});break;case "stacked":seg.Stacked.Add(new MountedProp{Renderer=renderer});break;case "mounted":seg.Mounted.Add(new MountedProp{Renderer=renderer});break;default:seg.UnitDressing.Add(new MountedProp{Renderer=renderer});break;}}
@@ -111,6 +117,8 @@ internal static partial class WallSegmentFade
     internal sealed class Fixture : IDisposable
     {
         private readonly FadeDriver driver;
+        internal int KeyRebuilds=>driver.KeyRebuilds;
+        internal void ClearKeys()=>driver.ClearKeys();
         internal Fixture(){_driver=driver=new FadeDriver();driver.Init(this);}
         internal int Ticks=>driver.Ticks;
         internal int Begins=>driver.Begins;
