@@ -65,16 +65,17 @@ internal sealed partial class TownServiceLaneSendQueue
                 counterMask: TownServiceFragments.StockLaneMarker - 1, fixedMarker: _seed & TownServiceFragments.StockLaneMarker);
             _queues.Add(frame.Module, queue); _order.Add(frame.Module);
         }
-        bool retainedNativeOriginal = frame.Service == 3 && !frame.PublicCatalog && !frame.VisitorStock
+        bool requestedOriginal = TownRequestedOriginalRepair.Source?.Invoke(frame) == true;
+        bool retainedNativeOriginal = requestedOriginal || frame.Service == 3 && !frame.PublicCatalog && !frame.VisitorStock
             && frame.BaseSequence == 0 && _latestOriginals.TryGetValue(frame.Module, out var sameOriginal)
             && ReferenceEquals(sameOriginal, frame);
-        if (TownRequestedOriginalRepair.Source?.Invoke(frame) == true)
+        if (requestedOriginal)
             _requestedOriginals[frame.Module] = frame;
         // Ordinary mage originals can precede the offer that promotes their
         // deltas. Their exact full repair needs the same bounded dependency pin
         // as an original which was already urgent on its first capture.
         if (frame.Module != TownServiceFrame.ManifestModule && frame.BaseSequence == 0
-            && !frame.PublicCatalog && !frame.VisitorStock && (frame.HighPriority || frame.Service == 3)
+            && !frame.PublicCatalog && !frame.VisitorStock && (frame.HighPriority || frame.Service == 3 || requestedOriginal)
             && (!_latestOriginals.TryGetValue(frame.Module, out var previousOriginal)
                 || frame.Sequence > previousOriginal.Sequence)) _latestOriginals[frame.Module] = frame;
         if (frame.Module == TownServiceFrame.ManifestModule)
@@ -378,7 +379,8 @@ internal sealed partial class TownServiceLaneSendQueue
         // Existing atomic bundles remain intact and resume at their next turn.
         if (urgent && TakeRequestedOriginal(now) is byte[] requested) return requested;
         ushort? active = urgent ? _priorityActive : _normalActive;
-        if (active.HasValue && _queues.TryGetValue(active.Value, out ExtrasSendQueue? running) && running.HasInFlight)
+        if (active.HasValue && (urgent || !_requestedOriginals.ContainsKey(active.Value))
+            && _queues.TryGetValue(active.Value, out ExtrasSendQueue? running) && running.HasInFlight)
         {
             byte[]? page = running.Next(now);
             if (page != null) { Completed(running); return page; }
@@ -395,6 +397,7 @@ internal sealed partial class TownServiceLaneSendQueue
             ushort id = _order[cursor++];
             if (urgent) _priorityCursor = cursor; else _cursor = cursor;
             if (id == TownServiceFrame.ManifestModule || _priority.Contains(id) != urgent) continue;
+            if (!urgent && _requestedOriginals.ContainsKey(id)) continue;
             if (id == (urgent ? _normalActive : _priorityActive)) continue;
             ExtrasSendQueue queue = _queues[id];
             if (_clocks.TryGetValue(id, out var clock))
@@ -444,6 +447,7 @@ internal sealed partial class TownServiceLaneSendQueue
                 if (cursor >= _order.Count) cursor = 0; ushort id = _order[cursor++];
                 if (urgent) _priorityCursor = cursor; else _cursor = cursor;
                 if (id == TownServiceFrame.ManifestModule || _priority.Contains(id) != urgent
+                    || !urgent && _requestedOriginals.ContainsKey(id)
                     || id == (urgent ? _normalActive : _priorityActive)) continue;
                 ExtrasSendQueue queue=_queues[id];
                 if (!queue.TryPeekPending(out byte[]? waiting, out _)) continue;

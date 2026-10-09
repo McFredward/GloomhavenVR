@@ -33,7 +33,12 @@ internal sealed partial class TownServiceLaneSendQueue
             // full source follows before its newest dependent artwork revisions.
             byte[]? page = queue.Next(now);
             if (page == null) continue;
-            bool repaired = !queue.HasInFlight && ReferenceEquals(queue.CompletedIdentity, original);
+            // A compact packet and its retained full source share their owner
+            // identity. An older compact/delta's last page does not complete the
+            // requested full repair that is still pinned at the pending head.
+            bool fullPending = queue.TryPeekPending(out _, out object? next)
+                && ReferenceEquals(next, original);
+            bool repaired = !queue.HasInFlight && ReferenceEquals(queue.CompletedIdentity, original) && !fullPending;
             Completed(queue);
             if (repaired) _requestedOriginals.Remove(id);
             return page;
