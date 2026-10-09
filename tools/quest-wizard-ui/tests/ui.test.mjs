@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {strings,translate} from '../i18n.mjs';
-import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,publisherSourceUrl,sessionId,savedSession,activeWorkView,timingView,durationText,failureView,activityView,buildOverviewView} from '../model.mjs';
+import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,publisherSourceUrl,sessionId,savedSession,activeWorkView,timingView,durationText,failureView,activityView,buildOverviewView,nativeMemoryView} from '../model.mjs';
 import {LocalApi,PreviewApi} from '../transport.mjs';
 
 test('German and English expose the same strings and parameter ABI',()=>{
@@ -35,6 +35,24 @@ test('native memory prerequisite exposes retry context without resurrecting an o
   assert.equal(translate('de','phase_stage_native-memory-check'),'Speicherkapazität für native Kompilierung');
   assert.match(translate('de','nativeMemoryNext'),/erneut versuchen/);
   assert.doesNotMatch(translate('de','nativeMemoryNext'),/korrigierten Builder/);
+});
+
+test('memory adaptation presents measured resources and a wait without a work percentage',()=>{
+  const stage={status:'running',progress:{phase:'native-memory-wait',operationStatus:'progress',stagePercent:93.25,percent:null,
+    nativeMemory:{compilerProfile:'release-line-tables',jobs:1,attempt:2,reason:'pressure',resources:{availableMemoryBytes:38776823808,commitHeadroomBytes:29501243392,processWorkingSetBytes:2**53,workspaceRoot:'private'}}}};
+  assert.deepEqual(nativeMemoryView(stage),{phase:'native-memory-wait',waiting:true,compilerProfile:'release-line-tables',jobs:1,attempt:2,reason:'pressure',
+    resources:{availableMemoryBytes:38776823808,commitHeadroomBytes:29501243392}});
+  assert.equal(stageProgress(stage).percent,93.25);
+  assert.equal(stageProgress(stage).phasePercent,null);
+  assert.equal(nativeMemoryView({...stage,progress:{...stage.progress,operationStatus:'complete'}}).waiting,false);
+  assert.equal(nativeMemoryView({...stage,progress:{...stage.progress,phase:'native-memory-retry'}}).waiting,false);
+  assert.equal(nativeMemoryView({...stage,progress:{...stage.progress,phase:'bee-actions:run:100:1'}}),null);
+  for(const language of ['de','en'])for(const key of ['phase_native-compiler-profile','phase_native-memory-retry','phase_native-memory-wait','phase_asset-memory-wait','memoryWaitEta'])assert.notEqual(translate(language,key),key);
+  assert.doesNotMatch(translate('de','memoryWaitEta'),/\d/,'a resource wait cannot invent an ETA');
+  assert.deepEqual(nativeMemoryView({progress:{phase:'native-compiler-profile',nativeMemory:{jobs:true,attempt:1000001,compilerProfile:'x'.repeat(65),reason:'../../unsafe'}}}),{phase:'native-compiler-profile',waiting:false});
+  const codec=nativeMemoryView({progress:{phase:'asset-memory-wait',nativeMemory:{compilerProfile:'independent-codec',jobs:1,attempt:3,reason:'allocation-failed'}}});
+  assert.equal(codec.waiting,true);assert.equal(codec.compilerProfile,'independent-codec');
+  assert.equal(translate('de','memoryCodecProfile',{profile:translate('de','memoryProfile_independent-codec')}),'Asset-Verarbeitung: Separater Codec-Prozess');
 });
 
 test('overview uses retained completion and explicit active work, never wizard setup counts',()=>{

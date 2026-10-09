@@ -41,6 +41,26 @@ def stage_progress(phase="pending", done=0, total=1, unit="stages", detail=None)
             "percent": percent, "detail": detail, "updatedAt": time.time()}
 
 
+def native_memory_progress(value):
+    """Retain measured compiler observations, never paths or unbounded tool data."""
+    if not isinstance(value, dict): return None
+    result = {}
+    for name, bound in (("jobs", 4096), ("attempt", 1000000)):
+        number = value.get(name)
+        if type(number) is int and 1 <= number <= bound: result[name] = number
+    for name, bound in (("compilerProfile", 64), ("reason", 80)):
+        token = value.get(name)
+        if isinstance(token, str) and re.fullmatch(r"[a-z][a-z0-9-]{0," + str(bound - 1) + r"}", token):
+            result[name] = token
+    resources = value.get("resources")
+    if isinstance(resources, dict):
+        result["resources"] = {name: resources[name] for name in
+            ("availableMemoryBytes", "commitHeadroomBytes", "processWorkingSetBytes", "processPrivateCommitBytes")
+            if type(resources.get(name)) is int and 0 <= resources[name] <= 2 ** 53 - 1}
+        if not result["resources"]: result.pop("resources")
+    return result or None
+
+
 class WizardError(RuntimeError):
     def __init__(self, code, en, de=None, **parameters):
         super().__init__(en)
@@ -332,8 +352,10 @@ class Store:
                 stage_plan.begin_attempt(row, row["progress"]["updatedAt"])
             self.save(state)
 
-    def progress(self, session, stage, phase, done=None, total=None, unit=None, detail=None, *, operation=None, status=None):
+    def progress(self, session, stage, phase, done=None, total=None, unit=None, detail=None, *, operation=None, status=None, nativeMemory=None):
         value = stage_progress(phase, done, total, unit, detail)
+        memory = native_memory_progress(nativeMemory)
+        if memory: value["nativeMemory"] = memory
         if status is not None and status not in ("start", "progress", "complete", "reuse", "failed"):
             raise WizardError("invalid_progress", "Invalid progress event status.")
         with self._lock:

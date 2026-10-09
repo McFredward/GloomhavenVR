@@ -70,6 +70,8 @@ UPDATE_SHARES = {"update-mod": dict(zip(UPDATE_PLANS["update-mod"], (5, 5, 40, 1
 UPDATE_GROUPS = {"update-mod": {"inputs": UPDATE_PLANS["update-mod"][:2], "code": UPDATE_PLANS["update-mod"][2:4], "export": UPDATE_PLANS["update-mod"][4:]},
                  "update-profile": {"inputs": UPDATE_PLANS["update-profile"][:2], "export": UPDATE_PLANS["update-profile"][2:]}}
 WORK_REVISION = 6
+MEMORY_OBSERVATIONS = frozenset(("native-compiler-profile", "native-memory-retry", "native-memory-wait",
+                               "asset-memory-retry", "asset-memory-wait"))
 PREPARATION_ITEMS = {"bundled-audio": "audio", "native-cubemaps": "textures",
                      "ordinary-texture-audit": "textures", "native-texture2d": "textures",
                      "native-sprites": "startup-content", "environment-bundles": "mod-banks",
@@ -897,11 +899,20 @@ def advance(row, value, operation=None, status=None):
     for key in ("recoverySection", "recoveryBatchIndex", "recoveryBatchTotal", "recoveryNativeIndex", "recoveryNativeTotal", "activeWork", "buildOverview"):
         value.pop(key, None)
     plan = initialize(row); operations = planned_operations(row)
-    if row["id"] == "build" and value["phase"] == "native-memory-check":
-        # Capacity is a prerequisite to launch, never an asset producer. Keep
+    if (row["id"] == "build" and value["phase"] == "native-memory-check"
+            and (status or value.get("operationStatus")) == "failed"):
+        # Legacy refusal is a prerequisite, never an asset producer. Keep
         # the high-water/completed frontier, but detach the old live owner.
+        # A successful observation inside Player must keep its actual owner.
         plan["liveOperation"] = None
         plan["liveStatus"] = "progress"
+        value.pop("reportedOperation", None)
+        operation = None
+    if value["phase"] in MEMORY_OBSERVATIONS:
+        # A compiler can lower concurrency or wait inside its current build.
+        # That observation neither reopens a producer nor completes its owner.
+        # Keep the real owner and durable high-water through pressure/retries.
+        value.update(done=None, total=None, unit=None, percent=None)
         value.pop("reportedOperation", None)
         operation = None
     # One observed attempt boundary, never a status read, marks old completion

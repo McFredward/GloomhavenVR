@@ -65,6 +65,17 @@ export function activityView(stage,now=Date.now()/1000) {
   const seconds=Math.max(0,Math.floor(now-updated));
   return {seconds,quiet:seconds>=60};
 }
+export function nativeMemoryView(stage) {
+  const value=stage?.progress??{},phases=['native-compiler-profile','native-memory-retry','native-memory-wait','asset-memory-retry','asset-memory-wait'];
+  if(!phases.includes(value.phase))return null;
+  const raw=value.nativeMemory??{},result={phase:value.phase,waiting:value.phase.endsWith('-wait')&&value.operationStatus!=='complete'};
+  for(const [name,bound] of [['jobs',4096],['attempt',1000000]])if(Number.isSafeInteger(raw[name])&&raw[name]>0&&raw[name]<=bound)result[name]=raw[name];
+  for(const [name,bound] of [['compilerProfile',64],['reason',80]])if(typeof raw[name]==='string'&&raw[name].length<=bound&&/^[a-z][a-z0-9-]*$/.test(raw[name]))result[name]=raw[name];
+  const resources={};
+  for(const name of ['availableMemoryBytes','commitHeadroomBytes','processWorkingSetBytes','processPrivateCommitBytes'])if(Number.isSafeInteger(raw.resources?.[name])&&raw.resources[name]>=0)resources[name]=raw.resources[name];
+  if(Object.keys(resources).length)result.resources=resources;
+  return result;
+}
 export function stageStatus(state,stage) {
   return stage.id==='install'&&stage.status==='complete'&&(stage.details?.requested===false||state?.choices?.install===false)?'skipped':stage.status;
 }

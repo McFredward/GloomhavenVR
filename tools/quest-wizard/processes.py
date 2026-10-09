@@ -10,8 +10,8 @@ import signal
 import subprocess
 import time
 
-from state import Cancelled, STAGES, WizardError, atomic_json, ordinary, stage_progress
-from stage_plan import PLANS
+from state import Cancelled, STAGES, WizardError, atomic_json, ordinary, stage_progress, native_memory_progress
+from stage_plan import PLANS, MEMORY_OBSERVATIONS
 
 
 def diagnostic_command(argv):
@@ -146,6 +146,14 @@ class ProgressParser:
                 if value.get("status") is not None:
                     if value["status"] not in ("start", "progress", "complete", "reuse", "failed"): return None
                     fields["status"] = value["status"]
+                if fields["phase"] in MEMORY_OBSERVATIONS:
+                    # Capacity, retries and resource waits describe a strategy,
+                    # not work completed. Never let a reported 1/1 close Player.
+                    fields.update(done=None, total=None, unit=None)
+                    fields.pop("operation", None)
+                    memory = native_memory_progress(value.get("nativeMemory"))
+                    if memory: fields["nativeMemory"] = memory
+                    self.memory_rejections.discard(source)
                 # Public Editor task counters can be observed before/after the
                 # native compiler log. Preserve their supplied fraction and
                 # distinguish them from one native shader pass's variants.

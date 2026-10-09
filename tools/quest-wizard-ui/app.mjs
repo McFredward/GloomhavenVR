@@ -1,5 +1,5 @@
 import {translate} from './i18n.mjs';
-import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,sessionId,savedSession,activeWorkView,timingView,durationText,failureView,activityView,buildOverviewView} from './model.mjs';
+import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,sessionId,savedSession,activeWorkView,timingView,durationText,failureView,activityView,buildOverviewView,nativeMemoryView} from './model.mjs';
 import {LocalApi,PreviewApi} from './transport.mjs';
 
 const $ = id => document.getElementById(id);
@@ -159,7 +159,20 @@ function workSummary(value) {
   if(work.passes)lines.push(t(work.passes.known?'activeWorkPasses':'buildPassObserved',{done:work.passes.done,total:work.passes.total,remaining:work.passes.total-work.passes.done}));
   return lines.join(' · ');
 }
-function renderTiming(current) {
+function memorySummary(memory) {
+  if(!memory)return '';
+  const lines=[];
+  if(memory.compilerProfile){const key='memoryProfile_'+memory.compilerProfile;lines.push(t(memory.phase.startsWith('asset-')?'memoryCodecProfile':'memoryProfile',{profile:t(key)===key?memory.compilerProfile:t(key)}));}
+  if(memory.jobs)lines.push(t(memory.jobs===1?'memoryJob':'memoryJobs',{jobs:memory.jobs}));
+  if(memory.attempt)lines.push(t('memoryAttempt',{attempt:memory.attempt}));
+  if(memory.reason){const key='memoryReason_'+memory.reason;lines.push(t(key)===key?memory.reason:t(key));}
+  for(const [name,bytes] of Object.entries(memory.resources??{})){
+    const gib=bytes>=1073741824,size=new Intl.NumberFormat(language,{maximumFractionDigits:1}).format(bytes/(gib?1073741824:1048576))+(gib?' GiB':' MiB');
+    lines.push(t('memory_'+name,{size}));
+  }
+  return lines.join(' · ');
+}
+function renderTiming(current,resourceWait=false) {
   const whole=timingView(state?.timing),stage=timingView(current?.timing),estimate=stage?.estimate;
   $('build-timing').hidden=!whole&&!stage;
   $('elapsed-label').textContent=t(whole?.elapsedBasis==='since-update'?'elapsedSinceUpdate':'elapsedBuild');
@@ -169,6 +182,7 @@ function renderTiming(current) {
   $('eta-label').textContent=t(estimate?.scope==='conversion-batches'?'etaBatches':'etaPhase');
   let text;
   if(state?.status==='complete')text=t('etaComplete');
+  else if(resourceWait)text=t('memoryWaitEta');
   else if(estimate?.status==='estimated')text=t('etaRange',{lower:durationText(estimate.lowerSeconds),upper:durationText(estimate.upperSeconds)});
   else text=t(estimate?.status==='complete'?'etaComplete':estimate?.status==='paused'?'etaPaused':estimate?.status==='learning'?'etaLearning':'etaUnknown');
   $('eta-value').textContent=text;
@@ -361,21 +375,22 @@ function renderProgress() {
   track.setAttribute('aria-valuenow',String(progress.percent));
   track.setAttribute('aria-valuetext',$('progress-count').textContent);$('progress-fill').style.width=progress.width+'%';
   const sub=stageProgress(progress.active??progress.current);
+  const memory=nativeMemoryView(progress.active??progress.current),resourceWait=active&&memory?.waiting===true;
   const hasSubstep=!done&&sub.phase&&!['pending','starting','complete'].includes(sub.phase);
-  $('progress-detail').textContent=[progress.retaining?t('retainedProgress'):'',!hasSubstep&&sub.phase?substepLabel(sub):'',counters(sub),sub.detail??'',waiting?t('waitingSince',{seconds:Math.max(0,Math.floor(Date.now()/1000-waiting.since))}):''].filter(Boolean).join(' · ');
+  $('progress-detail').textContent=[progress.retaining?t('retainedProgress'):'',!hasSubstep&&sub.phase?substepLabel(sub):'',counters(sub),memory?memorySummary(memory):sub.detail??'',waiting?t('waitingSince',{seconds:Math.max(0,Math.floor(Date.now()/1000-waiting.since))}):''].filter(Boolean).join(' · ');
   $('progress-completed').hidden=done;
   $('progress-completed').textContent=workSummary(sub);
-  renderTiming(progress.current);
+  renderTiming(progress.current,resourceWait);
   const activity=activityView(progress.active??progress.current);
   $('activity-status').hidden=!active||Boolean(waiting);
-  $('activity-status').classList.toggle('quiet',activity?.quiet===true);
-  $('activity-status').textContent=t(activity?.quiet?'activityQuiet':activity?'activityRecent':'activityUnknown',{duration:durationText(activity?.seconds??0)});
+  $('activity-status').classList.toggle('quiet',!resourceWait&&activity?.quiet===true);
+  $('activity-status').textContent=t(resourceWait?'memoryWaitActivity':activity?.quiet?'activityQuiet':activity?'activityRecent':'activityUnknown',{duration:durationText(activity?.seconds??0)});
   $('log-status').hidden=!eventsUnavailable&&!stageLogUnavailable;$('log-status').textContent=t('logUnavailable');
   renderBuildOverview();
   $('substep-progress').hidden=!hasSubstep;
   $('substep-label').textContent=substepLabel(sub);
-  $('substep-count').textContent=sub.phasePercent===null?t('phaseUnknown'):t('phasePercent',{percent:percentText(sub.phasePercent)});
-  const subtrack=$('substep-track');subtrack.classList.toggle('indeterminate',sub.phasePercent===null&&active&&!waiting);
+  $('substep-count').textContent=resourceWait?t('memoryWaiting'):sub.phasePercent===null?t('phaseUnknown'):t('phasePercent',{percent:percentText(sub.phasePercent)});
+  const subtrack=$('substep-track');subtrack.classList.toggle('indeterminate',sub.phasePercent===null&&active&&!waiting&&!resourceWait);
   subtrack.setAttribute('aria-valuemin','0');subtrack.setAttribute('aria-valuemax','100');
   if(sub.phasePercent===null)subtrack.removeAttribute('aria-valuenow');else subtrack.setAttribute('aria-valuenow',String(sub.phasePercent));
   subtrack.setAttribute('aria-valuetext',$('substep-count').textContent);$('substep-fill').style.width=(sub.phasePercent??0)+'%';
@@ -384,7 +399,7 @@ function renderProgress() {
     const displayed=stageStatus(state,stage),li=document.createElement('li');li.className=displayed;
     const marker=document.createElement('span');marker.className='stage-marker';marker.textContent=displayed==='complete'?'✓':displayed==='running'?'·':['blocked','failed'].includes(displayed)?'!':'';
     const label=document.createElement('span');label.className='stage-content';const title=document.createElement('strong');title.textContent=t('stage_'+stage.id);label.append(title);
-    const measured=stageProgress(stage),detail=document.createElement('small');detail.textContent=[measured.phase?substepLabel(measured):'',['pending','complete'].includes(stage.status)?'':counters(measured),measured.waiting?t('actionNeeded'):['pending','complete'].includes(stage.status)?'':measured.detail??''].filter(Boolean).join(' · ');label.append(detail);
+    const measured=stageProgress(stage),stageMemory=nativeMemoryView(stage),detail=document.createElement('small');detail.textContent=[measured.phase?substepLabel(measured):'',['pending','complete'].includes(stage.status)?'':counters(measured),measured.waiting?t('actionNeeded'):['pending','complete'].includes(stage.status)?'':stageMemory?memorySummary(stageMemory):measured.detail??''].filter(Boolean).join(' · ');label.append(detail);
     const bar=document.createElement('progress');bar.max=100;bar.setAttribute('aria-label',t('stage_'+stage.id)+' · '+t('stageTotal'));bar.value=measured.percent;label.append(bar);
     const status=document.createElement('span');status.className='stage-state';status.textContent=t('measuredPercent',{percent:percentText(measured.percent)})+' · '+t(measured.waiting?'blocked':displayed);li.append(marker,label,status);$('stage-list').append(li);
   }
