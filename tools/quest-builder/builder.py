@@ -63,6 +63,7 @@ build_progress = _local_helper("progress")
 recovery_resume = _local_helper("recovery_resume")
 prepare_resume = _local_helper("prepare_resume")
 preparation_identity = _local_helper("preparation_identity")
+native_admission = _local_helper("native_admission")
 _release = _local_helper("release") if Path(__file__).with_name("release.py").is_file() else None
 apk_updates = _local_helper("apk_update")
 
@@ -1494,11 +1495,7 @@ def build(args, inputs: dict, output: Path, source: Path, game: Path, project: P
 
     def compile_player_files():
         recover_delivery_pending(output, key, provenance)
-        policy = host_resources.phase_budget("il2cpp" if args.target in ("startup", "game") else "unity", output)
-        if not policy["nativeLaunchAllowed"]:
-            raise BuildError("Available RAM/commit is insufficient or unknown for the large native game compiler; "
-                             "close other programs or provide sufficient Windows pagefile commit headroom and retry. "
-                             "Completed stages are retained; --jobs cannot bypass the memory reserve.")
+        policy = native_admission.require_capacity(host_resources, build_progress, output, target=args.target)
         apk.parent.mkdir(parents=True, exist_ok=True)
         apk.unlink(missing_ok=True)
         report.unlink(missing_ok=True)
@@ -1936,12 +1933,15 @@ def main(argv: list[str] | None = None) -> int:
                     inputs = inspect_inputs(args, repo, output, data)
                     os.environ[host_resources.INPUT_ENV] = inputs["inputKey"]
                     if args.command != "inspect":
+                        if args.command == "build" and args.target == "game":
+                            native_admission.require_capacity(host_resources, build_progress, output, target=args.target)
                         source, game = snapshot_inputs(inputs, output, repo, data, args.probe_assets, args.startup_project)
                         project = prepare(args, inputs, output, source, game, conversion_python=conversion_python)
                         print("prepare: " + str(project), flush=True)
                         if args.command == "build":
                             build(args, inputs, output, source, game, project)
             except BaseException as exc:
+                native_admission.persist_failure(exc, output, write_json)
                 if not failure.exists():
                     write_json(failure, {"schema": 1, "stage": args.command, "error": type(exc).__name__, "message": str(exc)})
                 raise

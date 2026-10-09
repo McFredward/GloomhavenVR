@@ -47,6 +47,24 @@ PREFIX_MOD_BANK_HELPERS = {"tools/quest-builder/environment_bank.py"}
 # still owns compilation and weaving, including engine-boundary specialization.
 # The complete Builder AST rejects an added earlier consumer of these sources.
 PREFIX_PLAYER_ROOTS = ("tools/QuestWeaver/",)
+# These exact desktop reference assemblies are consumed by weave(), after
+# prepare() returns. Android package binding remains owned by the real input
+# key. An unknown RuntimeDeps file stays qualified, as does any earlier new
+# consumer in the complete preparation AST.
+PREFIX_PLAYER_REFERENCES = {
+    "libs/RuntimeDeps/Unity.XR.CoreUtils.dll",
+    "libs/RuntimeDeps/Unity.XR.Management.dll",
+    "libs/RuntimeDeps/Unity.XR.OpenXR.dll",
+    "libs/RuntimeDeps/wizard-dependencies.json",
+}
+PREFIX_MEMORY_HELPER = "tools/quest-builder/native_admission.py"
+# Exact reviewed host-observer repair: available commit and scheduling change,
+# while original converters, arguments, publication and hashes remain identical.
+# Unknown host-policy source edits cannot silently claim this compatibility.
+MEMORY_POLICY_PREVIOUS = {"path": "tools/quest-builder/host_resources.py", "size": 19578,
+    "sha256": "80b22e442ad27e621a2b153714dfe987d65d594db895729770c51285724429fd"}
+MEMORY_POLICY_FIXED = {"path": "tools/quest-builder/host_resources.py", "size": 27519,
+    "sha256": "93da440e549b07568dfe5efca34b30133ff63ff3c025b05ac4ff6913303aea09"}
 # Inventory/release/support validation is complete before preparation begins.
 # Its immutable records remain qualified; these helpers do not generate assets.
 PREFIX_DELIVERY_HELPERS = {"tools/quest-builder/release.py", "tools/quest-builder/support.py",
@@ -171,6 +189,45 @@ REBIND = ast.parse(
     "output, project, inputs, source, target=args.target, recipe=RECIPE, recovery=recovery_resume)").body[0]
 PREPARATION_CALL = ast.parse("prepare_resume.Preparation").body[0].value
 
+MEMORY_LOAD = ast.parse('native_admission = _local_helper("native_admission")').body[0]
+MEMORY_PREFLIGHT = ast.parse('''if args.command == "build" and args.target == "game":
+    native_admission.require_capacity(host_resources, build_progress, output, target=args.target)''').body[0]
+MEMORY_FAILURE = ast.parse("native_admission.persist_failure(exc, output, write_json)").body[0]
+MEMORY_LAUNCH = ast.parse("policy = native_admission.require_capacity(host_resources, build_progress, output, target=args.target)").body[0]
+MEMORY_PREVIOUS_LAUNCH = ast.parse('''policy = host_resources.phase_budget("il2cpp" if args.target in ("startup", "game") else "unity", output)
+if not policy["nativeLaunchAllowed"]:
+    raise BuildError("Available RAM/commit is insufficient or unknown for the large native game compiler; "
+                     "close other programs or provide sufficient Windows pagefile commit headroom and retry. "
+                     "Completed stages are retained; --jobs cannot bypass the memory reserve.")''').body
+
+
+def _without_memory_coordination(tree):
+    """Normalize only these exact read-only, non-producing admission seams."""
+    same = lambda left, right: ast.dump(left, include_attributes=False) == ast.dump(right, include_attributes=False)
+    tree.body = [node for node in tree.body if not same(node, MEMORY_LOAD)]
+    for owner in tree.body:
+        if not isinstance(owner, ast.FunctionDef): continue
+        if owner.name == "main":
+            for node in ast.walk(owner):
+                if isinstance(node, ast.If):
+                    node.body = [child for child in node.body if not same(child, MEMORY_PREFLIGHT)]
+                if isinstance(node, ast.ExceptHandler):
+                    node.body = [child for child in node.body if not same(child, MEMORY_FAILURE)]
+        if owner.name == "build":
+            for node in owner.body:
+                if not isinstance(node, ast.FunctionDef) or node.name != "compile_player_files": continue
+                body, index = [], 0
+                while index < len(node.body):
+                    if same(node.body[index], MEMORY_LAUNCH):
+                        index += 1
+                    elif (index + 1 < len(node.body) and same(node.body[index], MEMORY_PREVIOUS_LAUNCH[0])
+                          and same(node.body[index + 1], MEMORY_PREVIOUS_LAUNCH[1])):
+                        index += 2
+                    else:
+                        body.append(node.body[index]); index += 1
+                node.body = body
+    return tree
+
 
 def builder_producer_digest(raw, *, original_prefix=False):
     """Qualify complete Builder code, or consumed original-prefix orchestration.
@@ -185,6 +242,7 @@ def builder_producer_digest(raw, *, original_prefix=False):
         tree = ast.parse(raw.decode("utf-8"))
     except (UnicodeError, SyntaxError) as error:
         raise BuildError("Preparation Builder source cannot be parsed.") from error
+    tree = _without_memory_coordination(tree)
     tree.body = [node for node in tree.body
                  if ast.dump(node, include_attributes=False) != ast.dump(LOAD, include_attributes=False)]
     for prepare in tree.body:
@@ -279,7 +337,10 @@ def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=Fal
             rows = [row for row in rows if not row["path"].startswith(PREFIX_MOD_BANK_ROOTS)
                     and row["path"] not in PREFIX_MOD_BANK_HELPERS]
         rows = [row for row in rows if row["path"] not in PREFIX_DELIVERY_HELPERS
+                and row["path"] not in PREFIX_PLAYER_REFERENCES
+                and row["path"] != PREFIX_MEMORY_HELPER
                 and not row["path"].startswith(PREFIX_PLAYER_ROOTS)]
+        rows = [MEMORY_POLICY_PREVIOUS if row == MEMORY_POLICY_FIXED else row for row in rows]
         if ui_unconsumed:
             rows = [row for row in rows if row["path"] not in PREFIX_UNUSED_TOOLS]
         if native_unconsumed:

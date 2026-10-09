@@ -39,6 +39,10 @@ class CompletedPreparationTests(unittest.TestCase):
                      "tools/environment-mesh/geometry.py", "unity/GloomhavenVR.Assets/Assets/Editor/QuestModBundles.cs",
                      "tools/QuestWeaver/CurrentModCompatibility.cs"):
             self.f.write(self.f.source, name, (ROOT / name).read_bytes())
+        for name in sorted(identity.PREFIX_PLAYER_REFERENCES):
+            self.f.write(self.f.source, name, b"previous owned desktop XR compiler reference")
+        self.f.write(self.f.source, identity.MEMORY_POLICY_PREVIOUS["path"],
+                     (ROOT / identity.MEMORY_POLICY_PREVIOUS["path"]).read_bytes())
         # The existing fixture's empty authored-bank receipt predates current-key
         # metadata migration. Model the real archive and external manifest roles.
         def mod_bank(project, inputs, *_args):
@@ -117,6 +121,48 @@ class CompletedPreparationTests(unittest.TestCase):
         with patch.dict(storage._invocation_file_proofs, clear=True):
             self.f.run_prepare()
         self.assert_retained(current)
+
+    def test_changed_desktop_xr_refs_retain_all_asset_steps_without_reading_payloads(self):
+        # Capture160059 reset the complete27 frontier solely because these
+        # later compile references and their provenance changed in a new release.
+        for name in sorted(identity.PREFIX_PLAYER_REFERENCES):
+            self.f.write(self.f.source, name, b"new release compiler reference and stable provenance")
+        current = self.updated()
+        self.assertNotEqual(current["inputKey"], self.before["inputKey"])
+        self.assertEqual(identity.rebind_key(self.f.output, self.project, current, self.f.source,
+                target="game", recipe=builder.RECIPE, recovery=recovery_resume), self.before["inputKey"])
+        actual_digest = builder.prepare_resume.digest
+        small_controls = []
+        def only_metadata(path):
+            if Path(path).is_relative_to(self.f.source):
+                return actual_digest(path)  # Current immutable source is still qualified.
+            relative = Path(path).relative_to(self.project).as_posix()
+            compiler_control = relative == "Assets/csc.rsp" or relative.startswith("Assets/Plugins/") and relative.endswith(".meta")
+            if compiler_control:
+                small_controls.append(Path(path).stat().st_size)
+            if relative not in metadata.PATHS and not compiler_control:
+                self.fail("Retained assets must not reopen for changed later XR references: " + str(path))
+            return actual_digest(path)
+        with patch.dict(storage._invocation_file_proofs, clear=True), patch.object(builder.prepare_resume, "digest", only_metadata):
+            self.f.run_prepare()
+        self.assert_retained(current)
+        self.assertLess(sum(small_controls), 64 * 1024)
+
+    def test_unknown_runtime_dependency_or_earlier_xr_consumer_does_not_claim_reuse(self):
+        current = self.updated()
+        self.f.write(self.f.source, "libs/RuntimeDeps/NewUnreviewedProducer.dll", b"unknown consumer")
+        bad = self.fixture.inputs()
+        self.assertIsNone(identity.rebind_key(self.f.output, self.project, bad, self.f.source,
+                target="game", recipe=builder.RECIPE, recovery=recovery_resume))
+        (self.f.source / "libs/RuntimeDeps/NewUnreviewedProducer.dll").unlink()
+        path = self.f.source / identity.BUILDER
+        original = path.read_bytes()
+        changed = original.replace(b"    def generate_files(resume):", b"    def generate_files(resume):\n        (source / 'libs/RuntimeDeps/Unity.XR.OpenXR.dll').read_bytes()")
+        self.assertNotEqual(original, changed)
+        path.write_bytes(changed)
+        bad = self.fixture.inputs()
+        self.assertIsNone(identity.rebind_key(self.f.output, self.project, bad, self.f.source,
+                target="game", recipe=builder.RECIPE, recovery=recovery_resume))
 
     def test_each_interrupted_metadata_publication_replays_only_four_small_documents(self):
         actual = metadata.write_json
