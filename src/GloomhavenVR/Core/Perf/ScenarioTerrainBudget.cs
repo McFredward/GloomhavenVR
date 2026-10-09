@@ -28,6 +28,7 @@ internal static partial class ScenarioTerrainBudget
     private static Func<bool>? _worldEnabled;
     private static Func<Material, bool>? _worldOwns;
     private static Func<bool>? _assetsReady, _assetsUnavailable;
+    private static Func<Renderer, bool>? _performanceWallHidden;
     private static Driver? _driver;
     private static bool _failed;
     private const string ShaderName = "GloomhavenVR/ScenarioCheapTerrain";
@@ -45,6 +46,10 @@ internal static partial class ScenarioTerrainBudget
     { _worldVariant = variant; _worldReadPass = readPass; _worldEnabled = enabled; _worldOwns = owns; }
     internal static void ConfigureAssetPreparation(Func<bool> assetsReady, Func<bool> assetsUnavailable)
     { _assetsReady = assetsReady; _assetsUnavailable = assetsUnavailable; }
+    internal static void ConfigurePerformanceWallVisibility(Func<Renderer, bool> hidden) =>
+        _performanceWallHidden = hidden;
+    private static bool PerformanceWallHidden(Renderer renderer) =>
+        _performanceWallHidden?.Invoke(renderer) == true;
     private static Material CanonicalMaterial(Material material) =>
         material != null ? _canonicalMaterial?.Invoke(material) ?? material : material!;
     internal static void Install(GameObject host)
@@ -226,6 +231,7 @@ internal static partial class ScenarioTerrainBudget
         private readonly Dictionary<int, Surface> _surfaces = new();
         private readonly Queue<Transform> _pending = new();
         private readonly HashSet<int> _queued = new();
+        private readonly Dictionary<int, MeshRenderer> _performanceDeferred = new();
         private readonly List<int> _dead = new();
         private readonly List<ProceduralMapTile> _tiles = new();
         private readonly List<Material> _materialScratch = new();
@@ -331,6 +337,18 @@ internal static partial class ScenarioTerrainBudget
                     _walls = currentWalls.Count;
                 }
                 _active = active;
+                // Exact wall-mask membership is managed state. Retain discovery which
+                // arrived while hidden, without preparing geometry or reading native
+                // mesh/material/bounds every frame. Regular queues the current source
+                // again rather than trusting anything captured before the mask.
+                foreach (KeyValuePair<int, MeshRenderer> item in _performanceDeferred)
+                {
+                    if (PerformanceWallHidden(item.Value)) continue;
+                    if (item.Value != null) QueueRoot(item.Value.gameObject);
+                    _dead.Add(item.Key);
+                }
+                foreach (int id in _dead) _performanceDeferred.Remove(id);
+                _dead.Clear();
                 int nodes = 128;
                 while (active && ready && nodes-- > 0 && _pending.Count > 0)
                 {
@@ -339,6 +357,8 @@ internal static partial class ScenarioTerrainBudget
                     _queued.Remove(node.GetInstanceID());
                     for (int child = 0; child < node.childCount; child++) QueueRoot(node.GetChild(child).gameObject);
                     MeshRenderer renderer = node.GetComponent<MeshRenderer>();
+                    if (renderer != null && PerformanceWallHidden(renderer))
+                    { _performanceDeferred[renderer.GetInstanceID()] = renderer; continue; }
                     MeshFilter filter = node.GetComponent<MeshFilter>();
                     if (renderer == null || filter == null || filter.sharedMesh == null) continue;
                     int id = renderer.GetInstanceID();
@@ -359,11 +379,24 @@ internal static partial class ScenarioTerrainBudget
                 // crossing Unity's transform boundary for each prepared wall. Renderer
                 // bounds and mesh ownership remain current per source, and the next
                 // Update always captures new poses/settings (including tracking loss).
-                DetailState detail = active && camera != null ? new DetailState(camera) : default;
+                DetailState detail = default;
+                bool detailReady = false;
                 foreach (KeyValuePair<int, Surface> item in _surfaces)
                 {
                     Surface surface = item.Value;
-                    if (!surface.Validate(_meshThisInvocation)) { surface.Dispose(); _dead.Add(item.Key); continue; }
+                    // Hide-all owns source visibility and has already released any
+                    // terrain lease. No native validation, detail reads or morph work
+                    // can contribute pixels here. A broad forceRenderingOff test would
+                    // also suspend unrelated native visibility and is deliberately absent.
+                    if (PerformanceWallHidden(surface.Renderer)) { surface.PerformancePaused = true; continue; }
+                    bool resumed = surface.PerformancePaused;
+                    surface.PerformancePaused = false;
+                    if (!surface.Validate(_meshThisInvocation))
+                    {
+                        if (resumed && surface.Renderer != null) QueueRoot(surface.Renderer.gameObject);
+                        surface.Dispose(); _dead.Add(item.Key); continue;
+                    }
+                    if (!detailReady && active && camera != null) { detail = new DetailState(camera); detailReady = true; }
                     int percent = active && camera != null ? DetailFor(surface, detail) : 100;
                     surface.StepGeometry(percent, delta);
                 }
@@ -451,6 +484,7 @@ internal static partial class ScenarioTerrainBudget
             && Vector3.Distance(hand.Position, bounds.ClosestPoint(hand.Position)) / hand.Scale < .12f;
 
         internal bool OwnsRenderSubstitute(Renderer renderer) => PerfConfig.TerrainSubstitutionOn
+            && !PerformanceWallHidden(renderer)
             && _surfaces.TryGetValue(renderer.GetInstanceID(), out Surface surface)
             && surface.WantsSubstitute(_active);
         internal bool HasCurrentRenderLease(Renderer renderer) => _surfaces.TryGetValue(renderer.GetInstanceID(), out Surface surface)
@@ -528,6 +562,7 @@ internal static partial class ScenarioTerrainBudget
                         if (shared && limit > 0 && candidates >= limit)
                         { budgetDeferred = _priority.Count - index; break; }
                         Surface surface = _priority[index];
+                        if (PerformanceWallHidden(surface.Renderer)) continue;
                         // Prepared surfaces include unopened rooms. Reject their native
                         // disabled/inactive renderers before bank/material/proxy work.
                         // No admission verdict survives this camera invocation.
@@ -629,6 +664,7 @@ internal static partial class ScenarioTerrainBudget
             RecoverLeases();
             foreach (Surface surface in _surfaces.Values) surface.Dispose();
             _surfaces.Clear(); _priority.Clear(); _priorityDirty = false; _pending.Clear(); _queued.Clear();
+            _performanceDeferred.Clear();
             foreach (Material material in _cheap.Values) if (material != null) UnityEngine.Object.Destroy(material);
             _cheap.Clear();
             _reportedSurfaces = -1;
