@@ -1,7 +1,7 @@
 """Exact late Editor repairs inside the completed-preparation transaction.
 
 The preparation selector separately qualifies all original producers and the
-complete input scope. This module permits only six reviewed existing Editor
+complete input scope. This module permits only eleven reviewed existing Editor
 scripts to change in an otherwise retained project. It never enumerates assets,
 writes Unity Library, or replaces the scripts' existing .meta/GUID files.
 """
@@ -18,7 +18,9 @@ from storage import BuildError, _ordinary_owned
 PREFIX = "unity/GloomhavenVR.Quest/"
 TARGETS = tuple(PREFIX + "Assets/Quest/Editor/" + name for name in (
     "QuestBuild.cs", "QuestWizardProgress.cs", "QuestStartupAddressablesBuild.cs",
-    "QuestCampaignContentBuild.cs", "QuestSpriteGeometryValidation.cs", "QuestCampaignSpriteValidation.cs"))
+    "QuestCampaignContentBuild.cs", "QuestSpriteGeometryValidation.cs", "QuestCampaignSpriteValidation.cs",
+    "QuestOriginalScriptBindings.cs", "QuestCampaignAssetValidation.cs", "QuestCampaignTextureValidation.cs",
+    "QuestCampaignComputeValidation.cs", "QuestCampaignShaderValidation.cs"))
 MAX_SCRIPT_BYTES = 512 * 1024
 # Filled only with exact source inventory rows reviewed for this repair. An
 # unknown version remains a consumed producer, never a generally ignored file.
