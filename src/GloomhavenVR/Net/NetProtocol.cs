@@ -598,7 +598,22 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 654;
+    public const ushort ModBuild = 655;
+
+    // ModBuild655 — native NPC presentation latency, return clocks and map comfort.
+    // Continuous native hover changes previously replaced useful in-flight originals
+    // and reissued baselines during first-picture delivery. Keep exact originals
+    // advancing independently of the latest visible census; real identity changes
+    // and retired-member rendering retain their original precedence.
+    // Merchant returns now pair their verified destination-hand root with the
+    // native flight clock. Observer playback retains one source timeline across
+    // packet jitter and separately delivered front/body originals.
+    // Cabinet price/quantity follow the measured native card edge at larger size.
+    // World dragging and smooth turns use the tracking clock even when Unity game
+    // time stops. Paired653 logs do not prove that clock caused the reported freeze;
+    // bounded Debug input/output traces separate the remaining possible causes.
+    // Focused native replay, causal controls and integration scope are recorded in
+    // .planning/NPC-655-REVIEW.md. No gameplay rule, asset or wire layout changes.
 
     // ModBuild654 — reliable loaded-game Auto wall protection and Graphics placement.
     // Frame653 logs prove that optional card/figure preparation vetoed Auto for90s

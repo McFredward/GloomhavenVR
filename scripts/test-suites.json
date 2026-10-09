@@ -2335,6 +2335,19 @@
       "weight": 55
     },
     {
+      "id": "npc655-live-mage-census",
+      "command": [
+        "python3",
+        "scripts/npc-admission646-runtime/run.py",
+        "--live-hover-census",
+        "--withdraw-hover"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 55
+    },
+    {
       "id": "locomotion-clock-runtime",
       "command": [
         "python3",
