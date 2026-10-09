@@ -139,7 +139,13 @@ internal static class TownServiceTemplateAssets
     {
         if (texture == null) return;
         texture = PanelMipBake.OriginalFor(texture);
-        if (texture is Texture2D known && NativeAssetRegistry.SameKnownNativeIdentity(known)) assets.Key(known);
+        // The original procedural backing shares its factory-owned pattern across
+        // ability/item bodies and owner sizes. First-borrow template paths differ
+        // between peers and cannot name this immutable material dependency.
+        // Verify the exact cached source object, never a same-name texture.
+        if (CardMesh.IsOriginalBackTexture(texture))
+            assets.RegisterOriginal("native-town|procedural|CardMesh/GetBackTexture", texture);
+        else if (texture is Texture2D known && NativeAssetRegistry.SameKnownNativeIdentity(known)) assets.Key(known);
         else assets.RegisterOriginal(key, texture);
     }
 
