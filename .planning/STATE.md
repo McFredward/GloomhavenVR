@@ -1,5 +1,28 @@
 # State — where the project stands
 
+**Build658 paired NPC flights, offer latency and enhancement borders, 2026-10-09: 1.1.0 development candidate.**
+
+The supplied paired656 logs/videos show the returning print/body divergence and
+intermittent enhancement borders. Physical return parts now share one authored
+clock and atomic publication; prepared originals retain their exact return pose
+and visibility. Native enhancement canvases follow their card print's exact
+furniture depth/order without changing original state, geometry or effects.
+
+Private mage compact originals now verify their exact prepared basis and retain
+a same-sequence full recovery source. Preparation begins before visitors arrive;
+actual complete transport callbacks and112 receipts govern bounded recovery.
+The integrated warm complete render takes0.828866s. Cold/mismatched preparation
+and saturated queues remain slower; this is not a universal elimination of2–3s
+latency or new headset evidence. A legal legacy exponential clock is repaired.
+
+The uninterrupted197-scope attempt recorded190 passes/seven failures. Affected
+reruns repair and pass all seven; composed coverage retains original failures.
+Final source16,300297 portable assertions, strict Debug/Release0 warnings/errors,
+bundles/surfaces and private compiled scope are recorded with precise boundaries
+in [NPC-658-REVIEW.md](NPC-658-REVIEW.md). Headset smoothness, first-picture latency
+and enhancement stability still need matching-build acceptance. Worker and
+integrator evidence is archived in the main checkout's gitignored debug folder.
+
 **Build657 native window-mode donation confirmations, 2026-10-09: 1.1.0 development candidate.**
 
 The supplied656 local log reproduces the temple's shared confirmation migrating

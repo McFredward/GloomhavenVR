@@ -121,11 +121,20 @@ the relationship and render callback, including live pooled originals.
 
 ## Validation and limits
 
-Combined complete-gate results are pending. Worker source and focused proofs are
-being reviewed before freezing the final integration. Preliminary combined
-strict Debug has zero errors/warnings; portable motion passes15,294 assertions,
-new113 vectors259, and direct full portable goldens300,297. These preliminary
-results precede final queue/fairness refinements and are not the final gate.
+The uninterrupted complete local attempt recorded197 scopes:190 passed and
+seven failed. All seven affected scopes now pass their focused reruns, with the
+original failed receipts preserved. This is composed complete local coverage,
+not an uninterrupted all-green complete-gate pass. The final flight rerun also
+covers the current113 publication and all six original causal controls. The
+separate final source gate passes16/16, full portable goldens pass300,297
+assertions, and strict Debug/Release both have zero errors and warnings. Final
+bundle, surface and private compiled comparison receipts are recorded alongside
+the composite validation in the main checkout's gitignored
+`.planning/debug/npc658/integrator/`. The private comparison retains all1,247
+original types and adds one return-part type. Eleven intended runtime types,
+the additive113 protocol constant, eight numeric build consumers and generated
+branch metadata account for the changes;665 config keys,235 patches and4,795
+log tokens are unchanged.
 
 The native render readers retain declared boundaries: dynamic card model/layout
 inputs, editor TMP font/GL materials, and a GL edge adapter for the actual
@@ -136,6 +145,42 @@ pixels or game-initialized ability art. Overlay pictures retain native geometry,
 state and exact pass flags, with an opaque Image as the physical-print boundary.
 Startup preparation proof binds the actual helper/first-call path but does not
 time whole native-bank cloning/game initialization.
+
+The integrated complete warm first picture was0.828866s (first assembly0.5741027s,
+13 events and10,532 wire bytes); the final worker picture was0.8275588s; the unchanged656
+source in the same exported fixture was1.238811s. Cold preparation was1.605361s,
+and a deliberately different omitted32-node geometry basis recovered in1.230527s
+after rejection before paint. Those latter cases are expected failures of the
+unchanged one-second assertion, not passing fast pictures. A saturated synthetic
+queue with40 continuous artwork revisions proves finite full-original recovery
+at2.3626222s for an originally ordinary module; it does not certify universal
+elimination of the reported2–3s delay. All timings are editor/scheduler evidence,
+not a new headset measurement.
+
+The initial gate's seven affected scopes exposed legacy fixture boundaries and
+two bounded repairs. The catalogue now expands a compact DTO through the real
+native template path before using it as a complete property basis. Options use
+the actual current mixed-reality implementation with explicit platform ports.
+The new native-repair helper is called only by the runner that imports it.
+The original632 deadline proof explicitly retains full-original delivery for
+both current and historical controls; current105 compact fast pictures have
+separate658 coverage. Its actual112 receipts prevent fallback traffic from
+contaminating later revisions. The638 lifecycle proof now verifies every native
+property and its exact retained dependency when a valid cumulative delta reveals
+a hidden original. Its historical premature-retirement control still fails the
+unchanged retained-original assertion.
+
+The646/655 legacy return proofs explicitly use the exact Build656107 budget with
+today's receiver, preserving their independent-part boundaries. Historical
+negative controls replace only the relevant helper/condition and retain source
+hashes. The646 moving-hand trajectory then exposed a real legal legacy clock
+representation: exponential age increases while duration remains fixed. Progress
+now uses age minus duration, preserving the current native age0/positive-duration
+representation exactly; the old-duration-only causal control fails that same
+trajectory assertion. Final646/655/658 runs pass together. Two existing EN/DE wall
+help entries were shortened to the established player-help limit without changing
+keys, defaults or behavior. All original failure logs and affected reruns remain
+part of the evidence.
 
 Both supplied656 banners/videos and the actual2.129s bundle remain hardware
 evidence of the reported defects. Source controls reproduce specific causes;
