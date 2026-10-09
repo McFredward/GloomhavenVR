@@ -386,7 +386,14 @@ internal sealed partial class ExtrasSendScheduler
             // One genuine ordinary-stream turn after at most four opening pages.
             // There is no debt from a previous offer that can postpone this one.
             if (ordinaryTurn) _openingTownTurns = 0;
-            else if (result == null) { result = _town.NextOpening(now); if (result != null) _openingTownTurns = 1; }
+            else if (result == null)
+            {
+                result = _town.NextOpening(now);
+                // An empty/exhausted reservation cannot keep all regular town
+                // turns masked when the other streams have no page to repay it.
+                // The next normal selector still honors urgent debt and clocks.
+                _openingTownTurns = result != null ? 1 : 0;
+            }
         }
         return result;
     }
