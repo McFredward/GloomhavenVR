@@ -47,23 +47,27 @@ internal static class TownServiceMotionBudget
             // Reserve one finite ordinary turn before an incompressible cohort.
             // Rotate all three categories even while the same physical return
             // continuously republishes. Empty categories lend their turn.
-            int first = _returnRecoveryTurn++ % 3;
+            int first = _returnRecoveryTurn; _returnRecoveryTurn = (first + 1) % 3;
             for (int attempt = 0; attempt < 3; attempt++)
             {
                 int group = (first + attempt) % 3; List<TownServiceMotionPending> waiting = groups[group];
-                bool admitted = false;
+                TownServiceMotionPending? oldest = null; int next = 0;
                 for (int i = 0; i < waiting.Count; i++)
                 {
                     int index = (cursors[group] + i) % waiting.Count; TownServiceMotionPending slot = waiting[index];
                     if (slot.SentAt == now || slot.Entry.Kind == 8
                         || slot.Entry.Kind == 1 && HasNativeReturn(live, slot.Entry)) continue;
-                    packet.Entries.Add(slot.Entry);
-                    if (TownServiceMotionCodec.TryWritePacked(packet) == null)
-                    { packet.Entries.RemoveAt(packet.Entries.Count - 1); continue; }
-                    seen.Add(slot); selected.Add(new Selected(slot, group, index + 1));
-                    size += TownServiceMotionCodec.EntryBytes(slot.Entry); admitted = true; break;
+                    // A cohort advances the same live cursor. Use the existing
+                    // per-original last-send clock so that cannot repeatedly
+                    // reserve only the first ordinary live module.
+                    if (oldest == null || slot.SentAt < oldest.SentAt) { oldest = slot; next = index + 1; }
                 }
-                if (admitted) break;
+                if (oldest == null) continue;
+                packet.Entries.Add(oldest.Entry);
+                if (TownServiceMotionCodec.TryWritePacked(packet) == null)
+                { packet.Entries.RemoveAt(packet.Entries.Count - 1); continue; }
+                seen.Add(oldest); selected.Add(new Selected(oldest, group, next));
+                size += TownServiceMotionCodec.EntryBytes(oldest.Entry); break;
             }
         }
         // One physical card can contain thirteen or more native print partitions.
