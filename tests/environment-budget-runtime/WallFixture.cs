@@ -29,6 +29,10 @@ namespace GloomhavenVR.Core
     internal static partial class WallSegmentFade
     {
         private const string Name = "WallSegmentFade";
+        // Old animated-delivery lane deliberately models the new policy boundary. The
+        // complete actual policy has its own wall-performance Unity lane.
+        internal static bool PerformanceWallsHidden;
+
         private sealed class Segment
         {
             public Transform? DoorRoot => null;
@@ -75,6 +79,7 @@ namespace GloomhavenVR.Core
             internal readonly Segment FixtureSegment = new();
             private readonly Dictionary<int, Segment> TraceSegments = new();
             internal void EnableFixture() => OnEnable();
+            private void ResetPerformanceVisibility(string reason) { PerformanceWallsHidden=false; }
             private void OnSceneLoaded(Scene scene, LoadSceneMode mode) => ClearWallDrawTrace();
             internal float Step(float delta, bool target)
             {

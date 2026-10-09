@@ -68,14 +68,16 @@ namespace GloomhavenVR.Core
     }
     internal static class NativeWriteObserver
     {
+        internal static Renderer? TrackedRenderer;
+        internal static int TrackedMaterials,TrackedMeshes,TrackedWideBlocks,TrackedSlotBlocks;
         internal static int MaterialCopies,ArrayWrites,MaterialReads,MapInventories,RendererBlockReads,SlotBlockReads,PropCopies,RegistryVisits,MeshReads;
         internal static void Copy(Material target,Material source){MaterialCopies++;target.CopyPropertiesFromMaterial(source);}
         internal static void Slots(Renderer renderer,Material[] slots){ArrayWrites++;renderer.sharedMaterials=slots;}
-        internal static void Read(Renderer renderer,List<Material> slots){MaterialReads++;renderer.GetSharedMaterials(slots);}
+        internal static void Read(Renderer renderer,List<Material> slots){MaterialReads++;if(ReferenceEquals(renderer,TrackedRenderer))TrackedMaterials++;renderer.GetSharedMaterials(slots);}
         internal static MapChoreographer[] FindMaps(){MapInventories++;return UnityEngine.Object.FindObjectsOfType<MapChoreographer>(true);}
-        internal static void RendererBlock(Renderer renderer,MaterialPropertyBlock block){RendererBlockReads++;renderer.GetPropertyBlock(block);}
-        internal static void SlotBlock(Renderer renderer,MaterialPropertyBlock block,int slot){SlotBlockReads++;renderer.GetPropertyBlock(block,slot);}
-        internal static MeshFilter ReadMesh(MeshRenderer renderer){MeshReads++;return renderer.GetComponent<MeshFilter>();}
+        internal static void RendererBlock(Renderer renderer,MaterialPropertyBlock block){RendererBlockReads++;if(ReferenceEquals(renderer,TrackedRenderer))TrackedWideBlocks++;renderer.GetPropertyBlock(block);}
+        internal static void SlotBlock(Renderer renderer,MaterialPropertyBlock block,int slot){SlotBlockReads++;if(ReferenceEquals(renderer,TrackedRenderer))TrackedSlotBlocks++;renderer.GetPropertyBlock(block,slot);}
+        internal static MeshFilter ReadMesh(MeshRenderer renderer){MeshReads++;if(ReferenceEquals(renderer,TrackedRenderer))TrackedMeshes++;return renderer.GetComponent<MeshFilter>();}
     }
 }
 namespace GloomhavenVR.Board.FigureGrab
