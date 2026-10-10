@@ -247,6 +247,16 @@ class PlayerGraphCounterTests(unittest.TestCase):
         log(self.project, result(done=1))
         self.assertEqual(value.poll_player_bee()[0]["done"], 1)
 
+    def test_overflowing_optional_profiler_clock_cannot_stop_live_progress(self):
+        for timestamp in (10 ** 400, 1e308):
+            with self.subTest(timestampType=type(timestamp).__name__):
+                graph(self.project)
+                value = parser(); value.parse(BACKEND, SOURCE)
+                value.parse("WorkingDir: " + str(self.project), SOURCE)
+                profile(self.project, timestamp=timestamp)
+                log(self.project, result(done=1))
+                self.assertEqual(value.poll_player_bee()[0]["done"], 1)
+
     def test_missing_publication_retries_bounded_and_large_graph_falls_back_to_real_cpp_queue(self):
         profile(self.project)
         value = parser(); value.parse(BACKEND, SOURCE); value.parse("WorkingDir: " + str(self.project), SOURCE)

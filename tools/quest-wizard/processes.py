@@ -135,7 +135,7 @@ class PlayerBeePlan:
             except (ValueError, UnicodeError): continue
             timestamp = entry.get("ts") if isinstance(entry, dict) else None
             if isinstance(entry, dict) and entry.get("name") == "DriverInitData" and type(timestamp) in (int, float) \
-                    and math.isfinite(timestamp) and timestamp >= 0:
+                    and 0 <= timestamp <= 10 ** 17:
                 clock = timestamp
                 if timestamp > 10 ** 15: epoch = int(timestamp * 1000)
                 break
