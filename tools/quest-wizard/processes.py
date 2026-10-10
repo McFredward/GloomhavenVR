@@ -2,12 +2,14 @@
 from __future__ import annotations
 import ctypes
 import json
+import importlib.util
 import math
 import os
 from pathlib import Path
 import re
 import signal
 import subprocess
+import sqlite3
 import time
 
 from state import Cancelled, STAGES, WizardError, atomic_json, ordinary, stage_progress, native_memory_progress
@@ -35,6 +37,20 @@ def diagnostic_command(argv):
     return result[:128]
 
 
+_UNITY_WORK = None
+
+
+def _unity_work_module():
+    global _UNITY_WORK
+    if _UNITY_WORK is None:
+        path = Path(__file__).resolve().parents[1] / "quest-builder/unity_work.py"
+        spec = importlib.util.spec_from_file_location("_wizard_unity_work", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _UNITY_WORK = module
+    return _UNITY_WORK
+
+
 class ProgressParser:
     """Recognize measured counters, never infer a percentage from elapsed time."""
     def __init__(self):
@@ -45,8 +61,15 @@ class ProgressParser:
         self.closed_operations = set()
         self.import_runs = {}
         self.import_pending = {}
+        self.import_coverage = {}
+        self.coverage_invocations = {}
+        self.plan_signatures = {}
+        self.native_import_counts = {}
         self.shader_runs = {}
         self.gradle_runs = {}
+        self.gradle_counters = {}
+        self.gradle_epochs = {}
+        self.gradle_retired_epochs = {}
         self.memory_rejections = set()
 
     def _unity_operation(self, source):
@@ -74,33 +97,90 @@ class ProgressParser:
         return re.fullmatch(r"(?:package-(?:import|api)|content-pack|unity-(?:build|launch)|mod-bundle|update-(?:code|sdk)-unity)"
                             r"[A-Za-z0-9_.-]*\.log", source) is not None
 
+    def observe_plan(self, path, *, started=0):
+        """Bind a fresh log to its source-backed inventory before parsing it."""
+        try:
+            work = _unity_work_module()
+            control = work.sidecar(path)
+            if not control.is_file() or control.is_symlink(): return None
+            stat = control.stat()
+            signature = (stat.st_dev, stat.st_ino, stat.st_mtime_ns, stat.st_size)
+            source = Path(path).name
+            if self.plan_signatures.get(source) == signature and source in self.import_coverage: return None
+            plan = work.load_plan(path, started=started)
+            if plan is None: return None
+            coverage = self.coverage_invocations.get(plan["invocationId"])
+            if coverage is None:
+                if len(self.coverage_invocations) >= 32:
+                    self.close_coverage()
+                    self.import_coverage.clear(); self.coverage_invocations.clear(); self.plan_signatures.clear()
+                coverage = work.Coverage(plan)
+                self.coverage_invocations[plan["invocationId"]] = coverage
+            previous = self.import_coverage.get(source)
+            if previous is not coverage:
+                owner = self._unity_operation(source)
+                self.gradle_counters.pop(owner, None)
+                self.gradle_epochs.pop(owner, None)
+                self.gradle_retired_epochs.pop(owner, None)
+                self.import_runs.pop(source, None); self.import_pending.pop(source, None)
+                self.native_import_counts.pop(source, None)
+            self.import_coverage[source] = coverage
+            self.plan_signatures[source] = signature
+            return self._unity_fields({"phase": "unity-work-plan", "done": coverage.done, "total": plan["total"],
+                    "unit": "assets", "detail": "[asset-coverage] Known project/package assets: " +
+                    str(coverage.done) + " / " + str(plan["total"]), "status": "start"}, source)
+        except (OSError, ValueError, TypeError, sqlite3.Error, ImportError, AttributeError):
+            return None  # Optional observation cannot fail an owned build.
+
+    def flush_coverage(self):
+        for coverage in self.coverage_invocations.values():
+            try: coverage.flush()
+            except (OSError, ValueError, sqlite3.Error): pass
+
+    def close_coverage(self):
+        for coverage in self.coverage_invocations.values():
+            try: coverage.close()
+            except (OSError, ValueError, sqlite3.Error): pass
+
+    def _import_fields(self, source, detail, *, phase="unity-import-activity"):
+        native = self.native_import_counts.get(source)
+        coverage = self.import_coverage.get(source)
+        if native is not None:
+            done, total = native
+            detail = "[unity-native-total] " + detail
+        elif coverage is not None:
+            done, total = coverage.done, coverage.plan["total"]
+            detail = "[asset-coverage] Known project/package assets: " + str(done) + " / " + str(total) + " · " + detail
+        else:
+            done, total = self.import_runs.get(source, 0), None
+        return self._unity_fields({"phase": phase, "done": done, "total": total,
+                                  "unit": "assets", "detail": detail[:1024], "status": "progress"}, source)
+
     def _import_progress(self, line, source):
-        # In the pinned Unity 2021.3 log, "Start importing" is one completed
-        # synchronous call when its artifact and duration are already present.
-        # Count observed calls, including legitimate reimports. An AssetDatabase
-        # refresh has no public total before our Editor scripts have compiled;
-        # neither the source-file census nor elapsed time is its denominator.
+        if self._unity_operation(source) in self.closed_operations: return None
+        # Artifact + duration proves one call returned. Keep the full logical
+        # path so reimports, duplicate basenames and interleaved suffixes cannot
+        # inflate the fixed inventory's completed coverage.
         start = re.match(r"Start importing (.+?) using Guid\([0-9a-f]{32}\) Importer\([^)]*\)", line)
-        # Importer warnings can insert a stack trace between the opening text
-        # and its artifact/duration suffix. Keep only one bounded current name
-        # for each source; an orphan suffix cannot invent a completed asset.
         if len(self.import_runs) >= 64 and source not in self.import_runs:
             self.import_runs.clear(); self.import_pending.clear()
-        if start: self.import_pending[source] = start[1].replace("\\", "/").rsplit("/", 1)[-1][:512]
+        if start: self.import_pending[source] = start[1].replace("\\", "/")[:4096]
         match = re.search(r"-> \(artifact id: '[0-9a-f]{32}'\) in (\d+(?:\.\d+)?) seconds$", line)
-        completed = self.import_runs.get(source, 0)
         if match and source in self.import_pending:
             duration = float(match[1])
             if not math.isfinite(duration): return None
-            completed += 1
-            self.import_runs[source] = completed
+            self.import_runs[source] = self.import_runs.get(source, 0) + 1
             asset = self.import_pending.pop(source)
-            detail = f"Completed asset imports: {completed} · last: {asset} · last import: {duration:g} s"
-            return self._unity_fields({"phase": "unity-asset-import", "done": completed, "total": None,
-                                       "unit": "assets", "detail": detail[:1024], "status": "progress"}, source)
+            coverage = self.import_coverage.get(source)
+            if coverage is not None:
+                try: coverage.observe(asset)
+                except (OSError, ValueError, sqlite3.Error): pass
+            detail = "last: " + asset + " · last import: " + str(duration) + " s"
+            if coverage is None and source not in self.native_import_counts:
+                detail = "Completed asset imports: " + str(self.import_runs[source]) + " · " + detail
+            return self._import_fields(source, detail, phase="unity-asset-import")
         if line.startswith("Start importing "):
-            return self._unity_fields({"phase": "unity-import-activity", "done": completed, "total": None,
-                                       "unit": "assets", "detail": line[:1024], "status": "progress"}, source)
+            return self._import_fields(source, line)
         return None
 
     def _shader_fields(self, source, run, *, failed=False):
@@ -206,6 +286,25 @@ class ProgressParser:
                 if value.get("status") is not None:
                     if value["status"] not in ("start", "progress", "complete", "reuse", "failed"): return None
                     fields["status"] = value["status"]
+                if fields["phase"] == "unity-gradle-tasks" and type(fields.get("total")) is int and fields["total"] > 0:
+                    owner = fields.get("operation") or self._unity_operation(source)
+                    if owner in self.closed_operations: return None
+                    counter = self.gradle_counters.get(owner)
+                    marker = re.search(r"\[gradle-graph:([A-Za-z0-9-]{1,64})\]", fields.get("detail") or "")
+                    epoch = marker[1] if marker else None
+                    previous_epoch = self.gradle_epochs.get(owner)
+                    retired = self.gradle_retired_epochs.setdefault(owner, set())
+                    if epoch and epoch in retired: return None
+                    changed = epoch and previous_epoch and epoch != previous_epoch
+                    if changed:
+                        if fields.get("status") != "start": return None
+                        retired.add(previous_epoch)
+                        if len(retired) > 32: return None
+                    # Buffered output may echo 0/N after the live sidecar reached
+                    # 5/N. Only an actual new graph identity can reset that child.
+                    if counter and not changed and fields.get("done", 0) < counter["done"]: return None
+                    if epoch: self.gradle_epochs[owner] = epoch
+                    self.gradle_counters[owner] = dict(fields)
                 if fields["phase"] in MEMORY_OBSERVATIONS:
                     # Capacity, retries and resource waits describe a strategy,
                     # not work completed. Never let a reported 1/1 close Player.
@@ -217,13 +316,12 @@ class ProgressParser:
                 # Public Editor task counters can be observed before/after the
                 # native compiler log. Preserve their supplied fraction and
                 # distinguish them from one native shader pass's variants.
-                if fields["phase"] in ("unity-progress", "unity-shader-task"):
+                if fields["phase"].startswith(("unity-progress", "unity-shader-task")):
                     detail = fields.get("detail") or ""
                     task_name = detail.split(" — ", 1)[0]
-                    shader_task = (re.search(r"\bshaders?\b", task_name, re.I) and
-                                   re.search(r"\bcompil(?:e|ing|ation)\b", task_name, re.I))
-                    if fields["phase"] == "unity-shader-task" or shader_task:
-                        fields["phase"] = "unity-shader-task"
+                    shader_task = re.search(r"shader.*compil|compil.*shader", task_name, re.I)
+                    if fields["phase"].startswith("unity-shader-task") or shader_task:
+                        fields["phase"] = fields["phase"].replace("unity-progress", "unity-shader-task", 1)
                         if "operation" not in fields:
                             operation = self._unity_operation(source)
                             if operation: fields["operation"] = operation
@@ -270,6 +368,13 @@ class ProgressParser:
                 if len(self.gradle_runs) >= 64 and source not in self.gradle_runs: self.gradle_runs.clear()
                 tasks = self.gradle_runs.setdefault(source, set())
                 tasks.add(match[1])
+                owner = self._unity_operation(source)
+                measured = self.gradle_counters.get(owner)
+                if measured:
+                    fields = dict(measured)
+                    fields.update(detail="Gradle completed tasks: " + str(fields["done"]) + " / " +
+                        str(fields["total"]) + " · " + line, status="progress")
+                    return self._unity_fields(fields, source)
                 # Gradle's plain task messages have no full graph denominator
                 # and do not prove execution versus cache reuse. Count reported
                 # task identities, keep the actual status and never guess ETA.
@@ -280,8 +385,14 @@ class ProgressParser:
             if match:
                 total = int(match[1]); observed = sum(int(number) for number in re.findall(r"\d+", match[2]))
                 if total and total == observed:
-                    return self._unity_fields({"phase": "unity-gradle-tasks", "done": total, "total": total,
-                        "unit": "tasks", "detail": line, "status": "progress"}, source)
+                    measured = self.gradle_counters.get(self._unity_operation(source))
+                    if measured:
+                        fields = dict(measured); fields.update(detail=line, status="progress")
+                        return self._unity_fields(fields, source)
+                    fields = {"phase": "unity-gradle-tasks", "done": total, "total": total,
+                              "unit": "tasks", "detail": line, "status": "progress"}
+                    self.gradle_counters[self._unity_operation(source)] = dict(fields)
+                    return self._unity_fields(fields, source)
         match = re.fullmatch(r"Installed content files: (\d+)/(\d+)\.", line)
         if match and 0 < int(match[2]) >= int(match[1]):
             return {"phase": "install-content", "done": int(match[1]), "total": int(match[2]), "unit": "files", "detail": line}
@@ -294,7 +405,8 @@ class ProgressParser:
         # before our source has compiled. No total is invented for a single asset.
         match = re.search(r"(?:Importing|Imported)\s+(\d+)\s+(?:assets|files)\s+(?:of|/)\s*(\d+)", line, re.I)
         if match and 0 < int(match[2]) >= int(match[1]):
-            return self._unity_fields({"phase": "unity-asset-import", "done": int(match[1]), "total": int(match[2]), "unit": "assets", "detail": line[:1024]}, source)
+            self.native_import_counts[source] = (int(match[1]), int(match[2]))
+            return self._unity_fields({"phase": "unity-asset-import", "done": int(match[1]), "total": int(match[2]), "unit": "assets", "detail": "[unity-native-total] " + line[:1000]}, source)
         importing = self._import_progress(line, source)
         if importing is not None: return importing
         milestones = ((r"^\[Package Manager\].*(?:Resolving|Registering|Installing)", "unity-packages"),
@@ -306,8 +418,7 @@ class ProgressParser:
         for pattern, phase in milestones:
             if re.search(pattern, line):
                 if re.fullmatch(r"package-import(?:-launch)?-[A-Za-z0-9_.-]+\.log", source):
-                    return self._unity_fields({"phase": "unity-import-activity", "done": self.import_runs.get(source, 0),
-                                              "total": None, "unit": "assets", "detail": line[:1024]}, source)
+                    return self._import_fields(source, line)
                 return self._unity_fields({"phase": phase, "done": None, "total": None, "unit": None, "detail": line[:1024]}, source)
         match = re.search(r"(?:Receiving objects|Resolving deltas|Counting objects):\s*\d+%\s*\((\d+)/(\d+)\)", line)
         if match and 0 < int(match[2]) >= int(match[1]):
@@ -464,10 +575,29 @@ class Supervisor:
                                      and not re.search(r"\.memory-attempt-[1-9][0-9]*\.log$", entry.name)
                                      and entry.is_file() and not entry.is_symlink() and entry.stat().st_mtime >= started),
                                     key=lambda entry: entry.stat().st_mtime, reverse=True)[:15]
+                # Gradle's normal Unity stdout can be buffered until process exit.
+                # The pinned Editor callback writes an unbuffered owned sidecar.
+                # A retained sidecar is eligible only under its live native-log
+                # invocation plan, never because an old file was merely touched.
+                additions = []
+                for native in candidates:
+                    if not parser._unity_child(native.name): continue
+                    side = Path(str(native) + ".gradle-progress.jsonl")
+                    if side.is_file() and not side.is_symlink() and side.stat().st_mtime >= started:
+                        try:
+                            work = _unity_work_module(); plan = work.load_plan(native, started=started)
+                            if plan and side.stat().st_mtime >= plan["createdAt"]:
+                                additions.append(side)
+                        except (OSError, ValueError, TypeError, ImportError): pass
+                candidates += additions
                 for path in list(tails):
                     if path.parent == folder and path not in candidates: del tails[path]
                 for entry in candidates: tails.setdefault(entry, LogTail(entry))
-        for tail in list(tails.values())[:16]:
+        for tail in list(tails.values())[:32]:
+            planned = parser.observe_plan(tail.path, started=started)
+            if planned and self.stage:
+                if planned.get("operation") not in PLANS[self.stage]: planned.pop("operation", None)
+                self.store.progress(self.session, self.stage, **planned)
             pending_import = None
             for line in tail.read(final=final):
                 fields = parser.parse(line, tail.path.name)
@@ -489,6 +619,7 @@ class Supervisor:
                         pending_import = None
                     self.store.progress(self.session, self.stage, **fields)
             if pending_import: self.store.progress(self.session, self.stage, **pending_import)
+        parser.flush_coverage()
 
     def run(self, argv, log, *, cwd=None, env=None, timeout=None, on_started=None, on_poll=None, acceptable_codes=(0,)):
         self.store.check_cancel(self.session)
@@ -536,6 +667,7 @@ class Supervisor:
                     raise tool_failure(self.store.root, self.stage, log, started_wall, Path(argv[0]).name, code)
                 return 0 if controlled_stop else code
         finally:
+            parser.close_coverage()
             if process is not None:
                 if process.poll() is None: self.stop(process, job)
                 elif job: job.kill()
