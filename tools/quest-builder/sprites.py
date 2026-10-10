@@ -264,7 +264,13 @@ def restore_loading_sprite_geometry(project: Path, game: Path) -> dict:
     records = []
     # Validate every plan before changing any generated asset.
     for path, patched, record in plans:
-        path.write_text(patched, encoding="utf-8", newline="\n")
+        # The native-Sprite producer already owns the exact drawing bytes. On
+        # Windows read_text normalizes its CRLF to LF; writing the unchanged
+        # native plan again used to invalidate native-sprites.json's full hash.
+        # Keep those bytes (and their import witness) untouched. Only the legacy
+        # exported geometry that actually needs repair is written here.
+        if not record.get("preservedNativeDrawingGeometry"):
+            path.write_text(patched, encoding="utf-8", newline="\n")
         records.append({**record, "restoredSha256": digest(path)})
     receipt = {"schema": 1, "source": "owned-resources.assets-sprite-drawing-prefix",
                "sourceSha256": bank_hash, "assets": records,
