@@ -178,12 +178,13 @@ namespace GloomhavenVR.Quest.Editor
                 AssetDatabase.StopAssetEditing();
             }
             AssetDatabase.SaveAssets();
-            QuestWizardProgress.Publish("unity-addressables-build", "Unity builds the original Android Addressables bundles; native task and Shader counters follow.", operation: "content-bank");
+            QuestWizardProgress.Publish("unity-addressables-build", "Unity builds the original Android Addressables bundles; native task and Shader counters follow.", 0, 1, "tasks", "content-bank", "start");
             AddressableAssetSettings.BuildPlayerContent(out AddressablesPlayerBuildResult result);
             if (!string.IsNullOrEmpty(result.Error)) throw new InvalidOperationException("Native startup Addressables failed: " + result.Error);
             string built = Addressables.BuildPath;
             if (!File.Exists(Path.Combine(built, "settings.json")))
                 throw new InvalidDataException("Native Android Addressables did not produce actual RuntimeSettings.");
+            QuestWizardProgress.Publish("unity-addressables-build", "Native Android Addressables bundles built; original Shader closure audit follows.", 1, 1, "tasks", "content-bank", "complete");
             if (campaign)
             {
                 QuestWizardProgress.Publish("unity-native-shader-audit", "Read actual native bundle Shader identities; no compiler matrix is run.", operation: "content-bank");
@@ -409,7 +410,7 @@ namespace GloomhavenVR.Quest.Editor
 
         [Serializable] sealed class NativeShaderReceipt
         {
-            public int schema, shaderCount, originalNativeAliasCount, compilerQueries;
+            public int schema, shaderCount, originalNativeAliasCount, compilerQueries, selectedNativeBundleCount;
             public string scope;
             public bool allOriginalAliasesRetained, signedApkAuditPerformed, hardwarePictureVerified;
         }
@@ -439,20 +440,19 @@ namespace GloomhavenVR.Quest.Editor
                     RedirectStandardOutput = true, RedirectStandardError = true,
                     WorkingDirectory = Directory.GetCurrentDirectory()
                 };
-                process.Start();
-                process.StandardOutput.ReadToEnd();
-                string error = process.StandardError.ReadToEnd();
-                process.WaitForExit();
+                string error = QuestWizardProgress.RunObservedProcess(process);
                 if (process.ExitCode != 0)
                     throw new InvalidDataException("Actual native Shader gate failed (" + process.ExitCode + "): " +
                         error.Substring(0, Math.Min(error.Length, 2048)));
             }
             var receipt = JsonUtility.FromJson<NativeShaderReceipt>(File.ReadAllText(evidence));
             if (receipt == null || receipt.schema != 1 || receipt.scope != "actual-native-addressables-before-player" ||
-                receipt.shaderCount != 688 || receipt.originalNativeAliasCount != 51564 ||
+                receipt.shaderCount != 688 || receipt.originalNativeAliasCount != 51564 || receipt.selectedNativeBundleCount <= 0 ||
                 !receipt.allOriginalAliasesRetained || receipt.compilerQueries != 0 ||
                 receipt.signedApkAuditPerformed || receipt.hardwarePictureVerified)
                 throw new InvalidDataException("Early native Shader gate lacks the exact original Campaign closure.");
+            QuestWizardProgress.Publish("unity-native-shader-audit", "Actual native Shader closure and final receipt validated.",
+                receipt.selectedNativeBundleCount, receipt.selectedNativeBundleCount, "bundles", "content-bank", "complete");
             Debug.Log("[Quest Campaign build] native Addressables retain all 688 original Shaders / 51564 original aliases; Player delivery gate pending.");
         }
         [Serializable] sealed class NativePackReceipt
@@ -487,12 +487,9 @@ namespace GloomhavenVR.Quest.Editor
                         RedirectStandardOutput = true, RedirectStandardError = true,
                         WorkingDirectory = Directory.GetCurrentDirectory()
                     };
-                    // The standard-library helper emits one bounded result/error
-                    // line. It never dumps content, environment or private keys.
-                    process.Start();
-                    string output = process.StandardOutput.ReadToEnd();
-                    string error = process.StandardError.ReadToEnd();
-                    process.WaitForExit();
+                    // Keep actual helper progress live while the child runs;
+                    // neither stream can block the other on a full pipe.
+                    string error = QuestWizardProgress.RunObservedProcess(process);
                     if (process.ExitCode != 0)
                         throw new InvalidDataException("Native content packer failed (" + process.ExitCode + "): "
                             + error.Substring(0, Math.Min(error.Length, 2048)));

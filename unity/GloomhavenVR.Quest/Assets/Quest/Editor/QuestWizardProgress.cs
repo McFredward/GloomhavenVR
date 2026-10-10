@@ -28,6 +28,7 @@ namespace GloomhavenVR.Quest.Editor
         static double lastSample;
         static int pollCursor;
         static string activeOperation;
+        const double SampleSeconds = .25;
         static bool Enabled { get { return Environment.GetEnvironmentVariable("GHVRQ_WIZARD_PROGRESS") == "1"; } }
 
         static QuestWizardProgress()
@@ -41,7 +42,7 @@ namespace GloomhavenVR.Quest.Editor
 
         static void Poll()
         {
-            if (!Enabled || EditorApplication.timeSinceStartup - lastSample < .5) return;
+            if (!Enabled || EditorApplication.timeSinceStartup - lastSample < SampleSeconds) return;
             lastSample = EditorApplication.timeSinceStartup;
             int count = 0, seen = 0;
             foreach (var item in Progress.EnumerateItems())
@@ -88,7 +89,7 @@ namespace GloomhavenVR.Quest.Editor
             string previous;
             if (Last.TryGetValue(item.id, out previous) && previous == signature) return;
             double previousTime;
-            if (!succeeded && !failed && LastReported.TryGetValue(item.id, out previousTime) && Clock.Elapsed.TotalSeconds - previousTime < .5) return;
+            if (!succeeded && !failed && LastReported.TryGetValue(item.id, out previousTime) && Clock.Elapsed.TotalSeconds - previousTime < SampleSeconds) return;
             if (Last.Count >= 128 && !Last.ContainsKey(item.id)) { Last.Clear(); LastReported.Clear(); }
             Last[item.id] = signature;
             LastReported[item.id] = Clock.Elapsed.TotalSeconds;
@@ -118,7 +119,7 @@ namespace GloomhavenVR.Quest.Editor
             public void Report(long completed, string detail)
             {
                 done = completed;
-                if (!Enabled || Clock.Elapsed.TotalSeconds - last < .5) return;
+                if (!Enabled || Clock.Elapsed.TotalSeconds - last < SampleSeconds) return;
                 last = Clock.Elapsed.TotalSeconds;
                 Publish(phase, detail, done, total, unit, operation);
             }
@@ -128,6 +129,56 @@ namespace GloomhavenVR.Quest.Editor
                 // Editor/Player owner. A failed last task must remain open.
                 Publish(phase, detail, total, total, unit, operation, "complete");
             }
+        }
+
+        /// <summary>
+        /// Drain verified helper output while its native read/pack work is still
+        /// running. Reading stdout to its end before stderr used to hide all
+        /// child progress and could block a helper whose error pipe filled up.
+        /// Callbacks only queue bounded records; Unity logging stays on the
+        /// Editor thread. The caller still owns the exit/receipt validation.
+        /// </summary>
+        internal static string RunObservedProcess(System.Diagnostics.Process process)
+        {
+            const int MaxQueued = 64, MaxLine = 8192, MaxError = 4096;
+            var lines = new Queue<string>();
+            var errors = new StringBuilder();
+            object gate = new object();
+            process.OutputDataReceived += (sender, args) =>
+            {
+                string line = args.Data;
+                if (!Enabled || line == null || line.Length > MaxLine || !line.StartsWith("GHVRQ_PROGRESS ", StringComparison.Ordinal)) return;
+                lock (gate)
+                {
+                    if (lines.Count >= MaxQueued) lines.Dequeue();
+                    lines.Enqueue(line);
+                }
+            };
+            process.ErrorDataReceived += (sender, args) =>
+            {
+                if (args.Data == null) return;
+                lock (gate)
+                {
+                    if (errors.Length >= MaxError) return;
+                    errors.Append(args.Data, 0, Math.Min(args.Data.Length, MaxError - errors.Length));
+                    if (errors.Length < MaxError) errors.Append('\n');
+                }
+            };
+            Action drain = () =>
+            {
+                lock (gate) { while (lines.Count != 0) Debug.Log(lines.Dequeue()); }
+            };
+            process.StartInfo.StandardOutputEncoding = Encoding.UTF8;
+            process.StartInfo.StandardErrorEncoding = Encoding.UTF8;
+            process.Start();
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+            while (!process.WaitForExit(100)) drain();
+            // The timed overload does not wait for the asynchronous stdout and
+            // stderr readers. Join them before publishing the final tail.
+            process.WaitForExit();
+            drain();
+            return errors.ToString();
         }
 
         public sealed class TaskSequence
@@ -204,7 +255,7 @@ gradle.taskGraph.afterTask { task, state ->
     synchronized(ghvrqFile) {
         if (ghvrqPlanned.contains(task.path)) {
             if (state.failure == null) ghvrqCompleted.add(task.path)
-            ghvrqReport(state.failure == null ? 'progress' : 'failed', 'Gradle: ' + task.path + (state.skipped ? ' (retained/skipped)' : ''))
+            ghvrqReport(state.failure == null ? (ghvrqCompleted.size() == ghvrqPlanned.size() ? 'complete' : 'progress') : 'failed', 'Gradle: ' + task.path + (state.skipped ? ' (retained/skipped)' : ''))
         }
     }
 }
@@ -262,7 +313,7 @@ gradle.taskGraph.afterTask { task, state ->
         {
             if (report.summary.result == BuildResult.Succeeded)
                 QuestWizardProgress.Publish("unity-player-native-result", "Native Android Player succeeded; original final evidence is still being written.",
-                    1, 1, "steps", "player");
+                    1, 1, "steps", "player", "complete");
         }
     }
 }

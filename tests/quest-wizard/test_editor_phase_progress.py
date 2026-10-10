@@ -76,9 +76,12 @@ class Program {
   callback.OnPreprocessBuild(report);callback.OnProcessScene(new UnityEngine.SceneManagement.Scene{path="bundle scene"},null);
   callback.OnProcessScene(new UnityEngine.SceneManagement.Scene{path="Player startup"},report);rows=Rows();var scene=rows[rows.Count-1];
   Check(scene.GetProperty("done").GetInt32()==1 && scene.GetProperty("total").GetInt32()==2,"Addressables scenes cannot contaminate Player counter");
-  callback.OnPostprocessBuild(report);rows=Rows();complete=rows[rows.Count-1];
+  int nativeLines=UnityEngine.Debug.Lines.Count; report.summary.result=UnityEditor.Build.Reporting.BuildResult.Failed; callback.OnPostprocessBuild(report);
+  Check(UnityEngine.Debug.Lines.Count==nativeLines,"failed native Player does not receive child completion credit");
+  report.summary.result=UnityEditor.Build.Reporting.BuildResult.Succeeded; callback.OnPostprocessBuild(report);rows=Rows();complete=rows[rows.Count-1];
   Check(complete.GetProperty("phase").GetString()=="unity-player-native-result","native callback cannot prematurely close final Player evidence");
-  Check(complete.GetProperty("status").GetString()=="progress","successful native build is one observed child result");
+  Check(complete.GetProperty("status").GetString()=="complete","successful native build completes its observed child result");
+  Check(!UnityEngine.Debug.Lines.Exists(line=>line.Contains("\"phase\":\"operation:player\"") && line.Contains("\"status\":\"complete\"")),"native child success cannot close final Player evidence");
   var native=new UnityEditor.Progress.Item{id=42,parentId=7,name="Native import",indefinite=true};
   UnityEditor.Progress.Emit(native);rows=Rows();var task=rows[rows.Count-1];
   Check(task.GetProperty("phase").GetString()=="unity-progress:42:7" && task.GetProperty("done").GetInt32()==0 && task.GetProperty("total").GetInt32()==1,"indivisible native task has finite scoped denominator");
@@ -134,7 +137,7 @@ class EditorPhaseProgressTests(unittest.TestCase):
             result = subprocess.run([dotnet, "run", "--project", str(path / "Counter.csproj"), "--no-launch-profile", "--verbosity", "quiet"],
                 cwd=path, env=os.environ.copy(), text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertIn("PASS production Editor task and byte counters: 17 checks", result.stdout)
+            self.assertIn("PASS production Editor task and byte counters: 19 checks", result.stdout)
 
     def test_counter_annotations_preserve_native_validation_and_pointer_writes(self):
         # Strip observer statements, then compare complete source tokens with

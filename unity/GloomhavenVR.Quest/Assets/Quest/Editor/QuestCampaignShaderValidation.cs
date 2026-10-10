@@ -324,7 +324,6 @@ namespace GloomhavenVR.Quest.Editor
                     progress.Report(nativeAliases, row.assetPath);
                 }
             }
-            progress.Complete("Original native Shader aliases retained");
             // SVC deliberately has no pass ordinal or hardware-tier field.
             // Exact bank coverage still lives in the original native manifest;
             // verify its complete projection into this coarser retention API.
@@ -334,6 +333,7 @@ namespace GloomhavenVR.Quest.Editor
             if (existing != null) { EditorUtility.CopySerialized(collection, existing); UnityEngine.Object.DestroyImmediate(collection); }
             else AssetDatabase.CreateAsset(collection, path);
             AssetDatabase.SaveAssets();
+            progress.Complete("Original native Shader aliases retained and saved");
             // Keeping the collection in Resources retains its exact witnessed
             // banks without warming tens of thousands of programs at startup.
             // The game does not need to call WarmUp or load it synchronously.

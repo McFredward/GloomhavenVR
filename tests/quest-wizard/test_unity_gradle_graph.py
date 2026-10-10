@@ -73,7 +73,8 @@ task third(dependsOn:second) { onlyIf { false }; doLast { throw new RuntimeExcep
             self.assertTrue(all(row["total"] == 3 and row["operation"] == "player" for row in rows))
             self.assertEqual([row["done"] for row in rows], sorted(row["done"] for row in rows))
             self.assertEqual(rows[-1]["done"], 3)
-            self.assertEqual(rows[-1]["status"], "progress", "Graph result cannot close the Player owner")
+            self.assertEqual(rows[-1]["status"], "complete", "Successful graph closes its child counter, never the Player owner")
+            self.assertTrue(all(row["phase"] == "unity-gradle-tasks" for row in rows), "Graph completion cannot emit an operation:player boundary")
             self.assertIn("retained/skipped", rows[-1]["detail"])
             if attempt:
                 self.assertIn("UP-TO-DATE", result.stdout)
