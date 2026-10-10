@@ -82,14 +82,19 @@ loading producer alias applies only after the complete preparation schedule
 closes and the full reviewed Editor profile qualifies. Unknown producer edits
 remain different input scopes.
 
-Focused verification covers native counters, actual pinned Unity API compilation,
-production loading transport positive/negative controls, unique/stale import
-observations, retained source selection and UI hierarchy/browser behavior. A tiny
-real pinned Gradle6.1.1/OpenJDK build proves three actual tasks, cached/skipped
-reuse and failure at1/2; it does not build an APK. The release validation sidecar
-records exact final case counts and source identities. Published Runtime663 focused runtime evidence and earlier Runtime661
-AOT/weave evidence are inherited for unchanged areas; the final release
-validation records current-mod compilation and Quest-specific integration. No new full
+Focused root verification passes299 selected Builder cases and506 Wizard cases,
+including actual pinned Unity API compilation, production loading transport
+positive/negative controls, unique/stale import observations, retained source
+selection and UI hierarchy. All55 Node/UI cases pass, including the actual
+loopback backend. A later internal-marker-only UI edit passes both affected
+counted-progress cases again; unchanged UI evidence is reused. A tiny real pinned
+Gradle6.1.1/OpenJDK build proves three actual tasks, cached/skipped reuse and
+failure at1/2; it does not build an APK. Runtime663 builds Release with zero
+warnings/errors, passes23 current-mod AOT assertions and the actual290-target
+static weave. The relevant QuestWeaver fixture passes836 assertions. Published
+Runtime663's other focused runtime evidence is inherited for unchanged areas.
+The release sidecar records exact source identities and continuation selectors.
+No new full
 NPC gate, full Unity import, exhaustive shader sweep or local APK is claimed.
 Completion of the Windows build and headset picture remain acceptance checks.
 

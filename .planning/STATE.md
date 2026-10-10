@@ -14,6 +14,12 @@ honestly identified as indivisible. Final release validation records tested scop
 whole Windows APK and headset acceptance remain pending. Details:
 [QUEST-UNITY-TOTALS-065547-20261010.md](QUEST-UNITY-TOTALS-065547-20261010.md).
 
+The final source integrates published dev663 (`ca190750a`), including wrist662
+controls and independent pillar LOD. Selected299 Builder and506 Wizard tests pass;
+55 Node/UI cases pass, then the two affected internal-marker UI cases pass again.
+Current-mod Release has0 warnings/errors, AOT23 and actual static weave290 pass;
+the QuestWeaver fixture passes836 assertions. No unrelated complete gate is rerun.
+
 **Quest file-level recovery, 2026-10-10 (Builder; Runtime661).**
 
 Capture055813 identifies 0db/661 and stops before another Unity launch on original
