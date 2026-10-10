@@ -21,7 +21,7 @@ The added cases exercise actual curated toggle/rebuild, all three slider and
 fine-arrow callbacks, retained/out-of-range calibration, actual LateUpdate
 placement and the original owner-pose serializer/remote pose state. Options
 coverage passes with 90 matching ordinary/Advanced caption pairs. The private
-Debug build has zero warnings and errors. No complete gate was rerun: unchanged
+Debug build and strict Release gate have zero warnings and errors. No complete gate was rerun: unchanged
 areas retain the prior build661 evidence recorded in STATE.md.
 
 Tracked XR samples and harvested UI donor shapes are explicit fixture boundaries.
