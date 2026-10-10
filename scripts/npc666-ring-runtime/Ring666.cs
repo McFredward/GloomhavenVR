@@ -3,6 +3,8 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using GloomhavenVR.Cards;
+using GloomhavenVR.Rig;
 using GloomhavenVR.Net.TownServices;
 using GloomhavenVR.WorldUI;
 using UnityEngine;
@@ -50,16 +52,19 @@ public static partial class MirrorProgram
         }
         return root;
     }
-    private static IEnumerator NativeRingShared666(bool partitioned = false, float speed = 1f, bool normalClock = false, bool anisotropic = false)
+    private static IEnumerator NativeRingShared666(bool partitioned = false, float speed = 1f, bool normalClock = false, bool anisotropic = false, bool irregular = false, bool reflected = false, bool nativeSeat = false)
     {
         TownServiceMirror.Shutdown(); RingClock666.Controlled = false; LeanTween.reset(); _offeredSequence629 = 666000;
         Time.timeScale = 1f; NativeRingTime666.Time = 1000000000d;
         Transform owner = Go("Actual native ring owner").transform;
         Transform observer = Go("Native offered frame observer").transform;
         observer.SetPositionAndRotation(new Vector3(5, .13f, -.2f), Quaternion.Euler(0, 73, 0));
-        observer.localScale = anisotropic ? new Vector3(1.3f, .85f, 1.1f) : Vector3.one * 1.3f;
+        observer.localScale = reflected ? new Vector3(-1.3f,.85f,1.1f) : anisotropic ? new Vector3(1.3f, .85f, 1.1f) : Vector3.one * 1.3f;
         owner.localScale = Vector3.one;
         TownServiceMirror.SharedFrameForRemote = _ => observer;
+        Transform seat=Go("Actual native Place offering seat",owner).transform;
+        Transform palm=Go("Actual source offering palm",owner).transform;
+        palm.localPosition=new Vector3(.17f,.63f,-.2f);
         RectTransform canvas = (RectTransform)Go("Original holder conversion", owner).transform;
         canvas.localScale = new Vector3(.0011f, .0008f, .0012f);
         canvas.gameObject.AddComponent<Canvas>().renderMode = RenderMode.WorldSpace;
@@ -91,6 +96,20 @@ public static partial class MirrorProgram
         physical.sizeDelta = print.sizeDelta; physical.localScale = Vector3.one * .00052f;
         physical.gameObject.AddComponent<Canvas>().renderMode = RenderMode.WorldSpace; physical.gameObject.AddComponent<CanvasGroup>();
         Image("Original native card ink", physical, Vector2.zero, print.sizeDelta, Color.red);
+        Transform physicalCard = Go("Actual native body owner",owner).transform;
+        VRCard actual = physicalCard.gameObject.AddComponent<VRCard>(); actual.FixtureBacking(new Vector2(.15288f,.234f));
+        Transform physicalBody = physicalCard.Find("Visual/Backing");
+        if(nativeSeat)
+        {
+            physicalCard.SetParent(seat,false);
+            physical.SetParent(physicalCard,false);physical.localPosition=new Vector3(0f,0f,-.0012f);
+            VRRigDriver.HeadCamera!.transform.position=palm.position-Vector3.forward;
+            TownServiceOfferingPose.Place(seat,palm,owner,0f);
+        }
+        TownServiceMirror.RegisterMotionOffering(physical,true);
+        TownServiceMirror.RegisterMotionOffering(physicalBody,true);
+        TownServiceMirror.RegisterOfferedPhysical(physicalBody,physical);
+        TownServiceMirror.RegisterTemplate(3,4,physicalBody,address:TownServiceAbilityBody.Key(actual) + "|");
         holder.gameObject.SetActive(true); effect.ShowModeEffect(true);
         TownServiceEnhancementHandoff.PhysicalCardFace = physical;
         var mask = card.gameObject.AddComponent<TownServiceNativeEnhancementCardMask>(); mask.Mask(); mask.SendMessage("LateUpdate");
@@ -129,11 +148,27 @@ public static partial class MirrorProgram
             if (part.NativeRingRoot != null) ringModule = id;
         }
         TownServiceMirror.RegisterModule(600, 3, physical, address: "face.666|"); modules.Add(600);
+        TownServiceMirror.RegisterModule(601,4,physicalBody,address:TownServiceAbilityBody.Key(actual) + "|"); modules.Add(601);
         foreach (ushort module in modules) TownServiceMirror.SetPriority(module, true);
         TownServiceMirror.RegisterOfferedFrame(holder, physical);
         FastCapture first = OfferedCapture629(); Receive(1, first.Artwork); CompleteOfferedArtwork632(first.Artwork); DeliverMotion(1, first);
         IEnumerator settle = FastSettle(observer, .14f); while (settle.MoveNext()) yield return settle.Current;
-        TownServiceBinding ringCopy = Remote(1, ringModule)!, faceCopy = Remote(1, 600)!;
+        TownServiceBinding ringCopy = Remote(1, ringModule)!, faceCopy = Remote(1, 600)!, bodyCopy = Remote(1,601)!;
+        if(nativeSeat)
+        {
+            FieldInfo? hover=typeof(TownServiceFrame).GetField("OfferedHover",NativeFields666);
+            Check(hover!=null,"native seat composition requires actual117 production DTO, never an inactive fake boundary");
+            object? printHover=null,bodyHover=null;
+            foreach(byte[] wire in first.Artwork)
+            {
+                Check(TownServiceCodec.TryRead(wire,wire.Length,out TownServiceFrame? frame),"actual native seat original117 decodes");
+                if(frame!.Module==600) printHover=hover!.GetValue(frame);
+                if(frame.Module==601) bodyHover=hover!.GetValue(frame);
+            }
+            Check(printHover!=null && bodyHover!=null,"real Place lineage puts active117 on both native physical parts");
+            FieldInfo epoch=printHover!.GetType().GetField("Epoch",NativeFields666)!;
+            Check(epoch.GetValue(printHover)!.Equals(epoch.GetValue(bodyHover)),"one real native source card supplies a shared hover preparation epoch");
+        }
         bool observedCanvas = false, observedRingBinding = false;
         foreach(byte[] bytes in first.Motion)
         {
@@ -144,7 +179,8 @@ public static partial class MirrorProgram
                 observedRingBinding |= Array.IndexOf(ringCopy.Bindings,entry.Binding) >= 0;
             }
         }
-        Check(observedCanvas && observedRingBinding,"actual published native ring partition carries exact binding and enclosing109 CanvasPose");
+        File.WriteAllText(Path.Combine(_output,"native-root-binding666.txt"),"parts="+parts.Count+";ringModule="+ringModule+";canvas="+observedCanvas+";binding="+observedRingBinding+"\n");
+        Check(observedCanvas == !partitioned && observedRingBinding,"actual published native ring partition carries exact binding and its correct enclosing109 CanvasPose or real native parent");
         Check(ringCopy != null && faceCopy != null, "actual native ring partition and adopted print admitted through production receiver");
         Transform remoteInk = ringCopy.Root.Find("Highlight") ?? ringCopy.Root.Find("Aura/Highlight");
         Check(ringCopy.Root.GetComponentsInChildren<UIEnchantressEffect>(true).Length == 0
@@ -155,11 +191,11 @@ public static partial class MirrorProgram
         float last = 0; bool sampled = false; int stalled = 0, backward = 0; float maxStep = 0, maxDiameterError = 0;
         string csv = Path.Combine(_output, "native-ring666.csv");
         File.WriteAllText(csv, "frame,source,remote,advance,packets,centerError,planeError,yaw\n");
-        var trace = new System.Text.StringBuilder();
         RingClock666.Controlled = true;
         string[] inkPaths = { "Highlight", "Types/Buy", "Types/Sell" };
         var previousInk = new Dictionary<string, Vector3>();
         Quaternion previousPlane = Quaternion.identity;
+        var transit = new List<(int Due,byte[] Wire)>(); int motionEvents = 0; int lost = 0, delayed = 0;
         for (int frame = 1; frame <= (normalClock ? 90 : 540); frame++)
         {
             Time.timeScale = normalClock ? (frame <= 20 ? 1f : frame <= 40 ? 0f : frame <= 60 ? .5f : 2f)
@@ -173,25 +209,41 @@ public static partial class MirrorProgram
             // is fitted into the printed card's plane. The source-native mask,
             // full capture/codec and final print-affinity writer all execute.
             TownServiceNativeEnhancementCardMask.PrepareCurrentPlacement();
-            physical.SetPositionAndRotation(new Vector3(.17f, .8f + (normalClock ? 0f : Mathf.Sin(age * 2) * .01f), -.2f), Quaternion.Euler(9f, 70f + (normalClock ? 0f : (age <= 2f ? age * 36f : 72f - (age - 2f) * 54f)), -3f));
+            if(nativeSeat)
+            {
+                float yaw=age<=2f?age*36f:72f-(age-2f)*54f;
+                VRRigDriver.HeadCamera!.transform.position=palm.position-Quaternion.Euler(0f,yaw,0f)*Vector3.forward;
+                TownServiceOfferingPose.Place(seat,palm,owner,age);
+                Check(Mathf.Abs(seat.position.y-palm.position.y-.17f-.006f*Mathf.Sin(age*1.8f))<.000001f,
+                    "native Place retains original1.8rad/s hover amplitude and waveform while its actual ring faces owner head");
+            }
+            else physical.SetPositionAndRotation(new Vector3(.17f, .8f + (normalClock ? 0f : Mathf.Sin(age * 2) * .01f), -.2f), Quaternion.Euler(9f, 70f + (normalClock ? 0f : (age <= 2f ? age * 36f : 72f - (age - 2f) * 54f)), -3f));
             canvas.localScale = new Vector3(.0011f, .0008f, .0012f);
             if (!normalClock && frame == 120) print.localRotation = Quaternion.Euler(0, 0, 29);
             if (!normalClock && frame == 240) print.localRotation = Quaternion.Euler(0, 0, 90);
             if (!normalClock && frame == 360) print.localRotation = Quaternion.Euler(0, 0, -29);
+            if(!nativeSeat) physicalCard.SetPositionAndRotation(physical.position,physical.rotation);
             mask.SendMessage("LateUpdate");
             int packets = 0;
             if (frame % 90 == 0) effect.ShowModeEffect(frame % 180 == 0);
             if (frame % 6 == 3)
             {
                 ink.color = frame % 12 < 6 ? Color.cyan : Color.white;
-                FastCapture header = CaptureFast(); Receive(1, header.Artwork); DeliverMotion(1, header);
+                FastCapture header = CaptureFast(); Receive(1, header.Artwork);
+                QueueRingMotion666(header,frame,irregular,transit,ref motionEvents,ref lost,ref delayed);
             }
             if (frame % 6 == 0 && frame % 30 != 0 && !(frame >= 180 && frame <= 204))
             {
                 FastCapture capture = OfferedCapture629();
-                Receive(1, capture.Artwork); DeliverMotion(1, capture); packets = capture.Motion.Count;
+                Receive(1, capture.Artwork); packets = capture.Motion.Count;
+                QueueRingMotion666(capture,frame,irregular,transit,ref motionEvents,ref lost,ref delayed);
             }
+            for(int pending=0;pending<transit.Count;)
+                if(transit[pending].Due<=frame)
+                { var arriving=new FastCapture(); arriving.Motion.Add(transit[pending].Wire); transit.RemoveAt(pending); DeliverMotion(1,arriving); }
+                else pending++;
             TownServiceMirror.TickRemote(_ => observer);
+            CheckRingBody666(physical,physicalBody,faceCopy.Root,bodyCopy.Root);
             var corners = new Vector3[4]; ((RectTransform)remoteInk).GetWorldCorners(corners);
             Vector3 right = corners[3] - corners[0], up = corners[1] - corners[0];
             Vector3[] basisCorners = new Vector3[4]; ((RectTransform)faceCopy.Root).GetWorldCorners(basisCorners);
@@ -208,21 +260,21 @@ public static partial class MirrorProgram
             Vector3 actualCenter = physical.InverseTransformPoint((actualCorners[0] + actualCorners[2]) * .5f);
             float centerError = Vector3.Distance(faceCopy.Root.TransformPoint(actualCenter), (corners[0] + corners[2]) * .5f);
             float planeError = Vector3.Distance(printNormal, Vector3.Cross(right, up).normalized);
-            if (frame == 21)
-            {
-                foreach (DictionaryEntry cached in (IDictionary)typeof(TownServiceMirror).GetField("OfferedRemoteMotion", NativeFields666)!.GetValue(null)!)
-                {
-                    object ring = cached.Value.GetType().GetField("Ring", NativeFields666)!.GetValue(cached.Value)!;
-                    if (ring == null) continue;
-                    Transform cachedRoot = (Transform)ring.GetType().GetField("_root", NativeFields666)!.GetValue(ring)!;
-                    Vector3 cachedNormal = Vector3.Cross(cachedRoot.TransformVector(Vector3.right).normalized, cachedRoot.TransformVector(Vector3.up).normalized).normalized;
-                    File.AppendAllText(csv, "debug," + cachedRoot.name + "," + cachedRoot.localRotation + ",rootgap=" + Vector3.Distance(cachedNormal,printNormal)
-                        + ",actualpaper=" + printNormal + ",paperVector=" + Vector3.Cross(faceCopy.Root.TransformVector(Vector3.right),faceCopy.Root.TransformVector(Vector3.up)).normalized
-                        + ",inkLocal=" + remoteInk.localRotation + "\n");
-                }
-            }
             File.AppendAllText(csv, frame + "," + nativeRelative.eulerAngles.z + "," + phase + "," + advance + "," + packets
                 + "," + centerError + "," + planeError + "," + faceCopy.Root.eulerAngles.y + "\n");
+            if(frame>20)
+            {
+                foreach (string path in inkPaths)
+                {
+                    RectTransform native = (RectTransform)aura.Find(path);
+                    RectTransform remote = (RectTransform)(remoteInk.parent!.Find(path));
+                    var allCorners = new Vector3[4]; remote.GetWorldCorners(allCorners);
+                    Vector3 actualNormal = Vector3.Cross(allCorners[3] - allCorners[0], allCorners[1] - allCorners[0]).normalized;
+                    File.AppendAllText(csv, "ink," + frame + "," + path + "," + Vector3.Distance(actualNormal, printNormal) + "\n");
+                    Check(Vector3.Distance(actualNormal, printNormal) < .00001f,
+                        "each original native cyan sprite follows the actual rendered card plane path=" + path + " frame=" + frame + " error=" + Vector3.Distance(actualNormal, printNormal));
+                }
+            }
             Quaternion renderedPlane = Quaternion.LookRotation(basisZ,basisY);
             foreach (string path in inkPaths)
             {
@@ -244,16 +296,6 @@ public static partial class MirrorProgram
             previousPlane = renderedPlane;
             if (frame > 20)
             {
-                foreach (string path in inkPaths)
-                {
-                    RectTransform native = (RectTransform)aura.Find(path);
-                    RectTransform remote = (RectTransform)(remoteInk.parent!.Find(path));
-                    var allCorners = new Vector3[4]; remote.GetWorldCorners(allCorners);
-                    Vector3 actualNormal = Vector3.Cross(allCorners[3] - allCorners[0], allCorners[1] - allCorners[0]).normalized;
-                    File.AppendAllText(csv, "ink," + frame + "," + path + "," + Vector3.Distance(actualNormal, printNormal) + "\n");
-                    Check(Vector3.Distance(actualNormal, printNormal) < .00001f,
-                        "each original native cyan sprite follows the actual rendered card plane path=" + path + " frame=" + frame + " error=" + Vector3.Distance(actualNormal, printNormal));
-                }
                 Check(centerError < .00003f, "original native cyan points stay centered on the rendered physical print across sparse yaw and UI headers frame=" + frame + " gap=" + centerError);
                 Check(planeError < .00001f, "original native cyan points retain the actual rendered print-corner plane frame=" + frame + " error=" + planeError);
                 if (Mathf.Abs(expectedRate * delta) > .02f && Mathf.Abs(advance) < .02f) stalled++;
@@ -270,16 +312,40 @@ public static partial class MirrorProgram
                     "final visible ink advances at its exact authored 20-second native rate on each render expected=" + expectedRate * delta + " actual=" + advance + " frame=" + frame);
                 var nativeCorners = new Vector3[4]; ink.rectTransform.GetWorldCorners(nativeCorners);
                 float nativeDiameter = Mathf.Sqrt(Vector3.Distance(nativeCorners[0], nativeCorners[1]) * Vector3.Distance(nativeCorners[0], nativeCorners[3])) * observer.localScale.x;
-                maxDiameterError = Mathf.Max(maxDiameterError, Mathf.Abs(right.magnitude - nativeDiameter) / nativeDiameter);
-                Check(anisotropic || Mathf.Abs(right.magnitude - nativeDiameter) < nativeDiameter * .05f,
-                    "observer preserves native ring diameter relative to the current card print frame=" + frame + " owner=" + nativeDiameter + " observer=" + right.magnitude);
+                if(!anisotropic && !reflected)
+                {
+                    maxDiameterError = Mathf.Max(maxDiameterError, Mathf.Abs(right.magnitude - nativeDiameter) / nativeDiameter);
+                    Check(Mathf.Abs(right.magnitude - nativeDiameter) < nativeDiameter * .05f,
+                        "observer preserves native ring diameter relative to the current card print frame=" + frame + " owner=" + nativeDiameter + " observer=" + right.magnitude);
+                }
                 Check(Vector3.Distance(faceCopy.Root.InverseTransformPoint((corners[0] + corners[2]) * .5f),
                     physical.InverseTransformPoint((nativeCorners[0] + nativeCorners[2]) * .5f)) < 1f,
                     "observer rotating ink retains its authored center during native phase correction");
                 Check(Mathf.Abs(Vector3.Dot(right.normalized, up.normalized)) < .001f,
                     "native ring ink has no intermediate shear while its physical print turns");
             }
-            trace.AppendLine(frame + "," + nativeRelative.eulerAngles.z + "," + phase + "," + advance + "," + packets);
+            if(frame == 60 || frame == 150 || frame == 300 || frame == 470)
+            {
+                foreach(string path in inkPaths)
+                {
+                    RectTransform native=(RectTransform)aura.Find(path), copied=(RectTransform)remoteInk.parent!.Find(path);
+                    if(!native.gameObject.activeInHierarchy || !copied.gameObject.activeInHierarchy) continue;
+                    string label="frame"+frame+"-"+path.Replace('/','-');
+                    Color32[] ownerPixels=RingPixels666(native,8,label+"-native");
+                    Color32[] remotePixels=RingPixels666(copied,9,label+"-observer");
+                    int ownerPeak=PeakRing666(ownerPixels),remotePeak=PeakRing666(remotePixels),different=0,lit=0;
+                    for(int pixel=0;pixel<ownerPixels.Length;pixel++)
+                    {
+                        bool nativeLit=Math.Max(ownerPixels[pixel].r,Math.Max(ownerPixels[pixel].g,ownerPixels[pixel].b))>ownerPeak/8;
+                        bool remoteLit=Math.Max(remotePixels[pixel].r,Math.Max(remotePixels[pixel].g,remotePixels[pixel].b))>remotePeak/8;
+                        if(nativeLit) lit++;
+                        if(nativeLit!=remoteLit) different++;
+                    }
+                    File.AppendAllText(Path.Combine(_output,"native-ring666-pixels.csv"),label+","+lit+","+different+","+ownerPeak+","+remotePeak+"\n");
+                    Check(ownerPeak>20 && remotePeak>20 && lit>1500 && different<80,
+                        "all actual visible native cyan sprites retain original GPU silhouettes after independently verified physical plane/yaw label="+label+" native="+lit+" different="+different);
+                }
+            }
             last = phase; sampled = true;
             // Unity's real render time must advance for the production sampler's
             // per-send clock. The native manual clock advances only in Pump above.
@@ -287,12 +353,15 @@ public static partial class MirrorProgram
             yield return null;
         }
 
+        Check(!irregular || lost>0 && delayed>0,"actual109/root transport exercises loss and delayed reorder");
         Check(stalled == 0, "final native offered ring advances on every rendered frame; stalled=" + stalled);
         Check(backward == 0, "final native offered ring preserves its signed source phase; backwards=" + backward);
         Check(normalClock || maxStep < .5f, "final native offered ring has no packet-sized jumps; max=" + maxStep);
         Time.timeScale = 1f;
         if (!normalClock)
         {
+            foreach(var pending in transit) { var late=new FastCapture(); late.Motion.Add(pending.Wire); DeliverMotion(1,late); }
+            transit.Clear();
             // Sample the final authored geometry, then stop only the deterministic
             // fixture clock from advancing it while the receiver settles. This is
             // not a claim of source visibility after a real native Stop call.
@@ -308,12 +377,13 @@ public static partial class MirrorProgram
                 ((RectTransform)remoteAura.Find(path)).GetWorldCorners(observerCorners);
                 float authored = Mathf.Sqrt(Vector3.Distance(ownerCorners[0], ownerCorners[1]) * Vector3.Distance(ownerCorners[0], ownerCorners[3])) * observer.localScale.x;
                 float observed = Mathf.Sqrt(Vector3.Distance(observerCorners[0], observerCorners[1]) * Vector3.Distance(observerCorners[0], observerCorners[3]));
-                Check(anisotropic || Mathf.Abs(authored - observed) < .00006f,
+                if(!anisotropic && !reflected) Check(Mathf.Abs(authored - observed) < .00006f,
                     "settled observer preserves exact native sprite diameter path=" + path + " owner=" + authored + " observer=" + observed);
             }
         }
         File.WriteAllText(Path.Combine(_output, "native-ring666-summary.txt"),
-            "Maximum transient diameter error=" + maxDiameterError + "; max phase advance=" + maxStep + "; stalled=" + stalled + "; reversed=" + backward + "\n");
+            "Maximum transient uniform-room diameter error=" + (!anisotropic && !reflected ? maxDiameterError.ToString() : "not measured by uniform-room scale formula")
+            + "; max phase advance=" + maxStep + "; stalled=" + stalled + "; reversed=" + backward + "\n");
         LeanTween.dtManual = 0; yield return null;
         effect.Stop(); holder.gameObject.SetActive(false); TownServiceMirror.RegisterOfferedFrame(holder, null);
         RingClock666.Now = clock + 7f; FastCapture withdrawn = OfferedCapture629(); Receive(1, withdrawn.Artwork); DeliverMotion(1, withdrawn); TownServiceMirror.TickRemote(_ => observer);
@@ -333,18 +403,87 @@ public static partial class MirrorProgram
         NativePump666(effect, loop); mask.SendMessage("LateUpdate");
         RingClock666.Now = clock + 8f; FastCapture reopen = OfferedCapture629(); Receive(1,reopen.Artwork); DeliverMotion(1,reopen); TownServiceMirror.TickRemote(_ => observer);
         Check(ringCopy.Root.gameObject.activeInHierarchy, "cached inert binding reopens the offered ring after withdrawal");
-        Vector3 previousRight = faceCopy.Root.InverseTransformDirection(remoteInk.TransformVector(Vector3.right));
+        Vector3 previousRight = ReopenedRingRay666(faceCopy.Root,remoteInk);
         for (int i = 1; i <= 18; i++)
         {
             NativeRingTime666.Time = nativeTime + i / 90f; RingClock666.Now = clock + 8f + i / 90f;
             TownServiceMirror.TickRemote(_ => observer);
-            Vector3 current = faceCopy.Root.InverseTransformDirection(remoteInk.TransformVector(Vector3.right));
+            Vector3 current = ReopenedRingRay666(faceCopy.Root,remoteInk);
             float delta = Mathf.DeltaAngle(Mathf.Atan2(previousRight.y, previousRight.x) * Mathf.Rad2Deg,
                 Mathf.Atan2(current.y, current.x) * Mathf.Rad2Deg);
-            Check(anisotropic || normalClock || Mathf.Abs(delta - expectedRate / 90f) < .001f, "reopened final native ring advances at authored signed rate"); previousRight = current;
+            Check(normalClock || Mathf.Abs(delta - expectedRate / 90f) < .001f, "reopened final native ring advances at authored signed rate"); previousRight = current;
         }
         effect.Stop(); mask.Restore(); TownServiceMirror.Shutdown(); RingClock666.Controlled = false;
         LazyTemplateProbe.Close(); UnityEngine.Object.DestroyImmediate(bank);
         UnityEngine.Object.DestroyImmediate(owner.gameObject); UnityEngine.Object.DestroyImmediate(observer.gameObject); LeanTween.reset();
     }
+    private static void QueueRingMotion666(FastCapture capture,int frame,bool irregular,List<(int Due,byte[] Wire)> transit,
+        ref int events,ref int lost,ref int delayed)
+    {
+        foreach(byte[] bytes in capture.Motion)
+        {
+            int index=events++;
+            if(irregular && index==4) { lost++; continue; }
+            int lag=!irregular?0:index==7?10:index%4==1?2:index%4==3?3:0;
+            if(lag>0) delayed++;
+            transit.Add((frame+lag,bytes));
+        }
+    }
+    private static void CheckRingBody666(RectTransform originalPrint,Transform originalBody,Transform copiedPrint,Transform copiedBody)
+    {
+        Mesh mesh=originalBody.GetComponent<MeshFilter>().sharedMesh;
+        Check(ReferenceEquals(mesh,copiedBody.GetComponent<MeshFilter>().sharedMesh),"ring correction retains actual native physical backing mesh");
+        foreach(Vector3 vertex in mesh.vertices)
+        {
+            Vector3 expected=copiedPrint.TransformPoint(originalPrint.InverseTransformPoint(originalBody.TransformPoint(vertex)));
+            Check(Vector3.Distance(expected,copiedBody.TransformPoint(vertex))<.00004f,
+                "native body/front geometry stays coherent on every rendered ring/yaw frame");
+        }
+    }
+
+    private static int PeakRing666(Color32[] pixels)
+    {
+        int maximum=0;
+        foreach(Color32 pixel in pixels) maximum=Math.Max(maximum,Math.Max(pixel.r,Math.Max(pixel.g,pixel.b)));
+        return maximum;
+    }
+    private static Color32[] RingPixels666(RectTransform ink,int layer,string name)
+    {
+        foreach(GameObject original in Objects) if(original!=null) Layer(original.transform,30);
+        Layer(ink,layer);
+        foreach(Canvas canvas in ink.GetComponentsInParent<Canvas>(true)) { canvas.gameObject.layer=layer; canvas.worldCamera=_camera; }
+        _camera.cullingMask=1<<layer;
+        _camera.orthographicSize=ink.rect.height*.58f;
+        Matrix4x4 localView=Matrix4x4.TRS(new Vector3(0f,0f,-10f),Quaternion.identity,Vector3.one);
+        // Normalize only the measurement camera, after world plane and ray laws
+        // have passed. Never relocate or rotate an original or mirrored widget.
+        _camera.worldToCameraMatrix=Matrix4x4.Scale(new Vector3(1f,1f,-1f))*localView.inverse*ink.worldToLocalMatrix;
+        Color previousBackground=_camera.backgroundColor; _camera.backgroundColor=Color.black;
+        var target=new RenderTexture(192,192,24,RenderTextureFormat.ARGB32) { antiAliasing=1 };
+        var pixels=new Texture2D(192,192,TextureFormat.RGBA32,false);
+        bool culling=GL.invertCulling;
+        try
+        {
+            GL.invertCulling=culling^(ink.localToWorldMatrix.determinant<0f);
+            Canvas.ForceUpdateCanvases(); _camera.targetTexture=target; _camera.Render(); RenderTexture.active=target;
+            pixels.ReadPixels(new Rect(0f,0f,192f,192f),0,0); pixels.Apply();
+            File.WriteAllBytes(Path.Combine(_output,name+".png"),pixels.EncodeToPNG());
+            return pixels.GetPixels32();
+        }
+        finally
+        {
+            RenderTexture.active=null;_camera.targetTexture=null;_camera.backgroundColor=previousBackground;
+            GL.invertCulling=culling;_camera.ResetWorldToCameraMatrix();
+            UnityEngine.Object.DestroyImmediate(target);UnityEngine.Object.DestroyImmediate(pixels);
+        }
+    }
+
+    private static Vector3 ReopenedRingRay666(Transform print,Transform ink)
+    {
+        var corners=new Vector3[4];((RectTransform)print).GetWorldCorners(corners);
+        Vector3 right=(corners[3]-corners[0]).normalized, normal=Vector3.Cross(right,(corners[1]-corners[0]).normalized).normalized;
+        Vector3 up=Vector3.Cross(normal,right).normalized, ray=ink.TransformVector(Vector3.right).normalized;
+        return new Vector3(Vector3.Dot(ray,right),Vector3.Dot(ray,up),Vector3.Dot(ray,normal));
+    }
+
 }

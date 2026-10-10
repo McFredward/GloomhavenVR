@@ -16,9 +16,9 @@ ROOT = Path(__file__).resolve().parents[2]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source-root', type=Path, default=ROOT)
-    parser.add_argument('--output-dir', type=Path, default=ROOT / '.planning/debug/npc-ring666')
+    parser.add_argument('--output-dir', type=Path, default=ROOT / '.planning/debug/npc666-ring')
     parser.add_argument('--no-negative-controls', action='store_true')
-    parser.add_argument('--case', choices=['production', 'partitioned', 'reversed', 'normal-clock', 'anisotropic', 'anisotropic-partitioned'])
+    parser.add_argument('--case', choices=['production', 'partitioned', 'reversed', 'normal-clock', 'anisotropic', 'anisotropic-partitioned', 'irregular', 'reflected', 'native-seat', 'prior-sampled-ring', 'lost-frozen-warm-rate', 'prior-quaternion-plane', 'stopped-local-circle'])
     args = parser.parse_args()
     root = args.source_root.resolve()
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -46,7 +46,7 @@ def main():
                               + warm + '\n}\n')
     hashes['RingWarm666.cs'] = hashlib.sha256(bound['RingWarm666.cs'].encode()).hexdigest()
     for name in list(bound):
-        if name.startswith('TownServiceMirror') or name == 'TownServiceMotion.cs':
+        if name.startswith('TownServiceMirror') or name in ('TownServiceMotion.cs', 'TownServiceOfferingPose.cs'):
             bound[name] = bound[name].replace('UnityEngine.Time.unscaledTime', 'global::RingClock666.Read').replace('Time.unscaledTime', 'global::RingClock666.Read')
     fixture = run / 'fixture' 
     shutil.copytree(root / 'scripts/town-service-mirror-runtime', fixture)
@@ -67,7 +67,7 @@ def main():
     anchor = match.group(0)
     entry = '''            if (suite == "native-ring666")
             {
-                var ring = NativeRingShared666(variant == "partitioned" || variant == "anisotropic-partitioned", variant == "reversed" ? -.75f : 1f, variant == "normal-clock", variant == "anisotropic" || variant == "anisotropic-partitioned" || variant == "prior-quaternion-plane");
+                var ring = NativeRingShared666(variant == "partitioned" || variant == "anisotropic-partitioned", variant == "reversed" ? -.75f : 1f, variant == "normal-clock", variant == "anisotropic" || variant == "anisotropic-partitioned" || variant == "prior-quaternion-plane", variant == "irregular" || variant == "native-seat", variant == "reflected", variant == "native-seat");
                 while (ring.MoveNext()) yield return ring.Current;
                 File.WriteAllText(Path.Combine(_output, "assertions.txt"), _assertions + " assertions\\n");
                 yield break;
@@ -83,10 +83,10 @@ def main():
     project_text = project_text.replace('  </ItemGroup>',
         '    <Reference Include="GH.Runtime" HintPath="$(GameManaged)/GH.Runtime.dll" Private="false"/>\n'
         '    <Reference Include="GH.Runtime.FirstPass" HintPath="$(GameManaged)/GH.Runtime.FirstPass.dll" Private="false"/>\n  </ItemGroup>')
-    cases = [('production', None, ''), ('partitioned', None, ''), ('reversed', None, ''), ('normal-clock', None, ''), ('anisotropic', None, ''), ('anisotropic-partitioned', None, '')]
+    cases = [('production', None, ''), ('partitioned', None, ''), ('reversed', None, ''), ('normal-clock', None, ''), ('anisotropic', None, ''), ('anisotropic-partitioned', None, ''), ('irregular', None, ''), ('reflected', None, ''), ('native-seat', None, '')]
     failure = 'all visible native cyan sprites inherit final rendered card yaw and exact native circular rate each render'
     if not args.no_negative_controls:
-        cases.extend([('prior-sampled-ring', 'old-clock', failure), ('lost-frozen-warm-rate', 'lost-warm', failure), ('prior-quaternion-plane', 'old-plane', 'each original native cyan sprite follows the actual rendered card plane')])
+        cases.extend([('prior-sampled-ring', 'old-clock', 'each original native cyan sprite follows the actual rendered card plane'), ('lost-frozen-warm-rate', 'lost-warm', 'each original native cyan sprite follows the actual rendered card plane'), ('prior-quaternion-plane', 'old-plane', 'each original native cyan sprite follows the actual rendered card plane'), ('stopped-local-circle', 'stop-circle', failure)])
     if args.case:
         cases = [case for case in cases if case[0] == args.case]
     manifest = {'suite': 'native-ring666', 'result': str(run / 'results.txt'), 'evidence': str(run), 'cases': []}
@@ -103,6 +103,10 @@ def main():
             source = source.replace('    private static readonly Dictionary<string, NativeRingInfo>',
                                     '    private static bool SkipNativeRing666 = true;\n    private static readonly Dictionary<string, NativeRingInfo>', 1)
             files['TownServiceMirror.Offerings.cs'] = source.replace(point, '        if (SkipNativeRing666 || service != 3) return;', 1)
+        elif mutation == 'stop-circle':
+            point = '_initialized = new bool[_ink.Length]; _rate = info.Rate;'
+            assert files['TownServiceMirror.Offerings.cs'].count(point) == 1
+            files['TownServiceMirror.Offerings.cs'] = files['TownServiceMirror.Offerings.cs'].replace(point, '_initialized = new bool[_ink.Length]; _rate = 0f;', 1)
         elif mutation == 'old-plane':
             original = subprocess.run(['git','show','ce637a1dc3fb609204701c701498a20cd7bdc0ae:src/GloomhavenVR/Net/TownServices/TownServiceMirror.Offerings.cs'],cwd=root,text=True,capture_output=True,check=True).stdout
             old_clock = binder.method(original, 'private sealed class NativeRingClock')
