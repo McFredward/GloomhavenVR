@@ -62,9 +62,17 @@ owner has at most128 origins and128 floors. Same-origin heartbeats preserve
 `ReturnOriginChangedAt`; a changed epoch supplies the source-time floor used by the
 separate offered-root yaw repair.
 
+A newer private preparation can also arrive before its Stock header or ordinary
+cancellation. If old113 and old Stock116 then arrive, the absence of the consumed
+old origin is not proof of a cold observer: the observer has the exact same private
+identity at a different epoch. This case rejects the superseded origin instead of
+activating an old Stock copy. The next actual native flight2 can still rekey that
+current preparation1 original normally.
+
 ## Focused evidence
 
 Production/wire checkpoint: `f3551e26c79edff6705aa67483f2314375c48300`.
+Superseded-preparation guard: `9474fdc93` (source Debug0/0).
 
 - Source Debug build:0 warnings,0 errors (`source-build-final.log`).
 - Wire116:47 assertions (`wire-origin-final.log`). This includes literal legacy
@@ -103,6 +111,14 @@ Production/wire checkpoint: `f3551e26c79edff6705aa67483f2314375c48300`.
   `run-icypzo83`; an ordinary post-end root canceled terminal113 before cold
   original delivery and re-exposed the duplicate at render75.
 
+- `run-rovbnor3`:the final maintained default candidate and all eight compiling
+  seam controls pass. The added no-gap case receives a newly rendered private
+  preparation1 before its matching Stock metadata/cancellation, then delivers an
+  actual delayed old113 revision1. It cannot expose a Stock copy. The same current
+  offered Binding then migrates on its actual native revision2. The old-superseded-
+  epoch control fails at the precise duplicate assertion. `run-qim_fk52` preserves
+  the preceding rejection proof before the subsequent flight2 activation was added.
+
 The maintained full default command is:
 
 ```sh
@@ -122,10 +138,12 @@ activated render (translation below50 micrometers). Before complete authority ar
 checks the coherent prior offered picture. No pose-normalizing observer adjustment
 is used.
 
-The six transition cases are: private withdrawal after flight activation, source
+The six108-render transition cases are: private withdrawal after flight activation, source
 close before cold Stock originals, one dropped initial native event, originals
 cold until after native completion, departure to another private service while
 the Stock return continues, and Stock116 delivered only by a later full repair.
-Their initial activation renders are6,24,12,75,6 and18 respectively. Merchant and
+Their initial activation renders are6,24,12,75,6 and18 respectively. The additional
+no-gap case proves stale revision1 rejection and subsequent actual revision2
+adoption without a private unregister before reoffer. Merchant and
 other unchanged flight scopes are inherited here and rerun by the integrator's
 complete gate; this worker's focused pass is not a new complete-gate pass.

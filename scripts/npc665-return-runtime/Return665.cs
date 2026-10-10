@@ -17,8 +17,9 @@ public static partial class MirrorProgram
         string[] scenarios=variant=="old-retirement"?new[]{"close-before-stock"}:
             variant=="old-terminal-preservation"?new[]{"terminal-cold"}:
             variant=="old-origin-lifetime"?new[]{"late-stock-origin"}:
+            variant=="old-superseded-epoch"?new[]{"no-gap-reoffer"}:
             variant.StartsWith("old-")?new[]{"pre-withdraw"}:
-            new[]{"pre-withdraw", "close-before-stock", "lost-first", "terminal-cold", "new-private-session", "late-stock-origin", "no-flight-stock-close", "no-flight-lost-close", "owner-disconnect"};
+            new[]{"pre-withdraw", "close-before-stock", "lost-first", "terminal-cold", "new-private-session", "late-stock-origin", "no-gap-reoffer", "no-flight-stock-close", "no-flight-lost-close", "owner-disconnect"};
         foreach (string scenario in scenarios)
         { IEnumerator step=OfferedReturn665(scenario);while(step.MoveNext())yield return step.Current; }
     }
@@ -95,6 +96,42 @@ public static partial class MirrorProgram
         }
         native.BeginNative655(owner.TransformPoint(new Vector3(-.5f,1.1f,.2f)),.65f);
         Check(sampler(front,owner,null,out uint flight,out _)&&flight==1,"actual native flight bumps preparation zero to revision one");
+        if(scenario=="no-gap-reoffer") {
+            handoff.Card=null;TownServiceEnhancementHandoff.Returning.Add(new TownServiceEnhancementHandoff.ReturnPresentation
+                {Card=native,Face=front,Body=body,StationRoot=owner,CardId=6651});stockTick.Invoke(null,new object[]{owner});
+            for(int i=0;i<6;i++){FlightTime655.Now+=1f/90f;native.StepNative655();}
+            var delayed=new FastCapture();TownServiceMirror.CaptureMotion((bytes,length,identity)=>delayed.Motion.Add(bytes));
+            Check(delayed.Motion.Any(b=>TownServiceMotionCodec.TryRead(b,b.Length,out var p)&&p!.Entries.Any(e=>e.Kind==10)),
+                "no-gap reoffer retains an actual old native113 event before cancellation");
+            native.Cancel660(new GloomhavenVR.Hands.VRHand());native.Prepare665();
+            card.localPosition=new Vector3(.4f,1.2f,.1f);card.localScale=Vector3.one;
+            TownServiceEnhancementHandoff.Returning.Clear();handoff.Card=native;stockTick.Invoke(null,new object[]{owner});
+            FlightTime655.Now+=1f/90f;FastCapture nextPreparation=CaptureFast();
+            Receive(2,nextPreparation.Artwork.Where(b=>{TownServiceCodec.TryRead(b,b.Length,out var f);return !f!.VisitorStock;}));
+            TownServiceMirror.TickRemote(_=>observer);
+            Check(ReferenceEquals(originalBody,Remote(2,81))&&ReferenceEquals(originalFront,Remote(2,82))&&TownServiceMirror.OriginRevision665(2,82)==1,
+                "no-gap reoffer uses the same private original with the actual new inactive preparation epoch");
+            DeliverMotion(2,delayed);TownServiceMirror.TickRemote(_=>observer);
+            Check(ReferenceEquals(originalBody,Remote(2,81))&&ReferenceEquals(originalFront,Remote(2,82))
+                &&!Remote(stock,stockBody)!.Root.gameObject.activeInHierarchy&&!Remote(stock,stockFront)!.Root.gameObject.activeInHierarchy,
+                "older exact native113 cannot expose a stock copy while a newer private preparation is already rendered");
+            Receive(2,nextPreparation.Artwork);DeliverMotion(2,nextPreparation);TownServiceMirror.TickRemote(_=>observer);
+            native.BeginNative655(owner.TransformPoint(new Vector3(-.5f,1.1f,.2f)),.65f);
+            Check(sampler(front,owner,null,out flight,out _)&&flight==2,"actual reoffered native flight bumps preparation one to revision two");
+            handoff.Card=null;TownServiceEnhancementHandoff.Returning.Add(new TownServiceEnhancementHandoff.ReturnPresentation
+                {Card=native,Face=front,Body=body,StationRoot=owner,CardId=6651});stockTick.Invoke(null,new object[]{owner});
+            TownServiceMirror.UnregisterModule(81);TownServiceMirror.UnregisterModule(82);
+            for(int i=0;i<6;i++){FlightTime655.Now+=1f/90f;native.StepNative655();}
+            TownServiceMirror.CaptureMotion((bytes,length,identity)=>{
+                Check(TownServiceMotionCodec.TryRead(bytes,length,out var packet),"reoffer revision2 native event decodes");
+                TownServiceMirror.ReceiveMotion(2,packet!);
+            });TownServiceMirror.TickRemote(_=>observer);
+            Check(ReferenceEquals(originalBody,Remote(stock,stockBody))&&ReferenceEquals(originalFront,Remote(stock,stockFront))
+                &&TownServiceMirror.VisibleParts665("face.6651|")==1&&TownServiceMirror.VisibleParts665(bodyAddress)==1,
+                "actual next native revision2 transports the current reoffered original without a stock copy");
+            File.AppendAllText(Path.Combine(_output,"scenarios.txt"),"no-gap-reoffer: actual delayed revision1 rejected; same private binding prep1 retained and transported by native flight2\n");
+            yield break;
+        }
         handoff.Card=null;TownServiceEnhancementHandoff.Returning.Add(new TownServiceEnhancementHandoff.ReturnPresentation
         { Card=native,Face=front,Body=body,StationRoot=owner,CardId=6651 });
         stockTick.Invoke(null,new object[]{owner});

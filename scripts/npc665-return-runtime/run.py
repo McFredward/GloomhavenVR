@@ -156,7 +156,7 @@ internal sealed partial class VRCard {
     legacy = 'TownServiceMirror.ReturnOrigins.cs' not in bound
     controls=[('old-migration','migration'),('old-retirement','retirement'),
         ('old-private-suppression','suppression'),('old-terminal-preservation','terminal'),
-        ('old-origin-lifetime','lifetime'),('old-withdraw-floor','floor'),('old-epoch-budget','epoch')]
+        ('old-origin-lifetime','lifetime'),('old-withdraw-floor','floor'),('old-epoch-budget','epoch'),('old-superseded-epoch','superseded')]
     cases=[] if args.only_negative_controls else [('baseline' if legacy else 'native',None)]
     if not legacy and not args.no_negative_controls and args.case is None: cases.extend(controls)
     expected={None:'same visible offered binding starts its independent stock native return' if legacy else '',
@@ -166,7 +166,8 @@ internal sealed partial class VRCard {
         'terminal':'exact pending native terminal rejects changed hand visibility pose canvas revision session and prior activation',
         'lifetime':'same visible offered binding starts its independent stock native return',
         'floor':'late consumed origin cannot rebuild between reoffer census and its new preparation header',
-        'epoch':'reoffer without unregister evicts obsolete origins without disposing current originals'}
+        'epoch':'reoffer without unregister evicts obsolete origins without disposing current originals',
+        'superseded':'older exact native113 cannot expose a stock copy while a newer private preparation is already rendered'}
     def no_op_method(files, filename, signature, result):
         old=loader.method(files[filename],signature)
         files[filename]=files[filename].replace(old,old[:old.index('{')]+'{ return '+result+'; }',1)
@@ -182,6 +183,9 @@ internal sealed partial class VRCard {
         elif mutation=='floor':
             old='if (ReturnOriginFloors.TryGetValue(peer, out var floors)'
             assert files[name].count(old)==1;files[name]=files[name].replace(old,'if (false && ReturnOriginFloors.TryGetValue(peer, out var floors)',1)
+        elif mutation=='superseded':
+            old='if (!current.Transferred && current.Module.Alive && current.Module.LastFrame != null'
+            assert files[name].count(old)==1;files[name]=files[name].replace(old,'if (false && !current.Transferred && current.Module.Alive && current.Module.LastFrame != null',1)
         elif mutation=='epoch':
             files[name]=files[name].replace('foreach (TownCardReturnOrigin obsolete in DeadReturnOrigins) originals.Remove(obsolete);','DeadReturnOrigins.Clear();',1)
             files[name]=files[name].replace('bool obsolete = !original.Transferred && !original.Retired','bool obsolete = false && !original.Transferred && !original.Retired',1)
