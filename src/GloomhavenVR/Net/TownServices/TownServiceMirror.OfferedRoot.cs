@@ -13,7 +13,8 @@ internal static partial class TownServiceMirror
     {
         TownServiceMotionEntry entry = sample.Entry;
         TownServiceFrame? frame = module.LastFrame;
-        if (frame == null || !module.Alive || entry.Kind != 1 || entry.Lane != 0 || entry.Hand != 0
+        if (frame == null || !module.Alive || sample.SampleTime < module.ReturnOriginChangedAt
+            || entry.Kind != 1 || entry.Lane != 0 || entry.Hand != 0
             || !entry.Visible || entry.ParentAlpha <= 0f
             || sample.SampleTime < frame.SampleTime && (!frame.Visible || frame.ParentAlpha != entry.ParentAlpha)
             || frame.PublicCatalog || frame.VisitorStock || entry.PublicClaim != 0

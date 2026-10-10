@@ -30,7 +30,7 @@ internal sealed class TownCardReturnOrigin : IEquatable<TownCardReturnOrigin>
 
 internal static partial class TownServiceCodec
 {
-    internal const byte ReturnOriginRecordId = 116;
+    internal const byte ReturnOriginRecordId = NetProtocol.ExtIdTownCardReturnOrigin;
     private static void WriteReturnOrigin(byte[] packet, ref int at, TownCardReturnOrigin origin)
     {
         packet[at++] = ReturnOriginRecordId; packet[at++] = 20;

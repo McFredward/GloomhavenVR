@@ -38,7 +38,7 @@ def sources(root):
         if path.exists():
             text = path.read_text()
             protocol = (base / "Net/NetProtocol.cs").read_text()
-            for constant in ("MsgTownOriginalReceipt", "ExtIdTownOriginalReceipt", "ExtIdTownOriginalRequest"):
+            for constant in ("MsgTownOriginalReceipt", "ExtIdTownOriginalReceipt", "ExtIdTownOriginalRequest", "ExtIdTownCardReturnOrigin"):
                 if "NetProtocol." + constant not in text: continue
                 value = re.search(r"public const byte " + constant + r" = (\d+);", protocol)
                 if value is None: raise RuntimeError("Town original-receipt protocol binding drift: " + constant)
