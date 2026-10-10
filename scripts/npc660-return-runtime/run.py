@@ -226,7 +226,7 @@ internal sealed class NativeMerchant655 : MonoBehaviour {
         (run / name / 'build.log').write_text(result.stdout + result.stderr)
         if result.returncode: raise SystemExit(result.stdout + result.stderr)
         manifest['cases'].append({'name': name, 'dll': str(run / name / 'bin/Release/netstandard2.1' / (assembly + '.dll')),
-            'expected': ('actual pooled face canonicalization keeps its printed center' if mutation=='layout' else 'unadjusted owner and observer body/front pixels agree' if mutation=='pose' else 'future native rect dependency waits for its complete physical cohort' if mutation=='staging' else 'terminal overlap keeps one native physical picture through exact terminal acknowledgement' if mutation=='ack' else 'terminal original roots retain the exact native final picture') if mutation else ''})
+            'expected': ('actual pooled face canonicalization keeps its printed center' if mutation=='layout' else 'future native rect dependency waits for its complete physical cohort' if mutation=='pose' else 'future native rect dependency waits for its complete physical cohort' if mutation=='staging' else 'terminal overlap keeps one native physical picture through exact terminal acknowledgement' if mutation=='ack' else 'terminal original roots retain the exact native final picture') if mutation else ''})
         receipts[name] = {file: hashlib.sha256(content.encode()).hexdigest() for file, content in files.items()}
     project = run / 'unity'; (project / 'Assets/Editor').mkdir(parents=True); (project / 'Packages').mkdir(); (project / 'ProjectSettings').mkdir()
     shutil.copyfile(fixture / 'Editor/MirrorRunner.cs', project / 'Assets/Editor/MirrorRunner.cs')
