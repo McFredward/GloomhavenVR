@@ -21,8 +21,22 @@ numeric delivery measures0.994s, material rejection1.075s versus1.226s without
 known-repair priority, and deliberate cold numeric delivery1.817s. Full native
 HUD initialization is a declared fixture port. These are desktop source/runtime
 measurements, not universal first-picture bounds or a new headset acceptance.
-Integrated gate evidence is pending below; see [NPC-661-REVIEW.md](NPC-661-REVIEW.md)
-and its separate geometry, merchant and latency reviews.
+Validation is **composed206/206**, not a fresh complete-gate pass: the first full
+205-scope attempt recorded189 passes/16 failures and is retained. Focused repairs
+and final affected checks cover every failed scope plus the new lossless115
+packing scope. Final source16, strict Debug/Release0 warnings/errors and300419
+portable assertions pass. Actual merchant artwork passes6815 assertions,
+2306 width/geometry assertions and five causal controls; native return lifecycle
+passes22174 assertions and nine controls, including cold/lost/future terminal
+delivery. Native capacity passes221 assertions and exact packing1880 assertions.
+The compiled review has10 changed behavior units, five build-only units, three
+added units and no unexplained removal;665/235/4795 surfaces remain unchanged.
+Exact recipes retain the864-byte event budget through additive115; the known-fit
+cohort survives ordinary-tail backoff. Complete prior snapshots and authoritative
+terminals retain coherent geometry without extending active flights or applying
+future layout early. See [NPC-661-REVIEW.md](NPC-661-REVIEW.md) and its geometry,
+merchant, latency, return-lifecycle and return-packing reviews. The real paired
+headset result and universal complete-first-picture latency remain unverified.
 
 **Build660 remote NPC regression repair, 2026-10-09: 1.1.0 development candidate.**
 

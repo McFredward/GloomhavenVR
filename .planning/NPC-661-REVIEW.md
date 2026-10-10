@@ -260,3 +260,102 @@ geometry controls, actual capacity payloads, and integrated merchant/646/motion
 checks. Main-checkout focused receipts preserve the complete205-suite failure,
 its nine successful serial repeats, the initially missing cleanup binding and
 unused-field compile failure, and the final377-assertion receipt lifecycle proof.
+
+## Final bounded return repair and composed validation
+
+Two further sender defects appeared with the complete native canvas recipes.
+Frozen6e needed eleven events for64 members; retaining full geometry with a
+larger fitting prefix still needed ten. Record115 now represents duplicated
+same-packet root/child IEEE bits losslessly, restores the original97/113 bytes
+before normal validation, and leaves98 as an unchanged fallback. The actual Mono
+capacity test completes all64 members in eight events of848,844,851,862,853,862,
+846 and855 bytes. Ordinary-tail backoff also discarded an already proven-fit
+cohort in mixed traffic; retaining that core restores progress without changing
+the existing event/deadline/fairness assertions. Its isolated old-floor control
+fails the original lifetime assertion. See
+[NPC-661-RETURN-PACKING.md](NPC-661-RETURN-PACKING.md) for schema, CRC/bounds,
+literal vectors, byte coverage and peer-build compatibility limits.
+
+The receiver could discard a complete predecessor when a newer partial arrived
+before the one render tick. It now retains at most one immutable complete prior,
+with exact source identities, while the latest assembles. A late authoritative
+terminal also inherited the expired active progress floor: the final native
+root/print errors were25.886mm/63.353mm. Only an exact received terminal starts
+the existing bounded .25s grace at full atomic activation; active flight progress
+and outer stale/session cancellation remain unchanged. A complete future-mapped
+terminal waits with its canvas/rect until the retained source instant. Real
+64-part cold/lost delivery and an actual capped-owner-update hitch reproduce
+both edges. See [NPC-661-RETURN-LIFECYCLE.md](NPC-661-RETURN-LIFECYCLE.md).
+
+Final main-checkout receipts preserve the original failed complete205 run and
+all subsequent failures. `composed-coverage-final.json` verifies206/206 local
+suite IDs against SHA-checked passing logs from that run and explicitly focused
+repairs. This is composed coverage, not a newly green whole local invocation.
+The final production fingerprint is `04a626591` / source tree
+`ff39aa5c5c49d68059198e6e9bf3cc1165e3c6c8`; later checkpoints change only fixtures,
+registration and developer documentation.
+
+The final affected nine-scope run recorded seven passes and two stale controls:
+the historical658 clock lacked the new cohort ABI, and the collapsed-canvas
+mutation still targeted an old indentation after activation moved to a helper.
+Neither a compile failure nor its resulting NullReference is accepted as a causal
+control. The historical clock now retains its exact old behavior with new ABI
+ports that throw if executed in its clock-only scenario. The canvas mutation
+guards each dependency before removing it. Their focused final reruns pass.
+The premature return invocation during a runner merge retained its SyntaxError;
+after resolution the actual native+all-nine-controls run passes normally.
+An initially literal `{output}` argument was also corrected: this runner executes
+literal arguments rather than expanding that token. That proof remains preserved,
+and the final normal evidence-path rerun passes. Assertions/tolerances were not
+relaxed for any of these repairs.
+
+Final integrated focused receipts include:
+
+- `final-composed-affected/results.json`: seven passes/two repaired stale controls;
+  includes geometry,646/655 returns, visitor motion/depth and actual requested
+  original recovery. Geometry retains3115 assertions and seven causal controls.
+- `final-composed-flight-binding/results.json`:658 scope passes coherent,
+  prepared, capacity, native and clock cases plus six source controls. Native
+  print/body asserts8597, capacity221 and slow-clock946.
+- `final-composed-lifecycle-merchant/results.json`: actual merchant passes6815
+  artwork and2306 width/geometry assertions, plus five causal controls; retains
+  the earlier premature return-run failure separately.
+- `final-composed-lifecycle-packing/results.json`: both final scopes pass. Native
+  lifecycle has22174 assertions/nine controls; packing has221 engine and1880 byte
+  assertions with compiled historical-size and old-core-floor controls.
+- `final-composed-source/results.json`:16/16; strict Debug/Release0 warnings/errors;
+  `final-composed-wire.log`:300419 portable assertions. Docs5 pairs/10 files pass;
+  config665/patch235/log4795 surfaces are unchanged. Unchanged asset bundle/mesh
+  checks reuse the previously passing integrated evidence.
+
+The private unmodified guard snapshot and independent compiled review find10
+changed behavioral C# units, five propagated-build units, three new units and
+no removed or unexplained units. Snapshot counts are1249→1252 generated C# files
+including assembly attributes (1248→1251 without that attribute file), not CLR
+metadata type counts. The final late delta is confined to Mirror, Budget, Codec
+and the new protocol constant. Full Mirror contains24 changed/22 added visible
+methods or explicit constructors,25 added fields and the audited initialization;
+Sync changes only its actual `RegisterOfferedPhysical` handoff. Original motion,
+binding neutralization and depth-order units remain compiled-identical to660.
+This combines independently executed gates with the private snapshot; it does
+not claim a new official whole `refactor-guard` invocation.
+
+Packing follow-up evidence is fully verified in
+`delivery-worker/return-packing-followup` (payload90358478 bytes,
+SHA25653c2b8e7b8a5f249d8a5e1a46c6d5f6584560f93e713620b4953db9392bb28a3).
+Return lifecycle evidence is fully verified in
+`merchant-worker/npc661-return-lifecycle-6f418f899-compact.tar.gz`
+(79576711 bytes,37918 files,
+SHA2565ea2ece8597c2e420c74b1191ce3603287b1d3cf3ea01c0eae89313438554f75).
+Earlier failed worker archives remain unchanged and all worktrees are retained.
+The final seven named integration runtime proofs and retained failing/successful
+runner receipts are independently archived in `integration-final-named-evidence`
+(payload121620799 bytes,4865 unique blobs,36244 reconstructed files,
+SHA256dfcd15e724ee37f2538c38d90bf8ffa5b59060e4425a87afb6cd47d69942be7f).
+Full streaming verification checks every source/readback/compiled payload blob;
+engine caches and external symlink traversal are excluded.
+
+No new paired headset footage exists for661. The strict cold1s diagnostic and
+prepared material1s diagnostic remain failures as recorded above. Exact repair
+and queue-progress fixes address reproduced source causes; no universal subsecond
+complete-picture guarantee or hardware success is asserted.
