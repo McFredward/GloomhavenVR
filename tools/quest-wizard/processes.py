@@ -169,12 +169,15 @@ class PlayerBeePlan:
                 index = value.get("index")
                 if type(index) is not int or self.annotations.get(index) != value.get("annotation"): continue
                 done, queued = value.get("processed_node_count"), value.get("number_of_nodes_ever_queued")
-                if type(done) is not int or type(queued) is not int or not self.done <= done <= queued <= self.total: continue
+                if type(done) is not int or type(queued) is not int or not 0 <= done <= queued <= self.total: continue
                 if type(value.get("exitcode")) is not int: continue
                 if value["exitcode"] != 0: self.failed = True
                 if value["exitcode"] == 0 and value.get("annotation", "").startswith("IL2CPP_CodeGen "):
                     self.conversion_done = True
-                self.done = done
+                # Raw stdout may already be ahead of this buffered JSON tail.
+                # Preserve its high counter, but still consume authoritative
+                # per-node success/failure results from the same graph.
+                self.done = max(self.done, done)
         emitted = (self.done, self.failed)
         if emitted == self.last_emitted: return None
         self.last_emitted = emitted

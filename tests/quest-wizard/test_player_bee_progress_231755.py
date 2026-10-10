@@ -158,6 +158,17 @@ class PlayerGraphCounterTests(unittest.TestCase):
         self.assertEqual((busy["done"], busy["total"]), (3, 6))
         self.assertIn("33 s", busy["detail"])
 
+    def test_buffered_node_results_remain_authoritative_when_raw_counter_is_ahead(self):
+        value = self.start()
+        value.parse("[5/5 0s] C_Android_arm64 Library/Bee/Game.o", SOURCE)
+        log(self.project, result(index=1, annotation="IL2CPP_CodeGen Library/Bee/convert.traceevents", done=2))
+        fields = value.poll_player_bee()
+        self.assertEqual((fields[0]["phase"], fields[0]["status"]), ("unity-il2cpp", "complete"))
+        self.assertEqual(fields[1]["done"], 5)
+        log(self.project, result(done=3, code=1), append=True)
+        failed = value.poll_player_bee()[0]
+        self.assertEqual((failed["done"], failed["status"]), (5, "failed"))
+
     def test_invalid_missing_large_or_linked_graph_is_optional_only(self):
         value = parser(); value.parse(BACKEND, SOURCE)
         value.parse("WorkingDir: " + str(self.project), SOURCE)
