@@ -37,7 +37,7 @@
 
 <p align="center">
   <a href="docs/install/INSTALL.md"><b>Install →</b></a> &nbsp;·&nbsp;
-  <a href="docs/install/INSTALL-STEAM-FRAME.md"><b>Install on Steam Frame →</b></a> &nbsp;·&nbsp;
+  <a href="docs/install/INSTALL-STEAM-FRAME.md"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/steam-frame-icon-dark.svg"><img src="docs/img/steam-frame-icon.svg" width="18" height="18" alt=""></picture>&nbsp;<b>Install on Steam Frame →</b></a> &nbsp;·&nbsp;
   <a href="docs/PLAYING.md">Playing &amp; controls</a>
 </p>
 
@@ -136,7 +136,7 @@ something else if you stand around long enough.
 There is one setting for this, with five options. Same table, same scenario in all of them. The two
 rooms above are the ones built for the mod. The other three are the game's own sky, no sky at all,
 and mixed reality. Steam Frame standalone uses native passthrough; PC streaming uses a green key
-with a compatible streaming app. On the Frame, choose **Mixed reality** in **VR Options → World**.
+with a compatible streaming app. On the Frame, choose **Mixed reality** in **VR Options → World & sound**.
 If it is grey, hover over it for guidance on updating SteamVR and the game's Proton version.
 
 <p align="center">

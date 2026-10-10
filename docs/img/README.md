@@ -782,3 +782,19 @@ artwork and alpha remain unchanged. No replacement symbol is drawn.
 
 Regenerate with `python3 docs/img/build-shared-marker.py` when the runtime asset or tint changes.
 The marker identifies shared windows at the top right, below the close button when present.
+
+## Steam Frame install branding
+
+`steam-frame-logo.svg` is Valve's original Steam Frame wordmark, retrieved from
+[the Commons source record](https://commons.wikimedia.org/wiki/File:Steam_Frame_colored_logo.svg)
+([original SVG](https://upload.wikimedia.org/wikipedia/commons/f/f3/Steam_Frame_colored_logo.svg),
+original publisher: KOMODO, artwork: Valve Corporation). The matching device is documented on
+[Valve's Steam Frame page](https://store.steampowered.com/hardware/steamframe). Retrieved 2026-10-10.
+The mark identifies the installation target; it is not a verification badge.
+
+`steam-frame-icon.svg` retains the first two original paths and crops their square glyph to
+`viewBox="0 36.2148 388.317 388.317"`. Both README install links show it at 18 × 18 pixels;
+the Frame installation guides show the complete wordmark at 240 pixels wide.
+The `-dark.svg` variants preserve every path and the original blue, changing only the
+black/dark ink to white. A `picture` selects them for dark themes so the mark remains legible
+on both GitHub backgrounds. The original wordmark file is unchanged.

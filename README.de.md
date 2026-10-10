@@ -37,7 +37,7 @@
 
 <p align="center">
   <a href="docs/install/INSTALL.de.md"><b>Installieren →</b></a> &nbsp;·&nbsp;
-  <a href="docs/install/INSTALL-STEAM-FRAME.de.md"><b>Auf Steam Frame installieren →</b></a> &nbsp;·&nbsp;
+  <a href="docs/install/INSTALL-STEAM-FRAME.de.md"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/steam-frame-icon-dark.svg"><img src="docs/img/steam-frame-icon.svg" width="18" height="18" alt=""></picture>&nbsp;<b>Auf Steam Frame installieren →</b></a> &nbsp;·&nbsp;
   <a href="docs/PLAYING.de.md">Spielablauf &amp; Steuerung</a>
 </p>
 
@@ -139,7 +139,7 @@ Dafür gibt es eine Einstellung mit fünf Möglichkeiten. Derselbe Tisch, dassel
 Die beiden Räume oben sind die, die für die Mod gebaut wurden. Die anderen drei sind der Himmel des
 Spiels, gar kein Himmel und Mixed Reality. Steam Frame standalone nutzt natives Passthrough;
 PC-Streaming nutzt einen Greenscreen mit einer kompatiblen Streaming-App. Auf der Frame wählst du
-**Mixed Reality** unter **VR-Optionen → Welt**. Ist die Option grau, gibt der Mouseover-Hinweis
+**Mixed Reality** unter **VR-Optionen → Umgebung & Ton**. Ist die Option grau, gibt der Mouseover-Hinweis
 Hinweise zum Aktualisieren von SteamVR und der Proton-Version des Spiels.
 
 <p align="center">
