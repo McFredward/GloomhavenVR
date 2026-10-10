@@ -996,8 +996,8 @@ internal sealed class MapLocationInteractor
     /// <summary>
     /// Move the hover, reproducing <c>MapLocationSelector.Update</c>'s transitions exactly: enter
     /// the location and push <c>LocationHover</c> with its payload; leave it and fall back to
-    /// <c>WorldMap</c>. Both halves are guarded — this runs on a scene the game is free to tear
-    /// down under us.
+    /// <c>WorldMap</c> only while the original hover-eligible navigation state still owns input.
+    /// Both halves are guarded — this runs on a scene the game is free to tear down under us.
     /// </summary>
     /// <param name="want">The location to hover, or null to drop the hover.</param>
     /// <param name="why">What moved the hover (log material).</param>
@@ -1890,7 +1890,7 @@ internal sealed class MapLocationInteractor
         if (!Singleton<UINavigation>.IsInitialized)
             return;
         UINavigation nav = Singleton<UINavigation>.Instance;
-        if (nav == null || nav.StateMachine == null)
+        if (nav == null || nav.StateMachine == null || !IsHoverNavigationState(nav.StateMachine.CurrentState))
             return;
         nav.StateMachine.Enter(CampaignMapStateTag.LocationHover, new MapLocationStateData(loc));
     }
@@ -1900,10 +1900,16 @@ internal sealed class MapLocationInteractor
         if (!Singleton<UINavigation>.IsInitialized)
             return;
         UINavigation nav = Singleton<UINavigation>.Instance;
-        if (nav == null || nav.StateMachine == null)
+        if (nav == null || nav.StateMachine == null || !IsHoverNavigationState(nav.StateMachine.CurrentState))
             return;
         nav.StateMachine.Enter(CampaignMapStateTag.WorldMap);
     }
+
+    // Match MapLocationSelector.Update's native admission immediately before Enter.
+    // A story/choice/service can take ownership during pointer dispatch or teardown;
+    // clearing an older icon must not exit that state or release its native input locks.
+    private static bool IsHoverNavigationState(IState? state) =>
+        state is LoadoutState || state is LocationHoverState || state is WorldMapState;
 
     // ---- THE CAPITAL (Gloomhaven) -------------------------------------------------------------
 

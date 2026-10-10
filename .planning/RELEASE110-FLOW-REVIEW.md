@@ -1,8 +1,9 @@
 # Release 1.1.0 flow and presentation review
 
 Review baseline: `dev` `ce637a1dc`, ModBuild 665, compared with release
-`v1.0.8` (`4640fff2f`). This worker reviewed source only and did not modify
-production code or run the complete gate. The review excludes the independent
+`v1.0.8` (`4640fff2f`). The review phase was source-only; the authorized bounded
+repair and its focused evidence follow below. No complete gate was rerun by this
+worker. The review excludes the independent
 NPC-666 offer-guide/hover/ring lane and Quest standalone work.
 
 ## Confirmed finding requiring a bounded repair
@@ -74,6 +75,50 @@ be described as proving the complete cause of those three warnings. A later
 bounded diagnostic can distinguish native pointer failure from navigation
 failure if the warnings persist.
 
+## Authorized repair and focused evidence
+
+The integrator authorized F1 after the combined review phase. Both production
+navigation helpers now read their current state immediately before entering a
+new navigation state and use the original exact `LoadoutState`,
+`LocationHoverState`, or `WorldMapState` predicate. Null/unknown states, absent
+navigation, and protected states cannot be exited by an old VR hover. Native
+pointer enter/exit, preview cleanup, hover feedback, input-adapter disposal and
+laser-mask restoration are unchanged. The existing original map interaction
+mask remains independent of this navigation ownership guard. No new modal
+block, native gameplay action, network message, or modded-peer requirement was
+added.
+
+Focused evidence on this worktree:
+
+- `bash scripts/map-navigation-tests.sh`: **205 assertions passed**; both causal
+  controls removing the hover-entry or world-map-exit gate independently failed
+  their exact ownership assertions. The fixture executes the complete production
+  `SetHover` and `Release` bodies, navigation helpers and predicate, and directly
+  links production `MapInputGate`. It also verifies and executes the original
+  `MapLocationSelector.Update` against the same state inputs. Protected states
+  include story, personal-quest choice/completion, merchant, enchantress card
+  selection/confirmation, temple, encounter, travel, campaign/Guildmaster reward
+  and gold-distribution state categories. Dispatch acquiring a protected state
+  inside a native pointer callback is covered separately.
+- `bash scripts/map-flow-tests.sh`: existing **2,012 assertions passed** and all
+  **nine negative controls rejected**. Existing native mask/click admission,
+  story/loadout curtain, travel fallback, and character-selection scope remain
+  intact. This is the existing focused suite, not a full release gate.
+- Release plugin build with restore: **zero errors and zero warnings**, using
+  the real configured game references. No asset or mesh generation was run.
+- `git diff --check`: clean.
+
+Unity input/rendering, state internals, actual Harmony order, and native network
+delivery are outside this minimal boundary. The regression proves that the
+production adapter does not invoke forbidden navigation transitions; it does
+not prove that the three current log warnings were caused exclusively by F1 or
+that all headset outcomes have already passed. The normal release build verifies
+the predicate's actual game type references.
+
+Recommended integrator-owned suite registration: ID `map-navigation`, command
+`["bash", "scripts/map-navigation-tests.sh"]`, groups `["local", "ci"]`, weight
+`15`. This worker did not change the shared suite manifest.
+
 ## Areas reviewed without another confirmed defect
 
 | Area | Reviewed boundaries and conclusion |
@@ -92,9 +137,8 @@ failure if the warnings persist.
 
 These are source-review conclusions, not claims of successful hardware pictures
 or actual packet delivery. Existing automated coverage was read where relevant;
-it was not repeated here. Any authorized repair will record its own focused
-test scope separately, while the integrator owns release-wide checks and the
-final paired-device outcome.
+only the focused checks listed for F1 were executed. The integrator owns
+release-wide checks and the final paired-device outcome.
 
 ## Review method
 
@@ -104,5 +148,6 @@ source paths against 1.0.8 and inspected the relevant production callers and
 lifetimes. Decompiled original classes from the read-only
 `ressources/GH_Data/Managed/GH.Runtime.dll` with the existing `ilspycmd` tool;
 dummy asset-export classes were not treated as original behavior. Inspected the
-current remote build banner and the map-hover failure context. No game reference
-files, hardware logs, existing worker files, or production code were changed.
+current remote build banner and the map-hover failure context. The review phase
+changed no production code; the later authorized repair is limited to F1. No
+game reference files, hardware logs, or other worker-owned files were changed.
