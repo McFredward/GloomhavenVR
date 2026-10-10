@@ -2581,6 +2581,17 @@
         "local"
       ],
       "weight": 60
+    },
+    {
+      "id": "npc661-return-root-packing",
+      "command": [
+        "python3",
+        "scripts/npc661-return-packing/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 50
     }
   ]
 }
