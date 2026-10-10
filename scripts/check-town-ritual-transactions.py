@@ -440,7 +440,7 @@ def sources(root):
               "NativeTemplates.cs": hashlib.sha256(templates_raw.encode()).hexdigest()}
     for name in ("TownServiceFrame.cs", "TownServiceDelta.cs", "TownRackState.cs", "TownCatalogLayout.cs",
                  "TownCatalogBank.cs", "TownCatalogBank.Headers.cs", "TownServiceCodec.cs",
-                 "TownServiceCodec.OriginalValuePool.cs"):
+                 "TownServiceCodec.OriginalValuePool.cs", "TownServiceCodec.ReturnOrigin.cs"):
         native = (root / "src/GloomhavenVR/Net/TownServices" / name).read_text()
         bound[name] = native
         hashes["Net/TownServices/" + name] = hashlib.sha256(native.encode()).hexdigest()

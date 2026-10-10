@@ -14,6 +14,7 @@ namespace GloomhavenVR.Net
         internal const byte ExtIdTownNativeTemplateState = 105;
         internal const byte ExtIdTownVisibleCensus = 108;
         internal const byte ExtIdTownOriginalValuePool = 110;
+        internal const byte ExtIdTownCardReturnOrigin = 116;
     }
 }
 

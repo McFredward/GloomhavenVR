@@ -21,6 +21,7 @@
     <Compile Include="../../src/GloomhavenVR/Net/TownServices/TownServiceFrame.cs" />
     <Compile Include="../../src/GloomhavenVR/Net/TownServices/TownServiceCodec.cs" />
     <Compile Include="../../src/GloomhavenVR/Net/TownServices/TownServiceCodec.OriginalValuePool.cs" />
+    <Compile Include="../../src/GloomhavenVR/Net/TownServices/TownServiceCodec.ReturnOrigin.cs" />
     <Compile Include="../../src/GloomhavenVR/Net/TownServices/TownServiceDelta.cs" />
     <Compile Include="../../src/GloomhavenVR/Net/TownServices/TownServiceGrantCodec.cs" />
     <Compile Include="../../src/GloomhavenVR/Net/TownServices/TownServiceGrantLedger.cs" />
