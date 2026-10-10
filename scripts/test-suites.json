@@ -2588,9 +2588,7 @@
         "python3",
         "scripts/npc661-return-packing/run.py",
         "--source-root",
-        ".",
-        "--output-dir",
-        "{output}"
+        "."
       ],
       "groups": [
         "local"
