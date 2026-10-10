@@ -60,7 +60,7 @@ optimization or a promise of zero extra CPU/GPU cost.
 
 The existing bounded Debug quality snapshot adds `pillarDistanceLOD`. No new
 normal-log diagnostic stream is introduced. Multiplayer wire layout is unchanged;
-only the standard build handshake advances to662.
+only the standard build handshake advances to663.
 
 ## Validation and remaining hardware scope
 

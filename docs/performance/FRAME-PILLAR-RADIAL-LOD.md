@@ -7,7 +7,7 @@ those originals. Other pillar families retain their existing native rendering.
 The sections below record the Build656 metric correction. The subsequent
 [viewing-radius repair](../../.planning/FRAME-PILLAR-DISTANCE-REVIEW.md) expands
 original pillar detail to the adjustable viewing radius instead of only18cm.
-Build662 supersedes that fixed-radius default with
+Build663 supersedes that fixed-radius default with
 [independent size-relative pillar LOD](../../.planning/FRAME-PILLAR-FIGURE-LOD-REVIEW.md),
 using each pillar's own original geometry and the figure distance rules. The
 manual viewing radius remains available; present figures do not control pillars.
