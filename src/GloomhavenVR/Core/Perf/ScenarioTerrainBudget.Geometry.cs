@@ -57,7 +57,10 @@ internal static partial class ScenarioTerrainBudget
             _proxyRenderer.enabled = false;
         }
         internal float HeadDistance(Vector3 position, Bounds currentBounds)
+            => HeadDistanceAndRadius(position, currentBounds, false, out _);
+        internal float HeadDistanceAndRadius(Vector3 position, Bounds currentBounds, bool measureRadius, out float originalRadius)
         {
+            originalRadius = 0f;
             if (!Pillar) return Vector3.Distance(position, currentBounds.ClosestPoint(position));
             // The Frame pillar report exposed an angle-dependent *distance* before
             // any camera admission: a square world AABB is closer at its corners.
@@ -69,17 +72,28 @@ internal static partial class ScenarioTerrainBudget
             Matrix4x4 native = _sourceTransform.localToWorldMatrix;
             Vector3 y = native.MultiplyVector(Vector3.up);
             float heightScale = y.magnitude;
-            if (heightScale < .0001f) return Vector3.Distance(position, Renderer.bounds.ClosestPoint(position));
+            if (heightScale < .0001f)
+            {
+                // Degenerate native scale keeps the original visibility/distance fallback.
+                // Reuse that one bounds read when a size band is requested as well.
+                Bounds fallback = Renderer.bounds;
+                if (measureRadius) originalRadius = fallback.extents.magnitude;
+                return Vector3.Distance(position, fallback.ClosestPoint(position));
+            }
             Vector3 axis = y / heightScale;
             Vector3 offset = position - native.MultiplyPoint3x4(_originalBounds.center);
             float along = Vector3.Dot(offset, axis);
             Vector3 x = native.MultiplyVector(Vector3.right * _originalBounds.extents.x);
             Vector3 z = native.MultiplyVector(Vector3.forward * _originalBounds.extents.z);
             float xAlong = Vector3.Dot(x, axis), zAlong = Vector3.Dot(z, axis);
-            float vertical = Mathf.Max(0f, Mathf.Abs(along) - heightScale * _originalBounds.extents.y
-                - Mathf.Abs(xAlong) - Mathf.Abs(zAlong));
+            float halfHeight = heightScale * _originalBounds.extents.y + Mathf.Abs(xAlong) + Mathf.Abs(zAlong);
+            float vertical = Mathf.Max(0f, Mathf.Abs(along) - halfHeight);
             x -= axis * xAlong; z -= axis * zAlong;
             float radius = Mathf.Sqrt(Mathf.Max((x + z).sqrMagnitude, (x - z).sqrMagnitude));
+            // The enclosing original cylinder's diagonal is rotation invariant,
+            // uses all original extents and remains conservative under native shear.
+            // Compute it only for the optional independent size policy, never per eye.
+            if (measureRadius) originalRadius = Mathf.Sqrt(radius * radius + halfHeight * halfHeight);
             float radial = Mathf.Max(0f, (offset - axis * along).magnitude - radius);
             return Mathf.Sqrt(radial * radial + vertical * vertical);
         }
