@@ -1,5 +1,10 @@
 # Actual Editor ownership after capture232406
 
+Follow-up055813 classifies13 LightingData changes within this review's size-only
+census. That census did not establish that every changed original asset was an
+SDK-pointer rewrite. See the correction and targeted continuation in
+[QUEST-TARGETED-REPAIR-055813-20261010.md](QUEST-TARGETED-REPAIR-055813-20261010.md).
+
 Quest remains on `feature/quest3-standalone`. This repair changes retained-output
 qualification; it does not rebuild an APK locally or restart original conversion.
 
@@ -34,8 +39,8 @@ Windows; the producer structure is the proof. Its35258 serialized originals have
 356 changed file sizes, all Prefabs, assets or scenes. This metadata census reads
 no asset payloads and does not prove same-size files unchanged. All75 original
 DLL metas, the other three small retained UI/Blur Shaders and all six Shader metas
-match their original source receipts. No additional immutable-output drift was
-observed within this bounded independent audit.
+match their original source receipts. The original size-only census did not
+classify the13 later-confirmed LightingData binary transformations.
 
 ## Qualification and build-settings handoff
 

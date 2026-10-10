@@ -12,7 +12,6 @@ the replacement and its durable transaction; no converter or Unity job runs here
 from __future__ import annotations
 
 import hashlib
-import importlib.util
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -21,6 +20,9 @@ import stat
 import zipfile
 
 from storage import BuildError, _ordinary_owned, canonical, write_json
+import import_workspace
+import script_remap_resume
+import shaders
 
 CASE_RECEIPT = "QuestStartupEvidence/case-path-migration.json"
 JSON_LIMIT = 16 * 1024 * 1024
@@ -45,11 +47,11 @@ def _stamp(path):
 
 
 def _helper(name):
-    spec = importlib.util.spec_from_file_location("quest_repair_" + name,
-                                                Path(__file__).with_name(name + ".py"))
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    # The isolated Wizard loader removes temporary import aliases after loading
+    # the Builder. Capture these already-registered local dependency objects now;
+    # later repair callbacks must not re-import an absent/global storage module.
+    return {"import_workspace": import_workspace, "script_remap_resume": script_remap_resume,
+            "shaders": shaders}[name]
 
 
 class Provider:

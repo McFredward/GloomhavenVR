@@ -657,14 +657,14 @@ class InstallerTests(unittest.TestCase):
             self.assertTrue(all(name not in sys.modules for name in names))
 
     def test_builder_import_loads_provenance_in_fresh_isolated_process(self):
-        script = """
+        script = r"""
 from pathlib import Path
 import sys
 import types
 sys.path.insert(0, sys.argv[1])
 import installer
 names = ("profile", "storage", "script_order", "media", "shaders", "dlcs", "audio",
-         "sprites", "ui_assets", "staging_resume", "full_assets", "campaign", "mod_assets", "build_provenance", "import_workspace", "native_plugins", "script_remap_resume", "editor_overlay", "preparation_identity", "preparation_metadata", "startup")
+         "sprites", "ui_assets", "staging_resume", "full_assets", "campaign", "mod_assets", "build_provenance", "import_workspace", "native_plugins", "script_remap_resume", "editor_overlay", "preparation_identity", "preparation_metadata", "preparation_repair", "project_access", "startup")
 aliases = names + tuple("_ghvr_wireless_" + name for name in (*names, "builder"))
 assert all(name not in sys.modules for name in aliases), "test dependencies already loaded"
 if sys.argv[2] == "preexisting":
@@ -695,6 +695,36 @@ assert Path(module.prepare_resume.script_remap_resume.__file__) == installer.REP
 assert sys.path == paths, "builder loader changed import search paths"
 for name, value in previous.items():
     assert sys.modules.get(name, missing) is value, "dependency alias was not restored: " + name
+# The Wizard invokes repairs after temporary dependency aliases have been
+# restored. Exercise a real dependent recipe here, including absent aliases
+# and foreign application modules; merely importing Provider missed this bug.
+import hashlib
+import tempfile
+assert module.preparation_repair._helper("import_workspace") is module.import_workspace
+assert Path(module.preparation_repair._helper("shaders").__file__) == installer.REPO / "tools/quest-builder/shaders.py"
+assert module.preparation_repair._helper("shaders").BuildError is module.BuildError
+assert module.preparation_repair._helper("script_remap_resume") is module.prepare_resume.script_remap_resume
+with tempfile.TemporaryDirectory(prefix="isolated repair ") as temporary:
+    output = Path(temporary)
+    project, original, source = (output / name for name in ("project", "original", "source"))
+    for path in (project, original, source): path.mkdir()
+    relative = "ProjectSettings/ProjectSettings.asset"
+    settings = (b'%YAML 1.1\n%TAG !u! tag:unity3d.com,2011:\n--- !u!129 &1\nPlayerSettings:\n'
+                b'  serializedVersion: 23\n  m_ActiveColorSpace: 0\n'
+                b'  m_BuildTargetGraphicsAPIs: []\n  activeInputHandler: 0\n')
+    path = original / relative
+    path.parent.mkdir(parents=True)
+    path.write_bytes(settings)
+    expected = module.import_workspace.patch_settings(settings, "game")
+    row = {"path": relative, "size": len(expected), "sha256": hashlib.sha256(expected).hexdigest()}
+    stage = output / "one-settings.part"
+    provider = module.preparation_repair.Provider(project, original, source, output, {"inputKey": "a" * 64})
+    result = provider(relative, row, "final-settings", stage)
+    assert result["recipe"] == "audited-android-bootstrap-settings"
+    assert stage.read_bytes() == expected
+    assert path.read_bytes() == settings
+for name, value in previous.items():
+    assert sys.modules.get(name, missing) is value, "repair changed a dependency alias: " + name
 print("isolated builder provenance and module restoration passed")
 """
         for state in ("absent", "preexisting", "stdlib"):

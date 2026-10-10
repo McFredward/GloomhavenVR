@@ -218,7 +218,7 @@ OBSERVATION_EDITOR_IMPORT_PREVIOUS = {
 # Capture232406 uses the preceding complete reader profile. Keep it independently
 # qualified when repairing actual producer ownership and mutable Editor settings;
 # the original converters and their output bytes remain unchanged.
-OBSERVATION_EDITOR_OVERLAY = {
+OBSERVATION_EDITOR_OWNERS_PREVIOUS = {
     **OBSERVATION_EDITOR_IMPORT_PREVIOUS,
     'tools/quest-builder/prepare_resume.py': {'path': 'tools/quest-builder/prepare_resume.py',
                                            'size': 55825,
@@ -226,6 +226,23 @@ OBSERVATION_EDITOR_OVERLAY = {
     'tools/quest-builder/script_remap_resume.py': {'path': 'tools/quest-builder/script_remap_resume.py',
                                                 'size': 11422,
                                                 'sha256': '2df458731fe9f50ec17df9d420506dc21d98b89fbead24b2b1356dbf5b7788e0'},
+}
+
+# Capture055813 reaches the next actual Editor-owned asset: scene LightingData
+# serialized from recovered YAML into binary. File reconstruction restores only
+# the exact recorded bytes; original converters and closed owners are unchanged.
+# Keep the preceding whole reader profile independently qualified as well.
+OBSERVATION_EDITOR_OVERLAY = {
+    **OBSERVATION_EDITOR_OWNERS_PREVIOUS,
+    'tools/quest-builder/prepare_resume.py': {'path': 'tools/quest-builder/prepare_resume.py',
+                                           'size': 81436,
+                                           'sha256': '41a873e33daeb1a659c3cfede143106149381c94c04035b3af815807edb8542e'},
+    'tools/quest-builder/preparation_repair.py': {'path': 'tools/quest-builder/preparation_repair.py',
+                                               'size': 29301,
+                                               'sha256': '66591585acb4ae75f87d9d2d77b7609af998754841f16924d3267222261bcb07'},
+    'tools/quest-builder/project_access.py': {'path': 'tools/quest-builder/project_access.py',
+                                           'size': 3747,
+                                           'sha256': '813d2724ed401e87b897b2949482222b6a4fb7ced7a4133c977eb011f48425b6'},
 }
 
 OBSERVATION_PROFILES = (OBSERVATION_BYTE_WITNESSES, OBSERVATION_FIXED,
@@ -279,12 +296,15 @@ def preparation_source_rows(rows):
         current.setdefault(row["path"], []).append(row)
     profile = next((profile for profile in (OBSERVATION_EDITOR_OVERLAY_PREVIOUS,
                                            OBSERVATION_EDITOR_IMPORT_PREVIOUS,
+                                           OBSERVATION_EDITOR_OWNERS_PREVIOUS,
                                            OBSERVATION_EDITOR_OVERLAY)
                     if all(current.get(name) == [fixed] for name, fixed in profile.items())), None)
     if profile is not None:
         excluded = {"tools/quest-builder/editor_overlay.py"}
         if "tools/quest-builder/script_remap_resume.py" in profile:
             excluded.add("tools/quest-builder/script_remap_resume.py")
+        for name in ("tools/quest-builder/preparation_repair.py", "tools/quest-builder/project_access.py"):
+            if name in profile: excluded.add(name)
         rows = [OBSERVATION_COMPLETED_METADATA.get(row["path"], row) for row in rows
                 if row["path"] not in excluded]
     by_path = {}

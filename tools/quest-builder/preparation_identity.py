@@ -134,6 +134,16 @@ BUILDER_UNITY_OBSERVER_AST = (
     "cd66aec43971e36bdabaebc9b7afd8b1adc74704ef1e7696ecc6445ac358775e",
     "6905242806bb695c86e84be373112f21804c425afa710398cb40b665f4d608d1",
 )
+# The reviewed repair seam restores only a damaged, already-recorded file to
+# its exact closed byte contract. Unity access waits do not produce assets.
+# Preserve completed producers for these exact complete orchestration trees;
+# every helper byte is independently qualified by the whole source profile.
+BUILDER_TARGETED_REPAIR_AST = {
+    False: ("9248a3e63cdef1746f02710b173620538cbcd08ffbb1d59ae9ece83cf33de74d",
+            "6905242806bb695c86e84be373112f21804c425afa710398cb40b665f4d608d1"),
+    True: ("dfce486b9394d37eda65e23dde1fee1aa7e1fee68e0d4bc65388b76825094161",
+           "cc09e2c539f383d447f494d386bd5fa6dd8df9989a964543d98c33f4bea6385f"),
+}
 
 
 # Exact producer profiles reviewed against the original movie/audio outputs.
@@ -340,6 +350,8 @@ def builder_producer_digest(raw, *, original_prefix=False):
     result = hashlib.sha256(ast.dump(tree, include_attributes=False).encode("utf-8")).hexdigest()
     if not original_prefix and result == BUILDER_UNITY_OBSERVER_AST[0]:
         result = BUILDER_UNITY_OBSERVER_AST[1]
+    observed, preceding = BUILDER_TARGETED_REPAIR_AST[bool(original_prefix)]
+    if result == observed: result = preceding
     observed, preceding = BUILDER_PROGRESS_AST[bool(original_prefix)]
     return preceding if result == observed else result
 

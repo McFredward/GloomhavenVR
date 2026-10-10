@@ -1,5 +1,21 @@
 # State — where the project stands
 
+**Quest file-level recovery, 2026-10-10 (Builder; Runtime661).**
+
+Capture055813 identifies 0db/661 and stops before another Unity launch on original
+Bootstrap LightingData under its actual `script-orders` owner. The independent
+imported-project comparison classifies 13 scene LightingData transformations that
+the previous size-only census did not explain. Remaining damaged outputs now
+reconstruct individually from owned sources, preserving closed phases and Unity
+Library; missing original GUID companions and interrupted publications retain
+their bounded file transactions. The UI exposes repair counts and waits for an
+open Editor to close. Source compatibility keeps the completed prior work.
+267 focused Python cases pass; one native Windows lock case is skipped on Linux.
+The independent production proof repairs all 13 real LightingData pairs and
+retains 27 owners, Library, actual SDK bindings and existing Shader upgrades.
+Whole Windows APK completion remains a hardware/build acceptance gate. Details:
+[QUEST-TARGETED-REPAIR-055813-20261010.md](QUEST-TARGETED-REPAIR-055813-20261010.md).
+
 **Quest delivery uses published dev661, 2026-10-10 (Builder).**
 
 The Quest feature integrates the completed published
@@ -23,8 +39,8 @@ final `script-orders` owner through inverse complete original-byte proof. The
 single PlayerSettings file has an explicit later Editor handoff, bound to its
 unchanged Android bootstrap receipt, exact Linear/Vulkan fields and a durable
 accepted-row chain. All27 preparation owners and Unity Library remain retained;
-warm resumes add no payload reads. Independent bounded audit found no further
-observed immutable drift.190 focused Python cases and native combined/cut/causal
+warm resumes add no payload reads. The later055813 review classifies13 additional
+LightingData changes within the earlier size-only census.190 focused Python cases and native combined/cut/causal
 proof pass; whole Windows APK acceptance remains pending. Details and prior
 fixture correction: [QUEST-EDITOR-CONTRACTS-232406-20261010.md](QUEST-EDITOR-CONTRACTS-232406-20261010.md).
 

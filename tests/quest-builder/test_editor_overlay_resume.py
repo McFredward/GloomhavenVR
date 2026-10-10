@@ -118,15 +118,25 @@ class EditorOverlayTests(unittest.TestCase):
             self.f.run_prepare()
         self.assert_retained()
 
-    def test_changed_last_script_refuses_the_entire_write_set_before_json_or_editor_publication(self):
+    def test_changed_last_script_is_reconstructed_before_complete_reviewed_editor_update(self):
         last = self.project / overlay.TARGETS[-1][len(overlay.PREFIX):]
         last.write_bytes(b"unknown project Editor bytes")
-        before = {name: (self.project / name).read_bytes() for name in metadata.PATHS}
-        with patch.object(overlay, "publish", side_effect=AssertionError("No partial write is authorized")):
-            with self.assertRaisesRegex(storage.BuildError, "Retained preparation output changed"):
-                self.f.run_prepare()
-        self.assertEqual(before, {name: (self.project / name).read_bytes() for name in metadata.PATHS})
-        self.assertEqual(last.read_bytes(), b"unknown project Editor bytes")
+        previous = self.f.output / "inputs/mod" / self.fixture.before["mod"]["key"] / overlay.TARGETS[-1]
+        immutable = previous.read_bytes()
+        actual = overlay.publish
+        published = []
+        def repaired_before_overlay(path, raw):
+            if not published:
+                self.assertEqual(last.read_bytes(), immutable)
+            published.append(Path(path))
+            actual(path, raw)
+        with patch.object(overlay, "publish", repaired_before_overlay), patch.object(
+                builder.prepare_resume, "copy_changed", side_effect=AssertionError("No complete project repeat")):
+            self.f.run_prepare()
+        self.assert_retained()
+        self.assertEqual(previous.read_bytes(), immutable)
+        self.assertEqual(json.loads(self.journal.read_text())["fileRepairs"]["count"], 1)
+        self.assertEqual(len(published), len(overlay.TARGETS))
 
     def test_unknown_editor_source_game_template_or_earlier_consumer_refuses_reuse(self):
         baseline = copy.deepcopy(self.current)

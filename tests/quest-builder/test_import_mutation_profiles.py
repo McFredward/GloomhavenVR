@@ -24,7 +24,8 @@ class ImportMutationProfileTests(unittest.TestCase):
         previous = recovery_resume.OBSERVATION_EDITOR_OVERLAY_PREVIOUS
         current = recovery_resume.OBSERVATION_EDITOR_OVERLAY
         canonical = recovery_resume.preparation_source_rows(list(previous.values()))
-        for profile in (recovery_resume.OBSERVATION_EDITOR_IMPORT_PREVIOUS, current):
+        for profile in (recovery_resume.OBSERVATION_EDITOR_IMPORT_PREVIOUS,
+                        recovery_resume.OBSERVATION_EDITOR_OWNERS_PREVIOUS, current):
             self.assertEqual(canonical, recovery_resume.preparation_source_rows(list(profile.values())))
         for name in current:
             with self.subTest(changed=name):
@@ -51,6 +52,32 @@ class ImportMutationProfileTests(unittest.TestCase):
         rows = list(recovery_resume.OBSERVATION_EDITOR_OVERLAY_PREVIOUS.values())
         extra = {"path": "tools/quest-builder/script_remap_resume.py", "size": 1, "sha256": "f" * 64}
         self.assertIn(extra, recovery_resume.preparation_source_rows([*rows, extra]))
+
+    def test_preceding_profiles_cannot_hide_added_repair_or_editor_access_helpers(self):
+        for profile in (recovery_resume.OBSERVATION_EDITOR_OVERLAY_PREVIOUS,
+                        recovery_resume.OBSERVATION_EDITOR_IMPORT_PREVIOUS,
+                        recovery_resume.OBSERVATION_EDITOR_OWNERS_PREVIOUS):
+            for name in ("preparation_repair", "project_access"):
+                with self.subTest(profile=profile, helper=name):
+                    extra = {"path": "tools/quest-builder/" + name + ".py",
+                             "size": 1, "sha256": "f" * 64}
+                    self.assertIn(extra, recovery_resume.preparation_source_rows([*profile.values(), extra]))
+
+    def test_only_exact_reviewed_builder_repair_orchestration_keeps_producer_identity(self):
+        from unittest.mock import patch
+        raw = (ROOT / "tools/quest-builder/builder.py").read_bytes()
+        for prefix in (False, True):
+            observed, previous = preparation_identity.BUILDER_TARGETED_REPAIR_AST[prefix]
+            with patch.dict(preparation_identity.BUILDER_TARGETED_REPAIR_AST,
+                            {prefix: ("f" * 64, previous)}):
+                self.assertEqual(preparation_identity.builder_producer_digest(raw, original_prefix=prefix), observed)
+            self.assertEqual(preparation_identity.builder_producer_digest(raw, original_prefix=prefix), previous)
+        changed = raw.replace(b'repair_guard=lambda: project_access.wait_for_editor(project, build_progress)',
+                              b'repair_guard=lambda: project_access.wait_for_editor(project, None)')
+        self.assertNotEqual(changed, raw)
+        for prefix in (False, True):
+            previous = preparation_identity.BUILDER_TARGETED_REPAIR_AST[prefix][1]
+            self.assertNotEqual(preparation_identity.builder_producer_digest(changed, original_prefix=prefix), previous)
 
     def test_both_complete_late_editor_profiles_have_the_same_closed_owner_scope(self):
         canonical = [pair[0] for pair in editor_overlay.REVIEWED.values()]

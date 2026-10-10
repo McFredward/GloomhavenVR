@@ -66,6 +66,17 @@ ordinary mod edits rebuild their affected project/integration/player outputs.
 Failed stages have no success receipt. Completed stage outputs are hash-verified
 before reuse; partially written snapshots are discarded atomically.
 
+Retained preparation uses unchanged file witnesses for fast reuse. Damaged or
+missing files are restored individually from immutable recovered assets, frozen
+mod sources or existing conversion outputs, with complete recorded byte proof.
+Original GUID sidecars and Unity `Library` are retained. Interrupted repairs
+resume their own file transaction without reopening completed preparation phases.
+This includes scene LightingData rewritten by the Editor from YAML to binary.
+If the exact project is open in Unity, the Builder waits visibly until it closes
+and then continues automatically. Support exports include bounded repair history;
+missing reconstruction sources are reported specifically rather than causing an
+automatic whole-project reset. Details are recorded in the developer repair notes.
+
 XR compilation references use a recipe/compiler/original-reference cache shared
 across Wizard source releases. They do not invalidate the already converted
 original assets. Native compilation uses process-local line-table debug metadata

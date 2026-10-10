@@ -165,7 +165,13 @@ def preparation_receipt_stats(build_root):
                            recipe=value.get('recipe') if type(value.get('recipe')) is int else None,
                            completedCount=len(steps) if isinstance(steps, list) else None,
                            completed=[checkpoint(step) for step in steps[:128]] if isinstance(steps, list) else [],
-                           metadataRefreshPending=ordinary(folder / 'metadata-refresh.json').is_file())
+                           metadataRefreshPending=ordinary(folder / 'metadata-refresh.json').is_file(),
+                           fileRepairPending=ordinary(folder / 'repair.json').is_file())
+                repairs = value.get('fileRepairs')
+                if isinstance(repairs, dict):
+                    recent = repairs.get('recent', [])
+                    row['fileRepairs'] = safe_json({'count': repairs.get('count'),
+                                                  'recent': recent[-32:] if isinstance(recent, list) else []})
                 pending = value.get('pending')
                 row['pending'] = checkpoint(pending) if pending is not None else None
         except (OSError, ValueError, BuildError):

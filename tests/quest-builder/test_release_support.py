@@ -217,6 +217,24 @@ class SupportTests(unittest.TestCase):
         with (cache / ('a' * 64) / 'journal.json').open('wb') as stream:
             stream.truncate(support.MAX_PREPARATION_JOURNAL_BYTES + 1)
         self.assertEqual(support.preparation_receipt_stats(self.root / 'build')[0]['journalStatus'], 'unreadable-or-oversized')
+    def test_targeted_repairs_export_bounded_history_and_pending_state(self):
+        key = 'a' * 64
+        folder = self.root / 'build/cache/prepare-resume' / key
+        history = [{'path': 'Assets/Scenes/Scene' + str(index) + '/LightingData.asset',
+                    'owner': 'script-orders', 'sha256': 'b' * 64,
+                    'recipe': 'retained-original-recovery'} for index in range(40)]
+        value = {'schema': 1, 'owner': 'Quest preparation substage journal',
+                 'project': 'projects/' + key, 'inputKey': 'c' * 64, 'recipe': 1, 'target': 'game',
+                 'steps': [], 'pending': None, 'fileRepairs': {'count': 40, 'recent': history}}
+        write_json(folder / 'journal.json', value)
+        write_json(folder / 'repair.json', {'private': 'PRIVATE TRANSACTION DATA'})
+        before = (folder / 'journal.json').read_bytes()
+        _, files = self.export()
+        row = json.loads(files['diagnostic.json'])['preparationReceipts'][0]
+        self.assertEqual(row['fileRepairs'], {'count': 40, 'recent': history[-32:]})
+        self.assertTrue(row['fileRepairPending'])
+        self.assertNotIn('PRIVATE TRANSACTION DATA', '\n'.join(files.values()))
+        self.assertEqual((folder / 'journal.json').read_bytes(), before)
     def test_large_completed_preparation_journal_exports_only_compact_frontier(self):
         key = 'a' * 64
         folder = self.root / 'build/cache/prepare-resume' / key; folder.mkdir(parents=True)

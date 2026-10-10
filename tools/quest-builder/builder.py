@@ -63,6 +63,8 @@ build_progress = _local_helper("progress")
 recovery_resume = _local_helper("recovery_resume")
 prepare_resume = _local_helper("prepare_resume")
 preparation_identity = _local_helper("preparation_identity")
+preparation_repair = _local_helper("preparation_repair")
+project_access = _local_helper("project_access")
 native_admission = _local_helper("native_admission")
 _release = _local_helper("release") if Path(__file__).with_name("release.py").is_file() else None
 apk_updates = _local_helper("apk_update")
@@ -382,6 +384,7 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path, *, conve
     stages = Stages(output)
     recovered = None
     recovered_copy_count = None
+    recovered_files = (inputs.get("campaignProject") or inputs.get("startupProject") or {}).get("files")
     def conversion_environment():
         nonlocal conversion_python
         if conversion_python is None:
@@ -451,6 +454,11 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path, *, conve
         copy_root = recovered.relative_to(output).as_posix() + "/"
         recovered_copy_count = sum(row["path"].startswith(copy_root) and not any(part in ("Library", "Temp", "Logs", ".git", ".snapshot.json")
                                    for part in Path(row["path"][len(copy_root):]).parts) for row in recovered_receipt["outputs"])
+        # This already-qualified source inventory supplies exact original GUID
+        # sidecar proofs when a generated asset/directory needs targeted repair.
+        # It neither reopens the recovery files nor owns new project outputs.
+        recovered_files = [{**row, "path": row["path"][len(copy_root):]}
+                           for row in recovered_receipt["outputs"] if row["path"].startswith(copy_root)]
         audit = recovered_receipt["details"]["report"]
         readiness = audit.get("readiness", {})
         if readiness.get("originalSceneClosureStaged") is not True or readiness.get("fullOriginalCatalogRecovered") is not True:
@@ -465,6 +473,7 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path, *, conve
     key = value_hash({"input": inputs["inputKey"], "recipe": RECIPE})
     project = output / "projects" / (import_workspace.workspace_key(inputs, args.target) if args.target == "game" else key)
 
+    project_access.wait_for_editor(project, build_progress)
     restore_project_library(output, project, inputs["inputKey"])
     recover_project_content(output, project, inputs["inputKey"])
     stages = Stages(output)
@@ -852,7 +861,10 @@ def prepare(args, inputs: dict, output: Path, source: Path, game: Path, *, conve
         resume = prepare_resume.Preparation(output, project, input_key=inputs["inputKey"], target=args.target,
                                            recipe=RECIPE, source_files=sources, progress=build_progress, reset=reset,
                                            content_proofs=content_proofs, compatible_input_key=prior_preparation_key,
-                                           current_inputs=inputs)
+                                           current_inputs=inputs,
+                                           repair_provider=preparation_repair.Provider(project, recovered, source, output, inputs, args.target,
+                                                                                     original_files=recovered_files),
+                                           repair_guard=lambda: project_access.wait_for_editor(project, build_progress))
         try:
             result = generate_files(resume)
             if args.target in ("startup", "game"): publish_project_content(output, project, inputs["inputKey"])
@@ -1691,6 +1703,7 @@ def bind_startup_package_apis(args, output: Path, source: Path, project: Path,
     # before this SDK method runs. Preserve the cursor and use the same real
     # editor graphics host as the complete Campaign player build.
     build_progress.operation("unity-import", detail="Importing the retained Unity project and compiling Android package SDK references")
+    project_access.wait_for_editor(project, build_progress)
     command(unity_launcher(tools["editor"], graphics=args.target == "game") + ["-quit", "-projectPath", str(project),
              "-buildTarget", "Android", "-executeMethod", "GloomhavenVR.Quest.Editor.QuestBuild.CompileStartupSdk", "-logFile",
              str(output / "logs" / ("package-import-" + build_key[:12] + ".log"))],
