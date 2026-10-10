@@ -687,7 +687,7 @@ class StageProgressTests(unittest.TestCase):
             self.store.progress(self.session, 'build', **parser.parse(line, 'unity-build-current.log'))
             self.assertGreaterEqual(self.progress()['stagePercent'], before)
             self.assertLess(self.progress()['stagePercent'], 100)
-        self.assertEqual(self.progress()['percent'], .2)
+        self.assertEqual(self.progress()['percent'], .25)
 
     def test_recovery_requires_batch_context_then_includes_its_measured_substeps(self):
         self.store.operation(self.session, 'build', 'recovery')

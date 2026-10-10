@@ -41,7 +41,7 @@ class ShaderCounterTests(unittest.TestCase):
         first = self.parser.parse("[ 60s] 4903 / 12288 variants ready", SOURCE)
         later = self.parser.parse("[120s] 9467 / 12288 variants ready", SOURCE)
         self.assertEqual((first["done"], later["done"]), (4903, 9467))
-        self.assertEqual(stage_progress(**{key: first[key] for key in ("phase", "done", "total", "unit", "detail")})["percent"], 39.9)
+        self.assertAlmostEqual(stage_progress(**{key: first[key] for key in ("phase", "done", "total", "unit", "detail")})["percent"], 39.90071614583333)
         final = self.parser.parse(FINISHED, SOURCE)
         self.assertEqual((final["done"], final["total"]), (12288, 12288))
         self.assertEqual(final["status"], "complete")

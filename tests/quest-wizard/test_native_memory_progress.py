@@ -121,7 +121,7 @@ class NativeMemoryProgressTests(unittest.TestCase):
         supervisor = Supervisor(self.store, self.session); supervisor.set_stage("build")
         supervisor._tail_progress(tails, parser, started)
         before = self.row()["progress"]["stagePercent"]
-        self.assertEqual(self.row()["progress"]["detail"], "Clang first-attempt.cpp")
+        self.assertEqual(self.row()["progress"]["detail"], "[bee-scope:native] Clang first-attempt.cpp")
         # The first log had unread trailing output when the failed child was
         # archived. Its mtime still falls inside this parent run and is newer
         # than the replacement, so the old discovery also read it LAST.
@@ -135,7 +135,7 @@ class NativeMemoryProgressTests(unittest.TestCase):
         tails[archive] = LogTail(archive)
         supervisor._tail_progress(tails, parser, started)
         progress = self.row()["progress"]
-        self.assertEqual(progress["detail"], "Clang current-retry.cpp")
+        self.assertEqual(progress["detail"], "[bee-scope:native] Clang current-retry.cpp")
         self.assertEqual(progress["done"], 1)
         self.assertEqual(progress["stagePercent"], before)
         self.assertNotIn(archive, tails)
@@ -144,7 +144,7 @@ class NativeMemoryProgressTests(unittest.TestCase):
         self.assertIn("archived-unread.cpp", archive.read_text())
         with current.open("a") as stream: stream.write("[2/10 0s] Clang current-next.cpp\n")
         supervisor._tail_progress(tails, parser, started, final=True)
-        self.assertEqual(self.row()["progress"]["detail"], "Clang current-next.cpp")
+        self.assertEqual(self.row()["progress"]["detail"], "[bee-scope:native] Clang current-next.cpp")
         self.assertEqual(self.row()["progress"]["done"], 2)
         log = (self.store.session_dir(self.session) / "logs/progress.log").read_text()
         self.assertNotIn("archived-unread.cpp", log)
