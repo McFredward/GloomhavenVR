@@ -211,6 +211,11 @@ internal static partial class TownServiceMirror
     {
         TownServiceMotionEntry header = assembly.Header;
         if (!CompleteReturnPayload(assembly)) return false;
+        // A faster later transport can finish a terminal snapshot before its
+        // retained source-to-observer instant. Keep the prior physical picture,
+        // including its canvas recipe, until the whole receipt is due together.
+        assembly.Clock.Current(Time.unscaledTime, out _);
+        if (assembly.Clock.CurrentSampleTime < header.ReturnSampleTime) return false;
         for (int i = 0; i < header.ReturnMembers.Length; i++)
             if (!modules.TryGetValue(header.ReturnMembers[i], out RemoteModule? module)
                 || !module.Alive || module.LastFrame == null || module.LastFrame.Structure != header.ReturnStructures[i]
