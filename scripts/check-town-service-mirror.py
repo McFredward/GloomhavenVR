@@ -32,7 +32,8 @@ def sources(root):
         bound[path.name] = path.read_text()
     for name in ("TownServiceOriginalReceiptCodec.cs", "TownServiceOriginalRequestCodec.cs",
                  "TownServiceMirror.OriginalReceipts.cs", "TownServiceMirror.OriginalRequests.cs",
-                 "TownServiceMirror.NativeVisibility.cs"):
+                 "TownServiceMirror.NativeVisibility.cs", "TownServiceMirror.OfferedRoot.cs",
+                 "TownServiceCodec.ReturnOrigin.cs", "TownServiceMirror.ReturnOrigins.cs"):
         path = base / "Net/TownServices" / name
         if path.exists():
             text = path.read_text()

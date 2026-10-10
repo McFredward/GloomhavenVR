@@ -27,6 +27,8 @@ namespace GloomhavenVR.WorldUI
     internal sealed class UIPartyCharacterEnhancementAbilityCardsDisplay : MonoBehaviour { internal readonly List<UIEnhanceCardSlot> slotsPool = new(); }
     internal sealed class UIEnhanceCardPoint : MonoBehaviour { }
     internal sealed class UIEnhancementButtonHighlight : MonoBehaviour { }
+    // Actual native layout-state member; controller callbacks remain outside this fixture.
+    internal sealed class SummonContainer : MonoBehaviour { public TMPro.TMP_Text SummonNameText=null!; public GameObject SummonLT=null!,SummonLB=null!,SummonMT=null!,SummonMB=null!,SummonR=null!; }
     internal sealed class ItemCardUI : MonoBehaviour { internal int CardID; }
     internal sealed class AbilityCardUI : MonoBehaviour { internal int CardID; internal Transform fullAbilityCard = null!; }
     internal static class TownServiceAssets
