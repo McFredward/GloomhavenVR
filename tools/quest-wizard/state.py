@@ -20,6 +20,22 @@ import timing
 STAGES = ("tools", "source", "unity", "profile", "inspect", "build", "install")
 PROGRESS_INTERVAL = 0.5
 PROGRESS_LOG_BYTES = 8 * 1048576
+DERIVED_PROGRESS_FIELDS = frozenset(("buildOverview", "activeWork", "unityImport", "unityTask", "unityWork"))
+
+
+def _history_event(item):
+    """Keep one compact source observation, not another derived UI snapshot.
+
+    The current stage and its durable progress plan retain the complete live
+    overview. Repeating that projection 128 times made a late Unity build's
+    polling state approach the reader's 2 MiB limit. Historical counts, owners,
+    status, detail and timing remain available to resume and the events API;
+    the rotated progress log retains the original full diagnostic event.
+    """
+    if not isinstance(item, dict) or item.get("code") != "stage_progress": return item
+    parameters = item.get("parameters")
+    if not isinstance(parameters, dict) or not DERIVED_PROGRESS_FIELDS.intersection(parameters): return item
+    return dict(item, parameters={key: value for key, value in parameters.items() if key not in DERIVED_PROGRESS_FIELDS})
 
 
 def stage_progress(phase="pending", done=0, total=1, unit="stages", detail=None):
@@ -228,6 +244,9 @@ class Store:
     def save(self, state):
         with self._lock:
             state["updated"] = time.time()
+            # Compact compatible history from older Builder archives as well,
+            # without changing current progress or its retained-work evidence.
+            state["events"] = [_history_event(item) for item in state.get("events", [])[-128:]]
             for row in state["stages"]:
                 row.setdefault("progress", stage_progress("complete", 1, 1) if row["status"] == "complete" else stage_progress())
                 stage_plan.advance(row, row["progress"])
@@ -271,7 +290,7 @@ class Store:
         state["lastEvent"] += 1
         item = {"sequence": state["lastEvent"], "time": time.time(), "code": code, "parameters": parameters}
         if stage: item["stage"] = stage
-        state["events"] = (state["events"] + [item])[-128:]
+        state["events"] = (state["events"] + [_history_event(item)])[-128:]
         completed = sum(row["status"] == "complete" for row in state["stages"])
         state["progress"].update(completed=completed, phase=stage,
                                  percent=100 if state["status"] == "complete" else None)
