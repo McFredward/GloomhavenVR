@@ -618,13 +618,19 @@ internal static class NetProtocol
     // The maintainer reports positioned but invisible/nonselectable native summon
     // enhancement areas, choppy enchantress point-ring facing, and sampled remote
     // merchant/enchantress hover despite the approved client-local phase exception.
-    // Review the actual native enhancement creation/selection chain, not only a
-    // manually populated geometry fixture. Effect planes follow the rendered card;
-    // only intrinsic repeating spin/hover phases may differ between observers.
-    // Additive117 reserves the exact offered-hover activation/waveform basis;
-    // existing numeric97/98 and native returns113/115/116 retain their format.
+    // Native Highlight can precede Unity's summon-cell layout, copying zero size
+    // into both the selectable and its original frame shader. Follow only the
+    // four serialized stat targets; preserve native filters, state and callbacks.
+    // Ring axes now use the actual printed matrix plane, including nonuniform
+    // scale, and follow final rendered yaw while retaining the original local spin.
+    // Additive117 carries an immutable activation epoch and owner-measured native
+    // hover amplitude (18-byte payload), never sampled phase. Strip the source
+    // wave from canonical roots; apply one shared local wave after base/yaw motion.
+    // OFF/reoffer/held/return and authored-root-canvas guards prevent stale motion
+    // and double displacement. Existing97/98 and113/115/116 bytes remain unchanged.
     // Preserve accepted loading, card body/front coupling and native return identity.
-    // Final causal repairs and validation are recorded in NPC-666-REVIEW.md.
+    // Actual native creation, filtering, raycast/selection, ring and hover engine
+    // proofs plus causal controls are recorded in NPC-666-REVIEW.md.
     // Version3 stays unchanged; next free118. Hardware outcomes remain unverified.
 
     // ModBuild665 — paired664 offered yaw, summon areas and enchantress return ownership.
