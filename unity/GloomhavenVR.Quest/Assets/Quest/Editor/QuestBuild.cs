@@ -114,7 +114,9 @@ namespace GloomhavenVR.Quest.Editor
 #endif
         public static void Build()
         {
+            QuestWizardProgress.Publish("unity-work-stage:method", "Unity build method entered.", 0, 1, "steps", "unity-validation", "start");
             using (new AndroidToolsOverride()) BuildPlayer();
+            QuestWizardProgress.Publish("unity-work-stage:method", "Unity build method returned successfully.", 1, 1, "steps", "player", "complete");
         }
         static void BuildPlayer()
         {
@@ -329,6 +331,7 @@ namespace GloomhavenVR.Quest.Editor
         }
         public static void CompileStartupSdk()
         {
+            QuestWizardProgress.Publish("unity-work-stage:method", "Android SDK compilation method entered.", 0, 1, "steps", "unity-import", "start");
             using (new AndroidToolsOverride())
             {
                 var tasks = new QuestWizardProgress.TaskSequence("unity-sdk-tasks", "unity-import", 3);
@@ -347,6 +350,7 @@ namespace GloomhavenVR.Quest.Editor
                 tasks.Run("Publish the compiled Android Player SDK evidence", () => File.WriteAllText(output + "/compilation.json", JsonUtility.ToJson(new PlayerSdkEvidence { unityVersion = Application.unityVersion }, true)));
                 Debug.Log("[Quest startup] actual Android IL2CPP Development player SDK compiled; assemblies=" + result.assemblies.Count);
             }
+            QuestWizardProgress.Publish("unity-work-stage:method", "Android SDK compilation method returned successfully.", 1, 1, "steps", "unity-import", "complete");
         }
         static string FileHash(string path)
         {

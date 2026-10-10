@@ -2,8 +2,10 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Text;
 using UnityEditor;
+using UnityEditor.Android;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
 using UnityEngine;
@@ -43,6 +45,7 @@ namespace GloomhavenVR.Quest.Editor
             int count = 0;
             foreach (var item in Progress.EnumerateItems())
             {
+                if (!item.running) continue;
                 if (count++ >= 16) break;
                 ObserveOne(item);
             }
@@ -54,30 +57,37 @@ namespace GloomhavenVR.Quest.Editor
             int count = 0;
             foreach (var item in items)
             {
-                if (count++ >= 16) break;
+                if (count++ >= 128) break;
                 ObserveOne(item);
             }
         }
 
         static void ObserveOne(Progress.Item item)
         {
-            if (item == null || !item.exists || !item.running) return;
-            double done = -1, total = -1;
-            string unit = null;
+            if (item == null || !item.exists) return;
+            bool succeeded = item.status == Progress.Status.Succeeded;
+            bool failed = item.status == Progress.Status.Failed || item.status == Progress.Status.Canceled;
+            if (!item.running && !succeeded && !failed) return;
+            double done = 0, total = 1;
+            string unit = "tasks";
             if (!item.indefinite && item.totalSteps > 0 && item.currentStep >= 0 && item.currentStep <= item.totalSteps)
             { done = item.currentStep; total = item.totalSteps; unit = "steps"; }
             else if (!item.indefinite && !float.IsNaN(item.progress) && !float.IsInfinity(item.progress) && item.progress >= 0 && item.progress <= 1)
-            { done = Math.Round(item.progress * 1000, 3); total = 1000; unit = "Unity task units"; }
+            { done = item.progress; total = 1; unit = "native fraction"; }
+            if (succeeded) done = total;
+            string status = succeeded ? "complete" : failed ? "failed" : "progress";
             string detail = "Unity: " + item.name + (string.IsNullOrEmpty(item.description) ? "" : " — " + item.description);
-            string signature = done.ToString(CultureInfo.InvariantCulture) + ":" + total + ":" + detail;
+            if (unit == "tasks") detail += " [indivisible-task]";
+            string signature = done.ToString(CultureInfo.InvariantCulture) + ":" + total + ":" + item.parentId + ":" + status + ":" + detail;
             string previous;
             if (Last.TryGetValue(item.id, out previous) && previous == signature) return;
             double previousTime;
-            if (LastReported.TryGetValue(item.id, out previousTime) && Clock.Elapsed.TotalSeconds - previousTime < .5) return;
+            if (!succeeded && !failed && LastReported.TryGetValue(item.id, out previousTime) && Clock.Elapsed.TotalSeconds - previousTime < .5) return;
             if (Last.Count >= 128 && !Last.ContainsKey(item.id)) { Last.Clear(); LastReported.Clear(); }
             Last[item.id] = signature;
             LastReported[item.id] = Clock.Elapsed.TotalSeconds;
-            Publish("unity-progress", detail, done, total, unit);
+            // Native identities keep independent tasks and their totals separate.
+            Publish("unity-progress:" + item.id + ":" + item.parentId, detail, done, total, unit, status: status);
         }
 
         public static void Operation(string name, bool complete, string detail)
@@ -155,6 +165,71 @@ namespace GloomhavenVR.Quest.Editor
                 else result.Append(character);
             }
             return result.Append('"').ToString();
+        }
+    }
+
+    /// <summary>Observe the actual Gradle graph, including cached and skipped tasks.</summary>
+    public sealed class QuestWizardGradleProgress : IPostGenerateGradleAndroidProject
+    {
+        public int callbackOrder { get { return int.MaxValue - 1; } }
+        const string Marker = "// GHVRQ actual Gradle graph progress";
+        internal const string GraphScript = @"
+import groovy.json.JsonOutput
+def ghvrqFile = new File('__GHVRQ_PATH__')
+def ghvrqPlanned = new LinkedHashSet()
+def ghvrqCompleted = new LinkedHashSet()
+def ghvrqGraphId = java.util.UUID.randomUUID().toString()
+def ghvrqWarned = false
+def ghvrqReport = { status, detail ->
+    def line = 'GHVRQ_PROGRESS ' + JsonOutput.toJson([schema:1,phase:'unity-gradle-tasks',done:ghvrqCompleted.size(),total:ghvrqPlanned.size(),unit:'tasks',detail:'[gradle-graph:' + ghvrqGraphId + '] ' + detail,status:status,operation:'player'])
+    try { ghvrqFile.append(line + '\n', 'UTF-8') }
+    catch (Exception error) { if (!ghvrqWarned) { ghvrqWarned = true; logger.warn('Quest Gradle progress sidecar is unavailable; build execution continues.') } }
+}
+gradle.taskGraph.whenReady { graph ->
+    synchronized(ghvrqFile) {
+        ghvrqPlanned.addAll(graph.allTasks.collect { it.path })
+        ghvrqReport('start', 'Gradle task graph ready')
+    }
+}
+gradle.taskGraph.beforeTask { task ->
+    synchronized(ghvrqFile) { if (ghvrqPlanned.contains(task.path)) ghvrqReport('progress', 'Gradle: ' + task.path) }
+}
+gradle.taskGraph.afterTask { task, state ->
+    synchronized(ghvrqFile) {
+        if (ghvrqPlanned.contains(task.path)) {
+            if (state.failure == null) ghvrqCompleted.add(task.path)
+            ghvrqReport(state.failure == null ? 'progress' : 'failed', 'Gradle: ' + task.path + (state.skipped ? ' (retained/skipped)' : ''))
+        }
+    }
+}
+";
+        internal static string Script(string sidecar)
+        {
+            return GraphScript.Replace("__GHVRQ_PATH__", sidecar.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\r", "\\r").Replace("\n", "\\n"));
+        }
+        public void OnPostGenerateGradleAndroidProject(string path)
+        {
+            if (Environment.GetEnvironmentVariable("GHVRQ_WIZARD_PROGRESS") != "1") return;
+            try
+            {
+                string[] arguments = Environment.GetCommandLineArgs();
+                int index = Array.FindIndex(arguments, value => string.Equals(value, "-logFile", StringComparison.OrdinalIgnoreCase));
+                if (index < 0 || index + 1 >= arguments.Length || arguments[index + 1] == "-") return;
+                string sidecar = Path.GetFullPath(arguments[index + 1]) + ".gradle-progress.jsonl";
+                string root = Directory.GetParent(Path.GetFullPath(path)).FullName;
+                string build = Path.Combine(root, "build.gradle");
+                if (!File.Exists(build)) return;
+                // Unity buffers Gradle stdout; this current-invocation sidecar
+                // exposes live counters without executing a second Gradle job.
+                File.WriteAllText(sidecar, "", new UTF8Encoding(false));
+                File.WriteAllText(Path.Combine(root, "quest-wizard-progress.gradle"), Script(sidecar), new UTF8Encoding(false));
+                if (!File.ReadAllText(build).Contains(Marker))
+                    File.AppendAllText(build, "\n" + Marker + "\nif (System.getenv('GHVRQ_WIZARD_PROGRESS') == '1') { apply from: rootProject.file('quest-wizard-progress.gradle') }\n", new UTF8Encoding(false));
+            }
+            catch (Exception)
+            {
+                Debug.LogWarning("[Quest build] Gradle progress observation is unavailable; original build execution continues.");
+            }
         }
     }
 

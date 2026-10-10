@@ -15,7 +15,7 @@ using System;
 using System.Collections.Generic;
 using System.Text.Json;
 namespace UnityEngine {
- public static class Debug {public static List<string> Lines=new List<string>();public static void Log(object value){Lines.Add(value.ToString());}}
+ public static class Debug {public static List<string> Lines=new List<string>();public static void Log(object value){Lines.Add(value.ToString());}public static void LogWarning(object value){Lines.Add(value.ToString());}}
 }
 namespace UnityEngine.SceneManagement {public struct Scene {public string path;}}
 namespace UnityEditor {
@@ -24,11 +24,14 @@ namespace UnityEditor {
  public sealed class EditorBuildSettingsScene {public bool enabled;}
  public static class EditorBuildSettings {public static EditorBuildSettingsScene[] scenes={new EditorBuildSettingsScene{enabled=true},new EditorBuildSettingsScene{enabled=true}};}
  public static class Progress {
+  public enum Status {Running,Succeeded,Failed,Canceled,Paused}
   public static event Action<Item[]> added,updated;
-  public class Item {public bool exists=true,running=true,indefinite;public int totalSteps,currentStep,id;public float progress;public string name,description;}
+  public class Item {public bool exists=true,running=true,indefinite;public int totalSteps,currentStep,id,parentId;public Status status;public float progress;public string name,description;}
+  public static void Emit(Item item){updated?.Invoke(new[]{item});}
   public static IEnumerable<Item> EnumerateItems(){return new Item[0];}
  }
 }
+namespace UnityEditor.Android { public interface IPostGenerateGradleAndroidProject {int callbackOrder {get;}void OnPostGenerateGradleAndroidProject(string path);} }
 namespace UnityEditor.Build {
  public interface IPreprocessBuildWithReport {int callbackOrder {get;}void OnPreprocessBuild(UnityEditor.Build.Reporting.BuildReport report);}
  public interface IPostprocessBuildWithReport {int callbackOrder {get;}void OnPostprocessBuild(UnityEditor.Build.Reporting.BuildReport report);}
@@ -47,7 +50,7 @@ class Program {
    if(line.StartsWith("GHVRQ_PROGRESS "))result.Add(JsonDocument.Parse(line.Substring(15)).RootElement.Clone());
   return result;
  }
- static void Main() {
+ static void Main(string[] args) {
   Environment.SetEnvironmentVariable("GHVRQ_WIZARD_PROGRESS","1");
   GloomhavenVR.Quest.Editor.QuestWizardProgress.Operation("unity-validation",false,"Original validation");
   var tasks=new GloomhavenVR.Quest.Editor.QuestWizardProgress.TaskSequence("unity-validation-tasks","unity-validation",3);
@@ -75,6 +78,15 @@ class Program {
   callback.OnPostprocessBuild(report);rows=Rows();complete=rows[rows.Count-1];
   Check(complete.GetProperty("phase").GetString()=="unity-player-native-result","native callback cannot prematurely close final Player evidence");
   Check(complete.GetProperty("status").GetString()=="progress","successful native build is one observed child result");
+  var native=new UnityEditor.Progress.Item{id=42,parentId=7,name="Native import",indefinite=true};
+  UnityEditor.Progress.Emit(native);rows=Rows();var task=rows[rows.Count-1];
+  Check(task.GetProperty("phase").GetString()=="unity-progress:42:7" && task.GetProperty("done").GetInt32()==0 && task.GetProperty("total").GetInt32()==1,"indivisible native task has finite scoped denominator");
+  native.running=false;native.status=UnityEditor.Progress.Status.Succeeded;UnityEditor.Progress.Emit(native);rows=Rows();task=rows[rows.Count-1];
+  Check(task.GetProperty("done").GetInt32()==1 && task.GetProperty("status").GetString()=="complete","native success bypasses throttling and counts actual completion");
+  var failedNative=new UnityEditor.Progress.Item{id=43,parentId=7,name="Failed native task",indefinite=true,running=false,status=UnityEditor.Progress.Status.Failed};
+  UnityEditor.Progress.Emit(failedNative);rows=Rows();task=rows[rows.Count-1];
+  Check(task.GetProperty("done").GetInt32()==0 && task.GetProperty("status").GetString()=="failed","failed native task never receives completion credit");
+  if(args.Length>0)System.IO.File.WriteAllText(args[0],GloomhavenVR.Quest.Editor.QuestWizardGradleProgress.Script(args[1]));
   int count=UnityEngine.Debug.Lines.Count;Environment.SetEnvironmentVariable("GHVRQ_WIZARD_PROGRESS","0");
   var disabled=new GloomhavenVR.Quest.Editor.QuestWizardProgress.TaskSequence("unity-validation-tasks","unity-validation",1);
   disabled.Run("Disabled observation",()=>++actions);
@@ -97,6 +109,7 @@ class EditorPhaseProgressTests(unittest.TestCase):
             argv = [str(mono), str(compiler), "-langversion:latest", "-nowarn:0649", "-define:UNITY_EDITOR,GHVR_QUEST_GAME", "-target:library",
                 "-out:" + str(Path(directory) / "ActualEditorProgress.dll")]
             argv += ["-r:" + str(path) for path in sorted((data / "Managed/UnityEngine").glob("*.dll"))]
+            argv += ["-r:" + str(data / "PlaybackEngines/AndroidPlayer/UnityEditor.Android.Extensions.dll")]
             argv += [str(EDITOR / name) for name in names]
             result = subprocess.run(argv, text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -116,7 +129,7 @@ class EditorPhaseProgressTests(unittest.TestCase):
             result = subprocess.run([dotnet, "run", "--project", str(path / "Counter.csproj"), "--no-launch-profile", "--verbosity", "quiet"],
                 cwd=path, env=os.environ.copy(), text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertIn("PASS production Editor task and byte counters: 13 checks", result.stdout)
+            self.assertIn("PASS production Editor task and byte counters: 16 checks", result.stdout)
 
     def test_counter_annotations_preserve_native_validation_and_pointer_writes(self):
         # Strip only this change's observer statements, then compare complete
@@ -134,7 +147,8 @@ class EditorPhaseProgressTests(unittest.TestCase):
             "QuestCampaignComputeValidation.cs", "QuestCampaignShaderValidation.cs"):
             with self.subTest(source=name):
                 relative = str((EDITOR / name).relative_to(ROOT))
-                old = subprocess.run(["git", "show", "2c28ce989:" + relative], cwd=ROOT, text=True, capture_output=True, check=True).stdout
+                baseline = "cb6f84fb" if name == "QuestOriginalScriptBindings.cs" else "2c28ce989"
+                old = subprocess.run(["git", "show", baseline + ":" + relative], cwd=ROOT, text=True, capture_output=True, check=True).stdout
                 current = (EDITOR / name).read_text()
                 self.assertEqual(native_tokens(current), native_tokens(old))
                 # A deliberately weakened original identity gate must fail the
