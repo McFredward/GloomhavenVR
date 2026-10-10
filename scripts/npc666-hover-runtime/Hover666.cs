@@ -13,10 +13,111 @@ internal static class HoverClock666
 {
     internal static bool Controlled;
     internal static float Now;
+    internal const float Delta = 1f / 90f;
     internal static float Read => Controlled ? Now : Time.unscaledTime;
 }
 public static partial class MirrorProgram
 {
+    private static object? HoverRecipe666(TownServiceFrame frame) => typeof(TownServiceFrame)
+        .GetField("OfferedHover", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(frame);
+    private static T HoverValue666<T>(object recipe, string field) => (T)recipe.GetType()
+        .GetField(field, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(recipe)!;
+    private static TownServiceFrame HoverHeader666(FastCapture capture, ushort module)
+    {
+        foreach (byte[] bytes in capture.Artwork)
+            if (TownServiceCodec.TryRead(bytes, bytes.Length, out var frame) && frame!.Module == module) return frame;
+        throw new InvalidOperationException("Actual original header absent for module " + module);
+    }
+    private static uint CheckHoverEpoch666(FastCapture capture, params ushort[] modules)
+    {
+        // Legacy665 has no117; its untouched receive/render path reaches the
+        // quantitative first-cold wave assertion rather than a DTO compile error.
+        if (typeof(TownServiceFrame).GetField("OfferedHover", BindingFlags.Instance | BindingFlags.NonPublic) == null) return 0;
+        uint epoch = 0;
+        foreach (ushort id in modules)
+        {
+            object? recipe = HoverRecipe666(HoverHeader666(capture, id));
+            Check(recipe != null, "actual native original publishes its intrinsic recipe module=" + id);
+            uint current = HoverValue666<uint>(recipe!, "Epoch");
+            Check(current != 0 && (epoch == 0 || current == epoch),
+                "front body and linked canvas use one native accepted epoch despite mixed sampler registration");
+            epoch = current;
+        }
+        return epoch;
+    }
+    private static bool? OfferedGuard666(int peer, ushort id)
+    {
+        var pictures = typeof(TownServiceMirror).GetField("HoverPictures", BindingFlags.Static | BindingFlags.NonPublic);
+        if (pictures == null) return null;
+        var remote = (IDictionary)typeof(TownServiceMirror).GetField("Remote", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+        object module = ((IDictionary)remote[peer]!)[id]!;
+        var peers = (IDictionary)typeof(TownServiceMirror).GetField("MotionPeers", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+        var slots = (IDictionary)peers[peer]!.GetType().GetField("Slots", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(peers[peer])!;
+        foreach (object slot in slots.Values)
+        {
+            var entry = (TownServiceMotionEntry)slot.GetType().GetField("Entry", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(slot)!;
+            if (entry.Kind == 1 && entry.Lane == 0 && entry.Module == id)
+                return (bool)typeof(TownServiceMirror).GetMethod("ContinuousOfferedRoot", BindingFlags.Static | BindingFlags.NonPublic)!
+                    .Invoke(null, new[] {(object)peer, module, slot, HoverClock666.Now})!;
+        }
+        throw new InvalidOperationException("Actual received offered Kind1 absent for floor proof");
+    }
+    private static void HoverCanvas666()
+    {
+        if (typeof(TownServiceFrame).GetField("OfferedHover", BindingFlags.Instance | BindingFlags.NonPublic) == null) return;
+        foreach (bool externalStatic in new[] {false, true})
+        foreach (bool nearestDisabled in new[] {false, true})
+        {
+            TownServiceMirror.Shutdown(); Baselines.Clear(); HoverClock666.Controlled = true; HoverClock666.Now += 1f;
+            Transform shared = Go("Actual canvas hover source").transform;
+            Transform palm = Go("Actual canvas hover palm", shared).transform;
+            RectTransform staticRoot = (RectTransform)Go("Static root canvas", shared).transform;
+            staticRoot.gameObject.AddComponent<Canvas>().renderMode = RenderMode.WorldSpace;
+            staticRoot.localPosition = new Vector3(.3f, .2f, -.4f);
+            Transform seat = Go("Actual canvas hover seat", externalStatic ? staticRoot : shared).transform;
+            Transform card = Go("Actual canvas hover accepted card", seat).transform;
+            RectTransform movingCanvas = (RectTransform)Go("Native card canvas", card).transform;
+            Canvas moving = movingCanvas.gameObject.AddComponent<Canvas>(); moving.renderMode = RenderMode.WorldSpace;
+            movingCanvas.localScale = Vector3.one * .001f;
+            RectTransform source = (RectTransform)Go("Native nested source canvas", movingCanvas).transform;
+            Canvas nested = source.gameObject.AddComponent<Canvas>(); nested.renderMode = RenderMode.WorldSpace;
+            nested.enabled = !nearestDisabled;
+            source.sizeDelta = new Vector2(294, 450); source.gameObject.AddComponent<CanvasGroup>();
+            Image("Exact original nested content", source, Vector2.zero, source.sizeDelta, Color.red);
+            const float age = .31f;
+            TownServiceOfferingPose.Place(seat, palm, shared, age);
+            new TownServiceOfferingCard(card, seat, 1f).Tick();
+            TownServiceMirror.RegisterMotionOffering(source, true);
+            TownServiceMirror.RegisterTemplate(1, 1, source, address: "item.667|");
+            TownServiceMirror.BeginSession(1, 667, shared, shared); TownServiceMirror.SetLocalTransactionActive(1, true);
+            TownServiceMirror.RegisterModule(11, 1, source, address: "item.667|"); TownServiceMirror.SetPriority(11, true);
+            FastCapture capture = OfferedCapture629(); TownServiceFrame frame = HoverHeader666(capture, 11);
+            object recipe = HoverRecipe666(frame)!;
+            Check(recipe != null && frame.HasCanvasFrame, "actual nested source captures its original active root canvas and hover metadata");
+            Check(HoverValue666<bool>(recipe, "CanvasFollowsHover") == !externalStatic,
+                "hover recipe identifies the exact transmitted active root canvas instead of its nearest nested or disabled canvas");
+            Vector3 offset = Vector3.up * (.006f * Mathf.Sin(age * 1.8f));
+            Vector3 canonicalRoot = shared.InverseTransformPoint(source.position - offset);
+            Vector3 sentRoot = new Vector3(frame.Pose[0], frame.Pose[1], frame.Pose[2]);
+            Check(Vector3.Distance(canonicalRoot, sentRoot) < .000002f,
+                "full original nested physical pose strips exactly native Place displacement");
+            Transform actualCanvas = externalStatic ? staticRoot : movingCanvas;
+            Vector3 expectedCanvas = shared.InverseTransformPoint(actualCanvas.position - (externalStatic ? Vector3.zero : offset));
+            Check(Vector3.Distance(expectedCanvas, new Vector3(frame.CanvasPose[0], frame.CanvasPose[1], frame.CanvasPose[2])) < .000002f,
+                "static outside root canvas stays authored while the actual moving root canvas is canonicalized once");
+            foreach (byte[] bytes in capture.Motion)
+            {
+                TownServiceMotionCodec.TryRead(bytes, bytes.Length, out var packet);
+                foreach (var entry in packet!.Entries) if (entry.Kind == 1 && entry.Module == 11)
+                {
+                    Check(Vector3.Distance(canonicalRoot, new Vector3(entry.Pose[0], entry.Pose[1], entry.Pose[2])) < .000002f,
+                        "real97 numeric root uses the same exact canonical native source pose");
+                    Check(Vector3.Distance(expectedCanvas, new Vector3(entry.CanvasPose[0], entry.CanvasPose[1], entry.CanvasPose[2])) < .000002f,
+                        "real98 numeric canvas uses the exact full-header author and canonical base");
+                }
+            }
+        }
+    }
     private static IEnumerator Hover666()
     {
         foreach (byte service in new byte[] {3, 1})
@@ -36,6 +137,7 @@ public static partial class MirrorProgram
             Transform seat = Go("666 actual offering seat", owner).transform;
             Transform card = Go("666 source card", seat).transform;
             VRCard actual = card.gameObject.AddComponent<VRCard>();
+            actual.PrimeInactive666(7);
             actual.FixtureBacking(service == 3 ? new Vector2(.14406f, .2205f) : new Vector2(.14406f, .14406f));
             Transform body = card.Find("Visual/Backing");
             RectTransform canvas = (RectTransform)Go("FaceCanvas", card).transform;
@@ -85,6 +187,9 @@ public static partial class MirrorProgram
             string faceAddress = service == 3 ? "face.666|" : "item.666|";
             string bodyAddress = service == 3 ? TownServiceAbilityBody.Key(actual) + "|" : "inspectionbody.3e138dbe.3e138dbe.p|";
             TownServiceMirror.RegisterMotionOffering(face, true); TownServiceMirror.RegisterMotionOffering(body, true);
+            // Only the print has an actual native inactive sampler initially;
+            // body and linked overlay must still identify the same native seat.
+            TownServiceMirror.RegisterCardReturn(face, actual.TryTownReturnMotion);
             if (service == 3) TownServiceMirror.RegisterOfferedPhysical(body, face);
             TownServiceMirror.RegisterTemplate(service, 1, face, address: faceAddress);
             TownServiceMirror.RegisterTemplate(service, 2, body, address: bodyAddress);
@@ -100,7 +205,9 @@ public static partial class MirrorProgram
             float began = Time.unscaledTime + 1f;
             HoverClock666.Controlled = true; HoverClock666.Now = began;
             TownServiceOfferingPose.Place(seat, palm, owner, 0f); mask?.SendMessage("LateUpdate");
-            FastCapture initial = OfferedCapture629(); Receive(1, initial.Artwork);
+            FastCapture initial = OfferedCapture629();
+            uint initialEpoch = service == 3 ? CheckHoverEpoch666(initial, 11, 12, 10) : CheckHoverEpoch666(initial, 11, 12);
+            Receive(1, initial.Artwork);
             File.WriteAllText(Path.Combine(_output,"initial-frames.txt"),string.Join("\n",initial.Artwork.ConvertAll(b=>{TownServiceCodec.TryRead(b,b.Length,out var f);return "module="+f!.Module+" visible="+f.Visible+" nodes="+f.Nodes.Length+" nativeBasis="+f.NativeTemplateBasisKey+" census="+string.Join(",",f.Modules)+" required="+string.Join(",",f.RequiredVisibleModules??Array.Empty<ushort>());})));
             float admissionStarted = Time.realtimeSinceStartup;
             int admissionFrames = 0;
@@ -128,6 +235,17 @@ public static partial class MirrorProgram
             // Existing109 supplies exact affine overlay/physical ancestry. The
             // cold card assertion above intentionally precedes every numeric
             // event; composed geometry starts once its real relation arrives.
+            Vector3 ColdExpected(float age) => observer.TransformPoint(baseCard
+                + Quaternion.Inverse(observer.rotation) * copy.Root.rotation * printOffset
+                + nativeAxis * Mathf.Sin(age * 1.8f));
+            for (int coldFrame = 1; coldFrame <= 8; coldFrame++)
+            {
+                HoverClock666.Now = began + coldFrame / 90f;
+                TownServiceMirror.TickRemote(_ => observer);
+                Check(Vector3.Distance(copy.Root.position, ColdExpected(coldFrame / 90f)) < .000004f,
+                    "cold native original evaluates one intrinsic wave without any numeric root or accumulated displacement");
+                CheckOfferedBody665(face, body, copy.Root, bodyCopy.Root);
+            }
             DeliverMotion(1, initial); TownServiceMirror.TickRemote(_ => observer);
             Vector3[]? sampledRow = sourceRow == null ? null : NativeRowCorners665(face, sourceRow);
             ulong sampledSequence = 0;
@@ -145,8 +263,8 @@ public static partial class MirrorProgram
             File.WriteAllText(csv, "frame,time,sourceHover,remoteHover,expectedHover,error,motionEvents\n");
             int packets = 0, dropped = 0, delayed = 0;
             float worst = 0f, maxStepError = 0f;
-            Vector3 previous = copy.Root.position, previousExpected = Expected(0f);
-            for (int frame = 1; frame <= 360; frame++)
+            Vector3 previous = copy.Root.position, previousExpected = Expected(8f / 90f);
+            for (int frame = 9; frame <= 368; frame++)
             {
                 float age = frame / 90f; HoverClock666.Now = began + age;
                 TownServiceOfferingPose.Place(seat, palm, owner, age);
@@ -200,8 +318,18 @@ public static partial class MirrorProgram
             // Native release reparents the original away from its Place seat.
             // Keep the old MotionOffering registration: ancestry, not a stale
             // boolean, must author the actual off state.
+            // Save an authentic newer-than-received active root, then deliver
+            // it only AFTER the reliable OFF header. Its sequence remains valid
+            // but its canonical pose no longer owns this physical presentation.
+            HoverClock666.Now += .08f; TownServiceOfferingPose.Place(seat, palm, owner, 4.2f);
+            mask?.SendMessage("LateUpdate"); FastCapture lateActive = OfferedCapture629();
             card.SetParent(owner, true); HoverClock666.Now += .1f;
-            FastCapture released = OfferedCapture629(); Receive(1, released.Artwork); DeliverMotion(1, released);
+            FastCapture released = OfferedCapture629(); Receive(1, released.Artwork);
+            DeliverMotion(1, lateActive);
+            TownServiceMirror.TickRemote(_ => observer);
+            Check(OfferedGuard666(1, 11) != true,
+                "fresh native OFF header rejects the actual delayed active canonical root even with a stale offering registration");
+            DeliverMotion(1, released);
             TownServiceMirror.TickRemote(_ => observer);
             var hoverClocks = typeof(TownServiceMirror).GetField("HoverClocks", BindingFlags.Static | BindingFlags.NonPublic);
             Check(hoverClocks == null || ((IDictionary)hoverClocks.GetValue(null)!).Count == 0,
@@ -215,11 +343,18 @@ public static partial class MirrorProgram
             Check(Vector3.Distance(stopped, copy.Root.position) < .000003f,
                 "ordinary release pose finishes its existing native tween without a residual hover");
             HoverClock666.Now += .1f;
-            TownServiceOfferingPose.Place(seat, palm, owner, 7f);
+            // Acceptance reparents before the next Place update. No Place saw
+            // the detached interval, so only the real ctor activation can
+            // distinguish this lifetime from its previous same-seat offer.
             var nativeSettle = new TownServiceOfferingCard(card, seat, 1f);
+            TownServiceOfferingPose.Place(seat, palm, owner, 7f);
             float reofferedAt = HoverClock666.Now;
             mask?.SendMessage("LateUpdate");
-            FastCapture again = OfferedCapture629(); Receive(1, again.Artwork); DeliverMotion(1, again);
+            FastCapture again = OfferedCapture629();
+            uint againEpoch = service == 3 ? CheckHoverEpoch666(again, 11, 12, 10) : CheckHoverEpoch666(again, 11, 12);
+            Check(initialEpoch == 0 || againEpoch != initialEpoch,
+                "actual native acceptance creates a new epoch after a no-Place no-flight detached interval");
+            Receive(1, again.Artwork); DeliverMotion(1, again);
             TownServiceMirror.TickRemote(_ => observer);
             Vector3 settleFrom = card.localPosition;
             for (int frame = 1; frame <= 60; frame++)
@@ -243,6 +378,24 @@ public static partial class MirrorProgram
                 }
                 CheckOfferedBody665(face, body, copy.Root, bodyCopy.Root);
             }
+            TownServiceMirror.RegisterCardReturn(body, actual.TryTownReturnMotion);
+            // Both physical parts now use the exact actual native return sampler.
+            // Its first active113 owns the original; intrinsic hover cannot add
+            // another displacement while the native curve is rendering.
+            actual.BeginNative666(card.position + new Vector3(.18f, -.07f, .12f), .65f);
+            FastCapture firstFlight = OfferedCapture629(); Receive(1, firstFlight.Artwork); DeliverMotion(1, firstFlight);
+            TownServiceMirror.TickRemote(_ => observer);
+            Check(hoverClocks == null || ((IDictionary)hoverClocks.GetValue(null)!).Count == 0,
+                "actual first native return sample revokes all offered intrinsic clocks");
+            for (int flightFrame = 1; flightFrame <= 80; flightFrame++)
+            {
+                HoverClock666.Now += HoverClock666.Delta; actual.StepNative666();
+                FastCapture flying = CaptureFast(); Receive(1, flying.Artwork); DeliverMotion(1, flying);
+                TownServiceMirror.TickRemote(_ => observer);
+                Check(hoverClocks == null || ((IDictionary)hoverClocks.GetValue(null)!).Count == 0,
+                    "native active terminal and ordinary return frames never retain an intrinsic offered wave");
+                CheckOfferedBody665(face, body, copy.Root, bodyCopy.Root);
+            }
             card.gameObject.SetActive(false); if (holder != null) holder.gameObject.SetActive(false);
             HoverClock666.Now += .1f; FastCapture hidden = OfferedCapture629(); Receive(1, hidden.Artwork); DeliverMotion(1, hidden);
             TownServiceMirror.TickRemote(_ => observer);
@@ -250,5 +403,6 @@ public static partial class MirrorProgram
                 "true native withdrawal revokes the whole hovered original immediately");
             HoverClock666.Controlled = false; yield return null;
         }
+        HoverCanvas666(); HoverClock666.Controlled = false;
     }
 }
