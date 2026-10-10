@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-10 for actual retained Editor output ownership and Runtime660.
+Updated 2026-10-10 for actual retained Editor output ownership and published Runtime661 integration.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current

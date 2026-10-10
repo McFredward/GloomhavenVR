@@ -1,5 +1,18 @@
 # State — where the project stands
 
+**Quest delivery uses published dev661, 2026-10-10 (Builder).**
+
+The Quest feature integrates the completed published
+`1b6e1e95f2efd1777603a553e18880f540fb3dc6` after the NPC owner released its main/dev
+reservation. The retained-output repair remains unchanged. The merged Runtime661
+passes Release with zero warnings/errors,23 current-mod AOT assertions and the
+actual290-target static weave. The combined232-local/113-CI inventory passes16
+tests/two expected skips. Published NPC661's composed206/source16/golden300419
+evidence is inherited; unchanged190 focused Builder/loader/release cases are
+reused. No new complete232-scope gate, Unity import or local whole APK is claimed.
+The actual source release and retained sessions qualify against preceding Builder
+source inventories; whole Windows build and headset acceptance remain pending.
+
 **Quest actual Editor output ownership, 2026-10-10 (Builder; Runtime660).**
 
 Capture232406 confirms3f/660 still rejects the same imported Bloom Shader before

@@ -97,3 +97,22 @@ they do not establish whole Windows APK completion or a headset picture. Continu
 the existing Wizard session/workspace after replacing the Builder sources.
 
 Private evidence: `B660-resume-232406-20261010` under the Quest build evidence root.
+
+## Published dev661 delivery follow-up
+
+After the bounded Builder repair was delivered, the NPC integration owner
+published `1b6e1e95f2efd1777603a553e18880f540fb3dc6` and released its main/dev
+reservation. Quest merges that completed commit without taking unpublished worker
+changes. Both sides' state notes and suite inventories are retained:232 local
+scopes and113 CI scopes. Inventory verification passes16 tests/two expected
+skips. The current661 Release builds with zero warnings/errors, current-mod AOT
+passes23 assertions, and actual static integration writes290 targets completely.
+
+The Builder's retained-output sources are byte-identical to the repair, so its190
+focused cases and native ownership/cut controls are reused. Published NPC661's
+composed206, source16 and golden300419 receipts are inherited rather than rerun.
+Actual prior release inventories include the immediately delivered repair,3f,
+d58 and the first-import8063 source; original preparation scope stays separate
+from the newly compiled current mod. Additional delivery evidence lives in
+`B661-dev-integration-20261010`. No new complete232-scope gate, Shader matrix,
+Unity cold import, whole APK or headset outcome is claimed.
