@@ -190,7 +190,9 @@ export function buildOverviewView(state) {
   };
   const compiler=value=>{
     if(!value||!(['unity-shader-compile','unity-shader-task'].includes(value.phase)||typeof value.phase==='string'&&value.phase.startsWith('unity-shader-task:')))return null;
-    return {phase:value.phase,scope:value.scope==='task'?'task':'pass',counter:counter(value),
+    // The backend retains the last observed pass census for diagnostics. Once
+    // its native caller succeeded, that stale local count is no longer live.
+    return {phase:value.phase,scope:value.scope==='task'?'task':'pass',counter:value.status==='complete'?null:counter(value),
       percent:typeof value.percent==='number'&&Number.isFinite(value.percent)&&value.percent>=0&&value.percent<=100?value.percent:null,
       detail:typeof value.detail==='string'?value.detail.slice(0,1024):'',status:['running','failed','complete','pending'].includes(value.status)?value.status:'pending'};
   };

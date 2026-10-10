@@ -40,6 +40,13 @@ test('completed content parts keep their100% proof while a later audit is still 
   assert.equal(view.done,1);
 });
 
+test('completed compiler hides stale last-pass counts while failed compiler retains them',()=>{
+  const observed={phase:'unity-shader-compile',scope:'pass',done:90,total:100,unit:'variants',percent:100,status:'complete'};
+  const overview=compiler=>buildOverviewView({stages:[{id:'build',progress:{buildOverview:{schema:1,groups:[{id:'export',operations:[{id:'content-bank',closed:false,status:'running',percent:45,compiler}]}]}}}]}).groups[0].operations[0].compiler;
+  const complete=overview(observed);assert.equal(complete.counter,null);assert.equal(complete.percent,100);
+  const failed=overview({...observed,status:'failed',percent:90});assert.equal(failed.counter.done,90);assert.equal(failed.counter.total,100);assert.equal(failed.percent,90);
+});
+
 const snapshots=String.raw`
 import copy,json,sys,tempfile
 from pathlib import Path
@@ -142,6 +149,7 @@ with tempfile.TemporaryDirectory() as temp:
     report('unity-work-stage:method',0,1,status='start')
     for phase,count,unit in [('unity-addressables-keys',6531,'assets'),('unity-addressables-entries',6531,'assets'),('unity-addressables-shaders',688,'shaders'),('unity-addressables-shader-roots',688,'shaders')]:
         report(phase,count,count,unit,'complete')
+    report('unity-shader-compile',90,100,'variants')
     report('unity-addressables-build',1,1,status='complete');report('unity-native-shader-audit',0,7,'bundles','start')
     report('unity-native-shader-audit-read',8388608,134217728,'bytes');snapshot('read-start')
     report('unity-native-shader-audit-read',67108864,134217728,'bytes');snapshot('read-half')
@@ -181,6 +189,10 @@ test('browser shows completed Shader parts at100%, fine measured bytes and isola
         assert.equal(await client.evaluate(part(id)+".classList.contains('complete')"),true);
         assert.doesNotMatch(await client.evaluate(part(id)+'.textContent'),/Ausstehend|99 %/);
       }
+      const compiler="document.querySelector('[data-compiler-owner=content-bank]')";
+      assert.equal(await client.evaluate(compiler+'.querySelector("progress").value'),100);
+      assert.match(await client.evaluate(compiler+'.textContent'),/Abgeschlossen.*100 %/s);
+      assert.doesNotMatch(await client.evaluate(compiler+'.textContent'),/90 \/ 100/);
       await client.wait("document.getElementById('progress-detail').textContent.includes('8 MiB')");
       const start=await client.evaluate("Number(document.getElementById('progress-track').getAttribute('aria-valuenow'))");
       mode='read-half';await client.wait("document.getElementById('progress-detail').textContent.includes('64 MiB')");

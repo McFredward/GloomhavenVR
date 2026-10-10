@@ -288,5 +288,28 @@ class UnityWorkHierarchyTests(unittest.TestCase):
         self.store.save(saved)
         self.assertTrue(all(part["status"] == "complete" for part in self.work(self.row()["progress"])["phases"][1]["parts"]))
 
+    def test_successful_native_bank_closes_compiler_display_with_stale_partial_counter(self):
+        for done, total, unit in ((0, 1, "tasks"), (90, 100, "variants")):
+            with self.subTest(done=done, total=total):
+                self.start("content-bank")
+                self.report("unity-work-stage:method", owner="content-bank", status="start")
+                self.report("unity-shader-compile", done, total, unit, "content-bank")
+                value = self.report("unity-addressables-build", 1, 1, owner="content-bank", status="complete")
+                compiler = next(row for group in value["buildOverview"]["groups"] for row in group["operations"] if row["id"] == "content-bank")["compiler"]
+                self.assertEqual((compiler["status"], compiler["percent"]), ("complete", 100.))
+                self.assertEqual((compiler["done"], compiler["total"], compiler["unit"]), (done, total, unit))
+                self.assertNotIn("content-bank", self.row()["progressPlan"]["completed"])
+
+    def test_failed_native_bank_keeps_its_actual_partial_compiler_counter(self):
+        self.start("content-bank")
+        self.report("unity-work-stage:method", owner="content-bank", status="start")
+        self.report("unity-shader-compile", 90, 100, "variants", "content-bank")
+        self.report("unity-addressables-build", 0, 1, owner="content-bank", status="failed")
+        saved = self.store.load(self.session)
+        next(row for row in saved["stages"] if row["id"] == "build")["status"] = "failed"
+        self.store.save(saved)
+        compiler = next(row for group in self.row()["progress"]["buildOverview"]["groups"] for row in group["operations"] if row["id"] == "content-bank")["compiler"]
+        self.assertEqual((compiler["status"], compiler["percent"], compiler["done"], compiler["total"]), ("failed", 90., 90, 100))
+
 
 if __name__ == "__main__": unittest.main()

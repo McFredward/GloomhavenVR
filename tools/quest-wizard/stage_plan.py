@@ -1125,7 +1125,11 @@ def _build_overview(row, plan):
         compiler = plan.get("unityCompiler", {}).get(item["id"])
         if compiler:
             compiled = item["id"] == "content-bank" and "build" in plan.get("unityWork", {}).get(item["id"], {}).get("partCompleted", ())
-            item["compiler"] = dict(compiler, status="complete" if item["closed"] or compiled else "failed"
+            closed = item["closed"] or compiled
+            # Native success can arrive after the last observed Shader counter
+            # and omit its final log line. Keep that original pass census for
+            # support, but display the authoritative completed scope at100%.
+            item["compiler"] = dict(compiler, percent=100. if closed else compiler.get("percent"), status="complete" if closed else "failed"
                                      if row["status"] == "failed" and item["id"] == active else "running" if item["id"] == active else "pending")
         imported = plan.get("unityImports", {}).get(item["id"])
         if imported:
