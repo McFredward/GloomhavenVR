@@ -108,10 +108,14 @@ def copy_changed(source, target, *, observed=None, transfer=None):
 
 
 class Preparation:
-    def __init__(self, output, project, *, input_key, target, recipe, source_files=(), progress=None, reset=None, content_proofs=(), compatible_input_key=None, current_inputs=None):
+    def __init__(self, output, project, *, input_key, target, recipe, source_files=(), progress=None, reset=None, content_proofs=(), compatible_input_key=None, current_inputs=None, repair_provider=None, repair_guard=None):
         self.output, self.project = Path(output), _ordinary_owned(Path(project))
         self.progress, self.checked, self.index = progress, {}, 0
         self.current_inputs = current_inputs
+        self.repair_provider, self.repaired = repair_provider, set()
+        self.repair_guard, self.repair_guarded = repair_guard, False
+        self.repair_total, self.repair_resolved = None, set()
+        self.repair_retries = set()
         self.copy_qualified = set()
         self.copy_counter = None
         self.content_proofs = {}
@@ -176,6 +180,7 @@ class Preparation:
         copy_path = _ordinary_owned(self.root / ("copy-" + value_hash(self.identity) + ".sqlite"))
         self.copies = sqlite3.connect(copy_path)
         self.copies.execute("CREATE TABLE IF NOT EXISTS copies (path TEXT PRIMARY KEY, source TEXT, target TEXT, sha256 TEXT)")
+        self.copies.execute("CREATE TABLE IF NOT EXISTS retained_file_repairs (sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE, record TEXT NOT NULL)")
         self.copy_writes = 0
         self.witnesses = ValidatedFileWitnesses(self.copies, self.project, self.identity)
         self.prior_copies, self.prior_witnesses = None, None
@@ -196,7 +201,7 @@ class Preparation:
             except BuildError:
                 # A corrupt base overlay is repairable from the exact selected
                 # snapshot. An interrupted later substage retains its good base.
-                if not migration and getattr(self, "invalid_step", None) == "base-project" and reset is not None:
+                if repair_provider is None and not migration and getattr(self, "invalid_step", None) == "base-project" and reset is not None:
                     reset()
                     self.project.mkdir(parents=True, exist_ok=True)
                     # An authorized reset replaces the project's directory
@@ -456,6 +461,294 @@ class Preparation:
         self.value["editorSettings"] = {**previous, "accepted": dict(observed)}
         return True
 
+    def _repair_stage(self, relative):
+        # A short sibling basename keeps replacement atomic on the project's
+        # volume and avoids extending already long Windows asset filenames.
+        path = self._path(relative)
+        return _ordinary_owned(path.with_name(".quest-repair-" + hashlib.sha256(relative.encode()).hexdigest()[:20] + ".part"))
+
+    def _repair_gate(self):
+        if not self.repair_guarded:
+            if self.repair_guard is not None: self.repair_guard()
+            self.repair_guarded = True
+
+    def _repair_state(self, path):
+        path = _ordinary_owned(path)
+        if not path.exists(): return {"absent": True}
+        if not path.is_file() or path.stat().st_nlink != 1:
+            raise BuildError("Preparation repair requires an ordinary unlinked generated file: " + path.name)
+        # Python's Windows ctime can mean creation time. Keep the platform's
+        # FileID/ChangeTime witness as well as the portable identity/size stamp.
+        before = list(_stamp(path))
+        witness = self.witnesses.current(path)
+        result = {"stat": before, "witness": list(witness) if witness is not None else None}
+        if witness is None:
+            # Unsupported filesystem metadata cannot prove an unchanged live
+            # target. Hash only this damaged file around reconstruction instead
+            # of trusting Windows creation time or restarting its entire owner.
+            result["sha256"] = digest(path)
+            if before != list(_stamp(path)):
+                raise BuildError("Generated file changed while qualifying its targeted repair: " + path.name)
+        return result
+
+    def _repair_event(self, relative, *, complete=False, recovering=False):
+        if self.progress:
+            count = len(self.repair_resolved)
+            self.progress.event("prepare-resume-repair-files", count, self.repair_total, "files",
+                ("Recovered interrupted file repair: " if recovering else "Restoring retained generated file: ") + relative,
+                status="complete" if complete else "progress")
+
+    def _restage_repair(self, latest, relative):
+        # The staged preimage itself is only a cache. A missing/short/corrupt
+        # one can be reconstructed once from the same qualified source while
+        # the live target still matches the durable intent's before-state.
+        if relative in self.repair_retries:
+            raise BuildError("Interrupted generated-file repair staging changed again: " + relative)
+        self.repair_retries.add(relative)
+        for name in (relative, relative + ".meta"):
+            stage = self._repair_stage(name)
+            if stage.exists():
+                if not stage.is_file() or stage.stat().st_nlink != 1:
+                    raise BuildError("Targeted repair staging is not an ordinary owned file: " + name)
+                stage.unlink()
+        _ordinary_owned(self.root / "repair.json").unlink(missing_ok=True)
+        if not self._repair_output(latest, relative, latest[relative][1]):
+            raise BuildError("The interrupted generated-file repair no longer has its qualified source: " + relative)
+
+    def _apply_repair_log(self):
+        if "fileRepairs" not in self.value and self.copies.execute("SELECT 1 FROM retained_file_repairs LIMIT 1").fetchone() is None:
+            return
+        repairs = self.value.setdefault("fileRepairs", {"count": 0, "recent": []})
+        if (not isinstance(repairs, dict) or type(repairs.get("count")) is not int or repairs["count"] < 0
+                or not isinstance(repairs.get("recent"), list)):
+            raise BuildError("Retained-file repair history is invalid.")
+        previous = repairs.get("logSequence", 0) if repairs.get("logOwner") == self.witnesses.namespace else 0
+        if type(previous) is not int or previous < 0: raise BuildError("Retained-file repair log sequence is invalid.")
+        repairs["logSequence"] = previous
+        for sequence, serialized in self.copies.execute("SELECT sequence,record FROM retained_file_repairs ORDER BY sequence"):
+            record = json.loads(serialized)
+            self.repaired.update([record["path"], *record.get("companions", [])])
+            self.repair_resolved.add(record["path"])
+            if sequence > previous:
+                repairs["count"] += 1
+                repairs["recent"] = [*repairs["recent"], record][-32:]
+                repairs["logSequence"] = sequence
+        repairs["logOwner"] = self.witnesses.namespace
+
+    def _publish_repair_member(self, row, previous_state, *, recovering, validated_stage=None):
+        relative = row["path"]
+        path, stage = self._path(relative), self._repair_stage(relative)
+        current = self._repair_state(path)
+        if current != previous_state:
+            # The member may already have published before the cut, including
+            # a GUID sidecar whose original producer has no journal output row.
+            if not path.is_file() or path.stat().st_size != row["size"] or self._observe(relative) != row:
+                raise BuildError("Generated file changed during its targeted repair: " + relative)
+            return True
+        if not stage.is_file() or stage.stat().st_nlink != 1 or stage.stat().st_size != row["size"]:
+            if recovering: return False
+            raise BuildError("Targeted repair staging bytes are missing or changed: " + relative)
+        before = _stamp(stage)
+        counter = self.progress.Counter("prepare-resume-repair-bytes", row["size"], "bytes",
+                                         "Qualifying reconstructed file: " + relative) if self.progress and validated_stage is None else None
+        if validated_stage is not None and validated_stage[0] == before:
+            checksum = validated_stage[1]
+        else:
+            checksum = digest(stage, progress=lambda count: counter.add(count, relative)) if counter else digest(stage)
+        if checksum != row["sha256"] or before != _stamp(stage):
+            if recovering and before == _stamp(stage): return False
+            raise BuildError("Targeted repair staging bytes differ from the retained contract: " + relative)
+        if counter: counter.finish()
+        # Windows FlushFileBuffers requires a writable file handle even though
+        # this durability flush does not change any staging bytes.
+        with stage.open("r+b") as stream: os.fsync(stream.fileno())
+        if self._repair_state(path) != current:
+            raise BuildError("Generated file changed before its targeted repair: " + relative)
+        self.witnesses.invalidate(path)
+        os.replace(stage, path)
+        if _stamp(path)[:4] != before[:4]:
+            raise BuildError("Generated file changed while its targeted repair was published: " + relative)
+        # Read only this repaired file after replacement, closing the rename to
+        # witness race even if a concurrent Editor restores its size and mtime.
+        accepted = self.witnesses.current(path)
+        checksum = digest(path)
+        if checksum != row["sha256"] or accepted != self.witnesses.current(path):
+            raise BuildError("Generated file changed while its targeted repair was published: " + relative)
+        self.witnesses.remember(path, checksum, stamp=accepted)
+        self.checked[relative] = (_stamp(path), checksum)
+        return True
+
+    def _complete_repair(self, transaction, latest, *, recovering=False, validated_stages=None):
+        """Finish one published intent; never restart a preparation producer.
+
+        Unity can serialize an original LightingData YAML into its native binary
+        format while keeping the GUID. A strict pointer-only exception cannot
+        qualify that change. The maintainer now authorizes reconstructing the
+        affected generated file from its exact owned source instead. Persist its
+        narrow intent before replacement, then the closed-writer witness before
+        journal publication. Cuts on either side resume this same file only.
+        """
+        control = _ordinary_owned(self.root / "repair.json")
+        if (not isinstance(transaction, dict) or transaction.get("schema") != 1
+                or transaction.get("owner") != "Quest retained-file repair"
+                or transaction.get("identity") != {key: self.value[key] for key in self.identity}):
+            raise BuildError("Retained-file repair ownership differs; project files were retained.")
+        relative = _relative(transaction.get("path"))
+        previous = latest.get(relative)
+        if (previous is None or transaction.get("step") != self.value["steps"][previous[0]]["name"]
+                or transaction.get("expected") != previous[1] or previous[1].get("absent")):
+            raise BuildError("Retained-file repair contract differs: " + relative)
+        row = previous[1]
+        if (type(row.get("size")) is not int or row["size"] < 0
+                or not isinstance(row.get("sha256"), str) or not re.fullmatch(r"[0-9a-f]{64}", row["sha256"])):
+            raise BuildError("Retained-file repair has an invalid byte contract: " + relative)
+        path, stage = self._path(relative), self._repair_stage(relative)
+        if transaction.get("stage") != stage.relative_to(self.project).as_posix():
+            raise BuildError("Retained-file repair staging path differs: " + relative)
+        repairs = self.value.get("fileRepairs", {"count": 0, "recent": []})
+        if (not isinstance(repairs, dict) or type(repairs.get("count")) is not int
+                or repairs["count"] < 0 or not isinstance(repairs.get("recent"), list)):
+            raise BuildError("Retained-file repair history is invalid.")
+        self._repair_gate()
+        self._repair_event(relative, recovering=recovering)
+        retained_meta = transaction.get("retainedMeta")
+        if retained_meta is not None:
+            if (not isinstance(retained_meta, dict) or retained_meta.get("path") != relative + ".meta"
+                    or not relative.startswith("Assets/") or relative.endswith(".meta")):
+                raise BuildError("Retained-file repair has invalid existing GUID metadata.")
+            if self._repair_state(self._path(retained_meta["path"])) != retained_meta.get("state"):
+                if recovering and self.repair_provider is not None:
+                    self._restage_repair(latest, relative)
+                    return
+                raise BuildError("Original GUID metadata changed during its targeted repair: " + relative)
+        companions = transaction.get("companions", [])
+        if not isinstance(companions, list) or len(companions) > 1:
+            raise BuildError("Retained-file repair has invalid original-meta companions.")
+        members = []
+        for companion in companions:
+            if (not isinstance(companion, dict) or companion.get("path") != relative + ".meta"
+                    or not relative.startswith("Assets/") or relative.endswith(".meta")
+                    or type(companion.get("size")) is not int or not 0 < companion["size"] <= 1048576
+                    or not isinstance(companion.get("sha256"), str) or not re.fullmatch(r"[0-9a-f]{64}", companion["sha256"])
+                    or companion.get("before") != {"absent": True}
+                    or companion.get("stage") != self._repair_stage(companion["path"]).relative_to(self.project).as_posix()):
+                raise BuildError("Retained-file repair original-meta companion differs.")
+            expected = {key: companion[key] for key in ("path", "size", "sha256")}
+            owner = latest.get(companion["path"])
+            if owner is not None and owner[1] != expected:
+                raise BuildError("Retained-file repair cannot replace an independently owned meta contract.")
+            members.append((expected, companion["before"]))
+        # Publish original GUID metadata before its asset. Each closed member
+        # has its own restart proof, while the pair shares one durable intent.
+        members.append((row, transaction.get("before")))
+        for expected, before in members:
+            validated = (validated_stages or {}).get(expected["path"])
+            if not self._publish_repair_member(expected, before, recovering=recovering, validated_stage=validated):
+                if self.repair_provider is not None:
+                    self._restage_repair(latest, relative)
+                    return
+                raise BuildError("Targeted repair staging bytes are missing or changed: " + expected["path"])
+        if retained_meta is not None and self._repair_state(self._path(retained_meta["path"])) != retained_meta["state"]:
+            raise BuildError("Original GUID metadata changed while its targeted repair was published: " + relative)
+        self.repaired.update(expected["path"] for expected, _ in members)
+        self.repaired.add(relative)
+        self.repair_resolved.add(relative)
+        self.value["fileRepairs"] = repairs
+        token = value_hash(transaction)
+        record = {"id": token, "path": relative, "step": transaction["step"], "sha256": row["sha256"],
+                  "recipe": transaction.get("recipe", ""), "companions": [member["path"] for member in companions]}
+        self.copies.execute("INSERT OR IGNORE INTO retained_file_repairs(id,record) VALUES (?,?)", (token, json.dumps(record)))
+        # The reconstructed row exactly matches the existing journal contract,
+        # so a compact durable log can commit each member without rewriting the
+        # full 25MiB ownership journal thirteen times for thirteen lighting files.
+        # The final qualifier publishes that journal once, then prunes this log.
+        self.copies.commit()
+        self._apply_repair_log()
+        for expected, _ in members: self._repair_stage(expected["path"]).unlink(missing_ok=True)
+        control.unlink(missing_ok=True)
+
+    def _repair_output(self, latest, relative, row):
+        if self.repair_provider is None or row.get("absent"): return False
+        if relative in self.repaired:
+            raise BuildError("Generated file changed again after its targeted repair: " + relative)
+        owner = self.value["steps"][latest[relative][0]]["name"]
+        path, stage = self._path(relative), self._repair_stage(relative)
+        self._repair_gate()
+        before = self._repair_state(path)
+        meta_relative = relative + ".meta"
+        meta_before = self._repair_state(self._path(meta_relative)) if relative.startswith("Assets/") and not relative.endswith(".meta") else None
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _ordinary_owned(stage)
+        if stage.exists():
+            if not stage.is_file() or stage.stat().st_nlink != 1:
+                raise BuildError("Targeted repair staging is not an ordinary owned file: " + relative)
+            stage.unlink()
+        self._repair_event(relative)
+        try:
+            candidate = self.repair_provider(relative, dict(row), owner, stage)
+            if candidate is None:
+                stage.unlink(missing_ok=True)
+                return False
+            if (not isinstance(candidate, dict) or candidate.get("size") != row.get("size")
+                    or candidate.get("sha256") != row.get("sha256")
+                    or type(candidate.get("size")) is not int
+                    or any(key in candidate and (not isinstance(candidate[key], str) or len(candidate[key]) > 2048)
+                           for key in ("source", "recipe", "detail"))):
+                raise BuildError("Targeted repair provider differs from the retained byte contract: " + relative)
+            if self._repair_state(path) != before:
+                raise BuildError("Generated file changed while its targeted repair was reconstructed: " + relative)
+            if meta_before is not None and self._repair_state(self._path(meta_relative)) != meta_before:
+                raise BuildError("Original GUID metadata changed while its targeted repair was reconstructed: " + relative)
+            _ordinary_owned(stage)
+            if not stage.is_file() or stage.stat().st_nlink != 1 or stage.stat().st_size != row["size"]:
+                raise BuildError("Targeted repair staging bytes are missing or changed: " + relative)
+            stage_stamp = _stamp(stage)
+            counter = self.progress.Counter("prepare-resume-repair-bytes", row["size"], "bytes",
+                                             "Qualifying reconstructed file: " + relative) if self.progress else None
+            checksum = digest(stage, progress=lambda count: counter.add(count, relative)) if counter else digest(stage)
+            if checksum != row["sha256"] or stage_stamp != _stamp(stage):
+                raise BuildError("Targeted repair staging bytes differ from the retained contract: " + relative)
+            if counter: counter.finish()
+            transaction = {"schema": 1, "owner": "Quest retained-file repair",
+                "identity": {key: self.value[key] for key in self.identity}, "path": relative, "step": owner,
+                "expected": dict(row), "stage": stage.relative_to(self.project).as_posix(), "before": before,
+                **{key: candidate[key] for key in ("source", "recipe", "detail") if key in candidate}}
+            if meta_before is not None and not meta_before.get("absent"):
+                transaction["retainedMeta"] = {"path": meta_relative, "state": meta_before}
+            validated = {relative: (stage_stamp, checksum)}
+            companions = candidate.get("companions", [])
+            if not isinstance(companions, list) or len(companions) > 1:
+                raise BuildError("Targeted repair provider has invalid original-meta companions.")
+            if companions:
+                companion = companions[0]
+                meta_stage = self._repair_stage(meta_relative)
+                if (not isinstance(companion, dict) or companion.get("path") != meta_relative
+                        or meta_before != {"absent": True}
+                        or companion.get("stagingPath") != str(meta_stage)
+                        or type(companion.get("size")) is not int or not 0 < companion["size"] <= 1048576
+                        or not isinstance(companion.get("sha256"), str) or not re.fullmatch(r"[0-9a-f]{64}", companion["sha256"])
+                        or self._repair_state(self._path(meta_relative)) != meta_before
+                        or not meta_stage.is_file() or meta_stage.stat().st_nlink != 1
+                        or meta_stage.stat().st_size != companion["size"]):
+                    raise BuildError("Targeted repair original-meta companion differs: " + relative)
+                meta_stamp = _stamp(meta_stage)
+                meta_sha = digest(meta_stage)
+                if meta_sha != companion["sha256"] or meta_stamp != _stamp(meta_stage):
+                    raise BuildError("Targeted repair original-meta bytes changed: " + relative)
+                validated[meta_relative] = (meta_stamp, meta_sha)
+                transaction["companions"] = [{"path": meta_relative, "size": companion["size"],
+                    "sha256": meta_sha, "before": meta_before, "stage": meta_stage.relative_to(self.project).as_posix()}]
+            write_json(_ordinary_owned(self.root / "repair.json"), transaction)
+            self._complete_repair(transaction, latest, validated_stages=validated)
+            return True
+        except BaseException:
+            # A recorded intent retains staging for a subsequent cut recovery.
+            # Before that point the uncommitted private staging file is useless.
+            if not (self.root / "repair.json").exists():
+                stage.unlink(missing_ok=True)
+                if meta_before == {"absent": True}: self._repair_stage(meta_relative).unlink(missing_ok=True)
+            raise
+
     def _qualify(self):
         latest = {}
         for index, step in enumerate(self.value["steps"]):
@@ -466,8 +759,18 @@ class Preparation:
             for row in step["outputs"]:
                 relative = _relative(row.get("path"))
                 latest[relative] = (index, row)
+        if self.repair_provider is not None and hasattr(self.repair_provider, "bind"):
+            self.repair_provider.bind(latest)
+        if self.repair_provider is not None and hasattr(self.repair_provider, "bind_journal"):
+            self.repair_provider.bind_journal(self.value)
+        repair_control = _ordinary_owned(self.root / "repair.json")
+        self._apply_repair_log()
+        if repair_control.exists():
+            if not repair_control.is_file() or repair_control.stat().st_nlink != 1 or repair_control.stat().st_size > 65536:
+                raise BuildError("Retained-file repair control is linked or exceeds its bounded size.")
+            self._complete_repair(self._read(repair_control), latest, recovering=True)
         counter = self.progress.Counter("prepare-resume-verify-files", len(latest), "files", "Qualifying retained preparation contracts") if self.progress else None
-        replaced = False
+        replaced = bool(self.repaired)
         imported_effects, remapped_assets, editor_settings = 0, 0, 0
         remapping = None
         # Closed output contracts share the same reliable metadata proofs as
@@ -479,7 +782,17 @@ class Preparation:
                     if not row.get("absent") and relative not in self.content_proofs]
         witness = self.prior_witnesses or self.witnesses
         qualified = set()
-        for row, valid in witness.qualify_many(ordinary, hasher=digest):
+        damaged = []
+        # qualify_many batches existing directories. A deleted generated
+        # directory otherwise raises before its missing members can be repaired;
+        # inspect each distinct parent once, not every asset's full ancestry.
+        missing, present, parents = [], [], {}
+        for row in ordinary:
+            parent = (self.project / row["path"]).parent
+            if parent not in parents: parents[parent] = parent.exists()
+            (present if parents[parent] else missing).append(row)
+        from itertools import chain
+        for row, valid in chain(witness.qualify_many(present, hasher=digest), ((row, False) for row in missing)):
             relative = row["path"]
             self.import_rejection = None
             if not valid and self._accept_post_effect_import(latest, relative, row):
@@ -505,12 +818,15 @@ class Preparation:
                 try:
                     observed = remapping.accept(relative, row)
                 except BuildError as error:
-                    name = self.value["steps"][latest[relative][0]]["name"]
-                    self.invalid_step = name
-                    raise BuildError("Retained preparation output changed in " + name + ": " + relative +
-                                     "; audited package-script import rejected: " + str(error) +
-                                     "; completed steps and Unity Library were retained.") from error
-                if observed is None:
+                    if self.repair_provider is None:
+                        name = self.value["steps"][latest[relative][0]]["name"]
+                        self.invalid_step = name
+                        raise BuildError("Retained preparation output changed in " + name + ": " + relative +
+                                         "; audited package-script import rejected: " + str(error) +
+                                         "; completed steps and Unity Library were retained.") from error
+                    self.import_rejection = "audited package-script import rejected: " + str(error)
+                    observed = None
+                if observed is None and self.import_rejection is None:
                     self.import_rejection = ("audited package-script import rejected: retained manifest membership or "
                                              "inverse complete original fingerprint/size differs; original=" + row.get("sha256", "missing"))
                 if observed is not None:
@@ -523,6 +839,9 @@ class Preparation:
                     valid, replaced = True, True
                     remapped_assets += 1
             if not valid:
+                if self.repair_provider is not None:
+                    damaged.append((row, self.import_rejection))
+                    continue
                 name = self.value["steps"][latest[relative][0]]["name"]
                 self.invalid_step = name
                 raise BuildError("Retained preparation output changed in " + name + ": " + relative +
@@ -533,6 +852,49 @@ class Preparation:
                 # Transfer that stamp rather than resampling and attaching old
                 # bytes to a possibly new file during input-key migration.
                 self.witnesses.adopt_qualified(self.project / relative)
+            if self.repair_provider is not None and hasattr(self.repair_provider, "remember"):
+                self.repair_provider.remember(relative, dict(row))
+            qualified.add(relative)
+            if counter: counter.add(1, relative)
+        # Controls can be prerequisites for the exact import recognizers. Heal
+        # those first, then reconsider an asset whose SDK witness was blocked
+        # by a missing receipt, preserving already imported bytes where proven.
+        # One fixed total covers this entire pass, never thirteen resetting
+        # one-file bars for thirteen independently reserialized lighting files.
+        self.repair_total = len(self.repair_resolved) + len(damaged)
+        damaged.sort(key=lambda item: (not item[0]["path"].startswith(("QuestStartupEvidence/", "QuestCampaignEvidence/", "QuestRecovery/")),
+                                      not item[0]["path"].endswith(".json")))
+        for row, rejection in damaged:
+            relative = row["path"]
+            valid = False
+            if self._accept_post_effect_import(latest, relative, row):
+                valid, replaced = True, True
+                imported_effects += 1
+            elif self._accept_editor_settings(latest, relative, row):
+                valid, replaced = True, True
+                editor_settings += 1
+            elif remapping is not None and relative.startswith("Assets/") and not relative.endswith((".meta", ".shader", ".cs", ".cginc")):
+                path = self._path(relative)
+                before = self.witnesses.current(path) if path.is_file() else None
+                try: observed = remapping.accept(relative, row)
+                except BuildError: observed = None
+                if observed is not None and before is not None:
+                    self.witnesses.remember(path, observed["sha256"], stamp=before)
+                    row.clear(); row.update(observed)
+                    valid, replaced = True, True
+                    remapped_assets += 1
+            if not valid and self._repair_output(latest, relative, row):
+                valid, replaced = True, True
+            if not valid:
+                name = self.value["steps"][latest[relative][0]]["name"]
+                self.invalid_step = name
+                raise BuildError("Retained preparation output changed in " + name + ": " + relative +
+                                 ("; " + rejection if rejection else "") +
+                                 "; no exact targeted reconstruction was available; completed steps and Unity Library were retained.")
+            self.repair_resolved.add(relative)
+            if self.repair_provider is not None and hasattr(self.repair_provider, "remember"):
+                self.repair_provider.remember(relative, dict(row))
+            self._repair_event(relative)
             qualified.add(relative)
             if counter: counter.add(1, relative)
         for relative, (index, row) in latest.items():
@@ -544,12 +906,19 @@ class Preparation:
                 # Refresh only its latest phase owner; other assets stay exact.
                 if row != observed: row.clear(); row.update(observed); replaced = True
             if observed != row:
+                if self._repair_output(latest, relative, row):
+                    if counter: counter.add(1, relative)
+                    replaced = True
+                    continue
                 name = self.value["steps"][index]["name"]
                 self.invalid_step = name
                 raise BuildError("Retained preparation output changed in " + name + ": " + relative +
                                  "; completed steps and Unity Library were retained. Restore the file or use a fresh output folder.")
+            if self.repair_provider is not None and hasattr(self.repair_provider, "remember"):
+                self.repair_provider.remember(relative, dict(row))
             if counter: counter.add(1, relative)
         self._close_prior_witnesses(commit=True)
+        if self.repaired: self._repair_event(str(len(self.repaired)) + " files; completed phases and Unity Library retained", complete=True)
         if counter:
             counter.detail = "Qualifying retained preparation contracts: " + self.witnesses.summary()
             if imported_effects or remapped_assets or editor_settings:
@@ -561,6 +930,8 @@ class Preparation:
             # without reopening all shader/asset bytes to establish witnesses.
             self.copies.commit()
             write_json(self.journal, self.value)
+            self.copies.execute("DELETE FROM retained_file_repairs")
+            self.copies.commit()
 
     def _rebind_compatible_input(self):
         """Retain a byte-qualified pre-archive prefix after a proved tool repair."""
@@ -762,6 +1133,8 @@ class Preparation:
             for path in required:
                 relative = _relative(str(path))
                 outputs.append(self._observe(relative))
+                if self.repair_provider is not None and hasattr(self.repair_provider, "remember"):
+                    self.repair_provider.remember(relative, dict(outputs[-1]))
                 if counter: counter.add(1, relative)
             allowed_absent = getattr(paths, "absent", set())
             for row in outputs:
