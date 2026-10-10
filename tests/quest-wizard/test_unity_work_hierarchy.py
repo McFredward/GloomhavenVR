@@ -311,5 +311,16 @@ class UnityWorkHierarchyTests(unittest.TestCase):
         compiler = next(row for group in self.row()["progress"]["buildOverview"]["groups"] for row in group["operations"] if row["id"] == "content-bank")["compiler"]
         self.assertEqual((compiler["status"], compiler["percent"], compiler["done"], compiler["total"]), ("failed", 90., 90, 100))
 
+    def test_successful_native_player_closes_compiler_before_final_evidence(self):
+        self.start()
+        self.report("unity-work-stage:method", status="start")
+        self.report("unity-shader-compile", 60, 100, "variants")
+        native = self.report("unity-player-native-result", 1, 1, status="complete")
+        compiler = next(row for group in native["buildOverview"]["groups"] for row in group["operations"] if row["id"] == "player")["compiler"]
+        self.assertEqual((compiler["status"], compiler["percent"]), ("complete", 100.))
+        self.assertEqual((compiler["done"], compiler["total"]), (60, 100))
+        self.assertNotIn("player", self.row()["progressPlan"]["completed"])
+        self.assertFalse(self.work(native)["phases"][1]["closed"])
+
 
 if __name__ == "__main__": unittest.main()

@@ -1124,7 +1124,8 @@ def _build_overview(row, plan):
         if detail: item["preparation"] = detail
         compiler = plan.get("unityCompiler", {}).get(item["id"])
         if compiler:
-            compiled = item["id"] == "content-bank" and "build" in plan.get("unityWork", {}).get(item["id"], {}).get("partCompleted", ())
+            part = "build" if item["id"] == "content-bank" else "native" if item["id"] in ("player", "update-code") else None
+            compiled = part is not None and part in plan.get("unityWork", {}).get(item["id"], {}).get("partCompleted", ())
             closed = item["closed"] or compiled
             # Native success can arrive after the last observed Shader counter
             # and omit its final log line. Keep that original pass census for
