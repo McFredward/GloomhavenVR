@@ -23,7 +23,7 @@ auf einem Windows-PC und wird zum Headset gestreamt, nutze die
 
 Du brauchst Gloomhaven aus Steam auf der Frame, zwei getrackte Controller mit Thumbsticks und
 zwei Downloads:
-**BepInEx 5.4.23.5 für Windows x64** und das **aktuelle GloomhavenVR-Release-ZIP**. Gloomhaven
+**BepInEx 5.4.23.5 für Windows x64** und ein **GloomhavenVR-ZIP mit Frame-Setup**. Gloomhaven
 läuft auf der Frame als Windows-Spiel über Proton. Deshalb ist das Windows-Archiv von BepInEx
 das richtige.
 Das Mod-Archiv muss `BepInEx/plugins/GloomhavenVR/FrameSetup/GloomhavenVR-Setup.desktop` enthalten.
@@ -58,7 +58,7 @@ Lade in Chromium oder einem anderen Browser auf der Frame diese Dateien herunter
 
 1. **`BepInEx_win_x64_5.4.23.5.zip`** vom
    [BepInEx-Release 5.4.23.5](https://github.com/BepInEx/BepInEx/releases/tag/v5.4.23.5).
-2. **`GloomhavenVR-<version>.zip`** vom
+2. **`GloomhavenVR-<version>.zip` mit Frame-Setup** vom
    [aktuellen GloomhavenVR-Release](https://github.com/McFredward/GloomhavenVR/releases/latest).
 
 Die Dateien sollten unter **Downloads** liegen. Öffne das BepInEx-ZIP in Dolphin. Falls die
