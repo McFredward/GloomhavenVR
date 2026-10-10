@@ -607,7 +607,21 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 661;
+    public const ushort ModBuild = 662;
+
+    // ModBuild662 — ordinary wrist-board rotation controls (2026-10-10).
+    // The board category exposed position but kept the existing three wrist-local
+    // angles in Advanced. Show all three angle sliders immediately below position,
+    // using the same hybrid bar/arrow kit with a full +/-180 degree gesture and
+    // existing one-degree fine steps. Existing wrist-mode dependencies hide them
+    // when off; rebuilding preserves all saved components and equivalent turns.
+    // No key, default, placement path or wire layout changes: the original tracked
+    // board root already composes these angles, and record70 carries the resulting
+    // owner orientation unchanged to peers (rather than their own calibration).
+    // Focused actual Unity wrist/menu proof:324 assertions/three existing controls;
+    // options coverage90 matching captions; strict Debug/Release0 warnings/errors.
+    // No complete gate rerun or headset comfort/appearance claim. See the focused
+    // .planning/WRIST-ROTATION-REVIEW.md and retained original-source receipts.
 
     // ModBuild661 — remaining paired660 NPC presentation defects.
     // The actual enchantress backing/front pair shares the rendered print frame

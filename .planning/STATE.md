@@ -1,5 +1,20 @@
 # State — where the project stands
 
+**Build662 ordinary wrist-board rotation controls, 2026-10-10: 1.1.0 development candidate.**
+
+The normal board category now shows three wrist-local rotation sliders directly
+under the position sliders while wrist attachment is enabled. Existing degree
+steps, saved calibration, Advanced access and owner-authored remote board pose
+remain authoritative; no keys, defaults or wire layout change.
+
+Focused actual Unity wrist/menu validation passes324 assertions/three existing
+causal controls, including the real sliders/arrows, retained/out-of-range values,
+LateUpdate placement and original serializer/remote pose state. Options coverage
+passes90 matching captions; strict Debug/Release has0 warnings/errors. This is a
+focused pass, not a new complete gate; unaffected areas inherit661 evidence.
+See [WRIST-ROTATION-REVIEW.md](WRIST-ROTATION-REVIEW.md). Headset appearance and
+comfort remain for the maintainer's test.
+
 **Build661 paired660 NPC follow-up, 2026-10-10: 1.1.0 development candidate.**
 
 The exact offered body/front handoff publishes their measured original109
