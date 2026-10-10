@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Reflection;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -52,6 +53,10 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
     private readonly Dictionary<RectTransform, Quaternion> _inkNativeRotations = new();
     private readonly Dictionary<RectTransform, Quaternion> _inkCorrectedRotations = new();
     private readonly List<UIEnhancementButtonHighlight> _areas = new();
+    private static readonly FieldInfo? NativeAreaFrame = typeof(UIEnhancementButtonHighlight)
+        .GetField("frame", BindingFlags.Instance | BindingFlags.NonPublic);
+    private static readonly FieldInfo? NativeAreaShaderProperty = typeof(UIEnhancementButtonHighlight)
+        .GetField("shaderProperty", BindingFlags.Instance | BindingFlags.NonPublic);
     private RectTransform? _highlighterRect;
     private RectTransform? _nativePrint;
     private Vector3 _printRootPosition, _printRootScale;
@@ -525,6 +530,39 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
                 area.transform.localRotation = Quaternion.identity;
             if (area.transform.localScale != Vector3.one)
                 area.transform.localScale = Vector3.one;
+            RefreshSummonArea(area);
+        }
+    }
+
+    private static void RefreshSummonArea(UIEnhancementButtonHighlight area)
+    {
+        // HighlightButtons parents the native selectable to its ParentContainer.
+        // Summon cells acquire their dimensions later in Unity's layout pass;
+        // Highlight's one-time copy can therefore still be zero after the cell
+        // is visible. Follow only the four actual serialized stat targets. Keep
+        // the native availability, selection state and callbacks untouched.
+        RectTransform? target = area.transform.parent as RectTransform;
+        if (target == null) return;
+        SummonContainer summon = target.GetComponentInParent<SummonContainer>();
+        if (summon == null || !(target.gameObject == summon.SummonLT
+            || target.gameObject == summon.SummonLB || target.gameObject == summon.SummonMT
+            || target.gameObject == summon.SummonMB)) return;
+        RectTransform? rectangle = area.transform as RectTransform;
+        if (rectangle == null) return;
+        Vector2 size = target.rect.size;
+        bool resized = rectangle.sizeDelta != size;
+        if (rectangle.pivot != target.pivot) rectangle.pivot = target.pivot;
+        if (resized) rectangle.sizeDelta = size;
+        if (rectangle.position != target.position) rectangle.position = target.position;
+        // Use the original frame and its original shader property, as Highlight
+        // does, rather than searching by a graphic's name or replacing material.
+        if (resized && NativeAreaFrame?.GetValue(area) is Image frame
+            && NativeAreaShaderProperty?.GetValue(area) is string property
+            && frame.material != null && frame.material.HasProperty(property))
+        {
+            Vector4 format = new(size.x, size.y, 0f, 0f);
+            if (frame.material.GetVector(property) != format)
+                frame.material.SetVector(property, format);
         }
     }
 
