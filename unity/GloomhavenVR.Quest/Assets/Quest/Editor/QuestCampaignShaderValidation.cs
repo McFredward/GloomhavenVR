@@ -238,7 +238,11 @@ namespace GloomhavenVR.Quest.Editor
                 if (material == null) throw new InvalidOperationException("Campaign native material is missing: " + row.guid);
                 if (row.originalShaderNull)
                 {
-                    if (!Regex.IsMatch(File.ReadAllText(path), @"(?m)^  m_Shader: \{fileID: 0\}$"))
+                    // The Windows collection writer retains native CRLF bytes.
+                    // .NET's multiline '$' stops before LF, leaving CR in the
+                    // matched line. Accept that line ending without weakening
+                    // the exact original null PPtr or rewriting source assets.
+                    if (!Regex.IsMatch(File.ReadAllText(path), @"(?m)^  m_Shader: \{fileID: 0\}\r?$"))
                         throw new InvalidOperationException("Original null shader PPtr has changed: " + row.guid);
                     progress.Report(++done, row.assetPath);
                     continue;
