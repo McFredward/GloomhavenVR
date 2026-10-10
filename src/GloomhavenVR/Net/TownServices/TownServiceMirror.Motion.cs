@@ -24,11 +24,13 @@ internal static partial class TownServiceMirror
         private TownServiceMotionEntry _current;
         private TownServiceMotionEntry? _pending;
         private float _sampleTime, _pendingSampleTime, _rate = 1f, _pendingRate = 1f, _renderedProgress = float.NegativeInfinity;
+        private float _terminalActivationAt, _pendingTerminalAt;
         private float _observedSampleTime, _observedAge;
         internal float CurrentSampleTime => _sampleTime;
-        internal CardReturnClock(TownServiceMotionEntry entry, float sampleTime, float offset)
+        internal CardReturnClock(TownServiceMotionEntry entry, float sampleTime, float offset, float? receivedAt = null)
         { _current = entry; _sampleTime = _observedSampleTime = sampleTime;
-          _observedAge = ReturnProgress(entry); _offset = offset; }
+          _observedAge = ReturnProgress(entry); _offset = offset;
+          _terminalActivationAt = Mathf.Max(receivedAt ?? sampleTime + offset, sampleTime + offset); }
         internal void Observe(TownServiceMotionEntry entry, float sampleTime, float receivedAt)
         {
             // One native return has one source-to-observer clock mapping. Restarting
@@ -47,8 +49,10 @@ internal static partial class TownServiceMirror
                 _observedSampleTime = sampleTime; _observedAge = ReturnProgress(entry);
             }
             if (sampleTime + _offset <= receivedAt)
-            { _current = entry; _sampleTime = sampleTime; _rate = rate; _pending = null; }
-            else { _pending = entry; _pendingSampleTime = sampleTime; _pendingRate = rate; }
+            { _current = entry; _sampleTime = sampleTime; _rate = rate; _pending = null;
+              _terminalActivationAt = Mathf.Max(receivedAt, sampleTime + _offset); }
+            else { _pending = entry; _pendingSampleTime = sampleTime; _pendingRate = rate;
+              _pendingTerminalAt = Mathf.Max(receivedAt, sampleTime + _offset); }
         }
         internal TownServiceMotionEntry Current(float now, out float age)
         {
@@ -56,11 +60,32 @@ internal static partial class TownServiceMirror
             // this flight's rendered clock. Keep the previous exact receipt until
             // that instant; never jump forward and then hold at a negative age.
             if (_pending != null && _pendingSampleTime + _offset <= now)
-            { _current = _pending; _sampleTime = _pendingSampleTime; _rate = _pendingRate; _pending = null; }
+            { _current = _pending; _sampleTime = _pendingSampleTime; _rate = _pendingRate;
+              _terminalActivationAt = _pendingTerminalAt; _pending = null; }
+            // This exact native receipt is the authoritative settle branch,
+            // not another extrapolated active pose. A late atomic terminal can
+            // arrive after the old progress floor expired. Apply it once with
+            // the existing bounded grace measured from actual activation.
+            if (IsTerminal(_current))
+            { age = _current.Numbers[1] + Mathf.Max(0f, now - _terminalActivationAt); return _current; }
             float progress = ReturnProgress(_current) + Mathf.Max(0f, now - _sampleTime - _offset) * _rate;
             progress = Mathf.Max(progress, _renderedProgress); _renderedProgress = progress;
             age = _current.Numbers[0] + progress - ReturnProgress(_current);
             return _current;
+        }
+        internal void ActivateTerminal(float receivedAt)
+        {
+            if (IsTerminal(_current)) _terminalActivationAt = Mathf.Max(receivedAt, _sampleTime + _offset);
+            if (_pending != null && IsTerminal(_pending))
+                _pendingTerminalAt = Mathf.Max(receivedAt, _pendingSampleTime + _offset);
+        }
+        internal static bool IsTerminal(TownServiceMotionEntry entry)
+        {
+            float[] values = entry.Numbers;
+            if (values.Length is not (28 or 38) || values[0] != values[1]
+                || values[24] != 0f || values[25] != 0f || values[26] != 0f) return false;
+            for (int i = 0; i < 10; i++) if (values[4 + i] != values[14 + i]) return false;
+            return true;
         }
         // Exponential receipts may carry increasing age or decreasing remaining
         // duration. Age minus duration retains progress for both wire shapes.
@@ -604,7 +629,7 @@ internal static partial class TownServiceMirror
                     && old.Entry.Structure == entry.Structure && old.Entry.Revision == entry.Revision
                     && old.Entry.Hand == entry.Hand;
                 returnClock = sameReturn ? old!.ReturnClock
-                    : new CardReturnClock(entry, packet.SampleTime, entry.HasReturnVisibility ? entry.CohortOffset : ReturnOffset(state, packet.SampleTime, receivedAt));
+                    : new CardReturnClock(entry, packet.SampleTime, entry.HasReturnVisibility ? entry.CohortOffset : ReturnOffset(state, packet.SampleTime, receivedAt), receivedAt);
                 if (sameReturn) returnClock!.Observe(entry, packet.SampleTime, receivedAt);
                 else if (VRLog.WantsDebug && receivedAt >= state.ReturnReportAt)
                 {
