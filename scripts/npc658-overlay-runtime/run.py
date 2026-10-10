@@ -40,6 +40,19 @@ def main():
    ('PublisherTick.cs','WorldUI/TownServices/TownServiceSync.cs')):
    historical[name]=subprocess.run(['git','-C',str(root),'show',revision+':src/GloomhavenVR/'+path],check=True,capture_output=True,text=True).stdout
   for name in ('TownServiceDepthOrder.cs','TownServiceMirror.Offerings.cs'):bound[name]=historical[name]
+  # Published656 cannot exercise the later116 identity-transfer entry point.
+  # Keep its old depth/offerings bodies exact and make an unexpected new return
+  # route fail explicitly, rather than simulating its absent mount/depth state.
+  bound['HistoricalReturnBoundary658.cs']='''
+using System;
+using UnityEngine;
+namespace GloomhavenVR.Net.TownServices;
+internal static partial class TownServiceMirror
+{
+    private static void DetachOfferedOriginal(RemoteModule module, Transform shared) =>
+        throw new InvalidOperationException("Published656 paint control cannot transfer a116 return origin");
+}
+'''
   # The old physical-print lifecycle has neither the661 registration nor mount
   # restoration seam. Bind its genuine caller bodies from the same revision;
   # no empty compatibility hook may substitute the historical native behavior.
@@ -54,7 +67,9 @@ def main():
   bound['TownServiceMirror.Motion.cs']=bound['TownServiceMirror.Motion.cs'].replace('ClearOfferedFrames();','OfferedFrames.Clear();')
   (run/'historical-offered-lifecycle658.json').write_text(json.dumps({
    'revision':revision,'full_source_sha256':{name:hashlib.sha256(text.encode()).hexdigest()for name,text in historical.items()},
-   'bound_methods_sha256':methods,'boundary':'Historical depth/Offerings and actual TickRemote/TickCore callers only; current positive source bindings and native paint assertions unchanged.'},indent=2)+'\n')
+   'bound_methods_sha256':methods,
+   'new_return_boundary_sha256':hashlib.sha256(bound['HistoricalReturnBoundary658.cs'].encode()).hexdigest(),
+   'boundary':'Historical depth/Offerings and actual TickRemote/TickCore callers only; the later116 detach route throws if reached. Current positive source bindings and native paint assertions unchanged.'},indent=2)+'\n')
  # Existing unused suite methods reference this registration instrumentation.
  bound['TownServiceDepthOrder.cs']=bound['TownServiceDepthOrder.cs'].replace('internal static class TownServiceDepthOrder\n{','internal static class TownServiceDepthOrder\n{\n    internal static readonly System.Collections.Generic.HashSet<Transform> Bound = new();',1)
  bound['TownServiceDepthOrder.cs']=bound['TownServiceDepthOrder.cs'].replace('if (root == null) return;','if (root == null) return; Bound.Add(root);',1)
