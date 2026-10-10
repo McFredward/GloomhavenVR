@@ -144,6 +144,7 @@ internal static partial class TownServiceMirror
                 || packet.SampleTime < header.ReturnSampleTime) continue;
             int index = Array.BinarySearch(header.ReturnMembers, root.Module);
             if (index < 0 || header.ReturnStructures[index] != root.Structure) continue;
+            if (KeepPendingOriginTerminal(owner, pair.Value, root, index)) continue;
             for (int i = 0; i < header.ReturnMembers.Length; i++)
                 peer.Slots.Remove(new TownServiceMotionKey(8, header.Lane, header.ReturnMembers[i], 0, 0, 0));
             foreach (var picture in ReturnPictures)
@@ -157,6 +158,31 @@ internal static partial class TownServiceMirror
         DeadReturnPictures.Clear();
         foreach (TownServiceMotionKey key in DeadReturnCohorts) peer.ReturnCohorts.Remove(key);
     }
+    private static bool KeepPendingOriginTerminal(int owner, ReturnCohortAssembly assembly,
+        TownServiceMotionEntry root, int index)
+    {
+        TownServiceMotionEntry header = assembly.Header;
+        if (assembly.Activated || header.Lane != 2 || header.Service != 1
+            || !CardReturnClock.IsTerminal(header) || !CompleteReturnPayload(assembly)
+            || !ReturnOriginals.TryGetValue(owner, out var originals)
+            || !TryStockPeerKey(owner, out int stock) || !Sessions.TryGetValue(stock, out var session)
+            || !session.Active || session.Service != header.Service || session.Session != header.Session
+            || session.PublicClaim != header.PublicClaim || Array.BinarySearch(session.Modules, root.Module) < 0) return false;
+        TownServiceMotionEntry frozen = assembly.Roots[index]!;
+        if (root.Hand != frozen.Hand || root.Visible != frozen.Visible || root.ParentModule != frozen.ParentModule
+            || root.Binding != frozen.Binding || root.ParentAlpha != frozen.ParentAlpha || !SameNumbers(root.Pose, frozen.Pose)) return false;
+        if (root.HasCanvasUpdate && (root.HasCanvasFrame != frozen.HasCanvasFrame
+            || root.CanvasOnHand != frozen.CanvasOnHand || root.CanvasSortingOrder != frozen.CanvasSortingOrder
+            || root.CanvasSortingLayer != frozen.CanvasSortingLayer || !SameNumbers(root.CanvasPose, frozen.CanvasPose)
+            || !SameNumbers(root.CanvasRect, frozen.CanvasRect) || !SameNumbers(root.CanvasSettings, frozen.CanvasSettings))) return false;
+        foreach (ReturnOriginal original in originals.Values)
+            if (!original.Transferred && original.Module.Alive && original.Origin.FlightRevision == header.Revision
+                && original.Module.LastFrame != null && original.Origin.Matches(original.Module.LastFrame)
+                && TownCardReturnOrigin.Same(original.Origin, original.Module.LastFrame.ReturnOrigin)
+                && original.Module.Binding.Structure == root.Structure) return true;
+        return false;
+    }
+
     private static bool TryReturnModules(int owner, TownServiceMotionEntry entry,
         out Dictionary<ushort, RemoteModule>? modules, out bool obsolete)
     {
@@ -222,6 +248,7 @@ internal static partial class TownServiceMirror
                 || module.LastFrame.Session != header.Session || module.LastFrame.Service != header.Service
                 || module.LastFrame.PublicClaim != header.PublicClaim || module.LastFrame.Module != header.ReturnMembers[i]
                 || (module.LastFrame.VisitorStock ? 2 : module.LastFrame.PublicCatalog ? 1 : 0) != header.Lane) return false;
+        if (!AdoptReturnOriginals(owner, header, modules)) return false;
         var packet = new TownServiceMotionPacket { Sequence = assembly.Sequence, SampleTime = header.ReturnSampleTime };
         if (CardReturnClock.IsTerminal(header)) assembly.Clock.ActivateTerminal(Time.unscaledTime);
         for (int i = 0; i < header.ReturnMembers.Length; i++)

@@ -623,6 +623,7 @@ internal static partial class TownServiceMirror
         internal string Address = string.Empty;
         internal TownServiceBinding Binding = null!;
         internal TownServiceFrame? Last;
+        internal TownCardReturnOrigin? ReturnOrigin;
         internal TownServiceFrame? Baseline;
         internal NativeTemplateRepair? NativeRepair;
         internal float NextBaseline;
@@ -647,6 +648,7 @@ internal static partial class TownServiceMirror
         internal string Address = string.Empty;
         internal ulong Sequence, CatalogContentKey;
         internal TownServiceFrame? LastFrame;
+        internal float ReturnOriginChangedAt = float.NegativeInfinity;
         internal Renderer[]? RackBodyRenderers;
         internal bool StockMasked, PublicMasked;
         internal TownServiceMotion Motion = null!;
@@ -886,6 +888,7 @@ internal static partial class TownServiceMirror
                     TraceNativeVisibility(0, module.Binding, frame, source.gameObject, now);
                     if (frame.VisitorStock && HidePreparedCardReturn(source)) frame.Visible = false;
                     PreserveReturningCardHeader(module, frame);
+                    CaptureReturnOrigin(module, frame);
                     if (frame.RackMember != null)
                     {
                         float alpha = ReadRackAlpha(module);
@@ -901,6 +904,7 @@ internal static partial class TownServiceMirror
                     if (!openingOriginal && frame.CatalogBank == null && FastMotionCaptureEnabled && module.Last != null && module.Baseline != null
                         && now < module.NextBaseline && module.WasPriority == module.HighPriority
                         && (!NeedsHeartbeat(module) || now < module.NextRefresh)
+                        && TownCardReturnOrigin.Same(module.Last.ReturnOrigin, frame.ReturnOrigin)
                         && TownServiceFastNumbers.SameArtwork(module.Last, frame))
                     {
                         if (!SamePresentation(module.Last, frame))
@@ -1018,7 +1022,7 @@ internal static partial class TownServiceMirror
         {
             if (Sessions.TryGetValue(peer, out TownServiceSessionInfo? previous) && frame.Sequence <= previous.Sequence) return true;
             if (previous != null && (previous.Session != frame.Session || previous.Service != frame.Service))
-            { ForgetPublicPicture(peer); ClearRemoteModules(peer); }
+            { ForgetPublicPicture(peer); ClearRemoteModules(peer, retainReturnOriginals: peer > 0); }
             bool donationAdvanced = previous != null && previous.Session == frame.Session && previous.Service == frame.Service
                 && previous.TempleDonationKnown && frame.TempleDonationKnown
                 && frame.TempleDonationRevision > previous.TempleDonationRevision;
@@ -1039,7 +1043,11 @@ internal static partial class TownServiceMirror
                     frame.TempleDonationCommitAge);
             if (peer > 0) InteractionOwner(frame.Service); // start/advance the bounded claim window
             StagePreviousPublicPicture();
-            if (!frame.Visible) ClearRemoteModules(peer);
+            if (!frame.Visible)
+            {
+                if (IsStockPeerKey(peer)) WithdrawReturnStock(RealPeer(peer), frame.SampleTime);
+                ClearRemoteModules(peer, retainReturnOriginals: peer > 0);
+            }
             else if (Remote.TryGetValue(peer, out Dictionary<ushort, RemoteModule>? standing))
             {
                 var removed = new List<ushort>();
@@ -1047,9 +1055,14 @@ internal static partial class TownServiceMirror
                 if (removed.Count == 0 || !StagePublicPicture(peer))
                 {
                     PreserveCensusChildren(standing, frame.Modules, removed);
-                    foreach (ushort id in removed) { standing[id].Dispose(); standing.Remove(id); }
+                    var retained = new HashSet<RemoteModule>();
+                    foreach (ushort id in removed)
+                        if (RetainReturnOriginal(peer, standing[id])) retained.Add(standing[id]);
+                    foreach (ushort id in removed)
+                    { if (!retained.Contains(standing[id])) standing[id].Dispose(); standing.Remove(id); }
                 }
             }
+            RetireAcknowledgedOrigins(peer, frame);
             PrunePending(Pending, peer, frame);
             PrunePending(ReceivedBaselines, peer, frame);
             ReconcileMerchantOffering(peer);
@@ -1134,6 +1147,7 @@ internal static partial class TownServiceMirror
         RestoreOfferedPhysicalMounts();
         RetryUnpreparedNativeTemplates();
         float now = Time.unscaledTime;
+        TickReturnOriginals(now);
         StagePreviousPublicPicture();
         foreach (var entry in Sessions)
         {
@@ -1141,7 +1155,7 @@ internal static partial class TownServiceMirror
             bool stockVisitor = IsStockPeerKey(entry.Key);
             float staleSeconds = entry.Key > 0 || stockVisitor ? NetProtocol.StaleTimeoutSeconds : 10f;
             if (!session.Active || now - session.LastSeenTime > staleSeconds)
-            { ClearRemoteModules(entry.Key); session.Active = false; continue; }
+            { if (session.Active) ClearRemoteModules(entry.Key); else ClearRemoteModules(entry.Key, retainReturnOriginals: entry.Key > 0); session.Active = false; continue; }
             // The NPC has one physical rack/workspace, not a separate copy per visitor.
             // Browsing input stays independent, while one elected presentation author
             // supplies the shared native widgets. A placed offer takes authorship.
@@ -1171,6 +1185,7 @@ internal static partial class TownServiceMirror
             foreach (var packet in OrderCatalogPending(pending))
             {
                 TownServiceFrame received = packet.Value;
+                if (SuppressTransferredOriginal(entry.Key, received)) continue;
                 if (stockVisitor && !StockModule(received.TemplateAddress)) continue;
                 // A cumulative delta need not repeat the purse's Mesh property.
                 // Classify that original body only after expansion; a row/image
@@ -1200,7 +1215,7 @@ internal static partial class TownServiceMirror
                 try
                 {
                     if (!frame.Visible && !PrepareHiddenCardReturnOriginal(frame))
-                    { RemoteRetry.Remove(retryKey); if (module != null) { module.Host.SetActive(false); module.Motion.Reset(); module.Sequence = frame.Sequence; module.LastFrame = frame; } continue; }
+                    { RemoteRetry.Remove(retryKey); if (module != null) { module.Host.SetActive(false); module.Motion.Reset(); module.Sequence = frame.Sequence; ObserveReturnOriginEpoch(module, frame); module.LastFrame = frame; } continue; }
                     // A pending replacement may retry its native original, but must
                     // never delay the owner's withdrawal behind that retry clock.
                     if (RemoteRetry.TryGetValue(retryKey, out float retryAt) && now < retryAt) continue;
@@ -1266,7 +1281,7 @@ internal static partial class TownServiceMirror
                     if (module.LastFrame != null && module.Host.activeSelf && module.LastFrame.ParentModule == frame.ParentModule
                         && module.LastFrame.ParentBinding == frame.ParentBinding)
                         module.Motion.AfterApply(now, frame.SampleTime - module.LastFrame.SampleTime, sourceSampleTime: frame.SampleTime);
-                    RemoteRetry.Remove(retryKey); module.Sequence = frame.Sequence; module.LastFrame = frame;
+                    RemoteRetry.Remove(retryKey); module.Sequence = frame.Sequence; ObserveReturnOriginEpoch(module, frame); module.LastFrame = frame;
                     if (frame.PublicCatalog && frame.RackMember != null) module.CatalogContentKey = IncomingCatalogContentKey(entry.Key, frame);
                     reorder = true;
                     module.Host.SetActive(frame.Visible); root.gameObject.SetActive(true);
@@ -1274,6 +1289,7 @@ internal static partial class TownServiceMirror
                     TownServiceDepthOrder.Refresh(module.Host.transform);
                     HideDormantCatalogOriginal(entry.Key, frame, module);
                     RestoreIncomingReturnPicture(module, heldReturn);
+                    ObserveReturnOriginal(entry.Key, module);
                 }
                 catch (Exception e)
                 {
@@ -1577,6 +1593,8 @@ internal static partial class TownServiceMirror
         if (PrivateLane.TransactionActive)
             TownServiceGrantSync.SetOffer(PrivateLane.Service, PrivateLane.Session, false);
         foreach (int peer in new List<int>(Remote.Keys)) ClearRemoteModules(peer);
+        foreach (int peer in new List<int>(ReturnOriginals.Keys)) ClearReturnOriginals(peer);
+        ReturnOriginFloors.Clear(); ClosedReturnStock.Clear();
         MerchantOfferings.Clear(); ClearVoiceNetwork(); Pending.Clear(); ReceivedBaselines.Clear(); ReceivedCatalogBanks.Clear(); IncomingCatalogKeys.Clear(); CatalogOriginalBanks.Clear(); Sessions.Clear(); VisitorSessions.Clear(); RemoteRetry.Clear(); foreach (LocalModule module in AllLocalModules())
         { module.Last = null; module.Baseline = null; module.NativeRepair = null; module.NextRefresh = module.NextBaseline = 0; }
         PrivateLane.NextManifest = PublicLane.NextManifest = StockLane.NextManifest = 0;
@@ -1612,10 +1630,16 @@ internal static partial class TownServiceMirror
         { InteractionLeases[i].Player = 0; InteractionLeases[i].Session = 0; InteractionLeases[i].PendingSince = float.NegativeInfinity;
           TransactionLeases[i].Player = 0; TransactionLeases[i].Session = 0; TransactionLeases[i].PendingSince = float.NegativeInfinity; }
     }
-    private static void ClearRemoteModules(int peer)
+    private static void ClearRemoteModules(int peer, bool retainReturnOriginals = false)
     {
+        if (!retainReturnOriginals && peer > 0) ClearReturnOriginals(peer);
         ClearCatalogPeer(peer); ReceivedCatalogBanks.Remove(peer); RemoteRacks.Remove(peer); if (!Remote.TryGetValue(peer, out Dictionary<ushort, RemoteModule>? modules)) return;
-        foreach (RemoteModule module in modules.Values) module.Dispose(); Remote.Remove(peer); }
+        var retained = new HashSet<RemoteModule>();
+        if (retainReturnOriginals) foreach (RemoteModule module in modules.Values)
+            if (RetainReturnOriginal(peer, module)) retained.Add(module);
+        foreach (RemoteModule module in modules.Values)
+            if (!retained.Contains(module)) module.Dispose();
+        Remote.Remove(peer); }
     private static string TemplateKey(byte service, ushort template, string address = "")
     { if (service < 1 || service > 3 || template == 0) throw new ArgumentException("Invalid town-service template identity.");
         return service + ":" + (address.Length == 0 ? template.ToString() : address); }
@@ -1637,6 +1661,7 @@ internal static partial class TownServiceMirror
     {
         if ((a?.RackMember == null) != (b.RackMember == null) || a?.RackMember != null && !a.RackMember.Same(b.RackMember)) return false;
         if (a != null && (a.VisitorStock != b.VisitorStock || a.PublicCatalog != b.PublicCatalog || a.PublicClaim != b.PublicClaim)) return false;
+        if (!TownCardReturnOrigin.Same(a?.ReturnOrigin, b.ReturnOrigin)) return false;
         if (!SameCatalogBank(a?.CatalogBank, b.CatalogBank)) return false;
         if ((a?.Rack == null) != (b.Rack == null) || a?.Rack != null && !a.Rack.Same(b.Rack)) return false;
         if (a == null || a.Visible != b.Visible || a.Structure != b.Structure || a.Nodes.Length != b.Nodes.Length

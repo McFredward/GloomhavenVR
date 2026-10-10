@@ -227,6 +227,17 @@ internal static partial class TownServiceMirror
     // temporary exact print mount belongs only to the preceding rendered offer.
     // Reparent preserves its world picture and existing independent clocks; no
     // visibility/alpha changes occur between these writes and final card paint.
+    private static void DetachOfferedOriginal(RemoteModule module, Transform shared)
+    {
+        // This is the same RemoteModule, not a Host/Binding field swap. Retire
+        // its private mounts before any holder is disposed; the return composer
+        // immediately takes over the exact body/print transforms.
+        OfferedPhysicalMounts.Remove(module); OfferedPhysicalReturns.Remove(module);
+        OfferedRemoteMotion.Remove(module);
+        GloomhavenVR.WorldUI.TownServiceDepthOrder.UnbindOffered(module.Host.transform);
+        module.Motion.Reparent(shared);
+    }
+
     private static void RestoreOfferedPhysicalMounts()
     {
         foreach (var pair in OfferedPhysicalMounts)
