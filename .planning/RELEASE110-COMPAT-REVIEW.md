@@ -3,11 +3,11 @@
 Review date: 2026-10-11. Compared published `v1.0.8`
 (`4640fff2f0dedf5e4c8d3ded7d21684ef4b5ed60`) with current `dev`
 (`ce637a1dc3fb609204701c701498a20cd7bdc0ae`, Build 665).
-This is the review phase: no production code, build number, asset, or wire change
-is made here. The parallel Build 666 NPC ring/hover/summon work is excluded.
+Review was completed before implementation. The confirmed updater defect is now
+repaired in the two self-update owners; no build number, asset, or wire change is made here. The parallel Build 666 NPC ring/hover/summon work is excluded.
 Quest standalone implementation remains owned by the separate agent.
 
-## Confirmed repair required: Frame self-update loses VR launch opt-in
+## Confirmed and repaired: Frame self-update loses VR launch opt-in
 
 **Trigger:** a correctly configured Steam Frame user starts `GloomhavenVR`, then
 accepts an in-game update and automatic restart.
@@ -15,7 +15,7 @@ accepts an in-game update and automatic restart.
 **Result:** the update applier relaunches original `Gloomhaven` without the
 required VR opt-in. Files can update successfully while the restart opens flat.
 
-Source chain:
+Source chain at the reviewed Build 665 baseline (before this repair):
 
 - `scripts/install-steam-frame.sh:293` starts
   `steam -applaunch 780290 --gloomhavenvr`. Keeping the original AppID is
@@ -40,35 +40,37 @@ marked base launch without the opt-in is rejected. Evidence:
 `source-hashes.json`. This proves the lost argument; it is not a test of Wine's
 detached batch process or actual Steam Frame restart.
 
-### Repair direction
+### Final bounded repair
 
-Use the already installed, verified VR shortcut as the restart target. Do not
-change the base game's launch options, create a new Proton prefix, or leave a
-temporary global opt-in token that an unrelated original-entry launch could use.
+`SelfUpdateInstaller.cs:382-400` passes the actual Frame marker from the existing
+BepInEx installation. `SelfUpdateApplyScript.cs:99-114` requires the shared
+preloader's exact VR token check, then selects the existing direct executable
+restart for marked Frame VR launches only. The quoted install root supplies both
+the executable path and working directory. All original arguments are retained,
+including empty values and paths ending in backslashes. If the safe formatter
+would discard an argument, Frame handover is refused before the script or pending
+marker is written; the current game remains running.
 
-`steam-frame-config.py:350-374` already reads the actual shortcut AppID and keeps
-existing Steam-assigned IDs. Its tests explicitly cover a retained custom ID and
-collision avoidance. A guessed CRC derived from the launch path is therefore
-insufficient. Persist bounded, validated restart metadata after exact shortcut
-readback, and preserve it when replacing the mod tree. The host-side launch
-wrapper can refresh this metadata before its existing `steam -applaunch` call,
-covering previously configured installations without C# traversing SteamOS
-paths through Wine. A missing or invalid restart target must not silently choose
-the original flat launch.
+Ordinary Steam launches keep their exact existing `steam://rungameid` route;
+ordinary non-Steam launches retain the existing warning and all-or-none policy
+for unsafe options. A VR-looking argument alone does not activate the Frame path.
+The original Steam library entry and its persisted flat launch options are not
+modified. No guessed shortcut ID, new global opt-in token or Proton prefix is
+introduced.
 
-The shortcut's 32-bit artwork AppID is distinct from its 64-bit launch GameID.
-The reported conversion is `(stored AppID << 32) | 0x02000000`; it must use the
-actual retained stored ID. [Valve's Linux tracker discussion #9463](https://github.com/ValveSoftware/steam-for-linux/issues/9463)
-describes this distinction and why predicting the ID from an executable path
-stopped working. This is a report in Valve's tracker, not an official API warranty.
-The installed wrapper and final GameID still need a real Frame restart check.
+`SelfUpdateInstaller.cs:419-428` already starts a `cmd.exe` child before asking the
+game to exit. The helper waits for the game PID before copying and restarting.
+The direct executable therefore inherits the existing helper's live Proton and
+Steam environment instead of requesting a new flat base-game launch. This is a
+source-backed process topology, not a hardware proof of Steam lifecycle survival,
+new-process playtime reporting, achievements, or the eventual Frame picture.
+A real in-headset update/restart remains necessary for those outcomes.
 
-Passing encoded process arguments through `steam://run` alone is not an adequate
-proof of delivery: [Valve's Linux tracker #12264](https://github.com/ValveSoftware/steam-for-linux/issues/12264)
-remains open and reports that this form ignores launch arguments. The Valve
-Developer Community protocol and command-line pages returned HTTP 403 during
-this review. Preserve the known working wrapper instead of claiming those URLs
-establish reliable Frame argument delivery.
+Passing encoded process arguments through `steam://run` alone was rejected as an
+unproven alternative: [Valve's Linux tracker #12264](https://github.com/ValveSoftware/steam-for-linux/issues/12264)
+remains open and reports that this form ignores launch arguments. The final fix
+uses the already existing direct executable branch rather than depending on URI
+argument delivery or introducing additional shortcut metadata.
 
 ## Checked paths without a new confirmed defect
 
@@ -102,11 +104,23 @@ establish reliable Frame argument delivery.
   and safe extraction, not full asset content or a 535 MiB download.
 - `bash scripts/test-frame-archive.sh`: **skipped**, explicitly reporting that
   `pwsh` is unavailable. No new Windows PowerShell archive pass is claimed.
-- Source-backed Frame relaunch defect proof: **reproduced** as described above.
+- Source-backed Frame relaunch defect proof: **reproduced** before the repair.
+- Expanded production-source self-update archive/relaunch fixture: **61 assertions
+  passed**. It checks the actual marker, exact and case-insensitive VR token,
+  retained executable/cwd/options/empty arguments/trailing backslashes, refusal
+  for nine unsafe options, and unchanged ordinary Steam and non-Steam behavior.
+  Receipt: `.planning/debug/release110-compat/frame-update-relaunch-tests.log`.
+- Causal control: replacing only the new Frame route selection with the original
+  Steam selection **compiled and failed the retained-argv runtime assertion**.
+  Receipt: `.planning/debug/release110-compat/frame-update-relaunch-causal-control.log`.
+  Its private scratch output is removed after the run.
+- `bash scripts/ci-build.sh Release`: **passed**, 0 errors and 0 warnings, against
+  the worktree's configured managed references. This compiles the real installer
+  marker binding as well as both production assemblies; it is not a full test gate.
 
 No complete 209-suite gate, Unity regeneration, actual release ZIP build,
-headset validation, or multiplayer hardware run was repeated for this read-only
+headset validation, or multiplayer hardware run was repeated for this focused
 lane. Historical focused and full-gate receipts remain evidence for unchanged
-production; they are not newly executed tests. This lane confirms one repair
-required before release and does not claim that all untested game scenarios or
-platform process-launch behavior have been exhaustively proven.
+production; they are not newly executed tests. This lane repairs the one confirmed
+restart defect and does not claim that all untested game scenarios or platform
+process-launch behavior have been exhaustively proven.
