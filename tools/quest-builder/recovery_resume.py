@@ -255,6 +255,18 @@ OBSERVATION_EDITOR_OVERLAY = {
         "sha256": "ce3d8200b21ca4fa2376d12c472cdc13d7d06955f9ec4a714d0ad9c5ef2a73c6"},
 }
 
+
+# Delivered eed3/663 counted Unity observation remains output-equivalent while
+# the exact next late-Editor consumer follows the recorded case-path manifest
+# transition and repairs only a stale imported Sprite. Preserve the whole old
+# observer profile; unknown helper edits are still consumed producer changes.
+OBSERVATION_COUNTED_UNITY_PREVIOUS = OBSERVATION_EDITOR_OVERLAY
+OBSERVATION_EDITOR_OVERLAY = {
+    **OBSERVATION_COUNTED_UNITY_PREVIOUS,
+    "tools/quest-builder/editor_overlay.py": {"path": "tools/quest-builder/editor_overlay.py", "size": 18768,
+        "sha256": "fa99eaebfd6923e0b7710649188908a4b5efb7065285928cfa629827da63091c"},
+}
+
 OBSERVATION_PROFILES = (OBSERVATION_BYTE_WITNESSES, OBSERVATION_FIXED,
                         OBSERVATION_INPUT_INDEX, OBSERVATION_INPUT_ORDER, OBSERVATION_DIRECTORY_BATCH, OBSERVATION_GRAPHICS_CONTRACT, OBSERVATION_COMPLETED_METADATA)
 # Shipped d4cc44eeb adds an exporter-log observer and invocation-local proof
@@ -308,6 +320,7 @@ def preparation_source_rows(rows):
                                            OBSERVATION_EDITOR_IMPORT_PREVIOUS,
                                            OBSERVATION_EDITOR_OWNERS_PREVIOUS,
                                            OBSERVATION_TARGETED_REPAIR_PREVIOUS,
+                                           OBSERVATION_COUNTED_UNITY_PREVIOUS,
                                            OBSERVATION_EDITOR_OVERLAY)
                     if all(current.get(name) == [fixed] for name, fixed in profile.items())), None)
     if profile is not None:

@@ -31,6 +31,12 @@ run. No Sprite phase, original content or Unity Library is regenerated for this
 repair. Arbitrary whitespace, mixed line endings, changed GUID/geometry/source
 and unrelated Sprite paths do not qualify.
 
+The subsequent075120 capture shows that the old complete manifest stamp also
+needs its recorded case-path migration chain. The private transport fixtures
+did not exercise that legal producer composition; the correction and stronger
+real-input proof are in
+[QUEST-SPRITE-SELF-REPAIR-075120-20261010.md](QUEST-SPRITE-SELF-REPAIR-075120-20261010.md).
+
 ## Source-backed counters
 
 Before a real Unity command starts, known `Assets` and currently resolved package

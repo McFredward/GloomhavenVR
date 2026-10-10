@@ -77,6 +77,14 @@ and then continues automatically. Support exports include bounded repair history
 missing reconstruction sources are reported specifically rather than causing an
 automatic whole-project reset. Details are recorded in the developer repair notes.
 
+Late Sprite validation also follows the recorded case-path manifest transition
+when an older Windows loading receipt predates that legitimate migration. The
+exact original bytes, GUID metadata, original bank and imported drawing proof
+remain required. A stale imported Sprite is synchronously reimported once for
+that path and remeasured, without restarting conversion or clearing `Library`.
+Repair progress and the precise failed identity are reported; an unverified
+source change is never silently marked complete.
+
 XR compilation references use a recipe/compiler/original-reference cache shared
 across Wizard source releases. They do not invalidate the already converted
 original assets. Native compilation uses process-local line-table debug metadata

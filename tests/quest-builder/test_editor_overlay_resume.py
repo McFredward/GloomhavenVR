@@ -73,6 +73,31 @@ class EditorOverlayTests(unittest.TestCase):
         self.assert_retained()
         self.assertEqual(before, {name: (self.project / name[len(overlay.PREFIX):]).stat().st_mtime_ns for name in overlay.TARGETS})
 
+    def test_counted_loading_consumer_repairs_only_its_script_with_all_asset_owners_retained(self):
+        target = overlay.PREVIOUS_COUNTED_LOADING_SCRIPT["path"]
+        for name in overlay.TARGETS:
+            if name != target:
+                before = self.original[name]
+                self.f.write(self.f.source, name, before)
+                self.pairs[name] = (record(name, before), record(name, before))
+        previous = record(target, self.original[target])
+        with patch.object(overlay, "PREVIOUS_COUNTED_LOADING_SCRIPT", previous):
+            self.current = self.fixture.updated()
+            self.assertEqual([row[0] for row in overlay.changes(self.fixture.before, self.current)], [target])
+            actual = overlay.publish
+            published = []
+            def publish(path, raw):
+                published.append(Path(path))
+                actual(path, raw)
+            with patch.object(overlay, "publish", publish), patch.object(
+                    builder.prepare_resume, "copy_changed", side_effect=AssertionError("No completed asset producer repeat")):
+                self.f.run_prepare()
+            self.assert_retained()
+            self.assertEqual(published, [self.project / target[len(overlay.PREFIX):]])
+            self.f.run_prepare()
+            self.assert_retained()
+            self.assertEqual(len(published), 1)
+
     def test_every_script_publication_cut_replays_without_repeated_asset_work(self):
         actual = overlay.publish
         for cut in range(len(overlay.TARGETS)):

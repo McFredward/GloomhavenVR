@@ -58,8 +58,8 @@ REVIEWED = {'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestBuild.cs': ({'pat
                                                                                     'sha256': '30c07034a1377bf0d194f859b44cc7023a24e28cfed24748812db154c9d130d7',
                                                                                     'size': 5667},
                                                                                    {'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCampaignSpriteValidation.cs',
-                                                                                    'size': 11730,
-                                                                                    'sha256': '63fc7d89a99d4ff911f17d51360b1f424a3aa162d118ba555b4fe57fd70b3be5'}),
+                                                                                    'size': 23947,
+                                                                                    'sha256': 'dc6210044d40058190d4d00711b453c9f05804db49371a5396b1f941b4300d97'}),
  'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestOriginalScriptBindings.cs': ({'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestOriginalScriptBindings.cs',
                                                                                   'sha256': '33fabcde96763c17366cc4324c781f489e37bf4d81c695eb732ff76423206f3d',
                                                                                   'size': 8092},
@@ -119,13 +119,26 @@ PREVIOUS_TASK_SCRIPTS = {
         "sha256": "0ec2b5bc504c84ba2e82963f0f0359a84484c7a94436f27ef97e74ba64f10138"},
 }
 
+# Delivered eed3/663 observed the complete preparation frontier before its
+# loading proof rejected the subsequent, recorded case-path manifest migration.
+# Retain that exact validator alongside the older complete task-script profile.
+# Only its validation/reimport consumer advances; original Sprite production,
+# existing .meta identities and all closed preparation outputs stay unchanged.
+PREVIOUS_COUNTED_LOADING_SCRIPT = {
+    "path": PREFIX + "Assets/Quest/Editor/QuestCampaignSpriteValidation.cs",
+    "size": 11730,
+    "sha256": "63fc7d89a99d4ff911f17d51360b1f424a3aa162d118ba555b4fe57fd70b3be5",
+}
+
 
 def source_profiles():
     """Whole reviewed source profiles, never independently mixed script rows."""
     current = {name: pair[1] for name, pair in REVIEWED.items()}
+    counted = {**current, PREVIOUS_COUNTED_LOADING_SCRIPT["path"]: PREVIOUS_COUNTED_LOADING_SCRIPT}
     preceding = {**current, **PREVIOUS_TASK_SCRIPTS}
     return (current, {**current, PREVIOUS_BINDINGS["path"]: PREVIOUS_BINDINGS},
-            preceding, {**preceding, PREVIOUS_BINDINGS["path"]: PREVIOUS_BINDINGS})
+            preceding, {**preceding, PREVIOUS_BINDINGS["path"]: PREVIOUS_BINDINGS},
+            counted, {**counted, PREVIOUS_BINDINGS["path"]: PREVIOUS_BINDINGS})
 
 
 def _read(path):
@@ -150,6 +163,7 @@ def changes(previous, inputs):
         if (not isinstance(profile, tuple) or len(profile) != 2
                 or right != profile[1] or left not in (
                     profile[0], PREVIOUS_BINDINGS if name == PREVIOUS_BINDINGS["path"] else profile[0],
+                    PREVIOUS_COUNTED_LOADING_SCRIPT if name == PREVIOUS_COUNTED_LOADING_SCRIPT["path"] else profile[0],
                     PREVIOUS_TASK_SCRIPTS.get(name, profile[0]))
                 or left is None or right is None
                 or set(left) != {"path", "size", "sha256"}

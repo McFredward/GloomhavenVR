@@ -1,5 +1,18 @@
 # State — where the project stands
 
+**Quest loading proof and targeted import repair, 2026-10-10 (Builder; Runtime663).**
+
+Capture075120 proves eed3/663 still refuses LoadingBase_0 after successful startup
+Sprite validation and retained27-owner preparation. The preceding transport proof
+missed the legal case-path producer changing the complete native manifest. The
+new validator follows its recorded before/after chain and retries only a stale
+imported Sprite once after source/metadata proof. No original conversion, journal
+or Unity Library reset is required. The actual preceding fixture limitation and
+composed proof are recorded in
+[QUEST-SPRITE-SELF-REPAIR-075120-20261010.md](QUEST-SPRITE-SELF-REPAIR-075120-20261010.md).
+Final release verification records exact scope; Windows APK acceptance remains
+pending.
+
 **Quest finite Unity progress and Windows loading transport, 2026-10-10 (Builder; Runtime663).**
 
 Capture065547 confirms the previous13 LightingData repairs and SDK/API work pass,
