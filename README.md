@@ -70,7 +70,8 @@ Drop it and it settles back onto a hex.
   without a headset can play in the same game on a flat screen.
 - Two environments built for the mod: an indoor cellar and an outdoor night forest, both reacting
   to the scenario's elements.
-- Mixed reality. The sky drops away and the table stands in your actual room.
+- Mixed reality. The sky drops away and the table stands in your actual room, including native
+  passthrough on Steam Frame standalone with a compatible SteamVR/Proton runtime.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
@@ -134,7 +135,9 @@ something else if you stand around long enough.
 
 There is one setting for this, with five options. Same table, same scenario in all of them. The two
 rooms above are the ones built for the mod. The other three are the game's own sky, no sky at all,
-and a green key so your streaming app can put the table in your real room.
+and mixed reality. Steam Frame standalone uses native passthrough; PC streaming uses a green key
+with a compatible streaming app. On the Frame, choose **Mixed reality** in **VR Options → World**.
+If it is grey, hover over it for guidance on updating SteamVR and the game's Proton version.
 
 <p align="center">
   <img src="docs/img/env-styles-en.png" width="720" alt="The five environment settings: cellar and night forest, both built for this mod, above the game's own sky, off (black) and mixed reality">
@@ -206,6 +209,13 @@ not yours.
 standalone · two tracked controllers · room-scale. It was developed on a Quest 3 over Virtual Desktop.
 
 [→ Install](docs/install/INSTALL.md) · [→ Install on Steam Frame](docs/install/INSTALL-STEAM-FRAME.md) · [→ Playing & controls](docs/PLAYING.md)
+
+On Steam Frame, setup adds a second library entry: launch **GloomhavenVR** for VR.
+The original **Gloomhaven** entry remains for flat play; both use the same saves.
+
+<p align="center">
+  <img src="docs/img/frame-install/06-library.jpg" width="640" alt="Steam Frame library with the original Gloomhaven entry and the separate GloomhavenVR entry to launch for VR.">
+</p>
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">

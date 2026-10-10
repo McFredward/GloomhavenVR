@@ -70,7 +70,8 @@ gleich macht. Leg sie zurück, dann setzt sie sich wieder auf ein Feld.
   Wer kein Headset hat, spielt in derselben Partie am flachen Bildschirm mit.
 - Zwei Umgebungen, die für die Mod gebaut wurden: ein Keller drinnen und ein Nachtwald draußen,
   beide reagieren auf die Elemente des Szenarios.
-- Mixed Reality. Der Himmel verschwindet, und der Tisch steht in deinem echten Zimmer.
+- Mixed Reality. Der Himmel verschwindet, und der Tisch steht in deinem echten Zimmer, auch mit
+  nativem Passthrough auf Steam Frame standalone bei kompatibler SteamVR-/Proton-Version.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
@@ -136,8 +137,10 @@ bleibt, bemerkt vielleicht noch etwas anderes.
 
 Dafür gibt es eine Einstellung mit fünf Möglichkeiten. Derselbe Tisch, dasselbe Szenario in allen.
 Die beiden Räume oben sind die, die für die Mod gebaut wurden. Die anderen drei sind der Himmel des
-Spiels, gar kein Himmel, und ein Greenscreen, damit deine Streaming-App den Tisch in dein echtes
-Zimmer setzen kann.
+Spiels, gar kein Himmel und Mixed Reality. Steam Frame standalone nutzt natives Passthrough;
+PC-Streaming nutzt einen Greenscreen mit einer kompatiblen Streaming-App. Auf der Frame wählst du
+**Mixed Reality** unter **VR-Optionen → Welt**. Ist die Option grau, gibt der Mouseover-Hinweis
+Hinweise zum Aktualisieren von SteamVR und der Proton-Version des Spiels.
 
 <p align="center">
   <img src="docs/img/env-styles-de.png" width="720" alt="Die fünf Umgebungen: Keller und Nachtwald, beide für diesen Mod gebaut, darunter der Himmel des Spiels, Aus (schwarz) und Mixed Reality">
@@ -211,6 +214,13 @@ standalone · zwei getrackte Controller · Room-Scale. Entwickelt wurde die Mod 
 über Virtual Desktop.
 
 [→ Installation](docs/install/INSTALL.de.md) · [→ Installation auf Steam Frame](docs/install/INSTALL-STEAM-FRAME.de.md) · [→ Spielablauf & Steuerung](docs/PLAYING.de.md)
+
+Auf Steam Frame fügt das Setup einen zweiten Bibliothekseintrag hinzu: Starte **GloomhavenVR** für VR.
+Der ursprüngliche Eintrag **Gloomhaven** bleibt für Flat-Spiel; beide nutzen dieselben Spielstände.
+
+<p align="center">
+  <img src="docs/img/frame-install/06-library.jpg" width="640" alt="Steam-Frame-Bibliothek mit dem ursprünglichen Eintrag Gloomhaven und dem zusätzlichen Eintrag GloomhavenVR, der für VR gestartet wird.">
+</p>
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">

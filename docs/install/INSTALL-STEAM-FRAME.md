@@ -111,8 +111,13 @@ bash ./BepInEx/plugins/GloomhavenVR/FrameSetup/install-steam-frame.sh --game-pat
 
 ## 6. Start the game
 
-Return to the Frame's game library and launch **GloomhavenVR**. You should see the VR menu and
-stand at the table. You can launch the original **Gloomhaven** entry for flat play.
+Return to the Frame's game library. Setup has added a second entry: launch **GloomhavenVR**,
+shown beside the original **Gloomhaven** below. You should see the VR menu and stand at the table.
+The original **Gloomhaven** entry starts flat play; both entries use the same saves.
+
+<p align="center">
+  <img src="../img/frame-install/06-library.jpg" width="640" alt="After setup, the Steam Frame library contains both Gloomhaven and GloomhavenVR. Launch GloomhavenVR for VR.">
+</p>
 
 Your saves and campaign remain in place. Before changing `GH_Data/boot.config`, the setup
 backs it up as `GH_Data/boot.config.gloomhavenvr-backup`.

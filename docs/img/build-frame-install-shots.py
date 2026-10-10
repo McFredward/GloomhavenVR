@@ -1,6 +1,6 @@
-"""Crop and stack the eight original Steam Frame install screenshots.
+"""Crop and stack the original Steam Frame install screenshots.
 
-Usage: python3 docs/img/build-frame-install-shots.py .planning/debug/frame_anleitung
+Usage: python3 docs/img/build-frame-install-shots.py .planning/debug/frame_anleitung [LIBRARY_SHOT]
 The source directory is gitignored hardware evidence in the main checkout. Pass its absolute
 path when running from a worktree. The output lives beside this script in frame-install/.
 """
@@ -9,9 +9,10 @@ import sys
 from pathlib import Path
 from PIL import Image
 
-if len(sys.argv) != 2:
-    raise SystemExit(f'usage: python3 {sys.argv[0]} FRAME_SCREENSHOT_DIRECTORY')
+if len(sys.argv) not in (2, 3):
+    raise SystemExit(f'usage: python3 {sys.argv[0]} FRAME_SCREENSHOT_DIRECTORY [LIBRARY_SHOT]')
 source = Path(sys.argv[1])
+library_shot = Path(sys.argv[2]) if len(sys.argv) == 3 else source.parent / '20261010081828_1.jpg'
 output = Path(__file__).resolve().parent / 'frame-install'
 output.mkdir(parents=True, exist_ok=True)
 
@@ -48,3 +49,14 @@ for name, frames in plates.items():
         top += crop.height + gap
     result.save(output / name, quality=90, optimize=True, subsampling=0)
     print(name, result.size, (output / name).stat().st_size)
+
+if library_shot.is_file():
+    # Counter the photographed library panel's clockwise tilt; retain the real
+    # game artwork, shortcut label and adjacent flat entry without reconstructing UI.
+    with Image.open(library_shot) as original:
+        upright = original.convert('RGB').rotate(7.7, resample=Image.Resampling.BICUBIC, expand=True)
+        result = upright.crop((625, 535, 1193, 865))
+    result.save(output / '06-library.jpg', quality=92, optimize=True, subsampling=0)
+    print('06-library.jpg', result.size, (output / '06-library.jpg').stat().st_size)
+elif len(sys.argv) == 3:
+    raise SystemExit(f'Library screenshot not found: {library_shot}')
