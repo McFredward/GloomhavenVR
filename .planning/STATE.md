@@ -1,5 +1,23 @@
 # State — where the project stands
 
+**Quest Player progress ownership, 2026-10-11 (Builder; Runtime665).**
+
+Capture231755 is a running b1cd/665 Player build, with all27 preparation owners
+retained and the native Addressables audit successful. Local Shader-pass maxima
+and preliminary Bee graph counters had incorrectly saturated native compilation,
+while scene-entry callbacks appeared completed and the raw IL2CPP annotation was
+missed. Player progress now follows scenes, explicitly scoped Shader coverage,
+combined code conversion/native dependencies, then packaging. Existing graph
+counts include cache reuse; fresh backend epochs reject stale retained telemetry.
+Authoritative children close100 separately from their unfinished parents. Old
+progress scopes migrate without resetting saved preparation or Unity Library.
+Focused composition, hierarchy, parser, UI and actual delivered-source continuation
+evidence is recorded in
+[QUEST-PLAYER-PROGRESS-231755-20261011.md](QUEST-PLAYER-PROGRESS-231755-20261011.md).
+Runtime665 and published dev665 checks remain inherited unchanged. The running
+Windows capture establishes no whole APK or headset acceptance; no local game
+import, Shader matrix or APK build is performed in this repair.
+
 **Quest native audit and Unity terminal progress, 2026-10-11 (Builder; Runtime665).**
 
 Capture215313 from72c97/664 retains all27 preparation owners and reaches the
