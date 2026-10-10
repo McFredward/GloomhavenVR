@@ -33,12 +33,13 @@ def sources(root):
     for name in ("TownServiceOriginalReceiptCodec.cs", "TownServiceOriginalRequestCodec.cs",
                  "TownServiceMirror.OriginalReceipts.cs", "TownServiceMirror.OriginalRequests.cs",
                  "TownServiceMirror.NativeVisibility.cs", "TownServiceMirror.OfferedRoot.cs",
-                 "TownServiceCodec.ReturnOrigin.cs", "TownServiceMirror.ReturnOrigins.cs"):
+                 "TownServiceCodec.ReturnOrigin.cs", "TownServiceMirror.ReturnOrigins.cs",
+                 "TownServiceCodec.OfferedHover.cs", "TownServiceMirror.OfferedHover.cs"):
         path = base / "Net/TownServices" / name
         if path.exists():
             text = path.read_text()
             protocol = (base / "Net/NetProtocol.cs").read_text()
-            for constant in ("MsgTownOriginalReceipt", "ExtIdTownOriginalReceipt", "ExtIdTownOriginalRequest", "ExtIdTownCardReturnOrigin"):
+            for constant in ("MsgTownOriginalReceipt", "ExtIdTownOriginalReceipt", "ExtIdTownOriginalRequest", "ExtIdTownCardReturnOrigin", "ExtIdTownOfferedHover"):
                 if "NetProtocol." + constant not in text: continue
                 value = re.search(r"public const byte " + constant + r" = (\d+);", protocol)
                 if value is None: raise RuntimeError("Town original-receipt protocol binding drift: " + constant)

@@ -13,7 +13,7 @@ internal static partial class TownServiceMirror
     {
         TownServiceMotionEntry entry = sample.Entry;
         TownServiceFrame? frame = module.LastFrame;
-        if (frame == null || !module.Alive || sample.SampleTime < module.ReturnOriginChangedAt
+        if (frame == null || !module.Alive || sample.SampleTime < module.ReturnOriginChangedAt || !HoverRootCurrent(module, sample)
             || entry.Kind != 1 || entry.Lane != 0 || entry.Hand != 0
             || !entry.Visible || entry.ParentAlpha <= 0f
             || sample.SampleTime < frame.SampleTime && (!frame.Visible || frame.ParentAlpha != entry.ParentAlpha)
@@ -29,6 +29,7 @@ internal static partial class TownServiceMirror
         bool offered = entry.Service == 3
             && (module.Address.StartsWith("face.", StringComparison.Ordinal)
                 || module.Address.StartsWith("enchant.holder", StringComparison.Ordinal));
+        if (entry.Service == 3 && frame.OfferedHover != null && IsOfferedPhysical(module)) offered = true;
         // Stock originals and the independent wrist fan never acquire a palm
         // clock merely because their address contains an item ID. The current
         // private transaction lease is authored by the accepted native offer.

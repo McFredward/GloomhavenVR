@@ -18,6 +18,8 @@ internal static class Program
         { TownCardReturnCohortVectors.Run(t); return t.Report(); }
         if (args.Length > 1 && args[1] == "town-return-origin665")
         { TownReturnOrigin665Vectors.Run(t); return t.Report(); }
+        if (args.Length > 1 && args[1] == "town-offered-hover666")
+        { TownOfferedHover666Vectors.Run(t); return t.Report(); }
         if (args.Length > 1 && args[1] == "town-first-picture632")
         { TownServiceTransportVectors.Run(t); return t.Report(); }
         if (args.Length > 1 && args[1] == "town-visible-census")
@@ -70,6 +72,7 @@ internal static class Program
             TownMotionVectors.Run(t);
             TownCardReturnCohortVectors.Run(t);
             TownReturnOrigin665Vectors.Run(t);
+            TownOfferedHover666Vectors.Run(t);
             TownResidentsVectors.Run(t);
             TownFaceVectors.Run(t);
             TownActivityVectors.Run(t);

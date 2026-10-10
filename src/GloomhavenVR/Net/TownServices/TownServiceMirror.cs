@@ -882,6 +882,7 @@ internal static partial class TownServiceMirror
                     if (frame.VisitorStock && HidePreparedCardReturn(source)) frame.Visible = false;
                     PreserveReturningCardHeader(module, frame);
                     CaptureReturnOrigin(module, frame);
+                    CaptureOfferedHover(module, frame);
                     if (frame.RackMember != null)
                     {
                         float alpha = ReadRackAlpha(module);
@@ -898,6 +899,7 @@ internal static partial class TownServiceMirror
                         && now < module.NextBaseline && module.WasPriority == module.HighPriority
                         && (!NeedsHeartbeat(module) || now < module.NextRefresh)
                         && TownCardReturnOrigin.Same(module.Last.ReturnOrigin, frame.ReturnOrigin)
+                        && TownOfferedHover.Same(module.Last.OfferedHover, frame.OfferedHover)
                         && TownServiceFastNumbers.SameArtwork(module.Last, frame))
                     {
                         if (!SamePresentation(module.Last, frame))
@@ -1138,6 +1140,7 @@ internal static partial class TownServiceMirror
     internal static void TickRemote(Func<int, Transform?> sharedFrame)
     {
         RestoreOfferedPhysicalMounts();
+        RestoreOfferedHoverBase();
         RetryUnpreparedNativeTemplates();
         float now = Time.unscaledTime;
         TickReturnOriginals(now);
@@ -1655,6 +1658,7 @@ internal static partial class TownServiceMirror
         if ((a?.RackMember == null) != (b.RackMember == null) || a?.RackMember != null && !a.RackMember.Same(b.RackMember)) return false;
         if (a != null && (a.VisitorStock != b.VisitorStock || a.PublicCatalog != b.PublicCatalog || a.PublicClaim != b.PublicClaim)) return false;
         if (!TownCardReturnOrigin.Same(a?.ReturnOrigin, b.ReturnOrigin)) return false;
+        if (!TownOfferedHover.Same(a?.OfferedHover, b.OfferedHover)) return false;
         if (!SameCatalogBank(a?.CatalogBank, b.CatalogBank)) return false;
         if ((a?.Rack == null) != (b.Rack == null) || a?.Rack != null && !a.Rack.Same(b.Rack)) return false;
         if (a == null || a.Visible != b.Visible || a.Structure != b.Structure || a.Nodes.Length != b.Nodes.Length
