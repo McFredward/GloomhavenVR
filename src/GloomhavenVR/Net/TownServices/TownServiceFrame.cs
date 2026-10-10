@@ -20,6 +20,8 @@ internal sealed class TownServiceFrame
     internal uint PublicClaim;
     // TLV116: exact private original whose next native return can adopt this stock module.
     internal TownCardReturnOrigin? ReturnOrigin;
+    // TLV117: canonical physical base plus the native intrinsic hover amplitude.
+    internal TownOfferedHover? OfferedHover;
     internal byte Service;
     internal const ushort ManifestModule = ushort.MaxValue, BundleStream = ushort.MaxValue - 1,
         VoiceModule = ushort.MaxValue - 2, UrgentBundleStream = ushort.MaxValue - 4;

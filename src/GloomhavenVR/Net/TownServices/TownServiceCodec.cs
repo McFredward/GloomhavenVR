@@ -94,6 +94,7 @@ internal static partial class TownServiceCodec
         size += frame.NativeTemplateBasisKey == 0 ? 0 : 11;
         size += visibleCensus.Length + 2 * ((visibleCensus.Length + 254) / 255);
         size += frame.ReturnOrigin == null ? 0 : 22;
+        size += frame.OfferedHover == null ? 0 : 20;
         if (size > TownServiceFrame.MaxBytes) throw new InvalidDataException("Town-service module exceeds the bounded snapshot size.");
         var packet = new byte[size];
         // NetProtocol.Magic (0x47565231) is written little endian by every existing lane.
@@ -189,6 +190,7 @@ internal static partial class TownServiceCodec
             Buffer.BlockCopy(visibleCensus, offset, packet, tail, count); tail += count; offset += count;
         }
         if (frame.ReturnOrigin != null) WriteReturnOrigin(packet, ref tail, frame.ReturnOrigin);
+        if (frame.OfferedHover != null) WriteOfferedHover(packet, ref tail, frame.OfferedHover);
         return packet;
     }
 
@@ -213,6 +215,7 @@ internal static partial class TownServiceCodec
             bool visitorStock = false; ulong nativeTemplateBasisKey = 0;
             byte[]? workspaceCloth = null;
             TownCardReturnOrigin? returnOrigin = null;
+            TownOfferedHover? offeredHover = null;
             bool templeDonationKnown = false, templeDonationAvailable = false; uint templeDonationRevision = 0;
             bool transactionActive = false;
             bool hasDonationCommitAge = false; float donationCommitAge = 0f;
@@ -225,6 +228,8 @@ internal static partial class TownServiceCodec
                 if (at + count > length || (count == 0 && record == RecordId)) return false;
                 if (record == ReturnOriginRecordId)
                 { if (returnOrigin != null || !TryReadReturnOrigin(packet, at, count, out returnOrigin)) return false; }
+                if (record == OfferedHoverRecordId)
+                { if (offeredHover != null || !TryReadOfferedHover(packet, at, count, out offeredHover)) return false; }
                 if (record == RecordId) body.Write(packet, at, count);
                 if (record == TownRackState.RecordId)
                 { if (count == 0) return false; rack.Write(packet, at, count); }
@@ -386,6 +391,7 @@ internal static partial class TownServiceCodec
                 result.Rack.Layout = TownCatalogLayout.Read(layout.ToArray());
             }
             result.ReturnOrigin = returnOrigin;
+            result.OfferedHover = offeredHover;
             result.VisitorStock = visitorStock;
             result.PublicCatalog = publicCatalog; result.PublicClaim = publicClaim;
             if (bank.Length != 0) result.CatalogBank = TownCatalogBank.Read(bank.ToArray(), result);
@@ -490,6 +496,7 @@ internal static partial class TownServiceCodec
     internal static void Validate(TownServiceFrame frame)
     {
         ValidateReturnOrigin(frame);
+        ValidateOfferedHover(frame);
         if (frame.VisitorStock && (frame.Service != 1 || frame.PublicCatalog
             || frame.Rack != null || frame.RackMember != null || frame.TransactionActive
             || frame.TempleDonationKnown || frame.WorkspaceCloth != null
