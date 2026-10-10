@@ -24,7 +24,20 @@ test('finite Unity phases retain scoped counts and reject duplicate or unbounded
   assert.equal(coverage.percent,50);assert.equal(coverage.scope,'coverage');assert.doesNotMatch(coverage.detail,/\[asset-coverage\]/);
   const native=unityImportView({phase:'unity-asset-import',done:2,total:10,detail:'[unity-native-total] Importing 2 assets of 10'},150);
   assert.equal(native.scope,'native');assert.equal(native.percent,20);
-  for(const language of ['en','de'])for(const key of ['unityWorkSummary','unityWorkScope','unityWork_assets','unityWork_method','unityWork_result','unityWork_native','unityWork_packaging','unityWork_il2cpp','phase_unity-work-plan','importScopeCoverage','importScopeNative','counterAssetCoverage'])assert.notEqual(translate(language,key),key);
+  for(const language of ['en','de'])for(const key of ['unityWorkSummary','unityWorkScope','unityWork_assets','unityWork_method','unityWork_result','unityWork_native','unityWork_packaging','unityWork_il2cpp','unityWork_audit','phase_unity-native-shader-audit-read','phase_unity-native-shader-audit-objects','counterBundles','phase_unity-work-plan','importScopeCoverage','importScopeNative','counterAssetCoverage'])assert.notEqual(translate(language,key),key);
+});
+
+test('completed content parts keep their100% proof while a later audit is still running',()=>{
+  const row={phases:[{id:'assets',closed:true,status:'reused',percent:100},{id:'method',closed:false,status:'running',percent:75,
+    parts:[{id:'shaders',closed:true,status:'complete',percent:100,counter:{phase:'unity-addressables-shader-roots',done:688,total:688,unit:'shaders'}},
+      {id:'audit',closed:false,status:'running',percent:15,counter:{phase:'unity-native-shader-audit-read',done:64,total:128,unit:'bytes'}}]},
+    {id:'result',closed:false,status:'pending',percent:0}],active:'method',percent:75};
+  const view=unityWorkView(row);
+  assert.equal(view.phases[1].parts[0].percent,100);
+  assert.equal(view.phases[1].parts[0].status,'complete');
+  assert.equal(view.phases[1].parts[1].id,'audit');
+  assert.equal(view.phases[1].parts[1].closed,false);
+  assert.equal(view.done,1);
 });
 
 const snapshots=String.raw`
@@ -107,5 +120,79 @@ test('browser presents asset census, native graphs and Gradle inside one stable 
       assert.equal(await client.evaluate("document.querySelector('[data-operation=player]').classList.contains('running')"),true,'command return remains separate from qualified Player publication');
       assert.equal(client.events.filter(row=>row.method==='Runtime.exceptionThrown').length,0);
       await client.picture('unity-counted-work-de');
+    }finally{await client?.close();await new Promise(resolve=>server.close(resolve));}
+  });
+
+
+const contentSnapshots=String.raw`
+import copy,json,sys,tempfile
+from pathlib import Path
+sys.path.insert(0,str(Path(sys.argv[1])/'tools/quest-wizard'))
+from state import Store
+import state,wizard
+state.PROGRESS_INTERVAL=0
+with tempfile.TemporaryDirectory() as temp:
+    store=Store(Path(temp)/'owned');session=store.create(wizard.choices({'gameRoot':str(Path(temp)/'Game')}))['session']
+    store.begin_stage(session,'build','same-input');store.operation(session,'build','content-bank')
+    result={}
+    def report(phase,done,total,unit='steps',status='progress'):
+        store.progress(session,'build',phase,done,total,unit,'Actual source-backed progress',operation='content-bank',status=status)
+    def snapshot(name): result[name]=copy.deepcopy(next(row for row in store.load(session)['stages'] if row['id']=='build'))
+    report('unity-work-invocation',0,1,'invocations','start');report('unity-work-plan',38,76778,'assets','start')
+    report('unity-work-stage:method',0,1,status='start')
+    for phase,count,unit in [('unity-addressables-keys',6531,'assets'),('unity-addressables-entries',6531,'assets'),('unity-addressables-shaders',688,'shaders'),('unity-addressables-shader-roots',688,'shaders')]:
+        report(phase,count,count,unit,'complete')
+    report('unity-addressables-build',1,1,status='complete');report('unity-native-shader-audit',0,7,'bundles','start')
+    report('unity-native-shader-audit-read',8388608,134217728,'bytes');snapshot('read-start')
+    report('unity-native-shader-audit-read',67108864,134217728,'bytes');snapshot('read-half')
+    report('unity-native-shader-audit-read',134217728,134217728,'bytes','complete');snapshot('read-done')
+    report('unity-native-shader-audit-objects',100,1000,'objects');snapshot('objects')
+    failed=copy.deepcopy(next(row for row in store.load(session)['stages'] if row['id']=='build'));failed['status']='failed'
+    store.save(dict(store.load(session),stages=[failed if row['id']=='build' else row for row in store.load(session)['stages']]))
+    snapshot('failed');print(json.dumps(result))
+`;
+
+test('browser shows completed Shader parts at100%, fine measured bytes and isolated later failure',
+  {skip:!existsSync(chrome),timeout:30000},async()=>{
+    const rows=JSON.parse(execFileSync(process.env.QUEST_WIZARD_PYTHON??'python3',['-B','-c',contentSnapshots,resolve(root,'../..')],{encoding:'utf8'}));
+    let mode='read-start',client;
+    const state=()=>({session:'content-work-session',status:mode==='failed'?'failed':'running',choices:{gameRoot:'C:\\Owned game',provider:'gog',acceptUnityTerms:true,install:false},needsActions:[],artwork:[],stages:['tools','source','unity','profile','inspect','build','install'].map((id,index)=>index===5?rows[mode]:{id,status:index<5?'complete':'pending',progress:{stagePercent:index<5?100:0,phase:'complete',percent:100}})});
+    const server=createServer(async(request,response)=>{
+      try{
+        const url=new URL(request.url,'http://localhost');let value;
+        if(url.pathname==='/api/discover')value={schema:1,event:'discovery',latestSession:'content-work-session',games:[],unityEditors:[],capabilities:{browse:false,logs:false,support:false}};
+        else if(url.pathname==='/api/status')value={schema:1,event:'status',state:state()};
+        else if(url.pathname==='/api/gallery')value={schema:1,event:'gallery',artwork:[]};
+        else if(url.pathname==='/api/events')value={schema:1,event:'events',events:[]};
+        if(value){response.writeHead(200,{'Content-Type':'application/json'});response.end(JSON.stringify(value));return;}
+        const filename=resolve(root,'.'+(url.pathname==='/'?'/index.html':url.pathname));
+        if(!filename.startsWith(root)||!['.html','.mjs','.css','.png','.svg'].includes(extname(filename)))throw Error('not static');
+        response.writeHead(200,{'Content-Type':{'.html':'text/html','.mjs':'text/javascript','.css':'text/css','.png':'image/png','.svg':'image/svg+xml'}[extname(filename)]});response.end(await readFile(filename));
+      }catch(error){response.writeHead(500);response.end(String(error));}
+    });
+    await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+    try{
+      client=await browser();await client.command('Page.navigate',{url:'http://127.0.0.1:'+server.address().port+'/#fixture-token'});
+      await client.wait("document.getElementById('progress-page')&&!document.getElementById('progress-page').hidden");
+      await client.evaluate("document.querySelector('[data-language=de]').click()");
+      const part=id=>"document.querySelector('[data-plan=unity-work-content-bank] [data-operation="+id+"]')";
+      await client.wait(part('shaders')+".textContent.includes('100 %')");
+      for(const id of ['catalog','shaders','build']){
+        assert.equal(await client.evaluate(part(id)+".classList.contains('complete')"),true);
+        assert.doesNotMatch(await client.evaluate(part(id)+'.textContent'),/Ausstehend|99 %/);
+      }
+      await client.wait("document.getElementById('progress-detail').textContent.includes('8 MiB')");
+      const start=await client.evaluate("Number(document.getElementById('progress-track').getAttribute('aria-valuenow'))");
+      mode='read-half';await client.wait("document.getElementById('progress-detail').textContent.includes('64 MiB')");
+      const half=await client.evaluate("Number(document.getElementById('progress-track').getAttribute('aria-valuenow'))");assert.ok(half>start);
+      mode='read-done';await client.wait("document.getElementById('progress-detail').textContent.includes('128 MiB / 128 MiB')");
+      assert.ok(await client.evaluate("Number(document.getElementById('progress-track').getAttribute('aria-valuenow'))")>half);
+      assert.equal(await client.evaluate(part('audit')+".classList.contains('running')"),true,'read completion leaves the authoritative result pending');
+      mode='objects';await client.wait("document.getElementById('substep-label').textContent.includes('Gebaute Shader-Objekte bestätigen')");
+      mode='failed';await client.wait(part('audit')+".classList.contains('failed')");
+      assert.equal(await client.evaluate(part('shaders')+".classList.contains('complete')"),true);
+      assert.equal(await client.evaluate(part('postprocess')+".classList.contains('pending')"),true);
+      assert.equal(client.events.filter(row=>row.method==='Runtime.exceptionThrown').length,0);
+      await client.picture('content-shader-terminal-and-byte-progress-de');
     }finally{await client?.close();await new Promise(resolve=>server.close(resolve));}
   });

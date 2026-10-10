@@ -84,7 +84,7 @@ UNITY_METHOD_PARTS = {
     "unity-import": {"sdk": 1.},
     "package-api": {"sdk": 1.},
     "unity-validation": {"configuration": .1, "checks": .9},
-    "content-bank": {"catalog": .1, "shaders": .1, "build": .7, "postprocess": .1},
+    "content-bank": {"catalog": .1, "shaders": .1, "build": .65, "audit": .05, "postprocess": .1},
     "player": {"configuration": .05, "scenes": .05, "il2cpp": .2, "native": .5, "packaging": .2},
     "update-code": {"configuration": .05, "scenes": .05, "il2cpp": .2, "native": .5, "packaging": .2},
     "update-art": {"build": 1.},
@@ -94,9 +94,14 @@ UNITY_PART_COUNTERS = {
     "sdk": {"unity-sdk-tasks": 1.}, "scenes": {"unity-player-scenes": 1.},
     "catalog": {"unity-addressables-keys": .3, "unity-addressables-entries": .7},
     "shaders": {"unity-addressables-shader-roots": .3, "unity-addressables-shaders": .7},
+    "audit": {"unity-native-shader-audit-read": .3, "unity-native-shader-audit-objects": .6,
+              "unity-native-shader-audit": .1},
     "postprocess": {"unity-content-post-tasks": 1.},
     "packaging": {"unity-gradle-tasks": 1.}, "il2cpp": {"unity-il2cpp": 1.},
 }
+# A native graph or compiler pass can finish before serialization or validation
+# fails. Only these actual caller boundaries close their complete logical part.
+UNITY_PART_TERMINALS = {"content-bank": {"build": "unity-addressables-build", "audit": "unity-native-shader-audit"}}
 CONTENT_PACK_SHARES = {"native-content-source-hash": .15, "native-content-native-hash": .15,
                        "native-content-write": .55, "native-content-final-hash": .15}
 PACKAGE_API_SHARES = {"package-api-bind": .65, "package-api-output": .20, "package-api-publish": .15}
@@ -108,6 +113,7 @@ UNITY_CHILD_COUNTERS = frozenset(("unity-sdk-tasks", "unity-original-scenes", "u
     "unity-addressables-shaders", "unity-addressables-shader-roots", "unity-content-post-tasks",
     "unity-content-delivery", "unity-player-scenes", "unity-player-native-result", "unity-gradle-tasks",
     "unity-script-bindings", "unity-script-assets", "unity-script-write", "unity-campaign-objects", "unity-campaign-scenes", "unity-campaign-audio", "unity-campaign-atlases", "unity-campaign-packed-sprites",
+    "unity-native-shader-audit", "unity-native-shader-audit-read", "unity-native-shader-audit-objects",
     "unity-scene-objects", "unity-scene-dependencies", "unity-texture-cubes", "unity-texture-targets",
     "unity-texture-owners", "unity-texture-floating", "unity-texture-platform", "unity-compute-identities", "unity-compute-kernels",
     "unity-shader-materials", "unity-shader-identities", "unity-shader-retention", "unity-shader-programs"))
@@ -866,9 +872,11 @@ def _unity_part(plan, owner, value):
         return "configuration" if phase == "unity-configuration" else "checks"
     for name in parts:
         if phase in UNITY_PART_COUNTERS.get(name, {}): return name
+    if owner == "content-bank" and phase in ("unity-native-shader-audit", "unity-native-shader-audit-read", "unity-native-shader-audit-objects"):
+        return "audit"
     if phase.startswith("bee-actions:") or phase in ("unity-bee-activity", "unity-native-build"):
         return "native" if "native" in parts else "build" if "build" in parts else None
-    if phase in ("unity-addressables-build", "unity-native-shader-audit", "unity-shader-compile", "unity-shader-task", "unity-shaders") \
+    if phase in ("unity-addressables-build", "unity-shader-compile", "unity-shader-task", "unity-shaders") \
             or phase.startswith("unity-shader-task:"):
         return "build" if "build" in parts else "native" if "native" in parts else None
     if phase in ("unity-gradle",): return "packaging" if "packaging" in parts else None
@@ -916,6 +924,15 @@ def _observe_unity_work(plan, owner, value, status):
         if ratio is not None:
             work["fractions"]["assets"] = max(work["fractions"].get("assets", 0.), min(.99, ratio))
     else:
+        if owner in ("player", "update-code") and phase == "unity-player-native-result" and status in ("complete", "reuse") and _ratio(value) == 1.:
+            # BuildReport.Succeeded proves these native passes returned. The
+            # caller still owns original final evidence and publication, so
+            # this does not close its method, invocation or Player operation.
+            work["active"] = "method"
+            if "assets" not in work["completed"]: work["completed"].append("assets")
+            for completed_part in ("configuration", "scenes", "il2cpp", "native", "packaging"):
+                if completed_part in work.get("parts", {}): _close_unity_part(work, completed_part, status)
+            work["fractions"]["method"] = sum(weight * work["partFractions"].get(name, 0.) for name, weight in work["parts"].items())
         method_boundary = phase == "unity-work-stage:method"
         part = _unity_part(plan, owner, value)
         method_entry = phase in ("unity-sdk-tasks", "unity-configuration", "unity-player-scenes", "unity-validation-tasks")
@@ -937,8 +954,21 @@ def _observe_unity_work(plan, owner, value, status):
                 schedule = UNITY_PART_COUNTERS.get(part)
                 if schedule and phase in schedule:
                     seen = work.setdefault("partCounters", {}).setdefault(part, {})
+                    # Reading every bundle is not the authoritative receipt
+                    # gate. Its last 10% belongs to the successful C# return.
+                    if owner == "content-bank" and phase == "unity-native-shader-audit" and status not in ("complete", "reuse"):
+                        ratio = 0.
                     seen[phase] = max(seen.get(phase, 0.), min(.99, ratio))
+                    terminal = status in ("complete", "reuse") and _ratio(value) == 1.
+                    if terminal:
+                        seen[phase] = 1.
+                        work.setdefault("partCounterProofs", {}).setdefault(part, {})[phase] = status
                     ratio = sum(weight * seen.get(name, 0.) for name, weight in schedule.items())
+                    proofs = work.get("partCounterProofs", {}).get(part, {})
+                    if all(name in proofs for name in schedule):
+                        _close_unity_part(work, part, "reuse" if all(proof == "reuse" for proof in proofs.values()) else "complete")
+                if phase == UNITY_PART_TERMINALS.get(owner, {}).get(part) and status in ("complete", "reuse") and _ratio(value) == 1.:
+                    _close_unity_part(work, part, status)
                 # A repeated Shader pass or Bee DAG cannot restart this part's
                 # contribution. It also cannot prove that all future DAGs end.
                 work["partFractions"][part] = max(work["partFractions"].get(part, 0.), min(.99, ratio))
@@ -951,6 +981,18 @@ def _observe_unity_work(plan, owner, value, status):
     plan["fractions"][owner] = max(plan["fractions"].get(owner, 0.), fraction)
     plan.setdefault("liveFractions", {})[owner] = max(plan.get("liveFractions", {}).get(owner, 0.), fraction)
     return True
+
+
+def _close_unity_part(work, part, proof):
+    """Keep a successful child green when its sibling later fails.
+
+    Capture215313 contained complete 688/688 Shader and 6531/6531 entry
+    counters but their logical parts remained pending at99%. A local final
+    count alone still proves neither its caller nor the whole Editor process.
+    """
+    work["partFractions"][part] = 1.
+    work.setdefault("partProofs", {})[part] = proof
+    work["partCompleted"] = list(dict.fromkeys([*work.get("partCompleted", []), part]))
 
 
 def _unity_work_overview(plan, owner, failed=False):
@@ -968,8 +1010,11 @@ def _unity_work_overview(plan, owner, failed=False):
             {"done": int(row["closed"]), "total": 1, "unit": "tasks", "phase": "unity-work-stage:" + row["id"]})
         if row["id"] == "method":
             part_names = tuple(UNITY_METHOD_PARTS.get(owner, work["parts"]))
-            row["parts"] = _overview_rows(part_names, part_names if row["closed"] else (),
-                work.get("partFractions", {}), None if row["closed"] else work.get("part"), failed=failed or work.get("failed", False))
+            closed_parts = part_names if row["closed"] else work.get("partCompleted", ())
+            proofs = dict.fromkeys(part_names, "complete") if row["closed"] else work.get("partProofs", {})
+            active_part = None if row["closed"] or work.get("part") in closed_parts else work.get("part")
+            row["parts"] = _overview_rows(part_names, closed_parts,
+                work.get("partFractions", {}), active_part, proofs, failed=failed or work.get("failed", False))
             for part in row["parts"]:
                 part["counter"] = work.get("counters", {}).get(part["id"],
                     {"done": int(part["closed"]), "total": 1, "unit": "tasks", "phase": "unity-work-stage:" + part["id"]})
@@ -1079,8 +1124,9 @@ def _build_overview(row, plan):
         if detail: item["preparation"] = detail
         compiler = plan.get("unityCompiler", {}).get(item["id"])
         if compiler:
-            item["compiler"] = dict(compiler, status="failed" if row["status"] == "failed" and item["id"] == active
-                                     else "complete" if item["closed"] else "running" if item["id"] == active else "pending")
+            compiled = item["id"] == "content-bank" and "build" in plan.get("unityWork", {}).get(item["id"], {}).get("partCompleted", ())
+            item["compiler"] = dict(compiler, status="complete" if item["closed"] or compiled else "failed"
+                                     if row["status"] == "failed" and item["id"] == active else "running" if item["id"] == active else "pending")
         imported = plan.get("unityImports", {}).get(item["id"])
         if imported:
             item["import"] = dict(imported, status="failed" if row["status"] == "failed" and item["id"] == active
@@ -1099,7 +1145,7 @@ def _build_overview(row, plan):
                 "failed" if row["status"] == "failed" and item["id"] == active else item["status"])
             if checks: item["validation"] = checks
         task = plan.get("unityTasks", {}).get(item["id"])
-        if task: item["unityTask"] = dict(task, status="failed" if row["status"] == "failed" and item["id"] == active
+        if task: item["unityTask"] = dict(task, status="complete" if task.get("closed") else "failed" if row["status"] == "failed" and item["id"] == active
                                         else "complete" if item["closed"] else "running" if item["id"] == active else "pending")
         unity_work = _unity_work_overview(plan, item["id"], row["status"] == "failed" and item["id"] == active)
         if unity_work: item["unityWork"] = unity_work
@@ -1270,6 +1316,7 @@ def advance(row, value, operation=None, status=None):
         task = plan.setdefault("unityTasks", {}).setdefault(live_owner, {})
         if task.get("phase") != value["phase"] or status == "start": task["startedAt"] = value.get("updatedAt")
         task.update({key: value.get(key) for key in ("phase", "done", "total", "unit", "detail", "updatedAt")})
+        task["closed"] = status in ("complete", "reuse") and _ratio(value) == 1.
         value["unityTask"] = dict(task)
         if unity_child and live_owner == "unity-validation":
             work = plan.get("unityValidation", {})
@@ -1481,7 +1528,7 @@ def advance(row, value, operation=None, status=None):
             if plan.setdefault("operationProofs", {}).get(name) != "reuse": plan["operationProofs"][name] = "complete"
     done = sum(1. if name in plan["completed"] else plan["fractions"].get(name, 0.) for name in operations)
     # Keep small measured byte/file contributions for the bar, even when its
-    # concise percentage label rounds them to two decimal places.
+    # concise percentage label rounds them to a few decimal places.
     if row["id"] == "build":
         number = _build_percent(plan)
         scale = plan.get("progressScale")

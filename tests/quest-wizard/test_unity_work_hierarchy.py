@@ -200,5 +200,93 @@ class UnityWorkHierarchyTests(unittest.TestCase):
         self.report("unity-shader-task:81:70", 10, 10, "steps", status="complete")
         self.assertNotIn("player", self.row()["progressPlan"]["completed"])
 
+    def test_completed_addressables_parts_stay_green_after_later_audit_failure(self):
+        self.start("content-bank")
+        self.report("unity-work-stage:method", owner="content-bank", status="start")
+        # Actual B664 capture215313 reported these final entry/Shader counts.
+        for phase, total, unit in (("unity-addressables-keys", 6531, "assets"),
+                                  ("unity-addressables-entries", 6531, "assets"),
+                                  ("unity-addressables-shaders", 688, "shaders"),
+                                  ("unity-addressables-shader-roots", 688, "shaders")):
+            self.report(phase, total, total, unit, "content-bank", status="complete")
+        self.report("unity-shader-compile", 128, 128, "variants", "content-bank")
+        self.report("unity-addressables-build", 1, 1, owner="content-bank", status="complete")
+        self.report("unity-native-shader-audit", 0, 5, "bundles", "content-bank", status="start")
+        saved = self.store.load(self.session)
+        next(row for row in saved["stages"] if row["id"] == "build")["status"] = "failed"
+        self.store.save(saved)
+        value = self.row()["progress"]
+        parts = {row["id"]: row for row in self.work(value, "content-bank")["phases"][1]["parts"]}
+        for name in ("catalog", "shaders", "build"):
+            self.assertEqual((parts[name]["closed"], parts[name]["status"], parts[name]["percent"]), (True, "complete", 100.))
+        self.assertEqual((parts["audit"]["closed"], parts["audit"]["status"]), (False, "failed"))
+        self.assertEqual((parts["postprocess"]["closed"], parts["postprocess"]["status"]), (False, "pending"))
+        owner = next(row for group in value["buildOverview"]["groups"] for row in group["operations"] if row["id"] == "content-bank")
+        self.assertEqual(owner["compiler"]["status"], "complete")
+        self.assertNotIn("content-bank", self.row()["progressPlan"]["completed"])
+
+    def test_n_over_n_without_terminal_or_missing_sibling_cannot_close_part(self):
+        self.start("content-bank")
+        self.report("unity-work-stage:method", owner="content-bank", status="start")
+        self.report("unity-addressables-keys", 4, 4, owner="content-bank", status="complete")
+        pending = self.report("unity-addressables-entries", 4, 4, owner="content-bank")
+        parts = {row["id"]: row for row in self.work(pending, "content-bank")["phases"][1]["parts"]}
+        self.assertFalse(parts["catalog"]["closed"])
+        self.assertLess(parts["catalog"]["percent"], 100.)
+        complete = self.report("unity-addressables-entries", 4, 4, owner="content-bank", status="complete")
+        self.assertTrue(self.work(complete, "content-bank")["phases"][1]["parts"][0]["closed"])
+        root_only = self.report("unity-addressables-shader-roots", 688, 688, "shaders", "content-bank", status="complete")
+        self.assertFalse(self.work(root_only, "content-bank")["phases"][1]["parts"][1]["closed"])
+        native = self.report("unity-addressables-build", 1, 1, owner="content-bank")
+        self.assertFalse(self.work(native, "content-bank")["phases"][1]["parts"][2]["closed"])
+
+    def test_audit_bytes_and_objects_move_parent_without_consuming_receipt_gate(self):
+        self.start("content-bank")
+        self.report("unity-work-stage:method", owner="content-bank", status="start")
+        self.report("unity-addressables-build", 1, 1, owner="content-bank", status="complete")
+        base = self.report("unity-native-shader-audit", 0, 7, "bundles", "content-bank", status="start")
+        previous = base["stagePercent"]
+        for done in (1, 100, 1000, 5000, 10000):
+            value = self.report("unity-native-shader-audit-read", done, 10000, "bytes", "content-bank")
+            self.assertGreater(value["stagePercent"], previous)
+            previous = value["stagePercent"]
+        read = self.report("unity-native-shader-audit-read", 10000, 10000, "bytes", "content-bank", status="complete")
+        for done in (1, 2, 8, 14, 20):
+            value = self.report("unity-native-shader-audit-objects", done, 20, "objects", "content-bank")
+            self.assertGreater(value["stagePercent"], previous)
+            previous = value["stagePercent"]
+        read_done = self.report("unity-native-shader-audit", 7, 7, "bundles", "content-bank")
+        part = self.work(read_done, "content-bank")["phases"][1]["parts"][3]
+        self.assertFalse(part["closed"])
+        self.assertLess(part["percent"], 91.)
+        receipt = self.report("unity-native-shader-audit", 7, 7, "bundles", "content-bank", status="complete")
+        part = self.work(receipt, "content-bank")["phases"][1]["parts"][3]
+        self.assertEqual((part["closed"], part["status"], part["percent"]), (True, "complete", 100.))
+        self.assertEqual(part["counter"]["total"], 7)
+        self.assertNotIn("content-bank", self.row()["progressPlan"]["completed"])
+
+    def test_successful_native_report_closes_its_parts_but_not_final_player_evidence(self):
+        self.start()
+        self.report("unity-work-stage:method", status="start")
+        self.report("unity-player-scenes", 13, 13, "scenes")
+        self.report("unity-il2cpp", 1, 1)
+        self.report("bee-actions:native:200:1", 200, 200, "actions")
+        self.report("unity-gradle-tasks", 40, 40, "tasks")
+        observed = self.report("unity-player-native-result", 1, 1)
+        parts = {part["id"]: part for part in self.work(observed)["phases"][1]["parts"]}
+        self.assertFalse(parts["scenes"]["closed"])
+        self.assertFalse(parts["native"]["closed"])
+        returned = self.report("unity-player-native-result", 1, 1, status="complete")
+        method = self.work(returned)["phases"][1]
+        for part in method["parts"]:
+            self.assertEqual((part["closed"], part["status"], part["percent"]), (True, "complete", 100.))
+        self.assertFalse(method["closed"])
+        self.assertEqual(self.work(returned)["percent"], 95.)
+        self.assertNotIn("player", self.row()["progressPlan"]["completed"])
+        saved = self.store.load(self.session)
+        next(row for row in saved["stages"] if row["id"] == "build")["status"] = "failed"
+        self.store.save(saved)
+        self.assertTrue(all(part["status"] == "complete" for part in self.work(self.row()["progress"])["phases"][1]["parts"]))
+
 
 if __name__ == "__main__": unittest.main()

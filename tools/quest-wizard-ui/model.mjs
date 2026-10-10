@@ -81,7 +81,7 @@ export function unityImportView(progress,now=Date.now()/1000) {
     status,...(scope?{scope}:{})};
 }
 export function unityWorkView(value) {
-  const names=['assets','method','result'],parts=['configuration','checks','sdk','scenes','catalog','shaders','postprocess','packaging','il2cpp','native','build'];
+  const names=['assets','method','result'],parts=['configuration','checks','sdk','scenes','catalog','shaders','audit','postprocess','packaging','il2cpp','native','build'];
   const normalize=(rows,allowed,limit)=>{
     if(!Array.isArray(rows)||!rows.length||rows.length>limit||new Set(rows.map(row=>row?.id)).size!==rows.length)return null;
     if(rows.some(row=>!allowed.includes(row?.id)))return null;

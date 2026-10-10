@@ -73,6 +73,36 @@ class ProgressEventBoundsTests(unittest.TestCase):
         self.assertEqual(self.saved["events"][-1], result)
         for key, value in parameters.items(): self.assertEqual(result["parameters"][key], value)
 
+    def test_unchanged_final_count_terminal_is_immediately_logged_and_durable(self):
+        with mock.patch("state.PROGRESS_INTERVAL", 1000), mock.patch("state.time.monotonic", return_value=10000):
+            with self.store.active(self.saved):
+                self.store.operation(self.session, "build", "content-bank")
+                self.launch("content-bank")
+                self.report("unity-addressables-keys", 6531, 6531, "content-bank", unit="assets", status="complete")
+                self.report("unity-addressables-entries", 6531, 6531, "content-bank", unit="assets")
+                before = len(self.saved["events"])
+                value = self.report("unity-addressables-entries", 6531, 6531, "content-bank", unit="assets", status="complete")
+                self.assertEqual(len(self.saved["events"]), before + 1)
+                persisted = read_json(self.store.session_dir(self.session) / "state.json")
+                record = persisted["stages"][5]
+                self.assertEqual(record["progress"]["operationStatus"], "complete")
+                self.assertIn("catalog", record["progressPlan"]["unityWork"]["content-bank"]["partCompleted"])
+                logged = json.loads((self.store.session_dir(self.session) / "logs/progress.log").read_text().splitlines()[-1])
+                self.assertEqual(logged["parameters"]["operationStatus"], "complete")
+                self.assertNotIn("content-bank", record["progressPlan"]["completed"])
+                self.assertEqual(value["buildOverview"]["active"], "content-bank")
+
+    def test_same_count_failed_task_is_not_lost_inside_progress_throttle(self):
+        with mock.patch("state.PROGRESS_INTERVAL", 1000), mock.patch("state.time.monotonic", return_value=10000):
+            with self.store.active(self.saved):
+                self.store.operation(self.session, "build", "unity-validation")
+                self.report("unity-validation-tasks", 7, 17, "unity-validation")
+                before = len(self.saved["events"])
+                self.report("unity-validation-tasks", 7, 17, "unity-validation", status="failed")
+                self.assertEqual(len(self.saved["events"]), before + 1)
+                persisted = read_json(self.store.session_dir(self.session) / "state.json")
+                self.assertEqual(persisted["stages"][5]["progress"]["operationStatus"], "failed")
+
     def test_all_27_checkpoints_five_unity_plans_and_128_updates_remain_readable_on_retry(self):
         saved = self.store.load(self.session)
         with self.store.active(saved):

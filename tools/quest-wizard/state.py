@@ -389,7 +389,11 @@ class Store:
             clock = time.monotonic(); last = self._progress_saved.get((session, stage), 0)
             changed_phase = old.get("phase") != phase or old.get("total") != total
             completed = total is not None and done == total and old.get("done") != done
-            if changed_phase or completed or clock - last >= PROGRESS_INTERVAL:
+            # A final progress counter can reach N/N before the caller's
+            # successful return. Persist that later explicit terminal even
+            # inside the normal throttle window, including unchanged counts.
+            terminal = status in ("start", "complete", "reuse", "failed") and old.get("operationStatus") != status
+            if changed_phase or completed or terminal or clock - last >= PROGRESS_INTERVAL:
                 self._progress_saved[(session, stage)] = clock
                 self._event(state, "stage_progress", stage, **value)
             return dict(value)

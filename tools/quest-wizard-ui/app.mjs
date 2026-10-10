@@ -21,7 +21,7 @@ const galleryTemplate=[...$('gallery').children].map(node=>node.cloneNode(true))
 function readStorage(key) { try { return localStorage.getItem(key); } catch { return null; } }
 function writeStorage(key,value) { try { localStorage.setItem(key,value); } catch { } }
 function t(key,parameters) { return translate(language,key,parameters); }
-function percentText(value) { return new Intl.NumberFormat(language,{maximumFractionDigits:2}).format(value); }
+function percentText(value) { return new Intl.NumberFormat(language,{maximumFractionDigits:3}).format(value); }
 function message(value,fallback='unknownAction') { return typeof value==='string' ? value : value?.[language] ?? value?.en ?? value?.de ?? t(fallback); }
 function error(value) { $('error-banner').textContent=value?.message ? message(value.message) : t(value?.code ?? 'offline');$('error-banner').hidden=false; }
 function clearError() { $('error-banner').hidden=true; }
@@ -142,7 +142,7 @@ function counters(value) {
   if(!Number.isFinite(value.done)||!Number.isFinite(value.total)||value.total<=0)return '';
   const number=n=>new Intl.NumberFormat(language,{maximumFractionDigits:1}).format(n);
   if(value.unit==='bytes')return t('counterBytes',{done:number(value.done/1048576)+' MiB',total:number(value.total/1048576)+' MiB'});
-  const key={files:'counterFiles',actions:'counterActions',checks:'counterChecks',dependencies:'counterDependencies',batches:'counterBatches',steps:'counterSteps',checkpoints:'counterSteps',variants:'counterVariants',objects:'counterObjects',assets:'counterImports',assemblies:'counterAssemblies',tasks:'counterSteps',invocations:'counterInvocations',scenes:'counterScenes',sprites:'counterSprites',shaders:'counterShaders'}[value.unit]??'counterUnits';
+  const key={files:'counterFiles',bundles:'counterBundles',actions:'counterActions',checks:'counterChecks',dependencies:'counterDependencies',batches:'counterBatches',steps:'counterSteps',checkpoints:'counterSteps',variants:'counterVariants',objects:'counterObjects',assets:'counterImports',assemblies:'counterAssemblies',tasks:'counterSteps',invocations:'counterInvocations',scenes:'counterScenes',sprites:'counterSprites',shaders:'counterShaders'}[value.unit]??'counterUnits';
   return t(key,{done:number(value.done),total:number(value.total)});
 }
 function workDetail(value) {
@@ -221,7 +221,7 @@ function overviewList(rows,prefix,children) {
   for(const row of rows){
     const item=document.createElement('li');item.className=row.status;item.dataset.operation=row.id;
     const name=document.createElement('span');name.textContent=t(prefix+row.id)+(row.conditional?' · '+t('buildPassConditional'):'');
-    const status=document.createElement('small');status.textContent=t('overview_'+row.status)+(row.closed?'':row.percent>0?' · '+t('measuredPercent',{percent:percentText(row.percent)}):'')+(row.counter&&!row.closed?' · '+counters(row.counter):'');
+    const status=document.createElement('small');status.textContent=t('overview_'+row.status)+(row.closed||row.percent>0?' · '+t('measuredPercent',{percent:percentText(row.closed?100:row.percent)}):'')+(row.counter&&!row.closed?' · '+counters(row.counter):'');
     item.append(name,status);
     const child=children?.(row);
     if(child){item.classList.add('has-subplan');item.append(child);}
@@ -531,7 +531,14 @@ async function openSession(session) {
     resetArtwork();clearLoadedLog();eventsUnavailable=false;stageLogUnavailable=false;state=result.state;resumeFailed=null;restoredSession=session;restoreChoices(state.choices);page=2;after=0;log=[];schedulePoll();return true;}
   catch(value){resumeFailed=session;error(value);return false;}finally{busy=false;renderGames();updateView();}
 }
-function schedulePoll() {clearTimeout(pollTimer);if(state?.session)pollTimer=setTimeout(poll,1000);}
+function schedulePoll() {
+  clearTimeout(pollTimer);
+  const current=state?.stages?.find(row=>row.status==='running'),phase=current?.progress?.phase??'';
+  // Read real native updates more frequently; no timer changes their measured
+  // percentages. Other phases keep the lower-frequency status cadence.
+  const interval=phase.startsWith('unity-')||phase.startsWith('bee-actions:')?500:1000;
+  if(state?.session)pollTimer=setTimeout(poll,interval);
+}
 async function poll() {
   clearTimeout(pollTimer);
   if(!state?.session)return;
