@@ -52,7 +52,12 @@ def stage_progress(phase="pending", done=0, total=1, unit="stages", detail=None)
     if detail is not None and not isinstance(detail, str):
         raise WizardError("invalid_progress", "Invalid progress detail.")
     detail = None if detail is None else re.sub(r"[\x00-\x08\x0b-\x1f]", "", detail)[:1024]
-    percent = None if done is None or total is None else (100.0 if total == 0 else round(done * 100 / total, 1))
+    # A large native graph can have thousands of completed nodes and one
+    # outstanding backend result. Rounding that observation to one decimal
+    # displayed100% before its successful boundary. Keep the observed ratio;
+    # even floating-point rounding must not turn an unfinished count into100.
+    percent = None if done is None or total is None else (100.0 if total == 0 or done == total
+        else min(math.nextafter(100.0, 0.0), done / total * 100.0))
     return {"phase": phase, "done": done, "total": total, "unit": unit,
             "percent": percent, "detail": detail, "updatedAt": time.time()}
 
