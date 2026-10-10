@@ -34,14 +34,14 @@ REVIEWED = {'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestBuild.cs': ({'pat
                                                                           'sha256': 'e08930d0941ae02897a57d31a757bc08e7c620f88b49214f3bc35ded4de5b943',
                                                                           'size': 6177},
                                                                          {'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestWizardProgress.cs',
-                                                                          'size': 13685,
-                                                                          'sha256': '391b9285434cf8604bc91dd216afd194429f8d2f56b8f622905a19b46207de27'}),
+                                                                          'size': 16165,
+                                                                          'sha256': 'f6214ad8dda7d490b438d727f5b9b0e34610dda6bb2a85b0f3aebca353de9f4e'}),
  'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestStartupAddressablesBuild.cs': ({'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestStartupAddressablesBuild.cs',
                                                                                     'sha256': 'd80c3aabfd110239d462d243dfa6a07689258535890b7707b3ca1cd4298f71e5',
                                                                                     'size': 32913},
                                                                                    {'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestStartupAddressablesBuild.cs',
-                                                                                    'size': 35174,
-                                                                                    'sha256': '0fbeb5de4eab323fd228be507dfffe3037546dd23e27e9ca0ece0d3ccc6cf761'}),
+                                                                                    'size': 35449,
+                                                                                    'sha256': 'f1e997c4ed9de67bf7f9c920df4d2d464c27b11e6cf34a5edbcbd6aedf358dc6'}),
  'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCampaignContentBuild.cs': ({'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCampaignContentBuild.cs',
                                                                                 'sha256': 'cdc348dba5aa1216a58831e8a29c0bc130cd8a81baaec3f45de407d10bb54ec6',
                                                                                 'size': 23565},
@@ -88,8 +88,8 @@ REVIEWED = {'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestBuild.cs': ({'pat
                                                                                     'sha256': 'c43e6ee16a80512f1411a8e91bd0a0e6d72fcb25205e65a8fda956bbf8ecfc95',
                                                                                     'size': 45590},
                                                                                    {'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCampaignShaderValidation.cs',
-                                                                                    'size': 47618,
-                                                                                    'sha256': '066fbc97a7f18afa672075a357ffbbfd0d103c3de282e278d722c5858d879411'})}
+                                                                                    'size': 47628,
+                                                                                    'sha256': '8adfde472a64405672550a0890274569603a56b21aba7f5fcdabcd3dbeac6740'})}
 
 
 def _record(relative, raw):
@@ -138,15 +138,32 @@ PREVIOUS_COUNTED_LOADING_SCRIPT = {
 PREVIOUS_NATIVE_VALIDATION_SCRIPTS = {'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCampaignComputeValidation.cs': {'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCampaignComputeValidation.cs', 'size': 13695, 'sha256': '5a981cce6da6c91da08bd51c49b602bb0e720864e818a010ff0839eae559ed8d'}, 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCampaignShaderValidation.cs': {'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCampaignShaderValidation.cs', 'size': 47297, 'sha256': '3af8a75b0d67b7875597e790b7a412109224514e68930615f38c77193304c865'}}
 
 
+# The delivered72c97/664 source completed catalog entries and Shader retention,
+# then stopped in a host-side native-file audit. The next observer repair
+# changes no original producer, runtime object, metadata or Unity Library.
+# Preserve its complete prior Editor profile rather than mixing rows from it.
+PREVIOUS_NATIVE_AUDIT_PROGRESS_SCRIPTS = {'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestWizardProgress.cs': {'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestWizardProgress.cs',
+                                                                         'size': 13685,
+                                                                         'sha256': '391b9285434cf8604bc91dd216afd194429f8d2f56b8f622905a19b46207de27'},
+ 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestStartupAddressablesBuild.cs': {'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestStartupAddressablesBuild.cs',
+                                                                                   'size': 35174,
+                                                                                   'sha256': '0fbeb5de4eab323fd228be507dfffe3037546dd23e27e9ca0ece0d3ccc6cf761'},
+ 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCampaignShaderValidation.cs': {'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCampaignShaderValidation.cs',
+                                                                                   'size': 47618,
+                                                                                   'sha256': '066fbc97a7f18afa672075a357ffbbfd0d103c3de282e278d722c5858d879411'}}
+
+
 def source_profiles():
     """Whole reviewed source profiles, never independently mixed script rows."""
     current = {name: pair[1] for name, pair in REVIEWED.items()}
-    counted = {**current, PREVIOUS_COUNTED_LOADING_SCRIPT["path"]: PREVIOUS_COUNTED_LOADING_SCRIPT}
-    preceding = {**current, **PREVIOUS_TASK_SCRIPTS}
-    profiles = (current, {**current, PREVIOUS_BINDINGS["path"]: PREVIOUS_BINDINGS},
+    previous = {**current, **PREVIOUS_NATIVE_AUDIT_PROGRESS_SCRIPTS}
+    counted = {**previous, PREVIOUS_COUNTED_LOADING_SCRIPT["path"]: PREVIOUS_COUNTED_LOADING_SCRIPT}
+    preceding = {**previous, **PREVIOUS_TASK_SCRIPTS}
+    profiles = (previous, {**previous, PREVIOUS_BINDINGS["path"]: PREVIOUS_BINDINGS},
             preceding, {**preceding, PREVIOUS_BINDINGS["path"]: PREVIOUS_BINDINGS},
             counted, {**counted, PREVIOUS_BINDINGS["path"]: PREVIOUS_BINDINGS})
-    return profiles + tuple({**profile, **PREVIOUS_NATIVE_VALIDATION_SCRIPTS} for profile in profiles)
+    return (current,) + profiles + tuple({**profile, **PREVIOUS_NATIVE_VALIDATION_SCRIPTS} for profile in profiles)
+
 
 
 def _read(path):
@@ -173,6 +190,7 @@ def changes(previous, inputs):
                     profile[0], PREVIOUS_BINDINGS if name == PREVIOUS_BINDINGS["path"] else profile[0],
                     PREVIOUS_COUNTED_LOADING_SCRIPT if name == PREVIOUS_COUNTED_LOADING_SCRIPT["path"] else profile[0],
                     PREVIOUS_NATIVE_VALIDATION_SCRIPTS.get(name, profile[0]),
+                    PREVIOUS_NATIVE_AUDIT_PROGRESS_SCRIPTS.get(name, profile[0]),
                     PREVIOUS_TASK_SCRIPTS.get(name, profile[0]))
                 or left is None or right is None
                 or set(left) != {"path", "size", "sha256"}

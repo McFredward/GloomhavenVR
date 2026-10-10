@@ -12,6 +12,13 @@ import preparation_identity
 import recovery_resume
 
 
+def reader_rows(profile):
+    # Earlier complete deliveries contain the old native reader too, although
+    # it was not a changing observer row in their historical profile constants.
+    return [*profile.values(), *([] if recovery_resume.NATIVE_AUDIT_READER_PREVIOUS["path"] in profile
+        else [recovery_resume.NATIVE_AUDIT_READER_PREVIOUS])]
+
+
 class ImportMutationProfileTests(unittest.TestCase):
     def test_current_reader_profile_matches_actual_delivered_source_bytes(self):
         expected = recovery_resume.OBSERVATION_EDITOR_OVERLAY
@@ -23,12 +30,12 @@ class ImportMutationProfileTests(unittest.TestCase):
     def test_previous_and_fixed_reader_profiles_keep_the_same_original_producers(self):
         previous = recovery_resume.OBSERVATION_EDITOR_OVERLAY_PREVIOUS
         current = recovery_resume.OBSERVATION_EDITOR_OVERLAY
-        canonical = recovery_resume.preparation_source_rows(list(previous.values()))
+        canonical = recovery_resume.preparation_source_rows(reader_rows(previous))
         for profile in (recovery_resume.OBSERVATION_EDITOR_IMPORT_PREVIOUS,
                         recovery_resume.OBSERVATION_EDITOR_OWNERS_PREVIOUS,
                         recovery_resume.OBSERVATION_TARGETED_REPAIR_PREVIOUS,
                         recovery_resume.OBSERVATION_SPRITE_IMPORT_PREVIOUS, current):
-            self.assertEqual(canonical, recovery_resume.preparation_source_rows(list(profile.values())))
+            self.assertEqual(canonical, recovery_resume.preparation_source_rows(reader_rows(profile)))
         for name in current:
             with self.subTest(changed=name):
                 changed = copy.deepcopy(current)
@@ -40,8 +47,8 @@ class ImportMutationProfileTests(unittest.TestCase):
     def test_preceding_shipped_import_reader_profile_is_qualified_as_a_whole(self):
         previous = recovery_resume.OBSERVATION_EDITOR_IMPORT_PREVIOUS
         current = recovery_resume.OBSERVATION_EDITOR_OVERLAY
-        self.assertEqual(recovery_resume.preparation_source_rows(list(previous.values())),
-                         recovery_resume.preparation_source_rows(list(current.values())))
+        self.assertEqual(recovery_resume.preparation_source_rows(reader_rows(previous)),
+                         recovery_resume.preparation_source_rows(reader_rows(current)))
         for name in previous:
             with self.subTest(changed=name):
                 changed = copy.deepcopy(previous)
@@ -102,26 +109,40 @@ class ImportMutationProfileTests(unittest.TestCase):
                   for name in editor_overlay.TARGETS}
         self.assertEqual(actual, editor_overlay.source_profiles()[0])
 
-    def test_preceding_bindings_script_can_update_without_republishing_other_scripts(self):
+    def test_preceding_bindings_and_progress_update_only_reviewed_consumers(self):
         current = editor_overlay.source_profiles()[0]
-        previous = editor_overlay.source_profiles()[1]
+        previous = editor_overlay.source_profiles()[2]
         result = editor_overlay.changes({"mod": {"files": list(previous.values())}},
                                        {"mod": {"files": list(current.values())}})
-        self.assertEqual(result, [(editor_overlay.PREVIOUS_BINDINGS["path"],
-                                  editor_overlay.PREVIOUS_BINDINGS,
-                                  current[editor_overlay.PREVIOUS_BINDINGS["path"]])])
+        self.assertEqual({row[0] for row in result},
+                         {editor_overlay.PREVIOUS_BINDINGS["path"]} | set(editor_overlay.PREVIOUS_NATIVE_AUDIT_PROGRESS_SCRIPTS))
 
-    def test_preceding_complete_task_profile_updates_only_three_existing_editor_scripts(self):
-        current, previous = editor_overlay.source_profiles()[0], editor_overlay.source_profiles()[2]
+    def test_preceding_complete_task_profile_updates_only_reviewed_consumers(self):
+        current, previous = editor_overlay.source_profiles()[0], editor_overlay.source_profiles()[3]
         result = editor_overlay.changes({"mod": {"files": list(previous.values())}},
                                        {"mod": {"files": list(current.values())}})
-        self.assertEqual({row[0] for row in result}, set(editor_overlay.PREVIOUS_TASK_SCRIPTS))
+        self.assertEqual({row[0] for row in result}, set(editor_overlay.PREVIOUS_TASK_SCRIPTS) | set(editor_overlay.PREVIOUS_NATIVE_AUDIT_PROGRESS_SCRIPTS))
 
-    def test_preceding_complete_native_validation_profile_updates_only_two_consumers(self):
-        current, previous = editor_overlay.source_profiles()[0], editor_overlay.source_profiles()[6]
+    def test_preceding_complete_native_validation_profile_updates_only_reviewed_consumers(self):
+        current, previous = editor_overlay.source_profiles()[0], editor_overlay.source_profiles()[7]
         result = editor_overlay.changes({"mod": {"files": list(previous.values())}},
                                        {"mod": {"files": list(current.values())}})
-        self.assertEqual({row[0] for row in result}, set(editor_overlay.PREVIOUS_NATIVE_VALIDATION_SCRIPTS))
+        self.assertEqual({row[0] for row in result}, set(editor_overlay.PREVIOUS_NATIVE_VALIDATION_SCRIPTS) | set(editor_overlay.PREVIOUS_NATIVE_AUDIT_PROGRESS_SCRIPTS))
+
+    def test_captured_native_audit_reader_profile_updates_only_three_late_scripts(self):
+        current, previous = editor_overlay.source_profiles()[:2]
+        result = editor_overlay.changes({"mod": {"files": list(previous.values())}},
+                                       {"mod": {"files": list(current.values())}})
+        self.assertEqual({row[0] for row in result}, set(editor_overlay.PREVIOUS_NATIVE_AUDIT_PROGRESS_SCRIPTS))
+
+    def test_unknown_native_reader_never_claims_a_prior_completed_scope(self):
+        current = copy.deepcopy(recovery_resume.OBSERVATION_EDITOR_OVERLAY)
+        native = recovery_resume.NATIVE_AUDIT_READER_PREVIOUS["path"]
+        for profile in (recovery_resume.OBSERVATION_NATIVE_VALIDATION_PREVIOUS, current):
+            rows = reader_rows(profile)
+            unknown = {"path": native, "size": 1, "sha256": "f" * 64}
+            rows = [unknown if row["path"] == native else row for row in rows]
+            self.assertIn(unknown, recovery_resume.preparation_source_rows(rows))
 
     def test_completed_loading_producer_alias_requires_exact_bytes_and_whole_editor_profile(self):
         actual = ROOT / preparation_identity.LOADING_DRAWING_FIXED["path"]

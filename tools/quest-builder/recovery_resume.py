@@ -278,6 +278,18 @@ OBSERVATION_EDITOR_OVERLAY = {
         "sha256": "f6e1fc681886b36063fb7487428274588ccba7099e9dfd757da3b41b4eff78c1"},
 }
 
+# Capture215313 completed original preparation and the native bundle build.
+# The next repair changes only the host reader/progress consumer. Qualify the
+# entire exact observer profile, including this new reader, before mapping it
+# to its old preparation identity. Unknown reader/helper edits remain consumed.
+OBSERVATION_NATIVE_VALIDATION_PREVIOUS = OBSERVATION_EDITOR_OVERLAY
+NATIVE_AUDIT_READER_PREVIOUS = {'path': 'tools/quest-builder/campaign_native_shaders.py', 'size': 35994, 'sha256': '64e7213dcedda078a38aae8b5dd9b5e37253644eb16a607cd0d193b86704b2f3'}
+OBSERVATION_EDITOR_OVERLAY = {
+    **OBSERVATION_NATIVE_VALIDATION_PREVIOUS,
+    "tools/quest-builder/editor_overlay.py": {'path': 'tools/quest-builder/editor_overlay.py', 'size': 21606, 'sha256': '81176e515ba8f912b72ed2755d6e6d3135f7abde023746b5baaa8b8b39a21647'},
+    "tools/quest-builder/campaign_native_shaders.py": {'path': 'tools/quest-builder/campaign_native_shaders.py', 'size': 41271, 'sha256': '81805d07e6fe37a2697a31b2b1767f8b233c8641c0c5e2228f4f62b782863306'},
+}
+
 OBSERVATION_PROFILES = (OBSERVATION_BYTE_WITNESSES, OBSERVATION_FIXED,
                         OBSERVATION_INPUT_INDEX, OBSERVATION_INPUT_ORDER, OBSERVATION_DIRECTORY_BATCH, OBSERVATION_GRAPHICS_CONTRACT, OBSERVATION_COMPLETED_METADATA)
 # Shipped d4cc44eeb adds an exporter-log observer and invocation-local proof
@@ -333,6 +345,7 @@ def preparation_source_rows(rows):
                                            OBSERVATION_TARGETED_REPAIR_PREVIOUS,
                                            OBSERVATION_COUNTED_UNITY_PREVIOUS,
                                            OBSERVATION_SPRITE_IMPORT_PREVIOUS,
+                                           OBSERVATION_NATIVE_VALIDATION_PREVIOUS,
                                            OBSERVATION_EDITOR_OVERLAY)
                     if all(current.get(name) == [fixed] for name, fixed in profile.items())), None)
     if profile is not None:
@@ -342,7 +355,10 @@ def preparation_source_rows(rows):
         for name in ("tools/quest-builder/preparation_repair.py", "tools/quest-builder/project_access.py",
                      "tools/quest-builder/unity_work.py"):
             if name in profile: excluded.add(name)
-        rows = [OBSERVATION_COMPLETED_METADATA.get(row["path"], row) for row in rows
+        rows = [NATIVE_AUDIT_READER_PREVIOUS
+                if "tools/quest-builder/campaign_native_shaders.py" in profile
+                and row == profile["tools/quest-builder/campaign_native_shaders.py"]
+                else OBSERVATION_COMPLETED_METADATA.get(row["path"], row) for row in rows
                 if row["path"] not in excluded]
     by_path = {}
     for row in rows:

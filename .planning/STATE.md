@@ -1,5 +1,20 @@
 # State — where the project stands
 
+**Quest native audit and Unity terminal progress, 2026-10-11 (Builder; Runtime665).**
+
+Capture215313 from72c97/664 retains all27 preparation owners and reaches the
+actual native Addressables Shader audit. Its file reader incorrectly compares
+Windows creation/change timestamps across stat APIs. The repaired reader keeps
+separate full pre/post guards and reports exact file/stamp failures. Actual
+bytes, bundles and root-object counters now reach the UI while the child runs;
+completed catalog/Shader/native-build/Gradle parts close100 without closing the
+unfinished parent or reverting when a later audit fails. Completed preparation
+and Unity Library remain retained through exact whole source profiles. Details
+and evidence limits are recorded in
+[QUEST-NATIVE-AUDIT-PROGRESS-215313-20261011.md](QUEST-NATIVE-AUDIT-PROGRESS-215313-20261011.md).
+This delivery integrates published dev665; complete Windows APK acceptance
+remains pending, and no fresh game import/compiler matrix is run locally.
+
 **Quest native compute source/import recovery, 2026-10-10 (Builder; Runtime664).**
 
 Capture090432 confirms dcfaa/664 retains all27 preparation owners and passes both
