@@ -2631,6 +2631,41 @@
         "local"
       ],
       "weight": 55
+    },
+    {
+      "id": "npc666-native-summon-selection",
+      "command": [
+        "python3",
+        "scripts/npc666-overlay-runtime/run.py",
+        "--controls"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 55
+    },
+    {
+      "id": "npc666-native-offered-ring",
+      "command": [
+        "python3",
+        "scripts/npc666-ring-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 55
+    },
+    {
+      "id": "npc666-native-offered-hover",
+      "command": [
+        "python3",
+        "scripts/npc666-hover-runtime/run.py",
+        "--controls"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 55
     }
   ]
 }
