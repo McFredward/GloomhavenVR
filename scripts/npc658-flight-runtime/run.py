@@ -195,6 +195,20 @@ internal sealed class NativeMerchant655 : MonoBehaviour {
             if historical_clock.count(marker) != 1: raise RuntimeError('Historical clock-state binding drift')
             historical_clock = historical_clock.replace(marker,
                 '        internal float CurrentSampleTime => _sampleTime;\n' + marker, 1)
+            constructor = 'float sampleTime, float offset)'
+            if historical_clock.count(constructor) != 1:
+                raise RuntimeError('Historical clock constructor binding drift')
+            historical_clock = historical_clock.replace(constructor,
+                'float sampleTime, float offset, float? receivedAt = null)', 1)
+            # This named control executes only SlowClock658/ClockProbe658. Keep
+            # its historical constructor/Observe/Current behavior exact; new
+            # cohort ABI ports must compile and prove they are never executed.
+            closing = historical_clock.rfind('    }')
+            historical_clock = historical_clock[:closing] + '''        internal void ActivateTerminal(float now)
+            => throw new InvalidOperationException("Historical clock-only control never activates terminal cohorts.");
+        internal static bool IsTerminal(TownServiceMotionEntry entry)
+            => throw new InvalidOperationException("Historical clock-only control never classifies terminal cohorts.");
+''' + historical_clock[closing:]
             files['TownServiceMirror.Motion.cs']=motion[:first]+historical_clock+motion[last:]
         if mutation == 'native-header':
             files['TownServiceMirror.cs'] = files['TownServiceMirror.cs'].replace('                    PreserveReturningCardHeader(module, frame);','')

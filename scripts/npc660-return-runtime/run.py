@@ -181,7 +181,7 @@ internal sealed class NativeMerchant655 : MonoBehaviour {
     cases = [('native',None)]
     if args.case: cases = [case for case in cases if case[0] == args.case]
     if not args.no_negative_controls:
-        cases.extend([('old-quiet-terminal','terminal'),('old-return-layout','layout'),('old-external-pose','pose'),('old-layout-staging','staging'),('old-snapshot-acknowledgement','ack')])
+        cases.extend([('old-quiet-terminal','terminal'),('old-return-layout','layout'),('old-external-pose','pose'),('old-layout-staging','staging'),('old-snapshot-acknowledgement','ack'),('old-terminal-progress-only','progress'),('old-complete-prior-only','prior'),('old-pending-terminal-expiry-only','expiry'),('old-future-terminal-activation-only','future')])
     if args.only_negative_controls: cases = [case for case in cases if case[1]]
     dotnet = os.environ.get('DOTNET') or shutil.which('dotnet') or str(Path.home() / '.dotnet/dotnet')
     unity = Path(os.environ.get('UNITY_PATH', '/home/claw/unity-2021.3.5/Editor/Unity'))
@@ -201,7 +201,9 @@ internal sealed class NativeMerchant655 : MonoBehaviour {
             files['TownServiceMirror.Motion.cs']=motion[:begin]+motion[end:]
         if mutation == 'pose':
             motion=files['TownServiceMirror.Motion.cs']
-            motion=motion.replace('                        module.Motion.AdoptExternalRootPose(applyTarget: true);','                        _ = now;')
+            target='module.Motion.AdoptExternalRootPose(applyTarget: true);'
+            if motion.count(target)!=2:raise RuntimeError('Native external-root adoption control binding drift')
+            motion=motion.replace(target,'_ = now;')
             motion=motion.replace('        module.Motion.AdoptExternalRootPose();','        _ = now;')
             files['TownServiceMirror.Motion.cs']=motion
         if mutation == 'staging':
@@ -214,6 +216,26 @@ internal sealed class NativeMerchant655 : MonoBehaviour {
             guard='                        if (ReferenceEquals(source.Entry, snapshot.SourceEntries[i]))\n'
             if budget.count(guard)!=1:raise RuntimeError('Snapshot acknowledgement guard binding drift')
             files['TownServiceMotionBudget.cs']=budget.replace(guard,'')
+        if mutation == 'progress':
+            motion=files['TownServiceMirror.Motion.cs']
+            block='            if (IsTerminal(_current))\n            { age = _current.Numbers[1] + Mathf.Max(0f, now - _terminalActivationAt); return _current; }\n'
+            if motion.count(block)!=1:raise RuntimeError('Terminal progress control binding drift')
+            files['TownServiceMirror.Motion.cs']=motion.replace(block,'')
+        if mutation == 'prior':
+            cohorts=files['TownServiceMirror.CardReturnCohorts.cs']
+            block='CompletePrior = completePrior'
+            if cohorts.count(block)!=1:raise RuntimeError('Complete predecessor control binding drift')
+            files['TownServiceMirror.CardReturnCohorts.cs']=cohorts.replace(block,'CompletePrior = null')
+        if mutation == 'expiry':
+            cohorts=files['TownServiceMirror.CardReturnCohorts.cs']
+            block='(assembly.Activated || !CardReturnClock.IsTerminal(header)) && sourceAge >'
+            if cohorts.count(block)!=1:raise RuntimeError('Pending terminal expiry control binding drift')
+            files['TownServiceMirror.CardReturnCohorts.cs']=cohorts.replace(block,'sourceAge >')
+        if mutation == 'future':
+            cohorts=files['TownServiceMirror.CardReturnCohorts.cs']
+            block='        if (assembly.Clock.CurrentSampleTime < header.ReturnSampleTime) return false;\n'
+            if cohorts.count(block)!=1:raise RuntimeError('Future terminal activation control binding drift')
+            files['TownServiceMirror.CardReturnCohorts.cs']=cohorts.replace(block,'')
         production = run / name / 'production'; production.mkdir(parents=True)
         for file, content in files.items(): (production / file).write_text(content)
         project = run / name / 'Mirror.csproj'; shutil.copyfile(fixture / 'Mirror.csproj', project)
@@ -226,7 +248,15 @@ internal sealed class NativeMerchant655 : MonoBehaviour {
         (run / name / 'build.log').write_text(result.stdout + result.stderr)
         if result.returncode: raise SystemExit(result.stdout + result.stderr)
         manifest['cases'].append({'name': name, 'dll': str(run / name / 'bin/Release/netstandard2.1' / (assembly + '.dll')),
-            'expected': ('actual pooled face canonicalization keeps its printed center' if mutation=='layout' else 'unadjusted owner and observer body/front pixels agree' if mutation=='pose' else 'future native rect dependency waits for its complete physical cohort' if mutation=='staging' else 'terminal overlap keeps one native physical picture through exact terminal acknowledgement' if mutation=='ack' else 'terminal original roots retain the exact native final picture') if mutation else ''})
+            'expected': {None:'', 'layout':'actual pooled face canonicalization keeps its printed center',
+                'pose':'future native rect dependency waits for its complete physical cohort',
+                'staging':'future native rect dependency waits for its complete physical cohort',
+                'ack':'terminal overlap keeps one native physical picture through exact terminal acknowledgement',
+                'terminal':'terminal original roots retain the exact native final picture',
+                'progress':'terminal overlap keeps one native physical picture through exact terminal acknowledgement',
+                'prior':'completed prior native cohort survives a newer partial before one render tick',
+                'expiry':'fully late native64 terminal activates its exact final geometry after cold originals and one retransmitted partition',
+                'future':'future terminal never applies its final rect or canvas before the retained source instant'}[mutation]})
         receipts[name] = {file: hashlib.sha256(content.encode()).hexdigest() for file, content in files.items()}
     project = run / 'unity'; (project / 'Assets/Editor').mkdir(parents=True); (project / 'Packages').mkdir(); (project / 'ProjectSettings').mkdir()
     shutil.copyfile(fixture / 'Editor/MirrorRunner.cs', project / 'Assets/Editor/MirrorRunner.cs')

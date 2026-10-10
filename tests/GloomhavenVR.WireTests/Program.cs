@@ -48,6 +48,7 @@ internal static class Program
             SecondHeldCardAtomicVectors.Run(t);
             TownOriginalDelivery638Vectors.Run(t);
             TownOriginalReceipt639Vectors.Run(t);
+            TownOriginalRequest661Vectors.Run(t);
             CardFaceLifecycleVectors.Run(t, repoRoot);
             CardProvenanceVectors.Run(t, repoRoot);
             CardAppearanceVectors.Run(t, repoRoot);

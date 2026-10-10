@@ -177,10 +177,12 @@ internal static partial class TownServiceMirror
     internal static void RemoveOriginalReceiptPeer(int peer)
     {
         PendingOriginalReceipts.Remove(peer);
+        RemoveOriginalRequestsPeer(peer);
         foreach (var receipt in ReceivedOriginalReceipts.Values) receipt.Peers.Remove(peer);
     }
     internal static void ResetOriginalReceipts()
     {
+        ResetOriginalRequests();
         PendingOriginalReceipts.Clear(); ReceivedOriginalReceipts.Clear(); OriginalReceiptPeers.Clear();
         OriginalReceiptOwners.Clear(); OriginalReceiptBatch.Clear(); OriginalReceiptService = 0; OriginalReceiptSession = 0;
     }

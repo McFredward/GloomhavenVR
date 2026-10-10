@@ -16,6 +16,15 @@ internal static partial class TownServiceMirror
     private const float OfferingFreshSeconds = 3f;
     private static readonly Dictionary<int, TownServiceFrame> MerchantOfferings = new();
     private static readonly Dictionary<Transform, Transform> OfferedFrames = new();
+    private static readonly Dictionary<Transform, Transform> OfferedPhysicalFrames = new();
+    private readonly struct OfferedPhysicalMount
+    {
+        internal readonly Transform Parent;
+        internal readonly int Owner;
+        internal OfferedPhysicalMount(Transform parent, int owner) { Parent = parent; Owner = owner; }
+    }
+    private static readonly Dictionary<RemoteModule, OfferedPhysicalMount> OfferedPhysicalMounts = new();
+    private static readonly Dictionary<RemoteModule, float> OfferedPhysicalReturns = new();
     private static readonly HashSet<MotionSlot> ActiveOfferedFrames = new();
     private static readonly List<Transform> DeadOfferedFrames = new();
     private sealed class OfferedFrameMotion
@@ -180,14 +189,60 @@ internal static partial class TownServiceMirror
     internal static void RegisterOfferedFrame(Transform nativeHolder, Transform? physicalPrint)
     {
         if (ReferenceEquals(nativeHolder, null)) return;
+        OfferedFrames.TryGetValue(nativeHolder, out Transform? previousPrint);
         if (physicalPrint == null)
         { OfferedFrames.Remove(nativeHolder); GloomhavenVR.WorldUI.TownServiceDepthOrder.UnbindOffered(nativeHolder); }
         else if (nativeHolder != null)
         { OfferedFrames[nativeHolder] = physicalPrint; GloomhavenVR.WorldUI.TownServiceDepthOrder.BindOffered(nativeHolder, physicalPrint); }
+        if (previousPrint != null && previousPrint != physicalPrint)
+        {
+            bool retained = false;
+            foreach (Transform current in OfferedFrames.Values) retained |= current == previousPrint;
+            if (!retained)
+            {
+                DeadOfferedFrames.Clear();
+                foreach (var pair in OfferedPhysicalFrames) if (pair.Value == previousPrint) DeadOfferedFrames.Add(pair.Key);
+                foreach (Transform old in DeadOfferedFrames) OfferedPhysicalFrames.Remove(old);
+            }
+        }
+    }
+
+    // Build660 published the actual new procedural backing, but kept its pose
+    // on a different interpolation clock from the offered FullAbilityCard. A
+    // head-facing turn/hover therefore separated the physical back and print.
+    // The real handoff supplies these two source objects; neither an address
+    // search nor an observer's nearest card establishes their shared identity.
+    internal static void RegisterOfferedPhysical(Transform? body, Transform? printedFront)
+    {
+        if (ReferenceEquals(body, null)) return;
+        if (body == null || printedFront == null) OfferedPhysicalFrames.Remove(body!);
+        else OfferedPhysicalFrames[body] = printedFront;
+    }
+
+    private static bool IsOfferedPhysical(RemoteModule module) =>
+        module.Address.StartsWith("map.cardbody|", StringComparison.Ordinal)
+        || module.Address.StartsWith("map.cardbody.", StringComparison.Ordinal);
+
+    // Called before any ordinary header, child tween or return writer. The
+    // temporary exact print mount belongs only to the preceding rendered offer.
+    // Reparent preserves its world picture and existing independent clocks; no
+    // visibility/alpha changes occur between these writes and final card paint.
+    private static void RestoreOfferedPhysicalMounts()
+    {
+        foreach (var pair in OfferedPhysicalMounts)
+        {
+            RemoteModule module = pair.Key;
+            if (!module.Alive) continue;
+            Transform? parent = pair.Value.Parent;
+            if (parent == null) parent = SharedFrameForRemote?.Invoke(pair.Value.Owner);
+            if (parent != null) module.Motion.Reparent(parent);
+        }
+        OfferedPhysicalMounts.Clear();
     }
 
     private static void ClearOfferedFrames()
     {
+        RestoreOfferedPhysicalMounts(); OfferedPhysicalFrames.Clear(); OfferedPhysicalReturns.Clear();
         OfferedFrames.Clear();
         GloomhavenVR.WorldUI.TownServiceDepthOrder.ClearOffered();
     }
@@ -212,6 +267,10 @@ internal static partial class TownServiceMirror
             if (stale.Key == null || stale.Value == null) DeadOfferedFrames.Add(stale.Key!);
         foreach (Transform stale in DeadOfferedFrames)
         { OfferedFrames.Remove(stale); GloomhavenVR.WorldUI.TownServiceDepthOrder.UnbindOffered(stale); }
+        DeadOfferedFrames.Clear();
+        foreach (var stale in OfferedPhysicalFrames)
+            if (stale.Key == null || stale.Value == null) DeadOfferedFrames.Add(stale.Key!);
+        foreach (Transform stale in DeadOfferedFrames) OfferedPhysicalFrames.Remove(stale);
         if (lane.Active && lane.Service == 3) foreach (var pair in OfferedFrames)
         {
             if (pair.Key == null || pair.Value == null || !ValidMotionScale(pair.Value.lossyScale)
@@ -265,6 +324,29 @@ internal static partial class TownServiceMirror
                 if ((slot.Dirty || now - slot.SentAt >= TownServiceMotionCodec.Heartbeat)
                     && !MotionLive.Contains(slot)) MotionLive.Add(slot);
             }
+            foreach (var physical in OfferedPhysicalFrames)
+            {
+                if (physical.Value != pair.Value || !physical.Key.gameObject.activeInHierarchy
+                    || !FindOfferedOriginal(lane, physical.Key, out LocalModule? body, out uint bodyBinding)
+                    || body == print || body!.Binding.Root != physical.Key
+                    || !(body.Address.StartsWith("map.cardbody|", StringComparison.Ordinal)
+                        || body.Address.StartsWith("map.cardbody.", StringComparison.Ordinal))
+                    || !MotionSources.TryGetValue(body, out SourceMotion? motion)) continue;
+                if (!TryReadOfferedPhysicalPose(physical.Key, pair.Value, out float[] pose))
+                {
+                    Report("offered physical geometry " + body.Id,
+                        new InvalidOperationException("Original backing-to-print matrix is not a finite factorable TRS."));
+                    continue;
+                }
+                var entry = MotionHeader(body.Last!, 0, 9);
+                entry.Visible = true; entry.Binding = bodyBinding; entry.OfferedModule = print!.Id;
+                entry.OfferedStructure = print.Last!.Structure; entry.OfferedBinding = printBinding;
+                entry.Numbers = pose;
+                UpdateMotionSlot(motion, entry);
+                MotionSlot slot = motion.Slots[entry.Key]; ActiveOfferedFrames.Add(slot);
+                if ((slot.Dirty || now - slot.SentAt >= TownServiceMotionCodec.Heartbeat)
+                    && !MotionLive.Contains(slot)) MotionLive.Add(slot);
+            }
         }
         if (lane.Active && lane.Service == 3 && OfferedFrames.Count != 0
             && VRLog.WantsDebug && now >= _offeredDiagnosticAt)
@@ -299,6 +381,12 @@ internal static partial class TownServiceMirror
         foreach (RemoteModule old in OfferedRemoteMotion.Keys) if (!old.Alive) DeadOfferedRemoteMotion.Add(old);
         foreach (RemoteModule old in DeadOfferedRemoteMotion)
         { if (old.Host != null) GloomhavenVR.WorldUI.TownServiceDepthOrder.UnbindOffered(old.Host.transform); OfferedRemoteMotion.Remove(old); }
+        DeadOfferedRemoteMotion.Clear();
+        foreach (RemoteModule old in OfferedPhysicalReturns.Keys) if (!old.Alive) DeadOfferedRemoteMotion.Add(old);
+        foreach (RemoteModule old in DeadOfferedRemoteMotion) OfferedPhysicalReturns.Remove(old);
+        foreach (var current in MotionRemoteFrames)
+            if (current.Key.Alive && IsOfferedPhysical(current.Key))
+                PhysicalOfferingSuperseded(current.Key, current.Value);
         OfferedApplyOrder.Clear();
         foreach (var candidate in MotionRemoteFrames)
         {
@@ -340,6 +428,26 @@ internal static partial class TownServiceMirror
                 // native masks cannot stay in an independently interpolated world
                 // frame while only the child ink follows the offered card.
                 OfferedFrameMotion motion = PrepareOfferedFrameMotion(module, slot, now);
+                if (IsOfferedPhysical(module))
+                {
+                    if (PhysicalOfferingBlocked(module, composed, physical, slot)) continue;
+                    // Existing109 describes the measured source-relative TRS.
+                    // Mounting that exact factorable frame on the rendered print
+                    // retains its complete affine ancestry, including stretched
+                    // or reflected canvases. World quaternion/lossyScale division
+                    // cannot retain that geometry under a sheared ancestor.
+                    if (module.AddedCanvas == null || relation.HasCanvasFrame
+                        || holderIndex != 0 || module.Host.transform.parent == null
+                        || print == module.Host.transform || print.IsChildOf(module.Host.transform)) continue;
+                    if (!OfferedPhysicalMounts.ContainsKey(module))
+                        OfferedPhysicalMounts.Add(module, new OfferedPhysicalMount(module.Host.transform.parent, composed.Owner));
+                    module.Motion.Reparent(print);
+                    Transform root = module.Host.transform;
+                    root.localPosition = Position(relation.Numbers); root.localRotation = Rotation(relation.Numbers);
+                    root.localScale = Scale(relation.Numbers); NormalizeDetachedRoot(module);
+                    module.Motion.AdoptExternalRootPose(); slot.Dirty = false;
+                    continue;
+                }
                 float blend = motion.Duration > 0f ? Mathf.Clamp01((now - motion.Started) / motion.Duration) : 1f;
                 if (relation.HasCanvasFrame)
                 {
@@ -357,6 +465,59 @@ internal static partial class TownServiceMirror
             }
         }
     }
+
+    private static bool PhysicalOfferingBlocked(RemoteModule module, RemoteMotion body, RemoteModule print,
+        MotionSlot affinity)
+    {
+        bool blocked = PhysicalOfferingSuperseded(module, body);
+        if (MotionRemoteFrames.TryGetValue(print, out RemoteMotion? physical))
+            blocked |= PhysicalOfferingSuperseded(module, physical);
+        return blocked || OfferedPhysicalReturns.TryGetValue(module, out float returnedAt) && affinity.SampleTime <= returnedAt;
+    }
+
+    private static bool PhysicalOfferingSuperseded(RemoteModule module, RemoteMotion frame)
+    {
+        bool blocked = false;
+        foreach (MotionSlot slot in frame.Slots)
+        {
+            if (slot.Entry.Kind == 8)
+            {
+                if (!OfferedPhysicalReturns.TryGetValue(module, out float old) || old < slot.SampleTime)
+                    OfferedPhysicalReturns[module] = slot.SampleTime;
+                blocked = true;
+            }
+            else if (slot.Entry.Kind == 1 && slot.Entry.Hand != 0) blocked = true;
+        }
+        return blocked;
+    }
+
+    private static bool TryReadOfferedPhysicalPose(Transform body, Transform print, out float[] pose)
+    {
+        pose = Array.Empty<float>();
+        Matrix4x4 relative = print.worldToLocalMatrix * body.localToWorldMatrix;
+        Vector3 position = relative.MultiplyPoint3x4(Vector3.zero);
+        Vector3 right = relative.MultiplyVector(Vector3.right), up = relative.MultiplyVector(Vector3.up),
+            forward = relative.MultiplyVector(Vector3.forward);
+        Vector3 scale = new(right.magnitude, up.magnitude, forward.magnitude);
+        if (!ValidMotionScale(scale) || !FiniteOfferedPhysical(position)) return false;
+        Vector3 x = right / scale.x, y = up / scale.y, z = forward / scale.z;
+        if (Mathf.Abs(Vector3.Dot(x, y)) > .00001f || Mathf.Abs(Vector3.Dot(x, z)) > .00001f
+            || Mathf.Abs(Vector3.Dot(y, z)) > .00001f) return false;
+        Vector3 normal = Vector3.Cross(x, y).normalized;
+        if (Vector3.Dot(normal, z) < 0f) scale.z = -scale.z;
+        Quaternion rotation = Quaternion.LookRotation(normal, y);
+        // A quaternion plus three scales is honest only if it reconstructs the
+        // actual source columns. Preserve negative handedness on the third axis.
+        if ((rotation * Vector3.right - x).sqrMagnitude > .0000000001f
+            || (rotation * Vector3.up - y).sqrMagnitude > .0000000001f
+            || (rotation * Vector3.forward * Mathf.Sign(scale.z) - z).sqrMagnitude > .0000000001f) return false;
+        pose = new[] { position.x, position.y, position.z, rotation.x, rotation.y, rotation.z, rotation.w,
+            scale.x, scale.y, scale.z };
+        return true;
+    }
+
+    private static bool FiniteOfferedPhysical(Vector3 value) => !float.IsNaN(value.x) && !float.IsInfinity(value.x)
+        && !float.IsNaN(value.y) && !float.IsInfinity(value.y) && !float.IsNaN(value.z) && !float.IsInfinity(value.z);
 
     private static int CompareOfferedParentage(RemoteModule first, RemoteModule second)
     {

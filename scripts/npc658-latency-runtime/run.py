@@ -145,8 +145,21 @@ def main():
  if args.live_hover_census:case_source=patch655(case_source,args.withdraw_hover)
  if args.latency658_startup or args.latency658_native or args.latency658_mismatch:case_source=patch658(case_source,args.latency658_startup,args.latency658_mismatch)
  if args.latency658_old:
-  for name in ['TownServiceMirror.cs','TownServiceMirror.NativePublication.cs','TownServiceMirror.NativeTemplateState.cs']:
-   bound[name]=subprocess.run(['git','-C',str(root),'show','bf3444cb502e1eff52bcf0e5194a255109879d36:src/GloomhavenVR/Net/TownServices/'+name],check=True,capture_output=True,text=True).stdout
+  revision='bf3444cb502e1eff52bcf0e5194a255109879d36'
+  historical=['TownServiceMirror.cs','TownServiceMirror.NativePublication.cs','TownServiceMirror.NativeTemplateState.cs','TownServiceMirror.OriginalReceipts.cs']
+  for name in historical:
+   bound[name]=subprocess.run(['git','-C',str(root),'show',revision+':src/GloomhavenVR/Net/TownServices/'+name],check=True,capture_output=True,text=True).stdout
+  # This exact historical publication predates record114 and its retained
+  # NativeRepair source. Keep its actual receipt lifecycle from the same revision
+  # rather than mix new request callbacks with that older LocalModule shape.
+  # Current positive bindings and all native Late/size/render assertions stay.
+  removed=bound.pop('TownServiceMirror.OriginalRequests.cs',None)
+  (run/'exact-native-control-source658.json').write_text(json.dumps({
+   'revision':revision,'historical_sources':historical,
+   'omitted_later_source':'TownServiceMirror.OriginalRequests.cs',
+   'omitted_later_source_sha256':hashlib.sha256(removed.encode()).hexdigest()if removed is not None else None,
+   'reason':'Record114/requested native original repair did not exist in this historical control; receipt lifecycle uses the same historical revision.',
+   'assertions':'Native Late, full-card size and exact rendered owner/observer checks remain unchanged.'},indent=2)+'\n')
  if args.cold_observer:case_source=case_source.replace('private static readonly bool PrewarmObserver639 = true;', 'private static readonly bool PrewarmObserver639 = false;')
  if args.without_receipts:case_source=case_source.replace('private static readonly bool AcknowledgeObserver639 = true;', 'private static readonly bool AcknowledgeObserver639 = false;')
  if args.prior_inflight:case_source=case_source.replace('private static readonly bool PriorInFlight639 = false;', 'private static readonly bool PriorInFlight639 = true;')

@@ -27,6 +27,44 @@ Script evidence survives repeat/cut writers; accepted stamps precede journal
 publication. Unknown edits remain errors. Focused proof and Windows limitations:
 [QUEST-RETAINED-UNITY-MUTATIONS-205914-20261009.md](QUEST-RETAINED-UNITY-MUTATIONS-205914-20261009.md).
 
+**Build661 paired660 NPC follow-up, 2026-10-10: 1.1.0 development candidate.**
+
+The exact offered body/front handoff publishes their measured original109
+relationship and mounts the backing on the final rendered print each frame.
+Return/held ownership, terminal floors and native census retirement supersede it.
+Purchased ItemChip returns carry the frozen complete native Kind1 canvas recipe
+beside each113 subset, restoring the real zero-scale preparation atomically with
+the flight. Source acknowledgements preserve newer roots; the native exponential
+last frame and subsequent ordinary root handoff remain authoritative.
+
+Current model105 geometry is owner-authored without relaxing omitted-content
+basis verification. Separate114 requests recover an exact refused private original
+through the existing reliable message28/budget; genuine112 receipts retain their
+distinct meaning. Retry cooldown/rotation and source-session sequence dominance
+preserve later valid requests. Existing stable enhancement paint is preserved.
+
+The stricter cold one-second diagnostic remains red; prepared actual-stock
+numeric delivery measures0.994s, material rejection1.075s versus1.226s without
+known-repair priority, and deliberate cold numeric delivery1.817s. Full native
+HUD initialization is a declared fixture port. These are desktop source/runtime
+measurements, not universal first-picture bounds or a new headset acceptance.
+Validation is **composed206/206**, not a fresh complete-gate pass: the first full
+205-scope attempt recorded189 passes/16 failures and is retained. Focused repairs
+and final affected checks cover every failed scope plus the new lossless115
+packing scope. Final source16, strict Debug/Release0 warnings/errors and300419
+portable assertions pass. Actual merchant artwork passes6815 assertions,
+2306 width/geometry assertions and five causal controls; native return lifecycle
+passes22174 assertions and nine controls, including cold/lost/future terminal
+delivery. Native capacity passes221 assertions and exact packing1880 assertions.
+The compiled review has10 changed behavior units, five build-only units, three
+added units and no unexplained removal;665/235/4795 surfaces remain unchanged.
+Exact recipes retain the864-byte event budget through additive115; the known-fit
+cohort survives ordinary-tail backoff. Complete prior snapshots and authoritative
+terminals retain coherent geometry without extending active flights or applying
+future layout early. See [NPC-661-REVIEW.md](NPC-661-REVIEW.md) and its geometry,
+merchant, latency, return-lifecycle and return-packing reviews. The real paired
+headset result and universal complete-first-picture latency remain unverified.
+
 **Build660 remote NPC regression repair, 2026-10-09: 1.1.0 development candidate.**
 
 The failed paired hardware run is658 `e92ef8e53` on both peers, not659. Its

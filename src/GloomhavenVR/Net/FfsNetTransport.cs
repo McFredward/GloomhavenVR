@@ -278,6 +278,14 @@ internal sealed class FfsNetTransport : INetTransport
         catch { return false; } // Admission failure leaves the exact pending receipt retryable.
     }
 
+    internal bool TrySendTownOriginalRequest(byte[] payload, int length)
+    {
+        if (_degraded || !_installed || _sendSideAction == null || _customDataCtor == null || !IsOnline
+            || !TownServices.TownServiceOriginalRequestCodec.TryRead(payload, length, out _)) return false;
+        try { _extrasQueue.Enqueue(payload, length); return true; }
+        catch { return false; } // The caller retains the rejected original's pending request.
+    }
+
     public void Send(byte[] payload, int length, object? presentationIdentity = null)
     {
         if (_degraded || !_installed || _sendSideAction == null || _customDataCtor == null || !IsOnline)

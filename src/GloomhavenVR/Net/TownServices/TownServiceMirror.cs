@@ -782,7 +782,7 @@ internal static partial class TownServiceMirror
         {
             module.NextBaseline = now + 5f + module.Id % 13 * .07f;
             if (module.NativeRepair is NativeTemplateRepair repair
-                && ReferenceEquals(repair.Original, frame)) repair.After = now + .15f;
+                && !repair.Requested && ReferenceEquals(repair.Original, frame)) repair.After = now + .15f;
         }
         // A single small ordinary module maintains session liveness; unchanged stock
         // does not need 2,000 separate subsecond heartbeat packets behind it.
@@ -1131,6 +1131,7 @@ internal static partial class TownServiceMirror
     /// <summary>Shared frame is supplied by the room owner. No observer-local fit or gaze pose is consulted.</summary>
     internal static void TickRemote(Func<int, Transform?> sharedFrame)
     {
+        RestoreOfferedPhysicalMounts();
         RetryUnpreparedNativeTemplates();
         float now = Time.unscaledTime;
         StagePreviousPublicPicture();

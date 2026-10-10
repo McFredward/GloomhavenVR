@@ -165,6 +165,12 @@ internal static class NetProtocol
     /// <summary>One owner-authored native card return clock with exact public
     /// member geometry. Additive to message26; existing motion records stay unchanged.</summary>
     public const byte ExtIdTownCardReturnCohort = 113;
+    /// <summary>Request the exact retained town original after native template
+    /// metadata cannot expand. Additive to message28; never acknowledges receipt.</summary>
+    public const byte ExtIdTownOriginalRequest = 114;
+    /// <summary>Losslessly packed exact native return roots, referencing only
+    /// their same-packet cohort and IEEE child bits. Additive to message26.</summary>
+    public const byte ExtIdTownPackedReturnRoots = 115;
     /// <summary>Owner fan insertion gap: one byte gap + 1; zero clears the marker.</summary>
     public const byte ExtIdFanInsertionGap = 71;
     /// <summary>Native video source and shared pose, independent of the legacy window record21.</summary>
@@ -601,7 +607,31 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 660;
+    public const ushort ModBuild = 661;
+
+    // ModBuild661 — remaining paired660 NPC presentation defects.
+    // The actual enchantress backing/front pair shares the rendered print frame
+    // through measured original109 affinity; returns, held roots and retirement
+    // supersede obsolete offers. Original overlay depth/order remains unchanged.
+    // Purchased ItemChip returns stage each frozen native Kind1 canvas recipe
+    // beside its existing113 subset, restoring prepared zero-scale fronts before
+    // coherent flight paint. Reordered subsets and newer terminal roots retain
+    // exact source identity; no previous numeric grammar is reinterpreted.
+    // Native exponential release stays exponential through its last active frame;
+    // the received native terminal then owns the settled pose and ordinary root.
+    // Additive114 requests the exact refused compact original on message28,
+    // independently of112 acknowledgements and the15Hz sampling gate. Existing
+    // reliable event budgets remain; full same-sequence repair survives driver
+    // coalescing. First-picture diagnostics retain transaction age across census.
+    // Model105 geometry is owner-authored; omitted native content still requires
+    // its exact basis. Accepted missing ordinary originals borrow existing urgent
+    // turns; retry cooldown/rotation and session order preserve later repairs.
+    // Cold preparation, delivery, causal controls and hardware limits are recorded
+    // in .planning/NPC-661-REVIEW.md and its geometry/merchant/latency reviews.
+    // Exact return roots retain every canvas field with lossless same-packet
+    // root/child bit packing115. Proven-fit cohorts survive extra-tail rollback;
+    // terminal geometry receives its bounded render grace at atomic activation.
+    // Version3 and previous records remain unchanged; next free additive ID116.
 
     // ModBuild660 — paired658 NPC regression, after pillar659.
     // Complete received pictures no longer reject the two audited native GPU-only

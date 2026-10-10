@@ -165,13 +165,17 @@ def patch(case_source, cold=False, mismatch=False):
         Check(TownServiceMirror.TryWriteNativeTemplateState(mismatchFull658,out var mismatchBytes658)
             &&TownServiceCodec.TryRead(mismatchBytes658,mismatchBytes658.Length,out var sparse658),"actual full native print supplies an exact independently compact basis");
         TownServiceCodec.TryRead(mismatchBytes658,mismatchBytes658.Length,out sparse658);
-        var omitted658=mismatchFull658.Nodes.Skip(1).First(node=>!sparse658!.Nodes.Any(patch=>patch.Binding==node.Binding&&patch.Values.ContainsKey(TownServiceProperty.Transform)));
+        var omitted658=mismatchFull658.Nodes.Skip(1).First(node=>node.Values.ContainsKey(TownServiceProperty.Material)
+            &&!sparse658!.Nodes.Any(patch=>patch.Binding==node.Binding&&patch.Values.ContainsKey(TownServiceProperty.Material)));
         var templates658=(Dictionary<string,GameObject>)typeof(TownServiceMirror).GetField("Templates",PrivateStatic)!.GetValue(null)!;
         string key658=(string)typeof(TownServiceMirror).GetMethod("TemplateKey",PrivateStatic)!.Invoke(null,new object[]{service,mismatch658.Id,mismatch658.Address})!;
         using(var templateBindings658=new TownServiceBinding(templates658[key658].transform))
-            ((RectTransform)templateBindings658.Nodes[Array.IndexOf(templateBindings658.Bindings,omitted658.Binding)]).sizeDelta+=new Vector2(37,19);
+        {
+            var graphic658=templateBindings658.Nodes[Array.IndexOf(templateBindings658.Bindings,omitted658.Binding)].GetComponent<Graphic>();
+            var differing658=new Material(graphic658.material){color=Color.magenta};Assets.Add(differing658);graphic658.material=differing658;
+        }
         typeof(TownServiceMirror).GetMethod("ResetNativeTemplateState",PrivateStatic)!.Invoke(null,null);
-        Check(!TownServiceMirror.TryExpandNativeTemplateState(sparse658!,out _),"an actually omitted full-print numeric default rejects before paint");
+        Check(!TownServiceMirror.TryExpandNativeTemplateState(sparse658!,out _),"an actually omitted full-print material default rejects before paint");
 ''' + anchor,1)
         anchor='        Check(ready>=0&&ready<=1.000,"all exact visible originals render within1s wall clock");'
         assert case_source.count(anchor)==1

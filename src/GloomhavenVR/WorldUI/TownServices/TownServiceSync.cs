@@ -193,6 +193,7 @@ internal sealed partial class TownServiceSync
                         if (body != null) PriorityRoots.Add(body);
                         TownServiceMirror.RegisterMotionOffering(handoff.Face, true);
                         if (body != null) TownServiceMirror.RegisterMotionOffering(body, true);
+                        TownServiceMirror.RegisterOfferedPhysical(body, handoff.Face);
                         Publish("face." + handoff.OfferedCardId.ToString(System.Globalization.CultureInfo.InvariantCulture),
                             handoff.Face, prewarm: true);
                         Publish(TownServiceAbilityBody.Key(handoff.Card), body);

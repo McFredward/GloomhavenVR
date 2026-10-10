@@ -172,7 +172,7 @@ def main():
     if not args.no_negative_controls and not args.bank_split_only and not args.lifecycle_only and not args.delivery_only:
         variants += [
             ('queued-native-repair', 'TownServiceSendQueue.cs', 'if (retainedNativeOriginal) queue.PrependTownOriginal(bytes, frame, preserveInFlight: true);', 'if (false && retainedNativeOriginal) queue.PrependTownOriginal(bytes, frame, preserveInFlight: true);', 'actual retained full repair survives continuous same-baseline coalescing'),
-            ('ordinary-native-repair', 'TownServiceSendQueue.cs', '(frame.HighPriority || frame.Service == 3)', 'frame.HighPriority', 'ordinary original retained full repair survives continuous same-baseline coalescing'),
+            ('ordinary-native-repair', 'TownServiceSendQueue.cs', '(frame.HighPriority || frame.Service == 3 || requestedOriginal)', '(frame.HighPriority || requestedOriginal)', 'ordinary original retained full repair survives continuous same-baseline coalescing'),
             ('fragile-mage-keyframe', 'TownServiceMirror.NativePublication.cs',
              'if (now < repair.After) return;',
              'if (true) return; // omit retained full-original repair\n#pragma warning disable CS0162',

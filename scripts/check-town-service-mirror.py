@@ -30,12 +30,15 @@ def sources(root):
     bound = {name + ".cs": (base / "Net/TownServices" / (name + ".cs")).read_text() for name in names}
     for path in sorted((base / "Net/TownServices").glob("TownServiceAssets.*.cs")):
         bound[path.name] = path.read_text()
-    for name in ("TownServiceOriginalReceiptCodec.cs", "TownServiceMirror.OriginalReceipts.cs", "TownServiceMirror.NativeVisibility.cs"):
+    for name in ("TownServiceOriginalReceiptCodec.cs", "TownServiceOriginalRequestCodec.cs",
+                 "TownServiceMirror.OriginalReceipts.cs", "TownServiceMirror.OriginalRequests.cs",
+                 "TownServiceMirror.NativeVisibility.cs"):
         path = base / "Net/TownServices" / name
         if path.exists():
             text = path.read_text()
             protocol = (base / "Net/NetProtocol.cs").read_text()
-            for constant in ("MsgTownOriginalReceipt", "ExtIdTownOriginalReceipt"):
+            for constant in ("MsgTownOriginalReceipt", "ExtIdTownOriginalReceipt", "ExtIdTownOriginalRequest"):
+                if "NetProtocol." + constant not in text: continue
                 value = re.search(r"public const byte " + constant + r" = (\d+);", protocol)
                 if value is None: raise RuntimeError("Town original-receipt protocol binding drift: " + constant)
                 text = re.sub(r"\bNetProtocol\." + constant + r"\b", value[1], text)
@@ -81,6 +84,8 @@ def sources(root):
     bound["ExtrasFragments.cs"] = (base / "Net/ExtrasFragments.cs").read_text()
     bound["TownServiceFragments.cs"] = (base / "Net/TownServices/TownServiceFragments.cs").read_text()
     bound["TownServiceSendQueue.cs"] = (base / "Net/TownServices/TownServiceSendQueue.cs").read_text()
+    requested_queue = base / "Net/TownServices/TownServiceLaneSendQueue.OriginalRepairs.cs"
+    if requested_queue.exists(): bound[requested_queue.name] = requested_queue.read_text()
     # Inline only production compile-time constants omitted by the small fixture
     # protocol seam. Their values and full source are retained in the source hashes.
     protocol = (base / "Net/NetProtocol.cs").read_text()
@@ -102,7 +107,7 @@ def sources(root):
     if original_pool.exists(): bound[original_pool.name] = original_pool.read_text()
     native_publication = base / "Net/TownServices/TownServiceMirror.NativePublication.cs"
     if native_publication.exists(): bound[native_publication.name] = native_publication.read_text()
-    for fast in ("TownServiceFastNumbers", "TownServiceMotionCodec", "TownServiceMotionCodec.OfferedFrame", "TownServiceMotionBudget", "TownServiceReturnMotion", "TownCardReturnMotion", "TownServiceMirror.Motion", "TownServiceMirror.PreparedCardReturns", "TownServiceMirror.CardReturnCohorts"):
+    for fast in ("TownServiceFastNumbers", "TownServiceMotionCodec", "TownServiceMotionCodec.OfferedFrame", "TownServiceMotionCodec.ReturnRoots", "TownServiceMotionBudget", "TownServiceReturnMotion", "TownCardReturnMotion", "TownServiceMirror.Motion", "TownServiceMirror.PreparedCardReturns", "TownServiceMirror.CardReturnCohorts"):
         path = base / "Net/TownServices" / (fast + ".cs")
         if path.exists(): bound[path.name] = path.read_text()
     pad = base / "Hands/Interact/PokeOnlyTarget.cs"
@@ -366,7 +371,8 @@ def main():
                 ("offered-observer-facing", "TownServiceMirror.Offerings.cs", "target.rotation = print.rotation * rotation;", "target.rotation = GloomhavenVR.Rig.VRRigDriver.HeadCamera.transform.rotation * rotation;", "independent offered print and native overlays share the same intermediate owner rotation"),
                 ("offered-lossy-parent-scale", "TownServiceMirror.Offerings.cs", "entry.OfferedLocalScale = true;", "entry.OfferedLocalScale = false;", "native area stays in the same owner-authored print frame during a hover turn"),
                 ("offered-only-holder-partition", "TownServiceMirror.Offerings.cs", "|| !(original == pair.Key || original.IsChildOf(pair.Key))", "|| original != pair.Key", "partitioned native area follows the physical print despite an independently delayed ninety-degree holder header"),
-                ("offered-drop-affinity-on-art-header", "TownServiceMirror.Motion.cs", "|| entry.Kind != 9 && !liveCardReturn && slot.SampleTime < module.LastFrame.SampleTime)", "|| !liveCardReturn && slot.SampleTime < module.LastFrame.SampleTime)", "same-original artwork heartbeat cannot withdraw the current independent offered print affinity"),
+                # Drop only print-affinity's artwork timestamp exemption; retain the exact live return-root exemption.
+                ("offered-drop-affinity-on-art-header", "TownServiceMirror.Motion.cs", "|| entry.Kind != 9 && !liveCardReturn && !liveReturnRoot && slot.SampleTime < module.LastFrame.SampleTime)", "|| !liveCardReturn && !liveReturnRoot && slot.SampleTime < module.LastFrame.SampleTime)", "same-original artwork heartbeat cannot withdraw the current independent offered print affinity"),
                 ("offered-child-before-parent", "TownServiceMirror.Offerings.cs", "int order = a.CompareTo(b);", "int order = b.CompareTo(a);", "partitioned native area follows the physical print despite an independently delayed ninety-degree holder header"),
                 ("offered-shared-child-clock", "TownServiceMotion.cs", "if (!_hasTarget || !_to[i].Same(target))", "if (true)", "unrelated owner root headers preserve the native child's independent continuous spin clock"),
 

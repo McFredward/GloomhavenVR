@@ -50,16 +50,19 @@ def load_binding(root):
     native = (base / "Net/Avatar/NetAvatarDriver.NativePresentation.cs").read_text()
     town = (base / "Net/Avatar/NetAvatarDriver.TownServices.cs").read_text()
     members = native[native.index("    private readonly byte[] _boardBuffer"):native.index("    internal static void PublishTownServicesFinal()")]
-    bound["ScheduledAvatar.cs"] = "using System; using System.Collections.Generic; using UnityEngine; using GloomhavenVR.Core; using GloomhavenVR.WorldUI; using GloomhavenVR.Net.TownServices; namespace GloomhavenVR.Net; internal sealed partial class NetAvatarDriver {\n" + members + "\n" + "\n".join(helper.expression(town, declaration) for declaration in ("private float _nextFaceSend", "private int _townCaptureFrame", "private Func<byte[], int, bool, bool>? _merchantControlSender", "private Action<List<int>>? _originalReceiptPeers")) + "\n" + helper.expression(town, "private void CollectOriginalReceiptPeers") + "\n" + helper.expression(town, "private bool SendMerchantControl") + "\n" + "\n".join((
+    bound["ScheduledAvatar.cs"] = "using System; using System.Collections.Generic; using UnityEngine; using GloomhavenVR.Core; using GloomhavenVR.WorldUI; using GloomhavenVR.Net.TownServices; namespace GloomhavenVR.Net; internal sealed partial class NetAvatarDriver {\n" + members + "\n" + "\n".join(helper.expression(town, declaration) for declaration in ("private float _nextFaceSend", "private int _townCaptureFrame", "private Func<byte[], int, bool, bool>? _merchantControlSender", "private Action<List<int>>? _originalReceiptPeers", "private Action<byte[], int>? _originalRequestSender", "private Action<byte[], int, object?>? _townPresentationSender")) + "\n" + helper.expression(town, "private void CollectOriginalReceiptPeers") + "\n" + helper.expression(town, "private bool SendMerchantControl") + "\n" + "\n".join((
         method(avatar, "internal static void PublishUseBarAnimations("),
         method(native, "internal static void PublishTownServicesFinal()"),
         method(native, "private void TickNativePresentationSend("),
+        method(town, "private void QueueTownOriginalRequest(byte[] bytes, int length)"),
+        method(town, "private void QueueTownPresentation(byte[] bytes, int length, object? identity)"),
         method(town, "private void SendTownServices()"),
         method(native, "private void TickNativeBoardSend(float now)"),
         method(native, "private void SendNativeBoard(NativeBoardState state)"))) + "\n}\n"
-    # The current driver binds its real receipt collector above. Compatible peer
-    # collection and queue admission are explicit transport adapters in this
-    # publication/cadence fixture; reliable receipt delivery has separate proofs.
+    # The current driver binds its real cached send helpers and receipt collector
+    # above. Compatible peer collection and queue admission remain the declared
+    # transport adapters in this publication/cadence fixture; exact request,
+    # receipt and bounded transport delivery have separate production proofs.
     bound["OriginalReceiptQueueBoundary.cs"] = """using System.Collections.Generic;
 namespace GloomhavenVR.Net {
     internal static class VersionGuard {
@@ -72,6 +75,9 @@ namespace GloomhavenVR.Net {
     }
     internal sealed partial class FfsNetTransport {
         internal bool TrySendTownOriginalReceipt(byte[] bytes, int length) {
+            Send(bytes, length); return true;
+        }
+        internal bool TrySendTownOriginalRequest(byte[] bytes, int length) {
             Send(bytes, length); return true;
         }
     }

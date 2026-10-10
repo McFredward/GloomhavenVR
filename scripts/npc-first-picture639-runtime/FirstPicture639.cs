@@ -361,6 +361,13 @@ public static partial class MirrorProgram
         ushort printId=originals.First(x=>x.Source==physical).Id;
         PictureOriginal639 aura=originals.First(x=>x.Source==ring.parent);
         var values=new System.Text.StringBuilder("actual post-admission owner animation/hover and original mount\n");
+        // This continuation starts after expensive preparation/rendering in the
+        // same editor coroutine step. Unity's frame time still predates that
+        // work; using it now includes the previous phase at the next time update.
+        // Begin on an actual new play frame, preserving the native 1.25s window.
+        int priorFrame=Time.frameCount;
+        do { yield return null; } while(Time.frameCount==priorFrame);
+        values.AppendLine("clockOrigin previousFrame="+priorFrame+" frame="+Time.frameCount);
         float began=Time.unscaledTime,next=began;int checks=0;float remoteRingTravel=0,lastRing=0;
         bool sampled=false;
         while(Time.unscaledTime-began<1.25f)

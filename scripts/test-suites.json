@@ -2851,6 +2851,55 @@
         "local"
       ],
       "weight": 40
+    },
+    {
+      "id": "npc661-offered-physical-geometry",
+      "command": [
+        "python3",
+        "scripts/npc661-geometry-runtime/run.py",
+        "--controls"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 45
+    },
+    {
+      "id": "npc661-merchant-return-front",
+      "command": [
+        "python3",
+        "scripts/npc661-merchant-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 50
+    },
+    {
+      "id": "npc661-requested-original-recovery",
+      "command": [
+        "python3",
+        "scripts/npc661-latency/run.py",
+        "--request-only",
+        "--expire-request-budget"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 60
+    },
+    {
+      "id": "npc661-return-root-packing",
+      "command": [
+        "python3",
+        "scripts/npc661-return-packing/run.py",
+        "--source-root",
+        "."
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 50
     }
   ]
 }
