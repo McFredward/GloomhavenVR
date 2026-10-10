@@ -63,11 +63,14 @@ events; all 120 contending originals progress. A separate focused original
 old-cohort-priority control still fails its unchanged fairness assertion.
 
 The maintained byte proof passes 1880 assertions. It restores every97/113 byte,
-tests 70/71/156-byte roots, nondefault parent/binding/alpha/visibility/hand and
-the full canvas recipe, multiple disjoint cohorts, ambiguity refusal and actual
-old 98 writer equality. Every truncation is refused. Each single-bit mutation is
-refused or restores exactly the unchanged original bytes; two accepted mutations
-affect nonsemantic Deflate framing bits. Valid-CRC bad references/masks, mixed
+tests 70/71/156-byte roots through packing and readback, nondefault
+parent/binding/alpha/visibility/hand, the full canvas recipe, multiple disjoint
+cohorts, ambiguity refusal and actual old98 writer equality. Every truncation is
+refused. Each tested bit0 mutation at one byte position of the real848-byte packet
+is refused or restores exactly the unchanged original bytes. Two accepted mutations
+affect nonsemantic Deflate framing bits. The root variants do not each assert
+that the sender chose115 rather than its unchanged98 fallback. Valid-CRC bad
+references/masks, mixed
 98/115 streams and expansion bounds are checked. Unknown sibling extensions
 retain the same original result. The historical 6e size control compiles and
 fails the named unchanged 864-byte assertion; the exact old-core-floor control
