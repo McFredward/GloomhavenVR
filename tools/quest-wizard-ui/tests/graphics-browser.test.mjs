@@ -54,7 +54,7 @@ test('named shader passes expose real completed/remaining tasks and compiler var
    assert.equal(await client.evaluate("document.querySelector('[data-plan=passes-campaign-shaders] [data-operation=campaign-shaders-binary-materials]')===null"),true);
    mode=3;await client.wait("document.querySelector('[data-compiler-owner=mod-banks]')!==null");
    assert.equal(await client.evaluate("document.querySelector('[data-compiler-owner=mod-banks]').closest('[data-operation]').dataset.operation"),'mod-banks');
-   assert.match(await client.evaluate("document.querySelector('[data-compiler-owner=mod-banks]').textContent"),/Unity-Shader kompilieren.*aktuellen Shader-Durchlaufs.*4.903 \/ 12.288 Varianten/s);
+   assert.match(await client.evaluate("document.querySelector('[data-compiler-owner=mod-banks]').textContent"),/Unity-Shader kompilieren.*Aktueller Shader-Durchlauf.*geplante Unity-Arbeit.*4.903 \/ 12.288 Varianten/s);
    assert.equal(await client.evaluate("document.querySelector('[data-operation=unity-import]').classList.contains('pending')"),true);
    assert.ok(await client.evaluate("document.querySelector('[data-compiler-owner=mod-banks] progress').value>39"));
    mode=4;await client.wait("document.querySelector('[data-compiler-owner=mod-banks]').textContent.includes('9.467 / 12.288')");

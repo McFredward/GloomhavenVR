@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-10 for targeted retained-file repair and published Runtime661 integration.
+Updated 2026-10-10 for finite Unity progress, Windows loading transport and Runtime661 integration.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
@@ -14,6 +14,7 @@ status; it is not the player manual.
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [QUEST-UNITY-TOTALS-065547-20261010.md](QUEST-UNITY-TOTALS-065547-20261010.md) | Finite Unity work plans, real Gradle totals and targeted retained Windows loading-Sprite repair |
 | [QUEST-EDITOR-CONTRACTS-232406-20261010.md](QUEST-EDITOR-CONTRACTS-232406-20261010.md) | Real Shader/meta/script-order owners, explicit PlayerSettings handoff and corrected continuation proof |
 | [QUEST-TARGETED-REPAIR-055813-20261010.md](QUEST-TARGETED-REPAIR-055813-20261010.md) | Real LightingData drift, individual reconstruction, GUID preservation and interrupted repair continuation |
 | [QUEST-RETAINED-UNITY-MUTATIONS-205914-20261009.md](QUEST-RETAINED-UNITY-MUTATIONS-205914-20261009.md) | Exact imported Shader and package-script transitions retain completed preparation and Library |

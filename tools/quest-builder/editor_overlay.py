@@ -28,14 +28,14 @@ REVIEWED = {'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestBuild.cs': ({'pat
                                                                  'sha256': '752f2eb86669c07eba54538a463ba36e70f14c8394b5625307fa3eb83c982f3b',
                                                                  'size': 45081},
                                                                 {'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestBuild.cs',
-                                                                 'size': 48710,
-                                                                 'sha256': 'bf39135fb3e5c94f2ed5d3bc50310a8d4bb20874675aa2fa1edb703ad5c5e68c'}),
+                                                                 'size': 49322,
+                                                                 'sha256': '19d6e2358ba946b00f038c38674b1a0c37766d1a76ecfa9b0e5e29ec5ca84366'}),
  'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestWizardProgress.cs': ({'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestWizardProgress.cs',
                                                                           'sha256': 'e08930d0941ae02897a57d31a757bc08e7c620f88b49214f3bc35ded4de5b943',
                                                                           'size': 6177},
                                                                          {'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestWizardProgress.cs',
-                                                                          'size': 8940,
-                                                                          'sha256': '7ad781325b0adf7d51f09bdd2e7afb958b86b688e4a8e2f13ee94935fab2fe26'}),
+                                                                          'size': 13685,
+                                                                          'sha256': '391b9285434cf8604bc91dd216afd194429f8d2f56b8f622905a19b46207de27'}),
  'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestStartupAddressablesBuild.cs': ({'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestStartupAddressablesBuild.cs',
                                                                                     'sha256': 'd80c3aabfd110239d462d243dfa6a07689258535890b7707b3ca1cd4298f71e5',
                                                                                     'size': 32913},
@@ -58,8 +58,8 @@ REVIEWED = {'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestBuild.cs': ({'pat
                                                                                     'sha256': '30c07034a1377bf0d194f859b44cc7023a24e28cfed24748812db154c9d130d7',
                                                                                     'size': 5667},
                                                                                    {'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCampaignSpriteValidation.cs',
-                                                                                    'size': 6055,
-                                                                                    'sha256': '0ec2b5bc504c84ba2e82963f0f0359a84484c7a94436f27ef97e74ba64f10138'}),
+                                                                                    'size': 11730,
+                                                                                    'sha256': '63fc7d89a99d4ff911f17d51360b1f424a3aa162d118ba555b4fe57fd70b3be5'}),
  'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestOriginalScriptBindings.cs': ({'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestOriginalScriptBindings.cs',
                                                                                   'sha256': '33fabcde96763c17366cc4324c781f489e37bf4d81c695eb732ff76423206f3d',
                                                                                   'size': 8092},
@@ -105,11 +105,27 @@ PREVIOUS_BINDINGS = {
     "sha256": "45a1049a06597e1459f51b2ce7914d3bd8b28bf61f307c25ee6ec04633020b4e",
 }
 
+# Preserve the complete preceding task-observer profile for interrupted projects.
+# These rows are reviewed individually only after its whole source scope qualifies.
+PREVIOUS_TASK_SCRIPTS = {
+    PREFIX + "Assets/Quest/Editor/QuestBuild.cs": {
+        "path": PREFIX + "Assets/Quest/Editor/QuestBuild.cs", "size": 48710,
+        "sha256": "bf39135fb3e5c94f2ed5d3bc50310a8d4bb20874675aa2fa1edb703ad5c5e68c"},
+    PREFIX + "Assets/Quest/Editor/QuestWizardProgress.cs": {
+        "path": PREFIX + "Assets/Quest/Editor/QuestWizardProgress.cs", "size": 8940,
+        "sha256": "7ad781325b0adf7d51f09bdd2e7afb958b86b688e4a8e2f13ee94935fab2fe26"},
+    PREFIX + "Assets/Quest/Editor/QuestCampaignSpriteValidation.cs": {
+        "path": PREFIX + "Assets/Quest/Editor/QuestCampaignSpriteValidation.cs", "size": 6055,
+        "sha256": "0ec2b5bc504c84ba2e82963f0f0359a84484c7a94436f27ef97e74ba64f10138"},
+}
+
 
 def source_profiles():
     """Whole reviewed source profiles, never independently mixed script rows."""
     current = {name: pair[1] for name, pair in REVIEWED.items()}
-    return (current, {**current, PREVIOUS_BINDINGS["path"]: PREVIOUS_BINDINGS})
+    preceding = {**current, **PREVIOUS_TASK_SCRIPTS}
+    return (current, {**current, PREVIOUS_BINDINGS["path"]: PREVIOUS_BINDINGS},
+            preceding, {**preceding, PREVIOUS_BINDINGS["path"]: PREVIOUS_BINDINGS})
 
 
 def _read(path):
@@ -133,7 +149,8 @@ def changes(previous, inputs):
         profile = REVIEWED.get(name)
         if (not isinstance(profile, tuple) or len(profile) != 2
                 or right != profile[1] or left not in (
-                    profile[0], PREVIOUS_BINDINGS if name == PREVIOUS_BINDINGS["path"] else profile[0])
+                    profile[0], PREVIOUS_BINDINGS if name == PREVIOUS_BINDINGS["path"] else profile[0],
+                    PREVIOUS_TASK_SCRIPTS.get(name, profile[0]))
                 or left is None or right is None
                 or set(left) != {"path", "size", "sha256"}
                 or set(right) != {"path", "size", "sha256"}

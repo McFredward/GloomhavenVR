@@ -28,6 +28,7 @@ namespace UnityEditor {
   public static event Action<Item[]> added,updated;
   public class Item {public bool exists=true,running=true,indefinite;public int totalSteps,currentStep,id,parentId;public Status status;public float progress;public string name,description;}
   public static void Emit(Item item){updated?.Invoke(new[]{item});}
+  public static void EmitBatch(Item[] items){updated?.Invoke(items);}
   public static IEnumerable<Item> EnumerateItems(){return new Item[0];}
  }
 }
@@ -86,6 +87,9 @@ class Program {
   var failedNative=new UnityEditor.Progress.Item{id=43,parentId=7,name="Failed native task",indefinite=true,running=false,status=UnityEditor.Progress.Status.Failed};
   UnityEditor.Progress.Emit(failedNative);rows=Rows();task=rows[rows.Count-1];
   Check(task.GetProperty("done").GetInt32()==0 && task.GetProperty("status").GetString()=="failed","failed native task never receives completion credit");
+  var bulk=new UnityEditor.Progress.Item[130];for(int i=0;i<bulk.Length;++i)bulk[i]=new UnityEditor.Progress.Item{id=100+i,parentId=8,name="Terminal native task",indefinite=true,running=false,status=UnityEditor.Progress.Status.Succeeded};
+  UnityEditor.Progress.EmitBatch(bulk);rows=Rows();task=rows[rows.Count-1];
+  Check(task.GetProperty("phase").GetString()=="unity-progress:229:8" && task.GetProperty("done").GetInt32()==1,"large completion batches retain their terminal tail");
   if(args.Length>0)System.IO.File.WriteAllText(args[0],GloomhavenVR.Quest.Editor.QuestWizardGradleProgress.Script(args[1]));
   int count=UnityEngine.Debug.Lines.Count;Environment.SetEnvironmentVariable("GHVRQ_WIZARD_PROGRESS","0");
   var disabled=new GloomhavenVR.Quest.Editor.QuestWizardProgress.TaskSequence("unity-validation-tasks","unity-validation",1);
@@ -103,6 +107,7 @@ class EditorPhaseProgressTests(unittest.TestCase):
         mono, compiler = data / "MonoBleedingEdge/bin/mono", data / "MonoBleedingEdge/lib/mono/4.5/mcs.exe"
         if not mono.is_file() or not compiler.is_file(): self.skipTest("Pinned Unity SDK required")
         names = ("QuestWizardProgress.cs", "QuestOriginalScriptBindings.cs", "QuestCampaignAssetValidation.cs",
+            "QuestCampaignSpriteValidation.cs", "QuestSpriteGeometryValidation.cs",
             "QuestCampaignTextureValidation.cs", "QuestCampaignComputeValidation.cs", "QuestCampaignShaderValidation.cs",
             "QuestCampaignShaderCache.cs", "QuestVulkanShaderValidation.cs", "QuestSmolvDecoder.cs")
         with tempfile.TemporaryDirectory(prefix="quest-editor-api-") as directory:
@@ -129,7 +134,7 @@ class EditorPhaseProgressTests(unittest.TestCase):
             result = subprocess.run([dotnet, "run", "--project", str(path / "Counter.csproj"), "--no-launch-profile", "--verbosity", "quiet"],
                 cwd=path, env=os.environ.copy(), text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertIn("PASS production Editor task and byte counters: 16 checks", result.stdout)
+            self.assertIn("PASS production Editor task and byte counters: 17 checks", result.stdout)
 
     def test_counter_annotations_preserve_native_validation_and_pointer_writes(self):
         # Strip only this change's observer statements, then compare complete

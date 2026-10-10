@@ -1,5 +1,19 @@
 # State — where the project stands
 
+**Quest finite Unity progress and Windows loading transport, 2026-10-10 (Runtime661).**
+
+Capture065547 confirms the previous13 LightingData repairs and SDK/API work pass,
+then fails Campaign sprite validation on LoadingBase_0. The older Windows loading
+helper unnecessarily changed native CRLF drawing bytes to LF. New native plans
+preserve bytes; retained runs qualify only the exact inverse transport with their
+original object/GUID and successful import receipts. Completed27-owner assets and
+Unity Library remain retained. Every Unity invocation now has a finite logical
+plan supplemented by unique known-asset coverage, scoped native tasks, actual
+Shader/Bee totals and live real Gradle graph counters. Opaque native tasks remain
+honestly identified as indivisible. Final release validation records tested scope;
+whole Windows APK and headset acceptance remain pending. Details:
+[QUEST-UNITY-TOTALS-065547-20261010.md](QUEST-UNITY-TOTALS-065547-20261010.md).
+
 **Quest file-level recovery, 2026-10-10 (Builder; Runtime661).**
 
 Capture055813 identifies 0db/661 and stops before another Unity launch on original

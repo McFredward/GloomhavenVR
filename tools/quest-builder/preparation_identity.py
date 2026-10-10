@@ -145,6 +145,23 @@ BUILDER_TARGETED_REPAIR_AST = {
            "cc09e2c539f383d447f494d386bd5fa6dd8df9989a964543d98c33f4bea6385f"),
 }
 
+# Finite work plans observe Unity commands; they never generate or replace an
+# owned asset. Only these exact complete orchestration trees retain that scope.
+BUILDER_UNITY_WORK_AST = {
+    False: ("515a62abbab83393b8c9c804d4701b4400d3af44a979dd3773036a38bd921552",
+            "6905242806bb695c86e84be373112f21804c425afa710398cb40b665f4d608d1"),
+    True: ("ae48c5ed4bd681a70b83f0ae027f7735d059229f24dc28b626a63d59436e6f7f",
+           "cc09e2c539f383d447f494d386bd5fa6dd8df9989a964543d98c33f4bea6385f"),
+}
+
+# Once every preparation owner has closed, the old loading drawing bytes and
+# their receipts remain valid under the exact late Editor transport repair.
+# New builds avoid the former no-op newline rewrite; unknown producers differ.
+LOADING_DRAWING_PREVIOUS = {"path": "tools/quest-builder/sprites.py", "size": 15922,
+    "sha256": "823c7d0b0cc1b32ec8fa90ef9e6bc8222c8ca11ebb169606478979af72b9a910"}
+LOADING_DRAWING_FIXED = {"path": "tools/quest-builder/sprites.py", "size": 16375,
+    "sha256": "dd958eaa9991f3601a6c08acfb13108ba90c8afe117a6f182c23ffd85fd4abac"}
+
 
 # Exact producer profiles reviewed against the original movie/audio outputs.
 # These are aliases for this repair, never a general exclusion from identity.
@@ -352,6 +369,8 @@ def builder_producer_digest(raw, *, original_prefix=False):
         result = BUILDER_UNITY_OBSERVER_AST[1]
     observed, preceding = BUILDER_TARGETED_REPAIR_AST[bool(original_prefix)]
     if result == observed: result = preceding
+    observed, preceding = BUILDER_UNITY_WORK_AST[bool(original_prefix)]
+    if result == observed: result = preceding
     observed, preceding = BUILDER_PROGRESS_AST[bool(original_prefix)]
     return preceding if result == observed else result
 
@@ -402,7 +421,8 @@ def _completed_editor_rows(rows):
         by_path.setdefault(row["path"], []).append(row)
     if profiles and any(all(by_path.get(name) == [row] for name, row in source.items())
                         for source in editor_overlay.source_profiles()):
-        return [profiles[row["path"]][0] if row["path"] in profiles else row for row in rows]
+        return [profiles[row["path"]][0] if row["path"] in profiles else
+                LOADING_DRAWING_PREVIOUS if row == LOADING_DRAWING_FIXED else row for row in rows]
     return rows
 
 

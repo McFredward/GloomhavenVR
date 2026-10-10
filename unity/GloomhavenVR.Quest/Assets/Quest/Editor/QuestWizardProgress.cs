@@ -26,6 +26,7 @@ namespace GloomhavenVR.Quest.Editor
         static readonly Dictionary<int, double> LastReported = new Dictionary<int, double>();
         static readonly System.Diagnostics.Stopwatch Clock = System.Diagnostics.Stopwatch.StartNew();
         static double lastSample;
+        static int pollCursor;
         static string activeOperation;
         static bool Enabled { get { return Environment.GetEnvironmentVariable("GHVRQ_WIZARD_PROGRESS") == "1"; } }
 
@@ -42,13 +43,15 @@ namespace GloomhavenVR.Quest.Editor
         {
             if (!Enabled || EditorApplication.timeSinceStartup - lastSample < .5) return;
             lastSample = EditorApplication.timeSinceStartup;
-            int count = 0;
+            int count = 0, seen = 0;
             foreach (var item in Progress.EnumerateItems())
             {
                 if (!item.running) continue;
+                if (seen++ < pollCursor) continue;
                 if (count++ >= 16) break;
                 ObserveOne(item);
             }
+            pollCursor = count > 16 ? seen - 1 : 0;
         }
 
         static void Observe(Progress.Item[] items)
@@ -57,7 +60,10 @@ namespace GloomhavenVR.Quest.Editor
             int count = 0;
             foreach (var item in items)
             {
-                if (count++ >= 128) break;
+                if (item == null) continue;
+                // A large native completion batch must not lose its terminal
+                // tail: those items no longer appear in the running poll.
+                if (item.running && count++ >= 128) continue;
                 ObserveOne(item);
             }
         }

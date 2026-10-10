@@ -245,6 +245,16 @@ OBSERVATION_EDITOR_OVERLAY = {
                                            'sha256': '813d2724ed401e87b897b2949482222b6a4fb7ced7a4133c977eb011f48425b6'},
 }
 
+# Filled with exact current observer rows after the reviewed Editor/source seam.
+# The previous delivered file-repair profile remains independently qualified.
+OBSERVATION_TARGETED_REPAIR_PREVIOUS = OBSERVATION_EDITOR_OVERLAY
+OBSERVATION_EDITOR_OVERLAY = {
+    **OBSERVATION_TARGETED_REPAIR_PREVIOUS,
+    'tools/quest-builder/editor_overlay.py': {'path': 'tools/quest-builder/editor_overlay.py', 'size': 17859, 'sha256': '0c2f97753f173f248f4d057d7c61d2d5f9cf7e55932ef24f400d135a01ffceb5'},
+    "tools/quest-builder/unity_work.py": {"path": "tools/quest-builder/unity_work.py", "size": 13184,
+        "sha256": "ce3d8200b21ca4fa2376d12c472cdc13d7d06955f9ec4a714d0ad9c5ef2a73c6"},
+}
+
 OBSERVATION_PROFILES = (OBSERVATION_BYTE_WITNESSES, OBSERVATION_FIXED,
                         OBSERVATION_INPUT_INDEX, OBSERVATION_INPUT_ORDER, OBSERVATION_DIRECTORY_BATCH, OBSERVATION_GRAPHICS_CONTRACT, OBSERVATION_COMPLETED_METADATA)
 # Shipped d4cc44eeb adds an exporter-log observer and invocation-local proof
@@ -297,13 +307,15 @@ def preparation_source_rows(rows):
     profile = next((profile for profile in (OBSERVATION_EDITOR_OVERLAY_PREVIOUS,
                                            OBSERVATION_EDITOR_IMPORT_PREVIOUS,
                                            OBSERVATION_EDITOR_OWNERS_PREVIOUS,
+                                           OBSERVATION_TARGETED_REPAIR_PREVIOUS,
                                            OBSERVATION_EDITOR_OVERLAY)
                     if all(current.get(name) == [fixed] for name, fixed in profile.items())), None)
     if profile is not None:
         excluded = {"tools/quest-builder/editor_overlay.py"}
         if "tools/quest-builder/script_remap_resume.py" in profile:
             excluded.add("tools/quest-builder/script_remap_resume.py")
-        for name in ("tools/quest-builder/preparation_repair.py", "tools/quest-builder/project_access.py"):
+        for name in ("tools/quest-builder/preparation_repair.py", "tools/quest-builder/project_access.py",
+                     "tools/quest-builder/unity_work.py"):
             if name in profile: excluded.add(name)
         rows = [OBSERVATION_COMPLETED_METADATA.get(row["path"], row) for row in rows
                 if row["path"] not in excluded]

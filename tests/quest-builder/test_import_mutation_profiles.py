@@ -25,7 +25,8 @@ class ImportMutationProfileTests(unittest.TestCase):
         current = recovery_resume.OBSERVATION_EDITOR_OVERLAY
         canonical = recovery_resume.preparation_source_rows(list(previous.values()))
         for profile in (recovery_resume.OBSERVATION_EDITOR_IMPORT_PREVIOUS,
-                        recovery_resume.OBSERVATION_EDITOR_OWNERS_PREVIOUS, current):
+                        recovery_resume.OBSERVATION_EDITOR_OWNERS_PREVIOUS,
+                        recovery_resume.OBSERVATION_TARGETED_REPAIR_PREVIOUS, current):
             self.assertEqual(canonical, recovery_resume.preparation_source_rows(list(profile.values())))
         for name in current:
             with self.subTest(changed=name):
@@ -63,12 +64,20 @@ class ImportMutationProfileTests(unittest.TestCase):
                              "size": 1, "sha256": "f" * 64}
                     self.assertIn(extra, recovery_resume.preparation_source_rows([*profile.values(), extra]))
 
+    def test_previous_profiles_cannot_hide_an_unknown_unity_work_observer(self):
+        extra = {"path": "tools/quest-builder/unity_work.py", "size": 1, "sha256": "f" * 64}
+        for profile in (recovery_resume.OBSERVATION_EDITOR_OVERLAY_PREVIOUS,
+                        recovery_resume.OBSERVATION_EDITOR_IMPORT_PREVIOUS,
+                        recovery_resume.OBSERVATION_EDITOR_OWNERS_PREVIOUS,
+                        recovery_resume.OBSERVATION_TARGETED_REPAIR_PREVIOUS):
+            self.assertIn(extra, recovery_resume.preparation_source_rows([*profile.values(), extra]))
+
     def test_only_exact_reviewed_builder_repair_orchestration_keeps_producer_identity(self):
         from unittest.mock import patch
         raw = (ROOT / "tools/quest-builder/builder.py").read_bytes()
         for prefix in (False, True):
-            observed, previous = preparation_identity.BUILDER_TARGETED_REPAIR_AST[prefix]
-            with patch.dict(preparation_identity.BUILDER_TARGETED_REPAIR_AST,
+            observed, previous = preparation_identity.BUILDER_UNITY_WORK_AST[prefix]
+            with patch.dict(preparation_identity.BUILDER_UNITY_WORK_AST,
                             {prefix: ("f" * 64, previous)}):
                 self.assertEqual(preparation_identity.builder_producer_digest(raw, original_prefix=prefix), observed)
             self.assertEqual(preparation_identity.builder_producer_digest(raw, original_prefix=prefix), previous)
@@ -100,6 +109,24 @@ class ImportMutationProfileTests(unittest.TestCase):
         self.assertEqual(result, [(editor_overlay.PREVIOUS_BINDINGS["path"],
                                   editor_overlay.PREVIOUS_BINDINGS,
                                   current[editor_overlay.PREVIOUS_BINDINGS["path"]])])
+
+    def test_preceding_complete_task_profile_updates_only_three_existing_editor_scripts(self):
+        current, previous = editor_overlay.source_profiles()[0], editor_overlay.source_profiles()[2]
+        result = editor_overlay.changes({"mod": {"files": list(previous.values())}},
+                                       {"mod": {"files": list(current.values())}})
+        self.assertEqual({row[0] for row in result}, set(editor_overlay.PREVIOUS_TASK_SCRIPTS))
+
+    def test_completed_loading_producer_alias_requires_exact_bytes_and_whole_editor_profile(self):
+        actual = ROOT / preparation_identity.LOADING_DRAWING_FIXED["path"]
+        self.assertEqual(preparation_identity.LOADING_DRAWING_FIXED,
+            {"path": preparation_identity.LOADING_DRAWING_FIXED["path"], "size": actual.stat().st_size,
+             "sha256": hashlib.sha256(actual.read_bytes()).hexdigest()})
+        rows = [*editor_overlay.source_profiles()[0].values(), preparation_identity.LOADING_DRAWING_FIXED]
+        self.assertIn(preparation_identity.LOADING_DRAWING_PREVIOUS, preparation_identity._completed_editor_rows(rows))
+        changed = copy.deepcopy(rows); changed[-1]["sha256"] = "f" * 64
+        self.assertIn(changed[-1], preparation_identity._completed_editor_rows(changed))
+        incomplete = [preparation_identity.LOADING_DRAWING_FIXED]
+        self.assertEqual(preparation_identity._completed_editor_rows(incomplete), incomplete)
 
 
 if __name__ == "__main__": unittest.main()

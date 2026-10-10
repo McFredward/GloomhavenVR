@@ -92,12 +92,33 @@ items and retry a failed item alone. These changes never alter system paging
 settings. Whole Windows builds and lower-memory headset delivery remain hardware
 acceptance work; the native actions have passed real4GiB address-space limits.
 
-The first full Android SDK invocation imports the complete project before package
-API binding. The Wizard reads the native Editor log even before its own Editor
-scripts have compiled, showing actual completed import operations and activity.
-Native import rows have no trustworthy total; known task/assembly/byte counters
-retain measured fractions without inventing a percentage from time. API binding
-and content packing expose their actual passes without resetting their parent bar.
+The first full Android SDK invocation imports the project before package API
+binding. Before each Unity launch, the Wizard inventories known project and
+resolved package asset paths using file metadata only. A fixed denominator and
+qualified, persisted unique-path witnesses expose initial asset coverage before
+Editor observers can load. Repeated imports never count the same path twice.
+Coverage describes those known assets, not Unity's dynamic native import queue;
+an actual native queue total takes precedence within its own batch. The finite
+owner plan also counts method preparation and successful return, so a child
+counter reaching its total cannot finish the entire Unity step.
+
+Public Unity tasks retain their own identities, parent IDs, native fractions or
+step totals. Shader passes and Bee compiler graphs keep actual local counters.
+The generated Gradle observer reads the actual task graph and publishes live
+successful/cached/skipped counts to `<Editor-log>.gradle-progress.jsonl`, avoiding
+Unity's buffered Gradle output. An indivisible operation has one logical task;
+its finer completion is never guessed from time or a generated-file census.
+Historical overview snapshots are compacted while the current UI and detailed
+progress log retain their context. API binding and content packing likewise keep
+actual pass counters without resetting their parent progress.
+
+Native loading sprites are left byte-identical when their original drawing
+geometry is already restored. Older Windows checkpoints that only changed CRLF
+to LF qualify through an exact inverse full-file hash, the original object/GUID
+and the existing successful loading import receipts. This narrowly scoped
+transport repair retains every closed conversion and the imported `Library`;
+other source or geometry mismatches still require their specific repair.
+
 The project and imported `Library` stay under
 `<workspace>/build/projects/<original-workspace-key>` across compatible mod updates.
 An externally installed Editor, global UPM cache and Gradle user cache can occupy

@@ -60,6 +60,7 @@ def _local_helper(name):
 
 host_resources = _local_helper("host_resources")
 build_progress = _local_helper("progress")
+unity_work = _local_helper("unity_work")
 recovery_resume = _local_helper("recovery_resume")
 prepare_resume = _local_helper("prepare_resume")
 preparation_identity = _local_helper("preparation_identity")
@@ -102,11 +103,14 @@ def command(argv: list[str], log: Path, *, cwd: Path | None = None,
             argv += ["-job-worker-count", str(policy["jobs"])]
     log.parent.mkdir(parents=True, exist_ok=True)
     with host_resources.timed_phase("unity" if unity else "command", log=log), log.open("w", encoding="utf-8") as stream:
+        work = unity_work.publish_plan(argv, log, build_progress, cwd=cwd) if unity else None
         try:
             result = subprocess.run(argv, cwd=cwd, env=env, stdout=stream,
                                     stderr=subprocess.STDOUT, check=False)
         except OSError as exc:
+            unity_work.finish_plan(work, success=False, progress=build_progress)
             raise BuildError("Cannot execute " + Path(argv[0]).name + "; verify the selected tool path.") from exc
+        unity_work.finish_plan(work, success=result.returncode == 0, progress=build_progress)
         if result.returncode:
             raise BuildError(Path(argv[0]).name + " exited with " + str(result.returncode) +
                              "; inspect " + str(log))
