@@ -46,10 +46,11 @@ with tempfile.TemporaryDirectory() as temp:
     report('unity-asset-import',800,1000,'assets','[asset-coverage] Assets/GameObject/Character.prefab');snapshot('census-advance')
     report('unity-work-stage:method',0,1,status='start')
     report('unity-il2cpp',None,None,None,'[indivisible-task] Invoking il2cpp');snapshot('codegen')
+    report('unity-progress:77:8',0,1,'tasks','Unity: opaque compilation [indivisible-task]');snapshot('native-single')
     report('bee-actions:compile:200:1',100,200,'actions');snapshot('native')
     report('bee-actions:compile:200:1',200,200,'actions',status='complete')
     report('bee-actions:link:300:2',0,300,'actions');snapshot('next-graph')
-    report('unity-gradle-tasks',20,40,'tasks');snapshot('gradle')
+    report('unity-gradle-tasks',20,40,'tasks','[gradle-graph:fixture-uuid] Gradle: :launcher:packageDebug');snapshot('gradle')
     report('unity-work-stage:method',1,1,status='complete');snapshot('method')
     report('unity-work-invocation',1,1,'invocations',status='complete');snapshot('returned')
     print(json.dumps(result))
@@ -89,12 +90,17 @@ test('browser presents asset census, native graphs and Gradle inside one stable 
       assert.match(await client.evaluate("document.getElementById('progress-detail').textContent"),/Einzelaufgabe/);
       assert.doesNotMatch(await client.evaluate("document.getElementById('progress-detail').textContent"),/\[indivisible-task\]/);
       assert.match(await client.evaluate("document.getElementById('progress-completed').textContent"),/1 \/ 3 Abschnitte abgeschlossen/);
+      mode='native-single';await client.wait("document.getElementById('progress-detail').textContent.includes('opaque compilation')");
+      assert.match(await client.evaluate("document.getElementById('progress-detail').textContent"),/Einzelaufgabe/);
+      assert.doesNotMatch(await client.evaluate("document.getElementById('progress-detail').textContent"),/\[indivisible-task\]/);
       mode='native';await client.wait("document.querySelector('[data-plan=unity-work-player]').textContent.includes('100 / 200 Aufgaben')");
       mode='next-graph';await client.wait("document.querySelector('[data-plan=unity-work-player]').textContent.includes('0 / 300 Aufgaben')");
       const native=await client.evaluate("Number(document.querySelector('[data-plan=unity-work-player] > progress').value)");
       assert.ok(native>15&&native<100);
       assert.equal(await client.evaluate("document.querySelector('[data-operation=player]').classList.contains('running')"),true);
       mode='gradle';await client.wait("document.getElementById('progress-detail').textContent.includes('20 / 40 Schritte')");
+      assert.match(await client.evaluate("document.getElementById('progress-detail').textContent"),/Gradle: :launcher:packageDebug/);
+      assert.doesNotMatch(await client.evaluate("document.getElementById('progress-detail').textContent"),/gradle-graph|fixture-uuid/);
       assert.ok(await client.evaluate("Number(document.querySelector('[data-plan=unity-work-player] > progress').value)")>native);
       mode='method';await client.wait("document.querySelector('[data-plan=unity-work-player] summary').textContent.includes('2 / 3 Abschnitte')");
       mode='returned';await client.wait("document.querySelector('[data-plan=unity-work-player] summary').textContent.includes('3 / 3 Abschnitte')");

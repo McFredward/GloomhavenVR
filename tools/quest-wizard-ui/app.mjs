@@ -146,8 +146,10 @@ function counters(value) {
   return t(key,{done:number(value.done),total:number(value.total)});
 }
 function workDetail(value) {
-  const text=typeof value?.detail==='string'?value.detail:'';
-  return text.startsWith('[indivisible-task]')?t('indivisibleTask')+' · '+text.slice(18).trim():text;
+  const raw=typeof value?.detail==='string'?value.detail:'';
+  const single=raw.includes('[indivisible-task]');
+  const text=raw.replace(/\[gradle-graph:[A-Za-z0-9-]{1,64}\]\s*/g,'').replace(/\[indivisible-task\]\s*/g,'').trim();
+  return single?t('indivisibleTask')+' · '+text:text;
 }
 function substepLabel(value) {
   const batch=value.recoveryBatchIndex,total=value.recoveryBatchTotal;
