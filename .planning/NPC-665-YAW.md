@@ -54,12 +54,14 @@ reoffer starts from its current authored facing rather than interpolating from
 the withdrawn original.
 
 The parallel return lane adds immutable `ReturnOrigin` preparation epochs and
-`RemoteModule.ReturnOriginChangedAt`. The integrator must reject an offered
+`RemoteModule.ReturnOriginChangedAt`. The integrated guard rejects an offered
 numeric root sampled before that floor. This completes rapid cancel/reoffer
 without a census gap: a changed origin revokes the old root; an identical-origin
-UI heartbeat leaves its clock intact. This baseline-664 worker cannot compile
-those new DTO fields, so the integrator owns that additional guard and its
-actual 116/rekey test.
+UI heartbeat leaves its clock intact. The baseline-664 worker cannot compile
+those new DTO fields. The integrator's return fixture therefore invokes the
+actual offered-root guard after the real116 withdrawal/reoffer flow: the old
+sample time is rejected and the current received root remains valid. A separate
+compiled control removes only this floor and must fail that same assertion.
 
 ## Maintained runtime proof
 

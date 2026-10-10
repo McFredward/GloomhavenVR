@@ -224,6 +224,16 @@ public static partial class MirrorProgram
             Check(Remote(2,81)!=null&&Remote(2,82)!=null,"same-session reoffer accepts its new exact preparation epoch");
             Check(!sampler(front,owner,null,out uint preparedAgain,out _)&&preparedAgain==1,"actual inactive native sampler preserves revision one for reoffer");
             Check(TownServiceMirror.OriginRevision665(2,82)==1,"new offered original carries exact actual preparation revision one");
+            // A stationary low-priority fixture has no numeric root yet. Exercise
+            // an actual owner-side yaw change after the real send interval.
+            TownServiceMirror.SetPriority(82,true);
+            card.localRotation*=Quaternion.Euler(0f,1f,0f);
+            FlightTime655.Now+=.1f;FastCapture currentOffered=CaptureFast();
+            Receive(2,currentOffered.Artwork);DeliverMotion(2,currentOffered);TownServiceMirror.TickRemote(_=>observer);
+            File.WriteAllText(Path.Combine(_output,"current-offered-numeric.txt"),string.Join("\n",currentOffered.Motion.SelectMany(b=>{
+                TownServiceMotionCodec.TryRead(b,b.Length,out var packet);return packet!.Entries.Select(e=>$"kind={e.Kind} lane={e.Lane} module={e.Module} sample={packet.SampleTime}");})));
+            bool? epochGuard=TownServiceMirror.OfferedEpochGuard665(2,82);
+            if(epochGuard.HasValue)Check(epochGuard.Value,"new offered preparation rejects old yaw samples and accepts its actual current root");
             float floor=TownServiceMirror.OriginFloor665(2,82);FlightTime655.Now+=.8f;
             FastCapture heartbeat=CaptureFast();Receive(2,heartbeat.Artwork);DeliverMotion(2,heartbeat);TownServiceMirror.TickRemote(_=>observer);
             Check(TownServiceMirror.OriginFloor665(2,82)==floor,"same preparation heartbeat preserves the offered motion lifetime floor");

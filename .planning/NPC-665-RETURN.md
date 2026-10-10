@@ -147,3 +147,16 @@ no-gap case proves stale revision1 rejection and subsequent actual revision2
 adoption without a private unregister before reoffer. Merchant and
 other unchanged flight scopes are inherited here and rerun by the integrator's
 complete gate; this worker's focused pass is not a new complete-gate pass.
+
+## Composed yaw lifetime proof
+
+The integration additionally exercises a real owner yaw change after withdrawal
+and exact same-session reoffer. The originally low-priority stationary fixture
+is promoted through the production `SetPriority` API, as in the actual offered
+publisher, and its current numeric root is captured and received normally.
+The actual `ContinuousOfferedRoot` helper must accept that current root and
+reject the same recipe with a sample timestamp preceding the preparation floor.
+Removing only the new floor is the ninth integration-only compiling control.
+The independent return worker has no parallel yaw helper and retains its eight
+controls. Initial integration fixture attempts without a published private root
+failed at lookup and are retained as fixture failures, not production failures.

@@ -56,6 +56,7 @@ internal static bool StockOriginPresent665(byte[] bytes)=>false;
 internal static uint OriginRevision665(int peer,ushort id)=>0;
 internal static float OriginFloor665(int peer,ushort id)=>0;
 internal static int OriginCount665(int peer)=>0;
+internal static bool? OfferedEpochGuard665(int peer,ushort id)=>null;
 internal static bool TerminalGuards665(int peer)=>false;
 """
     else:
@@ -65,6 +66,17 @@ internal static bool StockOriginPresent665(byte[] bytes){TownServiceCodec.TryRea
 internal static uint OriginRevision665(int peer,ushort id)=>Remote[peer][id].LastFrame!.ReturnOrigin!.PreparationRevision;
 internal static float OriginFloor665(int peer,ushort id)=>Remote[peer][id].ReturnOriginChangedAt;
 internal static int OriginCount665(int peer)=>ReturnOriginals.TryGetValue(peer,out var originals)?originals.Count:0;
+internal static bool? OfferedEpochGuard665(int peer,ushort id) {
+    var guard=typeof(TownServiceMirror).GetMethod("ContinuousOfferedRoot",System.Reflection.BindingFlags.Static|System.Reflection.BindingFlags.NonPublic);
+    if(guard==null)return null; // The isolated return worker predates the parallel yaw helper.
+    var module=Remote[peer][id];
+    var current=MotionPeers[peer].Slots.Values.SingleOrDefault(s=>s.Entry.Kind==1&&s.Entry.Lane==0&&s.Entry.Module==id);
+    if(current==null)throw new System.InvalidOperationException("Actual current offered root absent: "+string.Join(";",MotionPeers[peer].Slots.Values.Select(s=>s.Entry.Kind+"/"+s.Entry.Lane+"/"+s.Entry.Module)));
+    var stale=new MotionSlot { Entry=current.Entry,ReceivedSequence=current.ReceivedSequence,
+        ReceivedAt=current.ReceivedAt,SampleTime=module.ReturnOriginChangedAt-1f/90f };
+    bool Allows(MotionSlot slot)=>(bool)guard.Invoke(null,new object[]{peer,module,slot,FlightTime655.Now})!;
+    return !Allows(stale)&&Allows(current);
+}
 internal static bool TerminalGuards665(int peer) {
     var current=MotionPeers[peer].ReturnCohorts.Values.First(a=>!a.Activated&&CardReturnClock.IsTerminal(a.Header)&&CompleteReturnPayload(a));
     int index=System.Array.FindIndex(current.Roots,r=>r!.HasCanvasFrame); if(index<0)index=0;
@@ -157,6 +169,8 @@ internal sealed partial class VRCard {
     controls=[('old-migration','migration'),('old-retirement','retirement'),
         ('old-private-suppression','suppression'),('old-terminal-preservation','terminal'),
         ('old-origin-lifetime','lifetime'),('old-withdraw-floor','floor'),('old-epoch-budget','epoch'),('old-superseded-epoch','superseded')]
+    if 'TownServiceMirror.OfferedRoot.cs' in bound:
+        controls.append(('old-yaw-origin-floor','yaw-floor'))
     cases=[] if args.only_negative_controls else [('baseline' if legacy else 'native',None)]
     if not legacy and not args.no_negative_controls and args.case is None: cases.extend(controls)
     expected={None:'same visible offered binding starts its independent stock native return' if legacy else '',
@@ -167,7 +181,8 @@ internal sealed partial class VRCard {
         'lifetime':'same visible offered binding starts its independent stock native return',
         'floor':'late consumed origin cannot rebuild between reoffer census and its new preparation header',
         'epoch':'reoffer without unregister evicts obsolete origins without disposing current originals',
-        'superseded':'older exact native113 cannot expose a stock copy while a newer private preparation is already rendered'}
+        'superseded':'older exact native113 cannot expose a stock copy while a newer private preparation is already rendered',
+        'yaw-floor':'new offered preparation rejects old yaw samples and accepts its actual current root'}
     def no_op_method(files, filename, signature, result):
         old=loader.method(files[filename],signature)
         files[filename]=files[filename].replace(old,old[:old.index('{')]+'{ return '+result+'; }',1)
@@ -186,6 +201,10 @@ internal sealed partial class VRCard {
         elif mutation=='superseded':
             old='if (!current.Transferred && current.Module.Alive && current.Module.LastFrame != null'
             assert files[name].count(old)==1;files[name]=files[name].replace(old,'if (false && !current.Transferred && current.Module.Alive && current.Module.LastFrame != null',1)
+        elif mutation=='yaw-floor':
+            key='TownServiceMirror.OfferedRoot.cs'
+            old=' || sample.SampleTime < module.ReturnOriginChangedAt'
+            assert files[key].count(old)==1;files[key]=files[key].replace(old,'',1)
         elif mutation=='epoch':
             files[name]=files[name].replace('foreach (TownCardReturnOrigin obsolete in DeadReturnOrigins) originals.Remove(obsolete);','DeadReturnOrigins.Clear();',1)
             files[name]=files[name].replace('bool obsolete = !original.Transferred && !original.Retired','bool obsolete = false && !original.Transferred && !original.Retired',1)
