@@ -25,6 +25,8 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
     }
     private readonly List<Graphic> _art = new();
     private readonly List<bool> _wasEnabled = new();
+    private readonly List<bool> _layoutArt = new();
+    private readonly List<Color> _rendererColors = new();
     private readonly List<Graphic> _frameGraphics = new();
     private readonly List<bool> _frameRaycast = new();
     private readonly List<Graphic> _effectGraphics = new();
@@ -109,7 +111,7 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
         {
             // Native card refreshes may enable artwork again while the same physical
             // card remains offered; keep the printed copy hidden for that frame.
-            foreach (Graphic graphic in _art) if (graphic != null) graphic.enabled = false;
+            HidePrintedArt();
             AlignNativeEffects();
             return;
         }
@@ -147,7 +149,7 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
             // than a translucent pixel of its surrounding effect.
             foreach (Graphic graphic in highlighter.GetComponentsInChildren<Graphic>(true))
             {
-                if (graphic.GetComponentInParent<UIEnhancementButtonHighlight>() != null)
+                if (graphic.GetComponentInParent<UIEnhancementButtonHighlight>(true) != null)
                     continue;
                 _effectGraphics.Add(graphic);
                 _effectRaycast.Add(graphic.raycastTarget);
@@ -174,11 +176,20 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
         GetComponentsInChildren(true, graphics);
         foreach (Graphic graphic in graphics)
         {
-            if (graphic == null || graphic.GetComponentInParent<UIEnhancementButtonHighlight>() != null)
+            if (graphic == null || graphic.GetComponentInParent<UIEnhancementButtonHighlight>(true) != null)
                 continue;
             _art.Add(graphic);
             _wasEnabled.Add(graphic.enabled);
-            graphic.enabled = false;
+            // This native TMP is also the SummonContainer's ILayoutElement.
+            // Disabling it removes the title height and moves only the small
+            // summon stat boxes away from the still-visible physical print.
+            SummonContainer? summon = graphic is TMPro.TMP_Text
+                ? graphic.GetComponentInParent<SummonContainer>(true) : null;
+            bool layout = summon != null && ReferenceEquals(summon.SummonNameText, graphic);
+            _layoutArt.Add(layout);
+            _rendererColors.Add(layout ? graphic.canvasRenderer.GetColor() : default);
+            if (layout) graphic.canvasRenderer.SetAlpha(0f);
+            else graphic.enabled = false;
         }
         _masked = true;
         _active = this;
@@ -227,14 +238,33 @@ internal sealed class TownServiceNativeEnhancementCardMask : MonoBehaviour
         _lastPhysicalCardHeight = _lastRootHeight = 0f;
         _auraGraphics.Clear();
         for (int i = 0; i < _art.Count; i++)
-            if (_art[i] != null) _art[i].enabled = _wasEnabled[i];
-        _art.Clear(); _wasEnabled.Clear(); _masked = false;
+            if (_art[i] != null)
+            {
+                _art[i].enabled = _wasEnabled[i];
+                if (_layoutArt[i]) _art[i].canvasRenderer.SetColor(_rendererColors[i]);
+            }
+        _art.Clear(); _wasEnabled.Clear(); _layoutArt.Clear(); _rendererColors.Clear(); _masked = false;
         _hasCaptureBounds = false;
         if (ReferenceEquals(_active, this)) _active = null;
     }
 
+    private void HidePrintedArt()
+    {
+        for (int i = 0; i < _art.Count; i++)
+        {
+            Graphic graphic = _art[i];
+            if (graphic == null) continue;
+            // Native refresh/tweens may overwrite renderer alpha. Keep the
+            // layout component's enabled state and suppress its actual draw
+            // again before submission; Renderer colour also crosses the wire.
+            if (_layoutArt[i]) graphic.canvasRenderer.SetAlpha(0f);
+            else graphic.enabled = false;
+        }
+    }
+
     private void AlignNativeEffects()
     {
+        if (_masked) HidePrintedArt();
         // Read the original world-Z callback before fitting the print can move its
         // sibling effect's parent. Handoff may already have saved this sample
         // before surface placement; do not recapture that same local value after

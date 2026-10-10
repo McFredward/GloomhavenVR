@@ -17,6 +17,21 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def historical_artwork_filter(current, old_filter):
+    filters = (
+        '                    || entry.Kind != 9 && !liveCardReturn && !liveReturnRoot && slot.SampleTime < module.LastFrame.SampleTime) continue;',
+        '                    || entry.Kind != 9 && !liveCardReturn && !liveReturnRoot\n'
+        '                        && !ContinuousOfferedRoot(pair.Key, module, slot, now) && slot.SampleTime < module.LastFrame.SampleTime) continue;',
+    )
+    # Keep the exact historical conditional as the causal control. Accept only
+    # the two known production spellings, once in total; an unknown predicate
+    # or duplicate still fails before compiling or starting Unity.
+    if sum(current.count(predicate) for predicate in filters) != 1:
+        raise RuntimeError('Current artwork filter source drift')
+    predicate = next(predicate for predicate in filters if current.count(predicate) == 1)
+    return current.replace(predicate, old_filter, 1)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source-root', type=Path, default=ROOT)
@@ -95,9 +110,7 @@ internal sealed partial class VRCard {
     for name, mutation in cases:
         files = dict(bound)
         if mutation == 'old':
-            current_filter = '                    || entry.Kind != 9 && !liveCardReturn && !liveReturnRoot && slot.SampleTime < module.LastFrame.SampleTime) continue;'
-            if files['TownServiceMirror.Motion.cs'].count(current_filter) != 1: raise RuntimeError('Current artwork filter source drift')
-            files['TownServiceMirror.Motion.cs'] = files['TownServiceMirror.Motion.cs'].replace(current_filter, old_filter, 1)
+            files['TownServiceMirror.Motion.cs'] = historical_artwork_filter(files['TownServiceMirror.Motion.cs'], old_filter)
         if mutation == 'duration':
             current_progress = 'entry.Numbers[2] == 1f ? entry.Numbers[0] - entry.Numbers[1] : entry.Numbers[0];'
             if files['TownServiceMirror.Motion.cs'].count(current_progress) != 1: raise RuntimeError('Exponential receive progress source drift')

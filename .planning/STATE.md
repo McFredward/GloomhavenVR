@@ -105,6 +105,33 @@ their retained owners, without repeating conversions or invalidating Library.
 Script evidence survives repeat/cut writers; accepted stamps precede journal
 publication. Unknown edits remain errors. Focused proof and Windows limitations:
 [QUEST-RETAINED-UNITY-MUTATIONS-205914-20261009.md](QUEST-RETAINED-UNITY-MUTATIONS-205914-20261009.md).
+**Build665 paired664 NPC follow-up, 2026-10-10: 1.1.0 development candidate.**
+
+The maintainer accepts remote card/UI admission time and confirms body/front
+motion is coupled. Preserve those outcomes, stable enhancement paint and the
+accepted merchant return. This follow-up addresses offered yaw at both NPCs,
+small summon enhancement-area Y placement, and the enchantress's displayed
+original becoming the returning card rather than leaving a parked copy.
+
+Both supplied build banners identify664; the summon screenshot is inspected
+and immutable inputs are recorded in `.planning/debug/npc665/inputs/manifest.json`.
+Separate initialized workers use current dev `c9462f78b`. Offered yaw at both
+NPCs keeps its independent physical root clock across newer UI headers. Native
+summon title layout remains enabled while duplicate ink is suppressed; wide
+areas retain their geometry. Exact private/Stock preparation provenance116 lets
+complete native113 rekey the already visible remote card instead of flying a copy.
+Delayed old flights, withdrawal/reoffer races and yaw preparation floors are covered.
+
+Validation is **composed209/209**, not a fresh complete-gate pass: the initial
+full attempt records196 passes/13 failures; all13 serial repairs pass with their
+required controls. Source16, direct golden vectors300466, standalone town codec50277,
+strict Debug/Release0/0, bundle, unchanged surfaces666/235/4795 and reviewed compiled
+comparison pass. Nine loading/visibility/merchant/motion preservation anchors are
+unchanged. The initial Unity crash cause and summon fixture scheduling attribution
+remain unproven; failed evidence is retained. New headset yaw/overlay/return outcomes
+still require the next paired test. Read [NPC-665-REVIEW.md](NPC-665-REVIEW.md) for
+causes, verified receipts, historical-control boundaries and hardware limits.
+
 **Build664 approved PC/Standalone defaults, 2026-10-10: 1.1.0 development candidate.**
 
 Fresh PC mod settings match High-End PC with MSAA8; Frame matches Standalone

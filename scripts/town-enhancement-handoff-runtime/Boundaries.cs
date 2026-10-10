@@ -19,7 +19,7 @@ namespace HarmonyLib
 
 namespace TMPro
 {
-    public class TMP_Text : MonoBehaviour { public string text = ""; public float fontSize; public RectTransform rectTransform => (RectTransform)transform; }
+    public class TMP_Text : Graphic { public string text = ""; public float fontSize; }
 }
 namespace ScenarioRuleLibrary { public sealed class CAbilityCard { public int ID; } }
 public sealed class Owner
@@ -46,6 +46,7 @@ public class UIItemConfirmationBox : MonoBehaviour { public bool IsActive; }
 public class UIWindow : MonoBehaviour { public bool IsOpen = true; }
 public class AbilityCardUI : MonoBehaviour { public ScenarioRuleLibrary.CAbilityCard AbilityCard = null!; public FullAbilityCard fullAbilityCard = null!; }
 public class FullAbilityCard : MonoBehaviour { }
+public class SummonContainer : MonoBehaviour { public TMPro.TMP_Text SummonNameText=null!; }
 public class UIEnhancementButtonHighlight : MonoBehaviour { public object? Ability; }
 public sealed class UIEnhancementCardHighlighter : MonoBehaviour { public AbilityCardUI? Card; }
 public class UIEnhanceCardSlot : MonoBehaviour

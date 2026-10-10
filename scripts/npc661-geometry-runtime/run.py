@@ -5,6 +5,23 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 BASE = '12df1353f'
 INVARIANT = 'offered body and printed front preserve exact original geometry on every render'
+ORIGIN_BOUNDARY = 'Historical660 geometry control cannot enter current116 original-return detach.'
+
+
+def old_offerings_adapter(old):
+    namespace = 'namespace GloomhavenVR.Net.TownServices;'
+    if old.count(namespace) != 1 or 'DetachOfferedOriginal(' in old:
+        raise RuntimeError('Historical660 offerings boundary source drift')
+    # These existing publisher/opening ports cannot create physical affinity.
+    # Current116 original migration is outside this historical control: fail
+    # explicitly if reached instead of silently dropping its gameplay lifecycle,
+    # or importing current mounts/depth paint into the old geometry implementation.
+    compatibility = '\nnamespace GloomhavenVR.Net.TownServices { internal static partial class TownServiceMirror { '
+    compatibility += 'internal static void RegisterOfferedPhysical(UnityEngine.Transform? body,UnityEngine.Transform? print) {} '
+    compatibility += 'private static void RestoreOfferedPhysicalMounts() {} '
+    compatibility += 'private static void DetachOfferedOriginal(RemoteModule module,UnityEngine.Transform shared) '
+    compatibility += '{ throw new System.NotSupportedException(' + json.dumps(ORIGIN_BOUNDARY) + '); } } }\n'
+    return old.replace(namespace, 'namespace GloomhavenVR.Net.TownServices {', 1) + '\n}\n' + compatibility
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -35,12 +52,7 @@ def main():
     actual = (root / path).read_text()
     old = subprocess.check_output(['git', '-C', str(root), 'show', BASE + ':' + path], text=True)
     raw_old_sha256 = hashlib.sha256(old.encode()).hexdigest()
-    # Keep the exact660 implementation and only satisfy the now-integrated
-    # publisher/opening API at its boundary. These no-ops cannot create affinity.
-    compatibility = '\nnamespace GloomhavenVR.Net.TownServices { internal static partial class TownServiceMirror { '
-    compatibility += 'internal static void RegisterOfferedPhysical(UnityEngine.Transform? body,UnityEngine.Transform? print) {} '
-    compatibility += 'private static void RestoreOfferedPhysicalMounts() {} } }\n'
-    old = old.replace('namespace GloomhavenVR.Net.TownServices;', 'namespace GloomhavenVR.Net.TownServices {', 1) + '\n}\n' + compatibility
+    old = old_offerings_adapter(old)
     variants = [('production', None, None, None, '')]
     if args.controls or args.old_code:
         variants.append(('old660-physical-affinity', filename, actual, old, INVARIANT))
@@ -87,6 +99,11 @@ def main():
         'card artwork/native pooled UI constructor and transport scheduling are declared fixtures, not headset proof.',
         'old_offerings_raw_sha256': raw_old_sha256,
         'old_offerings_boundary_adapter_sha256': hashlib.sha256(old.encode()).hexdigest(),
+        'old_offerings_unused_ports': ['RegisterOfferedPhysical: no physical affinity in660',
+            'RestoreOfferedPhysicalMounts: no temporary physical mounts in660'],
+        'old_offerings_unsupported_lifecycle': {'method': 'DetachOfferedOriginal', 'policy': 'fail-fast',
+            'message': ORIGIN_BOUNDARY, 'boundary': 'Current116 retained/adopted original return; '
+                'control must fail at the earlier original-geometry assertion. Reaching this seam is an unexpected failure.'},
         'variants': [variant[0] for variant in variants],
         'source_sha256': {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in [root/path, geometry, Path(__file__), checker, binder]}
     }, indent=2) + '\n')

@@ -171,6 +171,9 @@ internal static class NetProtocol
     /// <summary>Losslessly packed exact native return roots, referencing only
     /// their same-packet cohort and IEEE child bits. Additive to message26.</summary>
     public const byte ExtIdTownPackedReturnRoots = 115;
+    /// <summary>Exact private offered-card preparation origin carried by its
+    /// native private and Stock frames. Additive to message26; no peer identity is encoded.</summary>
+    public const byte ExtIdTownCardReturnOrigin = 116;
     /// <summary>Owner fan insertion gap: one byte gap + 1; zero clears the marker.</summary>
     public const byte ExtIdFanInsertionGap = 71;
     /// <summary>Native video source and shared pose, independent of the legacy window record21.</summary>
@@ -607,7 +610,24 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 664;
+    public const ushort ModBuild = 665;
+
+    // ModBuild665 — paired664 offered yaw, summon areas and enchantress return ownership.
+    // The maintainer accepts remote card/UI admission time and body/front motion;
+    // preserve those policies and the already accepted merchant return artwork.
+    // New native UI headers no longer interrupt the exact current private offered
+    // root clock at either NPC. Withdrawal, current transaction ownership, layout
+    // changes and native returns retain authority; no viewer-authored facing is added.
+    // Keep the actual SummonName TMP layout provider enabled while suppressing its
+    // pooled print. Disabling it removed its height and shifted only the small stat
+    // enhancement cells. Broad action rows keep their original geometry.
+    // Additive TLV116 names the exact private offered-card preparation lifetime in
+    // its private and Stock frames. A complete native113 return rekeys that already
+    // rendered observer module into Stock, so the visible original starts the flight.
+    // Retention across source closure is bounded; cold observers use the prepared
+    // Stock original. Session, structure and preparation epoch reject stale reuse.
+    // Version3, existing113/115 and legacy frame bytes remain unchanged; next free117.
+    // Runtime/source proof does not establish headset smoothness or the final image.
 
     // ModBuild664 — approved PC/Standalone defaults and reproducible graphics profiles.
     // The maintainer approves the paired configuration audit, with 10 FPS for automatic wall

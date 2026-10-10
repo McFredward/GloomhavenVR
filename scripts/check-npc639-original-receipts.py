@@ -46,6 +46,7 @@ def main():
         'TownServiceOriginalReceiptCodec.cs': args.source_root / 'src/GloomhavenVR/Net/TownServices/TownServiceOriginalReceiptCodec.cs',
         'TownServiceMirror.OriginalReceipts.cs': args.source_root / 'src/GloomhavenVR/Net/TownServices/TownServiceMirror.OriginalReceipts.cs',
         'TownServiceFrame.cs': args.source_root / 'src/GloomhavenVR/Net/TownServices/TownServiceFrame.cs',
+        'TownServiceCodec.ReturnOrigin.cs': args.source_root / 'src/GloomhavenVR/Net/TownServices/TownServiceCodec.ReturnOrigin.cs',
         'NetPacket.cs': args.source_root / 'src/GloomhavenVR/Net/NetPacket.cs',
         'NetProtocol.cs': protocol_root / 'src/GloomhavenVR/Net/NetProtocol.cs',
         'TownServiceMirror.OriginalRequests.cs': args.source_root / 'src/GloomhavenVR/Net/TownServices/TownServiceMirror.OriginalRequests.cs',
@@ -59,6 +60,22 @@ def main():
     run = Path(tempfile.mkdtemp(prefix='run-', dir=args.output_dir))
     (run / 'source-hashes.json').write_text(json.dumps({str(paths[name]): hashlib.sha256(text.encode()).hexdigest()
         for name, text in sources.items()}, indent=2) + '\n')
+    # Frame retention carries this immutable production type. Bind its exact
+    # declaration without importing the unrelated original-artwork codec into
+    # a receipt-state proof; no replacement origin implementation is supplied.
+    origin_source = sources['TownServiceCodec.ReturnOrigin.cs']
+    origin_declaration = declaration(origin_source, 'internal sealed class TownCardReturnOrigin')
+    sources['TownServiceCodec.ReturnOrigin.cs'] = (
+        'using System; namespace GloomhavenVR.Net.TownServices;\n' + origin_declaration + '\n')
+    (run / 'bound-declarations.json').write_text(json.dumps({
+        'TownCardReturnOrigin': {
+            'source': str(paths['TownServiceCodec.ReturnOrigin.cs']),
+            'source_sha256': hashlib.sha256(origin_source.encode()).hexdigest(),
+            'signature': 'internal sealed class TownCardReturnOrigin',
+            'declaration_sha256': hashlib.sha256(origin_declaration.encode()).hexdigest(),
+            'boundary': 'Exact immutable Frame metadata declaration; return-origin wire encoding and validation are outside this receipt-only proof.',
+        }
+    }, indent=2) + '\n')
     # Receipt disconnect/reset now also retires missing-original requests. Bind
     # the real request storage and cleanup, rather than replacing those calls
     # with empty fixture methods. Admission, encoding and scheduling of requests

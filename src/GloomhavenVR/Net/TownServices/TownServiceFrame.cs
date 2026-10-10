@@ -18,6 +18,8 @@ internal sealed class TownServiceFrame
     // changes and visiting another NPC without occupying its interaction lease.
     internal bool VisitorStock;
     internal uint PublicClaim;
+    // TLV116: exact private original whose next native return can adopt this stock module.
+    internal TownCardReturnOrigin? ReturnOrigin;
     internal byte Service;
     internal const ushort ManifestModule = ushort.MaxValue, BundleStream = ushort.MaxValue - 1,
         VoiceModule = ushort.MaxValue - 2, UrgentBundleStream = ushort.MaxValue - 4;

@@ -694,7 +694,8 @@ internal static partial class TownServiceMirror
                     // of those property timestamps, just like print affinity.
                     // Session, structure, census and its bounded lifetime still
                     // guard it; a true withdrawal never retains a visible clone.
-                    || entry.Kind != 9 && !liveCardReturn && !liveReturnRoot && slot.SampleTime < module.LastFrame.SampleTime) continue;
+                    || entry.Kind != 9 && !liveCardReturn && !liveReturnRoot
+                        && !ContinuousOfferedRoot(pair.Key, module, slot, now) && slot.SampleTime < module.LastFrame.SampleTime) continue;
                 if (entry.Kind == 2 && entry.Property == TownServiceProperty.Transform
                     && entry.Binding == module.Binding.Bindings[0]
                     && StagedReturnLayout(pair.Key, module, slot.SampleTime, now)) continue;
@@ -873,11 +874,7 @@ internal static partial class TownServiceMirror
 
     private static void PrepareOfferedRootMotion(RemoteModule module, RemoteMotion motion, MotionSlot? sample, float now)
     {
-        if (sample == null || sample.Entry.Hand != 0
-            || sample.Entry.ParentModule != TownServiceFrame.ManifestModule
-            || module.LastFrame!.Service != 3
-            || !(module.Address.StartsWith("face.", StringComparison.Ordinal)
-                || module.Address.StartsWith("enchant.holder", StringComparison.Ordinal)))
+        if (module.LastFrame == null || sample == null || !ContinuousOfferedRoot(motion.Owner, module, sample, now))
         { motion.OfferedRootSequence = 0; return; }
         if (motion.OfferedRootSequence == sample.ReceivedSequence) return;
         Transform? shared = SharedFrameForRemote?.Invoke(motion.Owner);
@@ -887,11 +884,15 @@ internal static partial class TownServiceMirror
         if (!ValidMotionScale(target.lossyScale)) return;
         float blend = motion.OfferedDuration > 0f
             ? Mathf.Clamp01((now - motion.OfferedStarted) / motion.OfferedDuration) : 1f;
-        motion.OfferedFrom = motion.OfferedRootSequence == 0 ? shared.InverseTransformPoint(target.position)
+        bool firstVisible = motion.OfferedRootSequence == 0 && !module.Host.activeSelf;
+        motion.OfferedFrom = firstVisible ? Position(sample.Entry.Pose)
+            : motion.OfferedRootSequence == 0 ? shared.InverseTransformPoint(target.position)
             : Vector3.LerpUnclamped(motion.OfferedFrom, motion.OfferedTarget, blend);
-        motion.OfferedRotationFrom = motion.OfferedRootSequence == 0 ? Quaternion.Inverse(shared.rotation) * target.rotation
+        motion.OfferedRotationFrom = firstVisible ? Rotation(sample.Entry.Pose)
+            : motion.OfferedRootSequence == 0 ? Quaternion.Inverse(shared.rotation) * target.rotation
             : Quaternion.SlerpUnclamped(motion.OfferedRotationFrom, motion.OfferedRotationTarget, blend);
-        motion.OfferedScaleFrom = motion.OfferedRootSequence == 0
+        motion.OfferedScaleFrom = firstVisible ? Scale(sample.Entry.Pose)
+            : motion.OfferedRootSequence == 0
             ? DivideMotionScale(target.lossyScale, shared.lossyScale)
             : Vector3.LerpUnclamped(motion.OfferedScaleFrom, motion.OfferedScaleTarget, blend);
         motion.OfferedTarget = Position(sample.Entry.Pose);
