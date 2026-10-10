@@ -37,6 +37,7 @@ def main():
     parser.add_argument('--case', action='append')
     parser.add_argument('--wall-source-root', type=Path, help='Explicit frozen wall worker source for the cross-owner native-write fixture; defaults to source-root')
     parser.add_argument('--integration-root', type=Path, help='Frozen CoreModule source for exact wall-release callback; defaults to source-root')
+    parser.add_argument('--figure-source-root', type=Path, help='Frozen actual figure policy/bank source; defaults to source-root')
     args = parser.parse_args()
     root=args.source_root.resolve(); fixture=ROOT/'tests/terrain-budget-runtime'
     paths=[root/'src/GloomhavenVR/Core/Perf/ScenarioTerrainBudget.cs',root/'src/GloomhavenVR/Core/Perf/ScenarioTerrainBudget.Geometry.cs',
@@ -46,6 +47,16 @@ def main():
     source, geometry, admission, shader=[p.read_text() for p in paths[:4]]
     core_path=(args.integration_root.resolve() if args.integration_root else root)/'src/GloomhavenVR/Core/CoreModule.cs'
     core=core_path.read_text()
+    assert 'ConfigurePillarFigureDistances' not in core+source+geometry, 'independent pillars must not depend on current figure publication'
+    assert 'ScenarioFigureDetailBudget' not in source+geometry, 'independent pillar owner must not read current actors'
+    assert 'FindObjectsOfType' not in source+geometry, 'independent pillar radius must not add a native census'
+    figure_root=args.figure_source_root.resolve() if args.figure_source_root else root
+    figure_path=figure_root/'src/GloomhavenVR/Core/Perf/FigureDistanceLodPolicy.cs'
+    figure=figure_path.read_text()
+    figure_bank_path=figure_root/'src/GloomhavenVR/Core/Perf/ScenarioFigureMeshBank.cs'
+    figure_bank=figure_bank_path.read_text()
+    tier=re.findall(r'private static int Tier\(int detail\) => [^;]+;', figure_bank)
+    assert len(tier)==1 and 'if (detail >= 100) return source;' in figure_bank, 'actual figure effective tier binding drift'
     assert 'ScenarioTerrainBudget.ConfigurePerformanceWallVisibility(WallSegmentFade.IsPerformanceHidden);' in core, 'terrain exact wall-policy wiring missing'
     callbacks=re.findall(r'WallSegmentFade.ConfigurePerformanceMaskRestored\((renderer\s*=>\s*\{.*?\})\);',core,re.S)
     assert len(callbacks)==1, 'exact wall-release callback binding drift'
@@ -73,14 +84,14 @@ def main():
     # this also catches a parallel worker editing the optional cross-lane source
     # between extraction and the native coverage export.
     extracted_hashes={str(p):hashlib.sha256(value.encode()).hexdigest()
-        for p,value in zip(paths[:4]+ownership_paths+[wall_path], [source,geometry,admission,shader,prop,held,remote,wall_source])}
+        for p,value in zip(paths[:4]+ownership_paths+[wall_path,figure_path,figure_bank_path], [source,geometry,admission,shader,prop,held,remote,wall_source,figure,figure_bank])}
     extracted_hashes[str(core_path)]=hashlib.sha256(core.encode()).hexdigest()
     hide='using System.Collections.Generic; using UnityEngine;\nnamespace GloomhavenVR.Core { internal sealed class TerrainWallHide {\nprivate readonly HashSet<Renderer> _hidByEnable = new();\ninternal bool Owns(Renderer r) => _hidByEnable.Contains(r);\nprivate static bool FloorNeverFades(Renderer r) => false;\nprivate static bool HeldNeverFades(Renderer r) => false;\n'+method(wall_source,'    internal void HideByEnable(Renderer r)')+'}\n}\n'
     assert 'StaticBatchingUtility' not in source+geometry and 'SetStaticBatchInfo' not in source+geometry
     assert not re.search(r'(?<![\w])(?:Filter\.sharedMesh|Renderer\.sharedMaterials)\s*=(?!=)', source+geometry), 'native cloning sources must stay unchanged'
     controls=[
-        ('pillar-radial-aabb-regression', 'float metres = surface.HeadDistance(detail.Position, bounds) / detail.Scale;',
-         'float metres = Vector3.Distance(detail.Position, surface.Renderer.bounds.ClosestPoint(detail.Position)) / detail.Scale;',
+        ('pillar-radial-aabb-regression', 'float metres = surface.HeadDistanceAndRadius(detail.Position, bounds, detail.PillarDistanceLod,\n                out float radius) / detail.Scale;',
+         'float radius = 0f; float metres = Vector3.Distance(detail.Position, surface.Renderer.bounds.ClosestPoint(detail.Position)) / detail.Scale;',
          'fixed-radius pillar head proximity restores exact geometry at every orbit angle', source, 1),
         ('pillar-radial-pivot-regression', 'native.MultiplyPoint3x4(_originalBounds.center)',
          'native.MultiplyPoint3x4(Vector3.zero)', 'tilted nonuniform off-centre pillar retains exact geometry', geometry, 1),
@@ -117,8 +128,8 @@ def main():
         ('pillar-view-radius-near-cap-wins', 'return protectedNear || !surface.Distant ? 100 : Mathf.Min(detail.Near, detail.Distant);',
          'return protectedNear ? 100 : !surface.Distant ? detail.Near : Mathf.Min(detail.Near, detail.Distant);',
          'fixed-radius pillar head proximity restores exact geometry at every orbit angle', source, 1),
-        ('pillar-view-radius-saved-default-only', 'surface.Distant = metres > edge;\n                return protectedNear || !surface.Distant',
-         'surface.Distant = metres > (.75f + (surface.Distant ? -.04f : .04f));\n                return protectedNear || !surface.Distant',
+        ('pillar-view-radius-saved-default-only', 'else surface.Distant = metres > edge;',
+         'else surface.Distant = metres > (.75f + (surface.Distant ? -.04f : .04f));',
          'live pillar viewing radius edits change settled detail even with identical zero caps', source, 1),
         ('foreign-mesh-bypass','|| Filter.sharedMesh != Original','/* injected foreign mesh ownership */','foreign native mesh replacement',geometry,1),
         ('native-rendering-layer-not-copied','_proxyRenderer.renderingLayerMask = next.RenderingLayer;','/* injected native layer loss */','actual terrain camera proxy preserves current native rendering layers',geometry,1),
@@ -133,6 +144,38 @@ def main():
         ('native-high-foundation-dropped','float foundation = min(max(1. - i.world.y, 0.), 5.) / 3.;','float foundation = 0.;','production HIGH and toggle-native map foundation',shader,1),
         ('native-high-enable-dropped','float M = m * _EnableOcclusionMap;','float M = 0.;','production HIGH and toggle-native map foundation',shader,1),
         ('native-high-cutoff-fixed','clip(value - _Cutoff);','clip(value - .5);','production HIGH and toggle-native map foundation',shader,1),
+    ]
+    controls += [
+        ('pillar-independent-degenerate-aabb-size', 'Bounds fallback = Renderer.bounds;',
+         'Bounds fallback = Renderer.bounds; if (measureRadius) originalRadius = fallback.extents.magnitude;',
+         'zero native pillar height retains exact geometry instead of borrowing a current AABB radius', geometry, 1),
+        ('pillar-independent-fixed-original-size', 'FigureDistanceLodPolicy.FirstReductionDistances(detail.Near, radius / detail.Scale);',
+         'FigureDistanceLodPolicy.FirstReductionDistances(detail.Near, .8660254f);',
+         'independent native pillar first reduction matches its own original full radius and shared figure tier bands for cap 0', source, 1),
+        ('pillar-independent-fixed-metres', 'Vector2 distances = FigureDistanceLodPolicy.FirstReductionDistances(detail.Near, radius / detail.Scale);',
+         'Vector2 distances = new Vector2(.75f, .71f);',
+         'independent native pillar first reduction matches its own original full radius and shared figure tier bands for cap 0', source, 1),
+        ('pillar-independent-horizontal-size', 'originalRadius = Mathf.Sqrt(radius * radius + halfHeight * halfHeight);',
+         'originalRadius = radius;',
+         'independent native pillar first reduction matches its own original full radius and shared figure tier bands for cap 0', geometry, 1),
+        ('pillar-independent-world-aabb-size', 'originalRadius = Mathf.Sqrt(radius * radius + halfHeight * halfHeight);',
+         'originalRadius = Renderer.bounds.extents.magnitude;',
+         'independent pillar uses one Update source matrix without an additional native bounds read', geometry, 1),
+        ('pillar-independent-figure-toggle-coupling', 'if (detail.PillarDistanceLod)',
+         'if (detail.PillarDistanceLod && PerfConfig.FigureDistanceLodEnabled)',
+         'figure distance toggle cannot change independently selected pillar detail', source, 1),
+        ('pillar-independent-entry-inclusive', 'else if (metres > distances.x) surface.Distant = true;',
+         'else if (metres >= distances.x) surface.Distant = true;',
+         'independent pillar entry equality retains its original near band', source, 1),
+        ('pillar-independent-exit-inclusive', 'if (metres < distances.y) surface.Distant = false;',
+         'if (metres <= distances.y) surface.Distant = false;',
+         'independent pillar exit equality retains its existing distant band', source, 1),
+        ('pillar-independent-invalid-size-reduction', 'if (!(radius > 0f) || float.IsInfinity(radius))',
+         'if (false && (!(radius > 0f) || float.IsInfinity(radius)))',
+         'invalid original pillar size retains exact geometry and clears its own far latch', source, 1),
+        ('pillar-independent-eye-geometry-read', 'Surface surface = _priority[index];',
+         'Surface surface = _priority[index]; if (PerfConfig.PillarDistanceLodEnabled) surface.HeadDistanceAndRadius(camera.transform.position, default, true, out _);',
+         'independent pillar geometry is not reread during paired camera callbacks', source, 1),
     ]
     controls += [
         ('terrain-exact-hidden-update-skip-lost','\n                    if (PerformanceWallHidden(surface.Renderer)) continue;',
@@ -291,6 +334,7 @@ def main():
     ]
     observed_wall={'production':hide}
     observed_callback={'production':callback}
+    observed_figure={'production':figure}
     if not args.production_only:
         for name,before,after,expected in wall_controls:
             assert hide.count(before)==1, 'actual wall mutation binding drift: '+name
@@ -299,6 +343,15 @@ def main():
         name='terrain-hidden-final-release-requeue-lost'
         observed_callback[name]=callback.replace('ScenarioTerrainBudget.MaterialReady(renderer);','/* injected final source rediscovery lost */')
         variants.append((name,source,geometry,admission,shader,'exact final wall release requeues previously hidden native discovery once'))
+        for name,before,after,expected in (
+            ('pillar-independent-ineffective-zero-band', 'return cap >= 67 ?', 'return cap >= 0 ?',
+             'independent native pillar first reduction matches its own original full radius and shared figure tier bands for cap 0'),
+            ('pillar-independent-ineffective-66-band', 'return cap >= 67 ?', 'return cap > 45 ?',
+             'independent native pillar first reduction matches its own original full radius and shared figure tier bands for cap 66'),
+        ):
+            assert figure.count(before)==1, 'actual figure-distance helper mutation binding drift: '+name
+            observed_figure[name]=figure.replace(before,after)
+            variants.append((name,source,geometry,admission,shader,expected))
     if args.case:
         unknown=set(args.case)-{v[0] for v in variants}
         if unknown: raise SystemExit('Unknown selected variants: '+', '.join(sorted(unknown)))
@@ -317,7 +370,7 @@ def main():
     (run/'native-pillar-verification.log').write_text(pillar_result.stdout+pillar_result.stderr)
     print(pillar_result.stdout,end='')
     pillars=json.loads((run/'native-pillar-coverage.json').read_text())
-    inputs=paths+ownership_paths+[wall_path,core_path,Path(__file__).resolve(),Path(native['nativeBundle']),
+    inputs=paths+ownership_paths+[wall_path,core_path,figure_path,figure_bank_path,Path(__file__).resolve(),Path(native['nativeBundle']),
         root/'tools/environment-mesh/export-native.py',
         root/'unity/GloomhavenVR.Assets/Assets/Bundle/EnvironmentMeshes/index.json']
     inputs+=sorted(p for p in fixture.rglob('*') if p.is_file())
@@ -345,6 +398,7 @@ def main():
             before=signature+'\n        {'
             assert observed_geometry.count(before)==1, 'hidden work observer binding drift: '+signature
             observed_geometry=observed_geometry.replace(before,before+'\n            '+observation)
+        observed_geometry=observed_geometry.replace('Renderer.bounds', 'TerrainReadObserver.Bounds(Renderer)')
         for before,after in (
             ('Renderer.HasPropertyBlock()', 'TerrainReadObserver.HasPropertyBlock(Renderer)'),
             ('Renderer.GetPropertyBlock(Block);', 'TerrainReadObserver.GetPropertyBlock(Renderer, Block);'),
@@ -386,6 +440,9 @@ def main():
         (production/'WallHide.cs').write_text(observed_wall.get(name,hide))
         (production/'WallRelease.cs').write_text('using System; using UnityEngine; namespace GloomhavenVR.Core { internal static class TerrainFinalWallRelease { private static readonly Action<Renderer> Release = '+observed_callback.get(name,callback)+'; internal static void Invoke(Renderer renderer) => Release(renderer); } }')
         (production/'MeshStream.cs').write_text(paths[4].read_text())
+        (production/'FigureDistanceLodPolicy.cs').write_text(observed_figure.get(name,figure))
+        (production/'FigureEffectiveTier.cs').write_text('namespace GloomhavenVR.Core { internal static class FigureEffectiveTier { '+
+            tier[0].replace('private static', 'internal static')+' internal static int Selected(int detail) => detail >= 100 ? 100 : Tier(detail); } }')
         shutil.copyfile(fixture/'NativeCoverage.cs',production/'NativeCoverage.cs')
         for extra in fixture.glob('*.cs'):
             if extra.name not in ('Boundaries.cs','Program.cs','NativeCoverage.cs'):
