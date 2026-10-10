@@ -186,6 +186,7 @@ public sealed class WristHarness : MonoBehaviour
     GameObject[] LiveRows(Type options)=>((IEnumerable)Get(options,"Rows")).Cast<GameObject>().Where(x=>x!=null).ToArray();
     GameObject RowOf(Type options,Slider slider)=>LiveRows(options).Single(row=>slider.transform.IsChildOf(row.transform));
     Vector3 WristOffsets()=>(Vector3)Get(Get(T("Cards.CardsConfig"),"WristBoardOffsetMeters"),"Value");
+    Vector3 WristAngles()=>(Vector3)Get(Get(T("Cards.CardsConfig"),"WristBoardAnglesDegrees"),"Value");
     Toggle WristToggle(Type options)=>LiveRows(options).Single(row=>row.transform.Find("Title")?.GetComponent<TMP_Text>()?.text==(string)Call(T("Core.Loc"),"Mod","vr_o_wristboard")).GetComponentInChildren<Toggle>(true);
     IEnumerator CuratedMenuProof()
     {
@@ -195,10 +196,12 @@ public sealed class WristHarness : MonoBehaviour
         Check(category>=0,"actual everyday board category is selected from the production curated declaration");
         var parent=new GameObject("Actual everyday wrist settings output",typeof(RectTransform)).GetComponent<RectTransform>();
         Set(options,"ContentRoot",parent);Set(options,"_curated",category);Set(options,"_view",EnumValue("WorldUI.VROptionsTab+View","Curated"));
-        Vector3 saved=WristOffsets();Value("WristBoardEnabled",false);Call(tray,"TickPlacement");yield return Settle();
+        Vector3 saved=WristOffsets(),savedAngles=WristAngles();Value("WristBoardEnabled",false);Call(tray,"TickPlacement");yield return Settle();
         Call(options,"Rebuild");
         Check(SliderBindings(options,"WristBoardOffsetMeters").Length==0,"actual curated menu has no wrist position sliders while wrist attachment is off");
+        Check(SliderBindings(options,"WristBoardAnglesDegrees").Length==0,"actual curated menu has no wrist rotation sliders while wrist attachment is off");
         Near(saved,WristOffsets(),"opening the ordinary menu preserves the saved wrist offset vector");
+        Near(savedAngles,WristAngles(),"opening the ordinary menu preserves the saved wrist rotation vector");
         WristToggle(options).isOn=true;
         Check((bool)Get(Get(T("Cards.CardsConfig"),"WristBoardEnabled"),"Value"),"the actual ordinary wrist toggle enables attachment through its original callback");
         object[] bindings=SliderBindings(options,"WristBoardOffsetMeters");Check(bindings.Length==3,"toggle callback immediately rebuilds all three position sliders without reopening the menu");
@@ -209,6 +212,14 @@ public sealed class WristHarness : MonoBehaviour
             Check(ReferenceEquals(rows[toggleIndex+1+axis],RowOf(options,bar)),"wrist axis row is immediately below the enabled mode switch in draw order "+axis);
             Check(Mathf.Abs(bar.minValue+.5f)<.000001f&&Mathf.Abs(bar.maxValue-.5f)<.000001f,"wrist drag gesture spans half a metre in each direction "+axis);
             Check(Mathf.Abs(bar.value-WristOffsets()[axis])<.000001f,"first rendered slider handle reads the saved corresponding axis "+axis);
+        }
+        object[] angleBindings=SliderBindings(options,"WristBoardAnglesDegrees");Check(angleBindings.Length==3,"toggle callback immediately rebuilds all three rotation sliders without reopening the menu");
+        for(int axis=0;axis<3;axis++){
+            Slider bar=(Slider)Get(angleBindings[axis],"Item1");
+            Check((int)Get(angleBindings[axis],"Item3")==axis,"production rotation slider registry retains its independent component "+axis);
+            Check(ReferenceEquals(rows[toggleIndex+4+axis],RowOf(options,bar)),"rotation axis follows the three position rows in ordinary draw order "+axis);
+            Check(bar.minValue==-180f&&bar.maxValue==180f,"rotation drag spans a complete revolution on each axis "+axis);
+            Check(bar.value==WristAngles()[axis],"first rendered rotation handle reads the saved corresponding angle "+axis);
         }
         Call(tray,"TickPlacement");yield return Settle();PoseProof(left,"actual wrist-toggle activation finishes at the original tracked root");
         for(int axis=0;axis<3;axis++){
@@ -227,19 +238,40 @@ public sealed class WristHarness : MonoBehaviour
             for(int other=0;other<3;other++)if(other!=axis)Check(stepped[other]==after[other],"original wrist arrow preserves independent other axis "+axis+"/"+other);
             yield return null;yield return null;PoseProof(left,"actual original late tick applies the slider and arrow offset without a placement helper call "+axis);
         }
+        for(int axis=0;axis<3;axis++){
+            Slider bar=(Slider)Get(angleBindings[axis],"Item1");Vector3 before=WristAngles();bar.value=new[]{37.4f,-83.6f,129.4f}[axis];
+            Vector3 after=WristAngles();float expected=new[]{37f,-84f,129f}[axis];
+            Check(after[axis]==expected,"actual rotation callback snaps the selected angle to whole degrees "+axis);
+            for(int other=0;other<3;other++){
+                if(other!=axis)Check(after[other]==before[other],"rotation slider preserves the other saved angles "+axis+"/"+other);
+                Slider sibling=(Slider)Get(angleBindings[other],"Item1");Check(sibling.value==after[other],"live rotation repaint preserves each independent component "+axis+"/"+other);
+            }
+            GameObject row=RowOf(options,bar);string readout=(string)Call(T("WorldUI.ConfigCatalog"),"ValueText",Get(angleBindings[axis],"Item2"),axis);
+            Check(row.GetComponentsInChildren<TMP_Text>(true).Any(x=>x.transform.name=="Amount"&&x.text==readout),"rotation amount label displays the actual saved selected angle "+axis);
+            row.GetComponentsInChildren<Button>(true).Single(x=>x.name=="ArrowRight").onClick.Invoke();
+            Vector3 stepped=WristAngles();Check(stepped[axis]==after[axis]+1f&&bar.value==stepped[axis],"original fine arrow adjusts and repaints rotation by exactly one degree "+axis);
+            for(int other=0;other<3;other++)if(other!=axis)Check(stepped[other]==after[other],"rotation arrow preserves the other axes "+axis+"/"+other);
+            yield return null;yield return null;PoseProof(left,"actual LateUpdate applies each ordinary rotation slider and arrow to the original board "+axis);
+        }
         // The shared hybrid kit still edits bounded scalar entries in their original type.
         object scalar=SliderBindings(options,"TrayScale").Single();Slider scalarBar=(Slider)Get(scalar,"Item1");float scalarSaved=(float)Get(Get(T("Cards.CardsConfig"),"TrayScale"),"Value");
         scalarBar.value=1.273f;Check(Mathf.Abs((float)Get(Get(T("Cards.CardsConfig"),"TrayScale"),"Value")-1.25f)<.000001f,"shared actual hybrid builder retains scalar range/step and float conversion");
         RowOf(options,scalarBar).GetComponentsInChildren<Button>(true).Single(x=>x.name=="ArrowRight").onClick.Invoke();Check(Mathf.Abs(scalarBar.value-1.3f)<.000001f,"shared scalar arrow still updates the ordinary scalar slider");Value("TrayScale",scalarSaved);
-        Vector3 edited=WristOffsets();WristToggle(options).isOn=false;
+        Vector3 edited=WristOffsets(),editedAngles=WristAngles();WristToggle(options).isOn=false;
         Check(SliderBindings(options,"WristBoardOffsetMeters").Length==0,"ordinary wrist-toggle callback immediately removes all three position sliders when disabled");
+        Check(SliderBindings(options,"WristBoardAnglesDegrees").Length==0,"ordinary wrist-toggle callback immediately removes all three rotation sliders when disabled");
         Near(edited,WristOffsets(),"hiding the wrist controls never resets the edited vector");
+        Near(editedAngles,WristAngles(),"hiding rotation controls never resets the edited angle vector");
         // A practical gesture range must not silently clamp an older saved calibration.
         Vector3 outside=new Vector3(.725f,-.63f,.012f);Value("WristBoardOffsetMeters",outside);WristToggle(options).isOn=true;
         Near(outside,WristOffsets(),"rebuilding enabled wrist sliders preserves saved values beyond their drag range");
         bindings=SliderBindings(options,"WristBoardOffsetMeters");Slider z=(Slider)Get(bindings[2],"Item1");z.value=.05f;
         Check(WristOffsets().x==outside.x&&WristOffsets().y==outside.y,"editing one in-range slider preserves other saved axes outside the drag range");
-        Value("WristBoardOffsetMeters",edited);Call(options,"Rebuild");Call(tray,"TickPlacement");yield return Settle();PoseProof(left,"rebuilt normal menu leaves original board and owner world pose on the final saved calibration");
+        Vector3 outsideAngles=new Vector3(361f,-450f,90f);Value("WristBoardAnglesDegrees",outsideAngles);Call(options,"Rebuild");
+        Near(outsideAngles,WristAngles(),"rotation row construction preserves older angles outside the drag range without rewriting equivalent turns");
+        angleBindings=SliderBindings(options,"WristBoardAnglesDegrees");Slider roll=(Slider)Get(angleBindings[2],"Item1");roll.value=75f;
+        Check(WristAngles().x==361f&&WristAngles().y==-450f&&WristAngles().z==75f,"editing one ordinary rotation slider preserves out-of-range other persisted axes");
+        Value("WristBoardOffsetMeters",edited);Value("WristBoardAnglesDegrees",editedAngles);Call(options,"Rebuild");Call(tray,"TickPlacement");yield return Settle();PoseProof(left,"rebuilt normal menu leaves original board and owner world pose on the final saved calibration");
         Object.DestroyImmediate((GameObject)Get(options,"_toggleTemplate"));Object.DestroyImmediate((GameObject)Get(options,"_sliderControl"));Call(options,"ClearRows");Set(options,"ContentRoot",null);Object.DestroyImmediate(parent.gameObject);
     }
     void RemoteProof()
