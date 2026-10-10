@@ -1,6 +1,7 @@
 """Owned process trees, cancellation and durable PID creation identities."""
 from __future__ import annotations
 import ctypes
+import hashlib
 import json
 import importlib.util
 import math
@@ -22,6 +23,162 @@ BEE_ACTIONS = (r"Csc|Clang|Compile|Link|CopyFiles|WriteText|WriteResponseFile|IL
                r"C_Android_arm64|Link_Android_arm64|UnityLinker|SplitFile|ActionGenerateProjectFiles|"
                r"ExtractUsedFeatures|GuidGenerator|NdkObjCopy|ICallRegistrationGenerator|"
                r"ClassRegistrationGenerator|Stripping|Adding")
+
+_BEE_NATIVE = re.compile(r"^(?:C_Android_\w+|Link_Android_\w+|Clang|Compile|Link|Archive|"
+                         r"MakeLump|Lump|Pch|NdkObjCopy|ICallRegistrationGenerator|"
+                         r"ClassRegistrationGenerator|Stripping|Adding)(?:\s|$)")
+_BEE_CONVERSION = re.compile(r"^(?:IL2CPP\w*|UnityLinker|ExtractUsedFeatures)(?:\s|$)")
+_BEE_COMPILER = re.compile(r"^(?:C_Android_\w+|Link_Android_\w+|Clang|Compile|Link)(?:\s|$)")
+_BEE_DAG_LIMIT = 16 * 1048576
+_BEE_NODE_LIMIT = 250000
+
+
+def _bee_scope(annotation):
+    if _BEE_NATIVE.match(annotation): return "native"
+    if _BEE_CONVERSION.match(annotation): return "il2cpp"
+    return "staging"
+
+
+class PlayerBeePlan:
+    """Observe one existing Player DAG and its real cache/execution counter.
+
+    Unity2021.3 regenerates the graph after split files and IL2CPP codegen.
+    Capture231755's9233 copying actions therefore prove no C++ compilation.
+    Only a graph containing native tasks supplies the combined native-plan
+    denominator. No generated output is opened or rebuilt by this observer.
+    """
+    def __init__(self, project, relative, graph_id, *, profile=None, started=0):
+        project = ordinary(project)
+        normalized = relative.replace("\\", "/")
+        if not re.fullmatch(r"Library/Bee/Player[A-Za-z0-9_.-]+\.dag\.json", normalized):
+            raise ValueError("Not an owned Player graph")
+        dag = ordinary(project / normalized)
+        before = dag.stat()
+        if before.st_size > _BEE_DAG_LIMIT: raise ValueError("Optional graph exceeds observation limit")
+        with dag.open("rb") as stream: raw = stream.read(_BEE_DAG_LIMIT + 1)
+        after = dag.stat()
+        witness = lambda value: (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns)
+        if len(raw) > _BEE_DAG_LIMIT or witness(before) != witness(after): raise ValueError("Graph changed")
+        value = json.loads(raw)
+        nodes, named = value.get("Nodes"), value.get("NamedNodes")
+        if not isinstance(nodes, list) or not 0 < len(nodes) <= _BEE_NODE_LIMIT or not isinstance(named, dict):
+            raise ValueError("Unsupported graph")
+        root = named.get("Player")
+        if type(root) is not int or not 0 <= root < len(nodes): raise ValueError("Missing Player target")
+        pending, reached = [root], set()
+        while pending:
+            index = pending.pop()
+            if type(index) is not int or not 0 <= index < len(nodes): raise ValueError("Invalid dependency")
+            if index in reached: continue
+            reached.add(index)
+            node = nodes[index]
+            if not isinstance(node, dict): raise ValueError("Invalid graph node")
+            for name in ("ToBuildDependencies", "ToUseDependencies"):
+                dependencies = node.get(name, [])
+                if not isinstance(dependencies, list): raise ValueError("Invalid dependencies")
+                pending.extend(dependencies)
+        self.annotations = {index: nodes[index].get("Annotation") for index in reached}
+        if any(not isinstance(annotation, str) for annotation in self.annotations.values()): raise ValueError("Invalid annotation")
+        self.counts = {scope: sum(_bee_scope(annotation) == scope for annotation in self.annotations.values())
+                       for scope in ("staging", "il2cpp", "native")}
+        self.total, self.done, self.graph_id = len(reached), 0, graph_id
+        # The final finite task is the backend result. Merely evaluating every
+        # node (including reused ones) cannot show100 while a graph regenerates.
+        # MakeLump and registration/preparation actions can already exist in
+        # the copy graph before codegen exposes any actual compiler/link jobs.
+        self.qualified = any(_BEE_COMPILER.match(annotation) for annotation in self.annotations.values())
+        log = value.get("StructuredLogFileName")
+        if not isinstance(log, str) or not re.fullmatch(r"Library/Bee/[A-Za-z0-9_.-]+\.json", log.replace("\\", "/")):
+            raise ValueError("Unsupported structured log")
+        self.log = ordinary(project / log.replace("\\", "/"))
+        self.dag_name, self.dag_mtime = normalized[:-5], after.st_mtime_ns
+        self.profile = ordinary(project / profile.replace("\\", "/")) if isinstance(profile, str) and re.fullmatch(
+            r"Library[/\\]Bee[/\\]backend_profiler\d+\.traceevents", profile) else None
+        self.started_ns, self.epoch_ns = int(started * 1000000000), None
+        self.profile_clock = None
+        self.initial_log = self._log_witness()
+        self.offset, self.pending, self.identity, self.initialized = 0, b"", None, False
+        self.failed, self.last_emitted, self.conversion_done = False, None, False
+
+    def _log_witness(self):
+        if not self.log.is_file(): return None
+        value = self.log.stat()
+        return (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns)
+
+    def fields(self, *, status="progress", detail=None):
+        counts = self.counts
+        description = (f"[bee-native-plan] [bee-graph:{self.graph_id}] [bee-scope:mixed] "
+                       f"Player graph: {self.done} / {self.total} nodes; "
+                       f"staging {counts['staging']}, code conversion {counts['il2cpp']}, "
+                       f"native compilation/link {counts['native']}; backend result "
+                       + ("completed" if status == "complete" else "pending"))
+        if detail: description += " · " + detail
+        return {"phase": "unity-native-build-plan", "done": self.done + int(status == "complete"),
+                "total": self.total + 1, "unit": "tasks", "detail": description[:1024], "status": status}
+
+    def read(self):
+        """Bounded live observations; cached nodes count only when Bee counts them."""
+        if not self.qualified or not self.log.is_file(): return None
+        # A retained DAG's timestamp can be older than yesterday's structured
+        # log. Bind that log to this backend's separate profiler epoch instead;
+        # profilerN is also distinct for each normal graph-regeneration run.
+        if self.profile is None: return None
+        header = b""
+        if self.profile.is_file() and self.profile.stat().st_mtime_ns >= self.started_ns:
+            with self.profile.open("rb") as stream: header = stream.read(65536)
+        epoch, clock = None, None
+        for line in header.splitlines()[:64]:
+            try: entry = json.loads(line.strip().lstrip(b","))
+            except (ValueError, UnicodeError): continue
+            timestamp = entry.get("ts") if isinstance(entry, dict) else None
+            if isinstance(entry, dict) and entry.get("name") == "DriverInitData" and type(timestamp) in (int, float) \
+                    and math.isfinite(timestamp) and timestamp >= 0:
+                clock = timestamp
+                if timestamp > 10 ** 15: epoch = int(timestamp * 1000)
+                break
+        if epoch is not None and epoch < self.started_ns: return None
+        if clock is not None and self.profile_clock is not None and clock != self.profile_clock:
+            self.offset, self.pending, self.identity, self.initialized = 0, b"", None, False
+            self.done, self.failed, self.last_emitted, self.conversion_done = 0, False, None, False
+            self.initial_log = self._log_witness()
+        if clock is not None: self.profile_clock = clock
+        self.epoch_ns = epoch
+        current = self.log.stat()
+        if current.st_mtime_ns < max(self.dag_mtime, epoch or self.started_ns): return None
+        # Windows clocks may be relative, and profilers can flush only on exit.
+        # Require a fresh write/init after this scoped backend observation
+        # instead of treating uptime or a retained old log as current progress.
+        # A final profiler flush being newer than its log is not a failure.
+        if epoch is None and self._log_witness() == self.initial_log: return None
+        identity = (current.st_dev, current.st_ino)
+        if self.identity != identity or current.st_size < self.offset:
+            self.offset, self.pending, self.initialized, self.identity = 0, b"", False, identity
+        with self.log.open("rb") as stream:
+            stream.seek(self.offset); block = stream.read(1048576); self.offset += len(block)
+        lines = (self.pending + block).split(b"\n"); self.pending = lines.pop()[-65536:]
+        for line in lines:
+            if len(line) > 65536: continue
+            try: value = json.loads(line)
+            except (ValueError, UnicodeError): continue
+            if not isinstance(value, dict): continue
+            if value.get("msg") == "init":
+                dag_file = value.get("dagFile")
+                self.initialized = (isinstance(dag_file, str) and dag_file.replace("\\", "/") == self.dag_name
+                                    and value.get("targets") == ["Player"])
+            elif self.initialized and value.get("msg") == "noderesult":
+                index = value.get("index")
+                if type(index) is not int or self.annotations.get(index) != value.get("annotation"): continue
+                done, queued = value.get("processed_node_count"), value.get("number_of_nodes_ever_queued")
+                if type(done) is not int or type(queued) is not int or not self.done <= done <= queued <= self.total: continue
+                if type(value.get("exitcode")) is not int: continue
+                if value["exitcode"] != 0: self.failed = True
+                if value["exitcode"] == 0 and value.get("annotation", "").startswith("IL2CPP_CodeGen "):
+                    self.conversion_done = True
+                self.done = done
+        emitted = (self.done, self.failed)
+        if emitted == self.last_emitted: return None
+        self.last_emitted = emitted
+        return self.fields(status="failed" if self.failed else "progress")
 
 
 def diagnostic_command(argv):
@@ -53,9 +210,12 @@ def _unity_work_module():
 
 class ProgressParser:
     """Recognize measured counters, never infer a percentage from elapsed time."""
-    def __init__(self):
+    def __init__(self, *, started=0):
+        self.started = started
         self.bee_runs = {}
         self.bee_current = {}
+        self.player_graphs = {}
+        self.bee_epochs = {}
         self.unity_operations = {}
         self.active_operation = None
         self.closed_operations = set()
@@ -71,6 +231,174 @@ class ProgressParser:
         self.gradle_epochs = {}
         self.gradle_retired_epochs = {}
         self.memory_rejections = set()
+        self.shader_coverage = {}
+        self.additional_progress = []
+
+    def take_observations(self):
+        result, self.additional_progress = self.additional_progress, []
+        return result
+
+    def _queue_observation(self, fields):
+        if fields is not None:
+            if len(self.additional_progress) >= 64: self.additional_progress.pop(0)
+            self.additional_progress.append(fields)
+
+    def _shader_coverage(self, source, *, finished=None):
+        """Reuse the existing finite asset census; read only Shader declarations.
+
+        Duplicate declared names identify the compiler's actual log namespace,
+        not GUIDs or a promised variant queue. This explicitly named coverage
+        can reach its final task only at the Android platform handoff.
+        """
+        owner = self._unity_operation(source)
+        if owner not in ("player", "update-code") or owner in self.closed_operations: return None
+        key = (source, owner)
+        fresh = key not in self.shader_coverage
+        if key not in self.shader_coverage:
+            if len(self.shader_coverage) >= 32: self.shader_coverage.clear()
+            self.shader_coverage[key] = None
+            coverage = self.import_coverage.get(source)
+            if coverage is None: return None
+            try:
+                paths = sorted(path for path in coverage.known if path.endswith(".shader"))
+                if not paths or len(paths) > 10000: return None
+                project = ordinary(coverage.plan["project"])
+                roots = [("Assets", project / "Assets"), *_unity_work_module()._package_roots(project)]
+                names = set()
+                for logical in paths:
+                    if any(part in ("", ".", "..") for part in logical.split("/")): return None
+                    prefix, root = next(((prefix, root) for prefix, root in roots if logical.startswith(prefix + "/")), (None, None))
+                    if root is None: continue
+                    path = ordinary(root / logical[len(prefix) + 1:])
+                    with path.open("rb") as stream: header = stream.read(2048)
+                    if header.startswith(b"\xef\xbb\xbf"): header = header[3:]
+                    # Consume comments/other strings before matching a real
+                    # line-leading declaration, including commented examples.
+                    tokens = re.finditer(rb'//[^\r\n]*|/\*[\s\S]*?(?:\*/|\Z)|"(?:\\.|[^"\\])*"|'
+                                         rb'^[\t ]*Shader\s+"([^"\r\n]{1,512})"', header, re.M)
+                    declaration = next((token[1] for token in tokens if token[1] is not None), None)
+                    if declaration: names.add(declaration.decode("utf-8"))
+                if names: self.shader_coverage[key] = {"names": names, "observed": set()}
+            except (OSError, ValueError, TypeError, UnicodeError, WizardError, AttributeError, MemoryError, RecursionError): return None
+        census = self.shader_coverage.get(key)
+        if not census: return None
+        if finished is None and not fresh: return None
+        if finished is not None:
+            if finished not in census["names"] or finished in census["observed"]: return None
+            census["observed"].add(finished)
+        done, known = len(census["observed"]), len(census["names"])
+        return self._unity_fields({"phase": "unity-player-shaders", "done": done, "total": known + 1,
+            "unit": "tasks", "status": "progress", "detail": f"[shader-coverage] {done} / {known} known declared Shader names observed; +1 Android platform handoff pending"}, source)
+
+    def _conversion_complete(self, source, graph):
+        if graph.get("conversionClosed"): return None
+        graph["conversionClosed"] = True
+        return self._unity_fields({"phase": "unity-il2cpp", "done": 2, "total": 2, "unit": "tasks",
+            "status": "complete", "detail": f"[bee-graph:{graph['id']}] [bee-scope:il2cpp] Managed code conversion returned successfully"}, source)
+
+    @staticmethod
+    def _fallback_native_fields(graph, fields, *, status="progress", detail=None):
+        """The actual printed CPP-containing queue remains finite without a DAG."""
+        done, total = fields.get("done"), fields.get("total")
+        if type(done) is not int or type(total) is not int or not 0 <= done <= total: return None
+        terminal = status == "complete"
+        return {"phase": "unity-native-build-plan", "done": done + int(terminal), "total": total + 1,
+            "unit": "tasks", "status": status, "detail": (f"[bee-native-plan] [bee-graph:{graph['id']}] [bee-scope:mixed] "
+                f"Player graph: {done} / {total} evaluated nodes; +1 backend result "
+                + ("completed" if terminal else "pending") + " · " + (detail or fields.get("detail") or ""))[:1024]}
+
+    def _player_bee_boundary(self, line, source):
+        owner = self._unity_operation(source)
+        if owner not in ("player", "update-code") or owner in self.closed_operations: return None
+        if re.search(r"^Starting: .*(?:[/\\]|\")AndroidPlayerBuildProgram\.exe(?:\"|\s|$)", line):
+            self.player_graphs.pop(source, None)
+            return self._unity_fields({"phase": "unity-player-platform-handoff", "done": 1, "total": 1,
+                "unit": "tasks", "status": "complete", "detail": "Android Player build program started; scene and Shader preparation returned"}, source)
+        if line.startswith("Starting:") and "--dagfile=" in line:
+            match = re.search(r'--dagfilejson=(?:"([^"]+)"|(\S+))', line)
+            if match: relative = match[1] or match[2]
+            else:
+                match = re.search(r'--dagfile=(?:"([^"]+)"|(\S+))', line)
+                relative = ((match[1] or match[2]) + ".json") if match else ""
+            if not re.search(r"\sPlayer$", line) or not re.fullmatch(r"Library[/\\]Bee[/\\]Player[A-Za-z0-9_.-]+\.dag\.json", relative): return None
+            if len(self.player_graphs) >= 32 and source not in self.player_graphs: self.player_graphs.clear()
+            epoch = self.bee_epochs.get(source, 0) + 1; self.bee_epochs[source] = epoch
+            graph_id = hashlib.sha256((source + ":" + relative + ":" + str(epoch)).encode()).hexdigest()[:20]
+            coverage = self.import_coverage.get(source)
+            profile_match = re.search(r'--profile=(?:"([^"]+)"|(\S+))', line)
+            profile = (profile_match[1] or profile_match[2]) if profile_match else None
+            self.player_graphs[source] = {"relative": relative, "id": graph_id, "owner": owner,
+                "project": coverage.plan["project"] if coverage is not None else None, "snapshot": None,
+                "attempted": 0, "profile": profile, "started": max(self.started, coverage.plan["createdAt"] if coverage is not None else 0),
+                "exit": None, "ended": False}
+            self.bee_current.pop(source, None)
+            return self._unity_fields({"phase": "unity-bee-activity", "done": None, "total": None,
+                "unit": "tasks", "status": "start", "detail": f"[bee-graph:{graph_id}] Player dependency graph started"}, source)
+        graph = self.player_graphs.get(source)
+        if not graph: return None
+        if line.startswith("WorkingDir: "):
+            graph["project"] = line[len("WorkingDir: "):]
+            self._open_player_graph(graph)
+        match = re.fullmatch(r"ExitCode: (\d+) Duration: .+", line)
+        if match: graph["exit"] = int(match[1])
+        match = re.fullmatch(r"\*\*\* Tundra (build success|build failed|requires additional run) \([\d.]+ seconds\), (\d+) items updated, (\d+) evaluated", line)
+        if match:
+            graph["ended"] = True
+            snapshot = graph.get("snapshot")
+            if graph.get("codegen") and graph["exit"] in (0, 4) and match[1] in ("build success", "requires additional run") \
+                    and not (snapshot and snapshot.failed):
+                self._queue_observation(self._conversion_complete(source, graph))
+            if snapshot and snapshot.qualified:
+                evaluated = int(match[3])
+                if evaluated <= snapshot.total: snapshot.done = max(snapshot.done, evaluated)
+                if match[1] == "build success" and graph["exit"] == 0 and not snapshot.failed and evaluated == snapshot.total:
+                    return self._unity_fields(snapshot.fields(status="complete", detail=line), source)
+                return self._unity_fields(snapshot.fields(status="failed" if match[1] == "build failed" or snapshot.failed else "progress", detail=line), source)
+            current = self.bee_current.get(source)
+            if current:
+                if graph.get("nativeSeen"):
+                    actual = dict(current)
+                    if int(match[3]) <= actual["total"]: actual["done"] = max(actual["done"], int(match[3]))
+                    terminal = match[1] == "build success" and graph["exit"] == 0 and actual["done"] == actual["total"]
+                    return self._unity_fields(self._fallback_native_fields(graph, actual,
+                        status="complete" if terminal else "failed" if match[1] == "build failed" else "progress", detail=line), source)
+                fields = dict(current)
+                fields.update(detail=current["detail"] + " · " + line,
+                    status="complete" if match[1] == "build success" and graph["exit"] == 0 else "failed" if match[1] == "build failed" else "progress")
+                return self._unity_fields(fields, source)
+        return None
+
+    @staticmethod
+    def _open_player_graph(graph):
+        if graph["snapshot"] is not None or graph["attempted"] >= 8 or not graph["project"]: return
+        graph["attempted"] += 1
+        try:
+            graph["snapshot"] = PlayerBeePlan(graph["project"], graph["relative"], graph["id"],
+                                              profile=graph["profile"], started=graph["started"])
+        except FileNotFoundError: pass  # Publication can follow the first observed WorkingDir.
+        except (OSError, ValueError, TypeError, UnicodeError, WizardError, AttributeError, MemoryError, RecursionError): graph["attempted"] = 8
+
+    def poll_player_bee(self):
+        """Current owned graph only; optional observation never stops a build."""
+        values = []
+        for source, graph in list(self.player_graphs.items()):
+            if graph["ended"] or graph["owner"] in self.closed_operations or not graph["project"]: continue
+            try:
+                self._open_player_graph(graph)
+                snapshot = graph["snapshot"]
+                if snapshot:
+                    fields = snapshot.read()
+                    if snapshot.conversion_done:
+                        complete = self._conversion_complete(source, graph)
+                        if complete: values.append(complete)
+                    if fields:
+                        fields["operation"] = graph["owner"]
+                        values.append(fields)
+            except (OSError, ValueError, TypeError, UnicodeError, WizardError, AttributeError, MemoryError, RecursionError):
+                # A missing/changing/oversized telemetry file does not justify
+                # resetting Library, delaying Unity or rejecting an APK.
+                graph["snapshot"] = None
+        return values
 
     def _unity_operation(self, source):
         """Compiler logs belong to their actual child build, not Player import."""
@@ -124,6 +452,8 @@ class ProgressParser:
                 self.gradle_retired_epochs.pop(owner, None)
                 self.import_runs.pop(source, None); self.import_pending.pop(source, None)
                 self.native_import_counts.pop(source, None)
+                for key in list(self.shader_coverage):
+                    if key[0] == source: self.shader_coverage.pop(key, None)
             self.import_coverage[source] = coverage
             self.plan_signatures[source] = signature
             return self._unity_fields({"phase": "unity-work-plan", "done": coverage.done, "total": plan["total"],
@@ -185,7 +515,7 @@ class ProgressParser:
 
     def _shader_fields(self, source, run, *, failed=False):
         current = run["current"]
-        detail = ("Unity shader compilation: " + current["name"] + " / " + (current["pass"] or "unnamed pass") +
+        detail = ("[shader-pass:" + str(run["started"]) + "] Unity shader compilation: " + current["name"] + " / " + (current["pass"] or "unnamed pass") +
                   " · pass #" + str(run["started"]) + " · completed passes " + str(run["passes"]) +
                   " · completed variants " + str(run["variants"]))
         if failed: detail += " · compiler reported an error; this pass is incomplete"
@@ -210,6 +540,7 @@ class ProgressParser:
                 run.update(owner=owner, started=0, passes=0, variants=0)
             run["started"] += 1
             run["current"] = {"name": match[1], "pass": match[2], "done": None, "total": None, "closed": False}
+            self._queue_observation(self._shader_coverage(source))
             return self._shader_fields(source, run)
         run = self.shader_runs.get(source)
         if not run or not run["current"] or run["current"]["closed"]: return None
@@ -236,8 +567,10 @@ class ProgressParser:
             run["passes"] += 1; run["variants"] += done
             fields = self._shader_fields(source, run)
             fields["detail"] += " · pass finished"
-            # This is deliberately progress, not complete: Unity may compile
-            # more passes, serialize a bank or fail after its final shader.
+            # Only this explicitly scoped pass closes. Unity may still compile
+            # other passes, serialize a bank or fail in a later native action.
+            fields["status"] = "complete"
+            self._queue_observation(self._shader_coverage(source, finished=current["name"]))
             return fields
         if re.search(r"^(?:Shader error in |Error compiling shader|Shader compiler (?:process )?(?:crashed|failed))", line, re.I):
             fields = self._shader_fields(source, run, failed=True)
@@ -342,6 +675,8 @@ class ProgressParser:
             except (ValueError, TypeError, WizardError): return None
         shader = self._shader_progress(line, source)
         if shader is not None: return self._unity_fields(shader, source)
+        boundary = self._player_bee_boundary(line, source)
+        if boundary is not None: return boundary
         match = re.fullmatch(r"\[\s*(\d+)/(\d+)\s+\d+(?:\.\d+)?s\]\s+(" + BEE_ACTIONS + r")\b(.*)", line)
         if match:
             done, total = int(match[1]), int(match[2])
@@ -349,9 +684,26 @@ class ProgressParser:
             previous, generation = self.bee_runs.get((source, total), (-1, 0))
             if done < previous: generation += 1
             self.bee_runs[(source, total)] = done, generation
+            annotation = match[3] + match[4]
+            graph = self.player_graphs.get(source)
+            scope = _bee_scope(annotation)
+            metadata = f"[bee-scope:{scope}] "
+            if graph: metadata += f"[bee-graph:{graph['id']}] "
             fields = {"phase": f"bee-actions:{source}:{total}:{generation}"[:160], "done": done, "total": total,
-                      "unit": "actions", "detail": (match[3] + match[4])[:1024]}
+                      "unit": "actions", "detail": (metadata + annotation)[:1024]}
             self.bee_current[source] = fields
+            if match[3] == "IL2CPP_CodeGen" and self._unity_operation(source) in ("player", "update-code"):
+                if graph: graph["codegen"] = True
+                return self._unity_fields({"phase": "unity-il2cpp", "done": 1, "total": 2,
+                    "unit": "tasks", "status": "progress", "detail": (metadata + "Managed code conversion action returned; result pending · " + annotation)[:1024]}, source)
+            snapshot = graph.get("snapshot") if graph else None
+            if snapshot and snapshot.qualified and total == snapshot.total and done >= snapshot.done:
+                snapshot.done = done
+                return self._unity_fields(snapshot.fields(detail=annotation), source)
+            if graph:
+                if _BEE_COMPILER.match(annotation): graph["nativeSeen"] = True
+                if graph.get("nativeSeen"):
+                    return self._unity_fields(self._fallback_native_fields(graph, fields, detail=annotation), source)
             return self._unity_fields(dict(fields), source)
         match = re.fullmatch(r"\[BUSY\s+(\d+(?:\.\d+)?)s\]\s+(" + BEE_ACTIONS + r")\b(.*)", line)
         if match:
@@ -359,8 +711,17 @@ class ProgressParser:
                                                        "total": None, "unit": "actions"}))
             # BUSY is a real activity heartbeat, not a newly completed action.
             # Preserve the last measured DAG counter and its generation.
-            fields.update(detail=("Active compiler action: " + match[2] + match[3] + " · elapsed: " + match[1] + " s")[:1024],
+            graph = self.player_graphs.get(source)
+            metadata = f"[bee-scope:{_bee_scope(match[2] + match[3])}] "
+            if graph: metadata += f"[bee-graph:{graph['id']}] "
+            fields.update(detail=(metadata + "Active compiler action: " + match[2] + match[3] + " · elapsed: " + match[1] + " s")[:1024],
                           status="progress")
+            snapshot = graph.get("snapshot") if graph else None
+            if snapshot and snapshot.qualified:
+                fields = snapshot.fields(detail=fields["detail"])
+            elif graph and graph.get("nativeSeen"):
+                fields = self._fallback_native_fields(graph, fields, detail=fields["detail"])
+                if fields is None: return None
             return self._unity_fields(fields, source)
         if self._unity_child(source):
             match = re.fullmatch(r"> Task (:[A-Za-z0-9_:.\-]+)(?: (UP-TO-DATE|FROM-CACHE|NO-SOURCE|SKIPPED|FAILED))?", line)
@@ -601,6 +962,13 @@ class Supervisor:
             pending_import = None
             for line in tail.read(final=final):
                 fields = parser.parse(line, tail.path.name)
+                observations = parser.take_observations()
+                # Child counters and coverage describe separate measured
+                # scopes. Deliver both without hiding the native log event.
+                for observation in observations:
+                    if self.stage:
+                        if observation.get("operation") not in PLANS[self.stage]: observation.pop("operation", None)
+                        self.store.progress(self.session, self.stage, **observation)
                 if fields and self.stage:
                     # Observation is additive. A newer selected source or a
                     # nested tool can emit another workflow's operation code;
@@ -619,6 +987,10 @@ class Supervisor:
                         pending_import = None
                     self.store.progress(self.session, self.stage, **fields)
             if pending_import: self.store.progress(self.session, self.stage, **pending_import)
+        if self.stage:
+            for fields in parser.poll_player_bee():
+                if fields.get("operation") not in PLANS[self.stage]: fields.pop("operation", None)
+                self.store.progress(self.session, self.stage, **fields)
         parser.flush_coverage()
 
     def run(self, argv, log, *, cwd=None, env=None, timeout=None, on_started=None, on_poll=None, acceptable_codes=(0,)):
@@ -633,7 +1005,7 @@ class Supervisor:
         options = {"creationflags": WindowsJob.CREATE_SUSPENDED | WindowsJob.CREATE_NEW_PROCESS_GROUP} if job else {"start_new_session": True}
         process = None; started = time.monotonic(); started_wall = time.time()
         next_space_check = started + SPACE_CHECK_SECONDS if self.stage in ("inspect", "build") else None
-        tails = {log: LogTail(log)}; parser = ProgressParser(); controlled_stop = False
+        tails = {log: LogTail(log)}; parser = ProgressParser(started=started_wall); controlled_stop = False
         try:
             with log.open("wb") as stream:
                 process = subprocess.Popen(list(map(str, argv)), cwd=cwd, env=env,

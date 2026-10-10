@@ -44,7 +44,7 @@ class ShaderCounterTests(unittest.TestCase):
         self.assertEqual(stage_progress(**{key: first[key] for key in ("phase", "done", "total", "unit", "detail")})["percent"], 39.9)
         final = self.parser.parse(FINISHED, SOURCE)
         self.assertEqual((final["done"], final["total"]), (12288, 12288))
-        self.assertEqual(final["status"], "progress")
+        self.assertEqual(final["status"], "complete")
         self.assertIn("completed passes 1", final["detail"])
         self.assertIn("completed variants 12288", final["detail"])
 
@@ -90,7 +90,7 @@ class ShaderCounterTests(unittest.TestCase):
         ready = self.parser.parse("[180s] 12288 / 12288 variants ready", SOURCE)
         self.assertEqual(ready["status"], "progress")
         value = self.parser.parse(FINISHED, SOURCE)
-        self.assertEqual(value["status"], "progress")
+        self.assertEqual(value["status"], "complete")
         self.assertEqual(value["operation"], "mod-banks")
 
     def test_failure_cannot_be_followed_by_false_pass_completion(self):
