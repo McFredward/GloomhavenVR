@@ -87,11 +87,15 @@ Both final helper/fixture hashes match; ActorBudget and CoreModule are byte-iden
 to661. EN/DE settings help passes2,305 assertions and its content/lookup controls.
 Strict Debug/Release pass with zero errors/warnings, and direct portable wire
 goldens pass300419 assertions. Source16 passes on the integrated production tree;
-unchanged NPC/general scopes inherit661's recorded evidence. This is bounded
-integration, not a fresh complete206-suite gate.
+unchanged NPC/general scopes inherit661's recorded evidence. The parallel wrist
+controls shipped as662 during this work, so the final delivery is663 and preserves
+those changes. Its merged actual wrist/menu proof freshly passes324 assertions
+and three controls alongside the unchanged2,305 settings-help assertions.
+Source16, strict builds and300419 goldens also pass again on that merged tree.
+This is bounded integration, not a fresh complete206-suite gate.
 
-The private661 comparison covers1252 compiled types: eight intended behavior
-units, eight verified661→662 constant-only consumers, and one verified private
+The final private662 (`bb2443c97`) comparison covers1252 compiled types: eight
+intended behavior units, eight verified662→663 constant-only consumers, and one private
 branch stamp. No type is added/removed and no change is unexplained. Config keys
 665→666 add only the new independent quality choice;235 Harmony-text patches and
 4795 log tokens remain, without removals. Builds and decompilation are serialized
@@ -102,7 +106,8 @@ Ignored receipts and verified compact archives live in
 asset hashes and pixel receipts remain; generated Unity projects, compiled
 outputs and duplicate originals are regenerable caches. The superseded unshipped
 party-reference evidence is separated under `rejected-v1/`; it is not final
-acceptance. Only this task's three worktrees/caches are removed after verification.
+acceptance. Only this task's worktrees/caches, including the additional private662
+baseline checkout, are removed after verification.
 Other agents' worktrees and supplied hardware inputs remain intact.
 
 No automated check establishes Steam Frame picture or FPS acceptance. The next

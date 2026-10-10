@@ -16,7 +16,10 @@ full106-variant attempt with one escaped new fixture control is retained. Final
 figure proof passes2,719 assertions/five controls, settings help2,305, source16,
 strict Debug/Release0 warnings/errors and300419 direct wire goldens. This is
 focused integration with unchanged661 evidence, not a fresh206-suite full gate.
-The private1252-type comparison explains eight behavior units, eight build-only
+The parallel wrist662 changes are preserved; their merged native menu proof
+freshly passes324 assertions/three controls. Source16, strict builds and wire
+goldens pass again on that tree before663 delivery.
+The private662→6631252-type comparison explains eight behavior units, eight build-only
 consumers and one branch stamp, with no removals/unexplained changes.666 config
 keys add one quality choice;235 patches and4795 log tokens remain. Read
 [FRAME-PILLAR-FIGURE-LOD-REVIEW.md](FRAME-PILLAR-FIGURE-LOD-REVIEW.md) for exact
