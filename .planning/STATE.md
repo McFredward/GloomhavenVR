@@ -1,5 +1,19 @@
 # State — where the project stands
 
+**Build665 paired664 NPC follow-up, 2026-10-10: integration in progress.**
+
+The maintainer accepts remote card/UI admission time and confirms body/front
+motion is coupled. Preserve those outcomes, stable enhancement paint and the
+accepted merchant return. This follow-up addresses offered yaw at both NPCs,
+small summon enhancement-area Y placement, and the enchantress's displayed
+original becoming the returning card rather than leaving a parked copy.
+
+Both supplied build banners identify664; the summon screenshot is inspected
+and immutable inputs are recorded in `.planning/debug/npc665/inputs/manifest.json`.
+Separate initialized workers use current dev `c9462f78b`. The integrated gate,
+wire116 origin boundaries, compiled comparison and publication are still pending.
+Read [NPC-665-REVIEW.md](NPC-665-REVIEW.md) for causes and the hardware boundary.
+
 **Build664 approved PC/Standalone defaults, 2026-10-10: 1.1.0 development candidate.**
 
 Fresh PC mod settings match High-End PC with MSAA8; Frame matches Standalone

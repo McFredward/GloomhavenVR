@@ -54,11 +54,47 @@ The first corrected probe preserves the header-free frame increments in both
 paths. This is numerical runtime evidence, not a headset smoothness verdict.
 
 The imported native summon hierarchy places its name TMP layout element above
-the small stat cells. The current print mask disables artwork components,
-including that layout provider. Preserving its layout contribution while hiding
-its actual renderer is the narrow repair under test; broader cross-prefab
-stat-box remapping is not assumed necessary. The broad action rows have a
-separate geometry path and must remain unchanged.
+the small stat cells. The old print mask disables that layout provider. The
+unchanged native layout reproduces an upward shift of about 22.35 card units in
+the editor-font fixture; this is a measurement, not a hardcoded correction.
+Keeping the actual `SummonContainer.SummonNameText` enabled while suppressing
+its renderer restores the native cell positions. The broad action rows have
+a separate geometry path and remain unchanged. Initially inactive native
+enhancement-area images are also excluded from the print mask by their actual
+component ancestry, preserving them when the branch becomes active.
+
+The return origin is an immutable, optional 20-byte TLV116 payload naming the
+private service/session/module/structure/claim and native preparation revision.
+The transport supplies the owner. Both lanes advertise the exact same native
+source before its return; a complete due113 cohort can then rekey the existing
+observer module rather than display a second Stock card. Address or card-model
+matching never grants transfer authority. Cumulative deltas and pooled native
+first pictures must retain exactly one origin record. Existing113/115 records
+and frames without116 retain their original byte format.
+
+## Reviewed worker proof
+
+- [NPC-665-YAW.md](NPC-665-YAW.md): 194,636 assertions, eight owner/header/delivery
+  cases, two causal expected failures, 32 GPU images and 16 silhouette comparisons
+  with zero changed pixels. The anisotropic unsent-native-layout comparison remains
+  a separately recorded limit; tolerances were not increased to hide it.
+- [NPC-665-OVERLAY.md](NPC-665-OVERLAY.md): 818 assertions, five causal expected
+  failures, four stat cells, two physical scales, native inactive/disabled/repool
+  cases and unchanged broad areas. All 12 isolated hidden-label readbacks contain
+  zero ink; visible physical-label positive controls pass.
+
+The apparent TMP renderer-reset diagnosis was disproved by correctly isolating
+the complete canvas. The first camera also included legitimately visible artwork
+from another remote canvas. The smaller renderer-only repair passes; the temporary
+additional Graphic-alpha change was removed. Failed probes and the escaped
+diagnostic control are retained and explicitly described, not counted as passing
+negative controls.
+
+The primary agent independently re-read and verified all 1,564 yaw archive hashes
+and 319 overlay archive payload hashes. Compact worker receipts live under the
+main checkout's `.planning/debug/npc665/yaw/ac3395e09` and
+`.planning/debug/npc665/overlay/1b4bac8bc`; worker originals remain intact.
+The composed return review, complete integration gate and publication are pending.
 
 Automated source/runtime proof does not establish the final headset image or
 subjective yaw smoothness. Those outcomes require the next paired hardware run.
