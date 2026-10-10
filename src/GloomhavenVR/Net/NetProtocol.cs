@@ -174,6 +174,8 @@ internal static class NetProtocol
     /// <summary>Exact private offered-card preparation origin carried by its
     /// native private and Stock frames. Additive to message26; no peer identity is encoded.</summary>
     public const byte ExtIdTownCardReturnOrigin = 116;
+    // Exact owner-authored offered-card hover activation and native waveform basis.
+    public const byte ExtIdTownOfferedHover = 117;
     /// <summary>Owner fan insertion gap: one byte gap + 1; zero clears the marker.</summary>
     public const byte ExtIdFanInsertionGap = 71;
     /// <summary>Native video source and shared pose, independent of the legacy window record21.</summary>
@@ -610,7 +612,20 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 665;
+    public const ushort ModBuild = 666;
+
+    // ModBuild666 — paired665 summon selection and intrinsic offered effects.
+    // The maintainer reports positioned but invisible/nonselectable native summon
+    // enhancement areas, choppy enchantress point-ring facing, and sampled remote
+    // merchant/enchantress hover despite the approved client-local phase exception.
+    // Review the actual native enhancement creation/selection chain, not only a
+    // manually populated geometry fixture. Effect planes follow the rendered card;
+    // only intrinsic repeating spin/hover phases may differ between observers.
+    // Additive117 reserves the exact offered-hover activation/waveform basis;
+    // existing numeric97/98 and native returns113/115/116 retain their format.
+    // Preserve accepted loading, card body/front coupling and native return identity.
+    // Final causal repairs and validation are recorded in NPC-666-REVIEW.md.
+    // Version3 stays unchanged; next free118. Hardware outcomes remain unverified.
 
     // ModBuild665 — paired664 offered yaw, summon areas and enchantress return ownership.
     // The maintainer accepts remote card/UI admission time and body/front motion;
