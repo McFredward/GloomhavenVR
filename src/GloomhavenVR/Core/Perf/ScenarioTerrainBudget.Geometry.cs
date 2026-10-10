@@ -74,10 +74,10 @@ internal static partial class ScenarioTerrainBudget
             float heightScale = y.magnitude;
             if (heightScale < .0001f)
             {
-                // Degenerate native scale keeps the original visibility/distance fallback.
-                // Reuse that one bounds read when a size band is requested as well.
+                // Degenerate native scale keeps the original distance fallback.
+                // Its original cylindrical radius is undefined: leave it zero so
+                // independent LOD preserves native geometry, never an AABB-based band.
                 Bounds fallback = Renderer.bounds;
-                if (measureRadius) originalRadius = fallback.extents.magnitude;
                 return Vector3.Distance(position, fallback.ClosestPoint(position));
             }
             Vector3 axis = y / heightScale;
