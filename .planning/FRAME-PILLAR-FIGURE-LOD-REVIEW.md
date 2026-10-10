@@ -64,8 +64,48 @@ only the standard build handshake advances to662.
 
 ## Validation and remaining hardware scope
 
-Final counts, composed input hashes, compiled scope and verified archive/cleanup
-receipts are recorded below after the focused integration checks finish. The
-unshipped party-reference proof is not reused as acceptance of this independent
-implementation. No automated check establishes Steam Frame picture or FPS
-acceptance; that remains the next hardware run.
+Final terrain production executes7,021 assertions in actual Unity2021.3.5f1,
+including all10 original pillars, cap0/66/67/100, radial orbits, yaw, board scale,
+live independent/manual selection, figure-toggle/presence independence, exact
+hysteresis edges, source-read budgets, nonempty pixels and original/coarse topology.
+The final focused run passes production and three affected causal controls with
+all64 bound inputs unchanged. Those exact64 hashes match the integration tree.
+
+Terrain control evidence is explicitly **composed106**, not a new107-variant final
+pass. The first106-variant full attempt passed6,999 production assertions and104
+of105 controls. One new toggle-coupling control escaped because its far test point
+selected coarse geometry under both independent and manual policies. A stronger
+near point now exposes that defect. A narrow degenerate-Y fallback repair retains
+original geometry rather than borrowing a current AABB radius. The final four
+variants pass7,021 assertions plus the repaired toggle control, new degenerate-Y
+control and existing invalid-size control.103 other controls inherit their
+unchanged passing evidence. The initial exit1 and source-stable receipt remain.
+
+The unchanged figure selector executes2,719 native assertions and five causal
+controls, including72 legacy-boundary comparisons and36 effective-tier checks.
+Both final helper/fixture hashes match; ActorBudget and CoreModule are byte-identical
+to661. EN/DE settings help passes2,305 assertions and its content/lookup controls.
+Strict Debug/Release pass with zero errors/warnings, and direct portable wire
+goldens pass300419 assertions. Source16 passes on the integrated production tree;
+unchanged NPC/general scopes inherit661's recorded evidence. This is bounded
+integration, not a fresh complete206-suite gate.
+
+The private661 comparison covers1252 compiled types: eight intended behavior
+units, eight verified661→662 constant-only consumers, and one verified private
+branch stamp. No type is added/removed and no change is unexplained. Config keys
+665→666 add only the new independent quality choice;235 Harmony-text patches and
+4795 log tokens remain, without removals. Builds and decompilation are serialized
+so XML documentation cannot contaminate the comparison.
+
+Ignored receipts and verified compact archives live in
+`.planning/debug/frame-pillar-figure-lod/`. Logs, source/fixture copies, original
+asset hashes and pixel receipts remain; generated Unity projects, compiled
+outputs and duplicate originals are regenerable caches. The superseded unshipped
+party-reference evidence is separated under `rejected-v1/`; it is not final
+acceptance. Only this task's three worktrees/caches are removed after verification.
+Other agents' worktrees and supplied hardware inputs remain intact.
+
+No automated check establishes Steam Frame picture or FPS acceptance. The next
+hardware run should approach and circle the same pillar, compare a figure at a
+similar range, and repeat after changing table scale. Pillar detail must not change
+when figure LOD is disabled or the party changes.
