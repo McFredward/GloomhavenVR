@@ -118,6 +118,9 @@ async function cleanStorage() {
   finally{storageBusy=false;updateView();scheduleStoragePoll();}
 }
 function phaseLabel(phase='') {
+  if(phase.startsWith('unity-progress:'))return t('phase_unity-progress');
+  if(phase.startsWith('unity-shader-task:'))return t('phase_unity-shader-task');
+  if(phase.startsWith('unity-work-stage:'))return t('unityWork_'+phase.slice(17));
   if(phase.startsWith('operation:')){
     const code=phase.slice(10),key='phase_operation_'+code,value=t(key);
     const tool=code.match(/^(download|extract|verify)-(git|dotnet8|dotnet10|apkJdk|apkBuildTools)$/);
@@ -139,8 +142,12 @@ function counters(value) {
   if(!Number.isFinite(value.done)||!Number.isFinite(value.total)||value.total<=0)return '';
   const number=n=>new Intl.NumberFormat(language,{maximumFractionDigits:1}).format(n);
   if(value.unit==='bytes')return t('counterBytes',{done:number(value.done/1048576)+' MiB',total:number(value.total/1048576)+' MiB'});
-  const key={files:'counterFiles',actions:'counterActions',checks:'counterChecks',dependencies:'counterDependencies',batches:'counterBatches',steps:'counterSteps',checkpoints:'counterSteps',variants:'counterVariants',objects:'counterObjects',assets:'counterImports',assemblies:'counterAssemblies',tasks:'counterSteps',scenes:'counterScenes',sprites:'counterSprites',shaders:'counterShaders'}[value.unit]??'counterUnits';
+  const key={files:'counterFiles',actions:'counterActions',checks:'counterChecks',dependencies:'counterDependencies',batches:'counterBatches',steps:'counterSteps',checkpoints:'counterSteps',variants:'counterVariants',objects:'counterObjects',assets:'counterImports',assemblies:'counterAssemblies',tasks:'counterSteps',invocations:'counterInvocations',scenes:'counterScenes',sprites:'counterSprites',shaders:'counterShaders'}[value.unit]??'counterUnits';
   return t(key,{done:number(value.done),total:number(value.total)});
+}
+function workDetail(value) {
+  const text=typeof value?.detail==='string'?value.detail:'';
+  return text.startsWith('[indivisible-task]')?t('indivisibleTask')+' · '+text.slice(18).trim():text;
 }
 function substepLabel(value) {
   const batch=value.recoveryBatchIndex,total=value.recoveryBatchTotal;
@@ -154,6 +161,11 @@ function substepLabel(value) {
 function workSummary(value) {
   const work=activeWorkView(value),operation=work?.operation;
   const imported=unityImportView(value);
+  if(work?.unity){
+    const label=operation?phaseLabel('operation:'+operation):t('activeWorkCurrent');
+    return [label,t('unityWorkSummary',{done:work.unity.done,total:work.unity.total}),
+      work.unity.active?t('unityWorkCurrent',{phase:t('unityWork_'+work.unity.active)}):'',imported?importSummary(imported):''].filter(Boolean).join(' · ');
+  }
   if(imported){
     const owner=typeof value.stageOperation==='string'?phaseLabel('operation:'+value.stageOperation):t('activeWorkCurrent');
     return [owner,imported.done===null?t('activeWorkUnknown'):counters({done:imported.done,total:imported.total,unit:'assets'})].join(' · ');
@@ -181,8 +193,10 @@ function memorySummary(memory) {
 }
 function importSummary(imported) {
   if(!imported)return '';
-  const counts=imported.done===null?'':counters({done:imported.done,total:imported.total,unit:'assets'});
-  return [counts,imported.total===null?t('importTotalUnknown'):'',imported.elapsedSeconds===null?'':t(imported.status==='running'?'importElapsed':'importElapsedRecorded',{duration:durationText(imported.elapsedSeconds)})].filter(Boolean).join(' · ');
+  const counts=imported.done===null?'':imported.scope==='coverage'&&imported.total!==null
+    ?t('counterAssetCoverage',{done:new Intl.NumberFormat(language).format(imported.done),total:new Intl.NumberFormat(language).format(imported.total)})
+    :counters({done:imported.done,total:imported.total,unit:'assets'});
+  return [imported.scope?t(imported.scope==='coverage'?'importScopeCoverage':'importScopeNative'):'',counts,imported.total===null?t('importTotalUnknown'):'',imported.elapsedSeconds===null?'':t(imported.status==='running'?'importElapsed':'importElapsedRecorded',{duration:durationText(imported.elapsedSeconds)})].filter(Boolean).join(' · ');
 }
 function renderTiming(current,resourceWait=false) {
   const whole=timingView(state?.timing),stage=timingView(current?.timing),estimate=stage?.estimate;
@@ -214,10 +228,22 @@ function overviewList(rows,prefix,children) {
   return list;
 }
 function preparationDetail(operation,openPlans) {
-  const data=operation.preparation,compiler=operation.compiler,imported=operation.import,packed=operation.pack,api=operation.api,validation=operation.validation,task=operation.unityTask;
-  if(!data&&!compiler&&!imported&&!packed&&!api&&!validation&&!task)return null;
+  const data=operation.preparation,compiler=operation.compiler,imported=operation.import,packed=operation.pack,api=operation.api,validation=operation.validation,task=operation.unityTask,unityWork=operation.unityWork;
+  if(!data&&!compiler&&!imported&&!packed&&!api&&!validation&&!task&&!unityWork)return null;
   const container=document.createElement('div');container.className='preparation-detail';
-  for(const [record,id,key] of [[packed,'content-pack','contentPackSummary'],[api,'package-api','packageApiSummary'],[validation,'unity-validation','unityValidationSummary']])if(record){
+  if(unityWork){
+    const plan=document.createElement('details');plan.className='build-subplan';plan.dataset.plan='unity-work-'+operation.id;
+    plan.open=openPlans.has(plan.dataset.plan)||operation.status==='running';
+    const label=document.createElement('summary');label.textContent=t('unityWorkSummary',{done:unityWork.done,total:unityWork.total});
+    const bar=document.createElement('progress');bar.max=100;bar.value=unityWork.percent;
+    bar.setAttribute('aria-label',phaseLabel('operation:'+operation.id)+' · '+t('unityWorkTotal'));
+    const measured=document.createElement('p');measured.className='hint';measured.textContent=t('measuredPercent',{percent:percentText(unityWork.percent)})+' · '+t('unityWorkScope');
+    plan.append(label,bar,measured,overviewList(unityWork.phases,'unityWork_',row=>{
+      if(!row.parts?.length)return null;
+      const children=document.createElement('div');children.append(overviewList(row.parts,'unityWork_'));return children;
+    }));container.append(plan);
+  }
+  for(const [record,id,key] of [[packed,'content-pack','contentPackSummary'],[api,'package-api','packageApiSummary'],[unityWork?null:validation,'unity-validation','unityValidationSummary']])if(record){
     const plan=document.createElement('details');plan.className='build-subplan';plan.dataset.plan=id;
     plan.open=openPlans.has(plan.dataset.plan);
     const label=document.createElement('summary');label.textContent=t(key,{done:record.done,total:record.total});
@@ -227,7 +253,7 @@ function preparationDetail(operation,openPlans) {
     const box=document.createElement('section');box.className='unity-task '+task.status;box.dataset.taskOwner=operation.id;
     const measured=document.createElement('p');measured.className='hint';measured.textContent=[phaseLabel(task.phase),counters(task),task.elapsedSeconds===null?'':t('unityTaskElapsed',{duration:durationText(task.elapsedSeconds)})].filter(Boolean).join(' · ');
     box.append(measured);
-    if(task.detail){const detail=document.createElement('p');detail.className='hint';detail.textContent=task.detail;box.append(detail);}
+    if(task.detail){const detail=document.createElement('p');detail.className='hint';detail.textContent=workDetail(task);box.append(detail);}
     container.append(box);
   }
   if(imported){
@@ -409,7 +435,7 @@ function renderProgress() {
   const imported=unityImportView(sub);
   const memory=nativeMemoryView(progress.active??progress.current),resourceWait=active&&memory?.waiting===true;
   const hasSubstep=!done&&sub.phase&&!['pending','starting','complete'].includes(sub.phase);
-  $('progress-detail').textContent=[progress.retaining?t('retainedProgress'):'',!hasSubstep&&sub.phase?substepLabel(sub):'',imported?importSummary(imported):counters(sub),memory?memorySummary(memory):sub.detail??'',waiting?t('waitingSince',{seconds:Math.max(0,Math.floor(Date.now()/1000-waiting.since))}):''].filter(Boolean).join(' · ');
+  $('progress-detail').textContent=[progress.retaining?t('retainedProgress'):'',!hasSubstep&&sub.phase?substepLabel(sub):'',imported?importSummary(imported):counters(sub),memory?memorySummary(memory):imported?.detail??workDetail(sub),waiting?t('waitingSince',{seconds:Math.max(0,Math.floor(Date.now()/1000-waiting.since))}):''].filter(Boolean).join(' · ');
   $('progress-completed').hidden=done;
   $('progress-completed').textContent=workSummary(sub);
   renderTiming(progress.current,resourceWait);
@@ -431,7 +457,7 @@ function renderProgress() {
     const displayed=stageStatus(state,stage),li=document.createElement('li');li.className=displayed;
     const marker=document.createElement('span');marker.className='stage-marker';marker.textContent=displayed==='complete'?'✓':displayed==='running'?'·':['blocked','failed'].includes(displayed)?'!':'';
     const label=document.createElement('span');label.className='stage-content';const title=document.createElement('strong');title.textContent=t('stage_'+stage.id);label.append(title);
-    const measured=stageProgress(stage),stageMemory=nativeMemoryView(stage),detail=document.createElement('small');detail.textContent=[measured.phase?substepLabel(measured):'',['pending','complete'].includes(stage.status)?'':counters(measured),measured.waiting?t('actionNeeded'):['pending','complete'].includes(stage.status)?'':stageMemory?memorySummary(stageMemory):measured.detail??''].filter(Boolean).join(' · ');label.append(detail);
+    const measured=stageProgress(stage),stageMemory=nativeMemoryView(stage),detail=document.createElement('small');detail.textContent=[measured.phase?substepLabel(measured):'',['pending','complete'].includes(stage.status)?'':counters(measured),measured.waiting?t('actionNeeded'):['pending','complete'].includes(stage.status)?'':stageMemory?memorySummary(stageMemory):workDetail(measured)].filter(Boolean).join(' · ');label.append(detail);
     const bar=document.createElement('progress');bar.max=100;bar.setAttribute('aria-label',t('stage_'+stage.id)+' · '+t('stageTotal'));bar.value=measured.percent;label.append(bar);
     const status=document.createElement('span');status.className='stage-state';status.textContent=t('measuredPercent',{percent:percentText(measured.percent)})+' · '+t(measured.waiting?'blocked':displayed);li.append(marker,label,status);$('stage-list').append(li);
   }

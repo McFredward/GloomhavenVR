@@ -67,16 +67,41 @@ export function activityView(stage,now=Date.now()/1000) {
 }
 export function unityImportView(progress,now=Date.now()/1000) {
   const value=progress?.unityImport??progress;
-  if(!value||!['unity-asset-import','unity-import-activity'].includes(value.phase))return null;
+  if(!value||!['unity-work-plan','unity-asset-import','unity-import-activity'].includes(value.phase))return null;
   const done=Number.isSafeInteger(value.done)&&value.done>=0?value.done:null;
   const total=Number.isSafeInteger(value.total)&&value.total>0&&(done===null||done<=value.total)?value.total:null;
-  const text=typeof value.detail==='string'?value.detail.replace(/[\u0000-\u001f\u007f]/g,' ').slice(0,1024):'';
+  const rawText=typeof value.detail==='string'?value.detail.replace(/[\u0000-\u001f\u007f]/g,' ').slice(0,1024):'';
+  const scope=rawText.startsWith('[asset-coverage]')?'coverage':rawText.startsWith('[unity-native-total]')?'native':null;
+  const text=rawText.replace(/^\[(?:asset-coverage|unity-native-total)\]\s*/,'');
   const started=value.startedAt,status=['running','failed','complete','pending'].includes(value.status)?value.status:'running';
   const endpoint=status==='running'?now:value.updatedAt;
   const elapsedSeconds=typeof started==='number'&&Number.isFinite(started)&&started>0&&Number.isFinite(endpoint)?Math.max(0,endpoint-started):null;
   return {done,total,detail:text,elapsedSeconds,
     percent:done!==null&&total!==null?100*done/total:null,
-    status};
+    status,...(scope?{scope}:{})};
+}
+export function unityWorkView(value) {
+  const names=['assets','method','result'],parts=['configuration','checks','sdk','scenes','catalog','shaders','postprocess','packaging','il2cpp','native','build'];
+  const normalize=(rows,allowed,limit)=>{
+    if(!Array.isArray(rows)||!rows.length||rows.length>limit||new Set(rows.map(row=>row?.id)).size!==rows.length)return null;
+    if(rows.some(row=>!allowed.includes(row?.id)))return null;
+    return rows.map(row=>{
+      const count=row.counter,valid=count&&Number.isSafeInteger(count.done)&&Number.isSafeInteger(count.total)&&count.done>=0&&count.total>=0&&count.done<=count.total;
+      return {id:row.id,closed:row.closed===true,status:['pending','running','checking','failed','retained','reused','complete'].includes(row.status)?row.status:'pending',
+        percent:typeof row.percent==='number'&&Number.isFinite(row.percent)&&row.percent>=0&&row.percent<=100?row.percent:0,
+        counter:valid?{done:count.done,total:count.total,unit:typeof count.unit==='string'?count.unit.slice(0,40):'',phase:typeof count.phase==='string'?count.phase.slice(0,160):'',
+          detail:typeof count.detail==='string'?count.detail.replace(/[\u0000-\u001f\u007f]/g,' ').slice(0,1024):''}:null};
+    });
+  };
+  const phases=normalize(value?.phases,names,3);
+  if(!phases||!phases.some(row=>row.id==='assets')||!phases.some(row=>row.id==='result'))return null;
+  for(const row of phases)if(row.id==='method'){
+    const source=value.phases.find(item=>item.id===row.id);
+    row.parts=normalize(source.parts,parts,8)??[];
+  }
+  return {phases,done:phases.filter(row=>row.closed).length,total:phases.length,
+    active:phases.some(row=>row.id===value.active)?value.active:null,
+    percent:typeof value.percent==='number'&&Number.isFinite(value.percent)&&value.percent>=0&&value.percent<=100?value.percent:0};
 }
 export function unityTaskView(progress,now=Date.now()/1000) {
   const value=progress?.unityTask??progress;
@@ -131,6 +156,9 @@ export function activeWorkView(progress) {
   if(!work||!Number.isSafeInteger(work.done)||!Number.isSafeInteger(work.total)||work.total<1||work.done<0||work.done>work.total)return null;
   const operation=typeof work.operation==='string'&&/^[a-z0-9-]{1,64}$/.test(work.operation)?work.operation:null;
   const value={done:work.done,total:work.total,operation};
+  const unity=work.unity;
+  if(unity&&Number.isSafeInteger(unity.done)&&Number.isSafeInteger(unity.total)&&unity.total>0&&unity.total<=3&&unity.done>=0&&unity.done<=unity.total)
+    value.unity={done:unity.done,total:unity.total,active:['assets','method','result'].includes(unity.active)?unity.active:null};
   if(Number.isSafeInteger(work.index)&&work.index>0&&work.index<=work.total&&typeof work.checkpoint==='string'&&/^[a-z0-9-]{1,80}$/.test(work.checkpoint)){
     value.index=work.index;value.checkpoint=work.checkpoint;
   }
@@ -161,7 +189,7 @@ export function buildOverviewView(state) {
       active:checkpoints.some(item=>item.id===value.active)?value.active:null};
   };
   const compiler=value=>{
-    if(!value||!['unity-shader-compile','unity-shader-task'].includes(value.phase))return null;
+    if(!value||!(['unity-shader-compile','unity-shader-task'].includes(value.phase)||typeof value.phase==='string'&&value.phase.startsWith('unity-shader-task:')))return null;
     return {phase:value.phase,scope:value.scope==='task'?'task':'pass',counter:counter(value),
       percent:typeof value.percent==='number'&&Number.isFinite(value.percent)&&value.percent>=0&&value.percent<=100?value.percent:null,
       detail:typeof value.detail==='string'?value.detail.slice(0,1024):'',status:['running','failed','complete','pending'].includes(value.status)?value.status:'pending'};
@@ -178,7 +206,7 @@ export function buildOverviewView(state) {
     return {...row,preparation:preparation(source.preparation),compiler:compiler(source.compiler),import:unityImportView(source.import),
       pack:observedPasses(source.pack,['native-content-source-hash','native-content-native-hash','native-content-write','native-content-final-hash']),
       api:observedPasses(source.api,['package-api-bind','package-api-output','package-api-publish']),
-      validation:observedPasses(source.validation,['unity-configuration','unity-validation-tasks']),unityTask:unityTaskView(source.unityTask)};
+      validation:observedPasses(source.validation,['unity-configuration','unity-validation-tasks']),unityTask:unityTaskView(source.unityTask),unityWork:unityWorkView(source.unityWork)};
   })}));
   const operations=groups.flatMap(group=>group.operations);
   if(!operations.length||operations.length>32||new Set(operations.map(row=>row.id)).size!==operations.length)return null;

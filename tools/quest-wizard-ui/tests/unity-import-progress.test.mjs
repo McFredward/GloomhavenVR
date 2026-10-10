@@ -134,7 +134,7 @@ test('browser reports long initial import counts, action, elapsed, real task per
       await client.evaluate("document.querySelector('[data-language=de]').click()");
       await client.wait("document.getElementById('substep-count').textContent==='521 Importaufgaben abgeschlossen'");
       const before=await client.evaluate("document.getElementById('progress-count').textContent");
-      assert.match(await client.evaluate("document.getElementById('progress-detail').textContent"),/521 Importaufgaben abgeschlossen.*Unity meldet keine Gesamtzahl.*Aktueller Import seit.*Character.asset/);
+      assert.match(await client.evaluate("document.getElementById('progress-detail').textContent"),/521 Importaufgaben abgeschlossen.*Importereignisse des gespeicherten Laufs.*Aktueller Import seit.*Character.asset/);
       assert.doesNotMatch(await client.evaluate("document.getElementById('progress-completed').textContent"),/0 \/ 1|1 ausstehend/,'unknown importer plans do not become an invented one-task count');
       assert.equal(await client.evaluate("document.getElementById('substep-track').hasAttribute('aria-valuenow')"),false);
       assert.equal(await client.evaluate("document.querySelector('[data-operation=package-api]').classList.contains('pending')"),true);

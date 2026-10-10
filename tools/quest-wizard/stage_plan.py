@@ -72,7 +72,31 @@ UPDATE_GROUPS = {"update-mod": {"inputs": UPDATE_PLANS["update-mod"][:2], "code"
 WORK_REVISION = 6
 MEMORY_OBSERVATIONS = frozenset(("native-compiler-profile", "native-memory-retry", "native-memory-wait",
                                "asset-memory-retry", "asset-memory-wait"))
-UNITY_IMPORT_OBSERVATIONS = frozenset(("unity-asset-import", "unity-import-activity"))
+UNITY_IMPORT_OBSERVATIONS = frozenset(("unity-work-plan", "unity-asset-import", "unity-import-activity"))
+# One finite schedule belongs to one actual Editor invocation. Asset coverage
+# is a scoped census, and method parts are scheduled work shares rather than
+# time estimates. Native graph/shader/task counters fill only their own part;
+# a local 100% never closes another graph or the Editor process.
+UNITY_WORK_OWNERS = frozenset(("mod-banks", "unity-import", "package-api", "unity-validation",
+    "content-bank", "player", "update-code", "update-art"))
+UNITY_METHOD_PARTS = {
+    "mod-banks": {"build": 1.},
+    "unity-import": {"sdk": 1.},
+    "package-api": {"sdk": 1.},
+    "unity-validation": {"configuration": .1, "checks": .9},
+    "content-bank": {"catalog": .1, "shaders": .1, "build": .7, "postprocess": .1},
+    "player": {"configuration": .05, "scenes": .05, "il2cpp": .2, "native": .5, "packaging": .2},
+    "update-code": {"configuration": .05, "scenes": .05, "il2cpp": .2, "native": .5, "packaging": .2},
+    "update-art": {"build": 1.},
+}
+UNITY_PART_COUNTERS = {
+    "configuration": {"unity-configuration": 1.}, "checks": {"unity-validation-tasks": 1.},
+    "sdk": {"unity-sdk-tasks": 1.}, "scenes": {"unity-player-scenes": 1.},
+    "catalog": {"unity-addressables-keys": .3, "unity-addressables-entries": .7},
+    "shaders": {"unity-addressables-shader-roots": .3, "unity-addressables-shaders": .7},
+    "postprocess": {"unity-content-post-tasks": 1.},
+    "packaging": {"unity-gradle-tasks": 1.}, "il2cpp": {"unity-il2cpp": 1.},
+}
 CONTENT_PACK_SHARES = {"native-content-source-hash": .15, "native-content-native-hash": .15,
                        "native-content-write": .55, "native-content-final-hash": .15}
 PACKAGE_API_SHARES = {"package-api-bind": .65, "package-api-output": .20, "package-api-publish": .15}
@@ -385,6 +409,7 @@ def begin_attempt(row, boundary):
     plan["packageApi"] = {}
     plan["unityValidation"] = {}
     plan["unityTasks"] = {}
+    plan["unityWork"] = {}
     recovery = plan.get("recovery", {})
     recovery.pop("liveSection", None)
 
@@ -834,6 +859,124 @@ def _recovery_work(recovery):
     return done, total, min(1., fraction / total)
 
 
+def _unity_part(plan, owner, value):
+    phase = value["phase"]
+    parts = UNITY_METHOD_PARTS.get(owner, {})
+    if owner == "unity-validation" and phase in UNITY_CHILD_COUNTERS:
+        return "configuration" if phase == "unity-configuration" else "checks"
+    for name in parts:
+        if phase in UNITY_PART_COUNTERS.get(name, {}): return name
+    if phase.startswith("bee-actions:") or phase in ("unity-bee-activity", "unity-native-build"):
+        return "native" if "native" in parts else "build" if "build" in parts else None
+    if phase in ("unity-addressables-build", "unity-native-shader-audit", "unity-shader-compile", "unity-shader-task", "unity-shaders") \
+            or phase.startswith("unity-shader-task:"):
+        return "build" if "build" in parts else "native" if "native" in parts else None
+    if phase in ("unity-gradle",): return "packaging" if "packaging" in parts else None
+    if phase in ("unity-progress", "unity-player-memory") or phase.startswith("unity-progress:"):
+        work = plan.get("unityWork", {}).get(owner, {})
+        if work.get("active") == "method":
+            return work.get("part") or ("build" if "build" in parts else "native" if "native" in parts else None)
+    return None
+
+
+def _unity_work_fraction(work):
+    names = ("assets", "method", "result") if work.get("parts") else ("assets", "result")
+    shares = {"assets": .15, "method": .80, "result": .05} if work.get("parts") else {"assets": .95, "result": .05}
+    return sum(shares[name] * (1. if name in work.get("completed", []) else work.get("fractions", {}).get(name, 0.)) for name in names)
+
+
+def _observe_unity_work(plan, owner, value, status):
+    """Join one launch's counted scopes without confusing local and global work."""
+    phase = value["phase"]
+    works = plan.setdefault("unityWork", {})
+    if phase == "unity-work-invocation" and status == "start":
+        previous = works.get(owner, {})
+        if previous.get("startedAt") != value.get("updatedAt"):
+            works[owner] = {"startedAt": value.get("updatedAt"), "active": "assets", "completed": [],
+                "fractions": {}, "parts": dict(UNITY_METHOD_PARTS.get(owner, {})), "partFractions": {}, "counters": {}}
+            for key in ("unityImports", "unityCompiler", "unityTasks"):
+                plan.get(key, {}).pop(owner, None)
+    elif phase == "unity-work-plan" and owner not in works:
+        works[owner] = {"startedAt": value.get("updatedAt"), "active": "assets", "completed": [],
+            "fractions": {}, "parts": dict(UNITY_METHOD_PARTS.get(owner, {})), "partFractions": {}, "counters": {}}
+    work = works.get(owner)
+    if not work: return False
+    if phase == "unity-work-invocation":
+        work["invocation"] = {key: value.get(key) for key in ("phase", "done", "total", "unit", "detail")}
+        if status in ("complete", "reuse"):
+            work.update(active="result", finished=True)
+            work["completed"] = ["assets", *(("method",) if work.get("parts") else ()), "result"]
+        elif status == "failed": work["failed"] = True
+    elif phase in UNITY_IMPORT_OBSERVATIONS:
+        # An importer may switch from known unique asset coverage to Unity's
+        # native current-batch total. The counter remains visibly scoped, and
+        # an activity heartbeat cannot erase the known census denominator.
+        work["counters"]["assets"] = {key: value.get(key) for key in ("phase", "done", "total", "unit", "detail")}
+        ratio = _ratio(value)
+        if ratio is not None:
+            work["fractions"]["assets"] = max(work["fractions"].get("assets", 0.), min(.99, ratio))
+    else:
+        method_boundary = phase == "unity-work-stage:method"
+        part = _unity_part(plan, owner, value)
+        method_entry = phase in ("unity-sdk-tasks", "unity-configuration", "unity-player-scenes", "unity-validation-tasks")
+        if method_boundary or method_entry or part and work.get("active") != "assets":
+            work["active"] = "method"
+            if "assets" not in work["completed"]: work["completed"].append("assets")
+        if method_boundary:
+            work["counters"]["method"] = {key: value.get(key) for key in ("phase", "done", "total", "unit", "detail")}
+            if status in ("complete", "reuse"):
+                work["completed"] = list(dict.fromkeys([*work["completed"], "method"]))
+                work["active"] = "result"
+        if part and work.get("active") == "method" and "method" not in work["completed"]:
+            work["part"] = part
+            work["counters"][part] = {key: value.get(key) for key in ("phase", "done", "total", "unit", "detail")}
+            ratio = _ratio(value)
+            if owner == "unity-validation" and part == "checks":
+                ratio = plan.get("unityValidation", {}).get("fractions", {}).get("unity-validation-tasks", ratio)
+            if ratio is not None:
+                schedule = UNITY_PART_COUNTERS.get(part)
+                if schedule and phase in schedule:
+                    seen = work.setdefault("partCounters", {}).setdefault(part, {})
+                    seen[phase] = max(seen.get(phase, 0.), min(.99, ratio))
+                    ratio = sum(weight * seen.get(name, 0.) for name, weight in schedule.items())
+                # A repeated Shader pass or Bee DAG cannot restart this part's
+                # contribution. It also cannot prove that all future DAGs end.
+                work["partFractions"][part] = max(work["partFractions"].get(part, 0.), min(.99, ratio))
+                work["fractions"]["method"] = sum(weight * work["partFractions"].get(name, 0.) for name, weight in work["parts"].items())
+    fraction = min(.99, _unity_work_fraction(work))
+    if owner == "content-bank": fraction *= .5
+    if owner == "mod-banks" and plan.get("preparationScopes", {}).get(owner, {}).get("open"):
+        scope = plan["preparationScopes"][owner]
+        fraction = (scope["done"] + .5 + .5 * fraction) / scope["total"]
+    plan["fractions"][owner] = max(plan["fractions"].get(owner, 0.), fraction)
+    plan.setdefault("liveFractions", {})[owner] = max(plan.get("liveFractions", {}).get(owner, 0.), fraction)
+    return True
+
+
+def _unity_work_overview(plan, owner, failed=False):
+    work = plan.get("unityWork", {}).get(owner)
+    if not work: return None
+    names = ("assets", "method", "result") if work.get("parts") else ("assets", "result")
+    complete = owner in plan["completed"]
+    completed = names if complete else work.get("completed", [])
+    proofs = dict.fromkeys(completed, "complete")
+    if work.get("sharedAssets") and "assets" in proofs: proofs["assets"] = "reuse"
+    rows = _overview_rows(names, completed, work.get("fractions", {}), None if complete else work.get("active"),
+                          proofs, failed or work.get("failed", False))
+    for row in rows:
+        row["counter"] = work.get("counters", {}).get(row["id"],
+            {"done": int(row["closed"]), "total": 1, "unit": "tasks", "phase": "unity-work-stage:" + row["id"]})
+        if row["id"] == "method":
+            part_names = tuple(UNITY_METHOD_PARTS.get(owner, work["parts"]))
+            row["parts"] = _overview_rows(part_names, part_names if row["closed"] else (),
+                work.get("partFractions", {}), None if row["closed"] else work.get("part"), failed=failed or work.get("failed", False))
+            for part in row["parts"]:
+                part["counter"] = work.get("counters", {}).get(part["id"],
+                    {"done": int(part["closed"]), "total": 1, "unit": "tasks", "phase": "unity-work-stage:" + part["id"]})
+    return {"phases": rows, "done": sum(row["closed"] for row in rows), "total": len(rows),
+            "active": None if complete else work.get("active"), "percent": 100. if complete else round(100 * _unity_work_fraction(work), 6)}
+
+
 def _active_work(plan, current):
     if current == "recovery":
         done, total, fraction = _recovery_work(plan.get("recovery", {}))
@@ -859,6 +1002,9 @@ def _active_work(plan, current):
         fraction = 1. if done else plan.get("liveFractions", plan["fractions"]).get(current, 0.)
     value = {"operation": current, "done": done, "total": total, "unit": "steps",
              "percent": None if fraction is None else round(100 * fraction, 6)}
+    unity_work = _unity_work_overview(plan, current)
+    if unity_work:
+        value["unity"] = {key: unity_work[key] for key in ("done", "total", "active", "percent")}
     preparation = _preparation_overview(plan, current)
     if preparation:
         value.update(done=preparation["done"], total=preparation["total"], remaining=preparation["remaining"],
@@ -955,6 +1101,8 @@ def _build_overview(row, plan):
         task = plan.get("unityTasks", {}).get(item["id"])
         if task: item["unityTask"] = dict(task, status="failed" if row["status"] == "failed" and item["id"] == active
                                         else "complete" if item["closed"] else "running" if item["id"] == active else "pending")
+        unity_work = _unity_work_overview(plan, item["id"], row["status"] == "failed" and item["id"] == active)
+        if unity_work: item["unityWork"] = unity_work
     groups = []
     shares = build_shares(plan)
     for name, names in UPDATE_GROUPS.get(workflow(row), BUILD_GROUPS).items():
@@ -1040,6 +1188,33 @@ def advance(row, value, operation=None, status=None):
             operation = "unity-import"
             if value["phase"] == "operation:package-api": value["phase"] = "operation:unity-import"
     if status is not None: value["operationStatus"] = status
+    if value["phase"] == "operation:" + str(operation) and status == "start" and operation in UNITY_METHOD_PARTS:
+        previous_owner = plan.get("liveOperation")
+        previous_work = plan.get("unityWork", {}).get(previous_owner)
+        if (previous_owner, operation) in (("unity-validation", "content-bank"), ("content-bank", "player")) \
+                and previous_work and not previous_work.get("failed"):
+            # QuestBuild.Build keeps one Editor process while actual operation
+            # boundaries move from validation to the content bank to Player.
+            # Reuse that process's asset readiness; do not rescan the project or
+            # fabricate a new Editor launch for each owner's finite schedule.
+            plan.setdefault("unityWork", {})[operation] = {"startedAt": value.get("updatedAt"),
+                "active": "method", "completed": ["assets"], "fractions": {},
+                "parts": dict(UNITY_METHOD_PARTS[operation]), "partFractions": {},
+                "counters": {"assets": dict(previous_work.get("counters", {}).get("assets",
+                    {"phase": "unity-work-stage:assets", "done": 1, "total": 1, "unit": "tasks"}))}, "sharedAssets": True}
+    unity_work_boundary = value["phase"] == "unity-work-invocation" or value["phase"].startswith("unity-work-stage:")
+    if unity_work_boundary or value["phase"] == "unity-work-plan":
+        live_owner = plan.get("liveOperation")
+        if live_owner not in UNITY_WORK_OWNERS or operation not in (None, live_owner):
+            if value is row.get("progress"):
+                value.update(phase="operation:" + live_owner if live_owner in operations else "starting",
+                             done=None, total=None, percent=None, unit=None, detail=None)
+                value.pop("reportedOperation", None)
+                return advance(row, value, live_owner, plan.get("liveStatus", "progress"))
+            previous = dict(row.get("progress", {})); value.clear(); value.update(previous)
+            return value
+        operation, measured = live_owner, False
+        _observe_unity_work(plan, live_owner, value, status)
     pack_counter = value["phase"] in CONTENT_PACK_SHARES
     api_counter = value["phase"] in PACKAGE_API_SHARES
     validation_counter = value["phase"] in UNITY_VALIDATION_SHARES
@@ -1078,8 +1253,9 @@ def advance(row, value, operation=None, status=None):
             work.setdefault("proofs", {})[name] = status
         work.setdefault("counters", {})[name] = {key: value.get(key) for key in ("phase", "done", "total", "unit")}
         fraction = min(.99, work["origin"] + (1. - work["origin"]) * _observed_pass_ratio(work, shares))
-        plan.setdefault("liveFractions", {})[live_owner] = fraction
-        plan["fractions"][live_owner] = max(plan["fractions"].get(live_owner, 0.), fraction)
+        if live_owner not in plan.get("unityWork", {}) or pack_counter or api_counter:
+            plan.setdefault("liveFractions", {})[live_owner] = fraction
+            plan["fractions"][live_owner] = max(plan["fractions"].get(live_owner, 0.), fraction)
     if unity_child or validation_counter:
         live_owner = plan.get("liveOperation")
         if live_owner not in ("mod-banks", "unity-import", "package-api", "unity-validation", "content-bank", "player", "update-code", "update-art") or operation not in (None, live_owner):
@@ -1109,8 +1285,9 @@ def advance(row, value, operation=None, status=None):
                 step_fraction = (done + min(.99, child_fraction)) / total
                 work.setdefault("fractions", {})["unity-validation-tasks"] = max(work["fractions"].get("unity-validation-tasks", 0.), step_fraction)
                 fraction = min(.99, work.get("origin", 0.) + (1. - work.get("origin", 0.)) * _observed_pass_ratio(work, UNITY_VALIDATION_SHARES))
-                plan.setdefault("liveFractions", {})[live_owner] = fraction
-                plan["fractions"][live_owner] = max(plan["fractions"].get(live_owner, 0.), fraction)
+                if live_owner not in plan.get("unityWork", {}):
+                    plan.setdefault("liveFractions", {})[live_owner] = fraction
+                    plan["fractions"][live_owner] = max(plan["fractions"].get(live_owner, 0.), fraction)
     import_counter = value["phase"] in UNITY_IMPORT_OBSERVATIONS
     if import_counter:
         # A child log may still be read after the next SDK/player boundary.
@@ -1138,12 +1315,16 @@ def advance(row, value, operation=None, status=None):
         observed = plan.setdefault("unityImports", {}).setdefault(live_owner, {})
         done, total = value.get("done"), value.get("total")
         if type(done) is int and 0 <= done <= 2 ** 53 - 1 and value.get("unit") == "assets":
-            done = max(done, observed.get("done", 0))
+            detail = value.get("detail") or ""
+            scope = "coverage" if detail.startswith("[asset-coverage]") else "native" if detail.startswith("[unity-native-total]") else None
+            if scope is not None and observed.get("scope") != scope:
+                observed.update(done=0, total=None, scope=scope)
+            done = done if scope == "native" else max(done, observed.get("done", 0))
             observed["done"] = done
             value["done"] = done
             if type(total) is int and done <= total <= 2 ** 53 - 1 and total > 0:
                 observed["total"] = total
-            else:
+            elif total is not None or observed.get("scope") is None:
                 # Native artifact lines count operations, not unique assets.
                 # Unknown totals never borrow a different task's denominator.
                 observed["total"] = None
@@ -1152,7 +1333,7 @@ def advance(row, value, operation=None, status=None):
         observed.update(phase=value["phase"], detail=value.get("detail"), updatedAt=value.get("updatedAt"))
         observed.setdefault("startedAt", value.get("updatedAt"))
         value["unityImport"] = dict(observed)
-    compiler_counter = value["phase"] in ("unity-shader-compile", "unity-shader-task")
+    compiler_counter = value["phase"] in ("unity-shader-compile", "unity-shader-task") or value["phase"].startswith("unity-shader-task:")
     if compiler_counter:
         # Child log readers can outlive their Unity job. An explicitly foreign
         # bank/compiler cannot move the import or player frontier backwards.
@@ -1217,6 +1398,9 @@ def advance(row, value, operation=None, status=None):
                       or api_counter
                       or validation_counter
                       or unity_child
+                      or unity_work_boundary
+                      or value["phase"] == "unity-work-plan"
+                      or operation in plan.get("unityWork", {}) and value["phase"].startswith(("unity-", "bee-actions:"))
                       or workflow(row) in UPDATE_PLANS and value.get("childOperation") is not None)
     parent_status = "progress" if child_boundary else status
     preparation_counter = row["id"] == "build" and (value["phase"].startswith(("prepare-substage:", "prepare-items:")) or movie_file_counter)
@@ -1268,6 +1452,18 @@ def advance(row, value, operation=None, status=None):
                 value.update(recoveryNativeIndex=index + 1, recoveryNativeTotal=native_total)
     # Ignore nested one-file hashes and incidental version commands. Only a
     # known aggregate counter or Unity's own task counter contributes a fraction.
+    unity_owner = plan.get("liveOperation")
+    unity_observation = (value["phase"].startswith(("unity-", "bee-actions:"))
+        and unity_owner in plan.get("unityWork", {}) and operation in (None, unity_owner))
+    if unity_observation:
+        _observe_unity_work(plan, unity_owner, value, status)
+        # A logical indivisible task is one pending scheduled operation, never
+        # a guessed count of imports or a time-generated percentage.
+        if value.get("done") is None and value.get("total") is None:
+            value.update(done=0, total=1, unit="tasks", percent=0.)
+        if compiler_counter and unity_owner in plan.get("unityCompiler", {}):
+            plan["unityCompiler"][unity_owner].update({key: value.get(key) for key in ("done", "total", "unit", "percent")})
+        measured = False
     if current in operations and measured and (operation is None or operation == current) and value["percent"] is not None:
         fraction = min(.99, _ratio(value))
         if current == "content-bank" and value["phase"].startswith(("unity-", "bee-actions:")): fraction *= .5
