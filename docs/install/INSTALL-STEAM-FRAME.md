@@ -7,6 +7,13 @@
 </p>
 
 <p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../img/steam-frame-logo-dark.svg">
+    <img src="../img/steam-frame-logo.svg" width="240" alt="Steam Frame">
+  </picture>
+</p>
+
+<p align="center">
   <img src="../img/divider.png" width="600" alt="">
 </p>
 
@@ -15,8 +22,10 @@ PC and streams to your headset, use the [PC VR install guide](INSTALL.md).
 
 You need Gloomhaven installed from Steam on the Frame, two tracked controllers with thumbsticks,
 and two downloads:
-**BepInEx 5.4.23.5 for Windows x64** and the **latest GloomhavenVR release ZIP**. Gloomhaven is a
+**BepInEx 5.4.23.5 for Windows x64** and a **GloomhavenVR ZIP with Frame setup**. Gloomhaven is a
 Windows game running through Proton on the Frame, so the Windows BepInEx archive is the right one.
+The mod archive must include `BepInEx/plugins/GloomhavenVR/FrameSetup/GloomhavenVR-Setup.desktop`.
+Older releases without this setup file cannot follow these steps.
 
 ## 1. Open Desktop and find Gloomhaven
 
@@ -45,7 +54,7 @@ In Chromium or another browser on the Frame, download:
 
 1. **`BepInEx_win_x64_5.4.23.5.zip`** from the
    [BepInEx 5.4.23.5 release](https://github.com/BepInEx/BepInEx/releases/tag/v5.4.23.5).
-2. **`GloomhavenVR-<version>.zip`** from the
+2. **`GloomhavenVR-<version>.zip` with Frame setup** from the
    [latest GloomhavenVR release](https://github.com/McFredward/GloomhavenVR/releases/latest).
 
 The files should appear in **Downloads**. Open the BepInEx ZIP in Dolphin. If the Frame asks
@@ -99,8 +108,9 @@ file selected in its folder.
 The setup configures BepInEx for the original Steam game and adds a separate **GloomhavenVR**
 entry with artwork to the VR library. Steam may restart to show the new entry. The original
 **Gloomhaven** entry remains available for flat play; both entries use the same installed game
-and saves. The setup also suggests a 3408-pixel per-eye SteamVR resolution if you have not
-chosen one already. Restart SteamVR if that new setting does not take effect at once.
+and saves. The Frame display may briefly restart with Steam; setup finishes its changes first.
+It also suggests a 3408-pixel per-eye SteamVR resolution, preserving an existing preference
+or a resolution you have chosen in SteamVR. SteamVR reads a new suggested default after a restart.
 
 If Dolphin offers no **Execute** option or setup cannot find a different Steam library, open a
 terminal in the Gloomhaven folder and run:
@@ -111,37 +121,50 @@ bash ./BepInEx/plugins/GloomhavenVR/FrameSetup/install-steam-frame.sh --game-pat
 
 ## 6. Start the game
 
-Return to the Frame's game library and launch **GloomhavenVR**. You should see the VR menu and
-stand at the table. You can launch the original **Gloomhaven** entry for flat play.
+Return to the Frame's game library. Setup has added a second entry: launch **GloomhavenVR**,
+shown beside the original **Gloomhaven** below. You should see the VR menu and stand at the table.
+The original **Gloomhaven** entry starts flat play; both entries use the same saves.
+
+<p align="center">
+  <img src="../img/frame-install/06-library.jpg" width="640" alt="After setup, the Steam Frame library contains both Gloomhaven and GloomhavenVR. Launch GloomhavenVR for VR.">
+</p>
 
 Your saves and campaign remain in place. Before changing `GH_Data/boot.config`, the setup
 backs it up as `GH_Data/boot.config.gloomhavenvr-backup`.
 
 ## Graphics settings
 
+Fresh Frame configurations use performance defaults; saved choices are retained. To apply
+these values again, choose **Standalone** under **VR Options → Graphics → Graphics profiles**.
+This also selects the game's lowest graphics-quality preset.
+
 In **VR Options → Graphics**, grass, trees/bushes and other scenario decoration have
 separate percentage controls. Fresh standalone Frame profiles start at 0%; PC starts
-at 100%. Set all three to 100% for the original detail.
+at 100%. Set all three to 100% to restore the decoration controlled by those sliders.
 
-**Player figure detail (%)** and **Enemy figure detail (%)** select coarser original
-meshes at lower values, including while held. **Simulate figure clothing** controls
+**Player figure detail (%)** and **Enemy figure detail (%)** use simpler meshes at lower
+values where available, including while held. **Simulate figure clothing** controls
 additional cloth physics; off keeps clothing attached without flapping or hand interaction.
 **Reduced scenario generation** takes effect when you next load a scenario. Frame starts
 with lower figure detail, clothing simulation off and reduced generation on. All controls
 also work on PC; saved choices are retained.
 
+Fresh Frame configurations use the original service windows rather than immersive NPCs.
+You can change **Immersive town NPCs** under **VR Options → World & sound** when using the 3D map.
+
 ## Mixed reality
 
-Choose **Mixed reality** under **VR Options → World** to place the table in your
+Choose **Mixed reality** under **VR Options → World & sound** to place the table in your
 room. Standalone uses the Frame's native passthrough when the active runtime supports it.
 If the choice is grey, hover over it for the explanation. Update **SteamVR** and the
 **Proton version selected for Gloomhaven**, then restart the game and check again.
 
 ## Updating
 
-When a newer release is available, the VR main menu offers an update. You can also extract the
-new release ZIP into the same Gloomhaven folder and merge `BepInEx` again. All VR players in a
-multiplayer session need the same mod build.
+Close the game, copy the contents of the newer release ZIP into the same Gloomhaven folder as in step 4,
+and merge `BepInEx` again. Run the Frame setup again to refresh the library entry and artwork.
+Your saved settings and campaigns remain in place. All VR players in a multiplayer session
+need the same mod build.
 
 ## Troubleshooting
 
@@ -159,8 +182,11 @@ you were doing.
 
 ## Uninstall
 
-Remove the **GloomhavenVR** shortcut from Steam. Delete
-`/home/steamos/.local/share/GloomhavenVR/`, `BepInEx/plugins/GloomhavenVR/`, and
-`BepInEx/patchers/GloomhavenVR/`. Restore `GH_Data/boot.config` from
-`boot.config.gloomhavenvr-backup` if that backup exists. If you also remove BepInEx, remove
-its `WINEDLLOVERRIDES` launch option from the original game's Steam properties.
+Remove the **GloomhavenVR** shortcut from Steam. Restore `GH_Data/boot.config` from
+`boot.config.gloomhavenvr-backup` if that backup exists. If the FrameSetup folder contains
+`vrpreferences.json.gloomhavenvr-backup`, restore it as `vrpreferences.json` in the game folder;
+otherwise remove `vrpreferences.json` only if setup created it.
+
+Delete `/home/steamos/.local/share/GloomhavenVR/`, `BepInEx/plugins/GloomhavenVR/`, and
+`BepInEx/patchers/GloomhavenVR/`. If you also remove BepInEx, remove its `WINEDLLOVERRIDES`
+launch option from the original game's Steam properties.
