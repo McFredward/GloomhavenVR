@@ -217,7 +217,12 @@ internal sealed class NativeMerchant655 : MonoBehaviour {
             # never traveled during the native return.
             files['TownServiceMotionBudget.cs']=budget
             cohort=files['TownServiceMirror.CardReturnCohorts.cs']
-            cohort=cohort.replace(' || assembly.Roots[i] == null','').replace('                    packet.Entries.Add(assembly.Roots[i]!);','').replace('                    assembly.Roots[i]!.HasReturnVisibility = true;','')
+            for dependency in (' || assembly.Roots[i] == null',
+                               'packet.Entries.Add(assembly.Roots[i]!);',
+                               'assembly.Roots[i]!.HasReturnVisibility = true;'):
+                if cohort.count(dependency) != 1:
+                    raise RuntimeError('Collapsed native canvas control binding drift: ' + dependency)
+                cohort=cohort.replace(dependency,'',1)
             files['TownServiceMirror.CardReturnCohorts.cs']=cohort
         if mutation == 'opaque':
             effect=files['NativeItemEffects661.cs']
