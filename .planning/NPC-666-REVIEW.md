@@ -19,6 +19,11 @@ active state, owner-facing orientation, complete geometry and finite flights
 remain shared. Preserve the previously accepted loading, physical body/front
 coupling, overlay stability and native return ownership.
 
+The maintainer explicitly reiterated the local circular ring-phase exception on
+2026-10-11: its intrinsic spin may be calculated locally, while its plane and yaw
+must follow the same final rendered remote card on every render. This permits
+neither observer-authored facing nor a second network-sampled ring yaw clock.
+
 ## Review scope and proof correction
 
 The Build665 summon fixture created enhancement markers manually and entered
@@ -28,6 +33,20 @@ the game's native CreateSummon/CreateEnhancement, BUY/SELL availability, pooled
 HighlightButtons, ExtendedButton initialization, VR hit or selection path.
 The new proof must reproduce that actual path before assigning a mask cause.
 An admission/metadata warning cannot alone explain a locally missing button.
+
+A bounded unchanged665 geometry diagnostic highlights the exported native summon
+cells before Unity's first layout rebuild. All four target rectangles and
+highlight rectangles initially have zero size. After layout the target cells
+acquire their printed geometry, but their highlight sizes remain zero. This is
+a reproduced geometry failure, not yet a complete availability/selection proof.
+
+The first real native-effect uniform-space experiment retains continuous yaw
+through sparse109 updates and UI headers. A separate anisotropic owner/observer
+probe reproduces a 0.08845083 normal-vector difference (approximately 5.07 degrees)
+between the ring and actual printed corners on unchanged665. Quaternion right/up
+omit the parent's nonuniform matrix stretch. The narrow matrix-plane correction
+will be assessed for every original sprite and intrinsic phase; the plane error
+alone does not establish the hardware report's observed cadence cause.
 
 The source hover is `.006 * sin(age * 1.8) * stationScale` in world-up. Current
 numeric roots contain the already animated position and the observer interpolates
