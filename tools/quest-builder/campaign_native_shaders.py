@@ -481,10 +481,11 @@ def _handle_identity(value):
 def _same_open_file(path_identity, handle_identity):
     # CPython's Windows path stat returns creation time while fstat returns
     # change time (https://github.com/python/cpython/issues/157671). Capture
-    # 215313 reaches the native audit and is refused by this cross-API ctime
-    # equality. Qualify common identity/size/mtime across APIs, then retain
+    # 215313 reaches the native audit and fails a stable-file check; this
+    # cross-API equality independently rejects unchanged Windows files.
+    # Qualify common identity/size/mtime across APIs, then retain
     # each API's own full pre/post guard; never discard change-time protection.
-    # The capture lacks raw stamps, so the particular Windows file is unknown.
+    # The capture lacks raw stamps, so its specific file/check is unproven.
     return (path_identity[:4] == handle_identity[:4] if sys.platform == 'win32'
         else path_identity == handle_identity)
 
