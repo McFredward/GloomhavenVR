@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-09 for Build659: paired NPC658 presentation fixes and configured near-view pillar originals.
+Updated 2026-10-10 for Build664: approved PC/Standalone defaults and shared wrist position.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
@@ -14,6 +14,8 @@ status; it is not the player manual.
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [DEFAULTS-664-REVIEW.md](DEFAULTS-664-REVIEW.md) | Paired configuration audit, approved defaults and focused validation |
+| [STEAM-FRAME-DEFAULTS.md](STEAM-FRAME-DEFAULTS.md) | Current PC/Standalone default and explicit graphics-profile policy |
 | [FRAME-PILLAR-DISTANCE-REVIEW.md](FRAME-PILLAR-DISTANCE-REVIEW.md) | Configured full-detail pillar radius, matched inherited proof and final659 integration |
 | [NPC-658-REVIEW.md](NPC-658-REVIEW.md) | Paired656 videos/logs, reproduced defects, integrated validation and hardware limits |
 | [NPC-658-LATENCY.md](NPC-658-LATENCY.md) | Complete native card preparation, exact compact originals and retained full recovery |

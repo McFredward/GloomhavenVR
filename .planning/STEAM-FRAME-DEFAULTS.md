@@ -124,9 +124,11 @@ when a player explicitly chooses a profile through the original game callback.
 
 Each action writes its settings once, saves them, and leaves later manual
 changes authoritative. It also resets environment style, wall evaluation/rescan
-cadence, shared auto-hide threshold, bar occlusion, pillar distance LOD and the
+cadence, shared auto-hide threshold, pillar distance LOD and the
 legacy wall interval. The corresponding fresh values and explicit profile
-values must agree without changing personal control calibration.
+values must agree without changing personal control calibration. The shared
+bar-occlusion value is a startup default; profiles preserve an explicit player
+choice for health-bar visibility.
 
 ## Always-on optimizations and historical entries
 

@@ -1,5 +1,24 @@
 # State — where the project stands
 
+**Build664 approved PC/Standalone defaults, 2026-10-10: 1.1.0 development candidate.**
+
+Fresh PC mod settings match High-End PC with MSAA8; Frame matches Standalone
+with OffBlack surroundings and 0.25 s wall evaluation. Both use a 10 FPS
+automatic wall-hiding threshold, depth-tested health bars and approved wrist
+position (-0.166, 0.010, -0.036) m. Wrist mode stays Off and rotation is unchanged.
+Saved keys and native/cloud quality remain authoritative. Explicit profile
+actions restore wall/sky and independent pillar LOD settings; PC retains its
+texture-readability policy. Personal calibration is never reset by a profile.
+
+Focused profiles pass 328 assertions, wall options 16 runtime variants, actual
+Unity wrist/menu proof 324 assertions/three controls, player settings help 2,305,
+source suites 16 and direct wire goldens 300,419. Strict Debug/Release pass with
+zero warnings/errors. This reuses unchanged passing evidence after the final
+description correction, not a fresh complete gate or headset performance claim.
+Config/patch/log surfaces remain 666/235/4,795. Read
+[DEFAULTS-664-REVIEW.md](DEFAULTS-664-REVIEW.md) and
+[STEAM-FRAME-DEFAULTS.md](STEAM-FRAME-DEFAULTS.md) for policy, receipts and limits.
+
 **Build663 independent pillar distance LOD, 2026-10-10: 1.1.0 development candidate.**
 
 The supplied Frame661 run still has overly coarse nearby pillars at saved0/0
