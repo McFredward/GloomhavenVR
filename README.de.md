@@ -213,7 +213,7 @@ behält dessen Stange, nicht deine.
 standalone · zwei getrackte Controller · Room-Scale. Entwickelt wurde die Mod auf einer Quest 3
 über Virtual Desktop.
 
-[→ Installation](docs/install/INSTALL.de.md) · [→ Installation auf Steam Frame](docs/install/INSTALL-STEAM-FRAME.de.md) · [→ Spielablauf & Steuerung](docs/PLAYING.de.md)
+[→ Installation](docs/install/INSTALL.de.md) · <a href="docs/install/INSTALL-STEAM-FRAME.de.md"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/steam-frame-icon-dark.svg"><img src="docs/img/steam-frame-icon.svg" width="18" height="18" alt=""></picture>&nbsp;→ Installation auf Steam Frame</a> · [→ Spielablauf & Steuerung](docs/PLAYING.de.md)
 
 Auf Steam Frame fügt das Setup einen zweiten Bibliothekseintrag hinzu: Starte **GloomhavenVR** für VR.
 Der ursprüngliche Eintrag **Gloomhaven** bleibt für Flat-Spiel; beide nutzen dieselben Spielstände.
@@ -228,7 +228,7 @@ Der ursprüngliche Eintrag **Gloomhaven** bleibt für Flat-Spiel; beide nutzen d
 
 ## Danksagungen und Lizenz
 
-- **ARMA** und **JJ-Pueppi** haben das über viele Sitzungen im Headset getestet.
+- **ARMA**, **JJ-Pueppi** und **Kronosbasher** für die Tests der Mod in VR.
 - **ARMA** hat außerdem die 3D-Assets gemacht: die Hände, die Masken und die Bretter. Sie sind als
   KI-generierte Rohformen gestartet, und so wie sie herauskommen, kann man sie nicht gebrauchen. Er
   hat sie in Blender nachmodelliert, aufgeräumt, neu gerigged und texturiert, bis sie auf Armlänge

@@ -208,7 +208,7 @@ not yours.
 **Gloomhaven (Digital)** from Steam, GOG, or Epic Games Store · Windows PC VR or Steam Frame
 standalone · two tracked controllers · room-scale. It was developed on a Quest 3 over Virtual Desktop.
 
-[→ Install](docs/install/INSTALL.md) · [→ Install on Steam Frame](docs/install/INSTALL-STEAM-FRAME.md) · [→ Playing & controls](docs/PLAYING.md)
+[→ Install](docs/install/INSTALL.md) · <a href="docs/install/INSTALL-STEAM-FRAME.md"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/steam-frame-icon-dark.svg"><img src="docs/img/steam-frame-icon.svg" width="18" height="18" alt=""></picture>&nbsp;→ Install on Steam Frame</a> · [→ Playing & controls](docs/PLAYING.md)
 
 On Steam Frame, setup adds a second library entry: launch **GloomhavenVR** for VR.
 The original **Gloomhaven** entry remains for flat play; both use the same saves.
@@ -223,7 +223,7 @@ The original **Gloomhaven** entry remains for flat play; both use the same saves
 
 ## Credits and licence
 
-- **ARMA** and **JJ-Pueppi** tested this over a lot of sessions in the headset. 
+- **ARMA**, **JJ-Pueppi** and **Kronosbasher**, for testing the mod in VR.
 - **ARMA** also made the 3D assets: the hands, the masks and the boards. They started out as
   AI-generated shapes, which are not usable as they come. He remodelled, cleaned up, re-rigged and
   textured them in Blender until they hold up at arm's length in a headset.
