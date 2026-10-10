@@ -439,7 +439,7 @@ internal static partial class PerfConfig
             FrameDefaults.Active ? FrameDefaults.UiMaintenanceIntervalSeconds : Defaults.UiMaintenanceIntervalSeconds,
             new ConfigDescription("Seconds between maintenance passes for unchanged converted panels. "
             + "0 updates every frame. Creation, reveal, grabs and native callbacks remain immediate. "
-            + "Fresh Frame 0.05 s, PC 0; works live.", new AcceptableValueRange<float>(0f, .2f)));
+            + "Fresh Frame 0.15 s, PC 0; works live.", new AcceptableValueRange<float>(0f, .2f)));
         FigureDistanceLod = _file.Bind("Optimize", "FigureDistanceLod",
             FrameDefaults.Active ? FrameDefaults.FigureDistanceLod : Defaults.FigureDistanceLod,
             "Reduce scenario figure body mesh detail with viewing distance. Immersive map NPCs retain their original meshes. "

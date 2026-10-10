@@ -47,7 +47,7 @@ internal static partial class Defaults
     internal const bool TrayFollow = true;                                                           // => [Cards] TrayFollow  (pinned: user default ruling 2026-09-10 - follow rather than fixed)
     internal const bool WristBoardEnabled = false;                                                   // => [Cards] WristBoardEnabled
     internal const Cards.WristBoardHand WristBoardHand = Cards.WristBoardHand.NonMain;                // => [Cards] WristBoardHand
-    internal static readonly Vector3 WristBoardOffsetMeters = new(0f, -0.19f, -0.075f);               // => [Cards] WristBoardOffsetMeters
+    internal static readonly Vector3 WristBoardOffsetMeters = new(-0.166f, 0.010f, -0.036f);          // => [Cards] WristBoardOffsetMeters (user 2026-10-10 — PC position calibration shared with Standalone; attachment remains Off)
     internal static readonly Vector3 WristBoardAnglesDegrees = new(0f, 0f, 90f);                      // => [Cards] WristBoardAnglesDegrees
     internal const float WristBoardScale = 0.5f;                                                     // => [Cards] WristBoardScale
     internal const BoardMoveMode BoardMoveMode = Cards.BoardMoveMode.Free;                            // => [Cards] BoardMoveMode

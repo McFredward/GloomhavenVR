@@ -306,11 +306,9 @@ internal static partial class Defaults
     // and an install that never opens the menu behave exactly as ModBuild 277 did. This is a
     // tuning surface, not a retune — the same rule the ModBuild 272 walk-in promotion followed.
     internal const float RescanIntervalSeconds = 2f;         // => [WallFade] RescanIntervalSeconds
-    // 0 = every frame, which is what [Optimize] WallFadeEvalInterval has shipped as since the
-    // 2026-07 perf pass and therefore what this must ship as: a non-zero default here would be
-    // a silent behaviour change smuggled in on a surfacing commit, and it would also override
-    // whatever a returning tester already has in his perf.cfg. The measured recommendation and
-    // its derivation live in .planning/perf/FINDINGS.md; the number is a human's to choose.
+    // PC 0 means unset here: the legacy cadence door or the shared 0.05 s fallback applies.
+    // Build664 seeds fresh Standalone entries from FrameDefaults.WallEvalIntervalSeconds
+    // under the maintainer's explicit choice. Existing saved entries remain authoritative.
     internal const float EvalIntervalSeconds = 0f;           // => [WallFade] EvalIntervalSeconds
     // ModBuild 437 — THE CADENCE THAT APPLIES WHEN NEITHER DIAL IS SET, and it is a new
     // constant rather than a new default for the two above BECAUSE A DEFAULT WOULD NOT HAVE

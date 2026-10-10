@@ -14,7 +14,7 @@ namespace GloomhavenVR;
 internal static partial class Defaults
 {
     // ---- WorldUI/ActorBars.cs ------------------------------------------------------
-    internal const bool BarsOccluded = false;  // => [WorldUI] BarsOccluded
+    internal const bool BarsOccluded = true;  // => [WorldUI] BarsOccluded (user 2026-10-10 — adopt the shared saved preference)
     // 0 = the measured height stands. This is a USER TRIM on top of the per-figure head
     // measurement, not a replacement for it, so the shipped value must be neutral: anything
     // else would be the mod pre-judging a number he asked to own.

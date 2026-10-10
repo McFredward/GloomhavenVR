@@ -243,7 +243,7 @@ internal static partial class Loc
             ["Optimize/UiMaintenanceIntervalSeconds"] =
                 "Sekunden zwischen Wartungsschritten unveränderter VR-Fenster. 0 aktualisiert jeden Frame. "
                 + "Erstellen, Aufdecken, Greifen und Spiel-Callbacks bleiben sofort wirksam. "
-                + "Neue Frame-Profile 0,05 s, PC 0; wirkt sofort.",
+                + "Neue Frame-Profile 0,15 s, PC 0; wirkt sofort.",
             ["Optimize/FigureDistanceLod"] =
                 "Verringert die Körperdetails von Szenariofiguren mit dem Betrachtungsabstand. Immersive Map-NPCs behalten ihre Original-Meshes. "
                 + "Nahe und hochgehobene Figuren behalten die gewählte Detailgrenze; entfernte Figuren "

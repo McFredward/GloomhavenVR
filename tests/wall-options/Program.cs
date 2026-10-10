@@ -16,13 +16,13 @@ internal static class Program
 
     private static void Main(string[] args)
     {
-        Check(PerfConfig.WallVisibilityMode == 2 && PerfConfig.WallAutoHideBelowFps == 15, "unbound wall defaults are automatic at15FPS");
+        Check(PerfConfig.WallVisibilityMode == 2 && PerfConfig.WallAutoHideBelowFps == 10, "unbound wall defaults are automatic at10FPS");
         foreach (bool frame in new[] { false, true })
         {
             FrameLaunchOptIn.Enabled = frame;
             var fresh = new ConfigFile(Path.Combine(args[0], frame ? "fresh-frame.cfg" : "fresh-pc.cfg"), false) { SaveOnConfigSet = false };
             PerfConfig.BindFixture(fresh);
-            Check(PerfConfig.WallVisibilityMode == 2 && PerfConfig.WallAutoHideBelowFps == 15, "fresh PC and Frame wall defaults agree");
+            Check(PerfConfig.WallVisibilityMode == 2 && PerfConfig.WallAutoHideBelowFps == 10, "fresh PC and Frame wall defaults agree");
         }
         var file = new ConfigFile(Path.Combine(args[0], "wall.cfg"), false) { SaveOnConfigSet = false };
         PerfConfig.BindFixture(file);

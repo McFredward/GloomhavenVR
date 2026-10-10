@@ -19,6 +19,11 @@ internal static class Program
         var cold = new Gloomhaven.GraphicSettings(false);
         var native = new Gloomhaven.GraphicSettings();
         UnityEngine.Object.Settings = new[] {invalid, cold, native};
+        RenderQuality.Bind(); PerfConfig.Bind(); WorldUIConfig.Bind(); WallFadeTuning.Bind();
+        Check(RenderQuality.MsaaLevel.Value == 8 && RenderQuality.ForceTextureStreamingOff.Value,
+            "fresh PC bindings seed High-End MSAA and readable textures before any profile action");
+        Check(PerfConfig.WallVisibilityModeCount.Value == 2 && PerfConfig.WallAutoHideBelowFpsCount.Value == 10,
+            "fresh PC bindings seed the approved automatic wall policy");
         for (int i=0; i<4; i++)
         {
             Check(GraphicsProfiles.Apply(i), "all profiles apply on original initialized scene UI");
@@ -26,6 +31,8 @@ internal static class Program
             Check(QualitySettings.Selected==levels[i] && native.Calls==i+1 && native.Saves==i+1, "native callback and persistence selected once");
             Check(invalid.Calls==0 && cold.Calls==0, "prefabs/uninitialized graphics views are untouched");
             Check(RenderQuality.MsaaLevel!.Value==(i==0?0:i==1?2:i==2?4:8), "MSAA quality progresses across profiles");
+            Check(RenderQuality.ForceTextureStreamingOff.Value == (i != 0),
+                "PC profiles preserve the readable-texture policy; Standalone retains native streaming");
             Check(RenderQuality.EyeResolutionScale!.Value==(i==0?.8f:1f) && RenderQuality.PixelLightCount!.Value==0,
                 "standalone selects 0.8 while all PC quality profiles retain 1.0 and the safe light cap");
             Check(PerfConfig.ScenarioFigureEffectsDensityPercent.Value==(i==0?0:i==1?25:i==2?60:100), "figure FX budget spans disabled through original");
@@ -47,6 +54,15 @@ internal static class Program
             Check(PerfConfig.ScenarioTerrainCameraSourceLimitCount.Value==(i==0?64:0),
                 "standalone bounds terrain substitution work while PC quality profiles retain unlimited originals-compatible substitution");
             Check(PerfConfig.ScenarioTerrainDistanceMeters.Value==GloomhavenVR.FrameDefaults.ScenarioTerrainDistanceMeters, "VR distance threshold is platform-independent");
+            Check(PerfConfig.ScenarioTerrainPillarDistanceLod.Value,
+                "every explicit profile restores independent pillar distance LOD");
+            Check(PerfConfig.WallVisibilityModeCount.Value == 2 && PerfConfig.WallAutoHideBelowFpsCount.Value == 10,
+                "explicit profiles restore the approved automatic wall policy at10FPS");
+            Check(PerfConfig.WallFadeEvalInterval.Value == 0f && WallFadeTuning.EvalIntervalSecondsEntry.Value == (i == 0 ? .25f : 0f),
+                "profiles reset both wall cadence doors to their respective fresh defaults");
+            Check(ModuleConfig.Get("rig").TryGetEntry(new BepInEx.Configuration.ConfigDefinition("Sky", "Style"),
+                    out BepInEx.Configuration.ConfigEntry<SkyStyle> sky) && sky.Value == (i == 0 ? SkyStyle.OffBlack : SkyStyle.SwampNight),
+                "the original bound sky entry receives the Standalone or PC environment");
             Check(PerfConfig.SharedEnvironmentMaterialReadsOn && PerfConfig.SharedUiWindowReadsOn, "environment and UI work removal apply universally without a quality switch");
             foreach (var file in ModuleConfig.Snapshot())
                 foreach (var key in file.Value.Entries.Keys)
@@ -56,7 +72,16 @@ internal static class Program
                         "profiles never bind retired idle or pure environment work-removal controls");
             foreach(var file in ModuleConfig.Snapshot()) Check(file.Value.SaveOnConfigSet, "autosave flags restored for every file");
         }
-        Check(GraphicsProfiles.Apply(0), "can return to standalone after high-end");
+        PerfConfig.ScenarioTerrainPillarDistanceLod.Value = false;
+        PerfConfig.WallVisibilityModeCount.Value = 1;
+        PerfConfig.WallAutoHideBelowFpsCount.Value = 7;
+        PerfConfig.WallFadeEvalInterval.Value = .1f;
+        WallFadeTuning.EvalIntervalSecondsEntry.Value = .2f;
+        Check(GraphicsProfiles.Apply(0), "can return to standalone after high-end and independent edits");
+        Check(PerfConfig.ScenarioTerrainPillarDistanceLod.Value && PerfConfig.WallVisibilityModeCount.Value == 2
+            && PerfConfig.WallAutoHideBelowFpsCount.Value == 10 && PerfConfig.WallFadeEvalInterval.Value == 0
+            && WallFadeTuning.EvalIntervalSecondsEntry.Value == .25f,
+            "Standalone restores a known wall and pillar state after arbitrary saved overrides");
         Check(RenderQuality.TextureStreamingBudgetMB!.Value==GloomhavenVR.FrameDefaults.TextureStreamingBudgetMB, "standalone streaming memory matches Frame constant");
         Check(PerfConfig.UiMaintenanceIntervalSeconds.Value==GloomhavenVR.FrameDefaults.UiMaintenanceIntervalSeconds && WallFadeTuning.RescanIntervalSecondsEntry!.Value==GloomhavenVR.FrameDefaults.WallRescanIntervalSeconds, "standalone maintenance/wall cadence matches Frame constants");
         Check(PerfConfig.ScenarioSceneryDensityPercent.Value==0 && PerfConfig.ScenarioDecorationDensityPercent.Value==0 && PerfConfig.ScenarioVegetationDensityPercent.Value==0, "standalone removes eligible scenery classes");
