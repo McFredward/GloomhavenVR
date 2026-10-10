@@ -190,6 +190,23 @@ class PlayerGraphCounterTests(unittest.TestCase):
         self.assertEqual(census.counts["native"], 2)
         self.assertFalse(census.qualified)
 
+    def test_preliminary_registration_compile_and_libunity_link_do_not_qualify_game_cpp(self):
+        path, data = graph(self.project, native=False)
+        # Actual pinned Android intermediate graph304 includes these actions
+        # and regenerates before graph452 schedules the generated game CPP.
+        data["Nodes"][2]["Annotation"] = "Compile UnityICallRegistration Library/Bee/UnityICallRegistration.o"
+        data["Nodes"][3]["Annotation"] = "Link libunity Library/Bee/unstripped/libunity.so"
+        path.write_text(json.dumps(data))
+        census = PlayerBeePlan(self.project, RELATIVE, "fixture")
+        self.assertEqual(census.counts["native"], 2)
+        self.assertFalse(census.qualified)
+        value = parser(); value.parse(BACKEND, SOURCE)
+        value.parse("WorkingDir: " + str(self.project), SOURCE)
+        for annotation in (data["Nodes"][2]["Annotation"], data["Nodes"][3]["Annotation"]):
+            fields = value.parse("[5/5 0s] " + annotation, SOURCE)
+            self.assertTrue(fields["phase"].startswith("bee-actions:"))
+            self.assertFalse(value.player_graphs[SOURCE].get("nativeSeen", False))
+
     def test_profiler_epoch_refuses_previous_log_before_new_backend_rewrites_it(self):
         graph(self.project); path = log(self.project, result(done=5))
         os.utime(path, (1, 1)); profile(self.project)
@@ -340,11 +357,21 @@ class ShaderCoverageTests(unittest.TestCase):
             value = parser(); value.import_coverage[SOURCE] = SimpleNamespace(known={"Assets/One.shader"}, plan={"project": str(project)})
             value.parse('Compiling shader "Original/One" pass "" (vp)', SOURCE)
             self.assertEqual(value.take_observations()[0]["done"], 0)
-            value.parse("6 / 6 variants left after stripping, processed in 0.00 seconds", SOURCE)
+            retained = value.parse("6 / 6 variants left after stripping, processed in 0.00 seconds", SOURCE)
+            self.assertIn("[shader-source:unseen]", retained["detail"])
+            ready = value.parse("[60s] 3 / 6 variants ready", SOURCE)
+            self.assertEqual((ready["done"], ready["total"]), (3, 6))
+            self.assertIn("[shader-source:unseen]", ready["detail"])
             local = value.parse("finished in 0.00 seconds. Local cache hits 6 (0.00s CPU time), remote cache hits 0 (0.00s CPU time), compiled 0 variants (0.00s CPU time), skipped 0 variants", SOURCE)
             self.assertEqual(local["status"], "complete")
+            self.assertIn("[shader-source:unseen]", local["detail"])
             whole = value.take_observations()[0]
             self.assertEqual((whole["phase"], whole["done"], whole["total"], whole["status"]), ("unity-player-shaders", 1, 2, "progress"))
+            repeated = value.parse('Compiling shader "Original/One" pass "next" (vp)', SOURCE)
+            self.assertIn("[shader-source:observed]", repeated["detail"])
+            outside = value.parse('Compiling shader "Hidden/Builtin" pass "" (vp)', SOURCE)
+            self.assertIn("[shader-source:outside]", outside["detail"])
+            self.assertEqual(value.take_observations(), [])
 
 
 if __name__ == "__main__": unittest.main()

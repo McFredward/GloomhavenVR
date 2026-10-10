@@ -28,7 +28,10 @@ _BEE_NATIVE = re.compile(r"^(?:C_Android_\w+|Link_Android_\w+|Clang|Compile|Link
                          r"MakeLump|Lump|Pch|NdkObjCopy|ICallRegistrationGenerator|"
                          r"ClassRegistrationGenerator|Stripping|Adding)(?:\s|$)")
 _BEE_CONVERSION = re.compile(r"^(?:IL2CPP\w*|UnityLinker|ExtractUsedFeatures)(?:\s|$)")
-_BEE_COMPILER = re.compile(r"^(?:C_Android_\w+|Link_Android_\w+|Clang|Compile|Link)(?:\s|$)")
+# Registration compilation and linking libunity occur in preliminary graphs
+# before generated game CPP exists. Only actual Android compiler/link actions
+# qualify the finite game-native plan; the other tasks retain local scope.
+_BEE_COMPILER = re.compile(r"^(?:C_Android_\w+|Link_Android_\w+|Clang)(?:\s|$)")
 _BEE_DAG_LIMIT = 16 * 1048576
 _BEE_NODE_LIMIT = 250000
 
@@ -518,7 +521,10 @@ class ProgressParser:
 
     def _shader_fields(self, source, run, *, failed=False):
         current = run["current"]
-        detail = ("[shader-pass:" + str(run["started"]) + "] Unity shader compilation: " + current["name"] + " / " + (current["pass"] or "unnamed pass") +
+        census = self.shader_coverage.get((source, self._unity_operation(source)))
+        source_scope = ("outside" if not census or current["name"] not in census["names"] else
+                        "observed" if current["name"] in census["observed"] else "unseen")
+        detail = ("[shader-pass:" + str(run["started"]) + "] [shader-source:" + source_scope + "] Unity shader compilation: " + current["name"] + " / " + (current["pass"] or "unnamed pass") +
                   " · pass #" + str(run["started"]) + " · completed passes " + str(run["passes"]) +
                   " · completed variants " + str(run["variants"]))
         if failed: detail += " · compiler reported an error; this pass is incomplete"
