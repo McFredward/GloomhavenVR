@@ -11,6 +11,9 @@ import struct
 import re
 import json
 import gc
+import io
+import stat
+import time
 import zipfile
 from pathlib import Path
 
@@ -279,12 +282,13 @@ def catalog_plan(decoded, contracts, material_rows=(), sample_count=16):
 
 class NativeBundleAudit:
     """Resolve exact public roots and deferred CAB/pathID links, never shader names."""
-    def __init__(self, contracts, plan, material_contract):
+    def __init__(self, contracts, plan, material_contract, *, observed_root=None):
         self.contracts = contracts
         self.plan = plan
         self.material_contract = material_contract
         self.shaders, self.shader_objects, self.materials, self.collections = {}, {}, [], []
         self.origins = []
+        self.observed_root = observed_root
 
     def observe(self, env, entry, raw_sha256):
         bundles = [obj for obj in env.objects if obj.type.name == 'AssetBundle']
@@ -330,6 +334,7 @@ class NativeBundleAudit:
                 from types import SimpleNamespace
                 saved = SimpleNamespace(name=obj.assets_file.name, externals=[SimpleNamespace(path=e.path) for e in obj.assets_file.externals])
                 self.collections.append((obj.read_typetree(), saved))
+            if self.observed_root is not None: self.observed_root(path)
         self.origins.append({'entry': entry, 'sha256': raw_sha256, 'originalRootCount': len(root_map)})
 
     def finish(self):
@@ -463,20 +468,96 @@ def _local_file(root, relative):
 
 
 def _file_identity(path):
-    value = path.stat()
+    value = path.lstat()
+    require(stat.S_ISREG(value.st_mode) and not getattr(value, 'st_file_attributes', 0) & 0x400,
+        'Native Shader audit input is not a regular unlinked file: ' + str(path)[-384:])
     return (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
 
 
-def _read_native_file(path, identities):
+def _handle_identity(value):
+    return (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+
+
+def _same_open_file(path_identity, handle_identity):
+    # CPython's Windows path stat returns creation time while fstat returns
+    # change time (https://github.com/python/cpython/issues/157671). Capture
+    # 215313 reaches the native audit and is refused by this cross-API ctime
+    # equality. Qualify common identity/size/mtime across APIs, then retain
+    # each API's own full pre/post guard; never discard change-time protection.
+    # The capture lacks raw stamps, so the particular Windows file is unknown.
+    return (path_identity[:4] == handle_identity[:4] if sys.platform == 'win32'
+        else path_identity == handle_identity)
+
+
+def _require_stable_file(condition, path, check, before, after):
+    if condition: return
+    details = {'path': str(path)[-1024:], 'check': check,
+        'platform': sys.platform, 'stampFields': ['device', 'inode', 'size', 'mtimeNs', 'ctimeNs'],
+        'before': before, 'after': after}
+    error = ClosureError('Native Shader audit file changed while being read: ' +
+        str(path)[-384:] + ' [' + check + ']')
+    error.file_diagnostics = details
+    raise error
+
+
+class _NativeAuditCounter:
+    """Bounded real work counters, opt-in and independent of native proof."""
+    def __init__(self, phase, total, unit):
+        self.phase, self.total, self.unit = phase, total, unit
+        self.done, self.detail, self.last = 0, '', time.monotonic()
+        self.enabled = os.environ.get('GHVRQ_WIZARD_PROGRESS') == '1'
+        self.publish('start', force=True)
+
+    def publish(self, status='progress', *, force=False):
+        require(status != 'complete' or self.done == self.total,
+            'Unfinished native Shader audit work cannot be completed')
+        if not self.enabled: return
+        now = time.monotonic()
+        if not force and now - self.last < .25: return
+        print('GHVRQ_PROGRESS ' + json.dumps({'schema': 1, 'phase': self.phase,
+            'done': self.done, 'total': self.total, 'unit': self.unit,
+            'detail': re.sub(r'[\x00-\x1f]', '', self.detail)[-1024:],
+            'status': status, 'operation': 'content-bank'}, separators=(',', ':')), flush=True)
+        self.last = now
+
+    def add(self, amount, detail):
+        require(type(amount) is int and 0 <= amount <= self.total - self.done,
+            'Native Shader audit work exceeds its observed total')
+        self.done += amount; self.detail = detail
+        self.publish()
+
+
+NATIVE_READ_CHUNK = 8 * 1024 * 1024
+
+
+def _read_native_file(path, identities, *, progress=None):
     before = _file_identity(path)
     with path.open('rb') as stream:
-        value = stream.read()
-        opened = stream.fileno()
-        current = os.fstat(opened)
-        require(before == (current.st_dev, current.st_ino, current.st_size,
-            current.st_mtime_ns, current.st_ctime_ns), 'Native Shader audit file changed while being read')
-    require(len(value) == before[2] and _file_identity(path) == before,
-        'Native Shader audit file changed while being read')
+        opened = _handle_identity(os.fstat(stream.fileno()))
+        _require_stable_file(_same_open_file(before, opened), path,
+            'path-before/opened-handle', before, opened)
+        # BytesIO avoids retaining a list of huge chunks plus their joined copy.
+        # Read at most one byte beyond the qualified extent to catch a growing
+        # file without an unbounded read or a second native-bank payload scan.
+        with io.BytesIO() as payload:
+            count = 0
+            while chunk := stream.read(min(NATIVE_READ_CHUNK, before[2] - count + 1)):
+                count += len(chunk)
+                _require_stable_file(count <= before[2], path,
+                    'read-extent', before, ('bytes-read', count))
+                payload.write(chunk)
+                if progress is not None: progress.add(len(chunk), path.name)
+            value = payload.getvalue()
+        after_handle = _handle_identity(os.fstat(stream.fileno()))
+        _require_stable_file(opened == after_handle, path,
+            'handle-before/after-read', opened, after_handle)
+        after_path = _file_identity(path)
+        _require_stable_file(before == after_path, path,
+            'path-before/after-read', before, after_path)
+        _require_stable_file(len(value) == before[2], path,
+            'read-length', before, ('bytes-read', len(value)))
+    closed = _file_identity(path)
+    _require_stable_file(closed == before, path, 'path-after-close', before, closed)
     identities[path] = before
     return value
 
@@ -516,23 +597,36 @@ def validate_native_directory(source, project, nativeRoot, evidence, *, material
         path = _local_file(project, row['assetPath'])
         identities[path] = _file_identity(path)
         value = source_material(project, row)
-        require(_file_identity(path) == identities[path], 'Original material changed during native Shader audit')
+        current = _file_identity(path)
+        _require_stable_file(current == identities[path], path,
+            'original-material-before/after-read', identities[path], current)
         return value
 
-    audit = NativeBundleAudit(contracts, plan, material_contract)
+    read_progress = _NativeAuditCounter('unity-native-shader-audit-read',
+        sum(identities[path][2] for _, path in selected), 'bytes')
+    bundle_progress = _NativeAuditCounter('unity-native-shader-audit', len(selected), 'bundles')
+    root_progress = _NativeAuditCounter('unity-native-shader-audit-objects',
+        len(contracts) + plan['materialSampleCount'] + 1, 'objects')
+    audit = NativeBundleAudit(contracts, plan, material_contract,
+        observed_root=lambda path: root_progress.add(1, path))
     for entry, path in selected:
-        require(_file_identity(path) == identities[path], 'Native Shader dependency changed before its audit')
-        raw = _read_native_file(path, identities)
+        current = _file_identity(path)
+        _require_stable_file(current == identities[path], path,
+            'dependency-before-audit', identities[path], current)
+        raw = _read_native_file(path, identities, progress=read_progress)
         env = UnityPy.load(raw)
         try:
             audit.observe(env, entry, hashlib.sha256(raw).hexdigest())
         finally:
             del env, raw
             gc.collect()
+        bundle_progress.add(1, path.name)
+    read_progress.publish('complete', force=True)
     result = audit.finish()
     for path, before in identities.items():
-        require(not _is_path_link(path) and path.is_file() and _file_identity(path) == before,
-            'Native Shader audit input changed before publishing evidence')
+        current = _file_identity(path)
+        _require_stable_file(not _is_path_link(path) and current == before, path,
+            'before-evidence-publication', before, current)
         # Check newly substituted ancestor links without re-reading native data.
         root = native_root if path.is_relative_to(native_root) else project if path.is_relative_to(project) else source
         _local_file(root, path.relative_to(root).as_posix())
@@ -542,7 +636,12 @@ def validate_native_directory(source, project, nativeRoot, evidence, *, material
         selectedNativeBundleCount=len(selected), actualNativeDirectoryFilesVerified=True,
         signedApkAuditPerformed=False, fullDeliveredArtifactAuditPerformed=False,
         allNativeContentFilesAudited=False)
+    require(root_progress.done == root_progress.total, 'Native Shader audit public root census incomplete')
     write_json(Path(evidence), result)
+    root_progress.publish('complete', force=True)
+    # The caller checks the exact published receipt before closing its parent
+    # phase. A full logical count alone does not mean that C# accepted the gate.
+    bundle_progress.publish('progress', force=True)
     return result
 
 
@@ -557,9 +656,11 @@ def main(argv=None):
         result = validate_native_directory(arguments.source, arguments.project,
             arguments.native_root, arguments.evidence)
     except Exception as error:
-        print(json.dumps({'schema': 1, 'status': 'failed',
+        failure = {'schema': 1, 'status': 'failed',
             'scope': 'actual-native-addressables-before-player',
-            'errorType': type(error).__name__, 'error': str(error)[:1024]}), file=sys.stderr)
+            'errorType': type(error).__name__, 'error': str(error)[:1024]}
+        if hasattr(error, 'file_diagnostics'): failure['fileDiagnostics'] = error.file_diagnostics
+        print(json.dumps(failure), file=sys.stderr)
         return 1
     print(json.dumps({key: result[key] for key in ('schema', 'scope', 'shaderCount',
         'originalNativeAliasCount', 'selectedNativeBundleCount', 'materialSampleCount',

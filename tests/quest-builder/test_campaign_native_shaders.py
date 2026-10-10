@@ -1,6 +1,10 @@
 """Authored fixtures for actual native alias, collection, and ownership gates."""
 import copy
+from contextlib import redirect_stdout
 import importlib.util
+import io
+import json
+import os
 from pathlib import Path
 import struct
 import sys
@@ -352,6 +356,51 @@ class EarlyNativeDirectoryTests(unittest.TestCase):
         self.assertFalse(result['allNativeContentFilesAudited']); self.assertEqual(result['compilerQueries'], 0)
         self.assertEqual(json.loads(self.evidence.read_text()), result)
         self.contract_mock.assert_called_once(); self.assertTrue(self.contract_mock.call_args.kwargs['full'])
+
+    def test_modeled_windows_ctime_difference_preserves_entire_native_gate_receipt(self):
+        baseline = self.run_gate(); actual_fstat = os.fstat
+        def windows(fd):
+            value = actual_fstat(fd)
+            return types.SimpleNamespace(st_dev=value.st_dev, st_ino=value.st_ino, st_size=value.st_size,
+                st_mtime_ns=value.st_mtime_ns, st_ctime_ns=value.st_ctime_ns + 123456789)
+        with patch.object(gate.sys, 'platform', 'win32'), patch.object(gate.os, 'fstat', side_effect=windows):
+            self.assertEqual(self.run_gate(), baseline)
+
+    def test_progress_has_exact_bytes_bundles_and_public_roots_without_claiming_csharp_completion(self):
+        baseline = self.run_gate(); output = io.StringIO()
+        with patch.dict(os.environ, {'GHVRQ_WIZARD_PROGRESS': '1'}), redirect_stdout(output):
+            self.assertEqual(self.run_gate(), baseline)
+        rows = [json.loads(line.removeprefix('GHVRQ_PROGRESS ')) for line in output.getvalue().splitlines()]
+        completed = {row['phase']: row for row in rows if row['status'] == 'complete'}
+        self.assertEqual((completed['unity-native-shader-audit-read']['done'],
+            completed['unity-native-shader-audit-read']['total']), (self.bank.stat().st_size, self.bank.stat().st_size))
+        self.assertEqual((completed['unity-native-shader-audit-objects']['done'],
+            completed['unity-native-shader-audit-objects']['total']), (3, 3))
+        self.assertEqual(completed['unity-native-shader-audit-objects']['unit'], 'objects')
+        bundles = [row for row in rows if row['phase'] == 'unity-native-shader-audit']
+        self.assertEqual((bundles[-1]['done'], bundles[-1]['total'], bundles[-1]['status']), (1, 1, 'progress'))
+        self.assertNotIn('unity-native-shader-audit', completed)
+        self.assertTrue(all(row['operation'] == 'content-bank' for row in rows))
+
+    def test_original_alias_loss_cannot_emit_root_completion_or_publish_evidence(self):
+        shader = native(); shader['m_ParsedForm']['m_SubShaders'][0]['m_Passes'][0]['progVertex']['m_SubPrograms'] = []
+        self.env.objects[1].read_typetree = lambda: shader
+        output = io.StringIO()
+        with patch.dict(os.environ, {'GHVRQ_WIZARD_PROGRESS': '1'}), redirect_stdout(output):
+            with self.assertRaisesRegex(BuildError, 'strips original'): self.run_gate()
+        rows = [json.loads(line.removeprefix('GHVRQ_PROGRESS ')) for line in output.getvalue().splitlines()]
+        self.assertFalse(any(row['status'] == 'complete' for row in rows))
+        self.assertFalse(self.evidence.exists())
+
+    def test_failed_receipt_publication_does_not_close_native_objects_or_parent(self):
+        output = io.StringIO()
+        with patch.dict(os.environ, {'GHVRQ_WIZARD_PROGRESS': '1'}), redirect_stdout(output), \
+                patch.object(gate, 'write_json', side_effect=OSError('fixture unavailable destination')):
+            with self.assertRaisesRegex(OSError, 'unavailable'): self.run_gate()
+        rows = [json.loads(line.removeprefix('GHVRQ_PROGRESS ')) for line in output.getvalue().splitlines()]
+        self.assertFalse(any(row['status'] == 'complete' and row['phase'] in
+            ('unity-native-shader-audit-objects', 'unity-native-shader-audit') for row in rows))
+        self.assertFalse(self.evidence.exists())
 
     def test_missing_bank_symlink_file_ancestor_and_directory_are_rejected(self):
         target = self.root / 'external.bundle'; target.write_bytes(self.bank.read_bytes())
