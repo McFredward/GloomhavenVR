@@ -217,7 +217,18 @@ internal static partial class TownServiceMirror
                         && possible.Module.Binding.Structure == stock.Binding.Structure) return false;
                 continue;
             }
-            if (!originals.TryGetValue(origin, out ReturnOriginal? original)) continue;
+            if (!originals.TryGetValue(origin, out ReturnOriginal? original))
+            {
+                // The new private preparation can beat its matching Stock
+                // header/cancellation. Its exact source identity supersedes an
+                // older epoch; missing old provenance is not a cold observer.
+                foreach (ReturnOriginal current in originals.Values)
+                    if (!current.Transferred && current.Module.Alive && current.Module.LastFrame != null
+                        && origin.Matches(current.Module.LastFrame)
+                        && current.Module.Address == stock.Address
+                        && !TownCardReturnOrigin.Same(current.Origin, origin)) return false;
+                continue;
+            }
             if (original.Transferred) continue;
             RemoteModule source = original.Module; TownServiceFrame? prior = source.LastFrame;
             if (origin.FlightRevision != header.Revision || !source.Alive || prior == null
