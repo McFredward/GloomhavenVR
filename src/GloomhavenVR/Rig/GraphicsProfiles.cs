@@ -42,11 +42,11 @@ internal static class GraphicsProfiles
             bool standalone = index == 0, low = index <= 1;
             int density = index == 0 ? 0 : index == 1 ? 25 : index == 2 ? 60 : 100;
             int body = index == 0 ? 0 : index == 1 ? 33 : index == 2 ? 66 : 100;
-            Set(RenderQuality.MsaaLevel, standalone ? FrameDefaults.MsaaLevel : index == 1 ? 2 : index == 2 ? 4 : 8);
+            Set(RenderQuality.MsaaLevel, standalone ? FrameDefaults.MsaaLevel : index == 1 ? 2 : index == 2 ? 4 : Defaults.MsaaLevel);
             Set(RenderQuality.EyeResolutionScale, standalone ? FrameDefaults.EyeResolutionScale : Defaults.EyeResolutionScale);
             Set(RenderQuality.ForceAnisotropic, FrameDefaults.ForceAnisotropic);
             Set(RenderQuality.ForceFullTextureResolution, FrameDefaults.ForceFullTextureResolution);
-            Set(RenderQuality.ForceTextureStreamingOff, FrameDefaults.ForceTextureStreamingOff);
+            Set(RenderQuality.ForceTextureStreamingOff, standalone ? FrameDefaults.ForceTextureStreamingOff : Defaults.ForceTextureStreamingOff);
             Set(RenderQuality.TextureStreamingBudgetMB, standalone ? FrameDefaults.TextureStreamingBudgetMB : Defaults.TextureStreamingBudgetMB);
             // The maintainer's earlier pixel-light ruling still applies to every profile.
             Set(RenderQuality.PixelLightCount, FrameDefaults.PixelLightCount);
@@ -73,6 +73,7 @@ internal static class GraphicsProfiles
             Set(PerfConfig.ScenarioDistantTerrainDetailPercent, standalone ? FrameDefaults.ScenarioDistantTerrainDetailPercent : index == 1 ? 0 : index == 2 ? 50 : 100);
             Set(PerfConfig.ScenarioTerrainCameraSourceLimitCount, standalone ? FrameDefaults.ScenarioTerrainCameraSourceLimitCount : 0);
             Set(PerfConfig.ScenarioTerrainDistanceMeters, FrameDefaults.ScenarioTerrainDistanceMeters);
+            Set(PerfConfig.ScenarioTerrainPillarDistanceLod, Defaults.ScenarioTerrainPillarDistanceLod);
             Set(PerfConfig.FigureDistanceLod, standalone ? FrameDefaults.FigureDistanceLod : index < 3);
             Set(PerfConfig.SkinningBoneLimit, standalone ? FrameDefaults.SkinningBoneLimit : low ? 2 : index == 2 ? 4 : 0);
             Set(PerfConfig.OffscreenIdleAnimation, standalone ? FrameDefaults.OffscreenIdleAnimation : index < 3);
@@ -80,6 +81,15 @@ internal static class GraphicsProfiles
             Set(PerfConfig.ActorBarPoseCheckIntervalSeconds, standalone ? FrameDefaults.ActorBarPoseCheckIntervalSeconds : low ? .1f : 0f);
             Set(PerfConfig.InitiativeDepthEvalInterval, standalone ? FrameDefaults.InitiativeDepthEvalInterval : low ? .1f : 0f);
             Set(WallFadeTuning.RescanIntervalSecondsEntry, standalone ? FrameDefaults.WallRescanIntervalSeconds : Defaults.RescanIntervalSeconds);
+            // Explicit profiles restore a known wall/environment policy; ordinary Bind keeps
+            // saved values. Clear the old cadence door so PC 0 again resolves to the native
+            // automatic timing rather than a previous Advanced override.
+            Set(PerfConfig.WallFadeEvalInterval, Defaults.WallFadeEvalInterval);
+            Set(WallFadeTuning.EvalIntervalSecondsEntry, standalone ? FrameDefaults.WallEvalIntervalSeconds : Defaults.EvalIntervalSeconds);
+            Set(PerfConfig.WallVisibilityModeCount, Defaults.WallVisibilityModeCount);
+            Set(PerfConfig.WallAutoHideBelowFpsCount, Defaults.WallAutoHideBelowFpsCount);
+            // RenderQuality.Bind already binds the original sky entry in the rig file.
+            SetBound(files, "Sky", "Style", standalone ? (SkyStyle)FrameDefaults.SkyStyleCode : Defaults.SkyStyle);
             Set(WorldUIConfig.DesktopMirrorLeftEye, standalone ? FrameDefaults.DesktopMirrorLeftEye : Defaults.DesktopMirrorLeftEye);
             Set(WorldUIConfig.ImmersiveTownServices, standalone ? FrameDefaults.ImmersiveTownServices : Defaults.ImmersiveTownServices);
             SetBound(files, "WorldUI", "WindowMaterialise", standalone ? FrameDefaults.WindowMaterialise : Defaults.WindowMaterialise);

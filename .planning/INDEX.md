@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-10 for targeted imported Sprite repair, finite Unity progress and Runtime663 integration.
+Updated 2026-10-10 for targeted imported Sprite repair, finite Unity progress and approved Runtime664 PC/Standalone defaults.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
@@ -26,6 +26,8 @@ status; it is not the player manual.
 | [QUEST-GRAPHICS-093454-20261009.md](QUEST-GRAPHICS-093454-20261009.md) | Captured scalar compute failure, retained17-step prefix and measured texture/compute/Shader work |
 | [QUEST-BUILD-REUSE-20261008.md](QUEST-BUILD-REUSE-20261008.md) | Original-source/output roles, retained14-phase staging and preparation, persistent change-time witnesses and bounded speed evidence |
 | [QUEST-BUILD-NATIVE-BYTES-20261008.md](QUEST-BUILD-NATIVE-BYTES-20261008.md) | Exact Windows native overlays, retained642 staging, measured native progress and dev643 Builder |
+| [DEFAULTS-664-REVIEW.md](DEFAULTS-664-REVIEW.md) | Paired configuration audit, approved defaults and focused validation |
+| [STEAM-FRAME-DEFAULTS.md](STEAM-FRAME-DEFAULTS.md) | Current PC/Standalone default and explicit graphics-profile policy |
 | [FRAME-PILLAR-DISTANCE-REVIEW.md](FRAME-PILLAR-DISTANCE-REVIEW.md) | Configured full-detail pillar radius, matched inherited proof and final659 integration |
 | [NPC-660-REVIEW.md](NPC-660-REVIEW.md) | Published current dev repair, composed validation, paired658 failure and remaining hardware limits |
 | [NPC-658-REVIEW.md](NPC-658-REVIEW.md) | Paired656 videos/logs, reproduced defects, integrated validation and hardware limits |

@@ -25,7 +25,7 @@ for name in sorted(required):
     m = re.search(r'internal const (\w+) '+name+r'\s*=\s*([^;]+);', constants)
     if not m: raise SystemExit('Missing original Defaults constant: '+name)
     defs.append('internal const '+m.group(1)+' '+name+' = '+m.group(2)+';')
-extra = 'namespace GloomhavenVR { internal static class Defaults { '+'\n'.join(defs)+' } }\n'
+extra = 'using GloomhavenVR.Core; namespace GloomhavenVR { internal static class Defaults { '+'\n'.join(defs)+' } }\n'
 # Bind only the platform/config boundary. Types/defaults are taken from original source,
 # while the complete production profile callback, validation and finally paths stay unchanged.
 owners = {'RenderQuality': ('Rig/RenderQuality.cs', 'GloomhavenVR.Rig', 'rig'),
@@ -46,9 +46,21 @@ for owner, (rel, namespace, module) in owners.items():
     for kind,name in fields: extra += f'internal static BepInEx.Configuration.ConfigEntry<{kind}> {name} = null!;\n'
     extra += 'internal static void Bind() { var file = GloomhavenVR.Core.ModuleConfig.Get("'+module+'");\n'
     for kind,name in fields:
-        section = 'RenderQuality' if owner=='RenderQuality' else 'Optimize' if owner=='PerfConfig' else 'WallFade' if owner=='WallFadeTuning' else 'WorldUI'
-        value = 'false' if kind=='bool' else '0f' if kind=='float' else '0'
-        extra += f'if ({name} == null) {name} = file.Add("{section}", "{name}", {value});\n'
+        binding = re.search(r'\b'+name+r'\s*=\s*\w+\.Bind\(\s*"([^"]+)",\s*"([^"]+)",\s*([^,\n]+),', original)
+        if not binding: raise SystemExit('Missing original field default binding: '+owner+'.'+name)
+        section,key,value = binding.groups()
+        # Keep fresh defaults source-bound rather than seeding a dummy zero. Persisted-file
+        # semantics still belong to the real BepInEx wall suite; this is a config boundary.
+        value = re.sub(r'\bframe\b', 'GloomhavenVR.FrameDefaults.Active', value)
+        extra += f'if ({name} == null) {name} = file.Add("{section}", "{key}", {value});\n'
+        required.update(re.findall(r'(?<!Frame)\bDefaults\.([A-Za-z]+)', value))
+    if owner == 'RenderQuality':
+        # This entry rides the real RenderQuality.Bind. Compile its exact original enum and
+        # fresh-default expression so the profile's SetBound path has a real typed target.
+        sky = (source / 'Core/Environment/SkyAlternative.cs').read_text()
+        match = re.search(r'Style = file.Bind\("Sky", "Style", ([^\n]+),\n', sky)
+        if not match: raise SystemExit('Missing original sky default binding')
+        extra += f'var skyDefinition = new BepInEx.Configuration.ConfigDefinition("Sky", "Style"); if (!file.Entries.ContainsKey(skyDefinition)) file.Add("Sky", "Style", {match.group(1)});\n'
     extra += '}\n'
     if owner == 'PerfConfig':
         # Compile the exact always-on getters; they deliberately create no binding.
@@ -58,6 +70,16 @@ extra += '''namespace GloomhavenVR.WorldUI { internal static class WindowMateria
     internal static BepInEx.Configuration.ConfigEntry<bool> Entry = null!;
     internal static bool Enabled { get { if (Entry == null) Entry = GloomhavenVR.Core.ModuleConfig.Get("worldui").Add("WorldUI", "WindowMaterialise", true); return Entry.Value; } }
 } }\n'''
+sky = (source / 'Core/Environment/SkyAlternative.cs').read_text()
+enum = re.search(r'internal enum SkyStyle\s*\{[^}]+\}', sky)
+if not enum: raise SystemExit('Missing original sky enumeration')
+extra += 'namespace GloomhavenVR.Core { ' + enum.group(0) + ' }\n'
+fresh_defs = []
+for name in sorted(required):
+    match = re.search(r'internal const (\w+) '+name+r'\s*=\s*([^;]+);', constants)
+    if not match: raise SystemExit('Missing original fresh default: '+name)
+    fresh_defs.append('internal const '+match.group(1)+' '+name+' = '+match.group(2)+';')
+extra = extra.replace('\n'.join(defs), '\n'.join(fresh_defs), 1)
 (run/'Profiles.cs').write_text(profile)
 (run/'Defaults.cs').write_text(extra)
 shutil.copyfile(source/'Core/Startup/FrameDefaults.cs',run/'FrameDefaults.cs')

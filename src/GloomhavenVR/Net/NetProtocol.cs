@@ -607,7 +607,18 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 663;
+    public const ushort ModBuild = 664;
+
+    // ModBuild664 — approved PC/Standalone defaults and reproducible graphics profiles.
+    // The maintainer approves the paired configuration audit, with 10 FPS for automatic wall
+    // hiding, 8x MSAA on fresh PC and wrist position (-.166,.010,-.036) m on both platforms.
+    // Fresh Frame seeds OffBlack and 0.25 s view-obstruction checks; both platforms depth-test
+    // healthbars. PC keeps texture-streaming forced Off, Standalone retains the native policy.
+    // Explicit graphics-profile actions now restore those wall/sky choices and independent
+    // pillar LOD; the old cadence door resets too. Startup Bind retains every persisted entry,
+    // including individual quality/calibration choices; native saved/cloud quality is untouched.
+    // Wrist attachment stays Off; rotation, multiplayer pose/visibility rules and wire layout
+    // are unchanged. This is a defaults/profile scope, not a new headset performance claim.
 
     // ModBuild663 — independent pillar LOD uses the figure distance rules.
     // Both supplied Frame sinks identify661, terrain0/0 and the saved .75m radius;

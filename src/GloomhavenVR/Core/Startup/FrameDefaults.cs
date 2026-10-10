@@ -25,6 +25,12 @@ internal static class FrameDefaults
     // Build607: the maintainer reports a hitch at every dust reveal on standalone Frame.
     // Only new profiles use this default; the existing [WorldUI] choice remains authoritative.
     internal const bool WindowMaterialise = false;
+    // Build664: approved snapshot defaults avoid the extra scenario surroundings and
+    // sample view obstruction at 4 Hz. This is not the wall inventory-rescan cadence.
+    // SkyStyle.OffBlack has the stable appended code 3; keep this dependency-free defaults
+    // class reusable by configuration-only startup consumers and companion harnesses.
+    internal const int SkyStyleCode = 3;
+    internal const float WallEvalIntervalSeconds = .25f;
 
     // The game's native Fantastic profile uses a 900 MB streaming budget. This minimum is
     // inert under the fresh native Fastest profile, which has streaming disabled; unlike the

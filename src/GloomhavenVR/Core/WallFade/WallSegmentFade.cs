@@ -279,7 +279,7 @@ internal static class WallFadeTuning
             + "frame entirely (80 of 113 in that same log), so raising this thins out the ones "
             + "that are left rather than removing a fixed cost. Live; clamped 0.50-15.00.");
         EvalIntervalSecondsEntry = config.Bind("WallFade", "EvalIntervalSeconds",
-            Defaults.EvalIntervalSeconds,
+            FrameDefaults.Active ? FrameDefaults.WallEvalIntervalSeconds : Defaults.EvalIntervalSeconds,
             new ConfigDescription("How often the mod CHECKS whether a wall is hiding the floor you are looking at — "
             + "the per-frame half: it projects every room's floor samples through your head "
             + "camera and re-measures every wall against them. 0 = not set here, which since "

@@ -56,7 +56,7 @@ internal static partial class Defaults
     internal const bool TableScaleDefault25Applied = false;         // => [Comfort] TableScaleDefault25Applied  (pinned: one-shot migration marker — a fresh install must start false)
 
     // ---- Rig/RenderQuality.cs ------------------------------------------------------
-    internal const int MsaaLevel = 4;                    // => [RenderQuality] MsaaLevel
+    internal const int MsaaLevel = 8;                    // => [RenderQuality] MsaaLevel (pinned: user 2026-10-10 — fresh PC matches High-End PC)
     internal const bool ForceAnisotropic = true;         // => [RenderQuality] ForceAnisotropic
     internal const bool ForceFullTextureResolution = true; // => [RenderQuality] ForceFullTextureResolution
     // ON, and it is the answer to "the HIGHER game preset looks worse" (user, 2026-08-23: "Die

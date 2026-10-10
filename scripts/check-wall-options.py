@@ -79,7 +79,8 @@ def static_contract(source):
         assert '["Optimize/' + key + '"] = Pair(' in source[base + "Core/Loc/Loc.PlayerHelp.cs"], "Wall setting has EN/DE player help"
         assert '["Optimize/' + key + '"] =' in source[base + "Core/Loc/Loc.ConfigDescriptions.German.cs"], "Wall setting config help is localized"
     profiles = source[base + "Rig/GraphicsProfiles.cs"]
-    assert not re.search(r"Set\(PerfConfig\.Wall(?:VisibilityMode|AutoHideBelowFps)Count", profiles), "Graphics presets preserve explicit wall choices"
+    assert 'Set(PerfConfig.WallVisibilityModeCount, Defaults.WallVisibilityModeCount);' in profiles, "Explicit graphics profiles restore the approved automatic wall policy"
+    assert 'Set(PerfConfig.WallAutoHideBelowFpsCount, Defaults.WallAutoHideBelowFpsCount);' in profiles, "Explicit graphics profiles restore the approved shared threshold"
     assert 'return ChoiceText(item, v);' in member(source[base + "WorldUI/Options/ConfigCatalog.cs"], "internal static string ValueText("), "Fallback choice readouts use named values"
     assert 'ChoiceText(item, item.Entry.DefaultValue)' in member(source[base + "WorldUI/Options/ConfigCatalog.cs"], "internal static string Tooltip("), "Default tooltip also uses named choices"
 
@@ -109,7 +110,7 @@ def main():
     cases = [("production", None, None, None, "")]
     mutations = [
         ("default-mode", "Defaults.cs", "WallVisibilityModeCount = 2;", "WallVisibilityModeCount = 0;", "unbound wall defaults are automatic"),
-        ("default-fps", "Defaults.cs", "WallAutoHideBelowFpsCount = 15;", "WallAutoHideBelowFpsCount = 25;", "unbound wall defaults are automatic"),
+        ("default-fps", "Defaults.cs", "WallAutoHideBelowFpsCount = 10;", "WallAutoHideBelowFpsCount = 25;", "unbound wall defaults are automatic"),
         ("mode-slider", "PerfConfig.cs", "new AcceptableValueList<int>(0, 1, 2)", "new AcceptableValueRange<int>(0, 2)", "three wall modes use a dropdown"),
         ("mode-index", "PerfConfig.cs", "new AcceptableValueList<int>(0, 1, 2)", "new AcceptableValueList<int>(2, 1, 0)", "mode indexes map to exact stored integers"),
         ("threshold-range", "PerfConfig.cs", "new AcceptableValueRange<int>(5, 30)", "new AcceptableValueRange<int>(10, 30)", "automatic threshold is an editable bounded FPS integer"),
