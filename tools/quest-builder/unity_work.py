@@ -101,8 +101,12 @@ def _context(project, argv, editor, rows):
     digest = hashlib.sha256()
     def add(value): digest.update(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode())
     add([str(project), str(editor), _stat(editor), _stat(project / "Library" / IDENTITY_NAME)])
-    for flag in ("-buildTarget", "-force-d3d11", "-force-vulkan", "-force-glcore", "-forceGLES", "-forceGLES30"):
-        add([flag, argv[argv.index(flag) + 1] if flag in argv and argv.index(flag) + 1 < len(argv) else None])
+    target = "-buildTarget"
+    add([target, argv[argv.index(target) + 1] if target in argv and argv.index(target) + 1 < len(argv) else None])
+    for flag in ("-force-d3d11", "-force-vulkan", "-force-glcore", "-forceGLES", "-forceGLES30"):
+        # These switches have no value. Following method/output arguments and
+        # command layout do not change the selected graphics import backend.
+        add([flag, flag in argv])
     for relative, _, witness in rows:
         if PurePosixPath(relative).suffix.lower() in CONTEXT_SUFFIXES: add([relative, witness])
     settings = project / "ProjectSettings"

@@ -110,6 +110,23 @@ class UnityWorkTests(unittest.TestCase):
         changed = list(self.argv); changed[changed.index("Android")] = "StandaloneWindows64"
         self.assertEqual(self.plan(changed)["done"], 0)
 
+    def test_valueless_graphics_flags_ignore_unrelated_next_argument_and_layout(self):
+        base = list(self.argv)
+        for flag in ("-force-d3d11", "-force-vulkan", "-force-glcore", "-forceGLES", "-forceGLES30"):
+            with self.subTest(flag=flag):
+                self.argv = base + [flag, "-executeMethod", "Build.One"]
+                self.witness("Assets/A.asset")
+                other_next_argument = base + [flag, "-quit", "-executeMethod", "Build.Two"]
+                self.assertEqual(self.plan(other_next_argument)["done"], 1)
+                other_layout = [base[0], flag] + base[1:] + ["-quit", "-executeMethod", "Build.Three"]
+                self.assertEqual(self.plan(other_layout)["done"], 1)
+
+    def test_actual_graphics_backend_change_rejects_retained_coverage(self):
+        self.argv += ["-force-vulkan"]
+        self.witness("Assets/A.asset")
+        changed = list(self.argv); changed[changed.index("-force-vulkan")] = "-force-glcore"
+        self.assertEqual(self.plan(changed)["done"], 0)
+
     def test_replaced_library_or_moved_project_rejects_previous_coverage(self):
         self.witness("Assets/A.asset")
         library = self.project / "Library"; saved = self.root / "saved-library"
