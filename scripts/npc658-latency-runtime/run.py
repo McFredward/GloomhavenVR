@@ -154,10 +154,21 @@ def main():
   # rather than mix new request callbacks with that older LocalModule shape.
   # Current positive bindings and all native Late/size/render assertions stay.
   removed=bound.pop('TownServiceMirror.OriginalRequests.cs',None)
+  # Current optional helpers name these inert fields. Historical Capture and
+  # Tick have no provenance hooks, so this port changes neither its packets nor
+  # its publication/admission behavior.
+  historical_mirror=bound['TownServiceMirror.cs']
+  fields=[('internal TownServiceFrame? Last;', 'internal TownServiceFrame? Last;\n        internal TownCardReturnOrigin? ReturnOrigin;'),
+          ('internal TownServiceFrame? LastFrame;', 'internal TownServiceFrame? LastFrame;\n        internal float ReturnOriginChangedAt = float.NegativeInfinity;')]
+  for before,after in fields:
+   if historical_mirror.count(before)!=1:raise RuntimeError('Historical provenance field port drift: '+before)
+   historical_mirror=historical_mirror.replace(before,after,1)
+  bound['TownServiceMirror.cs']=historical_mirror
   (run/'exact-native-control-source658.json').write_text(json.dumps({
    'revision':revision,'historical_sources':historical,
    'omitted_later_source':'TownServiceMirror.OriginalRequests.cs',
    'omitted_later_source_sha256':hashlib.sha256(removed.encode()).hexdigest()if removed is not None else None,
+   'inert_dependency_fields':['LocalModule.ReturnOrigin','RemoteModule.ReturnOriginChangedAt'],
    'reason':'Record114/requested native original repair did not exist in this historical control; receipt lifecycle uses the same historical revision.',
    'assertions':'Native Late, full-card size and exact rendered owner/observer checks remain unchanged.'},indent=2)+'\n')
  if args.cold_observer:case_source=case_source.replace('private static readonly bool PrewarmObserver639 = true;', 'private static readonly bool PrewarmObserver639 = false;')
