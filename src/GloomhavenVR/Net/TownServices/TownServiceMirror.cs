@@ -144,7 +144,8 @@ internal static partial class TownServiceMirror
     /// may browse before placing an offer; this election only decides whose original
     /// modules are copied at the physical stand. A transaction claimant temporarily
     /// takes authorship so the offered card and confirmation have one shared source.
-    /// Session close, walk-away, disconnect or timeout releases this visual lease.</summary>
+    /// Browsing uses the lowest live player ID, reevaluated on every observation so
+    /// different packet arrival orders cannot retain different original sources.</summary>
     internal static int InteractionOwner(byte service)
     {
         if (service < 1 || service > 3) return 0;
@@ -152,28 +153,7 @@ internal static partial class TownServiceMirror
         if (transactionOwner != 0) return transactionOwner;
         float now = Time.unscaledTime;
         InteractionLease lease = InteractionLeases[service];
-        if (LiveInteraction(lease.Player, service, lease.Session, now)) return lease.Player;
-        lease.Player = 0; lease.Session = 0;
-        int owner = 0; uint sessionId = 0; float oldestAge = float.NegativeInfinity;
-        if (PrivateLane.Active && PrivateLane.Service == service)
-        {
-            owner = LocalPeer; sessionId = PrivateLane.Session;
-            oldestAge = Mathf.Max(0f, now - PrivateLane.Started);
-        }
-        foreach (var pair in VisitorSessions)
-        {
-            TownServiceSessionInfo session = pair.Value;
-            if (pair.Key <= 0 || !session.Active || session.Service != service
-                || now - session.LastSeenTime > NetProtocol.StaleTimeoutSeconds) continue;
-            float age = session.SessionAge + Mathf.Max(0f, now - session.ReceivedTime);
-            if (owner == 0 || age > oldestAge + .05f
-                || Mathf.Abs(age - oldestAge) <= .05f && pair.Key < owner)
-            { owner = pair.Key; sessionId = session.Session; oldestAge = age; }
-        }
-        if (owner == 0) { lease.PendingSince = float.NegativeInfinity; return 0; }
-        if (float.IsNegativeInfinity(lease.PendingSince))
-        { lease.PendingSince = now; return 0; }
-        if (now - lease.PendingSince < InteractionClaimSettleSeconds) return 0;
+        int owner = LivePresentationCandidate(service, now, false, out uint sessionId);
         lease.Player = owner; lease.Session = sessionId;
         lease.PendingSince = float.NegativeInfinity;
         return owner;
@@ -196,27 +176,40 @@ internal static partial class TownServiceMirror
         if (granted != 0) return granted;
         float now = Time.unscaledTime;
         InteractionLease lease = TransactionLeases[service];
-        if (LiveInteraction(lease.Player, service, lease.Session, now, requireTransaction: true))
-            return lease.Player;
-        lease.Player = 0; lease.Session = 0;
-        int owner = 0; uint sessionId = 0; float oldestAge = float.NegativeInfinity;
-        if (PrivateLane.Active && PrivateLane.Service == service && PrivateLane.TransactionActive)
-        { owner = LocalPeer; sessionId = PrivateLane.Session; oldestAge = Mathf.Max(0f, now - PrivateLane.Started); }
+        int owner = LivePresentationCandidate(service, now, true, out uint sessionId);
+        if (owner == 0)
+        {
+            lease.Player = 0; lease.Session = 0;
+            lease.PendingSince = float.NegativeInfinity;
+            return 0;
+        }
+        // An ungranted manifest claim is only a cosmetic fallback. Reevaluate it
+        // like browsing, including late lower-ID visitors and replacement sessions;
+        // only the actual reliable grant can authorize the native callback.
+        if (lease.Player != owner || lease.Session != sessionId)
+        {
+            lease.Player = owner; lease.Session = sessionId;
+            lease.PendingSince = now;
+        }
+        if (now - lease.PendingSince < InteractionClaimSettleSeconds) return 0;
+        lease.PendingSince = float.NegativeInfinity;
+        return owner;
+    }
+
+    private static int LivePresentationCandidate(byte service, float now, bool requireTransaction,
+        out uint sessionId)
+    {
+        int owner = 0; sessionId = 0;
+        if (LiveInteraction(LocalPeer, service, PrivateLane.Session, now, requireTransaction))
+        { owner = LocalPeer; sessionId = PrivateLane.Session; }
         foreach (var pair in VisitorSessions)
         {
-            TownServiceSessionInfo session = pair.Value;
-            if (pair.Key <= 0 || !session.Active || !session.TransactionActive
-                || session.Service != service || now - session.LastSeenTime > NetProtocol.StaleTimeoutSeconds) continue;
-            float age = session.SessionAge + Mathf.Max(0f, now - session.ReceivedTime);
-            if (owner == 0 || age > oldestAge + .05f
-                || Mathf.Abs(age - oldestAge) <= .05f && pair.Key < owner)
-            { owner = pair.Key; sessionId = session.Session; oldestAge = age; }
+            if (!LiveInteraction(pair.Key, service, pair.Value.Session, now, requireTransaction)) continue;
+            // Session age includes receiver-local delivery delay; it cannot be a
+            // distributed ordering key. Player IDs rank the same complete live set.
+            if (owner == 0 || pair.Key < owner)
+            { owner = pair.Key; sessionId = pair.Value.Session; }
         }
-        if (owner == 0) { lease.PendingSince = float.NegativeInfinity; return 0; }
-        if (float.IsNegativeInfinity(lease.PendingSince)) { lease.PendingSince = now; return 0; }
-        if (now - lease.PendingSince < InteractionClaimSettleSeconds) return 0;
-        lease.Player = owner; lease.Session = sessionId;
-        lease.PendingSince = float.NegativeInfinity;
         return owner;
     }
 
@@ -1041,7 +1034,7 @@ internal static partial class TownServiceMirror
                 && frame.HasTempleDonationCommitAge && frame.TempleDonationRevision != 0)
                 ObserveTempleDonationCommit(peer, frame.Session, frame.TempleDonationRevision,
                     frame.TempleDonationCommitAge);
-            if (peer > 0) InteractionOwner(frame.Service); // start/advance the bounded claim window
+            if (peer > 0) InteractionOwner(frame.Service); // reevaluate the current resident presentation author
             StagePreviousPublicPicture();
             if (!frame.Visible)
             {

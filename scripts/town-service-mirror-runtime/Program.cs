@@ -57,20 +57,26 @@ public static partial class MirrorProgram
         GloomhavenVR.Net.NetPlayerActors.Peer = 1;
         TownServiceMirror.BeginSession(1, 101, owner, owner);
         for (float until = Time.unscaledTime + .13f; Time.unscaledTime < until;) yield return null;
-        Check(TownServiceMirror.InteractionOwner(1) == 2,
-            "later lower-ID visitor cannot preempt an active resident lease");
+        Check(TownServiceMirror.InteractionOwner(1) == 1,
+            "later lower-ID visitor converges the shared presentation election");
 
         InteractionManifest(4, 3, 403, 1);
         InteractionManifest(5, 2, 502, 1, donationKnown: true, donationAvailable: false);
         InteractionManifest(3, 2, 302, 2, donationKnown: true, donationAvailable: true);
         TownServiceMirror.InteractionOwner(2); TownServiceMirror.InteractionOwner(3);
         for (float until = Time.unscaledTime + .13f; Time.unscaledTime < until;) yield return null;
-        Check(TownServiceMirror.InteractionOwner(1) == 2
+        Check(TownServiceMirror.InteractionOwner(1) == 1
             && TownServiceMirror.InteractionOwner(2) == 3
             && TownServiceMirror.InteractionOwner(3) == 4,
             "all three residents hold independent shared leases");
         Check(TownServiceMirror.TempleDonationAvailable,
             "lower elected temple owner overrides a losing visitor's ritual state");
+
+        // Browsing presentation now ranks the complete live set on every client,
+        // instead of retaining whichever claim happened to arrive first locally.
+        TownServiceMirror.EndSession();
+        Check(TownServiceMirror.InteractionOwner(1) == 2,
+            "local browsing departure restores the remaining lowest-ID original source");
 
         InteractionManifest(2, 1, 201, 2, active: false);
         TownServiceMirror.InteractionOwner(1);

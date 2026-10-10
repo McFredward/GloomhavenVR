@@ -3,8 +3,9 @@
 Reviewed integration: `dev` at `ce637a1dc3fb609204701c701498a20cd7bdc0ae`,
 ModBuild 665, against the v1.0.8 release contracts. This worker reviewed session,
 transport, resident claims, native transaction authority and catalog admission.
-This is the review phase: no production code was changed. Concurrent Build 666
-hover/ring/summon work and the primary agent's shutdown cleanup are separate.
+The initial review phase changed no production code. The bounded, subsequently
+authorized repair is recorded below. Concurrent Build 666 hover/ring/summon work
+and the primary agent's shutdown cleanup are separate.
 
 ## Confirmed finding: resident presentation ownership does not converge
 
@@ -83,6 +84,53 @@ production grant code**. Both negative controls were detected:
 
 The separate unchanged-production election probe reproduced the finding above.
 No full Unity suite, wire gate or four-player hardware run was performed by this
-worker. Passing grant assertions establish the tested authorization/lifetime
-properties; they do not establish instant native widget delivery or visual
-correctness. No production fix is included in this report yet.
+worker during the review phase. Passing grant assertions establish the tested
+authorization/lifetime properties; they do not establish instant native widget
+delivery or visual correctness.
+
+## Authorized repair and focused evidence
+
+Browsing now chooses the lowest live player ID on every observation. A cached
+first-arrival owner and receiver-local session ages cannot rank the shared native
+presentation. Initial browsing visibility is immediate. The ungranted transaction
+presentation fallback uses the same deterministic ranking and reevaluates changed
+membership/session identity, retaining its existing bounded 120 ms cosmetic
+settle. An actual reliable host grant still takes precedence immediately. The
+matching host grant remains the only online native callback permission. Temple
+transactions never become exclusive occupants. No protocol, packet layout,
+character ownership, guide, fan/purse partition, ring or hover code changed.
+
+The old Unity `SharedInteraction` fixture explicitly asserted that a later
+lower-ID visitor could not preempt an active browsing lease. That assertion
+enforced the defective first-arrival cache rather than proving distributed
+convergence. Its two affected owner expectations now select the lower-ID visitor,
+and explicit local browsing departure precedes the unchanged remote-close checks.
+The existing highest-player-wins counterfactual now binds to the shared live-ID
+condition; its designated causal assertion is unchanged.
+
+Fresh evidence after the repair:
+
+- `check-town-presentation-election.py`: **39 assertions**, compiling unchanged
+  production election/identity/affordance/reset methods and complete production
+  grant sync/codec/ledger. Covers delayed/reversed arrivals, age skew, close,
+  disconnect membership, stale/session-zero admission, replacement session,
+  independent residents, non-exclusive browsing, reliable grants and temple
+  callback permission. All **five causal negative controls** are detected:
+  original browsing cache, original receiver-age ranking, stale transaction cache,
+  ignored actual host grant and exclusive temple occupation. Evidence:
+  `.planning/debug/release110-net-review/election/run-697arz6t/`.
+- `check-town-service-mirror.py --suite shared-interaction
+  --no-negative-controls`: production **passes in Unity 2021.3.5f1 / llvmpipe**,
+  exercising original native workspace capture, codec/playback, source ownership,
+  independent visitor partitions and its existing render comparisons. Evidence:
+  `.planning/debug/release110-net-review/mirror/run-xuwoa7tu/`.
+- The repaired Unity `highest-player-wins` negative control compiled and failed
+  exactly at its designated player-ID election assertion. Production was not
+  repeated for this focused counterfactual. Evidence:
+  `.planning/debug/release110-net-review/mirror-negative/run-8wegu3ek/`.
+
+The existing 49-assertion grant lifecycle proof above is inherited for unchanged
+grant sources; it was not redundantly rerun. This worker did not repeat the full
+gate or establish four-player headset correctness. Large generated Unity project
+artifacts are removed after retaining compact hashes, fixture manifests, result
+logs and comparison evidence.
