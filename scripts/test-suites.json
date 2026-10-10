@@ -2666,6 +2666,42 @@
         "local"
       ],
       "weight": 55
+    },
+    {
+      "id": "map-navigation",
+      "command": [
+        "bash",
+        "scripts/map-navigation-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 15
+    },
+    {
+      "id": "town-presentation-election",
+      "command": [
+        "python3",
+        "scripts/check-town-presentation-election.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 2
+    },
+    {
+      "id": "self-update-archive",
+      "command": [
+        "bash",
+        "scripts/self-update-archive-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 3
     }
   ]
 }

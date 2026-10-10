@@ -612,7 +612,24 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 666;
+    public const ushort ModBuild = 667;
+
+    // ModBuild667 — pre-1.1.0 review and bounded continuation/convergence repairs.
+    // Review v1.0.8 through665 before implementation; retain the parallel666
+    // native summon, matrix-plane ring and intrinsic-hover corrections unchanged.
+    // Simultaneous NPC visitors previously retained receiver-local cached authors
+    // even after learning the same visitor set. Shared originals and the ungranted
+    // cosmetic claim fallback now rank live player IDs deterministically; the
+    // actual reliable host grant still owns gameplay permission and takes priority.
+    // Browsing/personal fans remain independent; priestess never becomes exclusive.
+    // Map hover/room teardown now matches the original selector's three eligible
+    // native navigation states, preserving story/quest/service continuation locks.
+    // A marked Frame update retains its existing Proton EXE/cwd/argv restart instead
+    // of losing the VR opt-in through the base Steam URI. Unsafe argv refuses handover.
+    // Production-bound tests include reversed arrival, causal old election controls,
+    // native pointer/teardown state transitions and actual update script generation.
+    // See RELEASE110-REVIEW.md and its NET/FLOW/COMPAT reports for evidence and limits.
+    // No new config/patch surface or TLV. Version3 unchanged; next free118.
 
     // ModBuild666 — paired665 summon selection and intrinsic offered effects.
     // The maintainer reports positioned but invisible/nonselectable native summon

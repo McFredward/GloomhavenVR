@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-10 for Build664: approved PC/Standalone defaults and shared wrist position.
+Updated 2026-10-11 for Build667: pre-1.1.0 review and bounded edge-case repairs.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
@@ -10,6 +10,10 @@ status; it is not the player manual.
 
 | File | Purpose |
 |---|---|
+| [RELEASE110-REVIEW.md](RELEASE110-REVIEW.md) | Pre-1.1.0 integrated findings, repair scope, multiplayer parity and validation limits |
+| [RELEASE110-NET-REVIEW.md](RELEASE110-NET-REVIEW.md) | Shared NPC author convergence, grant precedence, session cleanup and source-bound controls |
+| [RELEASE110-FLOW-REVIEW.md](RELEASE110-FLOW-REVIEW.md) | Original map-state eligibility and protected native continuation during pointer cleanup |
+| [RELEASE110-COMPAT-REVIEW.md](RELEASE110-COMPAT-REVIEW.md) | Frame update VR restart, 1.0.8 archive compatibility, platform and restoration boundaries |
 | [../AGENTS.md](../AGENTS.md) | Agent workflow, integration ownership and current user rulings |
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |

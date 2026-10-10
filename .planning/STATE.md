@@ -1,5 +1,27 @@
 # State — where the project stands
 
+**Build667 pre-1.1.0 review, 2026-10-11: 1.1.0 development candidate.**
+
+Reviewed the 1.0.8-to-dev changes in three separate initialized worktrees before
+repairing the confirmed edge cases. Shared NPC originals now converge by live
+player ID while retaining reliable host-grant precedence; map hover/teardown
+preserves the original protected story/quest/service navigation ownership;
+marked Frame self-update retains its VR argument and refuses unsafe argument
+loss. Parallel NPC666 native summon/ring/hover source is retained. No new TLV,
+configuration key, patch or visual-parity exception; Version3 and next-free118.
+
+Fresh integration: 205 navigation assertions/two controls, 39 presentation
+assertions/five controls, 61 updater assertions/one control, actual Unity shared
+interaction plus nine controls, all16 source suites, direct300510 golden vectors,
+strict Debug/Release zero errors/warnings, documentation/bundles and unchanged
+666/235/4795 surfaces. Only a failed new updater control binding was repaired
+and rerun; passing unchanged scopes were not repeated. No new complete215-suite
+umbrella pass is claimed. Native map-flow2012/nine and grant49/two worker
+receipts remain inherited for their unchanged paths. The final review and exact
+integration evidence are in [RELEASE110-REVIEW.md](RELEASE110-REVIEW.md).
+A real Frame updater restart and paired/four-player hardware outcomes remain
+separate from these source/runtime proofs. No release/main/tag action is taken.
+
 **Build665 paired664 NPC follow-up, 2026-10-10: 1.1.0 development candidate.**
 
 The maintainer accepts remote card/UI admission time and confirms body/front

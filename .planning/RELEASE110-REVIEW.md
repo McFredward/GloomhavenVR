@@ -77,8 +77,55 @@ Worker reports provide exact scope, reproduction boundaries and validation:
 - [Flow review](RELEASE110-FLOW-REVIEW.md)
 - [Compatibility review](RELEASE110-COMPAT-REVIEW.md)
 
-Final integrated check receipts will be recorded here after the bounded repairs
-and the parallel NPC 666 integration complete. Previously passing checks for
-unchanged areas are inherited explicitly; a focused pass is not described as a
-new complete-gate pass. No actual Steam Frame update restart, four-player game,
-or complete campaign was run during this source review.
+The final candidate is ModBuild **667**, retaining the parallel NPC 666 source
+(`9eddd479f`) and adding only the four production types required for the three
+findings. Wire version stays **3**, TLV **118** remains next free. No new visual
+exception, native gameplay action, configuration key or Harmony patch is added.
+
+Fresh integrated evidence in `.planning/debug/release110/integration/`:
+
+- Map navigation: **205 assertions**, both compiling causal gate-removal
+  controls rejected. Existing worker map-flow evidence remains **2,012
+  assertions and nine controls**; unchanged map-flow code was not rerun.
+- Shared NPC presentation: **39 assertions**, all five causal controls rejected,
+  including restored sticky/age ranking and ignored reliable host grant.
+  Worker grant evidence remains **49 assertions and two controls** for unchanged
+  complete grant sources. The actual Unity shared-workspace subset is recorded
+  at `shared/run-3gmlla_u`: production and all **nine causal controls** pass on
+  the composed candidate, retaining native workspace source, independent visitor
+  content and cabinet readiness. This is a focused Unity pass, not headset proof.
+- Update archive/restart: **61 assertions** and the compiling original-flat-
+  restart control rejected. Windows/ordinary Steam behavior remains covered.
+- All **16 source suites** pass. Strict **Debug and Release** builds have zero
+  errors/warnings. Direct complete golden vectors pass **300,510 assertions**.
+  These are direct goldens, not a new complete `wire-tests.sh` umbrella pass.
+- Documentation pairs and committed game-compatible bundles/index pass.
+  Surface comparison is unchanged: **666 configuration keys, 235 patches,
+  4,795 log tokens**, zero removals/additions.
+- Runner inventory remains exact: **215 local / 98 CI / 16 source** suites.
+  The three new bounded regressions are registered for both local and CI.
+  Runner unit tests pass with their two pre-existing explicit skips.
+- The private compiled snapshot uses the actual guard's unchanged snapshot
+  function against `ce637a1dc`. It records **19 changed types, one added,
+  none removed**: the four review repair types, known NPC 666 codec/effect
+  types and `TownOfferedHover`, NetProtocol, seven solely inlined ModBuild
+  changes, and the expected worker GitBranch stamp. No unrelated production
+  behavior change was found in the compiled comparison.
+
+The first integrated partial run retained two passing regression scopes and one
+failed updater *control*: its override property was not connected to a Compile
+item, so it correctly refused to count the unchanged positive as a detected
+mutation. The test project now binds that source property, and only this failed
+scope was rerun successfully. The original result is preserved; it is not
+rewritten into a green complete report. Direct goldens initially could not start
+their apphost without `DOTNET_ROOT`; the built executable was then run with the
+installed runtime and completed every assertion. Neither setup failure is
+presented as a production bug.
+
+Previously passing checks for unchanged areas are inherited explicitly. A
+focused pass is not described as a new complete-gate pass. The parallel NPC 666
+gate and final merge receipts will be linked after its integration handoff.
+No actual Steam Frame update restart, four-player game, or complete campaign was
+run during this source review. In particular, the retained Proton child process
+and real Steam playtime/achievement behavior after an updater restart need a
+Frame hardware check; argument preservation itself is production-code proven.

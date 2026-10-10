@@ -5,10 +5,11 @@
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <ZipSource Condition="'$(ZipSource)' == ''">../../src/GloomhavenVR/Core/SelfUpdate/SelfUpdateZip.cs</ZipSource>
+    <ApplyScriptSource Condition="'$(ApplyScriptSource)' == ''">../../src/GloomhavenVR/Core/SelfUpdate/SelfUpdateApplyScript.cs</ApplyScriptSource>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="$(ZipSource)" Link="Production/SelfUpdateZip.cs" />
-    <Compile Include="../../src/GloomhavenVR/Core/SelfUpdate/SelfUpdateApplyScript.cs" Link="Production/SelfUpdateApplyScript.cs" />
+    <Compile Include="$(ApplyScriptSource)" Link="Production/SelfUpdateApplyScript.cs" />
     <Compile Include="../../src/GloomhavenVR.Preload/FrameLaunchOptIn.cs" Link="Production/FrameLaunchOptIn.cs" />
   </ItemGroup>
 </Project>
