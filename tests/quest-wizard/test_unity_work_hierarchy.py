@@ -90,10 +90,11 @@ class UnityWorkHierarchyTests(unittest.TestCase):
         first = self.report("bee-actions:native:200:1", 100, 200, "actions")
         graph = self.report("bee-actions:native:200:1", 200, 200, "actions", status="complete")
         restart = self.report("bee-actions:native:300:2", 0, 300, "actions")
-        self.assertGreater(graph["stagePercent"], first["stagePercent"])
+        self.assertEqual(graph["stagePercent"], first["stagePercent"], "A completed local copy graph cannot consume the whole native-build budget")
         self.assertEqual(restart["stagePercent"], graph["stagePercent"])
-        native = self.work(restart)["phases"][1]["parts"][3]
-        self.assertEqual((native["counter"]["done"], native["counter"]["total"]), (0, 300))
+        native = next(part for part in self.work(restart)["phases"][1]["parts"] if part["id"] == "native")
+        self.assertEqual((native["localCounter"]["done"], native["localCounter"]["total"]), (0, 300))
+        self.assertEqual(native["percent"], 0.)
         self.assertFalse(native["closed"])
         previous = restart["stagePercent"]
         package = self.report("unity-gradle-tasks", 20, 40, "tasks")
@@ -123,7 +124,7 @@ class UnityWorkHierarchyTests(unittest.TestCase):
         fresh = self.start(retained=10)
         self.assertGreaterEqual(fresh["stagePercent"], old["stagePercent"])
         self.assertEqual(self.work(fresh)["done"], 0)
-        self.assertEqual(self.work(fresh)["phases"][1]["parts"][3]["counter"]["done"], 0)
+        self.assertEqual(next(part for part in self.work(fresh)["phases"][1]["parts"] if part["id"] == "native")["counter"]["done"], 0)
 
     def test_finished_foreign_invocation_cannot_replace_current_owner(self):
         self.start("unity-import")
@@ -178,7 +179,7 @@ class UnityWorkHierarchyTests(unittest.TestCase):
         self.report("bee-actions:code:200:1", 50, 200, "actions")
         first = self.report("unity-progress:51:-1", 30, 100, "steps")
         last = self.report("unity-progress:51:-1", 100, 100, "steps", status="complete")
-        self.assertGreater(last["stagePercent"], first["stagePercent"])
+        self.assertEqual(last["stagePercent"], first["stagePercent"])
         self.assertNotIn("player", self.row()["progressPlan"]["completed"])
         self.assertFalse(self.work(last)["phases"][1]["closed"])
 

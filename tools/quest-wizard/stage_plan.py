@@ -69,7 +69,7 @@ UPDATE_SHARES = {"update-mod": dict(zip(UPDATE_PLANS["update-mod"], (5, 5, 40, 1
                  "update-profile": dict(zip(UPDATE_PLANS["update-profile"], (20, 20, 40, 20)))}
 UPDATE_GROUPS = {"update-mod": {"inputs": UPDATE_PLANS["update-mod"][:2], "code": UPDATE_PLANS["update-mod"][2:4], "export": UPDATE_PLANS["update-mod"][4:]},
                  "update-profile": {"inputs": UPDATE_PLANS["update-profile"][:2], "export": UPDATE_PLANS["update-profile"][2:]}}
-WORK_REVISION = 6
+WORK_REVISION = 7
 MEMORY_OBSERVATIONS = frozenset(("native-compiler-profile", "native-memory-retry", "native-memory-wait",
                                "asset-memory-retry", "asset-memory-wait"))
 UNITY_IMPORT_OBSERVATIONS = frozenset(("unity-work-plan", "unity-asset-import", "unity-import-activity"))
@@ -85,8 +85,8 @@ UNITY_METHOD_PARTS = {
     "package-api": {"sdk": 1.},
     "unity-validation": {"configuration": .1, "checks": .9},
     "content-bank": {"catalog": .1, "shaders": .1, "build": .65, "audit": .05, "postprocess": .1},
-    "player": {"configuration": .05, "scenes": .05, "il2cpp": .2, "native": .5, "packaging": .2},
-    "update-code": {"configuration": .05, "scenes": .05, "il2cpp": .2, "native": .5, "packaging": .2},
+    "player": {"scenes": .10, "shaders": .15, "native": .55, "packaging": .20},
+    "update-code": {"scenes": .10, "shaders": .15, "native": .55, "packaging": .20},
     "update-art": {"build": 1.},
 }
 UNITY_PART_COUNTERS = {
@@ -101,7 +101,8 @@ UNITY_PART_COUNTERS = {
 }
 # A native graph or compiler pass can finish before serialization or validation
 # fails. Only these actual caller boundaries close their complete logical part.
-UNITY_PART_TERMINALS = {"content-bank": {"build": "unity-addressables-build", "audit": "unity-native-shader-audit"}}
+UNITY_PART_TERMINALS = {"content-bank": {"build": "unity-addressables-build", "audit": "unity-native-shader-audit"},
+    "player": {"native": "unity-native-build-plan"}, "update-code": {"native": "unity-native-build-plan"}}
 CONTENT_PACK_SHARES = {"native-content-source-hash": .15, "native-content-native-hash": .15,
                        "native-content-write": .55, "native-content-final-hash": .15}
 PACKAGE_API_SHARES = {"package-api-bind": .65, "package-api-output": .20, "package-api-publish": .15}
@@ -111,7 +112,7 @@ UNITY_VALIDATION_SHARES = {"unity-configuration": .1, "unity-validation-tasks": 
 UNITY_CHILD_COUNTERS = frozenset(("unity-sdk-tasks", "unity-original-scenes", "unity-validation-sprites",
     "unity-validation-campaign-sprites", "unity-addressables-keys", "unity-addressables-entries",
     "unity-addressables-shaders", "unity-addressables-shader-roots", "unity-content-post-tasks",
-    "unity-content-delivery", "unity-player-scenes", "unity-player-native-result", "unity-gradle-tasks",
+    "unity-content-delivery", "unity-player-scenes", "unity-player-shaders", "unity-player-native-result", "unity-player-platform-handoff", "unity-native-build-plan", "unity-il2cpp", "unity-gradle-tasks",
     "unity-script-bindings", "unity-script-assets", "unity-script-write", "unity-campaign-objects", "unity-campaign-scenes", "unity-campaign-audio", "unity-campaign-atlases", "unity-campaign-packed-sprites",
     "unity-native-shader-audit", "unity-native-shader-audit-read", "unity-native-shader-audit-objects",
     "unity-scene-objects", "unity-scene-dependencies", "unity-texture-cubes", "unity-texture-targets",
@@ -345,8 +346,13 @@ def initialize(row):
         # A new work distribution must not move an existing owner's bar back,
         # or freeze it until the new curve catches up. Anchor the remaining
         # measured work to the previous high-water once, then keep that mapping.
+        previous_revision = plan.get("workRevision", 0)
+        if type(previous_revision) is not int: previous_revision = 0
         plan["workRevision"] = WORK_REVISION
         if row["id"] == "build":
+            for owner, work in plan.get("unityWork", {}).items():
+                _migrate_player_work(plan, owner, work)
+        if row["id"] == "build" and previous_revision < 6:
             # Native pointer preparation also audits references. Older models
             # assigned that counter to the later final audit and inferred that
             # every intervening transform was complete. Retain explicit phase
@@ -868,6 +874,11 @@ def _recovery_work(recovery):
 def _unity_part(plan, owner, value):
     phase = value["phase"]
     parts = UNITY_METHOD_PARTS.get(owner, {})
+    if owner in ("player", "update-code"):
+        if phase in ("unity-il2cpp", "unity-native-build-plan", "unity-player-platform-handoff"):
+            return "native"
+        if phase in ("unity-player-shaders", "unity-shader-compile", "unity-shader-task", "unity-shaders") or phase.startswith("unity-shader-task:"):
+            return "shaders"
     if owner == "unity-validation" and phase in UNITY_CHILD_COUNTERS:
         return "configuration" if phase == "unity-configuration" else "checks"
     for name in parts:
@@ -893,6 +904,37 @@ def _unity_work_fraction(work):
     return sum(shares[name] * (1. if name in work.get("completed", []) else work.get("fractions", {}).get(name, 0.)) for name in names)
 
 
+def _migrate_player_work(plan, owner, work):
+    """Repair only the old Player scopes, preserving remaining-work progress."""
+    if owner not in ("player", "update-code") or work.get("parts") == UNITY_METHOD_PARTS[owner]: return
+    work["parts"] = dict(UNITY_METHOD_PARTS[owner])
+    for key in ("partFractions", "partProofs"):
+        work[key] = {name: value for name, value in work.get(key, {}).items() if name in work["parts"]}
+    work["partCompleted"] = [name for name in work.get("partCompleted", []) if name in work["parts"]]
+    for part in ("scenes", "shaders", "native"):
+        if part in work["partCompleted"]: continue
+        counter = work.get("counters", {}).get(part, {})
+        work["partFractions"].pop(part, None)
+        work.get("partCounters", {}).pop(part, None)
+        work.get("partCounterProofs", {}).pop(part, None)
+        if part == "scenes" and type(counter.get("done")) is int and type(counter.get("total")) is int and counter["total"] > 0:
+            work["partFractions"][part] = counter["done"] / (counter["total"] + 1)
+        elif part == "native" and counter.get("phase") != "unity-native-build-plan":
+            work.setdefault("localCounters", {})[part] = dict(counter)
+            work["counters"].pop(part, None)
+        if counter: work.setdefault("partObserved", []).append(part)
+    work.setdefault("fractions", {})["method"] = sum(weight * work["partFractions"].get(name, 0.) for name, weight in work["parts"].items())
+    if work.get("part") not in work["parts"]: work["part"] = "native" if work.get("part") == "il2cpp" else None
+    origin = _unity_work_fraction(work)
+    floor = plan.get("fractions", {}).get(owner, 0.)
+    if origin < floor < 1.:
+        # A previous local-DAG99% falsely consumed this owner's budget.
+        # Keep that saved total, then map each newly measured native node
+        # into its remaining share immediately, instead of freezing until
+        # the corrected live curve catches the historical wrong curve.
+        plan.setdefault("unityProgressAnchors", {})[owner] = {"origin": origin, "floor": floor}
+
+
 def _observe_unity_work(plan, owner, value, status):
     """Join one launch's counted scopes without confusing local and global work."""
     phase = value["phase"]
@@ -909,6 +951,7 @@ def _observe_unity_work(plan, owner, value, status):
             "fractions": {}, "parts": dict(UNITY_METHOD_PARTS.get(owner, {})), "partFractions": {}, "counters": {}}
     work = works.get(owner)
     if not work: return False
+    _migrate_player_work(plan, owner, work)
     if phase == "unity-work-invocation":
         work["invocation"] = {key: value.get(key) for key in ("phase", "done", "total", "unit", "detail")}
         if status in ("complete", "reuse"):
@@ -924,13 +967,29 @@ def _observe_unity_work(plan, owner, value, status):
         if ratio is not None:
             work["fractions"]["assets"] = max(work["fractions"].get("assets", 0.), min(.99, ratio))
     else:
+        if owner in ("player", "update-code") and phase == "unity-compute-identities":
+            # This outer source-backed census runs after BuildPlayer and
+            # contains many local kernel scopes. Retain it for the result
+            # phase so a finished kernel set cannot claim the whole caller
+            # returned. The other half belongs to final evidence/publication.
+            work["counters"]["result"] = {key: value.get(key) for key in ("phase", "done", "total", "unit", "detail")}
+            result_ratio = _ratio(value)
+            if result_ratio is not None:
+                work["fractions"]["result"] = max(work["fractions"].get("result", 0.), .5 * result_ratio)
+        if owner in ("player", "update-code") and phase == "unity-player-platform-handoff" and status in ("complete", "reuse") and _ratio(value) == 1.:
+            # Android's platform postprocessor runs after native scene and
+            # Shader serialization returned. The scene callback's last N/N
+            # begins its final scene and cannot establish this boundary.
+            for completed_part in ("scenes", "shaders"):
+                _close_unity_part(work, completed_part, status)
+            work.setdefault("partObserved", []).extend(name for name in ("scenes", "shaders") if name not in work.get("partObserved", []))
         if owner in ("player", "update-code") and phase == "unity-player-native-result" and status in ("complete", "reuse") and _ratio(value) == 1.:
             # BuildReport.Succeeded proves these native passes returned. The
             # caller still owns original final evidence and publication, so
             # this does not close its method, invocation or Player operation.
             work["active"] = "method"
             if "assets" not in work["completed"]: work["completed"].append("assets")
-            for completed_part in ("configuration", "scenes", "il2cpp", "native", "packaging"):
+            for completed_part in ("scenes", "shaders", "native", "packaging"):
                 if completed_part in work.get("parts", {}): _close_unity_part(work, completed_part, status)
             work["fractions"]["method"] = sum(weight * work["partFractions"].get(name, 0.) for name, weight in work["parts"].items())
         method_boundary = phase == "unity-work-stage:method"
@@ -946,20 +1005,79 @@ def _observe_unity_work(plan, owner, value, status):
                 work["active"] = "result"
         if part and work.get("active") == "method" and "method" not in work["completed"]:
             work["part"] = part
-            work["counters"][part] = {key: value.get(key) for key in ("phase", "done", "total", "unit", "detail")}
-            ratio = _ratio(value)
+            if part not in work.get("partObserved", []): work.setdefault("partObserved", []).append(part)
+            counter = {key: value.get(key) for key in ("phase", "done", "total", "unit", "detail")}
+            player_graph = owner in ("player", "update-code")
+            conversion = player_graph and phase == "unity-il2cpp"
+            graph_local = player_graph and (phase.startswith("bee-actions:") or phase.startswith("unity-progress:")
+                or phase in ("unity-bee-activity", "unity-native-build", "unity-progress", "unity-player-memory"))
+            platform_handoff = player_graph and phase == "unity-player-platform-handoff"
+            shader_local = player_graph and (phase in ("unity-shader-compile", "unity-shader-task", "unity-shaders") or phase.startswith("unity-shader-task:"))
+            if conversion:
+                activity = work.setdefault("activities", {}).setdefault("native", {})
+                if not activity.get("il2cpp", {}).get("closed"):
+                    activity["il2cpp"] = dict(counter, closed=status in ("complete", "reuse") and _ratio(value) == 1.,
+                        status="reused" if status == "reuse" else "complete" if status == "complete" else "failed" if status == "failed" else "running")
+            elif player_graph and phase == "unity-native-build-plan":
+                activity = work.setdefault("activities", {}).setdefault("native", {})
+                if not activity.get("native-build", {}).get("closed"):
+                    closed = status in ("complete", "reuse") and _ratio(value) == 1.
+                    activity["native-build"] = dict(counter, closed=closed,
+                        status="reused" if status == "reuse" else "complete" if closed else "failed" if status == "failed" else "running")
+                    work["nativeGraphFraction"] = 1. if closed else min(math.nextafter(1., 0.), _ratio(value) or 0.)
+                    work["counters"][part] = counter
+            elif graph_local:
+                # A DAG can contain copies, code generation and native
+                # compilation concurrently. Its current local counter must
+                # never replace the qualified reachable-node census.
+                work.setdefault("localCounters", {})[part] = counter
+                if part not in work["counters"]: work["counters"][part] = counter
+            elif shader_local:
+                # Variant counts belong to one pass, not the remaining
+                # Shader serialization of the entire Player operation.
+                work.setdefault("localCounters", {})[part] = counter
+                coverage = work["counters"].get("shaders", {})
+                if phase == "unity-shader-compile" and status not in ("complete", "reuse", "failed") \
+                        and "[shader-source:unseen]" in (value.get("detail") or "") \
+                        and coverage.get("phase") == "unity-player-shaders" \
+                        and type(coverage.get("done")) is int and type(coverage.get("total")) is int and coverage["total"] > 1 \
+                        and type(value.get("done")) is int and type(value.get("total")) is int and value["total"] > 0:
+                    # Only the first pass of one not-yet-observed declared
+                    # source can fill a partial census item. Builtins and
+                    # later passes of a visited source add no extra coverage.
+                    # The integer finished-name event precedes FINISHED, so
+                    # completion must not double-credit this partial source.
+                    partial = value["done"] / (value["total"] + 1)
+                    coverage_ratio = .8 * min(1., (coverage["done"] + partial) / (coverage["total"] - 1))
+                    seen = work.setdefault("partCounters", {}).setdefault("shaders", {})
+                    seen["unity-player-shaders"] = max(seen.get("unity-player-shaders", 0.), coverage_ratio)
+                    work["partFractions"]["shaders"] = max(work["partFractions"].get("shaders", 0.), coverage_ratio)
+            elif not platform_handoff:
+                work["counters"][part] = counter
+            ratio = None if conversion or graph_local or platform_handoff or shader_local else _ratio(value)
+            if player_graph and phase == "unity-player-scenes" and type(value.get("total")) is int and value["total"] > 0:
+                # IProcessScene reports entry, including the final scene.
+                # Native serialization's platform handoff is one additional
+                # real boundary, rather than an arbitrary99% hold.
+                ratio = value.get("done", 0) / (value["total"] + 1)
             if owner == "unity-validation" and part == "checks":
                 ratio = plan.get("unityValidation", {}).get("fractions", {}).get("unity-validation-tasks", ratio)
             if ratio is not None:
-                schedule = UNITY_PART_COUNTERS.get(part)
+                schedule = {"unity-player-shaders": 1.} if player_graph and part == "shaders" else UNITY_PART_COUNTERS.get(part)
                 if schedule and phase in schedule:
                     seen = work.setdefault("partCounters", {}).setdefault(part, {})
                     # Reading every bundle is not the authoritative receipt
                     # gate. Its last 10% belongs to the successful C# return.
                     if owner == "content-bank" and phase == "unity-native-shader-audit" and status not in ("complete", "reuse"):
                         ratio = 0.
+                    if player_graph and phase == "unity-player-shaders":
+                        # First observed passes establish source coverage,
+                        # not completion of every pass/variant. Their known
+                        # census owns80%; actual serialization handoff owns20%.
+                        ratio = .8 * min(1., value.get("done", 0) / max(1, value["total"] - 1))
                     seen[phase] = max(seen.get(phase, 0.), min(.99, ratio))
                     terminal = status in ("complete", "reuse") and _ratio(value) == 1.
+                    if player_graph and phase in ("unity-player-scenes", "unity-player-shaders"): terminal = False
                     if terminal:
                         seen[phase] = 1.
                         work.setdefault("partCounterProofs", {}).setdefault(part, {})[phase] = status
@@ -971,10 +1089,27 @@ def _observe_unity_work(plan, owner, value, status):
                     _close_unity_part(work, part, status)
                 # A repeated Shader pass or Bee DAG cannot restart this part's
                 # contribution. It also cannot prove that all future DAGs end.
-                work["partFractions"][part] = max(work["partFractions"].get(part, 0.), min(.99, ratio))
-                work["fractions"]["method"] = sum(weight * work["partFractions"].get(name, 0.) for name, weight in work["parts"].items())
+                if phase == "unity-native-build-plan" and part not in work.get("partCompleted", ()):
+                    # The native producer reports the complete reachable DAG
+                    # plus its backend result. If regeneration adds nodes,
+                    # display that new actual plan rather than a smaller
+                    # former graph's nearly-complete high-water percentage.
+                    work["partFractions"][part] = min(math.nextafter(1., 0.), ratio)
+                else:
+                    work["partFractions"][part] = max(work["partFractions"].get(part, 0.), min(.99, ratio))
+        if owner in ("player", "update-code") and "native" not in work.get("partCompleted", ()):
+            conversion_activity = work.get("activities", {}).get("native", {}).get("il2cpp", {})
+            conversion_fraction = 1. if conversion_activity.get("closed") else _ratio(conversion_activity) or 0.
+            # Conversion and native dependency execution are real scheduled
+            # work, with separate finite scopes. Codegen must advance this
+            # combined phase before Clang nodes exist in the generated DAG.
+            work["partFractions"]["native"] = .2 * conversion_fraction + .8 * work.get("nativeGraphFraction", 0.)
+        work["fractions"]["method"] = sum(weight * work["partFractions"].get(name, 0.) for name, weight in work["parts"].items())
     fraction = min(.99, _unity_work_fraction(work))
     if owner == "content-bank": fraction *= .5
+    anchor = plan.get("unityProgressAnchors", {}).get(owner)
+    if anchor and fraction >= anchor["origin"] and anchor["origin"] < 1.:
+        fraction = anchor["floor"] + (1. - anchor["floor"]) * (fraction - anchor["origin"]) / (1. - anchor["origin"])
     if owner == "mod-banks" and plan.get("preparationScopes", {}).get(owner, {}).get("open"):
         scope = plan["preparationScopes"][owner]
         fraction = (scope["done"] + .5 + .5 * fraction) / scope["total"]
@@ -1008,6 +1143,8 @@ def _unity_work_overview(plan, owner, failed=False):
     for row in rows:
         row["counter"] = work.get("counters", {}).get(row["id"],
             {"done": int(row["closed"]), "total": 1, "unit": "tasks", "phase": "unity-work-stage:" + row["id"]})
+        if row["id"] == "result" and not row["closed"] and work.get("counters", {}).get("result", {}).get("phase") == "unity-compute-identities":
+            row["status"] = "failed" if failed or work.get("failed", False) else "running"
         if row["id"] == "method":
             part_names = tuple(UNITY_METHOD_PARTS.get(owner, work["parts"]))
             closed_parts = part_names if row["closed"] else work.get("partCompleted", ())
@@ -1018,6 +1155,18 @@ def _unity_work_overview(plan, owner, failed=False):
             for part in row["parts"]:
                 part["counter"] = work.get("counters", {}).get(part["id"],
                     {"done": int(part["closed"]), "total": 1, "unit": "tasks", "phase": "unity-work-stage:" + part["id"]})
+                if not part["closed"] and part["status"] == "pending" and part["id"] in work.get("partObserved", ()):
+                    part["status"] = "running"
+                activities = work.get("activities", {}).get(part["id"], {})
+                if part["id"] == "native" and owner in ("player", "update-code"):
+                    part["counter"] = {"phase": "unity-native-work", "done": 2 if part["closed"] else sum(activity.get("closed", False) for activity in activities.values()), "total": 2, "unit": "tasks"}
+                if activities:
+                    part["activities"] = [dict(id=name, counter={key: activity.get(key) for key in ("phase", "done", "total", "unit", "detail")},
+                        closed=activity.get("closed", False), status=activity.get("status", "running"),
+                        percent=100. if activity.get("closed") else min(99.999999, 100 * (_ratio(activity) or 0.)))
+                        for name, activity in sorted(activities.items(), key=lambda item: (item[0] != "il2cpp", item[0]))]
+                local = work.get("localCounters", {}).get(part["id"])
+                if local and local != part["counter"] and part["id"] != "shaders": part["localCounter"] = dict(local)
     return {"phases": rows, "done": sum(row["closed"] for row in rows), "total": len(rows),
             "active": None if complete else work.get("active"), "percent": 100. if complete else round(100 * _unity_work_fraction(work), 6)}
 
@@ -1100,7 +1249,7 @@ def _overview_rows(steps, completed, fractions, active, proofs=None, failed=Fals
         else:
             status = "pending"
         rows.append({"id": name, "status": status, "closed": closed,
-                     "percent": 100. if closed else round(100 * fractions.get(name, 0.), 6)})
+                     "percent": 100. if closed else min(99.999999, round(100 * fractions.get(name, 0.), 6))})
     return rows
 
 
@@ -1126,12 +1275,16 @@ def _build_overview(row, plan):
         if compiler:
             part = "build" if item["id"] == "content-bank" else "native" if item["id"] in ("player", "update-code") else None
             compiled = part is not None and part in plan.get("unityWork", {}).get(item["id"], {}).get("partCompleted", ())
-            closed = item["closed"] or compiled
+            shaders_returned = item["id"] in ("player", "update-code") and "shaders" in plan.get("unityWork", {}).get(item["id"], {}).get("partCompleted", ())
+            closed = item["closed"] or compiled or shaders_returned or compiler.get("closed", False)
             # Native success can arrive after the last observed Shader counter
             # and omit its final log line. Keep that original pass census for
             # support, but display the authoritative completed scope at100%.
-            item["compiler"] = dict(compiler, percent=100. if closed else compiler.get("percent"), status="complete" if closed else "failed"
-                                     if row["status"] == "failed" and item["id"] == active else "running" if item["id"] == active else "pending")
+            compiler_status = "complete" if closed else "failed" if row["status"] == "failed" and item["id"] == active else "running" if item["id"] == active else "pending"
+            compiler_percent = 100. if closed else compiler.get("percent")
+            if not closed and compiler_status == "running" and type(compiler.get("done")) is int and type(compiler.get("total")) is int and compiler["total"] > 0:
+                compiler_percent = 100 * compiler["done"] / (compiler["total"] + 1)
+            item["compiler"] = dict(compiler, percent=compiler_percent, status=compiler_status)
         imported = plan.get("unityImports", {}).get(item["id"])
         if imported:
             item["import"] = dict(imported, status="failed" if row["status"] == "failed" and item["id"] == active
@@ -1399,7 +1552,8 @@ def advance(row, value, operation=None, status=None):
             plan.setdefault("unityCompiler", {})[live_owner] = {
                 "phase": value["phase"], "done": value.get("done"), "total": value.get("total"),
                 "unit": value.get("unit"), "percent": value.get("percent"), "detail": value.get("detail"),
-                "scope": "pass" if value["phase"] == "unity-shader-compile" else "task"}
+                "scope": "pass" if value["phase"] == "unity-shader-compile" else "task",
+                "closed": status in ("complete", "reuse") and _ratio(value) == 1.}
             scope = plan.get("preparationScopes", {}).get(live_owner, {})
             if value["phase"] == "unity-shader-task" and scope.get("open") and scope.get("name") == "mod-resource-banks":
                 measured = False

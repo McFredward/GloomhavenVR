@@ -921,7 +921,7 @@ class StageProgressTests(unittest.TestCase):
             self.store.progress(self.session, 'build', 'staging-section:' + step, 1, 1, 'steps', status='reuse')
         saved = self.store.load(self.session)
         row = saved['stages'][5]
-        row['progressPlan']['workRevision'] = stage_plan.WORK_REVISION - 1
+        row['progressPlan']['workRevision'] = 5
         row['progressPlan']['percent'] = 46.750311
         staging = row['progressPlan']['recovery']['sections']['staging']
         staging.update(completed=list(stage_plan.STAGING_STEPS[:11]), current='audit', live='native',

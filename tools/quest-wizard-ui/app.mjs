@@ -21,7 +21,12 @@ const galleryTemplate=[...$('gallery').children].map(node=>node.cloneNode(true))
 function readStorage(key) { try { return localStorage.getItem(key); } catch { return null; } }
 function writeStorage(key,value) { try { localStorage.setItem(key,value); } catch { } }
 function t(key,parameters) { return translate(language,key,parameters); }
-function percentText(value) { return new Intl.NumberFormat(language,{maximumFractionDigits:3}).format(value); }
+function percentText(value) {
+  // Rounding an unfinished scope to100% would promise a completion that its
+  // producer has not returned. Small real contributions remain visible.
+  const number=value>=0&&value<100?Math.floor(value*1000)/1000:value;
+  return new Intl.NumberFormat(language,{maximumFractionDigits:3}).format(number);
+}
 function message(value,fallback='unknownAction') { return typeof value==='string' ? value : value?.[language] ?? value?.en ?? value?.de ?? t(fallback); }
 function error(value) { $('error-banner').textContent=value?.message ? message(value.message) : t(value?.code ?? 'offline');$('error-banner').hidden=false; }
 function clearError() { $('error-banner').hidden=true; }
@@ -137,19 +142,27 @@ function phaseLabel(phase='') {
   return key?t('phase_'+key):phase;
 }
 function counters(value) {
+  if(['shader-phase','phase-continuation'].includes(value.progressScope))return '';
+  if(['next-phase','result-phase'].includes(value.progressScope))return value.scopeCounter?counters(value.scopeCounter):'';
   if(value.unit==='assets'&&Number.isSafeInteger(value.done)&&value.done>=0&&value.total==null)return t('counterImportsCompleted',{done:new Intl.NumberFormat(language).format(value.done)});
   if(value.unit==='tasks'&&Number.isSafeInteger(value.done)&&value.done>=0&&value.total==null)return t('counterTasksReported',{done:new Intl.NumberFormat(language).format(value.done)});
   if(!Number.isFinite(value.done)||!Number.isFinite(value.total)||value.total<=0)return '';
   const number=n=>new Intl.NumberFormat(language,{maximumFractionDigits:1}).format(n);
   if(value.unit==='bytes')return t('counterBytes',{done:number(value.done/1048576)+' MiB',total:number(value.total/1048576)+' MiB'});
+  if(value.phase?.startsWith('bee-actions:'))return t('counterLocalGraphActions',{done:number(value.done),total:number(value.total)});
+  if(value.phase==='unity-player-scenes')return t('counterSceneEntries',{done:number(value.done),total:number(value.total)});
   const key={files:'counterFiles',bundles:'counterBundles',actions:'counterActions',checks:'counterChecks',dependencies:'counterDependencies',batches:'counterBatches',steps:'counterSteps',checkpoints:'counterSteps',variants:'counterVariants',objects:'counterObjects',assets:'counterImports',assemblies:'counterAssemblies',tasks:'counterSteps',invocations:'counterInvocations',scenes:'counterScenes',sprites:'counterSprites',shaders:'counterShaders'}[value.unit]??'counterUnits';
   return t(key,{done:number(value.done),total:number(value.total)});
 }
 function workDetail(value) {
+  if(value?.progressScope==='next-phase')return t('nextPhaseScope');
+  if(value?.progressScope==='result-phase')return t('playerFinalizationScope');
+  if(value?.progressScope==='phase-continuation')return t('wholePhaseContinuation');
   const raw=typeof value?.detail==='string'?value.detail:'';
   const single=raw.includes('[indivisible-task]');
-  const text=raw.replace(/\[gradle-graph:[A-Za-z0-9-]{1,64}\]\s*/g,'').replace(/\[indivisible-task\]\s*/g,'').trim();
-  return single?t('indivisibleTask')+' · '+text:text;
+  const text=raw.replace(/\[gradle-graph:[A-Za-z0-9-]{1,64}\]\s*/g,'').replace(/\[(?:bee-(?:graph|scope):[^\]]{1,160}|bee-native-plan|shader-(?:name-)?coverage|shader-pass:[0-9]{1,12}|shader-source:(?:unseen|observed|outside))\]\s*/g,'').replace(/\[indivisible-task\]\s*/g,'').trim();
+  const scoped=value?.progressScope==='native-phase'?t('unityNativeGraphScope'):value?.progressScope==='scenes'?t('unitySceneReturnScope'):value?.progressScope==='shader-pass'?t('shaderPassReturnScope'):value?.progressScope==='shader-phase'?t('shaderWholeReturnScope'):value?.progressScope==='scope-return'?t('unityScopeReturn'):'';
+  return [scoped,single?t('indivisibleTask')+' · '+text:text].filter(Boolean).join(' · ');
 }
 function substepLabel(value) {
   const batch=value.recoveryBatchIndex,total=value.recoveryBatchTotal;
@@ -158,7 +171,7 @@ function substepLabel(value) {
   const native=value.recoveryNativeIndex,nativeTotal=value.recoveryNativeTotal;
   const nativeContext=Number.isSafeInteger(native)&&Number.isSafeInteger(nativeTotal)&&native>0&&native<=nativeTotal
     ?t('recoveryNativeContext',{index:native,total:nativeTotal}):'';
-  return t('substep',{phase:[phaseLabel(value.phase),context,nativeContext].filter(Boolean).join(' · ')});
+  return t(value.progressScope==='next-phase'?'nextSubstep':'substep',{phase:[phaseLabel(value.displayPhase??value.phase),context,nativeContext].filter(Boolean).join(' · ')});
 }
 function workSummary(value) {
   const work=activeWorkView(value),operation=work?.operation;
@@ -242,7 +255,15 @@ function preparationDetail(operation,openPlans) {
     const measured=document.createElement('p');measured.className='hint';measured.textContent=t('measuredPercent',{percent:percentText(unityWork.percent)})+' · '+t('unityWorkScope');
     plan.append(label,bar,measured,overviewList(unityWork.phases,'unityWork_',row=>{
       if(!row.parts?.length)return null;
-      const children=document.createElement('div');children.append(overviewList(row.parts,'unityWork_'));return children;
+      const children=document.createElement('div');children.append(overviewList(row.parts,'unityWork_',part=>{
+        if(!part.activities?.length&&!part.localCounter&&part.id!=='shaders')return null;
+        const scoped=document.createElement('div');
+        if(part.id==='shaders'&&['player','update-code'].includes(operation.id)){const note=document.createElement('p');note.className='hint';note.textContent=t('unityShaderSourceScope');scoped.append(note);}
+        if(part.id==='native'){const note=document.createElement('p');note.className='hint';note.textContent=t('unityNativeGraphScope');scoped.append(note);}
+        if(part.activities?.length)scoped.append(overviewList(part.activities,'unityWork_'));
+        if(part.localCounter){const local=document.createElement('p');local.className='hint';local.textContent=t('unityNativeLocalScope')+' · '+counters(part.localCounter)+' · '+workDetail(part.localCounter);scoped.append(local);}
+        return scoped;
+      }));return children;
     }));container.append(plan);
   }
   for(const [record,id,key] of [[packed,'content-pack','contentPackSummary'],[api,'package-api','packageApiSummary'],[unityWork?null:validation,'unity-validation','unityValidationSummary']])if(record){

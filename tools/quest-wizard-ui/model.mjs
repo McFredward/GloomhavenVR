@@ -98,6 +98,14 @@ export function unityWorkView(value) {
   for(const row of phases)if(row.id==='method'){
     const source=value.phases.find(item=>item.id===row.id);
     row.parts=normalize(source.parts,parts,8)??[];
+    for(const part of row.parts){
+      const original=source.parts.find(item=>item.id===part.id);
+      part.activities=normalize(original.activities,['il2cpp','native-build'],2)??[];
+      const local=original.localCounter;
+      if(local&&Number.isSafeInteger(local.done)&&Number.isSafeInteger(local.total)&&local.done>=0&&local.total>0&&local.done<=local.total)
+        part.localCounter={done:local.done,total:local.total,unit:typeof local.unit==='string'?local.unit.slice(0,40):'',phase:typeof local.phase==='string'?local.phase.slice(0,160):'',
+          detail:typeof local.detail==='string'?local.detail.slice(0,1024):''};
+    }
   }
   return {phases,done:phases.filter(row=>row.closed).length,total:phases.length,
     active:phases.some(row=>row.id===value.active)?value.active:null,
@@ -148,8 +156,71 @@ export function stageProgress(stage) {
   const percent=stage?.status==='complete'?100:
     typeof raw==='number'&&Number.isFinite(raw)&&raw>=0&&raw<=100?Math.min(99.9,raw):0;
   const phaseRaw=value.percent;
-  const phasePercent=typeof phaseRaw==='number'&&Number.isFinite(phaseRaw)&&phaseRaw>=0&&phaseRaw<=100?phaseRaw:null;
-  return {...value,percent,phasePercent,waiting:['running','blocked'].includes(stage?.status)?stage?.waiting??null:null};
+  let phasePercent=typeof phaseRaw==='number'&&Number.isFinite(phaseRaw)&&phaseRaw>=0&&phaseRaw<=100?phaseRaw:null;
+  let displayPhase=value.phase,progressScope=null,scopeCounter=null;
+  const operation=value.activeWork?.operation??value.buildOverview?.active;
+  const owner=value.buildOverview?.groups?.flatMap(group=>group.operations??[]).find(row=>row.id===operation);
+  const work=owner?.unityWork,method=work?.phases?.find(row=>row.id==='method');
+  const parts=method?.parts??[];
+  const finished=value.operationStatus==='complete'||value.operationStatus==='reuse';
+  const project=(part,phase,scope)=>{
+    phasePercent=part?.closed?0:part?.percent??0;displayPhase=phase;progressScope=scope;
+    scopeCounter=part?.closed?null:part?.counter??null;
+  };
+  if(['player','update-code'].includes(operation)&&['unity-player-scenes','unity-player-shaders'].includes(value.phase)){
+    const part=parts.find(row=>row.id===(value.phase==='unity-player-scenes'?'scenes':'shaders'));
+    if(part?.closed){
+      const next=parts.slice(parts.indexOf(part)+1).find(row=>!row.closed);
+      project(next,'unity-work-stage:'+(next?.id??'result'),next?.status==='pending'?'next-phase':'phase-continuation');
+    }else if(part){phasePercent=part.percent;progressScope=value.phase==='unity-player-scenes'?'scenes':'shader-coverage';}
+  }
+  if(['player','update-code'].includes(operation)&&(value.phase?.startsWith('bee-actions:')||value.phase?.startsWith('unity-progress:')||['unity-bee-activity','unity-native-build','unity-progress','unity-player-memory','unity-player-platform-handoff','unity-il2cpp','unity-native-build-plan'].includes(value.phase))){
+    const native=parts.find(row=>row.id==='native');
+    if(native?.closed){
+      const packaging=parts.find(row=>row.id==='packaging');
+      project(packaging,'unity-work-stage:packaging',packaging?.status==='pending'?'next-phase':'phase-continuation');
+    }else if(native){phasePercent=native.percent;displayPhase='unity-native-build-plan';progressScope='native-phase';}
+  }
+  if(['unity-shader-compile','unity-shader-task'].includes(value.phase)||value.phase?.startsWith('unity-shader-task:')){
+    const shaders=parts.find(row=>row.id==='shaders');
+    if(finished&&shaders&&!shaders.closed){
+      // Only the observed pass returned. Serialization and remaining passes
+      // still belong to the current whole Shader phase.
+      phasePercent=shaders.percent;displayPhase='unity-player-shader-work';progressScope='shader-phase';
+    }else if(finished&&shaders?.closed){
+      const next=parts.slice(parts.indexOf(shaders)+1).find(row=>!row.closed);
+      project(next,'unity-work-stage:'+(next?.id??'result'),next?.status==='pending'?'next-phase':'phase-continuation');
+    }else if(!finished&&Number.isSafeInteger(value.done)&&Number.isSafeInteger(value.total)&&value.done>=0&&value.total>0){
+      // Ready variants plus the actual compiler-pass return form a finite
+      // local scope. N/Nready cannot display100before FINISHED is observed.
+      phasePercent=100*value.done/(value.total+1);progressScope='shader-pass';
+    }
+  }
+  if(owner&&!owner.closed&&work){
+    const result=work.phases?.find(row=>row.id==='result');
+    const packaging=parts.find(row=>row.id==='packaging');
+    const afterPackaging=packaging?.closed&&(['unity-gradle','unity-gradle-tasks','unity-player-native-result'].includes(value.phase)||progressScope==='next-phase'||progressScope==='phase-continuation');
+    if(afterPackaging||['player','update-code'].includes(operation)&&(value.phase==='unity-compute-identities'||value.phase==='unity-compute-kernels'&&finished)){
+      project(result,'unity-player-finalization','result-phase');
+    }else if(value.phase==='unity-work-stage:method'&&finished){
+      project(result,'unity-work-stage:result','next-phase');
+    }else if(value.phase==='unity-work-invocation'&&finished){
+      // The Editor returned, but the owner still requires its host-side
+      // publication/receipt gate. The completed invocation stays green.
+      project(null,'unity-owner-publication','next-phase');
+      scopeCounter={done:0,total:1,unit:'tasks',phase:'unity-owner-publication'};
+    }else if(finished&&progressScope===null&&value.phase?.startsWith('unity-')){
+      const part=parts.find(row=>!row.closed&&row.counter?.phase===value.phase)
+        ??parts.find(row=>!row.closed&&(value.phase==='unity-shader-compile'||value.phase==='unity-shader-task')&&['shaders','build'].includes(row.id));
+      if(part)project(part,'unity-work-stage:'+part.id,'phase-continuation');
+    }
+  }
+  if(progressScope===null&&!finished&&value.phase?.startsWith('unity-')&&phasePercent===100&&Number.isSafeInteger(value.done)&&Number.isSafeInteger(value.total)&&value.total>0){
+    // The counted items are ready, but the known Unity scope-return boundary
+    // remains open. Display that real additional task, never an arbitrary99%.
+    phasePercent=100*value.done/(value.total+1);progressScope='scope-return';
+  }
+  return {...value,percent,phasePercent,displayPhase,progressScope,scopeCounter,waiting:['running','blocked'].includes(stage?.status)?stage?.waiting??null:null};
 }
 export function activeWorkView(progress) {
   const work=progress?.activeWork;
