@@ -36,7 +36,7 @@ public static class QuestCampaignComputeValidation
     }
     [Serializable] public sealed class CompilationReceipt
     {
-        public int schema = 1, shaderCount, kernelCount;
+        public int schema = 1, shaderCount, kernelCount, targetedReimportedShaders;
         public string unityVersion, buildTarget, graphicsApi, recoveryManifestSha256;
         public bool androidCompiled, allOriginalKernelIdentitiesRetained, hardwareVerified;
         public ShaderCompilation[] shaders;
@@ -46,6 +46,7 @@ public static class QuestCampaignComputeValidation
         public string name, assetPath, guid;
         public long localFileId;
         public int kernelCount;
+        public bool targetedReimported;
         public string[] platforms, compiledKernels, compiledGlesKernels, compiledVulkanKernels, warnings;
     }
 
@@ -66,8 +67,11 @@ public static class QuestCampaignComputeValidation
         var result = JsonUtility.FromJson<Recovery>(File.ReadAllText(manifestPath));
         if (result == null || result.schema != 1 || result.shaderCount != 13 || result.kernelCount != 36
             || result.shaders == null || result.shaders.Length != 13
+            || result.shaders.Any(shader => shader == null || string.IsNullOrEmpty(shader.name)
+                || shader.kernels == null || shader.kernelCount != shader.kernels.Length
+                || shader.kernels.Any(kernel => kernel == null || string.IsNullOrEmpty(kernel.name))
+                || shader.kernels.Select(kernel => kernel.name).Distinct().Count() != shader.kernelCount)
             || result.shaders.Select(shader => shader.name).Distinct().Count() != 13
-            || result.shaders.Any(shader => shader.kernels == null || shader.kernelCount != shader.kernels.Length)
             || result.shaders.Sum(shader => shader.kernelCount) != 36)
             throw new InvalidDataException("Unknown complete original compute recovery contract.");
         return result;
@@ -110,77 +114,176 @@ public static class QuestCampaignComputeValidation
             || !PlayerSettings.GetGraphicsAPIs(BuildTarget.Android).SequenceEqual(new[] { requiredApi }))
             throw new InvalidOperationException("Original compute gate requires Unity 2021.3.5f1 Android " + requiredApi + ".");
         var rows = new List<ShaderCompilation>();
+        // An unavailable Editor API is a toolchain error, not a stale asset.
+        // Resolve it before offering file-level import repair.
+        if (requireCompiledBank)
+            foreach (string method in new[] { "GetComputeShaderPlatformCount", "GetComputeShaderPlatformType",
+                "GetComputeShaderPlatformKernelCount", "GetComputeShaderPlatformKernelName" }) Api(method);
         var progress = new QuestWizardProgress.Counter("unity-compute-identities", requireCompiledBank ? "player" : "unity-validation", recovery.shaders.Length, "shaders", "Validate original compute identities and compiled metadata");
         foreach (var contract in recovery.shaders)
         {
             progress.Report(rows.Count, contract.assetPath);
-            if (contract.classId != 72 || contract.localFileId != 7200000 || contract.kernels == null
-                || contract.kernels.Length != contract.kernelCount || !contract.assetPath.StartsWith("Assets/", StringComparison.Ordinal)
-                || contract.assetPath.Contains("..") || Path.GetExtension(contract.assetPath) != ".compute"
-                || Sha(contract.assetPath) != contract.sourceSha256 || Sha(contract.assetPath + ".meta") != contract.metaSha256)
-                throw new InvalidDataException("Original compute source/identity contract differs: " + contract.name);
-            var shader = AssetDatabase.LoadAssetAtPath<ComputeShader>(contract.assetPath);
-            if (shader == null || shader.name != contract.name) throw new InvalidDataException("Compute source failed import: " + contract.assetPath);
-            if (!AssetDatabase.TryGetGUIDAndLocalFileIdentifier(shader, out string guid, out long localId)
-                || guid != contract.guid || localId != contract.localFileId)
-                throw new InvalidDataException("Original compute GUID/localID changed: " + contract.name);
-            // Calling FindKernel/GetKernelThreadGroupSizes in a -nographics
-            // editor asks Unity to compile the unsupported current Null GPU
-            // renderer. Check source dispatch and native compiler bank metadata
-            // without executing a device ComputeShader API in the build process.
-            string sourceText = File.ReadAllText(contract.assetPath);
-            var declaredKernels = Regex.Matches(sourceText, @"(?m)^#pragma kernel (\w+) QUEST_ORIGINAL_KERNEL_\d+$")
-                .Cast<Match>().Select(match => match.Groups[1].Value).ToArray();
-            var declaredGroups = Regex.Matches(sourceText, @"\[numthreads\((\d+), (\d+), (\d+)\)\]\s*void (\w+)\(")
-                .Cast<Match>().ToArray();
-            if (!declaredKernels.SequenceEqual(contract.kernels.Select(kernel => kernel.name))
-                || declaredGroups.Length != contract.kernelCount)
-                throw new InvalidDataException("Original compute kernel source order changed: " + contract.name);
-            var kernelProgress = new QuestWizardProgress.Counter("unity-compute-kernels", requireCompiledBank ? "player" : "unity-validation", contract.kernels.Length, "kernels", contract.name);
-            for (int index = 0; index < contract.kernels.Length; index++)
+            ValidateSource(contract, requireCompiledBank);
+            ShaderCompilation row;
+            try { row = ValidateImported(contract, requiredApi, requireCompiledBank); }
+            catch (InvalidDataException first)
             {
-                var kernel = contract.kernels[index];
-                kernelProgress.Report(index, contract.name + "/" + kernel.name);
-                var groups = declaredGroups[index];
-                if (groups.Groups[4].Value != kernel.name || kernel.threadGroups == null || kernel.threadGroups.Length != 3
-                    || Enumerable.Range(0, 3).Any(axis => int.Parse(groups.Groups[axis + 1].Value) != kernel.threadGroups[axis]))
-                    throw new InvalidDataException("Original compute kernel order/dispatch extent changed: " + contract.name + "/" + kernel.name);
-                kernelProgress.Report(index + 1, contract.name + "/" + kernel.name);
+                // Capture090432 failed on unchanged Windows CRLF source at the
+                // first compute pragma. Source parsing must accept its native line
+                // terminator, while keeping the complete byte SHA and every kernel
+                // dispatch invariant. An independently stale Library object may
+                // then be repaired by one exact-path synchronous import. Never
+                // reset the Library, rewrite the original source/meta or retry an
+                // unknown source change as if it were an import problem.
+                ValidateSourceFiles(contract);
+                Debug.Log("[Quest compute] targeted original ComputeShader reimport; asset=" + contract.assetPath
+                    + "; reason=" + first.Message + "; attempt=1/1; original sources and Unity Library retained.");
+                progress.Report(rows.Count, "Repairing imported ComputeShader: " + contract.assetPath);
+                try { AssetDatabase.ImportAsset(contract.assetPath,
+                    ImportAssetOptions.ForceUpdate | ImportAssetOptions.ForceSynchronousImport); }
+                catch (Exception failure)
+                {
+                    throw new InvalidDataException("Original compute targeted reimport failed: " + contract.assetPath
+                        + "; attempt=1/1; " + failure.GetType().Name + ": " + failure.Message, failure);
+                }
+                // A repair can only complete after all original source, import
+                // and (when requested) native Android bank checks pass again.
+                ValidateSourceFiles(contract);
+                try { row = ValidateImported(contract, requiredApi, requireCompiledBank); }
+                catch (InvalidDataException second)
+                {
+                    throw new InvalidDataException(second.Message
+                        + "; targeted reimport attempt=1/1 did not restore the original import/bank.", second);
+                }
+                row.targetedReimported = true;
+                Debug.Log("[Quest compute] targeted original ComputeShader reimport verified; asset="
+                    + contract.assetPath + "; attempt=1/1.");
             }
-            kernelProgress.Complete("Original compute dispatch extent retained: " + contract.name);
-            var messages = ShaderUtil.GetComputeShaderMessages(shader);
-            var errors = messages.Where(message => message.severity == ShaderCompilerMessageSeverity.Error).ToArray();
-            if (errors.Length != 0) throw new InvalidOperationException("Android compute compilation failed: " + contract.name + " "
-                + string.Join(" | ", errors.Select(error => error.message).Take(8)));
-            int count = requireCompiledBank ? Call<int>("GetComputeShaderPlatformCount", shader) : 0;
-            var platforms = new List<string>();
-            string[] compiledKernels = null;
-            for (int platform = 0; platform < count; platform++)
-            {
-                var type = Call<GraphicsDeviceType>("GetComputeShaderPlatformType", shader, platform);
-                platforms.Add(type.ToString());
-                if (type != requiredApi) continue;
-                if (compiledKernels != null) throw new InvalidDataException("Duplicate compute platform bank.");
-                int kernels = Call<int>("GetComputeShaderPlatformKernelCount", shader, platform);
-                compiledKernels = Enumerable.Range(0, kernels).Select(kernel =>
-                    Call<string>("GetComputeShaderPlatformKernelName", shader, platform, kernel)).ToArray();
-            }
-            if (requireCompiledBank && (compiledKernels == null || !compiledKernels.SequenceEqual(contract.kernels.Select(kernel => kernel.name))))
-                throw new InvalidDataException("Compiled compute bank does not contain every original kernel: " + contract.name);
-            rows.Add(new ShaderCompilation { name = contract.name, assetPath = contract.assetPath, guid = guid, localFileId = localId,
-                kernelCount = contract.kernelCount, platforms = platforms.ToArray(), compiledKernels = compiledKernels,
-                compiledGlesKernels = requiredApi == GraphicsDeviceType.OpenGLES3 ? compiledKernels : null,
-                compiledVulkanKernels = requiredApi == GraphicsDeviceType.Vulkan ? compiledKernels : null,
-                warnings = messages.Where(message => message.severity != ShaderCompilerMessageSeverity.Error)
-                    .Select(message => message.platform + ": " + message.message).Distinct().Take(16).ToArray() });
+            rows.Add(row);
             progress.Report(rows.Count, contract.name);
         }
         progress.Complete("Original compute identities and native metadata validated");
-        var receipt = new CompilationReceipt { shaderCount = rows.Count, kernelCount = rows.Sum(row => row.kernelCount),
+        return new CompilationReceipt { shaderCount = rows.Count, kernelCount = rows.Sum(row => row.kernelCount),
+            targetedReimportedShaders = rows.Count(row => row.targetedReimported),
             unityVersion = Application.unityVersion, buildTarget = BuildTarget.Android.ToString(), graphicsApi = requiredApi.ToString(),
             recoveryManifestSha256 = Sha(manifestPath), androidCompiled = requireCompiledBank, allOriginalKernelIdentitiesRetained = true,
             hardwareVerified = false, shaders = rows.ToArray() };
-        return receipt;
+    }
+
+    static void ValidateSourceFiles(ShaderContract contract)
+    {
+        if (contract.classId != 72 || contract.localFileId != 7200000 || string.IsNullOrEmpty(contract.assetPath)
+            || !contract.assetPath.StartsWith("Assets/", StringComparison.Ordinal) || contract.assetPath.Contains("..")
+            || contract.assetPath.Contains("\\") || Path.GetExtension(contract.assetPath) != ".compute")
+            throw new InvalidDataException("Original compute source identity contract differs: " + contract.name + "; asset=" + contract.assetPath);
+        RequireHash(contract.assetPath, contract.sourceSha256, "source");
+        RequireHash(contract.assetPath + ".meta", contract.metaSha256, "metadata");
+        var metaGuids = Regex.Matches(File.ReadAllText(contract.assetPath + ".meta"),
+            @"(?m)^guid: ([0-9a-f]{32})\r?$");
+        if (metaGuids.Count != 1 || metaGuids[0].Groups[1].Value != contract.guid)
+            throw new InvalidDataException("Original compute source metadata GUID differs: " + contract.assetPath
+                + "; expected=" + contract.guid + "; matching GUID declarations=" + metaGuids.Count);
+    }
+
+    static void ValidateSource(ShaderContract contract, bool requireCompiledBank)
+    {
+        ValidateSourceFiles(contract);
+        // Calling FindKernel/GetKernelThreadGroupSizes in a -nographics
+        // editor asks Unity to compile the unsupported current Null GPU
+        // renderer. Check source dispatch and native compiler bank metadata
+        // without executing a device ComputeShader API in the build process.
+        string sourceText = File.ReadAllText(contract.assetPath);
+        var declaredKernels = Regex.Matches(sourceText, @"(?m)^#pragma kernel (\w+) QUEST_ORIGINAL_KERNEL_(\d+)\r?$")
+            .Cast<Match>().ToArray();
+        var declaredDefines = Regex.Matches(sourceText, @"(?m)^#if defined\(QUEST_ORIGINAL_KERNEL_(\d+)\)\r?$")
+            .Cast<Match>().ToArray();
+        var declaredGroups = Regex.Matches(sourceText, @"\[numthreads\((\d+), (\d+), (\d+)\)\]\s*void (\w+)\(")
+            .Cast<Match>().ToArray();
+        if (declaredKernels.Length != contract.kernelCount || declaredDefines.Length != contract.kernelCount
+            || declaredGroups.Length != contract.kernelCount)
+            throw new InvalidDataException("Original compute kernel source census differs: " + contract.assetPath
+                + "; expected=" + contract.kernelCount + "; pragmas=" + declaredKernels.Length
+                + "; defines=" + declaredDefines.Length + "; dispatch functions=" + declaredGroups.Length);
+        var kernelProgress = new QuestWizardProgress.Counter("unity-compute-kernels", requireCompiledBank ? "player" : "unity-validation", contract.kernels.Length, "kernels", contract.name);
+        for (int index = 0; index < contract.kernels.Length; index++)
+        {
+            var kernel = contract.kernels[index];
+            kernelProgress.Report(index, contract.name + "/" + kernel.name);
+            var groups = declaredGroups[index];
+            if (declaredKernels[index].Groups[1].Value != kernel.name
+                || declaredKernels[index].Groups[2].Value != index.ToString()
+                || declaredDefines[index].Groups[1].Value != index.ToString())
+                throw new InvalidDataException("Original compute kernel source order/define differs: " + contract.assetPath
+                    + "; index=" + index + "; expected=" + kernel.name + "/QUEST_ORIGINAL_KERNEL_" + index
+                    + "; pragma=" + declaredKernels[index].Value + "; define=" + declaredDefines[index].Value);
+            if (groups.Groups[4].Value != kernel.name || !MatchesThreadGroups(groups, kernel.threadGroups))
+                throw new InvalidDataException("Original compute kernel order/dispatch extent changed: " + contract.assetPath + "/" + kernel.name
+                    + "; expected=" + (kernel.threadGroups == null ? "missing" : string.Join(",", kernel.threadGroups))
+                    + "; actual=" + string.Join(",", Enumerable.Range(1, 3).Select(axis => groups.Groups[axis].Value))
+                    + "; dispatch function=" + groups.Groups[4].Value);
+            kernelProgress.Report(index + 1, contract.name + "/" + kernel.name);
+        }
+        kernelProgress.Complete("Original compute dispatch extent retained: " + contract.name);
+    }
+
+    static bool MatchesThreadGroups(Match match, int[] expected)
+    {
+        if (expected == null || expected.Length != 3) return false;
+        for (int axis = 0; axis < 3; axis++)
+        {
+            int actual;
+            if (!int.TryParse(match.Groups[axis + 1].Value, out actual) || actual != expected[axis]) return false;
+        }
+        return true;
+    }
+
+    static void RequireHash(string path, string expected, string kind)
+    {
+        if (!File.Exists(path)) throw new InvalidDataException("Original compute " + kind + " is missing: " + path);
+        string actual = Sha(path);
+        if (actual != expected) throw new InvalidDataException("Original compute " + kind + " SHA differs: " + path
+            + "; expected=" + expected + "; actual=" + actual + "; targeted import cannot repair unproved source bytes.");
+    }
+
+    static ShaderCompilation ValidateImported(ShaderContract contract, GraphicsDeviceType requiredApi, bool requireCompiledBank)
+    {
+        var shader = AssetDatabase.LoadAssetAtPath<ComputeShader>(contract.assetPath);
+        if (shader == null) throw new InvalidDataException("Original compute imported object is missing: " + contract.assetPath);
+        if (shader.name != contract.name) throw new InvalidDataException("Original compute imported name differs: " + contract.assetPath
+            + "; expected=" + contract.name + "; actual=" + shader.name);
+        if (!AssetDatabase.TryGetGUIDAndLocalFileIdentifier(shader, out string guid, out long localId))
+            throw new InvalidDataException("Original compute imported GUID/localID cannot be read: " + contract.assetPath);
+        if (guid != contract.guid || localId != contract.localFileId)
+            throw new InvalidDataException("Original compute imported GUID/localID differs: " + contract.assetPath
+                + "; GUID expected=" + contract.guid + " actual=" + guid
+                + "; localID expected=" + contract.localFileId + " actual=" + localId);
+        var messages = ShaderUtil.GetComputeShaderMessages(shader);
+        var errors = messages.Where(message => message.severity == ShaderCompilerMessageSeverity.Error).ToArray();
+        if (errors.Length != 0) throw new InvalidDataException("Android compute compilation failed: " + contract.assetPath + " "
+            + string.Join(" | ", errors.Select(error => error.message).Take(8)));
+        int count = requireCompiledBank ? Call<int>("GetComputeShaderPlatformCount", shader) : 0;
+        var platforms = new List<string>();
+        string[] compiledKernels = null;
+        for (int platform = 0; platform < count; platform++)
+        {
+            var type = Call<GraphicsDeviceType>("GetComputeShaderPlatformType", shader, platform);
+            platforms.Add(type.ToString());
+            if (type != requiredApi) continue;
+            if (compiledKernels != null) throw new InvalidDataException("Duplicate compute platform bank: " + contract.assetPath + "; api=" + requiredApi);
+            int kernels = Call<int>("GetComputeShaderPlatformKernelCount", shader, platform);
+            compiledKernels = Enumerable.Range(0, kernels).Select(kernel =>
+                Call<string>("GetComputeShaderPlatformKernelName", shader, platform, kernel)).ToArray();
+        }
+        if (requireCompiledBank && (compiledKernels == null || !compiledKernels.SequenceEqual(contract.kernels.Select(kernel => kernel.name))))
+            throw new InvalidDataException("Compiled compute bank does not contain every original kernel: " + contract.assetPath
+                + "; api=" + requiredApi + "; expected=" + string.Join(",", contract.kernels.Select(kernel => kernel.name))
+                + "; actual=" + (compiledKernels == null ? "missing" : string.Join(",", compiledKernels)));
+        return new ShaderCompilation { name = contract.name, assetPath = contract.assetPath, guid = guid, localFileId = localId,
+            kernelCount = contract.kernelCount, platforms = platforms.ToArray(), compiledKernels = compiledKernels,
+            compiledGlesKernels = requiredApi == GraphicsDeviceType.OpenGLES3 ? compiledKernels : null,
+            compiledVulkanKernels = requiredApi == GraphicsDeviceType.Vulkan ? compiledKernels : null,
+            warnings = messages.Where(message => message.severity != ShaderCompilerMessageSeverity.Error)
+                .Select(message => message.platform + ": " + message.message).Distinct().Take(16).ToArray() };
     }
 
     /// <summary>Isolated tiny proof entry; never edits the original/full recovered project.</summary>
