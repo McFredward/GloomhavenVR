@@ -10,8 +10,10 @@ imported Sprite once after source/metadata proof. No original conversion, journa
 or Unity Library reset is required. The actual preceding fixture limitation and
 composed proof are recorded in
 [QUEST-SPRITE-SELF-REPAIR-075120-20261010.md](QUEST-SPRITE-SELF-REPAIR-075120-20261010.md).
-Final release verification records exact scope; Windows APK acceptance remains
-pending.
+This delivery also integrates published dev664 (`c9462f78b`) with approved
+PC/Standalone defaults. The merged profile boundary passes382 assertions,
+including actual shared Quest/Frame choices. Final release verification records
+exact scope; Windows APK acceptance remains pending.
 
 **Quest finite Unity progress and Windows loading transport, 2026-10-10 (Builder; Runtime663).**
 

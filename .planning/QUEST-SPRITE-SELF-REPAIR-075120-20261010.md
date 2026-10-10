@@ -63,8 +63,15 @@ corrected and existing profile positions are preserved. All85 affected Editor
 continuation/source-identity cases pass again;229 unchanged passing cases from
 that integrated attempt are reused. This is composed314-case evidence, not a new
 complete314-case run after those corrections. The actual Editor API compilation
-and failure-context Wizard subset passes19 cases without skips. Unchanged
-Runtime663 and UI evidence remains inherited from the preceding delivery.
+and failure-context Wizard subset passes19 cases without skips. Unchanged UI evidence remains inherited from the preceding delivery.
+
+The delivery integrates published dev664 (`c9462f78b`) and its approved fresh
+PC/Standalone defaults. The resolved production-profile fixture passes382
+assertions, including the complete Quest/Frame profile parity checks. Current
+Runtime664 Release compilation has zero warnings/errors and its actual static
+weave reports290 targets complete. The final current-mod AOT result is recorded
+in the release sidecar. Published dev664 focused runtime evidence remains
+inherited for unchanged areas; no new unrelated complete gate is claimed.
 
 Verification and final delivery identities are recorded in the release validation
 sidecar. Windows APK completion and headset acceptance remain unverified until
