@@ -90,14 +90,18 @@ internal static class TownServiceMotionBudget
             foreach (TownServiceMotionPending part in snapshot.Sources)
             { seen.Add(part); int root = ReturnRoot(live, part.Entry); if (root >= 0) seen.Add(live[root]); }
             int cohortAt = packet.Entries.Count;
-            TownServiceMotionEntry cohort = AddReturnSubset(packet, snapshot, snapshot.Parts.Length - snapshot.Cursor);
-            while (TryPackedWithinBounds(packet) == null && cohort.ReturnParts.Length > 1)
+            int fit = 0, high = snapshot.Parts.Length - snapshot.Cursor;
+            while (fit < high)
             {
+                int trial = (fit + high + 1) / 2;
                 packet.Entries.RemoveRange(cohortAt, packet.Entries.Count - cohortAt);
-                cohort = AddReturnSubset(packet, snapshot, Math.Max(1, cohort.ReturnParts.Length * 3 / 4));
+                AddReturnSubset(packet, snapshot, trial);
+                if (TryPackedWithinBounds(packet) == null) high = trial - 1;
+                else fit = trial;
             }
-            if (TryPackedWithinBounds(packet) == null)
-            { packet.Entries.RemoveRange(cohortAt, packet.Entries.Count - cohortAt); continue; }
+            packet.Entries.RemoveRange(cohortAt, packet.Entries.Count - cohortAt);
+            if (fit == 0) continue;
+            TownServiceMotionEntry cohort = AddReturnSubset(packet, snapshot, fit);
             bundles++;
             var staged = new TownServiceMotionPending { Entry = cohort, ReturnSnapshot = snapshot };
             selected.Add(new Selected(staged, 0, index + 1, bundles));
@@ -118,6 +122,9 @@ internal static class TownServiceMotionBudget
                 }
             }
         }
+        // Exact packing already admitted this complete core. Ordinary tails may
+        // overflow; retry the intact core before backoff can cross a native bundle.
+        int guaranteedCore = selected.Count;
         int turn = 0;
         while (packet.Entries.Count < TownServiceMotionCodec.MaxExpandedEntries
             && (visited[0] < live.Count || visited[1] < visibleFan.Count || visited[2] < ordinary.Count))
@@ -143,8 +150,9 @@ internal static class TownServiceMotionBudget
         {
             // At most logarithmically many compression probes; real random float
             // payloads must retain a legacy-sized finite turn too.
-            int keep = Math.Max(0, selected.Count * 3 / 4);
-            while (keep > 0 && keep < selected.Count && selected[keep - 1].Bundle != 0
+            int floor = selected.Count > guaranteedCore ? guaranteedCore : 0;
+            int keep = Math.Max(floor, selected.Count * 3 / 4);
+            while (keep > floor && keep < selected.Count && selected[keep - 1].Bundle != 0
                 && selected[keep - 1].Bundle == selected[keep].Bundle) keep--;
             selected.RemoveRange(keep, selected.Count - keep);
             packet.Entries.RemoveRange(initial + keep, packet.Entries.Count - initial - keep);

@@ -107,7 +107,7 @@ def sources(root):
     if original_pool.exists(): bound[original_pool.name] = original_pool.read_text()
     native_publication = base / "Net/TownServices/TownServiceMirror.NativePublication.cs"
     if native_publication.exists(): bound[native_publication.name] = native_publication.read_text()
-    for fast in ("TownServiceFastNumbers", "TownServiceMotionCodec", "TownServiceMotionCodec.OfferedFrame", "TownServiceMotionBudget", "TownServiceReturnMotion", "TownCardReturnMotion", "TownServiceMirror.Motion", "TownServiceMirror.PreparedCardReturns", "TownServiceMirror.CardReturnCohorts"):
+    for fast in ("TownServiceFastNumbers", "TownServiceMotionCodec", "TownServiceMotionCodec.OfferedFrame", "TownServiceMotionCodec.ReturnRoots", "TownServiceMotionBudget", "TownServiceReturnMotion", "TownCardReturnMotion", "TownServiceMirror.Motion", "TownServiceMirror.PreparedCardReturns", "TownServiceMirror.CardReturnCohorts"):
         path = base / "Net/TownServices" / (fast + ".cs")
         if path.exists(): bound[path.name] = path.read_text()
     pad = base / "Hands/Interact/PokeOnlyTarget.cs"

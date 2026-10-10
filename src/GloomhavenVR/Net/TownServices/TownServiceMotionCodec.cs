@@ -63,6 +63,7 @@ internal static partial class TownServiceMotionCodec
     // expanded payload is bounded independently; legacy record97 stays unchanged.
     internal const int MaxExpandedBytes = 8192, MaxExpandedEntries = 128;
     internal const byte CardReturnCohortRecordId = 113;
+    internal const byte ReturnRootPackedRecordId = 115;
     internal const byte PackedRecordId = 98, VisitorReadyRecordId = 99, ReturnRecordId = 106, CardReturnRecordId = 107;
     // Independent message rather than an art fragment: a several-second catalog
     // baseline must never sit in front of a visitor's current hand/hover/scroll.
@@ -97,7 +98,17 @@ internal static partial class TownServiceMotionCodec
     {
         byte[] raw = WriteRaw(packet, MaxExpandedBytes, MaxExpandedEntries);
         if (raw.Length <= MaxBytes && packet.Entries.Count <= MaxEntries) return raw;
+        byte[] selected = raw;
+        byte packedRecord = PackedRecordId;
         byte[]? compressed = PresentationCompression.TryCompress(raw, raw.Length);
+        if (packet.Entries.Exists(entry => entry.Kind == 10) && TryPackReturnRoots(raw, false, out byte[] compact))
+        {
+            byte[]? candidate = PresentationCompression.TryCompress(compact, compact.Length, optimal: true);
+            if (candidate != null && (compressed == null || candidate.Length < compressed.Length))
+            {
+                selected = compact; compressed = candidate; packedRecord = ReturnRootPackedRecordId;
+            }
+        }
         if (compressed == null) return null;
         const int partBytes = 248;
         int parts = (compressed.Length + partBytes - 1) / partBytes;
@@ -107,8 +118,8 @@ internal static partial class TownServiceMotionCodec
         for (int at = 0; at < compressed.Length; at += partBytes)
         {
             int count = Math.Min(partBytes, compressed.Length - at);
-            writer.Write(PackedRecordId); writer.Write((byte)(7 + count));
-            writer.Write((byte)1); writer.Write((ushort)raw.Length);
+            writer.Write(packedRecord); writer.Write((byte)(7 + count));
+            writer.Write((byte)1); writer.Write((ushort)selected.Length);
             writer.Write((ushort)compressed.Length); writer.Write((ushort)at);
             writer.Write(compressed, at, count);
         }
@@ -167,7 +178,7 @@ internal static partial class TownServiceMotionCodec
             using var stream = new MemoryStream(bytes, 6, length - 6, false);
             using var reader = new BinaryReader(stream);
             var result = new TownServiceMotionPacket(); var keys = new HashSet<TownServiceMotionKey>(); bool clock = false;
-            byte[]? packed = null; int packedAt = 0, originalLength = 0;
+            byte[]? packed = null; int packedAt = 0, originalLength = 0; byte packedKind = 0;
             byte[]? cohort = null; int cohortAt = 0;
             while (stream.Position < stream.Length)
             {
@@ -196,9 +207,11 @@ internal static partial class TownServiceMotionCodec
                     continue;
                 }
                 if (cohort != null) return false;
-                if (id == PackedRecordId)
+                if (id == PackedRecordId || id == ReturnRootPackedRecordId)
                 {
-                    if (expanded || !clock || result.Entries.Count != 0 || count <= 7 || reader.ReadByte() != 1) return false;
+                    if (expanded || !clock || result.Entries.Count != 0 || count <= 7 || reader.ReadByte() != 1
+                        || packedKind != 0 && packedKind != id) return false;
+                    packedKind = id;
                     int original = reader.ReadUInt16(), total = reader.ReadUInt16(), at = reader.ReadUInt16();
                     if (original < PresentationCompression.MinimumInput || original > MaxExpandedBytes
                         || total < 5 || total > MaxBytes || at != packedAt) return false;
@@ -233,7 +246,13 @@ internal static partial class TownServiceMotionCodec
             {
                 if (packedAt != packed.Length) return false;
                 byte[]? raw = PresentationCompression.Expand(packed, originalLength, MaxExpandedBytes, MessageType);
-                if (raw == null || !TryReadCore(raw, raw.Length, out TownServiceMotionPacket? inner, true)
+                if (raw == null) return false;
+                if (packedKind == ReturnRootPackedRecordId)
+                {
+                    if (!TryPackReturnRoots(raw, true, out byte[] rebuilt)) return false;
+                    raw = rebuilt;
+                }
+                if (!TryReadCore(raw, raw.Length, out TownServiceMotionPacket? inner, true)
                     || inner!.Sequence != result.Sequence || inner.SampleTime != result.SampleTime) return false;
                 packet = inner; return true;
             }
