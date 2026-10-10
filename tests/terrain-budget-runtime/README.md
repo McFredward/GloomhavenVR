@@ -10,7 +10,7 @@ verified native structural streams through the actual production mesh decoder. A
 command buffers and `Camera.Render` callbacks execute; there is no simulated
 renderer or pixel oracle substituted for the production fragment.
 
-The production case makes 818 assertions. Ninety-one independently compiled
+The production case makes 7,021 assertions. One hundred six independently compiled
 negative variants each corrupt a production statement and must fail at a named
 assertion. Shader compilation failures and unrelated exceptions never count as
 passing negative controls. `--production-only` and repeatable `--case NAME` are
@@ -162,3 +162,49 @@ the former Unity bounds/closest-point path. Delegate/observer overhead is includ
 in this diagnostic. The separate two-source complete Update timer is diagnostic
 only. Neither timer establishes Steam Frame frame rate or GPU cost. Native LOD
 controllers and far source-cap/frustum selection are unchanged.
+
+## Independent size-based pillar LOD
+
+Each admitted pillar uses its own original full enclosing-cylinder radius and
+its own radial VR-camera distance. The fixture additionally compiles the pure
+production `FigureDistanceLodPolicy.FirstReductionDistances` and the unchanged
+`Select`, alongside the source-extracted actual figure mesh-bank tier selector.
+All ten native crypt/cave/city pillar definitions compare actual settled topology
+with the same effective tier bands at caps 0, 66, 67 and 100. Probes immediately
+inside/outside the entry and exit edges distinguish even modest differences
+between original sizes; eight radial orbit positions, head yaw and two board/head
+scales retain their own size-derived result. Nonempty native/private shader
+readbacks preserve the selected silhouette, and distant endpoints must save
+actual original triangles. A fixed common radius is rejected independently of
+the former fixed .75m distance and horizontal-thickness controls.
+
+No actual figure, player configuration or party-published reference supplies a
+pillar threshold. Runtime cases enable/disable figure LOD and add/remove an
+unrelated actor without changing the selected pillar detail. The complete
+CoreModule source is bound to the receipt and checked for the absence of the
+former proposed provider bridge. Ordinary walls and native ownership remain
+unchanged. Manual mode retains the saved viewing radius, with live mode and cap
+edits. Original-size rotation/nonuniform scale, exact binary entry/exit equality,
+invalid captured original bounds, and fully hidden/native-disabled sources are
+covered. Invalid original radii preserve exact geometry and clear the far latch.
+
+Actual primitive observers establish one current source matrix during Update,
+zero extra native bounds reads for an untracked pillar and zero geometry/radius
+reads during either camera callback. The full radius uses that same existing
+matrix; the manual path skips its optional scalar square root. Original geometry
+and the existing shader/bank lookup are explicit fixture boundaries; headset
+presentation and GPU/FPS effects remain unverified. The twelve added controls
+must fail their exact named runtime assertions, retaining all 94 prior controls.
+`--figure-source-root` and `--integration-root` support frozen worker input;
+their exact bytes are hashed and checked for stability with every other input.
+
+The initial 106-variant independent run passed production and 104 of 105 controls.
+Its new figure-toggle coupling control escaped because the selected far position
+was coarse under both manual and independent modes. The final positive compares
+inside the pillar's own near band and outside the manual radius, distinguishing
+the two policies. That control is rerun alongside the new zero-height fallback
+control and the existing invalid-size control, with complete final production.
+The original stable receipt is retained; combined coverage is composed, not a
+claim of an uninterrupted final 107-variant run. Zero native height retains the
+existing manual distance fallback but supplies no size radius, preserving exact
+geometry in independent mode instead of borrowing an angle-dependent world AABB.

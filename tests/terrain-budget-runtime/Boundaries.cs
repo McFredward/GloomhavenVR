@@ -99,6 +99,10 @@ namespace GloomhavenVR.Core
         internal static int TerrainCameraSourceLimit;
         internal static int TerrainDetailPercent = 100, DistantTerrainDetailPercent = 100;
         internal static float TerrainDistanceMeters = .75f;
+        // Original controls exercise the saved manual policy; independent cases
+        // explicitly enable the new shipped default.
+        internal static bool PillarDistanceLodEnabled;
+        internal static bool FigureDistanceLodEnabled = true;
     }
     internal static class VRLog
     {

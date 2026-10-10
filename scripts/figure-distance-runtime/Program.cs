@@ -37,6 +37,49 @@ public static class InteractionProgram
         Check(policy.Select(100,bounds,Vector3.forward*radius*300,false)==100,"off restores original quality");
         PerfConfig.FigureDistanceLodEnabled=true;
     }
+    private static void PillarPolicyProof()
+    {
+        var bounds=new Bounds(Vector3.zero,Vector3.one*10);
+        foreach(int cap in new[] {0,45,46,66,67,100})
+        {
+            var exact=new FigureDistanceLodPolicy();
+            int band=0;
+            foreach(float ratio in new[]{3f,8f,8.01f,7.5f,7f,6.9f,20f,20.01f,19f,18f,17.99f,6.9f})
+            {
+                Vector3 eye=Vector3.forward*bounds.extents.magnitude*ratio;
+                float actualRatio=Vector3.Distance(bounds.center,eye)/Mathf.Max(bounds.extents.magnitude,.001f);
+                band=band==0 ? actualRatio>20?2:actualRatio>8?1:0
+                    : band==1 ? actualRatio>20?2:actualRatio<7?0:1
+                    : actualRatio<7?0:actualRatio<18?1:2;
+                int expected=band==2?-1:band==1?Mathf.Min(cap,45):cap;
+                Check(exact.Select(cap,bounds,eye,false)==expected,
+                    "shared reference constants preserve the original figure state-machine output");
+            }
+        }
+        foreach(int cap in new[] {0,45,46,66,67,100})
+        {
+            var first = FigureDistanceLodPolicy.FirstReductionDistances(cap,bounds.extents.magnitude);
+            float actualRadius=bounds.extents.magnitude;
+            float entry=cap>=67?8:20, exit=cap>=67?7:18;
+            Check(Mathf.Approximately(first.x,actualRadius*entry)&&Mathf.Approximately(first.y,actualRadius*exit),
+                "first visible reduction matches prepared mesh tier boundaries for cap "+cap);
+            var tier=typeof(ScenarioFigureMeshBank).GetMethod("Tier",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!;
+            int TierOf(int detail)=>(int)tier.Invoke(null,new object[]{detail})!;
+            var fresh=new FigureDistanceLodPolicy();
+            Check(TierOf(fresh.Select(cap,bounds,Vector3.forward*actualRadius*(entry-.01f),false))==TierOf(cap),
+                "figure stays at selected cap until first visible entry");
+            Check(TierOf(fresh.Select(cap,bounds,Vector3.forward*actualRadius*(entry+.01f),false))<TierOf(cap),
+                "figure becomes visibly cheaper at published entry");
+            Check(TierOf(fresh.Select(cap,bounds,Vector3.forward*actualRadius*(exit+.01f),false))<TierOf(cap),
+                "figure retains cheaper band until published exit");
+            Check(TierOf(fresh.Select(cap,bounds,Vector3.forward*actualRadius*(exit-.01f),false))==TierOf(cap),
+                "figure restores selected cap at published exit");
+            int selectedTier=(int)tier.Invoke(null,new object[]{cap})!;
+            int middleTier=(int)tier.Invoke(null,new object[]{Mathf.Min(cap,45)})!;
+            Check((selectedTier!=middleTier)==(cap>=67),
+                "first visible band matches actual production mesh bank tier mapping");
+        }
+    }
     private static void Skinning(SkinnedMeshRenderer skin)
     {
         SkinQuality original = skin.quality; SkinWeights native = QualitySettings.skinWeights;
@@ -250,6 +293,6 @@ public static class InteractionProgram
             var actor=new GameObject("Native Unity renderer skinning proof").AddComponent<SkinnedMeshRenderer>();
             Skinning(actor);UnityEngine.Object.DestroyImmediate(actor.gameObject);return _checks;
         }
-        _output=Arg("-figureRenders");Directory.CreateDirectory(_output);Policy();NativeBodies();Npcs();_preview=Preview();return _checks;
+        _output=Arg("-figureRenders");Directory.CreateDirectory(_output);Policy();NativeBodies();Npcs();PillarPolicyProof();_preview=Preview();return _checks;
     }
 }

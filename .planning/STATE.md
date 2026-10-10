@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Quest finite Unity progress and Windows loading transport, 2026-10-10 (Runtime661).**
+**Quest finite Unity progress and Windows loading transport, 2026-10-10 (Builder; Runtime663).**
 
 Capture065547 confirms the previous13 LightingData repairs and SDK/API work pass,
 then fails Campaign sprite validation on LoadingBase_0. The older Windows loading
@@ -69,6 +69,45 @@ their retained owners, without repeating conversions or invalidating Library.
 Script evidence survives repeat/cut writers; accepted stamps precede journal
 publication. Unknown edits remain errors. Focused proof and Windows limitations:
 [QUEST-RETAINED-UNITY-MUTATIONS-205914-20261009.md](QUEST-RETAINED-UNITY-MUTATIONS-205914-20261009.md).
+**Build663 independent pillar distance LOD, 2026-10-10: 1.1.0 development candidate.**
+
+The supplied Frame661 run still has overly coarse nearby pillars at saved0/0
+terrain caps and75cm distance. Each admitted pillar now uses its own original
+full radius and radial VR-camera distance with the figures' effective8/7 or20/18
+size bands. No active figure or figure setting controls it; figure selection,
+ActorBudget and Core wiring remain unchanged. The live EN/DE Graphics choice is
+default-on everywhere; Off retains the saved manual radius. This restores quality
+and can retain more triangles; no new headset FPS gain is claimed.
+
+Final native terrain proof passes7,021 assertions and three affected controls;
+composed106 control coverage honestly reuses103 unchanged passes. The initial
+full106-variant attempt with one escaped new fixture control is retained. Final
+figure proof passes2,719 assertions/five controls, settings help2,305, source16,
+strict Debug/Release0 warnings/errors and300419 direct wire goldens. This is
+focused integration with unchanged661 evidence, not a fresh206-suite full gate.
+The parallel wrist662 changes are preserved; their merged native menu proof
+freshly passes324 assertions/three controls. Source16, strict builds and wire
+goldens pass again on that tree before663 delivery.
+The private662→6631252-type comparison explains eight behavior units, eight build-only
+consumers and one branch stamp, with no removals/unexplained changes.666 config
+keys add one quality choice;235 patches and4795 log tokens remain. Read
+[FRAME-PILLAR-FIGURE-LOD-REVIEW.md](FRAME-PILLAR-FIGURE-LOD-REVIEW.md) for exact
+input hashes, rejected unshipped design, composed proof and hardware limits.
+
+**Build662 ordinary wrist-board rotation controls, 2026-10-10: 1.1.0 development candidate.**
+
+The normal board category now shows three wrist-local rotation sliders directly
+under the position sliders while wrist attachment is enabled. Existing degree
+steps, saved calibration, Advanced access and owner-authored remote board pose
+remain authoritative; no keys, defaults or wire layout change.
+
+Focused actual Unity wrist/menu validation passes324 assertions/three existing
+causal controls, including the real sliders/arrows, retained/out-of-range values,
+LateUpdate placement and original serializer/remote pose state. Options coverage
+passes90 matching captions; strict Debug/Release has0 warnings/errors. This is a
+focused pass, not a new complete gate; unaffected areas inherit661 evidence.
+See [WRIST-ROTATION-REVIEW.md](WRIST-ROTATION-REVIEW.md). Headset appearance and
+comfort remain for the maintainer's test.
 
 **Build661 paired660 NPC follow-up, 2026-10-10: 1.1.0 development candidate.**
 

@@ -105,7 +105,11 @@ public static partial class TerrainProgram
             renderer.enabled = false; PerfConfig.CheapWallShadingOn = false; Morph(host);
             Check(SameCoverage(nativePixels, Pixels(camera)), "source-bound cloned native structural original retains original camera silhouette pixels");
             Object.DestroyImmediate(clone); renderer.enabled = true;
-            if (data.Name.Contains("Pillar")) NativePillarRadius(host, renderer, camera);
+            if (data.Name.Contains("Pillar"))
+            {
+                NativePillarRadius(host, renderer, camera);
+                NativeIndependentPillarRadius(host, renderer, camera);
+            }
             ScenarioTerrainBudget.Shutdown(); Object.DestroyImmediate(host); Object.DestroyImmediate(scenario);
             ProceduralWall.m_WallCache.Clear(); Bank.Remove(original);
             Object.DestroyImmediate(original); Object.DestroyImmediate(exact); Object.DestroyImmediate(coarse); Object.DestroyImmediate(material);

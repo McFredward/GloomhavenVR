@@ -2,8 +2,8 @@
 
 The 2026-10-10 request combines measurable progress for every Unity invocation
 with targeted continuation of `quest-build-support-20261010T065547Z-dfd7cb54.zip`.
-Quest remains on the explicitly retained feature branch. The published dev661
-runtime and current Steam Frame documentation are integrated; these repairs do
+Quest remains on the explicitly retained feature branch. The published dev663
+runtime, wrist controls and independent pillar LOD are integrated; these repairs do
 not change ordinary PC/Steam Frame behavior.
 
 ## Actual failure and repair
@@ -87,8 +87,9 @@ production loading transport positive/negative controls, unique/stale import
 observations, retained source selection and UI hierarchy/browser behavior. A tiny
 real pinned Gradle6.1.1/OpenJDK build proves three actual tasks, cached/skipped
 reuse and failure at1/2; it does not build an APK. The release validation sidecar
-records exact final case counts and source identities. Earlier Runtime661
-Release/AOT/weave evidence is inherited for unchanged mod behavior. No new full
+records exact final case counts and source identities. Published Runtime663 focused runtime evidence and earlier Runtime661
+AOT/weave evidence are inherited for unchanged areas; the final release
+validation records current-mod compilation and Quest-specific integration. No new full
 NPC gate, full Unity import, exhaustive shader sweep or local APK is claimed.
 Completion of the Windows build and headset picture remain acceptance checks.
 

@@ -444,6 +444,7 @@ internal static partial class ScenarioTerrainBudget
         {
             internal readonly Vector3 Position;
             internal readonly float Scale, Distance;
+            internal readonly bool PillarDistanceLod;
             internal readonly int Near, Distant;
             internal readonly HandProximity Left, Right;
             internal DetailState(Camera camera)
@@ -454,6 +455,7 @@ internal static partial class ScenarioTerrainBudget
                 Left = new HandProximity(VRHands.Left); Right = new HandProximity(VRHands.Right);
                 Near = PerfConfig.TerrainDetailPercent; Distant = PerfConfig.DistantTerrainDetailPercent;
                 Distance = PerfConfig.TerrainDistanceMeters;
+                PillarDistanceLod = PerfConfig.PillarDistanceLodEnabled;
             }
         }
         private static int DetailFor(Surface surface, DetailState detail)
@@ -464,19 +466,29 @@ internal static partial class ScenarioTerrainBudget
             // or a tracked hand's exact, unchanged closest-bounds touch guard.
             Bounds bounds = !surface.Pillar || detail.Left.Tracked || detail.Right.Tracked
                 ? surface.Renderer.bounds : default;
-            float metres = surface.HeadDistance(detail.Position, bounds) / detail.Scale;
+            float metres = surface.HeadDistanceAndRadius(detail.Position, bounds, detail.PillarDistanceLod,
+                out float radius) / detail.Scale;
             // Small hysteresis keeps a parked threshold from repeatedly morphing the same mesh.
             float edge = detail.Distance + (surface.Distant ? -.04f : .04f);
             bool protectedNear = metres < .18f || NearHand(detail.Left, bounds) || NearHand(detail.Right, bounds);
             if (surface.Pillar)
             {
-                // The maintainer's radial follow-up (2026-10-09): the old 18cm touch
-                // guard still left visibly coarse pillars throughout normal close viewing.
-                // Frame's saved near/far0% made the configured distance inert (0 -> 0).
-                // Protect original pillar geometry throughout that adjustable VR radius,
-                // including with both caps at0. Figures retain their size-based policy;
-                // this radius does not depend on head yaw or a pillar's full height.
-                surface.Distant = metres > edge;
+                // The 2026-10-10 report rejects the fixed .75m viewing radius: use
+                // figure-comparable size bands, independently for each pillar. The
+                // original full radius includes its height; horizontal thickness alone
+                // would reduce thin columns much earlier than figures. The same source
+                // matrix supplies both radius and radial camera distance during Update.
+                // No current figure, actor cap, party size or figure LOD toggle is read.
+                if (detail.PillarDistanceLod)
+                {
+                    if (!(radius > 0f) || float.IsInfinity(radius))
+                    { surface.Distant = false; return 100; }
+                    Vector2 distances = FigureDistanceLodPolicy.FirstReductionDistances(detail.Near, radius / detail.Scale);
+                    // Match the pure figure boundaries, including equality and hysteresis.
+                    if (surface.Distant) { if (metres < distances.y) surface.Distant = false; }
+                    else if (metres > distances.x) surface.Distant = true;
+                }
+                else surface.Distant = metres > edge;
                 return protectedNear || !surface.Distant ? 100 : Mathf.Min(detail.Near, detail.Distant);
             }
             // Other scenery keeps its existing leaning/touch guard and near/far caps.

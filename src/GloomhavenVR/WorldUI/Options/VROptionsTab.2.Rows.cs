@@ -1323,6 +1323,13 @@ internal static partial class VROptionsTab
             && BuildBarAndArrowsRow(parent, item, caption, hintKey, component, -.5f, .5f))
             return;
 
+        // Offer a complete turn on every wrist-local axis next to the position
+        // controls. As with position, the bar range does not rewrite saved
+        // components when rows are built; the ordinary arrows retain fine steps.
+        if (item.Section == "Cards" && item.Key == "WristBoardAnglesDegrees"
+            && BuildBarAndArrowsRow(parent, item, caption, hintKey, component, -180f, 180f))
+            return;
+
         // A bar needs a scalar with both ends known; a vector component or an open-ended number has
         // no bar to sit on and gets the arrows alone. …and two bounded scalars ASK for the arrows
         // alone anyway (PrefersStepper, VROptionsTab.4.Curated.cs): a bar is a gesture, a stepper is

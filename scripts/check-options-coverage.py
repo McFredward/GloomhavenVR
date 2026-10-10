@@ -948,8 +948,8 @@ def main():
             f"member names, but it now has a localizing row (or is no longer offered). Delete the "
             f"line — the list may only shrink, and a stale entry hides the next real one.")
 
-    # The 2026-10-09 request also exposes position sliders directly below the
-    # ordinary wrist switch. Advanced retains every axis plus hand/angle/size tuning.
+    # The 2026-10-09/10 requests expose position and rotation sliders directly
+    # below the ordinary wrist switch. Advanced retains hand/offset/angle/size tuning.
     # This finite exception is separate from the frozen unreviewed orphan backlog:
     # require each real Advanced BoardRef and keep the ordinary toggle in its topic.
     wrist_advanced = {("Cards", key) for key in (
@@ -959,6 +959,10 @@ def main():
     for section, key in wrist_advanced:
         if f'new BoardRef("{section}", "{key}", perBoard: false)' not in advanced_board:
             failures.append(f"Requested Advanced wrist-board tuning is not reachable: [{section}] {key}")
+    ordinary_wrist = {(s, k) for _c, _ck, _s2, _sk, s, k, _cap in curated}
+    for key in ("WristBoardEnabled", "WristBoardOffsetMeters", "WristBoardAnglesDegrees"):
+        if ("Cards", key) not in ordinary_wrist:
+            failures.append(f"Requested ordinary wrist-board tuning is not reachable: [Cards] {key}")
 
     # ---- 4. a split family -------------------------------------------------------------------
     curated_pairs = {(s, k) for _c, _ck, _s2, _sk, s, k, _cap in curated}

@@ -607,7 +607,39 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 661;
+    public const ushort ModBuild = 663;
+
+    // ModBuild663 — independent pillar LOD uses the figure distance rules.
+    // Both supplied Frame sinks identify661, terrain0/0 and the saved .75m radius;
+    // the maintainer still must approach columns too closely for original detail.
+    // The earlier fixed-radius repair used the wrong figure band: below the actual
+    // bank67% tier boundary,8/7 makes no visible mesh reduction;20/18 is effective.
+    // Each pillar now compares its own radial VR-camera distance against those
+    // shared size-relative entry/exit rules using its own original full bounds.
+    // Its existing Update matrix supplies both distance and radius; yaw cannot
+    // change the metric. No current figure, figure setting, actor scan or per-eye
+    // figure/reference pass controls a pillar. Figure selection stays unchanged.
+    // New default-on Optimize/ScenarioTerrainPillarDistanceLod is a live EN/DE
+    // Graphics choice; Off restores the saved manual radius. Tracked-hand guards,
+    // ordinary walls, native visibility, continuous morphs and gameplay remain.
+    // More near original geometry is a quality correction, not a new FPS claim.
+    // The superseded active-party reference was never shipped. Focused native
+    // evidence and headset limits: .planning/FRAME-PILLAR-FIGURE-LOD-REVIEW.md.
+    // Version3 and all multiplayer TLVs remain unchanged.
+
+    // ModBuild662 — ordinary wrist-board rotation controls (2026-10-10).
+    // The board category exposed position but kept the existing three wrist-local
+    // angles in Advanced. Show all three angle sliders immediately below position,
+    // using the same hybrid bar/arrow kit with a full +/-180 degree gesture and
+    // existing one-degree fine steps. Existing wrist-mode dependencies hide them
+    // when off; rebuilding preserves all saved components and equivalent turns.
+    // No key, default, placement path or wire layout changes: the original tracked
+    // board root already composes these angles, and record70 carries the resulting
+    // owner orientation unchanged to peers (rather than their own calibration).
+    // Focused actual Unity wrist/menu proof:324 assertions/three existing controls;
+    // options coverage90 matching captions; strict Debug/Release0 warnings/errors.
+    // No complete gate rerun or headset comfort/appearance claim. See the focused
+    // .planning/WRIST-ROTATION-REVIEW.md and retained original-source receipts.
 
     // ModBuild661 — remaining paired660 NPC presentation defects.
     // The actual enchantress backing/front pair shares the rendered print frame
