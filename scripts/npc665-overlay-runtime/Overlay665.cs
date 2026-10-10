@@ -103,9 +103,23 @@ public static partial class MirrorProgram
         return ink;
     }
     private static bool Draws665(Graphic g) => g.enabled&&g.gameObject.activeInHierarchy&&!g.canvasRenderer.cull&&g.color.a*g.canvasRenderer.GetColor().a>0;
+    private static void AdmissionReceipt665(List<string> receipt,float scale,int state,string phase,int ticks,ushort holder)
+    {
+        // Inspect the lease without calling InteractionOwner: that query advances
+        // the real election and must not let diagnostics change admission.
+        var leases=(Array)typeof(TownServiceMirror).GetField("InteractionLeases",PrivateStatic)!.GetValue(null)!;
+        object lease=leases.GetValue(3)!;
+        var fields=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
+        string census="none";
+        if(TownServiceMirror.RemoteSessions.TryGetValue(1,out TownServiceSessionInfo? session))
+            census=$"active={session.Active}; service={session.Service}; session={session.Session}; sequence={session.Sequence}; modules={string.Join("/",session.Modules)}; required={string.Join("/",session.RequiredVisibleModules??Array.Empty<ushort>())}";
+        receipt.Add($"scale={scale:R}; state={state}; phase={phase}; frame={Time.frameCount}; clock={Time.unscaledTime:R}; realtime={Time.realtimeSinceStartup:R}; ticks={ticks}; holder={holder}; admitted={Remote(1,holder)!=null}; lease={lease.GetType().GetField("Player",fields)!.GetValue(lease)}; pendingSince={lease.GetType().GetField("PendingSince",fields)!.GetValue(lease)}; {census}");
+        File.WriteAllLines(Path.Combine(_output,"admission665.txt"),receipt);
+    }
     private static IEnumerator Overlay665()
     {
         var ledger=new List<string>{"scale,phase,target,expectedY,actualY,labelEnabled,labelRendererAlpha"};
+        var admission=new List<string>();
         foreach(float scale in new[]{.6f,1.7f})
         foreach(int initialState in new[]{0,1,2})
         {
@@ -177,8 +191,27 @@ public static partial class MirrorProgram
             TownServiceSync.Tick(owner,owner);
             Check(TownServiceSync.HasPublishedSource(holder)&&TownServiceSync.HasPublishedSource(physical),"actual Sync routes native holder and exact offered original through production Publish registration");
             ushort holderId=TownServiceSync.ModuleId(holder);
-            var packets=Capture();Receive(1,packets);
-            for(float until=Time.unscaledTime+.4f;Time.unscaledTime<until;){TownServiceMirror.TickRemote(_=>observer);yield return null;}
+            var packets=Capture();
+            foreach(byte[] packet in packets)
+            {
+                TownServiceCodec.TryRead(packet,packet.Length,out TownServiceFrame? frame);
+                admission.Add($"scale={scale:R}; state={initialState}; packet={packet.Length}; module={frame!.Module}; address={frame.TemplateAddress}; session={frame.Session}; sequence={frame.Sequence}; base={frame.BaseSequence}; visible={frame.Visible}; structure={frame.Structure}");
+            }
+            Receive(1,packets);
+            int ticks=0;
+            AdmissionReceipt665(admission,scale,initialState,"received",ticks,holderId);
+            for(float until=Time.unscaledTime+.4f;Time.unscaledTime<until;)
+            {
+                TownServiceMirror.TickRemote(_=>observer);ticks++;
+                if(ticks==1)AdmissionReceipt665(admission,scale,initialState,"first-tick",ticks,holderId);
+                yield return null;
+            }
+            AdmissionReceipt665(admission,scale,initialState,"wait-ended",ticks,holderId);
+            // A headless editor update can cross the unchanged wait deadline
+            // during yield. Apply its actual post-settle presentation tick, as
+            // the game and the shared mirror fixture do, before comparing it.
+            TownServiceMirror.TickRemote(_=>observer);ticks++;
+            AdmissionReceipt665(admission,scale,initialState,"post-wait-tick",ticks,holderId);
             var copy=Remote(1,holderId);Check(copy!=null,"remote native summon original admitted through real capture and codec");
             string prefix="Native pooled card/FullAbilityCard/";
             var copiedName=copy!.Root.Find(prefix+"SummonContainer/SummonName").GetComponent<TMP_Text>();
