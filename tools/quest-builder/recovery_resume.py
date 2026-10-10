@@ -267,6 +267,17 @@ OBSERVATION_EDITOR_OVERLAY = {
         "sha256": "fa99eaebfd6923e0b7710649188908a4b5efb7065285928cfa629827da63091c"},
 }
 
+
+# Delivered dcfaa/664 already qualifies original loading Sprite transport. This
+# next exact observer advances only the two native validation consumers; their
+# underlying original producers and retained preparation outputs are unchanged.
+OBSERVATION_SPRITE_IMPORT_PREVIOUS = OBSERVATION_EDITOR_OVERLAY
+OBSERVATION_EDITOR_OVERLAY = {
+    **OBSERVATION_SPRITE_IMPORT_PREVIOUS,
+    "tools/quest-builder/editor_overlay.py": {"path": "tools/quest-builder/editor_overlay.py", "size": 19831,
+        "sha256": "f6e1fc681886b36063fb7487428274588ccba7099e9dfd757da3b41b4eff78c1"},
+}
+
 OBSERVATION_PROFILES = (OBSERVATION_BYTE_WITNESSES, OBSERVATION_FIXED,
                         OBSERVATION_INPUT_INDEX, OBSERVATION_INPUT_ORDER, OBSERVATION_DIRECTORY_BATCH, OBSERVATION_GRAPHICS_CONTRACT, OBSERVATION_COMPLETED_METADATA)
 # Shipped d4cc44eeb adds an exporter-log observer and invocation-local proof
@@ -321,6 +332,7 @@ def preparation_source_rows(rows):
                                            OBSERVATION_EDITOR_OWNERS_PREVIOUS,
                                            OBSERVATION_TARGETED_REPAIR_PREVIOUS,
                                            OBSERVATION_COUNTED_UNITY_PREVIOUS,
+                                           OBSERVATION_SPRITE_IMPORT_PREVIOUS,
                                            OBSERVATION_EDITOR_OVERLAY)
                     if all(current.get(name) == [fixed] for name, fixed in profile.items())), None)
     if profile is not None:

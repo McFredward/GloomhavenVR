@@ -82,14 +82,14 @@ REVIEWED = {'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestBuild.cs': ({'pat
                                                                                      'sha256': '16ffa7cccca43d31f4764b87c84bf5f4fb6dc5b4a9e5d8b82b52e333019a3026',
                                                                                      'size': 12761},
                                                                                     {'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCampaignComputeValidation.cs',
-                                                                                     'size': 13695,
-                                                                                     'sha256': '5a981cce6da6c91da08bd51c49b602bb0e720864e818a010ff0839eae559ed8d'}),
+                                                                                     'size': 20276,
+                                                                                     'sha256': '581cb344d6a1561f5ca175c0e2d243c866e9d9e1da19b0dd7fb5341a0e585af5'}),
  'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCampaignShaderValidation.cs': ({'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCampaignShaderValidation.cs',
                                                                                     'sha256': 'c43e6ee16a80512f1411a8e91bd0a0e6d72fcb25205e65a8fda956bbf8ecfc95',
                                                                                     'size': 45590},
                                                                                    {'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCampaignShaderValidation.cs',
-                                                                                    'size': 47297,
-                                                                                    'sha256': '3af8a75b0d67b7875597e790b7a412109224514e68930615f38c77193304c865'})}
+                                                                                    'size': 47618,
+                                                                                    'sha256': '066fbc97a7f18afa672075a357ffbbfd0d103c3de282e278d722c5858d879411'})}
 
 
 def _record(relative, raw):
@@ -131,14 +131,22 @@ PREVIOUS_COUNTED_LOADING_SCRIPT = {
 }
 
 
+# Capture090432 from delivered dcfaa/664 passes loading Sprites, then exposes
+# platform newline handling in the native compute/material validators. These
+# exact old consumers belong to one complete preceding source profile; their
+# repair changes no asset producer, metadata identity or completed owner.
+PREVIOUS_NATIVE_VALIDATION_SCRIPTS = {'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCampaignComputeValidation.cs': {'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCampaignComputeValidation.cs', 'size': 13695, 'sha256': '5a981cce6da6c91da08bd51c49b602bb0e720864e818a010ff0839eae559ed8d'}, 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCampaignShaderValidation.cs': {'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCampaignShaderValidation.cs', 'size': 47297, 'sha256': '3af8a75b0d67b7875597e790b7a412109224514e68930615f38c77193304c865'}}
+
+
 def source_profiles():
     """Whole reviewed source profiles, never independently mixed script rows."""
     current = {name: pair[1] for name, pair in REVIEWED.items()}
     counted = {**current, PREVIOUS_COUNTED_LOADING_SCRIPT["path"]: PREVIOUS_COUNTED_LOADING_SCRIPT}
     preceding = {**current, **PREVIOUS_TASK_SCRIPTS}
-    return (current, {**current, PREVIOUS_BINDINGS["path"]: PREVIOUS_BINDINGS},
+    profiles = (current, {**current, PREVIOUS_BINDINGS["path"]: PREVIOUS_BINDINGS},
             preceding, {**preceding, PREVIOUS_BINDINGS["path"]: PREVIOUS_BINDINGS},
             counted, {**counted, PREVIOUS_BINDINGS["path"]: PREVIOUS_BINDINGS})
+    return profiles + tuple({**profile, **PREVIOUS_NATIVE_VALIDATION_SCRIPTS} for profile in profiles)
 
 
 def _read(path):
@@ -164,6 +172,7 @@ def changes(previous, inputs):
                 or right != profile[1] or left not in (
                     profile[0], PREVIOUS_BINDINGS if name == PREVIOUS_BINDINGS["path"] else profile[0],
                     PREVIOUS_COUNTED_LOADING_SCRIPT if name == PREVIOUS_COUNTED_LOADING_SCRIPT["path"] else profile[0],
+                    PREVIOUS_NATIVE_VALIDATION_SCRIPTS.get(name, profile[0]),
                     PREVIOUS_TASK_SCRIPTS.get(name, profile[0]))
                 or left is None or right is None
                 or set(left) != {"path", "size", "sha256"}

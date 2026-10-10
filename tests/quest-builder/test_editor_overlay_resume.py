@@ -98,6 +98,33 @@ class EditorOverlayTests(unittest.TestCase):
             self.assert_retained()
             self.assertEqual(len(published), 1)
 
+    def test_native_validation_repair_advances_only_two_consumers_and_retains_completed_assets(self):
+        targets = set(overlay.PREVIOUS_NATIVE_VALIDATION_SCRIPTS)
+        self.assertEqual(len(targets), 2)
+        for name in overlay.TARGETS:
+            if name not in targets:
+                before = self.original[name]
+                self.f.write(self.f.source, name, before)
+                self.pairs[name] = (record(name, before), record(name, before))
+        previous = {name: record(name, self.original[name]) for name in targets}
+        with patch.object(overlay, "PREVIOUS_NATIVE_VALIDATION_SCRIPTS", previous):
+            self.current = self.fixture.updated()
+            self.assertEqual({row[0] for row in overlay.changes(self.fixture.before, self.current)}, targets)
+            actual = overlay.publish
+            published = []
+            def publish(path, raw):
+                published.append(Path(path))
+                actual(path, raw)
+            with patch.object(overlay, "publish", publish), patch.object(
+                    builder.prepare_resume, "copy_changed", side_effect=AssertionError("No completed asset conversion repeat")):
+                self.f.run_prepare()
+            self.assert_retained()
+            self.assertEqual(set(published), {self.project / name[len(overlay.PREFIX):] for name in targets})
+            self.assertEqual(len(published), 2)
+            self.f.run_prepare()
+            self.assert_retained()
+            self.assertEqual(len(published), 2)
+
     def test_every_script_publication_cut_replays_without_repeated_asset_work(self):
         actual = overlay.publish
         for cut in range(len(overlay.TARGETS)):

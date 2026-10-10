@@ -1,5 +1,20 @@
 # State — where the project stands
 
+**Quest native compute source/import recovery, 2026-10-10 (Builder; Runtime664).**
+
+Capture090432 confirms dcfaa/664 retains all27 preparation owners and passes both
+previously refused loading Sprites. Compute source validation then misreads native
+Windows CRLF pragma lines as changed kernel order. The downstream original-null
+material Shader pointer parser has the same newline defect. Both late consumers
+are repaired without changing generated source bytes or original producers;
+source-qualified stale ComputeShader imports receive a single-path retry.
+Exact completed source aliases preserve existing preparation and Library. The
+integrated focused Builder147/Wizard19 cases pass; independent pinned Unity
+compute195/material220 inspections pass on the exact final consumers. Shared
+Runtime664 evidence is inherited unchanged. Verification scope and unresolved
+Windows APK acceptance are recorded in
+[QUEST-COMPUTE-SELF-REPAIR-090432-20261010.md](QUEST-COMPUTE-SELF-REPAIR-090432-20261010.md).
+
 **Quest loading proof and targeted import repair, 2026-10-10 (Builder; Runtime664).**
 
 Capture075120 proves eed3/663 still refuses LoadingBase_0 after successful startup

@@ -184,3 +184,12 @@ loader alongside IL2CPP and Unity. Every packaged native library must have an
 ELF64 little-endian AArch64 shared-object header, even if its directory claims
 ARM64. A mandatory Oculus eye-tracking feature or unused eye-tracking permission
 blocks the Quest 3 build; an explicitly optional feature does not.
+
+Native compute and original-null material source validation accepts each platform's
+native line endings while retaining complete witnessed source/metadata hashes.
+A stale imported compute object is reimported once at its exact path after source
+proof, then its original identity and required Android kernel bank are checked
+again. This late repair preserves completed preparation, existing GUID companions
+and the remaining Unity Library; it does not repeat original conversion or run a
+blanket shader sweep. Failed repairs report the asset and exact condition and
+never silently reset a completed owner or loop indefinitely.

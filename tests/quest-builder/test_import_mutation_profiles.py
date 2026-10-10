@@ -26,7 +26,8 @@ class ImportMutationProfileTests(unittest.TestCase):
         canonical = recovery_resume.preparation_source_rows(list(previous.values()))
         for profile in (recovery_resume.OBSERVATION_EDITOR_IMPORT_PREVIOUS,
                         recovery_resume.OBSERVATION_EDITOR_OWNERS_PREVIOUS,
-                        recovery_resume.OBSERVATION_TARGETED_REPAIR_PREVIOUS, current):
+                        recovery_resume.OBSERVATION_TARGETED_REPAIR_PREVIOUS,
+                        recovery_resume.OBSERVATION_SPRITE_IMPORT_PREVIOUS, current):
             self.assertEqual(canonical, recovery_resume.preparation_source_rows(list(profile.values())))
         for name in current:
             with self.subTest(changed=name):
@@ -115,6 +116,12 @@ class ImportMutationProfileTests(unittest.TestCase):
         result = editor_overlay.changes({"mod": {"files": list(previous.values())}},
                                        {"mod": {"files": list(current.values())}})
         self.assertEqual({row[0] for row in result}, set(editor_overlay.PREVIOUS_TASK_SCRIPTS))
+
+    def test_preceding_complete_native_validation_profile_updates_only_two_consumers(self):
+        current, previous = editor_overlay.source_profiles()[0], editor_overlay.source_profiles()[6]
+        result = editor_overlay.changes({"mod": {"files": list(previous.values())}},
+                                       {"mod": {"files": list(current.values())}})
+        self.assertEqual({row[0] for row in result}, set(editor_overlay.PREVIOUS_NATIVE_VALIDATION_SCRIPTS))
 
     def test_completed_loading_producer_alias_requires_exact_bytes_and_whole_editor_profile(self):
         actual = ROOT / preparation_identity.LOADING_DRAWING_FIXED["path"]

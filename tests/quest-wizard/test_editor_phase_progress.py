@@ -137,9 +137,12 @@ class EditorPhaseProgressTests(unittest.TestCase):
             self.assertIn("PASS production Editor task and byte counters: 17 checks", result.stdout)
 
     def test_counter_annotations_preserve_native_validation_and_pointer_writes(self):
-        # Strip only this change's observer statements, then compare complete
-        # source tokens with the shipped checkpoint. This catches accidental
-        # native validation/load/write changes, not just matching call names.
+        # Strip observer statements, then compare complete source tokens with
+        # the reviewed native implementation checkpoint. Compute/material source
+        # recovery intentionally advances its approved baseline after the public
+        # production positive/negative and independent pinned Unity proofs. Other
+        # pointer/asset consumers retain their preceding checkpoints. This catches
+        # accidental extra native changes, not just matching callback names.
         def native_tokens(source):
             source = re.sub(r"^\s*var \w+ = new QuestWizardProgress\.Counter\([^\n]+\);\n", "", source, flags=re.M)
             source = re.sub(r"\b\w+\.(?:Report|Complete)\([^;\n]*\);", "", source)
@@ -152,7 +155,11 @@ class EditorPhaseProgressTests(unittest.TestCase):
             "QuestCampaignComputeValidation.cs", "QuestCampaignShaderValidation.cs"):
             with self.subTest(source=name):
                 relative = str((EDITOR / name).relative_to(ROOT))
-                baseline = "cb6f84fb" if name == "QuestOriginalScriptBindings.cs" else "2c28ce989"
+                baseline = {
+                    "QuestOriginalScriptBindings.cs": "cb6f84fb",
+                    "QuestCampaignComputeValidation.cs": "3ecd24127",
+                    "QuestCampaignShaderValidation.cs": "c57863d990c423b5e3ededc34d2bddfba0258470",
+                }.get(name, "2c28ce989")
                 old = subprocess.run(["git", "show", baseline + ":" + relative], cwd=ROOT, text=True, capture_output=True, check=True).stdout
                 current = (EDITOR / name).read_text()
                 self.assertEqual(native_tokens(current), native_tokens(old))

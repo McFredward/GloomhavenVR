@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-10 for targeted imported Sprite repair, finite Unity progress and approved Runtime664 PC/Standalone defaults.
+Updated 2026-10-10 for Windows native compute/material source parsing, targeted import repair and Runtime664 integration.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
@@ -14,6 +14,7 @@ status; it is not the player manual.
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [QUEST-COMPUTE-SELF-REPAIR-090432-20261010.md](QUEST-COMPUTE-SELF-REPAIR-090432-20261010.md) | Original Windows shader source parsing, bounded single-asset compute import repair and complete retained preparation |
 | [QUEST-SPRITE-SELF-REPAIR-075120-20261010.md](QUEST-SPRITE-SELF-REPAIR-075120-20261010.md) | Exact retained case-path manifest chain and bounded imported Sprite repair; corrects the preceding composition blind spot |
 | [QUEST-UNITY-TOTALS-065547-20261010.md](QUEST-UNITY-TOTALS-065547-20261010.md) | Finite Unity work plans, real Gradle totals and targeted retained Windows loading-Sprite repair |
 | [QUEST-EDITOR-CONTRACTS-232406-20261010.md](QUEST-EDITOR-CONTRACTS-232406-20261010.md) | Real Shader/meta/script-order owners, explicit PlayerSettings handoff and corrected continuation proof |
