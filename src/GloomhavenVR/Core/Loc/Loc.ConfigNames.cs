@@ -735,6 +735,7 @@ internal static partial class Loc
             ["Optimize/ScenarioTerrainDetailPercent"] = Pair("3D wall and pillar detail (%)", "3D-Wand- und Säulendetails (%)"),
             ["Optimize/ScenarioDistantTerrainDetailPercent"] = Pair("Distant 3D wall detail (%)", "Entfernte 3D-Wanddetails (%)"),
             ["Optimize/ScenarioTerrainDistanceMeters"] = Pair("Distant wall detail threshold (m)", "Abstand für entfernte Wanddetails (m)"),
+            ["Optimize/ScenarioTerrainPillarDistanceLod"] = Pair("Figure-style distance LOD for pillars", "Säulen-Distanz-LOD wie bei Figuren"),
             ["Optimize/ScenarioTerrainCameraSourceLimitCount"] = Pair("3D wall substitutes per eye (0 = unlimited)", "3D-Wandersatzflächen pro Auge (0 = unbegrenzt)"),
             ["Optimize/ScenarioEnvironmentEffectsDensityPercent"] = Pair("Scenario ambient effects (%)", "Szenario-Umgebungseffekte (%)"),
             ["Optimize/ReduceScenarioGenerationDetail"] = Pair("Reduced scenario generation", "Sparsame Szenario-Erzeugung"),

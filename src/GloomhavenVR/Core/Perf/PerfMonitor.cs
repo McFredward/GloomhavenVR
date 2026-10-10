@@ -858,6 +858,7 @@ internal static partial class PerfMonitor
                 + $"panelInterval={PerfConfig.UiMaintenanceInterval:F3}s "
                 + $"terrainNear={PerfConfig.TerrainDetailPercent}% terrainFar={PerfConfig.DistantTerrainDetailPercent}% "
                 + $"terrainDistance={PerfConfig.TerrainDistanceMeters:F2}m cheapWalls={PerfConfig.CheapWallShadingOn} "
+                + $"pillarDistanceLOD={PerfConfig.PillarDistanceLodEnabled} "
                 + $"terrainSubstitution={PerfConfig.TerrainSubstitutionOn} "
                 + $"terrainCameraSourceLimit={PerfConfig.TerrainCameraSourceLimit} "
                 + $"worldMaterialMode={PerfConfig.WorldMaterialQualityMode} "

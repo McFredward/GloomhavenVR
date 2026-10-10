@@ -924,6 +924,7 @@ internal static class ConfigCatalog
                                      || key == "ScenarioTerrainDetailPercent"
                                      || key == "ScenarioDistantTerrainDetailPercent"
                                      || key == "ScenarioTerrainDistanceMeters"
+                                     || key == "ScenarioTerrainPillarDistanceLod"
                                      || key == "ScenarioTerrainCameraSourceLimitCount"
                                      || key == "WallVisibilityModeCount"
                                      || key == "WallAutoHideBelowFpsCount"
