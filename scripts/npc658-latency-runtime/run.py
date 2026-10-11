@@ -11,6 +11,32 @@ ROOT=Path(__file__).resolve().parents[2]
 def module(name,path):
  s=importlib.util.spec_from_file_location(name,path);m=importlib.util.module_from_spec(s);s.loader.exec_module(m);return m
 
+def bind_historical_mirror_api669(bound,run):
+ # Modern bank probes are compiled with this shared fixture but never run in
+ # the historical first-picture/census/paint entry points. Do not import their
+ # new lifecycle behavior into the exact historical capture/receive control.
+ historical=bound['TownServiceMirror.cs']
+ for anchor in ['internal static void Shutdown()', 'private sealed class LaneScope : IDisposable',
+                'private static LocalLane _local = PrivateLane;']:
+  if historical.count(anchor)!=1:raise RuntimeError('Historical mirror API boundary drift: '+anchor)
+ if 'UsePrivateLane()' in historical or 'Shutdown(bool' in historical:
+  raise RuntimeError('Historical mirror already contains the modern bank API')
+ adapter='''using System;
+namespace GloomhavenVR.Net.TownServices;
+internal static partial class TownServiceMirror
+{
+    internal static IDisposable UsePrivateLane() => throw new InvalidOperationException("Modern bank API must not run in the historical native-picture control.");
+    internal static void Shutdown(bool resetDiagnostics) => throw new InvalidOperationException("Modern bank API must not run in the historical native-picture control.");
+}
+'''
+ bound['HistoricalMirrorApi669.cs']=adapter
+ (run/'historical-api-boundary669.json').write_text(json.dumps({
+  'historical_mirror_sha256':hashlib.sha256(historical.encode()).hexdigest(),
+  'adapter_sha256':hashlib.sha256(adapter.encode()).hexdigest(),
+  'compile_only_signatures':['UsePrivateLane()', 'Shutdown(bool resetDiagnostics)'],
+  'runtime_contract':'Each adapter throws if executed. Historical controls must still reach their unchanged original assertion, so no modern bank lifecycle is substituted.',
+  'historical_source':'TownServiceMirror.cs is unchanged by this adapter; capture, receive, original methods, diagnostics and thresholds remain historical.'},indent=2)+'\n')
+
 def main():
  p=argparse.ArgumentParser(description=__doc__)
  p.add_argument('--source-root',type=Path,default=ROOT)
@@ -171,6 +197,8 @@ def main():
    'inert_dependency_fields':['LocalModule.ReturnOrigin','RemoteModule.ReturnOriginChangedAt'],
    'reason':'Record114/requested native original repair did not exist in this historical control; receipt lifecycle uses the same historical revision.',
    'assertions':'Native Late, full-card size and exact rendered owner/observer checks remain unchanged.'},indent=2)+'\n')
+ if args.old_census or args.old_hover_source or args.latency658_old:
+  bind_historical_mirror_api669(bound,run)
  if args.cold_observer:case_source=case_source.replace('private static readonly bool PrewarmObserver639 = true;', 'private static readonly bool PrewarmObserver639 = false;')
  if args.without_receipts:case_source=case_source.replace('private static readonly bool AcknowledgeObserver639 = true;', 'private static readonly bool AcknowledgeObserver639 = false;')
  if args.prior_inflight:case_source=case_source.replace('private static readonly bool PriorInFlight639 = false;', 'private static readonly bool PriorInFlight639 = true;')
