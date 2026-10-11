@@ -21,7 +21,7 @@ import stat
 import threading
 import time
 
-from state import WizardError, atomic_json, canonical, file_lock, ordinary, stage_progress, value_hash
+from state import Cancelled, WizardError, atomic_json, canonical, file_lock, ordinary, stage_progress, value_hash
 
 HEX = re.compile(r"[0-9a-f]{64}\Z")
 SESSION = re.compile(r"[0-9a-f]{32}\Z")
@@ -31,6 +31,97 @@ PREVIEW_SECONDS = 1800
 _plans = {}
 _plans_lock = threading.RLock()
 _storage = None
+INVENTORY_CATEGORIES = ("inputs", "converted-assets", "unity-projects", "unity-caches", "tools",
+                        "apk-content", "signing-backups", "logs-captures", "other")
+
+
+def _inventory_category(relative):
+    parts = relative.parts
+    if "signing-recovery" in parts: return "signing-backups"
+    if parts[:2] in (("build", "builds"), ("build", "updates")): return "apk-content"
+    if parts[:2] == ("build", "inputs"): return "inputs"
+    if parts[:2] == ("build", "projects"):
+        if len(parts) > 3 and parts[3] in ("Library", "Temp", "Obj", "obj", "bin"): return "unity-caches"
+        return "unity-projects"
+    if parts[:2] == ("build", "cache"): return "converted-assets"
+    if (parts[:2] == ("build", "tool-cache") or parts[:1] == ("tools",)
+            or parts[:2] == ("build", "signing")): return "tools"
+    if ("logs" in parts or "captures" in parts or relative.suffix.lower() in
+            (".log", ".dmp", ".dump", ".crash")): return "logs-captures"
+    return "other"
+
+
+def inventory(state_root, progress=None, cancel=None):
+    """Measure owned workspace files once, without hashes or following links.
+
+    This read-only snapshot does not authorize deletion. Cleanup still needs its
+    separate retained confirmation preview and producer receipts. Logical sizes
+    match file-manager folder sizes; the allocated count, where available, avoids
+    counting the same hard-linked inode twice. Builds may continue during a scan,
+    so disappearing/inaccessible files are reported rather than silently claimed.
+    The server caches this result and only refreshes it on explicit request.
+    """
+    proofs = {}; root, _ = _root(state_root, proofs)
+    rows = {name: {"id": name, "bytes": 0, "files": 0} for name in INVENTORY_CATEGORIES}
+    skipped_links = inaccessible = count = 0
+    signing = {"originalApkBytes": 0, "appDataBytes": 0, "otherBytes": 0}
+    allocated = 0; allocated_known = True; allocated_seen = set()
+    pending = [root]; last_report = 0.0
+    while pending:
+        if cancel is not None and cancel.is_set():
+            raise Cancelled()
+        folder = pending.pop()
+        try:
+            ordinary(folder)
+            with os.scandir(folder) as entries:
+                for entry in entries:
+                    if cancel is not None and cancel.is_set():
+                        raise Cancelled()
+                    try:
+                        info = entry.stat(follow_symlinks=False)
+                        if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
+                            skipped_links += 1; continue
+                        path = Path(entry.path)
+                        if stat.S_ISDIR(info.st_mode): pending.append(path); continue
+                        if not stat.S_ISREG(info.st_mode): skipped_links += 1; continue
+                        row = rows[_inventory_category(path.relative_to(root))]
+                        row["bytes"] += info.st_size; row["files"] += 1; count += 1
+                        if row["id"] == "signing-backups":
+                            kind = "originalApkBytes" if path.name == "original.apk" else (
+                                "appDataBytes" if path.suffix == ".tar" else "otherBytes")
+                            signing[kind] += info.st_size
+                        if hasattr(info, "st_blocks"):
+                            identity = (info.st_dev, info.st_ino)
+                            if info.st_nlink <= 1 or identity not in allocated_seen:
+                                if info.st_nlink > 1: allocated_seen.add(identity)
+                                allocated += info.st_blocks * 512
+                        else: allocated_known = False
+                    except Cancelled: raise
+                    except (OSError, WizardError): inaccessible += 1
+        except Cancelled: raise
+        except (OSError, WizardError): inaccessible += 1
+        now = time.monotonic()
+        if count == 0 or now - last_report >= .15:
+            _notify(progress, "storage-inventory", count, None, folder.relative_to(root).as_posix())
+            last_report = now
+    if cancel is not None and cancel.is_set(): raise Cancelled()
+    result = {"status": "complete", "totalBytes": sum(row["bytes"] for row in rows.values()),
+              "files": count, "categories": list(rows.values()), "skippedLinks": skipped_links,
+              "inaccessible": inaccessible, "complete": inaccessible == 0,
+              "allocatedBytes": allocated if allocated_known else None, "completedAt": time.time(),
+              "signingBackups": signing, "canDeleteBuildCache": has_completed_build(root)}
+    _notify(progress, "storage-inventory-complete", count, count, str(result["totalBytes"]))
+    return result
+
+
+def has_completed_build(state_root):
+    """Enable cache cleanup from retained build receipts, without APK rehashing."""
+    try:
+        proofs = {}; _, build = _root(state_root, proofs)
+        _completed_build(build, proofs)
+        return True
+    except (WizardError, OSError, ValueError, KeyError, TypeError):
+        return False
 
 
 def _error(code, detail=""):
