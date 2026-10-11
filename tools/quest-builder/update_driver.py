@@ -122,6 +122,31 @@ def signing_tools(builder, args, output):
     return normalized_signing_tools(builder, builder.toolchain(args, output))
 
 
+def _signing_command(builder, argv, log, *, env=None, password=None):
+    """Retain the tool failure and a bounded, secret-free native explanation."""
+    try:
+        return builder.command(argv, log, env=env) if env is not None else builder.command(argv, log)
+    except builder.BuildError as exc:
+        try:
+            with Path(log).open("rb") as stream:
+                stream.seek(max(0, Path(log).stat().st_size - 8192))
+                tail = stream.read(8192).decode("utf-8", errors="replace")
+            if password: tail = tail.replace(password, "[redacted]")
+            detail = "\n".join(line[:1024] for line in tail.strip().splitlines()[-6:])
+        except OSError:
+            detail = ""
+        if detail:
+            raise builder.BuildError(str(exc) + "\nNative tool output:\n" + detail) from exc
+        raise
+
+
+def _certificate_output(builder, output, certificate):
+    path = output / "signing/certificate.json"
+    if path.is_file() and json.loads(path.read_text())["sha256"] != certificate:
+        raise builder.BuildError("Local signing identity changed; existing saves require the original signing key.")
+    builder.write_json(path, {"sha256": certificate})
+
+
 def _signers(builder, tools, output, signing_root=None, *, base_apk=None):
     if signing_root:
         original = builder._ordinary_owned(Path(signing_root).resolve())
@@ -149,31 +174,30 @@ def _signers(builder, tools, output, signing_root=None, *, base_apk=None):
         selected = re.search(r"SHA256:\s*([0-9a-fA-F:]{64,95})", selected_certificate)
         if not original or not selected or original[1].lower() != selected[1].replace(":", "").lower():
             raise builder.BuildError("The selected signing key does not belong to this APK. Restore its original signing folder; no compile, APK update or uninstall was performed.")
+        _certificate_output(builder, output, original[1].lower())
 
     def sign(apk):
         apk = Path(apk)
         aligned, signed = apk.with_suffix(".aligned.apk"), apk.with_suffix(".signed.apk")
         try:
-            builder.command([tools["zipalign"], "-f", "-p", "4", str(apk), str(aligned)], output / "logs/update-align.log")
-            builder.command([tools["java"], "-jar", tools["apksigner"], "sign", "--ks", str(key),
+            _signing_command(builder, [tools["zipalign"], "-f", "-p", "4", str(apk), str(aligned)], output / "logs/update-align.log",
+                             password=private["password"])
+            _signing_command(builder, [tools["java"], "-jar", tools["apksigner"], "sign", "--ks", str(key),
                              "--ks-key-alias", private["alias"], "--ks-pass", "env:GHVR_QUEST_SIGNING_PASSWORD",
                              "--key-pass", "env:GHVR_QUEST_SIGNING_PASSWORD", "--out", str(signed), str(aligned)],
-                            output / "logs/update-sign.log", env=environment)
+                            output / "logs/update-sign.log", env=environment, password=private["password"])
             os.replace(signed, apk)
         finally:
             aligned.unlink(missing_ok=True); signed.unlink(missing_ok=True)
 
     def verify(apk):
-        result = builder.command([tools["java"], "-jar", tools["apksigner"], "verify", "--verbose", "--print-certs", str(apk)],
-                                 output / "logs/update-signature.log")
+        result = _signing_command(builder, [tools["java"], "-jar", tools["apksigner"], "verify", "--verbose", "--print-certs", str(apk)],
+                                  output / "logs/update-signature.log", password=private["password"])
         match = re.search(r"certificate SHA-256 digest:\s*([0-9a-fA-F]{64})", result)
         if not match:
             raise builder.BuildError("Updated APK has no verified signing certificate.")
         certificate = match[1].lower()
-        path = output / "signing/certificate.json"
-        if path.is_file() and json.loads(path.read_text())["sha256"] != certificate:
-            raise builder.BuildError("Local signing identity changed; existing saves require the original signing key.")
-        builder.write_json(path, {"sha256": certificate})
+        _certificate_output(builder, output, certificate)
         return {"certificateSha256": certificate}
 
     return sign, verify
@@ -305,16 +329,55 @@ def package_fingerprint(builder, source, inputs):
 def add_update_capability(builder, apk, inputs, output, source, tools):
     """Embed compatibility captured from the actual completed native player."""
     core = _core(builder)
-    capsule = core.make_capsule(apk, package_abi=package_fingerprint(builder, source, inputs), dynamic_profile=True)
-    key = builder.value_hash({"inputKey": inputs["inputKey"], "scope": "full-build-update-capability", "capsule": capsule})
-    update = {"schema": 1, "updateKey": key, "gameInputKey": inputs["inputKey"],
-              "mode": "build-capability", "modBuild": inputs["mod"]["modBuild"], "profile": inputs["profile"]}
-    sign, verify = _signers(builder, tools, output)
-    capable = apk.with_name(apk.stem + ".capable.apk")
-    core.repack(apk, capable, {core.CAPSULE: builder.canonical(capsule), core.PROFILE: builder.canonical(inputs["profile"])},
-                update_manifest=update, signer=sign, verifier=verify)
-    os.replace(capable, apk)
-    return {"schema": 1, "dynamicProfile": True, "scriptTypes": len(capsule["scriptTypes"]), "packageAbi": capsule["packageAbi"]}
+    apk, output = Path(apk), Path(output)
+    package_abi = package_fingerprint(builder, source, inputs)
+    receipt_key = builder.value_hash({"scope": "full-build-update-capability-receipt-v1", "inputKey": inputs["inputKey"],
+        "profile": inputs["profile"], "modBuild": inputs["mod"]["modBuild"], "packageAbi": package_abi})
+    stages = builder.Stages(output)
+
+    def close_capability():
+        # An atomic APK replacement can precede its stage receipt if the host
+        # dies during later delivery. Adopt exact signed metadata once, without
+        # rereading the original MonoScript roster or recopying the Player.
+        adopted = False
+        try:
+            base = core.inspect_base(apk); capsule = base["capsule"]; update = base["update"]
+            expected_key = builder.value_hash({"inputKey": inputs["inputKey"], "scope": "full-build-update-capability", "capsule": capsule})
+            expected_update = {"schema": 1, "updateKey": expected_key, "gameInputKey": inputs["inputKey"],
+                "mode": "build-capability", "modBuild": inputs["mod"]["modBuild"], "profile": inputs["profile"]}
+            with zipfile.ZipFile(apk) as archive:
+                profile = core._json(archive, core.PROFILE, optional=True)
+            adopted = bool(capsule and capsule["packageAbi"] == package_abi and capsule["dynamicProfile"]
+                           and base["inputKey"] == inputs["inputKey"] and profile == inputs["profile"]
+                           and update == expected_update)
+        except (builder.BuildError, OSError, ValueError, zipfile.BadZipFile):
+            adopted = False
+        if adopted:
+            _signers(builder, tools, output, base_apk=apk)
+        else:
+            capsule = core.make_capsule(apk, package_abi=package_abi, dynamic_profile=True, repair_update_contracts=True)
+            key = builder.value_hash({"inputKey": inputs["inputKey"], "scope": "full-build-update-capability", "capsule": capsule})
+            update = {"schema": 1, "updateKey": key, "gameInputKey": inputs["inputKey"],
+                "mode": "build-capability", "modBuild": inputs["mod"]["modBuild"], "profile": inputs["profile"]}
+            sign, verify = _signers(builder, tools, output)
+            capable = apk.with_name(apk.stem + ".capable.apk")
+            result = core.repack(apk, capable, {core.CAPSULE: builder.canonical(capsule), core.PROFILE: builder.canonical(inputs["profile"])},
+                update_manifest=update, signer=sign, verifier=verify, repair_update_contracts=True)
+            stamp = core._base_stamp(capable)
+            os.replace(capable, apk)
+            # Repack has hashed the exact verified output. Rename retains its
+            # inode/size/mtime; qualification still guards all current stamps.
+            current = core._base_stamp(apk)
+            if current[1:5] != stamp[1:5]:
+                raise builder.BuildError("Signed Player changed during capability publication; the completed Player is retained.")
+            with stages._witnesses("player-update-capability", receipt_key) as witnesses:
+                witnesses.observe(apk, hasher=lambda path: result["sha256"])
+                if core._base_stamp(apk) != current:
+                    raise builder.BuildError("Signed Player changed while recording its capability proof.")
+        details = {"schema": 1, "dynamicProfile": True, "scriptTypes": len(capsule["scriptTypes"]), "packageAbi": package_abi}
+        return [apk, *(output / "signing" / name for name in ("certificate.json", "quest.keystore", "local-key.json"))], details
+
+    return stages.run("player-update-capability", receipt_key, close_capability)["details"]
 
 
 def run(builder, args, repo, output):

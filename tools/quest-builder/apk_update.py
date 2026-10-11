@@ -99,7 +99,7 @@ def _native(apk):
     return struct.unpack_from("<I", header, 4)[0]
 
 
-def inspect_base(path):
+def inspect_base(path, *, validate_update_contracts=True):
     """Bounded signed metadata for discovery; does not import assets or hash a bank."""
     try:
         with zipfile.ZipFile(path) as apk:
@@ -109,12 +109,12 @@ def inspect_base(path):
             if (manifest.get("schema") != 1 or manifest.get("target") != "game" or not _SHA.fullmatch(key or "")
                     or installation.get("schema") != 1 or installation.get("inputKey") != key):
                 raise BuildError("A complete Campaign APK with matching signed game identity is required.")
-            capsule = _json(apk, CAPSULE, optional=True)
+            capsule = _json(apk, CAPSULE, optional=True) if validate_update_contracts else None
             if capsule is not None:
                 _validate_capsule(capsule, manifest)
                 if capsule["metadataVersion"] != metadata_version:
                     raise BuildError("Signed APK capsule does not match the actual IL2CPP metadata format.")
-            update = _json(apk, UPDATE, optional=True)
+            update = _json(apk, UPDATE, optional=True) if validate_update_contracts else None
             if update is not None and (update.get("schema") != 1 or update.get("gameInputKey") != key
                     or not _SHA.fullmatch(update.get("updateKey", "")) or type(update.get("modBuild")) is not int):
                 raise BuildError("Signed APK update provenance is invalid.")
@@ -212,9 +212,9 @@ def script_roster(apk_path):
     return {"unityVersion": version, "scriptTypes": [roster[key] for key in sorted(roster)]}
 
 
-def make_capsule(apk_path, *, package_abi, dynamic_profile=False):
+def make_capsule(apk_path, *, package_abi, dynamic_profile=False, repair_update_contracts=False):
     """Capture compatibility from an actual player, not a compiler success claim."""
-    base = inspect_base(apk_path); registry = script_roster(apk_path)
+    base = inspect_base(apk_path, validate_update_contracts=not repair_update_contracts); registry = script_roster(apk_path)
     if not _SHA.fullmatch(package_abi or ""): raise BuildError("Quest package/template ABI fingerprint is missing.")
     with zipfile.ZipFile(apk_path) as apk: metadata_version = _native(apk)
     return {"schema": 1, "scope": "quest-code-update-v1", "inputKey": base["inputKey"],
@@ -539,11 +539,63 @@ def _signature(name):
     return name.startswith("META-INF/") and (name == "META-INF/MANIFEST.MF" or name.upper().endswith((".SF", ".RSA", ".DSA", ".EC")))
 
 
+class _ApkZip32(zipfile.ZipFile):
+    """Write Android's ZIP32 directory, including valid offsets above 2 GiB.
+
+    Capture075701 fails in zipalign after a successful Unity Player build. The
+    original 2.7 GiB Player is ZIP32, but CPython's conservative 2 GiB threshold
+    changes its copied central entries and end record to ZIP64. Android 30.0.2
+    zipalign rejects that archive. Use the actual unsigned ZIP32 limits in this
+    writer only; never alter the process-global reader/writer ZIP64 threshold.
+    """
+
+    def _write_end_record(self):
+        count = len(self.filelist)
+        # All-ones size/offset fields are ZIP64 sentinels, not ordinary values.
+        if count > 0xffff or not 0 <= self.start_dir < 0xffffffff:
+            raise BuildError("APK exceeds Android ZIP32 limits; the completed Player is retained.")
+        for info in self.filelist:
+            if (info.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED)
+                    or any(not 0 <= n < 0xffffffff for n in
+                           (info.file_size, info.compress_size, info.header_offset))):
+                raise BuildError("APK member exceeds Android ZIP32 limits: " + info.filename)
+            extra = bytearray(); cursor = 0
+            while cursor < len(info.extra):
+                if cursor + 4 > len(info.extra):
+                    raise BuildError("APK central extra field is truncated: " + info.filename)
+                kind, size = struct.unpack_from("<HH", info.extra, cursor)
+                end = cursor + 4 + size
+                if end > len(info.extra):
+                    raise BuildError("APK central extra field is truncated: " + info.filename)
+                if kind != 1: extra.extend(info.extra[cursor:end])
+                cursor = end
+            filename, flags = info._encodeFilenameFlags()
+            year, month, day, hour, minute, second = info.date_time
+            date = (year - 1980) << 9 | month << 5 | day
+            time = hour << 11 | minute << 5 | second // 2
+            self.fp.write(struct.pack("<4s4B4H3I5H2I", b"PK\x01\x02",
+                info.create_version, info.create_system, info.extract_version, info.reserved,
+                flags, info.compress_type, time, date, info.CRC, info.compress_size,
+                info.file_size, len(filename), len(extra), len(info.comment), 0,
+                info.internal_attr, info.external_attr, info.header_offset))
+            self.fp.write(filename); self.fp.write(extra); self.fp.write(info.comment)
+        size = self.fp.tell() - self.start_dir
+        if size >= 0xffffffff or self.fp.tell() + 22 + len(self._comment) >= 0xffffffff:
+            raise BuildError("APK exceeds Android ZIP32 limits; the completed Player is retained.")
+        self.fp.write(struct.pack("<4s4H2IH", b"PK\x05\x06", 0, 0, count, count,
+                                  size, self.start_dir, len(self._comment)))
+        self.fp.write(self._comment)
+        if self.mode == "a": self.fp.truncate()
+        self.fp.flush()
+
+
 def _copy_raw_record(source, target, info):
     source.seek(info.header_offset); header = source.read(30)
     if len(header) != 30 or header[:4] != b"PK\x03\x04": raise BuildError("APK local ZIP header is invalid.")
     fields = struct.unpack("<4s5H3I2H", header)
     if fields[2] != info.flag_bits or fields[3] != info.compress_type: raise BuildError("APK local and central ZIP headers disagree.")
+    if fields[7] == 0xffffffff or fields[8] == 0xffffffff:
+        raise BuildError("APK local ZIP64 sizes are unsupported by Android signing: " + info.filename)
     local_name = source.read(fields[-2])
     if local_name.decode("utf-8" if info.flag_bits & 0x800 else "cp437") != info.filename:
         raise BuildError("APK local and central member paths disagree.")
@@ -563,7 +615,8 @@ def _copy_raw_record(source, target, info):
         target.write(block); remaining -= len(block)
 
 
-def repack(base, output, replacements, *, update_manifest, signer, verifier, progress=None, code_evidence=None):
+def repack(base, output, replacements, *, update_manifest, signer, verifier, progress=None, code_evidence=None,
+           repair_update_contracts=False):
     """Publish a verified signed update atomically, retaining compressed game bytes.
 
 signer(temp_path) and verifier(temp_path) must raise on failure. Neither is
@@ -575,7 +628,7 @@ optional: a rewritten unsigned APK is never exposed as an installable result.
     replacements = dict(replacements)
     if set(replacements) & {LIBRARY, METADATA} and not {LIBRARY, METADATA}.issubset(replacements):
         raise BuildError("IL2CPP library and global metadata must be updated together.")
-    info = inspect_base(base)
+    info = inspect_base(base, validate_update_contracts=not repair_update_contracts)
     if LIBRARY in replacements:
         if (not isinstance(code_evidence, dict) or code_evidence.get("nativePairQualified") is not True
                 or code_evidence.get("gameInputKey") != info["inputKey"]
@@ -601,7 +654,7 @@ optional: a rewritten unsigned APK is never exposed as an installable result.
     handle, temporary = tempfile.mkstemp(prefix=output.name + ".", suffix=".apk", dir=output.parent); os.close(handle)
     temporary = Path(temporary)
     try:
-        with zipfile.ZipFile(base) as original, base.open("rb") as raw, zipfile.ZipFile(temporary, "w", allowZip64=True) as updated:
+        with zipfile.ZipFile(base) as original, base.open("rb") as raw, _ApkZip32(temporary, "w", allowZip64=True) as updated:
             entries = _entries(original); total = sum(e.compress_size for n, e in entries.items() if n not in replacements and not _signature(n)); done = 0
             for name, entry in entries.items():
                 if name in replacements or _signature(name): continue

@@ -99,6 +99,26 @@ class SigningSelectionTests(unittest.TestCase):
         selected = driver.signing_tools(self.context, SimpleNamespace(apk_tools_json=None), self.root / "output")
         self.assertIn("zipalign", selected); self.assertEqual(tools, before)
 
+    def test_native_failure_keeps_original_player_and_reports_a_bounded_redacted_tail(self):
+        tools = self.tools(); key = self.root / "quest.keystore"; key.write_bytes(b"key fixture")
+        password = "fixture private password"
+        self.context.signing.return_value = (key, {"password": password, "alias": "quest"})
+        sign, _ = driver._signers(self.context, tools, self.root / "output")
+        apk = self.root / "temporary.apk"; apk.write_bytes(b"retained original Player")
+        def fail(argv, log, **kwargs):
+            log.parent.mkdir(parents=True, exist_ok=True)
+            log.write_text("old line\n" * 4000 + "Unable to open archive " + password)
+            raise storage.BuildError(Path(argv[0]).name + " exited with 1; inspect " + str(log))
+        self.context.command.side_effect = fail
+        with self.assertRaisesRegex(storage.BuildError, "zipalign exited with 1; inspect") as failure:
+            sign(apk)
+        self.assertIn("Unable to open archive [redacted]", str(failure.exception))
+        self.assertNotIn(password, str(failure.exception))
+        self.assertLess(len(str(failure.exception)), 6600)
+        self.assertEqual(apk.read_bytes(), b"retained original Player")
+        self.assertFalse(apk.with_suffix(".aligned.apk").exists())
+        self.assertFalse(apk.with_suffix(".signed.apk").exists())
+
 
 DATA = Path(os.environ.get("GHVR_QUEST_TEST_UNITY_DATA", "/home/claw/unity-2021.3.5/Editor/Data"))
 ANDROID = DATA / "PlaybackEngines/AndroidPlayer"
@@ -180,6 +200,18 @@ class ActualDeliverySigningTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(signed.read_bytes()).hexdigest(), before)
         self.assertFalse((other / "logs/update-align.log").exists())
         self.assertFalse((other / "logs/update-sign.log").exists())
+
+    def test_actual_sdk_accepts_sparse_zip32_offsets_above_two_gib(self):
+        path = self.root / "large-offset.apk"
+        with apk_update._ApkZip32(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.fp.seek(zipfile.ZIP64_LIMIT + 123456)
+            archive.start_dir = archive.fp.tell()
+            archive.writestr("assets/payload", b"sparse central directory native proof" * 100)
+        builder.command([str(BUILD_TOOLS / ("zipalign" + SUFFIX)), "-c", "-p", "4", str(path)],
+                        self.output / "logs/fixture-large-offset-check.log")
+        with zipfile.ZipFile(path) as archive:
+            self.assertGreater(archive.getinfo("assets/payload").header_offset, zipfile.ZIP64_LIMIT)
+            self.assertEqual(archive.read("assets/payload"), b"sparse central directory native proof" * 100)
 
 
 if __name__ == "__main__": unittest.main()

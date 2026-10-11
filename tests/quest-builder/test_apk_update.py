@@ -184,4 +184,51 @@ class ApkUpdateTests(unittest.TestCase):
         with self.assertRaisesRegex(storage.BuildError, "member paths disagree"): self.publish({})
 
 
+class ApkZip32DirectoryTests(unittest.TestCase):
+    def test_sparse_actual_offset_above_two_gib_remains_zip32_without_global_changes(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "large-offset.apk"
+            threshold = zipfile.ZIP64_LIMIT
+            offset = threshold + 123456
+            with update._ApkZip32(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                archive.fp.seek(offset); archive.start_dir = offset
+                archive.writestr("assets/payload", b"compressed payload above two GiB" * 100)
+            self.assertEqual(zipfile.ZIP64_LIMIT, threshold)
+            with zipfile.ZipFile(path) as archive:
+                info = archive.getinfo("assets/payload")
+                self.assertEqual(info.header_offset, offset)
+                self.assertLess(info.extract_version, 45)
+                self.assertEqual(info.extra, b"")
+                self.assertEqual(archive.read(info), b"compressed payload above two GiB" * 100)
+            with path.open("rb") as stream:
+                stream.seek(-200, 2); tail = stream.read()
+            self.assertNotIn(b"PK\x06\x06", tail); self.assertNotIn(b"PK\x06\x07", tail)
+
+    def test_real_unsigned_zip32_limit_is_rejected_without_global_changes(self):
+        with tempfile.TemporaryDirectory() as folder:
+            threshold = zipfile.ZIP64_LIMIT
+            path = Path(folder) / "unsupported.apk"
+            with self.assertRaisesRegex(storage.BuildError, "ZIP32 limits.*Player is retained"):
+                with update._ApkZip32(path, "w") as archive:
+                    archive.fp.seek(0xffffffff); archive.start_dir = 0xffffffff
+            self.assertEqual(zipfile.ZIP64_LIMIT, threshold)
+
+    def test_malformed_extra_field_and_local_zip64_sizes_are_rejected(self):
+        from io import BytesIO
+        info = zipfile.ZipInfo("assets/payload"); info.extra = b"\x00"
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "malformed.apk"
+            with self.assertRaisesRegex(storage.BuildError, "central extra field is truncated"):
+                with update._ApkZip32(path, "w") as archive:
+                    archive.writestr(info, b"payload")
+        info = zipfile.ZipInfo("assets/payload")
+        source = BytesIO()
+        with zipfile.ZipFile(source, "w") as archive:
+            with archive.open(info, "w", force_zip64=True) as stream: stream.write(b"payload")
+        source.seek(0)
+        with zipfile.ZipFile(source) as archive:
+            with self.assertRaisesRegex(storage.BuildError, "local ZIP64 sizes are unsupported"):
+                update._copy_raw_record(source, BytesIO(), archive.getinfo(info.filename))
+
+
 if __name__ == "__main__": unittest.main()
