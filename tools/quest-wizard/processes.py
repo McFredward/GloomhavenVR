@@ -626,7 +626,8 @@ class ProgressParser:
                     if not isinstance(value["operation"], str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,79}", value["operation"]): return None
                     fields["operation"] = value["operation"]
                 if value.get("status") is not None:
-                    if value["status"] not in ("start", "progress", "complete", "reuse", "failed"): return None
+                    if value["status"] == "waiting" and value.get("phase") != "install-connection-wait": return None
+                    if value["status"] not in ("start", "progress", "complete", "reuse", "failed", "waiting"): return None
                     fields["status"] = value["status"]
                 if fields["phase"] == "unity-gradle-tasks" and type(fields.get("total")) is int and fields["total"] > 0:
                     owner = fields.get("operation") or self._unity_operation(source)

@@ -21,6 +21,7 @@ from types import SimpleNamespace
 CHUNK = 64 * 1024
 MAX_FRAME = 1024 * 1024
 MAX_STDERR = 16 * 1024
+MAX_STDOUT = 16 * 1024
 
 
 def _server_endpoint(environ=None):
@@ -55,11 +56,12 @@ def _server_endpoint(environ=None):
 
 
 def stream(adb, serial, local, script, timeout, report=None):
-    """Return observed remote returncode/stderr after exact binary stdin EOF.
+    """Return remote returncode and bounded output after exact binary stdin EOF.
 
     report receives (transmitted_bytes, total_bytes); intermediate reports stop
     below total; the caller owns exact remote verification and publication.
-    stderr retains at most its last16KiB; stdout is drained without retention.
+    Each output stream retains at most its last 16 KiB, including the caller's
+    small publication acknowledgement. No whole payload is retained in memory.
     Every read and write shares a finite operation deadline; writer shutdown
     has a separate two-second bound after the socket is closed.
     """
@@ -81,6 +83,7 @@ def stream(adb, serial, local, script, timeout, report=None):
     writer = None
     channel = None
     stderr = bytearray()
+    stdout = bytearray()
     state = {"bytes": 0, "closed": False}
     initial = local.stat()
 
@@ -183,13 +186,14 @@ def stream(adb, serial, local, script, timeout, report=None):
                         raise writer_errors[0]
                     if not state["closed"] or state["bytes"] != initial.st_size:
                         raise RuntimeError("The remote command completed without exact binary input EOF.")
-                return SimpleNamespace(returncode=code, stderr=stderr.decode("utf-8", errors="replace"))
+                return SimpleNamespace(returncode=code, stderr=stderr.decode("utf-8", errors="replace"),
+                                       stdout=stdout.decode("utf-8", errors="replace"))
             while size:
                 block = receive(min(CHUNK, size)); size -= len(block)
-                if frame_id == 2:
-                    stderr.extend(block)
-                    if len(stderr) > MAX_STDERR:
-                        del stderr[:-MAX_STDERR]
+                retained, bound = (stderr, MAX_STDERR) if frame_id == 2 else (stdout, MAX_STDOUT)
+                retained.extend(block)
+                if len(retained) > bound:
+                    del retained[:-bound]
     finally:
         stopped.set()
         if channel is not None:

@@ -62,9 +62,9 @@ def server(directory, mode):
             block = exact(connection, count); digest.update(block); report["bytes"] += len(block)
         report["sha256"] = digest.hexdigest()
         if mode == "no-exit": return
-        if mode == "stderr":
+        if mode in ("stderr", "stdout"):
             text = b"discard-" * 8192 + b"retained-last-error"
-            connection.sendall(struct.pack("<BI", 2, len(text)) + text)
+            connection.sendall(struct.pack("<BI", 2 if mode == "stderr" else 1, len(text)) + text)
             connection.sendall(struct.pack("<BI", 3, 1) + b"\x07")
         else:
             # stdout payload may contain byte patterns that resemble headers.
@@ -130,6 +130,13 @@ class BinaryAdbTests(unittest.TestCase):
         self.assertEqual(7, result.returncode)
         self.assertEqual(binary.MAX_STDERR, len(result.stderr))
         self.assertTrue(result.stderr.endswith("retained-last-error"))
+
+    def test_publication_stdout_is_retained_with_a_finite_tail(self):
+        with fake_server(self.root, "stdout"):
+            result = self.call(timeout=5)
+        self.assertEqual(binary.MAX_STDOUT, len(result.stdout))
+        self.assertTrue(result.stdout.endswith("retained-last-error"))
+        self.assertEqual(result.stderr, "")
 
     def test_smart_socket_denied_transport_is_actionable(self):
         with fake_server(self.root, "denied"):

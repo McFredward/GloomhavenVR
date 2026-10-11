@@ -8,7 +8,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools/quest-wizard"))
 from processes import ProgressParser
-from state import Store
+from state import Store, file_lock
 import wizard
 
 
@@ -21,6 +21,11 @@ class SigningProgressTests(unittest.TestCase):
         for row in self.state["stages"][:-1]: row["status"] = "complete"
         self.state["status"] = self.state["stages"][-1]["status"] = "running"
         self.store.save(self.state)
+        # A live Wizard owns this lock. Without it, a status reader correctly
+        # classifies a persisted 'running' fixture as an interrupted process.
+        owner = file_lock(self.store.root / "run.lock")
+        owner.__enter__()
+        self.addCleanup(owner.__exit__, None, None, None)
         self.store.operation(self.session, "install", "connect")
         self.parser = ProgressParser()
 
@@ -114,6 +119,43 @@ class SigningProgressTests(unittest.TestCase):
             self.assertNotIn("content", self.store.load(self.session)["stages"][-1]["progressPlan"]["completed"])
         self.assertTrue(all(left < right for left, right in zip(percentages, percentages[1:])))
         self.assertLess(percentages[-1], 100)
+
+    def test_connection_wait_keeps_measured_work_live_and_resumes_in_place(self):
+        self.store.operation(self.session, "install", "connect", complete=True)
+        self.store.operation(self.session, "install", "apk", complete=True)
+        def event(phase, status, done):
+            fields = self.parser.parse("GHVRQ_PROGRESS " + json.dumps({"schema": 1,
+                "phase": phase, "operation": "content", "status": status,
+                "done": done, "total": 1000, "unit": "bytes"}), "install.log")
+            self.assertIsNotNone(fields)
+            return self.store.progress(self.session, "install", **fields)
+        before = event("install-content", "progress", 650)
+        waiting = event("install-connection-wait", "waiting", 650)
+        self.assertEqual(waiting["stagePercent"], before["stagePercent"])
+        self.assertEqual(waiting["percent"], 65)
+        self.assertEqual(waiting["operationStatus"], "waiting")
+        state = self.store.load(self.session)
+        self.assertEqual(state["status"], "running")
+        self.assertEqual(state["stages"][-1]["status"], "running")
+        self.assertEqual(state["needsActions"], [])
+        self.assertTrue(all(row["status"] == "complete" for row in state["stages"][:-1]))
+        resumed = event("install-content", "progress", 660)
+        self.assertGreater(resumed["stagePercent"], waiting["stagePercent"])
+        self.assertEqual(resumed["operationStatus"], "progress")
+
+    def test_wait_without_a_byte_total_cannot_invent_progress_or_finish_install(self):
+        fields = self.parser.parse('GHVRQ_PROGRESS {"schema":1,"phase":"install-connection-wait",'
+                                  '"operation":"connect","status":"waiting"}', "install.log")
+        current = self.store.progress(self.session, "install", **fields)
+        self.assertIsNone(current["percent"])
+        self.assertEqual(current["stagePercent"], 0)
+        self.assertEqual(self.store.load(self.session)["stages"][-1]["status"], "running")
+
+    def test_waiting_is_rejected_outside_the_install_connection_phase(self):
+        for phase in ("install-content", "import", "complete"):
+            line = "GHVRQ_PROGRESS " + json.dumps({"schema": 1, "phase": phase,
+                "operation": "content", "status": "waiting"})
+            self.assertIsNone(self.parser.parse(line, "install.log"))
 
 
 if __name__ == "__main__": unittest.main()

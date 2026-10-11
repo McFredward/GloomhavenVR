@@ -708,7 +708,7 @@ class Engine:
         try:
             arguments = [sys.executable, "-B", "-X", "utf8", str(source / "scripts/install-quest-wireless.py"),
                             "--output-root", self.details(state, "build")["outputRoot"], "--config", str(config),
-                            "--recovery-data-policy", policy["policy"]]
+                            "--recovery-data-policy", policy["policy"], "--wait-for-connection"]
             if content_approval: arguments += ["--allow-content-reinstall", content_approval["transaction"]]
             supervisor.run(arguments, self.log(state, "install"))
         except WizardError as error:

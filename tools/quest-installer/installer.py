@@ -47,6 +47,17 @@ class ConnectionRequired(InstallError):
         self.reason = reason
 
 
+def connection_unavailable(text):
+    """Transport/host-daemon failures, never an Android file permission error."""
+    return bool(re.search(r"device offline|device unauthorized|no devices/emulators found|device '[^'\n]+' not found|"
+                          r"cannot connect to daemon|daemon (?:still )?not running|failed to start daemon|"
+                          r"connection (?:reset|refused)|closed without a complete shell-v2 response|"
+                          r"ADB server closed binary upload", str(text), re.I))
+
+
+_LAST_CONTENT_PROGRESS = None
+
+
 def signing_recovery_module():
     # Isolated launcher imports do not put sibling modules on sys.path.
     spec = importlib.util.spec_from_file_location(
@@ -57,6 +68,16 @@ def signing_recovery_module():
 
 
 _DIGEST_CACHE = {}
+_INPUT_CACHE_PATH = None
+
+
+def input_cache_module():
+    name = "_ghvr_quest_input_cache"
+    if name not in sys.modules:
+        spec = importlib.util.spec_from_file_location(name, REPO / "tools/quest-installer/input_cache.py")
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        sys.modules[name] = module
+    return sys.modules[name]
 
 
 def _digest_witness(path):
@@ -65,17 +86,24 @@ def _digest_witness(path):
 
 
 def digest(path):
-    """Hash once per CLI invocation while the exact stat witness remains valid.
+    """Reuse a fully computed digest while the exact stat witness remains valid.
 
     Selection and the pre-installation boundary both resolve the same APK and
     complete content ZIP. Reading their unchanged 14 GB twice provides no new
     evidence. Cache only after an unchanged before/after stat witness, invalidate
-    on file replacement or mutation, and never write a persistent trust receipt.
+    on file replacement or mutation. A small local retry cache additionally
+    preserves that same witness across CLI attempts; expected SHA comparisons
+    and the independent owned-game qualification remain mandatory.
     """
     path = Path(path)
     before = _digest_witness(path)
     key = (str(path.absolute()), *before)
     if key in _DIGEST_CACHE: return _DIGEST_CACHE[key]
+    if _INPUT_CACHE_PATH:
+        found = input_cache_module().lookup(_INPUT_CACHE_PATH, path, before)
+        if found:
+            _DIGEST_CACHE[key] = found
+            return found
     value = hashlib.sha256()
     with path.open("rb") as stream:
         for block in iter(lambda: stream.read(1024 * 1024), b""):
@@ -84,6 +112,7 @@ def digest(path):
         raise InstallError("The selected input changed while its checksum was being qualified; retry with the completed file.")
     if len(_DIGEST_CACHE) >= 32: _DIGEST_CACHE.pop(next(iter(_DIGEST_CACHE)))
     result = value.hexdigest(); _DIGEST_CACHE[key] = result
+    if _INPUT_CACHE_PATH: input_cache_module().remember(_INPUT_CACHE_PATH, path, before, result)
     return result
 
 
@@ -222,7 +251,11 @@ def resolve_source(kind, path, check_zip=True):
     if kind == "output-root":
         manifest = path / "latest-build.json"
         evidence = digest(manifest)
-        apk, details = builder_module().verified_latest_build(path)
+        helper = builder_module()
+        # This loader's private module cannot affect a running Builder. Its
+        # explicit APK digest shares the same witnessed installer read/cache.
+        helper.digest = digest
+        apk, details = helper.verified_latest_build(path)
         apk = apk.resolve()
     elif kind == "handoff":
         manifest = path
@@ -258,8 +291,16 @@ def resolve_source(kind, path, check_zip=True):
         raise InstallError("The selected build evidence changed while being read; retry.")
     if check_zip:
         with zipfile.ZipFile(apk) as archive:
-            if "AndroidManifest.xml" not in archive.namelist() or archive.testzip():
+            # Completed outputs have an independently verified build receipt
+            # and exact expected SHA. Decompressing the entire APK again adds
+            # no new evidence. A manually selected APK needs one CRC success,
+            # cached separately from its digest (which precedes CRC checking).
+            zip_cache = _INPUT_CACHE_PATH.with_name("qualified-apks.json") if _INPUT_CACHE_PATH else None
+            stamp = _digest_witness(apk)
+            qualified = kind != "apk" or (zip_cache and input_cache_module().lookup(zip_cache, apk, stamp) == actual)
+            if "AndroidManifest.xml" not in archive.namelist() or (not qualified and archive.testzip()):
                 raise InstallError("The APK ZIP payload is incomplete or corrupt.")
+            if zip_cache: input_cache_module().remember(zip_cache, apk, stamp, actual)
     identity = apk_identity(apk)
     report = details.get("buildReport", {})
     expected_key = details.get("inputKey") or report.get("inputKey")
@@ -410,6 +451,48 @@ class Adb:
     def __init__(self, executable, log, runner=None):
         self.executable, self.log = str(executable), log
         self.runner = runner or subprocess.run
+        self.wait_enabled = False
+        self.connection_config = {}
+        self.connection_operation = "connect"
+        self._transport_aliases = {}
+        self._probing_connection = False
+
+    def transport(self, serial):
+        return self._transport_aliases.get(serial, serial)
+
+    def wait_for_connection(self, serial=None):
+        """Pause this child, retain its measured work and qualify the same Quest.
+
+        The Wizard owns cancellation of this process. Only safe content calls
+        retry here; uninstall/restore commands keep their transaction owner.
+        Capture193713's local server returns on the next call: try start-server
+        before asking for a cable, without killing a shared ADB server.
+        """
+        if not self.wait_enabled:
+            raise ConnectionRequired("The Quest connection is unavailable. " + HELP, "offline-or-unauthorized")
+        previous = _LAST_CONTENT_PROGRESS
+        fields = dict(previous or {"schema": 1, "operation": self.connection_operation})
+        fields.update(phase="install-connection-wait", status="waiting",
+                      detail="Reconnect and unlock the same Quest; accept USB debugging. Installation continues automatically.")
+        print("GHVRQ_PROGRESS " + json.dumps(fields), flush=True)
+        print("Quest connection required: reconnect the same Quest by USB and accept USB debugging. Waiting to continue automatically.", flush=True)
+        self._probing_connection = True
+        try:
+            while True:
+                try:
+                    self.run("start-server", timeout=15, check_text=False)
+                    address, hardware = choose_device(self, argparse.Namespace(host=None, serial=None, setup=False), self.connection_config)
+                    if serial: self._transport_aliases[serial] = address
+                    self.connection_config = connection_settings(self.connection_config, address, hardware, self.executable)
+                    print("Quest connection restored; continuing retained installation.", flush=True)
+                    if previous: print("GHVRQ_PROGRESS " + json.dumps(previous), flush=True)
+                    else: print('GHVRQ_PROGRESS {"schema":1,"phase":"install-connect","operation":"connect","status":"progress"}', flush=True)
+                    return address, hardware
+                except (InstallError, OSError, subprocess.TimeoutExpired):
+                    # No network scanning or adoption of an unrelated headset.
+                    time.sleep(2)
+        finally:
+            self._probing_connection = False
 
     def binary_stream(self, serial, local, script, timeout, report=None):
         # Isolated -I launchers do not put sibling modules on sys.path. Cache
@@ -421,10 +504,23 @@ class Adb:
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
             sys.modules[name] = module
-        return module.stream(self, serial, local, script, timeout, report)
+        return module.stream(self, self.transport(serial), local, script, timeout, report)
 
-    def run(self, *args, timeout=20, positive=None, check_text=True, input_text=None, empty_exit_codes=()):
-        command = [self.executable, *map(str, args)]
+    def run(self, *args, timeout=20, positive=None, check_text=True, input_text=None, empty_exit_codes=(), reconnect=False):
+        while True:
+            try:
+                return self._run_once(*args, timeout=timeout, positive=positive, check_text=check_text,
+                                      input_text=input_text, empty_exit_codes=empty_exit_codes)
+            except ConnectionRequired:
+                if not reconnect or not self.wait_enabled or self._probing_connection: raise
+                serial = str(args[1]) if len(args) > 1 and args[0] == "-s" else None
+                self.wait_for_connection(serial)
+
+    def _run_once(self, *args, timeout=20, positive=None, check_text=True, input_text=None, empty_exit_codes=()):
+        operands = list(map(str, args))
+        serial = operands[1] if len(operands) > 1 and operands[0] == "-s" else None
+        if serial: operands[1] = self.transport(serial)
+        command = [self.executable, *operands]
         with self.log.open("a", encoding="utf-8") as stream:
             stream.write(json.dumps(command) + "\n")
             if input_text is not None: stream.write(json.dumps({"stdinScript": input_text}, ensure_ascii=False) + "\n")
@@ -436,7 +532,8 @@ class Adb:
                 options.update(text=False, input=input_text.encode("utf-8"))
             result = self.runner(command, **options)
         except subprocess.TimeoutExpired as error:
-            raise InstallError("ADB timed out; check the headset and Wi-Fi. No data was removed.") from error
+            raise ConnectionRequired("ADB timed out. Reconnect the same Quest and accept USB debugging. " + HELP,
+                                     "offline-or-unauthorized") from error
         except OSError as error:
             with self.log.open("a", encoding="utf-8") as stream:
                 stream.write(json.dumps({"processStartError": type(error).__name__, "winError": getattr(error, "winerror", None), "message": str(error)}) + "\n")
@@ -455,7 +552,7 @@ class Adb:
         if (action == "install" and re.search(
                 r"Failure\s*\[INSTALL_FAILED_UPDATE_INCOMPATIBLE(?:\s*[:\]])", raw)):
             raise SigningMismatch("Android rejected the package update because its signing certificate differs.")
-        if result.returncode and re.search(r"(?:^|\n)(?:adb: )?(?:error: )?(?:device offline|device unauthorized|no devices/emulators found|device '[^'\n]+' not found)\b", raw, re.I):
+        if result.returncode and connection_unavailable(raw):
             raise ConnectionRequired("The Quest connection is unavailable. " + HELP, "offline-or-unauthorized")
         if (result.returncode or (check_text and re.search(r"\b(error|failure|failed|unauthorized|cannot|unable)\b", raw, re.I))
                 or (positive and not re.search(positive, raw, re.I | re.M))):
@@ -624,6 +721,8 @@ def write_json(path, value):
 # Native installation receipt v1 is shared with QuestGameContent.Delivery.cs.
 # The private completion receipt is a cache, not an anti-piracy credential.
 _RECEIPT = ".quest-installation.receipt"
+_FILE_JOURNAL = ".quest-installation.accepted.jsonl"
+_UNREAD_RECEIPT = object()
 _RECEIPT_LIMIT = 8 * 1024 * 1024
 _INSTALL_BATCH_BYTES = 256 * 1024 * 1024
 
@@ -732,7 +831,9 @@ def installation_manifest(source):
 
 def _pull_content_receipt(adb, address, remote, local):
     try:
-        adb.run("-s", address, "pull", remote, local, timeout=30, check_text=False)
+        adb.run("-s", address, "pull", remote, local, timeout=30, check_text=False, reconnect=True)
+    except ConnectionRequired:
+        raise  # A disconnected Quest is not evidence that its content vanished.
     except InstallError:
         return None
     if not local.is_file() or local.stat().st_size > _RECEIPT_LIMIT:
@@ -740,13 +841,13 @@ def _pull_content_receipt(adb, address, remote, local):
     return decode_content_receipt(local.read_bytes())
 
 
-def _content_shell(adb, address, lines, timeout=180):
+def _content_shell(adb, address, lines, timeout=180, reconnect=True):
     # Every interpolated operand is shell quoted, and paths have already passed
     # bounded containment validation. No user text is executable shell syntax.
     # A 128-file stat batch exceeds Windows CreateProcess's 32767-character
     # limit with the real B625 bank. Keep argv short; send LF script over stdin.
     return adb.run("-s", address, "shell", "-T", "sh", "-s",
-                   input_text="set -eu\n" + "\n".join(lines) + "\n", timeout=timeout, check_text=False)
+                   input_text="set -eu\n" + "\n".join(lines) + "\n", timeout=timeout, check_text=False, reconnect=reconnect)
 
 
 def _content_bank_root(remote):
@@ -763,16 +864,12 @@ def _content_bank_root(remote):
     raise InstallError("Content upload is outside this app's generated banks.")
 
 
-def _stream_content_file(adb, address, local, remote, row, timeout, report=None):
-    """Repair Android sync fchown rejection with verified, binary raw input.
+def _stream_content_file(adb, address, local, remote, row, timeout, report=None, checkpoint=None):
+    """Transfer, qualify and publish one file in a single shell-v2 operation.
 
-    Capture163658 restored and verified all save roots, then sync refused its
-    112-byte receipt. AOSP calls fchown before reading DATA. Capture170604 proves
-    exec-in's client success cannot finish the EOF follow-up: the daemon's raw
-    PTY closes with SIGHUP. Use local-server shell-v2 with explicit CloseStdin
-    and observed remote Exit; bypass the Windows shell CLI's text-mode CRT.
-    Require a unique EOF marker plus exact size/SHA before atomic publication.
-    Short staging names keep Windows argv bounded even for long asset paths.
+    Exact binary EOF, size, SHA and a unique acknowledgement precede completion.
+    A lost acknowledgement qualifies only this operation's staging/destination;
+    it cannot resend an already published file or invalidate the entire bank.
     """
     local = Path(local); root = _content_bank_root(remote)
     if local.is_symlink() or not local.is_file() or local.stat().st_size != row["size"]:
@@ -780,74 +877,104 @@ def _stream_content_file(adb, address, local, remote, row, timeout, report=None)
     token = uuid.uuid4().hex
     stage = root + "/StreamingAssets/.quest-install-upload-" + token
     ready = stage + ".ready"
-    # /sdcard itself is Android's intentional alias. Validate our bank and its
-    # descendants, without rejecting that framework-owned storage symlink.
-    parts = remote.split("/"); parents = ["/".join(parts[:end]) for end in range(len(root.split("/")), len(parts))]
-    lines = ["test ! -L " + shlex.quote(p) for p in dict.fromkeys([*parents, root + "/StreamingAssets"])]
-    lines += ["test ! -L " + shlex.quote(remote), "mkdir -p " + shlex.quote(remote.rsplit("/", 1)[0]),
-              "mkdir -p " + shlex.quote(root + "/StreamingAssets"),
-              "test ! -e " + shlex.quote(stage), "test ! -L " + shlex.quote(stage),
-              "test ! -e " + shlex.quote(ready), "test ! -L " + shlex.quote(ready)]
-    _content_shell(adb, address, lines, timeout=30)
-    script = "set -eu; umask 022; cat > " + shlex.quote(stage) + "; printf %s " + token + " > " + shlex.quote(ready)
-    # The native shell-v2 service receives this exact command once. Binary
-    # stdin uses framed local-server packets, never a PTY or CRT text pipe.
-    command = [adb.executable, "-s", address, "binary-shell-v2", script]
-    with adb.log.open("a", encoding="utf-8") as log:
-        log.write(json.dumps({"binaryContentUpload": command, "local": str(local), "remote": remote,
-                              "expectedBytes": row["size"], "expectedSha256": row["sha256"]}) + "\n")
+    stage_q, ready_q, remote_q = map(shlex.quote, (stage, ready, remote))
+    parts = remote.split("/")
+    parents = list(dict.fromkeys([*["/".join(parts[:end]) for end in range(len(root.split("/")), len(parts))],
+                                  root + "/StreamingAssets"]))
+    checks = ["test ! -L " + shlex.quote(p) for p in parents]
+    checks += ["test ! -L " + stage_q, "test ! -L " + ready_q, "test ! -L " + remote_q]
+    # A partial stdin transfer has no unique post-EOF marker. Exit 76 is only
+    # an empty, known incomplete operation; integrity failures remain errors.
+    publication = [*checks,
+        "if test -f " + stage_q + "; then",
+        "test -f " + ready_q + " || exit 76",
+        "test \"$(cat " + ready_q + ")\" = " + token,
+        "ghvr_publish_source=" + stage_q + "; ghvr_incomplete=1",
+        "else test -f " + remote_q + " || exit 76; ghvr_publish_source=" + remote_q + "; ghvr_incomplete=76; fi",
+        'test "$(stat -c %s "$ghvr_publish_source")" = ' + str(row["size"]) + ' || exit "$ghvr_incomplete"',
+        'test "$(sha256sum "$ghvr_publish_source" | cut -d\' \' -f1)" = ' + row["sha256"]
+        + " || { if test \"$ghvr_incomplete\" = 76; then exit 76; fi; printf '%s\\n' 'Binary content checksum differs.' >&2; exit 1; }",
+        "if test -f " + stage_q + "; then mv -f " + stage_q + " " + remote_q + "; fi"]
+    if checkpoint:
+        journal_q = shlex.quote(root + "/" + _FILE_JOURNAL)
+        publication += ["test ! -L " + journal_q,
+            # The leading newline isolates a previous torn append from the
+            # next complete row. Readers ignore incomplete/foreign claims.
+            "printf '\\n%s\\n' " + shlex.quote(json.dumps(dict(row, key=checkpoint), separators=(",", ":"))) + " >> " + journal_q]
+    expected = [token, str(row["size"]), row["sha256"]]
+    publication += ["rm -f " + ready_q, "printf '%s\\n' " + " ".join(expected)]
+    preflight = [*checks, "mkdir -p " + shlex.quote(remote.rsplit("/", 1)[0]),
+        "mkdir -p " + shlex.quote(root + "/StreamingAssets"),
+        "test ! -e " + stage_q, "test ! -e " + ready_q,
+        "cat > " + stage_q, "printf %s " + token + " > " + ready_q]
+    script = "set -eu\n umask 022\n" + "\n".join(preflight + publication) + "\n"
+    initial = local.stat(); published = False; disconnected = False
+
+    def log_event(value):
+        with adb.log.open("a", encoding="utf-8") as log: log.write(json.dumps(value) + "\n")
+
+    def cleanup(reconnect=False):
+        _content_shell(adb, address, ["test ! -L " + stage_q, "test ! -L " + ready_q,
+                                     "rm -f " + stage_q + " " + ready_q], timeout=30, reconnect=reconnect)
+
     try:
-        initial = local.stat()
-        callback = (lambda done, total: report(done, total, remote)) if report else None
-        result = adb.binary_stream(address, local, script, timeout, callback)
-        message = result.stderr[-16384:]
-        with adb.log.open("a", encoding="utf-8") as log:
-            log.write(json.dumps({"binaryUploadExit": result.returncode, "stderr": message}) + "\n")
-        if result.returncode:
-            raise InstallError("Binary content upload failed; retained saves and completed files remain available: " + message[:1200])
-        current = local.stat()
-        if (initial.st_size, initial.st_mtime_ns, initial.st_ctime_ns) != (current.st_size, current.st_mtime_ns, current.st_ctime_ns):
-            raise InstallError("Local content changed during binary upload.")
-        # Shell-v2 waits for remote Exit after EOF. Check the operation marker
-        # once and hash once; no speculative delay or completed-bank reread.
-        ready_q, stage_q = shlex.quote(ready), shlex.quote(stage)
-        proof = _content_shell(adb, address, [
-            "test -f " + ready_q + " || { printf '%s\\n' 'Binary upload completion marker is missing.' >&2; exit 1; }",
-            "test ! -L " + ready_q, "test \"$(cat " + ready_q + ")\" = " + token,
-            "test ! -L " + stage_q, "test -f " + stage_q,
-            "stat -c %s " + stage_q, "sha256sum " + stage_q], timeout=max(600, timeout)).splitlines()
-        if proof != [str(row["size"]), row["sha256"] + "  " + stage]:
-            raise InstallError("Binary content differs from its exact size/checksum; no completion receipt or launch was allowed.")
-        _content_shell(adb, address, [*["test ! -L " + shlex.quote(p) for p in parents],
-                                    "test ! -L " + shlex.quote(remote),
-                                    "mv -f " + stage_q + " " + shlex.quote(remote), "rm -f " + ready_q], timeout=30)
-        if report: report(row["size"], row["size"], remote)
-    except subprocess.TimeoutExpired as error:
-        with adb.log.open("a", encoding="utf-8") as log:
-            log.write(json.dumps({"binaryUploadTimeout": timeout, "remote": remote}) + "\n")
-        raise InstallError("Binary content upload timed out; completed files and restored saves remain retained. Retry installation.") from error
-    except OSError as error:
-        with adb.log.open("a", encoding="utf-8") as log:
-            log.write(json.dumps({"binaryUploadError": str(error), "winError": getattr(error, "winerror", None)}) + "\n")
-        raise InstallError("Binary content upload could not continue: " + str(error) + ". Restored saves and completed files remain retained.") from error
-    except RuntimeError as error:
-        if isinstance(error, InstallError): raise
-        with adb.log.open("a", encoding="utf-8") as log:
-            log.write(json.dumps({"binaryUploadProtocolError": str(error)[:16384]}) + "\n")
-        if re.search(r"(?:device offline|device unauthorized|device '[^'\n]+' not found|no devices/emulators found)", str(error), re.I):
-            raise ConnectionRequired("The Quest connection is unavailable. " + HELP, "offline-or-unauthorized") from error
-        raise InstallError("Binary content transfer did not complete: " + str(error)[:1200] + ". Restored saves and completed files remain retained.") from error
+        while True:
+            log_event({"binaryContentUpload": "shell-v2", "transport": address, "local": str(local),
+                       "remote": remote, "expectedBytes": row["size"], "expectedSha256": row["sha256"]})
+            try:
+                callback = (lambda done, total: report(done, total, remote)) if report else None
+                result = adb.binary_stream(address, local, script, timeout, callback)
+                message = result.stderr[-16384:]
+                log_event({"binaryUploadExit": result.returncode, "stderr": message})
+                if result.returncode:
+                    if connection_unavailable(message):
+                        raise ConnectionRequired(message + ". " + HELP, "offline-or-unauthorized")
+                    raise InstallError("Binary content upload failed; completed files and saves remain retained: " + message[:1200])
+                proof = getattr(result, "stdout", "").strip().splitlines()
+            except (OSError, RuntimeError, subprocess.TimeoutExpired) as error:
+                if isinstance(error, InstallError) and not isinstance(error, ConnectionRequired): raise
+                lost = (isinstance(error, (ConnectionRequired, ConnectionError, TimeoutError, subprocess.TimeoutExpired))
+                        or connection_unavailable(error))
+                log_event({"binaryUploadError": str(error)[:16384], "connectionUnavailable": lost,
+                           **({"binaryUploadTimeout": timeout} if isinstance(error, subprocess.TimeoutExpired) else {})})
+                if not lost:
+                    raise InstallError("Binary content transfer did not complete: " + str(error)[:1200]) from error
+                disconnected = True
+                if not getattr(adb, "wait_enabled", False):
+                    detail = "Binary transfer timed out" if isinstance(error, subprocess.TimeoutExpired) else str(error)[:1200]
+                    raise ConnectionRequired("The Quest connection is unavailable: " + detail + ". " + HELP,
+                                             "offline-or-unauthorized") from error
+                adb.wait_for_connection(address)
+                # This probe replays only a qualified single-file publication,
+                # never uninstall, save restoration or an arbitrary mutation.
+                proof = adb.run("-s", address, "shell", "-T", "sh", "-s",
+                    input_text="set -eu\n" + "\n".join(publication) + "\n", timeout=max(600, timeout),
+                    check_text=False, reconnect=True, empty_exit_codes=(76,),
+                    positive=r"\A" + re.escape("\n".join(expected)) + r"\s*\Z").splitlines()
+                disconnected = False
+                if not proof:
+                    # Only an empty exit 76 reaches this branch. Preserve all
+                    # committed files; remove this incomplete operation only.
+                    cleanup(reconnect=True)
+                    continue
+            current = local.stat()
+            if (initial.st_size, initial.st_mtime_ns, initial.st_ctime_ns) != (current.st_size, current.st_mtime_ns, current.st_ctime_ns):
+                raise InstallError("Local content changed during binary upload.")
+            if proof != expected:
+                raise InstallError("Binary content differs from its exact size/checksum or operation acknowledgement; no completion receipt or launch was allowed.")
+            published = True
+            if report: report(row["size"], row["size"], remote)
+            return
     finally:
-        # Only this operation's generated staging is removable. No saves,
-        # previous receipt, committed file or unknown sibling is swept.
-        try:
-            _content_shell(adb, address, ["test ! -L " + shlex.quote(stage), "test ! -L " + shlex.quote(ready),
-                                        "rm -f " + shlex.quote(stage) + " " + shlex.quote(ready)], timeout=30)
-        except InstallError as error:
-            with adb.log.open("a", encoding="utf-8") as log: log.write("Retained content upload staging: " + str(error)[:1000] + "\n")
+        # A dropped connection may have left verified staging or a published
+        # file. Preserve it for the same-operation reconnect/probe, never delete
+        # it merely because its acknowledgement was lost.
+        if not published and not disconnected:
+            try: cleanup()
+            except InstallError as error: log_event({"retainedUploadStaging": str(error)[:1000]})
 
 
-def _push_content(adb, address, local, remote, *, timeout, rows, report=None):
+def _push_content(adb, address, local, remote, *, timeout, rows, report=None, checkpoint=None):
     """Keep sync's fast path; repair only its observed Android fchown failure."""
     local = Path(local)
     if local.is_dir():
@@ -861,17 +988,34 @@ def _push_content(adb, address, local, remote, *, timeout, rows, report=None):
             adb.run("-s", address, "push", local, remote, timeout=timeout)
             return False  # The caller still owns normal sync verification.
         except InstallError as error:
-            if not re.search(r"remote fchown failed:\s*Operation not permitted", str(error)):
+            if isinstance(error, ConnectionRequired) and getattr(adb, "wait_enabled", False):
+                adb.wait_for_connection(address)
+                # Sync left an uncertain partial batch. Switch this attempt to
+                # atomic single-file delivery instead of blindly replaying it.
+            elif not re.search(r"remote fchown failed:\s*Operation not permitted", str(error)):
                 raise
-            print("Android rejected sync ownership metadata; using verified binary content upload.", flush=True)
+            else:
+                print("Android rejected sync ownership metadata; using verified binary content upload.", flush=True)
             raw_addresses = {*raw_addresses, address}; adb._raw_content_addresses = raw_addresses
     if local.is_dir():
         for row in rows:
             target = remote.rstrip("/") + "/" + row["path"]
-            _stream_content_file(adb, address, local.parent / row["path"], target, row, timeout, report)
+            while True:
+                try:
+                    _stream_content_file(adb, address, local.parent / row["path"], target, row, timeout, report, checkpoint)
+                    break
+                except ConnectionRequired:
+                    if not getattr(adb, "wait_enabled", False): raise
+                    adb.wait_for_connection(address)
     else:
         if len(rows) != 1: raise InstallError("A content file requires one exact upload inventory row.")
-        _stream_content_file(adb, address, local, remote, rows[0], timeout, report)
+        while True:
+            try:
+                _stream_content_file(adb, address, local, remote, rows[0], timeout, report, checkpoint)
+                break
+            except ConnectionRequired:
+                if not getattr(adb, "wait_enabled", False): raise
+                adb.wait_for_connection(address)
     return True  # Every raw file was verified once before its atomic rename.
 
 
@@ -957,21 +1101,54 @@ def _publish_content_receipt(adb, address, root, manifest, rows, temporary, fina
                               "sha256sum " + shlex.quote(remote + ".upload")], timeout=30).splitlines()
         if proof != [str(row["size"]), row["sha256"] + "  " + remote + ".upload"]:
             raise InstallError("Content receipt upload did not preserve its exact bytes.")
-    _content_shell(adb, address, ["mv -f " + shlex.quote(remote + ".upload") + " " + shlex.quote(remote)], timeout=30)
+    # Replaying after lost acknowledgement is harmless only if the destination
+    # already contains this exact small receipt. Never replay an unqualified mv.
+    upload_q, remote_q = shlex.quote(remote + ".upload"), shlex.quote(remote)
+    _content_shell(adb, address, ["test ! -L " + upload_q, "test ! -L " + remote_q,
+        "if test -f " + upload_q + "; then mv -f " + upload_q + " " + remote_q + "; else",
+        "test -f " + remote_q,
+        "test \"$(sha256sum " + remote_q + " | cut -d' ' -f1)\" = " + row["sha256"], "fi"], timeout=30)
+
+
+def _pull_file_journal(adb, address, root, manifest, temporary):
+    """Read only compact, completed per-file claims for this exact bank."""
+    local = temporary / "accepted.jsonl"
+    journal = root + "/" + _FILE_JOURNAL
+    _content_shell(adb, address, ["test ! -L " + shlex.quote(journal)], timeout=30)
+    try:
+        adb.run("-s", address, "pull", journal, local, timeout=30, check_text=False, reconnect=True)
+    except ConnectionRequired: raise
+    except InstallError: return {}
+    if not local.is_file() or local.stat().st_size > _RECEIPT_LIMIT: return {}
+    wanted = {row["path"]: row for row in manifest["files"]}
+    key, accepted = content_key(manifest), {}
+    for line in local.read_bytes().splitlines(keepends=True):
+        if not line.endswith(b"\n"): continue  # Interrupted append never owns completion.
+        try: row = json.loads(line)
+        except (ValueError, UnicodeError): continue
+        if not isinstance(row, dict) or row.get("key") != key: continue
+        path = row.get("path")
+        if isinstance(path, str) and path in wanted and {k: row.get(k) for k in ("path", "size", "sha256")} == wanted[path]:
+            accepted[path] = wanted[path]
+    return accepted
 
 
 def _content_progress(done, total, detail, *, complete=False):
-    print("GHVRQ_PROGRESS " + json.dumps({"schema": 1, "phase": "install-content", "operation": "content",
+    global _LAST_CONTENT_PROGRESS
+    _LAST_CONTENT_PROGRESS = {"schema": 1, "phase": "install-content", "operation": "content",
           "done": done, "total": total, "unit": "bytes", "status": "complete" if complete else "progress",
-          "detail": detail[:1024]}), flush=True)
+          "detail": detail[:1024]}
+    print("GHVRQ_PROGRESS " + json.dumps(_LAST_CONTENT_PROGRESS), flush=True)
 
 
-def _install_content_tree(adb, address, source, manifest, archive, root, temporary, repair, progress_scope=None):
+def _install_content_tree(adb, address, source, manifest, archive, root, temporary, repair, progress_scope=None,
+                          observed_receipt=_UNREAD_RECEIPT):
     rows = manifest["files"]
     members = _validate_zip_members(archive, manifest)
     base_bytes, total_bytes = progress_scope or (0, sum(row["size"] for row in rows))
     _content_shell(adb, address, ["mkdir -p " + shlex.quote(root), "test ! -L " + shlex.quote(root)], timeout=30)
-    committed = _pull_content_receipt(adb, address, root + "/" + _RECEIPT, temporary / "committed.bin")
+    committed = (_pull_content_receipt(adb, address, root + "/" + _RECEIPT, temporary / "committed.bin")
+                 if observed_receipt is _UNREAD_RECEIPT else observed_receipt)
     if committed and committed["key"] == content_key(manifest) and not repair:
         print("Reusing completed file-backed content: " + root.rsplit("/", 1)[-1] + ".")
         _content_progress(base_bytes + sum(row["size"] for row in rows), total_bytes, "Reusing completed " + root.rsplit("/", 1)[-1])
@@ -981,7 +1158,11 @@ def _install_content_tree(adb, address, source, manifest, archive, root, tempora
                     _pull_content_receipt(adb, address, root + "/" + _RECEIPT + ".pending", temporary / "pending.bin")):
         if receipt:
             inventory.update(receipt["files"])
-    sizes = _remote_content_sizes(adb, address, root, rows)
+    inventory.update(_pull_file_journal(adb, address, root, manifest, temporary))
+    # Never stat thousands of missing/unclaimed files on a first installation.
+    # Existing claims need metadata only; hashing is an explicit repair action.
+    claimed = [row for row in rows if inventory.get(row["path"]) == row]
+    sizes = _remote_content_sizes(adb, address, root, claimed)
     retained = {row["path"]: row for row in rows if inventory.get(row["path"]) == row and sizes.get(row["path"]) == row["size"]}
     if repair and retained:
         # Repair verifies all claimed bytes at installation time, never at launch.
@@ -1019,7 +1200,8 @@ def _install_content_tree(adb, address, source, manifest, archive, root, tempora
                 transferred[target] = done
                 _content_progress(base_bytes + accepted_bytes + sum(transferred.values()), total_bytes,
                                   "Transferring and verifying game content: " + target.rsplit("/", 1)[-1])
-            verified = _push_content(adb, address, stage, root + "/", timeout=transfer_timeout, rows=batch, report=report)
+            verified = _push_content(adb, address, stage, root + "/", timeout=transfer_timeout, rows=batch,
+                                     report=report, checkpoint=content_key(manifest))
             if not verified: _verify_remote_content(adb, address, root, batch)
             retained.update((row["path"], row) for row in batch)
             _publish_content_receipt(adb, address, root, manifest, retained, temporary, _RECEIPT + ".pending")
@@ -1041,7 +1223,8 @@ def _install_content_tree(adb, address, source, manifest, archive, root, tempora
         for offset in range(0, len(obsolete), 128):
             _content_shell(adb, address, ["rm -f " + shlex.quote(root + "/" + row["path"])
                                          for row in obsolete[offset:offset + 128]], timeout=30)
-    _content_shell(adb, address, ["rm -f " + shlex.quote(root + "/" + _RECEIPT + suffix) for suffix in (".pending", ".previous")], timeout=30)
+    _content_shell(adb, address, ["rm -f " + shlex.quote(root + "/" + _RECEIPT + suffix) for suffix in (".pending", ".previous")]
+                   + ["rm -f " + shlex.quote(root + "/" + _FILE_JOURNAL)], timeout=30)
     return {"contentKey": content_key(manifest), "files": len(rows), "reusedFiles": len(rows) - uploaded, "uploadedFiles": uploaded}
 
 
@@ -1049,7 +1232,7 @@ def install_file_content(adb, address, source, repair=False):
     manifest = installation_manifest(source)
     if manifest is None:
         return None
-    adb.run("-s", address, "shell", "am", "force-stop", PACKAGE, timeout=30)
+    adb.run("-s", address, "shell", "am", "force-stop", PACKAGE, timeout=30, reconnect=True)
     base = "/sdcard/Android/data/" + PACKAGE + "/files/"
     records = []
     total_bytes = sum(row["size"] for kind in ("mod", "game") for row in manifest[kind]["files"])
@@ -1060,12 +1243,25 @@ def install_file_content(adb, address, source, repair=False):
         if mod_info.file_size > 4 * 1024 * 1024 * 1024:
             raise InstallError("Mod content archive exceeds its bounded size.")
         mod_path = temporary / "quest-mod-content.zip"
-        with apk.open(mod_info) as origin, mod_path.open("wb") as destination:
-            shutil.copyfileobj(origin, destination, 1024 * 1024)
-        if digest(mod_path) != manifest["mod"]["archiveSha256"]:
-            raise InstallError("The embedded mod bank differs from its inventory.")
         for kind, path, root in (("mod", mod_path, base + "quest-mod-resources"),
                                 ("game", source.content[0].path, base + "quest-owned-game")):
+            _content_shell(adb, address, ["test ! -L " + shlex.quote(root)], timeout=30)
+            committed = _pull_content_receipt(adb, address, root + "/" + _RECEIPT, temporary / "warm-bank.bin")
+            if committed and committed["key"] == content_key(manifest[kind]) and not repair:
+                print("Reusing completed file-backed content: " + root.rsplit("/", 1)[-1] + ".")
+                result = {"contentKey": committed["key"], "files": len(manifest[kind]["files"]),
+                          "reusedFiles": len(manifest[kind]["files"]), "uploadedFiles": 0}
+                records.append({"archive": manifest[kind]["archive"], "sha256": manifest[kind]["archiveSha256"],
+                                "size": mod_info.file_size if kind == "mod" else source.content[0].size,
+                                "remote": root, "fileBacked": True, **result})
+                completed_bytes += sum(row["size"] for row in manifest[kind]["files"])
+                _content_progress(completed_bytes, total_bytes, "Reusing completed " + root.rsplit("/", 1)[-1])
+                continue
+            if kind == "mod":
+                with apk.open(mod_info) as origin, mod_path.open("wb") as destination:
+                    shutil.copyfileobj(origin, destination, 1024 * 1024)
+                if digest(mod_path) != manifest["mod"]["archiveSha256"]:
+                    raise InstallError("The embedded mod bank differs from its inventory.")
             if kind == "game" and not path.exists():
                 retained = require_installed_game(adb, address, source, temporary, repair=repair)
                 records.append({"archive": manifest[kind]["archive"], "sha256": manifest[kind]["archiveSha256"],
@@ -1075,7 +1271,7 @@ def install_file_content(adb, address, source, repair=False):
                 continue
             with zipfile.ZipFile(path) as archive:
                 result = _install_content_tree(adb, address, source, manifest[kind], archive, root, temporary, repair,
-                                               progress_scope=(completed_bytes, total_bytes))
+                                               progress_scope=(completed_bytes, total_bytes), observed_receipt=committed)
             completed_bytes += sum(row["size"] for row in manifest[kind]["files"])
             records.append({"archive": manifest[kind]["archive"], "sha256": manifest[kind]["archiveSha256"],
                             "size": path.stat().st_size, "remote": root, "fileBacked": True, **result})
@@ -1156,7 +1352,46 @@ def clean_previous_content(adb, address, previous, installed):
                 + r"/files/quest-install-input/[0-9a-f]{64}/quest-startup-content\.zip", remote)):
             # Only an earlier successful installation's exact bank is removed,
             # after every new bank has passed its device checksum.
-            adb.run("-s", address, "shell", "rm", "-f", remote, timeout=30)
+            adb.run("-s", address, "shell", "rm", "-f", remote, timeout=30, reconnect=True)
+
+
+def connected_recovery(adb, address, recovery, *, detected=False):
+    """Resume the signing transaction's own journal after a connection loss.
+
+    Recovery wraps its underlying transport exception. Inspect that cause;
+    never retry a data-policy choice or integrity failure as a disconnect.
+    Its committed uninstall/restore states own the next permitted mutation.
+    """
+    while True:
+        try: return recovery.recover(detected=detected)
+        except RuntimeError as error:
+            cause, seen, lost = error, set(), False
+            while cause is not None and id(cause) not in seen:
+                seen.add(id(cause))
+                lost = lost or isinstance(cause, ConnectionRequired)
+                cause = cause.__cause__
+            if not lost or not adb.wait_enabled: raise
+            adb.wait_for_connection(address)
+
+
+def install_connected_apk(adb, address, source, timeout):
+    """On lost APK acknowledgement, qualify only the uncertain package once."""
+    while True:
+        try:
+            adb.run("-s", address, "install", "-r", source.apk, timeout=timeout, positive=r"^Success\s*$")
+            return
+        except ConnectionRequired:
+            if not adb.wait_enabled: raise
+            adb.wait_for_connection(address)
+            paths = adb.run("-s", address, "shell", "pm", "path", "--user", "0", PACKAGE,
+                            check_text=False, reconnect=True, empty_exit_codes=(1,)).splitlines()
+            if len(paths) == 1 and re.fullmatch(r"package:/data/app/[A-Za-z0-9_./=+~-]+/base\.apk", paths[0]):
+                remote = paths[0][8:]
+                actual = adb.run("-s", address, "shell", "sha256sum", remote,
+                                 timeout=600, check_text=False, reconnect=True)
+                if actual == source.sha256 + "  " + remote:
+                    print("The replacement APK finished before its connection acknowledgement; continuing without reinstalling.", flush=True)
+                    return
 
 
 def parser():
@@ -1171,6 +1406,8 @@ def parser():
     result.add_argument("--serial")
     result.add_argument("--setup", action="store_true")
     result.add_argument("--no-launch", action="store_true")
+    result.add_argument("--wait-for-connection", action="store_true",
+                        help="Keep the Wizard installation paused until the same authorized Quest reconnects.")
     result.add_argument("--repair-content", action="store_true", help="Verify installed game bytes and repair missing/changed files before launch.")
     result.add_argument("--recovery-data-policy", choices=("all", "saves"), default="saves",
                         help="Signing migration: retain saves/settings without copying game banks or the original APK; all is the explicit legacy full rollback policy.")
@@ -1181,11 +1418,14 @@ def parser():
 
 
 def main(argv=None, runner=None):
+    global _LAST_CONTENT_PROGRESS, _INPUT_CACHE_PATH
+    _LAST_CONTENT_PROGRESS = None
     _DIGEST_CACHE.clear()
     args = parser().parse_args(argv)
     log = None
     try:
         config_path = args.config.expanduser().resolve()
+        _INPUT_CACHE_PATH = None if args.dry_run else config_path.parent / "qualified-inputs.json"
         config = read_json(config_path) if config_path.is_file() else {}
         source = select_source(args, config)
         receipt = config_path.parent / "wireless-last-install.json"
@@ -1213,7 +1453,13 @@ def main(argv=None, runner=None):
                                    "isDiagnostic": source.diagnostic, "isDummy": source.dummy}) + "\n",
                        encoding="utf-8")
         adb = Adb(executable, log, runner)
-        address, hardware = choose_device(adb, args, config)
+        adb.wait_enabled = args.wait_for_connection
+        adb.connection_config = dict(config)
+        try: address, hardware = choose_device(adb, args, config)
+        except ConnectionRequired:
+            if not adb.wait_enabled: raise
+            address, hardware = adb.wait_for_connection()
+        adb.connection_config = connection_settings(config, address, hardware, executable)
         # Re-read both the receipt and APK immediately before the only app mutation.
         if resolve_source(source.kind, source.path, check_zip=False) != source:
             raise InstallError("The APK or source evidence changed during device setup; retry with the intended build.")
@@ -1225,15 +1471,16 @@ def main(argv=None, runner=None):
         recovery = recovery_api.Recovery(adb, address, hardware, source, config_path.parent,
                                          install_timeout=install_timeout, decode_receipt=decode_content_receipt,
                                          data_policy=args.recovery_data_policy, allow_content_reinstall=args.allow_content_reinstall)
-        migration = recovery.recover()
+        adb.connection_operation = "apk"
+        migration = connected_recovery(adb, address, recovery)
         if migration is None:
             if any(not bank.path.is_file() for bank in source.content):
                 with tempfile.TemporaryDirectory(prefix="ghvr-quest-retained-") as temporary:
                     require_installed_game(adb, address, source, Path(temporary), repair=args.repair_content)
             try:
-                adb.run("-s", address, "install", "-r", source.apk, timeout=install_timeout, positive=r"^Success\s*$")
+                install_connected_apk(adb, address, source, install_timeout)
             except SigningMismatch:
-                migration = recovery.recover(detected=True)
+                migration = connected_recovery(adb, address, recovery, detected=True)
         # B618+ uses its build number as Android versionCode. Querying that
         # small package record confirms installation without another multi-GB
         # hash/read of the headset's APK before every hardware test.
@@ -1242,7 +1489,7 @@ def main(argv=None, runner=None):
             # Dumpsys fields such as Dexopt's "[location is error]" are data,
             # not command failures. Require a successful exit and exact stamps.
             package_info = adb.run("-s", address, "shell", "dumpsys", "package", PACKAGE,
-                                   timeout=30, check_text=False)
+                                   timeout=30, check_text=False, reconnect=True)
             versions = re.findall(r"\bversionCode=(\d+)\b", package_info)
             names = re.findall(r"\bversionName=([^\s]+)", package_info)
             expected_name = "0.1.0.B" + str(source.mod_build) + "." + source.input_key[:12]
@@ -1262,7 +1509,8 @@ def main(argv=None, runner=None):
         clean_previous_content(adb, address, previous, content_records)
         if not args.no_launch:
             adb.run("-s", address, "shell", "am", "start", "-W", "-n", ACTIVITY,
-                    timeout=45, positive=r"^Status:\s*ok\s*$")
+                    timeout=45, positive=r"^Status:\s*ok\s*$", reconnect=True)
+        address = adb.transport(address)
         settings = connection_settings(config, address, hardware, executable)
         settings["source"] = source.setting()
         write_json(config_path, settings)

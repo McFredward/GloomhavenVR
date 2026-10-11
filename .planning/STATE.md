@@ -1,5 +1,19 @@
 # State — where the project stands
 
+**Quest durable installation resume, 2026-10-11.**
+
+Capture193713 proves a local Windows ADB-daemon outage after a verified content
+file, with B665 and six build stages already complete. Missing original game
+assets still require ordinary delivery; the old batch checkpoint already retains
+about7.47GB. Per-file atomic claims, one-call shell-v2 publication and exact
+uncertain-file recovery reduce repeated work. Warm banks and unchanged local
+APK/ZIP inputs reuse small witnessed receipts; live connection waits retain
+progress and resume the same physical Quest automatically. No Unity/game rebuild
+or new APK export. Focused host/browser checks and independent real-process
+controls are source-bound in the delivery validation; hardware completion remains
+unverified. Contracts and limits:
+[QUEST-INSTALLATION-RESUME-193713-20261011.md](QUEST-INSTALLATION-RESUME-193713-20261011.md).
+
 **Quest USB selection and binary EOF completion, 2026-10-11.**
 
 Capture170604 contains an authorized USB Quest, but the prior installer still

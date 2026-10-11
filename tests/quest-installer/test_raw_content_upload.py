@@ -39,20 +39,30 @@ class RawDevice(LocalDevice):
             raise subprocess.TimeoutExpired(command, timeout)
         if self.raw_fault == "offline":
             return subprocess.CompletedProcess(command, 1, stderr="device offline")
-        # A real byte-file/pipe models shell-v2 CloseStdin plus observed Exit.
-        # The helper's exact protocol framing is independently process-tested.
-        if self.raw_fault != "silent":
-            remote = script.replace(self.prefix, str(self.root) + "/")
-            with Path(local).open("rb") as source:
-                subprocess.run(["sh", "-c", remote], stdin=source,
-                               stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=10, check=True)
-        if self.raw_fault == "corrupt":
-            for path in self.root.rglob(".quest-install-upload-*"):
-                if not path.name.endswith(".ready"):
-                    data = path.read_bytes(); path.write_bytes(b"X" + data[1:])
+        # Execute the actual generated publication script through a binary
+        # file/pipe, retaining its real exit/output. Faults alter input or the
+        # EOF marker before qualification; they cannot invent success.
+        if self.raw_fault == "silent":
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        remote = script.replace(self.prefix, str(self.root) + "/")
         if self.raw_fault == "marker":
-            for path in self.root.rglob("*.ready"): path.write_bytes(b"another-operation")
-        return subprocess.CompletedProcess(command, 0, stderr="")
+            remote = remote.replace("printf %s ", "printf %s another-operation-")
+        with Path(local).open("rb") as source:
+            if self.raw_fault == "corrupt":
+                source_data = bytearray(source.read()); source_data[0] ^= 1
+                result = subprocess.run(["sh", "-c", remote], input=bytes(source_data),
+                                        capture_output=True, timeout=10)
+            else:
+                result = subprocess.run(["sh", "-c", remote], stdin=source,
+                                        capture_output=True, timeout=10)
+        if self.raw_fault == "lost-ack":
+            self.raw_fault = None
+            raise RuntimeError("The ADB server closed without a complete shell-v2 response.")
+        if self.raw_fault == "partial":
+            raise AssertionError("Use the interrupted-input fixture")
+        return subprocess.CompletedProcess(command, result.returncode,
+                                           stdout=result.stdout.decode(), stderr=result.stderr.decode())
+
 
 
 class RawContentUploadTests(unittest.TestCase):
@@ -81,7 +91,9 @@ class RawContentUploadTests(unittest.TestCase):
         verified, target, data = self.upload()
         self.assertTrue(verified)
         self.assertEqual(self.device.local(target).read_bytes(), data)
-        self.assertLess(len(subprocess.list2cmdline(self.device.raw_calls[0])), 1024)
+        # This script travels over a socket service, not CreateProcess argv.
+        self.assertLess(len(self.device.raw_calls[0][-1].encode()), 65535)
+        self.assertFalse(any(call[0] == "shell" for call in self.device.calls))
         self.assertFalse(list(self.device.root.rglob(".quest-install-upload-*")))
 
     def test_both_banks_and_receipts_repair_then_warm_reuse_without_tree_scan(self):
@@ -127,7 +139,7 @@ class RawContentUploadTests(unittest.TestCase):
         remote = self.device.prefix + "quest-owned-game/StreamingAssets/a ' file.bin"
         previous = self.device.local(remote); previous.parent.mkdir(parents=True)
         previous.write_bytes(b"previous committed content")
-        with self.assertRaisesRegex(installer.InstallError, "timed out.*restored saves"):
+        with self.assertRaisesRegex(installer.ConnectionRequired, "timed out.*USB"):
             self.upload("timeout")
         self.assertEqual(previous.read_bytes(), b"previous committed content")
         self.assertIn("binaryUploadTimeout", self.device.log.read_text())
@@ -141,8 +153,29 @@ class RawContentUploadTests(unittest.TestCase):
         self.device.root.mkdir()
         (self.device.root / "quest-owned-game").symlink_to(outside, target_is_directory=True)
         with self.assertRaises(installer.InstallError): self.upload()
-        self.assertFalse(self.device.raw_calls)
+        self.assertEqual(len(self.device.raw_calls), 1)
         self.assertEqual(list(outside.iterdir()), [])
+    def test_lost_exit_resumes_same_publication_without_resending_payload(self):
+        self.device.wait_enabled = True
+        waits = []
+        self.device.wait_for_connection = lambda serial: waits.append(serial)
+        self.upload("lost-ack")
+        self.assertEqual(waits, ["quest"])
+        self.assertEqual(len(self.device.raw_calls), 1)
+        self.assertFalse(list(self.device.root.rglob(".quest-install-upload-*")))
+
+    def test_one_file_journal_survives_an_unclosed_batch_and_torn_append(self):
+        row = self.manifest["game"]["files"][0]
+        payload = self.root / "single.bin"; payload.write_bytes(self.game[row["path"]])
+        remote_root = self.device.prefix + "quest-owned-game"
+        journal = self.device.local(remote_root + "/" + installer._FILE_JOURNAL)
+        journal.parent.mkdir(parents=True); journal.write_bytes(b'{"torn":')
+        with contextlib.redirect_stdout(io.StringIO()):
+            installer._push_content(self.device, "quest", payload, remote_root + "/" + row["path"],
+                                    timeout=30, rows=[row], checkpoint=installer.content_key(self.manifest["game"]))
+        accepted = installer._pull_file_journal(self.device, "quest", remote_root, self.manifest["game"], self.root)
+        self.assertEqual(accepted, {row["path"]: row})
+
 
 
 if __name__ == "__main__": unittest.main()
