@@ -312,7 +312,16 @@ def phase_operation(stage, phase, value):
         # a measured task fraction; native passes remain visible child detail.
         if phase == "unity-shader-task": return None, True
         if phase == "unity-shader-compile": return None, False
-    if stage == "install" and phase == "install-content": return "content", True
+    if stage == "install":
+        if phase == "install-content": return "content", True
+        if phase in ("install-signature-detect", "install-signature-backup", "install-signature-replace",
+                     "install-signature-restore", "install-signature-verify"):
+            # A signing mismatch is repaired inside this APK operation. The
+            # installer's durable task counter owns this optional work; a
+            # complete backup/restore file counter does not close the APK.
+            return "apk", True
+        if phase in ("install-recovery-backup", "install-recovery-restore"):
+            return "apk", False
     return None, False
 
 
@@ -1607,6 +1616,7 @@ def advance(row, value, operation=None, status=None):
                       or unity_child
                       or unity_work_boundary
                       or value["phase"] == "unity-work-plan"
+                      or row["id"] == "install" and value["phase"].startswith(("install-signature-", "install-recovery-"))
                       or operation in plan.get("unityWork", {}) and value["phase"].startswith(("unity-", "bee-actions:"))
                       or workflow(row) in UPDATE_PLANS and value.get("childOperation") is not None)
     parent_status = "progress" if child_boundary else status

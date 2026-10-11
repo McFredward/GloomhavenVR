@@ -72,6 +72,22 @@ class InstallationFailureTests(unittest.TestCase):
                 self.assertNotIn("connectionReason", error.parameters)
                 self.assertTrue(error.parameters["completedBuildRetained"])
 
+    def test_signing_recovery_safety_refusal_names_actual_reason_without_usb_or_rebuild_advice(self):
+        cause = ("Signing migration could not safely continue: private save data is inaccessible. "
+                 "Retained backup: C:\\Users\\Owner\\.ghvrq\\device\\signing-migrations\\device-1")
+        error = self.failure("Quest installation stopped: " + cause)
+        self.assertEqual(error.code, "quest_signing_recovery_required")
+        self.assertEqual(error.parameters["cause"], cause)
+        self.assertTrue(error.parameters["signingRecovery"])
+        self.assertTrue(error.parameters["completedBuildRetained"])
+        self.assertEqual(error.parameters["retryAction"], "install")
+        self.assertNotIn("connectionReason", error.parameters)
+        self.assertIn("nicht neu gebaut", error.message["de"])
+        self.assertNotIn("USB-Debugging", error.message["de"])
+        for text in ("Earlier: Quest installation stopped: " + cause,
+                     "Quest installation stopped: Signing migration could not safely continue.unrecognized"):
+            self.assertNotEqual(self.failure(text).code, "quest_signing_recovery_required")
+
     def test_other_stage_unanchored_and_stale_lines_cannot_claim_connection_failure(self):
         for text in ("Earlier: Quest installation stopped: " + MISSING,
                      "Quest installation stopped: No authorized USB Quest is available.unrecognized"):
@@ -209,6 +225,24 @@ class InstallationRecoveryTests(unittest.TestCase):
         self.assertEqual(current["status"], "failed")
         self.assertEqual(current["needsActions"][0]["parameters"]["cause"], "Original bank differs")
         self.assert_prior_retained(current)
+
+    def test_interrupted_signing_recovery_retries_only_install_and_retains_backup(self):
+        self.forbid_earlier_work()
+        backup = self.store.root / "device/signing-migrations/headset/data.tar"
+        backup.parent.mkdir(parents=True); backup.write_bytes(b"retained save transaction")
+        cause = "Signing migration could not safely continue: restore access failed. Retained backup: " + str(backup.parent)
+        self.installer(failure=failures.installation_failure("Quest installation stopped: " + cause, {"failureStage": "install"}))
+        blocked = self.engine.run(self.session)
+        self.assertEqual(blocked["status"], "blocked")
+        self.assertEqual(blocked["needsActions"][0]["code"], "quest_signing_recovery_required")
+        self.assert_prior_retained(blocked)
+        self.assertFalse(self.store.receipt(self.session, "install").exists())
+        commands = self.installer()
+        resumed = self.engine.run(self.session)
+        self.assertEqual(resumed["status"], "complete")
+        self.assertEqual(len(commands), 1)
+        self.assertEqual(backup.read_bytes(), b"retained save transaction")
+        self.assert_prior_retained(resumed)
 
     def test_explicit_skip_publishes_small_real_receipt_without_amending_or_reading_prior_outputs(self):
         self.forbid_earlier_work()

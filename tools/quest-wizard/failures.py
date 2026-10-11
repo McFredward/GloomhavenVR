@@ -199,6 +199,14 @@ def installation_failure(text, parameters):
     ) if cause == prefix or cause.startswith(prefix + " ")), None)
     fields = dict(parameters, cause=cause, completedWorkRetained=True,
                   completedBuildRetained=True, retryAction="install", canSkipInstall=True)
+    if cause.startswith("Signing migration could not safely continue:"):
+        # An actual current signing migration refusal is not a connection
+        # problem. Never tell the player to rebuild or remove the installed
+        # application: the installer retains its recovery journal and backups.
+        return WizardError("quest_signing_recovery_required",
+            "The APK is ready. Automatic signing recovery could not safely finish. The exact reason and any retained backup location are shown below. Keep those backups, resolve the reported access, storage or connection problem, then retry installation. The installer resumes the saved recovery; the APK build is not repeated.",
+            "Die APK ist fertig. Die automatische Signatur-Wiederherstellung konnte nicht sicher abgeschlossen werden. Die genaue Ursache und der Pfad einer vorhandenen Sicherung stehen unten. Sicherungen behalten, das gemeldete Zugriffs-, Speicher- oder Verbindungsproblem beheben und die Installation erneut versuchen. Der Installer setzt die gespeicherte Wiederherstellung fort; die APK wird nicht neu gebaut.",
+            **dict(fields, signingRecovery=True))
     if reason:
         return WizardError("quest_connection_required",
             "The APK is ready. Quest installation needs an authorized headset. Unlock the Quest, enable developer mode, connect it by USB and accept the USB debugging prompt. Keep the Quest and PC on the same Wi-Fi. Connect only the intended headset, then retry installation. You can also finish without installing; the completed APK stays available.",

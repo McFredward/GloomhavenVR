@@ -66,7 +66,11 @@ export function installationView(state) {
   const cause=rawCause.split(/\r?\n/).map(line=>line.trim()).filter(Boolean).at(-1)?.replace(/[\u0000-\u001f\u007f]/g,' ').slice(0,360)??'';
   const result={...build.details,...state.result},paths={};
   for(const key of ['apk','handoff','outputRoot'])if(typeof result[key]==='string'&&result[key].length<=32768)paths[key]=result[key];
-  return {attention,connectionRequired,canSkip,cause,paths};
+  const view={attention,connectionRequired,canSkip,cause,paths};
+  if(attention&&action?.code==='quest_signing_recovery_required')view.recoveryRequired=true;
+  if(isActive(state)&&install.status==='running'&&typeof install.progress?.phase==='string'&&
+     /^(?:install-signature-|install-recovery-(?:backup|restore)$)/.test(install.progress.phase))view.recoveryActive=true;
+  return view;
 }
 export function failureView(state) {
   const action=state?.needsActions?.find(value=>value&&typeof value==='object')??{};

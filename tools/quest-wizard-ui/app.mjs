@@ -460,12 +460,12 @@ function renderProgress() {
   $('progress-title').textContent=t(failure?.blocked?'blockedTitle':failure?'failureTitle':waiting?'actionNeeded':done?'completeTitle':blocked?'blockedTitle':stopped?'stoppedTitle':state.status==='ready'?'readyTitle':'progressTitle');
   $('progress-copy').textContent=t(failure?.blocked?'nativeMemoryBlockedCopy':failure?'failureCopy':done?'completeCopy':blocked?'blockedCopy':stopped?'stoppedCopy':state.status==='ready'?'readyCopy':'progressCopy');
   if(installIssue){
-    $('progress-title').textContent=t(installation.connectionRequired?'questConnectionTitle':'installationFailedTitle');
-    $('progress-copy').textContent=t(installation.connectionRequired?'questConnectionCopy':'installationFailedCopy');
-    $('action-needed-title').textContent=t(installation.connectionRequired?'questConnectionNeeded':'installationFailedAction');
+    $('progress-title').textContent=t(installation.connectionRequired?'questConnectionTitle':installation.recoveryRequired?'installationRecoveryTitle':'installationFailedTitle');
+    $('progress-copy').textContent=t(installation.connectionRequired?'questConnectionCopy':installation.recoveryRequired?'installationRecoveryCopy':'installationFailedCopy');
+    $('action-needed-title').textContent=t(installation.connectionRequired?'questConnectionNeeded':installation.recoveryRequired?'installationRecoveryAction':'installationFailedAction');
   }else if(installation&&active){
-    $('progress-title').textContent=t('installationRunningTitle');
-    $('progress-copy').textContent=t('installationRunningCopy');
+    $('progress-title').textContent=t(installation.recoveryActive?'installationRecoveryRunningTitle':'installationRunningTitle');
+    $('progress-copy').textContent=t(installation.recoveryActive?'installationRecoveryRunningCopy':'installationRunningCopy');
   }
   const progress=progressView(state);
   if(!logSelectionManual&&(progress.active??progress.current)?.id)$('log-stage').value=(progress.active??progress.current).id;
@@ -513,7 +513,7 @@ function renderProgress() {
   $('failure-cause').hidden=!cause;
   $('failure-cause').textContent=cause?t('failureCause',{cause}):'';
   $('failure-next').hidden=!failure&&!installIssue;$('failure-actions').hidden=!failure&&!installIssue;
-  $('failure-next').textContent=t(installIssue?installation.connectionRequired?'questConnectionNext':'installationNext':failure?.blocked?'nativeMemoryNext':'failureNext');
+  $('failure-next').textContent=t(installIssue?installation.connectionRequired?'questConnectionNext':installation.recoveryRequired?'installationRecoveryNext':'installationNext':failure?.blocked?'nativeMemoryNext':'failureNext');
   $('failure-retry').textContent=t(installIssue?'installationRetry':'failureRetry');
   const locked=busy||actionBusy||storageActive()||active||!canConnect||Boolean(resumeFailed);
   $('failure-retry').disabled=locked;
