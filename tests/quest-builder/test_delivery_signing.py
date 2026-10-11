@@ -187,7 +187,8 @@ class ActualDeliverySigningTests(unittest.TestCase):
 
     def test_actual_sdk_repack_align_sign_verify_and_same_key_update_keep_payloads(self):
         before = self.base.read_bytes(); selected = dict(self.tools)
-        first = self.root / "capable.apk"; self.publish(self.base, first, self.output)
+        first = self.root / "capable.apk"; verified = self.publish(self.base, first, self.output)
+        self.assertEqual(verified["certificateSha256"], json.loads((self.output / "signing/certificate.json").read_text())["sha256"])
         second = self.root / "profile-update.apk"; self.publish(first, second, self.output, check_base=True)
         self.assertEqual(self.base.read_bytes(), before); self.assertEqual(self.tools, selected)
         for apk in (first, second):

@@ -109,6 +109,17 @@ class ApkUpdateTests(unittest.TestCase):
         self.assertEqual(self.base.read_bytes(), original)
         self.assertEqual(list(self.root.glob("updated.apk.*.apk")), [])
 
+    def test_only_bounded_verified_certificate_evidence_can_be_reported(self):
+        for value in ({}, True, {"certificateSha256": "invalid"}, {"certificateSha256": "1" * 64, "secret": "unwanted"}):
+            self.output.write_bytes(b"previous verified output")
+            with self.assertRaisesRegex(storage.BuildError, "malformed certificate evidence"):
+                update.repack(self.base, self.output, {}, update_manifest=self.provenance,
+                              signer=lambda _: None, verifier=lambda _: value)
+            self.assertEqual(self.output.read_bytes(), b"previous verified output")
+        result = update.repack(self.base, self.output, {}, update_manifest=self.provenance,
+            signer=lambda _: None, verifier=lambda _: {"certificateSha256": "1" * 64})
+        self.assertEqual(result["certificateSha256"], "1" * 64)
+
     def test_il2cpp_pair_or_unqualified_code_cannot_be_published(self):
         with self.assertRaisesRegex(storage.BuildError, "together"): self.publish({update.LIBRARY: bytes(self.library)})
         with self.assertRaisesRegex(storage.BuildError, "qualification"): self.publish({update.LIBRARY: bytes(self.library), update.METADATA: self.metadata})

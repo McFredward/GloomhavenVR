@@ -26,7 +26,7 @@ class CapabilityResumeTests(unittest.TestCase):
         self.apk = self.output / 'builds/player/GloomhavenVR-Quest.apk'
         self.apk.parent.mkdir(parents=True)
         self.write_apk()
-        self.signed = Mock(); self.verified = Mock()
+        self.signed = Mock(); self.verified = Mock(return_value=None)
         self.builder.record_file = storage.record_file
         def callbacks(*args, **kwargs):
             for name, value in {'quest.keystore': b'fixture selected signing key',

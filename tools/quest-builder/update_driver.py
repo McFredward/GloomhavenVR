@@ -615,7 +615,8 @@ def run(builder, args, repo, output):
         details = {"inputKey": base["inputKey"], "updateKey": update_key, "package": builder.PACKAGE,
                    "modBuild": inputs["mod"]["modBuild"], "isDiagnostic": False,
                    "isDummy": bool(inputs["profile"].get("isDummy")), "apkSha256": output_hash,
-                   "contentFiles": [], "retainedGameContent": True, "updateResult": result}
+                   "contentFiles": [], "retainedGameContent": True, "updateResult": result,
+                   **({"certificateSha256": result["certificateSha256"]} if "certificateSha256" in result else {})}
         builder.write_json(report, {"schema": 1, "buildResult": "Succeeded", "scope": "APK update", **details})
         builder.build_progress.operation("update-verify", complete=True, detail="Signed update published; original game content is retained.")
         return [apk, report], details

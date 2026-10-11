@@ -804,8 +804,9 @@ def repack(base, output, replacements, *, update_manifest, signer, verifier, pro
            repair_update_contracts=False):
     """Publish a verified signed update atomically, retaining compressed game bytes.
 
-signer(temp_path) and verifier(temp_path) must raise on failure. Neither is
-optional: a rewritten unsigned APK is never exposed as an installable result.
+signer(temp_path) and verifier(temp_path) must raise on failure. A verifier may
+return its verified certificate digest; malformed returned evidence is rejected.
+Neither callback is optional: unsigned output is never an installable result.
 """
     base, output = Path(base).absolute(), Path(output).absolute()
     if base == output: raise BuildError("APK update output must be separate from its input.")
@@ -861,7 +862,12 @@ optional: a rewritten unsigned APK is never exposed as an installable result.
                 updated.writestr(entry, value)
                 entry.extra = b""
         check_alignment(temporary)
-        signer(temporary); verifier(temporary)
+        signer(temporary); verification = verifier(temporary)
+        if verification is not None and (not isinstance(verification, dict)
+                or set(verification) != {"certificateSha256"}
+                or not isinstance(verification.get("certificateSha256"), str)
+                or not _SHA.fullmatch(verification["certificateSha256"])):
+            raise BuildError("APK verifier returned malformed certificate evidence.")
         with zipfile.ZipFile(temporary) as final:
             actual = _entries(final)
             for name, value in replacements.items():
@@ -884,6 +890,7 @@ optional: a rewritten unsigned APK is never exposed as an installable result.
             raise BuildError("Signed APK changed during final output publication.")
         return {"schema": 1, "gameInputKey": info["inputKey"], "updateKey": update_manifest["updateKey"],
                 "replacedMembers": sorted(replacements), "preservedCompressedBytes": total,
-                "output": str(output), "sha256": output_hash, "outputStamp": list(output_stamp)}
+                "output": str(output), "sha256": output_hash, "outputStamp": list(output_stamp),
+                **(verification or {})}
     finally:
         temporary.unlink(missing_ok=True)

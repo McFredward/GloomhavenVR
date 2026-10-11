@@ -383,6 +383,20 @@ class UpdateDriverTests(unittest.TestCase):
         self.assertEqual(list((self.output / "receipts/build").glob("*.json")), [])
         self.assertFalse((self.output / "receipts/.file-witnesses.sqlite3").exists())
 
+    def test_verified_certificate_closes_the_next_selected_update_without_another_hash(self):
+        certificate = "1" * 64
+        with patch.object(driver, "signing_tools", return_value={}), \
+             patch.object(driver, "_signers", return_value=(lambda _: None, lambda _: {"certificateSha256": certificate})), \
+             patch.object(apk_update, "patch_resource_json", return_value={}), \
+             patch.object(apk_update, "update_android_versions", return_value=b"AXML tested separately"):
+            built = driver.run(self.builder, self.args, ROOT, self.output)
+        report = json.loads(Path(str(built) + ".build.json").read_text())
+        self.assertEqual(report["certificateSha256"], certificate)
+        # A new selected APK can use its actual closed build witness directly,
+        # without first creating another generic hash observation namespace.
+        with patch.object(storage, "digest", side_effect=AssertionError("Closed update bytes already have an actual witness")):
+            self.assertEqual(apk_input_cache._closed_build(built, self.output), report["apkSha256"])
+
     def test_closed_native_pair_reused_before_project_or_compiler(self):
         source = self.root / "source"; manifest = source / "unity/GloomhavenVR.Quest/Packages/manifest.json"
         storage.write_json(manifest, {"dependencies": {}})
