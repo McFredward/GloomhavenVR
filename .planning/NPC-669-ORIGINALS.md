@@ -53,7 +53,7 @@ public catalogs and source dictionaries cannot survive that boundary. Shutdown
 does not call Initialize: catalog disposal restores the original inventory
 parent and disposes presentation entries; mirror and bank only retire.
 
-## Validation
+## Initial checkpoint validation
 
 The existing asset-identity runtime now includes actual production Initialize,
 Ready and Shutdown methods, plus the exact central TownServiceSync.Shutdown
@@ -86,10 +86,70 @@ claim. Worker source checks and exact run receipts are retained privately under
 `.planning/debug/npc669-originals/`. The initial negative-control attempt used a
 constant-false branch that the strict compiler correctly refused as unreachable;
 its binding was corrected to an executable lost-ready condition. The central
-shutdown binding also explicitly handles its existing compact one-line body and
+shutdown binding also initially handled its compact one-line body and
 imports its unchanged registry namespace. The full
 asset-identity suite passed with every control. No production assertion or
 threshold was relaxed.
+
+## Integration-review lifetime corrections
+
+The first checkpoint's centralized cleanup exposed three genuine lifetime
+edges during review. These are corrected in source checkpoint `d03472fb5`:
+
+- Recovery and successful HUD replacement now call `Shutdown(resetDiagnostics:
+  false)`. They retire the same complete bank, public catalog, publisher sources,
+  mirror modules and immutable assets, but retain the existing publisher and
+  mirror failure windows. Each publisher's duplicate suppression, eight-report
+  cap and single cap marker remain bounded across two-second preparation retries.
+  Ordinary map/module teardown defaults to true and resets Private, Public,
+  Stock and mirror diagnostics. Stock's ordinary diagnostic reset was previously
+  omitted; it now has the same lifetime as the other streams.
+- Private publisher reset and mirror ResetNetwork/Shutdown select PrivateLane
+  explicitly. Cleanup invoked within a public capture scope retires the actual
+  private session, modules and transaction offer, then restores the enclosing
+  scope. Public and stock cleanup retain their explicit nested scopes. No native
+  gameplay controller or callback changes.
+- Native HUD replacement can complete successfully while retiring the frame
+  and public catalog held by the publisher's current call. TickCore, TickCatalog
+  and TickStockCore now stop after Prepare when their shared-frame lifetime has
+  been retired. The next regular tick reacquires fresh originals and continues;
+  there is no new generation, readiness delay or retry timer.
+
+The source-bound runner compiles the actual Initialize/Shutdown methods, all
+three actual publisher continuation guards, the actual scoped Reset and mirror
+cleanup, and the actual publisher/mirror Report/ReportReset bodies. Diagnostics
+have separate fixture field/method names solely to coexist with the original
+throw-control reporting port; their logic is unchanged. Native HUD/factory
+availability, catalog disposal/reacquisition and the grant SetOffer port remain
+explicit seams. The grant port observes the actual request/cancellation calls;
+the independent authority lane proves the real grant protocol and queued state.
+
+Final focused evidence for `d03472fb5`:
+
+- Asset-identity: 222 assertions and all 21 compiled negative controls, including
+  the original 12 controls. Nine added controls cover retry diagnostic resets,
+  ordinary diagnostic and stock-only reset omissions, incorrectly scoped
+  private reset/mirror shutdown and all three retired-publisher continuations.
+  Production verifies duplicate suppression through 13 same-error preparation
+  failures, the cap through 12 additional distinct failures, ordinary teardown,
+  nested public-scope shutdown/network reset, cancelled private offers, retained
+  network-reset assets and fresh next-tick continuation for each publisher.
+- Preparation658: all 7 original assertions and both original controls pass;
+  only the necessary availability-port extraction binding changes.
+- Strict Debug compilation: zero errors and warnings. Source checks: 16/16 pass.
+
+Receipts are under `.planning/debug/npc669-originals/` at
+`followup-final-identity/run-mja_65gn`,
+`followup-final-preparation658/run-k5xs5171` and
+`followup-final-source/results.json`. These are focused checks, not a new complete
+local-gate claim. The primary agent runs the integrated gate.
+
+Completed initial-checkpoint projects and controls are fully preserved in
+`initial-complete-evidence.tar.gz` (verified gzip, SHA256
+`a7eb759a6080a32dcc0998f48e1ea23ea0a14de416cc80697a035918abd75677`).
+Their assertion, source-hash, result and manifest receipts stay available
+uncompressed; only archived compiled/project caches are compacted. Hardware
+inputs and all other worktrees are untouched.
 
 The native-host merchant outcome, headset pixels and paired/four-player
 interactions require hardware validation of the integrated build. A green
