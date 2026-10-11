@@ -318,9 +318,25 @@ def _without_memory_coordination(tree):
 # Capture065619 changes only post-Player delivery/signing and read witnesses.
 # These exact reviewed profiles leave all original asset producers unchanged;
 # an unknown helper edit or earlier consumer still changes preparation identity.
-BUILDER_DELIVERY_AST = {False: ('3ae90de2ff4bc4b319e48330b149fb249cb4658565d6fc29a2bce8d5cac888ec', '6905242806bb695c86e84be373112f21804c425afa710398cb40b665f4d608d1'), True: ('343529c3b7286c90450229fcc601cde00618d462fc763b50eac3bfe3cdf2b931', 'cc09e2c539f383d447f494d386bd5fa6dd8df9989a964543d98c33f4bea6385f')}
-LATE_DELIVERY_ROWS = {'tools/quest-builder/campaign_compute.py': ({'path': 'tools/quest-builder/campaign_compute.py', 'size': 23104, 'sha256': 'b7215b2c8e61918816f4050e24c0a78469d4f12ea572aabda1e59d54497b4c86'}, {'path': 'tools/quest-builder/campaign_compute.py', 'size': 22840, 'sha256': 'a9f9201ba8a5c2c205f2c334efe1d57c715244846e3899dba8e83384d4158a97'}), 'tools/quest-builder/update_driver.py': ({'path': 'tools/quest-builder/update_driver.py', 'size': 28600, 'sha256': '451731d076d9bf08258d0e4d2e4a0f3fa8e2cd306bf01abf72f6fb4f3f9cc6d8'}, {'path': 'tools/quest-builder/update_driver.py', 'size': 27312, 'sha256': 'ff2c17ace30cdeb34d955367418a40f593e4d47d04f3b90ef7fe1ee96141a727'})}
-PLAYER_DELIVERY_ROW = {'path': 'tools/quest-builder/player_delivery.py', 'size': 21980, 'sha256': 'c5897c245e6da3dabedf7a1089cb4d69ac5c691ce2acaeaa899160a3f07241c7'}
+BUILDER_DELIVERY_AST = {False: ('3ae90de2ff4bc4b319e48330b149fb249cb4658565d6fc29a2bce8d5cac888ec',
+         '6905242806bb695c86e84be373112f21804c425afa710398cb40b665f4d608d1'),
+ True: ('343529c3b7286c90450229fcc601cde00618d462fc763b50eac3bfe3cdf2b931',
+        'cc09e2c539f383d447f494d386bd5fa6dd8df9989a964543d98c33f4bea6385f')}
+LATE_DELIVERY_ROWS = {'tools/quest-builder/campaign_compute.py': ({'path': 'tools/quest-builder/campaign_compute.py',
+                                              'size': 23104,
+                                              'sha256': 'b7215b2c8e61918816f4050e24c0a78469d4f12ea572aabda1e59d54497b4c86'},
+                                             {'path': 'tools/quest-builder/campaign_compute.py',
+                                              'size': 22840,
+                                              'sha256': 'a9f9201ba8a5c2c205f2c334efe1d57c715244846e3899dba8e83384d4158a97'}),
+ 'tools/quest-builder/update_driver.py': ({'path': 'tools/quest-builder/update_driver.py',
+                                           'size': 28600,
+                                           'sha256': '451731d076d9bf08258d0e4d2e4a0f3fa8e2cd306bf01abf72f6fb4f3f9cc6d8'},
+                                          {'path': 'tools/quest-builder/update_driver.py',
+                                           'size': 27312,
+                                           'sha256': 'ff2c17ace30cdeb34d955367418a40f593e4d47d04f3b90ef7fe1ee96141a727'})}
+PLAYER_DELIVERY_ROW = {'path': 'tools/quest-builder/player_delivery.py',
+ 'size': 21980,
+ 'sha256': 'c5897c245e6da3dabedf7a1089cb4d69ac5c691ce2acaeaa899160a3f07241c7'}
 
 
 def builder_producer_digest(raw, *, original_prefix=False):
