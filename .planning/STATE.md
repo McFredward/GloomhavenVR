@@ -8,6 +8,10 @@ The oldB625 bank contains14 additional old bundle files; treating those as groun
 to back up the entire bank causes the11.4-GB transfer. The installation repair
 adapts storage access, preserves unknown extras separately, retains successful
 backup roots and exposes a bounded recovery frontier without private app bytes.
+The source delivery integrates published dev670. Installation-only retry retains
+the completed665 Player. Focused503 host cases and seven independent filesystem
+controls pass; strict composed Release has0 warnings/errors. No fresh whole-game
+gate, Unity import or APK export is claimed; Quest access remains unverified.
 Evidence, platform contracts, exact validation scope and hardware limits:
 [QUEST-INSTALLATION-ACCESS-112552-20261011.md](QUEST-INSTALLATION-ACCESS-112552-20261011.md).
 

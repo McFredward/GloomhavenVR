@@ -59,12 +59,28 @@ transaction's state, archive existence/sizes, root counts and known retained-ban
 names. It never exports original APK bytes, tar archives, private member names,
 inventory contents or an unfiltered recovery journal.
 
-Exact focused checks, delivered-source continuation controls, actual Linux
-launcher evidence and cleanup measurements are recorded beside this round's
-delivery. Previous unchanged game, Runtime669 source-build and completed
-Runtime665 Player evidence are inherited. No new complete local game gate,
-Unity original import, Shader matrix or APK export is claimed. Actual Quest
-access permissions and successful migration still require a hardware test.
+Root validation passes243 installer tests (24 optional environment cases skipped),
+48 source-delivery/support tests,146 affected Wizard tests and all66 UI tests,
+including actual Chrome/backend fixtures:503 passing cases. The independent
+audit adds five real-filesystem transaction controls and two selected-APK change
+controls during atomic/copy parking. Package operations and access identities
+are simulated; actual tar, durable JSON, rename/copy and archive operations run
+on Linux. Unknown nested files, directories, terminal links and changed saves
+survive restoration and interrupted retries. A source replacement before
+package removal leaves the original app and its banks intact.
+
+The source delivery integrates published dev670
+`829d3468f7d089b3d63340f14c4cc76f3bf2e80b`; the composed Quest source passes strict
+Release with0 errors and0 warnings. Published NPC670 focused evidence and the
+unchanged game/native contracts remain inherited, rather than a repeated full
+gate. An installation-only retry preserves the completed Runtime665 Player.
+No Unity original import, Shader matrix or APK export is performed this round.
+
+Exact delivered-source continuation controls, actual extracted Linux launcher
+evidence and cleanup measurements are recorded beside this round's delivery.
+The bounded evidence directory retains its initiating Runtime669 report name:
+`B669-install-recovery-112552-20261011`. Actual Quest access permissions and
+successful migration still require a hardware test.
 
 ## Platform contracts
 
