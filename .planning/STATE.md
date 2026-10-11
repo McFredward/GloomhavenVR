@@ -1,5 +1,17 @@
 # State — where the project stands
 
+**Quest completed Player delivery, 2026-10-11 (Builder; new builds Runtime667).**
+
+Capture065619 identifies b1cd/665 and proves Unity/Gradle success before the host
+fails on its missing zipalign tool entry. The corrected Wizard resumes directly
+at final delivery, preserving that completed665 Player and skipping earlier
+source/asset/Unity checks and work. Independent completed-Player checkpoints,
+legacy adoption, exact final bank witnesses and installation retries retain
+finished work. The Builder includes published dev667 for newly requested builds.
+Focused evidence, exact source aliases and remaining final delivery/headset limits:
+[QUEST-COMPLETED-PLAYER-065619-20261011.md](QUEST-COMPLETED-PLAYER-065619-20261011.md).
+No local original-game import, shader matrix or game APK export is performed.
+
 **Quest Player progress ownership, 2026-10-11 (Builder; Runtime665).**
 
 Capture231755 is a running b1cd/665 Player build, with all27 preparation owners
