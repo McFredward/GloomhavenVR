@@ -110,8 +110,8 @@ class ImportMutationProfileTests(unittest.TestCase):
         from unittest.mock import patch
         raw = (ROOT / "tools/quest-builder/builder.py").read_bytes()
         for prefix in (False, True):
-            observed, previous = preparation_identity.BUILDER_DELIVERY_AST[prefix]
-            with patch.dict(preparation_identity.BUILDER_DELIVERY_AST,
+            observed, previous = preparation_identity.BUILDER_MOD_UPDATE_AST[prefix]
+            with patch.dict(preparation_identity.BUILDER_MOD_UPDATE_AST,
                             {prefix: ("f" * 64, previous)}):
                 self.assertEqual(preparation_identity.builder_producer_digest(raw, original_prefix=prefix), observed)
             self.assertEqual(preparation_identity.builder_producer_digest(raw, original_prefix=prefix), previous)
