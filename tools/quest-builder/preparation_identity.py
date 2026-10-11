@@ -315,13 +315,20 @@ def _without_memory_coordination(tree):
     return tree
 
 
-# Capture065619 changes only post-Player delivery/signing and read witnesses.
+# Captures065619/075701 change post-Player delivery/signing and read witnesses.
 # These exact reviewed profiles leave all original asset producers unchanged;
 # an unknown helper edit or earlier consumer still changes preparation identity.
-BUILDER_DELIVERY_AST = {False: ('3ae90de2ff4bc4b319e48330b149fb249cb4658565d6fc29a2bce8d5cac888ec',
-         '6905242806bb695c86e84be373112f21804c425afa710398cb40b665f4d608d1'),
- True: ('343529c3b7286c90450229fcc601cde00618d462fc763b50eac3bfe3cdf2b931',
-        'cc09e2c539f383d447f494d386bd5fa6dd8df9989a964543d98c33f4bea6385f')}
+BUILDER_DELIVERY_AST = {
+    False: ("9d022492e3e779c4c9402bee6c0f0a82ff8dfe999658b38b0a7ac49d2ce936c3",
+            "6905242806bb695c86e84be373112f21804c425afa710398cb40b665f4d608d1"),
+    True: ("343529c3b7286c90450229fcc601cde00618d462fc763b50eac3bfe3cdf2b931",
+           "cc09e2c539f383d447f494d386bd5fa6dd8df9989a964543d98c33f4bea6385f"),
+}
+# Retain the preceding delivered complete tree as a separate exact alias.
+BUILDER_DELIVERY_PREVIOUS_AST = {
+    False: ("3ae90de2ff4bc4b319e48330b149fb249cb4658565d6fc29a2bce8d5cac888ec",
+            "6905242806bb695c86e84be373112f21804c425afa710398cb40b665f4d608d1"),
+}
 LATE_DELIVERY_ROWS = {'tools/quest-builder/campaign_compute.py': ({'path': 'tools/quest-builder/campaign_compute.py',
                                               'size': 23104,
                                               'sha256': 'b7215b2c8e61918816f4050e24c0a78469d4f12ea572aabda1e59d54497b4c86'},
@@ -337,6 +344,22 @@ LATE_DELIVERY_ROWS = {'tools/quest-builder/campaign_compute.py': ({'path': 'tool
 PLAYER_DELIVERY_ROW = {'path': 'tools/quest-builder/player_delivery.py',
  'size': 21980,
  'sha256': 'c5897c245e6da3dabedf7a1089cb4d69ac5c691ce2acaeaa899160a3f07241c7'}
+# Exact reviewed ZIP/signing and final-gate consumers run after preparation.
+# Preserve their preceding identities without excluding unknown future edits.
+ZIP32_DELIVERY_ROWS = {
+    "tools/quest-builder/apk_update.py": (
+        {"path": "tools/quest-builder/apk_update.py", "size": 45828,
+         "sha256": "b0f6e986b18f91c9e537b6a364987640a52079195e8af3119617dc984af6343d"},
+        {"path": "tools/quest-builder/apk_update.py", "size": 42360,
+         "sha256": "43bf9fd8387aec8ce8a2206f76499b0a176761092b3720563139bafa6e46e446"}),
+    "tools/quest-builder/update_driver.py": (
+        {"path": "tools/quest-builder/update_driver.py", "size": 33575,
+         "sha256": "53e1d7a1695d2d759a3ec8e99ddd30def3b7990d8e9eb2e857e6a8760a68fcf7"},
+        LATE_DELIVERY_ROWS["tools/quest-builder/update_driver.py"][1]),
+}
+FINAL_DELIVERY_ROW = {
+    "path": "tools/quest-builder/delivery_finalization.py", "size": 9425,
+    "sha256": "7dc7d851824933e83cc6da10be67e07b65657a7ad15bedf68004247ac9a484c9"}
 
 
 def builder_producer_digest(raw, *, original_prefix=False):
@@ -391,6 +414,8 @@ def builder_producer_digest(raw, *, original_prefix=False):
     result = hashlib.sha256(ast.dump(tree, include_attributes=False).encode("utf-8")).hexdigest()
     observed, preceding = BUILDER_DELIVERY_AST[bool(original_prefix)]
     if result == observed: result = preceding
+    prior = BUILDER_DELIVERY_PREVIOUS_AST.get(bool(original_prefix))
+    if prior and result == prior[0]: result = prior[1]
     if not original_prefix and result == BUILDER_UNITY_OBSERVER_AST[0]:
         result = BUILDER_UNITY_OBSERVER_AST[1]
     observed, preceding = BUILDER_TARGETED_REPAIR_AST[bool(original_prefix)]
@@ -468,7 +493,9 @@ def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=Fal
     if original_prefix:
         reviewed = []
         for row in rows:
-            if row == PLAYER_DELIVERY_ROW: continue
+            if row in (PLAYER_DELIVERY_ROW, FINAL_DELIVERY_ROW): continue
+            current, preceding = ZIP32_DELIVERY_ROWS.get(row["path"], (None, row))
+            if row == current: row = preceding
             current, preceding = LATE_DELIVERY_ROWS.get(row["path"], (None, row))
             reviewed.append(preceding if row == current else row)
         rows = reviewed

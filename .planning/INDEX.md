@@ -18,6 +18,7 @@ status; it is not the player manual.
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [TEST-PARALLELISM.md](TEST-PARALLELISM.md) | Parallel local/CI execution, coverage and measured timing |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
+| [QUEST-ZIP32-DELIVERY-075701-20261011.md](QUEST-ZIP32-DELIVERY-075701-20261011.md) | Large ZIP32 APK signing repair and independently reusable final delivery gates |
 | [QUEST-COMPLETED-PLAYER-065619-20261011.md](QUEST-COMPLETED-PLAYER-065619-20261011.md) | Direct recovery of the successful Windows Android Player at host delivery, without repeating earlier preparation/Unity checks |
 | [QUEST-COMPUTE-SELF-REPAIR-090432-20261010.md](QUEST-COMPUTE-SELF-REPAIR-090432-20261010.md) | Original Windows shader source parsing, bounded single-asset compute import repair and complete retained preparation |
 | [QUEST-SPRITE-SELF-REPAIR-075120-20261010.md](QUEST-SPRITE-SELF-REPAIR-075120-20261010.md) | Exact retained case-path manifest chain and bounded imported Sprite repair; corrects the preceding composition blind spot |

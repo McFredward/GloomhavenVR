@@ -289,6 +289,15 @@ OBSERVATION_EDITOR_OVERLAY = {
     "tools/quest-builder/editor_overlay.py": {'path': 'tools/quest-builder/editor_overlay.py', 'size': 21606, 'sha256': '81176e515ba8f912b72ed2755d6e6d3135f7abde023746b5baaa8b8b39a21647'},
     "tools/quest-builder/campaign_native_shaders.py": {'path': 'tools/quest-builder/campaign_native_shaders.py', 'size': 41271, 'sha256': '81805d07e6fe37a2697a31b2b1767f8b233c8641c0c5e2228f4f62b782863306'},
 }
+# Delivered Shader progress changes only the post-Player consumer. Preserve
+# both whole reviewed observer profiles; unknown or mixed reader bytes differ.
+OBSERVATION_ZIP32_DELIVERY_PREVIOUS = OBSERVATION_EDITOR_OVERLAY
+OBSERVATION_EDITOR_OVERLAY = {
+    **OBSERVATION_ZIP32_DELIVERY_PREVIOUS,
+    "tools/quest-builder/campaign_native_shaders.py": {
+        "path": "tools/quest-builder/campaign_native_shaders.py", "size": 41671,
+        "sha256": "85d41dfd671901d6ba830f6e23f080f484828558b489843623e29fcb7727a7d6"},
+}
 
 OBSERVATION_PROFILES = (OBSERVATION_BYTE_WITNESSES, OBSERVATION_FIXED,
                         OBSERVATION_INPUT_INDEX, OBSERVATION_INPUT_ORDER, OBSERVATION_DIRECTORY_BATCH, OBSERVATION_GRAPHICS_CONTRACT, OBSERVATION_COMPLETED_METADATA)
@@ -346,6 +355,7 @@ def preparation_source_rows(rows):
                                            OBSERVATION_COUNTED_UNITY_PREVIOUS,
                                            OBSERVATION_SPRITE_IMPORT_PREVIOUS,
                                            OBSERVATION_NATIVE_VALIDATION_PREVIOUS,
+                                           OBSERVATION_ZIP32_DELIVERY_PREVIOUS,
                                            OBSERVATION_EDITOR_OVERLAY)
                     if all(current.get(name) == [fixed] for name, fixed in profile.items())), None)
     if profile is not None:

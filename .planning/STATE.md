@@ -1,5 +1,19 @@
 # State — where the project stands
 
+**Quest ZIP32 delivery and targeted final repair, 2026-10-11 (Builder; new builds Runtime668).**
+
+Capture075701 proves the e740 Builder reaches direct final delivery in4.8s,
+retaining the previously compiled665 Player. zipalign then rejects a ZIP64
+directory introduced by Python's conservative2-GiB boundary. The corrected
+APK-specific ZIP32 writer passes real alignment/signature checks on a retained
+2.7-GiB Player while preserving its compressed game members. Independent signing,
+APK, Shader and Compute receipts retain successful final work and regenerate
+only damaged/incomplete derived owners. Current native-tool failure logs reach
+the bounded support export and visible Wizard error. Evidence and remaining
+Windows/headset limits:
+[QUEST-ZIP32-DELIVERY-075701-20261011.md](QUEST-ZIP32-DELIVERY-075701-20261011.md).
+No local original-game import, Shader matrix or game APK export is performed.
+
 **Quest completed Player delivery, 2026-10-11 (Builder; new builds Runtime668).**
 
 Capture065619 identifies b1cd/665 and proves Unity/Gradle success before the host

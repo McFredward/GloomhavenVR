@@ -80,6 +80,26 @@ class ImportMutationProfileTests(unittest.TestCase):
                         recovery_resume.OBSERVATION_TARGETED_REPAIR_PREVIOUS):
             self.assertIn(extra, recovery_resume.preparation_source_rows([*profile.values(), extra]))
 
+    def test_zip32_delivery_profile_matches_exact_current_consumer_bytes(self):
+        for current, _ in preparation_identity.ZIP32_DELIVERY_ROWS.values():
+            raw = (ROOT / current["path"]).read_bytes()
+            self.assertEqual(current, {"path": current["path"], "size": len(raw),
+                "sha256": hashlib.sha256(raw).hexdigest()})
+        current = preparation_identity.FINAL_DELIVERY_ROW
+        raw = (ROOT / current["path"]).read_bytes()
+        self.assertEqual(current, {"path": current["path"], "size": len(raw),
+            "sha256": hashlib.sha256(raw).hexdigest()})
+
+    def test_previous_shader_reader_and_counted_delivery_keep_same_producer_profile(self):
+        previous = recovery_resume.OBSERVATION_ZIP32_DELIVERY_PREVIOUS
+        current = recovery_resume.OBSERVATION_EDITOR_OVERLAY
+        self.assertEqual(recovery_resume.preparation_source_rows(list(previous.values())),
+                         recovery_resume.preparation_source_rows(list(current.values())))
+        for name in current:
+            changed = copy.deepcopy(current)
+            changed[name]["sha256"] = "f" * 64
+            self.assertIn(changed[name], recovery_resume.preparation_source_rows(list(changed.values())))
+
     def test_only_exact_reviewed_builder_repair_orchestration_keeps_producer_identity(self):
         from unittest.mock import patch
         raw = (ROOT / "tools/quest-builder/builder.py").read_bytes()
