@@ -612,7 +612,25 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 668;
+    public const ushort ModBuild = 669;
+
+    // ModBuild669 — immersive merchant with an unmodified native flat host.
+    // Paired668 logs identify a VR guest (player2) and a vanilla host. The public
+    // cabinet's CanUseImmersive gate required a compatible native host, preventing
+    // cards/buttons even though public originals already support a guest author.
+    // Prefer a compatible native host for VR coordination, otherwise elect the
+    // lowest compatible live player in the native roster. A coordinator transition
+    // drains old leases before new commit permission; display preparation continues.
+    // The shipped Bolt dispatcher forwards Others before vanilla sentinel rejection.
+    // Non-host coordination therefore uses the existing ReliableOrdered Others lane;
+    // the original version announcement is reliable at its unchanged cadence/budget.
+    // Native confirmations and server-authorized BuyItem still validate on the flat
+    // game host. No native network, shop or gameplay-state patch is introduced.
+    // A failed native template initialization also left stale immutable asset aliases
+    // across retries; retire the failed bank/registry atomically without relaxing
+    // conflicting-original identity. Preserve the unchanged ready-bank fast path.
+    // See NPC-669-REVIEW.md and lane notes for source/runtime proof and hardware limits.
+    // No asset/config/input/wire grammar/TLV change. Version3 and next-free118 remain.
 
     // ModBuild668 — move the native enchantress enhancement list toward the resident.
     // The maintainer must step back after reading the held card to see every option.
