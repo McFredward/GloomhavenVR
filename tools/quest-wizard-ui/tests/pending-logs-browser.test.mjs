@@ -38,6 +38,7 @@ test('never-ending event and live log requests cannot hide a later failure or ho
     await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
     try {
       client=await browser();await client.command('Page.navigate',{url:'http://127.0.0.1:'+server.address().port+'/#fixture-token'});
+      await client.chooseHome('resume');
       await client.wait("document.getElementById('progress-page')&&!document.getElementById('progress-page').hidden");
       await client.evaluate("document.querySelector('[data-language=de]').click();document.querySelector('#diagnostic-details').open=true");
       for(let index=0;index<100&&(held.length<2||statusCalls<3);index++)await delay(50);

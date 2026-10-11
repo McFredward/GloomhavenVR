@@ -25,6 +25,18 @@ export class LocalApi {
     return {blob:await response.blob(),name:response.headers.get('Content-Disposition')?.match(/filename="([A-Za-z0-9_.-]+)"/)?.[1]??'quest-build-support.zip'};
   }
   storage() { return this.request('/api/storage'); }
+  storageInventory() { return this.request('/api/storage/inventory',{}); }
+  deviceStatus() { return this.request('/api/device/status'); }
+  deviceConnect(host='',setupWireless=false,serial='') { return this.request('/api/device/connect',{host,setupWireless,serial}); }
+  deviceCapture(host='',serial='') { return this.request('/api/device/capture',{host,serial}); }
+  deviceCancel() { return this.request('/api/device/cancel',{}); }
+  async deviceDownload(id) {
+    if(typeof id!=='string'||!/^[a-f0-9]{32}$/.test(id)||!this.token)throw {code:'invalidReply'};
+    const response=await this.fetcher(new URL('/api/device/capture?id='+encodeURIComponent(id),this.origin),{headers:{'X-Quest-Token':this.token},cache:'no-store',credentials:'same-origin'});
+    if(!response.ok){let value;try{value=await response.json();}catch{throw {code:'invalidReply'};}throw value;}
+    if(response.headers.get('Content-Type')!=='application/zip')throw {code:'invalidReply'};
+    return {blob:await response.blob(),name:response.headers.get('Content-Disposition')?.match(/filename="([A-Za-z0-9_.-]+)"/)?.[1]??'quest-capture.zip'};
+  }
   storagePlan(mode='duplicates') { if(!['duplicates','build-cache'].includes(mode))throw {code:'invalidReply'};return this.request('/api/storage/plan',{mode}); }
   storageClean(planId) { if(typeof planId!=='string'||!planId||planId.length>256)throw {code:'invalidReply'};return this.request('/api/storage/clean',{planId}); }
   discover() { return this.request('/api/discover'); }
@@ -32,6 +44,7 @@ export class LocalApi {
   run(session) { return this.request('/api/run',{session}); }
   skipInstall(session) { if(!sessionId(session))throw {code:'invalidReply'};return this.request('/api/install/skip',{session}); }
   installDataPolicy(session,nonce,policy='saves') { if(!sessionId(session)||typeof nonce!=='string'||!/^[a-f0-9]{32}$/.test(nonce)||policy!=='saves')throw {code:'invalidReply'};return this.request('/api/install/data-policy',{session,nonce,policy}); }
+  installContentReinstall(session,nonce) { if(!sessionId(session)||typeof nonce!=='string'||!/^[a-f0-9]{32}$/.test(nonce))throw {code:'invalidReply'};return this.request('/api/install/content-reinstall',{session,nonce}); }
   cancel(session) { return this.request('/api/cancel',{session}); }
   log(session,stage,signal) { if(!sessionId(session)||!stageIds.includes(stage))throw {code:'invalidReply'};return this.request('/api/log?session='+encodeURIComponent(session)+'&stage='+stage,undefined,signal); }
   gallery() {return this.request('/api/gallery');}
@@ -44,15 +57,22 @@ export class LocalApi {
 
 // Deliberate, visibly labelled design preview; never falls through to real tools.
 export class PreviewApi {
-  async storage() {return {schema:1,event:'storage',workspaceRoot:'C:\\Users\\Preview\\.ghvrq',freeBytes:150*1073741824,state:this.storageState??{status:'idle'}};}
+  async storage() {return {schema:1,event:'storage',workspaceRoot:'C:\\Users\\Preview\\.ghvrq',freeBytes:150*1073741824,state:this.storageState??{status:'idle'},inventory:{status:'complete',totalBytes:19*1073741824,categories:[{id:'apk-content',bytes:13*1073741824,files:2},{id:'unity-caches',bytes:6*1073741824,files:24000}]}};}
+  async storageInventory(){return this.storage();}
+  async deviceStatus(){return {schema:1,event:'device',state:{status:'idle',devices:[]}};}
+  async deviceConnect(){throw {code:'preview'};}
+  async deviceCapture(){throw {code:'preview'};}
+  async deviceCancel(){throw {code:'preview'};}
+  async deviceDownload(){throw {code:'preview'};}
   async storagePlan(mode='duplicates') {this.storageState={status:'preview',plan:{id:'preview-cleanup',mode,paths:[],bytes:0,files:0,exact:true}};return this.storage();}
   async storageClean() {this.storageState={status:'complete',result:{freedBytes:0,deletedFiles:0}};return this.storage();}
   async gallery() {return {schema:1,event:'gallery',artwork:[]};}
   async action() {throw {code:'preview'};}
   async skipInstall() {throw {code:'preview'};}
   async installDataPolicy() {throw {code:'preview'};}
+  async installContentReinstall() {throw {code:'preview'};}
   constructor() { this.sequence=0; this.state=null; this.eventsList=[]; this.tick=0; }
-  async discover() { return {schema:1,event:'discovery',capabilities:{browse:false,artwork:false},games:[
+  async discover() { return {schema:1,event:'discovery',capabilities:{browse:false,artwork:false,deviceTools:true,storageInventory:true},games:[
     {id:'preview-owned-game',provider:'steam',gameRoot:'C:\\Program Files (x86)\\Steam\\steamapps\\common\\Gloomhaven',
       displayName:'Gloomhaven',profileAvailable:true,ownedDlc:['jotl','solo'],ownershipComplete:true}],unityEditors:[],unityHubs:[],recentSessions:[]}; }
   async plan(choices) { this.state={session:'preview-local-build',choices,status:'ready',needsActions:[],lastEvent:0,

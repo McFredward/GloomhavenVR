@@ -35,9 +35,10 @@ sends `X-Quest-Token`; the backend validates Host and browser Origin/fetch conte
 No browser-supplied command, executable or artwork filesystem path is accepted.
 
 The schema-1 API uses discovery, plan, run, cancel, status, events, fixed-kind
-native browse and bounded per-stage logs. Discovery automatically opens the
-owner workspace's validated `latestSession`, falling back to `recentSessions`
-on older backends. This restores saved choices, observed progress, failures and
+native browse and bounded per-stage logs. Launch opens the home page with separate
+new-build, APK-mod-update, APK-profile-update and retained-run actions. Explicit
+Resume opens the owner workspace's validated `latestSession`, falling back to
+`recentSessions` on older backends. It restores choices, progress, failures and
 completed output without posting a plan or starting work. It does not depend on
 origin-scoped browser storage, so changing launcher folders, browser windows or
 loopback ports keeps the same session. The primary Continue action posts `/run`
@@ -46,7 +47,7 @@ only explicitly choosing "Set up a new build" clears the UI's selected session.
 That action does not delete saved sessions, receipts, downloads or game exports.
 An inaccessible session remains visible and blocks accidental new planning
 until it is reopened or the user explicitly chooses a new build.
-Backend receipts decide safe reuse; automatic reopening is not a claim that
+Backend receipts decide safe reuse; opening a saved run is not a claim that
 cancelled/interrupted work is verified complete. Polling stops
 for inactive sessions; cancellation remains pending until backend confirmation.
 Each stage has one persistent total percentage (`progress.stagePercent`). Its
@@ -160,11 +161,38 @@ the test closes its own browser/profile rather than leaving pending navigation
 and processes after a test timeout. HTTP witnesses use direct Chrome-to-loopback
 transport, without request interception/fulfilment bridges.
 
-`resume-browser.test.mjs` witnesses initial reopening without `/plan` or `/run`,
+`resume-browser.test.mjs` witnesses explicit home-page reopening without `/plan` or `/run`,
 saved choices and total progress, same-ID Continue after changing loopback port,
 ready/cancelled/interrupted/completed sessions, explicit new-build selection and
 inaccessible-state retry. The actual backend witness also reopens the retained
-session directly after reload; no secondary resume-button click is required.
+session after an explicit Resume click on the reloaded home page.
+
+The capability-gated home tools use `/api/device/status`, `/api/device/connect`,
+`/api/device/capture` and `/api/device/cancel` independently of build sessions.
+They show USB authorization and Wi-Fi setup instructions, retain observed device
+progress, and download captures only through an opaque server-issued ID.
+The storage card displays a cached read-only byte inventory by category. An
+explicit inventory request performs the first scan or refresh; ordinary polls do
+not enumerate or hash the workspace again. Cleanup still requires a scoped preview
+and a separate deletion click. Completed APKs and their required content banks
+remain retained, including when installation is unfinished. Legacy rollback APK
+sizes are displayed separately from save/app-data archives where metadata exists.
+
+`home-device-browser.test.mjs` exercises actual DOM/loopback requests against a
+declared asynchronous fixture. It covers explicit resume, all three build modes,
+wireless authorization, measured capture progress/download and home-page cleanup.
+It does not establish real Quest connectivity or backup/deletion correctness;
+the corresponding backend suites own those contracts.
+
+If Android refuses moving the retained game-content files during signature
+recovery, installation pauses before uninstalling. A separate content-reinstall
+button displays the measured transfer size and asks for the compromise. Its
+nonce, APK identity, device, transaction and installation attempt must match the
+current action record. Ordinary Retry does not grant approval; the dedicated
+choice resumes installation on the same completed build without changing choices.
+Username-only APK updates submit `profileName`; the backend inherits the existing
+APK's provider ID. A complete explicit profile still permits an intentional ID
+change. Ordinary build/mod-update manual profiles continue to require both fields.
 
 For manual preview, serve this directory on loopback and open
 `/?preview=1&lang=de` (or `en`). Demo mode never calls the real API and deliberately

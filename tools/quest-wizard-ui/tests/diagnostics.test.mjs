@@ -23,6 +23,7 @@ test('actual browser: measured progress, reopen/check Unity action, specific fai
     for(let index=0;index<100&&!output.includes('\n')&&child.exitCode===null;index++)await delay(50);
     assert.equal(child.exitCode,null,errors);const started=JSON.parse(output.split('\n')[0]);
     client=await browser();await client.command('Page.navigate',{url:started.url});
+    await client.chooseHome('resume');
     await client.wait("document.getElementById('progress-page')&&!document.getElementById('progress-page').hidden");
     await client.evaluate("document.querySelector('[data-language=de]').click()");
     if(process.env.QUEST_WIZARD_PROMO_CACHE){

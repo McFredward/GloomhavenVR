@@ -47,6 +47,7 @@ test('failed status survives unavailable events and prominently shows cause, ret
     try {
       client=await browser();await client.command('Browser.setDownloadBehavior',{behavior:'deny'});
       await client.command('Page.navigate',{url:'http://127.0.0.1:'+server.address().port+'/#fixture-token'});
+      await client.chooseHome('resume');
       await client.wait("document.getElementById('progress-page')&&!document.getElementById('progress-page').hidden");
       await client.evaluate("document.querySelector('[data-language=de]').click()");
       assert.equal(await client.evaluate("document.getElementById('substep-label').textContent"),'Teilabschnitt: Verknüpfungen der Spielassets erfassen');

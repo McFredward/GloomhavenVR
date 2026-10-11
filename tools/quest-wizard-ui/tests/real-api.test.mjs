@@ -58,6 +58,7 @@ test('actual loopback HTTP browser: module/CSP/token flow, plan, reopen, safe lo
     const literal='<script>window.unsafelyExecuted=true</script>\nfixture: no tools were run';
     await writeFile(join(logs,'tools.log'),literal);
     await client.command('Page.reload');
+    await client.chooseHome('resume');
     await client.wait("document.getElementById('progress-page')&&!document.getElementById('progress-page').hidden");
     await client.evaluate("document.querySelector('[data-language=de]').click()");
     assert.equal(await client.evaluate("document.getElementById('primary').firstElementChild.textContent"),'Fortsetzen');

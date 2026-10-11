@@ -62,12 +62,13 @@ async function fixture() {
 }
 function writes(setup){return setup.requests.filter(row=>row.method==='POST');}
 
-test('startup restores owner choices and total, Continue reuses ID across loopback ports',
+test('explicit home resume restores owner choices and total, Continue reuses ID across loopback ports',
   {skip:!existsSync(chrome),timeout:30000},async()=>{
     const server=await fixture();let client;
     try {
       client=await browser();
       await client.command('Page.navigate',{url:await server.open()});
+      await client.chooseHome('resume');
       await client.wait("document.getElementById('progress-page')&&!document.getElementById('progress-page').hidden");
       await client.evaluate("document.querySelector('[data-language=de]').click()");
       assert.equal(writes(server.setup).length,0,'opening a retained session cannot plan or run work');
@@ -86,6 +87,7 @@ test('startup restores owner choices and total, Continue reuses ID across loopba
       await client.picture('automatic-retained-build-new-release-de');
       // Origin-scoped local storage is empty at a new launcher's random port.
       await client.command('Page.navigate',{url:await server.open()});
+      await client.chooseHome('resume');
       await client.wait("document.getElementById('progress-page')&&!document.getElementById('progress-page').hidden");
       assert.equal(await client.evaluate("localStorage.getItem('quest-wizard-language')"),'en','new port has its own browser preference; owner build restoration is independent');
       assert.equal(writes(server.setup).length,0);
@@ -107,6 +109,7 @@ test('saved cancelled/interrupted/ready builds reopen without work; completed bu
       for(const status of ['cancelled','interrupted','ready','complete']) {
         server.setup.state=retained(status);
         await client.command('Page.navigate',{url:url.replace('/#','/?test='+status+'#')});
+        await client.chooseHome('resume');
         await client.wait("document.getElementById('progress-page')&&!document.getElementById('progress-page').hidden");
         assert.equal(writes(server.setup).length,0,status);
         assert.equal(await client.evaluate("document.getElementById('primary').disabled"),status==='complete');
@@ -125,6 +128,7 @@ test('choice editing keeps session ID; only explicit new-build selection creates
     const server=await fixture();let client;
     try {
       client=await browser();await client.command('Page.navigate',{url:await server.open()});
+      await client.chooseHome('resume');
       await client.wait("document.getElementById('progress-page')&&!document.getElementById('progress-page').hidden");
       await client.evaluate("document.getElementById('edit-choices').click();document.getElementById('primary').click()");
       await client.wait("!document.getElementById('setup-page').hidden");
@@ -133,6 +137,7 @@ test('choice editing keeps session ID; only explicit new-build selection creates
       assert.equal(writes(server.setup).find(row=>row.path==='/api/plan').body.session,retainedId);
       server.setup.state.status='failed';
       await client.evaluate("window.__resumeWitnessOldDocument=true");await client.command('Page.reload');
+      await client.chooseHome('resume');
       // Page.reload acknowledges the command before the replacement document
       // necessarily exists. Wait for its restoration, rather than clicking
       // a still-visible control in the previous running document.
@@ -158,6 +163,7 @@ test('inaccessible retained state is visible and cannot silently start a new ses
     const server=await fixture();server.setup.missing=true;let client;
     try {
       client=await browser();await client.command('Page.navigate',{url:await server.open()});
+      await client.chooseHome('resume');
       // Navigation acknowledgment can precede the replacement document.
       await client.wait("Boolean(document.getElementById('error-banner'))&&!document.getElementById('error-banner').hidden&&Boolean(document.getElementById('resume-session'))&&!document.getElementById('resume-session').disabled");
       assert.equal(await client.evaluate("document.getElementById('primary').disabled"),true);

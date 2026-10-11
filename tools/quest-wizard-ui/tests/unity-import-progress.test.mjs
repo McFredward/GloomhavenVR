@@ -130,6 +130,7 @@ test('browser reports long initial import counts, action, elapsed, real task per
     await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
     try{
       client=await browser();await client.command('Page.navigate',{url:'http://127.0.0.1:'+server.address().port+'/#fixture-token'});
+      await client.chooseHome('resume');
       await client.wait("document.getElementById('progress-page')&&!document.getElementById('progress-page').hidden");
       await client.evaluate("document.querySelector('[data-language=de]').click()");
       await client.wait("document.getElementById('substep-count').textContent==='521 Importaufgaben abgeschlossen'");

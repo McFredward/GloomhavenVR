@@ -13,7 +13,11 @@ export function choicesFromForm(form, language) {
   if (mode !== 'build' && String(form.signingRoot ?? '').trim()) choices.signingRoot = form.signingRoot.trim();
   if (String(form.unityEditor ?? '').trim()) choices.unityEditor = form.unityEditor.trim();
   const displayName = String(form.profileName ?? '').trim(), providerId = String(form.profileId ?? '').trim();
-  if (displayName || providerId) {
+  if(mode==='update-profile'&&displayName&&!providerId){
+    // The Builder inherits the provider/ID from the selected APK's bounded
+    // profile entry. A name edit must not require manually copying a Steam ID.
+    choices.profileName=displayName;
+  }else if (displayName || providerId) {
     if (!displayName || !providerId) throw new Error('missingProfile');
     choices.profile = {schema:1, provider, displayName, providerId};
     if (provider === 'steam') choices.profile.steamId = providerId;
@@ -84,6 +88,19 @@ export function installationView(state) {
       declared.session===state.session&&declared.policy==='all'&&declared.reason===view.dataIssue&&
       declared.attempt===install.attempts&&declared.inputKey===build.details?.inputKey&&declared.apkSha256===build.details?.apkSha256;
     if(view.canUseSaves)view.actionNonce=nonce;
+  }
+  if(attention&&action?.code==='quest_signing_content_reinstall_required'&&parameters.saveDataProtected===true&&
+     parameters.requiresContentReinstall===true&&parameters.contentReinstallReason==='native-rename-unavailable'){
+    const nonce=parameters.installationActionNonce,transaction=parameters.contentReinstallTransaction,device=parameters.contentReinstallDeviceSerial;
+    const declared=state.installationAction;
+    view.contentReinstallRequired=true;
+    view.canReinstallContent=validIdentity&&sessionId(state.session)!==null&&typeof nonce==='string'&&/^[a-f0-9]{32}$/.test(nonce)&&
+      typeof transaction==='string'&&/^[a-f0-9]{32}$/.test(transaction)&&typeof device==='string'&&device.length>0&&device.length<=256&&!/[\u0000-\u001f\u007f]/.test(device)&&
+      declared?.nonce===nonce&&declared.session===state.session&&declared.kind==='content-reinstall'&&
+      declared.reason===parameters.contentReinstallReason&&declared.transaction===transaction&&declared.deviceSerial===device&&
+      declared.attempt===install.attempts&&declared.inputKey===build.details?.inputKey&&declared.apkSha256===build.details?.apkSha256;
+    if(view.canReinstallContent)view.contentActionNonce=nonce;
+    if(Number.isSafeInteger(parameters.estimatedBytes)&&parameters.estimatedBytes>=0)view.contentBytes=parameters.estimatedBytes;
   }
   if(view.recoveryRequired&&typeof parameters.backupPath==='string'&&parameters.backupPath.length<=2048&&
      !/[\u0000-\u001f\u007f]/.test(parameters.backupPath))view.backupPath=parameters.backupPath;

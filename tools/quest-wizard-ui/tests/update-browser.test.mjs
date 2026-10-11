@@ -27,7 +27,8 @@ for(const mode of ['update-profile','update-mod'])test('native browser: '+mode+'
   try{
     client=await browser();
     await client.command('Page.navigate',{url:'http://127.0.0.1:'+server.address().port+'/?preview=1&lang=de'});
-    await client.wait("document.getElementById('primary')&&!document.getElementById('primary').disabled");
+    await client.chooseHome(mode==='update-profile'?'profile':'mod');
+    await client.wait("document.getElementById('primary')&&!document.getElementById('primary').disabled").catch(async error=>{const details='\n'+JSON.stringify(await client.evaluate("({page:document.getElementById('game-page').hidden,game:document.getElementById('game-root').value,error:document.getElementById('error-banner').textContent,device:document.getElementById('device-status').textContent})"))+'\n'+JSON.stringify(client.events.filter(row=>row.method==='Runtime.exceptionThrown').map(row=>row.params?.exceptionDetails));assert.fail(error.message+details);});
     await client.evaluate("document.getElementById('build-mode').value="+JSON.stringify(mode)+";document.getElementById('build-mode').dispatchEvent(new Event('change'))");
     assert.equal(await client.evaluate("document.getElementById('base-apk-choice').hidden"),false);
     assert.equal(await client.evaluate("document.getElementById('update-signing-choice').hidden"),false);

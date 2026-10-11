@@ -62,6 +62,7 @@ test('browser keeps a whole-stage total across phase resets and preserves the vi
     client=await browser();
     await client.command('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
     await client.command('Page.navigate',{url:'http://127.0.0.1:'+server.address().port+'/#fixture-token'});
+    await client.chooseHome('resume');
     await client.wait("document.getElementById('progress-page')&&!document.getElementById('progress-page').hidden&&document.querySelectorAll('#gallery .art-card img').length===6");
     await client.wait("[...document.querySelectorAll('#gallery img')].every(node=>node.complete&&node.naturalWidth>0)");
     assert.equal(await client.evaluate("document.querySelector('.privacy')===null&&document.getElementById('footer-note')===null&&document.querySelector('.feature-list')===null&&document.querySelector('.hero-copy')===null&&document.getElementById('gallery-source')===null"),true);

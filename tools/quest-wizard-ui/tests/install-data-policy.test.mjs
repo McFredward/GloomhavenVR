@@ -78,6 +78,7 @@ async function actualServer(protectedSave,repairReason){
     const api=new LocalApi(origin,new URL(event.url).hash.slice(1),(url,options)=>
       fetch(url,{...options,headers:{...options.headers,Origin:origin}}));
     client=await browser();await client.command('Page.navigate',{url:event.url});
+    await client.chooseHome('resume');
     await client.wait("document.getElementById('progress-page')&&!document.getElementById('progress-page').hidden");
     await client.evaluate("document.querySelector('[data-language=de]').click()");
     await client.wait("!document.getElementById('action-needed').hidden");

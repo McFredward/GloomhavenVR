@@ -54,6 +54,7 @@ for(const completed of [false,true])test('native browser storage: explicit previ
   try{
     client=await browser();await client.command('Page.navigate',{url:'http://127.0.0.1:'+server.address().port+'/#storage-fixture-token'});
     await client.wait("document.getElementById('storage-card')&&!document.getElementById('storage-card').hidden&&!document.getElementById('storage-plan-duplicates').disabled");
+    if(completed)await client.chooseHome('resume');
     await client.evaluate("document.querySelector('[data-language=de]').click()");
     assert.equal(await client.evaluate("document.getElementById('storage-root').textContent"),'C:\\Users\\Fixture\\.ghvrq');
     assert.match(await client.evaluate("document.getElementById('storage-free').textContent"),/44 GiB/);

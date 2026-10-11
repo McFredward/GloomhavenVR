@@ -139,6 +139,7 @@ test('completed APK is prominent while connection is blocked; retry and skip ret
     const reopen=async()=>{
       const query='?case='+(++navigation);
       await client.command('Page.navigate',{url:'http://127.0.0.1:'+server.address().port+'/'+query+'#fixture-token'});
+      await client.chooseHome('resume');
       await client.wait("location.search==="+JSON.stringify(query)+"&&document.getElementById('progress-page')&&!document.getElementById('progress-page').hidden&&!document.getElementById('result-card').hidden");
       await client.evaluate("document.querySelector('[data-language=de]').click()");
     };

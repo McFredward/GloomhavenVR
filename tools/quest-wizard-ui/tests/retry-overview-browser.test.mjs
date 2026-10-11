@@ -29,6 +29,7 @@ test('actual runner clears old failures before prerequisites, clears nested retr
     const metadata=await Promise.race([started,new Promise((_,reject)=>{startupTimer=setTimeout(()=>reject(Error('No fixture startup: '+stderr)),10000);})]);
     clearTimeout(startupTimer);
     client=await browser();await client.command('Page.navigate',{url:metadata.url});
+    await client.chooseHome('resume');
     await client.wait("document.getElementById('action-needed')&&!document.getElementById('action-needed').hidden&&!document.getElementById('failure-retry').disabled&&document.querySelector('[data-plan=staging] [data-operation=canonical]')");
     await client.evaluate("document.querySelector('[data-language=de]').click()");
     assert.match(await client.evaluate("document.querySelector('[data-plan=staging] [data-operation=canonical]').textContent"),/Fehlgeschlagen/);

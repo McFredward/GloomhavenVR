@@ -78,6 +78,7 @@ test('browser displays validation/copy/catalog/Gradle live counters and phase ow
     await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
     try{
       client=await browser();await client.command('Page.navigate',{url:'http://127.0.0.1:'+server.address().port+'/#fixture-token'});
+      await client.chooseHome('resume');
       await client.wait("document.getElementById('progress-page')&&!document.getElementById('progress-page').hidden");
       await client.evaluate("document.querySelector('[data-language=de]').click()");
       await client.wait("document.getElementById('progress-detail').textContent.includes('7 / 17 Schritte')");

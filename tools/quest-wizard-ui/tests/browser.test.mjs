@@ -47,6 +47,8 @@ test('native browser: bilingual setup, consent, cancellation, choice edits and r
     await command('Page.bringToFront');await command('Emulation.setFocusEmulationEnabled',{enabled:true});
     await command('Emulation.setDeviceMetricsOverride',{width:1366,height:768,deviceScaleFactor:1,mobile:false});
     await command('Page.navigate',{url:'http://127.0.0.1:'+server.address().port+'/?preview=1&lang=de'});
+    await wait("document.getElementById('home-build')&&!document.getElementById('home-build').disabled");
+    await evaluate("document.getElementById('home-build').click()");
     await wait("document.getElementById('primary')&&!document.getElementById('primary').disabled");
     assert.equal(await evaluate('document.documentElement.lang'),'de');
     assert.equal(await evaluate("document.getElementById('discovery-status').textContent"),'Eine lokale Spielkopie gefunden.');

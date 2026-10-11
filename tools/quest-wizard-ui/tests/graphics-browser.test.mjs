@@ -33,6 +33,7 @@ test('named shader passes expose real completed/remaining tasks and compiler var
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   try{
    client=await browser();await client.command('Page.navigate',{url:'http://127.0.0.1:'+server.address().port+'/#fixture-token'});
+   await client.chooseHome('resume');
    await client.wait("document.querySelector('[data-plan=prepare-graphics]')!==null");
    await client.evaluate("document.querySelector('[data-language=de]').click()");
    assert.match(await client.evaluate("document.getElementById('progress-completed').textContent"),/1 \/ 2 Teilaufgaben abgeschlossen.*1 ausstehend.*Aktuelle Teilaufgabe 2 \/ 2.*Spiel-Shader.*4 gemeldete Arbeitsgänge/s);

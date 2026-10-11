@@ -32,6 +32,7 @@ test('memory wait and retry retain completed work and resume automatically witho
     await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
     try{
       client=await browser();await client.command('Page.navigate',{url:'http://127.0.0.1:'+server.address().port+'/#fixture-token'});
+      await client.chooseHome('resume');
       await client.wait("document.getElementById('progress-page')&&!document.getElementById('progress-page').hidden");
       await client.evaluate("document.querySelector('[data-language=de]').click()");
       const before=await client.evaluate("document.getElementById('progress-count').textContent");

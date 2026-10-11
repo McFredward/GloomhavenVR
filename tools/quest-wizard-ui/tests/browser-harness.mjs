@@ -40,9 +40,14 @@ export async function browser() {
       pending.set(id,{resolve,reject,timer});socket.send(JSON.stringify({id,method,params}));});
     async function evaluate(expression){const result=await command('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});assert.equal(result.exceptionDetails,undefined,expression);return result.result.value;}
     async function wait(expression){for(let index=0;index<80;index++){if(await evaluate(expression))return;await delay(50);}assert.fail('Browser condition: '+expression);}
+    async function chooseHome(action='resume'){
+      const id='home-'+action;
+      await wait("document.getElementById('home-page')&&!document.getElementById('home-page').hidden&&document.getElementById("+JSON.stringify(id)+")&&!document.getElementById("+JSON.stringify(id)+").hidden&&!document.getElementById("+JSON.stringify(id)+").disabled");
+      await evaluate('document.getElementById('+JSON.stringify(id)+').click()');
+    }
     async function picture(name){if(!process.env.QUEST_WIZARD_SCREENSHOTS)return;await mkdir(process.env.QUEST_WIZARD_SCREENSHOTS,{recursive:true});const image=await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(join(process.env.QUEST_WIZARD_SCREENSHOTS,name+'.png'),Buffer.from(image.data,'base64'));}
     await command('Page.enable');await command('Runtime.enable');await command('Network.enable');
     await command('Emulation.setDeviceMetricsOverride',{width:1366,height:900,deviceScaleFactor:1,mobile:false});
-    return {command,evaluate,wait,picture,events,close};
+    return {command,evaluate,wait,chooseHome,picture,events,close};
   }catch(error){await close();throw error;}
 }
