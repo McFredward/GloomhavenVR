@@ -1,5 +1,29 @@
 # State — where the project stands
 
+**Build671 approved 1.1.0 release source, 2026-10-11.**
+
+The maintainer approved publication. Bilingual highlights prominently describe
+fully multiplayer-compatible immersive NPCs, including mixed Flat/VR groups
+and an unmodified flat host, plus Steam Frame compatibility/optimization and
+capability-gated native standalone passthrough. The parallel Frame project has
+no pending GloomhavenVR changes; experimental PC streaming is separate.
+
+Only the distributed handshake build changes670->671. Source16, direct300510
+goldens, strict release0/0, docs, bundles and full archive checks pass. Compiled
+types1255->1255; eight changes are exclusively inlined build constants. Public
+surfaces remain666/236/4795. Version3/next-free118; approved defaults, assets and
+presentation implementation are retained.
+
+The broad local attempt was stopped to avoid duplicating portable CI work:
+137 runtime passes, one1s deadline miss and78 cancellations, not a complete gate.
+The unchanged first-picture test passes isolated at0.790134s (initial1.105787s),
+with no weakened deadline. Unchanged local scopes inherit Build669 composed216/216
+and Build670 focused evidence. Fresh full dev CI remains mandatory before main
+integration; the release workflow publishes only a verified exact-source archive.
+Owned caches are cleaned after reaping; reports and failed-attempt sources remain.
+See [RELEASE-671-REVIEW.md](RELEASE-671-REVIEW.md) and
+[RELEASE-671-CI.md](RELEASE-671-CI.md).
+
 **Build670 first tutorial merchant confirmation in window mode, 2026-10-11: 1.1.0 development candidate.**
 
 The inspected screenshot and local669/game1.1.8323.0 logs show the original
