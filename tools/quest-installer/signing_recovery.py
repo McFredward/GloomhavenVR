@@ -206,7 +206,7 @@ class Recovery:
         self.park = "/sdcard/Download/.ghvr-quest-recovery/" + self.hardware + "/" + value["transaction"]
         return True
 
-    def _transfer(self, args, local, *, restore=False, phase="backup", total=None):
+    def _transfer(self, args, local, *, restore=False, phase="backup", total=None, paths=None, work=None):
         """Binary ADB transfer with bounded memory and observed byte counters."""
         command = [self.adb.executable, "-s", self.address, *map(str, args)]
         ordinary(local)
@@ -214,33 +214,67 @@ class Recovery:
             raise RecoveryError("A recovery archive is not an ordinary independent file.")
         with self.adb.log.open("a", encoding="utf-8") as log:
             log.write(json.dumps({"binaryCommand": command, "backup": str(local), "restore": restore}) + "\n")
-        stop = threading.Event()
-        with local.open("rb" if restore else "wb") as stream, tempfile.TemporaryFile() as stderr:
+        stop = threading.Event(); transfer_error = None
+        with local.open("rb" if restore else "wb") as stream, tempfile.TemporaryFile() as stderr, tempfile.TemporaryFile() as listing:
+            if paths is not None:
+                listing.write("".join(name + "\n" for name in paths).encode("utf-8")); listing.seek(0)
             def report():
+                offset = members = 0
                 while not stop.wait(1):
-                    observed = stream.tell() if restore else local.stat().st_size
+                    try: observed = stream.tell() if restore else local.stat().st_size
+                    except OSError: continue
                     progress(phase, observed, total, "Restoring retained app data" if restore else "Saving retained app data", unit="bytes", local=True)
+                    if work:
+                        # Count only fully written real tar members; extension
+                        # records are metadata, never additional planned work.
+                        try:
+                            with local.open("rb") as tail:
+                                while observed >= offset + 512:
+                                    tail.seek(offset); header = tail.read(512)
+                                    if len(header) != 512 or header == b"\0" * 512: break
+                                    try: length = tarfile.nti(header[124:136])
+                                    except (ValueError, tarfile.InvalidHeaderError): break
+                                    if length < 0: break
+                                    end = offset + 512 + ((length + 511) // 512) * 512
+                                    if end > observed: break
+                                    offset = end
+                                    if header[156:157] not in (b"x", b"g", b"L", b"K"): members += 1
+                        except OSError:
+                            # Windows antivirus/sharing checks can briefly deny
+                            # the optional census reader. Byte progress remains
+                            # valid; retry the same header on the next sample.
+                            continue
+                        progress("backup-work", work[0] + min(members, work[1]), work[2], work[3], local=True)
             monitor = threading.Thread(target=report, daemon=True); monitor.start()
             try:
                 options = {"stderr": stderr, "timeout": 1800, "shell": False}
                 if restore: options.update(stdin=stream, stdout=subprocess.DEVNULL)
-                else: options.update(stdout=stream, stdin=subprocess.DEVNULL)
+                else: options.update(stdout=stream, stdin=listing if paths is not None else subprocess.DEVNULL)
                 result = self.adb.runner(command, **options)
+            except Exception as error:
+                transfer_error = error
             finally:
                 stop.set(); monitor.join()
             stderr.seek(0, 2); size = stderr.tell(); stderr.seek(max(0, size - 16384))
             message = stderr.read(16384).decode("utf-8", errors="replace")
         with self.adb.log.open("a", encoding="utf-8") as log: log.write(message + "\n")
-        if result.returncode: raise RecoveryError("ADB data transfer failed: " + message[:1200])
+        if transfer_error:
+            if not restore: local.unlink(missing_ok=True)
+            raise transfer_error
+        if result.returncode:
+            if not restore: local.unlink(missing_ok=True)
+            raise RecoveryError("ADB data transfer failed: " + message[:1200])
         if not restore and re.search(r"\b(ignored|socket|changed|cannot|denied)\b", message, re.I):
+            local.unlink(missing_ok=True)
             raise RecoveryError("Android did not capture every app-data entry: " + message[:1200])
         progress(phase, local.stat().st_size, total, "Retained app-data transfer finished", unit="bytes", local=True)
 
-    def _tar_args(self, root, *, internal=False, restore=False):
-        command = ["shell", "-T"] + (["run-as", PACKAGE] if internal else [])
+    def _tar_args(self, root, *, internal=False, restore=False, access_mode=None, explicit=False):
+        command = ["shell", "-T"] + (["run-as", PACKAGE] if internal or access_mode == "app" else [])
         # Android toybox tar otherwise attempts to restore the old app UID.
         # -o keeps ownership with the new run-as UID after package replacement.
         command += ["tar", "-C", root, "-xof" if restore else "-cf", "-"]
+        if explicit and not restore: return command + ["--no-recursion", "-T", "-"]
         if not restore:
             if internal:
                 command += ["--exclude=./cache", "--exclude=./code_cache"]
@@ -260,6 +294,79 @@ class Recovery:
             owned = self.adb.run("-s", self.address, "shell", "pm", "list", "packages", "-u", "--user", identifier, PACKAGE, check_text=False)
             if "package:" + PACKAGE in owned: raise RecoveryError("The app also belongs to another Android profile; signing recovery will not remove that profile's app.")
 
+    def _context_shell(self, script, mode):
+        if mode == "app":
+            return self.adb.run("-s", self.address, "shell", "-T", "run-as", PACKAGE, "sh", "-s",
+                                input_text="set -eu\n" + script + "\n", check_text=False, timeout=120)
+        return self.shell(script, timeout=120)
+
+    def _capture_census(self, item, *, parked_bank=None):
+        """Prove readable typed members before streaming any payload bytes."""
+        root = item["root"]; modes = ("app",) if item["internal"] else ("shell", "app")
+        ignored = set(); directories = set()
+        if not item["internal"]:
+            for bank in ([parked_bank] if parked_bank else self.journal.get("banks", [])):
+                prefix = "" if parked_bank else bank + "/"
+                if not parked_bank: directories.add(bank)
+                for path in self.journal["bankWitnesses"][bank]:
+                    ignored.add(prefix + path)
+                    directories.update(prefix + str(parent) for parent in PurePosixPath(path).parents if str(parent) != ".")
+                ignored.update(prefix + ".quest-installation.receipt" + suffix for suffix in ("", ".previous", ".pending"))
+        last_error = None
+        for mode in modes:
+            try:
+                observed = self._context_shell("find " + shlex.quote(root) + " -mindepth 1 -print", mode).splitlines()
+                names = []
+                for path in observed:
+                    if not path.startswith(root + "/"): raise RecoveryError("The app-data census contains an unrepresentable or foreign path.")
+                    name = path[len(root) + 1:]
+                    if (len(name) > 4096 or any(char in name for char in "\x00\r\n") or any(part in ("", ".", "..") for part in name.split("/"))):
+                        raise RecoveryError("The app-data census contains an unsafe filename.")
+                    if item["internal"] and (name.split("/", 1)[0] in ("cache", "code_cache") or
+                            name.split("/", 1)[0] == "lib" and self.journal.get("excludePrivateLib")
+                            and root in ("/data/user/0/" + PACKAGE, "/data/data/" + PACKAGE)): continue
+                    if name not in ignored and name not in directories: names.append(name)
+                if len(names) > 100000 or sum(len(name) + 3 for name in names) > 16 * 1024 * 1024: raise RecoveryError("The app-data census exceeds its bounded size.")
+                rows = {}; failed = []
+                for offset in range(0, len(names), 64):
+                    batch = names[offset:offset + 64]; lines = []
+                    for index, name in enumerate(batch):
+                        path = shlex.quote(root + "/" + name)
+                        lines.append("metadata=$(stat -c '%f:%s' " + path + "); "
+                                     + "if test -L " + path + "; then kind=L; elif test -d " + path + "; then kind=D; "
+                                     + "elif test -f " + path + "; then if head -c 1 " + path + " >/dev/null 2>&1; then kind=F; else kind=U; fi; else kind=S; fi; "
+                                     + "printf '%s\\t%s\\t%s\\n' '" + str(index) + "' \"$metadata\" \"$kind\"")
+                    values = self._context_shell("\n".join(lines), mode).splitlines()
+                    if len(values) != len(batch): raise RecoveryError("The app-data access census was incomplete.")
+                    for index, (line, name) in enumerate(zip(values, batch)):
+                        parts = line.split("\t")
+                        if len(parts) != 3 or parts[0] != str(index) or not re.fullmatch(r"[0-9a-fA-F]+:[0-9]+", parts[1]): raise RecoveryError("Invalid app-data access metadata.")
+                        kind = int(parts[1].split(":")[0], 16) & 0xf000
+                        if parts[2] not in ("F", "D", "L", "U", "S") or (parts[2] != "S" and kind != {"F": 0x8000, "U": 0x8000, "D": 0x4000, "L": 0xa000}[parts[2]]):
+                            raise RecoveryError("The app-data member type changed during its access census.")
+                        if parts[2] in ("U", "S"): failed.append(name)
+                        else: rows[name] = {"type": {"F": "file", "D": "directory", "L": "symlink"}[parts[2]], "size": int(parts[1].split(":")[1])}
+                    progress("access", offset + len(batch), len(names), "Checking " + item["name"] + " app data using " + mode + " access", unit="files", local=True)
+                if failed: raise RecoveryError("Cannot safely read " + str(len(failed)) + " " + item["name"] + " app-data entries using " + mode + " access; first: " + failed[0])
+                # Explicit positive lists protect names containing wildcard or
+                # option syntax. LF stdin avoids Windows command-length limits.
+                result = {"accessMode": mode, "capturePaths": ["."] + ["./" + name for name in sorted(rows)],
+                          "captureFiles": len(rows) + 1, "captureBytes": sum(value["size"] for value in rows.values() if value["type"] == "file")}
+                item.update(result); return rows
+            except RuntimeError as error:
+                last_error = error
+                self._device_guard()
+        raise RecoveryError("Automatic app-data access repair exhausted shell and app identities: " + str(last_error) + "; the installed app was retained.")
+
+    def _capture_root(self, item, local, *, work=None, fresh=False, parked_bank=None):
+        if fresh or "capturePaths" not in item: self._capture_census(item, parked_bank=parked_bank)
+        self._transfer(self._tar_args(item["root"], internal=item["internal"], access_mode=item.get("accessMode"), explicit=True),
+                       local, paths=item["capturePaths"], work=work)
+        inventory = archive_inventory(local)
+        expected = {name[2:] for name in item["capturePaths"] if name != "."}
+        if set(inventory) != expected: raise RecoveryError("The captured archive does not match its complete mutable app-data census.")
+        return inventory
+
     def _bank_is_immutable(self, remote):
         if self.decode_receipt is None: return False
         local = self.backup / (remote.rsplit("/", 1)[1] + ".receipt")
@@ -268,13 +375,11 @@ class Recovery:
             if not local.is_file() or local.stat().st_size > 16 * 1024 * 1024: return False
             receipt = self.decode_receipt(local.read_bytes())
             if not receipt or not isinstance(receipt.get("files"), dict): return False
-            allowed = {remote + "/.quest-installation.receipt", remote + "/.quest-installation.receipt.previous", remote + "/.quest-installation.receipt.pending"}
             for name in receipt["files"]:
                 if name.startswith("/") or any(part in ("", ".", "..") for part in name.split("/")): return False
-                allowed.add(remote + "/" + name)
-                allowed.update(remote + "/" + str(parent) for parent in PurePosixPath(name).parents if str(parent) != ".")
-            found = self.shell("find " + shlex.quote(remote) + " -mindepth 1 -print").splitlines()
-            if not set(found).issubset(allowed): return False
+            # Old test installs can leave additional native bundles or unknown
+            # mutable files. Capture those separately; they must not force the
+            # complete multi-GB receipt-owned bank into the host backup.
             # A path covered by a receipt is not immutable when it is a link to
             # arbitrary mutable data. Require regular files and ordinary dirs.
             checks = []
@@ -306,7 +411,7 @@ class Recovery:
         paths = sorted(checked)
         for offset in range(0, len(paths), 128):
             script = "set -eu\n" + "\n".join("test ! -L " + shlex.quote(path) for path in paths[offset:offset + 128]) + "\n"
-            args = ["-s", self.address, "shell", "-T"] + (["run-as", PACKAGE] if item["internal"] else []) + ["sh", "-s"]
+            args = ["-s", self.address, "shell", "-T"] + (["run-as", PACKAGE] if item["internal"] or item.get("accessMode") == "app" else []) + ["sh", "-s"]
             self.adb.run(*args, input_text=script, check_text=False)
         # Android toybox tar refuses existing links instead of overwriting them.
         # Remove only original terminal links after verifying their exact target.
@@ -317,7 +422,7 @@ class Recovery:
                 quoted = shlex.quote(path)
                 lines.append("if test -L " + quoted + "; then test \"$(readlink " + quoted + ")\" = " + shlex.quote(target)
                              + "; rm " + quoted + "; else test ! -e " + quoted + "; fi")
-            args = ["-s", self.address, "shell", "-T"] + (["run-as", PACKAGE] if item["internal"] else []) + ["sh", "-s"]
+            args = ["-s", self.address, "shell", "-T"] + (["run-as", PACKAGE] if item["internal"] or item.get("accessMode") == "app" else []) + ["sh", "-s"]
             self.adb.run(*args, input_text="set -eu\n" + "\n".join(lines) + "\n", check_text=False)
         links = []
         with tarfile.open(origin, "r:") as source, tarfile.open(destination, "w:") as output:
@@ -388,20 +493,51 @@ class Recovery:
         raw = self.shell("sha256sum " + shlex.quote(installed[0][8:]))
         if not raw.startswith(self.journal["originalApk"]["sha256"] + "  "): raise RecoveryError("The installed APK changed since its recovery backup; it was retained.")
         for index, item in enumerate(self.journal["roots"]):
+            self._capture_census(item)
             candidate = self.backup / (item["name"] + "-" + uuid.uuid4().hex + ".tar")
-            self._transfer(self._tar_args(item["root"], internal=item["internal"]), candidate)
-            inventory = archive_inventory(candidate)
+            inventory = self._capture_root(item, candidate)
             if inventory == item["inventory"]:
                 candidate.unlink(); continue
             verify = self.backup / (item["name"] + ".refresh-verify.tar")
             try:
-                self._transfer(self._tar_args(item["root"], internal=item["internal"]), verify)
-                if archive_inventory(verify) != inventory: raise RecoveryError("App data continues changing after force-stop; the installed app was retained.")
+                if self._capture_root(item, verify, fresh=True) != inventory: raise RecoveryError("App data continues changing after force-stop; the installed app was retained.")
             finally: verify.unlink(missing_ok=True)
             item.update(archive=candidate.name, inventory=inventory, sha256=file_hash(candidate))
             self.commit(roots=self.journal["roots"])
             progress("backup", index + 1, len(self.journal["roots"]), "Updated backup retains changes made since the previous attempt", unit="files", local=True)
         return True
+
+    def _verify_prepared_snapshot(self):
+        """Verify mutable data at its actual location after content parking."""
+        self._device_guard()
+        self.adb.run("-s", self.address, "shell", "am", "force-stop", PACKAGE)
+        self._installed_apk_guard(self.journal["originalApk"]["sha256"])
+        for item in self.journal["roots"]:
+            candidate = dict(item)
+            temporary = self.backup / (item["name"] + ".boundary-verify.tar")
+            try:
+                inventory = self._capture_root(candidate, temporary, fresh=True)
+            finally: temporary.unlink(missing_ok=True)
+            if item["name"] == "external" and self.journal.get("parkingMode") == "atomic":
+                # Unknown extras moved with their old bank. Capture only those
+                # extras, then compare the combined census with the snapshot.
+                for bank in self.journal["banks"]:
+                    parked = {"name": "parked " + bank.split("/")[-1], "root": self.park + "/" + bank.split("/")[-1], "internal": False}
+                    temporary = self.backup / (bank.split("/")[-1] + ".boundary-verify.tar")
+                    try:
+                        extra = self._capture_root(parked, temporary, fresh=True, parked_bank=bank)
+                        for name, value in extra.items():
+                            full = bank + "/" + name
+                            if full in inventory: raise RecoveryError("Parked app-data roots overlap; the installed app was retained.")
+                            inventory[full] = value
+                    finally: temporary.unlink(missing_ok=True)
+            if inventory != item["inventory"]:
+                raise RecoveryError("App data changed during content parking; the installed app and original snapshots were retained for a targeted retry.")
+        # Copy fallback can take minutes. Recheck the replacement and profile
+        # boundaries after that work, immediately before permitting uninstall.
+        if file_hash(self.source.apk) != self.source.sha256 or not replacement_is_debuggable(self.source.apk):
+            raise RecoveryError("The selected APK changed during content parking; the installed app was retained.")
+        self._check_users(); self._device_guard()
 
     def _device_guard(self):
         if self.adb.identity(self.address) != self.hardware: raise RecoveryError("The ADB address now belongs to a different headset; no foreign app data will be changed.")
@@ -430,33 +566,27 @@ class Recovery:
         if len(lines) != 2 or not re.fullmatch(r"[0-9a-f]{64}  .*", lines[0]) or not lines[1].isdigit():
             raise RecoveryError("The installed APK's recovery identity could not be verified.")
         original_hash, original_size = lines[0][:64], int(lines[1])
+        retained_apk = self.journal.get("originalApk", {})
+        if retained_apk and (retained_apk.get("sha256") != original_hash or retained_apk.get("size") != original_size):
+            raise RecoveryError("The installed APK changed since partial recovery preparation; its existing app data was retained.")
+        previous = {item.get("name"): dict(item) for item in self.journal.get("roots", []) if isinstance(item, dict)}
         # Backup the entire mutable app-specific external root, not an allowlist
         # of known save names. Unknown future save/config files remain protected.
-        sizes = self.shell("if test -d " + shlex.quote(EXTERNAL) + "; then du -sk " + shlex.quote(EXTERNAL) + "; else printf '0\\tmissing\\n'; fi\n"
+        external_state = self.shell("if test -d " + shlex.quote(EXTERNAL) + "; then printf present; else printf absent; fi\n"
                            + "if test -d /sdcard/Android/obb/" + PACKAGE + "; then if test -n \"$(ls -A /sdcard/Android/obb/" + PACKAGE + ")\"; "
                            + "then printf '%s\\n' 'Additional app OBB data is not yet supported by automatic signing recovery; the installed app was retained.' >&2; exit 52; fi; fi")
-        root_size = re.match(r"^(\d+)\s", sizes)
-        if not root_size: raise RecoveryError("Available recovery storage could not be estimated.")
-        external_exists = not sizes.strip().endswith("missing")
-        # Exact immutable bank sizes are removed from the host-space requirement.
+        if external_state not in ("present", "absent"): raise RecoveryError("The external app-data root could not be identified.")
+        external_exists = external_state == "present"
+        # The typed census supplies exact mutable sizes without repeated du scans.
         banks = []
         for name in BANKS:
             remote = EXTERNAL + "/" + name
-            exists = self.shell("if test -d " + shlex.quote(remote) + " && ! test -L " + shlex.quote(remote) + "; then du -sk " + shlex.quote(remote) + "; fi")
+            exists = self.shell("if test -d " + shlex.quote(remote) + " && ! test -L " + shlex.quote(remote) + "; then printf present; fi")
             if exists:
-                match = re.match(r"^(\d+)\s", exists)
-                if not match: raise RecoveryError("A retained content-bank size could not be verified.")
-                # Only receipt-owned native banks with no unknown descendants
-                # may be excluded from the complete mutable-data backup.
+                if exists != "present": raise RecoveryError("A retained content-bank root could not be verified.")
+                # Receipt-owned regular files are parked on the headset.
+                # Unknown descendants still belong to the mutable host backup.
                 if self._bank_is_immutable(remote): banks.append(name)
-        private_size = self.adb.run("-s", self.address, "shell", "run-as", PACKAGE, "du", "-sk", private, check_text=False)
-        match = re.match(r"^(\d+)\s", private_size)
-        if not match: raise RecoveryError("The private-data backup size could not be estimated.")
-        external_bytes = int(root_size[1]) * 1024
-        for name in banks:
-            bank_size = self.shell("du -sk " + shlex.quote(EXTERNAL + "/" + name))
-            external_bytes -= int(re.match(r"^(\d+)\s", bank_size)[1]) * 1024
-        mutable_sizes = [max(0, external_bytes), int(match[1]) * 1024]
         roots = [{"name": "private", "root": private, "internal": True}]
         protected = "/data/user_de/0/" + PACKAGE
         device = self.adb.run("-s", self.address, "shell", "-T", "run-as", PACKAGE, "sh", "-s",
@@ -466,35 +596,63 @@ class Recovery:
                               + "else printf '%s\\n' 'Device-protected app-data access was denied; the installed app was retained.' >&2; exit 51; fi\n", check_text=False)
         if device not in ("present", "absent"): raise RecoveryError("Device-protected app-data access could not be verified.")
         if device == "present": roots.append({"name": "device-protected", "root": protected, "internal": True})
-        if device == "present":
-            size = self.adb.run("-s", self.address, "shell", "run-as", PACKAGE, "du", "-sk", protected, check_text=False)
-            parsed = re.match(r"^(\d+)\s", size)
-            if not parsed: raise RecoveryError("Device-protected app-data size could not be estimated.")
-            mutable_sizes.append(int(parsed[1]) * 1024)
         if external_exists: roots.append({"name": "external", "root": EXTERNAL, "internal": False})
-        required = original_size + sum(mutable_sizes) + max(mutable_sizes) * 2 + 64 * 1024 * 1024
-        if shutil.disk_usage(self.backup).free < required:
-            raise RecoveryError("Insufficient PC storage for a verified rollback backup (required " + str(required) + " bytes); the installed app was retained.")
         lib = self.adb.run("-s", self.address, "shell", "-T", "run-as", PACKAGE, "sh", "-s",
                            input_text="set -eu\nif test -L " + shlex.quote(private + "/lib") + "; then readlink " + shlex.quote(private + "/lib") + "; fi\n", check_text=False)
         generated_lib = lib.startswith(str(PurePosixPath(installed_apk).parent) + "/lib/")
+        for item in roots:
+            retained = previous.get(item["name"], {})
+            if retained.get("root") == item["root"] and retained.get("internal") == item["internal"]:
+                item.update({key: retained[key] for key in ("archive", "sha256", "inventory") if key in retained})
+        # Persist prior verified references before a new access check can fail.
         self.commit(originalApk={"path": "original.apk", "sha256": original_hash, "size": original_size}, roots=roots, banks=banks, excludePrivateLib=generated_lib)
+        for item in roots: self._capture_census(item)
+        self.commit(roots=roots)
+        # Delete only failed/unreferenced archives owned by this still-installed
+        # original APK transaction. Successful CE/DE/private snapshots stay valid.
+        referenced = {item.get("archive") for item in roots}
+        incomplete = {item["name"] for item in roots if not item.get("archive")}
+        for local in self.backup.iterdir():
+            if (local.name not in referenced and any(re.fullmatch(re.escape(name) + r"-[0-9a-f]{32}\.tar", local.name) for name in incomplete)
+                    and not local.is_symlink() and local.is_file() and local.stat().st_nlink == 1):
+                ordinary(local).unlink()
+        mutable_sizes = [item["captureBytes"] + item["captureFiles"] * 4096 for item in roots]
         original = self.backup / "original.apk"
-        if not original.is_file() or original.stat().st_size != original_size or file_hash(original) != original_hash:
+        original_retained = original.is_file() and original.stat().st_size == original_size and file_hash(original) == original_hash
+        required = (0 if original_retained else original_size) + sum(mutable_sizes) + max(mutable_sizes) * 2 + 64 * 1024 * 1024
+        if shutil.disk_usage(self.backup).free < required:
+            raise RecoveryError("Insufficient PC storage for a verified rollback backup (required " + str(required) + " bytes); the installed app was retained.")
+        work_total = 2 + sum(item["captureFiles"] * 2 + 1 for item in roots); work_done = 0
+        self.commit(backupWork={"done": 0, "total": work_total})
+        original = self.backup / "original.apk"
+        if not original_retained:
             self._transfer(["exec-out", "cat", installed_apk], original, total=original_size)
+        progress("backup-work", 1, work_total, "Original APK rollback copy retained", local=True)
         if original.stat().st_size != original_size or file_hash(original) != original_hash:
             raise RecoveryError("The original APK backup failed verification; the installed app was retained.")
+        work_done = 2; progress("backup-work", work_done, work_total, "Original APK rollback copy verified", local=True)
         for index, item in enumerate(roots):
+            old = item.get("archive")
+            if (isinstance(old, str) and re.fullmatch(re.escape(item["name"]) + r"-[0-9a-f]{32}\.tar", old)
+                    and ordinary(self.backup / old).is_file() and file_hash(self.backup / old) == item.get("sha256")
+                    and archive_inventory(self.backup / old) == item.get("inventory")
+                    and set(item["inventory"]) == {path[2:] for path in item["capturePaths"] if path != "."}):
+                work_done += item["captureFiles"] * 2 + 1
+                self.commit(backupWork={"done": work_done, "total": work_total})
+                progress("backup-work", work_done, work_total, "Reusing verified " + item["name"] + " app-data backup", local=True)
+                continue
             local = self.backup / (item["name"] + "-" + uuid.uuid4().hex + ".tar")
-            self._transfer(self._tar_args(item["root"], internal=item["internal"]), local)
-            inventory = archive_inventory(local)
+            inventory = self._capture_root(item, local, work=(work_done, item["captureFiles"], work_total, "Saving " + item["name"] + " app data"))
+            work_done += item["captureFiles"]
+            progress("backup-work", work_done, work_total, "Saved " + item["name"] + " app-data members", local=True)
             verify = self.backup / (item["name"] + ".verify.tar")
             try:
-                self._transfer(self._tar_args(item["root"], internal=item["internal"]), verify)
-                if archive_inventory(verify) != inventory: raise RecoveryError("App data changed during its backup; the installed app was retained.")
+                if self._capture_root(item, verify, fresh=True, work=(work_done, item["captureFiles"], work_total, "Verifying " + item["name"] + " app data")) != inventory: raise RecoveryError("App data changed during its backup; the installed app was retained.")
             finally: verify.unlink(missing_ok=True)
             item.update(archive=local.name, sha256=file_hash(local), inventory=inventory)
-            self.commit(roots=roots)
+            work_done += item["captureFiles"] + 1
+            self.commit(roots=roots, backupWork={"done": work_done, "total": work_total})
+            progress("backup-work", work_done, work_total, "Verified " + item["name"] + " app-data backup committed", local=True)
             progress("backup", index + 1, len(roots), "Verified retained " + item["name"] + " app data", unit="files", local=True)
         self.commit("backed-up")
         progress("backup", 2, 7, "Original APK, saves and settings are safely retained")
@@ -516,6 +674,16 @@ class Recovery:
                     or not re.fullmatch(r"[0-9a-f]{64}", str(item.get("sha256")))):
                 raise RecoveryError("Invalid retained app-data archive identity.")
             seen.add(name); local = ordinary(self.backup / item["archive"])
+            if "accessMode" in item and item["accessMode"] not in ("app", "shell"): raise RecoveryError("Invalid retained app-data access identity.")
+            if item.get("accessMode") == "shell" and item["internal"]: raise RecoveryError("Private app data cannot be restored through shell ownership.")
+            if "capturePaths" in item:
+                paths = item["capturePaths"]
+                if (not isinstance(paths, list) or not 1 <= len(paths) <= 100001 or paths[0] != "." or any(not isinstance(path, str) for path in paths) or len(set(paths)) != len(paths)
+                        or type(item.get("captureFiles")) is not int or item["captureFiles"] != len(paths)
+                        or type(item.get("captureBytes")) is not int or item["captureBytes"] < 0
+                        or any(not isinstance(path, str) or len(path) > 4098 or not path.startswith("./") or any(char in path for char in "\x00\r\n")
+                               or any(part in ("", ".", "..") for part in path[2:].split("/")) for path in paths[1:])):
+                    raise RecoveryError("Invalid retained app-data positive census.")
             if not validate_only and (file_hash(local) != item["sha256"] or archive_inventory(local) != item["inventory"]): raise RecoveryError("A retained app-data backup is damaged.")
         if any(name not in BANKS for name in self.journal.get("banks", [])): raise RecoveryError("Invalid parked-bank identity.")
         banks = self.journal.get("banks", [])
@@ -596,6 +764,9 @@ class Recovery:
         self.adb.run("-s", self.address, "shell", "am", "force-stop", PACKAGE)
         private = self.adb.run("-s", self.address, "shell", "run-as", PACKAGE, "pwd", check_text=False).strip()
         if private not in ("/data/user/0/" + PACKAGE, "/data/data/" + PACKAGE): raise RecoveryError("The installed replacement does not permit run-as restoration; all original backups remain retained.")
+        # Unknown extras captured inside a native bank must overlay its retained
+        # original tree, rather than precreating a conflicting bank directory.
+        self._restore_banks()
         for index, item in enumerate(self.journal["roots"]):
             local = self.backup / item["archive"]
             if item["internal"]:
@@ -605,17 +776,15 @@ class Recovery:
             restore = self.backup / (item["name"] + ".restore.tar")
             self._safe_restore_archive(local, restore, item)
             try:
-                self._transfer(self._tar_args(item["root"], internal=item["internal"], restore=True), restore, restore=True, phase="restore", total=restore.stat().st_size)
+                self._transfer(self._tar_args(item["root"], internal=item["internal"], restore=True, access_mode=item.get("accessMode")), restore, restore=True, phase="restore", total=restore.stat().st_size)
             finally: restore.unlink(missing_ok=True)
             progress("restore", index + 1, len(self.journal["roots"]), "Restored " + item["name"] + " app data", unit="files", local=True)
-        self._restore_banks()
         self.commit(restoringArchive=None)
         progress("restore", 5, 7, "Retained saves, settings and content restored")
         for item in self.journal["roots"]:
             verify = self.backup / (item["name"] + ".restored.tar")
             try:
-                self._transfer(self._tar_args(item["root"], internal=item["internal"]), verify, phase="restore")
-                restored = archive_inventory(verify)
+                restored = self._capture_root(item, verify, fresh=True)
                 original = item["inventory"]
                 if any(restored.get(name) != value for name, value in original.items()): raise RecoveryError("Restored app data failed verification; the app was not launched and original backups remain retained.")
                 for name in set(restored) - set(original):
@@ -640,8 +809,14 @@ class Recovery:
             print("Retained signing migration backup: " + str(self.backup), flush=True)
             if self.journal["state"] == "created": self._backup()
             self._verify_backups(original=self.journal["state"] != "restoring", validate_only=self.journal["state"] == "verified")
+            prepared = False
             if self.journal["state"] in ("backed-up", "parking"):
-                try: self._park_banks()
+                try:
+                    if self.journal["state"] == "parking":
+                        self._installed_apk_guard(self.journal["originalApk"]["sha256"])
+                        self._restore_banks()
+                    self._refresh_before_uninstall()
+                    self._park_banks(); prepared = True
                 except Exception:
                     # A denied second bank move must not leave the still-installed
                     # old app without its first bank. Original data remains durable.
@@ -651,7 +826,17 @@ class Recovery:
             if self.journal["state"] == "uninstalling":
                 installed = self.adb.run("-s", self.address, "shell", "pm", "path", "--user", "0", PACKAGE, check_text=False)
                 if installed.startswith("package:"):
-                    self._refresh_before_uninstall()
+                    self._installed_apk_guard(self.journal["originalApk"]["sha256"])
+                    try:
+                        # A resumed preparation may contain newly written saves.
+                        # Put atomic banks back for the refreshed complete census.
+                        if not prepared:
+                            if self.journal.get("parkingMode") == "atomic": self._restore_banks()
+                            self._refresh_before_uninstall()
+                            self._park_banks(); self.commit("uninstalling")
+                        self._verify_prepared_snapshot()
+                    except Exception:
+                        self._restore_banks(); self.commit("backed-up"); raise
                     scratch = max((self.backup / item["archive"]).stat().st_size for item in self.journal["roots"]) + 64 * 1024 * 1024
                     if shutil.disk_usage(self.backup).free < scratch:
                         raise RecoveryError("Insufficient PC storage for restoration scratch; the installed app was retained.")
@@ -700,8 +885,10 @@ class Recovery:
                 # and no longer needed; canonical host backups stay untouched.
                 try:
                     for name in self.journal["banks"]:
+                        self._device_guard()
                         path = self.park + "/" + name.split("/")[-1]
                         self.shell("test ! -L " + shlex.quote(path) + "\nrm -rf " + shlex.quote(path), timeout=120)
+                    self._device_guard()
                     self.shell("rmdir " + shlex.quote(self.park), timeout=30)
                 except RuntimeError:
                     print("Signing migration completed; retained device staging awaits cleanup: " + self.park, flush=True)

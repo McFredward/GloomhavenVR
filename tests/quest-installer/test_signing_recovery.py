@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import struct
 import subprocess
@@ -59,6 +60,8 @@ class Device:
         self.root = root; self.calls = []; self.installed = True
         self.user = "0"; self.others = False; self.deny_run_as = False
         self.hardware = "QUEST-LOCAL"
+        self.shell_unreadable = set(); self.app_unreadable = set()
+        self.tar_modes = []; self.fail_external_backup = False
         self.fail_new_install = False; self.fail_restore = False; self.copied_probe = False
         self.interrupt = None; self.apk = "/data/app/~~local/quest-test/base.apk"
         self.private = "/data/user/0/" + recovery.PACKAGE
@@ -92,13 +95,16 @@ class Device:
         if action[:4] == ["shell", "pm", "list", "packages"]: return result("package:" + recovery.PACKAGE if self.others else "")
         if action[:3] == ["shell", "am", "force-stop"]: return result()
         if action[:3] == ["shell", "pm", "path"]: return result("package:" + self.apk if self.installed else "")
+        app_context = False
         if action[:2] == ["shell", "run-as"]:
+            app_context = True
             if self.deny_run_as: return result("run-as: package not debuggable", 1)
             if action[3:] == ["pwd"]: return result(self.private)
             action = action[3:]
         elif action[:2] == ["shell", "-T"]:
             action = action[2:]
             if action[:1] == ["run-as"]:
+                app_context = True
                 if self.deny_run_as: return result("run-as: package not debuggable", 1)
                 action = action[2:]
         elif action[:1] == ["exec-out"]: action = action[1:]
@@ -121,10 +127,17 @@ class Device:
         else: raise AssertionError("Unexpected ADB command " + repr(action))
         if self.fail_restore and action[:1] == ["tar"] and "-xof" in action:
             options["stderr"].write(b"restore denied"); return result("", 1)
+        if action[:1] == ["tar"]:
+            self.tar_modes.append(("app" if app_context else "shell", tuple(action)))
+            if self.fail_external_backup and recovery.EXTERNAL in action and "-cf" in action:
+                options["stdout"].write(b"partial failed archive"); options["stderr"].write(b"tar: permission denied"); return result("", 1)
         translated = [self.translate(value) for value in action]
         options = dict(options)
         if "input" in options:
-            script = options["input"].decode("utf-8"); script = self.translate(script)
+            script = options["input"].decode("utf-8")
+            for path in (self.app_unreadable if app_context else self.shell_unreadable):
+                script = script.replace("head -c 1 " + shlex.quote(path) + " >/dev/null 2>&1", "false")
+            script = self.translate(script)
             if self.copied_probe and "printf atomic" in script: script = script.replace("then printf atomic", "then printf copied")
             options["input"] = script.encode("utf-8")
         ran = subprocess.run(translated, **options)
@@ -445,8 +458,239 @@ class TransactionTests(unittest.TestCase):
     def test_unknown_bank_entries_are_preserved_as_mutable_data(self):
         bank, payload = self.bank(); (bank / "unknown-player-data.dat").write_bytes(b"unknown save")
         engine = self.engine(); self.assertTrue(engine.recover(detected=True)["verified"])
-        self.assertEqual(engine.journal["banks"], [])
+        self.assertEqual(engine.journal["banks"], [recovery.BANKS[0]])
+        external = next(row for row in engine.journal["roots"] if row["name"] == "external")
+        self.assertEqual(external["inventory"]["files/quest-owned-game/unknown-player-data.dat"]["sha256"], hashlib.sha256(b"unknown save").hexdigest())
+        self.assertNotIn("files/quest-owned-game/StreamingAssets/game.bundle", external["inventory"])
         self.assertEqual((bank / "unknown-player-data.dat").read_bytes(), b"unknown save")
+
+    def test_external_read_denials_automatically_use_app_identity_without_dropping_tombstones(self):
+        self.bank()
+        for number in range(3):
+            path = recovery.EXTERNAL + "/files/tombstone_0" + str(number)
+            self.device.path(path).write_bytes(b"native crash data " + bytes([number]))
+            self.device.shell_unreadable.add(path)
+        engine = self.engine(); self.assertTrue(engine.recover(detected=True)["verified"])
+        external = next(row for row in engine.journal["roots"] if row["name"] == "external")
+        self.assertEqual(external["accessMode"], "app")
+        for number in range(3):
+            name = "files/tombstone_0" + str(number)
+            self.assertIn(name, external["inventory"])
+            self.assertEqual((self.device.path(recovery.EXTERNAL) / name).read_bytes(), b"native crash data " + bytes([number]))
+        external_transfers = [(mode, args) for mode, args in self.device.tar_modes if recovery.EXTERNAL in args]
+        self.assertTrue(external_transfers); self.assertTrue(all(mode == "app" for mode, _ in external_transfers))
+        self.assertNotIn("files/quest-owned-game/StreamingAssets/game.bundle", external["inventory"])
+        self.verify_saves()
+
+    def test_unreadable_arbitrary_save_uses_app_identity_and_never_a_filename_exemption(self):
+        path = recovery.EXTERNAL + "/files/GloomSaves/Campaign/party_76561198000000001.save"
+        self.device.shell_unreadable.add(path)
+        engine = self.engine(); self.assertTrue(engine.recover(detected=True)["verified"])
+        self.assertEqual(next(row for row in engine.journal["roots"] if row["name"] == "external")["accessMode"], "app")
+        self.verify_saves()
+
+    def test_both_identities_denied_refuses_before_payload_backup_or_uninstall(self):
+        path = recovery.EXTERNAL + "/files/tombstone_00"; self.device.path(path).write_bytes(b"must preserve")
+        self.device.shell_unreadable.add(path); self.device.app_unreadable.add(path)
+        with self.assertRaisesRegex(recovery.RecoveryError, "access repair exhausted"): self.engine().recover(detected=True)
+        self.assertFalse(self.device.tar_modes)
+        self.assertFalse(any(call[0] == "uninstall" for call in self.device.calls)); self.verify_saves()
+        self.assertEqual(self.device.path(path).read_bytes(), b"must preserve")
+
+    def partial_external_failure(self):
+        protected = self.device.path("/data/user_de/0/" + recovery.PACKAGE)
+        protected.mkdir(); (protected / "device-settings.bin").write_bytes(b"protected settings")
+        self.device.fail_external_backup = True; engine = self.engine()
+        with self.assertRaisesRegex(recovery.RecoveryError, "permission denied"): engine.recover(detected=True)
+        self.device.fail_external_backup = False
+        self.assertEqual(engine.journal["state"], "created")
+        prior = {item["name"]: item["archive"] for item in engine.journal["roots"] if "archive" in item}
+        self.assertEqual(set(prior), {"private", "device-protected"})
+        return engine, prior
+
+    def test_partial_resume_reuses_original_apk_and_verified_ce_de_without_reexport(self):
+        engine, prior = self.partial_external_failure()
+        self.assertFalse(list(engine.backup.glob("external-*.tar")))
+        resumed = self.engine(); transfer = resumed._transfer; copied = []
+        def observed(args, local, **kwargs):
+            copied.append(tuple(args)); return transfer(args, local, **kwargs)
+        resumed._transfer = observed; commit = resumed.commit
+        def stop_at_prepared(state=None, **fields):
+            commit(state, **fields)
+            if state == "backed-up": raise KeyboardInterrupt()
+        resumed.commit = stop_at_prepared
+        with self.assertRaises(KeyboardInterrupt): resumed.recover()
+        retained = {item["name"]: item["archive"] for item in resumed.journal["roots"] if "archive" in item}
+        self.assertTrue(all(retained[name] == archive for name, archive in prior.items()))
+        self.assertFalse(any(args[:1] == ("exec-out",) for args in copied))
+        self.assertFalse(any(self.device.private in args or "/data/user_de/0/" + recovery.PACKAGE in args for args in copied))
+        self.assertTrue(self.engine().recover()["verified"]); self.verify_saves()
+
+    def test_failed_new_preflight_keeps_all_prior_verified_archive_references(self):
+        engine, prior = self.partial_external_failure()
+        path = recovery.EXTERNAL + "/files/lib-unreadable.bin"; self.device.path(path).write_bytes(b"opaque app data")
+        self.device.shell_unreadable.add(path); self.device.app_unreadable.add(path)
+        with self.assertRaisesRegex(recovery.RecoveryError, "access repair exhausted"): self.engine().recover()
+        journal = json.loads(engine.path.read_text())
+        retained = {item["name"]: item.get("archive") for item in journal["roots"]}
+        self.assertTrue(all(retained[name] == archive for name, archive in prior.items()))
+        self.assertTrue(all((engine.backup / archive).is_file() for archive in prior.values()))
+        self.assertFalse(any(call[0] == "uninstall" for call in self.device.calls))
+
+    def test_failed_unreferenced_legacy_archive_is_pruned_before_free_space_gate(self):
+        engine, prior = self.partial_external_failure()
+        legacy = engine.backup / ("external-" + "b" * 32 + ".tar"); legacy.write_bytes(b"failed legacy large archive")
+        unrelated = engine.backup / "user-notes.txt"; unrelated.write_text("keep")
+        old_snapshot = engine.backup / ("private-" + "c" * 32 + ".tar"); old_snapshot.write_bytes(b"possibly unique previous snapshot")
+        foreign = self.root / "foreign.tar"; foreign.write_bytes(b"foreign")
+        linked = engine.backup / ("external-" + "d" * 32 + ".tar"); linked.symlink_to(foreign)
+        def space(_): return types.SimpleNamespace(free=0 if legacy.exists() else 10**12)
+        with mock.patch.object(recovery.shutil, "disk_usage", side_effect=space):
+            self.assertTrue(self.engine().recover()["verified"])
+        self.assertFalse(legacy.exists()); self.assertTrue(old_snapshot.is_file()); self.assertTrue(linked.is_symlink())
+        self.assertEqual(foreign.read_bytes(), b"foreign"); self.assertEqual(unrelated.read_text(), "keep")
+        self.assertTrue(all((engine.backup / archive).is_file() for archive in prior.values()))
+
+    def test_receipt_owned_bank_with_fourteen_unknown_native_extras_is_small_mutable_subset(self):
+        for copied in (False, True):
+            with self.subTest(copied=copied):
+                # Separate complete transactions and device trees for each mode.
+                self.device.copied_probe = copied
+                bank, payload = self.bank()
+                extras = bank / "StreamingAssets/aa/Android"; extras.mkdir(parents=True)
+                for number in range(14): (extras / ("old-" + str(number) + "_startup.bundle")).write_bytes(b"old native asset " + bytes([number]))
+                engine = self.engine(); self.assertTrue(engine.recover(detected=True)["verified"])
+                external = next(row for row in engine.journal["roots"] if row["name"] == "external")
+                captured = [name for name in external["inventory"] if "_startup.bundle" in name]
+                self.assertEqual(len(captured), 14); self.assertNotIn("files/quest-owned-game/StreamingAssets/game.bundle", external["inventory"])
+                self.assertEqual((bank / "StreamingAssets/game.bundle").read_bytes(), payload)
+                self.assertTrue(all((extras / ("old-" + str(number) + "_startup.bundle")).read_bytes() == b"old native asset " + bytes([number]) for number in range(14)))
+                engine.complete(); shutil.rmtree(bank)
+
+    def test_cancelled_atomic_bank_with_unknown_extras_refreshes_changes_without_losing_entries(self):
+        bank, _ = self.bank(); (bank / "unknown-save.bin").write_bytes(b"before cancel")
+        engine = self.engine(); commit = engine.commit
+        def cancelled(state=None, **fields):
+            commit(state, **fields)
+            if state == "uninstalling": raise KeyboardInterrupt()
+        engine.commit = cancelled
+        with self.assertRaises(KeyboardInterrupt): engine.recover(detected=True)
+        parked = self.device.path(engine.park + "/quest-owned-game")
+        (parked / "unknown-save.bin").write_bytes(b"changed after cancelled preparation")
+        (parked / "new-player-save.bin").write_bytes(b"new save")
+        resumed = self.engine(); self.assertTrue(resumed.recover()["verified"])
+        self.assertEqual((bank / "unknown-save.bin").read_bytes(), b"changed after cancelled preparation")
+        self.assertEqual((bank / "new-player-save.bin").read_bytes(), b"new save")
+        external = next(row for row in resumed.journal["roots"] if row["name"] == "external")
+        self.assertIn("files/quest-owned-game/new-player-save.bin", external["inventory"])
+
+    def test_added_member_between_snapshot_and_verification_cannot_be_silently_omitted(self):
+        engine = self.engine(); transfer = engine._transfer; added = False
+        def changing(args, local, **kwargs):
+            nonlocal added
+            value = transfer(args, local, **kwargs)
+            if not added and self.device.private in args and "-cf" in args:
+                (self.device.path(self.device.private) / "new-unsaved-data.bin").write_bytes(b"must not lose")
+                added = True
+            return value
+        engine._transfer = changing
+        with self.assertRaisesRegex(recovery.RecoveryError, "App data changed during its backup"): engine.recover(detected=True)
+        self.assertFalse(any(call[0] == "uninstall" for call in self.device.calls))
+        self.assertEqual((self.device.path(self.device.private) / "new-unsaved-data.bin").read_bytes(), b"must not lose")
+
+    def test_explicit_lf_tar_lists_preserve_spaces_quotes_wildcards_unicode_and_option_names(self):
+        names = [" leading and trailing ", "quotes'and\"double", "[unknown]*?.save", "--files-from", "Spielstand-Ä.save"]
+        for name in names: (self.device.path(recovery.EXTERNAL) / name).write_bytes(name.encode())
+        engine = self.engine(); self.assertTrue(engine.recover(detected=True)["verified"])
+        for name in names: self.assertEqual((self.device.path(recovery.EXTERNAL) / name).read_bytes(), name.encode())
+        self.assertTrue(all("--no-recursion" in args and "-T" in args for _, args in self.device.tar_modes if "-cf" in args))
+
+    def test_newline_filename_is_refused_before_any_binary_transfer(self):
+        (self.device.path(recovery.EXTERNAL) / "unsafe\nname.save").write_bytes(b"preserve")
+        with self.assertRaisesRegex(recovery.RecoveryError, "unrepresentable|unsafe filename"): self.engine().recover(detected=True)
+        self.assertFalse(self.device.tar_modes); self.assertFalse(any(call[0] == "uninstall" for call in self.device.calls))
+
+    def test_backup_work_has_one_finite_monotonic_total_and_actual_member_progress(self):
+        self.assertTrue(self.engine().recover(detected=True)["verified"])
+        events = [json.loads(line[len("GHVRQ_PROGRESS "):]) for line in self.output.getvalue().splitlines() if line.startswith("GHVRQ_PROGRESS ")]
+        work = [row for row in events if row["phase"] == "install-recovery-backup-work"]
+        self.assertGreater(len(work), 4); self.assertEqual(len({row["total"] for row in work}), 1)
+        self.assertEqual([row["done"] for row in work], sorted(row["done"] for row in work))
+        self.assertEqual(work[-1]["done"], work[-1]["total"])
+        self.assertTrue(any(row["phase"] == "install-recovery-access" and row["total"] > 0 for row in events))
+
+    def test_private_alias_excludes_only_proven_android_generated_library_link(self):
+        original = self.device.private; alias = "/data/data/" + recovery.PACKAGE
+        self.device.path(alias).parent.mkdir(parents=True)
+        self.device.path(original).rename(self.device.path(alias)); self.device.private = alias
+        native = str(Path(self.device.apk).parent) + "/lib/arm64"
+        (self.device.path(alias) / "lib").symlink_to(native)
+        engine = self.engine(); self.assertTrue(engine.recover(detected=True)["verified"])
+        private = next(row for row in engine.journal["roots"] if row["name"] == "private")
+        self.assertNotIn("lib", private["inventory"]); self.verify_saves()
+
+    def test_new_generated_private_directories_are_allowed_but_other_restore_additions_refused(self):
+        engine = self.engine(); transfer = engine._transfer
+        def changing(args, local, **kwargs):
+            value = transfer(args, local, **kwargs)
+            if kwargs.get("restore") and self.device.private in args:
+                (self.device.path(self.device.private) / "files").mkdir(exist_ok=True)
+                (self.device.path(self.device.private) / "unexpected-player-data.bin").write_bytes(b"retain for inspection")
+            return value
+        engine._transfer = changing
+        with self.assertRaisesRegex(recovery.RecoveryError, "unexpected new member"): engine.recover(detected=True)
+        self.assertEqual(engine.journal["state"], "restoring")
+        self.assertEqual((self.device.path(self.device.private) / "unexpected-player-data.bin").read_bytes(), b"retain for inspection")
+        self.assertTrue((engine.backup / "original.apk").is_file())
+
+    def test_partial_journal_with_changed_original_apk_never_adopts_or_prunes_it(self):
+        engine, prior = self.partial_external_failure()
+        leftover = engine.backup / ("external-" + "e" * 32 + ".tar"); leftover.write_bytes(b"retain uncertain partial")
+        apk(self.device.path(self.device.apk), content=b"manual replacement after partial backup")
+        with self.assertRaisesRegex(recovery.RecoveryError, "installed APK changed since partial"): self.engine().recover()
+        self.assertTrue(leftover.is_file()); self.assertTrue(all((engine.backup / name).is_file() for name in prior.values()))
+        self.assertFalse(any(call[0] == "uninstall" for call in self.device.calls))
+
+    def test_typed_census_rejects_false_row_index_or_stat_type_before_any_transfer(self):
+        runner = self.device
+        def corrupt(command, **options):
+            result = runner(command, **options)
+            if options.get("input") and b"metadata=$(stat" in options["input"] and isinstance(result.stdout, bytes):
+                result.stdout = result.stdout.replace(b"0\t", b"999\t", 1)
+            return result
+        self.adb.runner = corrupt
+        with self.assertRaisesRegex(recovery.RecoveryError, "Invalid app-data access metadata"): self.engine().recover(detected=True)
+        self.assertFalse(self.device.tar_modes)
+
+    def test_postparking_mutation_is_preserved_and_banks_restored_before_retry(self):
+        bank, _ = self.bank(); engine = self.engine(); park = engine._park_banks
+        save = self.device.path(recovery.EXTERNAL) / "files/GloomSaves/Campaign/party_76561198000000001.save"
+        def changing():
+            park(); save.write_bytes(b"new save while content parking completed")
+        engine._park_banks = changing
+        with self.assertRaisesRegex(recovery.RecoveryError, "App data changed during content parking"): engine.recover(detected=True)
+        self.assertTrue(bank.is_dir()); self.assertTrue(self.device.installed)
+        self.assertEqual(save.read_bytes(), b"new save while content parking completed")
+        self.assertEqual(engine.journal["state"], "backed-up")
+        self.assertTrue(self.engine().recover()["verified"])
+        self.assertEqual(save.read_bytes(), b"new save while content parking completed")
+
+    def test_selected_source_changed_during_fresh_parking_retains_app_and_banks(self):
+        bank, payload = self.bank(); self.device.copied_probe = True
+        engine = self.engine(); park = engine._park_banks
+        def changing():
+            park(); apk(self.device.new_apk, content=b"source changed while content was parked")
+        engine._park_banks = changing
+        with self.assertRaisesRegex(recovery.RecoveryError, "selected APK changed during content parking"): engine.recover(detected=True)
+        self.assertTrue(self.device.installed); self.assertEqual((bank / "StreamingAssets/game.bundle").read_bytes(), payload)
+        self.assertFalse(any(call[0] == "uninstall" for call in self.device.calls)); self.verify_saves()
+
+    def test_completed_copy_cleanup_never_touches_reassigned_headset(self):
+        self.bank(); self.device.copied_probe = True; engine = self.engine()
+        self.assertTrue(engine.recover(detected=True)["verified"])
+        retained = self.device.path(engine.park + "/quest-owned-game")
+        self.device.hardware = "OTHER-QUEST"; engine.complete()
+        self.assertTrue(retained.is_dir()); self.assertEqual(engine.journal["state"], "complete")
 
 
 class ArchiveAndManifestTests(unittest.TestCase):
