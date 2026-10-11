@@ -32,8 +32,7 @@ class RetainedDesktopBanks(unittest.TestCase):
         self.vulkan = {'targetRenderer': 21, 'targetLevel': 0, 'kernels': ['actual runtime gate receives these unchanged']}
         self.obj = {'m_Name': 'AutoExposure', 'variants': [self.desktop, self.vulkan]}
         self.manifest = {'graphicsApi': 'Vulkan', 'shaders': [self.owner]}
-        self.pin = (self.owner['guid'], self.owner['assetPath'], self.owner['sourceSha256'],
-            campaign_compute.original_kernel_contract_hash(self.owner), digest(self.desktop))
+        self.pin = (campaign_compute.original_kernel_contract_hash(self.owner), digest(self.desktop))
 
     def select(self, obj=None, manifest=None, pin=None):
         with patch.object(campaign_compute, '_RETAINED_PP_OPENGL_BANKS', {'AutoExposure': pin or self.pin}):
@@ -50,11 +49,13 @@ class RetainedDesktopBanks(unittest.TestCase):
         self.assertFalse(row['selectedForAndroidRuntimeAudit'])
         self.assertNotIn('kernelName', row)
 
-    def test_original_owner_source_dxbc_interface_and_dispatch_changes_are_rejected(self):
+    def test_invalid_local_owner_and_original_dxbc_interface_and_dispatch_changes_are_rejected(self):
         controls = (
-            lambda c: c.update(guid='0' * 32), lambda c: c.update(assetPath='Assets/Foreign.compute'),
+            lambda c: c.update(guid='malformed'), lambda c: c.update(assetPath='Assets/../Foreign.compute'),
+            lambda c: c.update(assetPath='OutsideAssets/Foreign.compute'),
+            lambda c: c.update(assetPath='Assets/Foreign.asset'),
             lambda c: c.update(classId=114), lambda c: c.update(localFileId=0),
-            lambda c: c.update(sourceSha256='0' * 64),
+            lambda c: c.update(sourceSha256='malformed'),
             lambda c: c['kernels'][0].update(originalDxbcSha256='0' * 64),
             lambda c: c['kernels'][0].update(threadGroups=[8, 8, 1]),
             lambda c: c['kernels'][0].update(name='InventedKernel'),
@@ -66,6 +67,21 @@ class RetainedDesktopBanks(unittest.TestCase):
             with self.subTest(control=mutate):
                 m = copy.deepcopy(self.manifest); mutate(m['shaders'][0])
                 with self.assertRaises(BuildError): self.select(manifest=m)
+
+    def test_independent_export_and_host_source_transport_preserve_exact_native_owner(self):
+        m = copy.deepcopy(self.manifest)
+        source = '#pragma kernel FirstOriginalKernel\n#pragma kernel SecondOriginalKernel\n'
+        m['shaders'][0]['sourceSha256'] = hashlib.sha256(source.encode()).hexdigest()
+        self.select(manifest=m)
+        source = source.replace('\n', '\r\n')
+        m['shaders'][0].update(guid='b' * 32,
+            assetPath='Assets/QuestOriginalStartup/CaseVariants/case_1234/AutoExposure.compute',
+            sourceSha256=hashlib.sha256(source.encode()).hexdigest())
+        selected, evidence = self.select(manifest=m)
+        self.assertIs(selected[0]['variants'][0], self.vulkan)
+        self.assertEqual(evidence['additionalNativeBanks'][0]['guid'], 'b' * 32)
+        self.assertEqual(evidence['additionalNativeBanks'][0]['assetPath'], m['shaders'][0]['assetPath'])
+        self.assertEqual(evidence['additionalNativeBanks'][0]['actualBankSha256'], digest(self.desktop))
 
     def test_unknown_backend_bank_bytes_and_duplicate_imports_are_rejected(self):
         controls = (
@@ -100,7 +116,9 @@ class RetainedDesktopBanks(unittest.TestCase):
         unknown = 'Unknown' * 2000; o['m_Name'] = unknown
         m = copy.deepcopy(self.manifest); m['shaders'][0]['name'] = unknown
         with self.assertRaises(BuildError) as caught: self.select(obj=o, manifest=m)
-        self.assertLess(len(str(caught.exception)), 250)
+        self.assertLess(len(str(caught.exception)), 350)
+        self.assertIn('originalKernelSha256=', str(caught.exception))
+        self.assertIn('localOwner=True', str(caught.exception))
 
     def test_production_pins_are_only_twelve_exact_original_owners(self):
         pins = campaign_compute._RETAINED_PP_OPENGL_BANKS
@@ -108,10 +126,9 @@ class RetainedDesktopBanks(unittest.TestCase):
         self.assertNotIn('EyeHistogram', pins)
         self.assertEqual(len({p[0] for p in pins.values()}), 12)
         for name, pin in pins.items():
-            self.assertEqual(len(pin), 5)
-            self.assertRegex(pin[0], '^[0-9a-f]{32}$')
-            self.assertTrue(pin[1].startswith('Assets/QuestRecoveredBundles/' + pin[0] + '/'))
-            for checksum in pin[2:]: self.assertRegex(checksum, '^[0-9a-f]{64}$')
+            self.assertEqual(len(pin), 2)
+            for checksum in pin: self.assertRegex(checksum, '^[0-9a-f]{64}$')
+        self.assertRegex(campaign_compute._RETAINED_EYE_KERNEL_CONTRACT_SHA256, '^[0-9a-f]{64}$')
 
 
 if __name__ == '__main__': unittest.main()

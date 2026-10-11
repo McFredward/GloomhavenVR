@@ -164,15 +164,20 @@ class RuntimeComputeBankTests(unittest.TestCase):
         self.original = {"m_Name": "EyeHistogram", "variants": [self.desktop, self.vulkan]}
         self.manifest = {"graphicsApi": "Vulkan", "shaders": [{"name": "EyeHistogram",
             "guid": "14b830dd8a5381e4399cfe161a01662f", "assetPath": "Assets/Resources/shaders/EyeHistogram.compute",
+            "classId": 72, "localFileId": 7200000, "sourceSha256": "a" * 64,
             "kernels": [{"name": "KEyeHistogram", "threadGroups": [16, 16, 1],
-                "originalDxbcSha256": "26239d6030173bc084c84cd719c28e261b31987e1423ebc98cbeded5bd164533"}]}]}
+                "originalDxbcSha256": "26239d6030173bc084c84cd719c28e261b31987e1423ebc98cbeded5bd164533",
+                "interface": {"bindings": [{"name": "_Source", "kind": "texture", "slot": 0}]},
+                "outputBindings": [{"name": "_Histogram", "kind": "structured", "strideBytes": 4}]}]}]}
         # No proprietary native shader bytes are stored in this fixture. The
         # actual signed bank hash is verified separately on the private APK.
         self.desktop_hash = hashlib.sha256(json.dumps(self.desktop, sort_keys=True,
             separators=(",", ":")).encode()).hexdigest()
+        self.kernel_hash = campaign_compute.original_kernel_contract_hash(self.manifest["shaders"][0])
 
     def select(self, objects=None, manifest=None):
-        with patch.object(campaign_compute, "_RETAINED_EYE_OPENGL_BANK_SHA256", self.desktop_hash):
+        with patch.object(campaign_compute, "_RETAINED_EYE_OPENGL_BANK_SHA256", self.desktop_hash), \
+                patch.object(campaign_compute, "_RETAINED_EYE_KERNEL_CONTRACT_SHA256", self.kernel_hash):
             return campaign_compute.select_vulkan_runtime_banks(
                 manifest or self.manifest, objects if objects is not None else [self.original])
 
@@ -215,10 +220,17 @@ class RuntimeComputeBankTests(unittest.TestCase):
                 actual = copy.deepcopy(self.original); mutate(actual)
                 with self.assertRaises(BuildError): self.select([actual])
 
-    def test_extra_bank_requires_exact_original_owner_guid_and_native_dxbc(self):
+    def test_extra_bank_requires_local_owner_and_complete_native_contract(self):
         controls = (
-            lambda x: x["shaders"][0].update(guid="0" * 32),
+            lambda x: x["shaders"][0].update(guid="malformed-guid"),
+            lambda x: x["shaders"][0].update(classId=114),
+            lambda x: x["shaders"][0].update(localFileId=0),
+            lambda x: x["shaders"][0].update(sourceSha256="not-a-source-hash"),
+            lambda x: x["shaders"][0].update(assetPath="Assets/../Foreign.compute"),
             lambda x: x["shaders"][0]["kernels"][0].update(originalDxbcSha256="0" * 64),
+            lambda x: x["shaders"][0]["kernels"][0]["interface"]["bindings"][0].update(slot=1),
+            lambda x: x["shaders"][0]["kernels"][0]["outputBindings"][0].update(strideBytes=8),
+            lambda x: x["shaders"][0]["kernels"][0].update(threadGroups=[8, 8, 1]),
             lambda x: x["shaders"][0]["kernels"].append(copy.deepcopy(x["shaders"][0]["kernels"][0])),
         )
         for index, mutate in enumerate(controls):
@@ -226,9 +238,27 @@ class RuntimeComputeBankTests(unittest.TestCase):
                 manifest = copy.deepcopy(self.manifest); mutate(manifest)
                 with self.assertRaises(BuildError): self.select(manifest=manifest)
 
+    def test_independent_export_guid_case_safe_path_and_native_newline_source_hash_are_local(self):
+        manifest = copy.deepcopy(self.manifest)
+        source = "#pragma kernel KEyeHistogram\n[numthreads(16,16,1)] void KEyeHistogram() {}\n"
+        old_hash = hashlib.sha256(source.encode()).hexdigest()
+        new_hash = hashlib.sha256(source.replace("\n", "\r\n").encode()).hexdigest()
+        self.assertNotEqual(old_hash, new_hash)
+        # Actual current export reported with capture092443: its GUID differs
+        # while the original DXBC and exact serialized ancillary bank match.
+        current_guid = "43dced0ca11f5ab4c850ff0e55f341a3"
+        manifest["shaders"][0].update(guid=current_guid,
+            assetPath="Assets/QuestOriginalStartup/CaseVariants/case_1234/EyeHistogram.compute",
+            sourceSha256=new_hash)
+        selected, evidence = self.select(manifest=manifest)
+        self.assertIs(selected[0]["variants"][0], self.vulkan)
+        self.assertEqual(evidence["additionalNativeBanks"][0]["guid"], current_guid)
+        self.assertEqual(evidence["additionalNativeBanks"][0]["assetPath"], manifest["shaders"][0]["assetPath"])
+
     def test_delivery_caller_keeps_frozen_validator_and_records_complete_raw_object(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory); source = root / "frozen-source"; project = root / "project"
+            LocalComputeSourceTests.write_sources(project, self.manifest)
             manifest_path = project / "Assets/QuestOriginalCampaign/campaign-computes.json"
             manifest_path.parent.mkdir(parents=True); manifest_path.write_text(json.dumps(self.manifest))
             apk = root / "player.apk"; receipt = root / "validation.json"
@@ -249,7 +279,8 @@ class RuntimeComputeBankTests(unittest.TestCase):
             validator = types.SimpleNamespace(validate_objects=validate)
             with patch.dict(sys.modules, {"UnityPy": unity, "UnityPy.files": native, "UnityPy.streams": streams}), \
                     patch.object(campaign_compute.campaign_shaders, "load", return_value=validator) as loader, \
-                    patch.object(campaign_compute, "_RETAINED_EYE_OPENGL_BANK_SHA256", self.desktop_hash):
+                    patch.object(campaign_compute, "_RETAINED_EYE_OPENGL_BANK_SHA256", self.desktop_hash), \
+                    patch.object(campaign_compute, "_RETAINED_EYE_KERNEL_CONTRACT_SHA256", self.kernel_hash):
                 result = campaign_compute.validate_delivered(source, project, apk, [], receipt)
             loader.assert_called_once_with(source, "tools/quest-compute/compiled.py", "tools/quest-compute")
             self.assertEqual(raw, self.original)
@@ -258,7 +289,88 @@ class RuntimeComputeBankTests(unittest.TestCase):
             self.assertEqual(result["actualObjectOrigins"][0]["objectSha256"], hashlib.sha256(
                 json.dumps(raw, sort_keys=True, separators=(",", ":")).encode()).hexdigest())
             self.assertEqual(len(result["additionalNativeBanks"]), 1)
+            self.assertEqual(result["actualLocalComputeSourceCount"], 1)
+            self.assertEqual(result["actualLocalComputeMetadataCount"], 1)
             self.assertEqual(json.loads(receipt.read_text()), result)
+
+
+class LocalComputeSourceTests(unittest.TestCase):
+    @staticmethod
+    def write_sources(project, manifest, newline="\n"):
+        for row in manifest["shaders"]:
+            source = project / row["assetPath"]
+            source.parent.mkdir(parents=True, exist_ok=True)
+            text = "#pragma kernel " + row["kernels"][0]["name"] + "\n// Unchanged native fixture source.\n"
+            source.write_bytes(text.replace("\n", newline).encode())
+            meta = Path(str(source) + ".meta")
+            meta.write_bytes(("fileFormatVersion: 2\nguid: " + row["guid"] +
+                "\nComputeShaderImporter:\n  externalObjects: {}\n").replace("\n", newline).encode())
+            row["sourceSha256"] = hashlib.sha256(source.read_bytes()).hexdigest()
+            row["metaSha256"] = hashlib.sha256(meta.read_bytes()).hexdigest()
+
+    def manifest(self):
+        return {"shaders": [{"name": "Original" + str(index), "classId": 72, "localFileId": 7200000,
+            "guid": format(index + 1, "032x"),
+            "assetPath": "Assets/QuestOriginalStartup/CaseVariants/case_1234/Original" + str(index) + ".compute",
+            "kernels": [{"name": "Kernel" + str(index)}]} for index in range(13)]}
+
+    def test_all13_actual_source_meta_links_qualify_native_lf_and_windows_crlf(self):
+        for newline in ("\n", "\r\n"):
+            with self.subTest(newline=newline), tempfile.TemporaryDirectory() as directory:
+                project = Path(directory); manifest = self.manifest()
+                self.write_sources(project, manifest, newline)
+                self.assertEqual(campaign_compute.qualify_local_compute_sources(project, manifest),
+                    {"actualLocalComputeSourceCount": 13, "actualLocalComputeMetadataCount": 13})
+
+    def test_missing_changed_and_linked_local_source_or_metadata_are_rejected(self):
+        controls = ("missing-source", "missing-meta", "source-bytes", "meta-bytes", "source-hash", "meta-hash",
+            "source-link", "meta-link", "ancestor-link", "source-limit", "meta-limit", "duplicate-name", "duplicate-guid", "duplicate-path")
+        for control in controls:
+            with self.subTest(control=control), tempfile.TemporaryDirectory() as directory:
+                project = Path(directory); manifest = self.manifest(); self.write_sources(project, manifest)
+                row = manifest["shaders"][0]; source = project / row["assetPath"]; meta = Path(str(source) + ".meta")
+                if control.startswith("missing-"):
+                    (source if control == "missing-source" else meta).unlink()
+                elif control.endswith("-bytes"):
+                    (source if control == "source-bytes" else meta).write_bytes(b"changed original bytes")
+                elif control.endswith("-hash"):
+                    row["sourceSha256" if control == "source-hash" else "metaSha256"] = "0" * 64
+                elif control == "ancestor-link":
+                    assets = project / "Assets"; retained = project / "retained-Assets"
+                    assets.rename(retained); assets.symlink_to(retained, target_is_directory=True)
+                elif control.endswith("-link"):
+                    path = source if control == "source-link" else meta
+                    sibling = path.with_name(path.name + ".kept"); path.rename(sibling); path.symlink_to(sibling)
+                elif control.endswith("-limit"):
+                    path = source if control == "source-limit" else meta
+                    path.write_bytes(b"x" * (1024 * 1024 + 1 if path == source else 64 * 1024 + 1))
+                else:
+                    key = {"duplicate-name": "name", "duplicate-guid": "guid", "duplicate-path": "assetPath"}[control]
+                    manifest["shaders"][1][key] = row[key]
+                with self.assertRaises(BuildError): campaign_compute.qualify_local_compute_sources(project, manifest)
+
+    def test_valid_hash_of_wrong_importer_or_wrong_metadata_guid_does_not_qualify(self):
+        controls = (lambda data: data.replace(b"ComputeShaderImporter:", b"NativeFormatImporter:"),
+            lambda data: data.replace(b"guid: " + b"0" * 31 + b"1", b"guid: " + b"e" * 32),
+            lambda data: data + b"guid: " + b"0" * 31 + b"1\n",
+            lambda data: data + b"ComputeShaderImporter:\n")
+        for control in controls:
+            with self.subTest(control=control), tempfile.TemporaryDirectory() as directory:
+                project = Path(directory); manifest = self.manifest(); self.write_sources(project, manifest)
+                row = manifest["shaders"][0]; meta = Path(str(project / row["assetPath"]) + ".meta")
+                meta.write_bytes(control(meta.read_bytes())); row["metaSha256"] = hashlib.sha256(meta.read_bytes()).hexdigest()
+                with self.assertRaises(BuildError): campaign_compute.qualify_local_compute_sources(project, manifest)
+
+    def test_caller_refuses_damaged_source_before_reading_delivered_payloads(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory); manifest = self.manifest(); self.write_sources(project, manifest)
+            path = project / "Assets/QuestOriginalCampaign/campaign-computes.json"
+            path.parent.mkdir(parents=True, exist_ok=True); path.write_text(json.dumps(manifest))
+            (project / manifest["shaders"][0]["assetPath"]).write_bytes(b"damaged")
+            with patch.object(campaign_compute, "collect_delivered") as collect:
+                with self.assertRaisesRegex(BuildError, "source/meta differs"):
+                    campaign_compute.validate_delivered(project / "frozen", project, project / "missing.apk", [], project / "receipt")
+                collect.assert_not_called()
 
 
 if __name__ == "__main__":
