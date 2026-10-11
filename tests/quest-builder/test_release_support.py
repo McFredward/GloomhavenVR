@@ -8,6 +8,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 import zipfile
@@ -253,6 +254,8 @@ class SupportTests(unittest.TestCase):
                 write_json(home / 'active.json', value | {key: changed})
                 _, files = self.export()
                 self.assertNotIn('signingRecovery', json.loads(files['diagnostic.json']))
+                self.assertEqual(json.loads(files['diagnostic.json'])['signingRecoveryUnavailable']['reason'],
+                                 'build-identity-mismatch' if key in ('apkSha256', 'inputKey') else 'journal-identity-mismatch')
                 self.assertIn('tar permission denied', files['wizard/install.log'])
     def test_signing_summary_rejects_journal_link_and_oversize_without_reading_backup(self):
         home, folder, value = self.signing_log()
@@ -271,6 +274,108 @@ class SupportTests(unittest.TestCase):
         row = json.loads(files['diagnostic.json'])['signingRecovery']['roots'][0]
         self.assertNotIn('archivePresent', row)
         self.assertNotIn('archiveBytes', row)
+    def test_real_recovery_commit_with_windows_failure_exports_current_frontier(self):
+        home, folder, value = self.signing_log()
+        spec = importlib.util.spec_from_file_location('support_recovery_fixture', ROOT / 'tools/quest-installer/signing_recovery.py')
+        recovery = importlib.util.module_from_spec(spec); spec.loader.exec_module(recovery)
+        source = SimpleNamespace(sha256=value['apkSha256'], input_key=value['inputKey'])
+        transaction = recovery.Recovery(None, 'fixture-address', 'fixture-headset', source, self.root / 'device')
+        transaction.journal = value | {'roots': [value['roots'][0] | {
+            'capturePaths': ['.', './NativeSaveNeverShip'], 'captureFiles': 2, 'captureBytes': 32, 'accessMode': 'app'}]}
+        transaction.commit()
+        name = 'wireless-install-20261011T095426Z-ef64c522.log'
+        trailer = str(folder).replace('/', '\\')
+        log = ('Retained signing migration backup: ' + trailer + '\r\n'
+               'Quest installation stopped: Signing migration could not safely continue: '
+               'Automatic app-data access repair exhausted shell and app identities: '
+               "ADB failed: find: '/sdcard/Android/data/dev.gloomhavenvr.quest': Permission denied; "
+               'the installed app was retained.. Original recovery data is retained at ' + trailer
+               + '. Retry with the same APK and headset.\r\nADB log: '
+               + str(self.root / 'device' / name).replace('/', '\\') + '\r\n')
+        (self.directory / 'logs/install.log').write_bytes(log.encode())
+        journal_before = (home / 'active.json').read_bytes()
+        _, files = self.export()
+        meta = json.loads(files['diagnostic.json'])
+        self.assertEqual(meta['signingRecovery']['apkSha256'], source.sha256)
+        self.assertEqual(meta['signingRecovery']['inputKey'], source.input_key)
+        self.assertNotIn('signingRecoveryUnavailable', meta)
+        self.assertIn('Automatic app-data access repair exhausted', files['wizard/install.log'])
+        self.assertEqual(journal_before, (home / 'active.json').read_bytes())
+        self.assertNotIn('NativeSaveNeverShip', '\n'.join(files.values()))
+    def test_missing_current_recovery_journal_has_bounded_reason_and_keeps_failure(self):
+        home, folder, value = self.signing_log()
+        (home / 'active.json').unlink()
+        unrelated = home.parent / 'unrelated-headset' / 'active.json'
+        write_json(unrelated, value | {'password': 'UNRELATED JOURNAL NEVER READ'})
+        original_read = support.read_object
+        def observe(path, *args, **kwargs):
+            self.assertNotEqual(Path(path), unrelated)
+            return original_read(path, *args, **kwargs)
+        before = (self.directory / 'state.json').read_bytes()
+        with mock.patch.object(support, 'read_object', side_effect=observe):
+            _, files = self.export()
+        meta = json.loads(files['diagnostic.json'])
+        self.assertNotIn('signingRecovery', meta)
+        self.assertEqual(meta['signingRecoveryUnavailable'], {'reason': 'journal-missing', 'hardwareVerified': False})
+        self.assertIn('tar permission denied', files['wizard/install.log'])
+        self.assertNotIn('UNRELATED JOURNAL', '\n'.join(files.values()))
+        self.assertEqual(before, (self.directory / 'state.json').read_bytes())
+    def test_named_recovery_summary_failure_reasons_do_not_export_exception_paths(self):
+        home, folder, value = self.signing_log()
+        journal = home / 'active.json'
+        cases = [('journal-invalid', b'{ PRIVATE JOURNAL CONTENT'),
+                 ('journal-oversized', None)]
+        for reason, content in cases:
+            with self.subTest(reason=reason):
+                if content is None:
+                    with journal.open('wb') as stream: stream.truncate(32 * 1048576 + 1)
+                else: journal.write_bytes(content)
+                _, files = self.export()
+                self.assertEqual(json.loads(files['diagnostic.json'])['signingRecoveryUnavailable']['reason'], reason)
+                self.assertNotIn('PRIVATE JOURNAL CONTENT', '\n'.join(files.values()))
+                self.assertIn('tar permission denied', files['wizard/install.log'])
+        write_json(journal, value)
+        original_read = support.read_object
+        def deny(path, *args, **kwargs):
+            if Path(path) == journal: raise OSError('PRIVATE JOURNAL PATH NEVER EXPORT')
+            return original_read(path, *args, **kwargs)
+        with mock.patch.object(support, 'read_object', side_effect=deny):
+            _, files = self.export()
+        self.assertNotIn('PRIVATE JOURNAL PATH', '\n'.join(files.values()))
+        self.assertEqual(json.loads(files['diagnostic.json'])['signingRecoveryUnavailable']['reason'], 'journal-unreadable')
+    def test_missing_or_invalid_completed_build_receipt_does_not_adopt_recovery(self):
+        home, folder, value = self.signing_log()
+        latest = self.root / 'build/latest-build.json'
+        latest.unlink()
+        _, files = self.export()
+        self.assertEqual(json.loads(files['diagnostic.json'])['signingRecoveryUnavailable']['reason'], 'build-receipt-missing')
+        write_json(latest, {'details': []})
+        diagnostic = {}
+        self.assertIsNone(support.signing_recovery_stats(self.root, self.directory, self.state, diagnostic=diagnostic))
+        self.assertEqual(diagnostic['reason'], 'build-receipt-invalid')
+    def test_signing_diagnostic_never_follows_foreign_recovery_reference(self):
+        home, folder, value = self.signing_log()
+        foreign = self.root / 'foreign' / 'fixture-headset' / value['transaction']
+        write_json(foreign.parent / 'active.json', value | {'password': 'FOREIGN SECRET'})
+        log = self.directory / 'logs/install.log'
+        log.write_text(log.read_text().replace(str(folder).replace('/', '\\'), str(foreign).replace('/', '\\')))
+        original_read = support.read_object
+        def observe(path, *args, **kwargs):
+            self.assertNotEqual(Path(path), foreign.parent / 'active.json')
+            return original_read(path, *args, **kwargs)
+        with mock.patch.object(support, 'read_object', side_effect=observe):
+            _, files = self.export()
+        self.assertEqual(json.loads(files['diagnostic.json'])['signingRecoveryUnavailable']['reason'], 'path-binding-mismatch')
+        self.assertNotIn('FOREIGN SECRET', '\n'.join(files.values()))
+    def test_normal_install_and_stale_attempt_have_no_recovery_diagnostic(self):
+        name, adb, log = self.install_log()
+        _, files = self.export()
+        self.assertNotIn('signingRecoveryUnavailable', json.loads(files['diagnostic.json']))
+        log.write_text('Original recovery data is retained at ' + str(self.root / 'device/signing-recovery/fixture-headset' / ('a' * 32))
+                       + '. Retry with the same APK and headset.\nADB log: ' + str(adb) + '\n')
+        os.utime(adb, (99, 99))
+        _, files = self.export()
+        self.assertNotIn('signingRecoveryUnavailable', json.loads(files['diagnostic.json']))
     def test_support_excludes_stale_foreign_or_linked_install_logs(self):
         name, path, log = self.install_log()
         os.utime(path, (99, 99))

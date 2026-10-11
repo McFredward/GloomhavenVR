@@ -130,13 +130,26 @@ def read_object(path, limit=4 * 1048576):
     return json.loads(raw.decode('utf-8'))
 
 
-def signing_recovery_stats(root, session_root, state):
+def signing_recovery_stats(root, session_root, state, *, diagnostic=None):
     """Summarize only the current installation's explicitly named transaction.
 
     Capture112552 included the ADB failure but not the durable recovery frontier.
     Never archive app files, tar members, filenames or an unfiltered journal;
     counts and completed archive sizes are sufficient to diagnose resumption.
+    Capture120937 still omitted this optional summary. Its selected ADB log,
+    transaction trailer and build identity match, but the archive cannot prove
+    whether its local journal was absent, inaccessible or invalid. Record only a
+    fixed reason code for that named current attempt; never scan other recovery
+    folders or expose exception text containing private paths/member names.
     """
+    selected = False
+    reason = 'journal-unreadable'
+
+    def unavailable(code):
+        if diagnostic is not None:
+            diagnostic.update(reason=code, hardwareVerified=False)
+        return None
+
     try:
         if not installation_logs(root, session_root, state): return None
         log = ordinary(session_root / 'logs/install.log')
@@ -145,23 +158,44 @@ def signing_recovery_stats(root, session_root, state):
             tail = stream.read(16384).decode('utf-8', errors='replace')
         matches = re.findall(r'Original recovery data is retained at ([^\r\n]+?)\. Retry with the same APK and headset\.', tail)
         if not matches: return None
+        selected = True
         normalized = matches[-1].replace('\\', '/')
         base = str(root / 'device/signing-recovery').replace('\\', '/')
-        if not os.path.normcase(normalized).startswith(os.path.normcase(base) + '/'): return None
+        if not os.path.normcase(normalized).startswith(os.path.normcase(base) + '/'):
+            return unavailable('path-binding-mismatch')
         parts = normalized[len(base) + 1:].split('/')
         if (len(parts) != 2 or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', parts[0])
-                or not re.fullmatch(r'[0-9a-f]{32}', parts[1])): return None
+                or not re.fullmatch(r'[0-9a-f]{32}', parts[1])):
+            return unavailable('path-binding-mismatch')
+        reason = 'journal-path-unsafe'
         home = ordinary(root / 'device/signing-recovery' / parts[0])
-        value = read_object(home / 'active.json', limit=32 * 1048576)
+        journal = ordinary(home / 'active.json')
+        reason = 'journal-unreadable'
+        if not journal.is_file(): return unavailable('journal-missing')
+        if journal.stat().st_size > 32 * 1048576: return unavailable('journal-oversized')
+        try:
+            value = read_object(journal, limit=32 * 1048576)
+        except ValueError:
+            return unavailable('journal-invalid')
         if (not isinstance(value, dict) or value.get('schema') != 1
                 or value.get('package') != 'dev.gloomhavenvr.quest'
-                or value.get('deviceSerial') != parts[0] or value.get('transaction') != parts[1]): return None
+                or value.get('deviceSerial') != parts[0] or value.get('transaction') != parts[1]):
+            return unavailable('journal-identity-mismatch')
+        reason = 'build-receipt-unreadable'
         latest = read_object(root / 'build/latest-build.json')
+        if latest is None: return unavailable('build-receipt-missing')
         latest = latest.get('details', latest) if isinstance(latest, dict) else {}
+        if not isinstance(latest, dict): return unavailable('build-receipt-invalid')
         if (not re.fullmatch(r'[0-9a-f]{64}', str(value.get('apkSha256', '')))
+                or not re.fullmatch(r'[0-9a-f]{64}', str(value.get('inputKey', '')))
                 or value.get('apkSha256') != latest.get('apkSha256')
-                or value.get('inputKey') != latest.get('inputKey')): return None
+                or value.get('inputKey') != latest.get('inputKey')):
+            return unavailable('build-identity-mismatch')
+        reason = 'backup-path-unsafe'
         folder = ordinary(home / parts[1])
+        reason = 'journal-invalid'
+        if not isinstance(value.get('roots', []), list) or not isinstance(value.get('banks', []), list):
+            return unavailable(reason)
         roots = []
         for item in value.get('roots', [])[:4]:
             if not isinstance(item, dict) or item.get('name') not in ('private', 'device-protected', 'external'): continue
@@ -173,11 +207,15 @@ def signing_recovery_stats(root, session_root, state):
                    'symlinks': sum(isinstance(v, dict) and v.get('type') == 'symlink' for v in inventory.values())}
             archive = item.get('archive')
             if isinstance(archive, str) and re.fullmatch(r'(?:private|device-protected|external)-[0-9a-f]{32}\.tar', archive):
+                reason = 'backup-path-unsafe'
                 path = ordinary(folder / archive)
+                reason = 'backup-stat-unreadable'
                 row['archivePresent'] = path.is_file()
                 if path.is_file(): row['archiveBytes'] = path.stat().st_size
             roots.append(row)
+        reason = 'backup-path-unsafe'
         original = ordinary(folder / 'original.apk')
+        reason = 'backup-stat-unreadable'
         states = ('created', 'backed-up', 'parking', 'parked', 'uninstalling', 'removed', 'installing',
                   'restoring', 'rolling-back', 'rollback-restoring', 'verified', 'complete')
         return {'state': value.get('state') if value.get('state') in states else 'unknown',
@@ -188,7 +226,8 @@ def signing_recovery_stats(root, session_root, state):
                                                   if name in ('files/quest-owned-game', 'files/quest-mod-resources')],
                 'hardwareVerified': False}
     except (BuildError, OSError, ValueError, TypeError, AttributeError):
-        return None  # Optional metadata must not suppress the actual failure logs.
+        # Optional metadata must not suppress the actual failure logs.
+        return unavailable(reason) if selected else None
 
 
 def recovery_workspaces(build_root, failure=None):
@@ -417,8 +456,10 @@ def export_support(state_root, session, destination=None):
     qualification = read_object(root / 'qualification.json')
     if qualification: meta['qualification'] = safe_json(qualification, replacements)
     build_root = ordinary(root / 'build')
-    signing = signing_recovery_stats(root, session_root, state)
+    signing_diagnostic = {}
+    signing = signing_recovery_stats(root, session_root, state, diagnostic=signing_diagnostic)
     if signing: meta['signingRecovery'] = signing
+    elif signing_diagnostic: meta['signingRecoveryUnavailable'] = signing_diagnostic
     failure = read_object(build_root / 'last-failure.json')
     if isinstance(failure, dict):
         meta['buildFailure'] = {key: safe_json(failure[key], replacements) for key in ('stage', 'error', 'message') if key in failure}
