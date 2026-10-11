@@ -49,12 +49,35 @@ def signing_recovery_module():
     return module
 
 
+_DIGEST_CACHE = {}
+
+
+def _digest_witness(path):
+    row = path.stat()
+    return (row.st_dev, row.st_ino, row.st_size, row.st_mtime_ns, row.st_ctime_ns)
+
+
 def digest(path):
+    """Hash once per CLI invocation while the exact stat witness remains valid.
+
+    Selection and the pre-installation boundary both resolve the same APK and
+    complete content ZIP. Reading their unchanged 14 GB twice provides no new
+    evidence. Cache only after an unchanged before/after stat witness, invalidate
+    on file replacement or mutation, and never write a persistent trust receipt.
+    """
+    path = Path(path)
+    before = _digest_witness(path)
+    key = (str(path.absolute()), *before)
+    if key in _DIGEST_CACHE: return _DIGEST_CACHE[key]
     value = hashlib.sha256()
     with path.open("rb") as stream:
         for block in iter(lambda: stream.read(1024 * 1024), b""):
             value.update(block)
-    return value.hexdigest()
+    if _digest_witness(path) != before:
+        raise InstallError("The selected input changed while its checksum was being qualified; retry with the completed file.")
+    if len(_DIGEST_CACHE) >= 32: _DIGEST_CACHE.pop(next(iter(_DIGEST_CACHE)))
+    result = value.hexdigest(); _DIGEST_CACHE[key] = result
+    return result
 
 
 def read_json(path):
@@ -934,6 +957,7 @@ def parser():
 
 
 def main(argv=None, runner=None):
+    _DIGEST_CACHE.clear()
     args = parser().parse_args(argv)
     log = None
     try:
