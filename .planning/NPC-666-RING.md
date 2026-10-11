@@ -120,3 +120,58 @@ hardware logs do not contain per-render ring/card plane or phase measurements.
 The user's observed Build665 chop therefore remains a hardware result to verify;
 the editor proof does not assign it solely to the measured plane defect. Parent
 integration owns full-gate, final compiled review, version and push evidence.
+
+## Historical geometry control compatibility
+
+The integrated gate exposed a fixture compilation failure in the historical
+Build660 physical-affinity control, before Unity could reach its original
+geometric assertion. Current117 ContinuousOfferedRoot now references
+IsOfferedPhysical only for a frame with active OfferedHover. Replacing Offerings
+with the raw660 implementation removes that later declaration.
+
+The runner's existing fail-fast current116 detach boundary now also declares
+IsOfferedPhysical with an explicit unsupported-current117 exception. It does not
+import current physical affinity, mounts, depth handling or classification into
+the old implementation. Historical Geometry661 supplies direct source poses and
+does not register native Place; current117 is therefore outside this control.
+Reaching either modern boundary is an unexpected failure, never a successful
+negative control. The actual historical geometry assertion must still reject
+the raw660 behavior.
+
+The raw660 source hash remains
+`7ab735ef48bf176176a5b62fe6a568f6e37fd2d1c5d16de75f507ecd343329ea`, matching
+the failed integration receipt. Source checks verify that the adapter retains the
+raw660 prefix, apart from the necessary namespace syntax wrapper, and that both
+unsupported boundaries throw. Production sources and assertions are unchanged.
+Focused pair receipt:
+`.planning/debug/npc666-fixture-boundaries/geometry/run-ysq22euh/proof/run-04ybff4a`.
+Both variants compile; production passes 224 offered renders plus 72 native-return,
+46 held and 21 new-card renders. The raw660 control reaches the unchanged geometric
+assertion at sample0/render1 with 5.79943 mm maximum vertex error. Neither unsupported
+116 nor117 boundary is reached. The new --with-old-code selector runs just this
+production/historical pair; default, --old-code and full --controls behavior remain
+unchanged. This focused pair is not a new full-suite or full-gate claim.
+
+The same missing declaration affected the separate published656 native-paint
+control. Its existing HistoricalReturnBoundary658 adapter likewise throws for
+current117 classification. Its historical depth, Offerings and original
+TickRemote/TickCore caller bodies remain exact; no new physical relation or paint
+behavior is imported. Raw Offerings hash
+`37ea7f72197443a376b2ee413734c40e4f7923b91a700caafa082f1c0ddc2787` and raw depth
+hash `9bd4bddd197ff0883789e85aeda3c6d4d4c96f5ce522365a4fdb429a0993fbb2` match
+the failed gate receipt. Its expected failure remains the original native frame
+falling below its physical print across actual panel ranks, not a compile error or
+unsupported lifecycle exception. The positive paint path is unchanged.
+
+Its focused old-source receipt is
+`.planning/debug/npc666-fixture-boundaries/overlay/run-9qcvloj6`. It compiles and
+reaches the unchanged original frame-above-print pixel assertion in Unity, with
+native draw-state and owner/observer readbacks retained. Neither unsupported
+boundary is reached. The earlier full-gate positive-paint pass is inherited; this
+repair reruns only its affected historical negative control.
+
+Both focused engine checks used integration HEAD9c766d182, whose production src
+tree is byte-identical to frozen9eddd; intervening changes were notes and separate
+merchant/enhancement harness files. Raw historical hashes and adapter fail-fast
+policy are retained in the per-run manifests. Python syntax/source checks pass.
+No production source, original assertion or geometric/paint threshold changed.

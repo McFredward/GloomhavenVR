@@ -6,21 +6,25 @@ ROOT = Path(__file__).resolve().parents[2]
 BASE = '12df1353f'
 INVARIANT = 'offered body and printed front preserve exact original geometry on every render'
 ORIGIN_BOUNDARY = 'Historical660 geometry control cannot enter current116 original-return detach.'
+HOVER_BOUNDARY = 'Historical660 geometry control cannot enter current117 active physical-hover classification.'
 
 
 def old_offerings_adapter(old):
     namespace = 'namespace GloomhavenVR.Net.TownServices;'
-    if old.count(namespace) != 1 or 'DetachOfferedOriginal(' in old:
+    if old.count(namespace) != 1 or 'DetachOfferedOriginal(' in old or 'IsOfferedPhysical(' in old:
         raise RuntimeError('Historical660 offerings boundary source drift')
     # These existing publisher/opening ports cannot create physical affinity.
-    # Current116 original migration is outside this historical control: fail
+    # Current116 original migration and active117 physical hover are outside
+    # this historical control: fail
     # explicitly if reached instead of silently dropping its gameplay lifecycle,
     # or importing current mounts/depth paint into the old geometry implementation.
     compatibility = '\nnamespace GloomhavenVR.Net.TownServices { internal static partial class TownServiceMirror { '
     compatibility += 'internal static void RegisterOfferedPhysical(UnityEngine.Transform? body,UnityEngine.Transform? print) {} '
     compatibility += 'private static void RestoreOfferedPhysicalMounts() {} '
     compatibility += 'private static void DetachOfferedOriginal(RemoteModule module,UnityEngine.Transform shared) '
-    compatibility += '{ throw new System.NotSupportedException(' + json.dumps(ORIGIN_BOUNDARY) + '); } } }\n'
+    compatibility += '{ throw new System.NotSupportedException(' + json.dumps(ORIGIN_BOUNDARY) + '); } '
+    compatibility += 'private static bool IsOfferedPhysical(RemoteModule module) '
+    compatibility += '{ throw new System.NotSupportedException(' + json.dumps(HOVER_BOUNDARY) + '); } } }\n'
     return old.replace(namespace, 'namespace GloomhavenVR.Net.TownServices {', 1) + '\n}\n' + compatibility
 
 def main():
@@ -29,6 +33,7 @@ def main():
     parser.add_argument('--output-dir', type=Path, default=ROOT / '.planning/debug/npc661-geometry')
     parser.add_argument('--controls', action='store_true')
     parser.add_argument('--old-code', action='store_true', help='Run exact Build660 Offerings as a causal control')
+    parser.add_argument('--with-old-code', action='store_true', help='Run production and only the exact Build660 causal control')
     args = parser.parse_args(); root = args.source_root.resolve(); args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix='run-', dir=args.output_dir.resolve()))
     fixture = run / 'fixture'; shutil.copytree(root / 'scripts/town-service-mirror-runtime', fixture)
@@ -54,7 +59,7 @@ def main():
     raw_old_sha256 = hashlib.sha256(old.encode()).hexdigest()
     old = old_offerings_adapter(old)
     variants = [('production', None, None, None, '')]
-    if args.controls or args.old_code:
+    if args.controls or args.old_code or args.with_old_code:
         variants.append(('old660-physical-affinity', filename, actual, old, INVARIANT))
         if args.controls:
             variants.append(('no-return-supersession', filename,
@@ -104,6 +109,10 @@ def main():
         'old_offerings_unsupported_lifecycle': {'method': 'DetachOfferedOriginal', 'policy': 'fail-fast',
             'message': ORIGIN_BOUNDARY, 'boundary': 'Current116 retained/adopted original return; '
                 'control must fail at the earlier original-geometry assertion. Reaching this seam is an unexpected failure.'},
+        'old_offerings_unsupported_hover': {'method': 'IsOfferedPhysical', 'policy': 'fail-fast',
+            'message': HOVER_BOUNDARY, 'boundary': 'Current117 active physical-hover classification; '
+                'historical geometry uses direct source poses without registered native Place. '
+                'An active117 header reaching this seam is an unexpected failure, not a successful control.'},
         'variants': [variant[0] for variant in variants],
         'source_sha256': {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in [root/path, geometry, Path(__file__), checker, binder]}
     }, indent=2) + '\n')
