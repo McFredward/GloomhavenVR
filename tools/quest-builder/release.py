@@ -91,6 +91,8 @@ REQUIRED |= PROMOTIONAL_ASSETS | {'tools/quest-wizard-ui/promo-artwork.json',
     'tools/quest-wizard/runtime_dependencies.py',
     'tools/quest-wizard/timing.py',
     'tools/quest-builder/native_admission.py',
+    'tools/quest-builder/update_capacity.py',
+    'tools/quest-builder/apk_input_cache.py',
     'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestWizardProgress.cs'}
 
 

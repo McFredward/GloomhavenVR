@@ -106,7 +106,8 @@ def _memory_row(row):
 # Its immutable records remain qualified; these helpers do not generate assets.
 PREFIX_DELIVERY_HELPERS = {"tools/quest-builder/release.py", "tools/quest-builder/support.py",
                            "tools/quest-builder/README.md", "Quest-Builder.cmd", "Quest-Builder.sh",
-                           "QUEST-BUILDER-START.txt"}
+                           "QUEST-BUILDER-START.txt", "tools/quest-builder/update_capacity.py",
+                           "tools/quest-builder/apk_input_cache.py"}
 # The captured Windows TLS failure precedes the first completed native-runtime
 # transaction. Its Opus downloader cannot produce any earlier original assets.
 # Once that transaction closes, this source again qualifies the native outputs.
@@ -379,6 +380,28 @@ FINAL_DELIVERY_ROW = {
     "path": "tools/quest-builder/delivery_finalization.py", "size": 9425,
     "sha256": "7dc7d851824933e83cc6da10be67e07b65657a7ad15bedf68004247ac9a484c9"}
 
+# Exact reviewed late update consumers and cached migration orchestration.
+# The new art key qualifies existing helper bodies more precisely; it changes
+# no produced art when those fully scoped bodies/inputs match. Earlier original
+# converters and the complete unknown-code AST remain qualified. These aliases
+# retain completed preparation instead of repeating it for an APK-only repair.
+BUILDER_MOD_UPDATE_AST = {
+    False: ("23e1a9ba55fd16169f6d93ef45e496fcf6a0afed7bb31df69d4b64d4fd13b8cf",
+            "6905242806bb695c86e84be373112f21804c425afa710398cb40b665f4d608d1"),
+    True: ("5584e655d668f31ef54c28d17d51b35de8a0da219b33166d1331a9d1c92a226e",
+           "cc09e2c539f383d447f494d386bd5fa6dd8df9989a964543d98c33f4bea6385f"),
+}
+MOD_UPDATE_DELIVERY_ROWS = {
+    "tools/quest-builder/update_driver.py": (
+        {"path": "tools/quest-builder/update_driver.py", "size": 44935,
+         "sha256": "a5a2ae749e8d9dea3e1fc0107ab7f7b789e3f9f7faac5dd6e1d0f0a096cc4d02"},
+        ZIP32_DELIVERY_ROWS["tools/quest-builder/update_driver.py"][0]),
+    "tools/quest-builder/apk_update.py": (
+        {"path": "tools/quest-builder/apk_update.py", "size": 59360,
+         "sha256": "276cde06438bdf8976e73838f25817fd719cc786427a94258eea61c7705ad952"},
+        ZIP32_DELIVERY_ROWS["tools/quest-builder/apk_update.py"][0]),
+}
+
 
 def builder_producer_digest(raw, *, original_prefix=False):
     """Qualify complete Builder code, or consumed original-prefix orchestration.
@@ -430,6 +453,8 @@ def builder_producer_digest(raw, *, original_prefix=False):
             if isinstance(node, ast.ImportFrom) and node.module == "storage":
                 node.names = [name for name in node.names if not (name.name == "persistent_inventory" and name.asname is None)]
     result = hashlib.sha256(ast.dump(tree, include_attributes=False).encode("utf-8")).hexdigest()
+    observed, preceding = BUILDER_MOD_UPDATE_AST[bool(original_prefix)]
+    if result == observed: result = preceding
     observed, preceding = BUILDER_DELIVERY_AST[bool(original_prefix)]
     if result == observed: result = preceding
     prior = BUILDER_DELIVERY_PREVIOUS_AST.get(bool(original_prefix))
@@ -514,7 +539,7 @@ def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=Fal
             if row in (PLAYER_DELIVERY_ROW, FINAL_DELIVERY_ROW): continue
             if row == COMPUTE_OWNER_DELIVERY_ROW:
                 row = LATE_DELIVERY_ROWS[row['path']][1]
-            for aliases in (ZIP32_DELIVERY_ROWS, ZIP32_DELIVERY_PREVIOUS_ROWS):
+            for aliases in (MOD_UPDATE_DELIVERY_ROWS, ZIP32_DELIVERY_ROWS, ZIP32_DELIVERY_PREVIOUS_ROWS):
                 current, preceding = aliases.get(row["path"], (None, row))
                 if row == current: row = preceding
             current, preceding = LATE_DELIVERY_ROWS.get(row["path"], (None, row))

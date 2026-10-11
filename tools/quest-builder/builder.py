@@ -69,6 +69,7 @@ project_access = _local_helper("project_access")
 native_admission = _local_helper("native_admission")
 _release = _local_helper("release") if Path(__file__).with_name("release.py").is_file() else None
 apk_updates = _local_helper("apk_update")
+apk_input_hashes = _local_helper("apk_input_cache")
 
 
 def _module_context():
@@ -1034,6 +1035,34 @@ def _mod_bank_workspace(output: Path, root: Path, key: str, files: list[dict]):
             os.replace(backup, library)
 
 
+def mod_bank_recipe(source: Path, source_files: list[dict], *, full_game: bool) -> dict:
+    """Key generated art by its consumed recipe, excluding unrelated host code."""
+    import ast
+    known = {row["path"]: row for row in source_files}
+    names = ["tools/quest-builder/mod_assets.py"]
+    if full_game: names.append("tools/quest-builder/environment_bank.py")
+    rows = []
+    for name in names:
+        row = known.get(name)
+        if row is None or not verify_files(source, [row]):
+            raise BuildError("Authored Android art producer is missing or changed: " + name)
+        rows.append(row)
+    name = "tools/quest-builder/builder.py"
+    row = known.get(name)
+    if row is None or not verify_files(source, [row]):
+        raise BuildError("Authored Android art orchestration source is missing or changed.")
+    try:
+        tree = ast.parse((source / name).read_text(encoding="utf-8"))
+    except (UnicodeError, SyntaxError) as error:
+        raise BuildError("Authored Android art recipe cannot be parsed.") from error
+    consumed = {"package_mod_content", "validate_mod_bundle", "_mod_bank_workspace", "mod_bank_recipe"}
+    functions = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in consumed]
+    if {node.name for node in functions} != consumed:
+        raise BuildError("Authored Android art recipe lacks a required producer.")
+    return {"helpers": rows, "orchestration": value_hash([
+        ast.dump(node, include_attributes=False) for node in functions])}
+
+
 def package_mod_content(project: Path, inputs: dict, output: Path, source: Path, editor: Path, *, owned_game_source=None) -> dict:
     """Build current authored mod art independently of changing gameplay code."""
     prefix = "unity/GloomhavenVR.Assets/"
@@ -1045,7 +1074,9 @@ def package_mod_content(project: Path, inputs: dict, output: Path, source: Path,
     full_game = inputs.get("target") == "game"
     environment = _local_helper("environment_bank") if full_game else None
     environment_plan = environment.plan(inputs["game"], inputs["mod"]["files"]) if environment else None
+    producers = mod_bank_recipe(source, inputs["mod"]["files"], full_game=full_game)
     key = value_hash({"files": files, "editorSha256": digest(editor), "fullGame": full_game, "recipe": RECIPE,
+                      "producers": producers,
                       "ownedEnvironment": environment_plan})
     root = output / "cache/mod-bundle" / key
     authored, bundles = root / "project", root / "bundles"
@@ -1984,6 +2015,44 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--serial")
     result.add_argument("--hardware-dir", type=Path, help="Destination for the verified Windows hardware-test archive.")
     return result
+
+
+def rebuild_update(args, plan: dict, repo: Path, output: Path) -> Path:
+    """Migrate incompatible APK payloads in the owner's existing workspace.
+
+    A compact update compiles current code, but cannot replace serialized scenes,
+    recovered shaders or native programs. The update driver qualifies the original
+    signing key before calling here. Reuse the ordinary independently keyed game
+    recovery, preparation journal and Unity Library; never restart the CLI or take
+    a second output lock. A changed selection is requalified before any producer.
+    """
+    if plan.get("mode") != "update-mod" or plan.get("updateStrategy") != "cached-full-build":
+        raise BuildError("Only a qualified mod update can request cached game migration.")
+    selected = SimpleNamespace(**vars(args))
+    selected.command, selected.target = "build", "game"
+    data = game_data(selected.game_root)
+    inputs = inspect_inputs(selected, repo, output, data)
+    expected = plan["inputs"]
+    if any(inputs["mod"].get(name) != expected["mod"].get(name)
+           for name in ("key", "files", "modBuild")):
+        raise BuildError("Selected mod sources changed after APK qualification; retry the update with the current source.")
+    if inputs.get("profileKey") != expected.get("profileKey") or inputs.get("profile") != expected.get("profile"):
+        raise BuildError("Selected player/DLC identity changed after APK qualification; confirm the current selection and retry.")
+    if inputs["game"]["unityVersion"] != expected["game"]["unityVersion"]:
+        raise BuildError("Owned game's Unity version changed after APK qualification; retain the workspace and select the matching installation.")
+    _local_helper("update_capacity").require_incremental_space(_module_context(), output, selected.game_root, repo)
+    # Capacity coordination waits/reduces concurrency inside this same run.
+    # It does not discard the existing import or conversion frontier.
+    native_admission.require_capacity(host_resources, build_progress, output, target="game")
+    source, game = snapshot_inputs(inputs, output, repo, data, selected.probe_assets, selected.startup_project)
+    project = prepare(selected, inputs, output, source, game)
+    apk = build(selected, inputs, output, source, game, project)
+    write_json(output / "updates" / plan["updateKey"] / "rebuilt-player.json", {
+        "schema": 1, "updateKey": plan["updateKey"], "strategy": "cached-full-build",
+        "inputKey": inputs["inputKey"], "modBuild": inputs["mod"]["modBuild"],
+        "profileKey": inputs["profileKey"], "apk": Path(apk).relative_to(output).as_posix(),
+        "rebuildReasons": plan["rebuildReasons"]})
+    return apk
 
 
 def main(argv: list[str] | None = None) -> int:

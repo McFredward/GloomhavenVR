@@ -255,6 +255,9 @@ class OwnedEnvironmentTests(unittest.TestCase):
         # This boundary fixture stands in for Unity compilation only. It executes
         # the actual immutable source snapshot, producers, qualification and ZIP.
         prefix = "unity/GloomhavenVR.Assets/"
+        for name in ("tools/quest-builder/builder.py", "tools/quest-builder/mod_assets.py", "tools/quest-builder/environment_bank.py"):
+            target = self.source / name; target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / name, target)
         authored_source = self.source / prefix
         assets = ["Assets/Editor/QuestModBundles.cs", "Assets/Bundle/Hands/Fixture.prefab"]
         assets += list(mod_assets.REQUIRED_TOWN) + list(mod_assets.ENVIRONMENT_SHADERS)
@@ -316,6 +319,29 @@ class OwnedEnvironmentTests(unittest.TestCase):
             builder.package_mod_content(project, inputs, self.output, self.source, editor)
             self.assertEqual(len(attempts), 2)  # qualified native banks are not compiled twice
         self.assertEqual(storage.inventory(self.game), self.original_game)
+
+    def test_art_recipe_keys_consumed_helpers_and_producers_but_keeps_host_only_edits_compatible(self):
+        for name in ("tools/quest-builder/builder.py", "tools/quest-builder/mod_assets.py", "tools/quest-builder/environment_bank.py"):
+            target = self.source / name; target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / name, target)
+        self.refresh()
+        baseline = builder.mod_bank_recipe(self.source, self.source_files, full_game=True)
+        source = self.source / "tools/quest-builder/builder.py"
+        original = source.read_text()
+        source.write_text(original.replace("def report(output: Path)", "def report_changed_host_only(output: Path)"))
+        self.refresh()
+        self.assertEqual(builder.mod_bank_recipe(self.source, self.source_files, full_game=True), baseline)
+        source.write_text(original.replace('compression=zipfile.ZIP_STORED) as archive:', 'compression=zipfile.ZIP_DEFLATED) as archive:'))
+        self.refresh()
+        self.assertNotEqual(builder.mod_bank_recipe(self.source, self.source_files, full_game=True), baseline)
+        source.write_text(original)
+        helper = self.source / "tools/quest-builder/environment_bank.py"
+        helper.write_text(helper.read_text() + "\nRECIPE_CHANGED = True\n")
+        self.refresh()
+        self.assertNotEqual(builder.mod_bank_recipe(self.source, self.source_files, full_game=True), baseline)
+        helper.write_text(helper.read_text() + "# changed after immutable qualification\n")
+        with self.assertRaisesRegex(storage.BuildError, "producer is missing or changed"):
+            builder.mod_bank_recipe(self.source, self.source_files, full_game=True)
 
     def test_library_recovery_survives_process_death_after_rename(self):
         output = self.output; key = "8" * 64; root = output / "cache/mod-bundle" / key

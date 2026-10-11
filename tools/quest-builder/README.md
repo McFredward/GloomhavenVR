@@ -7,6 +7,43 @@ The wireless installer has its own independent Python/ADB provisioning. Original
 sources, private profiles, signing material and APKs remain local. This directory
 contains no original game payload.
 
+Both APK editing modes suggest the last completed APK in the selected `.ghvrq`
+workspace. A typed or browsed path remains authoritative; cancelled/incomplete
+outputs are not suggested. Mod updates select the source included in the current
+Builder archive, including its Quest runtime/weaver patches, rather than the mod
+DLL in the owner's PC game folder. Profile-only edits retain the installed mod.
+
+Code-compatible updates retain the original game payload and compile the current
+managed/native code pair. Changed Quest scenes, shaders, native programs or their
+asset recipes switch to the ordinary cached build in the same workspace. The
+Wizard reports that migration and its actual remaining phases. Independently
+compatible recovery, preparation and Unity imports stay owned; unknown producer
+changes never authorize reuse of obsolete generated content. Original PC inputs,
+current profile/DLC selection and the original signing key are still qualified.
+
+Large-content packaging has a separate Android constraint. Meta recommends an
+APK plus required expansion/asset files, installed together by its distribution
+service. Its store packaging rule limits the APK to less than 1 GB and additional
+files to 4 GB each; generic asset files are recommended to stay below 2 GB.
+These are store requirements, not a claim that every sideloaded APK has a 1 GB
+limit. See [Meta packaging](https://developers.meta.com/vr/resources/vrc-quest-packaging-5/),
+[publishing](https://developers.meta.com/vr/resources/publish-apk/) and
+[asset files](https://developers.meta.com/vr/documentation/android-apps/ps-assets/).
+
+The complete retained game bank is about 11 GB. Android 14's v2/v3 APK verifier
+rejects ZIP64 archives, and target SDK 30 requires at least a v2 signature.
+Host controls qualify the older target-SDK-29/v1 ZIP64 alternative, but no Quest
+installation or Unity archive-offset runtime result proves it. The current
+Builder therefore does not silently downgrade Android targeting/signatures.
+A portable PC-side ZIP can instead contain the normal signed APK and all game
+data while remaining one transport file. That delivery-format change is pending
+the maintainer's choice; the existing APK-plus-content format remains current.
+Sharing an APK between build PCs also requires an explicit new-owner signing
+path; the original private key must stay local. Ordinary updates continue to
+require that key. Existing signature-replacement recovery preserves mutable
+saves/settings before uninstalling; a failed save backup must never authorize
+data loss.
+
 Use `inspect` before conversion:
 
 ```sh

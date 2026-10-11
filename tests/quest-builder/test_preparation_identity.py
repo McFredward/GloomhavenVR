@@ -1,4 +1,5 @@
 """Actual preparation retries retain conversions across bounded tool updates."""
+import ast
 import copy
 import hashlib
 import importlib.util
@@ -61,6 +62,36 @@ class BuilderProducerIdentityTests(unittest.TestCase):
         self.assertEqual(identity.builder_producer_digest(changed, original_prefix=True),
                          identity.builder_producer_digest(self.original, original_prefix=True))
         changed = self.original.replace(b"base_project, base_contracts", b"loading_resources, base_contracts")
+        self.assertNotEqual(identity.builder_producer_digest(changed, original_prefix=True),
+                            identity.builder_producer_digest(self.original, original_prefix=True))
+
+    def test_exact_late_update_and_art_key_change_retains_preceding_producer_identity(self):
+        # Reconstruct the preceding producer AST without changing any art writer,
+        # original converter or input. Only the new host callback/key descriptor
+        # is absent. Unknown earlier consumers still invalidate this identity.
+        tree = ast.parse(self.original.decode())
+        tree.body = [node for node in tree.body if not isinstance(node, ast.FunctionDef)
+                     or node.name not in ("rebuild_update", "mod_bank_recipe")]
+        tree.body = [node for node in tree.body if not (isinstance(node, ast.Assign)
+                     and any(isinstance(target, ast.Name) and target.id == "apk_input_hashes" for target in node.targets))]
+        for node in tree.body:
+            if not isinstance(node, ast.FunctionDef) or node.name != "package_mod_content": continue
+            node.body = [item for item in node.body if not (isinstance(item, ast.Assign)
+                         and any(isinstance(target, ast.Name) and target.id == "producers" for target in item.targets))]
+            for item in node.body:
+                if not (isinstance(item, ast.Assign) and isinstance(item.value, ast.Call)
+                        and any(isinstance(target, ast.Name) and target.id == "key" for target in item.targets)): continue
+                value = item.value.args[0]
+                pairs = [(key, member) for key, member in zip(value.keys, value.values)
+                         if not isinstance(key, ast.Constant) or key.value != "producers"]
+                value.keys, value.values = [pair[0] for pair in pairs], [pair[1] for pair in pairs]
+        previous = ast.unparse(tree).encode()
+        self.assertEqual(identity.builder_producer_digest(previous), identity.builder_producer_digest(self.original))
+        self.assertEqual(identity.builder_producer_digest(previous, original_prefix=True),
+                         identity.builder_producer_digest(self.original, original_prefix=True))
+        changed = self.original.replace(b'def prepare(args, inputs: dict, output: Path, source: Path, game: Path, *, conversion_python: Path | None = None) -> Path:',
+            b'def prepare(args, inputs: dict, output: Path, source: Path, game: Path, *, conversion_python: Path | None = None) -> Path:\n    rebuild_update(args, {}, source, output)')
+        self.assertNotEqual(changed, self.original)
         self.assertNotEqual(identity.builder_producer_digest(changed, original_prefix=True),
                             identity.builder_producer_digest(self.original, original_prefix=True))
 
