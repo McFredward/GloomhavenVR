@@ -1,5 +1,39 @@
 # State — where the project stands
 
+**Build670 first tutorial merchant confirmation in window mode, 2026-10-11: 1.1.0 development candidate.**
+
+The inspected screenshot and local669/game1.1.8323.0 logs show the original
+purchase confirmation under New Party Display instead of inside the merchant.
+The remote log is older unmodified-host evidence, not a paired latest-tutorial
+run. A process-wide subscription flag missed replaced item-box singletons; a
+first native request could also precede the regular modal tick. Track the exact
+event target, detach/retire on replacement/reset, and observe native Show before
+its unchanged one-shot Buy/Sell/General announcement. Existing merchant seating
+then owns placement; immersive presentation retains precedence. Native callbacks,
+transactions, cancellation, host-close and fades remain authoritative.
+
+No new tutorial production change: native BuyItem is the merchant-exit lesson,
+not a successful-purchase requirement. The existing exact-promise close bridge
+and original map listener advance InteractWithMap after native cleanup. Current
+logs do not reproduce the historical hang. Native/portable boundary tests cover
+first introduction, confirm/cancel, three exit paths, independent fades, a
+second save, stale promises and inactive FTUE without a save-state bypass.
+
+Eight full focused suites pass across three targeted invocations; unchanged
+scopes inherit Build669 composed216/216, not a new complete-gate pass. Native
+confirmation114/all13 controls (all17 variants), onboarding250/all20, close113/all13
+and actual uGUI transfer/all9 controls pass. Source16, strict Debug/Release0/0,
+direct300510 goldens, docs and bundles pass. Surfaces666/236/4795 (+1 observer,
+no removals); compiled1254 ->1255, with two implementation types, one observer,
+eight ModBuild consumers and one branch-metadata change fully explained.
+Version3/next-free118; accepted NPC effects, list placement and669 authority remain.
+See [NPC-670-REVIEW.md](NPC-670-REVIEW.md) and
+[NPC-670-TUTORIAL.md](NPC-670-TUTORIAL.md).
+
+Completed owned test/build caches are cleaned; source, report, failed-attempt,
+worker-archive and hardware evidence is retained and hash-verified. Actual
+headset placement and full multiplayer tutorial continuation remain unverified.
+
 **Build669 immersive merchant with an unmodified flat host, 2026-10-11: 1.1.0 development candidate.**
 
 Frozen paired logs identify VR Build668 and an unmodified native host. The
