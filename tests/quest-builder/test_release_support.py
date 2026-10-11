@@ -239,7 +239,8 @@ class SupportTests(unittest.TestCase):
         row = json.loads(files['diagnostic.json'])['signingRecovery']
         self.assertEqual(row['state'], 'created')
         self.assertEqual(row['roots'], [{'name': 'private', 'journalled': True, 'files': 1, 'directories': 1,
-                                       'symlinks': 1, 'archivePresent': True, 'archiveBytes': 34}])
+                                       'symlinks': 1, 'archivePresent': True, 'archiveBytes': 34,
+                                       'archiveBlockRemainder': 34}])
         self.assertEqual(row['retainedBanks'], ['files/quest-owned-game', 'files/quest-mod-resources'])
         self.assertTrue(row['originalApkPresent'])
         combined = '\n'.join(files.values())
@@ -300,10 +301,71 @@ class SupportTests(unittest.TestCase):
         meta = json.loads(files['diagnostic.json'])
         self.assertEqual(meta['signingRecovery']['apkSha256'], source.sha256)
         self.assertEqual(meta['signingRecovery']['inputKey'], source.input_key)
+        self.assertEqual({key: meta['signingRecovery']['roots'][0][key]
+                          for key in ('plannedMembers', 'plannedFileBytes', 'accessMode')},
+                         {'plannedMembers': 1, 'plannedFileBytes': 32, 'accessMode': 'app'})
         self.assertNotIn('signingRecoveryUnavailable', meta)
         self.assertIn('Automatic app-data access repair exhausted', files['wizard/install.log'])
         self.assertEqual(journal_before, (home / 'active.json').read_bytes())
         self.assertNotIn('NativeSaveNeverShip', '\n'.join(files.values()))
+    def test_recovery_census_summary_is_stat_only_and_never_reads_binary_backup(self):
+        home, folder, value = self.signing_log()
+        value['roots'][0].update(captureFiles=6, captureBytes=6200, accessMode='app-process',
+                                capturePaths=['.', './PRIVATE CENSUS NAME'])
+        archive = folder / value['roots'][0]['archive']
+        archive.write_bytes(b'PRIVATE BINARY BACKUP' + b'\0' * (6679 - 21))
+        self.assertEqual(archive.stat().st_size, 6679)
+        write_json(home / 'active.json', value)
+        original_open = Path.open
+        def observed_open(path, *args, **kwargs):
+            self.assertNotEqual(path, archive, 'Support must not open app-data backups.')
+            return original_open(path, *args, **kwargs)
+        with mock.patch.object(Path, 'open', observed_open):
+            _, files = self.export()
+        row = json.loads(files['diagnostic.json'])['signingRecovery']['roots'][0]
+        self.assertEqual((row['plannedMembers'], row['plannedFileBytes'], row['archiveBlockRemainder']),
+                         (5, 6200, 23))
+        self.assertEqual(row['accessMode'], 'app-process')
+        combined = '\n'.join(files.values())
+        self.assertNotIn('PRIVATE CENSUS NAME', combined)
+        self.assertNotIn('PRIVATE BINARY BACKUP', combined)
+    def test_invalid_optional_census_metadata_cannot_spoil_the_failure_report(self):
+        home, folder, value = self.signing_log()
+        for changed in ({'captureFiles': True, 'captureBytes': -1, 'accessMode': 'PRIVATE UNKNOWN MODE'},
+                        {'captureFiles': 100002, 'captureBytes': 2**63},
+                        {'captureFiles': 0, 'captureBytes': False}):
+            with self.subTest(changed=changed):
+                value['roots'][0].update(changed)
+                write_json(home / 'active.json', value)
+                _, files = self.export()
+                row = json.loads(files['diagnostic.json'])['signingRecovery']['roots'][0]
+                self.assertFalse({'plannedMembers', 'plannedFileBytes', 'accessMode'} & row.keys())
+                self.assertIn('tar permission denied', files['wizard/install.log'])
+    def test_bounded_capture_repair_summary_excludes_typed_member_names_and_unknown_fields(self):
+        home, folder, value = self.signing_log()
+        repair = {'root': 'private', 'method': 'host-pax', 'reason': 'verified',
+                  'attempts': 2, 'totalAttempts': 2, 'expectedCount': 5, 'observedCount': 5,
+                  'missingCount': 0, 'unexpectedCount': 0, 'typeMismatchCount': 0,
+                  'sizeMismatchCount': 0, 'archiveBytes': 10240, 'archiveAligned': True}
+        value['captureRepair'] = repair | {'privateCause': 'PRIVATE FAILURE PATH'}
+        value['roots'][0].update(captureTransport='host-pax', captureEntries={
+            'PRIVATE SAVE MEMBER': {'type': 'file', 'size': 12, 'mode': 33152}})
+        write_json(home / 'active.json', value)
+        _, files = self.export()
+        row = json.loads(files['diagnostic.json'])['signingRecovery']
+        self.assertEqual(row['captureRepair'], repair)
+        self.assertEqual(row['roots'][0]['captureTransport'], 'host-pax')
+        self.assertFalse(row['hardwareVerified'])
+        for secret in ('PRIVATE SAVE MEMBER', 'PRIVATE FAILURE PATH', 'captureEntries'):
+            self.assertNotIn(secret, '\n'.join(files.values()))
+        for changed in ({'root': 'PRIVATE UNKNOWN ROOT'}, {'missingCount': True},
+                        {'archiveAligned': 'true'}, {'method': 'PRIVATE METHOD'},
+                        {'attempts': 101}, {'archiveBytes': -1}):
+            with self.subTest(changed=changed):
+                value['captureRepair'] = repair | changed
+                write_json(home / 'active.json', value)
+                _, files = self.export()
+                self.assertNotIn('captureRepair', json.loads(files['diagnostic.json'])['signingRecovery'])
     def test_windows_normalized_recovery_boundary_rejects_sibling_prefix(self):
         home, folder, value = self.signing_log()
         foreign = self.root / 'device/signing-recovery-foreign' / home.name / value['transaction']

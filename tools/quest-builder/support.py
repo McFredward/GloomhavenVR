@@ -207,13 +207,30 @@ def signing_recovery_stats(root, session_root, state, *, diagnostic=None):
                    'files': sum(isinstance(v, dict) and v.get('type') == 'file' for v in inventory.values()),
                    'directories': sum(isinstance(v, dict) and v.get('type') == 'directory' for v in inventory.values()),
                    'symlinks': sum(isinstance(v, dict) and v.get('type') == 'symlink' for v in inventory.values())}
+            # Metadata only: capture141941's retained archive contained fewer
+            # members than the current positive census. Never reread the archive
+            # or expose its names just to describe that repair frontier.
+            planned = item.get('captureFiles')
+            if type(planned) is int and 1 <= planned <= 100001:
+                row['plannedMembers'] = planned - 1  # The root '.' is omitted.
+            planned_bytes = item.get('captureBytes')
+            if type(planned_bytes) is int and 0 <= planned_bytes <= 2**63 - 1:
+                row['plannedFileBytes'] = planned_bytes
+            if item.get('accessMode') in ('shell', 'app', 'app-direct', 'app-process'):
+                row['accessMode'] = item['accessMode']
+            if item.get('captureTransport') in ('exec-out-tar', 'host-pax'):
+                row['captureTransport'] = item['captureTransport']
             archive = item.get('archive')
             if isinstance(archive, str) and re.fullmatch(r'(?:private|device-protected|external)-[0-9a-f]{32}\.tar', archive):
                 reason = 'backup-path-unsafe'
                 path = ordinary(folder / archive)
                 reason = 'backup-stat-unreadable'
                 row['archivePresent'] = path.is_file()
-                if path.is_file(): row['archiveBytes'] = path.stat().st_size
+                if path.is_file():
+                    row['archiveBytes'] = path.stat().st_size
+                    # A remainder proves broken framing; zero alone is not a
+                    # validation claim. This stat-only observation is cheap.
+                    row['archiveBlockRemainder'] = row['archiveBytes'] % 512
             roots.append(row)
         policy = value.get('dataPolicy', 'all')
         omissions = value.get('policyOmissions', [])
@@ -227,7 +244,7 @@ def signing_recovery_stats(root, session_root, state, *, diagnostic=None):
         reason = 'backup-stat-unreadable'
         states = ('created', 'backed-up', 'parking', 'parked', 'uninstalling', 'removed', 'installing',
                   'restoring', 'rolling-back', 'rollback-restoring', 'verified', 'complete')
-        return {'state': value.get('state') if value.get('state') in states else 'unknown',
+        result = {'state': value.get('state') if value.get('state') in states else 'unknown',
                 'apkSha256': value['apkSha256'], 'inputKey': value['inputKey'],
                 'dataPolicy': policy, 'omittedNonSaveEntries': len(omissions),
                 'omittedNonSaveBytes': sum(row['size'] for row in omissions),
@@ -236,6 +253,20 @@ def signing_recovery_stats(root, session_root, state, *, diagnostic=None):
                 'roots': roots, 'retainedBanks': [name for name in value.get('banks', [])
                                                   if name in ('files/quest-owned-game', 'files/quest-mod-resources')],
                 'hardwareVerified': False}
+        repair = value.get('captureRepair')
+        counts = ('expectedCount', 'observedCount', 'missingCount', 'unexpectedCount',
+                  'typeMismatchCount', 'sizeMismatchCount')
+        if (isinstance(repair, dict) and repair.get('root') in ('private', 'device-protected', 'external')
+                and repair.get('method') in ('exec-out-tar', 'host-pax')
+                and repair.get('reason') in ('verified', 'backup-census-mismatch', 'backup-transfer-unavailable')
+                and all(type(repair.get(key)) is int and 0 <= repair[key] <= 100001 for key in counts)
+                and all(type(repair.get(key)) is int and 0 <= repair[key] <= 100 for key in ('attempts', 'totalAttempts'))
+                and type(repair.get('archiveBytes')) is int and 0 <= repair['archiveBytes'] <= 2**63 - 1
+                and type(repair.get('archiveAligned')) is bool):
+            result['captureRepair'] = {key: repair[key] for key in
+                                      ('root', 'method', 'reason', 'attempts', 'totalAttempts',
+                                       *counts, 'archiveBytes', 'archiveAligned')}
+        return result
     except (BuildError, OSError, ValueError, TypeError, AttributeError):
         # Optional metadata must not suppress the actual failure logs.
         return unavailable(reason) if selected else None
