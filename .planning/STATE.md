@@ -1,5 +1,15 @@
 # State — where the project stands
 
+**Quest general signing recovery, 2026-10-11 (Builder; new builds Runtime668).**
+
+Capture102641 proves the installation-only retry retains the completed665 APK
+and reaches Android, which rejects a signing-incompatible update. General
+automatic recovery retains the local key and targets installation with verified
+original APK/save/config preservation and durable resumption. No hardcoded test
+key, game rebuild or additional Unity work is needed. The support collector's
+Windows CRLF omission is corrected. Platform contracts, evidence and hardware
+limits: [QUEST-SIGNING-RECOVERY-102641-20261011.md](QUEST-SIGNING-RECOVERY-102641-20261011.md).
+
 **Quest completed APK and guided installation, 2026-10-11 (Builder; new builds Runtime668).**
 
 Capture095538 proves the Windows build, signing and all final gates finish with
