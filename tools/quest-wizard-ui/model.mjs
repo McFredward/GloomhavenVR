@@ -71,6 +71,10 @@ export function installationView(state) {
   const result={...build.details,...state.result},paths={};
   for(const key of ['apk','handoff','outputRoot'])if(typeof result[key]==='string'&&result[key].length<=32768)paths[key]=result[key];
   const view={attention,connectionRequired,canSkip,cause,paths};
+  // The installer can stay alive while a cable or debugging authorization is
+  // missing. This is an actionable pause, not a terminated install to restart.
+  if(state.status==='running'&&install.status==='running'&&install.progress?.phase==='install-connection-wait'&&
+     !['complete','reuse'].includes(install.progress.operationStatus))view.connectionWaiting=true;
   if(attention&&['quest_signing_recovery_required','quest_signing_data_required','quest_signing_repair_wait'].includes(action?.code))view.recoveryRequired=true;
   if(attention&&action?.code==='quest_signing_repair_wait'&&parameters.saveDataProtected===true&&
      ['backup-census-mismatch','backup-transfer-unavailable'].includes(parameters.repairReason)&&

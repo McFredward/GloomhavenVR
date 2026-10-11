@@ -306,7 +306,7 @@ function importSummary(imported) {
     :counters({done:imported.done,total:imported.total,unit:'assets'});
   return [imported.scope?t(imported.scope==='coverage'?'importScopeCoverage':'importScopeNative'):'',counts,imported.total===null?t('importTotalUnknown'):'',imported.elapsedSeconds===null?'':t(imported.status==='running'?'importElapsed':'importElapsedRecorded',{duration:durationText(imported.elapsedSeconds)})].filter(Boolean).join(' · ');
 }
-function renderTiming(current,resourceWait=false) {
+function renderTiming(current,resourceWait=false,connectionWait=false) {
   const whole=timingView(state?.timing),stage=timingView(current?.timing),estimate=stage?.estimate;
   $('build-timing').hidden=!whole&&!stage;
   $('elapsed-label').textContent=t(whole?.elapsedBasis==='since-update'?'elapsedSinceUpdate':'elapsedBuild');
@@ -317,6 +317,7 @@ function renderTiming(current,resourceWait=false) {
   let text;
   if(state?.status==='complete')text=t('etaComplete');
   else if(resourceWait)text=t('memoryWaitEta');
+  else if(connectionWait)text=t('etaPaused');
   else if(estimate?.status==='estimated')text=t('etaRange',{lower:durationText(estimate.lowerSeconds),upper:durationText(estimate.upperSeconds)});
   else text=t(estimate?.status==='complete'?'etaComplete':estimate?.status==='paused'?'etaPaused':estimate?.status==='learning'?'etaLearning':'etaUnknown');
   $('eta-value').textContent=text;
@@ -541,11 +542,12 @@ function renderProgress() {
   const active=isActive(state),stopped=['failed','cancelled','interrupted'].includes(state.status),blocked=state.status==='blocked',done=state.status==='complete';
   if(state.requestError)error(state.requestError);
   const failure=failureView(state);
-  const installation=installationView(state),installIssue=installation?.attention===true;
+  const installation=installationView(state),installIssue=installation?.attention===true,connectionWait=installation?.connectionWaiting===true;
   // Show connection setup as soon as installation begins, before a missing
   // device can become an error. Signing/corrupt-package failures retain their
   // distinct cause rather than sending the owner through unrelated USB steps.
   $('install-guide').hidden=!installation||state.stages.find(row=>row.id==='install')?.status==='complete'||installIssue&&!installation.connectionRequired;
+  $('install-guide').querySelector('[data-i18n=questGuideStart]').textContent=t(connectionWait?'questGuideStartLiveWait':'questGuideStart');
   // A retained prerequisite record must never replace a confirmed terminal
   // failure with a misleading "waiting for user" presentation.
   const waiting=(active||blocked)?state.stages?.find(row=>row.waiting)?.waiting:null;
@@ -571,8 +573,9 @@ function renderProgress() {
       $('action-needed-title').textContent=t('installationRepairWaitAction');
     }
   }else if(installation&&active){
-    $('progress-title').textContent=t(installation.recoveryActive?'installationRecoveryRunningTitle':'installationRunningTitle');
-    $('progress-copy').textContent=t(installation.recoveryActive?'installationRecoveryRunningCopy':'installationRunningCopy');
+    $('progress-title').textContent=t(connectionWait?'questConnectionWaitingTitle':installation.recoveryActive?'installationRecoveryRunningTitle':'installationRunningTitle');
+    $('progress-copy').textContent=t(connectionWait?'questConnectionWaitingCopy':installation.recoveryActive?'installationRecoveryRunningCopy':'installationRunningCopy');
+    if(connectionWait)$('action-needed-title').textContent=t('questConnectionNeeded');
   }
   const progress=progressView(state);
   if(!logSelectionManual&&(progress.active??progress.current)?.id)$('log-stage').value=(progress.active??progress.current).id;
@@ -591,17 +594,17 @@ function renderProgress() {
   $('progress-detail').textContent=[progress.retaining?t('retainedProgress'):'',!hasSubstep&&sub.phase?substepLabel(sub):'',imported?importSummary(imported):counters(sub),memory?memorySummary(memory):imported?.detail??workDetail(sub),waiting?t('waitingSince',{seconds:Math.max(0,Math.floor(Date.now()/1000-waiting.since))}):''].filter(Boolean).join(' · ');
   $('progress-completed').hidden=done;
   $('progress-completed').textContent=workSummary(sub);
-  renderTiming(progress.current,resourceWait);
+  renderTiming(progress.current,resourceWait,connectionWait);
   const activity=activityView(progress.active??progress.current);
   $('activity-status').hidden=!active||Boolean(waiting);
-  $('activity-status').classList.toggle('quiet',!resourceWait&&activity?.quiet===true);
-  $('activity-status').textContent=t(resourceWait?'memoryWaitActivity':activity?.quiet?'activityQuiet':activity?'activityRecent':'activityUnknown',{duration:durationText(activity?.seconds??0)});
+  $('activity-status').classList.toggle('quiet',!resourceWait&&!connectionWait&&activity?.quiet===true);
+  $('activity-status').textContent=t(connectionWait?'questConnectionWaitingActivity':resourceWait?'memoryWaitActivity':activity?.quiet?'activityQuiet':activity?'activityRecent':'activityUnknown',{duration:durationText(activity?.seconds??0)});
   $('log-status').hidden=!eventsUnavailable&&!stageLogUnavailable;$('log-status').textContent=t('logUnavailable');
   renderBuildOverview();
   $('substep-progress').hidden=!hasSubstep;
   $('substep-label').textContent=substepLabel(sub);
-  $('substep-count').textContent=resourceWait?t('memoryWaiting'):sub.phasePercent===null?counters(sub)||t('phaseUnknown'):t('phasePercent',{percent:percentText(sub.phasePercent)});
-  const subtrack=$('substep-track');subtrack.classList.toggle('indeterminate',sub.phasePercent===null&&active&&!waiting&&!resourceWait);
+  $('substep-count').textContent=resourceWait?t('memoryWaiting'):sub.phasePercent===null?counters(sub)||t(connectionWait?'questConnectionWaitingActivity':'phaseUnknown'):t('phasePercent',{percent:percentText(sub.phasePercent)});
+  const subtrack=$('substep-track');subtrack.classList.toggle('indeterminate',sub.phasePercent===null&&active&&!waiting&&!resourceWait&&!connectionWait);
   subtrack.setAttribute('aria-valuemin','0');subtrack.setAttribute('aria-valuemax','100');
   if(sub.phasePercent===null)subtrack.removeAttribute('aria-valuenow');else subtrack.setAttribute('aria-valuenow',String(sub.phasePercent));
   subtrack.setAttribute('aria-valuetext',$('substep-count').textContent);$('substep-fill').style.width=(sub.phasePercent??0)+'%';
@@ -612,18 +615,18 @@ function renderProgress() {
     const label=document.createElement('span');label.className='stage-content';const title=document.createElement('strong');title.textContent=t('stage_'+stage.id);label.append(title);
     const measured=stageProgress(stage),stageMemory=nativeMemoryView(stage),detail=document.createElement('small');detail.textContent=[measured.phase?substepLabel(measured):'',['pending','complete'].includes(stage.status)?'':counters(measured),measured.waiting?t('actionNeeded'):['pending','complete'].includes(stage.status)?'':stageMemory?memorySummary(stageMemory):workDetail(measured)].filter(Boolean).join(' · ');label.append(detail);
     const bar=document.createElement('progress');bar.max=100;bar.setAttribute('aria-label',t('stage_'+stage.id)+' · '+t('stageTotal'));bar.value=measured.percent;label.append(bar);
-    const status=document.createElement('span');status.className='stage-state';status.textContent=t('measuredPercent',{percent:percentText(measured.percent)})+' · '+t(measured.waiting?'blocked':displayed);li.append(marker,label,status);$('stage-list').append(li);
+    const status=document.createElement('span');status.className='stage-state';status.textContent=t('measuredPercent',{percent:percentText(measured.percent)})+' · '+t(stage.id==='install'&&connectionWait?'waiting':measured.waiting?'blocked':displayed);li.append(marker,label,status);$('stage-list').append(li);
   }
-  const action=active&&!waiting?null:state.needsActions?.[0];$('action-needed').hidden=!action&&!blocked&&!stopped;
+  const action=active&&!waiting?null:state.needsActions?.[0];$('action-needed').hidden=!action&&!blocked&&!stopped&&!connectionWait;
   $('action-needed').classList.toggle('failure',Boolean(failure)&&!installation?.connectionRequired);
-  $('action-needed').classList.toggle('installation',installIssue);
+  $('action-needed').classList.toggle('installation',installIssue||connectionWait);
   $('action-needed').setAttribute('role',installation?.connectionRequired?'status':failure||installIssue?'alert':'status');
   const retainedWait=Boolean(installation?.dataIssue||installation?.repairWait||installation?.contentReinstallRequired);
-  const cause=retainedWait||installation?.connectionRequired?null:installIssue?installation.cause:failure?.cause;
+  const cause=retainedWait||installation?.connectionRequired||connectionWait?null:installIssue?installation.cause:failure?.cause;
   $('failure-cause').hidden=!cause;
   $('failure-cause').textContent=cause?t('failureCause',{cause}):'';
-  $('failure-next').hidden=retainedWait||!failure&&!installIssue;$('failure-actions').hidden=!failure&&!installIssue;
-  $('failure-next').textContent=t(installIssue?installation.connectionRequired?'questConnectionNext':installation.recoveryRequired?'installationRecoveryNext':'installationNext':failure?.blocked?'nativeMemoryNext':'failureNext');
+  $('failure-next').hidden=retainedWait||!failure&&!installIssue&&!connectionWait;$('failure-actions').hidden=!failure&&!installIssue;
+  $('failure-next').textContent=t(connectionWait?'questConnectionWaitingNext':installIssue?installation.connectionRequired?'questConnectionNext':installation.recoveryRequired?'installationRecoveryNext':'installationNext':failure?.blocked?'nativeMemoryNext':'failureNext');
   if(retainedWait)$('failure-next').textContent='';
   if(installation?.backupPath&&!retainedWait)$('failure-next').textContent+=' '+t('installationRecoveryBackup',{path:installation.backupPath});
   $('failure-retry').textContent=t(installation?.dataIssue==='non-save-inaccessible'?'installationRetryAll':installIssue?'installationRetry':'failureRetry');
@@ -634,7 +637,8 @@ function renderProgress() {
   $('install-content-reinstall').hidden=!installation?.canReinstallContent;$('install-content-reinstall').disabled=locked||deviceActive();
   $('failure-support').hidden=preview||discovery?.capabilities?.support!==true;
   $('failure-support').disabled=!sessionId(state.session);
-  if(action||blocked||stopped){const blockedStage=state.stages?.find(stage=>stage.status==='blocked');const code=typeof action==='string'?action:action?.code??blockedStage?.details?.needsAction;
+  if(connectionWait)$('action-needed-copy').textContent=t('questConnectionWaitingCopy');
+  else if(action||blocked||stopped){const blockedStage=state.stages?.find(stage=>stage.status==='blocked');const code=typeof action==='string'?action:action?.code??blockedStage?.details?.needsAction;
     const hint=action?.message?message(action.message):blockedStage?.details?.message?message(blockedStage.details.message):t('action_'+code)!=='action_'+code?t('action_'+code):t('unknownAction');
     const phase=action?.parameters?.failureStage;const stageName=phase?t('phase_stage_'+phase):action?.stage?t('stage_'+action.stage):progress.current?t('stage_'+progress.current.id):'';
     $('action-needed-copy').textContent=installation?.contentReinstallRequired

@@ -37,6 +37,35 @@ test('connection prerequisite preserves completed build and exposes guarded inst
   assert.doesNotMatch(translate('de','questConnectionNext'),/korrigierten Builder/);
 });
 
+test('live connection waiting preserves measured content and does not enable a second install',()=>{
+  const state=fixture();state.status='running';state.needsActions=[];
+  state.stages[6].status='running';
+  state.stages[6].progress={phase:'install-connection-wait',operationStatus:'waiting',stageOperation:'content',
+    done:536870912,total:1073741824,unit:'bytes',percent:50,stagePercent:60};
+  assert.equal(installationView(state).connectionWaiting,true);
+  assert.equal(installationView(state).attention,false);
+  assert.equal(installationView(state).canSkip,false);
+  assert.equal(stageProgress(state.stages[6]).percent,60);
+  assert.equal(stageProgress(state.stages[6]).phasePercent,50);
+  for(const status of ['cancelling','cancel_requested','complete','failed','blocked']){
+    const stopped=structuredClone(state);stopped.status=status;
+    assert.equal(installationView(stopped).connectionWaiting,undefined,status);
+  }
+  for(const phase of ['install-content','operation:connect']){
+    const resumed=structuredClone(state);resumed.stages[6].progress.phase=phase;
+    assert.equal(installationView(resumed).connectionWaiting,undefined,phase);
+  }
+  for(const operationStatus of ['complete','reuse']){
+    const returned=structuredClone(state);returned.stages[6].progress.operationStatus=operationStatus;
+    assert.equal(installationView(returned).connectionWaiting,undefined,operationStatus);
+  }
+  for(const language of ['de','en'])for(const key of ['questConnectionWaitingTitle','questConnectionWaitingCopy',
+    'questConnectionWaitingNext','questConnectionWaitingActivity','questGuideStartLiveWait','phase_install-connection-wait']){
+    assert.notEqual(translate(language,key),key);
+    assert.deepEqual([...strings.de[key].matchAll(/\{([^}]+)\}/g)],[...strings.en[key].matchAll(/\{([^}]+)\}/g)]);
+  }
+});
+
 test('legacy child failure and precise signing error never become a connection prerequisite',()=>{
   for(const [code,cause] of [['child_failed','No error summary was emitted; inspect the retained tool log.'],
     ['installation_tool_failed','INSTALL_PARSE_FAILED_NO_CERTIFICATES: APK has no valid signature']]){
@@ -109,6 +138,76 @@ test('install transport posts only the retained session and cannot fetch whole A
   assert.equal(calls.length,1);
   await assert.rejects(()=>new PreviewApi().skipInstall(session),error=>error.code==='preview');
 });
+
+test('live cable loss shows actionable guidance and resumes in place without resetting measured bytes',
+  {skip:!existsSync(chrome),timeout:20000},async()=>{
+    let current=fixture(),client;const posts=[];
+    current.status='running';current.needsActions=[];current.stages[6].status='running';
+    current.stages[6].progress={phase:'install-content',operationStatus:'running',stageOperation:'content',
+      done:536870912,total:1073741824,unit:'bytes',percent:50,stagePercent:60};
+    const server=createServer(async(request,response)=>{
+      try{
+        const url=new URL(request.url,'http://localhost');let value;
+        if(request.method==='POST'){let body='';for await(const part of request)body+=part;posts.push({path:url.pathname,body:JSON.parse(body)});}
+        if(url.pathname==='/api/discover')value={schema:1,event:'discovery',latestSession:session,games:[],unityEditors:[],capabilities:{browse:false,logs:false,support:false}};
+        else if(url.pathname==='/api/status')value={schema:1,event:'status',session,state:current};
+        else if(url.pathname==='/api/gallery')value={schema:1,event:'gallery',artwork:[]};
+        else if(url.pathname==='/api/events')value={schema:1,event:'events',events:[]};
+        if(value){response.writeHead(200,{'Content-Type':'application/json'});response.end(JSON.stringify(value));return;}
+        const filename=resolve(root,'.'+(url.pathname==='/'?'/index.html':url.pathname));
+        if(!filename.startsWith(root)||!['.html','.mjs','.css','.png','.svg'].includes(extname(filename)))throw Error('not static');
+        response.writeHead(200,{'Content-Type':{'.html':'text/html','.mjs':'text/javascript','.css':'text/css','.png':'image/png','.svg':'image/svg+xml'}[extname(filename)]});response.end(await readFile(filename));
+      }catch(error){response.writeHead(500);response.end(String(error));}
+    });
+    await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+    try{
+      client=await browser();await client.command('Page.navigate',{url:'http://127.0.0.1:'+server.address().port+'/#fixture-token'});
+      await client.chooseHome('resume');await client.wait("document.getElementById('progress-page')&&!document.getElementById('progress-page').hidden");
+      await client.evaluate("document.querySelector('[data-language=de]').click()");
+      assert.equal(await client.evaluate("document.getElementById('progress-title').textContent"),'APK fertig. Quest-Installation läuft.');
+      const measured=await client.evaluate("[document.getElementById('progress-track').getAttribute('aria-valuenow'),document.getElementById('substep-track').getAttribute('aria-valuenow'),document.getElementById('progress-detail').textContent]");
+      current.stages[6].progress={...current.stages[6].progress,phase:'install-connection-wait',operationStatus:'waiting'};
+      await client.wait("document.getElementById('progress-title').textContent==='Installation wartet auf Quest-Verbindung.'");
+      assert.equal(await client.evaluate("document.getElementById('action-needed').hidden"),false);
+      assert.equal(await client.evaluate("document.getElementById('action-needed').getAttribute('role')"),'status');
+      assert.equal(await client.evaluate("document.getElementById('action-needed').classList.contains('failure')"),false);
+      assert.equal(await client.evaluate("document.getElementById('failure-cause').hidden"),true);
+      assert.equal(await client.evaluate("document.getElementById('failure-actions').hidden"),true);
+      assert.equal(await client.evaluate("document.getElementById('install-skip').hidden"),true);
+      assert.equal(await client.evaluate("document.getElementById('primary').disabled&&document.getElementById('failure-retry').disabled"),true);
+      assert.equal(await client.evaluate("!document.getElementById('cancel').hidden&&!document.getElementById('cancel').disabled"),true);
+      assert.match(await client.evaluate("document.getElementById('failure-next').textContent"),/dieselbe Quest.*USB-Datenkabel.*entsperre.*USB-Debugging.*nicht erneut starten/s);
+      assert.match(await client.evaluate("document.getElementById('install-guide').textContent"),/automatisch fortgesetzt.*Fortschritt bleibt erhalten.*Start ist nicht nötig/s);
+      assert.doesNotMatch(await client.evaluate("document.getElementById('action-needed').innerText"),/Fehler|Installation erneut versuchen/);
+      assert.equal(await client.evaluate("document.getElementById('activity-status').classList.contains('quiet')"),false);
+      assert.deepEqual(await client.evaluate("[document.getElementById('progress-track').getAttribute('aria-valuenow'),document.getElementById('substep-track').getAttribute('aria-valuenow'),document.getElementById('progress-detail').textContent]"),measured);
+      assert.equal(await client.evaluate("document.querySelectorAll('#stage-list li.complete').length"),6);
+      assert.match(await client.evaluate("document.querySelector('#stage-list li:nth-child(7) .stage-state').textContent"),/60 % · Wartet/);
+      await client.picture('live-install-connection-wait-de');
+      await client.evaluate("document.querySelector('[data-language=en]').click()");
+      assert.equal(await client.evaluate("document.getElementById('progress-title').textContent"),'Installation waiting for Quest connection.');
+      assert.match(await client.evaluate("document.getElementById('failure-next').textContent"),/same Quest.*USB data cable.*unlock.*USB debugging.*not need to restart/s);
+      await client.picture('live-install-connection-wait-en');
+      await client.evaluate("document.querySelector('[data-language=de]').click()");
+      current.stages[6].progress={...current.stages[6].progress,phase:'install-content',operationStatus:'running'};
+      await client.wait("document.getElementById('progress-title').textContent==='APK fertig. Quest-Installation läuft.'&&document.getElementById('action-needed').hidden");
+      assert.deepEqual(await client.evaluate("[document.getElementById('progress-track').getAttribute('aria-valuenow'),document.getElementById('substep-track').getAttribute('aria-valuenow'),document.getElementById('progress-detail').textContent]"),measured);
+      current.stages[6].progress={...current.stages[6].progress,done:805306368,percent:75,stagePercent:75};
+      await client.wait("document.getElementById('progress-track').getAttribute('aria-valuenow')==='75'");
+      assert.match(await client.evaluate("document.getElementById('progress-detail').textContent"),/768 MiB/);
+      assert.equal(await client.evaluate("document.getElementById('action-needed').hidden"),true);
+      await client.picture('live-install-content-resumed-de');
+      // An initial connection pause has no reported byte total or synthetic
+      // animation claiming that disconnected work is advancing.
+      current.stages[6].progress={phase:'install-connection-wait',operationStatus:'waiting',stageOperation:'connect',stagePercent:0,percent:null};
+      await client.wait("document.getElementById('progress-title').textContent==='Installation wartet auf Quest-Verbindung.'");
+      assert.equal(await client.evaluate("document.getElementById('substep-track').hasAttribute('aria-valuenow')"),false);
+      assert.equal(await client.evaluate("document.getElementById('substep-track').classList.contains('indeterminate')"),false);
+      assert.doesNotMatch(await client.evaluate("document.getElementById('substep-count').textContent"),/%/);
+      assert.deepEqual(posts,[],'automatic continuation needs no restart, rebuild or overlapping install request');
+      assert.equal(client.events.filter(row=>row.method==='Runtime.exceptionThrown').length,0);
+    }finally{try{await client?.close();}finally{await new Promise(resolve=>server.close(resolve));}}
+  });
 
 test('completed APK is prominent while connection is blocked; retry and skip retain the same session',
   {skip:!existsSync(chrome),timeout:30000},async()=>{
