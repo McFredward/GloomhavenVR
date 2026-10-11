@@ -1,7 +1,10 @@
 """Restart selection comes from the retained owner store, not browser storage."""
+import http.client
+import json
 from pathlib import Path
 import sys
 import tempfile
+import threading
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -9,6 +12,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'tools/quest-wizard'))
 import discovery
+import server
 import state
 import wizard
 
@@ -137,6 +141,11 @@ class DefaultApkDiscoveryTests(unittest.TestCase):
                              {'path': str(apk), 'modBuild': 671, 'source': 'latest-build'})
         self.assertEqual(len(opened), 2)
 
+    def test_missing_build_store_has_no_default_and_is_not_created_by_discovery(self):
+        self.assertFalse(self.build.exists())
+        self.assertIsNone(discovery.default_apk(self.store))
+        self.assertFalse(self.build.exists())
+
     def test_discovery_response_exposes_the_same_default_for_home_update_actions(self):
         apk, _, _ = self.completed()
         def no_owned_game(path): raise ValueError('This fixture has no PC installation.')
@@ -145,6 +154,32 @@ class DefaultApkDiscoveryTests(unittest.TestCase):
             value = discovery.discover(ROOT, self.store)
         self.assertEqual(value['defaultApk']['path'], str(apk))
         self.assertEqual(value['event'], 'discovery')
+
+    def test_actual_http_discovery_suggests_a_completed_apk_without_reading_its_payload(self):
+        apk, _, _ = self.completed()
+        local = server.LocalServer(self.store, ROOT / 'tools/quest-wizard-ui', promotional=False)
+        thread = threading.Thread(target=local.serve_forever, daemon=True)
+        thread.start()
+        original = Path.open
+        def metadata_only(path, *args, **kwargs):
+            self.assertNotEqual(path, apk, 'HTTP discovery must not open an APK payload')
+            return original(path, *args, **kwargs)
+        try:
+            with patch.object(Path, 'open', metadata_only):
+                connection = http.client.HTTPConnection(*local.server_address, timeout=10)
+                connection.request('GET', '/api/discover', headers={
+                    'X-Quest-Token': local.token, 'Origin': local.origin})
+                response = connection.getresponse()
+                value = json.loads(response.read())
+                connection.close()
+                self.assertEqual(response.status, 200, value)
+                self.assertEqual(value['defaultApk'],
+                                 {'path': str(apk), 'modBuild': 671, 'source': 'latest-build'})
+        finally:
+            local.shutdown()
+            local.close_owned()
+            thread.join(timeout=5)
+        self.assertFalse(thread.is_alive())
 
     def test_multi_gigabyte_apk_selection_uses_only_its_recorded_size(self):
         apk, receipt_name, receipt = self.completed()

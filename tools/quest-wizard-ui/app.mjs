@@ -813,7 +813,7 @@ async function allowContentReinstall(){
   }catch(value){error(value);}finally{busy=false;updateView();}
 }
 async function browse(kind) {
-  busy=true;clearError();updateView();try{const result=await api.browse(kind);if(result.path){$(({game:'game-root',unity:'unity-editor',apk:'base-apk'})[kind]).value=result.path;if(kind==='game')selected=null;}}
+  busy=true;clearError();updateView();try{const result=await api.browse(kind);if(result.path){$(({game:'game-root',unity:'unity-editor',apk:'base-apk'})[kind]).value=result.path;if(kind==='game')selected=null;if(kind==='apk')automaticBaseApk='';}}
   catch(value){error(value);}finally{busy=false;updateView();}
 }
 document.querySelectorAll('[data-language]').forEach(node=>node.addEventListener('click',()=>setLanguage(node.dataset.language)));
@@ -823,19 +823,29 @@ $('storage-refresh').addEventListener('click',inventoryStorage);
 $('storage-clean').addEventListener('click',cleanStorage);
 $('storage-dismiss').addEventListener('click',()=>{if(storageActive())return;storageInfo={...storageInfo,state:{status:'idle'}};updateView();});
 $('primary').addEventListener('click',primary);$('back').addEventListener('click',()=>{page=0;clearError();updateView();});
-function beginBuild(mode='build'){
-  if(busy||isActive(state)||storageActive()||deviceActive())return;
+function previousApkSelection(){
   // A typed/browsed or restored selection is the user's explicit override.
   // Otherwise use a just-completed result, then the owner's discovered APK.
   // Starting a workflow never resumes/builds that artifact by itself.
   const currentApk=$('base-apk').value,explicitApk=currentApk&&currentApk!==automaticBaseApk?currentApk:'';
-  const previousApk=explicitApk||state?.result?.apk||state?.stages?.find(row=>row.id==='build')?.details?.apk||discovery?.defaultApk?.path||currentApk||'';
+  const completedBuild=state?.stages?.find(row=>row.id==='build'&&row.status==='complete');
+  const path=explicitApk||(state?.status==='complete'?state.result?.apk:'')||completedBuild?.details?.apk||discovery?.defaultApk?.path||'';
+  return {path,explicit:Boolean(explicitApk)};
+}
+function preselectUpdateApk(){
+  if($('build-mode').value==='build')return;
+  const selected=previousApkSelection();
+  $('base-apk').value=selected.path;automaticBaseApk=selected.explicit?'':selected.path;
+}
+function beginBuild(mode='build'){
+  if(busy||isActive(state)||storageActive()||deviceActive())return;
+  const previousApk=previousApkSelection();
   // This is an explicit opt-out. Removing a UI selection never deletes the
   // backend session, completed receipts or owner recovery/download workspace.
   clearTimeout(pollTimer);sessionGeneration++;stopOptionalReads();state=null;resumeFailed=null;restoredSession=null;qualification=null;page=0;after=0;log=[];
   restoreChoices({install:true});resetArtwork();clearLoadedLog();clearError();renderGames();
   $('build-mode').value=mode;
-  if(mode!=='build'&&previousApk){$('base-apk').value=previousApk;automaticBaseApk=explicitApk?'':previousApk;}
+  if(mode!=='build'&&previousApk.path){$('base-apk').value=previousApk.path;automaticBaseApk=previousApk.explicit?'':previousApk.path;}
   if(mode==='update-profile')document.querySelector('#game-page .advanced').open=true;
   if(discovery?.games?.length===1)selectGame(discovery.games[0]);
   updateView();$('game-root').focus();
@@ -870,7 +880,7 @@ document.querySelector('#diagnostic-details').addEventListener('toggle',()=>{if(
 $('load-log').addEventListener('click',()=>void refreshLog());
 document.querySelector('.skip').addEventListener('click',event=>{event.preventDefault();$('workspace').focus();});
 $('browse-game').addEventListener('click',()=>browse('game'));$('browse-unity').addEventListener('click',()=>browse('unity'));
-$('browse-apk').addEventListener('click',()=>browse('apk'));$('build-mode').addEventListener('change',updateView);$('base-apk').addEventListener('input',updateView);
+$('browse-apk').addEventListener('click',()=>browse('apk'));$('build-mode').addEventListener('change',()=>{preselectUpdateApk();updateView();});$('base-apk').addEventListener('input',()=>{automaticBaseApk='';updateView();});
 $('cancel').addEventListener('click',async()=>{busy=true;updateView();try{await api.cancel(state.session);const result=await api.status(state.session);state=result.state;schedulePoll();}catch(value){error(value);}finally{busy=false;updateView();}});
 $('game-root').addEventListener('input',()=>{selected=null;resetArtwork();updateView();});$('provider').addEventListener('change',()=>{selected=null;resetArtwork();updateView();});$('profile-name').addEventListener('input',updateView);
 $('declare-dlc').addEventListener('change',()=>{$('dlc-declaration').hidden=!$('declare-dlc').checked;});

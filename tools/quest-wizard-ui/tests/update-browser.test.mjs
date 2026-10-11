@@ -68,11 +68,11 @@ for(const mode of ['update-profile','update-mod'])test('native browser: '+mode+'
   }
  });
 
-async function ownedApkFixture() {
+async function ownedApkFixture({hasApk=true,hasRestoredApk=true}={}) {
   const requests=[],session='a'.repeat(32),defaultApk='C:\\Users\\Fixture\\.ghvrq\\build\\updates\\'+'b'.repeat(64)+'\\GloomhavenVR-Quest.apk';
   const customApk='D:\\Custom game backups\\Explicit Quest.apk';
   const updatedApk='C:\\Users\\Fixture\\.ghvrq\\build\\updates\\'+'c'.repeat(64)+'\\GloomhavenVR-Quest.apk';
-  const retained={session,status:'cancelled',choices:{gameRoot:'C:\\Owned game',provider:'gog',mode:'update-profile',baseApk:customApk,install:true},needsActions:[],
+  const retained={session,status:'cancelled',choices:{gameRoot:'C:\\Owned game',provider:'gog',mode:'update-profile',baseApk:hasRestoredApk?customApk:'',install:true},needsActions:[],
     stages:['tools','source','unity','profile','inspect','build','install'].map(id=>({id,status:'pending'})),
     progress:{phase:'build',completed:0,total:7},result:{apk:'C:\\Older result\\Quest.apk'}};
   const server=createServer(async(request,response)=>{
@@ -82,7 +82,7 @@ async function ownedApkFixture() {
         assert.equal(request.headers['x-quest-token'],'owned-apk-fixture');requests.push(path);
         let raw='';for await(const chunk of request)raw+=chunk;const body=raw?JSON.parse(raw):undefined;
         let value;
-        if(path==='/api/discover')value={schema:1,event:'discovery',latestSession:session,defaultApk:{path:defaultApk,modBuild:671,source:'latest-build'},
+        if(path==='/api/discover')value={schema:1,event:'discovery',latestSession:session,defaultApk:hasApk?{path:defaultApk,modBuild:671,source:'latest-build'}:null,
           games:[{id:'owned',gameRoot:'C:\\Owned game',provider:'gog'}],unityEditors:[],capabilities:{browse:false,logs:false,support:false}};
         else if(path==='/api/gallery')value={schema:1,event:'gallery',artwork:[]};
         else if(path==='/api/storage')value={schema:1,event:'storage',workspaceRoot:'C:\\Users\\Fixture\\.ghvrq',state:{status:'idle'},inventory:{status:'idle'}};
@@ -140,6 +140,52 @@ test('a just-completed APK update replaces the previous automatic default for th
     assert.equal(await client.evaluate("document.getElementById('base-apk').value"),server.updatedApk,'do not reuse the old automatic base after a completed update');
     assert.equal(server.requests.filter(path=>path==='/api/plan').length,1);
     assert.equal(server.requests.filter(path=>path==='/api/run').length,1);
+    assert.equal(client.events.filter(row=>row.method==='Runtime.exceptionThrown').length,0);
+  }finally{try{await client?.close();}finally{await server.close();}}
+ });
+
+for(const mode of ['update-profile','update-mod'])test('the advanced '+mode+' selection uses the owned APK and retains an explicit override',
+ {skip:!existsSync(chrome),timeout:30000},async()=>{
+  const server=await ownedApkFixture();let client;
+  try{
+    client=await browser();await client.command('Page.navigate',{url:server.url});await client.chooseHome('build');
+    assert.equal(await client.evaluate("document.getElementById('base-apk').value"),'');
+    await client.evaluate("document.getElementById('build-mode').value="+JSON.stringify(mode)+";document.getElementById('build-mode').dispatchEvent(new Event('change'))");
+    assert.equal(await client.evaluate("document.getElementById('base-apk').value"),server.defaultApk);
+    await client.evaluate("document.getElementById('base-apk').value="+JSON.stringify(server.customApk)+";document.getElementById('base-apk').dispatchEvent(new Event('input'));document.getElementById('build-mode').value='build';document.getElementById('build-mode').dispatchEvent(new Event('change'))");
+    await client.evaluate("document.getElementById('build-mode').value="+JSON.stringify(mode)+";document.getElementById('build-mode').dispatchEvent(new Event('change'))");
+    assert.equal(await client.evaluate("document.getElementById('base-apk').value"),server.customApk);
+    assert.equal(server.requests.some(path=>['/api/status','/api/run','/api/plan'].includes(path)),false);
+    assert.equal(client.events.filter(row=>row.method==='Runtime.exceptionThrown').length,0);
+  }finally{try{await client?.close();}finally{await server.close();}}
+ });
+
+test('both APK edit workflows leave the field empty when there is no completed owned APK',
+ {skip:!existsSync(chrome),timeout:30000},async()=>{
+  const server=await ownedApkFixture({hasApk:false});let client;
+  try{
+    client=await browser();await client.command('Page.navigate',{url:server.url});
+    for(const action of ['profile','mod']){
+      await client.chooseHome(action);
+      assert.equal(await client.evaluate("document.getElementById('base-apk').value"),'');
+      await client.evaluate("document.getElementById('build-mode').value='build';document.getElementById('build-mode').dispatchEvent(new Event('change'));document.getElementById('build-mode').value='update-profile';document.getElementById('build-mode').dispatchEvent(new Event('change'))");
+      assert.equal(await client.evaluate("document.getElementById('base-apk').value"),'');
+      await client.evaluate("document.getElementById('home').click()");
+    }
+    assert.equal(server.requests.some(path=>['/api/status','/api/run','/api/plan'].includes(path)),false);
+    assert.equal(client.events.filter(row=>row.method==='Runtime.exceptionThrown').length,0);
+  }finally{try{await client?.close();}finally{await server.close();}}
+ });
+
+test('an incomplete session result cannot fill the APK field when no completed APK is available',
+ {skip:!existsSync(chrome),timeout:30000},async()=>{
+  const server=await ownedApkFixture({hasApk:false,hasRestoredApk:false});let client;
+  try{
+    client=await browser();await client.command('Page.navigate',{url:server.url});await client.chooseHome('resume');
+    await client.wait("!document.getElementById('progress-page').hidden");
+    await client.evaluate("document.getElementById('home').click()");await client.chooseHome('profile');
+    assert.equal(await client.evaluate("document.getElementById('base-apk').value"),'');
+    assert.equal(server.requests.some(path=>['/api/run','/api/plan'].includes(path)),false);
     assert.equal(client.events.filter(row=>row.method==='Runtime.exceptionThrown').length,0);
   }finally{try{await client?.close();}finally{await server.close();}}
  });

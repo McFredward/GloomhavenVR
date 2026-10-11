@@ -29,7 +29,9 @@ async function fixture(contentDecision=false){
         assert.equal(request.headers['x-quest-token'],'home-fixture-token');let raw='';for await(const chunk of request)raw+=chunk;
         const body=raw?JSON.parse(raw):undefined;requests.push({path,body});
         const reply=value=>{response.writeHead(200,{'Content-Type':'application/json'});response.end(JSON.stringify(value));};
-        if(path==='/api/discover')return reply({schema:1,event:'discovery',latestSession:session,games:[{id:'owned',gameRoot:'C:\\Owned game',provider:'gog'}],unityEditors:[],capabilities:{browse:false,logs:false,support:false,deviceTools:true,storageInventory:true}});
+        if(path==='/api/discover')return reply({schema:1,event:'discovery',latestSession:session,
+          defaultApk:{path:'C:\\Retained\\Quest.apk',modBuild:671,source:'latest-build'},
+          games:[{id:'owned',gameRoot:'C:\\Owned game',provider:'gog'}],unityEditors:[],capabilities:{browse:false,logs:false,support:false,deviceTools:true,storageInventory:true}});
         if(path==='/api/gallery')return reply({schema:1,event:'gallery',artwork:[]});
         if(path==='/api/status')return reply({schema:1,event:'status',session,state:retained});
         if(path==='/api/install/content-reinstall'){
