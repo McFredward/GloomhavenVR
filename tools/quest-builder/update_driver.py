@@ -86,6 +86,27 @@ def inspect(builder, args, repo, output, data=None):
     return plan
 
 
+def normalized_signing_tools(builder, tools):
+    """Qualify one selected SDK/JDK without altering its recorded provenance."""
+    selected = dict(tools)
+    # Capture065619 reaches a completed Android Player, then the full-build
+    # capability writer receives a legacy toolchain without zipalign. Resolve
+    # that one omitted command beside the selected aapt, never from PATH or a
+    # different SDK. Preserve the caller's map/key and freeze callback inputs.
+    if "zipalign" not in selected:
+        aapt = selected.get("aapt")
+        if not isinstance(aapt, (str, os.PathLike)) or not str(aapt):
+            raise builder.BuildError("APK signing tool selection lacks aapt; cannot locate matching zipalign.")
+        suffix = ".exe" if Path(aapt).suffix.lower() == ".exe" else ""
+        selected["zipalign"] = str(Path(aapt).with_name("zipalign" + suffix))
+    for name in ("java", "keytool", "apksigner", "zipalign"):
+        path = selected.get(name)
+        if not isinstance(path, (str, os.PathLike)) or not str(path) or not Path(path).is_file():
+            raise builder.BuildError("APK signing tool is missing: " + name
+                                     + ". Restore the selected Android Build Support/SDK and JDK; the completed Player is retained.")
+    return selected
+
+
 def signing_tools(builder, args, output):
     if getattr(args, "apk_tools_json", None):
         path = Path(args.apk_tools_json)
@@ -97,10 +118,8 @@ def signing_tools(builder, args, output):
         for name in ("java", "keytool", "aapt", "apksigner", "zipalign"):
             if not Path(selected[name]).is_file():
                 raise builder.BuildError("APK signing tool is missing: " + name)
-        return selected
-    tools = builder.toolchain(args, output)
-    tools["zipalign"] = str(Path(tools["aapt"]).with_name("zipalign.exe" if os.name == "nt" else "zipalign"))
-    return tools
+        return normalized_signing_tools(builder, selected)
+    return normalized_signing_tools(builder, builder.toolchain(args, output))
 
 
 def _signers(builder, tools, output, signing_root=None, *, base_apk=None):
@@ -116,6 +135,7 @@ def _signers(builder, tools, output, signing_root=None, *, base_apk=None):
             if not target.exists(): shutil.copyfile(source, target)
     if base_apk is not None and not all((output / "signing" / name).is_file() for name in ("quest.keystore", "local-key.json")):
         raise builder.BuildError("Updating an installed APK requires its original signing folder (quest.keystore and local-key.json). Select that folder or keep the original Builder workspace. An APK alone does not contain its private signing key.")
+    tools = normalized_signing_tools(builder, tools)
     key, private = builder.signing(output, tools)
     environment = dict(os.environ)
     environment["GHVR_QUEST_SIGNING_PASSWORD"] = private["password"]

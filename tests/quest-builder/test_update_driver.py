@@ -135,9 +135,12 @@ class UpdateDriverTests(unittest.TestCase):
         self.builder.signing = Mock(return_value=(key, {"password": "fixture-private-password", "alias": "quest"}))
         self.builder.command = Mock(side_effect=["Signer #1 certificate SHA-256 digest: " + "a" * 64,
                                                "SHA256: " + ":".join(["BB"] * 32)])
+        tools = {}
+        for name in ("java", "keytool", "apksigner", "zipalign"):
+            path = self.root / (name + ".tool"); path.write_bytes(b"selected tool fixture")
+            tools[name] = str(path)
         with self.assertRaisesRegex(storage.BuildError, "does not belong"):
-            driver._signers(self.builder, {"java": "java", "keytool": "keytool", "apksigner": "apksigner.jar"},
-                            self.output, base_apk=self.apk)
+            driver._signers(self.builder, tools, self.output, base_apk=self.apk)
         self.assertNotIn("fixture-private-password", str([call.args for call in self.builder.command.call_args_list]))
 
 
