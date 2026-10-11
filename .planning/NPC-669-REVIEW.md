@@ -99,8 +99,81 @@ any local runtime suite ran: the new lifecycle registration needed its matching
 inventory entry and local count216. The corrected runner passes its original
 18 tests with two intentional platform skips; no suite or assertion was removed.
 
-Worker and final integration counts, complete-gate results and retained evidence
-are recorded after the integrated checks. Automated source, native Unity and
-codec proofs do not establish a new paired hardware outcome. The next hardware
-test should include one and multiple VR guests under a vanilla host, browsing,
-buying/selling, coordinator departure/rejoin and a map reload.
+The authority worker passes **128 lifecycle assertions/all11 compiled controls**
+and the retained presentation proof **39/all5**. Actual production grant contexts
+cover one and multiple VR guests with a vanilla host, native-host preference,
+roster-based departure, later compatible joins, reordered old grants, the full
+permission drain and queued requests. The original-bank worker passes **222
+assertions/all21 controls** and preparation658's original **7/both controls**.
+The integrated default mirror suite retains all20 historical controls; the
+worker default proof has232405 assertions. Source-bound Unity boundaries and
+the actual shipped Bolt relay are documented in the two lane reports.
+
+The private compiled comparison has **1254 -> 1254 types**, no added/removed
+types, exactly five implementation types (`FfsNetTransport`,
+`TownServiceGrantSync`, `TownServiceMirror`, `NativeTemplates`, `TownServiceSync`)
+and six consumers changed only by the inlined ModBuild668 -> 669 constant.
+The original guard snapshot function is reused unchanged for this independent
+comparison. Debug and Release strict builds pass with **0 errors/0 warnings**;
+direct goldens pass **300510 assertions**, documentation and bundle checks pass,
+and all three public surfaces remain **666/235/4795**. The first direct apphost
+launch lacked its .NET runtime environment; the same compiled golden DLL passes
+when launched with the installed dotnet runtime. This was an invocation error.
+
+The original complete216 local attempt saved **31 passes, four failures and181
+unreached suites**. One failure was the historical early-Awake fixture ordering
+described in the originals report. The other three explicitly report ENOSPC:
+enhancement-handoff compilation, figure-mesh copies and figure-distance startup.
+The runner then could not create another isolated scratch directory. All failed
+logs are retained. Completed generated binaries are deduplicated only after
+their process group exits, using byte-identical SHA256-checked hard links;
+worker caches are compacted only after verified archival. Hardware inputs and
+unrelated worktrees remain untouched. The185 failed/unreached suites resumed at
+jobs2 and saved183 passes plus the two historical fixture failures described
+below. Both full affected focused suites pass after repair. The final composed
+coverage is **216/216 = retained31 + resumed183 + focused2**. Its receipt verifies
+all four reports against the exact216-suite manifest and every saved log SHA256.
+Source16 passes independently. This is complete composed coverage, not a new
+successful complete-gate wrapper invocation; all failed reports remain retained.
+
+The resumed run exposed two historical fixture dependencies. The Build656
+latency control lacked the new bank API while compiling its retained old mirror;
+explicit dormant ports now fail fast if unexpectedly called. NPC666's cold
+merchant hover probe sampled before the actual transaction lease existed,
+despite InteractionOwner already choosing that browsing visitor. Unchanged dev
+reproduced the latter failure identically. Both full affected suites pass their
+focused repairs with all original controls and thresholds. Product source and
+the accepted intrinsic effects remain unchanged by these fixture corrections.
+
+The maintainer's explicit storage request also adds completion cache cleanup to
+the local runner. It runs after the suite group is killed/reaped and its log is
+closed, including failure and interruption, while the suite lock is still held.
+One unambiguous local run and physical .csproj/Unity project markers are required;
+wrapper/inner proof references must form one physical ancestor chain, and only
+the deepest explicitly evidenced run is selected. Discovery never follows other
+generated child runs; wrapper pins protect the inner proof as well. There is no
+global hardware-log sweep. Only that run's .NET bin/obj and Unity
+Library/Temp/Obj qualify. Logs, original source/manifest/capture trees, symlinks,
+.keep pins and hardware/remote/Steam Frame data remain protected. Small cache
+receipts are copied byte-for-byte and SHA256-verified before deletion; unsafe,
+unreadable or oversized evidence leaves the corresponding cache intact. The
+previous success-only pruning of marked older runs remains distinct. Root
+validation passes all30 retention tests and all16 ordinary runner tests, with
+the two unchanged opt-in SDK checks skipped. Cases exercise actual runner
+success, failure and SIGTERM cleanup as well as evidence-preservation boundaries.
+
+Old generated caches in the main checkout and our completed NPC661/665/666
+worktrees were also removed after checking active process paths and retaining
+reports. Their four receipts record 109945479168 bytes of allocated cache data
+removed (about102.4 GiB). Unrelated active worktrees, read-only game references,
+hardware inputs and failed-run sources remain available. The already-running
+older runner was covered by a separately bound completion monitor. Its final
+receipt records222 completed invocations,106 runs with cache removal, and
+33.42 GiB of logical cache bytes removed. This logical count is distinct from
+the allocated-byte old-cache receipts above. Every saved suite log SHA256 remains
+unchanged. The final receipt is retained with the integration evidence.
+
+Automated source, native Unity and codec proofs do not establish a new paired
+hardware outcome. The next hardware test should include one and multiple VR
+guests under a vanilla host, browsing, buying/selling, coordinator departure/rejoin
+and a map reload.

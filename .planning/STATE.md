@@ -1,5 +1,43 @@
 # State — where the project stands
 
+**Build669 immersive merchant with an unmodified flat host, 2026-10-11: 1.1.0 development candidate.**
+
+Frozen paired logs identify VR Build668 and an unmodified native host. The
+immersive admission gate required a compatible native host and therefore kept
+the VR merchant empty. Prefer the compatible native host, otherwise elect the
+lowest compatible live VR participant to coordinate reservations over the
+existing reliable Others lane. Drain old permissions on coordinator changes
+while preparing the original UI immediately. Native server-authorized callbacks
+still validate purchases and gold on the unmodified host. Shipped Bolt forwards
+Others before the vanilla sentinel rejection; no native networking patch.
+
+Failed or changed-HUD original-bank preparation now retires the entire old
+presentation lifetime atomically before retry/replacement, retaining strict
+immutable identity, ready-bank reuse and bounded diagnostics. All lanes retire
+in explicit scopes; captures stop before publishing disposed old-bank objects.
+Standalone version discovery is reliable at its existing cadence/budget. NPC666
+effects and Build668's 23 cm enhancement-list placement remain unchanged.
+Version3/next-free118; no asset, configuration, input or TLV changes.
+
+Validation is **composed216/216**, not a fresh complete-gate pass:31 retained
+initial passes,183 resumed passes and two full focused historical-fixture
+repairs, all manifest-bound with saved log hashes verified. The initial attempt
+also records an early-Awake fixture-order failure and three ENOSPC failures.
+Original controls/deadlines/tolerances remain unchanged. Authority128/all11,
+original bank222/all21, transport392/all7 and preparation7/both controls pass;
+source16, direct300510 goldens, strict Debug/Release0/0, docs and bundles pass.
+Public surfaces stay666/235/4795; compiled types1254 ->1254, with five explained
+implementation changes and six ModBuild-only consumers. See
+[NPC-669-REVIEW.md](NPC-669-REVIEW.md) and its lane reports for exact boundaries.
+
+The maintainer's storage ruling adds automatic owned-project cache cleanup after
+passing, failed and interrupted runs. Root retention30/30 and ordinary runner
+16/16 pass (two unchanged opt-in SDK skips). Logs, source/capture evidence,
+hardware, pins and borrowed inputs remain protected. Old generated caches
+removed about102.4 GiB of allocated data; completed integration caches have a
+separate33.42 GiB logical-byte receipt. New vanilla-host merchant, headset and
+paired/four-player outcomes remain unverified on hardware.
+
 **Build668 enchantress enhancement-list placement, 2026-10-11: 1.1.0 development candidate.**
 
 Move only the original enhancement-options list 23 cm toward the enchantress,

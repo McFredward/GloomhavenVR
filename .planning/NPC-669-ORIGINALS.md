@@ -144,12 +144,42 @@ Receipts are under `.planning/debug/npc669-originals/` at
 `followup-final-source/results.json`. These are focused checks, not a new complete
 local-gate claim. The primary agent runs the integrated gate.
 
+The integrated default mirror suite exposed a historical negative-control
+ordering dependency. The new bank probes initially ran before the existing
+early-Awake probe, so its executable mutation failed earlier at a different
+assertion. Fixture checkpoint `6cb5742d2` keeps asset-identity coverage in its
+original location and runs the new probes after the historical cases in the
+default suite. All original assertions, thresholds and controls remain intact.
+The worker default suite passes 232,405 assertions and all 20 original controls;
+the integrated default suite also passes all 20 controls. The 222-assertion
+asset-identity production proof passes again after that fixture-only change;
+its unchanged 21 controls retain their previous passing evidence.
+
 Completed initial-checkpoint projects and controls are fully preserved in
 `initial-complete-evidence.tar.gz` (verified gzip, SHA256
 `a7eb759a6080a32dcc0998f48e1ea23ea0a14de416cc80697a035918abd75677`).
 Their assertion, source-hash, result and manifest receipts stay available
 uncompressed; only archived compiled/project caches are compacted. Hardware
 inputs and all other worktrees are untouched.
+
+Two further historical fixture bindings were corrected during integration.
+The Build656 latency control still compiles its exact old mirror/receipt source;
+new bank probes now have explicit dormant API ports that throw if invoked,
+instead of requiring APIs absent from that historical revision. Its original
+one-second complete-picture deadline and native originals remain unchanged.
+The complete focused historical-control suite passes again.
+
+The NPC666 cold merchant hover proof had used InteractionOwner to infer that
+the intrinsic effect was active. Merchant browsing can already select that
+visitor while its 0.12-second transaction lease is pending. Both unchanged
+dev ca4f and current source reproduced the same 144-micrometre sampling error
+with zero admission frames and no hover clock. The fixture now also waits for
+the actual TransactionOwner; it retains its four-micrometre threshold, native
+waveform and all seven controls. Unchanged ca4f passes 484138 assertions after
+this binding repair; current worker coverage passes 484134 assertions/all seven
+controls, and Build665 still fails its original cold-wave assertion. Saved
+timings document the native lease and render clocks. No product hover code or
+tolerance changed. The primary's full focused hover suite also passes.
 
 The native-host merchant outcome, headset pixels and paired/four-player
 interactions require hardware validation of the integrated build. A green
