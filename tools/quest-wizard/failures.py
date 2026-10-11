@@ -10,6 +10,9 @@ import stat
 
 from state import WizardError, ordinary
 
+DELIVERY_LOGS = frozenset({'update-align.log', 'update-sign.log', 'update-signature.log',
+                          'update-base-signature.log', 'update-key-certificate.log'})
+
 
 def memory_resources(value):
     """Expose only bounded, measured capacity fields from the current attempt."""
@@ -121,6 +124,43 @@ def unity_failure_logs(root, message, started, key=None):
     return logs
 
 
+def delivery_failure_logs(root, message, started):
+    """Follow only the exact current host command named by the build failure."""
+    match = re.fullmatch(r'[^\r\n]*; inspect ([^\r\n]+[\\/](?P<name>[^\\/]+\.log))', message.splitlines()[0] if message else '')
+    if not match or match['name'] not in DELIVERY_LOGS: return []
+    path = root / 'build/logs' / match['name']
+    normalize = lambda value: os.path.normcase(str(value).replace('\\', '/'))
+    if normalize(match[1]) != normalize(path): return []
+    text = current_tail(path, started)
+    return [(path, text)] if text is not None else []
+
+
+def safe_delivery_summary(text):
+    """Keep the bounded native cause without exposing signer credentials."""
+    text = re.sub(r'(?s)-----BEGIN [^-]+-----.*?-----END [^-]+-----', '[redacted key block]', text)
+    safe = []
+    for line in text.splitlines():
+        if (re.search(r'(?i)(password|passwd|secret|token|credential|authorization|cookie|steamid|providerid|accountid|displayname|personaname)\s*["\x27]?\s*[:=]', line)
+                or re.fullmatch(r'[A-Z][A-Z0-9_]{2,}=.*', line.strip())
+                or '-----BEGIN ' in line or '-----END ' in line):
+            continue
+        line = re.sub(r'(?i)Bearer\s+[A-Za-z0-9._~+/=-]+', 'Bearer [redacted]', line)
+        line = re.sub(r'\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b', '[redacted JWT]', line)
+        line = re.sub(r'\b7656119\d{10}\b', '[profile-id]', line)
+        safe.append(line)
+    selected, rank = error_summary('\n'.join(safe))
+    if rank: return selected, rank
+    # zipalign's messages do not consistently contain an Error: prefix. Prefer
+    # its actual refusal over usage or the outer python.exe exit wrapper.
+    for line in reversed(safe):
+        if re.search(r'(?i)unable to|cannot|failed|invalid|not found|already exists|out of memory', line):
+            return line.strip()[:2048], 2
+    for line in reversed(safe):
+        if line.strip() and not line.startswith('[redacted'):
+            return line.strip()[:2048], 1
+    return '', 0
+
+
 def error_summary(text, *, unity=False):
     """Prefer the actual compiler/Editor exception to a generic wrapper line."""
     selected, rank = "", 0
@@ -141,6 +181,7 @@ def tool_failure(root, stage, log, started, executable, exit_code):
     resources, failure_code = {}, None
     logs = [ordinary(log)]
     child_logs = []
+    delivery_logs = []
     failure_path = root / "build/last-failure.json"
     failure_text = current_tail(failure_path, started, limit=65537) if stage in ("inspect", "build") else None
     if failure_text is not None:
@@ -159,6 +200,7 @@ def tool_failure(root, stage, log, started, executable, exit_code):
                         logs.append(ordinary(root / "build/logs" / ("recovery-" + key[:12] + ".log")))
                     if stage == "build" and name in ("build", "update-mod", "update-profile"):
                         child_logs = unity_failure_logs(root, parameters["builderError"], started, key)
+                        delivery_logs = delivery_failure_logs(root, parameters["builderError"], started)
         except (OSError, ValueError, WizardError): pass
     error_line, error_rank = "", 0
     unity_cause = False
@@ -183,6 +225,11 @@ def tool_failure(root, stage, log, started, executable, exit_code):
         summary, rank = error_summary(text, unity=is_unity)
         if rank and rank >= error_rank:
             error_line, error_rank, unity_cause = summary, rank, is_unity
+    for path, text in delivery_logs:
+        logs.append(path)
+        disk_failure |= bool(re.search(r"(?i)(no space left on device|disk (?:is )?full|\[Errno 28\]|\[WinError (?:39|112)\]|not enough space on (?:the )?disk)", text))
+        summary, rank = safe_delivery_summary(text)
+        if rank: error_line, error_rank = summary, rank
     parameters["cause"] = error_line or parameters.get("builderError") or "No error summary was emitted; inspect the retained tool log."
     parameters["logs"] = [str(path) for path in logs]
     if disk_failure or re.search(r"(?i)(no space left on device|\[Errno 28\]|\[WinError (?:39|112)\])", parameters.get("builderError", "")):
@@ -197,6 +244,10 @@ def tool_failure(root, stage, log, started, executable, exit_code):
     if certificate_failure:
         en = "An HTTPS download for a build dependency failed certificate verification. Keep the workspace so completed conversions can be reused. Check the system date and any HTTPS proxy/filter, then retry; the precise download error is in the logs."
         de = "Ein HTTPS-Download für eine Build-Abhängigkeit ist an der Zertifikatsprüfung gescheitert. Arbeitsordner behalten, damit fertige Konvertierungen wiederverwendet werden. Systemdatum und gegebenenfalls HTTPS-Proxy/Filter prüfen, dann erneut versuchen; der genaue Downloadfehler steht im Protokoll."
+        parameters["completedWorkRetained"] = True
+    elif delivery_logs:
+        en = "The APK could not be aligned, signed or checked. The precise tool failure is shown below. Keep the workspace: the completed Android build remains available for another attempt."
+        de = "Die APK konnte nicht ausgerichtet, signiert oder geprüft werden. Der genaue Werkzeugfehler steht unten. Arbeitsordner behalten: Der fertige Android-Build bleibt für einen weiteren Versuch erhalten."
         parameters["completedWorkRetained"] = True
     elif unity_cause:
         en = "Unity failed while preparing or building the Quest project. The precise cause is shown below. Keep the workspace and save the diagnostic package before retrying."

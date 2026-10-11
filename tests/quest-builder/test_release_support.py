@@ -397,6 +397,53 @@ class SupportTests(unittest.TestCase):
         _, rows = self.export(); self.assertIn('build/unity-build-abc.log', rows)
         self.assertFalse(any('account-export' in name or 'nested' in name for name in rows))
 
+    def test_failed_delivery_log_precedes_hundreds_of_newer_unity_logs_with_same_bounds(self):
+        logs = self.root / 'build/logs'; logs.mkdir(parents=True)
+        failed = logs / 'update-align.log'
+        failed.write_text("Unable to open 'GloomhavenVR-Quest.capable.apk' as zip archive.\n"
+                          "GHVR_QUEST_SIGNING_PASSWORD=PRIVATE PASSWORD\n"
+                          "-----BEGIN PRIVATE KEY-----\nPRIVATE KEY BYTES\n-----END PRIVATE KEY-----\n")
+        os.utime(failed, (1, 1))
+        for index in range(256):
+            (logs / ('unity-build-' + f'{index:012x}' + '.log')).write_text('Historic Unity context\n')
+        (self.directory / 'logs/build.log').write_text('Quest builder: zipalign.exe exited with 1\n')
+        (self.directory / 'logs/progress.log').write_text('{"code":"build_tool_failed"}\n')
+        write_json(self.root / 'build/last-failure.json', {
+            'schema': 1, 'stage': 'build', 'message': 'zipalign.exe exited with 1; inspect ' + str(failed)})
+        before = failed.read_bytes()
+        result, rows = self.export()
+        meta = json.loads(rows['diagnostic.json'])
+        self.assertEqual((support.MAX_FILE_BYTES, support.MAX_TOTAL_BYTES, support.MAX_FILES), (2 * 1048576, 24 * 1048576, 64))
+        self.assertEqual(len(meta['files']), 64)
+        self.assertEqual(result['fileCount'], 65)
+        self.assertEqual(meta['files'][0]['name'], 'build/update-align.log')
+        self.assertIn('as zip archive', rows['build/update-align.log'])
+        self.assertIn('wizard/build.log', rows); self.assertIn('wizard/progress.log', rows)
+        self.assertTrue(meta['omitted'])
+        self.assertLessEqual(sum(row['exportedBytes'] for row in meta['files']), support.MAX_TOTAL_BYTES)
+        self.assertNotIn('PRIVATE', '\n'.join(rows.values()))
+        self.assertEqual(before, failed.read_bytes())
+
+    def test_known_update_logs_are_selected_without_accepting_account_or_signing_files(self):
+        logs = self.root / 'build/logs'; logs.mkdir(parents=True)
+        for name in support.UPDATE_LOGS: (logs / name).write_text('Error: current tool context\npassword: DO NOT LEAK\n')
+        for name in ('update-profile.log', 'update-private-key.log', 'update-signing.json', 'update-sign.memory-attempt-1.log'):
+            (logs / name).write_text('DO NOT SHIP')
+        _, rows = self.export()
+        self.assertEqual({name for name in rows if name.startswith('build/')}, {'build/' + name for name in support.UPDATE_LOGS})
+        self.assertNotIn('DO NOT', '\n'.join(rows.values()))
+
+    def test_failed_command_priority_rejects_unowned_and_traversal_paths(self):
+        logs = self.root / 'build/logs'; logs.mkdir(parents=True)
+        for name in ('update-align.log', 'unity-build-abcdef.log', 'update-profile.log'):
+            message = 'tool exited with 1; inspect ' + str(logs / name)
+            selected = support.failed_command_log(self.root / 'build', {'message': message})
+            self.assertEqual(selected, 'build/' + name if name != 'update-profile.log' else None)
+            for unsafe in (self.root / 'private' / name, logs / '..' / 'private' / name):
+                self.assertIsNone(support.failed_command_log(self.root / 'build', {'message': 'tool exited; inspect ' + str(unsafe)}))
+        cause = 'tool exited; inspect ' + str(logs / 'update-align.log') + '\nUnable to open archive'
+        self.assertEqual(support.failed_command_log(self.root / 'build', {'message': cause}), 'build/update-align.log')
+
     def test_failed_recovery_exports_only_exact_known_core_and_batch_logs_with_redaction(self):
         key = 'c' * 64
         folder = self.root / 'build/cache/full-original-recovery' / key

@@ -29,6 +29,14 @@ SAFE_EVENT_KEYS = {'phase', 'done', 'total', 'unit', 'percent', 'detail', 'updat
 RESOURCE_FILES = ('resource-policy.json', 'resource-events.jsonl', 'build-metrics.json')
 WIZARD_LOG = re.compile(r'^(?:(?:tools|source|unity|profile|inspect|build|install)|progress(?:\.previous)?|(?:git|dotnet8|dotnet10)-version|unity-(?:hub-help|hub-window|install|install-path|version|license-probe|license-process|protocol-(?:query|recheck|register|confirm))|source-(?:clone(?:-complete)?|commit|checkout|selected-(?:present|commit)|(?:local|owned)-inventory\.json)|com\.unity\.xr\.(?:management|core-utils|openxr)-(?:init|fetch|checkout|build))\.log$')
 BUILD_LOG = re.compile(r'^(unity-(build|launch)|native|weave|mod|package-(import|api)|recovery|recover|dotnet|apk-(signature|badging)|adb-[a-z-]+|campaign-[a-z-]+|build)[a-zA-Z0-9_.-]*\.log$')
+# These command logs are written after Unity has produced the Player. Capture
+# 075701 lost the failed zipalign log because the old allowlist excluded it;
+# retain exact known names, without accepting arbitrary update/profile files.
+UPDATE_LOGS = frozenset({'update-align.log', 'update-sign.log', 'update-signature.log',
+                        'update-base-signature.log', 'update-key-certificate.log',
+                        'update-code-launch.log', 'update-code-unity.log',
+                        'update-sdk-launch.log', 'update-sdk-unity.log',
+                        'update-package-api.log'})
 SENSITIVE_KEY = re.compile(r'(?i)(token|password|passwd|secret|credential|authorization|license|entitlement|steamid|providerid|accountid|displayname|persona)')
 
 
@@ -68,6 +76,19 @@ def safe_json(value, replacements=(), depth=0):
     if isinstance(value, str): return redact(value[:16384], replacements)[0]
     if value is None or type(value) in (bool, int, float): return value
     return '[unsupported value]'
+
+
+def failed_command_log(build_root, failure):
+    """Name only an allowlisted, directly owned log from the failure message."""
+    if not isinstance(failure, dict): return None
+    message = failure.get('message')
+    if not isinstance(message, str): return None
+    match = re.fullmatch(r'[^\r\n]*; inspect ([^\r\n]+[\\/](?P<name>[^\\/]+\.log))', message.splitlines()[0] if message else '')
+    if not match or not (BUILD_LOG.fullmatch(match['name']) or match['name'] in UPDATE_LOGS): return None
+    path = build_root / 'logs' / match['name']
+    normalize = lambda value: os.path.normcase(str(value).replace('\\', '/'))
+    if normalize(match[1]) != normalize(path): return None
+    return 'build/' + match['name']
 
 
 def read_object(path, limit=4 * 1048576):
@@ -280,7 +301,7 @@ def export_support(state_root, session, destination=None):
         path = ordinary(root / 'logs' / name)
         if path.is_file(): candidates.append((path.stat().st_mtime_ns, 'wizard/' + name, path, False))
     for log_root, prefix, accept in ((session_root / 'logs', 'wizard', lambda name: bool(WIZARD_LOG.fullmatch(name))),
-                                     (build_root / 'logs', 'build', lambda name: bool(BUILD_LOG.fullmatch(name)))):
+                                     (build_root / 'logs', 'build', lambda name: bool(BUILD_LOG.fullmatch(name)) or name in UPDATE_LOGS)):
         log_root = ordinary(log_root)
         if not log_root.is_dir(): continue
         # Never recurse into tool caches, games, Unity projects or save folders.
@@ -295,8 +316,17 @@ def export_support(state_root, session, destination=None):
         candidates.append((path.stat().st_mtime_ns, name, path, False))
     for name, path in procedural_logs(build_root):
         candidates.append((path.stat().st_mtime_ns, name, path, name.endswith('.json')))
-    # Resource records first, then newest logs. Older logs beyond bounds are listed.
-    candidates.sort(key=lambda row: (row[3], row[0]), reverse=True)
+    # The actual failed child comes before historic Unity logs even if those
+    # were copied/touched later. Keep resource and current Wizard context next,
+    # then the bounded host-delivery command set. The existing byte/file caps
+    # and credential redaction still apply to every selected record.
+    failed_log = failed_command_log(build_root, failure)
+    def priority(row):
+        _, name, _, structured = row
+        return (5 if name == failed_log else 4 if structured else
+                3 if name in ('wizard/build.log', 'wizard/progress.log') else
+                2 if name.startswith('build/') and name[6:] in UPDATE_LOGS else 1)
+    candidates.sort(key=lambda row: (priority(row), row[0]), reverse=True)
     archive_rows = []; used = 0
     for _, name, path, structured in candidates:
         if len(archive_rows) >= MAX_FILES or used >= MAX_TOTAL_BYTES:
