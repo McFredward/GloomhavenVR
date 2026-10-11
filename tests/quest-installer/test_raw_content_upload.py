@@ -31,31 +31,28 @@ class RawDevice(LocalDevice):
             raise installer.InstallError(self.sync_error)
         return super().run(*args, **options)
 
-    def runner(self, command, **options):
-        assert command[:5] == [self.executable, "-s", "quest", "exec-in", "sh"]
-        assert "input" not in options and "text" not in options
-        assert options["stdin"].mode == "rb"
-        assert options["stdout"] == subprocess.DEVNULL and options["shell"] is False
+    def binary_stream(self, serial, local, script, timeout, report=None):
+        assert serial == "quest"
+        command = [self.executable, "-s", serial, "binary-shell-v2", script]
         self.raw_calls.append(command)
         if self.raw_fault == "timeout":
-            raise subprocess.TimeoutExpired(command, options["timeout"])
+            raise subprocess.TimeoutExpired(command, timeout)
         if self.raw_fault == "offline":
-            options["stderr"].write(b"device offline")
-            return subprocess.CompletedProcess(command, 1)
-        # AOSP exec-in leaves the first argument raw and escape_arg-quotes the
-        # remaining operands. A zero client status does not prove remote exit.
+            return subprocess.CompletedProcess(command, 1, stderr="device offline")
+        # A real byte-file/pipe models shell-v2 CloseStdin plus observed Exit.
+        # The helper's exact protocol framing is independently process-tested.
         if self.raw_fault != "silent":
-            remote = command[4] + "".join(" " + shlex.quote(arg) for arg in command[5:])
-            remote = remote.replace(self.prefix, str(self.root) + "/")
-            subprocess.run(["sh", "-c", remote], stdin=options["stdin"],
-                           stdout=options["stdout"], stderr=options["stderr"], timeout=10, check=True)
+            remote = script.replace(self.prefix, str(self.root) + "/")
+            with Path(local).open("rb") as source:
+                subprocess.run(["sh", "-c", remote], stdin=source,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=10, check=True)
         if self.raw_fault == "corrupt":
             for path in self.root.rglob(".quest-install-upload-*"):
                 if not path.name.endswith(".ready"):
                     data = path.read_bytes(); path.write_bytes(b"X" + data[1:])
         if self.raw_fault == "marker":
             for path in self.root.rglob("*.ready"): path.write_bytes(b"another-operation")
-        return subprocess.CompletedProcess(command, 0)
+        return subprocess.CompletedProcess(command, 0, stderr="")
 
 
 class RawContentUploadTests(unittest.TestCase):

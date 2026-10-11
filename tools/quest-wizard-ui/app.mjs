@@ -617,9 +617,9 @@ function renderProgress() {
   const action=active&&!waiting?null:state.needsActions?.[0];$('action-needed').hidden=!action&&!blocked&&!stopped;
   $('action-needed').classList.toggle('failure',Boolean(failure)&&!installation?.connectionRequired);
   $('action-needed').classList.toggle('installation',installIssue);
-  $('action-needed').setAttribute('role',failure||installIssue?'alert':'status');
+  $('action-needed').setAttribute('role',installation?.connectionRequired?'status':failure||installIssue?'alert':'status');
   const retainedWait=Boolean(installation?.dataIssue||installation?.repairWait||installation?.contentReinstallRequired);
-  const cause=retainedWait?null:installIssue?installation.cause:failure?.cause;
+  const cause=retainedWait||installation?.connectionRequired?null:installIssue?installation.cause:failure?.cause;
   $('failure-cause').hidden=!cause;
   $('failure-cause').textContent=cause?t('failureCause',{cause}):'';
   $('failure-next').hidden=retainedWait||!failure&&!installIssue;$('failure-actions').hidden=!failure&&!installIssue;

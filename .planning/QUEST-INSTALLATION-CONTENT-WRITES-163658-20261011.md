@@ -1,5 +1,9 @@
 # Quest binary content delivery — capture163658
 
+The next hardware capture disproves the legacy exec-in completion path below.
+It is superseded by the framed binary transport and USB-first selection in
+[QUEST-CONNECTION-AND-BINARY-170604-20261011.md](QUEST-CONNECTION-AND-BINARY-170604-20261011.md).
+
 ## Evidence
 
 `quest-build-support-20261011T163658Z-f1588b1f.zip` identifies Builder source

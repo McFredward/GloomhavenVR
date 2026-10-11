@@ -702,9 +702,9 @@ class Engine:
         state["installationRecoveryPolicy"] = policy
         self.store.save(state)
         self.emit(self.store.event(state, "installation_guidance", "install", automaticReconnect=True, message={
-            "en": "The APK is ready. Unlock the Quest and enable developer mode. Connect the PC and Quest to the same Wi-Fi. For the first connection, connect the Quest by USB and accept its USB debugging prompt. An already authorized headset reconnects automatically; keep it awake during installation.",
-            "de": "Die APK ist fertig. Quest entsperren und Entwicklermodus aktivieren. PC und Quest mit demselben WLAN verbinden. Beim ersten Verbinden die Quest per USB anschließen und die USB-Debugging-Abfrage bestätigen. Eine bereits autorisierte Quest verbindet sich automatisch wieder; während der Installation eingeschaltet lassen."}))
-        self.store.operation(state["session"], "install", "connect", detail="APK ready. Connecting the authorized Quest; first setup requires unlocked developer-mode Quest, USB debugging approval and the same Wi-Fi.")
+            "en": "The APK is ready. Unlock the Quest, enable developer mode, connect it with a USB data cable and accept USB debugging in the headset. An authorized USB Quest is used directly. Without USB, an already authorized Wi-Fi connection is reused. Keep the Quest awake during installation.",
+            "de": "Die APK ist fertig. Quest entsperren, Entwicklermodus aktivieren, per USB-Datenkabel anschließen und USB-Debugging in der Brille bestätigen. Eine freigegebene USB-Quest wird direkt verwendet. Ohne USB wird eine bereits freigegebene WLAN-Verbindung wiederverwendet. Quest während der Installation eingeschaltet lassen."}))
+        self.store.operation(state["session"], "install", "connect", detail="APK ready. Checking an authorized USB Quest before remembered Wi-Fi; keep the Quest unlocked and accept USB debugging.")
         try:
             arguments = [sys.executable, "-B", "-X", "utf8", str(source / "scripts/install-quest-wireless.py"),
                             "--output-root", self.details(state, "build")["outputRoot"], "--config", str(config),

@@ -164,9 +164,23 @@ def app_history(output, current_pids):
 
 
 def choose_capture_device(adb, args, config):
-    """Reuse verified Wi-Fi or read USB directly; collection never enables TCP/IP."""
+    """Prefer verified USB; collection never enables TCP/IP or restarts adbd."""
     expected = config.get("deviceSerial")
     address = args.host or config.get("endpoint")
+    if not (args.host or args.setup or args.serial):
+        usb = []
+        for serial, state in adb.devices().items():
+            if state != "device" or ":" in serial or serial.startswith("adb-"): continue
+            try: hardware = adb.identity(serial)
+            except installer.InstallError as error:
+                if "not a recognized Meta Quest" in str(error): continue
+                raise
+            if not expected or hardware == expected: usb.append((serial, hardware))
+        if len({hardware for _, hardware in usb}) > 1:
+            raise installer.ConnectionRequired("Multiple USB Quests are connected. Keep only the intended headset connected.", "ambiguous")
+        if usb:
+            serial, hardware = usb[0]
+            return serial, hardware, "usb"
     if address and not args.setup and not args.serial:
         address = installer.endpoint(address)
         try:

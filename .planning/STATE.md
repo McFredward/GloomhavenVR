@@ -1,5 +1,19 @@
 # State — where the project stands
 
+**Quest USB selection and binary EOF completion, 2026-10-11.**
+
+Capture170604 contains an authorized USB Quest, but the prior installer still
+restarts adbd for Wi-Fi. USB now takes precedence without network setup; missing
+connection/authorization shows an actionable USB/debugging prerequisite and retry
+instead of an error. The same capture separately disproves the legacy exec-in
+EOF fallback: Android's raw/no-protocol PTY can terminate before its completion
+marker. Local-server shell-v2 frames now carry binary bytes with explicit stdin
+close and observed remote exit, followed by one exact size/SHA qualification and
+atomic publication. B665 and six completed stages remain retained; no Unity/game
+rebuild. Fresh404 host/UI checks pass, plus18 independent process/selection
+controls. Hardware delivery remains unverified. Contracts and bounded evidence:
+[QUEST-CONNECTION-AND-BINARY-170604-20261011.md](QUEST-CONNECTION-AND-BINARY-170604-20261011.md).
+
 **Quest content-write recovery, 2026-10-11.**
 
 Capture163658 confirms the previous repair: about 560 KiB of saves/settings are

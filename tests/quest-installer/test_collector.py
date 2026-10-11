@@ -270,6 +270,7 @@ class CollectorTests(unittest.TestCase):
     def test_remembered_wifi_identity_is_verified_and_settings_unchanged(self):
         self.remember()
         self.fake.wifi()
+        self.fake.devices.pop("USB-QUEST")
         old = self.config.read_bytes()
         self.assertEqual(self.run_cli(), 0, self.stderr)
         self.assertEqual(self.capture()[0]["device"]["transport"], "wifi")
@@ -580,6 +581,7 @@ class CollectorTests(unittest.TestCase):
     def test_wrong_wifi_identity_fails_without_capturing_other_headset(self):
         self.remember()
         self.fake.wifi(hardware="OTHER-QUEST")
+        self.fake.devices.pop("USB-QUEST")
         self.assertEqual(self.run_cli(), 1)
         self.assertIn("different headset", self.stderr)
         self.assertFalse(list(self.output.glob("*.zip")))
@@ -601,7 +603,7 @@ class CollectorTests(unittest.TestCase):
         self.fake.models["USB-2"] = "Quest 3"
         self.fake.hardware["USB-2"] = "HARDWARE-2"
         self.assertEqual(self.run_cli(), 1)
-        self.assertIn("Multiple Quests", self.stderr)
+        self.assertIn("Multiple USB Quests", self.stderr)
         self.assertEqual(self.run_cli("--serial", "USB-QUEST"), 0, self.stderr)
 
     def test_setup_prefers_usb_without_connecting_or_changing_remembered_identity(self):

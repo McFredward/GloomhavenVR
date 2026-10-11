@@ -65,11 +65,15 @@ class DeviceToolsTests(unittest.TestCase):
         self.tools.status(); self.tools.status()
         self.assertEqual(self.runner.commands, []); self.installer.adb_path.assert_not_called()
 
-    def test_connect_reuses_existing_authorized_wifi_and_remembers_identity(self):
+    def test_connect_prefers_usb_and_remembers_identity_without_network_endpoint(self):
         events = []; result = self.tools.connect({}, events.append)
         self.assertEqual(result["status"], "connected")
         remembered = json.loads(self.tools.config.read_text())
-        self.assertEqual(remembered["endpoint"], "192.168.1.5:5555")
+        self.assertEqual(remembered["adbSerial"], "USB_TEST")
+        self.assertEqual(remembered["transport"], "usb")
+        self.assertNotIn("endpoint", remembered)
+        self.assertIn("USB", result["message"]["de"])
+        self.assertFalse(any("connect" in command or "tcpip" in command for command in self.runner.commands))
         self.assertEqual(remembered["deviceSerial"], self.runner.hardware)
         self.assertEqual(result["progress"]["percent"], 100)
         self.assertEqual([event["progress"]["done"] for event in events], sorted(event["progress"]["done"] for event in events))

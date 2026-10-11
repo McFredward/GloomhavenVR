@@ -243,12 +243,13 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(self.run_cli(), 1)
         self.assertEqual(self.fake.calls, [])
 
-    def test_usb_bootstrap_installs_scoped_retaining_update_and_launches(self):
+    def test_usb_installs_directly_without_wifi_setup_and_launches(self):
         self.assertEqual(self.run_cli(), 0, self.error)
-        self.assertIn(["-s", "USB-QUEST", "tcpip", "5555"], self.fake.calls)
-        self.assertIn(["-s", "192.168.1.42:5555", "install", "-r", str(self.apk)], self.fake.calls)
+        self.assertFalse(any("tcpip" in call or "connect" in call for call in self.fake.calls))
+        self.assertIn(["-s", "USB-QUEST", "install", "-r", str(self.apk)], self.fake.calls)
         value = json.loads(self.config.read_text())
-        self.assertEqual((value["deviceSerial"], value["endpoint"]), ("HARDWARE-1", "192.168.1.42:5555"))
+        self.assertEqual((value["deviceSerial"], value["adbSerial"], value["transport"]), ("HARDWARE-1", "USB-QUEST", "usb"))
+        self.assertNotIn("endpoint", value)
         receipt = json.loads((self.config.parent / "wireless-last-install.json").read_text())
         self.assertEqual(receipt["apkSha256"], self.metadata["apkSha256"])
         self.assertTrue(receipt["launched"] and receipt["isDiagnostic"] and receipt["isDummy"])
@@ -346,7 +347,10 @@ class InstallerTests(unittest.TestCase):
     def test_missing_wireless_recovers_same_headset_from_usb(self):
         self.remember("192.168.1.10:5555")
         self.assertEqual(self.run_cli(), 0, self.error)
-        self.assertEqual(json.loads(self.config.read_text())["endpoint"], "192.168.1.42:5555")
+        settings = json.loads(self.config.read_text())
+        self.assertEqual(settings["adbSerial"], "USB-QUEST")
+        self.assertEqual(settings["endpoint"], "192.168.1.10:5555")
+        self.assertFalse(any("connect" in call or "tcpip" in call for call in self.fake.calls))
 
     def test_host_change_requires_same_hardware_and_preserves_custom_port(self):
         self.remember()
@@ -356,12 +360,56 @@ class InstallerTests(unittest.TestCase):
 
     def test_wireless_identity_mismatch_never_falls_back_to_install(self):
         self.remember()
+        self.fake = FakeAdb(usb=False)
         self.fake.wireless(hardware="DIFFERENT-QUEST")
         original = self.config.read_bytes()
         self.assertEqual(self.run_cli(), 1)
         self.assertIn("different headset", self.error)
         self.assertFalse(self.mutations())
         self.assertEqual(self.config.read_bytes(), original)
+
+    def test_usb_precedes_healthy_remembered_wifi_of_same_headset(self):
+        self.remember(); self.fake.wireless()
+        self.assertEqual(self.run_cli(), 0, self.error)
+        self.assertFalse(any("connect" in call or "tcpip" in call or "route" in call for call in self.fake.calls))
+        self.assertIn(["-s", "USB-QUEST", "install", "-r", str(self.apk)], self.fake.calls)
+
+    def test_usb_requires_no_wifi_ip_and_ignores_stale_wireless_identity(self):
+        self.remember(); self.fake.routes.clear()
+        self.fake.wireless(hardware="WRONG_NETWORK_QUEST")
+        self.assertEqual(self.run_cli(), 0, self.error)
+        self.assertFalse(any(call[:2] == ["-s", "192.168.1.42:5555"] for call in self.fake.calls))
+
+    def test_usb_arriving_during_failed_wifi_reconnect_is_used_without_tcpip(self):
+        self.remember(); self.fake.states.clear()
+        self.fake.on_connect = lambda: self.fake.states.update({"USB-QUEST": "device"})
+        self.assertEqual(self.run_cli(), 0, self.error)
+        self.assertTrue(any("connect" in call for call in self.fake.calls))
+        self.assertFalse(any("tcpip" in call for call in self.fake.calls))
+        self.assertEqual(json.loads(self.config.read_text())["transport"], "usb")
+
+    def test_remembered_hardware_selects_one_usb_quest_among_other_headsets(self):
+        self.remember()
+        self.fake.states["USB-OTHER"] = "device"
+        self.fake.models["USB-OTHER"] = "Quest 3"
+        self.fake.identities["USB-OTHER"] = "ANOTHER_QUEST"
+        self.assertEqual(self.run_cli(), 0, self.error)
+        self.assertFalse(any(call[:2] == ["-s", "USB-OTHER"] and "install" in call for call in self.fake.calls))
+
+    def test_missing_connection_emits_action_instead_of_installation_failure(self):
+        self.fake.states.clear()
+        self.assertEqual(self.run_cli(), 1)
+        self.assertIn("Quest connection required: ", self.error)
+        self.assertNotIn("Quest installation stopped: ", self.error)
+        action = next(json.loads(line[len("GHVRQ_ACTION "):]) for line in self.output.splitlines() if line.startswith("GHVRQ_ACTION "))
+        self.assertEqual(action, {"schema": 1, "kind": "quest-connection", "reason": "missing-or-unauthorized"})
+        self.assertFalse(self.mutations())
+
+    def test_usb_serial_is_not_saved_as_network_endpoint_and_second_run_reuses_usb(self):
+        self.assertEqual(self.run_cli(), 0, self.error)
+        self.fake.calls.clear()
+        self.assertEqual(self.run_cli(), 0, self.error)
+        self.assertFalse(any("connect" in call or "tcpip" in call for call in self.fake.calls))
 
     def test_usb_identity_mismatch_needs_explicit_setup(self):
         self.remember("192.168.1.10:5555", "DIFFERENT-QUEST")
@@ -446,6 +494,8 @@ class InstallerTests(unittest.TestCase):
                 installer.resolve_source("handoff", self.handoff)
 
     def test_concurrent_apk_change_before_install_is_rejected(self):
+        self.fake = FakeAdb(usb=False)
+        self.fake.wireless()
         self.fake.on_connect = lambda: self.make_apk(b"new build arrived during setup")
         self.assertEqual(self.run_cli(), 1)
         self.assertIn("SHA-256 differs", self.error)
@@ -453,6 +503,8 @@ class InstallerTests(unittest.TestCase):
         self.assertFalse(self.config.exists())
 
     def test_concurrent_handoff_change_with_same_apk_is_rejected(self):
+        self.fake = FakeAdb(usb=False)
+        self.fake.wireless()
         self.fake.on_connect = lambda: self.write(self.handoff, {**self.metadata, "newEvidence": True})
         self.assertEqual(self.run_cli(), 1)
         self.assertIn("source evidence changed", self.error)
@@ -492,9 +544,16 @@ class InstallerTests(unittest.TestCase):
 
     def test_connect_retries_are_bounded_when_usb_endpoint_is_unavailable(self):
         self.fake.connections["192.168.1.42:5555"] = False
-        self.assertEqual(self.run_cli(), 1)
+        self.fake.on_connect = lambda: self.fake.states.pop("USB-QUEST", None)
+        self.assertEqual(self.run_cli("--setup"), 1)
         self.assertEqual(sum(call[0] == "connect" for call in self.fake.calls), 3)
         self.assertFalse(any("install" in call for call in self.fake.calls))
+
+    def test_explicit_wireless_setup_failure_keeps_reachable_usb_for_install(self):
+        self.fake.connections["192.168.1.42:5555"] = False
+        self.assertEqual(self.run_cli("--setup"), 0, self.error)
+        self.assertEqual(json.loads(self.config.read_text())["transport"], "usb")
+        self.assertIn(["-s", "USB-QUEST", "install", "-r", str(self.apk)], self.fake.calls)
 
     def test_subprocess_timeout_is_actionable_and_never_changes_app(self):
         self.fake.timeout_command = "devices"

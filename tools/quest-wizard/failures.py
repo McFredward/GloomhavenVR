@@ -185,10 +185,11 @@ def installation_failure(text, parameters):
     The caller supplies a bounded, current-attempt ordinary-file tail.
     """
     lines = text.splitlines()
-    starts = [index for index, line in enumerate(lines) if line.startswith("Quest installation stopped: ")]
+    starts = [index for index, line in enumerate(lines) if line.startswith(("Quest installation stopped: ", "Quest connection required: "))]
     if not starts: return None
     index = starts[-1]
-    parts = [lines[index][len("Quest installation stopped: "):].strip()]
+    prefix = "Quest connection required: " if lines[index].startswith("Quest connection required: ") else "Quest installation stopped: "
+    parts = [lines[index][len(prefix):].strip()]
     for line in lines[index + 1:]:
         if line.startswith(("ADB log: ", "GHVRQ_PROGRESS ", "GHVRQ_ACTION ")): break
         if line.strip(): parts.append(line.strip())
@@ -206,6 +207,8 @@ def installation_failure(text, parameters):
         ("Multiple Wi-Fi Quests are connected.", "ambiguous"),
         ("Could not determine one Quest Wi-Fi IPv4 address.", "wifi-unavailable"),
         ("USB enabled Wi-Fi ADB, but connection failed.", "wifi-unavailable"),
+        ("The Quest connection is unavailable.", "offline-or-unauthorized"),
+        ("The USB Quest differs from the remembered headset.", "different-headset"),
     ) if primary == prefix or primary.startswith(prefix + " ")), None)
     fields = dict(parameters, cause=cause, completedWorkRetained=True,
                   completedBuildRetained=True, retryAction="install", canSkipInstall=True)
@@ -281,8 +284,8 @@ def installation_failure(text, parameters):
             **dict(fields, signingRecovery=True))
     if reason:
         return WizardError("quest_connection_required",
-            "The APK is ready. Quest installation needs an authorized headset. Unlock the Quest, enable developer mode, connect it by USB and accept the USB debugging prompt. Keep the Quest and PC on the same Wi-Fi. Connect only the intended headset, then retry installation. You can also finish without installing; the completed APK stays available.",
-            "Die APK ist fertig. Für die Installation wird eine autorisierte Quest benötigt. Quest entsperren, Entwicklermodus aktivieren, per USB verbinden und die USB-Debugging-Abfrage bestätigen. Quest und PC müssen im selben WLAN sein. Nur die gewünschte Quest verbinden und die Installation erneut versuchen. Alternativ ohne Installation abschließen; die fertige APK bleibt verfügbar.",
+            "The APK is ready. Connect the intended Quest with a USB data cable, unlock it, enable developer mode and accept USB debugging in the headset. Then retry installation. An authorized USB connection is used directly; Wi-Fi is optional. The completed APK and existing progress stay retained.",
+            "Die APK ist fertig. Die gewünschte Quest per USB-Datenkabel anschließen, entsperren, Entwicklermodus aktivieren und USB-Debugging in der Brille bestätigen. Danach die Installation erneut versuchen. Eine freigegebene USB-Verbindung wird direkt genutzt; WLAN ist optional. Die fertige APK und der bisherige Fortschritt bleiben erhalten.",
             **dict(fields, connectionReason=reason))
     return WizardError("installation_tool_failed",
         "The APK build completed, but installation failed. The exact installer cause is shown below. Keep the workspace and retry installation after resolving it, or finish without installing.",

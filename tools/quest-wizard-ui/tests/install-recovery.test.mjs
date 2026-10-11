@@ -147,7 +147,8 @@ test('completed APK is prominent while connection is blocked; retry and skip ret
       client=await browser();await reopen();
       assert.equal(await client.evaluate("document.getElementById('progress-title').textContent"),'APK fertig. Quest-Verbindung erforderlich.');
       assert.equal(await client.evaluate("document.getElementById('action-needed').classList.contains('failure')"),false);
-      assert.equal(await client.evaluate("document.getElementById('action-needed').getAttribute('role')"),'alert');
+      assert.equal(await client.evaluate("document.getElementById('action-needed').getAttribute('role')"),'status');
+      assert.equal(await client.evaluate("document.getElementById('failure-cause').hidden"),true);
       assert.match(await client.evaluate("document.getElementById('failure-next').textContent"),/USB-Debugging-Freigabe/);
       assert.equal(await client.evaluate("document.getElementById('result-card').hidden"),false);
       assert.equal(await client.evaluate("document.getElementById('result-path').textContent"),apk);
@@ -170,7 +171,7 @@ test('completed APK is prominent while connection is blocked; retry and skip ret
       assert.equal(await client.evaluate("document.getElementById('install-guide').hidden"),false,'setup guidance remains available during the first connection attempt');
       assert.equal(await client.evaluate("document.getElementById('progress-title').textContent"),'APK fertig. Quest-Installation läuft.');
       assert.equal(await client.evaluate("document.querySelectorAll('#install-guide li').length"),4);
-      assert.match(await client.evaluate("document.getElementById('install-guide').textContent"),/entsperren.*Entwicklermodus.*Meta-Horizon-App.*demselben WLAN.*USB-Datenkabel.*USB-Debugging.*Dateizugriff.*drahtlose/s);
+      assert.match(await client.evaluate("document.getElementById('install-guide').textContent"),/entsperren.*Entwicklermodus.*Meta-Horizon-App.*USB-Datenkabel.*nicht erforderlich.*USB-Debugging.*Dateizugriff.*bevorzugt USB/s);
       assert.equal(await client.evaluate("document.getElementById('install-skip').hidden"),true);
       await client.evaluate("document.getElementById('install-skip').dispatchEvent(new MouseEvent('click',{bubbles:true}))");
       await delay(100);assert.equal(posts.length,1,'active install cannot be skipped programmatically');

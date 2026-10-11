@@ -47,6 +47,13 @@ class InstallationFailureTests(unittest.TestCase):
         self.assertIn("APK ist fertig", error.message["de"])
         self.assertIn("USB-Debugging", error.message["de"])
 
+    def test_current_connection_prompt_is_actionable_without_failure_prefix(self):
+        error = self.failure('GHVRQ_ACTION {"schema":1,"kind":"quest-connection","reason":"missing-or-unauthorized"}\n'
+                             "Quest connection required: " + MISSING + "\nADB log: retained.log\n")
+        self.assertEqual(error.code, "quest_connection_required")
+        self.assertTrue(error.parameters["completedBuildRetained"])
+        self.assertEqual(error.parameters["retryAction"], "install")
+
     def test_only_known_connection_refusals_are_prerequisites(self):
         for cause, reason in ((MISSING, "missing-or-unauthorized"),
             ("The requested USB serial is missing or unauthorized. Unlock the Quest.", "missing-or-unauthorized"),

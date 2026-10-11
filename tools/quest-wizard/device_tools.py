@@ -191,17 +191,19 @@ class DeviceTools:
                     raise WizardError("device_selection", "The selected Quest and address differ.", "Die ausgewählte Quest und Adresse unterscheiden sich.")
                 selected["host"] = selected["serial"]; selected["serial"] = None
             if selected["host"]: selected["host"] = installer.endpoint(selected["host"])
-            self._step(progress, 2, 4, "wireless-connect", message={
-                "en": "Connecting the Quest. First-time wireless setup requires USB authorization and the same Wi-Fi.",
-                "de": "Quest verbinden. Für die erste WLAN-Einrichtung sind USB-Autorisierung und dasselbe WLAN erforderlich."})
+            self._step(progress, 2, 4, "quest-connect", message={
+                "en": "Checking USB first, then authorized Wi-Fi. Unlock the Quest and accept USB debugging.",
+                "de": "Zuerst USB, danach freigegebenes WLAN prüfen. Quest entsperren und USB-Debugging bestätigen."})
             address, hardware = installer.choose_device(adb, SimpleNamespace(**selected), config)
             self._cancel(cancel)
             self._step(progress, 3, 4, "identity-confirmed", endpoint=address, serial=address, hardwareSerial=hardware)
-            config.update(schema=1, endpoint=address, deviceSerial=hardware, adb=adb.executable)
+            config = installer.connection_settings(config, address, hardware, adb.executable)
+            transport = config["transport"]
+            self._publish(progress, transport=transport)
             atomic_json(self.config, config)
             return self._step(progress, 4, 4, "connected", status="connected", message={
-                "en": "Quest connected over Wi-Fi. The address and verified headset identity are remembered.",
-                "de": "Quest über WLAN verbunden. Adresse und geprüfte Headset-Identität sind gespeichert."})
+                "en": "Quest connected over " + ("USB" if transport == "usb" else "Wi-Fi") + ". The verified headset identity is remembered.",
+                "de": "Quest über " + ("USB" if transport == "usb" else "WLAN") + " verbunden. Die geprüfte Headset-Identität ist gespeichert."})
         except (Cancelled, WizardError, OSError, ValueError, RuntimeError) as error:
             return self._failure(error, progress)
 

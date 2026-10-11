@@ -1,7 +1,7 @@
-"""Install one verified local Quest APK over remembered, identity-checked Wi-Fi ADB.
+"""Install one verified local Quest APK over identity-checked USB or Wi-Fi ADB.
 
-Only a successful run changes remembered settings. USB is needed once to enable
-the headset's TCP transport, and again after a reboot or changed Wi-Fi address.
+Prefer an authorized USB Quest without restarting adbd or requiring Wi-Fi.
+Explicit --setup enables wireless ADB; other installs retain the current transport.
 Windows and Linux provision official Android platform-tools locally if ADB is missing.
 No APKs, accounts or signing material are downloaded.
 """
@@ -20,7 +20,6 @@ import shutil
 import shlex
 import struct
 import tempfile
-import threading
 import subprocess
 import sys
 import time
@@ -39,6 +38,13 @@ class InstallError(RuntimeError):
 
 class SigningMismatch(InstallError):
     """Android rejected this exact package update because its signer changed."""
+
+
+class ConnectionRequired(InstallError):
+    """Installation awaits a headset/authorization action; its build is retained."""
+    def __init__(self, message, reason="missing-or-unauthorized"):
+        super().__init__(message)
+        self.reason = reason
 
 
 def signing_recovery_module():
@@ -405,6 +411,18 @@ class Adb:
         self.executable, self.log = str(executable), log
         self.runner = runner or subprocess.run
 
+    def binary_stream(self, serial, local, script, timeout, report=None):
+        # Isolated -I launchers do not put sibling modules on sys.path. Cache
+        # this process's current helper; it is independent of game build input.
+        name = "_ghvr_quest_adb_binary"
+        module = sys.modules.get(name)
+        if module is None:
+            spec = importlib.util.spec_from_file_location(name, REPO / "tools/quest-installer/adb_binary.py")
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            sys.modules[name] = module
+        return module.stream(self, serial, local, script, timeout, report)
+
     def run(self, *args, timeout=20, positive=None, check_text=True, input_text=None, empty_exit_codes=()):
         command = [self.executable, *map(str, args)]
         with self.log.open("a", encoding="utf-8") as stream:
@@ -437,6 +455,8 @@ class Adb:
         if (action == "install" and re.search(
                 r"Failure\s*\[INSTALL_FAILED_UPDATE_INCOMPATIBLE(?:\s*[:\]])", raw)):
             raise SigningMismatch("Android rejected the package update because its signing certificate differs.")
+        if result.returncode and re.search(r"(?:^|\n)(?:adb: )?(?:error: )?(?:device offline|device unauthorized|no devices/emulators found|device '[^'\n]+' not found)\b", raw, re.I):
+            raise ConnectionRequired("The Quest connection is unavailable. " + HELP, "offline-or-unauthorized")
         if (result.returncode or (check_text and re.search(r"\b(error|failure|failed|unauthorized|cannot|unable)\b", raw, re.I))
                 or (positive and not re.search(positive, raw, re.I | re.M))):
             context = " ".join(operands)[:320]
@@ -473,7 +493,43 @@ class Adb:
 def choose_device(adb, args, config):
     address = endpoint(args.host) if args.host else config.get("endpoint")
     expected = config.get("deviceSerial")
-    if address and not args.setup:
+    devices = adb.devices()
+
+    def usb_quests(current):
+        usb = [serial for serial, state in current.items() if state == "device"
+               and ":" not in serial and not serial.startswith("adb-")]
+        if args.serial:
+            if args.serial not in usb:
+                raise ConnectionRequired("The requested USB serial is missing or unauthorized. " + HELP)
+            usb = [args.serial]
+        quests = []
+        for serial in usb:
+            try: quests.append((serial, adb.identity(serial)))
+            except InstallError as error:
+                if "not a recognized Meta Quest" not in str(error): raise
+        if expected and not args.setup:
+            matched = [item for item in quests if item[1] == expected]
+            if matched: quests = matched
+        return quests
+
+    def direct_usb(quests):
+        if len(quests) > 1:
+            raise ConnectionRequired("Multiple USB Quests are connected. Select the intended headset with --serial USB_SERIAL.", "ambiguous")
+        if not quests: return None
+        serial, hardware = quests[0]
+        if expected and hardware != expected and not args.setup:
+            raise ConnectionRequired("The USB Quest differs from the remembered headset. Connect the previously selected Quest or choose a new headset explicitly.", "different-headset")
+        print("Using the authorized USB Quest directly; no Wi-Fi setup is required.", flush=True)
+        return serial, hardware
+
+    # Capture170604 lists both transports of the same Quest. The old path found
+    # USB, then restarted adbd in TCP mode anyway. Default/USB selections must
+    # stay on the cable; an explicit wireless request keeps its intended target.
+    quests = usb_quests(devices)
+    if quests and not (args.setup or args.host):
+        selected = [item for item in quests if not expected or item[1] == expected]
+        if selected: return direct_usb(selected)
+    if address and not args.setup and not args.serial:
         address = endpoint(address)
         try:
             return address, adb.connect(address, expected)
@@ -481,20 +537,9 @@ def choose_device(adb, args, config):
             if "different headset" in str(error) or "not a recognized Meta Quest" in str(error):
                 raise
             print("Wi-Fi reconnect unavailable; checking an authorized USB Quest.")
-    devices = adb.devices()
-    usb = [serial for serial, state in devices.items() if state == "device"
-           and ":" not in serial and not serial.startswith("adb-")]
-    if args.serial:
-        if args.serial not in usb:
-            raise InstallError("The requested USB serial is missing or unauthorized. " + HELP)
-        usb = [args.serial]
-    quests = []
-    for serial in usb:
-        try:
-            quests.append((serial, adb.identity(serial)))
-        except InstallError as error:
-            if "not a recognized Meta Quest" not in str(error):
-                raise
+            # A cable can have been attached during the failed reconnect.
+            devices = adb.devices(); quests = usb_quests(devices)
+    if quests and not args.setup: return direct_usb(quests)
     # Capture095538 completed the Windows APK but a new Wizard device directory
     # had no remembered endpoint. Reuse an already authorized Wi-Fi connection
     # before demanding USB again. Do not discover/probe network addresses or
@@ -518,22 +563,22 @@ def choose_device(adb, args, config):
             if not expected or hardware == expected:
                 wireless.setdefault(hardware, address)
         if len(wireless) > 1:
-            raise InstallError("Multiple Wi-Fi Quests are connected. Disconnect other headsets or choose the intended address with --host HOST[:PORT].")
+            raise ConnectionRequired("Multiple Wi-Fi Quests are connected. Disconnect other headsets or choose the intended address with --host HOST[:PORT].", "ambiguous")
         if wireless:
             hardware, address = next(iter(wireless.items()))
             print("Reusing the already authorized Wi-Fi Quest.")
             return address, adb.connect(address, hardware)
     if not quests:
-        raise InstallError("No authorized USB Quest is available. " + HELP)
+        raise ConnectionRequired("No authorized USB Quest is available. " + HELP)
     if len(quests) != 1:
-        raise InstallError("Multiple USB Quests are connected. Select the intended headset with --serial USB_SERIAL.")
+        raise ConnectionRequired("Multiple USB Quests are connected. Select the intended headset with --serial USB_SERIAL.", "ambiguous")
     serial, hardware = quests[0]
     if expected and hardware != expected and not args.setup:
-        raise InstallError("The USB Quest differs from the remembered headset. Use --setup --serial USB_SERIAL to change it.")
+        raise ConnectionRequired("The USB Quest differs from the remembered headset. Connect the previously selected Quest or choose a new headset explicitly.", "different-headset")
     route = adb.run("-s", serial, "shell", "ip", "route")
     ips = set(re.findall(r"\bdev\s+wlan\S*\b[^\n]*\bsrc\s+(\d+\.\d+\.\d+\.\d+)\b", route))
     if len(ips) != 1:
-        raise InstallError("Could not determine one Quest Wi-Fi IPv4 address. Connect the Quest and PC to the same Wi-Fi.")
+        raise ConnectionRequired("Could not determine one Quest Wi-Fi IPv4 address. Connect the Quest and PC to the same Wi-Fi.", "wifi-unavailable")
     ip = ipaddress.IPv4Address(ips.pop())
     if ip.is_loopback or ip.is_unspecified or ip.is_multicast:
         raise InstallError("The Quest reported an invalid Wi-Fi address.")
@@ -550,7 +595,21 @@ def choose_device(adb, args, config):
                 raise
             if attempt < 2:
                 time.sleep(1)
-    raise InstallError("USB enabled Wi-Fi ADB, but connection failed. Keep both devices on the same Wi-Fi. " + str(last))
+    # Explicit wireless setup can restart the USB transport. If it is reachable
+    # again, retain the same hardware identity and install through the cable.
+    recovered = [item for item in usb_quests(adb.devices()) if item[1] == hardware]
+    if recovered: return direct_usb(recovered)
+    raise ConnectionRequired("USB enabled Wi-Fi ADB, but connection failed. Keep the Quest connected by USB and retry. " + str(last), "wifi-unavailable")
+
+
+def connection_settings(config, serial, hardware, executable):
+    """A USB serial is not a network endpoint; retain any previous Wi-Fi hint."""
+    settings = dict(config, schema=1, deviceSerial=hardware, adb=str(executable), adbSerial=serial,
+                    transport="wifi" if ":" in serial or serial.startswith("adb-") else "usb")
+    if settings["transport"] == "wifi": settings["endpoint"] = endpoint(serial)
+    elif config.get("deviceSerial") and config["deviceSerial"] != hardware:
+        settings.pop("endpoint", None)
+    return settings
 
 
 def write_json(path, value):
@@ -708,8 +767,10 @@ def _stream_content_file(adb, address, local, remote, row, timeout, report=None)
     """Repair Android sync fchown rejection with verified, binary raw input.
 
     Capture163658 restored and verified all save roots, then sync refused its
-    112-byte receipt. AOSP calls fchown before reading DATA. exec-in avoids that
-    metadata operation, but its zero exit does NOT prove remote completion.
+    112-byte receipt. AOSP calls fchown before reading DATA. Capture170604 proves
+    exec-in's client success cannot finish the EOF follow-up: the daemon's raw
+    PTY closes with SIGHUP. Use local-server shell-v2 with explicit CloseStdin
+    and observed remote Exit; bypass the Windows shell CLI's text-mode CRT.
     Require a unique EOF marker plus exact size/SHA before atomic publication.
     Short staging names keep Windows argv bounded even for long asset paths.
     """
@@ -729,42 +790,29 @@ def _stream_content_file(adb, address, local, remote, row, timeout, report=None)
               "test ! -e " + shlex.quote(ready), "test ! -L " + shlex.quote(ready)]
     _content_shell(adb, address, lines, timeout=30)
     script = "set -eu; umask 022; cat > " + shlex.quote(stage) + "; printf %s " + token + " > " + shlex.quote(ready)
-    # ADB leaves the first executable raw and shell-escapes subsequent argv.
-    # Supply the actual script once; prequoting it would execute a quoted name.
-    command = [adb.executable, "-s", address, "exec-in", "sh", "-c", script]
+    # The native shell-v2 service receives this exact command once. Binary
+    # stdin uses framed local-server packets, never a PTY or CRT text pipe.
+    command = [adb.executable, "-s", address, "binary-shell-v2", script]
     with adb.log.open("a", encoding="utf-8") as log:
         log.write(json.dumps({"binaryContentUpload": command, "local": str(local), "remote": remote,
                               "expectedBytes": row["size"], "expectedSha256": row["sha256"]}) + "\n")
-    stop = threading.Event()
     try:
-        with local.open("rb", buffering=0) as stream, tempfile.TemporaryFile() as errors:
-            initial = os.fstat(stream.fileno())
-            def monitor():
-                while not stop.wait(1):
-                    if report:
-                        try: report(min(stream.tell(), max(0, row["size"] - 1)), row["size"], remote)
-                        except OSError: pass
-            thread = threading.Thread(target=monitor, daemon=True); thread.start()
-            try:
-                result = adb.runner(command, stdin=stream, stdout=subprocess.DEVNULL,
-                                    stderr=errors, timeout=timeout, shell=False)
-            finally:
-                stop.set(); thread.join()
-            errors.seek(0, 2); count = errors.tell(); errors.seek(max(0, count - 16384))
-            message = errors.read(16384).decode("utf-8", errors="replace")
-            with adb.log.open("a", encoding="utf-8") as log:
-                log.write(json.dumps({"binaryUploadExit": result.returncode, "stderr": message}) + "\n")
-            if result.returncode:
-                raise InstallError("Binary content upload failed; retained saves and completed files remain available: " + message[:1200])
-            current = local.stat()
-            if (initial.st_size, initial.st_mtime_ns, initial.st_ctime_ns) != (current.st_size, current.st_mtime_ns, current.st_ctime_ns):
-                raise InstallError("Local content changed during binary upload.")
-        # exec-in closes its socket before necessarily observing cat's return.
-        # Wait for this operation's marker, then hash exactly once, not in a poll.
+        initial = local.stat()
+        callback = (lambda done, total: report(done, total, remote)) if report else None
+        result = adb.binary_stream(address, local, script, timeout, callback)
+        message = result.stderr[-16384:]
+        with adb.log.open("a", encoding="utf-8") as log:
+            log.write(json.dumps({"binaryUploadExit": result.returncode, "stderr": message}) + "\n")
+        if result.returncode:
+            raise InstallError("Binary content upload failed; retained saves and completed files remain available: " + message[:1200])
+        current = local.stat()
+        if (initial.st_size, initial.st_mtime_ns, initial.st_ctime_ns) != (current.st_size, current.st_mtime_ns, current.st_ctime_ns):
+            raise InstallError("Local content changed during binary upload.")
+        # Shell-v2 waits for remote Exit after EOF. Check the operation marker
+        # once and hash once; no speculative delay or completed-bank reread.
         ready_q, stage_q = shlex.quote(ready), shlex.quote(stage)
         proof = _content_shell(adb, address, [
-            "ghvr_upload_wait=0",
-            "while ! test -f " + ready_q + "; do test \"$ghvr_upload_wait\" -lt 50; ghvr_upload_wait=$((ghvr_upload_wait + 1)); sleep 0.1; done",
+            "test -f " + ready_q + " || { printf '%s\\n' 'Binary upload completion marker is missing.' >&2; exit 1; }",
             "test ! -L " + ready_q, "test \"$(cat " + ready_q + ")\" = " + token,
             "test ! -L " + stage_q, "test -f " + stage_q,
             "stat -c %s " + stage_q, "sha256sum " + stage_q], timeout=max(600, timeout)).splitlines()
@@ -782,6 +830,13 @@ def _stream_content_file(adb, address, local, remote, row, timeout, report=None)
         with adb.log.open("a", encoding="utf-8") as log:
             log.write(json.dumps({"binaryUploadError": str(error), "winError": getattr(error, "winerror", None)}) + "\n")
         raise InstallError("Binary content upload could not continue: " + str(error) + ". Restored saves and completed files remain retained.") from error
+    except RuntimeError as error:
+        if isinstance(error, InstallError): raise
+        with adb.log.open("a", encoding="utf-8") as log:
+            log.write(json.dumps({"binaryUploadProtocolError": str(error)[:16384]}) + "\n")
+        if re.search(r"(?:device offline|device unauthorized|device '[^'\n]+' not found|no devices/emulators found)", str(error), re.I):
+            raise ConnectionRequired("The Quest connection is unavailable. " + HELP, "offline-or-unauthorized") from error
+        raise InstallError("Binary content transfer did not complete: " + str(error)[:1200] + ". Restored saves and completed files remain retained.") from error
     finally:
         # Only this operation's generated staging is removable. No saves,
         # previous receipt, committed file or unknown sibling is swept.
@@ -1208,8 +1263,8 @@ def main(argv=None, runner=None):
         if not args.no_launch:
             adb.run("-s", address, "shell", "am", "start", "-W", "-n", ACTIVITY,
                     timeout=45, positive=r"^Status:\s*ok\s*$")
-        settings = {"schema": 1, "source": source.setting(), "adb": str(executable),
-                    "endpoint": address, "deviceSerial": hardware}
+        settings = connection_settings(config, address, hardware, executable)
+        settings["source"] = source.setting()
         write_json(config_path, settings)
         write_json(receipt, {**settings, "apk": str(source.apk), "apkSha256": source.sha256,
                              "package": PACKAGE, "launched": not args.no_launch,
@@ -1223,6 +1278,11 @@ def main(argv=None, runner=None):
         print("Installed with app data retained" + (" and launched" if not args.no_launch else "")
               + ": " + address + ". Device behavior remains for hardware testing.")
         return 0
+    except ConnectionRequired as error:
+        print("GHVRQ_ACTION " + json.dumps({"schema": 1, "kind": "quest-connection", "reason": error.reason}), flush=True)
+        print("Quest connection required: " + str(error), file=sys.stderr)
+        if log: print("ADB log: " + str(log), file=sys.stderr)
+        return 1
     except (InstallError, OSError, ValueError, KeyError, TypeError, AttributeError, RuntimeError, zipfile.BadZipFile) as error:
         print("Quest installation stopped: " + str(error), file=sys.stderr)
         if log:
