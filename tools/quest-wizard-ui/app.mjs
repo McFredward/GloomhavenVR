@@ -239,6 +239,7 @@ function counters(value) {
   return t(key,{done:number(value.done),total:number(value.total)});
 }
 function workDetail(value) {
+  if(value?.phase==='update-rebuild-required')return t('buildUpdateMigration');
   if(value?.progressScope==='next-phase')return t('nextPhaseScope');
   if(value?.progressScope==='result-phase')return t('playerFinalizationScope');
   if(value?.progressScope==='phase-continuation')return t('wholePhaseContinuation');
@@ -420,6 +421,7 @@ function renderBuildOverview() {
   $('build-groups').replaceChildren();
   $('build-overview-count').textContent=t('buildOverviewCount',{done:overview.done,total:overview.total,remaining:overview.total-overview.done});
   $('build-current').textContent=t('buildCurrent',{operation:overview.active?phaseLabel('operation:'+overview.active):t('waiting')});
+  $('build-update-migration').hidden=!overview.updateMigration;
   const retained=overview.groups.some(group=>group.operations.some(row=>['retained','checking'].includes(row.status)));
   $('build-retained').hidden=!retained;
   for(const group of overview.groups){

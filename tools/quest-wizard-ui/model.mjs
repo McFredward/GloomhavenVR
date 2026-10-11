@@ -361,7 +361,14 @@ export function buildOverviewView(state) {
   const aggregate=stagingParent?.closed&&!stagingLive&&
     (!staging.length||staging.some(row=>!row.closed)||recovery.stagingDetail==='aggregate');
   const stagingDetail=aggregate?'aggregate':stagingObserved?'observed':'unobserved';
+  // The product explanation needs the route and prior measured floor only.
+  // Internal asset paths/reasons remain in the bounded backend diagnostics.
+  const migration=raw.workflow==='build'&&raw.updateMigration?.strategy==='cached-full-build'
+    ?{strategy:'cached-full-build',priorPercent:typeof raw.updateMigration.priorPercent==='number'&&
+      Number.isFinite(raw.updateMigration.priorPercent)&&raw.updateMigration.priorPercent>=0&&raw.updateMigration.priorPercent<=100
+      ?raw.updateMigration.priorPercent:null}:null;
   return {groups,active,done:operations.filter(row=>row.closed).length,total:operations.length,
+    updateMigration:migration,
     recovery:{sections,staging:stagingDetail==='observed'?staging:[],stagingDetail,
       batches:validBatches?{done:batches.done,total:batches.total}:null,stagingCounter:recovery.stagingCounter??null}};
 }
