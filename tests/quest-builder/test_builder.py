@@ -310,7 +310,8 @@ class ApkTests(Temporary):
     def setUp(self):
         super().setUp()
         self.output = self.root
-        self.inputs = {"target": "probe", "inputKey": "chosen", "profileKey": "identity", "profile": {"isDummy": True}}
+        self.inputs = {"target": "probe", "inputKey": "chosen", "profileKey": "identity",
+                       "profile": {"isDummy": True}, "mod": {"modBuild": 625}}
         self.tools = {"unityVersion": "2021.3.5f1", "java": "fixture-java", "apksigner": "fixture-apksigner.jar", "aapt": "fixture-aapt"}
         profile = self.output / "identities/identity/quest-profile.json"
         storage.write_json(profile, identity.dummy_identity())
@@ -407,6 +408,20 @@ class ApkTests(Temporary):
         self.assertEqual(evidence["installationContract"]["gameFileCount"], 1)
         self.assertEqual(evidence["installationContract"]["modFileCount"], 3)
         self.assertTrue(evidence["installationContract"]["modEntryBytesVerified"])
+
+    def test_final_build_receipt_reuses_the_signed_bank_byte_proof(self):
+        bank = self.campaign_fixture()
+        actual_digest, observed = storage.digest, []
+        def hashed(path):
+            observed.append(Path(path))
+            return actual_digest(path)
+        with patch.object(storage, "digest", side_effect=hashed), patch.object(builder, "command", self.tool_output):
+            details = builder.validate_apk(self.apk, self.evidence, self.inputs, self.tools, self.output)
+            receipt = storage.Stages(self.output).run("build", self.apk.parent.name, lambda: ([bank], details))
+        self.assertEqual(observed.count(bank), 1)
+        self.assertEqual(receipt["outputs"][0]["sha256"], details["contentFiles"][0]["sha256"])
+        bank.write_bytes(b"changed after delivery")
+        self.assertIsNone(storage.Stages(self.output).valid("build", self.apk.parent.name))
 
     def test_campaign_missing_signed_installation_inventory_fails_before_signature_receipt(self):
         self.campaign_fixture()

@@ -295,6 +295,7 @@ def phase_operation(stage, phase, value):
         # pending Hub/login/installation work by itself.
         if phase == "unity-prerequisites": return None, True
     if stage in ("inspect", "build"):
+        if stage == "build" and phase == "delivery-finalize": return "delivery", True
         mapping = {"game-hash": "game-inputs", "source-hash": "mod-inputs", "source-snapshot": "source-snapshot",
                    "source-snapshot-verify": "source-snapshot", "game-snapshot": "game-snapshot",
                    "game-snapshot-verify": "game-snapshot", "game-snapshot-source-verify": "snapshot-check"}

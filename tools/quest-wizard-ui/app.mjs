@@ -159,6 +159,12 @@ function workDetail(value) {
   if(value?.progressScope==='result-phase')return t('playerFinalizationScope');
   if(value?.progressScope==='phase-continuation')return t('wholePhaseContinuation');
   const raw=typeof value?.detail==='string'?value.detail:'';
+  const deliveryKey={
+    'Finishing the retained Android Player; earlier preparation and Unity work are not repeated.':'deliveryResumeDetail',
+    'Retained completed Player proves this earlier operation.':'deliveryRetainedDetail',
+    'Finishing and signing the existing Android Player.':'deliverySigningDetail',
+  }[raw];
+  if(deliveryKey)return t(deliveryKey);
   const single=raw.includes('[indivisible-task]');
   const text=raw.replace(/\[gradle-graph:[A-Za-z0-9-]{1,64}\]\s*/g,'').replace(/\[(?:bee-(?:graph|scope):[^\]]{1,160}|bee-native-plan|shader-(?:name-)?coverage|shader-pass:[0-9]{1,12}|shader-source:(?:unseen|observed|outside))\]\s*/g,'').replace(/\[indivisible-task\]\s*/g,'').trim();
   const scoped=value?.progressScope==='native-phase'?t('unityNativeGraphScope'):value?.progressScope==='scenes'?t('unitySceneReturnScope'):value?.progressScope==='shader-pass'?t('shaderPassReturnScope'):value?.progressScope==='shader-phase'?t('shaderWholeReturnScope'):value?.progressScope==='scope-return'?t('unityScopeReturn'):'';

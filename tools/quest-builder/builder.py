@@ -362,23 +362,24 @@ def toolchain(args, output: Path) -> dict:
         raise BuildError("The selected Android SDK has no installed build-tools/aapt.")
     build_tools = sdk_tools[-1]
     apk_signer = build_tools / "lib/apksigner.jar"
+    zipalign = build_tools / ("zipalign" + suffix)
     java = jdk / "bin" / ("java" + suffix)
     keytool = jdk / "bin" / ("keytool" + suffix)
-    if not apk_signer.is_file() or not java.is_file() or not keytool.is_file() or not (ndk / "source.properties").is_file():
-        raise BuildError("The selected Android SDK/NDK/JDK is incomplete (apksigner.jar, Java, keytool or NDK revision missing).")
+    if not all(path.is_file() for path in (apk_signer, zipalign, java, keytool, ndk / "source.properties")):
+        raise BuildError("The selected Android SDK/NDK/JDK is incomplete (zipalign, apksigner.jar, Java, keytool or NDK revision missing).")
     version = command([str(editor), "-version"], output / "logs/unity-version.log").strip().splitlines()
     found = next((v.strip() for v in version if re.fullmatch(r"20\d{2}\.\d+\.\d+[abfp]\d+", v.strip())), None)
     if not found:
         raise BuildError("The Unity executable did not report a recognizable editor version.")
     selected = {"editor": str(editor), "unityVersion": found, "androidSdk": str(sdk),
                 "androidNdk": str(ndk), "jdk": str(jdk), "aapt": str(build_tools / ("aapt" + suffix)),
-                "apksigner": str(apk_signer), "java": str(java), "keytool": str(keytool),
+                "apksigner": str(apk_signer), "zipalign": str(zipalign), "java": str(java), "keytool": str(keytool),
                 "apksignerSha256": digest(apk_signer), "javaSha256": digest(java),
                 "editorSha256": digest(editor), "buildToolsVersion": build_tools.name,
                 "ndkPropertiesSha256": digest(ndk / "source.properties"),
                 "buildDriverSha256": digest(Path(__file__).resolve())}
     selected["key"] = value_hash({k: v for k, v in selected.items() if k not in (
-        "editor", "androidSdk", "androidNdk", "jdk", "aapt", "apksigner", "java", "keytool")})
+        "editor", "androidSdk", "androidNdk", "jdk", "aapt", "apksigner", "zipalign", "java", "keytool")})
     write_json(output / "toolchain.json", selected)
     return selected
 
@@ -1417,7 +1418,13 @@ def validate_apk(apk: Path, report: Path, inputs: dict, tools: dict, output: Pat
                 if bank.is_symlink() or not bank.is_file() or bank.stat().st_size != row["size"]:
                     raise BuildError("Complete Campaign content bank changed or is missing.")
                 bank_before = bank.stat()
-                bank_record = record_file(bank, bank.relative_to(output).as_posix())
+                relative = bank.relative_to(output).as_posix()
+                # The final build receipt owns this same file. Reuse its exact
+                # closed-writer witness instead of hashing the multi-GB bank
+                # again when delivery publishes its receipt.
+                with Stages(output)._witnesses("build", apk.parent.name) as witnesses:
+                    hashed = witnesses.observe(bank, hasher=lambda path: record_file(path, relative)["sha256"])
+                bank_record = {"path": relative, "size": bank_before.st_size, "sha256": hashed}
                 if bank_record["sha256"] != row["sha256"]:
                     raise BuildError("Complete Campaign content bank changed or is missing.")
                 content_files.append(bank_record)
@@ -1455,6 +1462,7 @@ def validate_apk(apk: Path, report: Path, inputs: dict, tools: dict, output: Pat
     if re.search(r"^uses-permission(?:-sdk-\d+)?:\s.*\beye_tracking\b", badging, re.MULTILINE | re.IGNORECASE):
         raise BuildError("Quest 3 APK requests an unused eye-tracking permission.")
     result = {"apkSha256": digest(apk), "certificateSha256": cert_hash,
+            "inputKey": inputs["inputKey"], "modBuild": inputs["mod"]["modBuild"],
             "package": PACKAGE, "isDiagnostic": inputs["target"] != "game",
             "isDummy": bool(inputs["profile"].get("isDummy")), "buildReport": metadata, "contentFiles": content_files}
     if "buildProvenance" in metadata:
@@ -1560,47 +1568,12 @@ def build(args, inputs: dict, output: Path, source: Path, game: Path, project: P
                 output / "logs" / ("unity-launch-" + key[:12] + ".log"), env=env,
                 compiler_log=output / "logs" / ("unity-build-" + key[:12] + ".log"), project=project,
                 recover_delivery=lambda: recover_delivery_pending(output, key, provenance))
-        build_progress.operation("delivery", detail="Validating the actual signed APK and complete delivered content banks")
         if build_provenance.capture(inputs, project, source, Path(__file__).resolve().parent, tools) != provenance:
             raise BuildError("Staged build tools changed during the Player build; retry after editing stops.")
-        metadata = json.loads(report.read_text(encoding="utf-8"))
-        if args.target == "game":
-            metadata["nativePlayerShaderValidation"] = validate_player_shader_log(
-                output / "logs" / ("unity-build-" + key[:12] + ".log"))
-            metadata["updateCapability"] = _local_helper("update_driver").add_update_capability(
-                _module_context(), apk, inputs, output, source, tools)
-        metadata["buildProvenance"] = provenance
-        write_json(report, metadata)
-        details = validate_apk(apk, report, inputs, tools, output, provenance)
-        details["buildEvidenceFiles"] = [record_file(provenance_path, provenance_path.relative_to(output).as_posix())]
-        evidence = [provenance_path]
-        if args.target == "game":
-            import campaign_compute
-            import campaign_native_shaders
-            early_receipt = apk.parent / "shaders-addressables-validation.json"
-            shutil.copyfile(_ordinary_owned(project / "QuestCampaignShaderEvidence/native-addressables-validation.json"), early_receipt)
-            evidence.append(early_receipt)
-            content_files = [output / row["path"] for row in details["contentFiles"]]
-            if len(content_files) != 1:
-                raise BuildError("Full Campaign graphics require one exact delivered native content bank.")
-            shader_receipt = apk.parent / "shaders-delivered-validation.json"
-            print("graphics: validating original shader aliases in the actual signed player and native bank", flush=True)
-            graphics = campaign_native_shaders.validate_delivered(source, project, apk, content_files[0], shader_receipt)
-            details["nativeShaderValidation"] = {field: graphics[field] for field in (
-                "shaderCount", "originalNativeAliasCount", "allOriginalAliasesRetained",
-                "actualNativeAliasMetadataVerified", "materialSampleCount", "compilerQueries", "hardwarePictureVerified")}
-            evidence.append(shader_receipt)
-            compute_receipt = apk.parent / "compute-delivered-validation.json"
-            print("compute: validating the actual signed player and complete delivered banks", flush=True)
-            checked = campaign_compute.validate_delivered(source, project, apk,
-                content_files, compute_receipt)
-            details["computeValidation"] = {field: checked[field] for field in (
-                "shaderCount", "kernelCount", "graphicsApi", "actualExecutableBytesVerified", "hardwareVerified")}
-            for field in ("actualVulkanSpirvBytesVerified", "actualGles31BytesVerified"):
-                if field in checked:
-                    details["computeValidation"][field] = checked[field]
-            evidence.append(compute_receipt)
-        return [apk, report, *evidence, *(output / row["path"] for row in details["contentFiles"])], details
+        if inputs["target"] == "game":
+            _local_helper("player_delivery").record_completed(
+                _module_context(), inputs, output, source, project, tools, key, provenance)
+        return finish_player_delivery(inputs, output, source, project, tools, key, provenance)
 
     def compile_player():
         transaction = project_content_transaction(output, project, inputs["inputKey"]) if args.target in ("startup", "game") else nullcontext()
@@ -1612,7 +1585,109 @@ def build(args, inputs: dict, output: Path, source: Path, game: Path, project: P
                "apk": apk.relative_to(output).as_posix(), "details": receipt["details"]})
     print("build: verified " + str(apk) + (" (DIAGNOSTIC: " + args.target + ")" if args.target != "game" else "") +
           (" (DUMMY IDENTITY)" if inputs["profile"].get("isDummy") else ""), flush=True)
+    build_progress.event("delivery-finalize", 5, 5, "steps", "Android Player delivery completed",
+                         operation="delivery", status="complete")
     build_progress.operation("delivery", complete=True, detail="Signed APK, native content bank and build receipt verified")
+    return apk
+
+
+def finish_player_delivery(inputs, output, source, project, tools, key, provenance, *, resumed=False):
+    """Finish a successful Player without inspecting or rebuilding its source tree.
+
+    Capture065619 reached signed Android/Gradle success before the host update
+    capsule failed. Original compiler provenance and runtime identity stay frozen;
+    this newer delivery driver never calls preparation, weaving or Unity again.
+    """
+    apk = output / "builds" / key / "GloomhavenVR-Quest.apk"
+    report = Path(str(apk) + ".build.json")
+    provenance_path = apk.parent / "build-provenance.json"
+    build_progress.operation("delivery", detail="Validating the actual signed APK and complete delivered content banks")
+    def delivery_progress(done, detail):
+        build_progress.event("delivery-finalize", done, 5, "steps", detail, operation="delivery")
+    delivery_progress(0, "Signing the existing Player for later local updates")
+    metadata = json.loads(report.read_text(encoding="utf-8"))
+    if inputs["target"] == "game":
+        metadata["nativePlayerShaderValidation"] = validate_player_shader_log(
+            output / "logs" / ("unity-build-" + key[:12] + ".log"))
+        metadata["updateCapability"] = _local_helper("update_driver").add_update_capability(
+            _module_context(), apk, inputs, output, source, tools)
+    metadata["buildProvenance"] = provenance
+    metadata["deliveryDriver"] = {"schema": 1, "buildDriverSha256": digest(Path(__file__).resolve()),
+                                  "resumedCompletedPlayer": resumed}
+    write_json(report, metadata)
+    if inputs["target"] == "game":
+        _local_helper("player_delivery").record_completed(
+            _module_context(), inputs, output, source, project, tools, key, provenance)
+    delivery_progress(1, "Validating APK signature and delivered content")
+    details = validate_apk(apk, report, inputs, tools, output, provenance)
+    delivery_progress(2, "Validating the delivered native graphics")
+    details["buildEvidenceFiles"] = [record_file(provenance_path, provenance_path.relative_to(output).as_posix())]
+    evidence = [provenance_path]
+    if inputs["target"] == "game":
+        import campaign_compute
+        import campaign_native_shaders
+        early_receipt = apk.parent / "shaders-addressables-validation.json"
+        shutil.copyfile(_ordinary_owned(project / "QuestCampaignShaderEvidence/native-addressables-validation.json"), early_receipt)
+        evidence.append(early_receipt)
+        content_files = [output / row["path"] for row in details["contentFiles"]]
+        if len(content_files) != 1:
+            raise BuildError("Full Campaign graphics require one exact delivered native content bank.")
+        shader_receipt = apk.parent / "shaders-delivered-validation.json"
+        print("graphics: validating original shader aliases in the actual signed player and native bank", flush=True)
+        graphics = campaign_native_shaders.validate_delivered(source, project, apk, content_files[0], shader_receipt)
+        details["nativeShaderValidation"] = {field: graphics[field] for field in (
+            "shaderCount", "originalNativeAliasCount", "allOriginalAliasesRetained",
+            "actualNativeAliasMetadataVerified", "materialSampleCount", "compilerQueries", "hardwarePictureVerified")}
+        evidence.append(shader_receipt)
+        delivery_progress(3, "Validating the delivered compute programs")
+        compute_receipt = apk.parent / "compute-delivered-validation.json"
+        print("compute: validating the actual signed player and complete delivered banks", flush=True)
+        expected_artifacts = {output / row["path"]: row for row in details["contentFiles"]}
+        expected_artifacts[apk] = {"sha256": details["apkSha256"], "size": apk.stat().st_size}
+        with Stages(output)._witnesses("build", key) as witnesses:
+            def artifact_hash(path):
+                path = Path(path)
+                row = expected_artifacts[path]
+                if not witnesses.qualify(path, row["sha256"], row["size"], hasher=digest):
+                    raise BuildError("Delivered Player/content changed during final validation: " + path.name)
+                return row["sha256"]
+            checked = campaign_compute.validate_delivered(source, project, apk,
+                content_files, compute_receipt, artifact_hash=artifact_hash)
+        details["computeValidation"] = {field: checked[field] for field in (
+            "shaderCount", "kernelCount", "graphicsApi", "actualExecutableBytesVerified", "hardwareVerified")}
+        for field in ("actualVulkanSpirvBytesVerified", "actualGles31BytesVerified"):
+            if field in checked:
+                details["computeValidation"][field] = checked[field]
+        evidence.append(compute_receipt)
+    delivery_progress(4, "Publishing the completed build receipt")
+    return [apk, report, *evidence, *(output / row["path"] for row in details["contentFiles"])], details
+
+
+def finish_completed_build(args, output):
+    """Publish the existing Player using its frozen input, not the current mod."""
+    selected = _local_helper("player_delivery").select(
+        _module_context(), output, args.game_root, profile_path=args.profile_json,
+        input_key=args.delivery_input_key)
+    if selected is None:
+        raise BuildError("No matching completed Android Player is available for delivery. "
+                         "Keep the workspace and inspect its build report; no compilation was started.")
+    inputs, key = selected["inputs"], selected["key"]
+    os.environ[host_resources.INPUT_ENV] = inputs["inputKey"]
+    tools = _local_helper("update_driver").normalized_signing_tools(_module_context(), selected["tools"])
+    # Neither the mutable original project archive nor its recovery journal is
+    # reopened: Unity already finished publishing this APK and its external bank.
+    receipt = Stages(output).run("build", key, lambda: finish_player_delivery(
+        inputs, output, selected["source"], selected["project"], tools, key,
+        selected["provenance"], resumed=True))
+    apk = selected["apk"]
+    write_json(output / "latest-build.json", {"schema": 1,
+        "receipt": Stages(output).path("build", key).relative_to(output).as_posix(),
+        "apk": apk.relative_to(output).as_posix(), "details": receipt["details"]})
+    build_progress.event("delivery-finalize", 5, 5, "steps", "Android Player delivery completed",
+                         operation="delivery", status="complete")
+    build_progress.operation("delivery", complete=True,
+                             detail="Existing Android Player delivery completed; runtime B" + str(inputs["mod"]["modBuild"]))
+    print("build: verified " + str(apk) + " (retained runtime B" + str(inputs["mod"]["modBuild"]) + ")", flush=True)
     return apk
 
 
@@ -1858,7 +1933,8 @@ def report(output: Path) -> None:
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description="Build a locally owned Gloomhaven copy for Quest; no store/cloud services.")
-    result.add_argument("command", choices=("inspect", "prepare", "build", "install", "report", "package", "inspect-update", "update-mod", "update-profile"))
+    result.add_argument("command", choices=("inspect", "prepare", "build", "finish-build", "install", "report", "package", "inspect-update", "update-mod", "update-profile"))
+    result.add_argument("--delivery-input-key", help="Exact retained Player input identity; finish-build never starts a new compilation.")
     result.add_argument("--base-apk", type=Path, help="Existing locally built Quest APK; updates always require the matching owned PC game.")
     result.add_argument("--update-kind", choices=("update-mod", "update-profile"), default="update-mod")
     result.add_argument("--apk-tools-json", type=Path, help="Wizard-owned Android signing tool paths for profile-only updates.")
@@ -1901,7 +1977,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(arguments)
     try:
         repo = args.repo_root.resolve()
-        if args.command in ("inspect", "prepare", "build", "inspect-update", "update-mod", "update-profile") and not args.game_root:
+        if args.command in ("inspect", "prepare", "build", "finish-build", "inspect-update", "update-mod", "update-profile") and not args.game_root:
             raise BuildError("Supply --game-root pointing to the legally acquired PC installation.")
         if args.probe_assets and args.target != "probe":
             raise BuildError("--probe-assets belongs only to the explicitly diagnostic --target probe.")
@@ -1910,7 +1986,7 @@ def main(argv: list[str] | None = None) -> int:
         data = game_data(args.game_root) if args.game_root else None
         output = ensure_output(args.output_root or repo / ".planning/quest3-local", repo, data)
         conversion_python = None
-        if args.command in ("prepare", "build", "update-mod", "update-profile") and args.target in ("startup", "game"):
+        if args.command in ("prepare", "build", "finish-build", "update-mod", "update-profile") and args.target in ("startup", "game"):
             # The Windows launcher intentionally installs no conversion wheels.
             # Do not merely add private site-packages to that process: its later
             # compute, codec and Unity shader-gate children use sys.executable.
@@ -1924,7 +2000,7 @@ def main(argv: list[str] | None = None) -> int:
                 failure.unlink(missing_ok=True)
                 try:
                     python = dependencies.python_environment(output / "tool-cache", repo,
-                                                             procedural=args.target == "game" and args.command in ("prepare", "build"), activate=False)
+                                                             procedural=args.target == "game" and args.command in ("prepare", "build", "finish-build"), activate=False)
                 except BaseException as exc:
                     write_json(failure, {"schema": 1, "stage": "builder-python", "error": type(exc).__name__, "message": str(exc)})
                     raise
@@ -1957,6 +2033,8 @@ def main(argv: list[str] | None = None) -> int:
                     apk, details = verified_latest_build(output)
                     archive = handoff.package(repo, output, apk, details, args.hardware_dir or repo / ".planning/debug/quest3")
                     print("package: " + str(archive), flush=True)
+                elif args.command == "finish-build":
+                    finish_completed_build(args, output)
                 elif args.command in ("inspect-update", "update-mod", "update-profile"):
                     updates = _local_helper("update_driver")
                     if args.command == "inspect-update":

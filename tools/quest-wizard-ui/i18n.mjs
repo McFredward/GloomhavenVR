@@ -69,6 +69,10 @@ function preparationLabels(language) {
 
 export const strings = {
   de: {
+    'phase_delivery-finalize':'Vorhandene Android-APK fertigstellen',
+    'deliveryResumeDetail':'Die vorhandene Android-APK wird fertiggestellt. Frühere Build-Schritte werden übersprungen.',
+    'deliveryRetainedDetail':'Durch den abgeschlossenen Android-Build bereits erledigt.',
+    'deliverySigningDetail':'Vorhandene Android-APK fertigstellen und signieren.',
     unityWorkSummary:'Unity-Arbeit: {done} / {total} Abschnitte abgeschlossen',
     unityWorkCurrent:'Aktuell: {phase}',unityWorkTotal:'Gesamtfortschritt der geplanten Unity-Arbeit',
     unityWorkScope:'Gezählte Arbeit des aktuellen Abschnitts; Abschluss nach erfolgreicher Rückkehr.',
@@ -466,6 +470,10 @@ export const strings = {
     ownershipUnknown:'DLC-Besitz wird geprüft', baseGame:'Basisspiel', cannotBrowse:'Der native Ordnerdialog ist auf diesem Rechner nicht verfügbar. Trage den vollständigen Pfad ein.'
   },
   en: {
+    'phase_delivery-finalize':'Finish existing Android APK',
+    'deliveryResumeDetail':'Finishing the existing Android APK. Earlier build steps are skipped.',
+    'deliveryRetainedDetail':'Already completed by the successful Android build.',
+    'deliverySigningDetail':'Finish and sign the existing Android APK.',
     unityWorkSummary:'Unity work: {done} / {total} phases completed',
     unityWorkCurrent:'Current: {phase}',unityWorkTotal:'Overall progress of planned Unity work',
     unityWorkScope:'Counted work for the current phase; completed after successful return.',

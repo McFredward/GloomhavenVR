@@ -303,7 +303,7 @@ def select_vulkan_runtime_banks(manifest, objects):
     return selected, {"additionalNativeBanks": additional}
 
 
-def validate_delivered(source, project, apk, banks, receipt):
+def validate_delivered(source, project, apk, banks, receipt, *, artifact_hash=None):
     """Audit actual cooked Android programs after the signed full player is built."""
     import UnityPy
     from UnityPy.files import SerializedFile
@@ -329,7 +329,10 @@ def validate_delivered(source, project, apk, banks, receipt):
     result = compiled.validate_objects(manifest, runtime_objects)
     result.update(bank_evidence)
     result.update(evidence)
-    result.update({"recoveryManifestSha256": digest(manifest_path), "actualApkSha256": digest(Path(apk)),
-        "actualContentBanks": [{"file": Path(path).name, "sha256": digest(Path(path))} for path in banks]})
+    # The host already verified the signed APK/bank and may supply its exact
+    # unchanged-file witness. Standalone audits still stream their own hashes.
+    artifact_hash = digest if artifact_hash is None else artifact_hash
+    result.update({"recoveryManifestSha256": digest(manifest_path), "actualApkSha256": artifact_hash(Path(apk)),
+        "actualContentBanks": [{"file": Path(path).name, "sha256": artifact_hash(Path(path))} for path in banks]})
     write_json(Path(receipt), result)
     return result
