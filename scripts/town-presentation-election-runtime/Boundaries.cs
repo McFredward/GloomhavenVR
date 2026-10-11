@@ -13,7 +13,7 @@ namespace UnityEngine
     }
 }
 namespace FFSNet { internal static class FFSNetwork { internal static bool IsOnline; } }
-namespace GloomhavenVR.Core { internal static class VRLog { internal static void Warn(string category, string text) { } } }
+namespace GloomhavenVR.Core { internal static class VRLog { internal static void Warn(string category, string text) { } internal static void Note(string category, string text) { } } }
 namespace GloomhavenVR.Net
 {
     internal interface INetTransport { int LocalPlayerId { get; } bool IsOnline { get; } }
@@ -29,7 +29,12 @@ namespace GloomhavenVR.Net
     internal static class NetSession { internal static bool FlatNetMode; }
     internal static class NetPlayerActors { internal static int Peer; internal static int LocalPlayerId() => Peer; }
     internal static class PlayerRegistry { internal static int HostPlayerID = 11; }
-    internal static class VersionGuard { internal static int PeerBuild(int id) => NetProtocol.ModBuild; }
+    internal static class VersionGuard
+    {
+        internal static int PeerBuild(int id) => NetProtocol.ModBuild;
+        internal static void CollectContinuationPeers(List<int> into, int local)
+        { into.Clear(); foreach (int id in new[] { 11, 22, 33 }) if (id != local) into.Add(id); }
+    }
     internal static class NetProtocol
     {
         internal const int ModBuild = 665;

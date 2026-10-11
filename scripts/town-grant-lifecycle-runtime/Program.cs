@@ -86,6 +86,7 @@ internal static class Program
             "host physical removal releases only the exact resident");
         TownServiceGrantSync.SetOffer(3, 60, false);
         Check(TownServiceGrantSync.GrantedOwner(3) == 0, "host exact physical release is immediate without a visible echo");
+        CoordinatorTests.Run(Check);
         Console.WriteLine("Production town grant lifecycle: " + _checks + " assertions.");
     }
 }
