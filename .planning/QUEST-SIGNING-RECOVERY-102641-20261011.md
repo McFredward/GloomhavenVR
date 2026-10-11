@@ -63,7 +63,23 @@ retained recovery location with an installation retry, without another build.
 
 Root validation and exact delivered-package evidence are recorded in the round's
 compact validation receipt. The unchanged game/runtime, native-bank and final
-signing checks inherit their previous evidence. Mock ADB, host tests and browser
+signing checks inherit their previous evidence. Current published dev669 is
+integrated into the feature without rewriting its published history; the merge
+preserves both the18 Quest CI additions and the new native-bank lifecycle suite.
+The source build passes Release with warnings treated as errors (0/0).
+
+On the integrated tree, installer223 cases pass (24 optional environment checks
+skip), including33 new real-filesystem/tar transaction and manifest controls;
+release/support43 and installation Wizard22 cases pass. UI64 cases pass and the
+two real-API cases run explicitly and pass, for66 successful UI cases. The merged
+runner inventory passes16 cases (two optional SDK checks skip). The worker's612
+Wizard checks and independent Android-source review are retained as scoped
+evidence. No fresh complete game gate or Unity/Shader/APK build is claimed.
+The existing2.7-GiB test APK's actual compiled manifest is accepted, while a
+copy with the wrong Android debuggable resource ID is rejected; only the small
+manifest is read and the original APK is unchanged.
+
+Mock ADB, host tests and browser
 checks do not establish successful Quest migration, filesystem permissions or
 the headset picture. Those remain a hardware test.
 
@@ -88,3 +104,8 @@ Prune this round's completed private worker checkouts and duplicate delivery ZIP
 after integration and validation; record measured reclaimed storage. User device
 recovery backups are separate from rebuildable Unity caches and must remain
 available for a pending restoration.
+
+Host recovery files live below `<workspace>/device/signing-recovery/<headset>/`
+in the Wizard's default configuration. A transaction keeps its original APK,
+mutable tar archives and active journal there. A successful installation removes
+only its own temporary copied headset banks; host backups remain available.

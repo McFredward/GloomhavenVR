@@ -2,8 +2,9 @@
 
 The transaction is deliberately independent of the host OS and of Unity. All
 mutable data and the old installed APK have durable, verified host backups before
-package removal. Large immutable banks are renamed on the headset, not copied to
-the PC. An interrupted transaction always resumes restoration before any launch.
+package removal. Large immutable banks remain on the headset through proven
+renames or verified copies. An interrupted transaction resumes restoration before
+any launch.
 """
 from __future__ import annotations
 
