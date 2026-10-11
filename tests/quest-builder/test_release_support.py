@@ -75,6 +75,17 @@ class ReleaseTests(unittest.TestCase):
         (self.root / 'tools/quest-wizard/wizard.py').write_text('tampered')
         with self.assertRaises(BuildError): release.verified_source_inventory(self.root)
 
+    def test_release_cannot_publish_an_inventory_omitting_dynamic_installation_dependencies(self):
+        for name in ('tools/quest-installer/installer.py', 'tools/quest-installer/signing_recovery.py'):
+            with self.subTest(name=name):
+                path = self.root / name; original = path.read_bytes()
+                try:
+                    path.unlink(); self.manifest()
+                    with self.assertRaisesRegex(BuildError, 'Builder release is incomplete'):
+                        release.verified_source_inventory(self.root)
+                finally:
+                    path.write_bytes(original); self.manifest()
+
     def test_legacy_release_still_valid_but_new_kind_requires_linux_launcher(self):
         for name in release.LINUX_REQUIRED: (self.root / name).unlink()
         value = self.manifest(); value['localDependencyRoots'] = list(release.LEGACY_LOCAL_DEPENDENCIES)

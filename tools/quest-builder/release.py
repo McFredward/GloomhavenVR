@@ -60,6 +60,7 @@ PROMOTIONAL_ASSETS = {'tools/quest-wizard-ui/assets/promo/' + name for name in (
     'nightcrawler-scoundrel.jpg')}
 REQUIRED = set(PUBLIC_PACKAGES) | {'Quest-Builder.cmd', 'QUEST-BUILDER-START.txt', 'scripts/quest-builder-wizard.cmd', 'scripts/quest-builder-wizard.ps1', 'scripts/build-quest.py',
             'tools/quest-wizard/wizard.py', 'tools/quest-wizard-ui/index.html', 'tools/quest-installer/bootstrap.ps1',
+            'tools/quest-installer/installer.py', 'tools/quest-installer/signing_recovery.py',
             'tools/quest-builder/builder.py', 'tools/quest-builder/release.py',
             'tools/quest-builder/preparation_metadata.py', 'tools/quest-builder/editor_overlay.py',
             'tools/quest-builder/script_remap_resume.py',
