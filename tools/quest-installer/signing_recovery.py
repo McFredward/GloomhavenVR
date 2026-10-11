@@ -636,6 +636,8 @@ class Recovery:
         progress(phase, local.stat().st_size, total, "Retained app-data transfer finished", unit="bytes", local=True)
 
     def _restore_tar_args(self, root, *, internal=False, access_mode=None):
+        if not internal and access_mode not in ("app", "app-direct", "app-process"):
+            raise RecoveryError("External app data must be restored through the replacement app UID, never the capture's shell UID.")
         actual_root = self._access_root(root, access_mode)
         # Windows adb's RemoteShell path leaves CRT stdin/stdout in text mode.
         # -T only disables the remote PTY. exec-in/out selects binary CRT mode;
@@ -645,6 +647,43 @@ class Recovery:
         # -o keeps ownership with the new run-as UID after package replacement.
         command += ["tar", "-C", actual_root, "-xof", "-"]
         return command
+
+    def _restore_access_mode(self, item):
+        """Select a writable replacement-app view separately from source capture.
+
+        Capture202658 closes host-side installation but the replacement cannot
+        read its old log or enter StreamingAssets. A shell-readable source census
+        is not a safe extraction identity: tar -o retains its current extractor,
+        and a shell extraction preserves restricted modes under the shell UID.
+        Prove one small app-owned write/read instead; no game-bank walk is needed.
+        """
+        if item["internal"]: return "app"
+        root = item["root"]
+        if root != EXTERNAL:
+            raise RecoveryError("External restoration must remain inside this app's exact recovery root.")
+        errors = []
+        for mode in ("app-direct", "app-process"):
+            self._device_guard()
+            try:
+                actual = self._access_root(root, mode)
+                self._check_external_root(actual, mode)
+                token = uuid.uuid4().hex
+                probe = shlex.quote(actual + "/.quest-restore-access-" + token)
+                # Install/uninstall can change the app UID. Even a retained
+                # restoreAccessMode must earn fresh app-context access each time.
+                reply = self._context_shell("test ! -e " + probe + "\ntest ! -L " + probe
+                    + "\ntrap " + shlex.quote("rm -f " + probe) + " EXIT\numask 077\nprintf %s " + token + " > " + probe
+                    + "\ntest \"$(cat " + probe + ")\" = " + token + "\nrm " + probe
+                    + "\ntrap - EXIT\nprintf %s " + token, mode).strip()
+                if reply != token: raise RecoveryError("The app restoration access probe returned an incomplete acknowledgement.")
+                return mode
+            except RuntimeError as error:
+                errors.append({"mode": mode, "error": str(error)[:1024]})
+        with self.adb.log.open("a", encoding="utf-8") as log:
+            log.write(json.dumps({"replacementAppRestoreAccess": "unavailable", "attempts": errors,
+                                  "shellRestoreAllowed": False}) + "\n")
+        raise CaptureRepairError("The replacement app cannot yet restore its external saves/settings through its own storage view; original backups are retained for a scoped retry.",
+                                 root="external", reason="restore-app-access", attempts=len(errors), total=len(errors))
 
     def _check_users(self):
         current = self.adb.run("-s", self.address, "shell", "am", "get-current-user", check_text=False).strip()
@@ -1364,6 +1403,7 @@ class Recovery:
                 raise RecoveryError("Invalid retained app-data archive identity.")
             seen.add(name); local = ordinary(self.backup / item["archive"])
             if "accessMode" in item and item["accessMode"] not in ("app", "app-direct", "app-process", "shell"): raise RecoveryError("Invalid retained app-data access identity.")
+            if "restoreAccessMode" in item and item["restoreAccessMode"] not in ("app", "app-direct", "app-process"): raise RecoveryError("Invalid retained app-data restoration identity.")
             if item.get("accessMode") in ("app-direct", "app-process") and item["internal"]: raise RecoveryError("Private app data cannot use the external storage view.")
             if item.get("accessMode") == "shell" and item["internal"]: raise RecoveryError("Private app data cannot be restored through shell ownership.")
             if "capturePaths" in item:
@@ -1559,13 +1599,17 @@ class Recovery:
             local = self.backup / item["archive"]
             if item["internal"]:
                 self.adb.run("-s", self.address, "shell", "run-as", PACKAGE, "mkdir", "-p", item["root"], check_text=False)
-            else: self._context_shell("mkdir -p " + shlex.quote(self._access_root(item["root"], item.get("accessMode"))), item.get("accessMode", "shell"))
+            else:
+                self.shell("test ! -L " + shlex.quote(item["root"]) + "\nmkdir -p " + shlex.quote(item["root"]))
+            mode = self._restore_access_mode(item)
+            item["restoreAccessMode"] = mode
+            target_item = dict(item, accessMode=mode)
             self.commit(restoringArchive=item["archive"])
             restore = self.backup / (item["name"] + ".restore.tar")
-            self._safe_restore_archive(local, restore, item)
+            self._safe_restore_archive(local, restore, target_item)
             try:
-                self._transfer(self._restore_tar_args(item["root"], internal=item["internal"], access_mode=item.get("accessMode")), restore, restore=True, phase="restore", total=restore.stat().st_size)
-                if item.get("accessMode") == "app-process": self._process_storage_root()
+                self._transfer(self._restore_tar_args(item["root"], internal=item["internal"], access_mode=mode), restore, restore=True, phase="restore", total=restore.stat().st_size)
+                if mode == "app-process": self._process_storage_root()
             finally: restore.unlink(missing_ok=True)
             progress("restore", index + 1, len(self.journal["roots"]), "Restored " + item["name"] + " app data", unit="files", local=True)
         self.commit(restoringArchive=None)
@@ -1719,3 +1763,34 @@ class Recovery:
                     self.shell("rmdir " + shlex.quote(self.park), timeout=30)
                 except RuntimeError:
                     print("Signing migration completed; retained device staging awaits cleanup: " + self.park, flush=True)
+
+
+class AppStorageView(Recovery):
+    """Reuse guarded app-UID storage aliases without constructing a migration.
+
+    Content installation needs a small app-visible open proof, not a signing
+    journal, original APK backup or game-data census. The process alias, when
+    required, retains Recovery's exact package/UID/starttime and debugger-wait
+    guards and is closed before normal gameplay may start.
+    """
+    def __init__(self, adb, address, hardware):
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", hardware): raise RecoveryError("Invalid headset identity.")
+        self.adb, self.address, self.hardware = adb, address, hardware
+        self._direct_storage_proved = False
+        self._storage_process = None
+
+    def _access_root(self, root, mode):
+        if (not isinstance(root, str) or root != str(PurePosixPath(root))
+                or any(part in (".", "..") for part in PurePosixPath(root).parts)
+                or root != EXTERNAL and not root.startswith(EXTERNAL + "/")):
+            raise RecoveryError("The app storage view is outside this app's external root.")
+        return super()._access_root(root, mode)
+
+    def __enter__(self): return self
+
+    def __exit__(self, kind, error, traceback):
+        try: self._close_storage_process()
+        except RuntimeError as cleanup:
+            if kind is None: raise
+            print("App storage access cleanup could not be confirmed: " + str(cleanup)[:1024], flush=True)
+        return False
