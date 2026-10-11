@@ -66,6 +66,7 @@ class Device:
         self.process_started = False; self.process_stopped = False; self.waiting_marker = True
         self.fail_pause = False; self.process_namespace_denied = False
         self.fail_process_start = False
+        self.pidof_waits = 0; self.pidof_failure = None
         self.process_pid = "8123"; self.process_uid = "10061"; self.process_ticks = "100"
         self.debug_current = "null"; self.debug_original = "null"; self.debug_transient = False
         self.launcher = recovery.PACKAGE + "/com.unity3d.player.UnityPlayerActivity"
@@ -115,7 +116,11 @@ class Device:
             if self.debug_transient:
                 self.debug_current = self.debug_original; self.debug_transient = False
             return result("Starting: Intent")
-        if action[:2] == ["shell", "pidof"]: return result(self.process_pid if self.process_started else "")
+        if action[:2] == ["shell", "pidof"]:
+            if self.pidof_failure is not None: return result(*self.pidof_failure)
+            if self.pidof_waits:
+                self.pidof_waits -= 1; return result("", 1)
+            return result(self.process_pid, 0) if self.process_started else result("", 1)
         if action[:2] == ["shell", "logcat"]:
             return result(("1000.5 1 1 I ActivityThread: Application " + recovery.PACKAGE + " is waiting for the debugger...\n") if self.waiting_marker else "999.5 1 1 I ActivityThread: Application " + recovery.PACKAGE + " is waiting for the debugger...\n")
         if action[:3] == ["shell", "pm", "path"]: return result("package:" + self.apk if self.installed else "")
@@ -208,7 +213,7 @@ class TransactionTests(unittest.TestCase):
         self.source = types.SimpleNamespace(apk=self.device.new_apk, sha256=recovery.file_hash(self.device.new_apk), input_key="a" * 64)
         self.output = io.StringIO(); self.output_context = contextlib.redirect_stdout(self.output); self.output_context.__enter__(); self.addCleanup(self.output_context.__exit__, None, None, None)
 
-    def engine(self): return recovery.Recovery(self.adb, "192.0.2.10:5555", "QUEST-LOCAL", self.source, self.root / "workspace", decode_receipt=installer.decode_content_receipt)
+    def engine(self, *, data_policy="all"): return recovery.Recovery(self.adb, "192.0.2.10:5555", "QUEST-LOCAL", self.source, self.root / "workspace", decode_receipt=installer.decode_content_receipt, data_policy=data_policy)
 
     def verify_saves(self):
         self.assertEqual((self.device.path(self.device.private) / "no_backup/native.bin").read_bytes(), b"internal\x00save")
@@ -592,6 +597,33 @@ class TransactionTests(unittest.TestCase):
         self.assertFalse(self.device.process_started); self.assertFalse(self.device.tar_modes)
         self.assertFalse(any(call[0] == "uninstall" for call in self.device.calls)); self.verify_saves()
 
+    def test_real_adb_wrapper_empty_pidof_exit_one_waits_then_restores(self):
+        path = self.process_namespace_repair(); self.device.pidof_waits = 2
+        with mock.patch.object(recovery.time, "sleep"):
+            self.assertTrue(self.engine().recover(detected=True)["verified"])
+        self.assertGreaterEqual(sum(call[:2] == ("shell", "pidof") for call in self.device.calls), 3)
+        self.assertEqual(self.device.path(path).read_bytes(), b"opaque player progress\x00")
+        self.assertFalse(self.device.process_started); self.verify_saves()
+        self.assertIn('"exitCode": 1', self.log.read_text())
+
+    def test_real_adb_wrapper_empty_pidof_wait_has_bounded_timeout_and_cleanup(self):
+        self.process_namespace_repair(); self.device.pidof_waits = 100
+        with mock.patch.object(recovery.time, "sleep"), self.assertRaisesRegex(recovery.RecoveryError, "debugger-wait storage boundary"):
+            self.engine().recover(detected=True)
+        self.assertEqual(sum(call[:2] == ("shell", "pidof") for call in self.device.calls), 40)
+        self.assertFalse(self.device.process_started); self.assertFalse(any(call[0] == "uninstall" for call in self.device.calls))
+        self.verify_saves()
+
+    def test_real_adb_wrapper_does_not_swallow_other_pidof_failures(self):
+        for observed in (("", 2), ("error: device offline", 1), ("error: unauthorized", 1)):
+            with self.subTest(observed=observed):
+                self.process_namespace_repair(); self.device.pidof_failure = observed; self.device.calls.clear()
+                with self.assertRaisesRegex(recovery.RecoveryError, "ADB failed: command.*pidof.*exit " + str(observed[1])):
+                    self.engine().recover(detected=True)
+                self.assertEqual(sum(call[:2] == ("shell", "pidof") for call in self.device.calls), 1)
+                self.assertFalse(self.device.process_started); self.assertFalse(any(call[0] == "uninstall" for call in self.device.calls))
+                self.verify_saves()
+
     def test_stale_debugger_wait_marker_never_authorizes_pausing_or_data_transfer(self):
         self.process_namespace_repair(); self.device.waiting_marker = False
         with mock.patch.object(recovery.time, "sleep"), self.assertRaisesRegex(recovery.RecoveryError, "debugger-wait storage boundary"):
@@ -764,6 +796,113 @@ class TransactionTests(unittest.TestCase):
         self.assertFalse(any(call[0] == "uninstall" for call in self.device.calls)); self.verify_saves()
         self.assertEqual(self.device.path(path).read_bytes(), b"must preserve")
 
+    def test_saves_policy_omits_only_unreadable_non_save_and_keeps_all_readable_data(self):
+        bank, payload = self.bank(); self.device.app_sdcard_denied = self.device.app_direct_denied = True
+        for number, content in enumerate((b"native crash one", b"native crash two", b"")):
+            path = recovery.EXTERNAL + "/files/tombstone_0" + str(number)
+            self.device.path(path).write_bytes(content); self.device.shell_unreadable.add(path)
+        readable = self.device.path(recovery.EXTERNAL + "/files/tombstone_readable"); readable.write_bytes(b"keep this too")
+        engine = self.engine(data_policy="saves"); self.assertTrue(engine.recover(detected=True)["verified"])
+        external = next(row for row in engine.journal["roots"] if row["name"] == "external")
+        self.assertEqual(external["accessMode"], "shell")
+        self.assertEqual([row["path"] for row in external["omittedEntries"]], ["files/tombstone_00", "files/tombstone_01", "files/tombstone_02"])
+        self.assertEqual(sum(row["size"] for row in external["omittedEntries"]), 32)
+        self.assertEqual(engine.journal["dataPolicy"], "saves"); self.assertEqual(len(engine.journal["policyOmissions"]), 3)
+        self.assertNotIn("files/tombstone_00", external["inventory"])
+        self.assertEqual(readable.read_bytes(), b"keep this too"); self.assertEqual((bank / "StreamingAssets/game.bundle").read_bytes(), payload)
+        self.assertFalse(any(call[:3] == ("shell", "am", "start") for call in self.device.calls))
+        self.verify_saves(); self.assertNotIn("GHVRQ_ACTION", self.output.getvalue())
+
+    def test_saves_policy_never_omits_unreadable_live_historical_or_imported_save_bytes(self):
+        anchors = list(recovery.SAVE_ROOTS) + ["QuestSaveBackups/old", ".quest-save-import-future/rollback", ".quest-save-transfer.json", ".quest-save-snapshot.json"]
+        paths = []
+        for anchor in anchors:
+            suffix = "" if anchor.endswith(".json") else "/Campaign/BackupSaves/ScenarioCheckpoints/tombstone_00"
+            path = recovery.EXTERNAL + "/files/" + anchor + suffix
+            self.device.path(path).parent.mkdir(parents=True, exist_ok=True); self.device.path(path).write_bytes(b"unknown future save")
+            self.device.shell_unreadable.add(path); self.device.app_unreadable.add(path); paths.append(path)
+        with self.assertRaisesRegex(recovery.RecoveryError, "access repair exhausted"):
+            self.engine(data_policy="saves").recover(detected=True)
+        actions = [json.loads(line[len("GHVRQ_ACTION "):]) for line in self.output.getvalue().splitlines() if line.startswith("GHVRQ_ACTION ")]
+        self.assertEqual(actions, [{"schema": 1, "kind": "signing-data-policy", "reason": "save-data-inaccessible", "policy": "saves", "saveDataProtected": True}])
+        self.assertFalse(self.device.tar_modes); self.assertFalse(any(call[0] == "uninstall" for call in self.device.calls))
+        self.assertTrue(all(self.device.path(path).read_bytes() == b"unknown future save" for path in paths)); self.verify_saves()
+
+    def test_all_policy_unreadable_non_save_exposes_explicit_save_preserving_choice(self):
+        path = recovery.EXTERNAL + "/files/tombstone_00"; self.device.path(path).write_bytes(b"opaque crash")
+        self.device.shell_unreadable.add(path); self.device.app_unreadable.add(path)
+        with self.assertRaisesRegex(recovery.RecoveryError, "access repair exhausted"): self.engine().recover(detected=True)
+        actions = [json.loads(line[len("GHVRQ_ACTION "):]) for line in self.output.getvalue().splitlines() if line.startswith("GHVRQ_ACTION ")]
+        self.assertEqual(actions[0]["reason"], "non-save-inaccessible"); self.assertEqual(actions[0]["policy"], "all")
+        self.assertFalse(any(call[0] == "uninstall" for call in self.device.calls)); self.verify_saves()
+
+    def test_saves_policy_interruption_retains_scoped_omissions_and_same_transaction(self):
+        path = recovery.EXTERNAL + "/files/tombstone_00"; self.device.path(path).write_bytes(b"opaque crash")
+        self.device.shell_unreadable.add(path)
+        engine = self.engine(data_policy="saves"); commit = engine.commit
+        def stop_after_backup(state=None, **fields):
+            commit(state, **fields)
+            if state == "backed-up": raise KeyboardInterrupt()
+        engine.commit = stop_after_backup
+        with self.assertRaises(KeyboardInterrupt): engine.recover(detected=True)
+        retained = json.loads(engine.path.read_text()); self.assertEqual(len(retained["policyOmissions"]), 1)
+        self.assertFalse(any(call[0] == "uninstall" for call in self.device.calls))
+        resumed = self.engine(data_policy="saves"); self.assertTrue(resumed.recover()["verified"])
+        self.assertEqual(resumed.journal["transaction"], retained["transaction"]); self.verify_saves()
+
+    def test_saves_policy_does_not_hide_new_unreadable_save_before_uninstall(self):
+        engine = self.engine(data_policy="saves"); backup = engine._backup
+        path = recovery.EXTERNAL + "/files/GloomSaves/Campaign/unknown-future.dat"
+        def changed():
+            backup(); self.device.path(path).write_bytes(b"newest player save")
+            self.device.shell_unreadable.add(path); self.device.app_unreadable.add(path)
+        engine._backup = changed
+        with self.assertRaisesRegex(recovery.RecoveryError, "access repair exhausted"): engine.recover(detected=True)
+        self.assertFalse(any(call[0] == "uninstall" for call in self.device.calls)); self.verify_saves()
+        self.assertEqual(self.device.path(path).read_bytes(), b"newest player save")
+
+    def test_forged_protected_save_omission_is_rejected_before_uninstall(self):
+        engine = self.engine(data_policy="saves"); commit = engine.commit
+        def stop_after_backup(state=None, **fields):
+            commit(state, **fields)
+            if state == "backed-up": raise KeyboardInterrupt()
+        engine.commit = stop_after_backup
+        with self.assertRaises(KeyboardInterrupt): engine.recover(detected=True)
+        external = next(row for row in engine.journal["roots"] if row["name"] == "external")
+        external["omittedEntries"] = [{"path": "files/GloomSaves/unknown", "type": "file", "size": 1, "reason": "unreadable-non-save"}]
+        engine.commit(roots=engine.journal["roots"])
+        with self.assertRaisesRegex(recovery.RecoveryError, "save-affecting"): self.engine(data_policy="saves").recover()
+        self.assertFalse(any(call[0] == "uninstall" for call in self.device.calls)); self.verify_saves()
+
+    def test_save_anchors_are_contextual_and_cover_all_descendants(self):
+        for anchor in recovery.SAVE_ROOTS:
+            for prefix in ("", "files/"):
+                for suffix in ("", "/GloomSaven.dat", "/GlobalData.dat", "/AdventureV2/Campaign/ScenarioCheckpoints/tombstone_00", "/unknown-future.bin"):
+                    with self.subTest(path=prefix + anchor + suffix): self.assertTrue(recovery.save_member(prefix + anchor + suffix))
+        for anchor in ("QuestSaveBackups", ".quest-save-transfer.json", ".quest-save-snapshot.json", ".quest-save-import-future"):
+            self.assertTrue(recovery.save_member("files/" + anchor)); self.assertTrue(recovery.save_member(anchor + "/unknown"))
+        for path in ("files/tombstone_00", "files/GloomSaves-lookalike/save.dat", "logs/GloomSaves/tombstone_00", "files/config.json", "files/quest-owned-game/StreamingAssets/game.bundle"):
+            self.assertFalse(recovery.save_member(path))
+
+    def test_fresh_census_clears_resolved_omission_and_retains_newly_readable_bytes(self):
+        path = recovery.EXTERNAL + "/files/tombstone_00"; self.device.path(path).write_bytes(b"became readable")
+        self.device.shell_unreadable.add(path); engine = self.engine(data_policy="saves"); backup = engine._backup
+        def made_readable():
+            backup(); self.device.shell_unreadable.clear()
+        engine._backup = made_readable
+        self.assertTrue(engine.recover(detected=True)["verified"])
+        self.assertEqual(engine.journal["policyOmissions"], [])
+        self.assertTrue(all(row.get("omittedEntries", []) == [] for row in engine.journal["roots"]))
+        self.assertEqual(self.device.path(path).read_bytes(), b"became readable"); self.verify_saves()
+
+    def test_saves_policy_failed_replacement_rolls_back_original_with_all_saves(self):
+        path = recovery.EXTERNAL + "/files/tombstone_00"; self.device.path(path).write_bytes(b"opaque crash")
+        self.device.shell_unreadable.add(path); self.device.fail_new_install = True
+        engine = self.engine(data_policy="saves")
+        with self.assertRaisesRegex(recovery.RecoveryError, "INSTALL_FAILED_INVALID_APK"): engine.recover(detected=True)
+        self.assertTrue(engine.journal["rolledBack"]); self.assertEqual(self.device.path(self.device.apk).read_bytes(), self.device.old_bytes)
+        self.verify_saves(); self.assertEqual(engine.journal["state"], "backed-up")
+
     def partial_external_failure(self):
         protected = self.device.path("/data/user_de/0/" + recovery.PACKAGE)
         protected.mkdir(); (protected / "device-settings.bin").write_bytes(b"protected settings")
@@ -792,6 +931,31 @@ class TransactionTests(unittest.TestCase):
         self.assertFalse(any(args[:1] == ("exec-out",) for args in copied))
         self.assertFalse(any(self.device.private in args or "/data/user_de/0/" + recovery.PACKAGE in args for args in copied))
         self.assertTrue(self.engine().recover()["verified"]); self.verify_saves()
+
+    def test_created_all_to_saves_policy_reuses_original_apk_private_roots_and_bank_witnesses(self):
+        bank, payload = self.bank(); engine, prior = self.partial_external_failure()
+        witnesses = json.loads(json.dumps(engine.journal["bankWitnesses"]))
+        original_bytes = (engine.backup / "original.apk").read_bytes()
+        path = recovery.EXTERNAL + "/files/tombstone_00"; self.device.path(path).write_bytes(b"opaque crash")
+        self.device.shell_unreadable.add(path); self.device.app_unreadable.add(path)
+        resumed = self.engine(data_policy="saves"); transfer = resumed._transfer; copied = []
+        def observed(args, local, **kwargs):
+            copied.append(tuple(args)); return transfer(args, local, **kwargs)
+        resumed._transfer = observed; commit = resumed.commit
+        def stop_at_prepared(state=None, **fields):
+            commit(state, **fields)
+            if state == "backed-up": raise KeyboardInterrupt()
+        resumed.commit = stop_at_prepared
+        with self.assertRaises(KeyboardInterrupt): resumed.recover()
+        self.assertEqual(resumed.journal["transaction"], engine.journal["transaction"])
+        self.assertEqual(resumed.journal["dataPolicy"], "saves"); self.assertEqual(resumed.journal["bankWitnesses"], witnesses)
+        retained = {item["name"]: item["archive"] for item in resumed.journal["roots"]}
+        self.assertTrue(all(retained[name] == archive for name, archive in prior.items()))
+        self.assertEqual((resumed.backup / "original.apk").read_bytes(), original_bytes)
+        self.assertFalse(any(args[:1] == ("exec-out",) for args in copied))
+        self.assertFalse(any(self.device.private in args or "/data/user_de/0/" + recovery.PACKAGE in args for args in copied))
+        self.assertTrue(self.engine(data_policy="saves").recover()["verified"])
+        self.assertEqual((bank / "StreamingAssets/game.bundle").read_bytes(), payload); self.verify_saves()
 
     def test_failed_new_preflight_keeps_all_prior_verified_archive_references(self):
         engine, prior = self.partial_external_failure()

@@ -381,7 +381,7 @@ class Adb:
         self.executable, self.log = str(executable), log
         self.runner = runner or subprocess.run
 
-    def run(self, *args, timeout=20, positive=None, check_text=True, input_text=None):
+    def run(self, *args, timeout=20, positive=None, check_text=True, input_text=None, empty_exit_codes=()):
         command = [self.executable, *map(str, args)]
         with self.log.open("a", encoding="utf-8") as stream:
             stream.write(json.dumps(command) + "\n")
@@ -402,7 +402,12 @@ class Adb:
         def decoded(value): return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else value or ""
         raw = decoded(result.stdout) + "\n" + decoded(result.stderr)
         with self.log.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps({"exitCode": result.returncode}) + "\n")
             stream.write(raw + "\n")
+        # pidof returns one while a just-started app has no PID yet. Only an
+        # explicitly permitted, entirely empty result represents that expected
+        # observation; offline/authorization errors and every other status fail.
+        if result.returncode in empty_exit_codes and not raw.strip(): return ""
         operands = tuple(map(str, args))
         action = operands[2] if operands[:1] == ("-s",) and len(operands) > 2 else operands[0] if operands else None
         if (action == "install" and re.search(
@@ -410,7 +415,9 @@ class Adb:
             raise SigningMismatch("Android rejected the package update because its signing certificate differs.")
         if (result.returncode or (check_text and re.search(r"\b(error|failure|failed|unauthorized|cannot|unable)\b", raw, re.I))
                 or (positive and not re.search(positive, raw, re.I | re.M))):
-            raise InstallError("ADB failed: " + raw.strip()[:1200])
+            context = " ".join(operands)[:320]
+            raise InstallError("ADB failed: command " + context + "; exit " + str(result.returncode)
+                               + "; " + (raw.strip()[:1200] or "no output was returned"))
         return raw.strip()
 
     def devices(self):
@@ -918,6 +925,8 @@ def parser():
     result.add_argument("--setup", action="store_true")
     result.add_argument("--no-launch", action="store_true")
     result.add_argument("--repair-content", action="store_true", help="Verify installed game bytes and repair missing/changed files before launch.")
+    result.add_argument("--recovery-data-policy", choices=("all", "saves"), default="all",
+                        help="Signing migration: retain all app data, or protect every save and omit only inaccessible non-save data.")
     result.add_argument("--dry-run", action="store_true")
     return result
 
@@ -964,7 +973,8 @@ def main(argv=None, runner=None):
         install_timeout = min(1800, max(180, 120 + transfer_seconds))
         recovery_api = signing_recovery_module()
         recovery = recovery_api.Recovery(adb, address, hardware, source, config_path.parent,
-                                         install_timeout=install_timeout, decode_receipt=decode_content_receipt)
+                                         install_timeout=install_timeout, decode_receipt=decode_content_receipt,
+                                         data_policy=args.recovery_data_policy)
         migration = recovery.recover()
         if migration is None:
             if any(not bank.path.is_file() for bank in source.content):

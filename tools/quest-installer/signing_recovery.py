@@ -1,10 +1,11 @@
 """Recover one actual Android signing conflict without changing any signing key.
 
 The transaction is deliberately independent of the host OS and of Unity. All
-mutable data and the old installed APK have durable, verified host backups before
-package removal. Large immutable banks remain on the headset through proven
-renames or verified copies. An interrupted transaction resumes restoration before
-any launch.
+required save data and the old installed APK have durable, verified host backups
+before package removal. The explicit saves policy may omit inaccessible non-save
+members; all readable data is still retained. Large immutable banks remain on the
+headset through proven renames or verified copies. An interrupted transaction
+resumes restoration before any launch.
 """
 from __future__ import annotations
 
@@ -29,10 +30,36 @@ PACKAGE = "dev.gloomhavenvr.quest"
 EXTERNAL = "/sdcard/Android/data/" + PACKAGE
 BANKS = ("files/quest-owned-game", "files/quest-mod-resources")
 PHASES = ("detect", "backup", "replace", "restore", "verify")
+SAVE_ROOTS = ("GloomSaves", "GloomSavesOpenBeta", "GloomSavesClosedBeta", "GloomSavesDev", "GloomSavesLocalDev", "GloomSavesInEditor")
 
 
 class RecoveryError(RuntimeError):
     """The existing data could not be proved safe to replace or restore."""
+
+
+class DataPolicyError(RecoveryError):
+    def __init__(self, message, *, save_data):
+        super().__init__(message)
+        self.reason = "save-data-inaccessible" if save_data else "non-save-inaccessible"
+
+
+def save_member(name):
+    """Protect complete native release roots and native save-transfer history.
+
+    RootSaveData places all globals, parties, checkpoints and old/corrupted saves
+    below six release-channel roots. Quest save imports place retained backups
+    and an interrupted transaction beside them. Extensions are never consulted:
+    even a crash-like filename is protected when located inside a save root.
+    Android Unity's persistent parent is files; root-level anchors also cover
+    retained private/legacy layouts. Similar names elsewhere are not native roots.
+    """
+    parts = name.split("/")
+    if parts[0] == "files": parts = parts[1:]
+    if not parts: return True  # The persistent parent must remain accessible.
+    anchor = parts[0]
+    return (anchor in SAVE_ROOTS or anchor == "QuestSaveBackups"
+            or anchor in (".quest-save-transfer.json", ".quest-save-snapshot.json")
+            or anchor.startswith(".quest-save-import-"))
 
 
 def progress(phase, done, total, detail, *, unit="tasks", local=False):
@@ -173,9 +200,11 @@ def archive_inventory(path):
 
 
 class Recovery:
-    def __init__(self, adb, address, hardware, source, directory, *, install_timeout=1800, decode_receipt=None):
+    def __init__(self, adb, address, hardware, source, directory, *, install_timeout=1800, decode_receipt=None, data_policy="all"):
         if not re.fullmatch(r"[A-Za-z0-9_-]+", hardware): raise RecoveryError("Invalid headset identity.")
+        if data_policy not in ("all", "saves"): raise RecoveryError("Invalid signing recovery data policy.")
         self.adb, self.address, self.hardware, self.source = adb, address, hardware, source
+        self.data_policy = data_policy
         self.home = ordinary(Path(directory) / "signing-recovery" / hardware)
         self.home.mkdir(parents=True, exist_ok=True)
         self.path = ordinary(self.home / "active.json")
@@ -234,7 +263,7 @@ class Recovery:
         try:
             self.adb.run("-s", self.address, "shell", "am", "start", *debug_args, "--user", "0", "-n", shlex.quote(resolved[-1]), timeout=30)
             for attempt in range(40):
-                raw = self.adb.run("-s", self.address, "shell", "pidof", PACKAGE, check_text=False).strip()
+                raw = self.adb.run("-s", self.address, "shell", "pidof", PACKAGE, check_text=False, empty_exit_codes=(1,)).strip()
                 if re.fullmatch(r"[1-9][0-9]{0,9}", raw):
                     owned = self._process_snapshot(raw)
                     logs = self.adb.run("-s", self.address, "shell", "logcat", "-d", "-t", "128", "--pid", raw,
@@ -308,7 +337,34 @@ class Recovery:
             raise RecoveryError("Finish the pending recovery with its original selected APK before selecting another build.")
         self.backup = ordinary(self.home / value["transaction"])
         self.park = "/sdcard/Download/.ghvr-quest-recovery/" + self.hardware + "/" + value["transaction"]
+        previous_policy = value.get("dataPolicy", "all")
+        if previous_policy not in ("all", "saves"): raise RecoveryError("Invalid retained signing recovery data policy.")
+        if previous_policy != self.data_policy:
+            if value["state"] not in ("created", "backed-up"):
+                # Once replacement starts, use its original durable promise.
+                # An omitted old file cannot be recovered after uninstall.
+                self.data_policy = previous_policy
+            else:
+                # Retain all valid root archives, original APK and bank receipts.
+                # Recensus only changes each root's required positive list; a
+                # matching completed archive remains reusable in _backup.
+                self.commit("created", dataPolicy=self.data_policy)
         return True
+
+    def _record_omissions(self, item, omissions):
+        if self.journal["state"] not in ("created", "backed-up", "parking", "parked", "uninstalling"):
+            # The restored tree cannot contain intentionally uncaptured files.
+            # Its verification must not erase the durable original loss receipt.
+            return
+        item["omittedEntries"] = omissions
+        retained = self.journal.get("policyOmissions", [])
+        indexed = {(row["root"], row["path"]): row for row in retained if row["root"] != item["name"]}
+        for row in omissions: indexed[(item["name"], row["path"])] = {"root": item["name"], **row}
+        if omissions or retained:
+            self.commit(policyOmissions=list(indexed.values()))
+        if omissions:
+            progress("access", len(omissions), len(omissions), "Save protection retained; " + str(len(omissions))
+                     + " inaccessible non-save entries will be omitted", unit="files", local=True)
 
     def _transfer(self, args, local, *, restore=False, phase="backup", total=None, paths=None, work=None):
         """Binary ADB transfer with bounded memory and observed byte counters."""
@@ -448,7 +504,7 @@ class Recovery:
                     ignored.add(prefix + path)
                     directories.update(prefix + str(parent) for parent in PurePosixPath(path).parents if str(parent) != ".")
                 ignored.update(prefix + ".quest-installation.receipt" + suffix for suffix in ("", ".previous", ".pending"))
-        errors = []
+        errors = []; observed_failure = False; complete_save_census = False
         for mode in modes:
             try:
                 actual_root = self._access_root(root, mode)
@@ -465,7 +521,7 @@ class Recovery:
                             and root in ("/data/user/0/" + PACKAGE, "/data/data/" + PACKAGE)): continue
                     if name not in ignored and name not in directories: names.append(name)
                 if len(names) > 100000 or sum(len(name) + 3 for name in names) > 16 * 1024 * 1024: raise RecoveryError("The app-data census exceeds its bounded size.")
-                rows = {}; failed = []
+                rows = {}; failed = []; omissions = []; protected_failure = False
                 for offset in range(0, len(names), 64):
                     batch = names[offset:offset + 64]; lines = []
                     for index, name in enumerate(batch):
@@ -482,19 +538,30 @@ class Recovery:
                         kind = int(parts[1].split(":")[0], 16) & 0xf000
                         if parts[2] not in ("F", "D", "L", "U", "S") or (parts[2] != "S" and kind != {"F": 0x8000, "U": 0x8000, "D": 0x4000, "L": 0xa000}[parts[2]]):
                             raise RecoveryError("The app-data member type changed during its access census.")
-                        if parts[2] in ("U", "S"): failed.append(name)
+                        if parts[2] in ("U", "S"):
+                            observed_failure = True
+                            protected = save_member(name)
+                            protected_failure = protected_failure or protected
+                            if self.data_policy == "saves" and not protected:
+                                omissions.append({"path": name, "type": "file" if parts[2] == "U" else "special",
+                                                  "size": int(parts[1].split(":")[1]), "reason": "unreadable-non-save"})
+                            else: failed.append(name)
                         else: rows[name] = {"type": {"F": "file", "D": "directory", "L": "symlink"}[parts[2]], "size": int(parts[1].split(":")[1])}
                     progress("access", offset + len(batch), len(names), "Checking " + item["name"] + " app data using " + mode + " access", unit="files", local=True)
+                complete_save_census = complete_save_census or not protected_failure
                 if failed: raise RecoveryError("Cannot safely read " + str(len(failed)) + " " + item["name"] + " app-data entries using " + mode + " access; first: " + failed[0])
                 # Explicit positive lists protect names containing wildcard or
                 # option syntax. LF stdin avoids Windows command-length limits.
                 result = {"accessMode": mode, "capturePaths": ["."] + ["./" + name for name in sorted(rows)],
                           "captureFiles": len(rows) + 1, "captureBytes": sum(value["size"] for value in rows.values() if value["type"] == "file")}
-                item.update(result); return rows
+                item.update(result)
+                self._record_omissions(item, omissions)
+                return rows
             except RuntimeError as error:
                 errors.append(mode + ": " + str(error)[:1200])
                 self._device_guard()
-        raise RecoveryError("Automatic app-data access repair exhausted shell and app identities: " + "; ".join(errors) + "; the installed app was retained.")
+        raise DataPolicyError("Automatic app-data access repair exhausted shell and app identities: " + "; ".join(errors)
+                              + "; the installed app was retained.", save_data=not complete_save_census or not observed_failure)
 
     def _capture_root(self, item, local, *, work=None, fresh=False, parked_bank=None):
         if fresh or "capturePaths" not in item: self._capture_census(item, parked_bank=parked_bank)
@@ -711,8 +778,9 @@ class Recovery:
         if retained_apk and (retained_apk.get("sha256") != original_hash or retained_apk.get("size") != original_size):
             raise RecoveryError("The installed APK changed since partial recovery preparation; its existing app data was retained.")
         previous = {item.get("name"): dict(item) for item in self.journal.get("roots", []) if isinstance(item, dict)}
-        # Backup the entire mutable app-specific external root, not an allowlist
-        # of known save names. Unknown future save/config files remain protected.
+        # Readable mutable members are never narrowed to known save filenames.
+        # The explicit saves policy omits only inaccessible members outside the
+        # complete native roots, checkpoint/history and import rollback paths.
         external_state = self.shell("if test -d " + shlex.quote(EXTERNAL) + "; then printf present; else printf absent; fi\n"
                            + "if test -d /sdcard/Android/obb/" + PACKAGE + "; then if test -n \"$(ls -A /sdcard/Android/obb/" + PACKAGE + ")\"; "
                            + "then printf '%s\\n' 'Additional app OBB data is not yet supported by automatic signing recovery; the installed app was retained.' >&2; exit 52; fi; fi")
@@ -799,6 +867,8 @@ class Recovery:
         progress("backup", 2, 7, "Original APK, saves and settings are safely retained")
 
     def _verify_backups(self, *, original=True, validate_only=False):
+        policy = self.journal.get("dataPolicy", "all")
+        if policy not in ("all", "saves") or policy != self.data_policy: raise RecoveryError("Invalid retained signing data policy.")
         apk = self.journal["originalApk"]
         if apk.get("path") != "original.apk" or not re.fullmatch(r"[0-9a-f]{64}", str(apk.get("sha256"))): raise RecoveryError("Invalid original APK backup identity.")
         local = ordinary(self.backup / "original.apk")
@@ -826,6 +896,18 @@ class Recovery:
                         or any(not isinstance(path, str) or len(path) > 4098 or not path.startswith("./") or any(char in path for char in "\x00\r\n")
                                or any(part in ("", ".", "..") for part in path[2:].split("/")) for path in paths[1:])):
                     raise RecoveryError("Invalid retained app-data positive census.")
+            omitted = item.get("omittedEntries", [])
+            if not isinstance(omitted, list) or len(omitted) > 100000: raise RecoveryError("Invalid retained app-data omission census.")
+            seen_omitted = set()
+            for row in omitted:
+                name = row.get("path") if isinstance(row, dict) else None
+                if (policy != "saves" or not isinstance(name, str) or len(name) > 4096 or name.startswith("/")
+                        or any(char in name for char in "\x00\r\n") or any(part in ("", ".", "..") for part in name.split("/"))
+                        or name in seen_omitted or save_member(name) or name in item["inventory"]
+                        or row.get("type") not in ("file", "special") or type(row.get("size")) is not int or row["size"] < 0
+                        or row.get("reason") != "unreadable-non-save"):
+                    raise RecoveryError("Invalid or save-affecting retained app-data omission.")
+                seen_omitted.add(name)
             if not validate_only and (file_hash(local) != item["sha256"] or archive_inventory(local) != item["inventory"]): raise RecoveryError("A retained app-data backup is damaged.")
         if any(name not in BANKS for name in self.journal.get("banks", [])): raise RecoveryError("Invalid parked-bank identity.")
         banks = self.journal.get("banks", [])
@@ -948,7 +1030,8 @@ class Recovery:
                 self.backup = ordinary(self.home / identifier); self.backup.mkdir(mode=0o700)
                 self.park = "/sdcard/Download/.ghvr-quest-recovery/" + self.hardware + "/" + identifier
                 self.journal = {"schema": 1, "package": PACKAGE, "deviceSerial": self.hardware, "transaction": identifier,
-                                "apkSha256": self.source.sha256, "inputKey": self.source.input_key, "state": "created"}
+                                "apkSha256": self.source.sha256, "inputKey": self.source.input_key, "state": "created",
+                                "dataPolicy": self.data_policy}
                 self.commit()
             print("Retained signing migration backup: " + str(self.backup), flush=True)
             if self.journal["state"] == "created": self._backup()
@@ -1025,6 +1108,9 @@ class Recovery:
             return {"schema": 1, "transaction": self.journal["transaction"], "backupPath": str(self.backup),
                     "verified": self.journal["state"] in ("verified", "complete")}
         except Exception as error:
+            if isinstance(error, DataPolicyError):
+                print("GHVRQ_ACTION " + json.dumps({"schema": 1, "kind": "signing-data-policy", "reason": error.reason,
+                                                  "policy": self.data_policy, "saveDataProtected": True}), flush=True)
             directory = str(getattr(self, "backup", self.home))
             raise RecoveryError("Signing migration could not safely continue: " + str(error)
                                 + ". Original recovery data is retained at " + directory + ". Retry with the same APK and headset.") from error
