@@ -78,7 +78,8 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaises(BuildError): release.verified_source_inventory(self.root)
 
     def test_release_cannot_publish_an_inventory_omitting_dynamic_installation_dependencies(self):
-        for name in ('tools/quest-installer/installer.py', 'tools/quest-installer/signing_recovery.py'):
+        for name in ('tools/quest-installer/installer.py', 'tools/quest-installer/signing_recovery.py',
+                     'tools/quest-installer/native_rename.py', 'tools/quest-wizard/device_tools.py'):
             with self.subTest(name=name):
                 path = self.root / name; original = path.read_bytes()
                 try:
@@ -280,7 +281,8 @@ class SupportTests(unittest.TestCase):
         home, folder, value = self.signing_log()
         spec = importlib.util.spec_from_file_location('support_recovery_fixture', ROOT / 'tools/quest-installer/signing_recovery.py')
         recovery = importlib.util.module_from_spec(spec); spec.loader.exec_module(recovery)
-        source = SimpleNamespace(sha256=value['apkSha256'], input_key=value['inputKey'])
+        selected_apk = self.root / 'selected.apk'; selected_apk.write_bytes(b'fixture selected APK identity')
+        source = SimpleNamespace(apk=selected_apk, sha256=value['apkSha256'], input_key=value['inputKey'])
         transaction = recovery.Recovery(None, 'fixture-address', 'fixture-headset', source, self.root / 'device')
         transaction.journal = value | {'roots': [value['roots'][0] | {
             'capturePaths': ['.', './NativeSaveNeverShip'], 'captureFiles': 2, 'captureBytes': 32, 'accessMode': 'app'}]}

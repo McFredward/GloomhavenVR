@@ -1,5 +1,20 @@
 # State — where the project stands
 
+**Quest small-data installation and Builder homepage tools, 2026-10-11.**
+
+Capture150551 aborted the old FUSE-triggered copy of11.17GB of installed game
+content; an earlier2.87GB original APK backup was also retained. Save-priority
+recovery now archives mutable saves/settings only, prunes regenerable payloads,
+and retains game directories through a renameat-only ARM64 primitive. Unsupported
+rename asks before any uninstall/large retransmission. Pre-removal legacy copies
+can upgrade with bounded identity witnesses; finished665 APK and six closed build
+stages stay retained. The homepage exposes explicit resume, APK mod/name edits,
+independent USB/wireless ADB connection and runtime-log capture, plus cached
+metadata-only storage inventory and confirmed cleanup preserving APK+content.
+New builds remain Runtime671. No Unity/game rebuild this round; actual Quest
+migration remains a hardware outcome. Contracts and validation scope:
+[QUEST-BUILDER-TOOLS-AND-SMALL-DATA-150551-20261011.md](QUEST-BUILDER-TOOLS-AND-SMALL-DATA-150551-20261011.md).
+
 **Quest Windows binary installation recovery, 2026-10-11 (Builder; new builds Runtime671).**
 
 Capture141941 identifies the delivered671 source and completed665 APK, with all
