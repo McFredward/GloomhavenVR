@@ -46,6 +46,28 @@ export function macroStep(state) {
   return 1;
 }
 export function isActive(state) { return ['running','cancelling','cancel_requested'].includes(state?.status); }
+export function installationView(state) {
+  const rows=state?.stages;
+  if(!Array.isArray(rows)||new Set(rows.map(row=>row?.id)).size!==rows.length)return null;
+  // A connection prerequisite occurs after the successful build, not during
+  // conversion. Never turn an earlier failed gate into an available APK.
+  if(!stageIds.slice(0,-1).every(id=>rows.some(row=>row?.id===id&&row.status==='complete')))return null;
+  const install=rows.find(row=>row?.id==='install'),build=rows.find(row=>row?.id==='build');
+  if(!install)return null;
+  const action=state.needsActions?.find(row=>row&&typeof row==='object'&&
+    (row.stage==='install'||row.parameters?.failureStage==='install'));
+  const parameters=action?.parameters??{};
+  const attention=['failed','blocked'].includes(state.status)&&['failed','blocked'].includes(install.status);
+  const connectionRequired=attention&&action?.code==='quest_connection_required';
+  const validIdentity=['inputKey','apkSha256'].every(key=>typeof build.details?.[key]==='string'&&/^[a-f0-9]{64}$/i.test(build.details[key]));
+  const canSkip=attention&&sessionId(state.session)!==null&&
+    (validIdentity||parameters.completedBuildRetained===true&&parameters.canSkipInstall===true&&parameters.retryAction==='install');
+  const rawCause=typeof parameters.cause==='string'?parameters.cause:typeof parameters.builderError==='string'?parameters.builderError:'';
+  const cause=rawCause.split(/\r?\n/).map(line=>line.trim()).filter(Boolean).at(-1)?.replace(/[\u0000-\u001f\u007f]/g,' ').slice(0,360)??'';
+  const result={...build.details,...state.result},paths={};
+  for(const key of ['apk','handoff','outputRoot'])if(typeof result[key]==='string'&&result[key].length<=32768)paths[key]=result[key];
+  return {attention,connectionRequired,canSkip,cause,paths};
+}
 export function failureView(state) {
   const action=state?.needsActions?.find(value=>value&&typeof value==='object')??{};
   const memoryBlocked=state?.status==='blocked'&&action.code==='native_memory_unavailable';

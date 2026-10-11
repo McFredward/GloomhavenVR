@@ -138,6 +138,12 @@ input::placeholder{color:#777e86}
 .action-needed.failure strong{font-size:15px;color:#f2b29f}
 .action-needed.failure #failure-cause{font-size:12px;color:#f5cdc2;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere}
 .failure-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
+.action-needed.installation:not(.failure){border-color:#93b08f80;border-left-width:4px;background:#93b08f0c}
+.action-needed.installation:not(.failure) strong{font-size:15px;color:var(--green)}
+.install-guide{margin-bottom:20px;padding:16px 18px;border:1px solid #93b08f55;border-radius:8px;background:#93b08f08}
+.install-guide h3{margin:0;font-size:14px;color:var(--green)}
+.install-guide ol{padding-left:20px;margin:12px 0 0}
+.install-guide li{padding-left:5px;margin-top:9px;font-size:12px;line-height:1.65;color:#c0b4a2}
 .activity-status{color:#a7b0b7;font-size:11px;line-height:1.65;margin:12px 0}
 .activity-status.quiet{color:#dbb07c}
 .build-overview{margin:20px 0}
