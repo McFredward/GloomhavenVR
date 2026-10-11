@@ -210,6 +210,18 @@ class LocalServer(ThreadingHTTPServer):
             self.job_errors.pop(session, None)
             self.jobs[session] = job; job.start()
 
+    def skip_installation(self, session):
+        # Coordinate with this server's build/cleanup threads, then the same
+        # kernel run lock used by CLI and other servers. Never amend all rows.
+        with self.jobs_lock:
+            if any(job.is_alive() for job in self.jobs.values()) or self.storage_job and self.storage_job.is_alive():
+                raise WizardError("already_running", "Stop the active operation before skipping installation.",
+                                  "Den laufenden Vorgang vor dem Überspringen der Installation anhalten.")
+            state = self.engine_factory(self.store).skip_installation(session)
+            self.job_errors.pop(session, None)
+        return {"schema": 1, "event": "status", "session": session,
+                "state": self.visible_state(session, state)}
+
     def storage_status(self):
         with self.storage_lock:
             value = copy.deepcopy(self.storage_state)
@@ -465,6 +477,8 @@ class Handler(BaseHTTPRequestHandler):
                     return request_action(self.server.store, value['session'], value['action'], value['nonce'])
             if set(value) != {"session"}: raise WizardError("request_body", "Expected only the session ID.")
             session = value["session"]
+            if parsed.path == "/api/install/skip":
+                return self.server.skip_installation(session)
             if parsed.path == "/api/support":
                 support = discovery.local_support_module(REPO, "support")
                 result = support.export_support(self.server.store.root, session)

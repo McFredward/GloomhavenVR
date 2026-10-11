@@ -275,6 +275,17 @@ class Store:
             self.event(state, "choices_updated")
             return state
 
+    def installation_pending(self, state, *, skip=False):
+        """Closed earlier stage owners qualify only an inactive final action."""
+        statuses = ("failed", "blocked") if skip else ("failed", "blocked", "cancelled", "interrupted")
+        if state.get("status") not in statuses: return False
+        rows = state.get("stages", [])
+        if [row.get("id") for row in rows] != list(STAGES): return False
+        completed = state.get("completed", {})
+        if rows[-1].get("status") not in statuses: return False
+        return all(row.get("status") == "complete" and completed.get(row["id"], {}).get("key")
+                   for row in rows[:-1])
+
     def create(self, choices):
         session = uuid.uuid4().hex
         state = {"schema": 1, "session": session, "choices": choices, "choicesKey": value_hash(choices),

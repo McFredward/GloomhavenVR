@@ -123,8 +123,9 @@ class Engine:
         # Remember the explicitly continued run, including an older selection.
         # Read-only discovery/status never changes this restart preference.
         atomic_json(self.store.root / "latest-session.json", {"schema": 1, "session": session})
-        previous_work_key = self.build_work_key(state)
-        delivery_candidate = self.delivery_resume_candidate(state)
+        installation_candidate = self.installation_resume_candidate(state)
+        previous_work_key = None if installation_candidate else self.build_work_key(state)
+        delivery_candidate = not installation_candidate and self.delivery_resume_candidate(state)
         retained_build = copy.deepcopy(state["stages"][STAGES.index("build")].get("progressPlan", {})) if delivery_candidate else None
         self.store.clear_cancel(session)
         self.store.begin_run(session)
@@ -145,11 +146,10 @@ class Engine:
                 # must not silently fall back to another expensive build.
                 delivery_error = error
         finished = state.get("completed", {}).get("build", {}).get("details", {})
-        install_only = (delivery_resume and state["stages"][STAGES.index("build")]["status"] == "complete"
-                        and finished.get("resumedCompletedPlayer") and finished.get("inputKey") == delivery_resume[1]["inputKey"])
+        install_only = installation_candidate
         if install_only:
             self.emit(self.store.event(state, "installation_resume_started", "install",
-                                       inputKey=delivery_resume[1]["inputKey"], modBuild=delivery_resume[1]["modBuild"], earlierStagesChecked=False))
+                                       inputKey=finished["inputKey"], modBuild=finished.get("modBuild", self.details(state, "inspect").get("modBuild")), earlierStagesChecked=False))
         if install_only: rows = state["stages"][STAGES.index("install"):]
         elif delivery_resume or delivery_error: rows = state["stages"][STAGES.index("build"):]
         else: rows = state["stages"]
@@ -219,7 +219,7 @@ class Engine:
                 self.emit(self.store.event(state, "stage_complete", stage, durationSeconds=row["durationSeconds"], outputCount=len(receipt["outputs"])))
             except (Cancelled, WizardError) as error:
                 row["durationSeconds"] = round(time.monotonic() - started, 3)
-                row["status"] = "cancelled" if isinstance(error, Cancelled) else "failed" if error.code in ("build_tool_failed", "child_failed") else "blocked"
+                row["status"] = "cancelled" if isinstance(error, Cancelled) else "failed" if error.code in ("build_tool_failed", "child_failed", "installation_tool_failed") else "blocked"
                 state["status"] = row["status"]
                 # Preserve an existing explicit wait and its retry action. A
                 # process update/error must never hide a required user action.
@@ -246,6 +246,54 @@ class Engine:
                 import traceback
                 self.emit(self.store.event(state, "stage_failed", stage, error=type(error).__name__, message=str(error), traceback=traceback.format_exc()[-16384:], durationSeconds=row["durationSeconds"])); return state
         state["status"] = "complete"; self.emit(self.store.event(state, "run_complete")); return state
+
+    def installation_resume_candidate(self, state):
+        """A completed build needs only installation, including its first pass.
+
+        Capture095538 reaches all final gates and publishes the build receipt.
+        A missing authorized Quest cannot invalidate that completed ownership.
+        Qualify unchanged session choices and completed dependency keys without
+        reopening source/SDK/preparation receipts or multi-gigabyte APK/banks.
+        The actual installer still owns its mandatory device/artifact checks.
+        """
+        if self.actions or state["choices"].get("mode", "build") != "build": return False
+        if not self.store.installation_pending(state): return False
+        completed = state.get("completed", {})
+        if any(completed[stage]["key"] != self.key(state, stage) for stage in ("profile", "inspect", "build")): return False
+        details = completed["build"].get("details", {})
+        return (isinstance(details.get("apk"), str) and isinstance(details.get("outputRoot"), str)
+                and all(isinstance(details.get(name), str) and re.fullmatch(r"[0-9a-f]{64}", details[name])
+                        for name in ("inputKey", "apkSha256"))
+                and completed["inspect"].get("details", {}).get("inputKey") == details["inputKey"])
+
+    def skip_installation(self, session):
+        """Explicitly finish a closed build without resetting any earlier row."""
+        with file_lock(self.store.root / "run.lock"):
+            state = self.store.load(session)
+            if (value_hash(state["choices"]) != state["choicesKey"]
+                    or not self.store.installation_pending(state, skip=True)):
+                raise WizardError("installation_skip_unavailable",
+                    "Only an inactive installation failure after a completed build can be skipped.",
+                    "Nur eine angehaltene Installation nach einem fertigen Build kann übersprungen werden.")
+            with self.store.active(state):
+                # Store.amend intentionally resets every stage. Changing only
+                # this final switch keeps completed source/Unity/build owners.
+                state["choices"]["install"] = False
+                state["choicesKey"] = value_hash(state["choices"])
+                self.store.clear_cancel(session)
+                key = self.key(state, "install")
+                result = self.store.session_dir(session) / "installation.json"
+                atomic_json(result, {"schema": 1, "requested": False})
+                receipt = self.store.publish(session, "install", key, [result], {"requested": False})
+                row = state["stages"][STAGES.index("install")]
+                row.update(status="complete", details=receipt["details"], progressKey=key)
+                self.store.clear_waiting(session, "install")
+                self.store.progress(session, "install", "complete", 1, 1, "stages", "Finished without installation at the user's request.")
+                state.setdefault("completed", {})["install"] = {"key": receipt["key"], "details": receipt["details"]}
+                state.update(status="complete", needsActions=[])
+                self.emit(self.store.event(state, "installation_skipped", "install", requested=False))
+                self.emit(self.store.event(state, "run_complete"))
+                return state
 
     def delivery_resume_candidate(self, state):
         """Qualify unchanged session choices without checking earlier outputs.
@@ -507,9 +555,14 @@ class Engine:
         if not state["choices"]["install"]:
             atomic_json(result, {"schema": 1, "requested": False})
             return [result], {"requested": False}
-        source = self.repo if self.details(state, "build").get("resumedCompletedPlayer") else Path(self.details(state, "source")["sourceRoot"])
+        # Installation is a host action owned by the running Builder, including
+        # a first-pass Player retained across a newer archive's repair.
+        source = self.repo
         config = self.store.root / "device/wireless-install.json"
-        self.store.operation(state["session"], "install", "connect", detail="Preparing ADB and reconnecting to the authorized Quest.")
+        self.emit(self.store.event(state, "installation_guidance", "install", automaticReconnect=True, message={
+            "en": "The APK is ready. Unlock the Quest and enable developer mode. Connect the PC and Quest to the same Wi-Fi. For the first connection, connect the Quest by USB and accept its USB debugging prompt. An already authorized headset reconnects automatically; keep it awake during installation.",
+            "de": "Die APK ist fertig. Quest entsperren und Entwicklermodus aktivieren. PC und Quest mit demselben WLAN verbinden. Beim ersten Verbinden die Quest per USB anschließen und die USB-Debugging-Abfrage bestätigen. Eine bereits autorisierte Quest verbindet sich automatisch wieder; während der Installation eingeschaltet lassen."}))
+        self.store.operation(state["session"], "install", "connect", detail="APK ready. Connecting the authorized Quest; first setup requires unlocked developer-mode Quest, USB debugging approval and the same Wi-Fi.")
         supervisor.run([sys.executable, "-B", "-X", "utf8", str(source / "scripts/install-quest-wireless.py"),
                         "--output-root", self.details(state, "build")["outputRoot"], "--config", str(config)], self.log(state, "install"))
         receipt = config.parent / "wireless-last-install.json"

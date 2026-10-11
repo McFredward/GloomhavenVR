@@ -175,6 +175,41 @@ def error_summary(text, *, unity=False):
     return selected, rank
 
 
+def installation_failure(text, parameters):
+    """Only the current installer child can declare a connection prerequisite.
+
+    Capture095538 contains a completed signed/validated665 Player, then the
+    installer's stderr prefix which the generic compiler classifier misses.
+    Match that complete anchored prefix, not arbitrary ADB output mentioning
+    an offline device: a corrupt APK or signer refusal remains an install error.
+    The caller supplies a bounded, current-attempt ordinary-file tail.
+    """
+    causes = [line[len("Quest installation stopped: "):].strip()[:2048]
+              for line in text.splitlines() if line.startswith("Quest installation stopped: ")]
+    if not causes: return None
+    cause = causes[-1]
+    reason = next((reason for prefix, reason in (
+        ("No authorized USB Quest is available.", "missing-or-unauthorized"),
+        ("The requested USB serial is missing or unauthorized.", "missing-or-unauthorized"),
+        ("The Wi-Fi Quest is offline or unauthorized.", "offline-or-unauthorized"),
+        ("Multiple USB Quests are connected.", "ambiguous"),
+        ("Multiple Wi-Fi Quests are connected.", "ambiguous"),
+        ("Could not determine one Quest Wi-Fi IPv4 address.", "wifi-unavailable"),
+        ("USB enabled Wi-Fi ADB, but connection failed.", "wifi-unavailable"),
+    ) if cause == prefix or cause.startswith(prefix + " ")), None)
+    fields = dict(parameters, cause=cause, completedWorkRetained=True,
+                  completedBuildRetained=True, retryAction="install", canSkipInstall=True)
+    if reason:
+        return WizardError("quest_connection_required",
+            "The APK is ready. Quest installation needs an authorized headset. Unlock the Quest, enable developer mode, connect it by USB and accept the USB debugging prompt. Keep the Quest and PC on the same Wi-Fi. Connect only the intended headset, then retry installation. You can also finish without installing; the completed APK stays available.",
+            "Die APK ist fertig. Für die Installation wird eine autorisierte Quest benötigt. Quest entsperren, Entwicklermodus aktivieren, per USB verbinden und die USB-Debugging-Abfrage bestätigen. Quest und PC müssen im selben WLAN sein. Nur die gewünschte Quest verbinden und die Installation erneut versuchen. Alternativ ohne Installation abschließen; die fertige APK bleibt verfügbar.",
+            **dict(fields, connectionReason=reason))
+    return WizardError("installation_tool_failed",
+        "The APK build completed, but installation failed. The exact installer cause is shown below. Keep the workspace and retry installation after resolving it, or finish without installing.",
+        "Die APK wurde fertig gebaut, aber die Installation ist fehlgeschlagen. Der genaue Installerfehler steht unten. Arbeitsordner behalten und nach Behebung die Installation erneut versuchen oder ohne Installation abschließen.",
+        **fields)
+
+
 def tool_failure(root, stage, log, started, executable, exit_code):
     """Read only this attempt's failure and explicitly named child logs."""
     parameters = {"executable": executable, "exitCode": exit_code, "log": str(log), "failureStage": stage}
@@ -205,9 +240,12 @@ def tool_failure(root, stage, log, started, executable, exit_code):
     error_line, error_rank = "", 0
     unity_cause = False
     disk_failure = False
+    installer_error = None
     for path in logs:
         text = current_tail(path, started)
         if text is None: continue
+        if stage == "install":
+            installer_error = installation_failure(text, dict(parameters, logs=[str(log)]))
         disk_failure |= bool(re.search(r"(?i)(no space left on device|disk (?:is )?full|\[Errno 28\]|\[WinError (?:39|112)\]|not enough space on (?:the )?disk)", text))
         for line in text.splitlines():
             if line.startswith("resources: "):
@@ -235,6 +273,7 @@ def tool_failure(root, stage, log, started, executable, exit_code):
     if disk_failure or re.search(r"(?i)(no space left on device|\[Errno 28\]|\[WinError (?:39|112)\])", parameters.get("builderError", "")):
         failed_stage = parameters.pop("failureStage")
         return disk_full_error(root, failed_stage, **parameters)
+    if installer_error: return installer_error
     if failure_code == "native_memory_unavailable" or "Available RAM/commit is insufficient or unknown for the large native game compiler" in (parameters["cause"] + " " + parameters.get("builderError", "")):
         return native_memory_error(parameters, resources)
     import_failure = ("helper import failed before game conversion" in parameters.get("builderError", "")
