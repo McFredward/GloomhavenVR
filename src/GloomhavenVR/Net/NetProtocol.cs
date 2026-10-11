@@ -612,7 +612,19 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 670;
+    public const ushort ModBuild = 671;
+
+    // ModBuild671 — publish the reviewed 1.1.0 release candidate.
+    // The maintainer approved the completed NPC and Steam Frame work for release.
+    // Player highlights explicitly cover fully multiplayer-compatible immersive
+    // town services and Steam Frame compatibility/performance, including the
+    // capability-gated standalone passthrough path. Experimental PC-streaming
+    // passthrough is a separate project and is not part of this release.
+    // No gameplay, presentation, defaults, asset or protocol implementation changes
+    // from670: this increment distinguishes the distributed release in the existing
+    // handshake. Preserve Version3/next-free118 and all accepted hardware behavior.
+    // Release/source-tree CI proof, local golden vectors, strict compilation and
+    // complete archive validation are recorded in RELEASE-671-REVIEW.md.
 
     // ModBuild670 — retain native merchant confirmation placement across savegames.
     // Supplied669 screenshot shows a first tutorial purchase on its own party-display
