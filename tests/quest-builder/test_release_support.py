@@ -191,6 +191,13 @@ class SupportTests(unittest.TestCase):
         self.assertNotIn('SecretName', text); self.assertNotIn('PRIVATE', text)
         self.assertNotIn('UNRELATED DEVICE HISTORY', text)
         self.assertEqual(before, path.read_bytes())
+    def test_current_windows_crlf_adb_reference_survives_mixed_child_output(self):
+        name, path, log = self.install_log()
+        log.write_bytes(('Quest installation stopped: Signing-key mismatch.\r\nADB log: '
+                         + str(path).replace('/', '\\') + '\r\nSelected local APK: completed.apk\r\n').encode())
+        _, files = self.export()
+        self.assertIn('device/' + name, files)
+        self.assertIn('Signing-key mismatch', files['wizard/install.log'])
     def test_support_excludes_stale_foreign_or_linked_install_logs(self):
         name, path, log = self.install_log()
         os.utime(path, (99, 99))

@@ -104,7 +104,7 @@ def installation_logs(root, session_root, state):
         with log.open('rb') as stream:
             stream.seek(max(0, log.stat().st_size - 8192))
             tail = stream.read(8192).decode('utf-8', errors='replace')
-        names = re.findall(r'^ADB log: ([^\r\n]+)$', tail, re.MULTILINE)
+        names = re.findall(r'^ADB log: ([^\r\n]+)\r?$', tail, re.MULTILINE)
         if not names: return []
         reference = names[-1]
         name = reference.replace('\\', '/').rsplit('/', 1)[-1]
