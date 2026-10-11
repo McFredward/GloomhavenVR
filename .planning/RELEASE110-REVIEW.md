@@ -130,6 +130,8 @@ geometry scopes pass in `npc666/repair-historical/results.json`. Those repairs
 bind real native fields/named constants and explicitly fail if newer lifecycle
 routes enter an older control; they do not weaken the original assertions.
 The current compiled production source is unchanged by these fixture repairs.
+The final NPC dependency is `6da6bf452`; its full evidence ledger is
+[NPC-666-REVIEW.md](NPC-666-REVIEW.md).
 The initial complete result remains at
 `test-runs/20261011-013017-847b99bd/results.json` in the NPC 666 integration's
 retained debug evidence. The three newly added review regression scopes bring
