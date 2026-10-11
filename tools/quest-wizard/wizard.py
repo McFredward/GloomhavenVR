@@ -1,6 +1,7 @@
 """Persistent local conversion workflow; CLI and loopback UI use the same engine."""
 from __future__ import annotations
 import argparse
+import copy
 import json
 import os
 from pathlib import Path, PurePosixPath, PureWindowsPath
@@ -123,11 +124,36 @@ class Engine:
         # Read-only discovery/status never changes this restart preference.
         atomic_json(self.store.root / "latest-session.json", {"schema": 1, "session": session})
         previous_work_key = self.build_work_key(state)
+        delivery_candidate = self.delivery_resume_candidate(state)
+        retained_build = copy.deepcopy(state["stages"][STAGES.index("build")].get("progressPlan", {})) if delivery_candidate else None
         self.store.clear_cancel(session)
         self.store.begin_run(session)
         supervisor = self.supervisor_factory(self.store, session)
         self.store.event(state, "run_started")
-        for row in state["stages"]:
+        delivery_resume = None; delivery_error = None
+        if delivery_candidate:
+            try:
+                module = discovery.builder(self.repo)
+                selected = module._local_helper("player_delivery").select(
+                    module, self.store.root / "build", state["choices"]["gameRoot"],
+                    profile_path=self.details(state, "profile")["profilePath"],
+                    input_key=self.details(state, "inspect")["inputKey"])
+                if selected:
+                    delivery_resume = (module, selected)
+            except (OSError, ValueError, RuntimeError) as error:
+                # A completed Player with inconsistent publication metadata
+                # must not silently fall back to another expensive build.
+                delivery_error = error
+        finished = state.get("completed", {}).get("build", {}).get("details", {})
+        install_only = (delivery_resume and state["stages"][STAGES.index("build")]["status"] == "complete"
+                        and finished.get("resumedCompletedPlayer") and finished.get("inputKey") == delivery_resume[1]["inputKey"])
+        if install_only:
+            self.emit(self.store.event(state, "installation_resume_started", "install",
+                                       inputKey=delivery_resume[1]["inputKey"], modBuild=delivery_resume[1]["modBuild"], earlierStagesChecked=False))
+        if install_only: rows = state["stages"][STAGES.index("install"):]
+        elif delivery_resume or delivery_error: rows = state["stages"][STAGES.index("build"):]
+        else: rows = state["stages"]
+        for row in rows:
             stage = row["id"]; key = self.key(state, stage); started = time.monotonic()
             try:
                 self.store.check_cancel(session)
@@ -146,7 +172,11 @@ class Engine:
                     self.qualify(state, stage=stage)
                     self.store.operation(session, "tools", "qualify", complete=True, detail="Host capacity checked.")
                     self.check_downloads(state)
-                prior = self.store.valid(session, stage, key, report_progress=True)
+                if stage == "build" and delivery_error:
+                    raise WizardError("delivery_resume_invalid", str(delivery_error),
+                                      "Der gebaute Android-Player bleibt erhalten. Seine Abschlussdaten konnten nicht zugeordnet werden; Diagnosepaket speichern.",
+                                      completedPlayerRetained=True, builderError=str(delivery_error)) from delivery_error
+                prior = None if stage == "build" and delivery_resume else self.store.valid(session, stage, key, report_progress=True)
                 if prior:
                     row.update(status="complete", details=prior["details"], durationSeconds=round(time.monotonic() - started, 3))
                     self.store.clear_waiting(session, stage)
@@ -162,15 +192,24 @@ class Engine:
                                 "inspect": "Reading owned game files and the selected mod source manifest.",
                                 "build": "Preparing complete game assets, compiling the current mod and Android player.",
                                 "install": "Connecting to the Quest and installing the verified APK and content."}
-                self.store.progress(session, stage, "starting", detail=descriptions[stage])
+                self.store.progress(session, stage, "starting", detail=("Finishing the retained Android Player; earlier preparation and Unity work are not repeated."
+                                                                         if stage == "build" and delivery_resume else descriptions[stage]))
                 self.emit(self.store.event(state, "stage_started", stage))
                 # A cached tool receipt or time spent in Unity Hub does not
                 # reserve the drive. Recheck before inspect can copy the owned
                 # inputs and immediately before the asset/player build begins.
-                if stage in ("inspect", "build") and not self.actions:
+                if stage in ("inspect", "build") and not self.actions and not delivery_resume:
                     self.qualify(state, stage=stage)
-                action = self.actions.get(stage) or getattr(self, "stage_" + stage)
-                paths, details = action(state, supervisor)
+                if stage == "build" and delivery_resume:
+                    self.retain_delivery_progress(state, retained_build)
+                    module, selected = delivery_resume
+                    self.emit(self.store.event(state, "delivery_resume_started", stage,
+                                               inputKey=selected["inputKey"], modBuild=selected["modBuild"],
+                                               resumeKind=selected.get("resumeKind"), earlierStagesChecked=False))
+                    paths, details = self.stage_finish_build(state, supervisor, module, selected)
+                else:
+                    action = self.actions.get(stage) or getattr(self, "stage_" + stage)
+                    paths, details = action(state, supervisor)
                 self.store.check_cancel(session)
                 receipt = self.store.publish(session, stage, key, paths, details)
                 state.setdefault("completed", {})[stage] = {"key": receipt["key"], "details": details}
@@ -207,6 +246,51 @@ class Engine:
                 import traceback
                 self.emit(self.store.event(state, "stage_failed", stage, error=type(error).__name__, message=str(error), traceback=traceback.format_exc()[-16384:], durationSeconds=row["durationSeconds"])); return state
         state["status"] = "complete"; self.emit(self.store.event(state, "run_complete")); return state
+
+    def delivery_resume_candidate(self, state):
+        """Qualify unchanged session choices without checking earlier outputs.
+
+        Capture065619 reaches a completed Android Player before the signing
+        helper raises KeyError('zipalign'). Replaying source/SDK/asset receipts
+        at that boundary is unnecessary. The Player selector separately owns
+        its bounded artifact identity and the continued presence of the game.
+        Archive source updates intentionally do not replace this built Player.
+        """
+        if self.actions or state["choices"].get("mode", "build") != "build": return False
+        build = state["stages"][STAGES.index("build")]
+        completed = state.get("completed", {})
+        retry_states = ("failed", "blocked", "cancelled", "interrupted")
+        install_retry = (build.get("status") == "complete" and completed.get("build", {}).get("details", {}).get("resumedCompletedPlayer")
+                         and state["stages"][STAGES.index("install")].get("status") in retry_states)
+        if (build.get("status") not in retry_states and not install_retry) or not build.get("attempts"): return False
+        if any(row.get("status") != "complete" or not completed.get(row["id"], {}).get("key")
+               for row in state["stages"][:STAGES.index("build")]): return False
+        # These keys contain the original predecessor keys, provider/profile,
+        # game path and explicit DLC selection. Neither opens an owned file in
+        # build mode, and neither recomputes the changing archive source key.
+        if any(completed[stage]["key"] != self.key(state, stage) for stage in ("profile", "inspect")): return False
+        return all(completed[stage].get("details", {}).get(field)
+                   for stage, field in (("profile", "profilePath"), ("inspect", "inputKey")))
+
+    def retain_delivery_progress(self, state, retained):
+        """Close preparation from actual Player success, keeping observed detail."""
+        import stage_plan
+        row = state["stages"][STAGES.index("build")]
+        plan = row.get("progressPlan", {})
+        for name in ("unityWork", "unityImports", "unityCompiler", "unityTasks", "contentPack", "packageApi", "unityValidation"):
+            if retained and name in retained: plan[name] = copy.deepcopy(retained[name])
+        operations = stage_plan.planned_operations(row)
+        before = operations[:operations.index("delivery")]
+        # The final Player artifact is an aggregate proof of its prerequisite
+        # work, not a request to reopen each closed substep for verification.
+        for name in before:
+            self.store.progress(state["session"], "build", "operation:" + name, 1, 1, "operations",
+                                "Retained completed Player proves this earlier operation.", operation=name, status="reuse")
+        for work in plan.get("unityWork", {}).values():
+            for activities in work.get("activities", {}).values():
+                for activity in activities.values(): activity.update(closed=True, status="complete")
+        self.store.operation(state["session"], "build", "delivery",
+                             detail="Finishing and signing the existing Android Player.")
 
     def details(self, state, stage): return state["completed"][stage]["details"]
     def log(self, state, stage): return self.store.session_dir(state["session"]) / "logs" / (stage + ".log")
@@ -398,12 +482,32 @@ class Engine:
         paths.extend(root / row["path"] for row in details.get("contentFiles", []))
         return paths, {"outputRoot": str(root), "apk": str(apk), "apkSha256": details["apkSha256"], "inputKey": details["inputKey"]}
 
+    def stage_finish_build(self, state, supervisor, module, selected):
+        root = self.store.root / "build"
+        argv = [sys.executable, "-B", "-X", "utf8", str(self.repo / "scripts/build-quest.py"), "finish-build",
+                "--game-root", state["choices"]["gameRoot"], "--repo-root", str(self.repo),
+                "--output-root", str(root), "--profile-json", self.details(state, "profile")["profilePath"],
+                "--delivery-input-key", selected["inputKey"]]
+        if state["choices"].get("signingRoot"): argv += ["--signing-root", state["choices"]["signingRoot"]]
+        supervisor.run(argv, self.log(state, "build"))
+        apk, details = module.verified_latest_build(root)
+        if details["inputKey"] != selected["inputKey"]:
+            raise WizardError("delivery_identity_changed", "The finished APK differs from the retained Player input.")
+        latest = read_json(root / "latest-build.json")
+        # The Builder receipt owns the verified multi-gigabyte content banks.
+        # Do not hash them a second time merely to duplicate that ownership in
+        # the Wizard's receipt. Installation still uses the Builder validator.
+        paths = [apk, Path(str(apk) + ".build.json"), root / "latest-build.json", root / latest["receipt"]]
+        return paths, {"outputRoot": str(root), "apk": str(apk), "apkSha256": details["apkSha256"],
+                       "inputKey": details["inputKey"], "modBuild": selected["modBuild"],
+                       "resumedCompletedPlayer": True}
+
     def stage_install(self, state, supervisor):
         result = self.store.session_dir(state["session"]) / "installation.json"
         if not state["choices"]["install"]:
             atomic_json(result, {"schema": 1, "requested": False})
             return [result], {"requested": False}
-        source = Path(self.details(state, "source")["sourceRoot"])
+        source = self.repo if self.details(state, "build").get("resumedCompletedPlayer") else Path(self.details(state, "source")["sourceRoot"])
         config = self.store.root / "device/wireless-install.json"
         self.store.operation(state["session"], "install", "connect", detail="Preparing ADB and reconnecting to the authorized Quest.")
         supervisor.run([sys.executable, "-B", "-X", "utf8", str(source / "scripts/install-quest-wireless.py"),
