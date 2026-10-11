@@ -502,9 +502,15 @@ class Engine:
 
     def qualify(self, state, *, stage="tools"):
         from qualification import qualify
+        mode = state["choices"].get("mode", "build")
+        if (mode == "update-mod" and state.get("completed", {}).get("inspect", {}).get("details", {}).get("updateStrategy") == "cached-full-build"):
+            # A proved serialized/native migration uses the ordinary retained
+            # project. Reserve its measured incremental space before launch;
+            # the smaller compact-code allowance is insufficient for this path.
+            mode = "build"
         try:
             qualification = qualify(self.store.root, game_root=state["choices"]["gameRoot"], repo=self.repo,
-                                    mode=state["choices"].get("mode", "build"))
+                                    mode=mode)
         except WizardError as error:
             if error.code in ("workspace_build_space_low", "workspace_space_estimate_incomplete"):
                 # Keep the existing diagnostic token; this warning is now
@@ -626,8 +632,19 @@ class Engine:
             path = root / selected["plan"]; plan = read_json(path, limit=64 * 1048576)
             if plan.get("schema") != 1 or plan["updateKey"] != path.parent.name:
                 raise WizardError("update_input", "Update plan identity is invalid.")
+            mode = state["choices"].get("mode")
+            strategy = plan.get("updateStrategy", "profile-only" if mode == "update-profile" else "compact-code")
+            requires_unity = plan.get("requiresUnity", mode == "update-mod")
+            reasons = plan.get("rebuildReasons", [])
+            if (plan.get("mode", mode) != mode or strategy not in ("profile-only", "compact-code", "cached-full-build")
+                    or type(requires_unity) is not bool or requires_unity != (mode == "update-mod")
+                    or (mode == "update-profile") != (strategy == "profile-only")
+                    or not isinstance(reasons, list) or len(reasons) > 16
+                    or any(not isinstance(item, str) or len(item) > 4096 for item in reasons)):
+                raise WizardError("update_input", "Update compatibility strategy is invalid.")
             return [pointer, path], {"inputKey": plan["gameInputKey"], "gameKey": plan["inputs"]["game"]["key"],
-                                    "baseApkSha256": plan["baseApkSha256"], "modBuild": plan["inputs"]["mod"]["modBuild"]}
+                                    "baseApkSha256": plan["baseApkSha256"], "modBuild": plan["inputs"]["mod"]["modBuild"],
+                                    "updateStrategy": strategy, "requiresUnity": requires_unity, "rebuildReasons": reasons}
         path = self.store.root / "build/latest-input.json"
         # The existing inspect pointer deliberately predates schema-versioned
         # stage receipts. Accept only its exact shape, not arbitrary schema-less
@@ -656,6 +673,14 @@ class Engine:
 
     def stage_build(self, state, supervisor):
         root = self.store.root / "build"
+        inspected = self.details(state, "inspect")
+        if state["choices"].get("mode") == "update-mod" and inspected.get("updateStrategy") == "cached-full-build":
+            unity = self.details(state, "unity")
+            if not inspected.get("requiresUnity") or not unity.get("unityEditor"):
+                raise WizardError("update_unity_required", "The current Quest patches need the prepared Unity compiler. Recheck Unity before continuing.",
+                                  "Die aktuellen Quest-Anpassungen benötigen den vorbereiteten Unity-Compiler. Unity vor dem Fortsetzen erneut prüfen.")
+            self.store.progress(state["session"], "build", "update-rebuild-required",
+                                detail="; ".join(inspected.get("rebuildReasons", []))[:1024], status="progress")
         if (state["stages"][STAGES.index("build")]["attempts"] > 1 and any(root.glob("projects/*/Library"))
                 and getattr(discovery.builder(self.details(state, "source")["sourceRoot"]), "BUILDER_RESUME_CONTRACT", 0) != 1):
             raise WizardError("build_resume_requires_workspace_guard", "The interrupted imported workspace is retained. Its transactional builder-resume integration is required before continuing.",

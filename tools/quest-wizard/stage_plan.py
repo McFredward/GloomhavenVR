@@ -247,7 +247,40 @@ def _item_checkpoint(name):
 
 
 def workflow(row):
+    if row.get("id") == "build" and row.get("workMode") == "update-mod" and row.get("updateStrategy") == "cached-full-build":
+        return "build"
     return row.get("workMode") if row.get("workMode") in UPDATE_PLANS else "build"
+
+
+def migrate_update(row, reasons=()):
+    """Translate a proved compact incompatibility to actual remaining work.
+
+    Existing percentages remain a display floor, never proof that original
+    conversion/import phases completed. Newly observed full-build work spans
+    the remaining bar instead of freezing until a replacement curve catches up.
+    The user's selected action remains Mod update; its current work is now the
+    normal builder's independently cached preparation/native delivery path.
+    """
+    if row.get("id") != "build" or row.get("workMode") != "update-mod": return False
+    if row.get("updateStrategy") == "cached-full-build":
+        migration = initialize(row).setdefault("updateMigration", {})
+        migration["reasons"] = list(dict.fromkeys([*migration.get("reasons", []), *reasons]))[-16:]
+        return False
+    previous = initialize(row)
+    floor = previous["percent"]
+    row["updateStrategy"] = "cached-full-build"
+    row["progressPlan"] = {"version": 2, "workRevision": WORK_REVISION, "workflow": "build",
+        "current": None, "completed": [], "fractions": {}, "percent": floor,
+        "progressScale": {"origin": 0., "floor": floor},
+        "updateMigration": {"strategy": "cached-full-build", "reasons": list(reasons)[-16:],
+                            "priorPercent": floor, "priorCompleted": list(previous.get("completed", [])),
+                            "priorOperation": previous.get("liveOperation"), "priorWorkflow": previous.get("workflow")}}
+    # Only current-attempt ownership survives. A failed compact compiler is not
+    # a failure of the full project that is about to be reused or prepared.
+    if "attemptBoundary" in previous:
+        row["progressPlan"]["attemptBoundary"] = previous["attemptBoundary"]
+    initialize(row)
+    return True
 
 
 def planned_operations(row):
@@ -1357,6 +1390,7 @@ def _build_overview(row, plan):
     done = total if "batches" in work.get("completed", []) else batch.get("done", 0)
     if type(total) is not int or total < 0: total, done = None, None
     return {"schema": 1, "done": sum(item["closed"] for item in operations), "total": len(operations),
+            **({"workflow": "build", "updateMigration": dict(plan["updateMigration"])} if plan.get("updateMigration") else {}),
             "active": active, "groups": groups, "recovery": {"sections": sections,
             "batches": {"done": done, "total": total}, "staging": steps, "stagingDetail": staging_detail,
             "section": section, "stagingCounter": staging.get("counter") if section == "staging" else None}}

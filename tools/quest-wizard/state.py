@@ -273,6 +273,7 @@ class Store:
                 row["workMode"] = choices.get("mode", "build")
                 row.pop("progressPlan", None)
                 row.pop("progressWorkKey", None)
+                row.pop("updateStrategy", None)
                 row.pop("waiting", None)
                 row.pop("timingState", None)
             self.event(state, "choices_updated")
@@ -355,6 +356,7 @@ class Store:
                 else:
                     row.pop("progressPlan", None)
                     row.pop("progressWorkKey", None)
+                    row.pop("updateStrategy", None)
                 row["progress"] = stage_progress()
                 row["status"] = "pending"
                 row.pop("timingState", None)
@@ -401,6 +403,20 @@ class Store:
             raise WizardError("invalid_progress", "Invalid progress event status.")
         with self._lock:
             state = self._state(session); row = self._row(state, stage)
+            if phase == "update-rebuild-required":
+                if stage != "build" or row.get("workMode") != "update-mod":
+                    raise WizardError("invalid_progress", "An asset migration belongs to the Mod update build.")
+                stage_plan.migrate_update(row, [detail] if detail else [])
+                # The incoming event's compact owner is now retired. It cannot
+                # close or mark failed any operation in the full project plan.
+                operation, status = None, "progress"
+            elif (stage == "build" and row.get("workMode") == "update-mod"
+                  and row.get("updateStrategy") == "cached-full-build"
+                  and operation in stage_plan.UPDATE_PLANS["update-mod"]):
+                # inspect() still qualifies the selected APK/profile before
+                # entering its normal build callback. These compact setup
+                # events must not claim full original-input phases completed.
+                value["migrationSetupOperation"], operation = operation, None
             if operation is not None and operation not in stage_plan.planned_operations(row):
                 mapped = stage_plan.update_alias(row, operation)
                 if mapped is None: raise WizardError("invalid_progress", "Unknown planned operation.")

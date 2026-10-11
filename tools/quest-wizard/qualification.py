@@ -7,7 +7,14 @@ from pathlib import Path
 import platform
 import shutil
 import time
-from state import WizardError, atomic_json, ordinary, value_hash
+# The native builder can use this same bounded capacity recipe without loading
+# browser/session modules or installing global dependency aliases. Its private
+# loader supplies only equivalent storage/error bindings and an explicit helper.
+_capacity_bindings = globals().get("_HOST_CAPACITY_BINDINGS")
+if _capacity_bindings is None:
+    from state import WizardError, atomic_json, ordinary, value_hash
+else:
+    WizardError, atomic_json, ordinary, value_hash = _capacity_bindings
 
 GIB = 1024 ** 3
 MIN_SETUP_FREE_BYTES = 4 * GIB
@@ -45,7 +52,7 @@ def tree_bytes(root, *, deadline=None):
     return {'bytes': total, 'files': count, 'bounded': False, 'skippedLinks': skipped}
 
 
-def credit_game(root, game):
+def credit_game(root, game, *, build_output=None):
     """Recognize the proven old snapshot after the Windows ordering repair."""
     import re
     try:
@@ -58,7 +65,8 @@ def credit_game(root, game):
         ordered = sorted(rows, key=lambda row: row['path'])
         key = value_hash({'files': ordered})
         if key == game['key']: return game
-        snapshot = ordinary(root / 'build/inputs/game' / key / '.snapshot.json')
+        build_output = ordinary(Path(build_output)) if build_output is not None else root / 'build'
+        snapshot = ordinary(build_output / 'inputs/game' / key / '.snapshot.json')
         if snapshot.is_file() and snapshot.stat().st_size <= 16 * 1048576:
             owner = json.loads(snapshot.read_text(encoding='utf-8'))
             # A hash/key conversion alone must not credit a nonexistent or
@@ -70,14 +78,16 @@ def credit_game(root, game):
     return game
 
 
-def space_estimate(root, game_root, repo):
-    import discovery
-    helper = discovery.builder(repo)
+def space_estimate(root, game_root, repo, *, helper=None, build_output=None):
+    if helper is None:
+        import discovery
+        helper = discovery.builder(repo)
+    build_output = ordinary(Path(build_output)) if build_output is not None else root / 'build'
     data = helper.game_data(Path(game_root))
     original = tree_bytes(data)
     fresh = original['bytes'] * CONTENT_FOOTPRINT_FACTOR + TOOLS_IMPORT_RESERVE_BYTES
     cached = 0; candidate = False; cache_bounded = False; game = None
-    pointer_path = ordinary(root / 'build/latest-input.json')
+    pointer_path = ordinary(build_output / 'latest-input.json')
     if pointer_path.is_file() and pointer_path.stat().st_size < 65536:
         try:
             pointer = json.loads(pointer_path.read_text(encoding='utf-8'))
@@ -87,7 +97,7 @@ def space_estimate(root, game_root, repo):
             name = pointer['manifest']
             if (Path(pointer['sourceGameRoot']).resolve() == data.resolve()
                     and re.fullmatch(r'manifests/[0-9a-f]{64}\.json', name)):
-                manifest = ordinary(root / 'build' / name)
+                manifest = ordinary(build_output / name)
                 if manifest.is_file() and manifest.stat().st_size <= 16 * 1048576:
                     game = json.loads(manifest.read_text())['game']
                     rows = game['files']
@@ -95,14 +105,14 @@ def space_estimate(root, game_root, repo):
                                  and len(rows) == original['files'] and sum(row['size'] for row in rows) == original['bytes'])
         except (OSError, ValueError, KeyError, TypeError): candidate = False
     if candidate:
-        game = credit_game(root, game)
+        game = credit_game(root, game, build_output=build_output)
         if not re.fullmatch('[0-9a-f]{64}', str(game.get('key', ''))): candidate = False
         else:
-            roots = [root / 'build/inputs/game' / game['key']]
+            roots = [build_output / 'inputs/game' / game['key']]
             try:
-                roots.append(root / 'build/projects' / helper.import_workspace.workspace_key({'game': game}, 'game'))
+                roots.append(build_output / 'projects' / helper.import_workspace.workspace_key({'game': game}, 'game'))
             except (KeyError, RuntimeError): pass
-            recovery = ordinary(root / 'build/cache/recovery')
+            recovery = ordinary(build_output / 'cache/recovery')
             if recovery.is_dir():
                 matching = []
                 import itertools
@@ -161,7 +171,8 @@ def check_runtime_space(store_root, *, free_bytes=None):
     return free
 
 
-def qualify(store_root, *, system=None, machine=None, free_bytes=None, game_root=None, repo=None, mode="build", enforce=True):
+def qualify(store_root, *, system=None, machine=None, free_bytes=None, game_root=None, repo=None, mode="build", enforce=True,
+            helper=None, build_output=None):
     root = ordinary(store_root)
     system = system or platform.system(); machine = machine or platform.machine()
     if system not in ('Windows', 'Linux'):
@@ -184,14 +195,17 @@ def qualify(store_root, *, system=None, machine=None, free_bytes=None, game_root
               'licenseVerified': False, 'unityAction': 'Sign in and activate an eligible license in Unity Hub; version does not verify licensing.',
               'fullBuildSpaceVerified': False}
     if game_root and mode != "build":
-        import discovery
-        discovery.builder(repo or Path(__file__).resolve().parents[2]).game_data(Path(game_root))
+        if helper is None:
+            import discovery
+            helper = discovery.builder(repo or Path(__file__).resolve().parents[2])
+        helper.game_data(Path(game_root))
         required = 4 * GIB if mode == "update-profile" else 40 * GIB
         result["spaceEstimate"] = {"additionalEstimatedBytes": required, "scanBounded": False,
                                    "method": "APK update: retained game content; signing/code workspace reserve", "certifiedExact": False}
         result["spaceWarning"] = free < required
     elif game_root:
-        result['spaceEstimate'] = space_estimate(root, game_root, repo or Path(__file__).resolve().parents[2])
+        result['spaceEstimate'] = space_estimate(root, game_root, repo or Path(__file__).resolve().parents[2],
+                                                helper=helper, build_output=build_output)
         result['spaceWarning'] = free < result['spaceEstimate']['additionalEstimatedBytes']
     # The reported October 8 run had 44 GiB free and a 124 GiB additional
     # estimate, yet the old 4 GiB setup floor allowed a fresh export to fill the
