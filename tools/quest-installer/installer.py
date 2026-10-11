@@ -449,6 +449,34 @@ def choose_device(adb, args, config):
         except InstallError as error:
             if "not a recognized Meta Quest" not in str(error):
                 raise
+    # Capture095538 completed the Windows APK but a new Wizard device directory
+    # had no remembered endpoint. Reuse an already authorized Wi-Fi connection
+    # before demanding USB again. Do not discover/probe network addresses or
+    # override explicit USB setup/serial/host choices; qualify the actual Quest
+    # and stable hardware identity before any app mutation.
+    if not quests and not (args.setup or args.serial or args.host):
+        wireless = {}
+        for address, state in sorted(devices.items()):
+            if state != "device" or ":" not in address:
+                continue
+            try:
+                address = endpoint(address)
+            except InstallError:
+                continue
+            try:
+                hardware = adb.identity(address)
+            except InstallError as error:
+                if "not a recognized Meta Quest" in str(error):
+                    continue
+                raise
+            if not expected or hardware == expected:
+                wireless.setdefault(hardware, address)
+        if len(wireless) > 1:
+            raise InstallError("Multiple Wi-Fi Quests are connected. Disconnect other headsets or choose the intended address with --host HOST[:PORT].")
+        if wireless:
+            hardware, address = next(iter(wireless.items()))
+            print("Reusing the already authorized Wi-Fi Quest.")
+            return address, adb.connect(address, hardware)
     if not quests:
         raise InstallError("No authorized USB Quest is available. " + HELP)
     if len(quests) != 1:

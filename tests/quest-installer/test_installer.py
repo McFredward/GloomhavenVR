@@ -252,6 +252,53 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(self.run_cli(), 0, self.error)
         self.assertFalse(any("tcpip" in call for call in self.fake.calls))
 
+    def test_first_wizard_connection_reuses_authorized_wifi_without_usb_or_settings(self):
+        self.fake = FakeAdb(usb=False)
+        self.fake.wireless()
+        self.assertEqual(self.run_cli(), 0, self.error)
+        self.assertIn('already authorized Wi-Fi', self.output)
+        self.assertFalse(any('tcpip' in call for call in self.fake.calls))
+        self.assertEqual(json.loads(self.config.read_text())['endpoint'], '192.168.1.42:5555')
+
+    def test_unusable_or_non_quest_wifi_does_not_install_or_publish_success(self):
+        for status, model in (('offline', 'Quest 3'), ('unauthorized', 'Quest 3'), ('device', 'Pixel 8')):
+            with self.subTest(status=status, model=model):
+                self.fake = FakeAdb(usb=False)
+                self.fake.wireless(model=model)
+                self.fake.states['192.168.1.42:5555'] = status
+                self.assertEqual(self.run_cli(), 1)
+                self.assertIn('No authorized USB Quest', self.error)
+                self.assertFalse(self.mutations())
+                self.assertFalse(self.config.exists())
+
+    def test_multiple_new_wireless_headsets_require_an_explicit_selection(self):
+        self.fake = FakeAdb(usb=False)
+        self.fake.wireless()
+        self.fake.wireless('192.168.1.43:5555', 'HARDWARE-2')
+        self.assertEqual(self.run_cli(), 1)
+        self.assertIn('Multiple Wi-Fi Quests', self.error)
+        self.assertFalse(self.mutations())
+        self.assertFalse(self.config.exists())
+
+    def test_wifi_adoption_honors_remembered_hardware_after_an_address_change(self):
+        self.remember(address='192.168.1.10:5555')
+        self.fake = FakeAdb(usb=False)
+        self.fake.wireless()
+        self.fake.wireless('192.168.1.43:5555', 'HARDWARE-2')
+        self.assertEqual(self.run_cli(), 0, self.error)
+        self.assertEqual(json.loads(self.config.read_text())['deviceSerial'], 'HARDWARE-1')
+        self.assertEqual(json.loads(self.config.read_text())['endpoint'], '192.168.1.42:5555')
+        self.assertFalse(any(call[:2] == ['-s', '192.168.1.43:5555'] and 'install' in call for call in self.fake.calls))
+
+    def test_explicit_usb_or_host_choices_never_fall_back_to_another_wifi_quest(self):
+        for options in (('--setup',), ('--serial', 'USB-MISSING'), ('--host', '192.168.1.10')):
+            with self.subTest(options=options):
+                self.fake = FakeAdb(usb=False)
+                self.fake.wireless()
+                self.assertEqual(self.run_cli(*options), 1)
+                self.assertFalse(self.mutations())
+                self.assertFalse(self.config.exists())
+
     def test_large_apk_install_has_bounded_transfer_budget_and_retains_update_flow(self):
         real_stat = Path.stat
         # Actual B612 size; an oversized future artifact must still stay bounded.

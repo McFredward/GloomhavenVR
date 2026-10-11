@@ -4,6 +4,7 @@ import argparse
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import platform
@@ -89,6 +90,34 @@ def failed_command_log(build_root, failure):
     normalize = lambda value: os.path.normcase(str(value).replace('\\', '/'))
     if normalize(match[1]) != normalize(path): return None
     return 'build/' + match['name']
+
+
+def installation_logs(root, session_root, state):
+    """Select only the current install attempt's explicitly named ADB log."""
+    try:
+        stage = next((row for row in state.get('stages', []) if row.get('id') == 'install'), {})
+        started = stage.get('startedAt')
+        if isinstance(started, bool) or not isinstance(started, (int, float)) or not math.isfinite(started) or started <= 0:
+            return []
+        log = ordinary(session_root / 'logs/install.log')
+        if not log.is_file() or log.stat().st_mtime < started: return []
+        with log.open('rb') as stream:
+            stream.seek(max(0, log.stat().st_size - 8192))
+            tail = stream.read(8192).decode('utf-8', errors='replace')
+        names = re.findall(r'^ADB log: ([^\r\n]+)$', tail, re.MULTILINE)
+        if not names: return []
+        reference = names[-1]
+        name = reference.replace('\\', '/').rsplit('/', 1)[-1]
+        if not re.fullmatch(r'wireless-install-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}\.log', name): return []
+        path = root / 'device' / name
+        normalize = lambda value: os.path.normcase(str(value).replace('\\', '/'))
+        if normalize(reference) != normalize(path): return []
+        path = ordinary(path)
+        if not path.is_file() or path.stat().st_mtime < started: return []
+        return [('device/' + name, path)]
+    except (BuildError, OSError, ValueError):
+        # Missing/linked diagnostics must not prevent saving the support report.
+        return []
 
 
 def read_object(path, limit=4 * 1048576):
@@ -366,6 +395,8 @@ def export_support(state_root, session, destination=None):
         candidates.append((path.stat().st_mtime_ns, name, path, False))
     for name, path in procedural_logs(build_root):
         candidates.append((path.stat().st_mtime_ns, name, path, name.endswith('.json')))
+    for name, path in installation_logs(root, session_root, state):
+        candidates.append((path.stat().st_mtime_ns, name, path, False))
     # The actual failed child comes before historic Unity logs even if those
     # were copied/touched later. Keep resource and current Wizard context next,
     # then the bounded host-delivery command set. The existing byte/file caps
@@ -374,7 +405,7 @@ def export_support(state_root, session, destination=None):
     def priority(row):
         _, name, _, structured = row
         return (5 if name == failed_log else 4 if structured else
-                3 if name in ('wizard/build.log', 'wizard/progress.log') else
+                3 if name in ('wizard/build.log', 'wizard/install.log', 'wizard/progress.log') or name.startswith('device/') else
                 2 if name.startswith('build/') and name[6:] in UPDATE_LOGS else 1)
     candidates.sort(key=lambda row: (priority(row), row[0]), reverse=True)
     archive_rows = []; used = 0

@@ -170,6 +170,52 @@ class SupportTests(unittest.TestCase):
         result = support.export_support(self.root, self.session)
         with zipfile.ZipFile(result['path']) as archive:
             return result, {name: archive.read(name).decode() for name in archive.namelist()}
+    def install_log(self):
+        self.state['stages'].append({'id': 'install', 'status': 'blocked', 'startedAt': 100})
+        write_json(self.directory / 'state.json', self.state)
+        name = 'wireless-install-20261011T095426Z-ef64c522.log'
+        path = self.root / 'device' / name; path.parent.mkdir()
+        path.write_text('adb devices\nNo authorized USB Quest\nSecretName\nAuthorization: Bearer PRIVATE\n')
+        log = self.directory / 'logs/install.log'
+        log.write_text('Quest installation stopped: No authorized USB Quest\nADB log: ' + str(path) + '\n')
+        return name, path, log
+    def test_support_exports_exact_current_adb_log_with_existing_redaction(self):
+        name, path, log = self.install_log()
+        before = path.read_bytes()
+        other = path.with_name('wireless-install-20261010T000000Z-abcdef12.log')
+        other.write_text('UNRELATED DEVICE HISTORY')
+        _, files = self.export()
+        self.assertIn('No authorized USB Quest', files['device/' + name])
+        self.assertIn('wizard/install.log', files)
+        text = '\n'.join(files.values())
+        self.assertNotIn('SecretName', text); self.assertNotIn('PRIVATE', text)
+        self.assertNotIn('UNRELATED DEVICE HISTORY', text)
+        self.assertEqual(before, path.read_bytes())
+    def test_support_excludes_stale_foreign_or_linked_install_logs(self):
+        name, path, log = self.install_log()
+        os.utime(path, (99, 99))
+        self.assertEqual(support.installation_logs(self.root, self.directory, self.state), [])
+        os.utime(path, (101, 101))
+        log.write_text('ADB log: ' + str(path.with_name('other.log')) + '\n')
+        self.assertEqual(support.installation_logs(self.root, self.directory, self.state), [])
+        foreign = self.root / name; foreign.write_text('PRIVATE FOREIGN LOG')
+        log.write_text('ADB log: ' + str(foreign) + '\n')
+        self.assertEqual(support.installation_logs(self.root, self.directory, self.state), [])
+        path.unlink(); path.symlink_to(foreign)
+        log.write_text('ADB log: ' + str(path) + '\n')
+        _, files = self.export()
+        self.assertNotIn('device/' + name, files)
+    def test_support_prioritizes_current_install_failure_over_historical_build_logs(self):
+        name, path, log = self.install_log()
+        build_logs = self.root / 'build/logs'; build_logs.mkdir(parents=True)
+        for index in range(support.MAX_FILES + 5):
+            other = build_logs / ('unity-build-history-' + str(index) + '.log')
+            other.write_text('old build')
+            os.utime(other, (2000000000, 2000000000))
+        _, files = self.export()
+        self.assertIn('device/' + name, files)
+        self.assertIn('wizard/install.log', files)
+        self.assertLessEqual(len(files), support.MAX_FILES + 1)
     def test_memory_retry_metrics_and_archived_failure_survive_support_export(self):
         memory = {'compilerProfile': 'release-line-tables', 'jobs': 4, 'attempt': 2,
                   'reason': 'retry-ready', 'resources': {'commitHeadroomBytes': 8 * 1024 ** 3}}
