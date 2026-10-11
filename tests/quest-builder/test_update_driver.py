@@ -20,7 +20,9 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools/quest-builder"))
 import apk_update
+import apk_input_cache
 import storage
+import preparation_identity
 import update_driver as driver
 
 
@@ -50,10 +52,11 @@ class UpdateDriverTests(unittest.TestCase):
                                          "propertiesHash": "1" * 32, "executionOrder": 0}],
                         "modSchema": 1, "dynamicProfile": True}
         self.write_apk()
-        self.builder = SimpleNamespace(apk_updates=apk_update, BuildError=storage.BuildError,
+        self.builder = SimpleNamespace(apk_updates=apk_update, apk_input_hashes=apk_input_cache, BuildError=storage.BuildError,
             game_data=lambda root: Path(root), selected_profile=lambda args: (dict(self.profile), b"fixture logo"),
             dlcs=SimpleNamespace(capture=lambda *args: copy.deepcopy(self.ownership)),
             digest=storage.digest, value_hash=storage.value_hash, canonical=storage.canonical,
+            _ordinary_owned=storage._ordinary_owned, preparation_identity=preparation_identity,
             write_json=storage.write_json, Stages=storage.Stages, PACKAGE="dev.gloomhavenvr.quest",
             ORIGINAL_UGUI_SHA256="3" * 64, UGUI_LAYOUT_SOURCE_SHA256="4" * 64,
             build_progress=SimpleNamespace(operation=Mock(), event=Mock()))
@@ -78,6 +81,21 @@ class UpdateDriverTests(unittest.TestCase):
         self.assertEqual(apk_update.inspect_base(self.apk)["manifest"]["mod"]["modBuild"], 625)
         self.assertEqual(json.loads((self.output / "latest-update-input.json").read_text())["plan"],
                          "updates/" + plan["updateKey"] + "/plan.json")
+
+    def test_repeated_inspection_reuses_unchanged_apk_proof_but_still_requires_owned_game(self):
+        first = driver.inspect(self.builder, self.args, ROOT, self.output)
+        actual = storage.digest
+        def refuse_apk_read(path, *args, **kwargs):
+            if Path(path) == self.apk:
+                raise AssertionError("The unchanged selected APK already has an actual byte witness")
+            return actual(path, *args, **kwargs)
+        with patch.object(storage, "digest", side_effect=refuse_apk_read):
+            again = driver.inspect(self.builder, self.args, ROOT, self.output)
+        self.assertEqual(again["baseApkSha256"], first["baseApkSha256"])
+        (self.game / "Managed/GH.Runtime.dll").unlink()
+        with patch.object(apk_input_cache, "digest_apk", side_effect=AssertionError("Ownership qualification must precede cache reuse")):
+            with self.assertRaisesRegex(storage.BuildError, "does not match this APK's original assembly"):
+                driver.inspect(self.builder, self.args, ROOT, self.output)
 
     def test_dlc_cannot_expand_past_original_converted_content(self):
         self.ownership["installedAppIds"].append(1958560)
@@ -146,6 +164,74 @@ class UpdateDriverTests(unittest.TestCase):
         self.assertEqual(driver.rebuild_reasons(rows, []), [])
         for path in ("tools/quest-shaders/produce.py", "tools/quest-compute/recovery.py", "src/GloomhavenVR/Assets/GloomhavenVR_logo.png"):
             self.assertIn(path, driver.rebuild_reasons([{"path": path, "size": 4, "sha256": "7" * 64}], [])[0])
+
+    def producer_fixture(self):
+        source = self.root / "producer-source"
+        for name, body in (("builder.py", b"def prepare():\n    return 1\n"),
+                           ("preparation_identity.py", (ROOT / "tools/quest-builder/preparation_identity.py").read_bytes())):
+            path = source / "tools/quest-builder" / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(body)
+        rows = [storage.record_file(source / name, name) for name in
+                ("tools/quest-builder/builder.py", "tools/quest-builder/preparation_identity.py")]
+        for name in ("update_driver.py", "apk_update.py", "apk_manifest.py", "storage.py", "profile.py", "dlcs.py"):
+            (source / "tools/quest-builder" / name).write_bytes((ROOT / "tools/quest-builder" / name).read_bytes())
+        self.manifest["mod"]["files"] = copy.deepcopy(rows)
+        self.current_mod["files"] = copy.deepcopy(rows)
+        self.capsule["payloadProducer"] = driver.payload_producer(self.builder, source, rows)
+        self.write_apk()
+        self.args.command = "update-mod"; self.builder.mod_build = lambda repo: 671
+        return source, rows
+
+    def test_signed_actual_source_normalization_allows_only_equivalent_builder_edits(self):
+        source, old_rows = self.producer_fixture()
+        path = source / "tools/quest-builder/builder.py"
+        path.write_bytes(b"# host source formatting changed\n\ndef prepare():\n    return 1\n")
+        rows = [storage.record_file(source / row["path"], row["path"]) for row in old_rows]
+        self.builder.source_inventory = lambda repo: (rows, "8" * 40, False)
+        with patch.object(driver, "package_fingerprint", return_value=self.capsule["packageAbi"]):
+            compatible = driver.inspect(self.builder, self.args, source, self.output)
+        self.assertEqual(compatible["updateStrategy"], "compact-code")
+        path.write_bytes(b"def prepare():\n    consume_new_original_asset()\n    return 1\n")
+        rows = [storage.record_file(source / row["path"], row["path"]) for row in old_rows]
+        with patch.object(driver, "package_fingerprint", return_value=self.capsule["packageAbi"]):
+            incompatible = driver.inspect(self.builder, self.args, source, self.output)
+        self.assertEqual(incompatible["updateStrategy"], "cached-full-build")
+        self.assertIn("builder.py", incompatible["rebuildReasons"][0])
+
+    def test_digest_tamper_or_absent_proof_never_ignores_changed_builder_rows(self):
+        source, old_rows = self.producer_fixture()
+        path = source / "tools/quest-builder/builder.py"; path.write_bytes(b"# equivalent formatting\ndef prepare():\n    return 1\n")
+        rows = [storage.record_file(source / row["path"], row["path"]) for row in old_rows]
+        self.builder.source_inventory = lambda repo: (rows, "8" * 40, False)
+        for producer in (None, {**self.capsule["payloadProducer"], "sha256": "0" * 64}):
+            if producer is None: self.capsule.pop("payloadProducer")
+            else: self.capsule["payloadProducer"] = producer
+            self.write_apk()
+            with patch.object(driver, "package_fingerprint", return_value=self.capsule["packageAbi"]):
+                plan = driver.inspect(self.builder, self.args, source, self.output)
+            self.assertEqual(plan["updateStrategy"], "cached-full-build")
+
+    def test_changed_shader_is_not_hidden_by_an_equal_signed_builder_digest(self):
+        source, rows = self.producer_fixture()
+        shader = {"path": "unity/GloomhavenVR.Quest/Assets/Quest/Resources/QuestWorldScreen.shader", "size": 4, "sha256": "7" * 64}
+        self.builder.source_inventory = lambda repo: ([*rows, shader], "8" * 40, False)
+        with patch.object(driver, "package_fingerprint", return_value=self.capsule["packageAbi"]):
+            plan = driver.inspect(self.builder, self.args, source, self.output)
+        self.assertEqual(plan["updateStrategy"], "cached-full-build")
+        self.assertIn("QuestWorldScreen.shader", plan["rebuildReasons"][0])
+
+    def test_normalizer_reads_exact_current_captured_source_and_rejects_drift(self):
+        source, rows = self.producer_fixture()
+        (source / "tools/quest-builder/builder.py").write_bytes(b"changed after inventory capture")
+        with self.assertRaisesRegex(storage.BuildError, "changed or lack source provenance"):
+            driver.payload_producer(self.builder, source, rows)
+        with self.assertRaisesRegex(storage.BuildError, "inventory is incomplete"):
+            driver.payload_producer(self.builder, source, rows[:1])
+        actual = [storage.record_file(ROOT / name, name) for name in
+                  ("tools/quest-builder/builder.py", "tools/quest-builder/preparation_identity.py")]
+        proof = driver.payload_producer(self.builder, ROOT, actual)
+        self.assertEqual(proof["source"], actual[0])
+        self.assertEqual(proof["normalizer"], actual[1])
+        self.assertEqual(proof["sha256"], preparation_identity.builder_producer_digest((ROOT / actual[0]["path"]).read_bytes()))
 
     def test_known_current_payload_rebuild_skips_compact_compiler_and_preserves_base(self):
         self.args.command = "update-mod"

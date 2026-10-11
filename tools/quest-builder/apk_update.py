@@ -223,15 +223,37 @@ def script_roster(apk_path):
     return {"unityVersion": version, "scriptTypes": [roster[key] for key in sorted(roster)]}
 
 
-def make_capsule(apk_path, *, package_abi, dynamic_profile=False, repair_update_contracts=False):
+def make_capsule(apk_path, *, package_abi, dynamic_profile=False, repair_update_contracts=False, payload_producer=None):
     """Capture compatibility from an actual player, not a compiler success claim."""
     base = inspect_base(apk_path, validate_update_contracts=not repair_update_contracts); registry = script_roster(apk_path)
     if not _SHA.fullmatch(package_abi or ""): raise BuildError("Quest package/template ABI fingerprint is missing.")
     with zipfile.ZipFile(apk_path) as apk: metadata_version = _native(apk)
-    return {"schema": 1, "scope": "quest-code-update-v1", "inputKey": base["inputKey"],
+    result = {"schema": 1, "scope": "quest-code-update-v1", "inputKey": base["inputKey"],
             "unityVersion": registry["unityVersion"], "packageAbi": package_abi,
             "metadataVersion": metadata_version, "managedKey": value_hash(_managed(base["manifest"])),
             "scriptTypes": registry["scriptTypes"], "modSchema": 1, "dynamicProfile": bool(dynamic_profile)}
+    if payload_producer is not None:
+        _validate_payload_producer(payload_producer, base["manifest"])
+        result["payloadProducer"] = payload_producer
+    return result
+
+
+def _validate_payload_producer(value, manifest):
+    """A signed normalized digest belongs to this original source inventory."""
+    if (not isinstance(value, dict) or set(value) != {"schema", "scope", "source", "normalizer", "sha256"}
+            or value.get("schema") != 1 or value.get("scope") != "quest-builder-producer-ast-v1"
+            or not isinstance(value.get("sha256"), str) or not _SHA.fullmatch(value["sha256"])):
+        raise BuildError("Signed APK payload producer fingerprint is invalid or incomplete.")
+    files = manifest.get("mod", {}).get("files", [])
+    if not isinstance(files, list):
+        raise BuildError("Signed APK payload producer source provenance is missing.")
+    for field, name in (("source", "tools/quest-builder/builder.py"), ("normalizer", "tools/quest-builder/preparation_identity.py")):
+        row = value[field]
+        if (not isinstance(row, dict) or set(row) != {"path", "size", "sha256"} or row.get("path") != name
+                or type(row.get("size")) is not int or not 0 < row["size"] <= 2 * 1048576
+                or not isinstance(row.get("sha256"), str) or not _SHA.fullmatch(row["sha256"])
+                or [item for item in files if isinstance(item, dict) and item.get("path") == name] != [row]):
+            raise BuildError("Signed APK payload producer source provenance does not match the original inventory.")
 
 
 def _validate_capsule(value, manifest):
@@ -241,6 +263,8 @@ def _validate_capsule(value, manifest):
             or type(value.get("metadataVersion")) is not int or type(value.get("dynamicProfile")) is not bool
             or not isinstance(value.get("scriptTypes"), list) or not 0 < len(value["scriptTypes"]) <= 32768):
         raise BuildError("Signed APK update capsule is incompatible or incomplete; use a full build.")
+    if "payloadProducer" in value:
+        _validate_payload_producer(value["payloadProducer"], manifest)
     keys = set()
     for row in value["scriptTypes"]:
         if (not isinstance(row, dict) or set(row) != {"assembly", "namespace", "class", "propertiesHash", "executionOrder"}

@@ -7,6 +7,7 @@ not supported. APK signing secrets never enter update manifests or support logs.
 """
 from __future__ import annotations
 import copy
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -68,8 +69,10 @@ def inspect(builder, args, repo, output, data=None):
         current_mod = current.get("mod", original["mod"])
         inputs["mod"] = {"files": files, "key": builder.value_hash({"files": files}),
                          "commit": commit, "dirty": dirty, "modBuild": builder.mod_build(repo)}
-        reasons = rebuild_reasons(files, current_mod["files"])
         capsule = base.get("capsule")
+        producer = payload_producer(builder, repo, files) if capsule and capsule.get("payloadProducer") else None
+        reasons = rebuild_reasons(files, current_mod["files"], payload_producer=producer,
+                                  previous_producer=capsule.get("payloadProducer") if capsule else None)
         if capsule is None:
             reasons.append("The older APK has no signed compact compiler/package compatibility capsule.")
         elif capsule["packageAbi"] != package_fingerprint(builder, repo, inputs):
@@ -77,7 +80,7 @@ def inspect(builder, args, repo, output, data=None):
     else:
         reasons = []
     plan = {"schema": 1, "mode": mode, "baseApk": str(Path(args.base_apk).resolve()),
-            "baseApkSha256": builder.digest(Path(args.base_apk)), "gameInputKey": base["inputKey"],
+            "baseApkSha256": builder.apk_input_hashes.digest_apk(Path(args.base_apk), output), "gameInputKey": base["inputKey"],
             "ownedGame": proof, "inputs": inputs,
             "updateStrategy": "cached-full-build" if reasons else "compact-code" if mode == "update-mod" else "profile-only",
             "rebuildReasons": reasons, "requiresUnity": mode == "update-mod",
@@ -299,14 +302,51 @@ def _payload_rows(files):
     return sorted((row for row in files if selected(row["path"])), key=lambda row: row["path"])
 
 
-def rebuild_reasons(current_files, previous_files):
+def payload_producer(builder, source, files):
+    """Bind normalized complete orchestration to exact captured source bytes.
+
+    Only the existing finite reviewed observer aliases may normalize executable
+    AST changes. Every unknown producer, prepare() call, constant and argument
+    remains qualified. A legacy source without these records gains no proof.
+    """
+    names = ("tools/quest-builder/builder.py", "tools/quest-builder/preparation_identity.py")
+    selected = {name: [row for row in files if row.get("path") == name] for name in names}
+    if not any(selected.values()): return None
+    if any(len(rows) != 1 for rows in selected.values()):
+        raise builder.BuildError("Current captured Builder payload producer inventory is incomplete.")
+    raw = None
+    for name in names:
+        row = selected[name][0]
+        path = builder._ordinary_owned(Path(source) / name)
+        before = path.lstat()
+        if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or before.st_size > 2 * 1048576
+                or getattr(before, "st_file_attributes", 0) & 0x400):
+            raise builder.BuildError("Captured Builder payload producer is not a bounded regular owned file.")
+        with path.open("rb") as stream: body = stream.read(2 * 1048576 + 1)
+        after = path.lstat()
+        stamp = lambda item: (item.st_dev, item.st_ino, item.st_size, item.st_mtime_ns, item.st_ctime_ns)
+        if (stamp(before) != stamp(after) or len(body) != row["size"]
+                or hashlib.sha256(body).hexdigest() != row["sha256"]):
+            raise builder.BuildError("Captured Builder payload producer bytes changed or lack source provenance.")
+        if name == names[0]: raw = body
+    normalizer = getattr(builder, "preparation_identity", None)
+    if normalizer is None:
+        raise builder.BuildError("The current Builder lacks its complete payload producer normalizer.")
+    return {"schema": 1, "scope": "quest-builder-producer-ast-v1", "source": copy.deepcopy(selected[names[0]][0]),
+            "normalizer": copy.deepcopy(selected[names[1]][0]), "sha256": normalizer.builder_producer_digest(raw)}
+
+
+def rebuild_reasons(current_files, previous_files, *, payload_producer=None, previous_producer=None):
     """Classify real unsupported payload changes without reading game banks."""
     reasons = []
     for name, selected in (("Native Quest programs or interop sources", _native_rows),
                            ("Quest scenes, shaders, package settings or game-asset producers", _payload_rows)):
         current = {row["path"]: row for row in selected(current_files)}
         previous = {row["path"]: row for row in selected(previous_files)}
-        changed = sorted(path for path in current.keys() | previous.keys() if current.get(path) != previous.get(path))
+        same_builder = (payload_producer and previous_producer
+                        and payload_producer["sha256"] == previous_producer["sha256"])
+        changed = sorted(path for path in current.keys() | previous.keys() if current.get(path) != previous.get(path)
+                         and not (selected is _payload_rows and path == "tools/quest-builder/builder.py" and same_builder))
         if changed:
             shown = ", ".join(changed[:4])
             suffix = " (+" + str(len(changed) - 4) + " more)" if len(changed) > 4 else ""
@@ -446,8 +486,10 @@ def add_update_capability(builder, apk, inputs, output, source, tools):
     core = _core(builder)
     apk, output = Path(apk), Path(output)
     package_abi = package_fingerprint(builder, source, inputs)
+    producer = payload_producer(builder, source, inputs["mod"].get("files", []))
     receipt_key = builder.value_hash({"scope": "full-build-update-capability-receipt-v1", "inputKey": inputs["inputKey"],
-        "profile": inputs["profile"], "modBuild": inputs["mod"]["modBuild"], "packageAbi": package_abi})
+        "profile": inputs["profile"], "modBuild": inputs["mod"]["modBuild"], "packageAbi": package_abi,
+        "payloadProducer": producer})
     stages = builder.Stages(output)
 
     def close_capability():
@@ -463,6 +505,7 @@ def add_update_capability(builder, apk, inputs, output, source, tools):
             with zipfile.ZipFile(apk) as archive:
                 profile = core._json(archive, core.PROFILE, optional=True)
             adopted = bool(capsule and capsule["packageAbi"] == package_abi and capsule["dynamicProfile"]
+                           and capsule.get("payloadProducer") == producer
                            and base["inputKey"] == inputs["inputKey"] and profile == inputs["profile"]
                            and update == expected_update)
         except (builder.BuildError, OSError, ValueError, zipfile.BadZipFile):
@@ -470,7 +513,8 @@ def add_update_capability(builder, apk, inputs, output, source, tools):
         if adopted:
             _signers(builder, tools, output, base_apk=apk)
         else:
-            capsule = core.make_capsule(apk, package_abi=package_abi, dynamic_profile=True, repair_update_contracts=True)
+            capsule = core.make_capsule(apk, package_abi=package_abi, dynamic_profile=True,
+                                        repair_update_contracts=True, payload_producer=producer)
             key = builder.value_hash({"inputKey": inputs["inputKey"], "scope": "full-build-update-capability", "capsule": capsule})
             update = {"schema": 1, "updateKey": key, "gameInputKey": inputs["inputKey"],
                 "mode": "build-capability", "modBuild": inputs["mod"]["modBuild"], "profile": inputs["profile"]}
@@ -489,7 +533,8 @@ def add_update_capability(builder, apk, inputs, output, source, tools):
                 witnesses.observe(apk, hasher=lambda path: result["sha256"])
                 if core._base_stamp(apk) != current:
                     raise builder.BuildError("Signed Player changed while recording its capability proof.")
-        details = {"schema": 1, "dynamicProfile": True, "scriptTypes": len(capsule["scriptTypes"]), "packageAbi": package_abi}
+        details = {"schema": 1, "dynamicProfile": True, "scriptTypes": len(capsule["scriptTypes"]), "packageAbi": package_abi,
+                   "payloadProducer": capsule.get("payloadProducer")}
         return [apk, *(output / "signing" / name for name in ("certificate.json", "quest.keystore", "local-key.json"))], details
 
     return stages.run("player-update-capability", receipt_key, close_capability)["details"]

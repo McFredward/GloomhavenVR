@@ -130,6 +130,31 @@ class ApkUpdateTests(unittest.TestCase):
         self.capsule["metadataVersion"] = 28; self.values[update.CAPSULE] = json.dumps(self.capsule).encode(); self.write_zip(self.base, self.values)
         with self.assertRaisesRegex(storage.BuildError, "metadata format"): update.inspect_base(self.base)
 
+    def test_optional_signed_payload_producer_is_bound_to_original_inventory(self):
+        rows = [{"path": name, "size": 12, "sha256": digit * 64} for name, digit in
+                (("tools/quest-builder/builder.py", "3"), ("tools/quest-builder/preparation_identity.py", "4"))]
+        self.input["mod"]["files"] = rows
+        proof = {"schema": 1, "scope": "quest-builder-producer-ast-v1", "source": rows[0], "normalizer": rows[1], "sha256": "5" * 64}
+        self.capsule["payloadProducer"] = proof
+        self.values[update.INPUT] = storage.canonical(self.input); self.values[update.CAPSULE] = storage.canonical(self.capsule)
+        self.write_zip(self.base, self.values)
+        self.assertEqual(update.inspect_base(self.base)["capsule"]["payloadProducer"], proof)
+        with patch.object(update, "script_roster", return_value={"unityVersion": "2021.3.5f1", "scriptTypes": [self.row]}):
+            created = update.make_capsule(self.base, package_abi="b" * 64, dynamic_profile=True, payload_producer=proof)
+        self.assertEqual(created["payloadProducer"], proof)
+        for broken in ({key: value for key, value in proof.items() if key != "normalizer"},
+                       {**proof, "sha256": "not a digest"}, {**proof, "source": {**rows[0], "sha256": "6" * 64}}):
+            self.capsule["payloadProducer"] = broken; self.values[update.CAPSULE] = storage.canonical(self.capsule)
+            self.write_zip(self.base, self.values)
+            with self.assertRaisesRegex(storage.BuildError, "payload producer"):
+                update.inspect_base(self.base)
+        self.input["mod"]["files"] = [*rows, rows[0]]
+        self.capsule["payloadProducer"] = proof
+        self.values[update.INPUT] = storage.canonical(self.input); self.values[update.CAPSULE] = storage.canonical(self.capsule)
+        self.write_zip(self.base, self.values)
+        with self.assertRaisesRegex(storage.BuildError, "source provenance"):
+            update.inspect_base(self.base)
+
     def test_legacy_profile_requires_one_code_migration_and_future_profile_needs_no_compiler(self):
         del self.values[update.CAPSULE]; self.write_zip(self.base, self.values)
         profile = {"schema": 1, "provider": "steam", "steamId": "76561197960265729", "accountId": 1, "displayName": "Owner"}
