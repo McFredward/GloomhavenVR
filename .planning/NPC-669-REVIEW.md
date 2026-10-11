@@ -67,7 +67,14 @@ Native template preparation is now atomic. Failure and changed-HUD replacement
 retire the old publisher/public-catalog, mirror and template bank through the
 existing centralized town shutdown. Retry uses fresh immutable bindings; strict
 same-key/different-original refusal is retained. The ready same-HUD fast path
-keeps its current bank and IDs. See [NPC-669-ORIGINALS.md](NPC-669-ORIGINALS.md).
+keeps its current bank and IDs. Shutdown explicitly retires private, public and
+stock lanes even when called from inside a public capture scope, restoring the
+caller scope on return. Successful bank replacement stops the current capture
+before it can publish disposed catalog/station arguments; the next regular tick
+reacquires originals without another delay. Preparation recovery preserves the
+existing error deduplication and rate caps for all publishers and the mirror;
+actual map retirement starts a fresh diagnostic lifetime.
+See [NPC-669-ORIGINALS.md](NPC-669-ORIGINALS.md).
 
 ModBuild669 keeps Version3 and next-free118. No TLV, asset, configuration key,
 input mapping, card layout, finite flight or intrinsic-effect change. The
@@ -86,6 +93,11 @@ exception, event-cap, cadence, compression and batch controls remain meaningful.
 A first fixture build lacked a version-codec dependency; the finalized proof
 uses its explicit payload boundary and actual scheduler buffer identity. No
 production failure or relaxed assertion is inferred from that fixture error.
+
+The initial gate attempt stopped in the 18-test runner inventory check before
+any local runtime suite ran: the new lifecycle registration needed its matching
+inventory entry and local count216. The corrected runner passes its original
+18 tests with two intentional platform skips; no suite or assertion was removed.
 
 Worker and final integration counts, complete-gate results and retained evidence
 are recorded after the integrated checks. Automated source, native Unity and

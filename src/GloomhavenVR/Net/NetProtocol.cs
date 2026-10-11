@@ -629,6 +629,8 @@ internal static class NetProtocol
     // A failed native template initialization also left stale immutable asset aliases
     // across retries; retire the failed bank/registry atomically without relaxing
     // conflicting-original identity. Preserve the unchanged ready-bank fast path.
+    // Retire all lanes in explicit scopes, preserve bounded retry diagnostics, and
+    // stop a replaced-bank capture before its disposed arguments are republished.
     // See NPC-669-REVIEW.md and lane notes for source/runtime proof and hardware limits.
     // No asset/config/input/wire grammar/TLV change. Version3 and next-free118 remain.
 
