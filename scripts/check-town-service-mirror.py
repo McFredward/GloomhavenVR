@@ -164,6 +164,12 @@ def sources(root):
     bound["TransferCapability.cs"] = hold[:hold.index("\n/// <summary>", hold.index("internal interface IItemCardHold"))].replace("using GloomhavenVR.Rig;\n", "")
     templates = (base / "WorldUI/TownServices/NativeTemplates.cs").read_text()
     bound["NativeTemplatePaths.cs"] = "using System;\nusing UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class NativeTemplates {\n" + method(templates, "internal static string Append(string path, Transform child)") + "\n}\n"
+    bound["NativeInitialization669.cs"] = "using System;\nusing UnityEngine;\nusing Object = UnityEngine.Object;\nusing GloomhavenVR.Net.TownServices;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class NativeInitializationProbe {\n" + expression(templates, "internal static bool Ready") + "\n" + method(templates, "internal static bool Initialize()") + "\n" + method(templates, "internal static void Shutdown()") + "\n}\n"
+    # Shutdown has a compact one-line body; the legacy block extractor would also
+    # bind the following ReportReset method. Keep its complete exact source body.
+    shutdown_start = publisher.index("    internal static void Shutdown()")
+    shutdown = publisher[shutdown_start:publisher.index("\n    private void ReportReset()", shutdown_start)]
+    bound["NativeSyncShutdown669.cs"] = "using GloomhavenVR.Net.TownServices; namespace GloomhavenVR.WorldUI; internal static partial class NativeInitializationProbe { private static partial class TownServiceSync {\n" + shutdown.replace("NativeTemplates.Shutdown();", "NativeInitializationProbe.Shutdown();", 1) + "\n} }\n"
     bound["NativeDynamicBoundary.cs"] = "using UnityEngine;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class NativeTemplates {\n" + expression(templates, "internal static bool IsDynamic(Transform node)") + "\n}\n"
     definitions = templates[templates.index("    internal sealed class Part"):templates.index("    private static readonly Dictionary<string, Entry>")]
     template_methods = ("private static Transform? OriginalMapBacking()", "private static void EnsureNativeProp(string key)", "private static void Freeze(string key, Entry entry)",
@@ -296,6 +302,13 @@ def main():
                 # Retained instance provenance can alias the second lifetime before the
                 # later ambiguity scan. Bind the earliest actual reset defect.
                 ("retain-cleared-provenance", "TownServiceAssets.cs", "_originalKeys.Clear();", "", "different native backdrops retain distinct identities"),
+                ("failed-bank-registry", "NativeInitialization669.cs", "TownServiceSync.Shutdown(); throw;", "Shutdown(); throw;", "failed preparation retires its immutable registry before native mode art changes"),
+                ("failed-bank-copy", "NativeInitialization669.cs", "TownServiceSync.Shutdown(); throw;", "TownServiceMirror.Shutdown(); throw;", "failed preparation leaves no partial bank or ready HUD"),
+                ("new-hud-registry", "NativeInitialization669.cs", "if (_bank != null || _hud != null) TownServiceSync.Shutdown();", "// preserve retired HUD registry", "a replacement HUD retires all old mirror bindings before registering its own originals"),
+                ("source-lifetime-retirement", "NativeSyncShutdown669.cs", "Private.ResetCore(); ResetPublic();", "// retain prior publisher sources\n", "a replacement HUD clears both actual original publisher source dictionaries"),
+                ("public-catalog-retirement", "NativeSyncShutdown669.cs", "TownServicePublicMerchant.Reset();", "// retain public native catalog\n", "a replacement HUD retires its public native catalog before fresh acquisition"),
+                ("ready-bank-reset", "NativeInitialization669.cs", "if (_ready && _hud == hud && _bank != null)", "if (_ready && _hud != hud && _bank != null)", "routine same-HUD preparation preserves its original bank and asset generation"),
+                ("overwrite-original-slot", "TownServiceAssets.cs", 'if (_assets.TryGetValue(key, out Object? other) && other != null && !ReferenceEquals(other, asset))\n            throw new InvalidDataException("Conflicting original town-service provenance: " + key);', "// original slot conflict check omitted", "different originals still conflict inside one successfully initialized bank"),
             ]
     if args.suite == "catalog-lifetime":
         variants = [("production", None, None, None, "")]

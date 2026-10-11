@@ -56,7 +56,26 @@ internal static partial class NativeTemplates
             PrepareEnhancementOriginals();
             return true;
         }
-        Shutdown(); _hud = hud;
+        // Failed first preparation leaves immutable slot aliases even if native mode art
+        // changes before the retry. Build668 then rejected the banner Icon forever; its
+        // preceding empty-message failure is not identified by the supplied logs.
+        // A different HUD also retires public catalogs, publisher sources and mirror templates.
+        // The unchanged-ready fast path above never resets either lifetime.
+        if (_bank != null || _hud != null) TownServiceSync.Shutdown();
+        Shutdown();
+        try { return InitializeBank(hud); }
+        catch
+        {
+            // Initialization is atomic: no partial bank or original registry may survive
+            // to poison the next native retry. Preserve the actual failure for reporting;
+            // strict different-original slot conflicts remain failures within each bank.
+            TownServiceSync.Shutdown(); throw;
+        }
+    }
+
+    private static bool InitializeBank(UIGuildmasterHUD hud)
+    {
+        _hud = hud;
         _bank = new GameObject("GVR original town widget provenance"); _bank.SetActive(false);
         Object.DontDestroyOnLoad(_bank);
         Add("merchant", hud.shopWindow);

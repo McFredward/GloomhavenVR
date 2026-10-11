@@ -35,6 +35,7 @@ public static partial class MirrorProgram
 
     private static void BackdropIdentity()
     {
+        NativeBankInitialization669();
         MaterialPropertyBudget();
         DuplicateNativeTextures();
         var ownerRoots = BackdropRoots(false, out Texture2D ownerMerchant, out Texture2D ownerTemple);
