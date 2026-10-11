@@ -1,5 +1,21 @@
 # State — where the project stands
 
+**Quest save-priority installation recovery, 2026-10-11 (Builder; new builds Runtime671).**
+
+Capture124423 confirms six closed stages and the finished665 APK. The paused-app
+fallback incorrectly treats an expected empty `pidof` exit1 as failure before
+its first bounded retry. The maintainer now explicitly requires current and
+stored savegames: Wizard recovery retains every readable member, preserves all
+native save/history/import trees and can omit proved inaccessible non-save files.
+Successful archives/APK/banks remain retained; incomplete save access pauses
+without uninstall or reset. A stricter all-file attempt has an explicit scoped
+compromise action; Windows recovery metadata uses the corrected normalized path
+boundary. Fresh453 affected host/UI cases and11 independent filesystem/process
+controls pass; strict composed Release has0 warnings/errors. Delivery integrates
+published dev671/1.1.1; installation retry keeps665 without Unity work or a new APK.
+Actual Quest migration remains unverified. Source/validation and hardware limits:
+[QUEST-INSTALLATION-ACCESS-112552-20261011.md](QUEST-INSTALLATION-ACCESS-112552-20261011.md).
+
 **Quest Android storage namespace recovery, 2026-10-11 (Builder; new builds Runtime671).**
 
 Capture120937 identifies the delivered670 Builder and retained665 APK with all

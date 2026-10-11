@@ -91,6 +91,73 @@ The delivered ZIP is checked against18 actual earlier releases with360 changed
 input controls, then launched twice through its extracted Linux launcher with a
 retained session. These are host delivery checks, not a full Linux game build.
 
+## Follow-up capture124423: save-priority recovery
+
+`quest-build-support-20261011T124423Z-31171fcc.zip` identifies the delivered
+`1217f6d76`/Runtime671 Builder and the unchanged completed Runtime665 APK. All
+six earlier stages remain complete. Installation attempt6 lasts41.989 seconds
+and fails before binary backup transfer or uninstall. Shell census again finds
+three inaccessible regular files outside the native save folders. The process
+fallback starts the installed launcher for debugger waiting, but its first
+`pidof` observation has exit1 with empty stdout/stderr: the process is not yet
+present. The production ADB wrapper wrongly treats that ordinary pending state
+as a fatal error, bypassing the intended bounded poll. Only this explicitly
+approved blank exit1 observation now means no PID yet; nonempty device errors,
+other statuses and unapproved commands still fail with command/exit context.
+
+The maintainer's2026-10-11 clarification says that current and stored savegames
+are the required data. This explicitly narrows the historical all-file promise
+below. The Wizard requests the installation-only `saves` policy. It preserves
+every readable file and may omit inaccessible non-save members only after a
+complete typed census. All six native `GloomSaves` release-channel trees,
+`QuestSaveBackups`, pending save-transfer journals and save-import staging stay
+protected in full, including global state, checkpoints, older/corrupted saves
+and every filename inside those trees. A crash-like filename is never grounds
+to omit a member inside a save root. An unreadable parent or incomplete traversal
+cannot prove that the required saves were captured and cannot authorize removal.
+
+The standalone installer's compatibility default remains `all`;
+`--recovery-data-policy saves` selects the same explicit narrower promise.
+Policy transitions before replacement retain the transaction, original APK,
+healthy completed root archives and bank witnesses. Only changed positive member
+lists are recaptured. Once replacement begins, the durable original policy owns
+restoration, verification and rollback. Current omissions are counted separately
+and preserved in the recovery journal; they never enter the required archive
+inventory or become an ignored tar failure. The six completed build stages and
+the665 APK remain untouched during installation-only retry.
+
+An actual unreadable protected save pauses with specific bilingual instructions
+and retained-app/APK context. There is no destructive save reset. A stricter
+`all` attempt with inaccessible non-save files can offer an explicit choice to
+keep saves and continue, retry all files, or finish without installation. Approval
+is bound to the current session, completed APK/input/build key, installation
+attempt and one durable nonce. Stale, foreign and busy actions are refused;
+ordinary retry preserves the decision and legitimate choice changes clear it.
+
+The report's `signingRecoveryUnavailable: path-binding-mismatch` also proves a
+Windows collector regression. `normcase` converts slash separators, but the
+collector appends its directory-boundary slash after normalizing the prefix.
+Normalize the full boundary instead. A production `Recovery.commit()` fixture
+now exercises actual `ntpath.normcase`; a neighboring foreign prefix remains
+rejected. Support reports include only policy, omitted-member count/bytes and
+the existing bounded recovery frontier, never raw journals, filenames or saves.
+
+Exact source contracts, affected checks, independent filesystem/process controls
+and delivery qualification live in
+`B671-install-recovery-124423-20261011`. Actual Quest migration remains a hardware
+outcome; this repair does not import Unity, compile a Shader matrix or export a
+new APK. The source delivery includes published dev671 and its1.1.1 project
+version after the1.1.0 release; the finished665 installation still stays retained.
+
+Fresh affected validation covers276 installer host passes (24 optional Windows
+cases skipped),109 Wizard cases,57 release/support cases and11 installation UI
+cases, including real Chrome and HTTP/Engine/Supervisor fixtures. All453 pass.
+Eleven independent real Linux filesystem/permission/new-UID and ADB-wrapper
+subprocess controls also pass against the integrated installer. Their Android
+package responses remain simulated. Strict composed Release compiles with
+0 warnings/errors after integrating published dev
+`238dcc5896990df71b6fba03a6d19c71ec2735d3`; no whole-game gate is repeated.
+
 ## Repair boundaries
 
 This is still an installation-only signing migration. Healthy updates signed
@@ -110,7 +177,8 @@ before restoring their separately backed-up additional files.
 
 Use explicit bounded archive member lists instead of broad recursive exclusion
 patterns. Native crash-diagnostic filenames alone never justify dropping an
-unreadable file, and ignored tar errors never qualify a backup. Preserve the
+unreadable file. The explicit save-priority exception above can omit only proved
+non-save members; ignored tar errors never qualify a backup. Preserve the
 original installation until required data have verified recovery material.
 Retain completed root archives and the original APK across an interrupted
 `created` transaction. Prune only unreferenced generated partial archives in
