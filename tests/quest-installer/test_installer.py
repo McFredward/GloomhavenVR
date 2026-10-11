@@ -802,6 +802,11 @@ assert callable(module.native_plugins.verify_staged)
 assert Path(module.native_plugins.__file__) == installer.REPO / "tools/quest-builder/native_plugins.py"
 assert module.native_plugins.BuildError is module.BuildError
 assert module.native_plugins.digest is module.digest
+assert module.apk_input_hashes.storage.BuildError is module.BuildError
+assert module.apk_input_hashes.storage.digest is module.digest
+capacity = module._local_helper("update_capacity").qualification_module(module._module_context())
+assert capacity.ordinary is module._ordinary_owned
+assert capacity.atomic_json is module.write_json
 assert module.preparation_identity.editor_overlay is module.prepare_resume.preparation_metadata.editor_overlay
 assert module.preparation_identity.editor_overlay.BuildError is module.BuildError
 assert Path(module.preparation_identity.editor_overlay.__file__) == installer.REPO / "tools/quest-builder/editor_overlay.py"
@@ -822,6 +827,18 @@ assert module.preparation_repair._helper("shaders").BuildError is module.BuildEr
 assert module.preparation_repair._helper("script_remap_resume") is module.prepare_resume.script_remap_resume
 with tempfile.TemporaryDirectory(prefix="isolated repair ") as temporary:
     output = Path(temporary)
+    apk = output / "retained.apk"
+    apk.write_bytes(b"actual file witness, separate APK contracts checked by caller")
+    checksum = module.apk_input_hashes.digest_apk(apk, output)
+    assert checksum == hashlib.sha256(apk.read_bytes()).hexdigest()
+    saved_hasher = module.apk_input_hashes.storage.digest
+    def no_repeat_hash(path):
+        raise AssertionError("Unchanged selected APK must use its existing byte witness")
+    module.apk_input_hashes.storage.digest = no_repeat_hash
+    try:
+        assert module.apk_input_hashes.digest_apk(apk, output) == checksum
+    finally:
+        module.apk_input_hashes.storage.digest = saved_hasher
     project, original, source = (output / name for name in ("project", "original", "source"))
     for path in (project, original, source): path.mkdir()
     relative = "ProjectSettings/ProjectSettings.asset"
