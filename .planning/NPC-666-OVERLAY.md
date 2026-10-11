@@ -115,3 +115,24 @@ Final worker evidence:
 
 These are focused worker checks, not a new full local gate. Headset confirmation
 of the current missing fields remains outstanding.
+
+## Legacy handoff fixture field-port repair
+
+The composed212 run failed to compile `town-enhancement-handoff` because its
+`SummonContainer` boundary exposed only `SummonNameText`. No production assertion
+executed in that failed variant. Readonly `GH.Runtime.dll` decompilation confirms
+that `SummonLT`, `SummonLB`, `SummonMT` and `SummonMB` are original public
+`GameObject` fields. The boundary now declares exactly those four references,
+without supplying slots, availability, selection behavior or callbacks. Production
+sources and existing runtime assertions/mutations are unchanged.
+
+Focused validation binds the frozen NPC666 integration checkout:
+`python3 scripts/check-town-enhancement-handoff.py --source-root
+/home/claw/gloomhaven_vr_npc666_integration --only-mutation native-print-real-geometry
+--only-mutation native-print-pivot-alignment --only-mutation native-print-restore
+--only-mutation native-disabled --output-dir .planning/debug/npc666/handoff-fixture`.
+Production passes1515 runtime assertions; all four compiled negative variants
+reach their original named engine failures. Evidence is worker
+`.planning/debug/npc666/handoff-fixture/run-8721rl7i`, with source hashes,
+compiled sources/DLLs, mutation ledger and engine receipt. This focused result
+repairs the fixture binding; it is not a fresh complete212-suite gate.
