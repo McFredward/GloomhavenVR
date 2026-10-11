@@ -190,7 +190,7 @@ def installation_failure(text, parameters):
     index = starts[-1]
     parts = [lines[index][len("Quest installation stopped: "):].strip()]
     for line in lines[index + 1:]:
-        if line.startswith(("ADB log: ", "GHVRQ_PROGRESS ")): break
+        if line.startswith(("ADB log: ", "GHVRQ_PROGRESS ", "GHVRQ_ACTION ")): break
         if line.strip(): parts.append(line.strip())
     # Capture112552's ADB tar error contains several lines. Its retained
     # backup location occurs after those errors, so reading only the prefix
@@ -214,6 +214,35 @@ def installation_failure(text, parameters):
         if backup is None: backup = re.search(r"(?:^|\n| )Retained backup: ([^\r\n]{1,2048})", current_error)
         if backup and not any(ord(char) < 32 or ord(char) == 127 for char in backup[1]):
             fields["backupPath"] = backup[1]
+        # Only the current installer's bounded action, immediately before its
+        # final refusal, can request a policy decision. An earlier failure,
+        # malformed JSON or arbitrary log text must never grant that authority.
+        previous = starts[-2] + 1 if len(starts) > 1 else 0
+        declared = [line[len("GHVRQ_ACTION "):] for line in lines[previous:index]
+                    if line.startswith("GHVRQ_ACTION ")]
+        action = None
+        if declared and len(declared[-1]) <= 2048:
+            try:
+                value = json.loads(declared[-1])
+                expected = {"schema", "kind", "reason", "policy", "saveDataProtected"}
+                if (isinstance(value, dict) and set(value) == expected
+                        and type(value["schema"]) is int and value["schema"] == 1
+                        and value["kind"] == "signing-data-policy"
+                        and value["reason"] in ("save-data-inaccessible", "non-save-inaccessible")
+                        and value["policy"] in ("all", "saves")
+                        and value["saveDataProtected"] is True
+                        and (value["reason"] != "non-save-inaccessible" or value["policy"] == "all")):
+                    action = value
+            except (ValueError, TypeError): pass
+        if action:
+            saves = action["reason"] == "save-data-inaccessible"
+            return WizardError("quest_signing_data_required",
+                ("A save folder cannot be read safely. The existing installation, current and archived saves, retained backups and completed APK stay protected. Keep the Quest awake and connected and retry, or finish without installing. The wizard will not remove the app or reset saves."
+                 if saves else "Some files outside the save folders cannot be read. Current and archived saves stay protected. You can retry preserving all files, or choose to keep saves and continue; inaccessible files outside save folders, including diagnostic or settings files, will not be retained. The completed APK is not rebuilt."),
+                ("Ein Spielstandordner kann nicht sicher gelesen werden. Die vorhandene Installation, aktuelle und gespeicherte Spielstände, vorhandene Sicherungen und die fertige APK bleiben geschützt. Quest eingeschaltet und verbunden lassen und erneut versuchen oder ohne Installation abschließen. Der Wizard entfernt die App nicht und setzt keine Spielstände zurück."
+                 if saves else "Einige Dateien außerhalb der Spielstandordner können nicht gelesen werden. Aktuelle und gespeicherte Spielstände bleiben geschützt. Erneut alle Dateien sichern oder Spielstände behalten und fortfahren; nicht lesbare andere Dateien, etwa Diagnose- oder Einstellungsdateien, werden dabei nicht übernommen. Die fertige APK wird nicht neu gebaut."),
+                **dict(fields, signingRecovery=True, recoveryDataReason=action["reason"],
+                       recoveryDataPolicy=action["policy"], saveDataProtected=True))
         # An actual current signing migration refusal is not a connection
         # problem. Never tell the player to rebuild or remove the installed
         # application: the installer retains its recovery journal and backups.

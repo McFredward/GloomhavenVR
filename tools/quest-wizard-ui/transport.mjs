@@ -31,6 +31,7 @@ export class LocalApi {
   plan(choices, session) { if(session !== undefined && !sessionId(session))throw {code:'invalidReply'};return this.request('/api/plan',{choices,...(session?{session}:{})}); }
   run(session) { return this.request('/api/run',{session}); }
   skipInstall(session) { if(!sessionId(session))throw {code:'invalidReply'};return this.request('/api/install/skip',{session}); }
+  installDataPolicy(session,nonce,policy='saves') { if(!sessionId(session)||typeof nonce!=='string'||!/^[a-f0-9]{32}$/.test(nonce)||policy!=='saves')throw {code:'invalidReply'};return this.request('/api/install/data-policy',{session,nonce,policy}); }
   cancel(session) { return this.request('/api/cancel',{session}); }
   log(session,stage,signal) { if(!sessionId(session)||!stageIds.includes(stage))throw {code:'invalidReply'};return this.request('/api/log?session='+encodeURIComponent(session)+'&stage='+stage,undefined,signal); }
   gallery() {return this.request('/api/gallery');}
@@ -49,6 +50,7 @@ export class PreviewApi {
   async gallery() {return {schema:1,event:'gallery',artwork:[]};}
   async action() {throw {code:'preview'};}
   async skipInstall() {throw {code:'preview'};}
+  async installDataPolicy() {throw {code:'preview'};}
   constructor() { this.sequence=0; this.state=null; this.eventsList=[]; this.tick=0; }
   async discover() { return {schema:1,event:'discovery',capabilities:{browse:false,artwork:false},games:[
     {id:'preview-owned-game',provider:'steam',gameRoot:'C:\\Program Files (x86)\\Steam\\steamapps\\common\\Gloomhaven',

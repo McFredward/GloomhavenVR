@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
+import secrets
 import sys
 import time
 
@@ -291,8 +292,69 @@ class Engine:
                 self.store.progress(session, "install", "complete", 1, 1, "stages", "Finished without installation at the user's request.")
                 state.setdefault("completed", {})["install"] = {"key": receipt["key"], "details": receipt["details"]}
                 state.update(status="complete", needsActions=[])
+                state.pop("installationAction", None)
                 self.emit(self.store.event(state, "installation_skipped", "install", requested=False))
                 self.emit(self.store.event(state, "run_complete"))
+                return state
+
+    def installation_policy(self, state):
+        """Keep an installation decision outside every build-stage identity.
+
+        The maintainer explicitly prioritizes current and archived saves. The
+        Wizard therefore requests saves protection; the standalone installer's
+        default remains all data. An explicit stricter choice belongs only to
+        this session's completed APK, never a global preference or new build.
+        """
+        build = state.get("completed", {}).get("build", {})
+        details = build.get("details", {})
+        binding = {"schema": 1, "session": state["session"], "buildKey": build.get("key"),
+                   "inputKey": details.get("inputKey"), "apkSha256": details.get("apkSha256")}
+        saved = state.get("installationRecoveryPolicy")
+        if saved is not None and (not isinstance(saved, dict) or type(saved.get("schema")) is not int
+                or set(saved) != {*binding, "policy"}
+                or any(saved.get(name) != value for name, value in binding.items())
+                or saved.get("policy") not in ("all", "saves")):
+            raise WizardError("installation_policy_invalid",
+                "The installation data choice no longer matches this completed APK. Keep the existing app and saves; save diagnostics before retrying.",
+                "Die Datenauswahl für die Installation passt nicht mehr zu dieser fertigen APK. Vorhandene App und Spielstände behalten; vor dem erneuten Versuch das Diagnosepaket speichern.")
+        return saved or dict(binding, policy="saves")
+
+    def approve_installation_policy(self, session, nonce, policy):
+        """Approve one declared compromise for this inactive install attempt."""
+        if (not isinstance(nonce, str) or not re.fullmatch(r"[0-9a-f]{32}", nonce)
+                or policy != "saves"):
+            raise WizardError("installation_action_invalid", "Invalid installation action.", "Ungültige Installationsaktion.")
+        with file_lock(self.store.root / "run.lock"):
+            state = self.store.load(session)
+            action = state.get("installationAction", {})
+            current = self.installation_policy(state)
+            needed = next((item for item in state.get("needsActions", [])
+                           if isinstance(item, dict) and item.get("code") == "quest_signing_data_required"
+                           and item.get("stage") == "install"), {})
+            if (value_hash(state["choices"]) != state["choicesKey"]
+                    or not self.store.installation_pending(state, skip=True)
+                    or not isinstance(action, dict)
+                    or set(action) != {*current, "nonce", "reason", "attempt"}
+                    or any(action.get(name) != value for name, value in current.items())
+                    or action.get("nonce") != nonce
+                    or action.get("reason") != "non-save-inaccessible" or current["policy"] != "all"
+                    or type(action.get("attempt")) is not int or action.get("attempt") != state["stages"][-1].get("attempts")
+                    or needed.get("parameters", {}).get("installationActionNonce") != nonce
+                    or needed.get("parameters", {}).get("recoveryDataReason") != "non-save-inaccessible"
+                    or needed.get("parameters", {}).get("recoveryDataPolicy") != "all"
+                    or needed.get("parameters", {}).get("saveDataProtected") is not True):
+                raise WizardError("installation_action_stale",
+                    "This installation choice is no longer current. Refresh the current run before continuing.",
+                    "Diese Installationsauswahl ist nicht mehr aktuell. Vor dem Fortsetzen den aktuellen Lauf neu laden.")
+            with self.store.active(state):
+                state["installationRecoveryPolicy"] = dict(current, policy="saves")
+                state.pop("installationAction", None)
+                # Keep the current blocked row until run starts. Removing only
+                # its consumed action cannot reset any successful predecessor.
+                state["needsActions"] = []
+                self.emit(self.store.event(state, "installation_policy_approved", "install",
+                                           policy="saves", saveDataProtected=True,
+                                           completedBuildRetained=True))
                 return state
 
     def delivery_resume_candidate(self, state):
@@ -559,12 +621,28 @@ class Engine:
         # a first-pass Player retained across a newer archive's repair.
         source = self.repo
         config = self.store.root / "device/wireless-install.json"
+        policy = self.installation_policy(state)
+        state["installationRecoveryPolicy"] = policy
+        self.store.save(state)
         self.emit(self.store.event(state, "installation_guidance", "install", automaticReconnect=True, message={
             "en": "The APK is ready. Unlock the Quest and enable developer mode. Connect the PC and Quest to the same Wi-Fi. For the first connection, connect the Quest by USB and accept its USB debugging prompt. An already authorized headset reconnects automatically; keep it awake during installation.",
             "de": "Die APK ist fertig. Quest entsperren und Entwicklermodus aktivieren. PC und Quest mit demselben WLAN verbinden. Beim ersten Verbinden die Quest per USB anschließen und die USB-Debugging-Abfrage bestätigen. Eine bereits autorisierte Quest verbindet sich automatisch wieder; während der Installation eingeschaltet lassen."}))
         self.store.operation(state["session"], "install", "connect", detail="APK ready. Connecting the authorized Quest; first setup requires unlocked developer-mode Quest, USB debugging approval and the same Wi-Fi.")
-        supervisor.run([sys.executable, "-B", "-X", "utf8", str(source / "scripts/install-quest-wireless.py"),
-                        "--output-root", self.details(state, "build")["outputRoot"], "--config", str(config)], self.log(state, "install"))
+        try:
+            supervisor.run([sys.executable, "-B", "-X", "utf8", str(source / "scripts/install-quest-wireless.py"),
+                            "--output-root", self.details(state, "build")["outputRoot"], "--config", str(config),
+                            "--recovery-data-policy", policy["policy"]], self.log(state, "install"))
+        except WizardError as error:
+            if error.code == "quest_signing_data_required":
+                if error.parameters.get("recoveryDataPolicy") != policy["policy"]:
+                    raise WizardError("installation_action_invalid",
+                        "The installer action differs from this run's data choice. Existing saves and the completed APK stay retained.",
+                        "Die Installeraktion passt nicht zur Datenauswahl dieses Laufs. Vorhandene Spielstände und die fertige APK bleiben erhalten.") from error
+                action = dict(policy, nonce=secrets.token_hex(16),
+                              reason=error.parameters["recoveryDataReason"], attempt=state["stages"][-1]["attempts"])
+                state["installationAction"] = action
+                error.parameters["installationActionNonce"] = action["nonce"]
+            raise
         receipt = config.parent / "wireless-last-install.json"
         value = read_json(receipt)
         if (value["apkSha256"] != self.details(state, "build")["apkSha256"]

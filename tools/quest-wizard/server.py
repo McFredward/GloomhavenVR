@@ -222,6 +222,16 @@ class LocalServer(ThreadingHTTPServer):
         return {"schema": 1, "event": "status", "session": session,
                 "state": self.visible_state(session, state)}
 
+    def approve_installation_policy(self, session, nonce, policy):
+        with self.jobs_lock:
+            if any(job.is_alive() for job in self.jobs.values()) or self.storage_job and self.storage_job.is_alive():
+                raise WizardError("already_running", "Stop the active operation before changing installation data handling.",
+                                  "Den laufenden Vorgang vor der Auswahl der Installationsdaten anhalten.")
+            state = self.engine_factory(self.store).approve_installation_policy(session, nonce, policy)
+            self.job_errors.pop(session, None)
+        return {"schema": 1, "event": "status", "session": session,
+                "state": self.visible_state(session, state)}
+
     def storage_status(self):
         with self.storage_lock:
             value = copy.deepcopy(self.storage_state)
@@ -475,6 +485,10 @@ class Handler(BaseHTTPRequestHandler):
                 from unity_setup import request_action
                 with self.server.action_lock:
                     return request_action(self.server.store, value['session'], value['action'], value['nonce'])
+            if parsed.path == "/api/install/data-policy":
+                if set(value) != {"session", "nonce", "policy"}:
+                    raise WizardError("request_body", "Expected the current installation data action.")
+                return self.server.approve_installation_policy(value["session"], value["nonce"], value["policy"])
             if set(value) != {"session"}: raise WizardError("request_body", "Expected only the session ID.")
             session = value["session"]
             if parsed.path == "/api/install/skip":

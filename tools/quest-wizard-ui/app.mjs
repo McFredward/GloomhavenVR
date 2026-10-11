@@ -464,6 +464,12 @@ function renderProgress() {
     $('progress-title').textContent=t(installation.connectionRequired?'questConnectionTitle':installation.recoveryRequired?'installationRecoveryTitle':'installationFailedTitle');
     $('progress-copy').textContent=t(installation.connectionRequired?'questConnectionCopy':installation.recoveryRequired?'installationRecoveryCopy':'installationFailedCopy');
     $('action-needed-title').textContent=t(installation.connectionRequired?'questConnectionNeeded':installation.recoveryRequired?'installationRecoveryAction':'installationFailedAction');
+    if(installation.dataIssue){
+      const saves=installation.dataIssue==='save-data-inaccessible';
+      $('progress-title').textContent=t(saves?'installationSaveWaitTitle':'installationDataChoiceTitle');
+      $('progress-copy').textContent=t(saves?'installationSaveWaitCopy':'installationDataChoiceCopy');
+      $('action-needed-title').textContent=t(saves?'installationSaveWaitAction':'installationDataChoiceAction');
+    }
   }else if(installation&&active){
     $('progress-title').textContent=t(installation.recoveryActive?'installationRecoveryRunningTitle':'installationRunningTitle');
     $('progress-copy').textContent=t(installation.recoveryActive?'installationRecoveryRunningCopy':'installationRunningCopy');
@@ -515,11 +521,13 @@ function renderProgress() {
   $('failure-cause').textContent=cause?t('failureCause',{cause}):'';
   $('failure-next').hidden=!failure&&!installIssue;$('failure-actions').hidden=!failure&&!installIssue;
   $('failure-next').textContent=t(installIssue?installation.connectionRequired?'questConnectionNext':installation.recoveryRequired?'installationRecoveryNext':'installationNext':failure?.blocked?'nativeMemoryNext':'failureNext');
+  if(installation?.dataIssue)$('failure-next').textContent=t(installation.dataIssue==='save-data-inaccessible'?'installationSaveWaitNext':'installationDataChoiceNext');
   if(installation?.backupPath)$('failure-next').textContent+=' '+t('installationRecoveryBackup',{path:installation.backupPath});
-  $('failure-retry').textContent=t(installIssue?'installationRetry':'failureRetry');
+  $('failure-retry').textContent=t(installation?.dataIssue==='non-save-inaccessible'?'installationRetryAll':installIssue?'installationRetry':'failureRetry');
   const locked=busy||actionBusy||storageActive()||active||!canConnect||Boolean(resumeFailed);
   $('failure-retry').disabled=locked;
   $('install-skip').hidden=!installation?.canSkip;$('install-skip').disabled=locked;
+  $('install-keep-saves').hidden=!installation?.canUseSaves;$('install-keep-saves').disabled=locked;
   $('failure-support').hidden=preview||discovery?.capabilities?.support!==true;
   $('failure-support').disabled=!sessionId(state.session);
   if(action||blocked||stopped){const blockedStage=state.stages?.find(stage=>stage.status==='blocked');const code=typeof action==='string'?action:action?.code??blockedStage?.details?.needsAction;
@@ -664,6 +672,19 @@ async function skipInstallation() {
     state=result.state;schedulePoll();
   }catch(value){error(value);}finally{busy=false;updateView();}
 }
+async function keepSavesAndInstall() {
+  const installation=installationView(state);
+  if(busy||actionBusy||storageActive()||isActive(state)||!canConnect||resumeFailed||!installation?.canUseSaves)return;
+  const session=state.session,nonce=installation.actionNonce;
+  busy=true;clearError();clearTimeout(pollTimer);sessionGeneration++;stopOptionalReads();updateView();
+  try{
+    const result=await api.installDataPolicy(session,nonce);
+    if(result?.event!=='status'||result.session!==session||result.state?.session!==session||
+       result.state.installationRecoveryPolicy?.policy!=='saves')throw {code:'invalidReply'};
+    state=result.state;
+    await api.run(session);const current=await api.status(session);state=current.state;await poll();schedulePoll();
+  }catch(value){error(value);}finally{busy=false;updateView();}
+}
 async function browse(kind) {
   busy=true;clearError();updateView();try{const result=await api.browse(kind);if(result.path){$(({game:'game-root',unity:'unity-editor',apk:'base-apk'})[kind]).value=result.path;if(kind==='game')selected=null;}}
   catch(value){error(value);}finally{busy=false;updateView();}
@@ -695,6 +716,7 @@ $('save-support').addEventListener('click',saveSupport);
 $('failure-support').addEventListener('click',saveSupport);
 $('failure-retry').addEventListener('click',primary);
 $('install-skip').addEventListener('click',skipInstallation);
+$('install-keep-saves').addEventListener('click',keepSavesAndInstall);
 $('log-stage').addEventListener('change',()=>{logSelectionManual=true;if($('live-log').checked)refreshLog();});
 document.querySelector('#diagnostic-details').addEventListener('toggle',()=>{if(document.querySelector('#diagnostic-details').open&&$('live-log').checked)refreshLog();});
 $('load-log').addEventListener('click',()=>void refreshLog());

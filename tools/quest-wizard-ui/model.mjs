@@ -67,7 +67,17 @@ export function installationView(state) {
   const result={...build.details,...state.result},paths={};
   for(const key of ['apk','handoff','outputRoot'])if(typeof result[key]==='string'&&result[key].length<=32768)paths[key]=result[key];
   const view={attention,connectionRequired,canSkip,cause,paths};
-  if(attention&&action?.code==='quest_signing_recovery_required')view.recoveryRequired=true;
+  if(attention&&['quest_signing_recovery_required','quest_signing_data_required'].includes(action?.code))view.recoveryRequired=true;
+  if(attention&&action?.code==='quest_signing_data_required'&&parameters.saveDataProtected===true&&
+     ['save-data-inaccessible','non-save-inaccessible'].includes(parameters.recoveryDataReason)){
+    view.dataIssue=parameters.recoveryDataReason;
+    const declared=state.installationAction,nonce=parameters.installationActionNonce;
+    view.canUseSaves=view.dataIssue==='non-save-inaccessible'&&parameters.recoveryDataPolicy==='all'&&
+      typeof nonce==='string'&&/^[a-f0-9]{32}$/.test(nonce)&&declared?.nonce===nonce&&
+      declared.session===state.session&&declared.policy==='all'&&declared.reason===view.dataIssue&&
+      declared.attempt===install.attempts&&declared.inputKey===build.details?.inputKey&&declared.apkSha256===build.details?.apkSha256;
+    if(view.canUseSaves)view.actionNonce=nonce;
+  }
   if(view.recoveryRequired&&typeof parameters.backupPath==='string'&&parameters.backupPath.length<=2048&&
      !/[\u0000-\u001f\u007f]/.test(parameters.backupPath))view.backupPath=parameters.backupPath;
   if(isActive(state)&&install.status==='running'&&typeof install.progress?.phase==='string'&&

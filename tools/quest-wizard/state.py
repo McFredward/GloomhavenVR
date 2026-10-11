@@ -265,6 +265,8 @@ class Store:
             state = self.load(session)
             if state["choices"] == choices: return state
             state.update(choices=choices, choicesKey=value_hash(choices), status="ready", needsActions=[])
+            state.pop("installationAction", None)
+            state.pop("installationRecoveryPolicy", None)
             for row in state["stages"]:
                 row.update(status="pending", details={}, progress=stage_progress())
                 row["workMode"] = choices.get("mode", "build")
@@ -378,6 +380,7 @@ class Store:
         with self._lock:
             state = self._state(session)
             state.update(status="running", needsActions=[])
+            state.pop("installationAction", None)
             for row in state["stages"]:
                 row["workMode"] = state["choices"].get("mode", "build")
                 stage_plan.retain_preparation_history(row, state.get("events"))
