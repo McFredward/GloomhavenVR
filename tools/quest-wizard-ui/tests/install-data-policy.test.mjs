@@ -204,7 +204,7 @@ test('actual Chrome/backend shows automatic root repair counts and preserves com
       await writeFile(join(owner.root,'repair-hold'),'hold only the supervised transfer fixture');
       await client.evaluate("document.getElementById('failure-retry').click()");
       await client.wait("document.getElementById('substep-label').textContent.includes('Betroffene Datensicherung automatisch reparieren')&&!document.getElementById('cancel').hidden");
-      assert.match(await client.evaluate("document.getElementById('progress-detail').textContent"),/1 \/ 3 sichere Übertragungswege.*interne App-Daten/s);
+      assert.match(await client.evaluate("document.getElementById('progress-detail').textContent"),/1 \/ 3 Sicherungsversuche.*interne App-Daten/s);
       assert.equal(await client.evaluate("document.getElementById('action-needed').hidden"),true);
       assert.equal(await client.evaluate("document.querySelectorAll('#stage-list li.complete').length"),6);
       assert.equal(await client.evaluate("document.getElementById('progress-title').textContent"),'APK fertig. Installation wird automatisch angepasst.');
