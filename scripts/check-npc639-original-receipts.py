@@ -47,6 +47,7 @@ def main():
         'TownServiceMirror.OriginalReceipts.cs': args.source_root / 'src/GloomhavenVR/Net/TownServices/TownServiceMirror.OriginalReceipts.cs',
         'TownServiceFrame.cs': args.source_root / 'src/GloomhavenVR/Net/TownServices/TownServiceFrame.cs',
         'TownServiceCodec.ReturnOrigin.cs': args.source_root / 'src/GloomhavenVR/Net/TownServices/TownServiceCodec.ReturnOrigin.cs',
+        'TownServiceCodec.OfferedHover.cs': args.source_root / 'src/GloomhavenVR/Net/TownServices/TownServiceCodec.OfferedHover.cs',
         'NetPacket.cs': args.source_root / 'src/GloomhavenVR/Net/NetPacket.cs',
         'NetProtocol.cs': protocol_root / 'src/GloomhavenVR/Net/NetProtocol.cs',
         'TownServiceMirror.OriginalRequests.cs': args.source_root / 'src/GloomhavenVR/Net/TownServices/TownServiceMirror.OriginalRequests.cs',
@@ -67,6 +68,10 @@ def main():
     origin_declaration = declaration(origin_source, 'internal sealed class TownCardReturnOrigin')
     sources['TownServiceCodec.ReturnOrigin.cs'] = (
         'using System; namespace GloomhavenVR.Net.TownServices;\n' + origin_declaration + '\n')
+    hover_source = sources['TownServiceCodec.OfferedHover.cs']
+    hover_declaration = declaration(hover_source, 'internal sealed class TownOfferedHover')
+    sources['TownServiceCodec.OfferedHover.cs'] = (
+        'using System; namespace GloomhavenVR.Net.TownServices;\n' + hover_declaration + '\n')
     (run / 'bound-declarations.json').write_text(json.dumps({
         'TownCardReturnOrigin': {
             'source': str(paths['TownServiceCodec.ReturnOrigin.cs']),
@@ -74,7 +79,14 @@ def main():
             'signature': 'internal sealed class TownCardReturnOrigin',
             'declaration_sha256': hashlib.sha256(origin_declaration.encode()).hexdigest(),
             'boundary': 'Exact immutable Frame metadata declaration; return-origin wire encoding and validation are outside this receipt-only proof.',
-        }
+        },
+        'TownOfferedHover': {
+            'source': str(paths['TownServiceCodec.OfferedHover.cs']),
+            'source_sha256': hashlib.sha256(hover_source.encode()).hexdigest(),
+            'signature': 'internal sealed class TownOfferedHover',
+            'declaration_sha256': hashlib.sha256(hover_declaration.encode()).hexdigest(),
+            'boundary': 'Exact immutable Frame metadata declaration; hover wire/playback are outside this receipt-only proof.',
+        },
     }, indent=2) + '\n')
     # Receipt disconnect/reset now also retires missing-original requests. Bind
     # the real request storage and cleanup, rather than replacing those calls

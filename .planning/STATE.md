@@ -138,6 +138,63 @@ their retained owners, without repeating conversions or invalidating Library.
 Script evidence survives repeat/cut writers; accepted stamps precede journal
 publication. Unknown edits remain errors. Focused proof and Windows limitations:
 [QUEST-RETAINED-UNITY-MUTATIONS-205914-20261009.md](QUEST-RETAINED-UNITY-MUTATIONS-205914-20261009.md).
+**Build667 pre-1.1.0 review, 2026-10-11: 1.1.0 development candidate.**
+
+Reviewed the 1.0.8-to-dev changes in three separate initialized worktrees before
+repairing the confirmed edge cases. Shared NPC originals now converge by live
+player ID while retaining reliable host-grant precedence; map hover/teardown
+preserves the original protected story/quest/service navigation ownership;
+marked Frame self-update retains its VR argument and refuses unsafe argument
+loss. Parallel NPC666 native summon/ring/hover source is retained. No new TLV,
+configuration key, patch or visual-parity exception; Version3 and next-free118.
+
+Fresh integration: 205 navigation assertions/two controls, 39 presentation
+assertions/five controls, 61 updater assertions/one control, actual Unity shared
+interaction plus nine controls, all16 source suites, direct300510 golden vectors,
+strict Debug/Release zero errors/warnings, documentation/bundles and unchanged
+666/235/4795 surfaces. Only a failed new updater control binding was repaired
+and rerun; passing unchanged scopes were not repeated. No new complete215-suite
+umbrella pass is claimed. Retained NPC666 coverage is composed212 (208 initial
+passes and four fixture-binding repairs passing their focused reruns); together
+with the three new scopes the composed inventory is215. Native map-flow2012/nine
+and grant49/two worker receipts remain inherited for their unchanged paths. The final review and exact
+integration evidence are in [RELEASE110-REVIEW.md](RELEASE110-REVIEW.md).
+A real Frame updater restart and paired/four-player hardware outcomes remain
+separate from these source/runtime proofs. No release/main/tag action is taken.
+
+**Build666 paired665 native summon selection and local intrinsic effects, 2026-10-11: 1.1.0 development candidate.**
+
+Both supplied banners identify665. Native Highlight can precede summon layout,
+leaving a zero-size selectable and frame shader although the printed free slot
+has a rectangle. Refresh only the four serialized summon stat targets; retain
+native filters, selection and callbacks. The ring now follows the actual final
+printed matrix plane/yaw and evaluates its original spin locally. Additive117
+conveys hover activity/epoch and the owner-measured amplitude, allowing every
+observer render to evaluate the original sine. Facing, geometry, interaction and
+finite flights remain shared. These local phases are explicitly user-approved.
+
+Preserve the accepted loading time, body/front coupling, stable overlay and
+merchant/enchantress return behavior. All nine source preservation anchors are
+unchanged. The real native summon selection path and actual ring/hover/card-body
+composition are exercised; headset appearance and cadence remain unverified.
+
+Validation is **composed 212/212**, not a fresh complete-gate pass: the initial
+full attempt records 208 passes/four historical fixture-binding failures; all four
+full affected suites pass after bounded repairs with their original controls.
+Source checks 16/16, direct golden vectors 300,510, standalone town codec 50,277, strict
+Debug/Release 0/0, bundle, docs and unchanged surfaces666/235/4795 pass. The private
+compiled comparison explains eight implementation types, one new DTO and seven
+build-only consumers,1,253 → 1,254 C# types, with no removals/unexplained changes.
+Integrated native positives are 688/484,132/567,061 assertions (summon/hover/ring).
+Worker totals differ through packet/event checks; fixed render coverage remains
+complete and the hover difference is independently reconstructed from saved
+float32 times. No assertion threshold is relaxed. Unchanged production/build
+checks are honestly inherited after the fixture-only repairs.
+
+Read [NPC-666-REVIEW.md](NPC-666-REVIEW.md) for native causes, historical-control
+boundaries, packet-count reconstruction, compiled review and hardware limits.
+Both players need Build666 for the next paired test.
+
 **Build665 paired664 NPC follow-up, 2026-10-10: 1.1.0 development candidate.**
 
 The maintainer accepts remote card/UI admission time and confirms body/front

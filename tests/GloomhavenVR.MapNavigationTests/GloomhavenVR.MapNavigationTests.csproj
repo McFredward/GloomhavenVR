@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <InteractorSource Condition="'$(InteractorSource)' == ''">../../src/GloomhavenVR/WorldUI/MapRoom/MapLocationInteractor.cs</InteractorSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../src/GloomhavenVR/WorldUI/MapRoom/MapInputGate.cs" Link="Production/MapInputGate.cs" />
+    <Compile Include="$(IntermediateOutputPath)MapNavigation.g.cs" />
+  </ItemGroup>
+  <Target Name="ExtractProductionNavigation" BeforeTargets="BeforeCompile">
+    <Exec Command="python3 &quot;$(MSBuildProjectDirectory)/extract-navigation.py&quot; &quot;$(InteractorSource)&quot; &quot;$(IntermediateOutputPath)MapNavigation.g.cs&quot;" />
+  </Target>
+</Project>

@@ -98,7 +98,12 @@ internal static partial class TownServiceMirror
         internal void Draw(Transform holder, Transform print, double now, Vector3 authoredScale, TownServiceFrame authored)
         {
             Transform root = _root;
-            if (root == null) return;
+            if (root == null || !TryAxes(print, out Vector3 printedRight, out Vector3 printedUp)) return;
+            // The printed rectangle inherits its complete canvas matrix. Its
+            // quaternion axes do not describe that plane after a rotated stretch.
+            Vector3 printRight = printedRight.normalized;
+            Vector3 printNormal = Vector3.Cross(printRight, printedUp.normalized).normalized;
+            Vector3 printUp = Vector3.Cross(printNormal, printRight).normalized;
             if (!ReferenceEquals(_authored, authored))
             {
                 _authored = authored; _rootPose = null;
@@ -125,18 +130,18 @@ internal static partial class TownServiceMirror
             for (int i = 0; i < _ink.Length; i++)
                 if (!_initialized[i] && TryAxes(_ink[i], out Vector3 right, out _))
                 {
-                    Vector3 local = print.InverseTransformDirection(right);
-                    _original[i] = Mathf.Atan2(local.y, local.x) * Mathf.Rad2Deg;
+                    _original[i] = Mathf.Atan2(Vector3.Dot(right, printUp), Vector3.Dot(right, printRight)) * Mathf.Rad2Deg;
                     _initialized[i] = true;
                 }
-            if (root.parent == null || !FitBasis(root, print, authoredScale)) return;
+            if (root.parent == null || !FitBasis(root, printRight, printUp, authoredScale)) return;
             float phase = (float)((_rate * (now - _started)) % 360d);
             for (int i = 0; i < _ink.Length; i++)
                 if (_initialized[i] && _ink[i] != null && _ink[i].gameObject.activeInHierarchy
                     && _ink[i].parent != null && TryAxes(_ink[i], out _, out _) && TryAxes(_ink[i].parent, out _, out _))
                 {
                     Transform drawing = _ink[i];
-                    Vector3 direction = print.rotation * Quaternion.AngleAxis(phase + _original[i], Vector3.forward) * Vector3.right;
+                    float angle = (phase + _original[i]) * Mathf.Deg2Rad;
+                    Vector3 direction = Mathf.Cos(angle) * printRight + Mathf.Sin(angle) * printUp;
                     Vector3 local = drawing.parent.InverseTransformVector(direction);
                     if (local.sqrMagnitude < .0000000001f) continue;
                     drawing.localRotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(local.y, local.x) * Mathf.Rad2Deg);
@@ -152,15 +157,15 @@ internal static partial class TownServiceMirror
         }
         private static bool Finite(Vector3 value) => !float.IsNaN(value.x) && !float.IsInfinity(value.x)
             && !float.IsNaN(value.y) && !float.IsInfinity(value.y) && !float.IsNaN(value.z) && !float.IsInfinity(value.z);
-        private static bool FitBasis(Transform root, Transform print, Vector3 authoredScale)
+        private static bool FitBasis(Transform root, Vector3 printRight, Vector3 printUp, Vector3 authoredScale)
         {
             Transform parent = root.parent;
             if (!TryAxes(parent, out _, out _) || !Finite(authoredScale)) return false;
             // Same principal-stretch fit as the source native mask, evaluated
             // against this observer's actual canvas matrix. Quaternion products
             // alone lose the plane under a rotated nonuniform ancestor.
-            Vector3 localRight = parent.InverseTransformVector(print.right);
-            Vector3 localUp = parent.InverseTransformVector(print.up);
+            Vector3 localRight = parent.InverseTransformVector(printRight);
+            Vector3 localUp = parent.InverseTransformVector(printUp);
             Vector3 normal = Vector3.Cross(localRight, localUp).normalized;
             if (normal.sqrMagnitude < .5f) return false;
             Quaternion plane = Quaternion.LookRotation(normal, Vector3.Cross(normal, localRight).normalized);

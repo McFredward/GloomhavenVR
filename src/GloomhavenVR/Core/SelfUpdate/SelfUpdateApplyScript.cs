@@ -60,16 +60,19 @@ internal static class SelfUpdateApplyScript
     /// <param name="executableName">FILE NAME of the game executable (not its path) — used to start
     /// the game again when it was not launched through Steam.</param>
     /// <param name="steamGameId">The <c>SteamGameId</c> environment variable the Steam client sets
-    /// on the process it launches. Present means going back through Steam, so overlay, controller
-    /// bindings and playtime attach exactly as they normally would.</param>
+    /// on the process it launches. Ordinary Steam launches return through Steam. Marked Frame VR
+    /// launches retain their current Proton environment and explicit launch arguments instead.</param>
     /// <param name="argv">The command line as <c>Environment.GetCommandLineArgs()</c> returns it;
     /// index 0 is the executable and is skipped.</param>
     /// <param name="version">Version being installed — echoed into update.log, nothing else.</param>
     /// <param name="script">The finished script text.</param>
     /// <param name="refusal">Why nothing was built, when the result is false.</param>
     /// <param name="droppedArgument">A launch option that forced ALL of them to be dropped, or null.</param>
+    /// <param name="frameInstallation">Whether the actual Frame opt-in marker exists. A marked
+    /// installation must retain its exact VR argument and every other original launch argument.</param>
     internal static bool TryBuild(int pid, string executableName, string? steamGameId, string[] argv,
-        string version, out string script, out string refusal, out string? droppedArgument)
+        string version, out string script, out string refusal, out string? droppedArgument,
+        bool frameInstallation = false)
     {
         script = string.Empty;
         refusal = string.Empty;
@@ -93,7 +96,22 @@ internal static class SelfUpdateApplyScript
             return false;
         }
 
-        string relaunch = BuildRelaunchLine(executableName, steamGameId, argv, out droppedArgument);
+        if (frameInstallation && !FrameLaunchOptIn.AllowsVr(markerExists: true, argv))
+        {
+            refusal = "the Steam Frame VR launch argument could not be retained";
+            return false;
+        }
+
+        // The Frame wrapper launches base AppID 780290 with an explicit VR argument; its saved
+        // base-game launch options deliberately stay flat. A Steam URI would lose that argument.
+        // The existing cmd child is already alive in this Proton environment before the game exits.
+        string relaunch = BuildRelaunchLine(executableName,
+            frameInstallation ? null : steamGameId, argv, out droppedArgument);
+        if (frameInstallation && droppedArgument != null)
+        {
+            refusal = "the Steam Frame launch arguments cannot be preserved safely";
+            return false;
+        }
         int waitTicks = MaxWaitSeconds; // one 'ping -n 2' tick is ~1 second
 
         var sb = new StringBuilder(4096);
@@ -197,8 +215,8 @@ internal static class SelfUpdateApplyScript
     }
 
     /// <summary>
-    /// The one line that starts the game again. Steam app id wins when the game was launched
-    /// through Steam, so the overlay and playtime attach the way they normally would.
+    /// The one line that starts the game again. Ordinary Steam launches use their app id;
+    /// marked Frame launches use the executable in the current Proton environment.
     /// </summary>
     private static string BuildRelaunchLine(string executableName, string? steamGameId, string[] argv,
         out string? droppedArgument)
@@ -233,7 +251,18 @@ internal static class SelfUpdateApplyScript
                 return string.Empty;
             }
             args.Append(' ');
-            args.Append(argv[i].IndexOf(' ') >= 0 ? $"\"{argv[i]}\"" : argv[i]);
+            if (argv[i].Length == 0 || argv[i].IndexOf(' ') >= 0)
+            {
+                args.Append('"');
+                args.Append(argv[i]);
+                // Windows argv parsing consumes a trailing backslash before the closing quote.
+                // Double only that trailing run, retaining paths with spaces and empty arguments.
+                for (int end = argv[i].Length - 1; end >= 0 && argv[i][end] == '\\'; end--)
+                    args.Append('\\');
+                args.Append('"');
+            }
+            else
+                args.Append(argv[i]);
         }
 
         return args.ToString();

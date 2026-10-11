@@ -303,6 +303,7 @@
     <Compile Include="TownOfferedFrameVectors.cs" />
     <Compile Include="TownCardReturnCohortVectors.cs" />
     <Compile Include="TownReturnOrigin665Vectors.cs" />
+    <Compile Include="TownOfferedHover666Vectors.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/TownServices/TownRackState.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/TownServices/TownCatalogLayout.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/TownServices/TownCatalogBank.cs" />
@@ -311,6 +312,7 @@
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/TownServices/TownCassetteMotion.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/TownServices/TownServiceCodec.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/TownServices/TownServiceCodec.ReturnOrigin.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/TownServices/TownServiceCodec.OfferedHover.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/TownServices/TownServiceCodec.OriginalValuePool.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/TownServices/TownServiceDelta.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/TownServices/TownServiceSendQueue.cs" />

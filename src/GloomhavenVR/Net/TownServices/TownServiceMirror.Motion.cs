@@ -781,6 +781,7 @@ internal static partial class TownServiceMirror
             // furniture anchor already measures those live transforms in its own
             // distance tick; reassert native sorting only after binding above.
         }
+        ApplyOfferedHover(now);
         ApplyOfferedFrames(now);
         RestorePendingReturnPictures();
         foreach (RemoteModule removed in MotionFrameRemoval) MotionRemoteFrames.Remove(removed);
@@ -1015,7 +1016,7 @@ internal static partial class TownServiceMirror
 
     internal static void ForgetRemoteMotion(int peer) { MotionPeers.Remove(peer); TownServiceSharedCue.Forget(peer); }
     internal static void ResetMotionNetwork()
-    { ResetReturnCohorts(); MotionSources.Clear(); MotionPeers.Clear(); MotionHands.Clear(); MotionOfferings.Clear(); ClearOfferedFrames(); ActiveOfferedFrames.Clear(); DeadOfferedFrames.Clear(); OfferedRemoteMotion.Clear(); DeadOfferedRemoteMotion.Clear(); OfferedApplyOrder.Clear(); _offeredDiagnosticAt = 0f; MotionReturns.Clear(); CardReturns.Clear(); MotionWaiting.Clear(); MotionLive.Clear(); MotionVisibleFan.Clear(); MotionRemoteFrames.Clear(); TownServiceSharedCue.Reset();
+    { ResetOfferedHover(); ResetReturnCohorts(); MotionSources.Clear(); MotionPeers.Clear(); MotionHands.Clear(); MotionOfferings.Clear(); ClearOfferedFrames(); ActiveOfferedFrames.Clear(); DeadOfferedFrames.Clear(); OfferedRemoteMotion.Clear(); DeadOfferedRemoteMotion.Clear(); OfferedApplyOrder.Clear(); _offeredDiagnosticAt = 0f; MotionReturns.Clear(); CardReturns.Clear(); MotionWaiting.Clear(); MotionLive.Clear(); MotionVisibleFan.Clear(); MotionRemoteFrames.Clear(); TownServiceSharedCue.Reset();
       MotionSourceRemoval.Clear(); MotionRemoval.Clear(); _nextMotionSend = 0f; _motionCursor = _motionLiveCursor = _motionVisibleCursor = 0;
       _motionCommitSession = _motionCommitRevision = 0; _nextMotionCommit = 0f;
       _motionCue = null; _nextMotionCue = 0f;

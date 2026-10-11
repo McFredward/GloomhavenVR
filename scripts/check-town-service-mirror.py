@@ -33,12 +33,13 @@ def sources(root):
     for name in ("TownServiceOriginalReceiptCodec.cs", "TownServiceOriginalRequestCodec.cs",
                  "TownServiceMirror.OriginalReceipts.cs", "TownServiceMirror.OriginalRequests.cs",
                  "TownServiceMirror.NativeVisibility.cs", "TownServiceMirror.OfferedRoot.cs",
-                 "TownServiceCodec.ReturnOrigin.cs", "TownServiceMirror.ReturnOrigins.cs"):
+                 "TownServiceCodec.ReturnOrigin.cs", "TownServiceMirror.ReturnOrigins.cs",
+                 "TownServiceCodec.OfferedHover.cs", "TownServiceMirror.OfferedHover.cs"):
         path = base / "Net/TownServices" / name
         if path.exists():
             text = path.read_text()
             protocol = (base / "Net/NetProtocol.cs").read_text()
-            for constant in ("MsgTownOriginalReceipt", "ExtIdTownOriginalReceipt", "ExtIdTownOriginalRequest", "ExtIdTownCardReturnOrigin"):
+            for constant in ("MsgTownOriginalReceipt", "ExtIdTownOriginalReceipt", "ExtIdTownOriginalRequest", "ExtIdTownCardReturnOrigin", "ExtIdTownOfferedHover"):
                 if "NetProtocol." + constant not in text: continue
                 value = re.search(r"public const byte " + constant + r" = (\d+);", protocol)
                 if value is None: raise RuntimeError("Town original-receipt protocol binding drift: " + constant)
@@ -412,8 +413,8 @@ def main():
                  "live visitor readiness is actually retransmitted while local guide art stays private"),
 
                 ("source-wire-session", "PublisherTick.cs", "TownServiceMirror.LocalOwnsInteraction(service, Private._generation)", "TownServiceMirror.LocalOwnsInteraction(service, sourceSession)", "local interaction ownership uses the current wire generation after service switches"),
-                # The transaction election has the same tie expression; mutate only the visual lease.
-                ("highest-player-wins", "TownServiceMirror.cs", 'if (pair.Key <= 0 || !session.Active || session.Service != service\n                || now - session.LastSeenTime > NetProtocol.StaleTimeoutSeconds) continue;\n            float age = session.SessionAge + Mathf.Max(0f, now - session.ReceivedTime);\n            if (owner == 0 || age > oldestAge + .05f\n                || Mathf.Abs(age - oldestAge) <= .05f && pair.Key < owner)', 'if (pair.Key <= 0 || !session.Active || session.Service != service\n                || now - session.LastSeenTime > NetProtocol.StaleTimeoutSeconds) continue;\n            float age = session.SessionAge + Mathf.Max(0f, now - session.ReceivedTime);\n            if (owner == 0 || age > oldestAge + .05f\n                || Mathf.Abs(age - oldestAge) <= .05f && pair.Key > owner)', "simultaneous resident claims use the deterministic player-ID tie break"),
+                # Browsing and cosmetic transaction claims now share the same live-ID rank.
+                ("highest-player-wins", "TownServiceMirror.cs", "if (owner == 0 || pair.Key < owner)", "if (owner == 0 || pair.Key > owner)", "simultaneous resident claims use the deterministic player-ID tie break"),
                 ("nonowner-author", "TownServiceMirror.cs", "|| InteractionOwner(service) != player", "|| false", "only the elected visitor session can author shared interaction state"),
                 ("ignore-temple-owner", "TownServiceMirror.cs", "int owner = InteractionOwner(2);", "int owner = VisitorSessions.Count > 0 ? 3 : 0;", "disconnect releases only that player's resident leases"),
                 ("missing-art-blink", "TownServiceMirror.cs", "if (!sameOriginal) { module.Host.SetActive(false); module.Motion.Reset(); }", "if (true) { module.Host.SetActive(false); module.Motion.Reset(); }", "a missing next dependency retains the last validated original front instead of blinking grey"),

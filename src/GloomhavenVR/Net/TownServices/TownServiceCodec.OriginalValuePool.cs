@@ -159,7 +159,7 @@ internal static partial class TownServiceCodec
             bool known = id == RecordId || id == TownRackState.RecordId || id == WorkspaceClothRecordId
                 || id == TempleInteractionRecordId || id == TransactionRecordId || id == DonationClockRecordId
                 || id == CatalogLayoutRecordId || id == VisitorStockRecordId || id == CatalogBankRecordId
-                || id == CatalogHeadersRecordId || id == NativeTemplateStateRecordId || id == VisibleCensusRecordId || id == ReturnOriginRecordId
+                || id == CatalogHeadersRecordId || id == NativeTemplateStateRecordId || id == VisibleCensusRecordId || id == ReturnOriginRecordId || id == OfferedHoverRecordId
                 || id == TownCassetteMotion.RecordId || id == TownCassetteMotion.RollerRecordId;
             if (!known) output.Write(original, at, count + 2);
             at += count + 2;

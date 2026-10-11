@@ -46,7 +46,12 @@ public class UIItemConfirmationBox : MonoBehaviour { public bool IsActive; }
 public class UIWindow : MonoBehaviour { public bool IsOpen = true; }
 public class AbilityCardUI : MonoBehaviour { public ScenarioRuleLibrary.CAbilityCard AbilityCard = null!; public FullAbilityCard fullAbilityCard = null!; }
 public class FullAbilityCard : MonoBehaviour { }
-public class SummonContainer : MonoBehaviour { public TMPro.TMP_Text SummonNameText=null!; }
+public class SummonContainer : MonoBehaviour
+{
+    public TMPro.TMP_Text SummonNameText=null!;
+    // Original serialized native stat references; no slot or selection behavior is supplied here.
+    public GameObject SummonLT=null!, SummonLB=null!, SummonMT=null!, SummonMB=null!;
+}
 public class UIEnhancementButtonHighlight : MonoBehaviour { public object? Ability; }
 public sealed class UIEnhancementCardHighlighter : MonoBehaviour { public AbilityCardUI? Card; }
 public class UIEnhanceCardSlot : MonoBehaviour

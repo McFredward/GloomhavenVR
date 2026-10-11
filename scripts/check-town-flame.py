@@ -41,7 +41,7 @@ for bundle,name in [('pcg_materials_assets_cr_st_candleflame.bundle','CandleAnim
         for path in asset_parts}, indent=2) + '\n')
     sources = {name: (base / name).read_text().replace('Time.unscaledTime', 'FlameTestClock.Now') for name in (
         'TownServiceAssets.cs', 'TownServiceFrame.cs', 'TownRackState.cs', 'TownCatalogLayout.cs',
-        'TownCatalogBank.cs', 'TownCatalogBank.Headers.cs', 'TownServiceCodec.cs', 'TownServiceCodec.OriginalValuePool.cs', 'TownServiceCodec.ReturnOrigin.cs', 'TownServiceDelta.cs', 'TownServiceMaterial.cs',
+        'TownCatalogBank.cs', 'TownCatalogBank.Headers.cs', 'TownServiceCodec.cs', 'TownServiceCodec.OriginalValuePool.cs', 'TownServiceCodec.ReturnOrigin.cs', 'TownServiceCodec.OfferedHover.cs', 'TownServiceDelta.cs', 'TownServiceMaterial.cs',
         'TownServiceBinding.cs', 'TownServiceFlameClock.cs')}
     for path in asset_parts:
         sources[path.name] = path.read_text().replace('Time.unscaledTime', 'FlameTestClock.Now')

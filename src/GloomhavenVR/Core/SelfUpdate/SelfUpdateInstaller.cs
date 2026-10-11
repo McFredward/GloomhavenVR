@@ -381,7 +381,8 @@ internal sealed class SelfUpdateInstaller
 
             if (!SelfUpdateApplyScript.TryBuild(pid, executableName, steamGameId, argv,
                     release.Version, out string script, out string refusal,
-                    out string? droppedArgument))
+                    out string? droppedArgument,
+                    frameInstallation: FrameLaunchOptIn.MarkerExists(BepInEx.Paths.BepInExRootPath)))
             {
                 error = refusal;
                 return false;

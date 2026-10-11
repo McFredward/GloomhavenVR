@@ -46,7 +46,7 @@ def main():
              "Net/PresentationCompression.cs", "Net/ExtrasFragments.cs"]
     names += [f"Net/TownServices/{name}.cs" for name in (
         "TownServiceFrame", "TownServiceCodec", "TownServiceCodec.OriginalValuePool",
-        "TownServiceCodec.ReturnOrigin",
+        "TownServiceCodec.ReturnOrigin", "TownServiceCodec.OfferedHover",
         "TownRackState", "TownCatalogLayout", "TownCatalogBank", "TownCatalogBank.Headers",
         "TownCatalogClock", "TownServiceDelta", "TownServiceFragments")]
     receipt = {}
