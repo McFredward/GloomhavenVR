@@ -596,7 +596,7 @@ def _rebuild(builder, args, plan, repo, output, *, reason=None):
     root = output / "updates" / selected["updateKey"]
     builder.write_json(root / "plan.json", selected)
     builder.build_progress.event("update-rebuild-required", detail="; ".join(selected["rebuildReasons"]),
-                                 operation="update-code", status="running")
+                                 operation="update-code", status="progress")
     callback = getattr(builder, "rebuild_update", None)
     if not callable(callback):
         raise builder.BuildError("The selected APK requires current Quest asset/native patches; this Builder lacks the cache-aware migration path. Keep the workspace and use the current Builder.")

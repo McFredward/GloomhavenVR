@@ -6,6 +6,7 @@ formats are covered separately. This fixture does not run a Unity player.
 import copy
 import hashlib
 import importlib.util
+import io
 import json
 from pathlib import Path
 import struct
@@ -165,6 +166,13 @@ class UpdateDriverTests(unittest.TestCase):
         self.assertEqual(call.args[1]["updateStrategy"], "cached-full-build")
         self.assertEqual(self.apk.read_bytes(), original)
         self.assertFalse((self.output / "latest-build.json").exists())
+        # Feed the event into the production schema too: a mock accepting an
+        # invented 'running' status would conceal a real fallback abort.
+        spec = importlib.util.spec_from_file_location("update_driver_actual_progress", ROOT / "tools/quest-builder/progress.py")
+        progress = importlib.util.module_from_spec(spec); spec.loader.exec_module(progress)
+        emitted = self.builder.build_progress.event.call_args
+        value = progress.event(*emitted.args, **emitted.kwargs, stream=io.StringIO())
+        self.assertEqual(value["status"], "progress")
 
     def test_only_typed_valid_compatibility_failure_dispatches_rebuild(self):
         self.args.command = "update-mod"
