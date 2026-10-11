@@ -33,12 +33,16 @@ public static partial class MirrorProgram
         return roots;
     }
 
-    private static void BackdropIdentity()
+    private static void NativeBankLifecycle669()
     {
         NativeBankInitialization669();
         NativeBankDiagnostic669();
         TownLaneShutdown669();
         RetiredPublisherContinuation669();
+    }
+
+    private static void BackdropIdentity()
+    {
         MaterialPropertyBudget();
         DuplicateNativeTextures();
         var ownerRoots = BackdropRoots(false, out Texture2D ownerMerchant, out Texture2D ownerTemple);
