@@ -61,7 +61,10 @@ test('named shader passes expose real completed/remaining tasks and compiler var
    assert.ok(await client.evaluate("document.querySelector('[data-compiler-owner=mod-banks] progress').value>77"));
    await client.picture('actual-unity-shader-variant-progress-de');
    mode=5;await client.wait("document.querySelector('[data-compiler-owner=mod-banks]').textContent.includes('gemeldeten Kompilierungsaufgabe')");
-   assert.equal(await client.evaluate("document.querySelector('[data-compiler-owner=mod-banks] progress').value"),20);
+   // The fixture reports two of ten task items while Unity has not returned.
+   // The established planner reserves one finite task-return unit, so the
+   // running scope cannot reach100% before its authoritative completion.
+   assert.equal(await client.evaluate("document.querySelector('[data-compiler-owner=mod-banks] progress').value"),100*2/(10+1));
    await client.evaluate("document.querySelector('[data-language=en]').click()");
    assert.match(await client.evaluate("document.querySelector('[data-compiler-owner=mod-banks]').textContent"),/Compile Unity shaders.*compilation task reported by Unity/s);
    await client.command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
