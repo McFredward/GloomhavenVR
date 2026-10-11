@@ -28,6 +28,7 @@ param(
     [string]$Config,
     [switch]$Setup,
     [switch]$NoLaunch,
+    [switch]$RepairAppAccess,
     [switch]$DryRun
 )
 
@@ -51,6 +52,7 @@ try {
     }
     if ($Setup) { $installerArguments += "--setup" }
     if ($NoLaunch) { $installerArguments += "--no-launch" }
+    if ($RepairAppAccess) { $installerArguments += @("--repair-app-access", "--wait-for-connection") }
     if ($DryRun) { $installerArguments += "--dry-run" }
     & $pythonExecutable -I -B -X utf8 @installerArguments
     exit $LASTEXITCODE

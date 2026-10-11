@@ -1,5 +1,17 @@
 # State — where the project stands
 
+**Quest startup access repair, 2026-10-11.**
+
+Current capture202658 confirms B665 fails before game/mod activation because the
+app cannot access installed `quest-mod-resources/StreamingAssets`. Older restored
+logs are not current engine evidence. Separate shell capture from replacement-app
+settings restoration; prove warm-bank access from the app and repair only exact
+manifested permissions when denied. The direct repair launcher retains B665 and
+all installed game bytes; existing APKs are now suggested for subsequent wizard
+updates. A merge-preserving rebase confirms main/v1.1.0 already included. No game
+or APK rebuild this round; hardware repair remains unverified. Details:
+[QUEST-STARTUP-ACCESS-202658-20261011.md](QUEST-STARTUP-ACCESS-202658-20261011.md).
+
 **Quest durable installation resume, 2026-10-11.**
 
 Capture193713 proves a local Windows ADB-daemon outage after a verified content

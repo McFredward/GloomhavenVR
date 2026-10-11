@@ -16,13 +16,13 @@ AUTHORED_LINKS = {
     'unity/GloomhavenVR.Assets/Assets/Editor/GrabBarMeshLink.cs': 'src/GloomhavenVR/Core/GrabBar.cs',
 }
 PUBLIC_PACKAGES = {'prebuilt/quest-converters-win64-v1.zip': '61f7d664384b12663fb4fb799ffb8566bf11e99e15ce72c7afb00d5b62199f2d'}
-ROOT_FILES = {'Quest-Builder.cmd', 'Quest-Builder.sh', 'QUEST-BUILDER-START.txt', 'LICENSE', 'Directory.Build.props', 'GloomhavenVR.sln', 'global.json', 'nuget.config', '.editorconfig'}
+ROOT_FILES = {'Quest-Builder.cmd', 'Quest-Builder.sh', 'Quest-Repair-Access.cmd', 'Quest-Repair-Access.sh', 'QUEST-BUILDER-START.txt', 'LICENSE', 'Directory.Build.props', 'GloomhavenVR.sln', 'global.json', 'nuget.config', '.editorconfig'}
 TOOL_ROOTS = {'QuestCampaignInventory', 'QuestProceduralExport', 'QuestWeaver', 'RuntimeDepsBuild',
               'ShaderOcclusionPatcher', 'environment-mesh', 'quest-builder', 'quest-campaign-audit', 'quest-compute',
               'quest-installer', 'quest-native', 'quest-network', 'quest-procedural',
               'quest-procedural-runtime', 'quest-recovery', 'quest-shaders', 'quest-wizard', 'quest-wizard-ui'}
 UNITY_ROOTS = {'GloomhavenVR.Assets', 'GloomhavenVR.Quest', 'GloomhavenVR.FigureMeshes'}
-SCRIPTS = {'build-quest.py', 'build-quest-native.py', 'recover-quest.py', 'build-runtimedeps.sh',
+SCRIPTS = {'build-quest.py', 'build-quest-native.py', 'recover-quest.py', 'build-runtimedeps.sh', 'repair-quest-access.ps1',
            'quest-builder-wizard.cmd', 'quest-builder-wizard.ps1', 'quest-builder-wizard.sh', 'package-quest-builder.py',
            'export-quest-build-support.py', 'install-quest-wireless.cmd', 'install-quest-wireless.ps1',
            'install-quest-wireless.py', 'collect-quest-logs.cmd', 'collect-quest-logs.ps1',
@@ -59,8 +59,10 @@ PROMOTIONAL_ASSETS = {'tools/quest-wizard-ui/assets/promo/' + name for name in (
     'living-spirit-elite.jpg', 'cultist-elite.jpg', 'sun-demon-elite.jpg', 'bandit-commander.jpg',
     'nightcrawler-scoundrel.jpg')}
 REQUIRED = set(PUBLIC_PACKAGES) | {'Quest-Builder.cmd', 'QUEST-BUILDER-START.txt', 'scripts/quest-builder-wizard.cmd', 'scripts/quest-builder-wizard.ps1', 'scripts/build-quest.py',
+            'Quest-Repair-Access.cmd', 'Quest-Repair-Access.sh', 'scripts/repair-quest-access.ps1',
             'tools/quest-wizard/wizard.py', 'tools/quest-wizard-ui/index.html', 'tools/quest-installer/bootstrap.ps1',
             'tools/quest-installer/installer.py', 'tools/quest-installer/signing_recovery.py',
+            'tools/quest-installer/content_access.py',
             'tools/quest-installer/native_rename.py', 'tools/quest-wizard/device_tools.py',
             'tools/quest-builder/builder.py', 'tools/quest-builder/release.py',
             'tools/quest-builder/preparation_metadata.py', 'tools/quest-builder/editor_overlay.py',

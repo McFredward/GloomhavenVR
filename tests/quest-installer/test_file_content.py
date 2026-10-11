@@ -41,14 +41,28 @@ class LocalDevice:
         assert str(path).startswith(self.prefix), path
         return self.root / str(path)[len(self.prefix):]
 
+    def identity(self, address):
+        return "fixture-headset"
+
     def run(self, *args, **kwargs):
         assert args[:2] == ("-s", "quest")
         action = args[2:]
         self.calls.append(action)
         if action == ("shell", "am", "force-stop", installer.PACKAGE):
             return ""
-        if action == ("shell", "-T", "sh", "-s"):
+        if action[:4] == ("shell", "cmd", "package", "resolve-activity"):
+            return ""  # This local shell fixture has no Android app process.
+        if action == ("shell", "-T", "sh", "-s") and kwargs["input_text"].strip() == "set -eu\nstat -L -c '%d:%i' /sdcard /storage/emulated/0":
+            return "1:2\n1:2"
+        if action in (("shell", "-T", "sh", "-s"), ("shell", "-T", "run-as", installer.PACKAGE, "sh", "-s")):
             script = kwargs["input_text"]
+            script = script.replace("/storage/emulated/0/Android/data/" + installer.PACKAGE + "/files", self.prefix.rstrip("/"))
+            if self.prefix.rstrip("/") in script and self.prefix not in script:
+                script = script.replace(self.prefix.rstrip("/"), str(self.root))
+                self.root.mkdir(parents=True, exist_ok=True)
+                result = subprocess.run(["sh", "-c", script], text=True, capture_output=True, timeout=30)
+                if result.returncode: raise installer.InstallError("Device app shell failed: " + result.stderr)
+                return result.stdout.strip()
             assert self.prefix in script
             # Any other absolute provider/save location is forbidden by this fake.
             assert "/data/user" not in script and "quest-saves" not in script
@@ -206,6 +220,96 @@ class FileContentTests(unittest.TestCase):
         self.assertEqual(result[1]["reusedFiles"], len(self.game))
         self.assertEqual(len(self.device.pushed_files), before)
         self.assertEqual(save.read_bytes(), b"retained private campaign")
+
+    def test_partial_matching_key_receipt_delivers_only_unfinished_files(self):
+        self.install()
+        rows = self.manifest["game"]["files"]
+        root = self.device.root / "quest-owned-game"
+        missing = rows[-1]
+        (root / missing["path"]).unlink()
+        (root / installer._RECEIPT).write_bytes(installer.encode_content_receipt(
+            self.manifest["game"], {row["path"]: row for row in rows[:-1]}))
+        start = len(self.device.pushed_files)
+        self.assertEqual(self.install()[1]["uploadedFiles"], 1)
+        self.assertEqual(self.device.pushed_files[start:], ["quest-owned-game/" + missing["path"]])
+
+    def repair_access_device(self, *, wrong_stamp=False, wrong_hash=False):
+        original = self.device.run
+        remote = "/data/app/fixture/dev.gloomhavenvr.quest-fixture/base.apk"
+        def run(*args, **kwargs):
+            action = args[2:]
+            if action == ("shell", "dumpsys", "package", installer.PACKAGE):
+                self.device.calls.append(action)
+                return "versionCode=" + ("0" if wrong_stamp else "625") + " versionName=0.1.0.B625." + self.source.input_key[:12]
+            if action == ("shell", "pm", "path", "--user", "0", installer.PACKAGE):
+                self.device.calls.append(action)
+                return "package:" + remote
+            if action == ("shell", "sha256sum", remote):
+                self.device.calls.append(action)
+                return ("0" * 64 if wrong_hash else self.source.sha256) + "  " + remote
+            return original(*args, **kwargs)
+        self.device.run = run
+
+    def test_access_only_repair_retains_apk_and_all_installed_content(self):
+        self.install(); self.repair_access_device(); self.device.calls.clear()
+        (self.device.root / "quest-mod-resources/StreamingAssets").chmod(0)
+        before = len(self.device.pushed_files)
+        with contextlib.redirect_stdout(io.StringIO()):
+            result = installer.repair_installed_access(self.device, "quest", self.source)
+        self.assertEqual(result[0]["appAccess"], "repaired")
+        self.assertEqual(result[1]["appAccess"], "verified")
+        self.assertEqual(len(self.device.pushed_files), before)
+        self.assertFalse(any(call[0] in ("install", "uninstall", "push") for call in self.device.calls))
+        sha_calls = [call for call in self.device.calls if "sha256sum" in str(call)]
+        self.assertEqual(len(sha_calls), 1)
+        self.assertIn("base.apk", str(sha_calls[0]))
+
+    def test_access_only_repair_refuses_foreign_apk_without_mutation(self):
+        self.install(); self.repair_access_device(wrong_hash=True); self.device.calls.clear()
+        with self.assertRaisesRegex(installer.InstallError, "checksum differs"):
+            installer.repair_installed_access(self.device, "quest", self.source)
+        self.assertFalse(any(call[0] in ("install", "uninstall", "push", "pull") or "chmod" in str(call) for call in self.device.calls))
+
+    def test_access_only_repair_closes_bank_view_before_current_small_file_repair(self):
+        self.install(); self.repair_access_device(); self.device.calls.clear()
+        access_api = installer.content_access_module()
+        boundary = access_api.BankAccess
+        original = boundary.__exit__
+        closed = []
+        def close(owner, *args):
+            result = original(owner, *args); closed.append(True); return result
+        def repair(adb, address, hardware, source, config):
+            self.assertEqual(closed, [True])
+            self.assertEqual((adb, address, hardware, source, config),
+                             (self.device, "quest", "fixture-headset", self.source, self.root))
+            return {"mutableAccessRepairedFiles": 1, "mutableAccessTransferredBytes": 17}
+        with mock.patch.object(installer, "content_access_module", return_value=access_api), \
+                mock.patch.object(boundary, "__exit__", close), \
+                mock.patch.object(installer, "repair_current_access", side_effect=repair), \
+                contextlib.redirect_stdout(io.StringIO()):
+            result = installer.repair_installed_access(self.device, "quest", self.source,
+                hardware="fixture-headset", config_directory=self.root)
+        self.assertEqual(result[-1], {"bank": "current-app-data", "mutableAccessRepairedFiles": 1,
+                                    "mutableAccessTransferredBytes": 17})
+        self.assertFalse(any(call[0] in ("install", "uninstall", "push") for call in self.device.calls))
+
+    def test_current_small_file_repair_waits_after_connection_loss(self):
+        self.device.wait_enabled = True
+        self.device.wait_for_connection = mock.Mock()
+        api = installer.signing_recovery_module()
+        with mock.patch.object(installer, "signing_recovery_module", return_value=api), \
+                mock.patch.object(api, "repairs_current_external_access", side_effect=[
+                installer.ConnectionRequired("offline"), {"mutableAccessRepairedFiles": 0}]) as repair:
+            result = installer.repair_current_access(self.device, "quest", "fixture-headset", self.source, self.root)
+        self.assertEqual(result, {"mutableAccessRepairedFiles": 0})
+        self.assertEqual(repair.call_count, 2)
+        self.device.wait_for_connection.assert_called_once_with("quest")
+
+    def test_access_only_repair_refuses_different_version_before_hash(self):
+        self.install(); self.repair_access_device(wrong_stamp=True); self.device.calls.clear()
+        with self.assertRaisesRegex(installer.InstallError, "differs from the selected"):
+            installer.repair_installed_access(self.device, "quest", self.source)
+        self.assertFalse(any("sha256sum" in str(call) or "chmod" in str(call) for call in self.device.calls))
 
     def test_apk_only_update_rejects_missing_or_other_completed_game(self):
         self.source.content[0].path.unlink()

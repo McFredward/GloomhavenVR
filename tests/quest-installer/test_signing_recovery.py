@@ -682,7 +682,8 @@ class TransactionTests(unittest.TestCase):
         for observed in (("", 2), ("error: device offline", 1), ("error: unauthorized", 1)):
             with self.subTest(observed=observed):
                 self.process_namespace_repair(); self.device.pidof_failure = observed; self.device.calls.clear()
-                with self.assertRaisesRegex(recovery.RecoveryError, "ADB failed: command.*pidof.*exit " + str(observed[1])):
+                expected = "The Quest connection is unavailable" if "offline" in observed[0] else "ADB failed: command.*pidof.*exit " + str(observed[1])
+                with self.assertRaisesRegex(recovery.RecoveryError, expected):
                     self.engine().recover(detected=True)
                 self.assertEqual(sum(call[:2] == ("shell", "pidof") for call in self.device.calls), 1)
                 self.assertFalse(self.device.process_started); self.assertFalse(any(call[0] == "uninstall" for call in self.device.calls))
@@ -862,6 +863,7 @@ class TransactionTests(unittest.TestCase):
 
     def test_saves_policy_omits_only_unreadable_non_save_and_keeps_all_readable_data(self):
         bank, payload = self.bank(); self.device.app_sdcard_denied = self.device.app_direct_denied = True
+        self.device.process_enabled = True
         for number, content in enumerate((b"native crash one", b"native crash two", b"")):
             path = recovery.EXTERNAL + "/files/tombstone_0" + str(number)
             self.device.path(path).write_bytes(content); self.device.shell_unreadable.add(path)
@@ -874,7 +876,10 @@ class TransactionTests(unittest.TestCase):
         self.assertEqual(engine.journal["dataPolicy"], "saves"); self.assertEqual(len(engine.journal["policyOmissions"]), 3)
         self.assertNotIn("files/tombstone_00", external["inventory"])
         self.assertEqual(readable.read_bytes(), b"keep this too"); self.assertEqual((bank / "StreamingAssets/game.bundle").read_bytes(), payload)
-        self.assertFalse(any(call[:3] == ("shell", "am", "start") for call in self.device.calls))
+        starts = [call for call in self.device.calls if call[:3] == ("shell", "am", "start")]
+        self.assertTrue(starts)
+        self.assertTrue(all("-D" in call for call in starts))
+        self.assertEqual(external["restoreAccessMode"], "app-process")
         self.verify_saves(); self.assertNotIn("GHVRQ_ACTION", self.output.getvalue())
 
     def test_saves_policy_never_omits_unreadable_live_historical_or_imported_save_bytes(self):

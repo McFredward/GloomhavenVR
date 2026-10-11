@@ -67,6 +67,14 @@ def signing_recovery_module():
     return module
 
 
+def content_access_module():
+    spec = importlib.util.spec_from_file_location(
+        "_ghvr_quest_content_access", REPO / "tools/quest-installer/content_access.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 _DIGEST_CACHE = {}
 _INPUT_CACHE_PATH = None
 
@@ -1149,7 +1157,8 @@ def _install_content_tree(adb, address, source, manifest, archive, root, tempora
     _content_shell(adb, address, ["mkdir -p " + shlex.quote(root), "test ! -L " + shlex.quote(root)], timeout=30)
     committed = (_pull_content_receipt(adb, address, root + "/" + _RECEIPT, temporary / "committed.bin")
                  if observed_receipt is _UNREAD_RECEIPT else observed_receipt)
-    if committed and committed["key"] == content_key(manifest) and not repair:
+    if (committed and committed["key"] == content_key(manifest) and not repair
+            and committed["files"] == {row["path"]: row for row in rows}):
         print("Reusing completed file-backed content: " + root.rsplit("/", 1)[-1] + ".")
         _content_progress(base_bytes + sum(row["size"] for row in rows), total_bytes, "Reusing completed " + root.rsplit("/", 1)[-1])
         return {"contentKey": committed["key"], "files": len(rows), "reusedFiles": len(rows), "uploadedFiles": 0}
@@ -1228,7 +1237,7 @@ def _install_content_tree(adb, address, source, manifest, archive, root, tempora
     return {"contentKey": content_key(manifest), "files": len(rows), "reusedFiles": len(rows) - uploaded, "uploadedFiles": uploaded}
 
 
-def install_file_content(adb, address, source, repair=False):
+def install_file_content(adb, address, source, repair=False, *, hardware=None):
     manifest = installation_manifest(source)
     if manifest is None:
         return None
@@ -1237,7 +1246,8 @@ def install_file_content(adb, address, source, repair=False):
     records = []
     total_bytes = sum(row["size"] for kind in ("mod", "game") for row in manifest[kind]["files"])
     completed_bytes = 0
-    with tempfile.TemporaryDirectory(prefix="ghvr-quest-install-") as name, zipfile.ZipFile(source.apk) as apk:
+    with tempfile.TemporaryDirectory(prefix="ghvr-quest-install-") as name, zipfile.ZipFile(source.apk) as apk, \
+            content_access_module().BankAccess(adb, address, signing_recovery_module().AppStorageView, hardware=hardware) as access:
         temporary = Path(name)
         mod_info = apk.getinfo("assets/quest-mod-content.zip")
         if mod_info.file_size > 4 * 1024 * 1024 * 1024:
@@ -1247,10 +1257,12 @@ def install_file_content(adb, address, source, repair=False):
                                 ("game", source.content[0].path, base + "quest-owned-game")):
             _content_shell(adb, address, ["test ! -L " + shlex.quote(root)], timeout=30)
             committed = _pull_content_receipt(adb, address, root + "/" + _RECEIPT, temporary / "warm-bank.bin")
-            if committed and committed["key"] == content_key(manifest[kind]) and not repair:
+            if (committed and committed["key"] == content_key(manifest[kind]) and not repair
+                    and committed["files"] == {row["path"]: row for row in manifest[kind]["files"]}):
+                app_access = access.qualify(root, manifest[kind], _RECEIPT)
                 print("Reusing completed file-backed content: " + root.rsplit("/", 1)[-1] + ".")
                 result = {"contentKey": committed["key"], "files": len(manifest[kind]["files"]),
-                          "reusedFiles": len(manifest[kind]["files"]), "uploadedFiles": 0}
+                          "reusedFiles": len(manifest[kind]["files"]), "uploadedFiles": 0, **app_access}
                 records.append({"archive": manifest[kind]["archive"], "sha256": manifest[kind]["archiveSha256"],
                                 "size": mod_info.file_size if kind == "mod" else source.content[0].size,
                                 "remote": root, "fileBacked": True, **result})
@@ -1264,6 +1276,7 @@ def install_file_content(adb, address, source, repair=False):
                     raise InstallError("The embedded mod bank differs from its inventory.")
             if kind == "game" and not path.exists():
                 retained = require_installed_game(adb, address, source, temporary, repair=repair)
+                retained.update(access.qualify(root, manifest[kind], _RECEIPT))
                 records.append({"archive": manifest[kind]["archive"], "sha256": manifest[kind]["archiveSha256"],
                                 "size": source.content[0].size, "remote": root, "fileBacked": True, **retained})
                 completed_bytes += sum(row["size"] for row in manifest[kind]["files"])
@@ -1272,6 +1285,7 @@ def install_file_content(adb, address, source, repair=False):
             with zipfile.ZipFile(path) as archive:
                 result = _install_content_tree(adb, address, source, manifest[kind], archive, root, temporary, repair,
                                                progress_scope=(completed_bytes, total_bytes), observed_receipt=committed)
+            result.update(access.qualify(root, manifest[kind], _RECEIPT))
             completed_bytes += sum(row["size"] for row in manifest[kind]["files"])
             records.append({"archive": manifest[kind]["archive"], "sha256": manifest[kind]["archiveSha256"],
                             "size": path.stat().st_size, "remote": root, "fileBacked": True, **result})
@@ -1292,8 +1306,8 @@ def require_installed_game(adb, address, source, temporary, *, repair=False):
     return {"contentKey": committed["key"], "files": len(expected["files"]), "reusedFiles": len(expected["files"]), "uploadedFiles": 0}
 
 
-def install_content(adb, address, source, previous=None, repair=False):
-    prepared = install_file_content(adb, address, source, repair=repair)
+def install_content(adb, address, source, previous=None, repair=False, *, hardware=None):
+    prepared = install_file_content(adb, address, source, repair=repair, hardware=hardware)
     if prepared is not None:
         return prepared
     if not source.content:
@@ -1394,6 +1408,61 @@ def install_connected_apk(adb, address, source, timeout):
                     return
 
 
+def repair_current_access(adb, address, hardware, source, config_directory):
+    """Retry only current small-file access when the same headset reconnects."""
+    api = signing_recovery_module()
+    while True:
+        try:
+            return api.repairs_current_external_access(adb, address, hardware, source, config_directory)
+        except RuntimeError as error:
+            if content_access_module()._transport_failure(error) and getattr(adb, "wait_enabled", False):
+                adb.wait_for_connection(address)
+                continue
+            if isinstance(error, api.CaptureRepairError):
+                print("GHVRQ_ACTION " + json.dumps(error.action), flush=True)
+            raise
+
+
+def repair_installed_access(adb, address, source, *, config_directory=None, hardware=None):
+    """Repair a matching installed package without installing/copying payloads."""
+    manifest = installation_manifest(source)
+    if manifest is None or not source.mod_build:
+        raise InstallError("App-access repair requires a stamped, file-backed Quest APK.")
+    record = adb.run("-s", address, "shell", "dumpsys", "package", PACKAGE,
+                     timeout=30, check_text=False, reconnect=True)
+    expected = "0.1.0.B" + str(source.mod_build) + "." + source.input_key[:12]
+    if (re.findall(r"\bversionCode=(\d+)", record) != [str(source.mod_build)]
+            or re.findall(r"\bversionName=([^\s]+)", record) != [expected]):
+        raise InstallError("The installed APK differs from the selected build; app data was retained. Select the installed APK for access repair.")
+    paths = adb.run("-s", address, "shell", "pm", "path", "--user", "0", PACKAGE,
+                    timeout=30, check_text=False, reconnect=True).splitlines()
+    if len(paths) != 1 or not re.fullmatch(r"package:/data/app/[A-Za-z0-9_./=+~-]+/base\.apk", paths[0]):
+        raise InstallError("The installed APK cannot be identified for access repair.")
+    # One exact APK identity read admits this exceptional legacy repair. It does
+    # not scan/copy the external 11-GB bank and never accepts a version alone.
+    remote = paths[0][8:]
+    print("Confirming the installed APK for access repair; game content is not read or copied.", flush=True)
+    actual = adb.run("-s", address, "shell", "sha256sum", remote,
+                    timeout=600, check_text=False, reconnect=True)
+    if actual != source.sha256 + "  " + remote:
+        raise InstallError("The installed APK checksum differs from the selected APK; no app data was changed.")
+    adb.run("-s", address, "shell", "am", "force-stop", PACKAGE, timeout=30, reconnect=True)
+    records = []
+    with tempfile.TemporaryDirectory(prefix="ghvr-quest-access-") as name, \
+            content_access_module().BankAccess(adb, address, signing_recovery_module().AppStorageView, hardware=hardware) as access:
+        for kind, bank in (("mod", "quest-mod-resources"), ("game", "quest-owned-game")):
+            root = "/sdcard/Android/data/" + PACKAGE + "/files/" + bank
+            saved = _pull_content_receipt(adb, address, root + "/" + _RECEIPT, Path(name) / (kind + ".bin"))
+            if (not saved or saved["key"] != content_key(manifest[kind])
+                    or saved["files"] != {row["path"]: row for row in manifest[kind]["files"]}):
+                raise InstallError("The installed " + bank + " lacks its complete matching receipt. No large content verification or copy was started; use normal installation to deliver its missing files.")
+            records.append({"bank": bank, **access.qualify(root, manifest[kind], _RECEIPT)})
+    if config_directory is not None:
+        records.append({"bank": "current-app-data", **repair_current_access(
+            adb, address, hardware or adb.identity(address), source, config_directory)})
+    return records
+
+
 def parser():
     result = argparse.ArgumentParser(description=__doc__)
     source = result.add_mutually_exclusive_group()
@@ -1409,6 +1478,8 @@ def parser():
     result.add_argument("--wait-for-connection", action="store_true",
                         help="Keep the Wizard installation paused until the same authorized Quest reconnects.")
     result.add_argument("--repair-content", action="store_true", help="Verify installed game bytes and repair missing/changed files before launch.")
+    result.add_argument("--repair-app-access", action="store_true",
+                        help="Repair app access to the matching already-installed APK's content; no APK install, build, or game-bank transfer.")
     result.add_argument("--recovery-data-policy", choices=("all", "saves"), default="saves",
                         help="Signing migration: retain saves/settings without copying game banks or the original APK; all is the explicit legacy full rollback policy.")
     result.add_argument("--allow-content-reinstall", metavar="TRANSACTION",
@@ -1440,7 +1511,8 @@ def main(argv=None, runner=None):
               + (" (DUMMY IDENTITY)" if source.dummy else ""))
         if source.content:
             missing_bank = any(not bank.path.is_file() for bank in source.content)
-            print("Retaining the complete game content already installed on this Quest." if missing_bank
+            print("Access-only repair: no APK installation or game-bank transfer." if args.repair_app_access
+                  else "Retaining the complete game content already installed on this Quest." if missing_bank
                   else "Complete owned Campaign bank: " + str(sum(bank.size for bank in source.content)) + " bytes; installed automatically with the APK.")
         if args.dry_run:
             print("Dry run: no ADB command or settings write. Endpoint: " + str(address or "USB setup required"))
@@ -1463,6 +1535,18 @@ def main(argv=None, runner=None):
         # Re-read both the receipt and APK immediately before the only app mutation.
         if resolve_source(source.kind, source.path, check_zip=False) != source:
             raise InstallError("The APK or source evidence changed during device setup; retry with the intended build.")
+        if args.repair_app_access:
+            if args.repair_content:
+                raise InstallError("Access-only repair cannot be combined with full content verification.")
+            content = repair_installed_access(adb, address, source, config_directory=config_path.parent, hardware=hardware)
+            if not args.no_launch:
+                adb.run("-s", address, "shell", "am", "start", "-n", ACTIVITY, timeout=30, reconnect=True)
+            write_json(config_path.parent / "app-access-last-repair.json", {
+                "schema": 1, "hardwareSerial": hardware, "inputKey": source.input_key,
+                "apkSha256": source.sha256, "content": content, "launched": not args.no_launch,
+                "completedUtc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+            print("App access repaired without APK installation or game-content transfer. Hardware startup remains to be tested.", flush=True)
+            return 0
         # Budget one MiB/second plus two minutes for Android package processing.
         # Retain the small-APK floor and a bounded thirty-minute maximum.
         transfer_seconds = (source.apk.stat().st_size + 1024 * 1024 - 1) // (1024 * 1024)
@@ -1505,7 +1589,9 @@ def main(argv=None, runner=None):
                 if prior.get("deviceSerial") == hardware and prior.get("package") == PACKAGE: previous = prior
             except (OSError, ValueError):
                 pass
-        content_records = install_content(adb, address, source, previous, repair=args.repair_content)
+        content_records = install_content(adb, address, source, previous, repair=args.repair_content, hardware=hardware)
+        if installation_manifest(source) is not None:
+            repair_current_access(adb, address, hardware, source, config_path.parent)
         clean_previous_content(adb, address, previous, content_records)
         if not args.no_launch:
             adb.run("-s", address, "shell", "am", "start", "-W", "-n", ACTIVITY,
