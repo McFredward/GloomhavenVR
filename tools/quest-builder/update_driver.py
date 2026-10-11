@@ -197,17 +197,22 @@ def _signers(builder, tools, output, signing_root=None, *, base_apk=None):
 
     def sign(apk):
         apk = Path(apk)
-        aligned, signed = apk.with_suffix(".aligned.apk"), apk.with_suffix(".signed.apk")
+        signed = apk.with_suffix(".signed.apk")
         try:
-            _signing_command(builder, [tools["zipalign"], "-f", "-p", "4", str(apk), str(aligned)], output / "logs/update-align.log",
-                             password=private["password"])
+            # Capture 085642 still fails in Windows 30.0.2 zipalign after the
+            # ZIP32 repair. Its fseek/ftell reader cannot represent >2 GiB on
+            # Windows. Repack now aligns local stored data in its existing raw
+            # write pass. Check those actual offsets before Java signing;
+            # neither another APK copy nor another Unity run is necessary.
+            alignment = _core(builder).check_alignment(apk)
+            builder.write_json(output / "logs/update-align.log", alignment)
             _signing_command(builder, [tools["java"], "-jar", tools["apksigner"], "sign", "--ks", str(key),
                              "--ks-key-alias", private["alias"], "--ks-pass", "env:GHVR_QUEST_SIGNING_PASSWORD",
-                             "--key-pass", "env:GHVR_QUEST_SIGNING_PASSWORD", "--out", str(signed), str(aligned)],
+                             "--key-pass", "env:GHVR_QUEST_SIGNING_PASSWORD", "--out", str(signed), str(apk)],
                             output / "logs/update-sign.log", env=environment, password=private["password"])
             os.replace(signed, apk)
         finally:
-            aligned.unlink(missing_ok=True); signed.unlink(missing_ok=True)
+            signed.unlink(missing_ok=True)
 
     def verify(apk):
         result = _signing_command(builder, [tools["java"], "-jar", tools["apksigner"], "verify", "--verbose", "--print-certs", str(apk)],
@@ -215,6 +220,9 @@ def _signers(builder, tools, output, signing_root=None, *, base_apk=None):
         match = re.search(r"certificate SHA-256 digest:\s*([0-9a-fA-F]{64})", result)
         if not match:
             raise builder.BuildError("Updated APK has no verified signing certificate.")
+        # Earlier legitimate outputs used the SDK's 4-KiB native-library rule.
+        # Accept that rule on verification; freshly repacked files use 16-KiB.
+        _core(builder).check_alignment(apk, shared_library_alignment=4096)
         certificate = match[1].lower()
         _certificate_output(builder, output, certificate)
         return {"certificateSha256": certificate}

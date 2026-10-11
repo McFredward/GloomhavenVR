@@ -1,5 +1,17 @@
 # State — where the project stands
 
+**Quest Windows large-APK alignment, 2026-10-11 (Builder; new builds Runtime668).**
+
+Capture085642 confirms direct5.2s delivery resume from9aa4 still fails in
+Windows30.0.2 zipalign after the ZIP32 repair. The official Windows executable's
+32-bit file-position reader cannot represent EOF above2 GiB. Alignment now runs
+inside the existing raw packaging pass; bounded actual-header checks and native
+Java signing/verification preserve delivery guarantees without that command or
+another whole-APK copying pass. Completed665 Player/preparation and independent
+final-gate receipts remain retained. Evidence and remaining Windows/hardware
+limits:
+[QUEST-WINDOWS-ALIGNMENT-085642-20261011.md](QUEST-WINDOWS-ALIGNMENT-085642-20261011.md).
+
 **Quest ZIP32 delivery and targeted final repair, 2026-10-11 (Builder; new builds Runtime668).**
 
 Capture075701 proves the e740 Builder reaches direct final delivery in4.8s,

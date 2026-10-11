@@ -346,7 +346,7 @@ PLAYER_DELIVERY_ROW = {'path': 'tools/quest-builder/player_delivery.py',
  'sha256': 'c5897c245e6da3dabedf7a1089cb4d69ac5c691ce2acaeaa899160a3f07241c7'}
 # Exact reviewed ZIP/signing and final-gate consumers run after preparation.
 # Preserve their preceding identities without excluding unknown future edits.
-ZIP32_DELIVERY_ROWS = {
+ZIP32_DELIVERY_PREVIOUS_ROWS = {
     "tools/quest-builder/apk_update.py": (
         {"path": "tools/quest-builder/apk_update.py", "size": 45828,
          "sha256": "b0f6e986b18f91c9e537b6a364987640a52079195e8af3119617dc984af6343d"},
@@ -355,6 +355,18 @@ ZIP32_DELIVERY_ROWS = {
     "tools/quest-builder/update_driver.py": (
         {"path": "tools/quest-builder/update_driver.py", "size": 33575,
          "sha256": "53e1d7a1695d2d759a3ec8e99ddd30def3b7990d8e9eb2e857e6a8760a68fcf7"},
+        LATE_DELIVERY_ROWS["tools/quest-builder/update_driver.py"][1]),
+}
+# Exact raw-alignment consumers change only late delivery, not original assets.
+ZIP32_DELIVERY_ROWS = {
+    "tools/quest-builder/apk_update.py": (
+        {"path": "tools/quest-builder/apk_update.py", "size": 55585,
+         "sha256": "534f745bf2e863a88157ca2aa19d303ae91404c972d6ccccc172fa618804e197"},
+        {"path": "tools/quest-builder/apk_update.py", "size": 42360,
+         "sha256": "43bf9fd8387aec8ce8a2206f76499b0a176761092b3720563139bafa6e46e446"}),
+    "tools/quest-builder/update_driver.py": (
+        {"path": "tools/quest-builder/update_driver.py", "size": 34056,
+         "sha256": "f28cf077b37d2503f8bf14cad71e3d44bf352547fe82f7ceb97f85a2b9e9ef47"},
         LATE_DELIVERY_ROWS["tools/quest-builder/update_driver.py"][1]),
 }
 FINAL_DELIVERY_ROW = {
@@ -494,8 +506,9 @@ def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=Fal
         reviewed = []
         for row in rows:
             if row in (PLAYER_DELIVERY_ROW, FINAL_DELIVERY_ROW): continue
-            current, preceding = ZIP32_DELIVERY_ROWS.get(row["path"], (None, row))
-            if row == current: row = preceding
+            for aliases in (ZIP32_DELIVERY_ROWS, ZIP32_DELIVERY_PREVIOUS_ROWS):
+                current, preceding = aliases.get(row["path"], (None, row))
+                if row == current: row = preceding
             current, preceding = LATE_DELIVERY_ROWS.get(row["path"], (None, row))
             reviewed.append(preceding if row == current else row)
         rows = reviewed

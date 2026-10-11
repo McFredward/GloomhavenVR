@@ -27,7 +27,9 @@ class SigningSelectionTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.context = SimpleNamespace(BuildError=storage.BuildError, signing=Mock(), command=Mock())
+        self.context = SimpleNamespace(BuildError=storage.BuildError, signing=Mock(), command=Mock(),
+            apk_updates=SimpleNamespace(check_alignment=Mock(return_value={"schema": 1, "aligned": True})),
+            write_json=storage.write_json)
 
     def tools(self, windows=False, *, zipalign=True):
         selected = {"key": "immutable selected toolchain provenance", "jdk": str(self.root)}
@@ -80,14 +82,15 @@ class SigningSelectionTests(unittest.TestCase):
         tools = self.tools(); key = self.root / "quest.keystore"; key.write_bytes(b"key fixture")
         self.context.signing.return_value = (key, {"password": "fixture private password", "alias": "quest"})
         sign, _ = driver._signers(self.context, tools, self.root / "output")
-        expected = tools["zipalign"]; tools["zipalign"] = "mutated unselected executable"
+        expected = tools["java"]; tools["java"] = "mutated unselected executable"
         apk = self.root / "temporary.apk"; apk.write_bytes(b"APK before signing")
         def command(argv, _log, **_kwargs):
-            if argv[0] == expected: Path(argv[-1]).write_bytes(b"aligned fixture")
-            elif "--out" in argv: Path(argv[argv.index("--out") + 1]).write_bytes(b"signed fixture")
+            if "--out" in argv: Path(argv[argv.index("--out") + 1]).write_bytes(b"signed fixture")
         self.context.command.side_effect = command
         sign(apk)
         self.assertEqual(self.context.command.call_args_list[0].args[0][0], expected)
+        self.assertEqual(self.context.command.call_count, 1)
+        self.context.apk_updates.check_alignment.assert_called_once_with(apk)
         self.assertEqual(apk.read_bytes(), b"signed fixture")
         self.assertNotIn("fixture private password", str([call.args for call in self.context.command.call_args_list]))
         self.assertEqual(list(self.root.glob("*.aligned.apk")), [])
@@ -110,7 +113,7 @@ class SigningSelectionTests(unittest.TestCase):
             log.write_text("old line\n" * 4000 + "Unable to open archive " + password)
             raise storage.BuildError(Path(argv[0]).name + " exited with 1; inspect " + str(log))
         self.context.command.side_effect = fail
-        with self.assertRaisesRegex(storage.BuildError, "zipalign exited with 1; inspect") as failure:
+        with self.assertRaisesRegex(storage.BuildError, "java exited with 1; inspect") as failure:
             sign(apk)
         self.assertIn("Unable to open archive [redacted]", str(failure.exception))
         self.assertNotIn(password, str(failure.exception))
@@ -118,6 +121,17 @@ class SigningSelectionTests(unittest.TestCase):
         self.assertEqual(apk.read_bytes(), b"retained original Player")
         self.assertFalse(apk.with_suffix(".aligned.apk").exists())
         self.assertFalse(apk.with_suffix(".signed.apk").exists())
+
+    def test_invalid_alignment_retains_input_before_any_java_signing(self):
+        tools = self.tools(); key = self.root / "quest.keystore"; key.write_bytes(b"selected key fixture")
+        self.context.signing.return_value = (key, {"password": "private fixture", "alias": "quest"})
+        self.context.apk_updates.check_alignment.side_effect = storage.BuildError("Invalid local alignment")
+        sign, _ = driver._signers(self.context, tools, self.root / "output")
+        apk = self.root / "temporary.apk"; apk.write_bytes(b"retained original")
+        with self.assertRaisesRegex(storage.BuildError, "Invalid local alignment"):
+            sign(apk)
+        self.context.command.assert_not_called()
+        self.assertEqual(apk.read_bytes(), b"retained original")
 
 
 DATA = Path(os.environ.get("GHVR_QUEST_TEST_UNITY_DATA", "/home/claw/unity-2021.3.5/Editor/Data"))
@@ -201,14 +215,18 @@ class ActualDeliverySigningTests(unittest.TestCase):
         self.assertFalse((other / "logs/update-align.log").exists())
         self.assertFalse((other / "logs/update-sign.log").exists())
 
-    def test_actual_sdk_accepts_sparse_zip32_offsets_above_two_gib(self):
+    def test_host_checker_accepts_sparse_zip32_offsets_above_two_gib(self):
         path = self.root / "large-offset.apk"
         with apk_update._ApkZip32(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             archive.fp.seek(zipfile.ZIP64_LIMIT + 123456)
             archive.start_dir = archive.fp.tell()
             archive.writestr("assets/payload", b"sparse central directory native proof" * 100)
-        builder.command([str(BUILD_TOOLS / ("zipalign" + SUFFIX)), "-c", "-p", "4", str(path)],
-                        self.output / "logs/fixture-large-offset-check.log")
+        # The old Windows tool's signed-long file reader is the captured defect.
+        # Keep independent native coverage on hosts where it supports this size.
+        apk_update.check_alignment(path)
+        if os.name != "nt":
+            builder.command([str(BUILD_TOOLS / "zipalign"), "-c", "-p", "4", str(path)],
+                            self.output / "logs/fixture-large-offset-check.log")
         with zipfile.ZipFile(path) as archive:
             self.assertGreater(archive.getinfo("assets/payload").header_offset, zipfile.ZIP64_LIMIT)
             self.assertEqual(archive.read("assets/payload"), b"sparse central directory native proof" * 100)
