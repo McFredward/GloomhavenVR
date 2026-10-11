@@ -34,6 +34,15 @@ to Codex and record the user's instructions of 2026-09-08.
 - Hardware evidence lives in the main checkout's gitignored `.planning/debug/`;
   the other player's logs are in `.planning/debug/remote/`. Verify both build
   banners and inspect supplied screenshots before assigning a cause.
+- The user's 2026-10-11 storage ruling requires cleanup after every test run.
+  Once its processes have stopped, remove regenerable project caches while
+  preserving logs, results, source/manifest/capture evidence, hardware inputs,
+  `.keep` pins and current deliverables. The central suite runner performs this
+  completion cleanup for passing, failed and interrupted runs; standalone
+  fixture invocations must use the same `cleanup_completed_run` API after
+  killing/reaping their processes. Remove old generated test caches when needed,
+  checking active worktrees and borrowed inputs first; never sweep shared game
+  references or another agent's active run.
 - Initialize worker dependencies with `scripts/worktree-setup.sh`. Keep any new
   refactor baseline private to its worktree; never overwrite a shared symlink.
 - Never use `git stash`. Preserve unrelated work and the read-only game references.
