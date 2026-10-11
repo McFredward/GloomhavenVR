@@ -26,7 +26,7 @@ SAFE_DETAIL_KEYS = {'schema', 'inputKey', 'gameKey', 'sourceHash', 'commit', 'mo
 SAFE_EVENT_KEYS = {'phase', 'done', 'total', 'unit', 'percent', 'detail', 'updatedAt', 'executable',
                    'exitCode', 'durationSeconds', 'log', 'logs', 'cause', 'builderError', 'failureStage',
                    'error', 'message', 'traceback', 'outputCount', 'controlledStop', 'tool', 'version',
-                   'freeBytes', 'estimatedBytes', 'command', 'nativeMemory'}
+                   'freeBytes', 'estimatedBytes', 'command', 'nativeMemory', 'backupPath'}
 RESOURCE_FILES = ('resource-policy.json', 'resource-events.jsonl', 'build-metrics.json')
 WIZARD_LOG = re.compile(r'^(?:(?:tools|source|unity|profile|inspect|build|install)|progress(?:\.previous)?|(?:git|dotnet8|dotnet10)-version|unity-(?:hub-help|hub-window|install|install-path|version|license-probe|license-process|protocol-(?:query|recheck|register|confirm))|source-(?:clone(?:-complete)?|commit|checkout|selected-(?:present|commit)|(?:local|owned)-inventory\.json)|com\.unity\.xr\.(?:management|core-utils|openxr)-(?:init|fetch|checkout|build))\.log$')
 BUILD_LOG = re.compile(r'^(unity-(build|launch)|native|weave|mod|package-(import|api)|recovery|recover|dotnet|apk-(signature|badging)|adb-[a-z-]+|campaign-[a-z-]+|build)[a-zA-Z0-9_.-]*\.log$')
@@ -128,6 +128,67 @@ def read_object(path, limit=4 * 1048576):
     with path.open('rb') as stream: raw = stream.read(limit + 1)
     if len(raw) > limit: raise BuildError('Diagnostic metadata grew beyond its read limit.')
     return json.loads(raw.decode('utf-8'))
+
+
+def signing_recovery_stats(root, session_root, state):
+    """Summarize only the current installation's explicitly named transaction.
+
+    Capture112552 included the ADB failure but not the durable recovery frontier.
+    Never archive app files, tar members, filenames or an unfiltered journal;
+    counts and completed archive sizes are sufficient to diagnose resumption.
+    """
+    try:
+        if not installation_logs(root, session_root, state): return None
+        log = ordinary(session_root / 'logs/install.log')
+        with log.open('rb') as stream:
+            stream.seek(max(0, log.stat().st_size - 16384))
+            tail = stream.read(16384).decode('utf-8', errors='replace')
+        matches = re.findall(r'Original recovery data is retained at ([^\r\n]+?)\. Retry with the same APK and headset\.', tail)
+        if not matches: return None
+        normalized = matches[-1].replace('\\', '/')
+        base = str(root / 'device/signing-recovery').replace('\\', '/')
+        if not os.path.normcase(normalized).startswith(os.path.normcase(base) + '/'): return None
+        parts = normalized[len(base) + 1:].split('/')
+        if (len(parts) != 2 or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', parts[0])
+                or not re.fullmatch(r'[0-9a-f]{32}', parts[1])): return None
+        home = ordinary(root / 'device/signing-recovery' / parts[0])
+        value = read_object(home / 'active.json', limit=32 * 1048576)
+        if (not isinstance(value, dict) or value.get('schema') != 1
+                or value.get('package') != 'dev.gloomhavenvr.quest'
+                or value.get('deviceSerial') != parts[0] or value.get('transaction') != parts[1]): return None
+        latest = read_object(root / 'build/latest-build.json')
+        latest = latest.get('details', latest) if isinstance(latest, dict) else {}
+        if (not re.fullmatch(r'[0-9a-f]{64}', str(value.get('apkSha256', '')))
+                or value.get('apkSha256') != latest.get('apkSha256')
+                or value.get('inputKey') != latest.get('inputKey')): return None
+        folder = ordinary(home / parts[1])
+        roots = []
+        for item in value.get('roots', [])[:4]:
+            if not isinstance(item, dict) or item.get('name') not in ('private', 'device-protected', 'external'): continue
+            inventory = item.get('inventory', {})
+            if not isinstance(inventory, dict): continue
+            row = {'name': item['name'], 'journalled': True,
+                   'files': sum(isinstance(v, dict) and v.get('type') == 'file' for v in inventory.values()),
+                   'directories': sum(isinstance(v, dict) and v.get('type') == 'directory' for v in inventory.values()),
+                   'symlinks': sum(isinstance(v, dict) and v.get('type') == 'symlink' for v in inventory.values())}
+            archive = item.get('archive')
+            if isinstance(archive, str) and re.fullmatch(r'(?:private|device-protected|external)-[0-9a-f]{32}\.tar', archive):
+                path = ordinary(folder / archive)
+                row['archivePresent'] = path.is_file()
+                if path.is_file(): row['archiveBytes'] = path.stat().st_size
+            roots.append(row)
+        original = ordinary(folder / 'original.apk')
+        states = ('created', 'backed-up', 'parking', 'parked', 'uninstalling', 'removed', 'installing',
+                  'restoring', 'rolling-back', 'rollback-restoring', 'verified', 'complete')
+        return {'state': value.get('state') if value.get('state') in states else 'unknown',
+                'apkSha256': value['apkSha256'], 'inputKey': value['inputKey'],
+                'originalApkPresent': original.is_file(),
+                'originalApkBytes': original.stat().st_size if original.is_file() else 0,
+                'roots': roots, 'retainedBanks': [name for name in value.get('banks', [])
+                                                  if name in ('files/quest-owned-game', 'files/quest-mod-resources')],
+                'hardwareVerified': False}
+    except (BuildError, OSError, ValueError, TypeError, AttributeError):
+        return None  # Optional metadata must not suppress the actual failure logs.
 
 
 def recovery_workspaces(build_root, failure=None):
@@ -356,6 +417,8 @@ def export_support(state_root, session, destination=None):
     qualification = read_object(root / 'qualification.json')
     if qualification: meta['qualification'] = safe_json(qualification, replacements)
     build_root = ordinary(root / 'build')
+    signing = signing_recovery_stats(root, session_root, state)
+    if signing: meta['signingRecovery'] = signing
     failure = read_object(build_root / 'last-failure.json')
     if isinstance(failure, dict):
         meta['buildFailure'] = {key: safe_json(failure[key], replacements) for key in ('stage', 'error', 'message') if key in failure}

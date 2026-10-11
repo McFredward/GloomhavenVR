@@ -198,6 +198,68 @@ class SupportTests(unittest.TestCase):
         _, files = self.export()
         self.assertIn('device/' + name, files)
         self.assertIn('Signing-key mismatch', files['wizard/install.log'])
+    def signing_log(self):
+        name, adb, log = self.install_log()
+        home = self.root / 'device/signing-recovery/fixture-headset'
+        transaction = 'a' * 32
+        folder = home / transaction; folder.mkdir(parents=True)
+        archive = 'private-' + 'c' * 32 + '.tar'
+        (folder / archive).write_bytes(b'PRIVATE ARCHIVE BYTES NEVER EXPORT')
+        (folder / 'original.apk').write_bytes(b'OLD APK BYTES NEVER EXPORT')
+        value = {'schema': 1, 'package': 'dev.gloomhavenvr.quest', 'deviceSerial': 'fixture-headset',
+                 'transaction': transaction, 'state': 'created', 'apkSha256': 'd' * 64, 'inputKey': 'e' * 64,
+                 'banks': ['files/quest-owned-game', 'files/quest-mod-resources', 'UNKNOWN PRIVATE BANK'],
+                 'roots': [{'name': 'private', 'archive': archive, 'inventory': {
+                     'NativeSaveNeverShip': {'type': 'file', 'size': 32, 'sha256': 'f' * 64},
+                     'HiddenProfileNeverShip': {'type': 'directory'},
+                     'WineLinkNeverShip': {'type': 'symlink', 'target': 'PrivateTargetNeverShip'}}}],
+                 'password': 'JOURNAL SECRET NEVER EXPORT'}
+        write_json(home / 'active.json', value)
+        write_json(self.root / 'build/latest-build.json', {'details': {'apkSha256': 'd' * 64, 'inputKey': 'e' * 64}})
+        log.write_bytes(('Quest installation stopped: Signing migration could not safely continue: tar permission denied\r\n'
+                         'Original recovery data is retained at ' + str(folder).replace('/', '\\')
+                         + '. Retry with the same APK and headset.\r\nADB log: ' + str(adb) + '\r\n').encode())
+        return home, folder, value
+    def test_selected_signing_recovery_exports_frontier_without_app_bytes_or_member_names(self):
+        home, folder, value = self.signing_log()
+        _, files = self.export()
+        row = json.loads(files['diagnostic.json'])['signingRecovery']
+        self.assertEqual(row['state'], 'created')
+        self.assertEqual(row['roots'], [{'name': 'private', 'journalled': True, 'files': 1, 'directories': 1,
+                                       'symlinks': 1, 'archivePresent': True, 'archiveBytes': 34}])
+        self.assertEqual(row['retainedBanks'], ['files/quest-owned-game', 'files/quest-mod-resources'])
+        self.assertTrue(row['originalApkPresent'])
+        combined = '\n'.join(files.values())
+        for secret in ('PRIVATE ARCHIVE BYTES', 'OLD APK BYTES', 'NativeSaveNeverShip', 'HiddenProfileNeverShip',
+                       'WineLinkNeverShip', 'PrivateTargetNeverShip', 'JOURNAL SECRET', 'UNKNOWN PRIVATE BANK'):
+            self.assertNotIn(secret, combined)
+        self.assertEqual((folder / 'original.apk').read_bytes(), b'OLD APK BYTES NEVER EXPORT')
+    def test_signing_summary_rejects_foreign_source_or_transaction_and_retains_failure(self):
+        home, folder, value = self.signing_log()
+        for key, changed in [('apkSha256', '0' * 64), ('inputKey', '1' * 64), ('transaction', '2' * 32),
+                             ('deviceSerial', 'foreign-headset'), ('package', 'foreign.app')]:
+            with self.subTest(key=key):
+                write_json(home / 'active.json', value | {key: changed})
+                _, files = self.export()
+                self.assertNotIn('signingRecovery', json.loads(files['diagnostic.json']))
+                self.assertIn('tar permission denied', files['wizard/install.log'])
+    def test_signing_summary_rejects_journal_link_and_oversize_without_reading_backup(self):
+        home, folder, value = self.signing_log()
+        journal = home / 'active.json'
+        foreign = self.root / 'foreign-journal.json'; write_json(foreign, value)
+        journal.unlink(); journal.symlink_to(foreign)
+        self.assertIsNone(support.signing_recovery_stats(self.root, self.directory, self.state))
+        journal.unlink()
+        with journal.open('wb') as stream: stream.truncate(32 * 1048576 + 1)
+        self.assertIsNone(support.signing_recovery_stats(self.root, self.directory, self.state))
+    def test_signing_summary_never_follows_archive_path_outside_transaction(self):
+        home, folder, value = self.signing_log()
+        value['roots'][0]['archive'] = '../../outside.tar'
+        write_json(home / 'active.json', value)
+        _, files = self.export()
+        row = json.loads(files['diagnostic.json'])['signingRecovery']['roots'][0]
+        self.assertNotIn('archivePresent', row)
+        self.assertNotIn('archiveBytes', row)
     def test_support_excludes_stale_foreign_or_linked_install_logs(self):
         name, path, log = self.install_log()
         os.utime(path, (99, 99))
