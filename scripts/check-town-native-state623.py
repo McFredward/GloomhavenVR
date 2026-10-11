@@ -107,7 +107,7 @@ def main():
             tail = initialize[initialize.rindex('_ready = true;'):]
             if tail.count('PrepareEnhancementOriginals();') != 1 or tail.count('return true;') != 1: raise RuntimeError('First Initialize return binding drift')
             bound['NativeInitialReturn658.cs'] = 'namespace GloomhavenVR.WorldUI; internal static partial class NativeTemplates { internal static bool FixtureInitialReturn658() {\n' + tail + '\n}'
-            text = publisher.read_text().replace('private void PrepareCore() { }', '', 1)
+            text = publisher.read_text().replace('private void PrepareCore() { FixturePrepare669?.Invoke(); }', '', 1)
             publisher.write_text(text)
             for filename, before in [('Boundaries.cs', 'internal static class TownServicePopulation'), ('CabinetAudioBoundaries.cs', 'internal static class WorldUIConfig')]:
                 target = fixture / filename; text = target.read_text()

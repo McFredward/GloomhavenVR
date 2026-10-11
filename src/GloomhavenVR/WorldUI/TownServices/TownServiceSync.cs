@@ -22,7 +22,7 @@ internal sealed partial class TownServiceSync
     internal static bool LocalOwnsInteraction(byte service, uint sourceSession) =>
         Private._session == sourceSession && Private._service == service && Private._generation != 0
         && TownServiceMirror.LocalOwnsInteraction(service, Private._generation);
-    internal static void Reset() => Private.ResetCore();
+    internal static void Reset() { using (TownServiceMirror.UsePrivateLane()) Private.ResetCore(); }
     internal static void ResetPublic() { ResetStock(); using (TownServiceMirror.UsePublicLane()) Public.ResetCore(); }
     internal static void TickPublic(Transform frame, Transform station, TownServiceCatalog catalog, uint session, float age)
     { using (TownServiceMirror.UsePublicLane()) Public.TickCatalog(frame, station, catalog, session, age); }
@@ -93,6 +93,9 @@ internal sealed partial class TownServiceSync
         TownServiceMirror.SharedFrameForRemote = ResolveFrame;
         TickStock(sharedFrame);
         PrepareCore();
+        // Successful native bank replacement can retire this publisher inside Prepare.
+        // Continue on its next regular tick, after fresh native objects are reacquired.
+        if (_sharedFrame != sharedFrame) return;
         bool active = TownServicePresentation.Active && stationRoot != null;
         bool inspection = TownServiceMerchantHandoff.Active;
         if (!active && !inspection) { ResetCore(); return; }
@@ -414,7 +417,7 @@ internal sealed partial class TownServiceSync
     {
         _sharedFrame = frame; _service = 1;
         PrepareCore();
-        if (!NativeTemplates.Ready) return;
+        if (_sharedFrame != frame || !NativeTemplates.Ready) return;
         if (_session != session) { ResetCore(); _session = session; _service = 1; _nextId = 0; }
         TownServiceMirror.BeginSession(1, session, frame, station, age);
         foreach (Published module in Modules.Values)
@@ -670,9 +673,16 @@ internal sealed partial class TownServiceSync
         if (_session != 0) TownServiceMirror.EndSession();
         ResetCatalogBank(); Modules.Clear(); Sources.Clear(); RemovedSources.Clear(); Visited.Clear(); Dynamic.Clear(); PriorityRoots.Clear(); Removed.Clear(); _session = 0; _service = 0;
     }
-    internal static void ResetNetwork() { Private.ResetCore(); ResetPublic(); TownServiceMirror.ResetNetwork(); }
-    internal static void Shutdown()
-    { TownServiceMerchantHandoff.Reset(); TownServicePublicMerchant.Reset(); Private.ResetCore(); ResetPublic(); TownServiceMirror.Shutdown(); NativeTemplates.Shutdown(); TownServiceNativeAssets.Shutdown(); Private._sharedFrame = Public._sharedFrame = null; Private.ReportReset(); Public.ReportReset(); }
+    internal static void ResetNetwork() { Reset(); ResetPublic(); TownServiceMirror.ResetNetwork(); }
+    internal static void Shutdown(bool resetDiagnostics = true)
+    {
+        TownServiceMerchantHandoff.Reset(); TownServicePublicMerchant.Reset(); Reset(); ResetPublic();
+        TownServiceMirror.Shutdown(resetDiagnostics); NativeTemplates.Shutdown(); TownServiceNativeAssets.Shutdown();
+        Private._sharedFrame = Public._sharedFrame = Stock._sharedFrame = null;
+        // Preparation retries retire originals, not the existing 30-second error window.
+        // Ordinary map/module teardown still starts a fresh diagnostic lifetime.
+        if (resetDiagnostics) { Private.ReportReset(); Public.ReportReset(); Stock.ReportReset(); }
+    }
     private void ReportReset()
     {
         Failures.Clear(); _reportWindow = 0; _reportCount = 0;

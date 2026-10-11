@@ -29,15 +29,19 @@ namespace GloomhavenVR.WorldUI
         {
             private sealed class PublisherPort
             {
-                internal bool Public;
-                internal Transform? _sharedFrame;
+                internal bool Public, IsStock;
+                internal Transform? _sharedFrame
+                { get => GloomhavenVR.WorldUI.TownServiceSync.FixtureFrame669(Public, IsStock);
+                  set => GloomhavenVR.WorldUI.TownServiceSync.FixtureFrame669(Public, IsStock, value); }
                 internal void ResetCore()
                 { if (Public) GloomhavenVR.WorldUI.TownServiceSync.ResetPublic(); else GloomhavenVR.WorldUI.TownServiceSync.Reset(); }
-                internal void ReportReset() { }
+                internal void ReportReset() => GloomhavenVR.WorldUI.TownServiceSync.FixtureDiagnosticReset669(Public, IsStock);
             }
-            private static readonly PublisherPort Private = new(), Public = new() { Public = true };
+            private static readonly PublisherPort Private = new(), Public = new() { Public = true }, Stock = new() { IsStock = true };
             private static void ResetPublic() => Public.ResetCore();
+            private static void Reset() => Private.ResetCore();
         }
+        internal static void OrdinaryShutdown() => TownServiceSync.Shutdown();
         internal static int PublicCatalogResets => TownServicePublicMerchant.Resets;
         private static readonly Dictionary<string, object> Entries = new();
         private static readonly Dictionary<Transform, string> Roots = new();
@@ -81,6 +85,149 @@ namespace GloomhavenVR.WorldUI
 
 public static partial class MirrorProgram
 {
+    private static void NativeBankDiagnostic669()
+    {
+        NativeInitializationProbe.OrdinaryShutdown();
+        var hud = Go("Native failed preparation diagnostic HUD").AddComponent<NativeInitializationProbe.UIGuildmasterHUD>();
+        hud.Icon = new Texture2D(2, 2, TextureFormat.RGBA32, false) { name = "Diagnostic native icon" }; Assets.Add(hud.Icon);
+        NativeInitializationProbe.Select(hud); NativeInitializationProbe.Fail = true;
+        int Messages(string prefix) => GloomhavenVR.Core.VRLog.Messages.FindAll(message => message.StartsWith(prefix, StringComparison.Ordinal)).Count;
+        const string publisherPrefix = "TownServices: Original widget publisher unavailable:";
+        const string mirrorPrefix = "TownServices: Original service presentation unavailable (";
+        const string capPrefix = "TownServices: Further presentation errors are suppressed";
+        void Report(int identity)
+        {
+            var failure = new InvalidDataException("Preparation diagnostic " + identity);
+            TownServiceSync.FixtureDiagnostic669("prepare", failure);
+            typeof(TownServiceMirror).GetMethod("Report", PrivateStatic)!.Invoke(null, new object[] { "prepare", failure });
+        }
+        void FailPreparation()
+        {
+            try { NativeInitializationProbe.Initialize(); }
+            catch (InvalidDataException error) { Check(error.Message == "Controlled native factory failure", "diagnostic proof preserves the actual native preparation failure"); }
+        }
+        int publisherStart = Messages(publisherPrefix), mirrorStart = Messages(mirrorPrefix), capStart = Messages(capPrefix);
+        FailPreparation(); Report(0);
+        for (int retry = 0; retry < 12; retry++) { FailPreparation(); Report(0); }
+        Check(Messages(publisherPrefix) == publisherStart + 3,
+            "repeated preparation failures retain the original publisher duplicate suppression");
+        Check(Messages(mirrorPrefix) == mirrorStart + 1,
+            "repeated preparation failures retain the original mirror duplicate suppression");
+        for (int distinct = 1; distinct <= 12; distinct++) { FailPreparation(); Report(distinct); }
+        Check(Messages(publisherPrefix) == publisherStart + 24 && Messages(mirrorPrefix) == mirrorStart + 8
+            && Messages(capPrefix) == capStart + 4,
+            "preparation retries preserve the eight-error cap and one suppression marker per diagnostic stream");
+        NativeInitializationProbe.OrdinaryShutdown(); Report(0);
+        Check(Messages(publisherPrefix) == publisherStart + 27,
+            "ordinary map teardown starts a fresh publisher diagnostic lifetime");
+        Check(Messages(mirrorPrefix) == mirrorStart + 9,
+            "ordinary map teardown starts a fresh mirror diagnostic lifetime");
+        NativeInitializationProbe.Fail = false; NativeInitializationProbe.Select(null); NativeInitializationProbe.OrdinaryShutdown();
+    }
+
+    private static void RetiredPublisherContinuation669()
+    {
+        var fields = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public;
+        var frame = Go("Native replacement continuation frame").transform;
+        var first = Go("Native continuation first HUD").AddComponent<NativeInitializationProbe.UIGuildmasterHUD>();
+        var replacement = Go("Native continuation replacement HUD").AddComponent<NativeInitializationProbe.UIGuildmasterHUD>();
+        first.Icon = new Texture2D(2, 2, TextureFormat.RGBA32, false) { name = "First native mode icon" }; Assets.Add(first.Icon);
+        replacement.Icon = new Texture2D(2, 2, TextureFormat.RGBA32, false) { name = "Replacement native mode icon" }; Assets.Add(replacement.Icon);
+        foreach (string laneName in new[] { "private", "public", "stock" })
+        {
+            NativeInitializationProbe.OrdinaryShutdown(); NativeInitializationProbe.Select(first);
+            Check(NativeInitializationProbe.Initialize(), "native publisher starts with a successfully prepared first HUD");
+            NativeTemplates.Ready = true; TownServicePresentation.Active = true;
+            TownServicePresentation.Service = 1; TownServicePresentation.Session = 669101;
+            TownServiceMerchantHandoff.HasParkedOffer = laneName == "stock";
+            object lane = typeof(TownServiceMirror).GetField(laneName == "public" ? "PublicLane" : laneName == "stock" ? "StockLane" : "PrivateLane", PrivateStatic)!.GetValue(null)!;
+            bool Active() => (bool)lane.GetType().GetField("Active", fields)!.GetValue(lane)!;
+            var catalog = GloomhavenVR.WorldUI.TownServicePublicMerchant.Catalog!;
+            void Tick()
+            {
+                if (laneName == "public") TownServiceSync.TickPublic(frame, frame, catalog, 669101, 0);
+                else if (laneName == "stock") TownServiceSync.FixtureTickStock669(frame);
+                else TownServiceSync.Tick(frame, frame);
+            }
+            TownServiceSync.FixturePrepare669 = () =>
+            { NativeInitializationProbe.Select(replacement); NativeInitializationProbe.Initialize(); };
+            Tick();
+            Check(!Active() && TownServiceSync.FixtureFrame669(laneName == "public", laneName == "stock") == null,
+                "retired " + laneName + " publisher never continues against replaced native originals");
+            catalog = GloomhavenVR.WorldUI.TownServicePublicMerchant.Catalog!;
+            TownServiceSync.FixturePrepare669 = () => NativeInitializationProbe.Initialize();
+            Tick();
+            Check(Active() && TownServiceSync.FixtureFrame669(laneName == "public", laneName == "stock") == frame,
+                "unchanged " + laneName + " native preparation continues on the next regular publisher tick");
+            TownServiceSync.FixturePrepare669 = null;
+        }
+        TownServiceMerchantHandoff.HasParkedOffer = false; TownServicePresentation.Active = false;
+        NativeInitializationProbe.Select(null); NativeInitializationProbe.OrdinaryShutdown();
+    }
+
+    private static void TownLaneShutdown669()
+    {
+        TownServiceSync.ResetNetwork(); TownServiceMirror.Shutdown();
+        var frame = Go("Nested-lane shutdown frame").transform;
+        var original = Go("Nested-lane native original").transform;
+        original.gameObject.AddComponent<CanvasGroup>();
+        var live = Go("Nested-lane live original").transform;
+        live.gameObject.AddComponent<CanvasGroup>();
+        var fields = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+        object Lane(string key) => typeof(TownServiceMirror).GetField(key, PrivateStatic)!.GetValue(null)!;
+        object Current() => typeof(TownServiceMirror).GetField("_local", PrivateStatic)!.GetValue(null)!;
+        bool Active(object lane) => (bool)lane.GetType().GetField("Active", fields | System.Reflection.BindingFlags.Public)!.GetValue(lane)!;
+        uint Session(object lane) => (uint)lane.GetType().GetField("Session", fields | System.Reflection.BindingFlags.Public)!.GetValue(lane)!;
+        int Modules(object lane) => ((System.Collections.IDictionary)lane.GetType().GetField("Modules", fields | System.Reflection.BindingFlags.Public)!.GetValue(lane)!).Count;
+        void Begin(bool isPublic, bool stock, uint session)
+        {
+            using (stock ? TownServiceMirror.UseStockLane() : isPublic ? TownServiceMirror.UsePublicLane() : TownServiceMirror.UsePrivateLane())
+            {
+                TownServiceMirror.BeginSession(3, session, frame, frame);
+                TownServiceMirror.RegisterTemplate(3, 991, original, _ => false, "enchant.inventory|");
+                TownServiceMirror.RegisterModule(991, 991, live, _ => false, "enchant.inventory|");
+            }
+            object publisher = typeof(TownServiceSync).GetField(stock ? "Stock" : isPublic ? "Public" : "Private", PrivateStatic)!.GetValue(null)!;
+            typeof(TownServiceSync).GetField("_session", fields)!.SetValue(publisher, session);
+            typeof(TownServiceSync).GetField("_service", fields)!.SetValue(publisher, (byte)3);
+        }
+        object privateLane = Lane("PrivateLane"), publicLane = Lane("PublicLane"), stockLane = Lane("StockLane");
+        Begin(false, false, 669001); Begin(true, false, 669002);
+        TownServiceMirror.SetLocalTransactionActive(3, true);
+        Check(GloomhavenVR.Net.TownServices.TownServiceGrantSync.Offers.Count == 1,
+            "private transaction has a genuinely requested offer before nested teardown");
+        using (TownServiceMirror.UsePublicLane())
+        {
+            TownServiceSync.Reset();
+            Check(!Active(privateLane) && Modules(privateLane) == 0 && GloomhavenVR.Net.TownServices.TownServiceGrantSync.Offers.Count == 0
+                && Active(publicLane) && Modules(publicLane) == 1 && ReferenceEquals(Current(), publicLane),
+                "private publisher reset from the public scope retires only the private session and offer");
+        }
+        Begin(false, false, 669003); Begin(false, true, 669004); TownServiceMirror.SetLocalTransactionActive(3, true);
+        uint assets = TownServiceMirror.Assets.Generation;
+        using (TownServiceMirror.UsePublicLane())
+        {
+            TownServiceSync.ResetNetwork();
+            Check(!Active(privateLane) && !Active(publicLane) && !Active(stockLane)
+                && Modules(privateLane) == 0 && Modules(publicLane) == 0 && Modules(stockLane) == 0
+                && GloomhavenVR.Net.TownServices.TownServiceGrantSync.Offers.Count == 0
+                && TownServiceMirror.Assets.Generation == assets && ReferenceEquals(Current(), publicLane),
+                "network reset inside the public scope closes every publisher and private offer while retaining original assets");
+        }
+        Begin(false, false, 669005); Begin(true, false, 669006); Begin(false, true, 669007);
+        TownServiceMirror.SetLocalTransactionActive(3, true);
+        using (TownServiceMirror.UsePublicLane())
+        {
+            TownServiceMirror.Shutdown();
+            Check(!Active(privateLane) && !Active(publicLane) && !Active(stockLane)
+                && Session(privateLane) == 0 && Session(publicLane) == 0 && Session(stockLane) == 0
+                && Modules(privateLane) == 0 && Modules(publicLane) == 0 && Modules(stockLane) == 0
+                && GloomhavenVR.Net.TownServices.TownServiceGrantSync.Offers.Count == 0 && ReferenceEquals(Current(), publicLane),
+                "mirror shutdown inside the public scope retires every private public and stock module");
+        }
+        TownServiceSync.ResetNetwork(); TownServiceMirror.Shutdown();
+    }
+
     private static void NativeBankInitialization669()
     {
         TownServiceMirror.Shutdown(); NativeInitializationProbe.Shutdown();

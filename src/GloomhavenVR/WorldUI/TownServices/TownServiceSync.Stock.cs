@@ -50,7 +50,7 @@ internal sealed partial class TownServiceSync
         if (session == 0) session = 1;
         _sharedFrame = sharedFrame;
         PrepareCore();
-        if (!NativeTemplates.Ready || _generationExhausted) return;
+        if (_sharedFrame != sharedFrame || !NativeTemplates.Ready || _generationExhausted) return;
         if (_session != session)
         {
             if (_generation == uint.MaxValue)

@@ -146,7 +146,9 @@ namespace GloomhavenVR.Net.TownServices
     internal static partial class TownServiceGrantSync
     {
         internal static int GrantedOwner(byte service) => 0;
-        internal static void SetOffer(byte service, uint session, bool active) { }
+        internal static readonly HashSet<(byte Service, uint Session)> Offers = new();
+        internal static void SetOffer(byte service, uint session, bool active)
+        { if (active) Offers.Add((service, session)); else Offers.Remove((service, session)); }
         internal static bool MayCommit(byte service, uint session) => true;
         internal static bool Unavailable(byte service, uint session) => false;
         internal static bool Denied(byte service, uint session) => false;

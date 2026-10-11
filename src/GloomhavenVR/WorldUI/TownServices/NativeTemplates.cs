@@ -61,7 +61,7 @@ internal static partial class NativeTemplates
         // preceding empty-message failure is not identified by the supplied logs.
         // A different HUD also retires public catalogs, publisher sources and mirror templates.
         // The unchanged-ready fast path above never resets either lifetime.
-        if (_bank != null || _hud != null) TownServiceSync.Shutdown();
+        if (_bank != null || _hud != null) TownServiceSync.Shutdown(resetDiagnostics: false);
         Shutdown();
         try { return InitializeBank(hud); }
         catch
@@ -69,7 +69,7 @@ internal static partial class NativeTemplates
             // Initialization is atomic: no partial bank or original registry may survive
             // to poison the next native retry. Preserve the actual failure for reporting;
             // strict different-original slot conflicts remain failures within each bank.
-            TownServiceSync.Shutdown(); throw;
+            TownServiceSync.Shutdown(resetDiagnostics: false); throw;
         }
     }
 
