@@ -7,7 +7,7 @@ import struct
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools/quest-builder"))
@@ -76,6 +76,23 @@ class ApkUpdateTests(unittest.TestCase):
         with self.assertRaisesRegex(storage.BuildError, "signer failed"):
             update.repack(self.base, self.output, {}, update_manifest=self.provenance, signer=fail, verifier=lambda _: None)
         self.assertEqual(self.output.read_bytes(), b"previous published result"); self.assertEqual(self.base.read_bytes(), before)
+        self.assertEqual(list(self.root.glob("updated.apk.*.apk")), [])
+
+    def test_zip64_entry_count_sentinel_keeps_existing_output_without_signing(self):
+        # Exercise the real directory-limit guard without writing65535 assets.
+        class SentinelDirectory(update._ApkZip32):
+            def _write_end_record(self):
+                self.filelist = [self.filelist[0]] * 0xffff
+                super()._write_end_record()
+        self.output.write_bytes(b"previous verified installable result")
+        original = self.base.read_bytes(); signer, verifier = Mock(), Mock()
+        with patch.object(update, "_ApkZip32", SentinelDirectory):
+            with self.assertRaisesRegex(storage.BuildError, "ZIP32 limits.*Player is retained"):
+                update.repack(self.base, self.output, {}, update_manifest=self.provenance,
+                              signer=signer, verifier=verifier)
+        signer.assert_not_called(); verifier.assert_not_called()
+        self.assertEqual(self.base.read_bytes(), original)
+        self.assertEqual(self.output.read_bytes(), b"previous verified installable result")
         self.assertEqual(list(self.root.glob("updated.apk.*.apk")), [])
 
     def test_il2cpp_pair_or_unqualified_code_cannot_be_published(self):

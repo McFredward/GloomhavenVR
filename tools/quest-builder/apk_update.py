@@ -552,7 +552,7 @@ class _ApkZip32(zipfile.ZipFile):
     def _write_end_record(self):
         count = len(self.filelist)
         # All-ones size/offset fields are ZIP64 sentinels, not ordinary values.
-        if count > 0xffff or not 0 <= self.start_dir < 0xffffffff:
+        if count >= 0xffff or not 0 <= self.start_dir < 0xffffffff:
             raise BuildError("APK exceeds Android ZIP32 limits; the completed Player is retained.")
         for info in self.filelist:
             if (info.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED)
