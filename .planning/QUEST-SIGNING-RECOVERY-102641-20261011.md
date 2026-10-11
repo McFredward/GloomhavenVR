@@ -68,8 +68,8 @@ integrated into the feature without rewriting its published history; the merge
 preserves both the18 Quest CI additions and the new native-bank lifecycle suite.
 The source build passes Release with warnings treated as errors (0/0).
 
-On the integrated tree, installer223 cases pass (24 optional environment checks
-skip), including33 new real-filesystem/tar transaction and manifest controls;
+On the integrated tree, installer224 cases pass (24 optional environment checks
+skip), including34 new real-filesystem/tar transaction and manifest controls;
 release/support43 and installation Wizard22 cases pass. UI64 cases pass and the
 two real-API cases run explicitly and pass, for66 successful UI cases. The merged
 runner inventory passes16 cases (two optional SDK checks skip). The worker's612
