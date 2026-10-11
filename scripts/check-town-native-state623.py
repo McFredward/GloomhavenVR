@@ -103,11 +103,11 @@ def main():
             raw_sync = (root / 'src/GloomhavenVR/WorldUI/TownServices/TownServiceSync.cs').read_text()
             bound['PrepareCore658.cs'] = 'using System; using UnityEngine; using GloomhavenVR.Net; using GloomhavenVR.WorldUI.MapRoom; namespace GloomhavenVR.WorldUI; internal sealed partial class TownServiceSync {\n' + loader.method(raw_sync, 'private void PrepareCore()') + '\n}'
             raw_templates = (root / 'src/GloomhavenVR/WorldUI/TownServices/NativeTemplates.cs').read_text()
-            initialize = loader.method(raw_templates, 'internal static bool Initialize()')
+            initialize = loader.method(raw_templates, 'private static bool InitializeBank(UIGuildmasterHUD hud)')
             tail = initialize[initialize.rindex('_ready = true;'):]
             if tail.count('PrepareEnhancementOriginals();') != 1 or tail.count('return true;') != 1: raise RuntimeError('First Initialize return binding drift')
             bound['NativeInitialReturn658.cs'] = 'namespace GloomhavenVR.WorldUI; internal static partial class NativeTemplates { internal static bool FixtureInitialReturn658() {\n' + tail + '\n}'
-            text = publisher.read_text().replace('private void PrepareCore() { }', '', 1)
+            text = publisher.read_text().replace('private void PrepareCore() { FixturePrepare669?.Invoke(); }', '', 1)
             publisher.write_text(text)
             for filename, before in [('Boundaries.cs', 'internal static class TownServicePopulation'), ('CabinetAudioBoundaries.cs', 'internal static class WorldUIConfig')]:
                 target = fixture / filename; text = target.read_text()

@@ -64,6 +64,29 @@ internal static class Program
             t.True(sender.Unreliable, "reusable native argument resets after either outcome");
         }
         FakeNative.Throw = false;
+        t.Case("Flat-host coordinator discovery uses the existing reliable announcement");
+        // The version codec has its own golden vectors. This boundary exercises
+        // the actual scheduler's buffer identity and native reflection flags.
+        byte[] version = Packet(NetProtocol.MsgExtras, 15);
+        var discoveryScheduler = new BoundScheduler();
+        t.True(ReferenceEquals(version, discoveryScheduler.NextBatch(0, version)),
+            "scheduled standalone version retains its exact discovery buffer");
+        sender.AnnounceVersion(version);
+        InspectNative(t, sender, version, expectedUnreliable: false);
+        foreach (bool throws in new[] { false, true })
+        {
+            FakeNative.Throw = throws; bool failed = false;
+            try { sender.AnnounceVersion(version); }
+            catch (TargetInvocationException) { failed = true; }
+            t.Equal(throws, failed, "version discovery observes native send failure");
+            t.True(sender.Unreliable, "version discovery restores the reusable channel argument");
+        }
+        FakeNative.Throw = false;
+        // The same bytes sent as ordinary presence retain the original unreliable policy.
+        // Only the scheduled standalone announcement is the discovery dependency.
+        byte[] ordinaryVersion = (byte[])version.Clone();
+        sender.Send(ordinaryVersion);
+        InspectNative(t, sender, ordinaryVersion, expectedUnreliable: true);
         t.Case("Production NextBatch preserves budget, 50 ms clock and no catch-up");
         var scheduler = new BoundScheduler();
         for (int i = 0; i < 10; i++) scheduler.Add(Packet(NetProtocol.MsgExtras, 430));

@@ -1548,6 +1548,7 @@ public static partial class MirrorProgram
             }
             if (suite == "asset-identity" || suite == "full")
             {
+                if (suite == "asset-identity") NativeBankLifecycle669();
                 BackdropIdentity();
                 if (suite == "asset-identity")
                 {
@@ -1709,6 +1710,9 @@ public static partial class MirrorProgram
                 // Run the real independent numeric capture/playback proof in this
                 // existing Unity process, after legacy state has been checked.
                 IEnumerator fast = MotionFast(); while (fast.MoveNext()) yield return fast.Current;
+                // Historical lifecycle mutations must reach their original callback
+                // assertion before independent bank probes register more live originals.
+                NativeBankLifecycle669();
             }
             else
             {

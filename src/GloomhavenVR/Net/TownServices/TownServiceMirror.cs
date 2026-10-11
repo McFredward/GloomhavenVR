@@ -602,6 +602,7 @@ internal static partial class TownServiceMirror
     }
     private static readonly LocalLane PrivateLane = new(), PublicLane = new(), StockLane = new();
     private static LocalLane _local = PrivateLane;
+    internal static IDisposable UsePrivateLane() => new LaneScope(PrivateLane);
     internal static IDisposable UsePublicLane() => new LaneScope(PublicLane);
     internal static IDisposable UseStockLane() => new LaneScope(StockLane);
     private sealed class LaneScope : IDisposable
@@ -1580,6 +1581,7 @@ internal static partial class TownServiceMirror
       foreach (LocalModule module in StockLane.Modules.Values) yield return module; }
     internal static void ResetNetwork()
     {
+        using var privateLane = new LaneScope(PrivateLane);
         ResetOriginalReceipts();
         ResetNativeTemplateState();
         TraceResetNativeVisibility();
@@ -1599,8 +1601,11 @@ internal static partial class TownServiceMirror
         PrivateLane.TransactionActive = false;
         ResetInteractionLeases(); ClearStockPeerKeys();
     }
-    internal static void Shutdown()
+    internal static void Shutdown(bool resetDiagnostics = true)
     {
+        // Native preparation can fail inside the public capture scope. Retire the
+        // private lane explicitly, while restoring that enclosing scope on return.
+        using var privateLane = new LaneScope(PrivateLane);
         ResetNetwork(); using (new LaneScope(StockLane)) { ClearLocalModules(); _session = 0; _active = false; }
         using (new LaneScope(PublicLane)) { ClearLocalModules(); _session = 0; _active = false; }
         ClearLocalModules(); Templates.Clear(); NativeRingRates.Clear();
@@ -1613,7 +1618,7 @@ internal static partial class TownServiceMirror
         PrivateLane.TransactionActive = false;
         ResetInteractionLeases();
         SourceParents.Clear(); ParentGroups.Clear(); TownServiceMaterial.Reset(); Assets.Clear();
-        ReportReset();
+        if (resetDiagnostics) ReportReset();
     }
     private static void ClearLocalModules()
     { _local.ParentLinksDirty = true; _local.CaptureOrder.Clear();

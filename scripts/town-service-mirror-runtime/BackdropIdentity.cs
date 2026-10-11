@@ -33,6 +33,14 @@ public static partial class MirrorProgram
         return roots;
     }
 
+    private static void NativeBankLifecycle669()
+    {
+        NativeBankInitialization669();
+        NativeBankDiagnostic669();
+        TownLaneShutdown669();
+        RetiredPublisherContinuation669();
+    }
+
     private static void BackdropIdentity()
     {
         MaterialPropertyBudget();

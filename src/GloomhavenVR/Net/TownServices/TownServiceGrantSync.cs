@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using FFSNet;
 using GloomhavenVR.Core;
 using UnityEngine;
@@ -10,9 +11,12 @@ namespace GloomhavenVR.Net.TownServices;
 /// from invoking their local native callbacks for the same resident concurrently.
 /// Cosmetic TLV92 remains useful for presentation but cannot authorize gameplay.
 ///
-/// The native host is the sole coordinator because Bolt's client-to-client relay through
-/// a flat host is not proven. With an unmodded host, the immersive offer must restore its
-/// original native window; inventing a local grant would permit split-brain purchases.
+/// Prefer a compatible native host, otherwise elect the lowest compatible live player ID.
+/// The shipped Bolt EventDispatcher.Global_Others forwards received reliable events to
+/// every other connection before vanilla ignores the sentinel, including at a flat host.
+/// A new coordinator waits out the four-second client permission window before granting;
+/// election and native gameplay authority remain separate. Native purchase callbacks and
+/// the flat host still own every purchase, donation and enhancement.
 /// </summary>
 internal static class TownServiceGrantSync
 {
@@ -34,6 +38,9 @@ internal static class TownServiceGrantSync
     private static readonly VisibleGrant[] Visible = new VisibleGrant[4];
     private static readonly TownServiceGrantLedger Ledger = new();
     private static INetTransport? _transport;
+    private static readonly List<int> CompatiblePeers = new();
+    private static int _coordinatorPlayer;
+    private static float _coordinatorNotBefore;
     private static uint _nextNonce = (uint)(DateTime.UtcNow.Ticks ^ Environment.TickCount);
     private static uint _epoch = NextNonce();
     private static float _nextSendFailureLog;
@@ -48,11 +55,55 @@ internal static class TownServiceGrantSync
     private static int HostPlayer => PlayerRegistry.HostPlayerID;
     private static bool Online => !NetSession.FlatNetMode && FFSNetwork.IsOnline;
     private static bool TransportReady => _transport is FfsNetTransport && _transport.IsOnline;
-    private static bool Host => Online && LocalPlayer > 0 && LocalPlayer == HostPlayer;
-    internal static bool CoordinatorReady => !FFSNetwork.IsOnline || !NetSession.FlatNetMode
-        && TransportReady && (Host
-        || HostPlayer > 0 && VersionGuard.PeerBuild(HostPlayer) == NetProtocol.ModBuild);
+    private static bool Coordinator => Online && LocalPlayer > 0 && LocalPlayer == _coordinatorPlayer;
+    internal static bool CoordinatorReady
+    {
+        get
+        {
+            if (!FFSNetwork.IsOnline) return true;
+            if (!Online || !TransportReady || LocalPlayer <= 0) return false;
+            RefreshCoordinator(Time.unscaledTime);
+            return _coordinatorPlayer > 0;
+        }
+    }
     internal static bool CanUseImmersive => CoordinatorReady;
+
+    private static void RefreshCoordinator(float now)
+    {
+        // The ordinary version census is backed by the native connected-player roster.
+        // Its compatible membership survives avatar staleness and excludes departed
+        // players even though their build record is retained until the session ends.
+        VersionGuard.CollectContinuationPeers(CompatiblePeers, LocalPlayer);
+        int selected = LocalPlayer;
+        for (int i = 0; i < CompatiblePeers.Count; i++)
+        {
+            int peer = CompatiblePeers[i];
+            if (peer == HostPlayer) { selected = peer; break; }
+            if (selected != HostPlayer && peer > 0 && peer < selected) selected = peer;
+        }
+        if (selected == _coordinatorPlayer) return;
+        bool first = _coordinatorPlayer == 0;
+        _coordinatorPlayer = selected;
+        // Initial native-host operation keeps its existing immediate path. A guest
+        // coordinator settles discovery, and every handoff drains old client grants.
+        // Keep native originals visible during this interval: it only gates commit.
+        _coordinatorNotBefore = first && selected == HostPlayer ? now : now + ClientGrantSeconds;
+        VRLog.Note("Net", $"Town-service coordinator: player {selected}, native host {HostPlayer}; "
+            + $"client permission drain {_coordinatorNotBefore - now:0.0}s. Native gameplay authority is unchanged.");
+        Ledger.Clear(); _epoch = NextNonce();
+        for (int service = 1; service <= 3; service++)
+        {
+            Visible[service] = default;
+            ref Offer offer = ref Offers[service];
+            offer.Epoch = 0; offer.LastGrant = offer.LastResponse = 0f; offer.Denied = false;
+            offer.LastRequest = float.NegativeInfinity;
+            offer.Started = _coordinatorNotBefore;
+            // Retain the physical offer's session/nonce, but retire every old request
+            // slot. A delayed response from a former coordinator cannot unlock it.
+            if (offer.SentSequences != null) Array.Clear(offer.SentSequences, 0, offer.SentSequences.Length);
+            if (offer.SentAt != null) Array.Clear(offer.SentAt, 0, offer.SentAt.Length);
+        }
+    }
 
     internal static void SetOffer(byte service, uint session, bool active)
     {
@@ -67,9 +118,9 @@ internal static class TownServiceGrantSync
         offer = new Offer { Active = true, Session = session, Nonce = NextNonce(),
             Started = Time.unscaledTime, LastRequest = float.NegativeInfinity,
             SentSequences = new uint[8], SentAt = new float[8] };
-        if (Host && Ledger.Request(service, LocalPlayer, session, offer.Nonce, Time.unscaledTime))
+        if (CoordinatorReady && Coordinator && Time.unscaledTime >= _coordinatorNotBefore && Ledger.Request(service, LocalPlayer, session, offer.Nonce, Time.unscaledTime))
         {
-            // The host's own ledger decision is a response too. Leaving LastResponse
+            // The coordinator's own ledger decision is a response too. Leaving LastResponse
             // unset made Unavailable declare a live self-grant dead three seconds
             // later, replacing the immersive merchant with the flat shop and
             // reclaiming the card in his hand. The same timeout affected offerings
@@ -79,9 +130,9 @@ internal static class TownServiceGrantSync
             Broadcast(new TownGrantMessage(TownGrantKind.Grant, service, LocalPlayer,
                 session, offer.Nonce, _epoch, offer.RequestSequence));
         }
-        else if (Host)
+        else if (Coordinator && Time.unscaledTime >= _coordinatorNotBefore)
         {
-            // The host is also a visitor. A peer's lease must reject its local offer
+            // The coordinator is also a visitor. A peer's lease must reject its local offer
             // like any other Busy reply, never route it through the flat fallback.
             offer.Denied = true;
             offer.LastResponse = Time.unscaledTime;
@@ -96,7 +147,8 @@ internal static class TownServiceGrantSync
         Offer offer = Offers[service];
         if (!offer.Active || offer.Session != session || !CoordinatorReady) return false;
         float now = Time.unscaledTime;
-        if (Host) return Ledger.Holds(service, LocalPlayer, session, offer.Nonce, now);
+        if (now < _coordinatorNotBefore) return false;
+        if (Coordinator) return Ledger.Holds(service, LocalPlayer, session, offer.Nonce, now);
         return offer.Epoch != 0 && offer.LastGrant > 0f && now - offer.LastGrant < ClientGrantSeconds;
     }
 
@@ -109,8 +161,9 @@ internal static class TownServiceGrantSync
         // A currently valid grant is authoritative even if a transport reset or an
         // older local offer left the diagnostic response clock at its zero sentinel.
         if (MayCommit(service, session)) return false;
+        if (CoordinatorReady && Time.unscaledTime < _coordinatorNotBefore) return false;
         return !CoordinatorReady || offer.LastResponse <= 0f
-            && Time.unscaledTime - offer.Started >= UnavailableSeconds;
+            && Time.unscaledTime - Math.Max(offer.Started, _coordinatorNotBefore) >= UnavailableSeconds;
     }
 
     /// <summary>A different visitor was granted this resident before this simultaneous
@@ -124,7 +177,8 @@ internal static class TownServiceGrantSync
         // Temple grants are a brief original-callback commit mutex, never an NPC
         // occupation. They must not hide another visitor's purse, bowl or cue.
         if (!Online || service != 1 && service != 3) return 0;
-        if (Host) return Ledger.Owner(service, Time.unscaledTime);
+        if (!CoordinatorReady) return 0;
+        if (Coordinator) return Ledger.Owner(service, Time.unscaledTime);
         VisibleGrant grant = Visible[service];
         return VisibleOfferCurrent(service, in grant) ? grant.Player : 0;
     }
@@ -132,7 +186,8 @@ internal static class TownServiceGrantSync
     {
         player = 0; session = 0;
         if (!Online || service != 1 && service != 3) return false;
-        if (Host) return Ledger.TryOwner(service, Time.unscaledTime, out player, out session);
+        if (!CoordinatorReady) return false;
+        if (Coordinator) return Ledger.TryOwner(service, Time.unscaledTime, out player, out session);
         VisibleGrant grant = Visible[service];
         if (!VisibleOfferCurrent(service, in grant)) return false;
         player = grant.Player; session = grant.Session;
@@ -145,7 +200,7 @@ internal static class TownServiceGrantSync
             || Time.unscaledTime - grant.LastSeen >= VisibleSeconds) return false;
         if (grant.Player != LocalPlayer) return true;
         Offer own = Offers[service];
-        // A host response already in flight can arrive after this client's physical
+        // A coordinator response already in flight can arrive after this client's physical
         // return. It may remain useful reliable history, but it cannot resurrect
         // that removed card's local identity or overwrite a replacement offer.
         return own.Active && own.Session == grant.Session && own.Nonce == grant.Nonce;
@@ -154,7 +209,8 @@ internal static class TownServiceGrantSync
     internal static void Tick(INetTransport transport, float now)
     {
         _transport = transport;
-        if (!Online || LocalPlayer <= 0) return;
+        if (!Online || LocalPlayer <= 0 || !TransportReady) return;
+        RefreshCoordinator(now);
         for (byte service = 1; service <= 3; service++)
         {
             ref Offer offer = ref Offers[service];
@@ -164,8 +220,9 @@ internal static class TownServiceGrantSync
             int requestSlot = (int)(offer.RequestSequence & 7);
             offer.SentSequences![requestSlot] = offer.RequestSequence;
             offer.SentAt![requestSlot] = now;
-            if (Host)
+            if (Coordinator)
             {
+                if (now < _coordinatorNotBefore) continue;
                 if (Ledger.Request(service, LocalPlayer, offer.Session, offer.Nonce, now))
                 {
                     offer.Epoch = _epoch; offer.LastGrant = offer.LastResponse = now; offer.Denied = false;
@@ -181,7 +238,7 @@ internal static class TownServiceGrantSync
             }
             if (!CoordinatorReady) continue;
             Send(new TownGrantMessage(TownGrantKind.Request, service, LocalPlayer,
-                offer.Session, offer.Nonce, 0, offer.RequestSequence), hostOnly: true);
+                offer.Session, offer.Nonce, 0, offer.RequestSequence), hostOnly: _coordinatorPlayer == HostPlayer);
         }
     }
 
@@ -190,10 +247,12 @@ internal static class TownServiceGrantSync
         if (!TownServiceGrantCodec.TryRead(bytes, length, out TownGrantMessage message)
             || !Online || sender <= 0 || sender == LocalPlayer) return false;
         float now = Time.unscaledTime;
+        if (!CoordinatorReady) return true;
         if (message.Kind == TownGrantKind.Request
-            || message.Kind == TownGrantKind.Release && Host && sender == message.Player)
+            || message.Kind == TownGrantKind.Release && Coordinator && sender == message.Player)
         {
-            if (!Host || sender != message.Player || VersionGuard.PeerBuild(sender) != NetProtocol.ModBuild)
+            if (!Coordinator || sender != message.Player || !CompatiblePeers.Contains(sender)
+                || VersionGuard.PeerBuild(sender) != NetProtocol.ModBuild)
                 return true;
             if (message.Kind == TownGrantKind.Release)
             {
@@ -203,14 +262,28 @@ internal static class TownServiceGrantSync
                     sender, message.Session, message.Nonce, _epoch, 0));
                 return true;
             }
+            if (now < _coordinatorNotBefore) return true;
             bool granted = Ledger.Request(message.Service, sender, message.Session, message.Nonce, now);
             Broadcast(new TownGrantMessage(granted ? TownGrantKind.Grant : TownGrantKind.Busy,
                 message.Service, sender, message.Session, message.Nonce, _epoch, message.Sequence));
             return true;
         }
-        // Only the native host may author grants or denials. A broadcast grant is visible
-        // to every observer, but only the named requester's matching nonce unlocks gameplay.
-        if (sender != HostPlayer || VersionGuard.PeerBuild(sender) != NetProtocol.ModBuild) return true;
+        // Only the elected compatible coordinator may author grants or denials. A
+        // broadcast grant is public; exact requester identity still gates gameplay.
+        if (sender != _coordinatorPlayer || VersionGuard.PeerBuild(sender) != NetProtocol.ModBuild
+            || now < _coordinatorNotBefore) return true;
+        if (message.Kind == TownGrantKind.Grant && message.Player == LocalPlayer)
+        {
+            Offer current = Offers[message.Service];
+            if (current.Active && current.Session == message.Session && current.Nonce == message.Nonce)
+            {
+                int slot = (int)(message.Sequence & 7);
+                // A former coordinator ID can later become elected again. Its old
+                // reply must not recreate visible occupation from a retired request
+                // slot, even though the parked physical offer keeps its exact nonce.
+                if (current.SentSequences == null || current.SentSequences[slot] != message.Sequence) return true;
+            }
+        }
         if (message.Kind == TownGrantKind.Grant)
             Visible[message.Service] = new VisibleGrant { Player = message.Player,
                 Session = message.Session, Nonce = message.Nonce, Epoch = message.Epoch, LastSeen = now };
@@ -239,7 +312,7 @@ internal static class TownServiceGrantSync
             if (offer.Epoch != 0 && offer.Epoch != message.Epoch) offer.LastGrant = 0f;
             // The coordinator's eight-second clock started no later than this request.
             // Measuring our four-second validity from SEND, not receive, prevents a
-            // delayed ReliableOrdered response from outliving the host's reservation.
+            // delayed ReliableOrdered response from outliving the coordinator's reservation.
             offer.Epoch = message.Epoch;
             offer.LastGrant = now - sentAt < ClientGrantSeconds ? sentAt : 0f;
             offer.Denied = false;
@@ -261,11 +334,8 @@ internal static class TownServiceGrantSync
         // offer Release retire it instead.
         for (int service = 1; service <= 3; service++)
             if (Visible[service].Player == player) Visible[service] = default;
-        if (player == HostPlayer)
-        {
-            for (int service = 1; service <= 3; service++)
-            { ref Offer offer = ref Offers[service]; offer.Epoch = 0; offer.LastGrant = 0f; offer.LastResponse = 0f; }
-        }
+        // An avatar timeout must not elect a replacement coordinator or revoke a
+        // live lease. RefreshCoordinator observes native roster departure instead.
     }
 
     internal static void Reset()
@@ -273,6 +343,7 @@ internal static class TownServiceGrantSync
         for (int service = 1; service <= 3; service++) Offers[service] = default;
         for (int service = 1; service <= 3; service++) Visible[service] = default;
         Ledger.Clear(); _transport = null; _epoch = NextNonce();
+        CompatiblePeers.Clear(); _coordinatorPlayer = 0; _coordinatorNotBefore = 0f;
     }
 
     private static void Release(byte service, in Offer offer)
@@ -282,7 +353,7 @@ internal static class TownServiceGrantSync
         if (visible.Player == LocalPlayer && visible.Session == offer.Session
             && visible.Nonce == offer.Nonce)
             Visible[service] = default;
-        if (Host)
+        if (CoordinatorReady && Coordinator)
         {
             Ledger.Release(service, LocalPlayer, offer.Session, offer.Nonce);
             Broadcast(new TownGrantMessage(TownGrantKind.Release, service, LocalPlayer,
@@ -290,7 +361,7 @@ internal static class TownServiceGrantSync
         }
         else
             Send(new TownGrantMessage(TownGrantKind.Release, service, LocalPlayer,
-                offer.Session, offer.Nonce, offer.Epoch, 0), hostOnly: true);
+                offer.Session, offer.Nonce, offer.Epoch, 0), hostOnly: _coordinatorPlayer == HostPlayer);
     }
 
     private static void Broadcast(in TownGrantMessage message) => Send(in message, hostOnly: false);

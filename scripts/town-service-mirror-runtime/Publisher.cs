@@ -236,7 +236,7 @@ namespace GloomhavenVR.WorldUI
 #endif
         private void CollectHeldBoundaries(Transform source,Func<Transform,Transform?> clone,HashSet<Transform> excluded) { }
                 internal static int SourceCount => Private.Sources.Count;
-        private void PrepareCore() { }
+        private void PrepareCore() { FixturePrepare669?.Invoke(); }
         private Transform? ResolveFrame(int peer) => _sharedFrame;
         internal static bool BindModules;
         internal static int GenerationReports;

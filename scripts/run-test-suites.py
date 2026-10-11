@@ -29,7 +29,7 @@ import uuid
 SCRIPT_DIR = str(Path(__file__).resolve().parent)
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
-from town_run_retention import acquire_file_lock, record_success, release_file_lock
+from town_run_retention import acquire_file_lock, cleanup_completed_run, record_success, release_file_lock
 
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / 'scripts/test-suites.json'
@@ -180,6 +180,18 @@ def fixture_scratch(root):
     raise ValueError('No short standalone temporary directory free of Directory.Build.* policy')
 
 
+def cleanup_finished_suite(name, code, log_path, root):
+    """Called only after killing descendants, reaping the suite and closing its log."""
+    try:
+        cleanup = cleanup_completed_run(name, code, log_path, root, process_reaped=True)
+        if cleanup['removed_paths'] or cleanup['skipped_paths']:
+            print(f"[cache-cleanup] {name}: removed {len(cleanup['removed_paths'])} cache directories "
+                  f"({cleanup['removed_bytes']} bytes); kept {len(cleanup['skipped_paths'])} protected/unsafe paths",
+                  flush=True)
+    except (OSError, ValueError) as exc:
+        print(f'[cache-cleanup] {name}: kept generated caches: {exc}', flush=True)
+
+
 def execute(suites, jobs, output, root, manifest_hash, group, shard, *, partial=False):
     output.mkdir(parents=True, exist_ok=True)
     if any(output.iterdir()):
@@ -262,6 +274,7 @@ def execute(suites, jobs, output, root, manifest_hash, group, shard, *, partial=
                 # Prevent a completed shell from leaving fixture descendants behind.
                 terminate_group(entry['process'], signal.SIGKILL)
                 entry['log'].close()
+                cleanup_finished_suite(name, code, entry['log_path'], root)
                 release_file_lock(entry['lock'])
                 entry['lock'].close()
                 shutil.rmtree(entry['scratch'], ignore_errors=True)
@@ -282,10 +295,11 @@ def execute(suites, jobs, output, root, manifest_hash, group, shard, *, partial=
             if pending or running:
                 time.sleep(.05)
     finally:
-        for entry in running.values():
+        for name, entry in running.items():
             terminate_group(entry['process'], signal.SIGKILL)
-            entry['process'].wait()
+            code = entry['process'].wait()
             entry['log'].close()
+            cleanup_finished_suite(name, code, entry['log_path'], root)
             release_file_lock(entry['lock'])
             entry['lock'].close()
             shutil.rmtree(entry['scratch'], ignore_errors=True)

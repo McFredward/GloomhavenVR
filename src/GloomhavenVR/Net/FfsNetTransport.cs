@@ -34,10 +34,10 @@ namespace GloomhavenVR.Net;
 /// member fails to resolve (unexpected game build) the transport degrades to a safe no-op and
 /// logs once — the game keeps running vanilla.
 ///
-/// NOTE ON RELAY: <c>GlobalTargets.Others</c> from a CLIENT reaches the host directly; whether
-/// Bolt relays it on to the OTHER clients (client→client with a flat host) is the one netcode
-/// unknown — see PLAN.md "Residual risks". Host↔client (the common 2-player VR case where one
-/// player hosts) is direct and unaffected.
+/// RELAY: the shipped Bolt EventDispatcher.Global_Others forwards to connections other than
+/// the source before raising the event locally. The vanilla host's later sentinel-target
+/// rejection therefore does not prevent delivery to other VR clients. See NPC-669-AUTHORITY.md
+/// for the read-only assembly proof; no native network patch or modded host is required.
 /// </summary>
 internal sealed class FfsNetTransport : INetTransport
 {
@@ -325,8 +325,9 @@ internal sealed class FfsNetTransport : INetTransport
 
     /// <summary>Town gameplay grants use Bolt ReliableOrdered. This deliberately bypasses
     /// the lossy/coalescing presentation queue; a lost cosmetic manifest is harmless, a
-    /// guessed purchase permission is not. Requests/releases go to the native host and
-    /// grants are broadcast from that host to every modded observer.</summary>
+    /// guessed purchase permission is not. Requests/releases use the native host when it
+    /// coordinates, otherwise Others reaches the elected compatible VR coordinator;
+    /// only that coordinator authors grants for modded observers.</summary>
     internal bool SendTownGrant(byte[] payload, int length, bool hostOnly)
     {
         return length == TownServices.TownServiceGrantCodec.Size
@@ -378,7 +379,11 @@ internal sealed class FfsNetTransport : INetTransport
         // censuses now use Bolt's existing ReliableOrdered delivery inside the same
         // bounded event scheduler. Head/hand/held-card and town numeric clocks stay
         // independent and lossy, so old artwork cannot queue their live movement.
-        _sendArgs[2] = !PresentationBatch.HasTownOriginalPage(bytes, bytes.Length);
+        // The existing standalone version announcement also needs reliable delivery:
+        // VR guests of a flat host must discover the same compatible coordinator.
+        // It keeps the original one-second cadence and shared bounded event budget.
+        _sendArgs[2] = !ReferenceEquals(bytes, _versionAnnouncement)
+            && !PresentationBatch.HasTownOriginalPage(bytes, bytes.Length);
         try { _sendSideAction!.Invoke(null, _sendArgs); }
         finally { _sendArgs[2] = true; }
     }

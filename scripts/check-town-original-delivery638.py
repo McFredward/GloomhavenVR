@@ -90,7 +90,9 @@ internal sealed class BoundSender {{
     private readonly ConstructorInfo? _customDataCtor = typeof(FakeToken).GetConstructor(new[] {{ typeof(byte[]), typeof(bool) }});
     private readonly MethodInfo? _sendSideAction = typeof(FakeNative).GetMethod(nameof(FakeNative.Send));
     private readonly object?[] _sendArgs = new object?[] {{ 109, null, true, false, -932, 0, 0, false }};
+    private byte[]? _versionAnnouncement;
     internal bool Unreliable => (bool)_sendArgs[2]!;
+    internal void AnnounceVersion(byte[] bytes) {{ _versionAnnouncement = bytes; SendToken(bytes); }}
     internal void Send(byte[] bytes) => SendToken(bytes);
 {send}
 }}
@@ -158,7 +160,9 @@ namespace GloomhavenVR.Core {{ internal static class VRLog {{
     if args.controls:
         variants = {
             "historical-unreliable-original": replace_once(bindings,
-                "_sendArgs[2] = !PresentationBatch.HasTownOriginalPage(bytes, bytes.Length);", "_sendArgs[2] = true;"),
+                "_sendArgs[2] = !ReferenceEquals(bytes, _versionAnnouncement)\n            && !PresentationBatch.HasTownOriginalPage(bytes, bytes.Length);", "_sendArgs[2] = true;"),
+            "unreliable-version-discovery": replace_once(bindings,
+                "!ReferenceEquals(bytes, _versionAnnouncement)", "true"),
             "missing-finally-restoration": replace_once(bindings,
                 "finally { _sendArgs[2] = true; }", "finally { }"),
             "cadence-regression": bindings.replace("_next = now + .05", "_next = now + .001"),

@@ -1056,6 +1056,19 @@
       "weight": 70
     },
     {
+      "id": "town-native-bank-lifecycle",
+      "command": [
+        "python3",
+        "scripts/check-town-service-mirror.py",
+        "--suite",
+        "asset-identity"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 75
+    },
+    {
       "id": "town-service-mirror",
       "command": [
         "python3",
