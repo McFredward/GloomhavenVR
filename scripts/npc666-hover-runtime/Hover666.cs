@@ -18,6 +18,21 @@ internal static class HoverClock666
 }
 public static partial class MirrorProgram
 {
+    private static string HoverTiming666(byte service)
+    {
+        var flags = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
+        var leases = (Array)typeof(TownServiceMirror).GetField("TransactionLeases", PrivateStatic)!.GetValue(null)!;
+        object lease = leases.GetValue(service)!;
+        var clocksField = typeof(TownServiceMirror).GetField("HoverClocks", PrivateStatic);
+        var starts = new List<string>();
+        if (clocksField != null)
+            foreach (DictionaryEntry entry in (IDictionary)clocksField.GetValue(null)!)
+                starts.Add(entry.Key + ":" + entry.Value!.GetType().GetField("Started", flags)!.GetValue(entry.Value));
+        return "virtual=" + HoverClock666.Now + " native=" + Time.unscaledTime
+            + " transactionPending=" + lease.GetType().GetField("PendingSince", flags)!.GetValue(lease)
+            + " hoverStarts=" + string.Join(";", starts);
+    }
+
     private static object? HoverRecipe666(TownServiceFrame frame) => typeof(TownServiceFrame)
         .GetField("OfferedHover", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(frame);
     private static T HoverValue666<T>(object recipe, string field) => (T)recipe.GetType()
@@ -214,10 +229,13 @@ public static partial class MirrorProgram
             do
             {
                 TownServiceMirror.TickRemote(_ => observer);
-                if (Remote(1, 11) != null && Remote(1, 12) != null && TownServiceMirror.InteractionOwner(service) == 1) break;
+                if (Remote(1, 11) != null && Remote(1, 12) != null && TownServiceMirror.InteractionOwner(service) == 1
+                    && (service != 1 || TownServiceMirror.TransactionOwner(service) == 1)) break;
                 // The existing transaction election advances on native time,
                 // not editor wall time. This cold test keeps numeric packets
                 // delayed while its real .12-second lease matures normally.
+                // Browsing already chooses this visitor while that merchant
+                // lease is pending; its intrinsic wave starts only afterward.
                 admissionFrames++; HoverClock666.Now += 1f / 90f;
                 TownServiceOfferingPose.Place(seat, palm, owner, 0f);
                 yield return null;
@@ -238,10 +256,15 @@ public static partial class MirrorProgram
             Vector3 ColdExpected(float age) => observer.TransformPoint(baseCard
                 + Quaternion.Inverse(observer.rotation) * copy.Root.rotation * printOffset
                 + nativeAxis * Mathf.Sin(age * 1.8f));
+            string cold = Path.Combine(_output, "cold-wave-service" + service + "-scale" + stationScale + "-irregular" + irregular + ".txt");
+            File.WriteAllText(cold, "admissionFrames=" + admissionFrames + " began=" + began + " " + HoverTiming666(service) + "\n");
             for (int coldFrame = 1; coldFrame <= 8; coldFrame++)
             {
                 HoverClock666.Now = began + coldFrame / 90f;
                 TownServiceMirror.TickRemote(_ => observer);
+                File.AppendAllText(cold, "frame=" + coldFrame + " expectedAge=" + coldFrame / 90f
+                    + " error=" + Vector3.Distance(copy.Root.position, ColdExpected(coldFrame / 90f))
+                    + " " + HoverTiming666(service) + "\n");
                 Check(Vector3.Distance(copy.Root.position, ColdExpected(coldFrame / 90f)) < .000004f,
                     "cold native original evaluates one intrinsic wave without any numeric root or accumulated displacement");
                 CheckOfferedBody665(face, body, copy.Root, bodyCopy.Root);
