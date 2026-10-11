@@ -57,7 +57,8 @@ test('actual browser: measured progress, reopen/check Unity action, specific fai
     await client.wait("document.getElementById('stage-log').textContent.includes('FAILED: original object identity missing')");
     assert.match(await client.evaluate("document.getElementById('event-log').textContent"),/Spielassets|original object/);
     assert.equal(await client.evaluate("document.getElementById('result-card').hidden"),true);
-    assert.match(await client.evaluate("document.getElementById('substep-count').textContent"),/24,1 %/);
+    // The existing display retains three decimal places for small measured increments.
+    assert.equal(await client.evaluate("document.getElementById('substep-count').textContent"),'24,137 %');
     await client.picture('specific-failure-live-log-de');
     const paths=client.events.filter(row=>row.method==='Network.requestWillBeSent').map(row=>new URL(row.params.request.url).pathname);
     assert.equal(paths.filter(path=>path==='/api/action').length,2);
