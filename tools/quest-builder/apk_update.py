@@ -38,6 +38,8 @@ REPLACED_PACKAGES = {"UnityEngine.UI", "Unity.InputSystem", "Unity.Addressables"
 _SHA = re.compile(r"[0-9a-f]{64}")
 _UNITY = re.compile(r"20\d{2}\.\d+\.\d+[abfp]\d+")
 _resource_proofs = set()
+_UINT32_SENTINEL = 0xffffffff
+_MAX_ZIP_DIRECTORY = 64 * 1024 * 1024
 
 
 def _base_stamp(path):
@@ -589,30 +591,172 @@ class _ApkZip32(zipfile.ZipFile):
         self.fp.flush()
 
 
-def _copy_raw_record(source, target, info):
+def _local_record(source, info, boundary):
+    """Read one bounded ZIP32 header/descriptor without reading its payload."""
     source.seek(info.header_offset); header = source.read(30)
     if len(header) != 30 or header[:4] != b"PK\x03\x04": raise BuildError("APK local ZIP header is invalid.")
     fields = struct.unpack("<4s5H3I2H", header)
     if fields[2] != info.flag_bits or fields[3] != info.compress_type: raise BuildError("APK local and central ZIP headers disagree.")
-    if fields[7] == 0xffffffff or fields[8] == 0xffffffff:
+    if fields[7] == _UINT32_SENTINEL or fields[8] == _UINT32_SENTINEL:
         raise BuildError("APK local ZIP64 sizes are unsupported by Android signing: " + info.filename)
+    if (fields[1] >= 45 or info.flag_bits & ~0x080e
+            or info.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED)):
+        raise BuildError("APK local ZIP method, flags or version are unsupported: " + info.filename)
+    if (info.header_offset < 0 or info.header_offset + 30 + fields[-2] + fields[-1] > boundary
+            or not fields[-2]):
+        raise BuildError("APK local ZIP record is truncated: " + info.filename)
     local_name = source.read(fields[-2])
-    if local_name.decode("utf-8" if info.flag_bits & 0x800 else "cp437") != info.filename:
+    try: name = local_name.decode("utf-8" if info.flag_bits & 0x800 else "cp437")
+    except UnicodeError as exc: raise BuildError("APK local member path is unreadable.") from exc
+    if name != info.filename:
         raise BuildError("APK local and central member paths disagree.")
-    length = 30 + fields[-2] + fields[-1] + info.compress_size
+    extra = source.read(fields[-1]); data_start = source.tell()
+    if len(extra) != fields[-1] or data_start + info.compress_size > boundary:
+        raise BuildError("APK local ZIP record is truncated: " + info.filename)
+    expected = (info.CRC, info.compress_size, info.file_size)
+    if any(not 0 <= n < _UINT32_SENTINEL for n in expected[1:]):
+        raise BuildError("APK local ZIP64 sizes are unsupported by Android signing: " + info.filename)
+    if info.compress_type == zipfile.ZIP_STORED and info.compress_size != info.file_size:
+        raise BuildError("APK stored member sizes disagree: " + info.filename)
+    actual = fields[6:9]
+    matches = all(n in (0, expected[i]) for i, n in enumerate(actual)) if info.flag_bits & 8 else actual == expected
+    if not matches:
+        raise BuildError("APK local and central member CRC/sizes disagree: " + info.filename)
+    record_end = data_start + info.compress_size
     if info.flag_bits & 8:
-        source.seek(info.header_offset + length)
-        prefix = source.read(4)
-        descriptor_size = 16 if prefix == b"PK\x07\x08" else 12
-        if info.file_size >= zipfile.ZIP64_LIMIT or info.compress_size >= zipfile.ZIP64_LIMIT:
-            descriptor_size += 8
-        length += descriptor_size
-    source.seek(info.header_offset)
-    remaining = length
+        source.seek(record_end)
+        descriptor = source.read(min(16, max(0, boundary - record_end)))
+        # ZIP32 permits descriptors with or without the optional signature.
+        # An unsigned descriptor's real CRC can itself equal that signature.
+        if (len(descriptor) == 16 and descriptor[:4] == b"PK\x07\x08"
+                and struct.unpack_from("<III", descriptor, 4) == expected):
+            record_end += 16
+        elif len(descriptor) >= 12 and struct.unpack_from("<III", descriptor) == expected:
+            record_end += 12
+        else:
+            raise BuildError("APK ZIP32 data descriptor is invalid: " + info.filename)
+    return header, local_name, extra, data_start, record_end
+
+
+def _aligned_extra(offset, name_length, extra, filename, method):
+    if method != zipfile.ZIP_STORED: return extra
+    alignment = 16384 if filename.endswith(".so") else 4
+    padding = -(offset + 30 + name_length + len(extra)) % alignment
+    if len(extra) + padding > 0xffff:
+        raise BuildError("APK local alignment exceeds its ZIP32 extra-field bound: " + filename)
+    # Android zipalign appends zero bytes to the local extra field only. Keep
+    # the original central extra untouched, including its real metadata.
+    return extra + bytes(padding)
+
+
+def _copy_raw_record(source, target, info, *, boundary=None):
+    if boundary is None:
+        source.seek(0, 2); boundary = source.tell()
+    header, local_name, extra, data_start, record_end = _local_record(source, info, boundary)
+    extra = _aligned_extra(target.tell(), len(local_name), extra, info.filename, info.compress_type)
+    header = bytearray(header); struct.pack_into("<H", header, 28, len(extra))
+    target.write(header); target.write(local_name); target.write(extra)
+    source.seek(data_start); remaining = record_end - data_start
     while remaining:
         block = source.read(min(1024 * 1024, remaining))
         if not block: raise BuildError("APK local ZIP record is truncated.")
         target.write(block); remaining -= len(block)
+
+
+def _zip32_directory(source, size):
+    """Find a normal APK end record using 64-bit offsets, even on Windows."""
+    if not 22 <= size < _UINT32_SENTINEL:
+        raise BuildError("APK exceeds Android ZIP32 limits or has no ZIP end record.")
+    source.seek(max(0, size - 22 - 0xffff)); tail_start = source.tell(); tail = source.read(22 + 0xffff)
+    offset = len(tail)
+    while True:
+        offset = tail.rfind(b"PK\x05\x06", 0, offset)
+        if offset < 0: raise BuildError("APK ZIP32 end record is missing or truncated.")
+        if offset + 22 <= len(tail):
+            fields = struct.unpack_from("<4s4H2IH", tail, offset)
+            if offset + 22 + fields[-1] == len(tail): break
+    end_position = tail_start + offset
+    _, disk, directory_disk, disk_count, count, directory_size, directory_offset, _ = fields
+    if (disk or directory_disk or disk_count != count or not 0 < count < 0xffff
+            or directory_size == _UINT32_SENTINEL or directory_offset == _UINT32_SENTINEL):
+        raise BuildError("APK ZIP64 or split ZIP directories are unsupported by Android signing.")
+    if (not 46 * count <= directory_size <= _MAX_ZIP_DIRECTORY
+            or directory_offset + directory_size != end_position):
+        raise BuildError("APK ZIP32 central directory bounds are invalid.")
+    if end_position >= 20:
+        source.seek(end_position - 20)
+        if source.read(4) == b"PK\x06\x07":
+            raise BuildError("APK ZIP64 directory is unsupported by Android signing.")
+    return count, directory_offset, end_position
+
+
+def check_alignment(path, *, shared_library_alignment=16384):
+    """Check APK ZIP32 bounds/alignment from headers, never inflate/hash bodies.
+
+    Capture 085642's Windows 30.0.2 zipalign uses 32-bit C ftell/fseek and rejects
+    a legal ZIP32 APK above 2 GiB before reading its directory. Aligning during
+    the existing compressed-record copy avoids that tool and a second whole
+    APK copy. New outputs use 16-KiB .so alignment; existing signed 4-KiB outputs
+    can be qualified without rewriting by passing shared_library_alignment=4096.
+    Android's contract: https://developer.android.com/tools/zipalign
+    """
+    if shared_library_alignment not in (4096, 16384):
+        raise BuildError("Unsupported APK shared-library alignment requirement.")
+    try:
+        with Path(path).open("rb") as source:
+            size = os.fstat(source.fileno()).st_size
+            count, directory_offset, directory_end = _zip32_directory(source, size)
+            cursor, stored, libraries = directory_offset, 0, 0
+            seen, ranges = set(), []
+            for _ in range(count):
+                source.seek(cursor); header = source.read(46)
+                if len(header) != 46 or header[:4] != b"PK\x01\x02":
+                    raise BuildError("APK central ZIP header is invalid.")
+                fields = struct.unpack("<4s6H3I5H2I", header)
+                name_size, extra_size, comment_size, disk = fields[10:14]
+                cursor += 46 + name_size + extra_size + comment_size
+                if cursor > directory_end or not name_size or disk:
+                    raise BuildError("APK central member bounds or disk are invalid.")
+                name_bytes = source.read(name_size); extra = source.read(extra_size)
+                if len(name_bytes) != name_size or len(extra) != extra_size:
+                    raise BuildError("APK central member metadata is truncated.")
+                try: name = name_bytes.decode("utf-8" if fields[3] & 0x800 else "cp437")
+                except UnicodeError as exc: raise BuildError("APK central member path is unreadable.") from exc
+                _safe_name(name)
+                if name.casefold() in seen: raise BuildError("APK has duplicate central member paths: " + name)
+                seen.add(name.casefold())
+                info = zipfile.ZipInfo(name)
+                info.extract_version, info.flag_bits, info.compress_type = fields[2:5]
+                info.CRC, info.compress_size, info.file_size = fields[7:10]
+                info.header_offset = fields[-1]
+                if (info.extract_version >= 45 or info.header_offset == _UINT32_SENTINEL
+                        or info.compress_size == _UINT32_SENTINEL or info.file_size == _UINT32_SENTINEL):
+                    raise BuildError("APK ZIP64 member is unsupported by Android signing: " + name)
+                extra_cursor = 0
+                while extra_cursor < len(extra):
+                    if extra_cursor + 4 > len(extra): raise BuildError("APK central extra field is truncated: " + name)
+                    kind, length = struct.unpack_from("<HH", extra, extra_cursor)
+                    extra_cursor += 4 + length
+                    if kind == 1: raise BuildError("APK ZIP64 member is unsupported by Android signing: " + name)
+                    if extra_cursor > len(extra): raise BuildError("APK central extra field is truncated: " + name)
+                _, _, _, data_start, record_end = _local_record(source, info, directory_offset)
+                if info.compress_type == zipfile.ZIP_STORED:
+                    stored += 1
+                    alignment = shared_library_alignment if name.endswith(".so") else 4
+                    if name.endswith(".so"): libraries += 1
+                    if data_start % alignment:
+                        raise BuildError("APK stored member is not aligned to " + str(alignment) + " bytes: " + name)
+                ranges.append((info.header_offset, record_end))
+            if cursor != directory_end: raise BuildError("APK central directory count disagrees with its bounds.")
+            end = 0
+            for start, stop in sorted(ranges):
+                if start < end: raise BuildError("APK local ZIP records overlap.")
+                end = stop
+            return {"schema": 1, "format": "apk-zip32-aligned-v1", "entries": count,
+                    "storedEntries": stored, "sharedLibraries": libraries, "size": size,
+                    "storedAlignment": 4, "sharedLibraryAlignment": shared_library_alignment}
+    except (OSError, ValueError, struct.error) as exc:
+        raise BuildError("APK alignment headers could not be read: " + str(exc)) from exc
 
 
 def repack(base, output, replacements, *, update_manifest, signer, verifier, progress=None, code_evidence=None,
@@ -656,19 +800,26 @@ optional: a rewritten unsigned APK is never exposed as an installable result.
     try:
         with zipfile.ZipFile(base) as original, base.open("rb") as raw, _ApkZip32(temporary, "w", allowZip64=True) as updated:
             entries = _entries(original); total = sum(e.compress_size for n, e in entries.items() if n not in replacements and not _signature(n)); done = 0
+            updated.comment = original.comment
             for name, entry in entries.items():
                 if name in replacements or _signature(name): continue
                 kept = copy.copy(entry); kept.header_offset = updated.fp.tell()
                 # ZipFile owns the central directory. This bounded use of its
                 # pinned CPython writer avoids payload decompression altogether.
                 updated._writecheck(kept); updated._didModify = True
-                _copy_raw_record(raw, updated.fp, entry)
+                _copy_raw_record(raw, updated.fp, entry, boundary=original.start_dir)
                 updated.filelist.append(kept); updated.NameToInfo[name] = kept; updated.start_dir = updated.fp.tell()
                 done += entry.compress_size
                 if progress: progress(done, total, name)
             for name, value in replacements.items():
                 entry = zipfile.ZipInfo(name, (1980, 1, 1, 0, 0, 0)); entry.compress_type = zipfile.ZIP_STORED
+                # FileHeader/its close-time rewrite use the padded local extra;
+                # the directory keeps the original (empty) central extra.
+                entry.extra = _aligned_extra(updated.fp.tell(), len(entry._encodeFilenameFlags()[0]),
+                                             entry.extra, name, entry.compress_type)
                 updated.writestr(entry, value)
+                entry.extra = b""
+        check_alignment(temporary)
         signer(temporary); verifier(temporary)
         with zipfile.ZipFile(temporary) as final:
             actual = _entries(final)
