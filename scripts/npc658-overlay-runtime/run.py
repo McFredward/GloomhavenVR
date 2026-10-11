@@ -40,7 +40,9 @@ def main():
    ('PublisherTick.cs','WorldUI/TownServices/TownServiceSync.cs')):
    historical[name]=subprocess.run(['git','-C',str(root),'show',revision+':src/GloomhavenVR/'+path],check=True,capture_output=True,text=True).stdout
   for name in ('TownServiceDepthOrder.cs','TownServiceMirror.Offerings.cs'):bound[name]=historical[name]
-  # Published656 cannot exercise the later116 identity-transfer entry point.
+  # Published656 cannot exercise the later116 identity-transfer entry point
+  # or active117 physical-hover classification. This paint fixture uses direct
+  # poses without registered native Place, so either new route is unexpected.
   # Keep its old depth/offerings bodies exact and make an unexpected new return
   # route fail explicitly, rather than simulating its absent mount/depth state.
   bound['HistoricalReturnBoundary658.cs']='''
@@ -51,6 +53,8 @@ internal static partial class TownServiceMirror
 {
     private static void DetachOfferedOriginal(RemoteModule module, Transform shared) =>
         throw new InvalidOperationException("Published656 paint control cannot transfer a116 return origin");
+    private static bool IsOfferedPhysical(RemoteModule module) =>
+        throw new InvalidOperationException("Published656 paint control cannot classify active117 physical hover");
 }
 '''
   # The old physical-print lifecycle has neither the661 registration nor mount
@@ -69,7 +73,9 @@ internal static partial class TownServiceMirror
    'revision':revision,'full_source_sha256':{name:hashlib.sha256(text.encode()).hexdigest()for name,text in historical.items()},
    'bound_methods_sha256':methods,
    'new_return_boundary_sha256':hashlib.sha256(bound['HistoricalReturnBoundary658.cs'].encode()).hexdigest(),
-   'boundary':'Historical depth/Offerings and actual TickRemote/TickCore callers only; the later116 detach route throws if reached. Current positive source bindings and native paint assertions unchanged.'},indent=2)+'\n')
+   'unsupported_lifecycle':{'DetachOfferedOriginal':'fail-fast current116 return origin',
+       'IsOfferedPhysical':'fail-fast current117 active physical hover; no registered native Place in this paint control'},
+   'boundary':'Historical depth/Offerings and actual TickRemote/TickCore callers only; later116 detach and active117 classification throw if reached. No current physical affinity imported. Current positive source bindings and native paint assertions unchanged.'},indent=2)+'\n')
  # Existing unused suite methods reference this registration instrumentation.
  bound['TownServiceDepthOrder.cs']=bound['TownServiceDepthOrder.cs'].replace('internal static class TownServiceDepthOrder\n{','internal static class TownServiceDepthOrder\n{\n    internal static readonly System.Collections.Generic.HashSet<Transform> Bound = new();',1)
  bound['TownServiceDepthOrder.cs']=bound['TownServiceDepthOrder.cs'].replace('if (root == null) return;','if (root == null) return; Bound.Add(root);',1)
