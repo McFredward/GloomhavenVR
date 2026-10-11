@@ -400,6 +400,20 @@ class SupportTests(unittest.TestCase):
         self.assertNotIn('PRIVATE OMITTED NAME', '\n'.join(files.values()))
         self.assertNotIn('PRIVATE PROFILE NAME', '\n'.join(files.values()))
         self.assertEqual(before, (home / 'active.json').read_bytes())
+    def test_small_data_summary_distinguishes_app_data_from_legacy_apk_and_bank_parking(self):
+        home, folder, value = self.signing_log()
+        value.update(dataPolicy='saves', smallDataOnly=True, parkingMode='atomic')
+        value['roots'][0].update(captureBytes=8192, captureFiles=4)
+        write_json(home / 'active.json', value)
+        before = (home / 'active.json').read_bytes()
+        _, files = self.export()
+        row = json.loads(files['diagnostic.json'])['signingRecovery']
+        self.assertTrue(row['smallDataOnly'])
+        self.assertEqual(row['parkingMode'], 'atomic')
+        self.assertEqual(row['plannedAppDataBytes'], 8192)
+        self.assertEqual(row['originalApkBytes'], (folder / 'original.apk').stat().st_size if (folder / 'original.apk').exists() else 0)
+        self.assertEqual(before, (home / 'active.json').read_bytes())
+        self.assertNotIn('NativeSaveNeverShip', '\n'.join(files.values()))
     def test_invalid_omission_summary_keeps_failure_without_claiming_a_policy(self):
         home, folder, value = self.signing_log()
         for changed in ({'dataPolicy': 'discard-saves'},

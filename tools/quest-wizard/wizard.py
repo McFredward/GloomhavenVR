@@ -77,8 +77,13 @@ class Engine:
         before = STAGES[:STAGES.index(stage)]
         names = {"tools": ("mode",), "source": ("sourceRoot", "sourceCommit", "sourceRef", "gameRoot", "mode"),
                  "unity": ("unityEditor", "unityHub", "acceptUnityTerms", "mode"),
-                 "profile": ("provider", "steamRoot", "steamId", "profile", "profileName", "steamLogo", "baseApk"),
+                 "profile": ("provider", "steamRoot", "steamId", "profile", "steamLogo"),
                  "inspect": ("gameRoot", "ownedDlc", "mode", "baseApk"), "build": ("mode", "baseApk", "signingRoot"), "install": ("install",)}[stage]
+        # New name-only inputs must not add null fields to ordinary retained
+        # profile keys. Capture150551 has six closed owners; an installer/UI
+        # repair must keep that exact completion frontier and skip Unity work.
+        if stage == "profile" and "profileName" in state["choices"]:
+            names += ("profileName", "baseApk")
         release_identity = None
         if stage == "source":
             selected = Path(state["choices"].get("sourceRoot") or self.repo)
@@ -366,6 +371,51 @@ class Engine:
                                            completedBuildRetained=True))
                 return state
 
+    def installation_content_approval(self, state):
+        """A large content redeployment is consented to one APK/headset transaction."""
+        saved = state.get("installationContentReinstallApproval")
+        if saved is None: return None
+        binding = self.installation_policy(state)
+        if (not isinstance(saved, dict) or set(saved) != {*binding, "transaction", "deviceSerial"}
+                or any(saved.get(name) != value for name, value in binding.items())
+                or not isinstance(saved.get("transaction"), str) or not re.fullmatch(r"[0-9a-f]{32}", saved["transaction"])
+                or not isinstance(saved.get("deviceSerial"), str) or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,256}", saved["deviceSerial"])):
+            raise WizardError("installation_action_stale", "The content transfer approval no longer matches this APK.",
+                              "Die Freigabe der Inhaltsübertragung passt nicht mehr zu dieser APK.")
+        return saved
+
+    def approve_content_reinstallation(self, session, nonce):
+        if not isinstance(nonce, str) or not re.fullmatch(r"[0-9a-f]{32}", nonce):
+            raise WizardError("installation_action_invalid", "Invalid installation action.", "Ungültige Installationsaktion.")
+        with file_lock(self.store.root / "run.lock"):
+            state = self.store.load(session)
+            binding = self.installation_policy(state)
+            action = state.get("installationAction", {})
+            needed = next((item for item in state.get("needsActions", []) if isinstance(item, dict)
+                           and item.get("code") == "quest_signing_content_reinstall_required" and item.get("stage") == "install"), {})
+            parameters = needed.get("parameters", {})
+            if (value_hash(state["choices"]) != state["choicesKey"]
+                    or not self.store.installation_pending(state, skip=True)
+                    or not isinstance(action, dict) or set(action) != {*binding, "nonce", "reason", "attempt", "kind", "transaction", "deviceSerial"}
+                    or any(action.get(name) != value for name, value in binding.items())
+                    or action.get("nonce") != nonce or action.get("kind") != "content-reinstall"
+                    or action.get("reason") != "native-rename-unavailable"
+                    or type(action.get("attempt")) is not int or action["attempt"] != state["stages"][-1].get("attempts")
+                    or not isinstance(action.get("transaction"), str) or not re.fullmatch(r"[0-9a-f]{32}", action["transaction"])
+                    or not isinstance(action.get("deviceSerial"), str) or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,256}", action["deviceSerial"])
+                    or parameters.get("installationActionNonce") != nonce or parameters.get("requiresContentReinstall") is not True
+                    or parameters.get("saveDataProtected") is not True or parameters.get("contentReinstallReason") != action["reason"]
+                    or parameters.get("contentReinstallTransaction") != action["transaction"]
+                    or parameters.get("contentReinstallDeviceSerial") != action["deviceSerial"]):
+                raise WizardError("installation_action_stale", "This content transfer choice is no longer current. Refresh the run.",
+                                  "Diese Auswahl zur Inhaltsübertragung ist nicht mehr aktuell. Den Lauf neu laden.")
+            with self.store.active(state):
+                state["installationContentReinstallApproval"] = dict(binding, transaction=action["transaction"], deviceSerial=action["deviceSerial"])
+                state.pop("installationAction", None)
+                state["needsActions"] = []
+                self.emit(self.store.event(state, "installation_content_reinstall_approved", "install", completedBuildRetained=True))
+                return state
+
     def delivery_resume_candidate(self, state):
         """Qualify unchanged session choices without checking earlier outputs.
 
@@ -648,6 +698,7 @@ class Engine:
         source = self.repo
         config = self.store.root / "device/wireless-install.json"
         policy = self.installation_policy(state)
+        content_approval = self.installation_content_approval(state)
         state["installationRecoveryPolicy"] = policy
         self.store.save(state)
         self.emit(self.store.event(state, "installation_guidance", "install", automaticReconnect=True, message={
@@ -655,10 +706,20 @@ class Engine:
             "de": "Die APK ist fertig. Quest entsperren und Entwicklermodus aktivieren. PC und Quest mit demselben WLAN verbinden. Beim ersten Verbinden die Quest per USB anschließen und die USB-Debugging-Abfrage bestätigen. Eine bereits autorisierte Quest verbindet sich automatisch wieder; während der Installation eingeschaltet lassen."}))
         self.store.operation(state["session"], "install", "connect", detail="APK ready. Connecting the authorized Quest; first setup requires unlocked developer-mode Quest, USB debugging approval and the same Wi-Fi.")
         try:
-            supervisor.run([sys.executable, "-B", "-X", "utf8", str(source / "scripts/install-quest-wireless.py"),
+            arguments = [sys.executable, "-B", "-X", "utf8", str(source / "scripts/install-quest-wireless.py"),
                             "--output-root", self.details(state, "build")["outputRoot"], "--config", str(config),
-                            "--recovery-data-policy", policy["policy"]], self.log(state, "install"))
+                            "--recovery-data-policy", policy["policy"]]
+            if content_approval: arguments += ["--allow-content-reinstall", content_approval["transaction"]]
+            supervisor.run(arguments, self.log(state, "install"))
         except WizardError as error:
+            if error.code == "quest_signing_content_reinstall_required":
+                action = dict(policy, nonce=secrets.token_hex(16), kind="content-reinstall",
+                              reason=error.parameters["contentReinstallReason"],
+                              transaction=error.parameters["contentReinstallTransaction"],
+                              deviceSerial=error.parameters["contentReinstallDeviceSerial"],
+                              attempt=state["stages"][-1]["attempts"])
+                state["installationAction"] = action
+                error.parameters["installationActionNonce"] = action["nonce"]
             if error.code == "quest_signing_data_required":
                 if error.parameters.get("recoveryDataPolicy") != policy["policy"]:
                     raise WizardError("installation_action_invalid",

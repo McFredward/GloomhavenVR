@@ -242,6 +242,16 @@ class LocalServer(ThreadingHTTPServer):
         return {"schema": 1, "event": "status", "session": session,
                 "state": self.visible_state(session, state)}
 
+    def approve_content_reinstallation(self, session, nonce):
+        with self.jobs_lock:
+            if self.operation_active():
+                raise WizardError("already_running", "Stop the active operation before approving content transfer.",
+                                  "Den laufenden Vorgang vor der Freigabe der Inhaltsübertragung anhalten.")
+            state = self.engine_factory(self.store).approve_content_reinstallation(session, nonce)
+            self.job_errors.pop(session, None)
+        return {"schema": 1, "event": "status", "session": session,
+                "state": self.visible_state(session, state)}
+
     def storage_status(self):
         with self.storage_lock:
             value = copy.deepcopy(self.storage_state)
@@ -317,7 +327,7 @@ class LocalServer(ThreadingHTTPServer):
                         "en": "Quest operation stopped: " + str(error), "de": "Quest-Vorgang angehalten: " + str(error)}
                     with self.device_lock:
                         self.device_state.update(status="cancelled" if self.device_stop.is_set() else "failed",
-                                                 error={"code": code, "message": message})
+                                                 message=message, error={"code": code, "message": message})
                     try: self.request_failure(error)
                     except (OSError, ImportError, RuntimeError, ValueError): pass
             self.device_job = threading.Thread(target=work, name="quest-device-" + operation, daemon=False)
@@ -615,6 +625,10 @@ class Handler(BaseHTTPRequestHandler):
                 if set(value) != {"session", "nonce", "policy"}:
                     raise WizardError("request_body", "Expected the current installation data action.")
                 return self.server.approve_installation_policy(value["session"], value["nonce"], value["policy"])
+            if parsed.path == "/api/install/content-reinstall":
+                if set(value) != {"session", "nonce"}:
+                    raise WizardError("request_body", "Expected the current content transfer action.")
+                return self.server.approve_content_reinstallation(value["session"], value["nonce"])
             if set(value) != {"session"}: raise WizardError("request_body", "Expected only the session ID.")
             session = value["session"]
             if parsed.path == "/api/install/skip":

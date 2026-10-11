@@ -224,6 +224,20 @@ def installation_failure(text, parameters):
         if declared and len(declared[-1]) <= 2048:
             try:
                 value = json.loads(declared[-1])
+                content_fields = {"schema", "kind", "reason", "saveDataProtected", "estimatedBytes", "transaction", "deviceSerial"}
+                if (isinstance(value, dict) and set(value) == content_fields
+                        and type(value["schema"]) is int and value["schema"] == 1
+                        and value["kind"] == "signing-content-reinstall"
+                        and value["reason"] == "native-rename-unavailable" and value["saveDataProtected"] is True
+                        and type(value["estimatedBytes"]) is int and 0 <= value["estimatedBytes"] <= 2 ** 50
+                        and isinstance(value["transaction"], str) and re.fullmatch(r"[0-9a-f]{32}", value["transaction"])
+                        and isinstance(value["deviceSerial"], str) and re.fullmatch(r"[A-Za-z0-9_.:-]{1,256}", value["deviceSerial"])):
+                    return WizardError("quest_signing_content_reinstall_required",
+                        "Android cannot move the existing game content without copying it. The current app, saves and settings are retained. Allow a new transfer of the game content to continue, or finish without installing. The APK is already built; Unity work is not repeated.",
+                        "Android kann die vorhandenen Spielinhalte nicht ohne Kopie verschieben. Die aktuelle App, Spielstände und Einstellungen bleiben erhalten. Eine erneute Übertragung der Spielinhalte erlauben oder ohne Installation abschließen. Die APK ist bereits gebaut; Unity-Arbeit wird nicht wiederholt.",
+                        **dict(fields, signingRecovery=True, saveDataProtected=True, requiresContentReinstall=True,
+                               estimatedBytes=value["estimatedBytes"], contentReinstallReason=value["reason"],
+                               contentReinstallTransaction=value["transaction"], contentReinstallDeviceSerial=value["deviceSerial"]))
                 repair_fields = {"schema", "kind", "reason", "saveDataProtected", "attempts", "totalAttempts", "root"}
                 if (isinstance(value, dict) and set(value) == repair_fields
                         and type(value["schema"]) is int and value["schema"] == 1

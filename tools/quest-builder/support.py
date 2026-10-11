@@ -250,6 +250,9 @@ def signing_recovery_stats(root, session_root, state, *, diagnostic=None):
                 'omittedNonSaveBytes': sum(row['size'] for row in omissions),
                 'originalApkPresent': original.is_file(),
                 'originalApkBytes': original.stat().st_size if original.is_file() else 0,
+                'smallDataOnly': value.get('smallDataOnly') is True,
+                'parkingMode': value.get('parkingMode') if value.get('parkingMode') in ('none', 'atomic', 'copy', 'reinstall') else 'unselected',
+                'plannedAppDataBytes': sum(row.get('plannedFileBytes', 0) for row in roots),
                 'roots': roots, 'retainedBanks': [name for name in value.get('banks', [])
                                                   if name in ('files/quest-owned-game', 'files/quest-mod-resources')],
                 'hardwareVerified': False}
