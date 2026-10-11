@@ -344,6 +344,12 @@ LATE_DELIVERY_ROWS = {'tools/quest-builder/campaign_compute.py': ({'path': 'tool
 PLAYER_DELIVERY_ROW = {'path': 'tools/quest-builder/player_delivery.py',
  'size': 21980,
  'sha256': 'c5897c245e6da3dabedf7a1089cb4d69ac5c691ce2acaeaa899160a3f07241c7'}
+# Capture092443 changes only the final native-bank consumer. The stage/recovery
+# producer is unchanged. Keep the exact preceding rows above and alias this
+# reviewed consumer; an unknown Compute source edit still changes scope.
+COMPUTE_OWNER_DELIVERY_ROW = {
+    'path': 'tools/quest-builder/campaign_compute.py', 'size': 24752,
+    'sha256': '4c12d3cc7023b2a576e4049e8b62ba7bc9ce8e3b0f46b1d250d247793ba1a4bc'}
 # Exact reviewed ZIP/signing and final-gate consumers run after preparation.
 # Preserve their preceding identities without excluding unknown future edits.
 ZIP32_DELIVERY_PREVIOUS_ROWS = {
@@ -506,6 +512,8 @@ def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=Fal
         reviewed = []
         for row in rows:
             if row in (PLAYER_DELIVERY_ROW, FINAL_DELIVERY_ROW): continue
+            if row == COMPUTE_OWNER_DELIVERY_ROW:
+                row = LATE_DELIVERY_ROWS[row['path']][1]
             for aliases in (ZIP32_DELIVERY_ROWS, ZIP32_DELIVERY_PREVIOUS_ROWS):
                 current, preceding = aliases.get(row["path"], (None, row))
                 if row == current: row = preceding

@@ -1,5 +1,17 @@
 # State — where the project stands
 
+**Quest independent-export Compute ownership, 2026-10-11 (Builder; new builds Runtime668).**
+
+Capture092443 proves Windows alignment/signing and the APK/Shader final gates
+succeed while retaining the completed665 Player. The final Compute gate wrongly
+pins sandbox export GUIDs and host-formatted source hashes. The corrected13-bank
+consumer follows stable original kernel/interface/output and exact native-bank
+contracts plus bounded actual current source/meta links. Every active36-kernel
+Vulkan program remains validated; successful final/preparation receipts remain
+retained. Compact support metadata now includes the actual owner IDs without
+source programs. Focused312-check evidence and remaining Windows/headset limits:
+[QUEST-COMPUTE-OWNER-092443-20261011.md](QUEST-COMPUTE-OWNER-092443-20261011.md).
+
 **Quest Windows large-APK alignment, 2026-10-11 (Builder; new builds Runtime668).**
 
 Capture085642 confirms direct5.2s delivery resume from9aa4 still fails in

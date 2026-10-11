@@ -217,6 +217,67 @@ class SupportTests(unittest.TestCase):
         with (cache / ('a' * 64) / 'journal.json').open('wb') as stream:
             stream.truncate(support.MAX_PREPARATION_JOURNAL_BYTES + 1)
         self.assertEqual(support.preparation_receipt_stats(self.root / 'build')[0]['journalStatus'], 'unreadable-or-oversized')
+    def test_compute_failure_exports_actual_owner_ids_without_programs_or_asset_reads(self):
+        key = 'a' * 64
+        project = self.root / 'build/projects' / key
+        write_json(self.root / 'build/cache/prepare-resume' / key / 'journal.json', {
+            'schema': 1, 'owner': 'Quest preparation substage journal', 'project': 'projects/' + key,
+            'target': 'game', 'steps': [], 'pending': None})
+        manifest = project / 'Assets/QuestOriginalCampaign/campaign-computes.json'
+        owner = {'name': 'EyeHistogram', 'guid': '43dced0ca11f5ab4c850ff0e55f341a3', 'classId': 72,
+                 'localFileId': 7200000, 'sourceSha256': 'c' * 64, 'profile': 'SecretName',
+                 'source': 'PRIVATE COMPUTE PROGRAM', 'kernels': [{'name': 'KEyeHistogram',
+                    'originalDxbcSha256': 'd' * 64, 'threadGroups': [16, 16, 1], 'code': 'PRIVATE DXBC'}]}
+        write_json(manifest, {'schema': 1, 'shaders': [owner], 'originalInputs': {'PRIVATE ASSET': 'private'}})
+        raw = manifest.read_bytes()
+        actual_open = Path.open
+        def bounded_open(path, *args, **kwargs):
+            if project in path.parents and path != manifest:
+                self.fail('Support must not open source programs or metadata assets')
+            return actual_open(path, *args, **kwargs)
+        with mock.patch.object(Path, 'open', bounded_open): _, files = self.export()
+        summary = json.loads(files['diagnostic.json'])['computeContracts'][0]
+        self.assertEqual(summary['manifestStatus'], 'observed')
+        self.assertFalse(summary['contentVerified'])
+        observed = summary['shaders'][0]
+        self.assertEqual(observed['guid'], owner['guid'])
+        self.assertEqual(observed['kernelCount'], 1)
+        self.assertEqual(observed['kernels'][0]['originalDxbcSha256'], 'd' * 64)
+        self.assertEqual(observed['kernels'][0]['threadGroups'], [16, 16, 1])
+        self.assertNotIn('PRIVATE', '\n'.join(files.values()))
+        self.assertNotIn('SecretName', '\n'.join(files.values()))
+        self.assertEqual(raw, manifest.read_bytes())
+    def test_compute_diagnostic_rejects_links_large_and_unowned_manifests_without_breaking_export(self):
+        key = 'a' * 64
+        build = self.root / 'build'
+        observed = [{'workspaceKey': key, 'target': 'game', 'journalStatus': 'observed'}]
+        path = build / 'projects' / key / 'Assets/QuestOriginalCampaign/campaign-computes.json'
+        path.parent.mkdir(parents=True)
+        private = self.root / 'private.json'; private.write_text('PRIVATE')
+        path.symlink_to(private)
+        self.assertEqual(support.compute_contract_stats(build, observed)[0]['manifestStatus'], 'unreadable-or-oversized')
+        path.unlink()
+        with path.open('wb') as stream: stream.truncate(1048577)
+        with mock.patch.object(Path, 'open', side_effect=AssertionError('Oversized manifest must not be opened')):
+            self.assertEqual(support.compute_contract_stats(build, observed)[0]['manifestStatus'], 'unreadable-or-oversized')
+            self.assertEqual(support.compute_contract_stats(build, [{'workspaceKey': '../private', 'target': 'game',
+                'journalStatus': 'observed'}, {'workspaceKey': key, 'target': 'game', 'journalStatus': 'unowned'}]), [])
+        path.write_text('{broken manifest')
+        self.assertEqual(support.compute_contract_stats(build, observed)[0]['manifestStatus'], 'unreadable-or-oversized')
+    def test_compute_diagnostic_bounds_owner_and_kernel_counts_and_redacts_names(self):
+        key = 'a' * 64
+        build = self.root / 'build'
+        owner = {'name': 'SecretName', 'guid': 'b' * 32, 'sourceSha256': 'c' * 64,
+                 'kernels': [{'name': 'k' * 200, 'threadGroups': [16, 16, 1]}] * 50}
+        write_json(build / 'projects' / key / 'Assets/QuestOriginalCampaign/campaign-computes.json',
+                   {'schema': 1, 'shaders': [owner] * 20})
+        rows = support.compute_contract_stats(build, [{'workspaceKey': key, 'target': 'game', 'journalStatus': 'observed'}],
+                                              [('SecretName', '<profile>')])
+        self.assertEqual(rows[0]['shaderCount'], 20)
+        self.assertEqual(len(rows[0]['shaders']), 13)
+        self.assertEqual(len(rows[0]['shaders'][0]['kernels']), 36)
+        self.assertEqual(rows[0]['shaders'][0]['name'], '<profile>')
+        self.assertEqual(len(rows[0]['shaders'][0]['kernels'][0]['name']), 128)
     def test_targeted_repairs_export_bounded_history_and_pending_state(self):
         key = 'a' * 64
         folder = self.root / 'build/cache/prepare-resume' / key

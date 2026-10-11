@@ -77,6 +77,15 @@ and then continues automatically. Support exports include bounded repair history
 missing reconstruction sources are reported specifically rather than causing an
 automatic whole-project reset. Details are recorded in the developer repair notes.
 
+Completed Player delivery retains independent signing, APK, Shader and Compute
+receipts. A failed final gate retries its own incomplete proof without reopening
+conversion, the Unity project or successful sibling gates. Ancillary desktop
+Compute banks qualify by exact original program/interface and bank identity;
+independent export GUIDs and LF/CRLF source formatting follow their actual local
+source/meta contract. The complete active Vulkan executable gate remains required.
+Support metadata includes bounded owner IDs and original kernel hashes rather
+than source programs. See the [Compute ownership evidence](../../.planning/QUEST-COMPUTE-OWNER-092443-20261011.md).
+
 Late Sprite validation also follows the recorded case-path manifest transition
 when an older Windows loading receipt predates that legitimate migration. The
 exact original bytes, GUID metadata, original bank and imported drawing proof

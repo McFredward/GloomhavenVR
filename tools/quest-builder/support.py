@@ -201,6 +201,54 @@ def preparation_receipt_stats(build_root):
     return result
 
 
+def compute_contract_stats(build_root, preparation, replacements=()):
+    """Report bounded owner identities, never source programs or asset inventories.
+
+    Capture 092443 includes the actual ancillary-bank hash but omits the
+    corresponding exported GUID/kernel contract. Read only this one small,
+    declared manifest per observed game project; never enumerate Assets/Library
+    or treat diagnostic metadata as qualification of the retained Player.
+    """
+    result = []
+    hexadecimal = lambda value, width: value if isinstance(value, str) and re.fullmatch(
+        '[0-9a-f]{' + str(width) + '}', value) else None
+    for project in preparation[:2]:
+        key = hexadecimal(project.get('workspaceKey'), 64)
+        if not key or project.get('target') != 'game' or project.get('journalStatus') != 'observed':
+            continue
+        row = {'workspaceKey': key, 'contentVerified': False}
+        try:
+            path = build_root / 'projects' / key / 'Assets/QuestOriginalCampaign/campaign-computes.json'
+            value = read_object(path, limit=1048576)
+            if value is None:
+                row['manifestStatus'] = 'missing'
+            elif not isinstance(value, dict) or value.get('schema') != 1 or not isinstance(value.get('shaders'), list):
+                row['manifestStatus'] = 'invalid'
+            else:
+                owners = []
+                for owner in value['shaders'][:13]:
+                    if not isinstance(owner, dict): continue
+                    kernels = owner.get('kernels')
+                    owners.append({
+                        'name': safe_json(owner['name'][:64], replacements) if isinstance(owner.get('name'), str) else None,
+                        'guid': hexadecimal(owner.get('guid'), 32),
+                        'classId': owner.get('classId') if type(owner.get('classId')) is int else None,
+                        'localFileId': owner.get('localFileId') if type(owner.get('localFileId')) is int else None,
+                        'sourceSha256': hexadecimal(owner.get('sourceSha256'), 64),
+                        'kernelCount': len(kernels) if isinstance(kernels, list) else None,
+                        'kernels': [{'name': safe_json(kernel['name'][:128], replacements) if isinstance(kernel.get('name'), str) else None,
+                                     'originalDxbcSha256': hexadecimal(kernel.get('originalDxbcSha256'), 64),
+                                     'threadGroups': kernel.get('threadGroups') if isinstance(kernel.get('threadGroups'), list)
+                                         and len(kernel['threadGroups']) == 3 and all(type(n) is int and 0 <= n <= 65536
+                                             for n in kernel['threadGroups']) else None}
+                                    for kernel in kernels[:36] if isinstance(kernel, dict)] if isinstance(kernels, list) else []})
+                row.update(manifestStatus='observed', shaderCount=len(value['shaders']), shaders=owners)
+        except (OSError, ValueError, BuildError, RecursionError):
+            row['manifestStatus'] = 'unreadable-or-oversized'
+        result.append(row)
+    return result
+
+
 def recovery_logs(build_root, failure=None, *, workspaces=None):
     """Known export logs only; never enumerate assets or recurse through caches."""
     folders = recovery_workspaces(build_root, failure) if workspaces is None else workspaces
@@ -286,6 +334,8 @@ def export_support(state_root, session, destination=None):
     if recovery_folders: meta['recoveryReceipts'] = recovery_receipt_stats(recovery_folders)
     preparation = preparation_receipt_stats(build_root)
     if preparation: meta['preparationReceipts'] = preparation
+    compute = compute_contract_stats(build_root, preparation, replacements)
+    if compute: meta['computeContracts'] = compute
     # Include only the selected build's small identity fields, never copy complete
     # receipts (which contain profile data, full game inventories and file paths).
     for name in ('latest-input.json', 'latest-build.json'):

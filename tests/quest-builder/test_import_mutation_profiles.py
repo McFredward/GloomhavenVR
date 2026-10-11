@@ -90,6 +90,12 @@ class ImportMutationProfileTests(unittest.TestCase):
         self.assertEqual(current, {"path": current["path"], "size": len(raw),
             "sha256": hashlib.sha256(raw).hexdigest()})
 
+    def test_compute_owner_alias_matches_exact_current_late_consumer_bytes(self):
+        current = preparation_identity.COMPUTE_OWNER_DELIVERY_ROW
+        raw = (ROOT / current['path']).read_bytes()
+        self.assertEqual(current, {'path': current['path'], 'size': len(raw),
+            'sha256': hashlib.sha256(raw).hexdigest()})
+
     def test_previous_shader_reader_and_counted_delivery_keep_same_producer_profile(self):
         previous = recovery_resume.OBSERVATION_ZIP32_DELIVERY_PREVIOUS
         current = recovery_resume.OBSERVATION_EDITOR_OVERLAY
