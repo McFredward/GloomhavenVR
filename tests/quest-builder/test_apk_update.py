@@ -95,6 +95,20 @@ class ApkUpdateTests(unittest.TestCase):
         self.assertEqual(self.output.read_bytes(), b"previous verified installable result")
         self.assertEqual(list(self.root.glob("updated.apk.*.apk")), [])
 
+    def test_hash_mutation_cannot_publish_or_supply_a_reusable_output_proof(self):
+        self.output.write_bytes(b"previous verified output"); original = self.base.read_bytes()
+        actual = update.digest
+        def unstable_hash(path):
+            result = actual(path)
+            with Path(path).open("ab") as stream: stream.write(b"changed after the verified hash")
+            return result
+        with patch.object(update, "digest", side_effect=unstable_hash):
+            with self.assertRaisesRegex(storage.BuildError, "changed while closing"):
+                self.publish({})
+        self.assertEqual(self.output.read_bytes(), b"previous verified output")
+        self.assertEqual(self.base.read_bytes(), original)
+        self.assertEqual(list(self.root.glob("updated.apk.*.apk")), [])
+
     def test_il2cpp_pair_or_unqualified_code_cannot_be_published(self):
         with self.assertRaisesRegex(storage.BuildError, "together"): self.publish({update.LIBRARY: bytes(self.library)})
         with self.assertRaisesRegex(storage.BuildError, "qualification"): self.publish({update.LIBRARY: bytes(self.library), update.METADATA: self.metadata})

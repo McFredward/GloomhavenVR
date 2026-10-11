@@ -608,12 +608,13 @@ def run(builder, args, repo, output):
         result = core.repack(base_apk, apk, replacements, update_manifest=update, signer=sign, verifier=verify, code_evidence=code,
                              progress=lambda done, total, name: builder.build_progress.event(
                                  "update-apk-copy", done, total, "bytes", name, operation="update-repack"))
+        output_hash = observe_repacked_output(builder, output, apk, update_key, result)
         builder.build_progress.operation("update-repack", complete=True, detail="Signed update APK assembled.")
         builder.build_progress.operation("update-verify", detail="Publishing verified update evidence.")
         report = Path(str(apk) + ".build.json")
         details = {"inputKey": base["inputKey"], "updateKey": update_key, "package": builder.PACKAGE,
                    "modBuild": inputs["mod"]["modBuild"], "isDiagnostic": False,
-                   "isDummy": bool(inputs["profile"].get("isDummy")), "apkSha256": builder.digest(apk),
+                   "isDummy": bool(inputs["profile"].get("isDummy")), "apkSha256": output_hash,
                    "contentFiles": [], "retainedGameContent": True, "updateResult": result}
         builder.write_json(report, {"schema": 1, "buildResult": "Succeeded", "scope": "APK update", **details})
         builder.build_progress.operation("update-verify", complete=True, detail="Signed update published; original game content is retained.")
@@ -630,6 +631,21 @@ def run(builder, args, repo, output):
                        "receipt": "receipts/build/" + update_key + ".json", "details": receipt["details"]})
     print("update: " + str(apk), flush=True)
     return apk
+
+
+def observe_repacked_output(builder, output, apk, update_key, result):
+    """Close the normal stage witness from repack's exact verified byte proof."""
+    core = _core(builder)
+    current = core._base_stamp(apk)
+    if (result.get("schema") != 1 or result.get("output") != str(apk)
+            or not isinstance(result.get("sha256"), str) or not re.fullmatch(r"[0-9a-f]{64}", result["sha256"])
+            or result.get("outputStamp") != list(current)):
+        raise builder.BuildError("Signed update APK changed before recording its verified output proof.")
+    with builder.Stages(output)._witnesses("build", update_key) as witnesses:
+        witnesses.remember(apk, result["sha256"], stamp=witnesses.current(apk))
+        if core._base_stamp(apk) != current:
+            raise builder.BuildError("Signed update APK changed while recording its verified output proof.")
+    return result["sha256"]
 
 
 def _rebuild(builder, args, plan, repo, output, *, reason=None):

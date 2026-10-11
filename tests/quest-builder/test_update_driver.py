@@ -339,6 +339,50 @@ class UpdateDriverTests(unittest.TestCase):
             self.assertEqual(tools.call_count, calls)
             self.assertTrue(built.is_file())
 
+    def test_verified_repack_hash_closes_the_update_without_repeated_apk_reads(self):
+        driver.inspect(self.builder, self.args, ROOT, self.output)
+        actual = storage.digest
+        def refuse_apk_read(path, *args, **kwargs):
+            if Path(path).suffix.lower() == ".apk":
+                raise AssertionError("Repack already proved the signed APK bytes")
+            return actual(path, *args, **kwargs)
+        with patch.object(driver, "signing_tools", return_value={}), \
+             patch.object(driver, "_signers", return_value=(lambda _: None, lambda _: None)), \
+             patch.object(apk_update, "patch_resource_json", return_value={}), \
+             patch.object(apk_update, "update_android_versions", return_value=b"AXML tested separately"), \
+             patch.object(apk_update, "digest", wraps=actual) as repack_hash, \
+             patch.object(storage, "digest", side_effect=refuse_apk_read), \
+             patch.object(self.builder, "digest", side_effect=refuse_apk_read):
+            built = driver.run(self.builder, self.args, ROOT, self.output)
+            self.assertEqual(sum(Path(call.args[0]).suffix.lower() == ".apk" for call in repack_hash.call_args_list), 1)
+            with patch.object(apk_update, "repack", side_effect=AssertionError("Closed output must be reused")):
+                self.assertEqual(driver.run(self.builder, self.args, ROOT, self.output), built)
+        report = json.loads(Path(str(built) + ".build.json").read_text())
+        self.assertEqual(report["apkSha256"], actual(built))
+        key = json.loads((self.output / "latest-build.json").read_text())["details"]["updateKey"]
+        receipt = storage.Stages(self.output).valid("build", key)
+        row = next(item for item in receipt["outputs"] if item["path"] == built.relative_to(self.output).as_posix())
+        self.assertEqual(row["sha256"], report["apkSha256"])
+
+    def test_mutation_after_repack_prevents_known_hash_witness_or_success_receipt(self):
+        actual = apk_update.repack
+        def late_mutation(*args, **kwargs):
+            result = actual(*args, **kwargs)
+            with Path(result["output"]).open("ab") as stream: stream.write(b"unqualified later edit")
+            return result
+        original = self.apk.read_bytes()
+        with patch.object(driver, "signing_tools", return_value={}), \
+             patch.object(driver, "_signers", return_value=(lambda _: None, lambda _: None)), \
+             patch.object(apk_update, "patch_resource_json", return_value={}), \
+             patch.object(apk_update, "update_android_versions", return_value=b"AXML tested separately"), \
+             patch.object(apk_update, "repack", side_effect=late_mutation):
+            with self.assertRaisesRegex(storage.BuildError, "changed before recording"):
+                driver.run(self.builder, self.args, ROOT, self.output)
+        self.assertEqual(self.apk.read_bytes(), original)
+        self.assertFalse((self.output / "latest-build.json").exists())
+        self.assertEqual(list((self.output / "receipts/build").glob("*.json")), [])
+        self.assertFalse((self.output / "receipts/.file-witnesses.sqlite3").exists())
+
     def test_closed_native_pair_reused_before_project_or_compiler(self):
         source = self.root / "source"; manifest = source / "unity/GloomhavenVR.Quest/Packages/manifest.json"
         storage.write_json(manifest, {"dependencies": {}})

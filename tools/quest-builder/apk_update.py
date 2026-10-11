@@ -871,9 +871,19 @@ optional: a rewritten unsigned APK is never exposed as an installable result.
                 current = actual.get(name)
                 if current is None or (current.CRC, current.file_size, current.compress_size, current.compress_type) != (entry.CRC, entry.file_size, entry.compress_size, entry.compress_type):
                     raise BuildError("An unrelated APK payload changed during signing: " + name)
+        # Hash the verified temporary once before publication. Bind that proof
+        # to its actual file identity so the caller can record the unchanged
+        # output in the normal stage witness without another multi-GiB read.
+        verified_stamp = _base_stamp(temporary)
+        output_hash = digest(temporary)
+        if _base_stamp(temporary) != verified_stamp:
+            raise BuildError("Signed APK changed while closing its verified output hash.")
         os.replace(temporary, output)
+        output_stamp = _base_stamp(output)
+        if output_stamp[1:5] != verified_stamp[1:5]:
+            raise BuildError("Signed APK changed during final output publication.")
         return {"schema": 1, "gameInputKey": info["inputKey"], "updateKey": update_manifest["updateKey"],
                 "replacedMembers": sorted(replacements), "preservedCompressedBytes": total,
-                "output": str(output), "sha256": digest(output)}
+                "output": str(output), "sha256": output_hash, "outputStamp": list(output_stamp)}
     finally:
         temporary.unlink(missing_ok=True)
