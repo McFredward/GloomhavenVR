@@ -3,6 +3,8 @@ using UnityEngine;
 using UnityEngine.UI;
 using GloomhavenVR.WorldUI;
 using GloomhavenVR.WorldUI.MapRoom;
+using HarmonyLib;
+using ScenarioRuleLibrary;
 
 public static class ConfirmationProgram
 {
@@ -19,6 +21,170 @@ public static class ConfirmationProgram
  {
   var go=new GameObject(name,typeof(RectTransform),typeof(Image),typeof(ExtendedButton));
   go.transform.SetParent(parent,false);return go.GetComponent<ExtendedButton>();
+ }
+ private sealed class ItemScene
+ {
+  internal readonly UIWindow Merchant=Window("Merchant"),Party=Window("New Party Display");
+  internal readonly UIWindow Dialog;
+  internal readonly UIItemConfirmationBox Box;
+  internal readonly CItem Item=new();
+  internal readonly Action ConfirmAction,CancelAction;
+  internal int Confirmed,Cancelled;
+  internal ItemScene(bool reset=true,bool warm=false,bool flat=true,bool quiet=false)
+  {
+   if(reset)MapDialogSeat.Reset();
+   Singleton<UIEnhancementConfirmationBox>.Instance=null;
+   GuildmasterDestinations.Windows.Clear();ModalFallback.Panels.Clear();TownServicePresentation.Quiet=quiet;TownServicePresentation.Owned=false;
+   GuildmasterDestinations.Mode=EGuildmasterMode.Merchant;
+   GuildmasterDestinations.Windows.Add(EGuildmasterMode.Merchant,Merchant);
+   foreach(var window in new[]{Merchant,Party}) {window.Show();window.FinishTransition();if(flat)ModalFallback.Panels.Add(window,new ConvertedPanel(window));}
+   Dialog=Window("UI Item Confirmation Box",Party.transform);
+   var rect=(RectTransform)Dialog.transform;rect.anchorMin=Vector2.zero;rect.anchorMax=Vector2.one;rect.sizeDelta=Vector2.zero;
+   Box=Dialog.gameObject.AddComponent<UIItemConfirmationBox>();
+   var holder=new GameObject("Original picture holder",typeof(RectTransform));holder.transform.SetParent(Dialog.transform,false);
+   Box.Bind((RectTransform)holder.transform,Button("Confirm",Dialog.transform),Button("Cancel",Dialog.transform));
+   Singleton<UIItemConfirmationBox>.Instance=Box;
+   ConfirmAction=()=>Confirmed++;CancelAction=()=>Cancelled++;
+   if(warm)MapDialogSeat.Tick();
+  }
+  internal void Raise(BoxConfirmationType kind,bool tick=true)
+  {
+   Box.ShowConfirmation(kind,"native item title","native item information",Item,ConfirmAction,"BUY","CANCEL","native item cue",CancelAction);
+   Dialog.FinishTransition();if(tick)MapDialogSeat.Tick();
+  }
+  internal void Finish() { Dialog.FinishTransition();MapDialogSeat.Tick(); }
+ }
+ private static void CheckItemOwned()
+ {
+  var scene=new ItemScene();scene.Raise(BoxConfirmationType.Buy);
+  var rect=(RectTransform)scene.Dialog.transform;int edges=CanvasConversion.Transfers;
+  var mask=new TownServiceWindowMask(rect);var wrapper=rect.parent;
+  TownServicePresentation.Owned=true;
+  rect.anchoredPosition3D=new Vector3(11,-7,.04f);rect.localRotation=Quaternion.Euler(17,12,3);rect.gameObject.layer=7;
+  var position=rect.anchoredPosition3D;var rotation=rect.localRotation;
+  Check(wrapper!=scene.Merchant.transform && wrapper.GetComponent<CanvasGroup>().alpha==0f,"item native presentation mask owns actual zero-alpha wrapper");
+  MapDialogSeat.Tick();
+  Check(rect.parent==wrapper,"item-owned tick cannot pull native confirmation out of its actual zero-alpha mask");
+  Check(rect.anchoredPosition3D==position && Quaternion.Angle(rect.localRotation,rotation)<.01f && rect.gameObject.layer==7,
+    "item ownership leaves native presentation pose and layer untouched");
+  scene.Merchant.Hide();MapDialogSeat.Tick();
+  Check(rect.parent==wrapper && scene.Dialog.IsOpen && scene.Confirmed==0 && scene.Cancelled==0,
+    "owned merchant hide neither restores original root nor invokes a native decision");
+  Check(ReferenceEquals(scene.Box.ConfirmCallback,scene.ConfirmAction) && ReferenceEquals(scene.Box.CancelCallback,scene.CancelAction) && CanvasConversion.Transfers==edges,
+    "item ownership leaves both native callbacks and conversion snapshots untouched");
+  scene.Box.Cancel.onClick.Invoke();scene.Dialog.FinishTransition();
+  Check(scene.Cancelled==1,"original item cancellation still completes while masked");
+  mask.Dispose();TownServicePresentation.Owned=false;
+  for(int i=0;i<3;i++) {MapDialogSeat.Tick();Check(rect.parent==wrapper,"item retirement preserves original root in mask");TownServiceWindowMask.TickRetirements();}
+  MapDialogSeat.Tick();
+  Check(rect.parent==scene.Party.transform && CanvasConversion.Transfers==edges+1,"retired item mask restores exact native party home once");
+ }
+ public static int RunItems(string variant)
+ {
+  checks=0;CanvasConversion.Transfers=0;
+  var harmony=new Harmony("ghvr.item-confirmation."+typeof(ConfirmationProgram).Assembly.GetName().Name);
+  var patch=typeof(MapDialogSeat).Assembly.GetType("GloomhavenVR.WorldUI.MapItemConfirmationRequestObserver");
+  if(patch!=null)harmony.PatchAll(patch);
+  try
+  {
+   if(patch!=null)Check(Harmony.GetPatchInfo(typeof(UIItemConfirmationBox).GetMethod("ShowConfirmation")).Prefixes.Count==1,
+     "actual observer prefix binds installed native ShowConfirmation signature");
+   // Historical once-only subscription is warmed, then falsified by its actual
+   // replacement. The missing-request-edge mutation instead fails first discovery.
+   var first=new ItemScene(warm:variant is "item-published669" or "item-subscribe-once");
+   first.Raise(BoxConfirmationType.Buy);
+   Check(first.Dialog.transform.parent==first.Merchant.transform,"first native request before any modal tick seats on merchant");
+   Check(first.Box.RequestObservers==1,"one native request observer on initial instance");
+   Check(((RectTransform)first.Dialog.transform).rect.size==new Vector2(1920,1080),"item seating preserves measured original stretch size");
+   Check(first.Box.Title=="native item title" && first.Box.Information=="native item information" && first.Box.Card!=null && ReferenceEquals(first.Box.Card.item,first.Item),
+     "native title information and original item construction survive seating");
+   Check(ReferenceEquals(first.Box.ConfirmCallback,first.ConfirmAction) && ReferenceEquals(first.Box.CancelCallback,first.CancelAction),"native item callbacks are not replaced");
+   for(int i=0;i<5;i++)MapDialogSeat.Tick();
+   Check(first.Box.RequestObservers==1,"stable ticks never duplicate native event subscriptions");
+   first.Box.Confirm.onClick.Invoke();
+   Check(first.Confirmed==1 && first.Cancelled==0 && !first.Dialog.IsOpen && first.Dialog.IsVisible,"native item confirm commits once before its original fade finishes");
+   MapDialogSeat.Tick();Check(first.Dialog.transform.parent==first.Merchant.transform,"confirmed item remains seated throughout visible fade");
+   first.Finish();
+   Check(first.Dialog.transform.parent==first.Party.transform && first.Box.Card==null && first.Box.Area.Destroys==1,"native confirm cleanup finishes before exact item home restoration");
+   first.Raise(BoxConfirmationType.Sell);first.Box.Cancel.onClick.Invoke();
+   Check(first.Cancelled==0 && first.Dialog.IsVisible,"native item cancel waits for original hidden completion");
+   MapDialogSeat.Tick();Check(first.Dialog.transform.parent==first.Merchant.transform,"cancelled item remains seated throughout visible fade");
+   first.Finish();Check(first.Cancelled==1 && first.Confirmed==1,"native item cancellation runs once after original fade");
+   first.Raise(BoxConfirmationType.Buy);
+   // Returning to the menu resets the module but the old implementation kept its
+   // once-only subscription flag. The second save creates a fresh native box.
+   MapDialogSeat.Reset();
+   var replacement=new ItemScene(reset:false);
+   replacement.Raise(BoxConfirmationType.Sell);
+   Check(replacement.Dialog.transform.parent==replacement.Merchant.transform,"replacement merchant request before first tick seats on exact new host");
+   Check(first.Dialog.transform.parent==first.Party.transform,"instance replacement restores exact old native home without touching gameplay");
+   Check(first.Confirmed==1 && first.Cancelled==1,"instance replacement does not invoke either old native transaction");
+   Check(first.Box.RequestObservers==0,"replacement detaches the exact old native event target");
+   Check(replacement.Box.RequestObservers==1,"replacement binds exactly one new native event target");
+   replacement.Box.Cancel.onClick.Invoke();replacement.Finish();
+   Check(replacement.Cancelled==1 && replacement.Confirmed==0,"replacement cancellation still uses original native callback");
+   replacement.Raise(BoxConfirmationType.General);
+   Check(replacement.Dialog.transform.parent==replacement.Party.transform,"General request on current instance stays in original party display");
+   replacement.Box.Confirm.onClick.Invoke();replacement.Finish();
+   Check(replacement.Confirmed==1 && replacement.Cancelled==1,"General continuation still uses original native callback");
+   replacement.Raise(BoxConfirmationType.Buy);MapDialogSeat.Reset();
+   Check(replacement.Dialog.transform.parent==replacement.Party.transform && replacement.Dialog.IsOpen,"reset restores original home without closing native item choice");
+   Check(replacement.Box.RequestObservers==0,"reset detaches exact live native event target");
+   replacement.Box.Cancel.onClick.Invoke();replacement.Dialog.FinishTransition();
+   replacement.Raise(BoxConfirmationType.General);
+   Check(replacement.Dialog.transform.parent==replacement.Party.transform && replacement.Box.RequestObservers==1,"request immediately after reset rebinds General provenance before tick");
+   replacement.Box.Cancel.onClick.Invoke();replacement.Finish();
+   replacement.Raise(BoxConfirmationType.Buy);
+   var unknown=new ItemScene(reset:false);
+   unknown.Dialog.Show();unknown.Dialog.FinishTransition();MapDialogSeat.Tick();
+   Check(unknown.Dialog.transform.parent==unknown.Party.transform,"unknown request on replacement cannot inherit old merchant provenance");
+   Check(replacement.Box.RequestObservers==0,"tick replacement also detaches exact old event target");
+   unknown.Box.Hide();unknown.Finish();
+   unknown.Raise(BoxConfirmationType.Buy);unknown.Merchant.Hide();MapDialogSeat.Tick();
+   Check(unknown.Dialog.transform.parent==unknown.Party.transform && unknown.Dialog.IsOpen && unknown.Confirmed==0 && unknown.Cancelled==0,
+     "merchant host closure restores item home and preserves native pending decision");
+   unknown.Box.Cancel.onClick.Invoke();unknown.Finish();
+   Check(unknown.Cancelled==1,"native cancellation after host closure retains original callback");
+   var newGeneral=new ItemScene(reset:false);newGeneral.Raise(BoxConfirmationType.General);
+   Check(newGeneral.Dialog.transform.parent==newGeneral.Party.transform,"General request on new instance cannot inherit old trade provenance");
+   newGeneral.Box.Cancel.onClick.Invoke();newGeneral.Finish();
+   var quiet=new ItemScene(flat:false,quiet:true);quiet.Raise(BoxConfirmationType.Buy);quiet.Merchant.Hide();MapDialogSeat.Tick();
+   Check(quiet.Dialog.transform.parent==quiet.Party.transform && quiet.Dialog.IsOpen,"quiet immersive merchant controller has no flat seat or cancellation owner");
+   quiet.Box.Cancel.onClick.Invoke();quiet.Finish();
+   CheckItemOwned();
+   MapDialogSeat.Reset();Singleton<UIItemConfirmationBox>.Instance=null;MapDialogSeat.Tick();
+   Check(!Singleton<UIItemConfirmationBox>.IsInitialized,"missing item singleton remains a safe teardown observation");
+   return checks;
+  }
+  finally {harmony.UnpatchSelf();MapDialogSeat.Reset();}
+ }
+ public static int RunPrefixFault(string variant)
+ {
+  checks=0;Probe.ObservationFaults=0;GloomhavenVR.Core.VRLog.Alerts.Clear();
+  var harmony=new Harmony("ghvr.item-confirmation-fault."+typeof(ConfirmationProgram).Assembly.GetName().Name);
+  harmony.PatchAll(typeof(MapDialogSeat).Assembly.GetType("GloomhavenVR.WorldUI.MapItemConfirmationRequestObserver"));
+  try
+  {
+   var scene=new ItemScene();int nativeRequests=0;BoxConfirmationType? nativeKind=null;
+   scene.Box.ConfirmationBoxRequested += kind=>{nativeRequests++;nativeKind=kind;};
+   bool continued=true;
+   try {scene.Raise(BoxConfirmationType.Buy);}catch(InvalidOperationException){continued=false;}
+   Check(continued && scene.Dialog.IsOpen && scene.Box.IsActive,"observation failure leaves native Show continuation intact");
+   Check(nativeRequests==1 && nativeKind==BoxConfirmationType.Buy,"native Buy announcement still reaches original independent observer after presentation failure");
+   Check(scene.Box.Card!=null && ReferenceEquals(scene.Box.Card.item,scene.Item) && scene.Box.Title=="native item title","native Show constructs original item content after presentation failure");
+   Check(ReferenceEquals(scene.Box.ConfirmCallback,scene.ConfirmAction) && ReferenceEquals(scene.Box.CancelCallback,scene.CancelAction),"presentation failure preserves both original native callback delegates");
+   Check(scene.Dialog.transform.parent==scene.Party.transform,"failed presentation observation leaves original native home intact");
+   scene.Box.Confirm.onClick.Invoke();scene.Finish();
+   Check(scene.Confirmed==1 && scene.Cancelled==0 && scene.Box.Area.Destroys==1,"native confirmation and hidden cleanup complete exactly once after observation failure");
+   scene.Raise(BoxConfirmationType.Sell);
+   Check(nativeRequests==2 && nativeKind==BoxConfirmationType.Sell && scene.Dialog.IsOpen,"second failed observation still permits native Sell announcement and Show");
+   scene.Box.Cancel.onClick.Invoke();Check(scene.Cancelled==0,"failed observation preserves original cancellation fade ordering");
+   scene.Finish();Check(scene.Cancelled==1 && scene.Confirmed==1,"native cancellation completes once after repeated observation failure");
+   Check(Probe.ObservationFaults==2,"failure-path proof exercises actual prefix twice");
+   Check(GloomhavenVR.Core.VRLog.Alerts.Count==1 && GloomhavenVR.Core.VRLog.Alerts[0].Contains("observing native item confirmation failed"),"repeated observation failures emit one bounded useful diagnostic");
+   return checks;
+  }
+  finally {harmony.UnpatchSelf();MapDialogSeat.Reset();}
  }
  private sealed class Scene
  {

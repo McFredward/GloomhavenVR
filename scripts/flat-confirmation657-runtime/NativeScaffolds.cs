@@ -66,3 +66,26 @@ public partial class UIEnhancementConfirmationBox : MonoBehaviour
   _confirmationBox.OnHide += ToPreviousState;
  }
 }
+public partial class UIItemConfirmationBox : MonoBehaviour
+{
+ private RectTransform pictureHolder = null!;
+ private ExtendedButton confirmButton = null!, cancelButton = null!;
+ private Label titleText = new(), informationText = new();
+ private ControllerInputAreaLocal controllerArea = new();
+ private UIWindow confirmationBox = null!;
+ private ItemCardUI? itemCardUI;
+ private Action? _onConfirmedCallback, _onCancelCallback;
+ public bool IsActive { get; private set; }
+ public event Action<BoxConfirmationType>? ConfirmationBoxRequested;
+ public int RequestObservers => ConfirmationBoxRequested?.GetInvocationList().Length ?? 0;
+ public Action? ConfirmCallback => _onConfirmedCallback;
+ public Action? CancelCallback => _onCancelCallback;
+ public ExtendedButton Confirm => confirmButton;
+ public ExtendedButton Cancel => cancelButton;
+ public ControllerInputAreaLocal Area => controllerArea;
+ public string Title => titleText.text;
+ public string Information => informationText.text;
+ public ItemCardUI? Card => itemCardUI;
+ public void Bind(RectTransform holder,ExtendedButton confirm,ExtendedButton cancel)
+ { pictureHolder=holder;confirmButton=confirm;cancelButton=cancel;confirmationBox=GetComponent<UIWindow>();ResetConfirmationBox(); }
+}
