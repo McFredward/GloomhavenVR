@@ -1461,7 +1461,9 @@ def validate_apk(apk: Path, report: Path, inputs: dict, tools: dict, output: Pat
         raise BuildError("Quest 3 APK declares mandatory eye tracking, which its hardware does not support.")
     if re.search(r"^uses-permission(?:-sdk-\d+)?:\s.*\beye_tracking\b", badging, re.MULTILINE | re.IGNORECASE):
         raise BuildError("Quest 3 APK requests an unused eye-tracking permission.")
-    result = {"apkSha256": digest(apk), "certificateSha256": cert_hash,
+    with Stages(output)._witnesses("build", apk.parent.name) as witnesses:
+        apk_hash = witnesses.observe(apk, hasher=digest)
+    result = {"apkSha256": apk_hash, "certificateSha256": cert_hash,
             "inputKey": inputs["inputKey"], "modBuild": inputs["mod"]["modBuild"],
             "package": PACKAGE, "isDiagnostic": inputs["target"] != "game",
             "isDummy": bool(inputs["profile"].get("isDummy")), "buildReport": metadata, "contentFiles": content_files}
@@ -1619,7 +1621,10 @@ def finish_player_delivery(inputs, output, source, project, tools, key, provenan
         _local_helper("player_delivery").record_completed(
             _module_context(), inputs, output, source, project, tools, key, provenance)
     delivery_progress(1, "Validating APK signature and delivered content")
-    details = validate_apk(apk, report, inputs, tools, output, provenance)
+    gates = _local_helper("delivery_finalization").Gates(
+        _module_context(), output, key, apk, source, project)
+    details = gates.apk_validation(inputs, tools, report, provenance,
+        lambda: validate_apk(apk, report, inputs, tools, output, provenance))
     delivery_progress(2, "Validating the delivered native graphics")
     details["buildEvidenceFiles"] = [record_file(provenance_path, provenance_path.relative_to(output).as_posix())]
     evidence = [provenance_path]
@@ -1632,9 +1637,17 @@ def finish_player_delivery(inputs, output, source, project, tools, key, provenan
         content_files = [output / row["path"] for row in details["contentFiles"]]
         if len(content_files) != 1:
             raise BuildError("Full Campaign graphics require one exact delivered native content bank.")
+        artifacts = [{"path": apk.relative_to(output).as_posix(),
+                      "sha256": details["apkSha256"], "size": apk.stat().st_size}, *details["contentFiles"]]
         shader_receipt = apk.parent / "shaders-delivered-validation.json"
         print("graphics: validating original shader aliases in the actual signed player and native bank", flush=True)
-        graphics = campaign_native_shaders.validate_delivered(source, project, apk, content_files[0], shader_receipt)
+        def graphics_progress(phase, done, total, detail):
+            fraction = done / total if total else 1
+            offset = .7 * fraction if phase == "shaders" else .7 + .29 * fraction
+            delivery_progress(2 + offset, "Delivered graphics: " + str(done) + "/" + str(total) + " " + phase + "; " + detail)
+        graphics = gates.shaders(artifacts, shader_receipt, lambda:
+            campaign_native_shaders.validate_delivered(source, project, apk, content_files[0], shader_receipt,
+                                                       progress=graphics_progress))
         details["nativeShaderValidation"] = {field: graphics[field] for field in (
             "shaderCount", "originalNativeAliasCount", "allOriginalAliasesRetained",
             "actualNativeAliasMetadataVerified", "materialSampleCount", "compilerQueries", "hardwarePictureVerified")}
@@ -1644,15 +1657,16 @@ def finish_player_delivery(inputs, output, source, project, tools, key, provenan
         print("compute: validating the actual signed player and complete delivered banks", flush=True)
         expected_artifacts = {output / row["path"]: row for row in details["contentFiles"]}
         expected_artifacts[apk] = {"sha256": details["apkSha256"], "size": apk.stat().st_size}
-        with Stages(output)._witnesses("build", key) as witnesses:
-            def artifact_hash(path):
-                path = Path(path)
-                row = expected_artifacts[path]
+        def artifact_hash(path):
+            path = Path(path)
+            row = expected_artifacts[path]
+            with Stages(output)._witnesses("build", key) as witnesses:
                 if not witnesses.qualify(path, row["sha256"], row["size"], hasher=digest):
                     raise BuildError("Delivered Player/content changed during final validation: " + path.name)
-                return row["sha256"]
-            checked = campaign_compute.validate_delivered(source, project, apk,
-                content_files, compute_receipt, artifact_hash=artifact_hash)
+            return row["sha256"]
+        checked = gates.compute(artifacts, compute_receipt, lambda:
+            campaign_compute.validate_delivered(source, project, apk,
+                content_files, compute_receipt, artifact_hash=artifact_hash))
         details["computeValidation"] = {field: checked[field] for field in (
             "shaderCount", "kernelCount", "graphicsApi", "actualExecutableBytesVerified", "hardwareVerified")}
         for field in ("actualVulkanSpirvBytesVerified", "actualGles31BytesVerified"):

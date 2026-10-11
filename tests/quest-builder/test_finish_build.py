@@ -123,30 +123,62 @@ class CompletedPlayerCompositionTests(unittest.TestCase):
         log.write_text("Android Player completed\n")
         early = f.project / "QuestCampaignShaderEvidence/native-addressables-validation.json"
         storage.write_json(early, {"schema": 1, "hardwareVerified": False})
+        storage.write_json(f.output / "signing/certificate.json", {"sha256": "f" * 64})
+        for path in ("tools/quest-recovery/catalog.py", "tools/quest-recovery/recover.py", "tools/quest-recovery/md4.py",
+                     "tools/quest-builder/progress.py", "tools/quest-compute/compiled.py", "tools/quest-compute/native.py",
+                     "tools/quest-compute/vulkan_compiled.py", "tools/quest-compute/spirv.py"):
+            target = f.source / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes((ROOT / path).read_bytes())
+        for path in ("Assets/QuestOriginalCampaign/campaign-shaders.json", "Assets/QuestOriginalCampaign/campaign-computes.json"):
+            storage.write_json(f.project / path, {"schema": 1, "authoredFixture": True})
+        collection = f.project / "Assets/Resources/QuestCampaignShaderVariants.shadervariants.meta"
+        collection.parent.mkdir(parents=True, exist_ok=True)
+        collection.write_text("guid: " + "a" * 32 + "\n")
+        self.material = f.project / "Assets/Material/Authored.mat"
+        self.material.parent.mkdir(parents=True, exist_ok=True)
+        self.material.write_bytes(b"authored original material contract")
         self.args = SimpleNamespace(game_root=f.data, profile_json=None, delivery_input_key=f.inputs["inputKey"])
 
-    def run_finish(self, *, corrupt_bank=False):
+    def run_finish(self, *, corrupt_bank=False, fail_compute=False, fail_publication=False, counters=None):
         f = self.fixture
         actual_local = builder._local_helper
         actual_update = actual_local("update_driver")
         adapted_update = SimpleNamespace(normalized_signing_tools=actual_update.normalized_signing_tools,
                                          add_update_capability=lambda *args: {"schema": 1, "dynamicProfile": True})
         def validate(*args):
+            if counters is not None: counters["apk"] += 1
             row = storage.record_file(f.bank, f.bank.relative_to(f.output).as_posix())
             return {"apkSha256": storage.digest(f.apk), "inputKey": f.inputs["inputKey"], "modBuild": 665,
                     "contentFiles": [row], "buildReport": json.loads(f.report.read_text())}
-        def graphics(source, project, apk, bank, receipt):
-            storage.write_json(receipt, {"schema": 1, "hardwareVerified": False})
+        def graphics(source, project, apk, bank, receipt, *, progress):
+            if counters is not None: counters["shaders"] += 1
+            progress("shaders", 688, 688, "actual authored root audit")
+            progress("bundles", 1, 1, "actual authored closure audit")
             if corrupt_bank: bank.write_bytes(b"unexpected changed content")
-            return dict.fromkeys(("shaderCount", "originalNativeAliasCount", "allOriginalAliasesRetained",
+            result = dict.fromkeys(("shaderCount", "originalNativeAliasCount", "allOriginalAliasesRetained",
                 "actualNativeAliasMetadataVerified", "materialSampleCount", "compilerQueries", "hardwarePictureVerified"), 0)
+            result["materialSampleCount"] = 1
+            result["materials"] = [{"assetPath": self.material.relative_to(project).as_posix(),
+                                    "sourceSha256": storage.digest(self.material)}]
+            storage.write_json(receipt, result)
+            return result
         def compute(source, project, apk, banks, receipt, *, artifact_hash):
+            if counters is not None: counters["compute"] += 1
             self.assertEqual(artifact_hash(apk), storage.digest(f.apk))
             self.assertEqual(artifact_hash(banks[0]), f.bank_sha)
+            if fail_compute: raise storage.BuildError("Authored interrupted Compute delivery audit")
             storage.write_json(receipt, {"schema": 1, "hardwareVerified": False})
             return {"shaderCount": 13, "kernelCount": 36, "graphicsApi": "Vulkan",
                     "actualExecutableBytesVerified": True, "hardwareVerified": False}
         with contextlib.ExitStack() as stack:
+            if fail_publication:
+                actual_write = storage.write_json
+                def publish(path, value):
+                    if path.parent == f.output / "receipts/build":
+                        raise storage.BuildError("Authored interrupted final receipt publication")
+                    return actual_write(path, value)
+                stack.enter_context(patch.object(storage, "write_json", side_effect=publish))
             stack.enter_context(patch.object(builder, "_local_helper", side_effect=lambda name:
                                              adapted_update if name == "update_driver" else actual_local(name)))
             stack.enter_context(patch.object(builder, "validate_apk", side_effect=validate))
@@ -174,6 +206,87 @@ class CompletedPlayerCompositionTests(unittest.TestCase):
         self.assertEqual(f.apk.read_bytes(), original)
         self.assertTrue((f.output / "latest-player.json").is_file())
         self.assertFalse((f.output / "latest-build.json").exists())
+
+    def test_failed_compute_retry_keeps_apk_and_shader_gates(self):
+        f = self.fixture
+        original = f.apk.read_bytes()
+        counts = dict.fromkeys(("apk", "shaders", "compute"), 0)
+        with self.assertRaisesRegex(storage.BuildError, "interrupted Compute"):
+            self.run_finish(fail_compute=True, counters=counts)
+        self.assertEqual(counts, {"apk": 1, "shaders": 1, "compute": 1})
+        self.assertEqual(self.run_finish(counters=counts), f.apk)
+        self.assertEqual(counts, {"apk": 1, "shaders": 1, "compute": 2})
+        self.assertEqual(f.apk.read_bytes(), original)
+        self.assertEqual(builder.verified_latest_build(f.output)[1]["modBuild"], 665)
+
+    def test_corrupt_graphics_evidence_repairs_only_graphics(self):
+        f = self.fixture
+        counts = dict.fromkeys(("apk", "shaders", "compute"), 0)
+        self.run_finish(counters=counts)
+        (f.folder / "shaders-delivered-validation.json").write_text("corrupt evidence")
+        self.run_finish(counters=counts)
+        self.assertEqual(counts, {"apk": 1, "shaders": 2, "compute": 1})
+        self.assertEqual(json.loads((f.folder / "shaders-delivered-validation.json").read_text())["materialSampleCount"], 1)
+
+    def test_changed_selected_material_reaudits_only_graphics(self):
+        counts = dict.fromkeys(("apk", "shaders", "compute"), 0)
+        with self.assertRaisesRegex(storage.BuildError, "final receipt publication"):
+            self.run_finish(fail_publication=True, counters=counts)
+        self.material.write_bytes(b"a changed authored source material contract")
+        self.run_finish(counters=counts)
+        self.assertEqual(counts, {"apk": 1, "shaders": 2, "compute": 1})
+
+    def test_changed_frozen_consumer_reaudits_only_its_compute_gate(self):
+        counts = dict.fromkeys(("apk", "shaders", "compute"), 0)
+        with self.assertRaisesRegex(storage.BuildError, "final receipt publication"):
+            self.run_finish(fail_publication=True, counters=counts)
+        consumer = self.fixture.source / "tools/quest-compute/spirv.py"
+        consumer.write_bytes(consumer.read_bytes() + b"\n# changed authored audit consumer\n")
+        self.run_finish(counters=counts)
+        self.assertEqual(counts, {"apk": 1, "shaders": 1, "compute": 2})
+
+    def test_retry_driver_annotations_do_not_revalidate_the_same_signed_apk(self):
+        f = self.fixture
+        counts = dict.fromkeys(("apk", "shaders", "compute"), 0)
+        with self.assertRaisesRegex(storage.BuildError, "interrupted Compute"):
+            self.run_finish(fail_compute=True, counters=counts)
+        metadata = json.loads(f.report.read_text())
+        metadata["deliveryDriver"] = {"resumedCompletedPlayer": False, "historicalDriver": True}
+        storage.write_json(f.report, metadata)
+        self.run_finish(counters=counts)
+        self.assertEqual(counts, {"apk": 1, "shaders": 1, "compute": 2})
+
+    def test_persistent_delivery_witnesses_do_not_reread_large_unchanged_artifacts(self):
+        f = self.fixture
+        with self.assertRaisesRegex(storage.BuildError, "interrupted Compute"):
+            self.run_finish(fail_compute=True)
+        # Simulate a new process: no invocation-only byte proofs survive.
+        storage._invocation_file_proofs.clear()
+        observed = []
+        actual_digest = builder.digest
+        def hashed(path):
+            observed.append(Path(path))
+            return actual_digest(path)
+        with patch.object(builder, "digest", side_effect=hashed):
+            self.run_finish()
+        self.assertNotIn(f.apk, observed)
+        self.assertNotIn(f.bank, observed)
+
+    def test_unsupported_metadata_requires_actual_artifact_byte_reads(self):
+        f = self.fixture
+        with self.assertRaisesRegex(storage.BuildError, "interrupted Compute"):
+            self.run_finish(fail_compute=True)
+        storage._invocation_file_proofs.clear()
+        observed = []
+        actual_digest = builder.digest
+        def hashed(path):
+            observed.append(Path(path))
+            return actual_digest(path)
+        with patch.object(storage, "_file_witness_stamp", return_value=None), \
+             patch.object(builder, "digest", side_effect=hashed):
+            self.run_finish()
+        self.assertIn(f.apk, observed)
+        self.assertIn(f.bank, observed)
 
 
 if __name__ == "__main__":

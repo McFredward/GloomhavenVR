@@ -377,7 +377,7 @@ def unique_zip(archive):
     return set(names)
 
 
-def validate_delivered(source, project, apk, bank, evidence, *, material_sample_count=16):
+def validate_delivered(source, project, apk, bank, evidence, *, material_sample_count=16, progress=None):
     """Audit exact all-688 native roots; read only their catalog dependency closure."""
     import UnityPy
     import campaign_shaders
@@ -405,6 +405,7 @@ def validate_delivered(source, project, apk, bank, evidence, *, material_sample_
         player_svc = {'entry': svc_entry, 'sha256': hashlib.sha256(raw).hexdigest(), 'shaderCount': len(collection),
             'projectedEntryCount': sum(len(value) for value in collection.values()), 'allOriginalProjectionsRetained': True}
         del env, raw, obj, objects; gc.collect()
+        if progress: progress('shaders', 0, len(contracts), 'Reading delivered Player Shader roots')
         for index, row in enumerate(contracts.values()):
             entry = 'assets/bin/Data/' + row['guid']
             require(entry in player_names, 'Signed native player omits original Shader GUID-file: ' + row['guid'])
@@ -415,6 +416,7 @@ def validate_delivered(source, project, apk, bank, evidence, *, material_sample_
             receipt.update(entry=entry, sha256=hashlib.sha256(raw).hexdigest())
             receipt['programSamples'] = program_sample(tree, sorted(set(native_aliases(tree, row).values()))[:2])
             apk_shader_receipts.append(receipt)
+            if progress: progress('shaders', index + 1, len(contracts), row['guid'])
             del env, raw, shaders, tree
             if (index + 1) % 32 == 0: gc.collect()
     with zipfile.ZipFile(bank) as content:
@@ -423,10 +425,12 @@ def validate_delivered(source, project, apk, bank, evidence, *, material_sample_
         decoded = decoder.decode_catalog(json.loads(catalog_raw))
         plan = catalog_plan(decoded, contracts, manifest.get('materials', []), material_sample_count)
         audit = NativeBundleAudit(contracts, plan, lambda row: source_material(project, row))
+        if progress: progress('bundles', 0, len(plan['bundles']), 'Reading delivered native Shader dependencies')
         for index, entry in enumerate(plan['bundles']):
             require(entry in bank_names, 'Original Shader dependency missing from actual delivered bank')
             raw = content.read(entry); env = UnityPy.load(raw)
             audit.observe(env, entry, hashlib.sha256(raw).hexdigest())
+            if progress: progress('bundles', index + 1, len(plan['bundles']), entry)
             del env, raw
             if (index + 1) % 16 == 0: gc.collect()
         result = audit.finish()
