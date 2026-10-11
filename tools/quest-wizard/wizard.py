@@ -9,6 +9,7 @@ import re
 import secrets
 import sys
 import time
+import zipfile
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -24,7 +25,7 @@ REPO = Path(__file__).resolve().parents[2]
 
 def choices(value):
     allowed = {"gameRoot", "provider", "sourceRoot", "sourceCommit", "sourceRef", "unityEditor", "unityHub", "steamRoot", "steamId",
-               "profile", "ownedDlc", "steamLogo", "install", "acceptUnityTerms", "language", "mode", "baseApk", "signingRoot"}
+               "profile", "profileName", "ownedDlc", "steamLogo", "install", "acceptUnityTerms", "language", "mode", "baseApk", "signingRoot"}
     if not isinstance(value, dict) or set(value) - allowed:
         raise WizardError("invalid_choices", "Wizard choices contain unsupported fields.", "Die Auswahl enthält nicht unterstützte Felder.")
     result = dict(value)
@@ -57,6 +58,14 @@ def choices(value):
         profile = discovery.builder(REPO).load_profile.__globals__["validate_identity"](result["profile"])
         if profile["provider"] != result["provider"]: raise WizardError("profile_provider", "Profile provider differs from the selected installation.")
         result["profile"] = profile
+    if "profileName" in result:
+        name = result["profileName"]
+        if (result["mode"] != "update-profile" or "profile" in result or not isinstance(name, str)
+                or not name.strip() or len(name.encode("utf-8")) > 256
+                or any(ord(char) < 32 or ord(char) == 127 for char in name)):
+            raise WizardError("profile_name", "Enter a valid player name for the existing APK.",
+                              "Einen gültigen Spielernamen für die vorhandene APK eingeben.")
+        result["profileName"] = name.strip()
     return result
 
 
@@ -68,7 +77,7 @@ class Engine:
         before = STAGES[:STAGES.index(stage)]
         names = {"tools": ("mode",), "source": ("sourceRoot", "sourceCommit", "sourceRef", "gameRoot", "mode"),
                  "unity": ("unityEditor", "unityHub", "acceptUnityTerms", "mode"),
-                 "profile": ("provider", "steamRoot", "steamId", "profile", "steamLogo"),
+                 "profile": ("provider", "steamRoot", "steamId", "profile", "profileName", "steamLogo", "baseApk"),
                  "inspect": ("gameRoot", "ownedDlc", "mode", "baseApk"), "build": ("mode", "baseApk", "signingRoot"), "install": ("install",)}[stage]
         release_identity = None
         if stage == "source":
@@ -502,6 +511,23 @@ class Engine:
         _, logo_hash = module.read_logo(logo)
         self.store.operation(state["session"], "profile", "identity", detail="Reading the selected local PC account identity.")
         if selected.get("profile"): profile = selected["profile"]
+        elif selected.get("profileName"):
+            # Name-only edits preserve the full existing identity. Reading the
+            # bounded APK profile does not authorize an update: the normal
+            # owned-PC installation qualification/preflight remains mandatory.
+            core = module.apk_updates
+            try:
+                with zipfile.ZipFile(ordinary(selected["baseApk"])) as apk:
+                    profile = core._json(apk, core.PROFILE)
+                if profile.get("provider") != selected["provider"]:
+                    raise ValueError("Selected provider differs from the existing APK profile.")
+                profile = {**profile, "displayName": selected["profileName"]}
+                # Reuse the updater's complete identity/ownership validation;
+                # no new identity or DLC entitlement is inferred from a name.
+                core.profile_update(selected["baseApk"], profile)
+            except (ValueError, OSError, RuntimeError, zipfile.BadZipFile) as error:
+                raise WizardError("profile_name", "The existing APK profile could not be edited: " + str(error),
+                                  "Das Profil der vorhandenen APK konnte nicht geändert werden: " + str(error)) from error
         elif selected["provider"] == "steam":
             root = Path(selected["steamRoot"]) if selected.get("steamRoot") else module.discover_steam_root()
             if not root: raise WizardError("profile_required", "Select the PC account's local display name and identity.", "Bitte Anzeigenamen und lokale Identität des PC-Kontos wählen.")

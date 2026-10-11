@@ -14,13 +14,14 @@ import secrets
 import shutil
 import re
 import threading
+import time
 import traceback
 from urllib.parse import parse_qs, unquote, urlsplit
 import webbrowser
 
 import discovery
 import host_paths
-from state import STAGES, WizardError, ordinary
+from state import STAGES, WizardError, file_lock, ordinary
 from wizard import Engine, REPO, choices
 
 
@@ -97,7 +98,8 @@ def browse_apk():
 class LocalServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, store, ui_root, *, port=0, engine_factory=Engine, discover=discovery.discover, promotional=False):
+    def __init__(self, store, ui_root, *, port=0, engine_factory=Engine, discover=discovery.discover, promotional=False,
+                 device_factory=None):
         self.store, self.ui_root = store, ordinary(ui_root)
         if not self.ui_root.is_dir() or not (self.ui_root / "index.html").is_file():
             raise WizardError("ui_missing", "Wizard UI files are missing.", "Die Wizard-Oberfläche fehlt.")
@@ -114,6 +116,14 @@ class LocalServer(ThreadingHTTPServer):
         self.storage_job = None
         self.storage_state = {"status": "idle"}
         self.storage_plan = None
+        self.inventory_job = None
+        self.inventory_state = {"status": "idle"}
+        self.device_factory = device_factory
+        self.device_tools = None
+        self.device_job = None
+        self.device_lock = threading.Lock()
+        self.device_stop = threading.Event()
+        self.device_state = {"status": "idle", "devices": []}
         self.promo = None
         if promotional:
             from promotional import Gallery
@@ -191,7 +201,7 @@ class LocalServer(ThreadingHTTPServer):
     def run_session(self, session):
         self.store.load(session)
         with self.jobs_lock:
-            if any(job.is_alive() for job in self.jobs.values()) or self.storage_job and self.storage_job.is_alive():
+            if self.operation_active():
                 raise WizardError("already_running", "Another wizard run owns this workspace.", "Ein anderer Wizard-Lauf verwendet diesen Arbeitsordner.")
             def work():
                 try: self.engine_factory(self.store).run(session)
@@ -214,7 +224,7 @@ class LocalServer(ThreadingHTTPServer):
         # Coordinate with this server's build/cleanup threads, then the same
         # kernel run lock used by CLI and other servers. Never amend all rows.
         with self.jobs_lock:
-            if any(job.is_alive() for job in self.jobs.values()) or self.storage_job and self.storage_job.is_alive():
+            if self.operation_active():
                 raise WizardError("already_running", "Stop the active operation before skipping installation.",
                                   "Den laufenden Vorgang vor dem Überspringen der Installation anhalten.")
             state = self.engine_factory(self.store).skip_installation(session)
@@ -224,7 +234,7 @@ class LocalServer(ThreadingHTTPServer):
 
     def approve_installation_policy(self, session, nonce, policy):
         with self.jobs_lock:
-            if any(job.is_alive() for job in self.jobs.values()) or self.storage_job and self.storage_job.is_alive():
+            if self.operation_active():
                 raise WizardError("already_running", "Stop the active operation before changing installation data handling.",
                                   "Den laufenden Vorgang vor der Auswahl der Installationsdaten anhalten.")
             state = self.engine_factory(self.store).approve_installation_policy(session, nonce, policy)
@@ -235,8 +245,96 @@ class LocalServer(ThreadingHTTPServer):
     def storage_status(self):
         with self.storage_lock:
             value = copy.deepcopy(self.storage_state)
+            inventory = copy.deepcopy(self.inventory_state)
         return {"schema": 1, "event": "storage", "state": value,
-                "workspaceRoot": str(self.store.root), "freeBytes": shutil.disk_usage(self.store.root).free}
+                "workspaceRoot": str(self.store.root), "freeBytes": shutil.disk_usage(self.store.root).free,
+                "inventory": inventory, "canDeleteBuildCache": bool(inventory.get("canDeleteBuildCache"))}
+
+    def refresh_inventory(self):
+        """Measure file metadata once on request; status polling never walks caches."""
+        import cleanup
+        with self.jobs_lock:
+            if self.inventory_job and self.inventory_job.is_alive(): return self.storage_status()
+            if self.storage_job and self.storage_job.is_alive():
+                raise WizardError("already_running", "Wait for storage cleanup to finish.",
+                                  "Die Speicherbereinigung zuerst abschließen lassen.")
+            with self.storage_lock:
+                self.inventory_state = {"status": "scanning", "done": 0, "total": None}
+            def progress(value):
+                with self.storage_lock: self.inventory_state.update(value)
+            def work():
+                try:
+                    result = cleanup.inventory(self.store.root, progress=progress)
+                    with self.storage_lock:
+                        self.inventory_state = {**result, "status": "complete", "completedAt": time.time()}
+                except Exception as error:
+                    message = error.message if isinstance(error, WizardError) else {"en": str(error), "de": str(error)}
+                    with self.storage_lock:
+                        self.inventory_state = {"status": "failed", "error": {"message": message}}
+                    try: self.request_failure(error)
+                    except (OSError, ImportError, RuntimeError, ValueError): pass
+            self.inventory_job = threading.Thread(target=work, name="quest-storage-inventory", daemon=False)
+            self.inventory_job.start()
+        return self.storage_status()
+
+    def operation_active(self):
+        """Called under jobs_lock; device actions share build/cleanup ownership."""
+        return (any(job.is_alive() for job in self.jobs.values())
+                or bool(self.storage_job and self.storage_job.is_alive())
+                or bool(self.device_job and self.device_job.is_alive()))
+
+    def device_status(self):
+        with self.device_lock: value = copy.deepcopy(self.device_state)
+        return {"schema": 1, "event": "device", "state": value}
+
+    def manage_device(self, operation, options):
+        """Run the existing installer/collector without starting a Unity build."""
+        with self.jobs_lock:
+            if self.operation_active():
+                raise WizardError("already_running", "Stop the active operation before using Quest tools.",
+                                  "Den laufenden Vorgang vor der Nutzung der Quest-Werkzeuge anhalten.")
+            if self.device_tools is None:
+                if self.device_factory is None:
+                    from device_tools import DeviceTools
+                    self.device_factory = DeviceTools
+                self.device_tools = self.device_factory(REPO, self.store.root)
+            self.device_stop.clear()
+            with self.device_lock:
+                self.device_state = {"status": "connecting" if operation == "connect" else "capturing",
+                                     "operation": operation, "devices": [], "progress": {"done": 0, "total": None}}
+            def progress(value):
+                with self.device_lock: self.device_state.update(copy.deepcopy(value))
+            def work():
+                try:
+                    # The same nonblocking kernel lock also excludes CLI runs
+                    # and other local servers. A read-only inventory can coexist.
+                    with file_lock(self.store.root / "run.lock"):
+                        result = getattr(self.device_tools, operation)(options, progress=progress, cancel=self.device_stop)
+                    with self.device_lock: self.device_state = copy.deepcopy(result)
+                except Exception as error:
+                    code = error.code if isinstance(error, WizardError) else "device_failed"
+                    message = error.message if isinstance(error, WizardError) else {
+                        "en": "Quest operation stopped: " + str(error), "de": "Quest-Vorgang angehalten: " + str(error)}
+                    with self.device_lock:
+                        self.device_state.update(status="cancelled" if self.device_stop.is_set() else "failed",
+                                                 error={"code": code, "message": message})
+                    try: self.request_failure(error)
+                    except (OSError, ImportError, RuntimeError, ValueError): pass
+            self.device_job = threading.Thread(target=work, name="quest-device-" + operation, daemon=False)
+            self.device_job.start()
+        return self.device_status()
+
+    def cancel_device(self):
+        self.device_stop.set()
+        return self.device_status()
+
+    def device_capture(self, identifier):
+        if self.device_tools is None:
+            raise WizardError("capture_unavailable", "Collect Quest logs before downloading a capture.",
+                              "Vor dem Herunterladen die Quest-Logs erfassen.")
+        # The adapter resolves only a completed capture identity, never a
+        # browser-supplied host path. Download repeats the ordinary-file guard.
+        return Download(self.device_tools.download(identifier))
 
     def storage_log(self, event, **details):
         """Bounded operation summaries survive cache cleanup and support export."""
@@ -255,7 +353,7 @@ class LocalServer(ThreadingHTTPServer):
         """Keep previews and deletions responsive and separate from active builds."""
         import cleanup
         with self.jobs_lock:
-            if any(job.is_alive() for job in self.jobs.values()) or self.storage_job and self.storage_job.is_alive():
+            if self.operation_active() or self.inventory_job and self.inventory_job.is_alive():
                 raise WizardError("already_running", "Stop the active operation before managing storage.",
                                   "Den laufenden Vorgang vor der Speicherbereinigung anhalten.")
             deleting = plan_id is not None
@@ -283,6 +381,7 @@ class LocalServer(ThreadingHTTPServer):
                         with self.storage_lock:
                             self.storage_plan = None
                             self.storage_state = {"status": "complete", "result": result}
+                            self.inventory_state = {"status": "idle"}
                     else:
                         planned = cleanup.plan(self.store.root, mode, progress=progress)
                         self.storage_log("preview", mode=mode, paths=planned["paths"], bytes=planned["bytes"], files=planned["files"])
@@ -309,7 +408,10 @@ class LocalServer(ThreadingHTTPServer):
         with self.jobs_lock: running = [(session, job) for session, job in self.jobs.items() if job.is_alive()]
         for session, _ in running: self.store.cancel(session)
         for _, job in running: job.join()
+        self.device_stop.set()
+        if self.device_job: self.device_job.join()
         if self.storage_job: self.storage_job.join()
+        if self.inventory_job: self.inventory_job.join()
         if self.promo: self.promo.stop.set()
         self.server_close()
 
@@ -403,7 +505,16 @@ class Handler(BaseHTTPRequestHandler):
             return values[0]
         if self.command == "GET":
             if parsed.path == "/api/storage": return self.server.storage_status()
-            if parsed.path == "/api/discover": return self.server.discover(REPO, self.server.store)
+            if parsed.path == "/api/device/status": return self.server.device_status()
+            if parsed.path == "/api/device/capture":
+                identifier = selected("id")
+                if set(query) != {"id"} or not re.fullmatch(r"[0-9a-f]{32}", identifier):
+                    raise WizardError("request_query", "Invalid completed capture identity.")
+                return self.server.device_capture(identifier)
+            if parsed.path == "/api/discover":
+                result = dict(self.server.discover(REPO, self.server.store))
+                result["capabilities"] = {**result.get("capabilities", {}), "deviceTools": True, "storageInventory": True}
+                return result
             if parsed.path == '/api/gallery':
                 return {'schema': 1, 'event': 'gallery', 'artwork': self.server.promo.visible() if self.server.promo else []}
             if parsed.path == '/api/promo-artwork':
@@ -457,6 +568,21 @@ class Handler(BaseHTTPRequestHandler):
                         "truncated": any(path.stat().st_size > limit for _, path in existing)}
         else:
             value = self.body()
+            if parsed.path in ("/api/device/connect", "/api/device/capture"):
+                connecting = parsed.path.endswith("/connect")
+                allowed = {"host", "serial", "setupWireless"} if connecting else {"host", "serial"}
+                if (set(value) != allowed or any(not isinstance(value[key], str) or len(value[key]) > 256
+                                               for key in ("host", "serial"))
+                        or connecting and type(value["setupWireless"]) is not bool):
+                    raise WizardError("request_body", "Expected a Quest connection selection.",
+                                      "Eine Quest-Verbindung auswählen.")
+                return self.server.manage_device("connect" if connecting else "capture", value)
+            if parsed.path == "/api/device/cancel":
+                if value: raise WizardError("request_body", "Unexpected device cancellation fields.")
+                return self.server.cancel_device()
+            if parsed.path == "/api/storage/inventory":
+                if value: raise WizardError("request_body", "Unexpected storage inventory fields.")
+                return self.server.refresh_inventory()
             if parsed.path == "/api/storage/plan":
                 if set(value) != {"mode"}: raise WizardError("request_body", "Expected a cleanup selection.")
                 return self.server.manage_storage(mode=value["mode"])
