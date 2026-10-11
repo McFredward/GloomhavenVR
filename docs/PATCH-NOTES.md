@@ -26,6 +26,22 @@
 > rejected alternatives. `docs/PATCH-INVENTORY.md` lists all of them; `.planning/STATE.md` says
 > where the project stands.
 
+## Build670: exact native item-confirmation observation
+
+WorldUI registers `MapItemConfirmationRequestObserver` on
+`UIItemConfirmationBox.ShowConfirmation`. Its void prefix attaches the exact
+native instance's request event before the original one-shot announcement.
+Replaced instances and map resets detach the old observer and retire the old
+placement provenance. This fixes a new campaign's first merchant confirmation
+staying in the party-display window after the previous singleton was replaced,
+and a first request preceding the regular modal tick.
+
+The original Buy/Sell/General event remains the sole discriminator. Native Show,
+confirmation, cancellation, transaction and fade callbacks run unchanged; the
+existing merchant seat only owns presentation. Immersive ownership takes
+precedence. The tutorial's native exit lesson and pending promise remain in the
+existing guarded close bridge; no purchase or save-state completion is added.
+
 ## Build632: native transactions without hidden flat-window visits
 
 Immersive merchant and enhancement visits prepare only their original transaction
