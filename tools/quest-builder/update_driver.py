@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import zipfile
 
 
@@ -141,8 +142,26 @@ def _signing_command(builder, argv, log, *, env=None, password=None):
 
 
 def _certificate_output(builder, output, certificate):
-    path = output / "signing/certificate.json"
-    if path.is_file() and json.loads(path.read_text())["sha256"] != certificate:
+    # Called only after actual native signature/certificate verification. This
+    # JSON is derived evidence: malformed metadata can be rebuilt from that
+    # verified certificate; a valid different identity still cannot be adopted.
+    path = builder._ordinary_owned(output / "signing/certificate.json")
+    previous = None
+    if path.exists():
+        value = path.lstat()
+        if (not stat.S_ISREG(value.st_mode) or value.st_nlink != 1
+                or getattr(value, "st_file_attributes", 0) & 0x400):
+            raise builder.BuildError("Local signing certificate evidence is not a regular owned file.")
+        if value.st_size <= 4096:
+            try:
+                with path.open("rb") as stream: raw = stream.read(4097)
+                metadata = json.loads(raw) if len(raw) <= 4096 else None
+                digest = metadata.get("sha256") if isinstance(metadata, dict) else None
+                if isinstance(digest, str) and re.fullmatch(r"[0-9a-fA-F]{64}", digest):
+                    previous = digest.lower()
+            except (UnicodeError, ValueError):
+                pass
+    if previous is not None and previous != certificate:
         raise builder.BuildError("Local signing identity changed; existing saves require the original signing key.")
     builder.write_json(path, {"sha256": certificate})
 

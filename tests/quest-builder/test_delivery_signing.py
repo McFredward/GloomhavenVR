@@ -213,5 +213,35 @@ class ActualDeliverySigningTests(unittest.TestCase):
             self.assertGreater(archive.getinfo("assets/payload").header_offset, zipfile.ZIP64_LIMIT)
             self.assertEqual(archive.read("assets/payload"), b"sparse central directory native proof" * 100)
 
+    def test_actual_native_certificate_repairs_only_corrupt_derived_evidence(self):
+        signed = self.root / "signed.apk"; self.publish(self.base, signed, self.output)
+        certificate = self.output / "signing/certificate.json"
+        actual = json.loads(certificate.read_text())["sha256"]
+        original_key = storage.digest(self.output / "signing/quest.keystore")
+        original_private = storage.digest(self.output / "signing/local-key.json")
+        alignment_stamp = (self.output / "logs/update-align.log").stat().st_mtime_ns
+        for damaged in (b"{broken JSON", b"[]", b'{"sha256":"broken digest"}', b"x" * 4097):
+            with self.subTest(kind=damaged[:20]):
+                certificate.write_bytes(damaged)
+                driver._signers(self.context, self.tools, self.output, base_apk=signed)
+                self.assertEqual(json.loads(certificate.read_text()), {"sha256": actual})
+        self.assertEqual(storage.digest(self.output / "signing/quest.keystore"), original_key)
+        self.assertEqual(storage.digest(self.output / "signing/local-key.json"), original_private)
+        self.assertEqual((self.output / "logs/update-align.log").stat().st_mtime_ns, alignment_stamp)
+
+    def test_actual_valid_different_certificate_evidence_is_not_overwritten(self):
+        signed = self.root / "signed.apk"; self.publish(self.base, signed, self.output)
+        certificate = self.output / "signing/certificate.json"
+        actual = json.loads(certificate.read_text())["sha256"]
+        different = ("a" if actual[0] != "a" else "b") * 64
+        storage.write_json(certificate, {"sha256": different})
+        original_key = storage.digest(self.output / "signing/quest.keystore")
+        original_private = storage.digest(self.output / "signing/local-key.json")
+        with self.assertRaisesRegex(storage.BuildError, "Local signing identity changed"):
+            driver._signers(self.context, self.tools, self.output, base_apk=signed)
+        self.assertEqual(json.loads(certificate.read_text()), {"sha256": different})
+        self.assertEqual(storage.digest(self.output / "signing/quest.keystore"), original_key)
+        self.assertEqual(storage.digest(self.output / "signing/local-key.json"), original_private)
+
 
 if __name__ == "__main__": unittest.main()
