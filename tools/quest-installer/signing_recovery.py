@@ -43,6 +43,21 @@ class DataPolicyError(RecoveryError):
         self.reason = "save-data-inaccessible" if save_data else "non-save-inaccessible"
 
 
+class CaptureRepairError(RecoveryError):
+    def __init__(self, message, *, root, reason, attempts, total):
+        super().__init__(message)
+        self.action = {"schema": 1, "kind": "signing-repair-wait", "reason": reason, "saveDataProtected": True,
+                       "attempts": attempts, "totalAttempts": total,
+                       "root": root if root in ("private", "device-protected", "external") else "external"}
+
+
+class CaptureFault(RecoveryError):
+    """Carry bounded diagnostics about a rejected binary chunk, never trust it."""
+    def __init__(self, message, *, byte_count, observed):
+        super().__init__(message)
+        self.byte_count, self.observed = byte_count, observed
+
+
 def save_member(name):
     """Protect complete native release roots and native save-transfer history.
 
@@ -170,6 +185,29 @@ def archive_inventory(path):
     those literal links, but forbid all archive members beneath any link. Tar
     therefore never writes through them. Special files and hard links are refused.
     """
+    # tarfile accepts an early end marker and can stop after a damaged header.
+    # That is insufficient for save preservation. Android toybox writes complete
+    # 512-byte headers/payload padding and at least two zero trailer blocks.
+    # In capture141941 Windows adb shell produced nonaligned 6679/3076-byte
+    # outputs while the old exec-out APK transfer remained intact. Reject the
+    # entire malformed stream, including pollution after its first end marker.
+    size = Path(path).stat().st_size
+    if size < 1024 or size % 512: raise RecoveryError("Recovery archive has invalid 512-byte framing.")
+    with Path(path).open("rb") as stream:
+        offset = 0
+        while offset < size:
+            stream.seek(offset); header = stream.read(512)
+            if header == b"\0" * 512:
+                if size - offset < 1024: raise RecoveryError("Recovery archive has an incomplete end trailer.")
+                for block in iter(lambda: stream.read(1024 * 1024), b""):
+                    if block.strip(b"\0"): raise RecoveryError("Recovery archive has data after its end trailer.")
+                break
+            try: member = tarfile.TarInfo.frombuf(header, "utf-8", "surrogateescape")
+            except tarfile.HeaderError as error: raise RecoveryError("Recovery archive has an invalid header checksum.") from error
+            if member.size < 0: raise RecoveryError("Recovery archive has a negative member size.")
+            offset += 512 + ((member.size + 511) // 512) * 512
+            if offset > size - 1024: raise RecoveryError("Recovery archive payload or end trailer is truncated.")
+        else: raise RecoveryError("Recovery archive has no complete end trailer.")
     result = {}; links = set()
     with tarfile.open(path, "r:") as archive:
         for member in archive:
@@ -429,19 +467,15 @@ class Recovery:
             raise RecoveryError("Android did not capture every app-data entry: " + message[:1200])
         progress(phase, local.stat().st_size, total, "Retained app-data transfer finished", unit="bytes", local=True)
 
-    def _tar_args(self, root, *, internal=False, restore=False, access_mode=None, explicit=False):
+    def _restore_tar_args(self, root, *, internal=False, access_mode=None):
         actual_root = self._access_root(root, access_mode)
-        command = ["shell", "-T"] + (["run-as", PACKAGE] if internal or access_mode in ("app", "app-direct", "app-process") else [])
+        # Windows adb's RemoteShell path leaves CRT stdin/stdout in text mode.
+        # -T only disables the remote PTY. exec-in/out selects binary CRT mode;
+        # using Python binary files alone does not prevent adb translating LF.
+        command = ["exec-in"] + (["run-as", PACKAGE] if internal or access_mode in ("app", "app-direct", "app-process") else [])
         # Android toybox tar otherwise attempts to restore the old app UID.
         # -o keeps ownership with the new run-as UID after package replacement.
-        command += ["tar", "-C", actual_root, "-xof" if restore else "-cf", "-"]
-        if explicit and not restore: return command + ["--no-recursion", "-T", "-"]
-        if not restore:
-            if internal:
-                command += ["--exclude=./cache", "--exclude=./code_cache"]
-                if self.journal.get("excludePrivateLib") and root in ("/data/user/0/" + PACKAGE, "/data/data/" + PACKAGE): command += ["--exclude=./lib"]
-            else: command += ["--exclude=./" + name for name in self.journal.get("banks", [])]
-            command += ["."]
+        command += ["tar", "-C", actual_root, "-xof", "-"]
         return command
 
     def _check_users(self):
@@ -546,13 +580,15 @@ class Recovery:
                                 omissions.append({"path": name, "type": "file" if parts[2] == "U" else "special",
                                                   "size": int(parts[1].split(":")[1]), "reason": "unreadable-non-save"})
                             else: failed.append(name)
-                        else: rows[name] = {"type": {"F": "file", "D": "directory", "L": "symlink"}[parts[2]], "size": int(parts[1].split(":")[1])}
+                        else: rows[name] = {"type": {"F": "file", "D": "directory", "L": "symlink"}[parts[2]],
+                                            "size": int(parts[1].split(":")[1]), "mode": int(parts[1].split(":")[0], 16) & 0o7777}
                     progress("access", offset + len(batch), len(names), "Checking " + item["name"] + " app data using " + mode + " access", unit="files", local=True)
                 complete_save_census = complete_save_census or not protected_failure
                 if failed: raise RecoveryError("Cannot safely read " + str(len(failed)) + " " + item["name"] + " app-data entries using " + mode + " access; first: " + failed[0])
-                # Explicit positive lists protect names containing wildcard or
-                # option syntax. LF stdin avoids Windows command-length limits.
-                result = {"accessMode": mode, "capturePaths": ["."] + ["./" + name for name in sorted(rows)],
+                # Typed positive lists protect names containing wildcard or
+                # option syntax. Binary capture sends bounded raw argv chunks;
+                # ADB itself escapes those names exactly once for remote exec.
+                result = {"accessMode": mode, "capturePaths": ["."] + ["./" + name for name in sorted(rows)], "captureEntries": rows,
                           "captureFiles": len(rows) + 1, "captureBytes": sum(value["size"] for value in rows.values() if value["type"] == "file")}
                 item.update(result)
                 self._record_omissions(item, omissions)
@@ -563,15 +599,205 @@ class Recovery:
         raise DataPolicyError("Automatic app-data access repair exhausted shell and app identities: " + "; ".join(errors)
                               + "; the installed app was retained.", save_data=not complete_save_census or not observed_failure)
 
+    def _capture_diagnostic(self, item, local, observed, *, method, attempt, total, reason, fault=None):
+        if isinstance(fault, CaptureFault): observed = fault.observed
+        expected = item["captureEntries"]; actual = observed or {}
+        missing = set(expected) - set(actual); extra = set(actual) - set(expected)
+        types = {name for name in set(expected) & set(actual) if expected[name]["type"] != actual[name]["type"]}
+        sizes = {name for name in set(expected) & set(actual) if expected[name]["type"] == actual[name]["type"] == "file"
+                 and expected[name]["size"] != actual[name]["size"]}
+        byte_count = fault.byte_count if isinstance(fault, CaptureFault) else local.stat().st_size if local.is_file() else 0
+        value = {"root": item["name"] if item["name"] in ("private", "device-protected", "external") else "external",
+                 "method": method, "attempts": attempt, "totalAttempts": total, "reason": reason,
+                 "expectedCount": len(expected), "observedCount": len(actual), "missingCount": len(missing),
+                 "unexpectedCount": len(extra), "typeMismatchCount": len(types), "sizeMismatchCount": len(sizes),
+                 "archiveBytes": byte_count, "archiveAligned": byte_count >= 1024 and byte_count % 512 == 0}
+        self.commit(captureRepair=value)
+        with self.adb.log.open("a", encoding="utf-8") as log:
+            log.write(json.dumps({"captureRepair": value, "missingSample": sorted(missing)[:6], "unexpectedSample": sorted(extra)[:6],
+                                  "typeSample": sorted(types)[:6], "sizeSample": sorted(sizes)[:6]}, ensure_ascii=False) + "\n")
+        return not (missing or extra or types or sizes)
+
+    def _rejected_archive_observation(self, path):
+        # Diagnostic only: Python can observe a prefix of a damaged tar. None of
+        # these members are eligible for reuse/restoration until strict proof.
+        result = {}
+        try:
+            with tarfile.open(path, "r:") as archive:
+                for member in archive:
+                    name = member.name
+                    while name.startswith("./"): name = name[2:]
+                    if name in ("", "."): continue
+                    if len(result) >= 100000: break
+                    value = {"type": "file" if member.isfile() else "directory" if member.isdir() else "symlink" if member.issym() else "special"}
+                    if member.isfile(): value["size"] = member.size
+                    result[name] = value
+        except (tarfile.TarError, OSError, ValueError): pass
+        return result
+
+    def _binary_args(self, item, command):
+        return ["exec-out"] + (["run-as", PACKAGE] if item["internal"] or item.get("accessMode") in ("app", "app-direct", "app-process") else []) + command
+
+    def _exec_tar_capture(self, item, local, *, work=None):
+        actual_root = self._access_root(item["root"], item.get("accessMode"))
+        # exec-out does not forward stdin. ADB escape_arg already quotes each
+        # argument after the executable: pass raw names, never literal shell
+        # quotes. Bounded positive argv preserves names and Windows limits.
+        prefix = self._binary_args(item, ["tar", "-C", actual_root, "-cf", "-", "--no-recursion"])
+        overhead = sum(len(shlex.quote(value).encode("utf-8")) + 1 for value in prefix)
+        chunks = []; chunk = []; length = overhead
+        for name in item["capturePaths"]:
+            quoted = shlex.quote(name); needed = len(quoted.encode("utf-8")) + 1
+            if chunk and length + needed > 8192: chunks.append(chunk); chunk = []; length = overhead
+            chunk.append(name); length += needed
+        if chunk: chunks.append(chunk)
+        offset = 0
+        with tarfile.open(local, "w:", format=tarfile.PAX_FORMAT) as output:
+            for number, paths in enumerate(chunks):
+                scratch = self.backup / (".capture-" + uuid.uuid4().hex + ".tar")
+                try:
+                    args = [*prefix, *paths]
+                    chunk_work = (work[0] + min(offset, work[1]), min(len(paths), max(0, work[1] - offset)), work[2], work[3]) if work else None
+                    self._transfer(args, scratch, work=chunk_work)
+                    try: observed = archive_inventory(scratch)
+                    except (RecoveryError, tarfile.TarError) as error:
+                        raise CaptureFault(str(error), byte_count=scratch.stat().st_size, observed=self._rejected_archive_observation(scratch)) from error
+                    names = {name[2:] for name in paths if name != "."}
+                    if set(observed) != names:
+                        raise CaptureFault("Binary tar chunk differs from its positive file census.", byte_count=scratch.stat().st_size, observed=observed)
+                    for name, row in observed.items():
+                        expected = item["captureEntries"][name]
+                        if expected["type"] != row["type"] or row["type"] == "file" and expected["size"] != row["size"]:
+                            raise CaptureFault("Binary tar chunk differs from its typed member sizes.", byte_count=scratch.stat().st_size, observed=observed)
+                    with tarfile.open(scratch, "r:") as source:
+                        for member in source: output.addfile(member, source.extractfile(member) if member.isfile() else None)
+                    offset += len(paths)
+                    if work: progress("backup-work", work[0] + min(offset, work[1]), work[2], work[3], local=True)
+                finally: scratch.unlink(missing_ok=True)
+
+    def _member_identity(self, item, name, *, digest=False):
+        path = self._access_root(item["root"], item.get("accessMode")) + "/" + name
+        script = "stat -c '%f:%s' " + shlex.quote(path)
+        if digest: script += "\nsha256sum " + shlex.quote(path)
+        values = self._context_shell(script, "app" if item["internal"] else item.get("accessMode", "shell")).splitlines()
+        row = item["captureEntries"][name]
+        expected_kind = {"file": 0x8000, "directory": 0x4000, "symlink": 0xa000}[row["type"]]
+        if (len(values) != (2 if digest else 1) or not re.fullmatch(r"[0-9a-fA-F]+:[0-9]+", values[0])
+                or int(values[0].split(":")[0], 16) & 0xf000 != expected_kind
+                or int(values[0].split(":")[1]) != row["size"]):
+            raise RecoveryError("A streamed member changed its type or size during capture.")
+        if digest and not re.match(r"[0-9a-f]{64}  ", values[1]): raise RecoveryError("The streamed member hash could not be verified.")
+        return path, values[1][:64] if digest else None
+
+    def _host_pax_capture(self, item, local, *, work=None):
+        # This fallback does not trust device tar/list handling. Every regular
+        # file crosses the binary raw service with exact length and pre/post
+        # native hashes; directories and terminal symlinks retain their types.
+        with tarfile.open(local, "w:", format=tarfile.PAX_FORMAT) as output:
+            for index, (name, row) in enumerate(sorted(item["captureEntries"].items())):
+                path, digest = self._member_identity(item, name, digest=row["type"] == "file")
+                member = tarfile.TarInfo(name); member.mode = row["mode"]
+                scratch = self.backup / (".capture-member-" + uuid.uuid4().hex)
+                try:
+                    if row["type"] == "directory": member.type = tarfile.DIRTYPE
+                    elif row["type"] == "symlink":
+                        if row["size"] > 16384: raise RecoveryError("The streamed symbolic link exceeds its byte bound.")
+                        self._transfer(self._binary_args(item, ["readlink", path]), scratch)
+                        raw = scratch.read_bytes()
+                        if len(raw) != row["size"] + 1 or not raw.endswith(b"\n") or b"\0" in raw: raise RecoveryError("The streamed symbolic link changed or included unexpected output.")
+                        member.type = tarfile.SYMTYPE; member.linkname = raw[:-1].decode("utf-8")
+                        if len(member.linkname) > 4096: raise RecoveryError("The streamed symbolic link exceeds the supported bound.")
+                    else:
+                        self._transfer(self._binary_args(item, ["cat", path]), scratch, total=row["size"])
+                        if scratch.stat().st_size != row["size"] or file_hash(scratch) != digest:
+                            raise RecoveryError("The streamed member bytes were incomplete, polluted or changed.")
+                        member.size = row["size"]
+                        with scratch.open("rb") as stream: output.addfile(member, stream)
+                    if row["type"] != "file": output.addfile(member)
+                    if self._member_identity(item, name, digest=row["type"] == "file") != (path, digest):
+                        raise RecoveryError("The streamed member changed after capture.")
+                    progress("repair", index + 1, len(item["captureEntries"]), "[repair-root:" + (item["name"] if item["name"] in ("private", "device-protected", "external") else "external")
+                             + "] Saving verified members using binary file transfer", unit="files", local=True)
+                    if work: progress("backup-work", work[0] + min(index + 2, work[1]), work[2], work[3], local=True)
+                finally: scratch.unlink(missing_ok=True)
+
     def _capture_root(self, item, local, *, work=None, fresh=False, parked_bank=None):
-        if fresh or "capturePaths" not in item: self._capture_census(item, parked_bank=parked_bank)
-        self._transfer(self._tar_args(item["root"], internal=item["internal"], access_mode=item.get("accessMode"), explicit=True),
-                       local, paths=item["capturePaths"], work=work)
-        if item.get("accessMode") == "app-process": self._process_storage_root()
-        inventory = archive_inventory(local)
-        expected = {name[2:] for name in item["capturePaths"] if name != "."}
-        if set(inventory) != expected: raise RecoveryError("The captured archive does not match its complete mutable app-data census.")
-        return inventory
+        if fresh or "capturePaths" not in item or "captureEntries" not in item: self._capture_census(item, parked_bank=parked_bank)
+        methods = (["host-pax"] if item.get("captureTransport") == "host-pax" else ["exec-out-tar", "host-pax"]) + ["host-pax"]
+        last = None; reason = "backup-census-mismatch"
+        for attempt, method in enumerate(methods, 1):
+            if attempt > 1:
+                self._device_guard(); self._capture_census(item, parked_bank=parked_bank)
+                progress("repair", attempt, len(methods), "[repair-root:" + (item["name"] if item["name"] in ("private", "device-protected", "external") else "external")
+                         + "] Repairing only this app-data backup using " + method, unit="attempts", local=True)
+            candidate = ordinary(self.backup / (".capture-candidate-" + uuid.uuid4().hex + ".tar")); inventory = None
+            try:
+                self._device_guard()
+                if method == "exec-out-tar": self._exec_tar_capture(item, candidate, work=work)
+                else: self._host_pax_capture(item, candidate, work=work)
+                if item.get("accessMode") == "app-process": self._process_storage_root()
+                inventory = archive_inventory(candidate)
+                if not self._capture_diagnostic(item, candidate, inventory, method=method, attempt=attempt, total=len(methods), reason="verified"):
+                    raise RecoveryError("The repaired backup differs from its typed positive census.")
+                ordinary(local)
+                if local.exists() and (not local.is_file() or local.stat().st_nlink != 1): raise RecoveryError("Unsafe capture destination.")
+                os.replace(candidate, local)
+                item["captureTransport"] = method
+                return inventory
+            except (RuntimeError, OSError, subprocess.SubprocessError, tarfile.TarError, UnicodeError) as error:
+                last = error
+                reason = "backup-transfer-unavailable" if isinstance(error, (OSError, subprocess.SubprocessError)) or "transfer" in str(error).lower() or "ADB failed" in str(error) else "backup-census-mismatch"
+                self._capture_diagnostic(item, candidate, inventory, method=method, attempt=attempt, total=len(methods), reason=reason, fault=error)
+                with self.adb.log.open("a", encoding="utf-8") as log: log.write("Root capture repair: " + str(error)[:1200] + "\n")
+            finally: candidate.unlink(missing_ok=True)
+        raise CaptureRepairError("App-data backup repair exhausted " + str(len(methods)) + " reversible attempts; verified backups and the installed app remain retained: " + str(last),
+                                 root=item["name"], reason=reason, attempts=len(methods), total=len(methods))
+
+    def _capture_stable_root(self, item, local, *, work=None):
+        for attempt in range(1, 4):
+            inventory = self._capture_root(item, local, fresh=attempt > 1, work=work)
+            if work: progress("backup-work", work[0] + work[1], work[2], "Saved " + item["name"] + " app-data members", local=True)
+            verify = self.backup / (item["name"] + ".verify.tar")
+            verify_work = (work[0] + work[1], work[1], work[2], "Verifying " + item["name"] + " app data") if work else None
+            try: observed = self._capture_root(item, verify, fresh=True, work=verify_work)
+            finally: verify.unlink(missing_ok=True)
+            if observed == inventory: return inventory
+            self._capture_diagnostic(item, local, inventory, method=item["captureTransport"], attempt=attempt, total=3, reason="backup-census-mismatch")
+            changed = sum(inventory.get(name) != observed.get(name) for name in set(inventory) | set(observed))
+            with self.adb.log.open("a", encoding="utf-8") as log: log.write(json.dumps({"mutableCapture": {"root": item["name"], "changedCount": changed, "attempts": attempt, "totalAttempts": 3}}) + "\n")
+            self._close_storage_process(); self._device_guard()
+            self.adb.run("-s", self.address, "shell", "am", "force-stop", PACKAGE)
+            progress("repair", attempt, 3, "[repair-root:" + item["name"] + "] App data changed; preserving this root again", unit="attempts", local=True)
+        raise CaptureRepairError("App data changed during its backup after three scoped retries; existing saves and verified backups were retained.",
+                                 root=item["name"], reason="backup-census-mismatch", attempts=3, total=3)
+
+    def _repair_retained_archives(self):
+        if self.journal["state"] not in ("backed-up", "parking", "parked", "uninstalling"): return
+        # Validate only identities before reading old streams. Fresh source data
+        # can repair a damaged archive only while the exact old APK still exists.
+        self._verify_backups(original=False, validate_only=True)
+        original = ordinary(self.backup / "original.apk")
+        try:
+            apk_damaged = original.stat().st_size != self.journal["originalApk"]["size"] or file_hash(original) != self.journal["originalApk"]["sha256"]
+        except OSError: apk_damaged = True
+        damaged = []
+        for item in self.journal["roots"]:
+            local = ordinary(self.backup / item["archive"])
+            try:
+                if file_hash(local) != item["sha256"] or archive_inventory(local) != item["inventory"]: damaged.append(item)
+            except (RecoveryError, OSError, tarfile.TarError, UnicodeError): damaged.append(item)
+        if not damaged and not apk_damaged: return
+        self._installed_apk_guard(self.journal["originalApk"]["sha256"])
+        self._close_storage_process()
+        self.adb.run("-s", self.address, "shell", "am", "force-stop", PACKAGE)
+        if self.journal["state"] != "backed-up": self._restore_banks()
+        for item in damaged:
+            progress("repair", 1, 3, "[repair-root:" + item["name"] + "] Repairing a damaged retained archive from the unchanged installed app", unit="attempts", local=True)
+        if apk_damaged: progress("backup", 0, 7, "Repairing only the retained original APK from the unchanged installed package")
+        # _backup retains and reuses healthy archives/APK/witnesses. Only failed
+        # roots get fresh unique candidates; their old files are never deleted.
+        self.commit("created")
+        self._backup()
 
     def _bank_is_immutable(self, remote):
         if self.decode_receipt is None: return False
@@ -812,7 +1038,7 @@ class Recovery:
         for item in roots:
             retained = previous.get(item["name"], {})
             if retained.get("root") == item["root"] and retained.get("internal") == item["internal"]:
-                item.update({key: retained[key] for key in ("archive", "sha256", "inventory") if key in retained})
+                item.update({key: retained[key] for key in ("archive", "sha256", "inventory", "captureTransport") if key in retained})
         # Persist prior verified references before a new access check can fail.
         self.commit(originalApk={"path": "original.apk", "sha256": original_hash, "size": original_size}, roots=roots, banks=banks, excludePrivateLib=generated_lib)
         for item in roots: self._capture_census(item)
@@ -835,31 +1061,42 @@ class Recovery:
         self.commit(backupWork={"done": 0, "total": work_total})
         original = self.backup / "original.apk"
         if not original_retained:
-            self._transfer(["exec-out", "cat", installed_apk], original, total=original_size)
+            candidate = ordinary(self.backup / (".original-candidate-" + uuid.uuid4().hex + ".apk"))
+            try:
+                self._transfer(["exec-out", "cat", installed_apk], candidate, total=original_size)
+                if candidate.stat().st_size != original_size or file_hash(candidate) != original_hash:
+                    raise RecoveryError("The original APK backup failed verification; the installed app was retained.")
+                os.replace(candidate, original)
+            finally: candidate.unlink(missing_ok=True)
         progress("backup-work", 1, work_total, "Original APK rollback copy retained", local=True)
         if original.stat().st_size != original_size or file_hash(original) != original_hash:
             raise RecoveryError("The original APK backup failed verification; the installed app was retained.")
         work_done = 2; progress("backup-work", work_done, work_total, "Original APK rollback copy verified", local=True)
         for index, item in enumerate(roots):
             old = item.get("archive")
-            if (isinstance(old, str) and re.fullmatch(re.escape(item["name"]) + r"-[0-9a-f]{32}\.tar", old)
-                    and ordinary(self.backup / old).is_file() and file_hash(self.backup / old) == item.get("sha256")
-                    and archive_inventory(self.backup / old) == item.get("inventory")
-                    and set(item["inventory"]) == {path[2:] for path in item["capturePaths"] if path != "."}):
+            reusable = False
+            if isinstance(old, str) and re.fullmatch(re.escape(item["name"]) + r"-[0-9a-f]{32}\.tar", old):
+                try:
+                    reusable = (ordinary(self.backup / old).is_file() and file_hash(self.backup / old) == item.get("sha256")
+                                and archive_inventory(self.backup / old) == item.get("inventory")
+                                and set(item["inventory"]) == {path[2:] for path in item["capturePaths"] if path != "."}
+                                and all(value["type"] == item["captureEntries"][name]["type"]
+                                        and (value["type"] != "file" or value["size"] == item["captureEntries"][name]["size"])
+                                        for name, value in item["inventory"].items()))
+                except (RecoveryError, OSError, tarfile.TarError):
+                    # Keep the unique prior file and its reference until a fresh
+                    # verified candidate replaces only this damaged root.
+                    self._capture_diagnostic(item, self.backup / old, self._rejected_archive_observation(self.backup / old),
+                                             method="exec-out-tar", attempt=1, total=3, reason="backup-census-mismatch")
+            if reusable:
                 work_done += item["captureFiles"] * 2 + 1
                 self.commit(backupWork={"done": work_done, "total": work_total})
                 progress("backup-work", work_done, work_total, "Reusing verified " + item["name"] + " app-data backup", local=True)
                 continue
             local = self.backup / (item["name"] + "-" + uuid.uuid4().hex + ".tar")
-            inventory = self._capture_root(item, local, work=(work_done, item["captureFiles"], work_total, "Saving " + item["name"] + " app data"))
-            work_done += item["captureFiles"]
-            progress("backup-work", work_done, work_total, "Saved " + item["name"] + " app-data members", local=True)
-            verify = self.backup / (item["name"] + ".verify.tar")
-            try:
-                if self._capture_root(item, verify, fresh=True, work=(work_done, item["captureFiles"], work_total, "Verifying " + item["name"] + " app data")) != inventory: raise RecoveryError("App data changed during its backup; the installed app was retained.")
-            finally: verify.unlink(missing_ok=True)
+            inventory = self._capture_stable_root(item, local, work=(work_done, item["captureFiles"], work_total, "Saving " + item["name"] + " app data"))
             item.update(archive=local.name, sha256=file_hash(local), inventory=inventory)
-            work_done += item["captureFiles"] + 1
+            work_done += item["captureFiles"] * 2 + 1
             self.commit(roots=roots, backupWork={"done": work_done, "total": work_total})
             progress("backup-work", work_done, work_total, "Verified " + item["name"] + " app-data backup committed", local=True)
             progress("backup", index + 1, len(roots), "Verified retained " + item["name"] + " app data", unit="files", local=True)
@@ -896,6 +1133,14 @@ class Recovery:
                         or any(not isinstance(path, str) or len(path) > 4098 or not path.startswith("./") or any(char in path for char in "\x00\r\n")
                                or any(part in ("", ".", "..") for part in path[2:].split("/")) for path in paths[1:])):
                     raise RecoveryError("Invalid retained app-data positive census.")
+                entries = item.get("captureEntries")
+                if entries is not None and (not isinstance(entries, dict) or set(entries) != {path[2:] for path in paths[1:]}
+                        or any(not isinstance(row, dict) or row.get("type") not in ("file", "directory", "symlink")
+                               or type(row.get("size")) is not int or row["size"] < 0
+                               or type(row.get("mode")) is not int or not 0 <= row["mode"] <= 0o7777 for row in entries.values())):
+                    raise RecoveryError("Invalid retained typed app-data census.")
+            if "captureTransport" in item and item["captureTransport"] not in ("exec-out-tar", "host-pax"):
+                raise RecoveryError("Invalid retained binary capture transport.")
             omitted = item.get("omittedEntries", [])
             if not isinstance(omitted, list) or len(omitted) > 100000: raise RecoveryError("Invalid retained app-data omission census.")
             seen_omitted = set()
@@ -1001,7 +1246,7 @@ class Recovery:
             restore = self.backup / (item["name"] + ".restore.tar")
             self._safe_restore_archive(local, restore, item)
             try:
-                self._transfer(self._tar_args(item["root"], internal=item["internal"], restore=True, access_mode=item.get("accessMode")), restore, restore=True, phase="restore", total=restore.stat().st_size)
+                self._transfer(self._restore_tar_args(item["root"], internal=item["internal"], access_mode=item.get("accessMode")), restore, restore=True, phase="restore", total=restore.stat().st_size)
                 if item.get("accessMode") == "app-process": self._process_storage_root()
             finally: restore.unlink(missing_ok=True)
             progress("restore", index + 1, len(self.journal["roots"]), "Restored " + item["name"] + " app data", unit="files", local=True)
@@ -1035,6 +1280,7 @@ class Recovery:
                 self.commit()
             print("Retained signing migration backup: " + str(self.backup), flush=True)
             if self.journal["state"] == "created": self._backup()
+            else: self._repair_retained_archives()
             self._verify_backups(original=self.journal["state"] != "restoring", validate_only=self.journal["state"] == "verified")
             prepared = False
             if self.journal["state"] in ("backed-up", "parking"):
@@ -1111,6 +1357,8 @@ class Recovery:
             if isinstance(error, DataPolicyError):
                 print("GHVRQ_ACTION " + json.dumps({"schema": 1, "kind": "signing-data-policy", "reason": error.reason,
                                                   "policy": self.data_policy, "saveDataProtected": True}), flush=True)
+            elif isinstance(error, CaptureRepairError):
+                print("GHVRQ_ACTION " + json.dumps(error.action), flush=True)
             directory = str(getattr(self, "backup", self.home))
             raise RecoveryError("Signing migration could not safely continue: " + str(error)
                                 + ". Original recovery data is retained at " + directory + ". Retry with the same APK and headset.") from error

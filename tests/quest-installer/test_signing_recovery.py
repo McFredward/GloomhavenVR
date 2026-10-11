@@ -71,6 +71,7 @@ class Device:
         self.debug_current = "null"; self.debug_original = "null"; self.debug_transient = False
         self.launcher = recovery.PACKAGE + "/com.unity3d.player.UnityPlayerActivity"
         self.tar_modes = []; self.fail_external_backup = False
+        self.tar_fault = None; self.member_fault = None; self.silent_restore_drop = False
         self.fail_new_install = False; self.fail_restore = False; self.copied_probe = False
         self.interrupt = None; self.apk = "/data/app/~~local/quest-test/base.apk"
         self.private = "/data/user/0/" + recovery.PACKAGE
@@ -139,7 +140,12 @@ class Device:
                 app_context = True
                 if self.deny_run_as: return result("run-as: package not debuggable", 1)
                 action = action[2:]
-        elif action[:1] == ["exec-out"]: action = action[1:]
+        elif action[:1] in (["exec-out"], ["exec-in"]):
+            action = action[1:]
+            if action[:1] == ["run-as"]:
+                app_context = True
+                if self.deny_run_as: return result("run-as: package not debuggable", 1)
+                action = action[2:]
         elif action[:1] == ["pull"]:
             source, destination = self.path(action[1]), Path(action[2])
             if not source.is_file(): return result("missing", 1)
@@ -186,6 +192,33 @@ class Device:
             self.tar_modes.append(("app" if app_context else "shell", tuple(action)))
             if self.fail_external_backup and any(value.endswith("/Android/data/" + recovery.PACKAGE) for value in action) and "-cf" in action:
                 options["stdout"].write(b"partial failed archive"); options["stderr"].write(b"tar: permission denied"); return result("", 1)
+            if self.tar_fault and "-cf" in action:
+                if self.tar_fault == "timeout": raise subprocess.TimeoutExpired(command, 1800)
+                with tempfile.TemporaryFile() as captured:
+                    changed = dict(options); changed["stdout"] = captured
+                    ran = subprocess.run([self.translate(value) for value in action], **changed)
+                    captured.seek(0); raw = captured.read()
+                if self.tar_fault == "windows-text": raw = raw.replace(b"\n", b"\r\n")
+                elif self.tar_fault == "short": raw = raw[:1024]
+                elif self.tar_fault == "polluted": raw = b"unexpected stdout\n" + raw
+                elif self.tar_fault == "extra":
+                    with tempfile.TemporaryFile() as changed:
+                        with tarfile.open(fileobj=changed, mode="w:") as output:
+                            with tarfile.open(fileobj=io.BytesIO(raw), mode="r:") as source:
+                                for member in source: output.addfile(member, source.extractfile(member) if member.isfile() else None)
+                            member = tarfile.TarInfo("unknown-extra.bin"); member.size = 3; output.addfile(member, io.BytesIO(b"bad"))
+                        changed.seek(0); raw = changed.read()
+                options["stdout"].write(raw); return ran
+        if action[:1] == ["cat"] and "stdout" in options and hasattr(options["stdout"], "write"):
+            logical_path = re.sub(r"/proc/[0-9]+/root/storage/emulated/0", "/sdcard", action[1]).replace("/storage/emulated/0", "/sdcard")
+            if self.fail_external_backup and logical_path.startswith(recovery.EXTERNAL + "/"):
+                options["stderr"].write(b"cat: permission denied"); return result("", 1)
+            if self.member_fault and logical_path.startswith((recovery.EXTERNAL + "/", self.private + "/")):
+                raw = self.path(logical_path).read_bytes()
+                if self.member_fault == "short": raw = raw[:-1]
+                elif self.member_fault == "polluted": raw += b"pollution"
+                elif self.member_fault == "same-size": raw = bytes((value ^ 1 for value in raw))
+                options["stdout"].write(raw); return result()
         translated = [self.translate(value) for value in action]
         options = dict(options)
         if "input" in options:
@@ -197,11 +230,15 @@ class Device:
             if self.copied_probe and "printf atomic" in script: script = script.replace("then printf atomic", "then printf copied")
             options["input"] = script.encode("utf-8")
         ran = subprocess.run(translated, **options)
+        if self.silent_restore_drop and action[:1] == ["tar"] and "-xof" in action:
+            (self.device_save_path()).unlink(missing_ok=True)
         if isinstance(ran.stdout, str):
             ran.stdout = ran.stdout.replace(str(self.root / "sdcard"), namespace.group(0) if namespace else "/storage/emulated/0" if direct_view else "/sdcard").replace(str(self.root / "data"), "/data")
         elif isinstance(ran.stdout, bytes):
             ran.stdout = ran.stdout.replace(str(self.root / "sdcard").encode(), namespace.group(0).encode() if namespace else b"/storage/emulated/0" if direct_view else b"/sdcard").replace(str(self.root / "data").encode(), b"/data")
         return ran
+
+    def device_save_path(self): return self.path(recovery.EXTERNAL) / "files/GloomSaves/Campaign/party_76561198000000001.save"
 
 
 class TransactionTests(unittest.TestCase):
@@ -356,7 +393,7 @@ class TransactionTests(unittest.TestCase):
         self.device.fail_restore = False; self.assertTrue(self.engine().recover()["verified"]); self.verify_saves()
         self.assertEqual(sum(call[0] == "uninstall" for call in self.device.calls), 1)
 
-    def test_backup_corruption_before_uninstall_preserves_current_data(self):
+    def test_backup_corruption_before_uninstall_repairs_only_affected_root(self):
         engine = self.engine(); original = engine.commit
         def interrupted(state=None, **fields):
             original(state, **fields)
@@ -364,20 +401,41 @@ class TransactionTests(unittest.TestCase):
         engine.commit = interrupted
         with self.assertRaises(KeyboardInterrupt): engine.recover(detected=True)
         item = engine.journal["roots"][0]
-        (engine.backup / item["archive"]).write_bytes(b"damaged retained archive")
-        with self.assertRaisesRegex(recovery.RecoveryError, "backup is damaged"): self.engine().recover()
+        damaged = engine.backup / item["archive"]; damaged.write_bytes(b"damaged retained archive")
+        witnesses = {row["archive"]: ((engine.backup / row["archive"]).read_bytes(), (engine.backup / row["archive"]).stat().st_mtime_ns) for row in engine.journal["roots"][1:]}
+        apk_witness = ((engine.backup / "original.apk").read_bytes(), (engine.backup / "original.apk").stat().st_mtime_ns)
+        resumed = self.engine(); commit = resumed.commit
+        def repaired(state=None, **fields):
+            commit(state, **fields)
+            if state == "backed-up": raise KeyboardInterrupt()
+        resumed.commit = repaired
+        with self.assertRaises(KeyboardInterrupt): resumed.recover()
+        self.assertNotEqual(resumed.journal["roots"][0]["archive"], item["archive"])
+        self.assertEqual(damaged.read_bytes(), b"damaged retained archive")
+        for name, witness in witnesses.items(): self.assertEqual(((engine.backup / name).read_bytes(), (engine.backup / name).stat().st_mtime_ns), witness)
+        self.assertEqual(((engine.backup / "original.apk").read_bytes(), (engine.backup / "original.apk").stat().st_mtime_ns), apk_witness)
         self.verify_saves(); self.assertFalse(any(call[0] == "uninstall" for call in self.device.calls))
+        self.assertTrue(self.engine().recover()["verified"]); self.verify_saves()
 
-    def test_original_apk_backup_corruption_before_uninstall_preserves_app(self):
+    def test_original_apk_backup_corruption_before_uninstall_repairs_only_original_apk(self):
         engine = self.engine(); original = engine.commit
         def interrupted(state=None, **fields):
             original(state, **fields)
             if state == "backed-up": raise KeyboardInterrupt()
         engine.commit = interrupted
         with self.assertRaises(KeyboardInterrupt): engine.recover(detected=True)
+        witnesses = {row["archive"]: ((engine.backup / row["archive"]).read_bytes(), (engine.backup / row["archive"]).stat().st_mtime_ns) for row in engine.journal["roots"]}
         (engine.backup / "original.apk").write_bytes(b"damaged APK")
-        with self.assertRaisesRegex(recovery.RecoveryError, "APK backup is damaged"): self.engine().recover()
+        resumed = self.engine(); commit = resumed.commit
+        def repaired(state=None, **fields):
+            commit(state, **fields)
+            if state == "backed-up": raise KeyboardInterrupt()
+        resumed.commit = repaired
+        with self.assertRaises(KeyboardInterrupt): resumed.recover()
+        self.assertEqual((engine.backup / "original.apk").read_bytes(), self.device.old_bytes)
+        for name, witness in witnesses.items(): self.assertEqual(((engine.backup / name).read_bytes(), (engine.backup / name).stat().st_mtime_ns), witness)
         self.verify_saves(); self.assertFalse(any(call[0] == "uninstall" for call in self.device.calls))
+        self.assertTrue(self.engine().recover()["verified"]); self.verify_saves()
 
     def test_partial_restore_existing_terminal_link_can_be_replayed_safely(self):
         engine = self.engine(); real_restore = engine._restore
@@ -401,13 +459,13 @@ class TransactionTests(unittest.TestCase):
         self.assertEqual(link.read_bytes(), b"new data in unexpected regular file")
 
     def test_new_save_changes_before_verify_do_not_produce_success(self):
-        engine = self.engine(); real_transfer = engine._transfer
-        def changed(args, local, **options):
+        engine = self.engine(); real_capture = engine._capture_root
+        def changed(item, local, **options):
             if str(local).endswith("external.restored.tar"):
                 save = self.device.path(recovery.EXTERNAL) / "files/GloomSaves/Campaign/party_76561198000000001.save"
                 save.write_bytes(b"wrong restored save")
-            return real_transfer(args, local, **options)
-        engine._transfer = changed
+            return real_capture(item, local, **options)
+        engine._capture_root = changed
         with self.assertRaisesRegex(recovery.RecoveryError, "failed verification"): engine.recover(detected=True)
         self.assertEqual(engine.journal["state"], "restoring")
         self.assertTrue((engine.backup / "original.apk").is_file())
@@ -928,7 +986,7 @@ class TransactionTests(unittest.TestCase):
         with self.assertRaises(KeyboardInterrupt): resumed.recover()
         retained = {item["name"]: item["archive"] for item in resumed.journal["roots"] if "archive" in item}
         self.assertTrue(all(retained[name] == archive for name, archive in prior.items()))
-        self.assertFalse(any(args[:1] == ("exec-out",) for args in copied))
+        self.assertFalse(any(args[:2] == ("exec-out", "cat") and self.device.apk in args for args in copied))
         self.assertFalse(any(self.device.private in args or "/data/user_de/0/" + recovery.PACKAGE in args for args in copied))
         self.assertTrue(self.engine().recover()["verified"]); self.verify_saves()
 
@@ -952,7 +1010,7 @@ class TransactionTests(unittest.TestCase):
         retained = {item["name"]: item["archive"] for item in resumed.journal["roots"]}
         self.assertTrue(all(retained[name] == archive for name, archive in prior.items()))
         self.assertEqual((resumed.backup / "original.apk").read_bytes(), original_bytes)
-        self.assertFalse(any(args[:1] == ("exec-out",) for args in copied))
+        self.assertFalse(any(args[:2] == ("exec-out", "cat") and self.device.apk in args for args in copied))
         self.assertFalse(any(self.device.private in args or "/data/user_de/0/" + recovery.PACKAGE in args for args in copied))
         self.assertTrue(self.engine(data_policy="saves").recover()["verified"])
         self.assertEqual((bank / "StreamingAssets/game.bundle").read_bytes(), payload); self.verify_saves()
@@ -1015,7 +1073,7 @@ class TransactionTests(unittest.TestCase):
         external = next(row for row in resumed.journal["roots"] if row["name"] == "external")
         self.assertIn("files/quest-owned-game/new-player-save.bin", external["inventory"])
 
-    def test_added_member_between_snapshot_and_verification_cannot_be_silently_omitted(self):
+    def test_added_member_between_snapshot_and_verification_is_targetedly_recaptured(self):
         engine = self.engine(); transfer = engine._transfer; added = False
         def changing(args, local, **kwargs):
             nonlocal added
@@ -1025,16 +1083,83 @@ class TransactionTests(unittest.TestCase):
                 added = True
             return value
         engine._transfer = changing
-        with self.assertRaisesRegex(recovery.RecoveryError, "App data changed during its backup"): engine.recover(detected=True)
-        self.assertFalse(any(call[0] == "uninstall" for call in self.device.calls))
+        self.assertTrue(engine.recover(detected=True)["verified"])
         self.assertEqual((self.device.path(self.device.private) / "new-unsaved-data.bin").read_bytes(), b"must not lose")
 
-    def test_explicit_lf_tar_lists_preserve_spaces_quotes_wildcards_unicode_and_option_names(self):
+    def test_bounded_raw_exec_argv_preserves_spaces_quotes_wildcards_unicode_and_option_names(self):
         names = [" leading and trailing ", "quotes'and\"double", "[unknown]*?.save", "--files-from", "Spielstand-Ä.save"]
         for name in names: (self.device.path(recovery.EXTERNAL) / name).write_bytes(name.encode())
         engine = self.engine(); self.assertTrue(engine.recover(detected=True)["verified"])
         for name in names: self.assertEqual((self.device.path(recovery.EXTERNAL) / name).read_bytes(), name.encode())
-        self.assertTrue(all("--no-recursion" in args and "-T" in args for _, args in self.device.tar_modes if "-cf" in args))
+        self.assertTrue(all("--no-recursion" in args and "-T" not in args for _, args in self.device.tar_modes if "-cf" in args))
+
+    def test_binary_exec_capture_and_restore_preserve_crlf_ctrl_z_and_literal_links(self):
+        payload = b"\x00\n\r\n\x1a\xff" * 1024
+        target = self.device.path(recovery.EXTERNAL) / "files/GloomSaves/Campaign/opaque-state"
+        target.write_bytes(payload)
+        link = self.device.path(self.device.private) / "literal-link"
+        link.symlink_to("target with a 'quote' [*]")
+        engine = self.engine(); self.assertTrue(engine.recover(detected=True)["verified"])
+        self.assertEqual(target.read_bytes(), payload); self.assertEqual(os.readlink(link), "target with a 'quote' [*]")
+        self.assertTrue(any(call[0] == "exec-out" and "tar" in call for call in self.device.calls))
+        self.assertTrue(any(call[0] == "exec-in" and "-xof" in call for call in self.device.calls))
+        self.assertFalse(any(call[:2] == ("shell", "-T") and "tar" in call for call in self.device.calls))
+
+    def test_windows_text_tar_corruption_automatically_uses_exact_host_pax(self):
+        self.device.tar_fault = "windows-text"
+        target = self.device.path(recovery.EXTERNAL) / "files/GloomSaves/Campaign/opaque-state"
+        payload = b"\x00\n\r\n\x1a\xff" * 1024; target.write_bytes(payload)
+        engine = self.engine(); self.assertTrue(engine.recover(detected=True)["verified"])
+        self.verify_saves(); self.assertEqual(target.read_bytes(), payload)
+        self.assertEqual(next(item for item in engine.journal["roots"] if item["name"] == "external")["captureTransport"], "host-pax")
+        diagnostics = [json.loads(line)["captureRepair"] for line in self.log.read_text().splitlines() if line.startswith('{"captureRepair":')]
+        self.assertTrue(any(row["root"] == "external" and row["method"] == "exec-out-tar" and row["reason"] == "backup-census-mismatch" for row in diagnostics))
+        self.assertNotIn("GHVRQ_ACTION", self.output.getvalue())
+
+    def test_binary_tar_timeout_uses_fallback_without_restarting_healthy_sources(self):
+        self.device.tar_fault = "timeout"
+        engine = self.engine(); self.assertTrue(engine.recover(detected=True)["verified"])
+        self.verify_saves(); self.assertTrue(all(item["captureTransport"] == "host-pax" for item in engine.journal["roots"]))
+        self.assertIn("timed out", self.log.read_text())
+
+    def test_corrupt_tar_and_truncated_protected_file_pause_after_bounded_repair(self):
+        self.device.tar_fault = "polluted"; self.device.member_fault = "short"
+        engine = self.engine()
+        with self.assertRaisesRegex(recovery.RecoveryError, "exhausted 3 reversible attempts"): engine.recover(detected=True)
+        self.verify_saves(); self.assertFalse(any(call[0] == "uninstall" for call in self.device.calls))
+        self.assertEqual((engine.backup / "original.apk").read_bytes(), self.device.old_bytes)
+        actions = [json.loads(line[len("GHVRQ_ACTION "):]) for line in self.output.getvalue().splitlines() if line.startswith("GHVRQ_ACTION ")]
+        self.assertEqual(actions[-1], {"schema": 1, "kind": "signing-repair-wait", "reason": "backup-census-mismatch", "saveDataProtected": True, "attempts": 3, "totalAttempts": 3, "root": "private"})
+        self.device.tar_fault = self.device.member_fault = None
+        self.assertTrue(self.engine().recover()["verified"]); self.verify_saves()
+
+    def test_positive_census_rejects_aligned_unexpected_tar_members_and_repairs(self):
+        self.device.tar_fault = "extra"
+        engine = self.engine(); self.assertTrue(engine.recover(detected=True)["verified"])
+        self.verify_saves(); self.assertTrue(all(item["captureTransport"] == "host-pax" for item in engine.journal["roots"]))
+        self.assertIn('"unexpectedCount": 1', self.log.read_text())
+        self.assertFalse((self.device.path(recovery.EXTERNAL) / "unknown-extra.bin").exists())
+
+    def test_many_raw_arguments_use_bounded_chunks_without_losing_opaque_save_members(self):
+        targets = []
+        for index in range(120):
+            target = self.device.path(recovery.EXTERNAL) / "files/GloomSaves/Campaign" / (str(index) + " 'literal' [*] " + "x" * 100)
+            target.write_bytes(bytes([index]) * 23); targets.append(target)
+        engine = self.engine(); self.assertTrue(engine.recover(detected=True)["verified"])
+        for index, target in enumerate(targets): self.assertEqual(target.read_bytes(), bytes([index]) * 23)
+        captures = [call for call in self.device.calls if call[0] == "exec-out" and "tar" in call]
+        self.assertGreater(len(captures), 7)
+        self.assertTrue(all(sum(len(shlex.quote(value).encode("utf-8")) + 1 for value in call[1:]) <= 8192 for call in captures))
+
+    def test_silent_exec_in_restore_failure_is_not_treated_as_verified(self):
+        self.device.silent_restore_drop = True
+        engine = self.engine()
+        with self.assertRaisesRegex(recovery.RecoveryError, "[Rr]estor|differ|missing"):
+            engine.recover(detected=True)
+        self.assertNotEqual(engine.journal["state"], "verified")
+        self.assertTrue((engine.backup / "original.apk").is_file())
+        self.device.silent_restore_drop = False
+        self.assertTrue(self.engine().recover()["verified"]); self.verify_saves()
 
     def test_newline_filename_is_refused_before_any_binary_transfer(self):
         (self.device.path(recovery.EXTERNAL) / "unsafe\nname.save").write_bytes(b"preserve")
@@ -1154,6 +1279,17 @@ class ArchiveAndManifestTests(unittest.TestCase):
             link = tarfile.TarInfo("link"); link.type = tarfile.SYMTYPE; link.linkname = "/"; archive.addfile(link)
             info = tarfile.TarInfo("link/escape"); info.size = 4; archive.addfile(info, io.BytesIO(b"evil"))
         with self.assertRaisesRegex(recovery.RecoveryError, "beneath a symbolic link"): recovery.archive_inventory(path)
+
+    def test_strict_archive_framing_rejects_partial_and_aligned_stdout_pollution(self):
+        path = self.root / "framing.tar"
+        with tarfile.open(path, "w:") as output:
+            member = tarfile.TarInfo("GloomSaves/opaque"); member.size = 3
+            output.addfile(member, io.BytesIO(b"a\nb"))
+        raw = path.read_bytes(); self.assertEqual(recovery.archive_inventory(path)["GloomSaves/opaque"]["size"], 3)
+        damaged = [raw.replace(b"\n", b"\r\n"), raw[:1536], raw + b"unexpected output".ljust(512, b"\0"), b"noise".ljust(512, b"\0") + raw]
+        for candidate in damaged:
+            path.write_bytes(candidate)
+            with self.assertRaises(recovery.RecoveryError): recovery.archive_inventory(path)
 
 
 if __name__ == "__main__": unittest.main()
