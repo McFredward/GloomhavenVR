@@ -118,10 +118,24 @@ def _generated_run(path: Path, checkout: Path) -> Path | None:
         return None
     runs = [debug.joinpath(*relative.parts[:index + 1])
             for index, part in enumerate(relative.parts) if RUN_NAME.fullmatch(part)]
-    # Nested run names make ownership ambiguous; no ancestor inference is allowed.
-    if len(runs) != 1 or not runs[0].is_dir():
+    # Native harness wrappers may put an independent proof run inside their own
+    # generated run. Only the innermost physically referenced run owns cleanup;
+    # never substitute a wrapper ancestor or follow its other generated children.
+    if not runs or not runs[-1].is_dir():
         return None
-    return runs[0]
+    run = runs[-1]
+    if any(_pinned(ancestor) for ancestor in (run, *run.parents)
+           if ancestor == debug or debug in ancestor.parents):
+        return None
+    return run
+
+
+def _unity_project(project: Path, run: Path) -> bool:
+    version = project / 'ProjectSettings/ProjectVersion.txt'
+    return bool(project.joinpath('Assets').is_dir() and _physical_path(project / 'Assets', run)
+                and _physical_path(version, run) and version.is_file()
+                and version.stat().st_size < 4096
+                and re.search(r'^m_EditorVersion:\s*\d+\.\d+\.\S+', version.read_text(), re.MULTILINE))
 
 
 def _completion_run(log_path: Path, checkout: Path) -> Path | None:
@@ -138,15 +152,25 @@ def _completion_run(log_path: Path, checkout: Path) -> Path | None:
             match = re.search(r'-projectPath\s+(?:"([^"]+)"|\'([^\']+)\'|(\S+))', line)
             if match:
                 projects.append(Path(next(value for value in match.groups() if value is not None)))
-    # If evidence is present it must be wholly unambiguous. A rejected hardware
-    # reference cannot be replaced by a conveniently local compiler error.
+    # A wrapper and its nested proof can both report evidence. Their physical
+    # ancestor chain must agree; siblings, hardware and unrelated references
+    # cannot be replaced by a conveniently local compiler error.
     references = evidence or projects
     if not references:
         return None
     candidates = [_generated_run(path, checkout) for path in references]
-    if any(run is None for run in candidates) or len(set(candidates)) != 1:
+    if any(run is None for run in candidates):
         return None
-    return candidates[0]
+    if evidence:
+        if any(path != run for path, run in zip(references, candidates)):
+            return None  # Evidence must explicitly identify the generated run.
+    elif any(not (path.is_file() and path.suffix == '.csproj')
+             and not _unity_project(path, run) for path, run in zip(references, candidates)):
+        return None  # A failed-build fallback still needs its physical project marker.
+    deepest = max(candidates, key=lambda path: len(path.parts))
+    if any(run != deepest and run not in deepest.parents for run in candidates):
+        return None
+    return deepest
 
 
 def _project_caches(run: Path) -> list[Path]:
@@ -170,11 +194,7 @@ def _project_caches(run: Path) -> list[Path]:
             children.append(child)
         managed = any(child.suffix == '.csproj' and child.is_file() and not child.is_symlink()
                       for child in children)
-        version = project / 'ProjectSettings/ProjectVersion.txt'
-        unity = (project.joinpath('Assets').is_dir() and _physical_path(project / 'Assets', run)
-                 and _physical_path(version, run) and version.is_file()
-                 and version.stat().st_size < 4096
-                 and re.search(r'^m_EditorVersion:\s*\d+\.\d+\.\S+', version.read_text(), re.MULTILINE))
+        unity = _unity_project(project, run)
         names = ({'bin', 'obj'} if managed else set()) | ({'Library', 'Temp', 'Obj'} if unity else set())
         # Unity Logs is evidence, not a cache target. Real source/project/evidence
         # trees likewise stay in place; only these original sibling names qualify.
@@ -183,6 +203,7 @@ def _project_caches(run: Path) -> list[Path]:
             pending.extend((child, depth + 1) for child in children
                            if child.is_dir() and not child.is_symlink() and child.name not in _PROJECT_SCAN_SKIP
                            and child.name.lower() not in _PRESERVED_TREES
+                           and not RUN_NAME.fullmatch(child.name)
                            and not _protected_name(child.name))
     return sorted(caches)
 
@@ -190,7 +211,12 @@ def _project_caches(run: Path) -> list[Path]:
 def _cache_inventory(cache: Path, run: Path) -> tuple[list[tuple[Path, os.stat_result]], tuple]:
     if not _physical_path(cache, run) or not cache.is_dir():
         raise ValueError('Cache is not a physical generated directory')
-    if any(_pinned(ancestor) for ancestor in (cache, *cache.parents) if ancestor == run or run in ancestor.parents):
+    # Recheck pins through the wrapper hierarchy too: a reviewer can pin an
+    # outer generated run while an inner proof's receipts are being copied.
+    debug = next(ancestor for ancestor in run.parents
+                 if ancestor.name == 'debug' and ancestor.parent.name == '.planning')
+    if any(_pinned(ancestor) for ancestor in (cache, *cache.parents)
+           if ancestor == debug or debug in ancestor.parents):
         raise ValueError('Cache or generated project is pinned')
     files, fingerprint, pending = [], [], [cache]
     while pending:

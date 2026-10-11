@@ -439,17 +439,93 @@ class CompletedRunCacheTests(unittest.TestCase):
         self.assertTrue((project / 'bin/rebuild.dll').exists())
         self.assertEqual(b'important', report.read_bytes())
 
-    def test_symlinked_cleanup_lock_and_nested_run_identity_are_rejected(self):
+    def test_symlinked_cleanup_lock_is_rejected(self):
         project = self.managed()
         outside = Path(self.temp.name) / 'borrowed-lock'
         outside.touch()
         (self.run / '.cache-cleanup.lock').symlink_to(outside)
         self.assertEqual([], self.cleanup()['removed_paths'])
         self.assertTrue((project / 'bin/rebuild.dll').exists())
-        nested = self.run / 'run-bbbbbbbb'
+
+    def test_native_wrapper_evidence_cleans_only_the_innermost_unity_and_dotnet_run(self):
+        outer = self.managed()
+        inner = self.run / 'proof/run-_n4sc9uv'
+        managed = self.managed(inner / 'production')
+        unity = self.unity(inner / 'unity')
+        (inner / 'results.json').write_bytes(b'exact proof results')
+        (inner / 'manifest.sha256').write_bytes(b'original source hashes')
+        (managed / 'bin/compiler.log').write_bytes(b'compiler receipt')
+        (unity / 'Library/native.log').write_bytes(b'original native log')
+        self.log.write_text(f'Evidence: {self.run}\nEvidence: {inner}\nEvidence: {inner}\n')
+        result = self.cleanup()
+        self.assertEqual(str(inner), result['run'])
+        self.assertEqual({str(managed / name) for name in ('bin', 'obj')}
+                         | {str(unity / name) for name in ('Library', 'Temp', 'Obj')},
+                         set(result['removed_paths']))
+        self.assertTrue((outer / 'bin/rebuild.dll').exists())
+        self.assertTrue((outer / 'obj/rebuild.dll').exists())
+        self.assertTrue((managed / 'Test.csproj').exists())
+        self.assertTrue((unity / 'Assets').is_dir())
+        self.assertTrue((unity / 'ProjectSettings/ProjectVersion.txt').exists())
+        self.assertTrue((unity / 'Logs/rebuild.cache').exists())
+        self.assertEqual(b'exact proof results', (inner / 'results.json').read_bytes())
+        self.assertEqual(b'original source hashes', (inner / 'manifest.sha256').read_bytes())
+        self.assertEqual(b'compiler receipt', (inner / retention.REPORT_DIRECTORY / 'production/bin/compiler.log').read_bytes())
+        self.assertEqual(b'original native log', (inner / retention.REPORT_DIRECTORY / 'unity/Library/native.log').read_bytes())
+        self.assertFalse((self.run / retention.REPORT_DIRECTORY).exists())
+
+    def test_sibling_nested_run_references_remain_ambiguous(self):
+        outer = self.managed()
+        first = self.run / 'proof/run-bbbbbbbb'
+        second = self.run / 'proof/run-cccccccc'
+        self.managed(first)
+        self.managed(second)
+        self.log.write_text(f'Evidence: {self.run}\nEvidence: {first}\nEvidence: {second}\n')
+        self.assertIsNone(self.cleanup()['run'])
+        for project in (outer, first, second):
+            self.assertTrue((project / 'bin/rebuild.dll').exists())
+
+    def test_outer_run_pin_protects_explicitly_evidenced_nested_proof(self):
+        nested = self.run / 'proof/run-bbbbbbbb'
         self.managed(nested)
         self.log.write_text(f'Evidence: {nested}\n')
+        (self.run / '.keep').symlink_to('missing-pin-target')
         self.assertIsNone(self.cleanup()['run'])
+        self.assertTrue((nested / 'bin/rebuild.dll').exists())
+        (self.run / '.keep').unlink()
+        original = retention._retain_reports
+
+        def pin_outer_after_copy(cache, run, files):
+            copied = original(cache, run, files)
+            (self.run / '.keep').touch()
+            return copied
+
+        with patch.object(retention, '_retain_reports', side_effect=pin_outer_after_copy):
+            self.assertEqual([], self.cleanup()['removed_paths'])
+        self.assertTrue((nested / 'bin/rebuild.dll').exists())
+        self.assertTrue((nested / 'obj/rebuild.dll').exists())
+
+    def test_exact_nested_compiler_fallback_needs_its_physical_marker(self):
+        outer = self.managed()
+        nested = self.run / 'proof/run-bbbbbbbb'
+        project = self.managed(nested / 'production')
+        self.log.write_text(f'error CS [{project / "missing.csproj"}]\n')
+        self.assertIsNone(self.cleanup(code=1)['run'])
+        self.assertTrue((project / 'bin/rebuild.dll').exists())
+        self.log.write_text(f'error CS [{project / "Test.csproj"}]\n')
+        result = self.cleanup(code=1)
+        self.assertEqual(str(nested), result['run'])
+        self.assertEqual({str(project / name) for name in ('bin', 'obj')}, set(result['removed_paths']))
+        self.assertTrue((outer / 'bin/rebuild.dll').exists())
+
+    def test_outer_evidence_does_not_discover_another_generated_child_run(self):
+        outer = self.managed()
+        nested = self.run / 'proof/run-bbbbbbbb'
+        self.managed(nested)
+        result = self.cleanup()
+        self.assertEqual({str(outer / name) for name in ('bin', 'obj')}, set(result['removed_paths']))
+        self.assertTrue((nested / 'bin/rebuild.dll').exists())
+        self.assertTrue((nested / 'obj/rebuild.dll').exists())
 
     def test_retained_evidence_symlink_and_pin_fail_closed(self):
         project = self.managed()
