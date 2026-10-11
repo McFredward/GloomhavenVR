@@ -184,10 +184,20 @@ def installation_failure(text, parameters):
     an offline device: a corrupt APK or signer refusal remains an install error.
     The caller supplies a bounded, current-attempt ordinary-file tail.
     """
-    causes = [line[len("Quest installation stopped: "):].strip()[:2048]
-              for line in text.splitlines() if line.startswith("Quest installation stopped: ")]
-    if not causes: return None
-    cause = causes[-1]
+    lines = text.splitlines()
+    starts = [index for index, line in enumerate(lines) if line.startswith("Quest installation stopped: ")]
+    if not starts: return None
+    index = starts[-1]
+    parts = [lines[index][len("Quest installation stopped: "):].strip()]
+    for line in lines[index + 1:]:
+        if line.startswith(("ADB log: ", "GHVRQ_PROGRESS ")): break
+        if line.strip(): parts.append(line.strip())
+    # Capture112552's ADB tar error contains several lines. Its retained
+    # backup location occurs after those errors, so reading only the prefix
+    # discarded precisely the recovery information the player needs.
+    primary = parts[0]
+    current_error = "\n".join(parts)
+    cause = current_error[:2048]
     reason = next((reason for prefix, reason in (
         ("No authorized USB Quest is available.", "missing-or-unauthorized"),
         ("The requested USB serial is missing or unauthorized.", "missing-or-unauthorized"),
@@ -196,16 +206,20 @@ def installation_failure(text, parameters):
         ("Multiple Wi-Fi Quests are connected.", "ambiguous"),
         ("Could not determine one Quest Wi-Fi IPv4 address.", "wifi-unavailable"),
         ("USB enabled Wi-Fi ADB, but connection failed.", "wifi-unavailable"),
-    ) if cause == prefix or cause.startswith(prefix + " ")), None)
+    ) if primary == prefix or primary.startswith(prefix + " ")), None)
     fields = dict(parameters, cause=cause, completedWorkRetained=True,
                   completedBuildRetained=True, retryAction="install", canSkipInstall=True)
-    if cause.startswith("Signing migration could not safely continue:"):
+    if primary.startswith("Signing migration could not safely continue:"):
+        backup = re.search(r"Original recovery data is retained at ([^\r\n]{1,2048}?)(?=\. Retry with the same APK and headset\.)", current_error)
+        if backup is None: backup = re.search(r"(?:^|\n| )Retained backup: ([^\r\n]{1,2048})", current_error)
+        if backup and not any(ord(char) < 32 or ord(char) == 127 for char in backup[1]):
+            fields["backupPath"] = backup[1]
         # An actual current signing migration refusal is not a connection
         # problem. Never tell the player to rebuild or remove the installed
         # application: the installer retains its recovery journal and backups.
         return WizardError("quest_signing_recovery_required",
-            "The APK is ready. Automatic signing recovery could not safely finish. The exact reason and any retained backup location are shown below. Keep those backups, resolve the reported access, storage or connection problem, then retry installation. The installer resumes the saved recovery; the APK build is not repeated.",
-            "Die APK ist fertig. Die automatische Signatur-Wiederherstellung konnte nicht sicher abgeschlossen werden. Die genaue Ursache und der Pfad einer vorhandenen Sicherung stehen unten. Sicherungen behalten, das gemeldete Zugriffs-, Speicher- oder Verbindungsproblem beheben und die Installation erneut versuchen. Der Installer setzt die gespeicherte Wiederherstellung fort; die APK wird nicht neu gebaut.",
+            "The APK is ready. Automatic signing recovery could not safely finish. Keep the Quest awake and connected and retry installation. If the same cause remains, save the diagnostic package so this specific recovery can be repaired. Keep any backups shown below; the saved recovery resumes and the APK build is not repeated.",
+            "Die APK ist fertig. Die automatische Signatur-Wiederherstellung konnte nicht sicher abgeschlossen werden. Quest eingeschaltet und verbunden lassen und die Installation erneut versuchen. Bleibt dieselbe Ursache bestehen, das Diagnosepaket für eine gezielte Reparatur speichern. Die unten genannten Sicherungen behalten; die gespeicherte Wiederherstellung wird fortgesetzt und die APK nicht neu gebaut.",
             **dict(fields, signingRecovery=True))
     if reason:
         return WizardError("quest_connection_required",

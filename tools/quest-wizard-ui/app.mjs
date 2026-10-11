@@ -146,6 +146,7 @@ function counters(value) {
   if(['next-phase','result-phase'].includes(value.progressScope))return value.scopeCounter?counters(value.scopeCounter):'';
   if(value.unit==='assets'&&Number.isSafeInteger(value.done)&&value.done>=0&&value.total==null)return t('counterImportsCompleted',{done:new Intl.NumberFormat(language).format(value.done)});
   if(value.unit==='tasks'&&Number.isSafeInteger(value.done)&&value.done>=0&&value.total==null)return t('counterTasksReported',{done:new Intl.NumberFormat(language).format(value.done)});
+  if(value.unit==='bytes'&&Number.isSafeInteger(value.done)&&value.done>=0&&value.total==null)return t('counterTransferredBytes',{size:new Intl.NumberFormat(language,{maximumFractionDigits:1}).format(value.done/1048576)+' MiB'});
   if(!Number.isFinite(value.done)||!Number.isFinite(value.total)||value.total<=0)return '';
   const number=n=>new Intl.NumberFormat(language,{maximumFractionDigits:1}).format(n);
   if(value.unit==='bytes')return t('counterBytes',{done:number(value.done/1048576)+' MiB',total:number(value.total/1048576)+' MiB'});
@@ -491,7 +492,7 @@ function renderProgress() {
   renderBuildOverview();
   $('substep-progress').hidden=!hasSubstep;
   $('substep-label').textContent=substepLabel(sub);
-  $('substep-count').textContent=resourceWait?t('memoryWaiting'):sub.phasePercent===null?imported&&imported.done!==null?counters({done:imported.done,total:null,unit:'assets'}):t('phaseUnknown'):t('phasePercent',{percent:percentText(sub.phasePercent)});
+  $('substep-count').textContent=resourceWait?t('memoryWaiting'):sub.phasePercent===null?counters(sub)||t('phaseUnknown'):t('phasePercent',{percent:percentText(sub.phasePercent)});
   const subtrack=$('substep-track');subtrack.classList.toggle('indeterminate',sub.phasePercent===null&&active&&!waiting&&!resourceWait);
   subtrack.setAttribute('aria-valuemin','0');subtrack.setAttribute('aria-valuemax','100');
   if(sub.phasePercent===null)subtrack.removeAttribute('aria-valuenow');else subtrack.setAttribute('aria-valuenow',String(sub.phasePercent));
@@ -514,6 +515,7 @@ function renderProgress() {
   $('failure-cause').textContent=cause?t('failureCause',{cause}):'';
   $('failure-next').hidden=!failure&&!installIssue;$('failure-actions').hidden=!failure&&!installIssue;
   $('failure-next').textContent=t(installIssue?installation.connectionRequired?'questConnectionNext':installation.recoveryRequired?'installationRecoveryNext':'installationNext':failure?.blocked?'nativeMemoryNext':'failureNext');
+  if(installation?.backupPath)$('failure-next').textContent+=' '+t('installationRecoveryBackup',{path:installation.backupPath});
   $('failure-retry').textContent=t(installIssue?'installationRetry':'failureRetry');
   const locked=busy||actionBusy||storageActive()||active||!canConnect||Boolean(resumeFailed);
   $('failure-retry').disabled=locked;

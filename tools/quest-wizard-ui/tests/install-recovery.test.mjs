@@ -49,10 +49,18 @@ test('legacy child failure and precise signing error never become a connection p
 
 test('automatic signature migration and safety refusals retain the APK without USB or key-specific advice',()=>{
   const state=fixture('quest_signing_recovery_required','Signing migration could not safely continue: restore access failed. Retained backup: device/saved-data','blocked');
+  state.needsActions[0].parameters.cause="Signing migration could not safely continue: tar: cannot read unknown save\r\n\r\nRetained backup: device/saved-data";
+  state.needsActions[0].parameters.backupPath='C:\\Users\\Owner\\.ghvrq\\device\\signing-recovery\\Quest\\saved-data';
   assert.equal(installationView(state).recoveryRequired,true);
   assert.equal(installationView(state).connectionRequired,false);
   assert.equal(installationView(state).canSkip,true);
-  for(const phase of ['install-signature-backup','install-signature-replace','install-signature-restore','install-signature-verify','install-recovery-backup','install-recovery-restore']){
+  assert.match(installationView(state).cause,/^Signing migration could not safely continue: tar: cannot read unknown save/);
+  assert.equal(installationView(state).backupPath,state.needsActions[0].parameters.backupPath);
+  for(const path of ['x'.repeat(2049),'folder\nunsafe']){
+    const changed=structuredClone(state);changed.needsActions[0].parameters.backupPath=path;
+    assert.equal(installationView(changed).backupPath,undefined);
+  }
+  for(const phase of ['install-signature-backup','install-signature-replace','install-signature-restore','install-signature-verify','install-recovery-backup','install-recovery-restore','install-recovery-access','install-recovery-backup-work']){
     const active=structuredClone(state);active.status='running';active.needsActions=[];
     active.stages[6].status='running';active.stages[6].progress.phase=phase;
     assert.equal(installationView(active).recoveryActive,true,phase);
@@ -165,6 +173,23 @@ test('completed APK is prominent while connection is blocked; retry and skip ret
       assert.equal(await client.evaluate("document.getElementById('install-skip').hidden"),true);
       await client.evaluate("document.getElementById('install-skip').dispatchEvent(new MouseEvent('click',{bubbles:true}))");
       await delay(100);assert.equal(posts.length,1,'active install cannot be skipped programmatically');
+      current.stages[6].progress={phase:'install-recovery-access',done:1,total:3,unit:'files',percent:100/3,stagePercent:20,stageOperation:'apk'};
+      await reopen();
+      assert.equal(await client.evaluate("document.getElementById('progress-title').textContent"),'APK fertig. Installation wird automatisch angepasst.');
+      assert.match(await client.evaluate("document.getElementById('substep-label').textContent"),/Zugriff auf Spielstände und Einstellungen vorbereiten/);
+      assert.match(await client.evaluate("document.getElementById('progress-detail').textContent"),/1 \/ 3 Dateien/);
+      let previous;
+      for(const done of [1,20,40]){
+        current.stages[6].progress={phase:'install-recovery-backup-work',done,total:41,unit:'tasks',percent:100*done/41,stagePercent:20+(40/7)*done/41,stageOperation:'apk'};
+        await reopen();assert.match(await client.evaluate("document.getElementById('substep-label').textContent"),/Datensicherung erstellen und prüfen/);
+        const value=await client.evaluate("document.querySelector('#stage-list li:nth-child(7) progress').value");
+        if(previous!==undefined)assert.ok(value>previous,'completed actual backup tasks move the parent install bar');previous=value;
+        assert.equal(await client.evaluate("document.querySelectorAll('#stage-list li.complete').length"),6);
+      }
+      current.stages[6].progress={phase:'install-recovery-backup',done:104857600,total:null,unit:'bytes',percent:null,stagePercent:previous,stageOperation:'apk'};
+      await reopen();assert.equal(await client.evaluate("document.getElementById('substep-count').textContent"),'100 MiB übertragen');
+      assert.match(await client.evaluate("document.getElementById('progress-detail').textContent"),/100 MiB übertragen/);
+      assert.equal(await client.evaluate("document.getElementById('substep-track').classList.contains('indeterminate')"),true,'a byte-only observation cannot invent a total');
       current.stages[6].progress={phase:'install-signature-backup',done:2,total:7,unit:'tasks',percent:200/7,stagePercent:25.7,stageOperation:'apk'};
       await reopen();
       assert.equal(await client.evaluate("document.getElementById('progress-title').textContent"),'APK fertig. Installation wird automatisch angepasst.');
@@ -180,10 +205,13 @@ test('completed APK is prominent while connection is blocked; retry and skip ret
       }
       current.stages[6].progress={phase:'install-content',done:1,total:2,unit:'files',percent:50,stagePercent:50};
       await reopen();assert.equal(await client.evaluate("document.getElementById('progress-title').textContent"),'APK fertig. Quest-Installation läuft.');
-      current=fixture('quest_signing_recovery_required','Signing migration could not safely continue: restore access failed. Retained backup: device/saved-data','blocked');await reopen();
+      current=fixture('quest_signing_recovery_required','Signing migration could not safely continue: restore access failed.\r\nRetained backup: device/saved-data','blocked');
+      current.needsActions[0].parameters.backupPath='C:\\Users\\Owner\\.ghvrq\\device\\signing-recovery\\Quest\\saved-data';await reopen();
       assert.equal(await client.evaluate("document.getElementById('progress-title').textContent"),'APK fertig. Sichere Wiederherstellung erforderlich.');
       assert.match(await client.evaluate("document.getElementById('failure-cause').textContent"),/restore access failed.*device\/saved-data/s);
       assert.match(await client.evaluate("document.getElementById('failure-next').textContent"),/Sicherungen behalten.*ohne die APK neu zu bauen.*nicht manuell deinstallieren/s);
+      assert.match(await client.evaluate("document.getElementById('failure-next').textContent"),/Sicherungsordner: C:\\Users\\Owner\\\.ghvrq\\device\\signing-recovery\\Quest\\saved-data/);
+      assert.doesNotMatch(await client.evaluate("document.getElementById('failure-next').textContent"),/Zugriffs.*problem beheben/);
       assert.equal(await client.evaluate("document.getElementById('install-guide').hidden"),true,'signing recovery refusal is not a missing USB prerequisite');
       await client.evaluate("document.getElementById('failure-retry').click()");await client.wait("!document.getElementById('cancel').hidden");
       assert.deepEqual(posts.at(-1),{path:'/api/run',body:{session}},'recovery retries only the retained installation');

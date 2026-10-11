@@ -63,13 +63,15 @@ export function installationView(state) {
   const canSkip=attention&&sessionId(state.session)!==null&&
     (validIdentity||parameters.completedBuildRetained===true&&parameters.canSkipInstall===true&&parameters.retryAction==='install');
   const rawCause=typeof parameters.cause==='string'?parameters.cause:typeof parameters.builderError==='string'?parameters.builderError:'';
-  const cause=rawCause.split(/\r?\n/).map(line=>line.trim()).filter(Boolean).at(-1)?.replace(/[\u0000-\u001f\u007f]/g,' ').slice(0,360)??'';
+  const cause=rawCause.split(/\r?\n/).map(line=>line.trim()).filter(Boolean).join(' ').replace(/[\u0000-\u001f\u007f]/g,' ').slice(0,360);
   const result={...build.details,...state.result},paths={};
   for(const key of ['apk','handoff','outputRoot'])if(typeof result[key]==='string'&&result[key].length<=32768)paths[key]=result[key];
   const view={attention,connectionRequired,canSkip,cause,paths};
   if(attention&&action?.code==='quest_signing_recovery_required')view.recoveryRequired=true;
+  if(view.recoveryRequired&&typeof parameters.backupPath==='string'&&parameters.backupPath.length<=2048&&
+     !/[\u0000-\u001f\u007f]/.test(parameters.backupPath))view.backupPath=parameters.backupPath;
   if(isActive(state)&&install.status==='running'&&typeof install.progress?.phase==='string'&&
-     /^(?:install-signature-|install-recovery-(?:backup|restore)$)/.test(install.progress.phase))view.recoveryActive=true;
+     /^(?:install-signature-|install-recovery-(?:backup(?:-work)?|restore|access)$)/.test(install.progress.phase))view.recoveryActive=true;
   return view;
 }
 export function failureView(state) {

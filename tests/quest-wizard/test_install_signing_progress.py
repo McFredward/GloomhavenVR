@@ -61,5 +61,41 @@ class SigningProgressTests(unittest.TestCase):
         self.assertTrue(all(row["status"] == "complete" for row in prior))
         self.assertFalse(self.store.receipt(self.session, "install").exists())
 
+    def test_finite_global_backup_work_advances_only_the_reserved_backup_share(self):
+        self.progress("install-signature-backup", 0, 7)
+        percentages = []
+        for done in (0, 1, 20, 40, 41):
+            current = self.progress("install-recovery-backup-work", done, 41)
+            percentages.append(current["stagePercent"])
+            self.assertAlmostEqual(current["stagePercent"], 20 + (40 / 7) * done / 41, places=5)
+            self.assertEqual(current["activeWork"]["done"], 0)
+            self.assertEqual(current["activeWork"]["total"], 7)
+            self.assertNotIn("apk", self.store.load(self.session)["stages"][-1]["progressPlan"]["completed"])
+        self.assertTrue(all(left < right for left, right in zip(percentages, percentages[1:])))
+        self.assertAlmostEqual(percentages[-1], 20 + 40 / 7, places=5)
+        closed = self.progress("install-signature-backup", 2, 7)
+        self.assertEqual(closed["activeWork"]["done"], 2)
+        self.assertEqual(closed["activeWork"]["total"], 7)
+        self.assertLess(closed["stagePercent"], 40)
+
+    def test_access_and_root_local_stream_counters_cannot_spend_the_backup_share(self):
+        before = self.progress("install-signature-backup", 0, 7)["stagePercent"]
+        for phase, done, total, unit in (("install-recovery-access", 8, 8, "files"),
+            ("install-recovery-backup", 11425341374, None, "bytes"),
+            ("install-recovery-backup-work", 5, 5, "files")):
+            current = self.progress(phase, done, total, unit)
+            self.assertEqual(current["stagePercent"], before)
+            self.assertEqual(current["stageOperation"], "apk")
+        self.assertEqual(self.progress("install-recovery-backup-work", 20, 40)["activeWork"]["total"], 7)
+
+    def test_retry_retains_stage_high_water_without_the_previous_live_migration_counter(self):
+        from stage_plan import begin_attempt
+        self.progress("install-signature-backup", 2, 7)
+        row = self.store.load(self.session)["stages"][-1]
+        before = row["progressPlan"]["percent"]
+        begin_attempt(row, 123)
+        self.assertNotIn("installMigration", row["progressPlan"])
+        self.assertEqual(row["progressPlan"]["percent"], before)
+
 
 if __name__ == "__main__": unittest.main()

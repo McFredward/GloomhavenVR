@@ -88,6 +88,36 @@ class InstallationFailureTests(unittest.TestCase):
                      "Quest installation stopped: Signing migration could not safely continue.unrecognized"):
             self.assertNotEqual(self.failure(text).code, "quest_signing_recovery_required")
 
+    def test_multiline_transfer_refusal_retains_each_actual_error_and_its_current_backup_folder(self):
+        for folder in ("C:\\Users\\Owner\\.ghvrq\\device\\signing-recovery\\Quest\\transaction",
+                       "/home/player/.ghvrq/device/signing-recovery/Quest/transaction"):
+            with self.subTest(folder=folder):
+                text = ("Quest installation stopped: Signing migration could not safely continue: ADB data transfer failed: "
+                    "tar: can't open './files/tombstone_00': Permission denied\r\n\r\n"
+                    "tar: can't open './files/tombstone_01': Permission denied\r\n\r\n"
+                    "tar: had errors\r\n\r\n. Original recovery data is retained at " + folder +
+                    ". Retry with the same APK and headset.\r\nADB log: ignored.log\r\n")
+                error = self.failure(text)
+                self.assertEqual(error.code, "quest_signing_recovery_required")
+                self.assertIn("tombstone_00", error.parameters["cause"])
+                self.assertIn("tombstone_01", error.parameters["cause"])
+                self.assertNotIn("ignored.log", error.parameters["cause"])
+                self.assertEqual(error.parameters["backupPath"], folder)
+                self.assertIn("Diagnosepaket", error.message["de"])
+                self.assertNotIn("Zugriffs-", error.message["de"])
+
+    def test_backup_reference_is_scoped_to_the_last_real_refusal_and_remains_bounded(self):
+        text = ("Quest installation stopped: Signing migration could not safely continue: stale failure\n"
+                ". Original recovery data is retained at /private/old. Retry with the same APK and headset.\n"
+                "Quest installation stopped: Signing migration could not safely continue: current failure\nADB log: ignored.log")
+        error = self.failure(text)
+        self.assertNotIn("backupPath", error.parameters)
+        self.assertNotIn("stale failure", error.parameters["cause"])
+        error = self.failure("Quest installation stopped: Signing migration could not safely continue: failed\n" +
+                             "x" * 5000 + "\n. Original recovery data is retained at /owned/current. Retry with the same APK and headset.")
+        self.assertLessEqual(len(error.parameters["cause"]), 2048)
+        self.assertEqual(error.parameters["backupPath"], "/owned/current")
+
     def test_other_stage_unanchored_and_stale_lines_cannot_claim_connection_failure(self):
         for text in ("Earlier: Quest installation stopped: " + MISSING,
                      "Quest installation stopped: No authorized USB Quest is available.unrecognized"):

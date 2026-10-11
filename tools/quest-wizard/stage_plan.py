@@ -320,7 +320,7 @@ def phase_operation(stage, phase, value):
             # installer's durable task counter owns this optional work; a
             # complete backup/restore file counter does not close the APK.
             return "apk", True
-        if phase in ("install-recovery-backup", "install-recovery-restore"):
+        if phase in ("install-recovery-backup", "install-recovery-restore", "install-recovery-access", "install-recovery-backup-work"):
             return "apk", False
     return None, False
 
@@ -432,6 +432,7 @@ def begin_attempt(row, boundary):
     plan["unityValidation"] = {}
     plan["unityTasks"] = {}
     plan["unityWork"] = {}
+    plan.pop("installMigration", None)
     recovery = plan.get("recovery", {})
     recovery.pop("liveSection", None)
 
@@ -1182,7 +1183,11 @@ def _unity_work_overview(plan, owner, failed=False):
 
 
 def _active_work(plan, current):
-    if current == "recovery":
+    if current == "apk" and current not in plan["completed"] and plan.get("installMigration"):
+        migration = plan["installMigration"]
+        done, total = migration.get("done", 0), 7
+        fraction = 1. if current in plan["completed"] else plan.get("liveFractions", plan["fractions"]).get(current, 0.)
+    elif current == "recovery":
         done, total, fraction = _recovery_work(plan.get("recovery", {}))
     elif current in plan.get("preparationScopes", {}):
         scope = plan["preparationScopes"][current]
@@ -1639,6 +1644,19 @@ def advance(row, value, operation=None, status=None):
             if parent_status in ("complete", "reuse"):
                 plan["completed"] = list(dict.fromkeys([*plan["completed"], operation]))
     current = plan.get("current")
+    if row["id"] == "install" and operation == "apk" and value["phase"].startswith("install-signature-") \
+            and value.get("unit") == "tasks" and value.get("total") == 7 and type(value.get("done")) is int:
+        plan.setdefault("installMigration", {})["done"] = value["done"]
+    if row["id"] == "install" and operation == "apk" and value["phase"] == "install-recovery-backup-work" \
+            and value.get("unit") == "tasks" and _ratio(value) is not None:
+        # Capture112552 streamed11GB with no finite denominator. The installer
+        # now censuses every actual transfer/verification/publication task and
+        # counts it across all roots. This whole plan fills only backup's two
+        # reserved signing tasks; a root-local byte/file counter remains local.
+        fraction = (2. / 7.) * _ratio(value)
+        plan.setdefault("installMigration", {}).setdefault("done", 0)
+        plan["fractions"]["apk"] = max(plan["fractions"].get("apk", 0.), fraction)
+        plan.setdefault("liveFractions", {})["apk"] = fraction
     if preparation_counter:
         fraction = _preparation_fraction(plan, operation, value)
         if fraction is not None:
