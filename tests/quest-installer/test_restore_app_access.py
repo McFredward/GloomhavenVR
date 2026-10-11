@@ -2,7 +2,12 @@
 import importlib.util
 import contextlib
 import io
+import json
+import os
 from pathlib import Path
+import shlex
+import shutil
+import subprocess
 import sys
 import tempfile
 import types
@@ -165,6 +170,179 @@ class RestoreAccessTests(unittest.TestCase):
         self.assertTrue(any(call[:3] == ("shell", "am", "start") and "-D" in call for call in device.calls))
         self.assertFalse(device.process_started)
         self.assertIsNone(engine._storage_process)
+
+
+class MutableAdb:
+    """Portable shell/byte runner; denied-owner policy is injected explicitly."""
+    def __init__(self, root):
+        self.root = root
+        self.log = root / "adb.log"
+        self.hardware = "QUEST-LOCAL"
+        self.denied = set()
+        self.calls = []
+        self.views = []
+        self.change_after_pull = False
+        self.lose_acknowledgement = False
+        (root / "external/files").mkdir(parents=True)
+
+    def identity(self, address): return self.hardware
+    def translate(self, text):
+        return text.replace(recovery.EXTERNAL, str(self.root / "external")).replace(
+            "/storage/emulated/0/Android/data/" + recovery.PACKAGE, str(self.root / "external"))
+
+    def run(self, *args, **options):
+        self.calls.append(args)
+        if args[2] != "pull": raise AssertionError("Unexpected command " + repr(args))
+        origin, target = Path(self.translate(args[3])), Path(args[4])
+        shutil.copyfile(origin, target)
+        if self.change_after_pull: origin.write_bytes(b"newest current state")
+        return "one bounded file pulled"
+
+    def binary_stream(self, address, local, script, timeout):
+        command = shlex.split(script)
+        self.calls.append(("binary", script, Path(local).stat().st_size))
+        if command[:5] != ["exec", "run-as", recovery.PACKAGE, "sh", "-c"]:
+            raise AssertionError("Binary write did not select the actual app UID")
+        result = subprocess.run(["sh", "-c", self.translate(command[5])], input=Path(local).read_bytes(),
+                                capture_output=True, check=False)
+        if result.returncode == 0: self.denied.clear()
+        return types.SimpleNamespace(returncode=result.returncode, stdout="" if self.lose_acknowledgement else result.stdout.decode(),
+                                     stderr=result.stderr.decode())
+
+
+class MutableView:
+    def __init__(self, adb, address, hardware):
+        self.adb, self.hardware = adb, hardware
+        self.closed = False
+        adb.views.append(self)
+
+    def __enter__(self): return self
+    def __exit__(self, *_): self.closed = True
+    def _device_guard(self):
+        if self.adb.hardware != self.hardware: raise recovery.RecoveryError("foreign headset")
+    def _access_root(self, root, mode):
+        return root.replace("/sdcard", "/storage/emulated/0")
+    def _check_external_root(self, root, mode): pass
+    def _process_storage_root(self): raise AssertionError("Unnecessary paused-process fallback")
+    def shell(self, script, timeout=60):
+        self.adb.calls.append(("shell", script))
+        result = subprocess.run(["sh", "-c", "set -eu\n" + self.adb.translate(script)], capture_output=True, text=True)
+        if result.returncode: raise recovery.RecoveryError(result.stderr)
+        return result.stdout.strip().replace(str(self.adb.root / "external"), recovery.EXTERNAL)
+    def _context_shell(self, script, mode):
+        self.adb.calls.append(("app", mode, script))
+        for remote in self.adb.denied:
+            if remote.replace("/sdcard", "/storage/emulated/0") in script and "head -c 1" in script:
+                raise recovery.RecoveryError("old-owner access denied")
+        return self.shell(script).replace(recovery.EXTERNAL, "/storage/emulated/0/Android/data/" + recovery.PACKAGE)
+
+
+class CurrentMutableAccessTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.adb = MutableAdb(self.root)
+        self.source = types.SimpleNamespace(sha256="b" * 64, input_key="a" * 64)
+        self.log = self.root / "external/files/quest-startup.log"
+        self.log.write_bytes(b"current source log, not a prior backup")
+
+    def repair(self, directory=None):
+        return recovery.repairs_current_external_access(self.adb, "usb-local", "QUEST-LOCAL", self.source,
+                                                       directory, view_factory=MutableView)
+
+    def denied(self, relative="files/quest-startup.log"):
+        self.adb.denied.add(recovery.EXTERNAL + "/" + relative)
+
+    def journal(self, inventory, **changes):
+        directory = self.root / "config"
+        path = directory / "signing-recovery/QUEST-LOCAL/active.json"
+        path.parent.mkdir(parents=True)
+        value = {"schema": 1, "package": recovery.PACKAGE, "deviceSerial": "QUEST-LOCAL", "state": "complete",
+                 "apkSha256": self.source.sha256, "inputKey": self.source.input_key,
+                 "roots": [{"name": "external", "root": recovery.EXTERNAL, "internal": False, "inventory": inventory}]}
+        value.update(changes)
+        path.write_text(json.dumps(value))
+        return directory
+
+    def test_current_bad_log_bytes_preserved_and_successor_is_private(self):
+        self.denied()
+        expected = self.log.read_bytes()
+        inode = self.log.stat().st_ino
+        result = self.repair()
+        self.assertEqual(result["mutableAccessRepairedFiles"], 1)
+        self.assertEqual(self.log.read_bytes(), expected)
+        self.assertNotEqual(self.log.stat().st_ino, inode)
+        self.assertEqual(self.log.stat().st_mode & 0o777, 0o600)
+        self.assertTrue(all(view.closed for view in self.adb.views))
+        self.assertFalse(any("quest-owned-game" in str(call) or "find " in str(call) for call in self.adb.calls))
+
+    def test_healthy_current_files_need_no_download_or_replacement(self):
+        inode = self.log.stat().st_ino
+        result = self.repair()
+        self.assertEqual(result["mutableAccessRepairedFiles"], 0)
+        self.assertEqual(result["mutableAccessVerifiedFiles"], 1)
+        self.assertEqual(self.log.stat().st_ino, inode)
+        self.assertFalse(any(call[0] == "binary" or len(call) > 2 and call[2] == "pull" for call in self.adb.calls))
+
+    def test_matching_inventory_repairs_only_current_named_mutable_files(self):
+        settings = self.root / "external/files/future-settings.json"
+        settings.write_bytes(b"newest user setting")
+        self.denied("files/future-settings.json")
+        directory = self.journal({"files/future-settings.json": {"type": "file", "size": 1, "sha256": "old archive sha"},
+                                  "files/quest-owned-game/StreamingAssets/big.bundle": {"type": "file", "size": 11000000000}})
+        result = self.repair(directory)
+        self.assertTrue(result["mutableAccessJournalQualified"])
+        self.assertEqual(result["mutableAccessRepairedFiles"], 1)
+        self.assertEqual(settings.read_bytes(), b"newest user setting")
+        self.assertFalse(any("big.bundle" in str(call) for call in self.adb.calls))
+
+    def test_mismatched_or_other_hardware_journal_cannot_select_unknown_settings(self):
+        directory = self.journal({"files/do-not-touch.json": {"type": "file"}}, deviceSerial="OTHER-QUEST")
+        result = self.repair(directory)
+        self.assertFalse(result["mutableAccessJournalQualified"])
+        self.assertFalse(any("do-not-touch" in str(call) for call in self.adb.calls))
+
+    def test_linked_diagnostic_never_mutates_its_target(self):
+        self.log.unlink()
+        outside = self.root / "outside.settings"
+        outside.write_bytes(b"untouched")
+        self.log.symlink_to(outside)
+        with self.assertRaises(recovery.RecoveryError): self.repair()
+        self.assertEqual(outside.read_bytes(), b"untouched")
+        self.assertFalse(any(call[0] == "binary" for call in self.adb.calls))
+        self.assertTrue(all(view.closed for view in self.adb.views))
+
+    def test_known_current_oversized_file_pauses_before_transfer(self):
+        with self.log.open("wb") as stream: stream.truncate(2 * 1024 * 1024 + 1)
+        self.denied()
+        with self.assertRaises(recovery.CaptureRepairError) as caught: self.repair()
+        self.assertEqual(caught.exception.action["reason"], "current-app-access-bound")
+        self.assertFalse(any(call[0] == "binary" or len(call) > 2 and call[2] == "pull" for call in self.adb.calls))
+
+    def test_changed_current_bytes_are_retained_without_old_backup_replay(self):
+        self.denied()
+        self.adb.change_after_pull = True
+        with self.assertRaisesRegex(recovery.RecoveryError, "metadata changed"): self.repair()
+        self.assertEqual(self.log.read_bytes(), b"newest current state")
+        self.assertFalse(any(call[0] == "binary" for call in self.adb.calls))
+
+    def test_lost_ack_keeps_new_private_current_successor_and_retry_is_read_only(self):
+        self.denied()
+        self.adb.lose_acknowledgement = True
+        expected = self.log.read_bytes()
+        with self.assertRaises(recovery.CaptureRepairError): self.repair()
+        self.assertEqual(self.log.read_bytes(), expected)
+        self.assertEqual(self.log.stat().st_mode & 0o777, 0o600)
+        self.adb.lose_acknowledgement = False
+        calls = len(self.adb.calls)
+        self.assertEqual(self.repair()["mutableAccessRepairedFiles"], 0)
+        self.assertFalse(any(call[0] == "binary" for call in self.adb.calls[calls:]))
+
+    def test_foreign_hardware_cannot_reach_permission_or_byte_mutations(self):
+        self.adb.hardware = "OTHER-QUEST"
+        with self.assertRaisesRegex(recovery.RecoveryError, "foreign headset"): self.repair()
+        self.assertFalse(self.adb.calls)
 
 
 if __name__ == "__main__": unittest.main()

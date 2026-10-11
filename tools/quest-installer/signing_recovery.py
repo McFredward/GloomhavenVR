@@ -1794,3 +1794,188 @@ class AppStorageView(Recovery):
             if kind is None: raise
             print("App storage access cleanup could not be confirmed: " + str(cleanup)[:1024], flush=True)
         return False
+
+
+def _current_external_members(directory, hardware, source):
+    """Select only exact diagnostics and a source-bound prior mutable census."""
+    selected = {"files/" + name for name in ("quest-startup.log", "quest-startup.previous.log", "quest-startup-state.json",
+        "quest-hardware.log", "quest-hardware.log.previous", "quest-hardware-state.json", "quest-hardware-storage.json")}
+    qualified = False
+    if directory is not None:
+        path = ordinary(Path(directory) / "signing-recovery" / hardware / "active.json")
+        if path.is_file() and path.stat().st_size <= 4 * 1024 * 1024:
+            value = json.loads(path.read_text(encoding="utf-8"))
+            qualified = (isinstance(value, dict) and value.get("schema") == 1 and value.get("package") == PACKAGE
+                and value.get("deviceSerial") == hardware and value.get("state") in ("verified", "complete")
+                and value.get("apkSha256") == source.sha256 and value.get("inputKey") == source.input_key)
+            if qualified:
+                roots = value.get("roots")
+                if not isinstance(roots, list) or len(roots) > 3:
+                    raise RecoveryError("The retained mutable-access census has an invalid root list.")
+                external = [row for row in roots if isinstance(row, dict) and row.get("name") == "external"]
+                if len(external) > 1: raise RecoveryError("The retained mutable-access census repeats its external root.")
+                if external:
+                    row = external[0]
+                    if row.get("root") != EXTERNAL or row.get("internal") is not False or not isinstance(row.get("inventory"), dict):
+                        raise RecoveryError("The retained mutable-access census has an invalid external boundary.")
+                    if len(row["inventory"]) > 4096:
+                        raise RecoveryError("The retained mutable-access census exceeds its small-data metadata bound.")
+                    for name, member in row["inventory"].items():
+                        if (not isinstance(name, str) or name != str(PurePosixPath(name)) or name.startswith("/")
+                                or any(part in (".", "..") for part in PurePosixPath(name).parts)
+                                or any(char in name for char in "\x00\r\n") or not isinstance(member, dict)):
+                            raise RecoveryError("The retained mutable-access census has an unsafe member.")
+                        if member.get("type") != "file": continue
+                        # Even legacy full-backup metadata never makes a game
+                        # bank part of this small current-byte repair operation.
+                        if any(name == bank or name.startswith(bank + "/") for bank in BANKS): continue
+                        selected.add(name)
+    if len(selected) > 512:
+        raise RecoveryError("The retained mutable-access files exceed the bounded repair scope.")
+    return sorted(selected), qualified
+
+
+def repairs_current_external_access(adb, address, hardware, source, config_directory=None, *, view_factory=AppStorageView):
+    """Repair current small file access without replaying any historical backup.
+
+    The caller first qualifies the installed APK and stops gameplay. Restrictive
+    external files from a prior shell extraction may need replacement under the
+    real app UID. Reuse only current bytes, exact stat/SHA witnesses and a unique
+    app-owned temporary file; unknown members and game banks are never traversed.
+    """
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", hardware): raise RecoveryError("Invalid headset identity.")
+    members, journal_qualified = _current_external_members(config_directory, hardware, source)
+    maximum_file, maximum_total = 2 * 1024 * 1024, 64 * 1024 * 1024
+    repaired = verified = absent = transferred = 0
+    with view_factory(adb, address, hardware) as view, tempfile.TemporaryDirectory(prefix="ghvr-quest-mutable-access-") as temporary:
+        view._device_guard()
+        view._check_external_root(EXTERNAL + "/files", "shell")
+        mode = None
+        for candidate in ("app-direct", "app-process"):
+            view._device_guard()
+            try:
+                parent = view._access_root(EXTERNAL + "/files", candidate)
+                view._check_external_root(parent, candidate)
+                view._context_shell("test -r " + shlex.quote(parent) + "\ntest -x " + shlex.quote(parent), candidate)
+                mode = candidate
+                break
+            except RuntimeError as error:
+                if type(error).__name__ == "ConnectionRequired": raise
+        if mode is None:
+            raise CaptureRepairError("The app's current small settings cannot yet be opened in its own storage view; current files are retained.",
+                                     root="external", reason="current-app-access", attempts=2, total=2)
+        for index, name in enumerate(members):
+            view._device_guard()
+            remote = EXTERNAL + "/" + name
+            remote_q = shlex.quote(remote)
+            parents = list(reversed([str(parent) for parent in PurePosixPath(remote).parents if str(parent) != "/sdcard" and str(parent).startswith(EXTERNAL)]))
+            guards = ["test ! -L " + shlex.quote(parent) for parent in parents]
+            guards.append("test ! -L " + remote_q)
+            metadata = view.shell("\n".join(guards) + "\nif test -e " + remote_q + "; then test -f " + remote_q
+                                  + "; stat -c '%d:%i:%s:%y:%z:%a' " + remote_q + "; fi", timeout=30).strip()
+            if not metadata:
+                absent += 1
+                continue
+            parts = metadata.split(":")
+            if len(parts) < 6 or not parts[2].isdigit() or not re.fullmatch(r"[0-7]{3,4}", parts[-1]):
+                raise RecoveryError("Current mutable app metadata did not return a bounded ordinary-file witness.")
+            size, old_mode = int(parts[2]), parts[-1]
+            actual = view._access_root(remote, mode)
+            actual_q = shlex.quote(actual)
+            try:
+                view._context_shell("test -r " + actual_q + "\ntest -w " + actual_q
+                    + "\nhead -c 1 " + actual_q + " >/dev/null\n: >> " + actual_q, mode)
+                verified += 1
+                continue
+            except RuntimeError as error:
+                if type(error).__name__ == "ConnectionRequired": raise
+            if size > maximum_file or transferred + size > maximum_total:
+                raise CaptureRepairError("A current app-data file exceeds the bounded access-repair transfer; current saves and game content remain retained.",
+                                         root="external", reason="current-app-access-bound", attempts=1, total=1)
+            # Only previously named mutable parents are repaired. No recursive
+            # chmod, ownership guess, old backup replay or directory census.
+            for parent in parents:
+                try:
+                    app_parent = shlex.quote(view._access_root(parent, mode))
+                    view._context_shell("test ! -L " + app_parent + "\ntest -d " + app_parent
+                                        + "\ntest -r " + app_parent + "\ntest -x " + app_parent, mode)
+                except RuntimeError as error:
+                    if type(error).__name__ == "ConnectionRequired": raise
+                    # Preserve existing write bits: normal state publication
+                    # already works in capture202658. Replacing a writable
+                    # parent with0755 would break its atomic temp-file writes.
+                    view.shell("test ! -L " + shlex.quote(parent) + "\ntest -d " + shlex.quote(parent)
+                               + "\nchmod a+rx " + shlex.quote(parent), timeout=30)
+            token = uuid.uuid4().hex
+            stage = actual + ".quest-access-" + token
+            stage_q = shlex.quote(stage)
+            local = Path(temporary) / (str(index) + ".current")
+            published = False
+            try:
+                # The source remains in place until an app-owned exact-byte
+                # successor is ready. Read exposure is restricted to this app's
+                # Android external root; the successor always returns to0600.
+                view.shell("\n".join(guards) + "\nchmod 644 " + remote_q, timeout=30)
+                witness = view.shell("stat -c '%d:%i:%s:%y:%z' " + remote_q, timeout=30).strip()
+                adb.run("-s", address, "pull", remote, local, timeout=60, check_text=False)
+                if not local.is_file() or local.stat().st_size != size:
+                    raise RecoveryError("Current app-data bytes changed or were truncated during the bounded repair read.")
+                checksum = file_hash(local)
+                if view.shell("stat -c '%d:%i:%s:%y:%z' " + remote_q, timeout=30).strip() != witness:
+                    raise RecoveryError("Current app-data metadata changed during its bounded repair read.")
+                current_hash = view.shell("sha256sum " + remote_q, timeout=30).strip()
+                if current_hash != checksum + "  " + remote:
+                    raise RecoveryError("Current app-data bytes changed during its bounded repair read.")
+                try:
+                    app_witness = view._context_shell("stat -c '%d:%i:%s:%y:%z' " + actual_q, mode).strip()
+                    app_hash = view._context_shell("sha256sum " + actual_q, mode).strip()
+                except RuntimeError as error:
+                    if type(error).__name__ == "ConnectionRequired" or mode != "app-direct": raise
+                    # A readable shell path can still belong to a different
+                    # storage mount view than run-as. Open the guarded waiting
+                    # app's view before treating that mount denial as file loss.
+                    mode = "app-process"
+                    actual = view._access_root(remote, mode)
+                    actual_q = shlex.quote(actual)
+                    view._check_external_root(str(PurePosixPath(actual).parent), mode)
+                    stage = actual + ".quest-access-" + token
+                    stage_q = shlex.quote(stage)
+                    app_witness = view._context_shell("stat -c '%d:%i:%s:%y:%z' " + actual_q, mode).strip()
+                    app_hash = view._context_shell("sha256sum " + actual_q, mode).strip()
+                if app_hash != checksum + "  " + actual:
+                    raise RecoveryError("The app's mutable storage view differs from the witnessed current bytes.")
+                app_guards = ["test ! -L " + shlex.quote(view._access_root(parent, mode)) for parent in parents]
+                lines = ["set -eu", "umask 077", *app_guards, "test ! -L " + actual_q,
+                    "test ! -e " + stage_q, "test ! -L " + stage_q,
+                    "trap " + shlex.quote("rm -f " + stage_q) + " EXIT", "cat > " + stage_q,
+                    "test \"$(stat -c %s " + stage_q + ")\" = " + str(size),
+                    "test \"$(sha256sum " + stage_q + " | cut -d' ' -f1)\" = " + checksum,
+                    "test \"$(stat -c '%d:%i:%s:%y:%z' " + actual_q + ")\" = " + shlex.quote(app_witness),
+                    "test \"$(sha256sum " + actual_q + " | cut -d' ' -f1)\" = " + checksum,
+                    "mv -f " + stage_q + " " + actual_q, "trap - EXIT", "printf %s " + token]
+                view._device_guard()
+                if mode == "app-process": view._process_storage_root()
+                reply = adb.binary_stream(address, local, "exec run-as " + PACKAGE + " sh -c " + shlex.quote("\n".join(lines)), 60)
+                if reply.returncode or reply.stdout.strip() != token:
+                    raise CaptureRepairError("Current app-data could not yet be replaced through the app UID; current bytes and saves remain retained.",
+                                             root="external", reason="current-app-access-write", attempts=1, total=1)
+                published = True
+                view._context_shell("test -r " + actual_q + "\ntest -w " + actual_q
+                                    + "\nhead -c 1 " + actual_q + " >/dev/null\n: >> " + actual_q, mode)
+                repaired += 1
+                transferred += size
+            finally:
+                local.unlink(missing_ok=True)
+                if not published:
+                    # A dropped acknowledgement may follow a successful app
+                    # replacement. Restore the old mode only if its original
+                    # inode still exists; never chmod a new app-owned successor.
+                    try:
+                        current = view.shell("stat -c '%d:%i:%s:%y:%z' " + remote_q, timeout=30).strip()
+                        if current.split(":")[:2] == parts[:2]:
+                            view.shell("test ! -L " + remote_q + "\nchmod " + old_mode + " " + remote_q, timeout=30)
+                    except RuntimeError as error:
+                        print("Current app-data access cleanup remains pending: " + str(error)[:1024], flush=True)
+    return {"mutableAccessVerifiedFiles": verified, "mutableAccessRepairedFiles": repaired,
+            "mutableAccessAbsentFiles": absent, "mutableAccessTransferredBytes": transferred,
+            "mutableAccessJournalQualified": journal_qualified}
