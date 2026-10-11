@@ -48,8 +48,8 @@ test('save choices have bilingual current/history protection and disclose other-
   }
   assert.match(translate('de','installationDataChoiceNext'),/gespeicherte Historie.*andere Dateien.*verloren/s);
   assert.match(translate('en','installationDataChoiceNext'),/stored history.*files outside save folders.*lost/s);
-  assert.match(translate('de','installationSaveWaitCopy'),/App wird nicht entfernt/);
-  assert.match(translate('en','installationSaveWaitNext'),/saves are never reset/);
+  assert.match(translate('de','installationSaveWaitNext'),/App wird nicht entfernt/);
+  assert.match(translate('en','installationSaveWaitNext'),/saves.*retained.*app is not removed/s);
 });
 
 test('policy transport permits only a current nonce and save-preserving compromise',async()=>{
@@ -121,14 +121,16 @@ test('actual Chrome/backend asks before dropping inaccessible non-save files and
       assert.equal(await client.evaluate("document.getElementById('progress-title').textContent"),'Installation wartet: Datenauswahl erforderlich.');
       assert.equal(await client.evaluate("document.getElementById('install-keep-saves').hidden"),false);
       assert.equal(await client.evaluate("document.getElementById('failure-retry').textContent"),'Erneut alle Dateien sichern');
-      assert.match(await client.evaluate("document.getElementById('failure-next').textContent"),/gespeicherte Historie.*andere Dateien.*verloren/s);
+      assert.match(await client.evaluate("document.getElementById('action-needed-copy').textContent"),/gespeicherte Historie.*andere Dateien.*verloren/s);
+      assert.equal(await client.evaluate("document.getElementById('failure-next').hidden"),true);
+      assert.equal(await client.evaluate("document.getElementById('failure-cause').hidden"),true);
       assert.equal(await client.evaluate("document.querySelectorAll('#stage-list li.complete').length"),6);
       const initial=await owner.closed(),nonce=initial.installationAction.nonce;
       await assert.rejects(api.installDataPolicy(event.session,'f'.repeat(32)),value=>value.code==='installation_action_stale');
       await client.picture('install-keep-current-and-archived-saves-de');
       await client.evaluate("document.querySelector('[data-language=en]').click()");
       assert.equal(await client.evaluate("document.getElementById('install-keep-saves').textContent"),'Keep saves and continue');
-      assert.match(await client.evaluate("document.getElementById('failure-next').textContent"),/stored history.*files outside save folders.*lost/s);
+      assert.match(await client.evaluate("document.getElementById('action-needed-copy').textContent"),/stored history.*files outside save folders.*lost/s);
       await client.evaluate("document.getElementById('install-keep-saves').click()");
       await client.wait("document.getElementById('progress-count').textContent==='100%'");
       const current=await owner.closed();assert.equal(current.status,'complete');
@@ -150,7 +152,9 @@ test('actual Chrome/backend pauses inaccessible save folders without a reset or 
     try{
       assert.equal(await client.evaluate("document.getElementById('progress-title').textContent"),'Installation wartet: Spielstände schützen.');
       assert.equal(await client.evaluate("document.getElementById('install-keep-saves').hidden"),true);
-      assert.match(await client.evaluate("document.getElementById('progress-copy').textContent"),/Aktuelle und gespeicherte Spielstände.*App wird nicht entfernt/s);
+      assert.match(await client.evaluate("document.getElementById('action-needed-copy').textContent"),/Aktuelle und gespeicherte Spielstände.*App wird nicht entfernt/s);
+      assert.equal(await client.evaluate("document.getElementById('failure-next').hidden"),true);
+      assert.equal(await client.evaluate("document.getElementById('failure-cause').hidden"),true);
       const initial=await owner.closed(),nonce=initial.installationAction.nonce;
       await assert.rejects(api.installDataPolicy(event.session,nonce),value=>value.code==='installation_action_stale');
       await client.picture('install-protected-save-paused-de');

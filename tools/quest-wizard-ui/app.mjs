@@ -516,13 +516,13 @@ function renderProgress() {
   $('action-needed').classList.toggle('failure',Boolean(failure)&&!installation?.connectionRequired);
   $('action-needed').classList.toggle('installation',installIssue);
   $('action-needed').setAttribute('role',failure||installIssue?'alert':'status');
-  const cause=installIssue?installation.cause:failure?.cause;
+  const cause=installation?.dataIssue?null:installIssue?installation.cause:failure?.cause;
   $('failure-cause').hidden=!cause;
   $('failure-cause').textContent=cause?t('failureCause',{cause}):'';
-  $('failure-next').hidden=!failure&&!installIssue;$('failure-actions').hidden=!failure&&!installIssue;
+  $('failure-next').hidden=Boolean(installation?.dataIssue)||!failure&&!installIssue;$('failure-actions').hidden=!failure&&!installIssue;
   $('failure-next').textContent=t(installIssue?installation.connectionRequired?'questConnectionNext':installation.recoveryRequired?'installationRecoveryNext':'installationNext':failure?.blocked?'nativeMemoryNext':'failureNext');
-  if(installation?.dataIssue)$('failure-next').textContent=t(installation.dataIssue==='save-data-inaccessible'?'installationSaveWaitNext':'installationDataChoiceNext');
-  if(installation?.backupPath)$('failure-next').textContent+=' '+t('installationRecoveryBackup',{path:installation.backupPath});
+  if(installation?.dataIssue)$('failure-next').textContent='';
+  if(installation?.backupPath&&!installation.dataIssue)$('failure-next').textContent+=' '+t('installationRecoveryBackup',{path:installation.backupPath});
   $('failure-retry').textContent=t(installation?.dataIssue==='non-save-inaccessible'?'installationRetryAll':installIssue?'installationRetry':'failureRetry');
   const locked=busy||actionBusy||storageActive()||active||!canConnect||Boolean(resumeFailed);
   $('failure-retry').disabled=locked;
@@ -533,7 +533,9 @@ function renderProgress() {
   if(action||blocked||stopped){const blockedStage=state.stages?.find(stage=>stage.status==='blocked');const code=typeof action==='string'?action:action?.code??blockedStage?.details?.needsAction;
     const hint=action?.message?message(action.message):blockedStage?.details?.message?message(blockedStage.details.message):t('action_'+code)!=='action_'+code?t('action_'+code):t('unknownAction');
     const phase=action?.parameters?.failureStage;const stageName=phase?t('phase_stage_'+phase):action?.stage?t('stage_'+action.stage):progress.current?t('stage_'+progress.current.id):'';
-    $('action-needed-copy').textContent=(stageName?stageName+': ':'')+hint;}
+    $('action-needed-copy').textContent=installation?.dataIssue
+      ?t(installation.dataIssue==='save-data-inaccessible'?'installationSaveWaitNext':'installationDataChoiceNext')
+      :(stageName?stageName+': ':'')+hint;}
   const failureKey=installIssue?state.session+':install:'+installation.cause:failure?state.session+':'+failure.stage+':'+failure.cause:'';
   if(failureKey&&failureKey!==lastFailureFocus){$('action-needed').focus({preventScroll:true});$('action-needed').scrollIntoView({block:'nearest'});}
   lastFailureFocus=failureKey;
