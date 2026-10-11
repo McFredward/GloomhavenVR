@@ -2,6 +2,7 @@
 import importlib.util
 import io
 import json
+import ntpath
 import os
 import shutil
 from pathlib import Path
@@ -294,7 +295,8 @@ class SupportTests(unittest.TestCase):
                + str(self.root / 'device' / name).replace('/', '\\') + '\r\n')
         (self.directory / 'logs/install.log').write_bytes(log.encode())
         journal_before = (home / 'active.json').read_bytes()
-        _, files = self.export()
+        with mock.patch.object(support.os.path, 'normcase', side_effect=ntpath.normcase):
+            _, files = self.export()
         meta = json.loads(files['diagnostic.json'])
         self.assertEqual(meta['signingRecovery']['apkSha256'], source.sha256)
         self.assertEqual(meta['signingRecovery']['inputKey'], source.input_key)
@@ -302,6 +304,53 @@ class SupportTests(unittest.TestCase):
         self.assertIn('Automatic app-data access repair exhausted', files['wizard/install.log'])
         self.assertEqual(journal_before, (home / 'active.json').read_bytes())
         self.assertNotIn('NativeSaveNeverShip', '\n'.join(files.values()))
+    def test_windows_normalized_recovery_boundary_rejects_sibling_prefix(self):
+        home, folder, value = self.signing_log()
+        foreign = self.root / 'device/signing-recovery-foreign' / home.name / value['transaction']
+        write_json(foreign.parent / 'active.json', value | {'password': 'FOREIGN SECRET'})
+        log = self.directory / 'logs/install.log'
+        log.write_text(log.read_text().replace(str(folder).replace('/', '\\'), str(foreign).replace('/', '\\')))
+        original_read = support.read_object
+        def observe(path, *args, **kwargs):
+            self.assertNotEqual(Path(path), foreign.parent / 'active.json')
+            return original_read(path, *args, **kwargs)
+        with mock.patch.object(support.os.path, 'normcase', side_effect=ntpath.normcase), \
+                mock.patch.object(support, 'read_object', side_effect=observe):
+            _, files = self.export()
+        meta = json.loads(files['diagnostic.json'])
+        self.assertNotIn('signingRecovery', meta)
+        self.assertEqual(meta['signingRecoveryUnavailable']['reason'], 'path-binding-mismatch')
+        self.assertNotIn('FOREIGN SECRET', '\n'.join(files.values()))
+    def test_save_policy_summary_exports_counts_without_omitted_private_paths(self):
+        home, folder, value = self.signing_log()
+        value.update(dataPolicy='saves', policyOmissions=[
+            {'root': 'external', 'path': 'files/PRIVATE OMITTED NAME', 'type': 'file',
+             'size': 430807, 'reason': 'unreadable-non-save'},
+            {'root': 'private', 'path': 'PRIVATE PROFILE NAME', 'type': 'special',
+             'size': 0, 'reason': 'unreadable-non-save'}])
+        write_json(home / 'active.json', value)
+        before = (home / 'active.json').read_bytes()
+        with mock.patch.object(support.os.path, 'normcase', side_effect=ntpath.normcase):
+            _, files = self.export()
+        row = json.loads(files['diagnostic.json'])['signingRecovery']
+        self.assertEqual((row['dataPolicy'], row['omittedNonSaveEntries'], row['omittedNonSaveBytes']),
+                         ('saves', 2, 430807))
+        self.assertNotIn('PRIVATE OMITTED NAME', '\n'.join(files.values()))
+        self.assertNotIn('PRIVATE PROFILE NAME', '\n'.join(files.values()))
+        self.assertEqual(before, (home / 'active.json').read_bytes())
+    def test_invalid_omission_summary_keeps_failure_without_claiming_a_policy(self):
+        home, folder, value = self.signing_log()
+        for changed in ({'dataPolicy': 'discard-saves'},
+                        {'dataPolicy': 'all', 'policyOmissions': [{'size': 1, 'reason': 'unreadable-non-save'}]},
+                        {'dataPolicy': 'saves', 'policyOmissions': [{'size': True, 'reason': 'unreadable-non-save'}]},
+                        {'dataPolicy': 'saves', 'policyOmissions': [{'size': -1, 'reason': 'unreadable-non-save'}]}):
+            with self.subTest(changed=changed):
+                write_json(home / 'active.json', value | changed)
+                _, files = self.export()
+                meta = json.loads(files['diagnostic.json'])
+                self.assertNotIn('signingRecovery', meta)
+                self.assertEqual(meta['signingRecoveryUnavailable']['reason'], 'journal-invalid')
+                self.assertIn('tar permission denied', files['wizard/install.log'])
     def test_missing_current_recovery_journal_has_bounded_reason_and_keeps_failure(self):
         home, folder, value = self.signing_log()
         (home / 'active.json').unlink()

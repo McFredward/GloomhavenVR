@@ -161,7 +161,9 @@ def signing_recovery_stats(root, session_root, state, *, diagnostic=None):
         selected = True
         normalized = matches[-1].replace('\\', '/')
         base = str(root / 'device/signing-recovery').replace('\\', '/')
-        if not os.path.normcase(normalized).startswith(os.path.normcase(base) + '/'):
+        # Windows normcase also converts separators. Normalize the directory
+        # boundary with the prefix so a current Windows transaction can match.
+        if not os.path.normcase(normalized).startswith(os.path.normcase(base + '/')):
             return unavailable('path-binding-mismatch')
         parts = normalized[len(base) + 1:].split('/')
         if (len(parts) != 2 or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', parts[0])
@@ -213,6 +215,13 @@ def signing_recovery_stats(root, session_root, state, *, diagnostic=None):
                 row['archivePresent'] = path.is_file()
                 if path.is_file(): row['archiveBytes'] = path.stat().st_size
             roots.append(row)
+        policy = value.get('dataPolicy', 'all')
+        omissions = value.get('policyOmissions', [])
+        if (policy not in ('all', 'saves') or not isinstance(omissions, list)
+                or len(omissions) > 500000 or (policy == 'all' and omissions)
+                or any(not isinstance(row, dict) or type(row.get('size')) is not int
+                       or row['size'] < 0 or row.get('reason') != 'unreadable-non-save' for row in omissions)):
+            return unavailable('journal-invalid')
         reason = 'backup-path-unsafe'
         original = ordinary(folder / 'original.apk')
         reason = 'backup-stat-unreadable'
@@ -220,6 +229,8 @@ def signing_recovery_stats(root, session_root, state, *, diagnostic=None):
                   'restoring', 'rolling-back', 'rollback-restoring', 'verified', 'complete')
         return {'state': value.get('state') if value.get('state') in states else 'unknown',
                 'apkSha256': value['apkSha256'], 'inputKey': value['inputKey'],
+                'dataPolicy': policy, 'omittedNonSaveEntries': len(omissions),
+                'omittedNonSaveBytes': sum(row['size'] for row in omissions),
                 'originalApkPresent': original.is_file(),
                 'originalApkBytes': original.stat().st_size if original.is_file() else 0,
                 'roots': roots, 'retainedBanks': [name for name in value.get('banks', [])
