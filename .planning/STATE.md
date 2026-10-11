@@ -1,5 +1,16 @@
 # State — where the project stands
 
+**Quest automatic installation access repair, 2026-10-11 (Builder; new builds Runtime669).**
+
+Capture112552 retains the completed665 APK and six completed stages, then fails
+external-data backup on three shell-inaccessible tombstones before any uninstall.
+The oldB625 bank contains14 additional old bundle files; treating those as grounds
+to back up the entire bank causes the11.4-GB transfer. The installation repair
+adapts storage access, preserves unknown extras separately, retains successful
+backup roots and exposes a bounded recovery frontier without private app bytes.
+Evidence, platform contracts, exact validation scope and hardware limits:
+[QUEST-INSTALLATION-ACCESS-112552-20261011.md](QUEST-INSTALLATION-ACCESS-112552-20261011.md).
+
 **Quest general signing recovery, 2026-10-11 (Builder; new builds Runtime669).**
 
 Capture102641 proves the installation-only retry retains the completed665 APK
