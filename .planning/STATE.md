@@ -1,5 +1,22 @@
 # State — where the project stands
 
+**Build668 enchantress enhancement-list placement, 2026-10-11: 1.1.0 development candidate.**
+
+Move only the original enhancement-options list 23 cm toward the enchantress,
+locally and through its existing published owner pose for observers. Size,
+height, facing, native rows, scrolling and interactions remain unchanged.
+Read-only original prop bounds leave 23.196 mm at the nearest jug; all18 shipped
+workbench mesh envelopes and the actual furniture-supported lantern seats clear
+the maximum panel. No asset, configuration, input or wire change; Version3 and
+next-free118 remain unchanged. See [NPC-668-PLACEMENT.md](NPC-668-PLACEMENT.md).
+
+Focused ritual validation passes 253 assertions/all14 compiled controls; the
+existing full town-service-mirror focused suite passes. Fresh integration
+source16, strict Debug/Release0/0, direct300510 goldens, docs and
+bundles pass. Unchanged Build667 coverage and public surfaces remain inherited;
+this is not a new complete215-suite gate. Native geometry nonintersection and
+source/runtime checks do not establish headset comfort; that awaits hardware.
+
 **Build667 pre-1.1.0 review, 2026-10-11: 1.1.0 development candidate.**
 
 Reviewed the 1.0.8-to-dev changes in three separate initialized worktrees before

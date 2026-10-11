@@ -82,3 +82,29 @@ This is a bounded, focused repair, not a new complete local-gate pass. The
 integrator records its independent network/build/wire checks. These checks
 establish the scoped source and Unity geometry contracts; actual headset
 visibility and comfort require the next hardware observation.
+
+## Integration review
+
+The integrator cherry-picks worker `838333294` onto Build667, reserves ModBuild668
+and reviews the complete diff: one production placement coordinate, its explanatory
+comment, two unchanged negative controls rebound to that coordinate, build notes
+and developer evidence. The fixture Program.cs is byte-identical to Build667.
+The shared publication still captures `surface.Panel.Target` as `enchant.inventory`;
+the owner has already applied the ritual transform before remote capture. Its
+publisher/codec/playback source is unchanged, with no second observer offset.
+
+Fresh integration checks: source16/16, strict Debug and Release zero errors and
+warnings, direct golden vectors300510, bilingual documentation and shipped bundle
+format checks. The existing full `town-service-mirror` focused suite passes on the
+integrated source (115.7 s), including its original compiled negative controls;
+receipt: `.planning/debug/npc668/mirror/results.json`, detailed run `run-ltqtn5w0`.
+This direct golden run
+does not invoke the complete `wire-tests.sh`/215-suite umbrella. Unchanged Build667
+coverage and surfaces666/235/4795 remain inherited, not freshly re-established.
+
+Ignored integration evidence is copied to the main checkout's
+`.planning/debug/npc668/`: native prop/workbench read-only probes and receipts,
+worker layout/source receipts, the complete archived layout runtime, integration
+checks and SHA256 manifest. Original game bundles and shipped town geometry are
+read only throughout. Hardware comfort and stereoscopic appearance remain
+unverified.
