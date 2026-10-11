@@ -36,6 +36,19 @@ class InstallError(RuntimeError):
     """A source or device is unsafe or not ready for this operation."""
 
 
+class SigningMismatch(InstallError):
+    """Android rejected this exact package update because its signer changed."""
+
+
+def signing_recovery_module():
+    # Isolated launcher imports do not put sibling modules on sys.path.
+    spec = importlib.util.spec_from_file_location(
+        "_ghvr_quest_signing_recovery", REPO / "tools/quest-installer/signing_recovery.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def digest(path):
     value = hashlib.sha256()
     with path.open("rb") as stream:
@@ -390,9 +403,11 @@ class Adb:
         raw = decoded(result.stdout) + "\n" + decoded(result.stderr)
         with self.log.open("a", encoding="utf-8") as stream:
             stream.write(raw + "\n")
-        if "INSTALL_FAILED_UPDATE_INCOMPATIBLE" in raw:
-            raise InstallError("Signing-key mismatch. Use an APK built with the installed app's original key. "
-                               "The existing app and its data were retained; the installer will not uninstall it.")
+        operands = tuple(map(str, args))
+        action = operands[2] if operands[:1] == ("-s",) and len(operands) > 2 else operands[0] if operands else None
+        if (action == "install" and re.search(
+                r"Failure\s*\[INSTALL_FAILED_UPDATE_INCOMPATIBLE(?:\s*[:\]])", raw)):
+            raise SigningMismatch("Android rejected the package update because its signing certificate differs.")
         if (result.returncode or (check_text and re.search(r"\b(error|failure|failed|unauthorized|cannot|unable)\b", raw, re.I))
                 or (positive and not re.search(positive, raw, re.I | re.M))):
             raise InstallError("ADB failed: " + raw.strip()[:1200])
@@ -943,14 +958,22 @@ def main(argv=None, runner=None):
         # Re-read both the receipt and APK immediately before the only app mutation.
         if resolve_source(source.kind, source.path, check_zip=False) != source:
             raise InstallError("The APK or source evidence changed during device setup; retry with the intended build.")
-        if any(not bank.path.is_file() for bank in source.content):
-            with tempfile.TemporaryDirectory(prefix="ghvr-quest-retained-") as temporary:
-                require_installed_game(adb, address, source, Path(temporary), repair=args.repair_content)
         # Budget one MiB/second plus two minutes for Android package processing.
         # Retain the small-APK floor and a bounded thirty-minute maximum.
         transfer_seconds = (source.apk.stat().st_size + 1024 * 1024 - 1) // (1024 * 1024)
         install_timeout = min(1800, max(180, 120 + transfer_seconds))
-        adb.run("-s", address, "install", "-r", source.apk, timeout=install_timeout, positive=r"^Success\s*$")
+        recovery_api = signing_recovery_module()
+        recovery = recovery_api.Recovery(adb, address, hardware, source, config_path.parent,
+                                         install_timeout=install_timeout, decode_receipt=decode_content_receipt)
+        migration = recovery.recover()
+        if migration is None:
+            if any(not bank.path.is_file() for bank in source.content):
+                with tempfile.TemporaryDirectory(prefix="ghvr-quest-retained-") as temporary:
+                    require_installed_game(adb, address, source, Path(temporary), repair=args.repair_content)
+            try:
+                adb.run("-s", address, "install", "-r", source.apk, timeout=install_timeout, positive=r"^Success\s*$")
+            except SigningMismatch:
+                migration = recovery.recover(detected=True)
         # B618+ uses its build number as Android versionCode. Querying that
         # small package record confirms installation without another multi-GB
         # hash/read of the headset's APK before every hardware test.
@@ -989,7 +1012,9 @@ def main(argv=None, runner=None):
                              "modBuild": source.mod_build, "inputKey": source.input_key,
                              "installedVersionCode": installed_version,
                              "content": content_records,
+                             **({"signingRecovery": migration} if migration else {}),
                              "completedUtc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+        recovery.complete()
         print("Installed with app data retained" + (" and launched" if not args.no_launch else "")
               + ": " + address + ". Device behavior remains for hardware testing.")
         return 0

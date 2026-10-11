@@ -455,7 +455,7 @@ class InstallerTests(unittest.TestCase):
         self.assertFalse(any("start" in call for call in self.fake.calls))
         self.assertFalse(self.config.exists())
 
-    def test_signature_mismatch_retains_data_and_does_not_offer_uninstall(self):
+    def test_signature_repair_without_proven_backup_access_retains_data(self):
         self.remember()
         self.fake.wireless()
         original = self.config.read_bytes()
@@ -463,11 +463,12 @@ class InstallerTests(unittest.TestCase):
         marker.write_text("valuable save data")
         self.fake.install_output = "Failure [INSTALL_FAILED_UPDATE_INCOMPATIBLE: signatures do not match]"
         self.assertEqual(self.run_cli(), 1)
-        self.assertIn("Signing-key mismatch", self.error)
-        self.assertIn("data were retained", self.error)
+        self.assertIn("Signing migration could not safely continue:", self.error)
+        self.assertIn("recovery data is retained", self.error)
         self.assertEqual(marker.read_text(), "valuable save data")
         self.assertEqual(self.config.read_bytes(), original)
         self.assertFalse((self.config.parent / "wireless-last-install.json").exists())
+        self.assertFalse(any("uninstall" in call for call in self.fake.calls))
 
     def test_exit_zero_launch_error_is_not_success(self):
         self.fake.launch_output = "Error type 3\nError: Activity class does not exist."
