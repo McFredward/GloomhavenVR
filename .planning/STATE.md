@@ -1,5 +1,18 @@
 # State — where the project stands
 
+**Quest content-write recovery, 2026-10-11.**
+
+Capture163658 confirms the previous repair: about 560 KiB of saves/settings are
+restored and verified, and replacement B665 is installed. Android then rejects
+sync fchown while writing the 112-byte content receipt. The installer repairs
+that exact error with bounded binary exec-in, unique EOF completion, exact size/
+SHA qualification and atomic publication. No new uninstall, APK backup, Unity
+import or game build is required. Previously accepted normal content delivery
+remains necessary. Content progress spans both banks with measured byte updates;
+warm receipt reuse stays scan-free. Fresh 323 focused host tests and 12 independent
+process controls pass; actual Quest delivery remains unverified. Evidence and
+contracts: [QUEST-INSTALLATION-CONTENT-WRITES-163658-20261011.md](QUEST-INSTALLATION-CONTENT-WRITES-163658-20261011.md).
+
 **Quest Android census boundary repair, 2026-10-11.**
 
 Capture155522 stops before uninstall: Android Toybox evaluates `-mindepth` as an

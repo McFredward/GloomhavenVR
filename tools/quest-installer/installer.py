@@ -20,6 +20,7 @@ import shutil
 import shlex
 import struct
 import tempfile
+import threading
 import subprocess
 import sys
 import time
@@ -689,6 +690,136 @@ def _content_shell(adb, address, lines, timeout=180):
                    input_text="set -eu\n" + "\n".join(lines) + "\n", timeout=timeout, check_text=False)
 
 
+def _content_bank_root(remote):
+    prefix = "/sdcard/Android/data/" + PACKAGE + "/files/"
+    if not remote.startswith(prefix) or any(c in remote for c in "\0\r\n"):
+        raise InstallError("Content upload is outside this app's generated banks.")
+    parts = remote[len(prefix):].split("/")
+    if any(p in ("", ".", "..") for p in parts):
+        raise InstallError("Unsafe content upload path.")
+    if parts[0] in ("quest-mod-resources", "quest-owned-game") and len(parts) > 1:
+        return prefix + parts[0]
+    if parts[0] == "quest-install-input" and len(parts) > 2 and re.fullmatch(r"[0-9a-f]{64}", parts[1]):
+        return prefix + "/".join(parts[:2])
+    raise InstallError("Content upload is outside this app's generated banks.")
+
+
+def _stream_content_file(adb, address, local, remote, row, timeout, report=None):
+    """Repair Android sync fchown rejection with verified, binary raw input.
+
+    Capture163658 restored and verified all save roots, then sync refused its
+    112-byte receipt. AOSP calls fchown before reading DATA. exec-in avoids that
+    metadata operation, but its zero exit does NOT prove remote completion.
+    Require a unique EOF marker plus exact size/SHA before atomic publication.
+    Short staging names keep Windows argv bounded even for long asset paths.
+    """
+    local = Path(local); root = _content_bank_root(remote)
+    if local.is_symlink() or not local.is_file() or local.stat().st_size != row["size"]:
+        raise InstallError("Local content changed before binary upload.")
+    token = uuid.uuid4().hex
+    stage = root + "/StreamingAssets/.quest-install-upload-" + token
+    ready = stage + ".ready"
+    # /sdcard itself is Android's intentional alias. Validate our bank and its
+    # descendants, without rejecting that framework-owned storage symlink.
+    parts = remote.split("/"); parents = ["/".join(parts[:end]) for end in range(len(root.split("/")), len(parts))]
+    lines = ["test ! -L " + shlex.quote(p) for p in dict.fromkeys([*parents, root + "/StreamingAssets"])]
+    lines += ["test ! -L " + shlex.quote(remote), "mkdir -p " + shlex.quote(remote.rsplit("/", 1)[0]),
+              "mkdir -p " + shlex.quote(root + "/StreamingAssets"),
+              "test ! -e " + shlex.quote(stage), "test ! -L " + shlex.quote(stage),
+              "test ! -e " + shlex.quote(ready), "test ! -L " + shlex.quote(ready)]
+    _content_shell(adb, address, lines, timeout=30)
+    script = "set -eu; umask 022; cat > " + shlex.quote(stage) + "; printf %s " + token + " > " + shlex.quote(ready)
+    # ADB leaves the first executable raw and shell-escapes subsequent argv.
+    # Supply the actual script once; prequoting it would execute a quoted name.
+    command = [adb.executable, "-s", address, "exec-in", "sh", "-c", script]
+    with adb.log.open("a", encoding="utf-8") as log:
+        log.write(json.dumps({"binaryContentUpload": command, "local": str(local), "remote": remote,
+                              "expectedBytes": row["size"], "expectedSha256": row["sha256"]}) + "\n")
+    stop = threading.Event()
+    try:
+        with local.open("rb", buffering=0) as stream, tempfile.TemporaryFile() as errors:
+            initial = os.fstat(stream.fileno())
+            def monitor():
+                while not stop.wait(1):
+                    if report:
+                        try: report(min(stream.tell(), max(0, row["size"] - 1)), row["size"], remote)
+                        except OSError: pass
+            thread = threading.Thread(target=monitor, daemon=True); thread.start()
+            try:
+                result = adb.runner(command, stdin=stream, stdout=subprocess.DEVNULL,
+                                    stderr=errors, timeout=timeout, shell=False)
+            finally:
+                stop.set(); thread.join()
+            errors.seek(0, 2); count = errors.tell(); errors.seek(max(0, count - 16384))
+            message = errors.read(16384).decode("utf-8", errors="replace")
+            with adb.log.open("a", encoding="utf-8") as log:
+                log.write(json.dumps({"binaryUploadExit": result.returncode, "stderr": message}) + "\n")
+            if result.returncode:
+                raise InstallError("Binary content upload failed; retained saves and completed files remain available: " + message[:1200])
+            current = local.stat()
+            if (initial.st_size, initial.st_mtime_ns, initial.st_ctime_ns) != (current.st_size, current.st_mtime_ns, current.st_ctime_ns):
+                raise InstallError("Local content changed during binary upload.")
+        # exec-in closes its socket before necessarily observing cat's return.
+        # Wait for this operation's marker, then hash exactly once, not in a poll.
+        ready_q, stage_q = shlex.quote(ready), shlex.quote(stage)
+        proof = _content_shell(adb, address, [
+            "ghvr_upload_wait=0",
+            "while ! test -f " + ready_q + "; do test \"$ghvr_upload_wait\" -lt 50; ghvr_upload_wait=$((ghvr_upload_wait + 1)); sleep 0.1; done",
+            "test ! -L " + ready_q, "test \"$(cat " + ready_q + ")\" = " + token,
+            "test ! -L " + stage_q, "test -f " + stage_q,
+            "stat -c %s " + stage_q, "sha256sum " + stage_q], timeout=max(600, timeout)).splitlines()
+        if proof != [str(row["size"]), row["sha256"] + "  " + stage]:
+            raise InstallError("Binary content differs from its exact size/checksum; no completion receipt or launch was allowed.")
+        _content_shell(adb, address, [*["test ! -L " + shlex.quote(p) for p in parents],
+                                    "test ! -L " + shlex.quote(remote),
+                                    "mv -f " + stage_q + " " + shlex.quote(remote), "rm -f " + ready_q], timeout=30)
+        if report: report(row["size"], row["size"], remote)
+    except subprocess.TimeoutExpired as error:
+        with adb.log.open("a", encoding="utf-8") as log:
+            log.write(json.dumps({"binaryUploadTimeout": timeout, "remote": remote}) + "\n")
+        raise InstallError("Binary content upload timed out; completed files and restored saves remain retained. Retry installation.") from error
+    except OSError as error:
+        with adb.log.open("a", encoding="utf-8") as log:
+            log.write(json.dumps({"binaryUploadError": str(error), "winError": getattr(error, "winerror", None)}) + "\n")
+        raise InstallError("Binary content upload could not continue: " + str(error) + ". Restored saves and completed files remain retained.") from error
+    finally:
+        # Only this operation's generated staging is removable. No saves,
+        # previous receipt, committed file or unknown sibling is swept.
+        try:
+            _content_shell(adb, address, ["test ! -L " + shlex.quote(stage), "test ! -L " + shlex.quote(ready),
+                                        "rm -f " + shlex.quote(stage) + " " + shlex.quote(ready)], timeout=30)
+        except InstallError as error:
+            with adb.log.open("a", encoding="utf-8") as log: log.write("Retained content upload staging: " + str(error)[:1000] + "\n")
+
+
+def _push_content(adb, address, local, remote, *, timeout, rows, report=None):
+    """Keep sync's fast path; repair only its observed Android fchown failure."""
+    local = Path(local)
+    if local.is_dir():
+        if not rows or any(not _content_path(row.get("path")) for row in rows):
+            raise InstallError("Directory upload requires exact manifested content paths.")
+        for row in rows: _content_bank_root(remote.rstrip("/") + "/" + row["path"])
+    else: _content_bank_root(remote)
+    raw_addresses = getattr(adb, "_raw_content_addresses", set())
+    if address not in raw_addresses:
+        try:
+            adb.run("-s", address, "push", local, remote, timeout=timeout)
+            return False  # The caller still owns normal sync verification.
+        except InstallError as error:
+            if not re.search(r"remote fchown failed:\s*Operation not permitted", str(error)):
+                raise
+            print("Android rejected sync ownership metadata; using verified binary content upload.", flush=True)
+            raw_addresses = {*raw_addresses, address}; adb._raw_content_addresses = raw_addresses
+    if local.is_dir():
+        for row in rows:
+            target = remote.rstrip("/") + "/" + row["path"]
+            _stream_content_file(adb, address, local.parent / row["path"], target, row, timeout, report)
+    else:
+        if len(rows) != 1: raise InstallError("A content file requires one exact upload inventory row.")
+        _stream_content_file(adb, address, local, remote, rows[0], timeout, report)
+    return True  # Every raw file was verified once before its atomic rename.
+
+
 def _remote_content_sizes(adb, address, root, rows):
     result = {}
     for offset in range(0, len(rows), 128):
@@ -761,17 +892,34 @@ def _publish_content_receipt(adb, address, root, manifest, rows, temporary, fina
     local = temporary / "receipt.bin"
     local.write_bytes(encode_content_receipt(manifest, rows))
     remote = root + "/" + final
-    adb.run("-s", address, "push", local, remote + ".upload", timeout=30)
+    _content_shell(adb, address, ["test ! -L " + shlex.quote(remote + ".upload"),
+                                "test ! -L " + shlex.quote(remote)], timeout=30)
+    row = {"size": local.stat().st_size, "sha256": digest(local)}
+    verified = _push_content(adb, address, local, remote + ".upload", timeout=30, rows=[row])
+    if not verified:
+        proof = _content_shell(adb, address, ["test ! -L " + shlex.quote(remote + ".upload"),
+                              "stat -c %s " + shlex.quote(remote + ".upload"),
+                              "sha256sum " + shlex.quote(remote + ".upload")], timeout=30).splitlines()
+        if proof != [str(row["size"]), row["sha256"] + "  " + remote + ".upload"]:
+            raise InstallError("Content receipt upload did not preserve its exact bytes.")
     _content_shell(adb, address, ["mv -f " + shlex.quote(remote + ".upload") + " " + shlex.quote(remote)], timeout=30)
 
 
-def _install_content_tree(adb, address, source, manifest, archive, root, temporary, repair):
+def _content_progress(done, total, detail, *, complete=False):
+    print("GHVRQ_PROGRESS " + json.dumps({"schema": 1, "phase": "install-content", "operation": "content",
+          "done": done, "total": total, "unit": "bytes", "status": "complete" if complete else "progress",
+          "detail": detail[:1024]}), flush=True)
+
+
+def _install_content_tree(adb, address, source, manifest, archive, root, temporary, repair, progress_scope=None):
     rows = manifest["files"]
     members = _validate_zip_members(archive, manifest)
+    base_bytes, total_bytes = progress_scope or (0, sum(row["size"] for row in rows))
     _content_shell(adb, address, ["mkdir -p " + shlex.quote(root), "test ! -L " + shlex.quote(root)], timeout=30)
     committed = _pull_content_receipt(adb, address, root + "/" + _RECEIPT, temporary / "committed.bin")
     if committed and committed["key"] == content_key(manifest) and not repair:
         print("Reusing completed file-backed content: " + root.rsplit("/", 1)[-1] + ".")
+        _content_progress(base_bytes + sum(row["size"] for row in rows), total_bytes, "Reusing completed " + root.rsplit("/", 1)[-1])
         return {"contentKey": committed["key"], "files": len(rows), "reusedFiles": len(rows), "uploadedFiles": 0}
     inventory = {}
     for receipt in (committed, _pull_content_receipt(adb, address, root + "/" + _RECEIPT + ".previous", temporary / "previous.bin"),
@@ -791,6 +939,8 @@ def _install_content_tree(adb, address, source, manifest, archive, root, tempora
         _publish_content_receipt(adb, address, root, manifest, retained, temporary, _RECEIPT + ".previous")
         _content_shell(adb, address, ["rm -f " + shlex.quote(root + "/" + _RECEIPT)], timeout=30)
     print("Preparing " + str(len(needed)) + " changed files on the PC; " + str(len(retained)) + " files remain installed.")
+    _content_progress(base_bytes + sum(row["size"] for row in retained.values()), total_bytes,
+                      "Preparing " + root.rsplit("/", 1)[-1] + "; saved content is retained")
     uploaded = 0
     while needed:
         batch, size = [], 0
@@ -809,12 +959,22 @@ def _install_content_tree(adb, address, source, manifest, archive, root, tempora
                 if written != row["size"] or sha.hexdigest() != row["sha256"]:
                     raise InstallError("PC extraction differs from the APK inventory: " + row["path"])
             transfer_timeout = min(21600, max(180, 120 + (size + 1048575) // 1048576))
-            adb.run("-s", address, "push", stage, root + "/", timeout=transfer_timeout)
-            _verify_remote_content(adb, address, root, batch)
+            transferred = {}; accepted_bytes = sum(row["size"] for row in retained.values())
+            def report(done, total, target):
+                transferred[target] = done
+                _content_progress(base_bytes + accepted_bytes + sum(transferred.values()), total_bytes,
+                                  "Transferring and verifying game content: " + target.rsplit("/", 1)[-1])
+            verified = _push_content(adb, address, stage, root + "/", timeout=transfer_timeout, rows=batch, report=report)
+            if not verified: _verify_remote_content(adb, address, root, batch)
             retained.update((row["path"], row) for row in batch)
             _publish_content_receipt(adb, address, root, manifest, retained, temporary, _RECEIPT + ".pending")
             uploaded += len(batch)
-            print("Installed content files: " + str(len(retained)) + "/" + str(len(rows)) + ".")
+            # Retain the log token, but qualify its bank-local count. The
+            # structured counter spans BOTH banks; legacy text parsing must not
+            # mistake a finished four-file mod bank for complete game delivery.
+            print("Installed content files: " + str(len(retained)) + "/" + str(len(rows)) + ". Bank: " + root.rsplit("/", 1)[-1] + ".")
+            _content_progress(base_bytes + sum(row["size"] for row in retained.values()), total_bytes,
+                              "Verified content files: " + str(len(retained)) + "/" + str(len(rows)) + " in " + root.rsplit("/", 1)[-1])
         finally:
             shutil.rmtree(stage)
     _publish_content_receipt(adb, address, root, manifest, retained, temporary, _RECEIPT)
@@ -837,6 +997,8 @@ def install_file_content(adb, address, source, repair=False):
     adb.run("-s", address, "shell", "am", "force-stop", PACKAGE, timeout=30)
     base = "/sdcard/Android/data/" + PACKAGE + "/files/"
     records = []
+    total_bytes = sum(row["size"] for kind in ("mod", "game") for row in manifest[kind]["files"])
+    completed_bytes = 0
     with tempfile.TemporaryDirectory(prefix="ghvr-quest-install-") as name, zipfile.ZipFile(source.apk) as apk:
         temporary = Path(name)
         mod_info = apk.getinfo("assets/quest-mod-content.zip")
@@ -853,11 +1015,16 @@ def install_file_content(adb, address, source, repair=False):
                 retained = require_installed_game(adb, address, source, temporary, repair=repair)
                 records.append({"archive": manifest[kind]["archive"], "sha256": manifest[kind]["archiveSha256"],
                                 "size": source.content[0].size, "remote": root, "fileBacked": True, **retained})
+                completed_bytes += sum(row["size"] for row in manifest[kind]["files"])
+                _content_progress(completed_bytes, total_bytes, "Reusing completed game content")
                 continue
             with zipfile.ZipFile(path) as archive:
-                result = _install_content_tree(adb, address, source, manifest[kind], archive, root, temporary, repair)
+                result = _install_content_tree(adb, address, source, manifest[kind], archive, root, temporary, repair,
+                                               progress_scope=(completed_bytes, total_bytes))
+            completed_bytes += sum(row["size"] for row in manifest[kind]["files"])
             records.append({"archive": manifest[kind]["archive"], "sha256": manifest[kind]["archiveSha256"],
                             "size": path.stat().st_size, "remote": root, "fileBacked": True, **result})
+    _content_progress(completed_bytes, total_bytes, "Complete game content installed and verified", complete=True)
     return records
 
 
@@ -913,10 +1080,12 @@ def install_content(adb, address, source, previous=None, repair=False):
             continue
         print("Installing complete Campaign content: " + str(bank.size) + " bytes over ADB...")
         transfer_timeout = min(21600, max(180, 120 + (bank.size + 1048575) // 1048576))
-        adb.run("-s", address, "push", bank.path, partial, timeout=transfer_timeout)
-        result = adb.run("-s", address, "shell", "sha256sum", partial, timeout=600, check_text=False)
-        if not re.fullmatch(bank.sha256 + r"\s+" + re.escape(partial) + r"\s*", result.strip()):
-            raise InstallError("The uploaded Campaign content does not match this APK; the app was not launched.")
+        verified = _push_content(adb, address, bank.path, partial, timeout=transfer_timeout,
+                                 rows=[{"size": bank.size, "sha256": bank.sha256}])
+        if not verified:
+            result = adb.run("-s", address, "shell", "sha256sum", partial, timeout=600, check_text=False)
+            if not re.fullmatch(bank.sha256 + r"\s+" + re.escape(partial) + r"\s*", result.strip()):
+                raise InstallError("The uploaded Campaign content does not match this APK; the app was not launched.")
         adb.run("-s", address, "shell", "mv", "-f", partial, remote, timeout=30)
         records.append({"archive": bank.archive, "size": bank.size, "sha256": bank.sha256, "remote": remote})
     return records

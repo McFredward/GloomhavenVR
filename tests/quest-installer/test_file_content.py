@@ -169,6 +169,21 @@ class FileContentTests(unittest.TestCase):
         self.assertFalse(any("quest-install-input" in str(call) or "start" in call for call in self.device.calls))
         self.assertFalse(list(self.device.root.rglob("*.zip")))
 
+    def test_measured_progress_spans_both_banks_and_completes_once(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            installer.install_file_content(self.device, "quest", self.source)
+        events = [json.loads(line[len("GHVRQ_PROGRESS "):]) for line in output.getvalue().splitlines()
+                  if line.startswith("GHVRQ_PROGRESS ")]
+        total = sum(len(data) for data in (*self.mod.values(), *self.game.values()))
+        self.assertTrue(events)
+        self.assertTrue(all(row["total"] == total for row in events))
+        self.assertEqual([row["done"] for row in events], sorted(row["done"] for row in events))
+        self.assertEqual([row["status"] for row in events].count("complete"), 1)
+        self.assertEqual(events[-1]["done"], total)
+        self.assertEqual(events[-1]["status"], "complete")
+        self.assertTrue(any(row["done"] == sum(map(len, self.mod.values())) and row["done"] < total for row in events))
+
     def test_warm_install_and_source_only_update_have_zero_tree_scans_and_pushes(self):
         self.install()
         pushes = len(self.device.pushed_files)

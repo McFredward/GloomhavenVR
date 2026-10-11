@@ -97,5 +97,23 @@ class SigningProgressTests(unittest.TestCase):
         self.assertNotIn("installMigration", row["progressPlan"])
         self.assertEqual(row["progressPlan"]["percent"], before)
 
+    def test_bank_local_text_cannot_complete_global_game_delivery(self):
+        self.assertIsNone(self.parser.parse("Installed content files: 4/4. Bank: quest-mod-resources.", "install.log"))
+        self.assertIsNone(self.parser.parse("Installed content files: 688/688. Bank: quest-owned-game.", "install.log"))
+
+    def test_content_bytes_move_global_stage_without_premature_completion(self):
+        self.store.operation(self.session, "install", "connect", complete=True)
+        self.store.operation(self.session, "install", "apk", complete=True)
+        percentages = []
+        for done in (0, 20, 300, 700, 1000):
+            fields = self.parser.parse("GHVRQ_PROGRESS " + json.dumps({"schema": 1,
+                "phase": "install-content", "operation": "content", "status": "progress",
+                "done": done, "total": 1000, "unit": "bytes", "detail": "Transferring and verifying"}), "install.log")
+            current = self.store.progress(self.session, "install", **fields)
+            percentages.append(current["stagePercent"])
+            self.assertNotIn("content", self.store.load(self.session)["stages"][-1]["progressPlan"]["completed"])
+        self.assertTrue(all(left < right for left, right in zip(percentages, percentages[1:])))
+        self.assertLess(percentages[-1], 100)
+
 
 if __name__ == "__main__": unittest.main()
