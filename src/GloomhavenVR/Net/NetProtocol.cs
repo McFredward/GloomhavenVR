@@ -612,7 +612,20 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 667;
+    public const ushort ModBuild = 668;
+
+    // ModBuild668 — move the native enchantress enhancement list toward the resident.
+    // The maintainer must step back after reading the held card to see every option.
+    // Move only ritual section10 by23 cm along station+Z; retain native list size,
+    // height, yaw, content, scrolling, callbacks and all other sections/card effects.
+    // Actual original prop bounds and copied transforms identify the near-right jug
+    // as the limit: the3 mm maximum panel envelope keeps23.196 mm of clearance.
+    // All18 shipped Workbench mesh envelopes and the exact furniture-supported
+    // lantern seats remain clear. Root-scene geometry is a conservative AABB proof,
+    // not a headset-pixel claim. The owner's transformed original enchant.inventory
+    // is already captured/published; observers use that same pose without a local
+    // adjustment. See NPC-668-PLACEMENT.md for inputs, focused tests and limits.
+    // No asset, config, input, wire grammar or TLV change. Version3/next-free118.
 
     // ModBuild667 — pre-1.1.0 review and bounded continuation/convergence repairs.
     // Review v1.0.8 through665 before implementation; retain the parallel666

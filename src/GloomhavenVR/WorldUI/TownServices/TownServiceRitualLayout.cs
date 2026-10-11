@@ -22,7 +22,11 @@ internal static class TownServiceRitualLayout
     /// TownServiceSurface fits uniformly without changing native row layout or scrolling.</summary>
     internal static Placement Folio(ushort section) => section switch
     {
-        10 => new Placement(new Vector3(.32f, .33f, -.16f), Quaternion.identity, new Vector2(.60f, .55f)),
+        // Move the complete native options list 23 cm toward the enchantress (+station Z).
+        // Its maximum envelope ends at Z=-.0085; the nearest original right-hand jug
+        // starts at Z=.014696 after Decor's mesh fit, retaining 23 mm of clearance.
+        // Keep height, uniform fit and input intact; observers inherit this owner pose.
+        10 => new Placement(new Vector3(.32f, .33f, .07f), Quaternion.identity, new Vector2(.60f, .55f)),
         13 => new Placement(new Vector3(0f, .032f, .35f), Quaternion.Euler(90f, 0f, 0f), new Vector2(.28f, .065f)),
         14 => new Placement(new Vector3(0f, .033f, .25f), Quaternion.Euler(90f, 0f, 0f), new Vector2(.28f, .085f)),
         15 => new Placement(new Vector3(.19f, .036f, -.20f), Quaternion.Euler(90f, 0f, 0f), new Vector2(.18f, .055f)),

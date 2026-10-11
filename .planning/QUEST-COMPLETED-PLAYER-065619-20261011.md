@@ -39,8 +39,8 @@ phases stay closed and the saved global frontier remains visible. A later
 installation retry also preserves this finished build.
 
 This particular APK remains Runtime665. The delivered Builder contains published
-dev667 (`9b0a4f0f5`) for new builds; it does not relabel or silently recompile the
-existing Player as667. Final signature/content/native-program delivery gates had
+dev668 (`ca4f8ff79`) for new builds; it does not relabel or silently recompile the
+existing Player as668. Final signature/content/native-program delivery gates had
 not completed in the capture and remain required once. Their bank byte proof is
 shared with Compute evidence and the build receipt, avoiding repeated full-bank
 hashes. The Wizard does not create another bank-hashing receipt. The final result
@@ -61,9 +61,9 @@ No Unity shader matrix, original game import or local game APK export is run her
 - Real SDK signing is covered by two cases within the Builder count. Real
   retained-selector/finish/publication composition uses controlled final binary
   audits; it does not certify a real game's GPU pixels or native behavior.
-- Runtime667 Release compiles with zero warnings/errors; current-mod AOT23,
+- Runtime668 Release compiles with zero warnings/errors; current-mod AOT23,
   native-camera/static-weave37 and executable weaver836 assertions pass.
-  Published dev667 multiplayer/source/golden evidence is inherited; no new
+  Published dev668 multiplayer/source/golden evidence is inherited; no new
   complete unrelated game gate is claimed.
 
 The final archive audit and compact private validation receipt record actual
