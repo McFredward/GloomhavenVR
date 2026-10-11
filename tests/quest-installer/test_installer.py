@@ -124,7 +124,8 @@ class FakeAdb:
 
 class InstallerTests(unittest.TestCase):
     def test_signing_recovery_policy_preserves_standalone_default_and_explicit_wizard_selection(self):
-        self.assertEqual(installer.parser().parse_args([]).recovery_data_policy, "all")
+        self.assertEqual(installer.parser().parse_args([]).recovery_data_policy, "saves")
+        self.assertEqual(installer.parser().parse_args(["--recovery-data-policy", "all"]).recovery_data_policy, "all")
         self.assertEqual(installer.parser().parse_args(["--recovery-data-policy", "saves"]).recovery_data_policy, "saves")
         with mock.patch.object(installer, "signing_recovery_module") as module:
             module.return_value.Recovery.return_value.recover.return_value = None

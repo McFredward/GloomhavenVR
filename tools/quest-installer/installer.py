@@ -925,8 +925,10 @@ def parser():
     result.add_argument("--setup", action="store_true")
     result.add_argument("--no-launch", action="store_true")
     result.add_argument("--repair-content", action="store_true", help="Verify installed game bytes and repair missing/changed files before launch.")
-    result.add_argument("--recovery-data-policy", choices=("all", "saves"), default="all",
-                        help="Signing migration: retain all app data, or protect every save and omit only inaccessible non-save data.")
+    result.add_argument("--recovery-data-policy", choices=("all", "saves"), default="saves",
+                        help="Signing migration: retain saves/settings without copying game banks or the original APK; all is the explicit legacy full rollback policy.")
+    result.add_argument("--allow-content-reinstall", metavar="TRANSACTION",
+                        help="Explicitly allow required game-content reinstallation if Android cannot retain its directories by direct rename; saves/settings remain protected.")
     result.add_argument("--dry-run", action="store_true")
     return result
 
@@ -974,7 +976,7 @@ def main(argv=None, runner=None):
         recovery_api = signing_recovery_module()
         recovery = recovery_api.Recovery(adb, address, hardware, source, config_path.parent,
                                          install_timeout=install_timeout, decode_receipt=decode_content_receipt,
-                                         data_policy=args.recovery_data_policy)
+                                         data_policy=args.recovery_data_policy, allow_content_reinstall=args.allow_content_reinstall)
         migration = recovery.recover()
         if migration is None:
             if any(not bank.path.is_file() for bank in source.content):

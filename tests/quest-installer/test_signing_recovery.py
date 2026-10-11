@@ -150,6 +150,12 @@ class Device:
             source, destination = self.path(action[1]), Path(action[2])
             if not source.is_file(): return result("missing", 1)
             shutil.copyfile(source, destination); return result("1 file pulled")
+        elif action[:1] == ["push"]:
+            # Portable real-filesystem adapter for the generated ARM64 syscall
+            # helper; exact ARM instructions also have independent QEMU controls.
+            destination = self.path(action[2]); destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text("#!/usr/bin/env python3\nimport os,sys\ntry:\n os.rename(sys.argv[1],sys.argv[2])\nexcept OSError as e:\n sys.exit(e.errno)\n")
+            return result("1 file pushed")
         elif action[:1] == ["uninstall"]:
             if action != ["uninstall", recovery.PACKAGE]: raise AssertionError("global or foreign uninstall")
             for root in (self.private, recovery.EXTERNAL, "/data/user_de/0/" + recovery.PACKAGE):
@@ -953,13 +959,17 @@ class TransactionTests(unittest.TestCase):
         self.assertTrue(all(row.get("omittedEntries", []) == [] for row in engine.journal["roots"]))
         self.assertEqual(self.device.path(path).read_bytes(), b"became readable"); self.verify_saves()
 
-    def test_saves_policy_failed_replacement_rolls_back_original_with_all_saves(self):
+    def test_saves_policy_failed_replacement_retains_small_save_backups_and_retries(self):
         path = recovery.EXTERNAL + "/files/tombstone_00"; self.device.path(path).write_bytes(b"opaque crash")
         self.device.shell_unreadable.add(path); self.device.fail_new_install = True
         engine = self.engine(data_policy="saves")
-        with self.assertRaisesRegex(recovery.RecoveryError, "INSTALL_FAILED_INVALID_APK"): engine.recover(detected=True)
-        self.assertTrue(engine.journal["rolledBack"]); self.assertEqual(self.device.path(self.device.apk).read_bytes(), self.device.old_bytes)
-        self.verify_saves(); self.assertEqual(engine.journal["state"], "backed-up")
+        with self.assertRaisesRegex(recovery.RecoveryError, "Retry installation without rebuilding"): engine.recover(detected=True)
+        self.assertEqual(engine.journal["state"], "installing")
+        self.assertFalse((engine.backup / "original.apk").exists())
+        self.assertTrue(all((engine.backup / row["archive"]).is_file() for row in engine.journal["roots"]))
+        self.device.fail_new_install = False
+        self.assertTrue(self.engine(data_policy="saves").recover()["verified"])
+        self.verify_saves()
 
     def partial_external_failure(self):
         protected = self.device.path("/data/user_de/0/" + recovery.PACKAGE)

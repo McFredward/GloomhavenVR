@@ -1,15 +1,16 @@
 """Recover one actual Android signing conflict without changing any signing key.
 
 The transaction is deliberately independent of the host OS and of Unity. All
-required save data and the old installed APK have durable, verified host backups
-before package removal. The explicit saves policy may omit inaccessible non-save
-members; all readable data is still retained. Large immutable banks remain on the
-headset through proven renames or verified copies. An interrupted transaction
-resumes restoration before any launch.
+required save data has durable, verified host backups before package removal.
+The default saves policy excludes regenerable game banks and APK rollback copies.
+Banks are retained with a real renameat syscall, never a hidden mv copy fallback.
+An interrupted transaction resumes restoration before any launch. Legacy full
+transactions retain their existing rollback promise after destructive work.
 """
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -56,6 +57,14 @@ class CaptureFault(RecoveryError):
     def __init__(self, message, *, byte_count, observed):
         super().__init__(message)
         self.byte_count, self.observed = byte_count, observed
+
+
+class ContentReinstallChoiceError(RecoveryError):
+    def __init__(self, *, estimated_bytes=0, transaction, device_serial):
+        super().__init__("Android cannot retain the game directories with a direct rename. The installed app and saved games are retained. Confirm content reinstallation to continue; no game-bank backup or copy was started.")
+        self.action = {"schema": 1, "kind": "signing-content-reinstall", "reason": "native-rename-unavailable",
+                       "saveDataProtected": True, "estimatedBytes": estimated_bytes,
+                       "transaction": transaction, "deviceSerial": device_serial}
 
 
 def save_member(name):
@@ -238,9 +247,11 @@ def archive_inventory(path):
 
 
 class Recovery:
-    def __init__(self, adb, address, hardware, source, directory, *, install_timeout=1800, decode_receipt=None, data_policy="all"):
+    def __init__(self, adb, address, hardware, source, directory, *, install_timeout=1800, decode_receipt=None, data_policy="saves", allow_content_reinstall=None):
         if not re.fullmatch(r"[A-Za-z0-9_-]+", hardware): raise RecoveryError("Invalid headset identity.")
         if data_policy not in ("all", "saves"): raise RecoveryError("Invalid signing recovery data policy.")
+        if allow_content_reinstall is not None and not re.fullmatch(r"[0-9a-f]{32}", str(allow_content_reinstall)):
+            raise RecoveryError("Invalid content reinstallation choice.")
         self.adb, self.address, self.hardware, self.source = adb, address, hardware, source
         self.data_policy = data_policy
         self.home = ordinary(Path(directory) / "signing-recovery" / hardware)
@@ -250,6 +261,119 @@ class Recovery:
         self.decode_receipt = decode_receipt
         self._direct_storage_proved = False
         self._storage_process = None
+        self._source_fingerprint = self._fingerprint(source.apk)
+        self._rename_helper = None
+        self.allow_content_reinstall = allow_content_reinstall
+
+    def _require_content_reinstall_choice(self):
+        if self.allow_content_reinstall == self.journal["transaction"]: return
+        total = sum(max(0, getattr(bank, "size", 0)) for bank in getattr(self.source, "content", ()))
+        raise ContentReinstallChoiceError(estimated_bytes=total, transaction=self.journal["transaction"], device_serial=self.hardware)
+
+    @staticmethod
+    def _fingerprint(path):
+        row = Path(path).stat()
+        return (row.st_dev, row.st_ino, row.st_size, row.st_mtime_ns, row.st_ctime_ns)
+
+    def _source_guard(self, *, phase="recovery preparation"):
+        # Source selection already qualified this APK's SHA. Changes during this
+        # transaction invalidate its cheap stat witness; do not reread 2.9 GB at
+        # every preparation boundary merely to rediscover the same identity.
+        retained = tuple(self.journal.get("selectedSourceStat", self._source_fingerprint))
+        if self._fingerprint(self.source.apk) != self._source_fingerprint or retained != self._source_fingerprint or not replacement_is_debuggable(self.source.apk):
+            raise RecoveryError("The selected APK changed during " + phase + "; the installed app was retained.")
+
+    def _lightweight(self):
+        return bool(self.journal and self.journal.get("smallDataOnly") is True)
+
+    def _prepare_rename(self):
+        if self._rename_helper: return
+        spec = importlib.util.spec_from_file_location("quest_native_rename", Path(__file__).with_name("native_rename.py"))
+        helper = importlib.util.module_from_spec(spec); spec.loader.exec_module(helper)
+        local = ordinary(self.backup / "rename-arm64")
+        if local.exists() and (not local.is_file() or local.stat().st_nlink != 1): raise RecoveryError("Unsafe local native-rename helper path.")
+        local.write_bytes(helper.executable())
+        remote = "/data/local/tmp/.ghvr-rename-" + self.journal["transaction"]
+        self._device_guard()
+        self.shell("test ! -L " + shlex.quote(remote) + "\nif test -e " + shlex.quote(remote) + "; then test -f " + shlex.quote(remote) + "; fi")
+        self.adb.run("-s", self.address, "push", local, remote, timeout=30, check_text=False)
+        self.shell("chmod 700 " + shlex.quote(remote))
+        self._rename_helper = remote
+
+    def _native_rename(self, source, target):
+        self._prepare_rename(); self._device_guard()
+        # Capture errno explicitly: exec transports cannot be trusted to forward
+        # a remote program's exit status. Shell arguments are quoted once.
+        reply = self.shell("status=0\n" + shlex.quote(self._rename_helper) + " " + shlex.quote(source) + " " + shlex.quote(target)
+                           + " || status=$?\nprintf 'GHVRQ_RENAME %s\\n' \"$status\"")
+        results = re.findall(r"^GHVRQ_RENAME ([0-9]{1,3})$", reply, re.M)
+        if len(results) != 1 or len(reply) > 4096: raise RecoveryError("The native directory rename did not return a bounded result.")
+        code = int(results[0])
+        with self.adb.log.open("a", encoding="utf-8") as log:
+            log.write(json.dumps({"nativeRename": {"source": source, "target": target, "errno": code, "copiesPayload": False}}) + "\n")
+        return code == 0
+
+    def _installed_stat(self, path):
+        value = self.shell("stat -c '%d:%i:%s:%Y:%Z' " + shlex.quote(path))
+        if not re.fullmatch(r"[0-9]+:[0-9]+:[0-9]+:-?[0-9]+:-?[0-9]+", value):
+            raise RecoveryError("The installed APK's metadata identity could not be verified.")
+        return value
+
+    def _legacy_upgrade_guard(self, installed):
+        """Qualify a pre-removal legacy frontier with bounded APK witnesses.
+
+        Older journals lack remote stat witnesses. Their retained original APK
+        supplies small beginning/end comparisons and its original version stamp.
+        This is a bounded migration identity check, not a new full-byte hash.
+        No legacy bank is moved or discarded until these checks pass.
+        """
+        paths = installed.splitlines()
+        if len(paths) != 1 or not re.fullmatch(r"package:/data/app/[A-Za-z0-9_./=+~-]+/base\.apk", paths[0]):
+            raise RecoveryError("The installed package changed before the legacy recovery could be upgraded.")
+        retained = self.journal.get("originalApk", {})
+        remote = paths[0][8:]
+        if (not retained and self.journal["state"] == "created" and not self.journal.get("banks")
+                and not self.journal.get("movingBank") and self.journal.get("parkingMode") is None):
+            return  # Interrupted before original identity or any bank action.
+        before = self._installed_stat(remote)
+        if type(retained.get("size")) is not int or int(before.split(":")[2]) != retained["size"]:
+            raise RecoveryError("The installed APK changed before the legacy recovery could be upgraded; the current app was retained.")
+        original = ordinary(self.backup / "original.apk")
+        if not original.is_file():
+            if self.journal["state"] != "created": raise RecoveryError("The legacy recovery lacks its original APK identity witness; the current app was retained.")
+            return  # No bank movement has begun in this incomplete preflight.
+        if original.stat().st_size != retained["size"] or original.stat().st_nlink != 1:
+            raise RecoveryError("The original APK metadata witness is damaged; the current app was retained.")
+        amount = min(65536, retained["size"])
+        with original.open("rb") as stream:
+            for tool, offset in (("head", 0), ("tail", retained["size"] - amount)):
+                stream.seek(offset); expected = stream.read(amount)
+                candidate = ordinary(self.backup / (".legacy-identity-" + uuid.uuid4().hex))
+                try:
+                    self._transfer(["exec-out", tool, "-c", str(amount), remote], candidate, total=amount)
+                    if candidate.read_bytes() != expected:
+                        raise RecoveryError("The installed APK changed before the legacy recovery could be upgraded; the current app was retained.")
+                finally: candidate.unlink(missing_ok=True)
+        # The builder's version name is a literal pool entry in Android's binary
+        # manifest. Reading that one small ZIP member avoids another APK scan.
+        try:
+            with zipfile.ZipFile(original) as archive:
+                item = archive.getinfo("AndroidManifest.xml")
+                if item.file_size > 1024 * 1024: raise ValueError("oversized manifest")
+                data = archive.read(item)
+            offset = struct.unpack_from("<H", data, 2)[0]; stamps = []
+            while offset < len(data):
+                kind, header, size = struct.unpack_from("<HHI", data, offset)
+                if size < header or size < 8 or offset + size > len(data): raise ValueError("invalid manifest chunk")
+                if kind == 1: stamps.extend(value for value in _string_pool(data, offset) if re.fullmatch(r"0\.1\.0\.B[0-9]+\.[0-9a-f]{12}", value))
+                offset += size
+            if stamps:
+                record = self.adb.run("-s", self.address, "shell", "dumpsys", "package", PACKAGE, timeout=30, check_text=False)
+                if len(stamps) != 1 or re.findall(r"\bversionName=([^\s]+)", record) != stamps:
+                    raise RecoveryError("The installed APK version changed before legacy recovery; the current app was retained.")
+        except (OSError, KeyError, zipfile.BadZipFile, ValueError, struct.error) as error:
+            raise RecoveryError("The legacy original APK manifest witness is damaged; the current app was retained.") from error
+        if self._installed_stat(remote) != before: raise RecoveryError("The installed APK changed during its bounded legacy identity check.")
 
     def _process_snapshot(self, pid, *, stopped=False):
         # starttime distinguishes recycled PIDs; UID/cmdline prevent following
@@ -373,10 +497,36 @@ class Recovery:
         if value["state"] == "complete": return False
         if value.get("apkSha256") != self.source.sha256 or value.get("inputKey") != self.source.input_key:
             raise RecoveryError("Finish the pending recovery with its original selected APK before selecting another build.")
+        self._source_guard()
         self.backup = ordinary(self.home / value["transaction"])
         self.park = "/sdcard/Download/.ghvr-quest-recovery/" + self.hardware + "/" + value["transaction"]
         previous_policy = value.get("dataPolicy", "all")
         if previous_policy not in ("all", "saves"): raise RecoveryError("Invalid retained signing recovery data policy.")
+        if self.data_policy == "saves" and not self._lightweight() and value["state"] in ("created", "backed-up", "parking", "parked", "uninstalling"):
+            installed = self.adb.run("-s", self.address, "shell", "pm", "path", "--user", "0", PACKAGE, check_text=False)
+            if installed.startswith("package:"):
+                self._legacy_upgrade_guard(installed)
+                # Capture150551 stops inside the old FUSE copy fallback, while
+                # the original app and saves are still present. Retain healthy
+                # small archives, stop that copy frontier, and move any genuinely
+                # parked tree back with renameat. Never finish its 11-GB copy.
+                for name in value.get("banks", []):
+                    if name not in BANKS: raise RecoveryError("Invalid parked-bank identity.")
+                    original, parked = EXTERNAL + "/" + name, self.park + "/" + name.split("/")[-1]
+                    state = self.shell("if test -d " + shlex.quote(original) + "; then printf present; elif test -d "
+                                       + shlex.quote(parked) + "; then printf parked; else printf absent; fi")
+                    if state == "parked":
+                        self.shell("mkdir -p " + shlex.quote(EXTERNAL + "/files"))
+                        if not self._native_rename(parked, original):
+                            raise RecoveryError("The still-installed app's parked bank could not be returned without copying; its saves and bank remain retained.")
+                    elif state == "present" and value.get("parkingMode") == "copy":
+                        # This is the old transaction's partial duplicate, not
+                        # the installed bank. Its intact original still exists.
+                        # Remove generated staging without reading any payload.
+                        self.shell("test -d " + shlex.quote(original) + "\ntest ! -L " + shlex.quote(parked)
+                                   + "\nif test -d " + shlex.quote(parked) + "; then rm -rf " + shlex.quote(parked) + "; fi")
+                self.commit("created", dataPolicy="saves", smallDataOnly=True, parkingMode=None, movingBank=None)
+                previous_policy = "saves"
         if previous_policy != self.data_policy:
             if value["state"] not in ("created", "backed-up"):
                 # Once replacement starts, use its original durable promise.
@@ -534,7 +684,7 @@ class Recovery:
             for bank in ([parked_bank] if parked_bank else self.journal.get("banks", [])):
                 prefix = "" if parked_bank else bank + "/"
                 if not parked_bank: directories.add(bank)
-                for path in self.journal["bankWitnesses"][bank]:
+                for path in ([] if self._lightweight() else self.journal["bankWitnesses"][bank]):
                     ignored.add(prefix + path)
                     directories.update(prefix + str(parent) for parent in PurePosixPath(path).parents if str(parent) != ".")
                 ignored.update(prefix + ".quest-installation.receipt" + suffix for suffix in ("", ".previous", ".pending"))
@@ -543,7 +693,23 @@ class Recovery:
             try:
                 actual_root = self._access_root(root, mode)
                 if not item["internal"]: self._check_external_root(actual_root, mode)
-                observed = self._context_shell("find " + shlex.quote(actual_root) + " -mindepth 1 -print", mode).splitlines()
+                pruned = []
+                if self._lightweight() and item["internal"]:
+                    # bridge.c owns these regenerated Wine/Proton directories;
+                    # native game saves live under the protected GloomSaves
+                    # roots, never inside this engine prefix. Keep its small
+                    # diagnostics and any unknown sibling settings.
+                    pruned = [actual_root + "/quest-procedural-state/" + name
+                              for name in ("proton-prefix", "wine-prefix", "cache", "tmp", "home")]
+                if self._lightweight() and not item["internal"]:
+                    # Regenerable asset banks never become app data when an old
+                    # receipt is absent or unreadable. Prune their payload trees
+                    # before find visits them. Unknown bank-root settings remain
+                    # in the typed positive census and are retained normally.
+                    pruned = [actual_root + "/" + ("" if parked_bank else bank + "/") + "StreamingAssets"
+                              for bank in ([parked_bank] if parked_bank else BANKS)]
+                prune = " ".join("-path " + shlex.quote(path) + " -prune -o" for path in pruned)
+                observed = self._context_shell("find " + shlex.quote(actual_root) + " -mindepth 1 " + prune + " -print", mode).splitlines()
                 names = []
                 for path in observed:
                     if not path.startswith(actual_root + "/"): raise RecoveryError("The app-data census contains an unrepresentable or foreign path.")
@@ -778,7 +944,7 @@ class Recovery:
         self._verify_backups(original=False, validate_only=True)
         original = ordinary(self.backup / "original.apk")
         try:
-            apk_damaged = original.stat().st_size != self.journal["originalApk"]["size"] or file_hash(original) != self.journal["originalApk"]["sha256"]
+            apk_damaged = not self._lightweight() and (original.stat().st_size != self.journal["originalApk"]["size"] or file_hash(original) != self.journal["originalApk"]["sha256"])
         except OSError: apk_damaged = True
         damaged = []
         for item in self.journal["roots"]:
@@ -916,15 +1082,13 @@ class Recovery:
         self._device_guard()
         # Backing up a large installed APK can take minutes. The selected local
         # replacement must still be the verified file before removing the old app.
-        if file_hash(self.source.apk) != self.source.sha256 or not replacement_is_debuggable(self.source.apk):
-            raise RecoveryError("The selected APK changed during recovery preparation; the installed app was retained.")
+        self._source_guard()
         self._check_users()
         self.adb.run("-s", self.address, "shell", "am", "force-stop", PACKAGE)
         installed = self.adb.run("-s", self.address, "shell", "pm", "path", "--user", "0", PACKAGE, check_text=False).splitlines()
         if not installed: return False
         if len(installed) != 1 or not re.fullmatch(r"package:/data/app/[A-Za-z0-9_./=+~-]+/base\.apk", installed[0]): raise RecoveryError("Installed package changed since its recovery backup.")
-        raw = self.shell("sha256sum " + shlex.quote(installed[0][8:]))
-        if not raw.startswith(self.journal["originalApk"]["sha256"] + "  "): raise RecoveryError("The installed APK changed since its recovery backup; it was retained.")
+        self._installed_apk_guard(self.journal["originalApk"]["sha256"])
         for index, item in enumerate(self.journal["roots"]):
             self._capture_census(item)
             candidate = self.backup / (item["name"] + "-" + uuid.uuid4().hex + ".tar")
@@ -969,8 +1133,7 @@ class Recovery:
                 raise RecoveryError("App data changed during content parking; the installed app and original snapshots were retained for a targeted retry.")
         # Copy fallback can take minutes. Recheck the replacement and profile
         # boundaries after that work, immediately before permitting uninstall.
-        if file_hash(self.source.apk) != self.source.sha256 or not replacement_is_debuggable(self.source.apk):
-            raise RecoveryError("The selected APK changed during content parking; the installed app was retained.")
+        self._source_guard(phase="content parking")
         self._check_users(); self._device_guard()
 
     def _device_guard(self):
@@ -980,7 +1143,26 @@ class Recovery:
         self._device_guard()
         paths = self.adb.run("-s", self.address, "shell", "pm", "path", "--user", "0", PACKAGE, check_text=False).splitlines()
         if len(paths) != 1 or not re.fullmatch(r"package:/data/app/[A-Za-z0-9_./=+~-]+/base\.apk", paths[0]): raise RecoveryError("The package selected for restoration cannot be identified.")
-        if not self.shell("sha256sum " + shlex.quote(paths[0][8:])).startswith(expected + "  "): raise RecoveryError("The installed APK changed before data restoration; the unexpected app was retained.")
+        if expected is None and self._lightweight():
+            original = self.journal["originalApk"]
+            if paths[0][8:] != original["remotePath"] or self._installed_stat(paths[0][8:]) != original["stat"]:
+                raise RecoveryError("The installed APK changed before data restoration; the unexpected app was retained.")
+        elif self._lightweight() and expected == self.source.sha256:
+            metadata = self._installed_stat(paths[0][8:])
+            if int(metadata.split(":")[2]) != self._source_fingerprint[2]:
+                raise RecoveryError("The installed replacement APK has an unexpected size; original saves remain retained.")
+            build = getattr(self.source, "mod_build", None)
+            if build:
+                record = self.adb.run("-s", self.address, "shell", "dumpsys", "package", PACKAGE, check_text=False, timeout=30)
+                if (re.findall(r"\bversionCode=(\d+)\b", record) != [str(build)]
+                        or re.findall(r"\bversionName=([^\s]+)", record) != ["0.1.0.B" + str(build) + "." + self.source.input_key[:12]]):
+                    raise RecoveryError("The installed replacement APK has an unexpected build identity; original saves remain retained.")
+            retained = self.journal.get("replacementStat")
+            if retained is not None and retained != metadata:
+                raise RecoveryError("The installed replacement APK changed before data restoration; original saves remain retained.")
+            if retained is None: self.commit(replacementStat=metadata)
+        elif not self.shell("sha256sum " + shlex.quote(paths[0][8:])).startswith(expected + "  "):
+            raise RecoveryError("The installed APK changed before data restoration; the unexpected app was retained.")
 
     def _backup(self):
         self._device_guard()
@@ -995,13 +1177,19 @@ class Recovery:
         if len(paths) != 1 or not re.fullmatch(r"package:/data/app/[A-Za-z0-9_./=+~-]+/base\.apk", paths[0]):
             raise RecoveryError("The original installed APK cannot be retained as one verified rollback package.")
         installed_apk = paths[0][8:]
-        raw = self.shell("sha256sum " + shlex.quote(installed_apk) + "\nstat -c %s " + shlex.quote(installed_apk))
-        lines = raw.splitlines()
-        if len(lines) != 2 or not re.fullmatch(r"[0-9a-f]{64}  .*", lines[0]) or not lines[1].isdigit():
-            raise RecoveryError("The installed APK's recovery identity could not be verified.")
-        original_hash, original_size = lines[0][:64], int(lines[1])
+        original_stat = None
+        if self._lightweight():
+            original_stat = self._installed_stat(installed_apk)
+            original_hash, original_size = None, int(original_stat.split(":")[2])
+        else:
+            raw = self.shell("sha256sum " + shlex.quote(installed_apk) + "\nstat -c %s " + shlex.quote(installed_apk))
+            lines = raw.splitlines()
+            if len(lines) != 2 or not re.fullmatch(r"[0-9a-f]{64}  .*", lines[0]) or not lines[1].isdigit():
+                raise RecoveryError("The installed APK's recovery identity could not be verified.")
+            original_hash, original_size = lines[0][:64], int(lines[1])
         retained_apk = self.journal.get("originalApk", {})
-        if retained_apk and (retained_apk.get("sha256") != original_hash or retained_apk.get("size") != original_size):
+        if retained_apk and (retained_apk.get("stat") is not None if self._lightweight() else True) and (retained_apk.get("sha256") != original_hash or retained_apk.get("size") != original_size
+                or self._lightweight() and retained_apk.get("stat") != original_stat):
             raise RecoveryError("The installed APK changed since partial recovery preparation; its existing app data was retained.")
         previous = {item.get("name"): dict(item) for item in self.journal.get("roots", []) if isinstance(item, dict)}
         # Readable mutable members are never narrowed to known save filenames.
@@ -1021,7 +1209,7 @@ class Recovery:
                 if exists != "present": raise RecoveryError("A retained content-bank root could not be verified.")
                 # Receipt-owned regular files are parked on the headset.
                 # Unknown descendants still belong to the mutable host backup.
-                if self._bank_is_immutable(remote): banks.append(name)
+                if self._lightweight() or self._bank_is_immutable(remote): banks.append(name)
         roots = [{"name": "private", "root": private, "internal": True}]
         protected = "/data/user_de/0/" + PACKAGE
         device = self.adb.run("-s", self.address, "shell", "-T", "run-as", PACKAGE, "sh", "-s",
@@ -1040,7 +1228,9 @@ class Recovery:
             if retained.get("root") == item["root"] and retained.get("internal") == item["internal"]:
                 item.update({key: retained[key] for key in ("archive", "sha256", "inventory", "captureTransport") if key in retained})
         # Persist prior verified references before a new access check can fail.
-        self.commit(originalApk={"path": "original.apk", "sha256": original_hash, "size": original_size}, roots=roots, banks=banks, excludePrivateLib=generated_lib)
+        original_identity = {"path": "original.apk", "sha256": original_hash, "size": original_size}
+        if self._lightweight(): original_identity.update(remotePath=installed_apk, stat=original_stat)
+        self.commit(originalApk=original_identity, roots=roots, banks=banks, excludePrivateLib=generated_lib)
         for item in roots: self._capture_census(item)
         self.commit(roots=roots)
         # Delete only failed/unreferenced archives owned by this still-installed
@@ -1053,11 +1243,11 @@ class Recovery:
                 ordinary(local).unlink()
         mutable_sizes = [item["captureBytes"] + item["captureFiles"] * 4096 for item in roots]
         original = self.backup / "original.apk"
-        original_retained = original.is_file() and original.stat().st_size == original_size and file_hash(original) == original_hash
+        original_retained = self._lightweight() or original.is_file() and original.stat().st_size == original_size and file_hash(original) == original_hash
         required = (0 if original_retained else original_size) + sum(mutable_sizes) + max(mutable_sizes) * 2 + 64 * 1024 * 1024
         if shutil.disk_usage(self.backup).free < required:
             raise RecoveryError("Insufficient PC storage for a verified rollback backup (required " + str(required) + " bytes); the installed app was retained.")
-        work_total = 2 + sum(item["captureFiles"] * 2 + 1 for item in roots); work_done = 0
+        work_total = (0 if self._lightweight() else 2) + sum(item["captureFiles"] * 2 + 1 for item in roots); work_done = 0
         self.commit(backupWork={"done": 0, "total": work_total})
         original = self.backup / "original.apk"
         if not original_retained:
@@ -1068,10 +1258,11 @@ class Recovery:
                     raise RecoveryError("The original APK backup failed verification; the installed app was retained.")
                 os.replace(candidate, original)
             finally: candidate.unlink(missing_ok=True)
-        progress("backup-work", 1, work_total, "Original APK rollback copy retained", local=True)
-        if original.stat().st_size != original_size or file_hash(original) != original_hash:
-            raise RecoveryError("The original APK backup failed verification; the installed app was retained.")
-        work_done = 2; progress("backup-work", work_done, work_total, "Original APK rollback copy verified", local=True)
+        if not self._lightweight():
+            progress("backup-work", 1, work_total, "Original APK rollback copy retained", local=True)
+            if original.stat().st_size != original_size or file_hash(original) != original_hash:
+                raise RecoveryError("The original APK backup failed verification; the installed app was retained.")
+            work_done = 2; progress("backup-work", work_done, work_total, "Original APK rollback copy verified", local=True)
         for index, item in enumerate(roots):
             old = item.get("archive")
             reusable = False
@@ -1101,15 +1292,21 @@ class Recovery:
             progress("backup-work", work_done, work_total, "Verified " + item["name"] + " app-data backup committed", local=True)
             progress("backup", index + 1, len(roots), "Verified retained " + item["name"] + " app data", unit="files", local=True)
         self.commit("backed-up")
-        progress("backup", 2, 7, "Original APK, saves and settings are safely retained")
+        progress("backup", 2, 7, "Saves and settings are safely retained" if self._lightweight() else "Original APK, saves and settings are safely retained")
 
     def _verify_backups(self, *, original=True, validate_only=False):
         policy = self.journal.get("dataPolicy", "all")
         if policy not in ("all", "saves") or policy != self.data_policy: raise RecoveryError("Invalid retained signing data policy.")
         apk = self.journal["originalApk"]
-        if apk.get("path") != "original.apk" or not re.fullmatch(r"[0-9a-f]{64}", str(apk.get("sha256"))): raise RecoveryError("Invalid original APK backup identity.")
+        if apk.get("path") != "original.apk": raise RecoveryError("Invalid original APK backup identity.")
+        if self._lightweight():
+            if (apk.get("sha256") is not None or not re.fullmatch(r"/data/app/[A-Za-z0-9_./=+~-]+/base\.apk", str(apk.get("remotePath")))
+                    or not re.fullmatch(r"[0-9]+:[0-9]+:[0-9]+:-?[0-9]+:-?[0-9]+", str(apk.get("stat")))
+                    or type(apk.get("size")) is not int or int(apk["stat"].split(":")[2]) != apk["size"]):
+                raise RecoveryError("Invalid installed APK metadata identity.")
+        elif not re.fullmatch(r"[0-9a-f]{64}", str(apk.get("sha256"))): raise RecoveryError("Invalid original APK backup identity.")
         local = ordinary(self.backup / "original.apk")
-        if original and not validate_only and (local.stat().st_size != apk["size"] or file_hash(local) != apk["sha256"]): raise RecoveryError("The retained original APK backup is damaged.")
+        if not self._lightweight() and original and not validate_only and (local.stat().st_size != apk["size"] or file_hash(local) != apk["sha256"]): raise RecoveryError("The retained original APK backup is damaged.")
         roots = self.journal.get("roots")
         if not isinstance(roots, list) or not 1 <= len(roots) <= 3: raise RecoveryError("Invalid app-data recovery roots.")
         allowed = {"private": (self.journal.get("roots", [{}])[0].get("root"), True), "device-protected": ("/data/user_de/0/" + PACKAGE, True), "external": (EXTERNAL, False)}
@@ -1158,8 +1355,9 @@ class Recovery:
         banks = self.journal.get("banks", [])
         if len(banks) != len(set(banks)): raise RecoveryError("Duplicate parked-bank identity.")
         witnesses = self.journal.get("bankWitnesses", {})
-        if not isinstance(witnesses, dict) or not set(banks).issubset(witnesses): raise RecoveryError("Invalid parked-bank witness.")
+        if not isinstance(witnesses, dict) or not self._lightweight() and not set(banks).issubset(witnesses): raise RecoveryError("Invalid parked-bank witness.")
         for name in banks:
+            if self._lightweight(): continue
             rows = witnesses[name]
             if not isinstance(rows, dict) or not 0 < len(rows) <= 32768: raise RecoveryError("Invalid parked-bank file census.")
             for path, row in rows.items():
@@ -1174,6 +1372,8 @@ class Recovery:
         self.commit("parking")
         if not self.journal["banks"]:
             self.commit("parked", parkingMode="none"); return
+        if self._lightweight():
+            self._park_small_data_banks(); return
         self.shell("mkdir -p " + shlex.quote(self.park) + "\ntest ! -L " + shlex.quote(self.park))
         # Probe the actual two-way move and permissions before touching game data.
         probe = EXTERNAL + "/files/.quest-signing-probe-" + self.journal["transaction"]
@@ -1208,13 +1408,87 @@ class Recovery:
         self.commit("parked", movingBank=None)
         progress("replace", 3, 7, "Large game banks retained on the headset")
 
+    def _park_small_data_banks(self):
+        """Keep game banks with bounded metadata and real renameat, or redeploy."""
+        self.shell("mkdir -p " + shlex.quote(self.park) + "\ntest ! -L " + shlex.quote(self.park))
+        probe = EXTERNAL + "/files/.quest-signing-probe-" + self.journal["transaction"]
+        destination = self.park + "/probe"
+        token = self.journal["transaction"]
+        for prior in (probe, destination):
+            # A killed host can leave the tiny probe on either side. Its exact
+            # transaction marker permits targeted cleanup before the next test;
+            # rmdir refuses any unexpected additional member.
+            self.shell("if test -e " + shlex.quote(prior) + "; then test -d " + shlex.quote(prior)
+                       + "; test ! -L " + shlex.quote(prior) + "; test -f " + shlex.quote(prior + "/marker")
+                       + "; test ! -L " + shlex.quote(prior + "/marker") + "; test \"$(cat " + shlex.quote(prior + "/marker")
+                       + ")\" = " + shlex.quote(token) + "; rm " + shlex.quote(prior + "/marker") + "; rmdir " + shlex.quote(prior) + "; fi")
+        self.shell("test ! -e " + shlex.quote(probe) + "\ntest ! -e " + shlex.quote(destination)
+                   + "\nmkdir " + shlex.quote(probe) + "\nprintf %s " + shlex.quote(token) + " > " + shlex.quote(probe + "/marker"))
+        moved = False
+        try:
+            try: moved = self._native_rename(probe, destination)
+            except RuntimeError as error:
+                # Architecture/exec-policy/tool transfer failures may preclude
+                # the primitive. A live, still-installed headset is required to
+                # select targeted content redeployment instead of any copying.
+                self._device_guard()
+                with self.adb.log.open("a", encoding="utf-8") as log:
+                    log.write(json.dumps({"nativeRenameUnavailable": str(error)[:1024], "copiesPayload": False}) + "\n")
+                moved = False
+            if moved:
+                self.shell("test ! -e " + shlex.quote(probe) + "\ntest \"$(cat " + shlex.quote(destination + "/marker") + ")\" = " + shlex.quote(token))
+                if not self._native_rename(destination, probe):
+                    raise RecoveryError("The native two-way content rename probe cannot be returned; the installed app was retained.")
+                moved = False
+                self.shell("test ! -e " + shlex.quote(destination) + "\ntest \"$(cat " + shlex.quote(probe + "/marker") + ")\" = " + shlex.quote(token))
+            else:
+                self._require_content_reinstall_choice()
+                self.commit("parked", parkingMode="reinstall")
+                progress("replace", 3, 7, "Saves retained; game assets require normal content installation because Android cannot rename their directory")
+                return
+        finally:
+            # Only this unique empty probe is removed; never a game directory.
+            for root in ((destination,) if moved else (probe,)):
+                self.shell("if test -f " + shlex.quote(root + "/marker") + "; then test \"$(cat " + shlex.quote(root + "/marker")
+                           + ")\" = " + shlex.quote(token) + "; rm " + shlex.quote(root + "/marker") + "; rmdir " + shlex.quote(root) + "; fi")
+        self.commit(parkingMode="atomic")
+        for name in self.journal["banks"]:
+            source, target = EXTERNAL + "/" + name, self.park + "/" + name.split("/")[-1]
+            self.commit(movingBank=name)
+            existence = self.shell("test ! -L " + shlex.quote(source) + "\ntest ! -L " + shlex.quote(target)
+                                   + "\nif test -d " + shlex.quote(target) + "; then test ! -e " + shlex.quote(source)
+                                   + "; printf parked; else test -d " + shlex.quote(source) + "; printf source; fi")
+            if existence == "source" and not self._native_rename(source, target):
+                # Android may allow the small probe but refuse a protected bank.
+                # Return earlier successful renames before selecting redeploy.
+                self._restore_banks()
+                self._require_content_reinstall_choice()
+                self.commit("parked", parkingMode="reinstall", movingBank=None)
+                progress("replace", 3, 7, "Saves retained; Android requires normal installation of the game assets")
+                return
+            self.shell("test -d " + shlex.quote(target) + "\ntest ! -e " + shlex.quote(source))
+        self.commit("parked", movingBank=None)
+        progress("replace", 3, 7, "Game directories retained on the Quest without copying or hashing assets")
+
     def _restore_banks(self):
         self._device_guard()
-        if self.journal.get("parkingMode") == "none": return
+        if self.journal.get("parkingMode") in ("none", "reinstall"): return
         for name in self.journal["banks"]:
             self._device_guard()
             target, source = EXTERNAL + "/" + name, self.park + "/" + name.split("/")[-1]
             self.commit(restoringBank=name)
+            if self._lightweight():
+                self.shell("mkdir -p " + shlex.quote(EXTERNAL + "/files") + "\ntest ! -L " + shlex.quote(source)
+                           + "\ntest ! -L " + shlex.quote(target))
+                exists = self.shell("if test -d " + shlex.quote(source) + "; then printf parked; elif test -d " + shlex.quote(target) + "; then printf restored; else printf absent; fi")
+                if exists == "parked":
+                    self.shell("test ! -e " + shlex.quote(target))
+                    if not self._native_rename(source, target):
+                        raise RecoveryError("The retained game directory cannot be returned without copying; retained saves and game data remain available for retry.")
+                elif exists == "absent":
+                    # A failed second park may precede moving this bank.
+                    raise RecoveryError("A retained game directory is missing; saves and remaining bank data were retained.")
+                continue
             if self.journal.get("parkingMode") == "copy":
                 # Copy remains as durable device recovery material until a later
                 # explicit cleanup; interruption can safely replay this restore.
@@ -1276,7 +1550,8 @@ class Recovery:
                 self.park = "/sdcard/Download/.ghvr-quest-recovery/" + self.hardware + "/" + identifier
                 self.journal = {"schema": 1, "package": PACKAGE, "deviceSerial": self.hardware, "transaction": identifier,
                                 "apkSha256": self.source.sha256, "inputKey": self.source.input_key, "state": "created",
-                                "dataPolicy": self.data_policy}
+                                "dataPolicy": self.data_policy, "smallDataOnly": self.data_policy == "saves",
+                                "selectedSourceStat": list(self._source_fingerprint)}
                 self.commit()
             print("Retained signing migration backup: " + str(self.backup), flush=True)
             if self.journal["state"] == "created": self._backup()
@@ -1327,6 +1602,12 @@ class Recovery:
                     # remain pending; no launch or success receipt is permitted.
                     installed = self.adb.run("-s", self.address, "shell", "pm", "path", "--user", "0", PACKAGE, check_text=False)
                     if not installed.startswith("package:"):
+                        if self._lightweight():
+                            # The finished replacement APK remains local. Retry
+                            # its installation with retained small save archives;
+                            # no multi-GB original APK rollback copy is required.
+                            raise CaptureRepairError("The replacement APK could not yet be installed; saves, settings and retained game directories are safe. Retry installation without rebuilding.",
+                                                     root="external", reason="replacement-install", attempts=1, total=1)
                         self.commit("rolling-back")
                         self.adb.run("-s", self.address, "install", self.backup / "original.apk", timeout=self.install_timeout, positive=r"^Success\s*$")
                         self.commit("rollback-restoring")
@@ -1359,6 +1640,8 @@ class Recovery:
                                                   "policy": self.data_policy, "saveDataProtected": True}), flush=True)
             elif isinstance(error, CaptureRepairError):
                 print("GHVRQ_ACTION " + json.dumps(error.action), flush=True)
+            elif isinstance(error, ContentReinstallChoiceError):
+                print("GHVRQ_ACTION " + json.dumps(error.action), flush=True)
             directory = str(getattr(self, "backup", self.home))
             raise RecoveryError("Signing migration could not safely continue: " + str(error)
                                 + ". Original recovery data is retained at " + directory + ". Retry with the same APK and headset.") from error
@@ -1368,6 +1651,13 @@ class Recovery:
             except RuntimeError as cleanup:
                 if not failed: raise
                 print("Signing recovery storage cleanup could not be confirmed: " + str(cleanup)[:1024], flush=True)
+            if self._rename_helper:
+                try:
+                    self._device_guard()
+                    self.shell("test ! -L " + shlex.quote(self._rename_helper) + "\nrm -f " + shlex.quote(self._rename_helper))
+                    self._rename_helper = None
+                except RuntimeError:
+                    print("Signing recovery retained its tiny transaction-owned rename helper for later cleanup.", flush=True)
 
     def complete(self):
         if self.journal and self.journal["state"] == "verified":
