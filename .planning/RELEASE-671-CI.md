@@ -52,8 +52,12 @@ Evidence is retained in the CI worker's gitignored `.planning/debug/` under
 `release671-*` and `player-settings-help/run-wt3tdlq0`. The initially omitted
 runner `--group` argument is retained as an argument-validation failure; it did
 not start a suite. The corrected invocation uses the central runner's normal
-completion cleanup. Its original generated project sources and receipts remain;
-their regenerable bin/obj caches are gone. Unit fixtures and Git simulation
+completion cleanup. This fixture originally omitted local project markers while
+redirecting output from the tracked `Help.csproj`, so automatic discovery safely
+left its four variant caches. Capture the exact referenced project bytes with
+their source/hash receipt in each owned variant, then call the same cleanup API
+after reaping: all eight bin/obj directories are removed (7306772 bytes).
+Original generated project sources and receipts remain. Unit fixtures and Git simulation
 scratch directories are removed by their normal temporary-directory cleanup.
 Post-reap calls to `cleanup_completed_run` retain bounded cleanup receipts and
 find no additional owned project caches; no shared game references are swept.
