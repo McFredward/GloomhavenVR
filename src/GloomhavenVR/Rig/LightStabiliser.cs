@@ -506,11 +506,14 @@ internal static class LightStabiliser
     /// </summary>
     private static void Scan()
     {
-        LightFlicker[] flickers;
+        bool workCache = PerfConfig.LightStabiliserWorkCacheOn;
+        LightFlicker[]? flickers = null;
         Light[] lights;
         try
         {
-            flickers = Object.FindObjectsOfType<LightFlicker>();
+            // A/B escape: OFF keeps the original pair of full-scene lookups on every scan.
+            if (!workCache)
+                flickers = Object.FindObjectsOfType<LightFlicker>();
             lights = Object.FindObjectsOfType<Light>();
         }
         catch (System.Exception e)
@@ -520,13 +523,31 @@ internal static class LightStabiliser
             return;
         }
 
-        CensusFlickers(flickers);
+        if (flickers != null)
+            CensusFlickers(flickers);
         int newLights = AdoptLights(lights);
         PruneDestroyed();
         int pinned = ApplyPinning();
 
         if (newLights == 0 && pinned == 0 && _censusPrinted)
             return; // nothing moved this cycle — say nothing rather than repeat a line every 10 s
+
+        // LightFlicker is diagnostic only. Its scene-wide lookup used to run on every 10 s scan,
+        // even when the unchanged-light gate above suppressed the sole consumer, LogCensus.
+        // Keep the sample fresh whenever a census is actually emitted, including room arrivals.
+        if (flickers == null)
+        {
+            try
+            {
+                CensusFlickers(Object.FindObjectsOfType<LightFlicker>());
+            }
+            catch (System.Exception e)
+            {
+                VRLog.Info("Rig", $"LIGHT STABILISER: the LightFlicker census threw '{e.Message}' — "
+                                  + "the light scan completed, and the diagnostic retries next cycle.");
+                return;
+            }
+        }
 
         _censusPrinted = true;
         LogCensus(lights.Length, newLights, pinned);
@@ -588,7 +609,10 @@ internal static class LightStabiliser
         for (int i = 0; i < found.Length; i++)
         {
             Light l = found[i];
-            if (l == null || IndexOfLight(l) >= 0)
+            // Town practicals already have a deterministic owner-controlled fade. Adopting
+            // them would delay that fade and pin late-loaded candles toward a zero baseline.
+            // Exact ownership only: native torches and other lights retain the existing policy.
+            if (l == null || WorldUI.TownServiceLighting.Owns(l) || IndexOfLight(l) >= 0)
                 continue;
 
             Transform t = l.transform;
@@ -971,6 +995,23 @@ internal static class LightStabiliser
         _driver = null;
     }
 
+    /// <summary>With the work-cache A/B enabled, skip an engine setter when damping produced the
+    /// value already on the light. OFF preserves the original unconditional damped write.</summary>
+    private static void WriteIntensity(Light light, float raw, float output, bool workCache)
+    {
+        if (!workCache || raw != output)
+            light.intensity = output;
+    }
+
+    /// <summary>Use exact component equality in the cached path. Unity's Vector3 == uses a
+    /// distance tolerance, which could silently discard a small but real damped movement.
+    /// OFF preserves the original unconditional damped write.</summary>
+    private static void WritePosition(Transform transform, Vector3 raw, Vector3 output, bool workCache)
+    {
+        if (!workCache || !raw.Equals(output))
+            transform.localPosition = output;
+    }
+
     /// <summary>
     /// ONE walk over the held lights per frame. It measures the RAW signal the game just wrote
     /// (which is what makes this build's numbers comparable with ModBuild 228's), then writes the
@@ -998,6 +1039,7 @@ internal static class LightStabiliser
         // At damping 1.0 the output IS the input; writing it back would be a pointless write on
         // every light every frame (and would make the residual counters meaningless by construction).
         bool writing = damping < 0.999f;
+        bool workCache = PerfConfig.LightStabiliserWorkCacheOn;
         float now = Time.unscaledTime;
 
         for (int i = 0; i < Lights.Count; i++)
@@ -1087,7 +1129,7 @@ internal static class LightStabiliser
             r.BaselineIntensity += dev * k;
 
             if (damp)
-                l.intensity = outIntensity;
+                WriteIntensity(l, raw, outIntensity, workCache);
 
             float outJump = Mathf.Abs(outIntensity - r.LastOutIntensity);
             if (outJump > floorRef * IntensityEventFraction)
@@ -1138,7 +1180,7 @@ internal static class LightStabiliser
             r.BaselineLocal += posDev * k;
 
             if (dampPos)
-                t.localPosition = outLocal;
+                WritePosition(t, rawLocal, outLocal, workCache);
 
             // Measured against the SAME (pre-update) baseline as rawPosDev above, so the two numbers
             // in the watch line are the same quantity with and without the damper and can be read as

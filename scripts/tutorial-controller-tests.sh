@@ -7,7 +7,7 @@ trap 'rm -rf "$work_dir"' EXIT
 cp "$repo_root/tests/GloomhavenVR.TutorialControllerTests/"*.cs "$repo_root/tests/GloomhavenVR.TutorialControllerTests/"*.csproj "$work_dir/"
 python3 "$repo_root/tests/GloomhavenVR.TutorialControllerTests/extract.py" "$repo_root" "$work_dir"
 dotnet run --project "$work_dir/GloomhavenVR.TutorialControllerTests.csproj" --configuration Release
-for mutation in missing-right always-controller recovery-override wrong-highlight missing-layers missing-marker-layer self-hide cached-pair stale-hand lost-highlight model-loss instant-hand; do
+for mutation in missing-right always-controller recovery-override wrong-highlight missing-layers missing-marker-layer self-hide cached-pair stale-hand lost-highlight model-loss instant-hand wrist-bar-lesson; do
     cp "$work_dir/ControlsTutorial.cs" "$work_dir/tutorial.original"
     cp "$work_dir/ControllerVisual.cs" "$work_dir/visual.original"
     cp "$work_dir/ControlsLesson.cs" "$work_dir/lesson.original"
@@ -16,6 +16,7 @@ from pathlib import Path
 import sys
 root=Path(sys.argv[1]); mutation=sys.argv[2]
 name, old, new = {
+    'wrist-bar-lesson': ('ControlsLesson', 'if (Cards.CardsConfig.WristBoardEnabled?.Value == true)', 'if (bool.Parse("false"))'),
     'model-loss': ('ControllerVisual', 'private void RestoreHandAfterModelLoss()\n    {\n        ShowHand();', 'private void RestoreHandAfterModelLoss()\n    {'),
     'instant-hand': ('ControllerVisual', 'BeginSwap(0f);', 'Hide();'),
     'cached-pair': ('ControlsTutorial', 'if (!changed && (!visible ||', 'if (!changed && (bool.Parse("true") ||'),
@@ -29,13 +30,14 @@ name, old, new = {
     'missing-marker-layer': ('ControllerVisual', 'VRLayers.Apply(sphere);', ''),
     'self-hide': ('ControllerVisual', 'Transform? handRoot = _hand.Rig?.Root;', 'Transform? handRoot = _hand.transform;'),
 }[mutation]
-p=root/(name+'.cs');s=p.read_text();assert s.count(old)==1;s=s.replace(old,new)
+p=root/(name+'.cs');s=p.read_text();assert s.count(old)==(2 if mutation=='wrist-bar-lesson' else 1);s=s.replace(old,new)
 p.write_text(s)
 PY
     if dotnet run --project "$work_dir/GloomhavenVR.TutorialControllerTests.csproj" --configuration Release > "$work_dir/negative.log" 2>&1; then
         echo "FAIL: tutorial controller regression $mutation escaped coverage" >&2; exit 1
     fi
     case "$mutation" in
+        wrist-bar-lesson) expected='Wrist placement must omit unavailable grip-bar lessons and restore them when disabled';;
         model-loss) expected='A lost controller must immediately restore the hand on every recovery path';;
         instant-hand) expected='Returning to hands must animate instead of popping';;
         missing-right|cached-pair|stale-hand) expected='Controller steps must keep both models visible';;

@@ -14,7 +14,7 @@ namespace GloomhavenVR;
 internal static partial class Defaults
 {
     // ---- WorldUI/ActorBars.cs ------------------------------------------------------
-    internal const bool BarsOccluded = false;  // => [WorldUI] BarsOccluded
+    internal const bool BarsOccluded = true;  // => [WorldUI] BarsOccluded (user 2026-10-10 — adopt the shared saved preference)
     // 0 = the measured height stands. This is a USER TRIM on top of the per-figure head
     // measurement, not a replacement for it, so the shipped value must be neutral: anything
     // else would be the mod pre-judging a number he asked to own.
@@ -126,15 +126,20 @@ internal static partial class Defaults
     // neither writes this.
     // Release 1.0.1: new profiles start without the panel; saved preferences remain authoritative.
     internal const bool CombatLogAtStart = false;             // => [WorldUI] CombatLog (pinned: user default ruling 2026-09-15 - hidden at scenario start)
+    internal const bool ImmersiveTownServices = true;         // => [WorldUI] ImmersiveTownServices (user default ruling 2026-09-21)
+    internal const bool ImmersiveTownSpeech = true;           // => [WorldUI] ImmersiveTownSpeech
+    internal const bool ImmersiveTownSoundEffects = true;     // => [WorldUI] ImmersiveTownSoundEffects
     internal const bool Dialogs = true;                      // => [WorldUI] Dialogs
     internal const bool DecisionDock = true;                 // => [WorldUI] DecisionDock
     internal const bool TrayNativeControls = true;           // => [WorldUI] TrayNativeControls
     internal const bool BarFixedSize = true;                 // => [WorldUI] BarFixedSize
     internal const float BarSizeScale = 0.80899f;            // => [WorldUI] BarSizeScale
+    internal const bool BarFollowFigureScale = true;         // => [WorldUI] BarFollowFigureScale
     // BarZoomMinScale (0.7) and BarZoomMaxScale (1.5) stood here. GONE (user ruling 2026-08-13:
     // "Mindest und Maximalgröße der Lebensbalken haben keinen sehbaren einfluss … ziemlich
     // unintuitiv"). The two numbers survive as the CONSTANTS ActorBars.ZoomFollowMin/Max, so the
-    // shipped look is bit-identical; only the two menu rows and the two cfg keys are gone.
+    // old look is still available with BarFollowFigureScale off; the former two bound controls
+    // remain gone.
     internal const bool WristHud = true;                     // => [WorldUI] WristHud
     internal const bool PanelMipBake = true;                 // => [WorldUI] PanelMipBake
     // ---- WorldUI/PanelSupersample.cs -----------------------------------------------

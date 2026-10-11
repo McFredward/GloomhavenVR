@@ -1,0 +1,416 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Reflection;
+using System.Text;
+using System.Threading;
+using HarmonyLib;
+using ScenarioRuleLibrary;
+
+namespace GloomhavenVR.Core;
+
+/// <summary>
+/// Short Debug-only timing capture of selected native game callbacks. The Build 598 Steam Frame
+/// large-scenario trace spends ~48 ms in Update and ~22 ms in LateUpdate on sampled frames, but
+/// Unity's release player exposes none of the ScriptRunBehaviour profiler markers. The scene
+/// census counts callback instances; it cannot tell which callback consumed that time. These
+/// Harmony hooks time existing methods without changing arguments, return values or game state.
+///
+/// A name below is the DECLARING type, not necessarily the concrete component. For example,
+/// ProceduralWall inherits ProceduralTileObserver.Update and WorldspacePanelUIController inherits
+/// WorldspaceDisplayPanelBase.LateUpdate. The total for a target includes anything it calls,
+/// including possible mod patches. It is not exclusive native cost; do not add these timings to
+/// each other or subtract them from the full Update/LateUpdate span. Unity engine work and every
+/// method not named below remain unmeasured. The next headset log decides whether any candidate
+/// is actually expensive. A source count or this patch alone cannot establish a frame gain.
+///
+/// The summary retains its first-120-frame sample. A separate bounded per-frame ledger stays
+/// active for Debug SPIKE attribution after that sample; ordinary logging costs a bool branch.
+/// Patches are installed only once, only after Debug
+/// logging and [Perf] FrameSplit are active, and Plugin.OnDestroy removes them with UnpatchSelf.
+/// Setup cost is measured and reported; instrumentation's in-call overhead is not isolated.
+/// </summary>
+internal static class PerfNativeLoopProbe
+{
+    private sealed class Target
+    {
+        internal Target(string typeName, string methodName, bool overloads = false)
+        {
+            TypeName = typeName;
+            MethodName = methodName;
+            Overloads = overloads;
+        }
+
+        internal readonly string TypeName;
+        internal readonly string MethodName;
+        internal readonly bool Overloads;
+        internal string Fault = "not installed";
+        internal bool Patched;
+        internal long Ticks;
+        internal long WorstTicks;
+        internal int Calls;
+        internal long FrameTicks, LastFrameTicks;
+        internal int FrameCalls, LastFrameCalls;
+
+        internal string Label => TypeName + "." + MethodName;
+    }
+
+    // These callbacks exist in the game's shipped assemblies. They are sampled because the
+    // Build 598 SIM census lists their component families in a large scenario, or because their
+    // single scheduler callback can hide many coroutine/tween continuations. The last six are
+    // small-count callback candidates omitted by Build 599; unavailable methods report n/a.
+    private static readonly Target[] Targets =
+    {
+        new("MEC.Timing", "Update"),
+        new("MEC.Timing", "LateUpdate"),
+        new("LeanTween", "Update"),
+        new("ProceduralTileObserver", "Update"),
+        new("WorldspaceDisplayPanelBase", "LateUpdate"),
+        new("ActorBehaviour", "Update"),
+        new("ActorBehaviour", "LateUpdate"),
+        new("ExtendedButton", "Update"),
+        new("ThreadSyncService", "Update"),
+        new("Choreographer", "Update"),
+        new("PlatformLayer", "Update"),
+        new("WorldspaceUITools", "Update"),
+        new("ApparanceEngine", "Update"),
+        new("ApparanceResources", "Update"),
+        new("Updater", "Update"),
+        // Build617 attributes 207 ms to Choreographer.Update, not to its precise message.
+        // These are original presentation entry points reached by ActionSelection. Their
+        // inclusive nested times must not be added; every overload keeps original dispatch.
+        new("Choreographer", "ProcessMessage", true),
+        new("CardsHandManager", "Show", true),
+        new("CardsHandUI", "UpdateView", true),
+        new("CardsHandUI", "UpdateCards", true),
+        new("CardsActionControlller", "Init", true),
+        new("UIActiveBonusBar", "ShowActiveBonus", true),
+        new("UIUseItemsBar", "ShowUsableItems", true),
+        new("InfusionBoardUI", "UpdateBoard"),
+        new("FullAbilityCard", "MakeFullCard", true),
+        new("FullAbilityCard", "MakeFullCardContinued"),
+    };
+
+    private static readonly Dictionary<MethodBase, Target> ByMethod = new(Targets.Length);
+    private static readonly StringBuilder Sb = new(1200);
+    private struct ProbeState
+    {
+        internal long Started;
+        internal int Capture;
+        internal int MessageIndex;
+    }
+
+    // Original message enum only: no actor/card identity, state mutation, reflection or
+    // string conversion in a live callback. Allocate these fixed ledgers once at Debug setup.
+    private sealed class MessageCost
+    {
+        internal MessageCost(string label) => Label = label;
+        internal readonly string Label;
+        internal long Ticks, Worst, LastTicks, LastWorst;
+        internal int Calls, Exceptions, LastCalls, LastExceptions;
+    }
+    private static MessageCost[] _messages = Array.Empty<MessageCost>();
+    private static readonly List<MessageCost> MessageRanked = new();
+
+    private static bool _installed;
+    private static bool _sampling;
+    private static bool _spikeCapture;
+    private static int _mainThread;
+    private static readonly List<Target> SpikeRanked = new(Targets.Length);
+
+    // Rolled at the monitor's first Update, before refresh/settings may close its summary.
+    // Fixed-size ledgers, no formatting or allocation on the ordinary frame path.
+    internal static void RollSpikeFrame(bool on)
+    {
+        bool enabled = on && VRLog.WantsDebug && VRSession.Harmony != null;
+        if (!enabled && !_spikeCapture) return;
+        // Install calibrates the hook bodies with synthetic calls. Finish that setup before
+        // enabling the first real-frame ledger; calibration is never a native callback frame.
+        if (enabled && !_installed) Install();
+        _spikeCapture = enabled;
+        foreach (Target target in Targets)
+        {
+            target.LastFrameTicks = _spikeCapture ? target.FrameTicks : 0;
+            target.LastFrameCalls = _spikeCapture ? target.FrameCalls : 0;
+            target.FrameTicks = 0;
+            target.FrameCalls = 0;
+        }
+        foreach (MessageCost message in _messages)
+        {
+            message.LastTicks = _spikeCapture ? message.Ticks : 0;
+            message.LastWorst = _spikeCapture ? message.Worst : 0;
+            message.LastCalls = _spikeCapture ? message.Calls : 0;
+            message.LastExceptions = _spikeCapture ? message.Exceptions : 0;
+            message.Ticks = message.Worst = 0;
+            message.Calls = message.Exceptions = 0;
+        }
+    }
+
+    internal static void AppendSpike(StringBuilder sb)
+    {
+        if (!_spikeCapture) return;
+        SpikeRanked.Clear();
+        foreach (Target target in Targets)
+            if (target.LastFrameCalls != 0) SpikeRanked.Add(target);
+        SpikeRanked.Sort((a, b) => b.LastFrameTicks.CompareTo(a.LastFrameTicks));
+        sb.Append(" | native previous-frame inclusive (Debug; nested):");
+        if (SpikeRanked.Count == 0) sb.Append(" n/a (no selected callback completed)");
+        for (int i = 0; i < Math.Min(4, SpikeRanked.Count); i++)
+        {
+            Target target = SpikeRanked[i];
+            sb.Append(i == 0 ? " " : ", ").Append(target.Label).Append(' ')
+                .Append((target.LastFrameTicks * 1000d / Stopwatch.Frequency).ToString("F3"))
+                .Append("ms/").Append(target.LastFrameCalls).Append(" call(s)");
+        }
+        MessageRanked.Clear();
+        foreach (MessageCost message in _messages)
+            if (message.LastCalls != 0) MessageRanked.Add(message);
+        MessageRanked.Sort((a, b) => b.LastTicks.CompareTo(a.LastTicks));
+        sb.Append(" | native previous-frame messages (Debug; inclusive):");
+        if (MessageRanked.Count == 0) sb.Append(" n/a (no selected message completed)");
+        for (int i = 0; i < Math.Min(3, MessageRanked.Count); i++)
+        {
+            MessageCost message = MessageRanked[i];
+            sb.Append(i == 0 ? " " : ", ").Append(message.Label).Append(' ')
+                .Append((message.LastTicks * 1000d / Stopwatch.Frequency).ToString("F3"))
+                .Append("ms/").Append(message.LastCalls).Append(" call(s), max ")
+                .Append((message.LastWorst * 1000d / Stopwatch.Frequency).ToString("F3"))
+                .Append("ms, exception(s) ").Append(message.LastExceptions);
+        }
+    }
+    private static int _captureGeneration;
+    private static int _sampleFrames;
+    private static double _setupMs;
+    private static double _bodyUsPerCall;
+
+    internal static void Start()
+    {
+        if (!VRLog.WantsDebug || VRSession.Harmony == null)
+            return;
+
+        if (!_installed)
+            Install();
+        foreach (Target target in Targets)
+        {
+            target.Ticks = 0;
+            target.WorstTicks = 0;
+            target.Calls = 0;
+        }
+        _sampleFrames = 0;
+        _captureGeneration++;
+        _sampling = true;
+    }
+
+    internal static void Stop(int frames)
+    {
+        _sampling = false;
+        _sampleFrames = frames;
+    }
+
+    internal static void Shutdown()
+    {
+        _sampling = false;
+        RollSpikeFrame(false);
+        _spikeCapture = false;
+        _sampleFrames = 0;
+        // The shared plugin Harmony removes these patches during Plugin.OnDestroy. Clear the
+        // mapping here so a hot reload cannot retain references to old game methods.
+        ByMethod.Clear();
+        _messages = Array.Empty<MessageCost>();
+        MessageRanked.Clear();
+        foreach (Target target in Targets)
+        {
+            target.Patched = false;
+            target.Fault = "not installed";
+        }
+        _installed = false;
+    }
+
+    internal static void LogSummary(int currentFrames)
+    {
+        int frames = currentFrames > 0 ? currentFrames : _sampleFrames;
+        if (!VRLog.WantsDebug || frames == 0)
+            return;
+        Sb.Length = 0;
+        Sb.Append("NATIVE first ").Append(frames)
+          .Append(" frame(s) of this summary window, selected inclusive game/third-party callbacks "
+                  + "(Debug; mean per sampled "
+                  + "frame, calls, worst single call; nested values must not be added)");
+        foreach (Target target in Targets)
+        {
+            Sb.Append(" | ").Append(target.Label).Append(' ');
+            if (!target.Patched)
+            {
+                Sb.Append("n/a (").Append(target.Fault).Append(')');
+                continue;
+            }
+            double ticksToMs = 1000d / Stopwatch.Frequency;
+            Sb.Append((target.Ticks * ticksToMs / frames).ToString("F3"))
+              .Append("ms/frame, ").Append(target.Calls).Append(" call(s), max ")
+              .Append((target.WorstTicks * ticksToMs).ToString("F3")).Append("ms");
+        }
+        int totalCalls = 0;
+        foreach (Target target in Targets)
+            totalCalls += target.Calls;
+        Sb.Append(" | measured probe body ").Append(_bodyUsPerCall.ToString("F2"))
+          .Append("us/call (empty 2048-call calibration), estimated ")
+          .Append((totalCalls * _bodyUsPerCall / frames / 1000d).ToString("F3"))
+          .Append("ms/frame at this call count; Harmony dispatch excluded")
+          .Append(" | setup ").Append(_setupMs.ToString("F2"))
+          .Append("ms once. Unnamed game/engine callbacks "
+                  + "and all Unity internals remain in the SPLIT logic span.");
+        // The disk listener in the supplied Build 599 run omitted LogDebug even though the
+        // matching Unity Player.log retained it. Keep the Debug guard above, but use the same
+        // durable Info sink as FRAME/SPLIT for the maintainer's Debug capture.
+        VRLog.Info("Perf", Sb.ToString());
+    }
+
+    private static void Install()
+    {
+        _installed = true;
+        _mainThread = Thread.CurrentThread.ManagedThreadId;
+        long started = Stopwatch.GetTimestamp();
+        MethodInfo? prefix = typeof(PerfNativeLoopProbe).GetMethod(nameof(Prefix),
+            BindingFlags.Static | BindingFlags.NonPublic);
+        MethodInfo? postfix = typeof(PerfNativeLoopProbe).GetMethod(nameof(Postfix),
+            BindingFlags.Static | BindingFlags.NonPublic);
+        if (prefix == null || postfix == null)
+            return;
+        Array values = Enum.GetValues(typeof(CMessageData.MessageType));
+        int last = 0;
+        foreach (CMessageData.MessageType value in values) last = Math.Max(last, (int)value);
+        // Current publisher enum is small/dense. Unusual future values never justify an
+        // unbounded allocation; they retain the ordinary method-level inclusive measurement.
+        int capacity = Math.Min(4095, last) + 1;
+        _messages = new MessageCost[capacity];
+        for (int i = 0; i < capacity; i++) _messages[i] = new MessageCost("message#" + i);
+        foreach (CMessageData.MessageType value in values)
+            if ((int)value >= 0 && (int)value < capacity) _messages[(int)value] = new MessageCost(value.ToString());
+        foreach (Target target in Targets)
+        {
+            try
+            {
+                // Prefer the publisher's actual assembly over an unrelated loaded type with
+                // the same short name. Third-party callbacks retain explicit-name fallback.
+                Type? type = typeof(Choreographer).Assembly.GetType(target.TypeName)
+                    ?? AccessTools.TypeByName(target.TypeName);
+                if (type == null)
+                {
+                    target.Fault = "type unavailable";
+                    continue;
+                }
+                const BindingFlags flags = BindingFlags.Instance | BindingFlags.Static
+                    | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
+                MethodInfo[] methods = target.Overloads ? type.GetMethods(flags) : Array.Empty<MethodInfo>();
+                MethodInfo? single = target.Overloads ? null
+                    : type.GetMethod(target.MethodName, flags, null, Type.EmptyTypes, null);
+                if (single != null) methods = new[] { single };
+                int patched = 0;
+                foreach (MethodInfo method in methods)
+                {
+                    if (method.Name != target.MethodName) continue;
+                    bool message = target.TypeName == "Choreographer" && target.MethodName == "ProcessMessage"
+                        && method.GetParameters().Length == 1
+                        && method.GetParameters()[0].ParameterType == typeof(CMessageData);
+                    if (target.TypeName == "Choreographer" && target.MethodName == "ProcessMessage" && !message)
+                        continue;
+                    if (message)
+                        VRSession.Harmony!.Patch(method,
+                            prefix: new HarmonyMethod(typeof(PerfNativeLoopProbe), nameof(MessagePrefix)),
+                            finalizer: new HarmonyMethod(typeof(PerfNativeLoopProbe), nameof(MessageFinalizer)));
+                    else
+                        VRSession.Harmony!.Patch(method, prefix: new HarmonyMethod(prefix),
+                            postfix: new HarmonyMethod(postfix));
+                    ByMethod.Add(method, target);
+                    patched++;
+                }
+                target.Patched = patched > 0;
+                target.Fault = target.Patched ? string.Empty : "method unavailable";
+            }
+            catch (Exception e)
+            {
+                target.Fault = e.GetType().Name;
+            }
+        }
+        // Calibrate the exact two managed hook bodies without executing a game method. This is
+        // intentionally a small one-time sample; the live call count turns it into a per-frame
+        // estimate. Harmony dispatch and interactions with other patches remain unisolated.
+        foreach (MethodBase method in ByMethod.Keys)
+        {
+            const int trials = 2048;
+            _sampling = true;
+            long bodyStart = Stopwatch.GetTimestamp();
+            for (int i = 0; i < trials; i++)
+            {
+                ProbeState state = default;
+                Prefix(ref state);
+                Postfix(method, state);
+            }
+            _bodyUsPerCall = (Stopwatch.GetTimestamp() - bodyStart)
+                             * 1_000_000d / Stopwatch.Frequency / trials;
+            _sampling = false;
+            break;
+        }
+        _setupMs = (Stopwatch.GetTimestamp() - started) * 1000d / Stopwatch.Frequency;
+    }
+
+    private static void Prefix(ref ProbeState __state)
+    {
+        // This hook is installed only on the explicit target methods. Looking the method
+        // up here would add work to every call merely to confirm the registration we made once.
+        if (!_sampling && !_spikeCapture)
+            return;
+        // ProcessMessage explicitly accepts off-main calls and queues them instead. Those
+        // callbacks must retain native behavior without becoming main-thread frame costs.
+        if (Thread.CurrentThread.ManagedThreadId != _mainThread)
+            return;
+        __state.Capture = _captureGeneration;
+        __state.Started = Stopwatch.GetTimestamp();
+    }
+
+    private static void Postfix(MethodBase __originalMethod, ProbeState __state)
+    {
+        // A settings change can close and restart a window while this very callback is still
+        // executing. Do not charge its old prefix timestamp to the new capture.
+        if (__state.Started == 0L || __state.Capture != _captureGeneration
+            || !ByMethod.TryGetValue(__originalMethod, out Target target))
+            return;
+        long ticks = Stopwatch.GetTimestamp() - __state.Started;
+        if (_sampling)
+        {
+            target.Ticks += ticks;
+            if (ticks > target.WorstTicks) target.WorstTicks = ticks;
+            target.Calls++;
+        }
+        if (_spikeCapture)
+        {
+            target.FrameTicks += ticks;
+            target.FrameCalls++;
+        }
+    }
+
+    private static void MessagePrefix(CMessageData? message, ref ProbeState __state)
+    {
+        Prefix(ref __state);
+        if (__state.Started != 0)
+            __state.MessageIndex = message != null ? (int)message.m_Type : -1;
+    }
+
+    private static Exception? MessageFinalizer(MethodBase __originalMethod, ProbeState __state,
+        Exception? __exception)
+    {
+        Postfix(__originalMethod, __state);
+        if (_spikeCapture && __state.Started != 0 && __state.Capture == _captureGeneration
+            && __state.MessageIndex >= 0 && __state.MessageIndex < _messages.Length)
+        {
+            MessageCost message = _messages[__state.MessageIndex];
+            long ticks = Stopwatch.GetTimestamp() - __state.Started;
+            message.Ticks += ticks;
+            message.Worst = Math.Max(message.Worst, ticks);
+            message.Calls++;
+            if (__exception != null) message.Exceptions++;
+        }
+        // Observe failure completion; never swallow, replace or manufacture native exceptions.
+        return __exception;
+    }
+}

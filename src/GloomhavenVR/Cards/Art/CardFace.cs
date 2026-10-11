@@ -1380,12 +1380,16 @@ internal sealed class CardFace
             // EVERY Graphic, not every Image (see IsShapelessQuad) — a RawImage backdrop was
             // structurally invisible to rounds 1-4.
             Graphic[] images = faceRoot.GetComponentsInChildren<Graphic>(includeInactive: true);
-            // The per-candidate detail is only ever printed by the two one-shot latches below, and
-            // this pass runs once a second PER CARD — a full fan plus a browser is twenty-odd
-            // instances. Build the string only while a latch can still fire; afterwards this is a
-            // measurement loop with no allocation at all.
-            bool wantReport = !s_logged[(int)kind] || !s_loggedMuted[(int)kind];
+            // Build607 Frame evidence printed zero muted Ability quads and never a positive pass.
+            // The former !logged || !loggedMuted test therefore kept building the FULL inventory
+            // on every face/arrival/one-second backstop, although another zero-result line could
+            // never print. That included 864 footprint probes for every art-bearing/bright graphic.
+            // Keep the first inventory; prepare the later first-positive details only after a quad
+            // actually qualifies. Presentation and the immediate arrival seam do not depend on the
+            // logger. Normal logging pays for neither diagnostic inventory nor its geometry.
+            bool wantReport = VRLog.WantsDebug && !s_logged[(int)kind];
             System.Text.StringBuilder? report = wantReport ? new System.Text.StringBuilder(160) : null;
+            System.Text.StringBuilder? mutedReport = null;
             int muted = 0, considered = 0;
             var corners = new Vector3[4];
 
@@ -1445,6 +1449,10 @@ internal sealed class CardFace
                     continue;
 
                 Color c = img.color;
+                float luma = c.r * 0.299f + c.g * 0.587f + c.b * 0.114f;
+                bool opaqueDark = c.a >= BlackoutMinAlpha && luma <= BlackoutMaxLuma;
+                if (!opaqueDark && report == null)
+                    continue; // impossible to mute; no geometry/probe can change that verdict
                 img.rectTransform.GetWorldCorners(corners);
                 float minNx = 1f, minNy = 1f, maxNx = 0f, maxNy = 0f;
                 for (int i = 0; i < 4; i++)
@@ -1464,8 +1472,6 @@ internal sealed class CardFace
                 // BlackoutNoiseFloorFraction. Tier A still requires BlackoutMinAreaFraction below.
                 if (area < BlackoutNoiseFloorFraction)
                     continue;
-
-                float luma = c.r * 0.299f + c.g * 0.587f + c.b * 0.114f;
 
                 // How much of this quad falls where the footprint says "not card"?
                 int outside = 0, probes = 0;
@@ -1494,7 +1500,6 @@ internal sealed class CardFace
                 // makes muting safe (see the class note). They differ only in what makes the quad
                 // ILLEGITIMATE: Tier A "it is a card-sized backdrop that reaches past the outline",
                 // Tier B "whatever size it is, it lives mostly where the card is not".
-                bool opaqueDark = c.a >= BlackoutMinAlpha && luma <= BlackoutMaxLuma;
                 bool backdropTier = shapeless && opaqueDark
                                     && area >= BlackoutMinAreaFraction
                                     && outsideFrac >= BlackoutMinOutsideFraction;
@@ -1529,6 +1534,17 @@ internal sealed class CardFace
                 if (!qualifies)
                     continue;
 
+                if (report == null && VRLog.WantsDebug && !s_loggedMuted[(int)kind])
+                {
+                    mutedReport ??= new System.Text.StringBuilder(160);
+                    if (mutedReport.Length > 0)
+                        mutedReport.Append("; ");
+                    mutedReport.Append('\'').Append(img.name).Append("' ")
+                        .Append(area.ToString("P0")).Append(" of the face, luma ")
+                        .Append(luma.ToString("F2")).Append(", ")
+                        .Append(outsideFrac.ToString("P0")).Append(" outside → MUTED (tier ")
+                        .Append(backdropTier ? "A" : "B").Append(')');
+                }
                 var mutedColor = new Color(c.r, c.g, c.b, 0f);
                 img.color = mutedColor;
                 s_muted[imgId] = (img, c, mutedColor);
@@ -1542,15 +1558,18 @@ internal sealed class CardFace
             // The inventory is the reason the "nothing muted" latch no longer needs a shape-less
             // candidate to fire: a face with ZERO shape-less quads is itself the answer to "what
             // paints the border", and a silent pass would have hidden it (again).
-            if (muted > 0 ? !s_loggedMuted[(int)kind] : (!s_logged[(int)kind] && report != null && report.Length > 0))
+            if (VRLog.WantsDebug && (muted > 0 ? !s_loggedMuted[(int)kind]
+                : (!s_logged[(int)kind] && report != null && report.Length > 0)))
             {
                 if (muted > 0)
                     s_loggedMuted[(int)kind] = true;
                 s_logged[(int)kind] = true;
                 VRLog.Info("Cards", $"CARD FACE BLACKOUT ({kind}): {muted} of {considered} shape-less " +
-                                    "quad(s) on the first measured face muted. FULL FACE INVENTORY (every " +
-                                    "drawn Graphic, art-bearing ones listed but never muted) — " +
-                                    $"{report}. A shape-less " +
+                                    "quad(s) on the first measured face muted. " +
+                                    (report != null
+                                        ? "FULL FACE INVENTORY (every drawn Graphic, art-bearing ones listed but never muted) — "
+                                        : "FIRST MUTED QUADS (the initial full inventory was reported earlier) — ") +
+                                    $"{report ?? mutedReport}. A shape-less " +
                                     "uGUI Image/RawImage is a plain RECTANGLE, so anything it paints outside the " +
                                     "captured card outline is the black rectangular border of the " +
                                     "2026-08-11 report ('der schwarze Rand … immer noch vollständig da'); " +

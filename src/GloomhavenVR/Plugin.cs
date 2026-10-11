@@ -224,6 +224,7 @@ public class Plugin : BaseUnityPlugin
     /// has. Local presentation only - no game state is written, and nothing about a hover reaches
     /// another player. See <c>WorldUI/MapRoom/MapIconHoverAnimation</c>.</para>
     /// </summary>
+    // Build620: legacy storage only, no runtime effect and hidden from both settings routes.
     internal static ConfigEntry<bool> MapHoverAnimation = null!;
 
     /// <summary>
@@ -385,6 +386,16 @@ public class Plugin : BaseUnityPlugin
 
     private void Awake()
     {
+        // The Steam Frame install marks this game directory so the original Steam entry stays
+        // flat even if a Wine DLL override was accidentally left on it. PC installs have no
+        // marker and retain their existing startup. This must precede every Bind and module:
+        // once Core.Init runs, XR and the presentation patches can no longer be undone cleanly.
+        if (!FrameLaunchOptIn.AllowsCurrentLaunch(Paths.BepInExRootPath))
+        {
+            Logger.LogInfo("Steam Frame flat launch: VR starter argument absent; plugin inactive.");
+            return;
+        }
+
         VRLog.Init(Logger);
 
         // READ THE CONFIG FILE BEFORE THE FIRST BIND TOUCHES IT. BepInEx writes the whole file on
@@ -695,28 +706,11 @@ public class Plugin : BaseUnityPlugin
                 + "is put back exactly as it was the moment you leave the room, and it is never "
                 + "sent to other players. Applies live, no restart.",
                 new AcceptableValueRange<float>(0.5f, 4f)));
-        // THE ONE [MapRoom] DIAL THAT IS NOT A SIZE (user, 2026-09-03: "Bitte deaktiviere die
-        // animationen für das mouseover im Kartenraum wenn ich über ein Kartensymbol hovere - an
-        // der Stelle möchte ich es nicht."). Same section as the five size dials because it is the
-        // same room and folds under the same [Rig] Vanilla2DMap switch, but it ships FALSE - the
-        // default IS the request, and the dial exists only so a taste ruling on a visual can be
-        // taken back without waiting for a build.
+        // Retain the stored key for upgrade compatibility; the legacy menu switch is retired.
         MapHoverAnimation = Config.Bind(
             "MapRoom", "HoverAnimation", Defaults.MapHoverAnimation,
-            // WRITTEN AGAINST ConfigCatalog.MaxDescriptionChars = 620 AND MEASURED, not estimated:
-            // 611 characters after ConfigCatalog.Collapse's whitespace rule. The five [MapRoom]
-            // size dials above shipped at 1062 and 772 and were clipped mid-word in the headset,
-            // and the reader lost exactly the closing sentences — so this one was cut to fit
-            // before it shipped rather than after a report.
-            new ConfigDescription(
-                "MOUSEOVER PARTICLE EFFECT on a location symbol in the 3D map room. OFF by "
-                + "default, as asked. The hover itself is untouched: the symbol still highlights, "
-                + "it still GROWS 20% while you point at it, its quest card still appears above it "
-                + "and the trigger still selects it. Only the sparkle stops — the game starts a "
-                + "fading particle effect on the symbol the instant you point at it, and that one "
-                + "is put straight back. The 20% growth is no longer part of this setting and runs "
-                + "either way; it multiplies with your chosen symbol size, so it stays equally "
-                + "visible at any size. Applies live, 3D map room only."));
+            new ConfigDescription("INERT: legacy MOUSEOVER PARTICLE EFFECT switch. The 3D map suppresses "
+                + "native hover particles. The symbol still GROWS 20% and retains normal highlight and selection."));
         WorldTiltDegrees = Config.Bind(
             "Rig", "WorldTiltDegrees", Defaults.WorldTiltDegrees,
             new ConfigDescription(
@@ -752,11 +746,11 @@ public class Plugin : BaseUnityPlugin
             "misalignment this small is visually indistinguishable from a perfect aim.");
         DisablePostProcessing = Config.Bind(
             "Compat", "DisablePostProcessing", Defaults.DisablePostProcessing,
-            "Disable PostProcessing v2 (PostProcessLayer/PostProcessVolume) while VR is active. " +
+            "INERT — stereo-incompatible PostProcessing v2 is always disabled while VR is active. " +
             "Phase 1 default: true (PPv2 is unverified under stereo rendering).");
         DisableVolumetricFog = Config.Bind(
             "Compat", "DisableVolumetricFog", Defaults.DisableVolumetricFog,
-            "Disable the VolumetricFogAndMist.VolumetricFog image effect while VR is active.");
+            "INERT — the stereo-incompatible VolumetricFogAndMist.VolumetricFog image effect is always disabled in VR.");
         DisableComponents = Config.Bind(
             "Compat", "DisableComponents", Defaults.DisableComponents,
             "Extra comma-separated component type full names (optionally 'FullName, Assembly') " +

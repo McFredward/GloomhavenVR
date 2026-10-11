@@ -40,10 +40,10 @@ namespace GloomhavenVR.Net;
 /// </summary>
 internal static unsafe class AvatarSerializer
 {
-    /// <summary>Upper bound on an encoded rig packet: header 12 + head 20 + 2 hands (20+5) +
-    /// held-figure block (4+20) + hand-style byte + held-card pose (20) = 127, rounded up to
-    /// 159 including held-face/actor/map TLVs, plus 27 for the atomic board pose.</summary>
-    public const int MaxSize = 186;
+    /// <summary>Upper bound on an encoded rig packet: legacy prefix127 + primary
+    /// face/source/board TLVs57 + complete secondary held-item TLV43 =227 bytes.
+    /// Rounded up for headroom; both cards and wrists remain in one compact packet.</summary>
+    public const int MaxSize = 256;
 
     private const float QuatScale = 32767f;
 
@@ -135,7 +135,52 @@ internal static unsafe class AvatarSerializer
                 WriteF32(buffer, ref i, state.BoardScale);
             }
         }
+        // Normal-mode packets remain byte-identical. Absence clears this optional
+        // state on the next atomic board sample, including a removed/rebuilt board.
+        if (state.HasBoardPose && state.WristBoard)
+        {
+            buffer[i++] = NetProtocol.ExtIdBoardWrist;
+            buffer[i++] = 1;
+            buffer[i++] = 1;
+        }
+        if (state.HasHeldCard && state.HeldTownItem.HasValue && state.HeldTownItem.Value.Validate())
+        {
+            buffer[i++] = NetProtocol.ExtIdTownItemHeld;
+            buffer[i++] = TownItemHeldSource.PayloadSize;
+            state.HeldTownItem.Value.Write(buffer, ref i);
+        }
+        if (state.HasSecondHeldCardState)
+            WriteSecondHeldCard(in state, buffer, ref i);
         return i;
+    }
+
+    private static void WriteSecondHeldCard(in AvatarState state, byte[] buffer, ref int i)
+    {
+        bool held = state.HasHeldCard && state.HasSecondHeldCard;
+        bool face = held && state.HasSecondHeldCardFace;
+        bool map = face && state.HasSecondHeldMapCard && state.SecondHeldMapKey != 0
+            && state.SecondHeldMapPoolSeat < state.SecondHeldMapPoolCount;
+        bool item = face && !map && state.SecondHeldTownItem.HasValue && state.SecondHeldTownItem.Value.Validate();
+        buffer[i++] = NetProtocol.ExtIdRigSecondHeldCard;
+        buffer[i++] = (byte)(2 + (held ? 20 : 0) + (face ? 6 : 0) + (map ? 9 : 0)
+            + (item ? TownItemHeldSource.PayloadSize : 0));
+        buffer[i++] = (byte)((held ? 1 : 0) | (face ? 2 : 0) | (map ? 4 : 0) | (item ? 8 : 0)
+            | (state.HasHeldCard && (held || state.PrimaryHeldCardLeft) ? 16 : 0));
+        buffer[i++] = (byte)(state.HeldCardGripMask & (held ? 3 : state.HasHeldCard ? 1 : 0));
+        if (held) WritePose(buffer, ref i, in state.SecondHeldCardPose);
+        if (face)
+        {
+            WriteI32(buffer, ref i, state.SecondHeldFaceActorId);
+            buffer[i++] = state.SecondHeldFaceCode;
+            buffer[i++] = state.SecondHeldFaceCount;
+        }
+        if (map)
+        {
+            WriteU32(buffer, ref i, state.SecondHeldMapKey);
+            WriteU32(buffer, ref i, state.SecondHeldMapPoolSeat | (uint)state.SecondHeldMapPoolCount << 16);
+            buffer[i++] = state.SecondHeldMapArcSeat;
+        }
+        if (item) state.SecondHeldTownItem!.Value.Write(buffer, ref i);
     }
 
     private static void WritePose(byte[] b, ref int i, in RigPose p)
@@ -235,12 +280,13 @@ internal static unsafe class AvatarSerializer
             state.HasHeldCard = true;
             ReadPose(buffer, ref i, out state.HeldCardPose);
         }
-        bool face = false, actor = false;
+        bool face = false, actor = false, wrist = false;
         while (i < length)
         {
             byte id = buffer[i++];
             bool known = id == NetProtocol.ExtIdHeldCardFace || id == NetProtocol.ExtIdHeldFaceActor || id == NetProtocol.ExtIdHeldMapCard
-                || id == NetProtocol.ExtIdBoardRigPose;
+                || id == NetProtocol.ExtIdBoardRigPose || id == NetProtocol.ExtIdBoardWrist || id == NetProtocol.ExtIdTownItemHeld
+                || id == NetProtocol.ExtIdRigSecondHeldCard;
             if (i == length) { if (known) return false; break; }
             int size = buffer[i++];
             // Older v3 permits opaque future suffixes. Only our known atomic records impose
@@ -251,10 +297,14 @@ internal static unsafe class AvatarSerializer
             {
                 state.HeldFaceCode = buffer[i++];
                 state.HeldFaceCount = buffer[i++];
-                state.SecondHeldFaceCode = buffer[i++];
-                state.SecondHeldFaceCount = buffer[i++];
+                byte secondaryCode = buffer[i++], secondaryCount = buffer[i++];
+                if (!state.HasSecondHeldCardState)
+                {
+                    state.SecondHeldFaceCode = secondaryCode;
+                    state.SecondHeldFaceCount = secondaryCount;
+                }
                 face = NetProtocol.HeldFaceList(state.HeldFaceCode) <= NetProtocol.HeldFaceListMax
-                    && NetProtocol.HeldFaceList(state.SecondHeldFaceCode) <= NetProtocol.HeldFaceListMax;
+                    && NetProtocol.HeldFaceList(secondaryCode) <= NetProtocol.HeldFaceListMax;
             }
             else if (id == NetProtocol.ExtIdHeldFaceActor && size == 4)
             {
@@ -270,6 +320,16 @@ internal static unsafe class AvatarSerializer
                 state.HeldMapPoolSeat = (ushort)pool; state.HeldMapPoolCount = (ushort)(pool >> 16);
                 if (!heldCard || state.HeldMapKey == 0 || state.HeldMapPoolSeat >= state.HeldMapPoolCount) return false;
                 state.HasHeldMapCard = true;
+            }
+            if (id == NetProtocol.ExtIdTownItemHeld)
+            {
+                if (!heldCard || state.HeldTownItem.HasValue
+                    || !TownItemHeldSource.TryRead(buffer, i, size, out TownItemHeldSource source)) return false;
+                state.HeldTownItem = source;
+            }
+            if (id == NetProtocol.ExtIdRigSecondHeldCard)
+            {
+                if (!ReadSecondHeldCard(buffer, ref i, size, heldCard, ref state)) return false;
             }
             if (id == NetProtocol.ExtIdBoardRigPose)
             {
@@ -287,10 +347,69 @@ internal static unsafe class AvatarSerializer
                         || !Finite(state.BoardScale) || state.BoardScale <= 0f) return false;
                 }
             }
+            if (id == NetProtocol.ExtIdBoardWrist)
+            {
+                if (wrist || size != 1 || buffer[i] > 1) return false;
+                wrist = true;
+                state.WristBoard = buffer[i++] == 1;
+            }
             i = next;
         }
+        if (wrist && !state.HasBoardPose) return false;
         if (state.HasHeldMapCard && state.HeldFaceActorId != 0) return false;
+        if (state.HeldTownItem.HasValue && (state.HasHeldMapCard || state.HeldFaceActorId != 0
+            || !face || NetProtocol.HeldFaceList(state.HeldFaceCode) != NetProtocol.HeldFaceListItems)) return false;
         state.HasHeldCardFace = heldCard && face && actor;
+        return true;
+    }
+
+    private static bool ReadSecondHeldCard(byte[] buffer, ref int i, int size, bool primaryHeld, ref AvatarState state)
+    {
+        if (state.HasSecondHeldCardState || size < 2) return false;
+        byte flags = buffer[i++], grip = buffer[i++];
+        bool held = (flags & 1) != 0, face = (flags & 2) != 0;
+        bool map = (flags & 4) != 0, item = (flags & 8) != 0, left = (flags & 16) != 0;
+        if (flags > 31 || grip > 3 || held && (!primaryHeld || !left) || left && !primaryHeld || face && !held || (map || item) && !face
+            || map && item || !held && (grip & 2) != 0 || !primaryHeld && grip != 0
+            || size != 2 + (held ? 20 : 0) + (face ? 6 : 0) + (map ? 9 : 0)
+                + (item ? TownItemHeldSource.PayloadSize : 0)) return false;
+        state.HasSecondHeldCardState = true;
+        state.HasSecondHeldCard = held;
+        state.HeldCardGripMask = grip;
+        state.PrimaryHeldCardLeft = left;
+        if (held)
+        {
+            ReadPose(buffer, ref i, out state.SecondHeldCardPose);
+            Vector3 position = state.SecondHeldCardPose.Position;
+            if (!Finite(position.x) || !Finite(position.y) || !Finite(position.z)) return false;
+        }
+        if (face)
+        {
+            state.SecondHeldFaceActorId = ReadI32(buffer, ref i);
+            state.SecondHeldFaceCode = buffer[i++];
+            state.SecondHeldFaceCount = buffer[i++];
+            if (NetProtocol.HeldFaceList(state.SecondHeldFaceCode) > NetProtocol.HeldFaceListMax) return false;
+            state.HasSecondHeldCardFace = true;
+        }
+        if (map)
+        {
+            state.SecondHeldMapKey = ReadU32(buffer, ref i);
+            uint pool = ReadU32(buffer, ref i);
+            state.SecondHeldMapArcSeat = buffer[i++];
+            state.SecondHeldMapPoolSeat = (ushort)pool;
+            state.SecondHeldMapPoolCount = (ushort)(pool >> 16);
+            if (state.SecondHeldFaceActorId != 0 || state.SecondHeldMapKey == 0
+                || state.SecondHeldMapPoolSeat >= state.SecondHeldMapPoolCount) return false;
+            state.HasSecondHeldMapCard = true;
+        }
+        if (item)
+        {
+            if (state.SecondHeldFaceActorId != 0
+                || NetProtocol.HeldFaceList(state.SecondHeldFaceCode) != NetProtocol.HeldFaceListItems
+                || !TownItemHeldSource.TryRead(buffer, i, TownItemHeldSource.PayloadSize, out TownItemHeldSource source)) return false;
+            state.SecondHeldTownItem = source;
+            i += TownItemHeldSource.PayloadSize;
+        }
         return true;
     }
 

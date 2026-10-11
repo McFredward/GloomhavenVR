@@ -1,0 +1,42 @@
+{
+  "repository": "https://github.com/makehumancommunity/mpfb2",
+  "revision": "b58176c661a9680294eb75f127842cb8378e4974",
+  "license": "CC0-1.0",
+  "scope": "Bundled asset data only; no upstream program code.",
+  "files": {
+    "3dobjs/base.obj": "8e761e6624b8f54536409135d1636da63b32486a90d4897f84e121d144f6fb4c",
+    "mesh_metadata/basemesh_vertex_groups.json": "8cb1417bc55ae5ec8aa99f90734e81ed5fbb556511ff6a2c00e0534b70911444",
+    "targets/expression/units/caucasian/eye-left-closure.target.gz": "ff0d21ceb6da55fe51e03b48a7562a650924fea9bef0c686fcd7aa44d16422ed",
+    "targets/expression/units/caucasian/eye-right-closure.target.gz": "2b7be6bc65845d77e5f83b7bf852090854747e448644997795fa59b6cf76122d",
+    "targets/expression/units/caucasian/mouth-open.target.gz": "dc1260a8728d93a9c52d6b35b5f55ad39ab8096090acd5ccad7f973c26e28818",
+    "targets/expression/units/caucasian/mouth-retraction.target.gz": "082173954f0ee4e40a878ebbd1a69d8037112bc50fc52e624ec677484c821ea7",
+    "targets/expression/units/caucasian/mouth-pursing.target.gz": "9a5968be7a322d01db28490667746e711ca05d679aeaf7273b25f71c89d1bd49",
+    "targets/expression/units/caucasian/mouth-corner-puller.target.gz": "d881bb8feda2637bdaef2c7d7c6bed12f0be5914949e5a2cb9b06a583af412c0",
+    "targets/expression/units/caucasian/mouth-compression.target.gz": "c1dad4335810949a4591794023de4cf502a677c0aa59d40f7e70b99d4aac20c1",
+    "targets/expression/units/caucasian/eyebrows-left-up.target.gz": "e0be77b6846c62ecc54d589ad1430a2b1a145e8ec067507fae181bd7e6a4eb54",
+    "targets/expression/units/caucasian/eyebrows-right-up.target.gz": "66060c97949f4fb414fb1b731379f9ca5bcc000e4184ee1f7d527d94b70b14e8",
+    "targets/expression/units/caucasian/eye-left-opened-up.target.gz": "842d95f9f0af1807ecf45c79a1def61152a253f0696afce41aa76156be697117",
+    "targets/expression/units/caucasian/eye-right-opened-up.target.gz": "56f07d192a9321437cf6bdadc7800331316e3430ae29e9ce24f957639ccc0224",
+    "rigs/weights.game_engine.json": "9f4a773e74ce5ba08415b4f30070338e9f75bae5971b5075b10cd6b9caa58473"
+  },
+  "systemAssetPack": {
+    "url": "https://files2.makehumancommunity.org/asset_packs/makehuman_system_assets/makehuman_system_assets_cc0.zip",
+    "sha256": "b542127a8e25547c7c29c19f2d1d2adb9a664c80396ecd694095dbc8028a0107",
+    "license": "CC0-1.0",
+    "files": {
+      "tongue/tongue01/tongue01.obj": "12f4a6a9f85abae2ce3b4aa42d8119e1f679a437e0e89cb928ec68b29a7a1587",
+      "tongue/tongue01/tongue01.mhclo": "61d825899cd78ff3146fa1324118060cb44b095fae1427d408c199ade74e3c9e",
+      "tongue/tongue01/tongue01_diffuse.png": "3150be398e48e8ba1feac164c3143c16c0b2e959d9ffb6155f0171f59cfb4ea9",
+      "teeth/teeth_base/teeth_base.mhclo": "9edc3deff3bb97a95c791878064dd069a74a38f95ea6d9707a9ba68d888b3b5c",
+      "teeth/teeth_base/teeth_base.obj": "f55198069e55d360c4b4cc7ecb1cc292b2c7665753ab8b65eabf46a8783f2875",
+      "teeth/teeth_base/teeth.png": "d0afb57869c6fbb56b98f5efc4aec629ee7593e70d8dd2bfb9de923acfb65f43",
+      "eyes/materials/green_eye.png": "b9864ac4f4fa484b24e18f6aba030d70dbc8820cbbacfbe63a974c76772c2009",
+      "eyes/materials/brown_eye.png": "4659691c7295ad6206c78b003e5fd0e5f91dcd53032fa914a229bb48cabe424b",
+      "eyes/low-poly/low-poly.obj": "783fe1e6331162c876520b4c2bed7a8ca06354ca15497e8ebd68bb1b59f4d3de",
+      "eyes/low-poly/low-poly.mhclo": "68582e28e9176cba7cfcf35208f671b6201b8d1bc95c32decff61a3160ec34d8",
+      "skins/middleage_caucasian_male/middleage_lightskinned_male_diffuse.png": "3f94f3f6a5cab92dedf5cce392a87332312fc435f1cb44c6e7b897daef9a5fbb",
+      "skins/old_caucasian_female/old_lightskinned_female_diffuse.png": "00c45246c145562b917371e92de44a1fe394bc5f4bd91418addf24b6adff5e9d",
+      "skins/young_caucasian_female/young_lightskinned_female_diffuse.png": "b2a6ac8cd4f9febdb447368e29c76cd68410bb66e46d9dcfa2d5f75126eea8fc"
+    }
+  }
+}

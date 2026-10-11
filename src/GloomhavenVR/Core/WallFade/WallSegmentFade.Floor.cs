@@ -234,7 +234,7 @@ internal static partial class WallSegmentFade
             // enters the memo, which is the property the swap above rests on.
             if (IsModObject(r))
                 return false;
-            Bounds b = r.bounds;
+            Bounds b = WallCommitGeometryReads.Read(r);
             if (!NearestAnchoredFloorY(b.min.y, out float floorY))
                 return false; // no anchored room yet — undecidable, and deliberately not memoized
             Vector3 s = b.size;
@@ -279,7 +279,7 @@ internal static partial class WallSegmentFade
             {
                 if (m == null)
                     continue;
-                Shader sh = m.shader;
+                Shader sh = FadeSourceMaterial(m).shader;
                 if (sh == null)
                     continue;
                 if (!_shaderVerdict.TryGetValue(sh, out bool capable))
@@ -440,6 +440,7 @@ internal static partial class WallSegmentFade
                         _floorHandedBack++;
                         _floorSessionHandedBack++;
                     }
+                    ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
                     r.SetPropertyBlock(null);
                 }
                 _floorShowScratch.Clear();

@@ -168,6 +168,14 @@ internal static class FigureClothHands
     /// </summary>
     internal static void Tick()
     {
+        // The global cloth compromise also covers held figures. A disabled solver needs no
+        // hand tracking, subtree discovery or collision probe; discard our owned probe as well
+        // as detaching it so toggling OFF does not leave invisible scene-root colliders behind.
+        if (VRSession.IsRunning && !PerfConfig.FigureClothSimulationEnabled)
+        {
+            Clear();
+            return;
+        }
         if (FigureGrabConfig.ClothFollowsFreeHand == null || !FigureGrabConfig.ClothFollowsFreeHand.Value)
         {
             Detach();
@@ -235,6 +243,24 @@ internal static class FigureClothHands
         _palmSphere = null;
         _tipSphere = null;
         _pair = System.Array.Empty<ClothSphereColliderPair>();
+    }
+
+    /// <summary>Restore a live-cook collider stash without reviving this driver's owned probe.
+    /// OFF can arrive between the disable and enable frames, including after the hand detached.</summary>
+    internal static void RestoreNativeColliders(Cloth cloth, ClothSphereColliderPair[] captured)
+    {
+        int attached = _cloths.IndexOf(cloth);
+        if (attached >= 0) { cloth.sphereColliders = _original[attached]; return; }
+        if (_pair.Length == 0) { cloth.sphereColliders = captured; return; }
+        int nativeCount = 0;
+        foreach (ClothSphereColliderPair pair in captured)
+            if (pair.first != _palmSphere || pair.second != _tipSphere) nativeCount++;
+        if (nativeCount == captured.Length) { cloth.sphereColliders = captured; return; }
+        var native = new ClothSphereColliderPair[nativeCount];
+        int index = 0;
+        foreach (ClothSphereColliderPair pair in captured)
+            if (pair.first != _palmSphere || pair.second != _tipSphere) native[index++] = pair;
+        cloth.sphereColliders = native;
     }
 
     private static bool Attach(GameObject root)

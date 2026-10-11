@@ -16,7 +16,10 @@
 //  HOW TO REMOVE THIS FEATURE COMPLETELY — four deletions, one commit, no archaeology:
 //  ---------------------------------------------------------------------------------
 //
-//    1. DELETE THIS FILE:  src/GloomhavenVR/WorldUI/VROptionsTab.Cheats.cs
+//    1. DELETE THIS FILE and its Gold/Win partials and helpers:
+//       src/GloomhavenVR/WorldUI/Options/VROptionsTab.Cheats*.cs,
+//       src/GloomhavenVR/WorldUI/Options/GoldCheat.cs,
+//       src/GloomhavenVR/WorldUI/Options/ScenarioWinCheat.cs.
 //
 //    2. In src/GloomhavenVR/WorldUI/VROptionsTab.3.Content.cs, delete the ONE enum member
 //       marked `// CHEATS (temporary)` from the `View` enum:
@@ -152,7 +155,7 @@ internal static partial class VROptionsTab
     /// rebuild destroys the very button under the pointer — and the arm/confirm step needs exactly
     /// two presses of one button.
     /// </summary>
-    private static readonly List<(TMP_Text label, Func<string> read)> CheatLabels = new(4);
+    private static readonly List<(TMP_Text label, Func<string> read)> CheatLabels = new(6);
 
     // ==========================================================================================
     //  THE GATE — [Cheats] Enabled, and it ships OFF
@@ -177,7 +180,8 @@ internal static partial class VROptionsTab
         _cheatsEnabled = _cheatsFile.Bind("Cheats", "Enabled", Defaults.CheatsEnabled,
             "OFF BY DEFAULT. Turns on the temporary 'Cheats' page under Erweitert in the VR "
             + "options menu — actions to unlock scenarios, reveal rooms and win the current "
-            + "scenario through the native results flow. With this false the page does not exist: its "
+            + "scenario through the native results flow, or grant test gold to the selected "
+            + "character. With this false the page does not exist: its "
             + "link is not drawn on the Erweitert index and the page itself cannot be reached. "
             + "Single-player only; all actions refuse while a multiplayer session is "
             + "live. Read at the moment the menu is drawn, so a change applies the next time the "
@@ -274,6 +278,7 @@ internal static partial class VROptionsTab
         // would mean a single press on a fresh page could write the save.
         _cheatArmedAt = float.NegativeInfinity;
         _winArmedScenario = null;
+        _goldLastResult = null;
 
         BuildLinkRow(ContentRoot, "‹ " + Loc.Mod("cat_debug"), () =>
         {
@@ -295,6 +300,7 @@ internal static partial class VROptionsTab
         rows += BuildScenarioGateRow(online);
         rows += BuildOpenAllDoorsRow(online);
         rows += BuildWinScenarioRow();
+        rows += BuildGoldRow();
         return rows;
     }
 

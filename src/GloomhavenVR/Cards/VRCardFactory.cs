@@ -16,6 +16,11 @@ namespace GloomhavenVR.Cards;
 /// </summary>
 internal sealed class VRCardFactory
 {
+    // CardsDriver creates the single presentation factory. The scenario preparation
+    // coordinator may borrow it, but never creates a second owner/bundle lifecycle.
+    internal static VRCardFactory? PreparationFactory { get; private set; }
+
+    internal VRCardFactory() => PreparationFactory = this;
     private const string BundleFileName = "gloomhavenvr.bundle";
     private static readonly string[] BackingAssetPaths =
     {
@@ -31,6 +36,11 @@ internal sealed class VRCardFactory
 
     private readonly Dictionary<AbilityCardUI, VRCard> _byWidget = new(16);
     private readonly List<VRCard> _all = new(16);
+    // Load-time reservations are not live cards: none enters All or the widget map until
+    // CreateBlank consumes it. No native face or gameplay controller is created here.
+    private readonly List<VRCard> _prepared = new(48);
+
+    internal int PreparedBlankCount => _prepared.Count;
 
     private AssetBundle? _bundle;
     private bool _bundleOwned;
@@ -79,15 +89,56 @@ internal sealed class VRCardFactory
     internal VRCard? Find(AbilityCardUI widget) =>
         _byWidget.TryGetValue(widget, out VRCard card) && card != null ? card : null;
 
-    /// <summary>Create an unbound card (dev fake hand).</summary>
+    /// <summary>Create an unbound wrapper, consuming a load-time backing when available.</summary>
     internal VRCard CreateBlank()
     {
-        var go = new GameObject("VRCard");
-        go.transform.SetParent(PoolRoot, worldPositionStays: false);
-        var card = go.AddComponent<VRCard>();
-        card.Build(GetBackingPrefab());
+        while (_prepared.Count > 0)
+        {
+            int last = _prepared.Count - 1;
+            VRCard prepared = _prepared[last];
+            _prepared.RemoveAt(last);
+            if (prepared == null) continue;
+            _all.Add(prepared);
+            return prepared;
+        }
+        VRCard card = BuildBlank();
         _all.Add(card);
         return card;
+    }
+
+    /// <summary>Reserve one inert backing during the scenario loading gate. The existing
+    /// prefab/procedural builder is shared with ordinary cards; this is not a second face pool.</summary>
+    internal void PrepareOneBlank()
+    {
+        if (_prepared.Count >= 64) return;
+        using var scope = PerfMonitor.Scope("Cards.PrepareBacking");
+        _prepared.Add(BuildBlank());
+    }
+
+    /// <summary>Cancel only unused reservations. Never detach a live/remote adopted face.</summary>
+    internal void ClearPreparedBlanks()
+    {
+        for (int i = _prepared.Count - 1; i >= 0; i--)
+            if (_prepared[i] != null) Object.Destroy(_prepared[i].gameObject);
+        _prepared.Clear();
+    }
+
+    private VRCard BuildBlank()
+    {
+        using var scope = PerfMonitor.Scope("Cards.BuildBacking");
+        var go = new GameObject("VRCard");
+        go.transform.SetParent(PoolRoot, worldPositionStays: false);
+        try
+        {
+            var card = go.AddComponent<VRCard>();
+            card.Build(GetBackingPrefab());
+            return card;
+        }
+        catch
+        {
+            Object.Destroy(go);
+            throw;
+        }
     }
 
     /// <summary>Restore + destroy the VR card for one widget (pool recycle guard).</summary>
@@ -158,6 +209,7 @@ internal sealed class VRCardFactory
     /// <summary>Restore all faces and destroy all VR cards (scenario end / shutdown).</summary>
     internal void Clear()
     {
+        ClearPreparedBlanks();
         for (int i = _all.Count - 1; i >= 0; i--)
         {
             VRCard card = _all[i];
@@ -422,6 +474,7 @@ internal sealed class VRCardFactory
     internal void Dispose()
     {
         Clear();
+        if (ReferenceEquals(PreparationFactory, this)) PreparationFactory = null;
         if (_poolRoot != null)
         {
             Object.Destroy(_poolRoot.gameObject);

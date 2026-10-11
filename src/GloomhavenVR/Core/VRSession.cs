@@ -15,6 +15,13 @@ internal static class VRSession
     /// </summary>
     internal static bool IsRunning { get; set; }
 
+    /// <summary>
+    /// Cached input focus of the current OpenXR session, reported by its feature
+    /// lifecycle callback. Null means no current session-state observation yet;
+    /// desktop window focus is not headset focus, especially under Proton.
+    /// </summary>
+    internal static bool? InputFocus { get; set; }
+
     /// <summary>Shared Harmony instance (created in <see cref="Plugin.Awake"/>).</summary>
     internal static Harmony? Harmony { get; set; }
 

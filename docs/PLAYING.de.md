@@ -6,7 +6,7 @@
   <img src="img/flag-de.png" width="24" alt="Deutsch">&nbsp;<b>Deutsch</b>
 </p>
 
-[Installation](../INSTALL.de.md) · [Steuerung](#die-steuerung) · [Rundenablauf](#karten-und-kontrollbrett)
+[Installation](install/INSTALL.de.md) · [Steuerung](#die-steuerung) · [Rundenablauf](#karten-und-kontrollbrett)
 
 ## Die Steuerung
 
@@ -58,9 +58,19 @@ Das Brett **folgt dir standardmäßig**; über **Folgen/Fixiert** kannst du umsc
 halten, um dich neu zu zentrieren und das Brett neben dir zurückzusetzen. Fremde Bretter werden
 standardmäßig durchsichtig, wenn sie das Szenario verdecken. Gespeicherte Einstellungen gelten weiter.
 
+**Handgelenk-Brett:** Aktiviere **VR Optionen ▸ Brett & Karten ▸ Steuerbrett am Handgelenk**, um
+dasselbe Brett am Handgelenk deiner Nebenhand zu tragen. Unter **Erweitert** stellst du Hand,
+Versatz, Winkel und Größe ein. Greifleiste und Folgen/Fixiert-Taste verschwinden dabei; beim
+Abschalten kehren die vorherige Position und Folgen/Fixiert-Auswahl zurück. Mitspieler sehen das
+befestigte Brett ebenfalls.
+
 Die Stapel für **abgeworfene Karten**, **verbrannte Karten** und **Gegenstände** öffnen sich als
 Fächer. Auf dem Brett liegen auch **aktive Karten**, **Rückgängig**, **Überspringen**, Rast-Tasten
 und der Entscheidungsbereich.
+
+Szenarioregeln bleiben neben dem Brett sichtbar. Lange Regeln enden mit **...**; zeige auf den
+Text zum Ausklappen oder klicke, damit er geöffnet bleibt. Ein weiterer Klick löst das
+Festhalten. Persönliche Quest und Elemente rücken darunter; Mitspieler sehen dieselbe Änderung.
 
 [Video: Karten und Kontrollbrett](../README.de.md#karten-kontrollbrett-und-tisch)
 
@@ -74,6 +84,13 @@ ihren geplanten Zug zu sehen. Das Szenario mit beiden Händen greifen, verschieb
 wird um 60° gedreht. Bestätige am Kontrollboard. Beide Sticks bleiben zur Bewegung verfügbar;
 **B + Y** halten zentriert dich weiterhin neu. Die Belegung findest du unter **Komfort ▸ Hände &
 Zielen ▸ Flächeneffekt drehen**. Nahkampf-Flächeneffekte richten sich nach dem Feld, auf das du zeigst.
+
+**Szenario-Grafik:** **VR Optionen ▸ Grafik** bietet getrennte Regler für
+Wandschattierung, 3D-Wanddetails, entfernte Details und Idle-Pose-Intervalle.
+Weniger Details erhalten das 3D-Brett; längere Idle-Intervalle machen die Bewegung
+ruhender Figuren weniger flüssig. Mit 100% Details und Idle-Intervall 0 stellst du
+die normale Darstellung wieder her. PC und Steam Frame bieten dieselben Regler;
+neue Frame-Einstellungen bevorzugen weniger Details.
 
 ## Fenster
 
@@ -96,6 +113,13 @@ die Belohnung; der Spieler des betroffenen Characters bestätigt für die Gruppe
 Auf einen Ort zeigen, um dessen Auftragsschild einzublenden. Die Gildenmeister-Tasten liegen am
 Tischrand. Für die originale flache Karte **Umgebung & Ton ▸ Kampagnenkarte ▸ Originale 2D-Karte** aktivieren.
 
+**Stadtbesuche:** Bei aktiven immersiven NPCs stehen freigeschaltete Stadtbewohner dauerhaft an
+ihren Ständen. Geh zu ihnen, um zu interagieren. Gib dem Händler eine Ware aus dem Schrank oder
+deinem Gegenstandsfächer zum Kaufen oder Verkaufen in die Hand, der Verzauberin eine Fähigkeitenkarte
+zum Verbessern und der Priesterin den Geldbeutel zum Spenden. Für die ursprünglichen Fenster schalte
+**Immersive Stadt-NPCs** unter **VR Optionen ▸ Umgebung & Ton ▸ Kampagnenkarte** aus. Bei aktiver
+2D-Karte ist diese Einstellung ausgeblendet.
+
 ## Umgebungen
 
 <p align="center">
@@ -111,7 +135,7 @@ Seltene Erscheinungen lassen sich unter **Umgebung & Ton ▸ Grusel** reduzieren
 
 [Video: VR-Mehrspieler](../README.de.md#vollwertiger-vr-mehrspieler)
 
-- VR-Spieler brauchen dieselbe Mod-Version; [gemeinsam aktualisieren](../INSTALL.de.md#updates).
+- VR-Spieler brauchen dieselbe Mod-Version; [gemeinsam aktualisieren](install/INSTALL.de.md#updates).
   Spieler ohne Mod können am flachen Bildschirm mitspielen.
 - Andere Spieler sehen deine Hände, Maske, gehaltenen Objekte und ein Live-Abbild deines Bretts.
   Im Szenario sind fremde Fächer, Handkarten und abgelegte Karten **in der Auswahlphase verdeckt**

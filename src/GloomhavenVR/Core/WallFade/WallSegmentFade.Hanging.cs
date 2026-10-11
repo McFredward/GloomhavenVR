@@ -229,7 +229,7 @@ internal static partial class WallSegmentFade
                     continue;
                 if (!r.enabled && !_mountedTouched.ContainsKey(r))
                     continue; // the GAME disabled it — not ours to manage
-                Bounds b = r.bounds;
+                Bounds b = WallCommitGeometryReads.Read(r);
                 float anchorY = b.min.y;
                 float topY = b.max.y;
                 if (anchorY >= airborneBar)

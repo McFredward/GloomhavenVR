@@ -23,6 +23,22 @@ internal sealed partial class NetAvatarDriver
     private readonly Dictionary<int, List<CardPlumeSnapshot>> _pendingPlumes = new();
     private readonly Dictionary<int, List<NativeUseBarSnapshot>[]> _pendingNative = new();
 
+    internal static void PublishTownServicesFinal()
+    {
+        NetAvatarDriver? driver = _instance;
+        if (driver == null || !driver.isActiveAndEnabled || NetSession.FlatNetMode
+            || !VRSession.IsRunning || !driver._transport.IsOnline
+            || driver._transport.LocalPlayerId <= 0) return;
+        // WorldUI calls this after its last visual writer. Town's offered-card corrections,
+        // native member census and final material/sorting state must belong to this frame.
+        try { driver.SendTownServices(); }
+        catch (Exception e) { driver.LogPhaseError("Sample native town services", e); }
+        // The use-bar pass already drained the queue earlier. Newly captured town artwork
+        // may use a remaining slot; the transport's existing budget keeps its send cadence.
+        if (driver._transport is FfsNetTransport ffs)
+            ffs.TickFragments(Time.unscaledTime);
+    }
+
     private void TickNativePresentationSend(NativeUseBarState?[] states)
     {
         if (NetSession.FlatNetMode || !VRSession.IsRunning || !_transport.IsOnline
@@ -166,6 +182,7 @@ internal sealed partial class NetAvatarDriver
     private void ApplyNativePresentation()
     {
         ApplyMapButtonTooltip();
+        ApplyTownServices();
         ApplyItemAppearance();
         ApplyCardAppearance();
         ApplyNativePrompt();
@@ -208,10 +225,11 @@ internal sealed partial class NetAvatarDriver
     }
 
     private void ForgetNativePresentation(int sender)
-    { _pendingPlumes.Remove(sender); _pendingNative.Remove(sender); _pendingBoards.Remove(sender); ForgetItemAppearance(sender); ForgetCardAppearance(sender); ForgetNativePrompt(sender); ForgetMapButtonTooltip(sender); }
+    { ForgetTownServices(sender); _pendingPlumes.Remove(sender); _pendingNative.Remove(sender); _pendingBoards.Remove(sender); ForgetItemAppearance(sender); ForgetCardAppearance(sender); ForgetNativePrompt(sender); ForgetMapButtonTooltip(sender); }
 
     private void ResetNativePresentation()
     {
+        ResetTownServices();
         _pendingPlumes.Clear(); _pendingNative.Clear(); _pendingBoards.Clear();
         ResetItemAppearance();
         ResetMapButtonTooltip();

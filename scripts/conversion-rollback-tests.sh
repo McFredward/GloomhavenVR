@@ -7,7 +7,7 @@ mutation_dir="$(mktemp -d)"
 trap 'rm -rf "$mutation_dir"' EXIT
 python3 "$repo_root/tests/GloomhavenVR.ConversionRollbackTests/extract-rollback.py" "$repo_root" "$mutation_dir/Rollback.fixture"
 dotnet run --project "$project" --configuration Release --property:RollbackSource="$mutation_dir/Rollback.fixture"
-for mutation in lost-transaction lost-modal-cleanup lost-enrollment lost-retry stale-native-retry silent-refusal unsafe-host-destroy lost-camera-snapshot; do
+for mutation in lost-transaction lost-modal-cleanup lost-enrollment lost-retry stale-native-retry silent-refusal unsafe-host-destroy lost-camera-snapshot lost-layer-duplicate-guard; do
     python3 - "$mutation_dir/Rollback.fixture" "$mutation_dir/Rollback.mutant" "$mutation" <<'PY'
 from pathlib import Path
 import sys
@@ -21,6 +21,7 @@ changes={
     'silent-refusal': ('if (!NativeConversionHomeRestored(panel)) return;', 'if (bool.Parse("false")) return;'),
     'unsafe-host-destroy': ('if (!HostHoldsGameContent(host, out string blocker))', 'if (!HostHoldsGameContent(host, out string blocker) || bool.Parse("true"))'),
     'lost-camera-snapshot': ('bool cameraWasWrong = RestoreAdoptedCameras("release");', 'panel.AdoptedCanvases.Clear();\n        bool cameraWasWrong = RestoreAdoptedCameras("release");'),
+    'lost-layer-duplicate-guard': ('if (initial || !IsRelayered(panel, t))', 'if (true)'),
 }
 before,after=changes[sys.argv[3]]
 assert source.count(before)==1, 'Rollback mutation seam changed: '+sys.argv[3]
@@ -35,6 +36,7 @@ PY
         silent-refusal) expected='Silently refused detach must retain native restoration ownership' ;;
         unsafe-host-destroy) expected='Refused detach must defer host destruction without deleting native content' ;;
         lost-camera-snapshot) expected='Failed camera restoration retains original camera snapshots' ;;
+        lost-layer-duplicate-guard) expected='Recurring sweep preserves the first original layer' ;;
     esac
     if dotnet run --project "$project" --configuration Release --property:RollbackSource="$mutation_dir/Rollback.mutant" > "$mutation_dir/mutant.log" 2>&1; then
         cat "$mutation_dir/mutant.log"

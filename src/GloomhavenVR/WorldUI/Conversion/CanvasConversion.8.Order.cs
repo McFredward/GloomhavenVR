@@ -512,8 +512,10 @@ internal static partial class CanvasConversion
     /// The sortingOrder a converted host was CONVERTED with, for the one consumer that must not see
     /// the live ladder value: UguiPointer.Beats. See the file header ("RAYCASTING IS DELIBERATELY
     /// NOT AFFECTED"). Returns false when <paramref name="raycasterGo"/> is not a converted host's
-    /// own raycaster - nested canvases and non-panel canvases keep reporting their own order, which
-    /// is exactly what the shipped comparison expects.
+    /// own raycaster, except for an explicitly transferred ordinary MapDialogSeat canvas.
+    /// Those shared confirmations use the physical raiser's stable input tier, so its host
+    /// paper cannot outrank their original buttons after a reparent. Other nested and non-panel
+    /// canvases, native sorting concessions and dropdown overlays retain their own order.
     /// </summary>
     internal static bool BaseSortingOrderOf(GameObject? raycasterGo, out int baseOrder)
     {
@@ -529,7 +531,7 @@ internal static partial class CanvasConversion
                 return true;
             }
         }
-        return false;
+        return TrySeatedSubtreeBaseSortingOrder(raycasterGo, out baseOrder);
     }
 
     /// <summary>

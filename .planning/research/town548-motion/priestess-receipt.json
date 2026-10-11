@@ -1,0 +1,86 @@
+{
+  "model": "nvidia/Kimodo-SOMA-RP-v1.1",
+  "conditioning": "empty-text plus full-body/end-effector/root constraints",
+  "profile": {
+    "seconds": 8.0,
+    "seed": 54804,
+    "left": [
+      [
+        0,
+        [
+          0.025,
+          1.21,
+          0.39
+        ]
+      ],
+      [
+        2.5,
+        [
+          0.026,
+          1.225,
+          0.38
+        ]
+      ],
+      [
+        4.7,
+        [
+          0.025,
+          1.2,
+          0.385
+        ]
+      ],
+      [
+        7.966667,
+        [
+          0.025,
+          1.21,
+          0.39
+        ]
+      ]
+    ],
+    "right": [
+      [
+        0,
+        [
+          -0.025,
+          1.21,
+          0.39
+        ]
+      ],
+      [
+        2.5,
+        [
+          -0.026,
+          1.225,
+          0.38
+        ]
+      ],
+      [
+        4.7,
+        [
+          -0.025,
+          1.2,
+          0.385
+        ]
+      ],
+      [
+        7.966667,
+        [
+          -0.025,
+          1.21,
+          0.39
+        ]
+      ]
+    ]
+  },
+  "fps": 30,
+  "steps": 100,
+  "threads": 4,
+  "post_processing": false,
+  "base_pose_source": "kimodo/assets/demo/examples/kimodo-soma-rp/04_ee_constraint/motion.npz",
+  "base_pose_sha256": "40633fe04ac88b96ce8ce202d95870fa4012135721d32777cbb3e198e590c114",
+  "estimated_api_cost_usd": 0,
+  "seconds": 158.85942220687866,
+  "output_sha256": "3b314835097074452fd0a55dbee618d1822376fbd27096a934b3c7c5635ff2bb",
+  "kimodo_source_commit": "58e781898b3d7e328a676a75d3e338c45dce3ad9"
+}

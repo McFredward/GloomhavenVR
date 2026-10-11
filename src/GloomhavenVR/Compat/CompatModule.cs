@@ -58,6 +58,14 @@ internal sealed class CompatModule : IVRModule
         // into the main menu — self-contained Harmony patch, no-op if the game type is absent.
         VRSession.Harmony?.PatchAll(typeof(InitialInputSkip));
 
+        // Selected Bug Fixes 5.0.0 adaptations repair only native UI context.
+        // Original item replay/card restrictions still run; native actions,
+        // rule stacks, inventory ownership and network version stay unchanged.
+        // See .planning/BUGFIX-651-REVIEW.md for all adopted/excluded patches.
+        VRSession.Harmony?.PatchAll(typeof(NativeBugFixes_ShowUsableItemsActor));
+        VRSession.Harmony?.PatchAll(typeof(NativeBugFixes_ItemReplayActor));
+        VRSession.Harmony?.PatchAll(typeof(NativeCardsRestorePhaseFix));
+
         // ISSUE #4 — walls, round 3 (whole-wall redesign; hardware falsified the per-pixel
         // approach). Two halves, both VR-gated and reversible; the evidence and the rejected
         // per-pixel route are in the WallFadeDisable / Core.WallSegmentFade headers:
@@ -211,10 +219,10 @@ internal sealed class CompatModule : IVRModule
             + "locomotion, flat camera hints show VR movement text (tutorial scenarios only).");
 
         var names = new List<string>();
-        if (Plugin.DisablePostProcessing.Value)
-            names.AddRange(PostProcessingTypes);
-        if (Plugin.DisableVolumetricFog.Value)
-            names.Add(VolumetricFogType);
+        // Build619 graphics audit: unsafe stereo effects are compatibility fixes, not
+        // quality preferences. Keep their old config keys INERT for persisted profiles.
+        names.AddRange(PostProcessingTypes);
+        names.Add(VolumetricFogType);
         names.AddRange(Plugin.DisableComponents.Value
             .Split(',')
             .Select(n => n.Trim())

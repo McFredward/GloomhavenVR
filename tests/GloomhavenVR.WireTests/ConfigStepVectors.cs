@@ -37,7 +37,23 @@ internal static class ConfigStepVectors
         Vectors(t);
         Sweep(t, repoRoot);
         ExplicitDrift(t, repoRoot);
+        WallCadenceRange(t, repoRoot);
         Rule(t, repoRoot);
+    }
+
+    /// <summary>
+    /// The Frame Build 594 options row accepted 0.99 and 1.00 seconds while the live wall
+    /// driver silently capped both at 0.25. Read the actual Bind declaration through the same
+    /// range parser used by the all-dial step test: a range in prose does not constrain the UI.
+    /// </summary>
+    private static void WallCadenceRange(Harness t, string repoRoot)
+    {
+        t.Case("configsteps/wall-cadence-options-range");
+        Dictionary<string, (double Min, double Max)> ranges = ReadRanges(repoRoot, ReadDials(repoRoot));
+        t.True(ranges.TryGetValue("WallFade/EvalIntervalSeconds", out var range)
+               && range.Min == 0d && range.Max == 0.25d,
+               "[WallFade] EvalIntervalSeconds must declare the runtime 0..0.25 s limit to "
+               + "BepInEx; otherwise ConfigCatalog has no range and can save ineffective values");
     }
 
     // =============================================================================================

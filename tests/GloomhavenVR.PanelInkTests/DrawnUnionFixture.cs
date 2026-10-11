@@ -5,7 +5,7 @@ namespace GloomhavenVR.WorldUI;
 // Executes the extracted production union over the same bounded hierarchy as the ink walk.
 internal static partial class CanvasConversion
 {
-    private static readonly Dictionary<int, int> ClipperMemo = new(), AuthoredOffsetMemo = new();
+    private static readonly Dictionary<int, int> ClipperMemo = new(), ClipperRectMemo = new(), AuthoredOffsetMemo = new();
     private static readonly List<Graphic> HitGraphicScratch = new();
     private static bool TryGetVisibleHostRect(ConvertedPanel panel, Graphic g, out Vector2 min, out Vector2 max)
     {

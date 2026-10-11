@@ -32,6 +32,7 @@ internal sealed class OwnerTag
     private readonly GameObject _root;
     private readonly Transform _billboard;
     private MeshRenderer? _avatarQuad;
+    private Material? _avatarMaterial;
     private TextMeshPro? _nameLabel;
 
     private Sprite? _shownAvatar;
@@ -76,7 +77,7 @@ internal sealed class OwnerTag
     }
 
     /// <summary>Refresh the avatar/name (change-gated) and billboard toward the local head.</summary>
-    public void Tick()
+    public void Tick(bool required = false)
     {
         if (_root == null)
             return;
@@ -90,7 +91,9 @@ internal sealed class OwnerTag
         // The turn RING is seated under this root as a sibling of the avatar quad
         // (Net.AvatarTurnRing), so switching the row off switches that cue off with it — the same
         // relationship, and the same one-hide rule, RemoteNameTag records for its own children.
-        bool want = NetModule.NameTagsWanted;
+        // A town transaction uses this same avatar/name artwork as a required
+        // occupancy cue. Cosmetic board/head tags retain their configured gate.
+        bool want = required || NetModule.NameTagsWanted;
         if (_root.activeSelf != want)
         {
             _root.SetActive(want);
@@ -153,6 +156,8 @@ internal sealed class OwnerTag
 
     private void Rebuild(Sprite? avatar, string name)
     {
+        if (_avatarMaterial != null) Object.Destroy(_avatarMaterial);
+        _avatarMaterial = null;
         // Clear previous visuals (children of the billboard root).
         for (int i = _billboard.childCount - 1; i >= 0; i--)
             Object.Destroy(_billboard.GetChild(i).gameObject);
@@ -192,6 +197,7 @@ internal sealed class OwnerTag
         if (t != null)
         {
             Material mat = BoardVisual.Unlit(Color.white, t);
+            _avatarMaterial = mat;
             // Map the sprite's atlas rect onto the quad so packed avatars show the right region.
             Rect r = avatar!.rect;
             mat.mainTextureOffset = new Vector2(r.x / t.width, r.y / t.height);
@@ -220,6 +226,8 @@ internal sealed class OwnerTag
 
     public void Destroy()
     {
+        if (_avatarMaterial != null) Object.Destroy(_avatarMaterial);
+        _avatarMaterial = null;
         if (_root != null)
             Object.Destroy(_root);
     }

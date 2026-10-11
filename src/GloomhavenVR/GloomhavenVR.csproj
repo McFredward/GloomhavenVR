@@ -3,7 +3,7 @@
     <TargetFramework>net472</TargetFramework>
     <AssemblyName>GloomhavenVR</AssemblyName>
     <RootNamespace>GloomhavenVR</RootNamespace>
-    <Version>1.0.8</Version>
+    <Version>1.1.0</Version>
     <Description>Demeo-style room-scale VR mod for Gloomhaven (digital).</Description>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Consumed by BepInEx.PluginInfoProps -> MyPluginInfo -->
@@ -12,6 +12,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Shared with the preloader: both stages must agree on Frame's explicit VR opt-in. -->
+    <Compile Include="..\GloomhavenVR.Preload\FrameLaunchOptIn.cs" Link="Core\Startup\FrameLaunchOptIn.cs" />
     <!--
       Art shipped INSIDE the plugin DLL (user request 2026-08-22 #5, the main-menu wordmark —
       see WorldUI/Patches/MainMenuLogoSwap.cs). The asset bundle would be the natural home, but it

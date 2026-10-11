@@ -124,6 +124,8 @@ BepInEx/plugins/GloomhavenVR/GloomhavenVR.dll
 BepInEx/plugins/GloomhavenVR/RuntimeDeps/*.dll
 BepInEx/plugins/GloomhavenVR/RuntimeDeps/versions.json
 BepInEx/plugins/GloomhavenVR/gloomhavenvr.bundle
+BepInEx/plugins/GloomhavenVR/ghvr-town.bundle
+BepInEx/plugins/GloomhavenVR/ghvr-town-voices.bundle
 BepInEx/plugins/GloomhavenVR/THIRD-PARTY.txt
 BepInEx/plugins/GloomhavenVR/LICENSE.txt
 BepInEx/plugins/GloomhavenVR/Licenses/*.txt
@@ -135,14 +137,18 @@ BepInEx/patchers/GloomhavenVR/Natives/*.dll
 requires, and it has to travel with the copies. `LICENSE.txt` carries the mod's GPL text;
 `Licenses/` carries the pinned XR dependency notices and their source/provenance list.
 
-**The bundle is REQUIRED.** Every 3D asset (hands, control board, card backing, map table, head
-avatars, environments, controller models) and every shader the mod ships lives in it; without the
+**The asset bundles are required for a full installation.** The original bank contains hands,
+control boards, card backing, map tables, head avatars, environments and controller models; without the
 file the mod starts, logs an Alert per subsystem and degrades to procedural placeholders everywhere.
 Both installation and packaging use the committed `prebuilt/gloomhavenvr.bundle` by default.
+The separate `prebuilt/ghvr-town.bundle` contains town NPCs, their rigs, stations and work trays.
+`prebuilt/ghvr-town-voices.bundle` contains their speech clips and mouth curves. Both are
+required by the installer and packager. An incomplete runtime installation retains the
+original service windows and reports the missing town assets once per attempted opening.
 An old ignored Unity output must not silently override the reviewed assets. To test a newly
 built local bundle, use `GHVR_USE_LOCAL_BUNDLE=1 bash scripts/package-release.sh` or
 `.\scripts\install.ps1 -UseLocalBundle`; explicit local selection fails if that file is missing.
-After asset validation, copy the new bundle into `prebuilt/` and commit it for the release.
+After asset validation, copy both rebuilt town bundles into `prebuilt/` and commit them for the release.
 If the default committed bundle is missing, the script warns on stderr and ships
 [`packaging/gloomhavenvr.bundle.README.txt`](../packaging/gloomhavenvr.bundle.README.txt) (English
 and German in one file) at the bundle's path, so the player who opens that zip is told what is
@@ -165,7 +171,7 @@ the same way and runs the same check.
 a drag-and-drop user reads, in the two languages the mod ships. `install.ps1` renders the same two
 templates, so the two install paths cannot describe the install differently. `@VERSION@` is the
 only substitution. **If you change install steps, change BOTH templates, both
-[`INSTALL.md`](../INSTALL.md) and [`INSTALL.de.md`](../INSTALL.de.md), and the README's Install
+[`INSTALL.md`](install/INSTALL.md) and [`INSTALL.de.md`](install/INSTALL.de.md), and the README's Install
 section together** — then run `python3 scripts/check-docs-i18n.py`, which is what tells you a
 language fell behind.
 
@@ -173,6 +179,7 @@ language fell behind.
 
 ```sh
 scripts/build-bundles.sh      # needs Unity 2021.3.5f1
+scripts/build-bundles.sh town # independently packs authored town assets, same editor
 ```
 
 The Unity project lives in `unity/GloomhavenVR.Assets/`. See
@@ -208,7 +215,7 @@ re-packs the OLD output, and looks exactly like the edit did nothing.
 
 ## Gates
 
-Run before proposing a change:
+Run these on the final integrated tree before pushing:
 
 ```sh
 scripts/ci-build.sh Release        # 0 errors AND 0 warnings — TreatWarningsAsErrors is on
@@ -223,9 +230,48 @@ compiled form — `patch-inventory.sh check`,
 `check-desync-surface.py`, `check-hw-verify.py`, `check-options-coverage.py`,
 `check-card-identity-mask.py`, `check-mirror-dials.py`, `check-enum-arrays.py`, `wire-tests.sh`,
 `check-bundle-format.sh` and the `check-surface.py` diff. Running one of those by hand as well is
-duplicated work, not extra coverage. The strict build and bilingual-docs checks must also be run
-explicitly. The guard needs a local baseline (`scripts/refactor-guard.sh baseline`, taken before
-editing); exit 1 means compiled output differs, so inspect its verdict and explain the changes.
+duplicated work at the final gate, not extra coverage. The strict build and bilingual-docs checks
+must also be run explicitly. The guard needs a local baseline (`scripts/refactor-guard.sh baseline`,
+taken before editing); exit 1 means compiled output differs, so inspect its verdict and explain
+the changes.
+
+During implementation, each worker runs only the focused runtime suites and source checks
+relevant to its owned changes. Use the suite ID in `scripts/test-suites.json`, or list the
+available local IDs, then run the selected suite with its negative controls:
+
+```sh
+python3 scripts/run-test-suites.py --group local --list
+python3 scripts/run-test-suites.py --group local --suite native-playback
+```
+
+`--suite ID` is a partial run. It does not execute every standalone suite or the golden wire
+vectors, and must never be reported as a complete gate. Record selected IDs, source bindings,
+assertion counts and limitations. Substantial integrations require the complete final local
+gate above; `scripts/wire-tests.sh` runs all local suites and then the golden vectors.
+The maintainer's 2026-10-06 instruction permits focused checks for bounded repairs: rerun the
+affected checks, review the final compiled changes and reuse passing evidence only where its
+bound production sources remain unchanged. Do not repeat successful unrelated suites merely
+because a limited fixture or repair changed. Hosted CI and release requirements remain as
+documented below; a focused local repair is not a new full-suite certification.
+
+Independent tests run concurrently by default. The source group contains 14 read-only gates;
+`wire-tests.sh` runs the complete local suite inventory through the same bounded scheduler, then executes
+the unchanged golden wire vectors. Every suite retains its own negative controls and build
+outputs. A failed or cancelled suite fails the whole invocation. No test is skipped for speed.
+
+The runner chooses concurrency from available CPU and memory, capped at eight suites, and
+limits nested managed build processes. Override it when sharing the machine:
+
+```sh
+GHVR_TEST_JOBS=4 bash scripts/refactor-guard.sh check --summary
+GHVR_TEST_JOBS=1 bash scripts/wire-tests.sh  # sequential diagnosis, unchanged coverage
+```
+
+`scripts/test-suites.json` is the shared inventory for local and hosted execution. Full logs,
+per-suite durations and `results.json` remain under `.planning/debug/test-runs/`; the runner
+prints the selected directory and replays complete logs without interleaving their text.
+Independent suites have separate temporary directories; overlapping runs lock each suite's
+checkout outputs. Complete wire invocations also serialize their shared build/executable.
 
 Full hosted CI runs the source checks and standalone native presentation harnesses on every
 dev push and manual run. Internal PRs may reuse successful full-dev evidence for an identical

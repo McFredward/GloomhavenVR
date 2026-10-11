@@ -24,8 +24,8 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 /// in one log.</para>
 ///
 /// <para><b>WHAT "SELECTED" IS ON THE MAP, AND IT IS NOT THE BOARD'S ACTING HAND.</b> The map phase
-/// has no <c>CPlayerActor</c> at all (<c>CMapCharacter.GetActor()</c> reads
-/// <c>ScenarioManager.Scenario</c>, which is null here — see <c>Net.RevealGate</c>), so there is no
+/// has no active <c>CPlayerActor</c> at all (the scenario singleton may retain a stale
+/// instance after returning to the Guildmaster map), so there is no
 /// "hand the game presents" to fall back to. The map-side selection is one field:</para>
 /// <list type="bullet">
 /// <item><b>THE SELECTION</b> is <c>NewPartyDisplayUI.selectedCharacter</c>
@@ -276,9 +276,11 @@ internal static class MapCharacterSelection
     }
 
     /// <summary>
-    /// The raw map-side selection — <c>NewPartyDisplayUI.PartyDisplay.SelectedUISlot.Data</c>, and
-    /// nothing else. Null while the display holds nobody, is not built, or is gone. Never throws:
-    /// a half-torn UI must not take the map room with it.
+    /// The locally owned map-side selection from
+    /// <c>NewPartyDisplayUI.PartyDisplay.SelectedUISlot.Data</c>. A slot belonging to
+    /// another player cannot satisfy this client's selection floor. Null while the
+    /// display holds nobody local, is not built, or is gone. Never throws: a
+    /// half-torn UI must not take the map room with it.
     /// </summary>
     internal static CMapCharacter? Selected
     {
@@ -291,7 +293,7 @@ internal static class MapCharacterSelection
                 // The slot must actually hold a party member: an Empty/Available slot can be
                 // "selected" while the player is picking a mercenary for it, and that is not a
                 // character to present.
-                if (slot == null || slot.State != PartySlotState.Assigned)
+                if (slot == null || slot.State != PartySlotState.Assigned || !IsLocal(slot.Data))
                     return null;
                 return slot.Data;
             }
@@ -363,9 +365,10 @@ internal static class MapCharacterSelection
 
     /// <summary>
     /// Is <paramref name="character"/> one the LOCAL client controls? Offline every party member is
-    /// (see the class doc's offline paragraph — <c>IsUnderMyControl</c> is never set there, which is
-    /// why the game itself always writes this disjunction). A bench entry is excluded explicitly,
-    /// belt to the roster's braces.
+    /// (see the class doc's offline paragraph). Online the assignment registry wins once the local
+    /// player is known: the native IsUnderMyControl mirror may transiently be false after ownership
+    /// changes even though the authoritative controllable already belongs to this player. An
+    /// unresolved registry falls back to that native mirror. Bench entries remain excluded.
     /// </summary>
     private static bool IsLocal(CMapCharacter? character)
     {
@@ -375,7 +378,18 @@ internal static class MapCharacterSelection
         {
             if (IsBench(character))
                 return false;
-            return !FFSNetwork.IsOnline || character.IsUnderMyControl;
+            if (!FFSNetwork.IsOnline)
+                return true;
+            Reflect();
+            if (_myPlayer != null && _playerId != null
+                && _myPlayer.GetValue(null) is object local
+                && _playerId.GetValue(local) is int localId && localId > 0)
+            {
+                int owner = OwnerOf(character);
+                if (owner > 0)
+                    return owner == localId;
+            }
+            return character.IsUnderMyControl;
         }
         catch (System.Exception)
         {
@@ -921,17 +935,17 @@ internal static class MapCharacterSelection
         return null;
     }
 
-    /// <summary>True while a map is loaded and no scenario is running — the same predicate
-    /// <c>RevealGate.InMapPhase</c> uses, asked here without taking a dependency on the reveal
-    /// rules.</summary>
+    /// <summary>True while this driver is presenting a loaded map. Native scenario
+    /// singletons and phase flags can lag the visible Guildmaster map during a return;
+    /// the room driver itself owns the presentation lifetime.</summary>
     private static bool InMapPhase
     {
         get
         {
             try
             {
-                return MapRuleLibrary.Adventure.AdventureState.MapState != null
-                       && ScenarioRuleLibrary.ScenarioManager.Scenario == null;
+                return MapRoomDriver.Active
+                    && MapRuleLibrary.Adventure.AdventureState.MapState != null;
             }
             catch (System.Exception)
             {
@@ -965,8 +979,8 @@ internal static class MapCharacterSelection
     // length: FFSNet.NetworkPlayer is EntityBehaviour<IPlayerState>, i.e. Bolt-derived, and this
     // build has (and needs) no bolt.dll. So the registry, the controllable and the player are all
     // handled as `object` and every member is reached through AccessTools. Anything missing degrades
-    // to "unknown assignment", which costs the census its numbers and NOTHING else — the floor reads
-    // CMapCharacter.IsUnderMyControl, which is the game's own local mirror and needs no reflection.
+    // to "unknown assignment" in the census; the selection floor then falls back to the game's
+    // local IsUnderMyControl mirror instead of guessing another player's assignment.
     //
     // THE SHAPE, from the game's source:
     //   ControllableRegistry.GetControllable(int) : NetworkControllable   (ControllableRegistry.cs:105)
@@ -1020,8 +1034,8 @@ internal static class MapCharacterSelection
         catch (System.Exception ex)
         {
             VRLog.Debug(Scope, $"SELECTION GUARD: map — the FFSNet reflection failed ({ex.Message}); "
-                               + "the census reports assignment as unknown. The rule itself is "
-                               + "unaffected: it reads CMapCharacter.IsUnderMyControl.");
+                               + "the census reports assignment as unknown. The selection floor "
+                               + "falls back to CMapCharacter.IsUnderMyControl.");
         }
     }
 

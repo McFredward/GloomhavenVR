@@ -46,9 +46,9 @@ internal sealed partial class VRRigDriver
 
     /// <summary>
     /// The game's own scenario renderer, resolved by name and cached. Probed on the same cadence
-    /// as the camera-policy sweep and only while unresolved, because <c>Camera.allCameras</c>
-    /// allocates an array on every read. A Unity-null here (scene unloaded the camera) simply
-    /// re-arms the probe.
+    /// as the camera-policy sweep and only while unresolved. Include owned projection-only
+    /// cameras: enabling mask narrowing after suspension must still find ScenarioCamera.
+    /// A Unity-null here (scene unloaded the camera) simply re-arms the probe.
     /// </summary>
     private Camera? _scenarioCam;
     private int _scenarioCamProbe;
@@ -106,8 +106,8 @@ internal sealed partial class VRRigDriver
         if (--_scenarioCamProbe > 0)
             return null;
         _scenarioCamProbe = SweepIntervalFrames;
-        Camera[] all = Camera.allCameras;
-        for (int i = 0; i < all.Length; i++)
+        int count = NativeCameraRenderBudget.GetProjectionCamerasNonAlloc(out Camera[] all);
+        for (int i = 0; i < count; i++)
         {
             if (all[i] != null && all[i].name == "ScenarioCamera")
             {

@@ -13,47 +13,32 @@ internal sealed partial class FlatScreen
     private bool _cardLossFallbackNoted;
 
     /// <summary>
-    /// End-of-frame hook (WorldUI driver coroutine, after Unity's XR mirror blit).
-    ///
-    /// ITEM 9: with <see cref="DesktopMirrorLeftEye"/> on, the desktop is a clean
-    /// LEFT-EYE mirror (<see cref="TickDesktopMirrorMode"/>) — the XR mirror of the rig
-    /// head camera's left eye already fills the monitor and shows the in-VR flat-screen
-    /// quad (the 2D menu). We therefore do NOT overwrite the backbuffer with the 2D-menu
-    /// composite here; blitting the RT would replace the eye image with the flat menu.
-    ///
-    /// Legacy path (toggle off): while the UICamera is redirected into our RT, copy the
-    /// RT to the desktop backbuffer so the monitor never goes black and stays
-    /// mouse-operable (the old "menu blackscreen" fallback + UI composite overlay).
+    /// Finish the spectator backbuffer after cameras. The headset's native menu
+    /// captures are never composited onto the desktop. Off requests no XR provider
+    /// mirror and clears black every frame, so stale double-buffer pixels and native
+    /// overlays cannot survive a toggle. Only the backbuffer is cleared; the current
+    /// render target is restored even if the clear fails, preserving headset captures.
     /// </summary>
     public void OnEndOfFrame()
     {
-        if (!_visible || _rt == null || !_rt.IsCreated())
+        if (!VRSession.IsRunning || DesktopMirrorLeftEye)
             return;
-
-        // ITEM 9: left-eye mirror is the desktop — leave the eye image untouched.
-        if (DesktopMirrorLeftEye)
+        RenderTexture? previous = RenderTexture.active;
+        try
         {
-            if (!_mirrorLogged)
-            {
-                _mirrorLogged = true;
-                VRLog.Info("WorldUI", "ITEM9 desktop mirror: end-of-frame 2D composite blit SKIPPED — " +
-                                      "the monitor shows the HMD LEFT-eye mirror only (no menu composite / overlay).");
-            }
-            return;
+            RenderTexture.active = null;
+            GL.Clear(clearDepth: true, clearColor: true, backgroundColor: Color.black);
         }
-
+        finally
+        {
+            RenderTexture.active = previous;
+        }
         if (!_mirrorLogged)
         {
             _mirrorLogged = true;
-            VRLog.Info("WorldUI", $"Desktop mirror active — FlatScreen RT ({_rt.width}x{_rt.height}) " +
-                                  "blits to the backbuffer at end of frame" +
-                                  (SplitActive ? " (glass RT alpha-composited on top while routing)." : "."));
+            VRLog.Info("WorldUI", "ITEM9 desktop mirror: end-of-frame 2D composite blit SKIPPED — " +
+                "desktop mirror Off keeps the spectator backbuffer black; headset capture is unchanged.");
         }
-        Graphics.Blit(_rt, (RenderTexture?)null);
-        // Split (class doc D): the UI lives on its own RT now — alpha-composite it
-        // over the background so the monitor still shows the complete menu.
-        if (_splitRouting && _uiRt != null && _uiRt.IsCreated() && _glassMaterial != null)
-            Graphics.Blit(_uiRt, (RenderTexture?)null, _glassMaterial);
     }
 
     public void Shutdown()
@@ -480,6 +465,10 @@ internal sealed partial class FlatScreen
         }
 
         _quad.SetActive(true);
+        // Same-frame handoff: scrubbed cameras have a sink target and CaptureStack
+        // deliberately ignores foreign targets. Return OUR targets before capture,
+        // otherwise the first menu frame is empty and its native controls unavailable.
+        ReleaseDesktopScrub("flat screen capture begins");
         CaptureStack();
 
         // P5 (MISSION A.5): the ModalUI-constrained laser may point at the screen.

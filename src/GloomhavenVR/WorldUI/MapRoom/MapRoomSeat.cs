@@ -54,6 +54,22 @@ internal static class MapRoomSeat
     /// </summary>
     internal const float TableTopHeightMeters = 0.78f;
 
+    /// <summary>Minimum entry/recenter eye clearance above the parchment in real metres.
+    /// A seated or eye-origin tracking pose can be below the 0.78 m furniture height.
+    /// This is not applied during locomotion or ordinary head movement.</summary>
+    internal const float MinimumEyeClearanceMeters = 0.70f;
+
+    /// <summary>Maximum entry/recenter eye clearance above the parchment in real metres.
+    /// Elevated tracking origins must not spawn visitors inside the cellar ceiling.</summary>
+    internal const float MaximumEyeClearanceMeters = 1.05f;
+
+    /// <summary>One-shot signed rig correction for a measured tracked local head Y.
+    /// The furniture, hand tracking and horizontal seat retain their existing geometry.</summary>
+    internal static float EyeClearanceAdjustmentMeters(float trackedEyeHeightMeters, float tableAboveRigFloorMeters) =>
+        Mathf.Clamp(trackedEyeHeightMeters - tableAboveRigFloorMeters,
+            MinimumEyeClearanceMeters, MaximumEyeClearanceMeters)
+        - (trackedEyeHeightMeters - tableAboveRigFloorMeters);
+
     /// <summary>
     /// Standing clearance between the map's own EDGE and the player, real metres — the same
     /// quantity <c>SpawnRing.EdgeClearanceMeters</c> is for the scenario board. Small enough that

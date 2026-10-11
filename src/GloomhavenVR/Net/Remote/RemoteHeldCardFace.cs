@@ -171,7 +171,7 @@ internal sealed class RemoteHeldCardFace
             ReportPending(code, "waiting for the held card source address");
             return;
         }
-        if (!NetProtocol.HeldFaceNamesCard(code) && _owner.HeldFaceMapKey(_slot) == 0)
+        if (!NetProtocol.HeldFaceNamesCard(code) && _owner.HeldFaceMapKey(_slot) == 0 && !_owner.HeldTownItemSource(_slot).HasValue)
         {
             // A CARD IS IN THEIR FIST AND THE RECORD NAMES NO SEAT FOR IT — the state the 2026-09-05
             // evidence turned out to be made of. Count a back only when the covered body is
@@ -322,6 +322,9 @@ internal sealed class RemoteHeldCardFace
         }
     }
 
+    private CItem? _townStockItem;
+    private int _townStockId;
+
     /// <summary>
     /// Seat <paramref name="code"/> in the peer's own copy of the list it names, leaving
     /// <see cref="_face"/> / <see cref="_item"/> null when it cannot be seated — which lands the
@@ -348,6 +351,23 @@ internal sealed class RemoteHeldCardFace
         // the seat this record names is a seat in the very list the fan is drawing.
         if (source == RevealGate.CardFaceSource.MapLoadout)
         {
+            TownItemHeldSource? town = _owner.HeldTownItemSource(_slot);
+            if (town.HasValue)
+            {
+                TownItemHeldSource itemSource = town.Value;
+                if (itemSource.Kind == TownItemHeldSource.Owned)
+                {
+                    _item = WorldUI.MapRoom.MapRoomHand.ResolveMerchantHeldItem(itemSource);
+                }
+                else if (itemSource.Kind == TownItemHeldSource.Stock
+                    && WorldUI.TownServiceNativeAssets.FindItemData(itemSource.ItemId) != null)
+                {
+                    if (_townStockId != itemSource.ItemId || _townStockItem == null)
+                    { _townStockId = itemSource.ItemId; _townStockItem = new CItem(itemSource.ItemId); }
+                    _item = _townStockItem;
+                }
+                return;
+            }
             if (_owner.HeldFaceMapKey(_slot) != 0)
             {
                 _mapCard = WorldUI.MapRoom.MapRoomHand.ResolveMapPoolCard(_owner.HeldFaceMapKey(_slot),

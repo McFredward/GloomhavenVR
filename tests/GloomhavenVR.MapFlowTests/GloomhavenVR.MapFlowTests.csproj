@@ -6,6 +6,7 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <ModalSource Condition="'$(ModalSource)' == ''">../../src/GloomhavenVR/WorldUI/Modal/ModalFallback.10.CatchAll.cs</ModalSource>
     <LoadoutSource Condition="'$(LoadoutSource)' == ''">../../src/GloomhavenVR/WorldUI/Composites/LoadoutWindowOwnership.cs</LoadoutSource>
+    <SelectionSource Condition="'$(SelectionSource)' == ''">../../src/GloomhavenVR/WorldUI/MapRoom/MapSelectionTransition.cs</SelectionSource>
     <StorySource Condition="'$(StorySource)' == ''">../../src/GloomhavenVR/WorldUI/Composites/StoryComposite.cs</StorySource>
     <MapGateSource Condition="'$(MapGateSource)' == ''">../../src/GloomhavenVR/WorldUI/MapRoom/MapInputGate.cs</MapGateSource>
     <InteractorSource Condition="'$(InteractorSource)' == ''">../../src/GloomhavenVR/WorldUI/MapRoom/MapLocationInteractor.cs</InteractorSource>
@@ -13,6 +14,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="$(LoadoutSource)" Link="Production/LoadoutWindowOwnership.cs" />
+    <Compile Include="$(SelectionSource)" Link="Production/MapSelectionTransition.cs" />
     <Compile Include="$(MapGateSource)" Link="Production/MapInputGate.cs" />
     <Compile Include="$(IntermediateOutputPath)MapPolicies.g.cs" />
   </ItemGroup>

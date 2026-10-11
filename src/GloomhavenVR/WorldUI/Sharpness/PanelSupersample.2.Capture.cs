@@ -937,7 +937,9 @@ internal static partial class PanelSupersample
         // rather than defaulted off: a setting that makes windows uglier and fixes nothing is not an
         // optional-content setting, and this project's standing rule is that settings configure
         // optional content and comfort only.
-        cam.backgroundColor = new Color(0f, 0f, 0f, 0f);
+        Color clear = cam.backgroundColor;
+        if (clear.r != 0f || clear.g != 0f || clear.b != 0f || clear.a != 0f)
+            cam.backgroundColor = new Color(0f, 0f, 0f, 0f);
     }
 
     /// <summary>
@@ -1082,7 +1084,11 @@ internal static partial class PanelSupersample
         // frame, reached through the same entry. This one dereferenced unconditionally, which makes
         // it the leading candidate for the one NullReferenceException in the ModBuild 478 log.
         if (e.DisplayRect != null)
-            e.DisplayRect.sizeDelta = e.Frame.size;
+        {
+            Vector2 size = e.Frame.size;
+            if (!SameComponents(e.DisplayRect.sizeDelta, size))
+                e.DisplayRect.sizeDelta = size;
+        }
         else
             MissingPart(e, "display-quad RectTransform (Entry.DisplayRect)");
         SyncDisplayPose(e);
@@ -1153,7 +1159,8 @@ internal static partial class PanelSupersample
     /// somehow never gets a pre-cull callback is still correct) and once from the capture camera's
     /// own <see cref="Camera.onPreCull"/>, which is the last instant before it culls and therefore
     /// the only place a late LateUpdate scale write cannot beat. See <see cref="SyncGeometry"/>'s
-    /// ORDERING paragraph for the artifact this second call removes. Both writes are idempotent.
+    /// ORDERING paragraph for the artifact this second call removes. Both passes re-check the
+    /// live values; equal values need no Unity property write.
     /// <para>Everything here is in WORLD units (the map room runs ~198 world units per real metre);
     /// <c>Frame</c> is in host-local uGUI pixels and the host's lossy scale is the bridge.</para>
     /// </summary>
@@ -1162,9 +1169,8 @@ internal static partial class PanelSupersample
         RectTransform? host = e.Panel.HostRect;
         if (host == null || e.Cam == null || e.CamGo == null)
             return;
-        // Re-asserted every frame so the dial can be compared LIVE from the VR menu without a restart:
-        // this is the one setting the user has to be able to A-B against his own eyes, because the
-        // whole question is what the window looks like. Two float writes.
+        // Keep the transparent clear asserted at both sync points. An unchanged value needs no
+        // camera write; a later writer is corrected before capture culls.
         ApplyCaptureClear(e.Cam);
         Rect frame = e.Frame;
         float scale = Mathf.Max(Mathf.Abs(host.lossyScale.y), 1e-6f);
@@ -1181,15 +1187,31 @@ internal static partial class PanelSupersample
         // and so does the 3D character render, which is not SDF at all. A per-glyph threshold cannot
         // remove a whole sub-tree, so the projection is not the lever. Not shipped, recorded here so
         // the next round does not rediscover it.
-        e.Cam.orthographic = true;
-        e.Cam.orthographicSize = frameHeightWorld * 0.5f;
-        e.Cam.aspect = Mathf.Max(frame.width / Mathf.Max(frame.height, 1e-4f), 1e-4f);
-        e.Cam.nearClipPlane = standoff - slab;
-        e.Cam.farClipPlane = standoff + slab;
+        // The LateTick and onPreCull calls both remain: a late writer still gets corrected
+        // before capture. Equal values need no native setter or projection invalidation.
+        if (!e.Cam.orthographic)
+            e.Cam.orthographic = true;
+        float halfHeight = frameHeightWorld * 0.5f;
+        float aspect = Mathf.Max(frame.width / Mathf.Max(frame.height, 1e-4f), 1e-4f);
+        float near = standoff - slab;
+        float far = standoff + slab;
+        if (e.Cam.orthographicSize != halfHeight)
+            e.Cam.orthographicSize = halfHeight;
+        if (e.Cam.aspect != aspect)
+            e.Cam.aspect = aspect;
+        if (e.Cam.nearClipPlane != near)
+            e.Cam.nearClipPlane = near;
+        if (e.Cam.farClipPlane != far)
+            e.Cam.farClipPlane = far;
         Vector2 centre = frame.center;
-        e.CamGo.transform.localPosition = new Vector3(centre.x, centre.y, -standoff / scale);
-        e.CamGo.transform.localRotation = Quaternion.identity;
-        e.CamGo.transform.localScale = Vector3.one;
+        Transform cameraTransform = e.CamGo.transform;
+        Vector3 localPosition = new(centre.x, centre.y, -standoff / scale);
+        if (!SameComponents(cameraTransform.localPosition, localPosition))
+            cameraTransform.localPosition = localPosition;
+        if (!SameComponents(cameraTransform.localRotation, Quaternion.identity))
+            cameraTransform.localRotation = Quaternion.identity;
+        if (!SameComponents(cameraTransform.localScale, Vector3.one))
+            cameraTransform.localScale = Vector3.one;
     }
 
     /// <summary>
@@ -1305,9 +1327,22 @@ internal static partial class PanelSupersample
         if (host == null || e.DisplayGo == null)
             return;
         Transform t = e.DisplayGo.transform;
-        t.SetPositionAndRotation(host.TransformPoint(e.Frame.center), host.rotation);
-        t.localScale = host.lossyScale;
+        Vector3 position = host.TransformPoint(e.Frame.center);
+        Quaternion rotation = host.rotation;
+        if (!SameComponents(t.position, position) || !SameComponents(t.rotation, rotation))
+            t.SetPositionAndRotation(position, rotation);
+        Vector3 scale = host.lossyScale;
+        if (!SameComponents(t.localScale, scale))
+            t.localScale = scale;
     }
+
+    // Unity's Vector/Quaternion == operators use tolerances. Exact component equality preserves
+    // every sub-pixel update the old unconditional setters made while skipping only no-op writes.
+    private static bool SameComponents(Vector2 a, Vector2 b) => a.x == b.x && a.y == b.y;
+    private static bool SameComponents(Vector3 a, Vector3 b)
+        => a.x == b.x && a.y == b.y && a.z == b.z;
+    private static bool SameComponents(Quaternion a, Quaternion b)
+        => a.x == b.x && a.y == b.y && a.z == b.z && a.w == b.w;
 
     /// <summary>
     /// <b>MEASURE THE WINDOW'S SIZE IN THE EYE AND DECIDE WHETHER THE LOCK MUST MOVE (ModBuild 243).</b>
@@ -1772,9 +1807,11 @@ internal static partial class PanelSupersample
     /// display quad is a scene root and never appears in this walk at all — which is one of the two
     /// reasons it is not parented to the host; the other is that a nested <see cref="Canvas"/> inside
     /// a converted subtree gets adopted into the panel's hit-testing.</para>
-    /// <para>Cost: the O(n) <see cref="IsRecorded"/> scan runs ONLY for a transform that is not yet on
-    /// the capture layer, so a settled window costs one component walk and zero scans — the same
-    /// shape, and the same reason, as <c>ApplyModLayer</c>'s own guard.</para>
+    /// <para>Cost: only transforms outside the capture layer consult the identity index. A
+    /// settled window still costs one component walk. Build 593's Frame trace caught 2660
+    /// late children of New Party display arriving in one sweep; the former linear search
+    /// of a growing restore list made that one late sweep quadratic and took 764 ms on Frame.
+    /// The index preserves exact-reference identity and the ordered list still restores layers.</para>
     /// </summary>
     private static void ApplyCaptureLayer(Entry e, bool initial)
     {
@@ -1847,7 +1884,7 @@ internal static partial class PanelSupersample
             }
             if (t.gameObject.layer != layer)
             {
-                if (!IsRecorded(e, t))
+                if (e.RecordedLayers.Add(t))
                     e.Relayered.Add(new LayerRecord { Transform = t, OriginalLayer = observed });
                 t.gameObject.layer = layer;
                 moved++;
@@ -2138,7 +2175,11 @@ internal static partial class PanelSupersample
         MeasureFrame(e);
         SyncProjection(e);
         if (e.DisplayRect != null)
-            e.DisplayRect.sizeDelta = e.Frame.size;
+        {
+            Vector2 size = e.Frame.size;
+            if (!SameComponents(e.DisplayRect.sizeDelta, size))
+                e.DisplayRect.sizeDelta = size;
+        }
         SyncDisplayPose(e);
         // ITEM 5, ANSWERED IN THE CODE RATHER THAN IN A COMMENT. This call IS unconditional, and it
         // is ALREADY a no-op whenever the frame has not changed: Reallocate's first branch compares
@@ -2355,19 +2396,10 @@ internal static partial class PanelSupersample
                     continue;
                 originalLayer = other.Relayered[r].OriginalLayer;
                 other.Relayered.RemoveAt(r);
+                other.RecordedLayers.Remove(t);
                 other.LayersMoved = other.Relayered.Count;
                 return true;
             }
-        }
-        return false;
-    }
-
-    private static bool IsRecorded(Entry e, Transform t)
-    {
-        for (int i = 0; i < e.Relayered.Count; i++)
-        {
-            if (ReferenceEquals(e.Relayered[i].Transform, t))
-                return true;
         }
         return false;
     }
@@ -2394,6 +2426,7 @@ internal static partial class PanelSupersample
         if (layer < 0)
         {
             e.Relayered.Clear();
+            e.RecordedLayers.Clear();
             return 0;
         }
         int refused = 0;
@@ -2408,6 +2441,7 @@ internal static partial class PanelSupersample
                 refused++;
         }
         e.Relayered.Clear();
+        e.RecordedLayers.Clear();
         return refused;
     }
 

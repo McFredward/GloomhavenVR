@@ -296,7 +296,7 @@ internal static partial class WallSegmentFade
                     continue;
                 if (f.Figure || IsFigureOrActorRenderer(r))
                     continue; // never touched
-                if (f.WaterSurface || IsWaterProtected(r.bounds))
+                if (f.WaterSurface || IsWaterProtected(WallCommitGeometryReads.Read(r)))
                     continue;
                 if (!r.enabled && !_mountedTouched.ContainsKey(r))
                     continue; // the GAME disabled it — not ours
@@ -329,7 +329,7 @@ internal static partial class WallSegmentFade
                 {
                     if (m == null)
                         continue;
-                    Bounds b = m.bounds;
+                    Bounds b = WallCommitGeometryReads.Read(m);
                     if (!have) { union = b; have = true; }
                     else union.Encapsulate(b);
                 }
@@ -352,7 +352,7 @@ internal static partial class WallSegmentFade
                 {
                     if (m == null)
                         continue;
-                    Bounds b = m.bounds;
+                    Bounds b = WallCommitGeometryReads.Read(m);
                     if (b.max.y <= band)
                     {
                         _censusBlockadeBand++;

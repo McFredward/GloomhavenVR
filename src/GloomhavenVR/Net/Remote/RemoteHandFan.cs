@@ -938,6 +938,12 @@ internal sealed class RemoteHandFan
     /// </summary>
     private readonly List<CAbilityCard> _mapArc = new(MaxCards);
 
+    // The map fan has no AbilityCardUI list. Its order is applied directly to _mapArc,
+    // so the scenario hand-order diagnostic cannot judge this result from _handBuffer.
+    private bool _mapArcOrderApplied;
+    private long _loggedMapArcOrder = long.MinValue;
+    private readonly VRLogThrottle _mapArcFallbackLog = new(30f, maxLines: 12);
+
     /// <summary>Both map-loadout seats come from the same validated held-address accessor as
     /// the held faces. Two cards in hand are ordinary arc membership, never a reason to cover
     /// the entire public map fan.</summary>
@@ -1030,7 +1036,45 @@ internal sealed class RemoteHandFan
             || !NetProtocol.ValidateFanArcOrder(order, count, _mapBuffer.Count)) return false;
         _mapArc.Clear();
         for (int i = 0; i < count; i++) _mapArc.Add(_mapBuffer[order![i]]);
+        _mapArcOrderApplied = true;
         return true;
+    }
+
+    private void ReportMapArcOrderIfChanged(int count, int visibleFronts)
+    {
+        if (!RevealGate.InMapPhase || visibleFronts == 0)
+        {
+            _loggedMapArcOrder = long.MinValue;
+            return;
+        }
+        int stated = _owner.FanArcOrderCount;
+        // Only a visible map front is evidence about map order. The scenario diagnostic's
+        // `model=0` is expected here: this phase has CAbilityCard models, not hand widgets.
+        if (_mapArcOrderApplied)
+        {
+            // Success is a routine state. Keep it at Debug and check the level before
+            // formatting; a moving hand can change the visible count every frame.
+            if (!VRLog.WantsDebug) return;
+            long key = ((long)count << 32) | ((long)_mapArc.Count << 16) | (long)(uint)stated;
+            if (key == _loggedMapArcOrder) return;
+            _loggedMapArcOrder = key;
+            VRLog.Debug("Net", $"MAP ARC ORDER [player {_owner.PlayerId}]: APPLIED — "
+                + $"arc={count} mapModel={_mapArc.Count} visibleFronts={visibleFronts} "
+                + $"recordSeats={stated}; visible map fronts use the owner's record-44 order.");
+            return;
+        }
+        if (!VRLog.Wants(VRLogLevel.Info) || _mapArcFallbackLog.Exhausted) return;
+        // A standing or flapping refusal stays useful in a player's bug report, but the
+        // normal log must not grow with every routine card movement.
+        long fallbackKey = ((long)count << 32) | ((long)_mapBuffer.Count << 16) | (long)(uint)stated;
+        if (!_mapArcFallbackLog.Wants(fallbackKey, Time.unscaledTime)) return;
+        string reason = _owner.FanArcOrder == null || stated <= 0 ? "no order stated"
+            : stated != count ? "order length differs from the arc"
+            : "order does not name distinct map-loadout seats";
+        VRLog.Note("Net", $"MAP ARC ORDER [player {_owner.PlayerId}]: FALLBACK — "
+            + $"arc={count} mapModel={_mapArc.Count} visibleFronts={visibleFronts} "
+            + $"recordSeats={stated}; {reason}. Visible map fronts use the replicated "
+            + $"loadout order, which may differ from the owner's. {_mapArcFallbackLog.Why}");
     }
 
     private CAbilityCard? ResolveMapHeldModel(int slot, uint key)
@@ -1233,6 +1277,7 @@ internal sealed class RemoteHandFan
 
         SyncTuning();
         SyncFaceRect(); // AFTER SyncTuning: the printed rect is derived from the card size it resolves
+        PinMapClassArtBeforeReveal();
 
         // Which hand does the fan hang off? owner.NonDominantHandHolder already resolves to the
         // LEFT holder when DominantRight is true (the sensible default), else RIGHT; fall back to
@@ -1454,6 +1499,40 @@ internal sealed class RemoteHandFan
         UpdateFaces(count, shownActor);
     }
 
+    private uint _pinnedMapClassKey;
+    private float _nextMapClassPinAttempt;
+    private readonly List<CAbilityCard> _mapClassPinBuffer = new(MaxCards);
+
+    /// <summary>Warm the peer's class artwork while their map fan is still closed. The
+    /// loadout is public in the 3D map, but scenario selection never enters this path.
+    /// Pinning a class asset does not construct a face or change the reveal gate; the
+    /// existing count/order belt still decides which remote card may be printed.</summary>
+    private void PinMapClassArtBeforeReveal()
+    {
+        if (!RevealGate.ShowMapPhaseHandFronts)
+        {
+            _pinnedMapClassKey = 0;
+            return;
+        }
+        if (UIInfoTools.Instance == null
+            || !RemoteMapRoom.TryGetPeerFanCharacterKey(_owner.PlayerId, out uint key)
+            || key == 0 || key == _pinnedMapClassKey || Time.unscaledTime < _nextMapClassPinAttempt)
+            return;
+        _nextMapClassPinAttempt = Time.unscaledTime + 1f;
+        try
+        {
+            if (!WorldUI.MapRoom.MapRoomHand.ResolveNamedMapLoadout(key, _mapClassPinBuffer)
+                || _mapClassPinBuffer.Count == 0) return;
+            Cards.CardArtPin.PinForCard(_mapClassPinBuffer[0]);
+            _pinnedMapClassKey = key;
+        }
+        catch (System.Exception ex)
+        {
+            VRLog.Debug("Net", $"Remote map class-art pin deferred ({ex.Message}).");
+        }
+        finally { _mapClassPinBuffer.Clear(); }
+    }
+
     // ------------------------------------------------------------------ front art (gated) --
 
     /// <summary>
@@ -1470,6 +1549,7 @@ internal sealed class RemoteHandFan
     {
         bool showFronts = false;
         bool mapFronts = false;
+        _mapArcOrderApplied = false;
         int frontCount = 0;
         // Which seat of the peer's map LOADOUT is in their fist this frame (-1 = none). Read on the
         // map branch below and used again for the census, so the number the log prints is the
@@ -1877,8 +1957,13 @@ internal sealed class RemoteHandFan
                 {
                     AbilityCardUI widget = _handBuffer[i];
                     FullAbilityCard? full = widget != null ? widget.fullAbilityCard : null;
-                    if (widget != null && full != null && PrintsFront(publicCardsOnly, actor, widget)
-                        && face.ShowFront(full))
+                    bool printed = false;
+                    if (widget != null && full != null && PrintsFront(publicCardsOnly, actor, widget))
+                    {
+                        using (Core.PerfMonitor.Scope("Net.RemoteHandFan.ScenarioFace"))
+                            printed = face.ShowFront(full);
+                    }
+                    if (printed && widget != null)
                     {
                         face.SetNativeAppearance(_owner.PlayerId, actor, widget.AbilityCard);
                         frontCount++;
@@ -2017,6 +2102,7 @@ internal sealed class RemoteHandFan
 
         ReportSeatStackIfChanged(count, frontCount, heldSeatCount);
         ReportArcMembershipIfChanged(count);
+        ReportMapArcOrderIfChanged(count, frontCount);
 
         // Log exactly once per backs↔fronts transition — counts + gate state only, never identities.
         // The line NAMES the predicate on purpose: the same sentence appears on every other remote
@@ -2122,6 +2208,11 @@ internal sealed class RemoteHandFan
     /// </summary>
     private void ResolveMapFronts(int loadoutSize)
     {
+        // A card on the enchantress's palm is neither in the fan nor in a player's fist.
+        // Keep the existing exact-length belt against the owner's complete source, then
+        // record44 gathers the remaining fan seats. No identity or concealment rule changes.
+        if (_owner.MapLoadoutCount > 0) loadoutSize = _owner.MapLoadoutCount;
+
         RemoteMapRoom.TryGetPeerFanCharacterKey(_owner.PlayerId, out uint characterKey);
         // Count and character identity cannot detect a same-size loadout replacement. Read
         // the bounded replicated list on every draw; per-card print keys still avoid rebuilds.
@@ -2192,8 +2283,9 @@ internal sealed class RemoteHandFan
             face.MaintainMipBake();
             return true;
         }
-        if (RemoteAbilityCardSource.ShowFullFace(face, null, card) == RemoteAbilityCardSource.FacePath.None)
-            return false;
+        using (Core.PerfMonitor.Scope("Net.RemoteHandFan.MapFirstFace"))
+            if (RemoteAbilityCardSource.ShowFullFace(face, null, card) == RemoteAbilityCardSource.FacePath.None)
+                return false;
         face.SetNativeAppearance(_owner.PlayerId, null, card);
         if (index < _mapPrinted.Count)
             _mapPrinted[index] = card.ID;
@@ -3054,6 +3146,13 @@ internal sealed class RemoteHandFan
     /// </summary>
     private void ReportArcOrderIfChanged(int count)
     {
+        // The map fan applies record 44 to _mapArc, while _handBuffer is always empty.
+        // Reporting `no fronts` here falsely labels its visible, ordered map cards a refusal.
+        if (RevealGate.InMapPhase)
+        {
+            _loggedOrderVerdict = "\u0000";
+            return;
+        }
         // A FAN WITH NO SLABS HAS NO ORDER TO GET WRONG, and saying so every time one shuts is how
         // this line came to read as a standing refusal. MEASURED (2026-09-07 evening round): EVERY
         // 'reason=none stated' that follows an APPLIED/HELD burst in either log prints "this peer's
@@ -4257,6 +4356,12 @@ internal sealed class RemoteHandFan
     /// </summary>
     private void ReportArcMembershipIfChanged(int count)
     {
+        // This census folds AbilityCardUI ids and is meaningful only for a scenario fan.
+        if (RevealGate.InMapPhase)
+        {
+            _loggedArcMembership = long.MinValue;
+            return;
+        }
         int suppressed = (_arcHeldSeatA >= 0 ? 1 : 0) + (_arcHeldSeatB >= 0 ? 1 : 0);
         int held = _owner.HeldHandSeats(out _, out _, out _);
 
@@ -4574,9 +4679,9 @@ internal sealed class RemoteHandFan
         {
             float k = 1f - Mathf.Exp(-_followSmoothing * Mathf.Max(dt, 0f));
             _facing = Quaternion.Slerp(_facing, targetRot, k);
-            root.SetPositionAndRotation(
-                Vector3.Lerp(root.position, target, k),
-                ApplyGazeBias(_facing, biasYaw));
+            Vector3 position = (root.position - target).magnitude > _owner.BoardTuning.FanFollowDeadzone * _owner.AppliedScale
+                ? Vector3.Lerp(root.position, target, k) : root.position;
+            root.SetPositionAndRotation(position, ApplyGazeBias(_facing, biasYaw));
         }
     }
 

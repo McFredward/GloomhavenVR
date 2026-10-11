@@ -38,7 +38,7 @@ internal static class NativeElementRenderVectors
             && copied.RenderElements[0].Nodes[1].RendererColor[3] != 99f,
             "publication and idle predecessor preserve and deep-copy nested geometry and renderer alpha");
         length = NativeBoardCodec.Write(state, packet);
-        t.True(Unpack(packet, length, 53).Length == 25351 && length <= NativeBoardCodec.MaxSize,
+        t.True(Unpack(packet, length, 53).Length == 25351 && length <= 40960,
             "six32-node hierarchies fit the exact maximum25351-byte raw53 and40960-byte message bound");
         t.True(NativeBoardCodec.TryRead(packet, length, out decoded) && decoded!.SamePicture(state),
             "maximal anchors/quaternion/graphic/renderer/group/raw channels survive lossless paging");

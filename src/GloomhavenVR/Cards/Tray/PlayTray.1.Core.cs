@@ -664,7 +664,7 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         {
             // Re-home only in FOLLOW mode — a pinned tray lives under its world
             // "TrayPin" holder (test #15) and must not be dragged back under the rig.
-            if (CardsConfig.TrayFollow.Value && _root.parent != anchorParent)
+            if (!WantsWrist && !WristControlsHidden && CardsConfig.TrayFollow.Value && _root.parent != anchorParent)
             {
                 FinishBoardReFaceForLifecycle();
                 _root.SetParent(anchorParent, worldPositionStays: false);
@@ -1282,8 +1282,19 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
     {
         internal PlayTray? Owner;
 
-        private void LateUpdate() => Owner?.TickBoardReFace();
-        private void OnDisable() => Owner?.FinishBoardReFaceForLifecycle();
+        // Run after the hand pose driver. Before-render follows fresh XR samples without
+        // adding a second smoothing clock; the existing rig packet samples this same root.
+        private void OnEnable() => Application.onBeforeRender += BeforeRender;
+        private void OnDisable()
+        {
+            Application.onBeforeRender -= BeforeRender;
+            Owner?.FinishBoardReFaceForLifecycle();
+        }
+        private void LateUpdate()
+        {
+            if (Owner == null || !Owner.TickWristAnchor()) Owner?.TickBoardReFace();
+        }
+        private void BeforeRender() => Owner?.TickWristAnchor();
     }
 
 
@@ -1540,6 +1551,7 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
 
     private void ToggleFollow()
     {
+        if (WantsWrist || WristControlsHidden) return;
         bool follow = !CardsConfig.TrayFollow.Value;
         CardsConfig.TrayFollow.Value = follow; // BepInEx persists on set
         ApplyFollowMode(); // …which also flips the cap's symbol and the board's engraved word
@@ -1591,6 +1603,7 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
     /// </summary>
     private void ApplyFollowMode()
     {
+        if (WantsWrist || WristControlsHidden) { TickWristAnchor(); return; }
         if (_root == null)
             return;
         bool finishingReFace = _reFacePending;
@@ -1643,6 +1656,7 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
 
     internal void Destroy()
     {
+        WristRootDestroyed();
         CancelBoardReFace();
         if (ReferenceEquals(Current, this))
             Current = null; // WorldUI mount consumers fall back to the floating layout
@@ -1734,6 +1748,7 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
     /// <summary>Per-frame retry for a deferred initial placement (CardsDriver.Update).</summary>
     internal void TickPlacement()
     {
+        if (TickWristAnchor()) return;
         if (_wantVisible && !_placed)
             SetVisible(true);
     }
@@ -1753,6 +1768,7 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
     /// caller passes false and behaves bit-identically to before.</param>
     internal void PlaceAtHead(bool forceFirstSeat = false)
     {
+        if (WantsWrist || WristControlsHidden) { TickWristAnchor(); return; }
         if (_root == null)
             return;
         Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;

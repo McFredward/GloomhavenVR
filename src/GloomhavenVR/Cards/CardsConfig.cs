@@ -133,6 +133,13 @@ internal static class CardsConfig
     /// <summary>Tray anchor mode (test #15): true = follows the player (rig-anchored), false = static in world.</summary>
     internal static ConfigEntry<bool> TrayFollow = null!;
 
+    // Settings-only attachment override. TrayFollow remains the remembered ordinary mode.
+    internal static ConfigEntry<bool> WristBoardEnabled = null!;
+    internal static ConfigEntry<WristBoardHand> WristBoardHand = null!;
+    internal static ConfigEntry<Vector3> WristBoardOffsetMeters = null!;
+    internal static ConfigEntry<Vector3> WristBoardAnglesDegrees = null!;
+    internal static ConfigEntry<float> WristBoardScale = null!;
+
     /// <summary>Card seating depth in the physical slot recesses, real meters toward the viewer (−z). Test #28.</summary>
     internal static ConfigEntry<float> SlotCardInset = null!;
 
@@ -855,6 +862,17 @@ internal static class CardsConfig
             "entry. false = the tray is PINNED where you left it, world-anchored — it " +
             "stays put while you move around and never re-places itself. Switching back " +
             "to follow re-anchors it at the configured offsets.");
+        WristBoardEnabled = file.Bind("Cards", "WristBoardEnabled", Defaults.WristBoardEnabled,
+            "Attach the original control board to your wrist. Turning this off restores your previous follow/fixed placement. Enabled only from VR settings.");
+        WristBoardHand = file.Bind("Cards", "WristBoardHand", Defaults.WristBoardHand,
+            "Wrist carrying the control board: your non-main hand, left hand, or right hand.");
+        WristBoardOffsetMeters = file.Bind("Cards", "WristBoardOffsetMeters", Defaults.WristBoardOffsetMeters,
+            "Control board offset in wrist-local real metres: X across the wrist, Y toward the fingers, Z out of the palm.");
+        WristBoardAnglesDegrees = file.Bind("Cards", "WristBoardAnglesDegrees", Defaults.WristBoardAnglesDegrees,
+            "Control board rotation around wrist-local X, Y and Z, in degrees.");
+        WristBoardScale = file.Bind("Cards", "WristBoardScale", Defaults.WristBoardScale,
+            new ConfigDescription("Additional uniform control board size while mounted on the wrist.",
+                new AcceptableValueRange<float>(0.2f, 1.5f)));
         BoardMoveMode = file.Bind("Cards", "BoardMoveMode", Defaults.BoardMoveMode,
             "Item 12: how the handle-bar grab may MOVE the control board. Limited (default) = " +
             "today's behavior: position + yaw only, the board is kept level for you (under the " +

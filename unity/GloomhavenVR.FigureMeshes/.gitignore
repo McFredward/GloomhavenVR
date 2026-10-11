@@ -1,0 +1,12 @@
+/Assets/Generated/
+/Assets/Generated.meta
+/Assets/Editor/Generator.dll*
+/Library/
+/Logs/
+/Temp/
+/obj/
+/UserSettings/
+/ProjectSettings/*.asset
+/ProjectSettings/boot.config
+/Assets/DistanceGenerated/
+/Assets/DistanceGenerated.meta

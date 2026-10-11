@@ -68,14 +68,58 @@ internal static class NetProtocol
     public const byte MsgPresentationCompression = 16;
     public const byte MsgItemAppearance = 17;
     public const byte MsgItemAppearanceFragments = 18;
-    // 19–22 / 78–81 belong to feature/immersive-town-services; do not reuse across branches.
+    public const byte MsgTownService = 19;
+    public const byte MsgTownServiceFragments = 20;
+    public const byte ExtIdTownService = 78;
+    public const byte ExtIdTownServiceBundle = 89;
+    // Small owner-authored cloth controls inside a town-service module packet,
+    // independent of the 7680-byte avatar presence snapshot (record 79).
+    public const byte ExtIdTownWorkspaceCloth = 90;
+    /// <summary>Owner-authored temple availability and blessing revision inside the
+    /// town-service manifest. This contains no character, card or transaction identity.</summary>
+    public const byte ExtIdTownInteraction = 91;
+    /// <summary>Private town-service manifest reservation after a physical card or purse
+    /// handoff. Absence means that the visitor is browsing and does not own the NPC.</summary>
+    public const byte ExtIdTownTransaction = 92;
+    // Optional committed-donation age on private TLV78 manifests; older peers skip this record.
+    public const byte ExtIdTownDonationClock = 93;
+    // Complete immutable cabinet placement and visitor-held stock use independent,
+    // additive records; no transaction command is encoded by either record.
+    public const byte ExtIdTownCatalogLayout = 94;
+    public const byte ExtIdTownVisitorStock = 95;
+    /// <summary>Owner-authored scenario-rule foldout, native row content, geometry,
+    /// hover and scroll state. Additive to the unchanged native-board records52/53.</summary>
+    public const byte ExtIdBoardRules = 96;
+    /// <summary>Bounded owner-authored numeric town presentation, independent of
+    /// immutable native artwork and fragmented module delivery.</summary>
+    public const byte ExtIdTownMotion = 97;
+    /// <summary>Lossless bounded packing of original TLV97 numeric samples, retaining
+    /// the same 864-byte event and original 15 Hz clock.</summary>
+    public const byte ExtIdTownMotionPacked = 98;
+    /// <summary>Visitor readiness for the common merchant offered-hand pose. Personal
+    /// map drop guides never accompany this numeric intent.</summary>
+    public const byte ExtIdTownVisitorReady = 99;
+    public const byte MsgTownMotion = 26;
+    public const byte ExtIdTownRack = 85;
+    public const byte ExtIdTownCassette = 86;
+    public const byte ExtIdTownResidents = 79;
+    public const byte ExtIdTownFace = 80;
+    public const byte MsgTownFace = 21;
+    public const byte ExtIdTownActivity = 81;
+    public const byte MsgTownActivity = 22;
     public const byte MsgMapButtonTooltip = 23;
     public const byte MsgMapButtonTooltipFragments = 24;
+    /// <summary>Reliable per-resident transaction request/grant/release, never a gameplay
+    /// command. A native service callback waits for the matching grant.</summary>
+    public const byte MsgTownGrant = 25;
     public const byte ExtIdMapButtonTooltip = 82;
     /// <summary>Native map story opening history; pages/completion retain predecessor identity.</summary>
     public const byte ExtIdMapStoryLifecycle = 83;
     /// <summary>Native post-quest reward opening history and accepted continuation.</summary>
     public const byte ExtIdRewardContinuation = 84;
+    /// <summary>Public source count of the selected map character's hand-card loadout.</summary>
+    public const byte ExtIdMapLoadoutCount = 88;
+    public const byte MaxMapLoadoutCount = 64;
     public const byte ExtIdItemAppearance = 76;
     public const byte ExtIdPresentationCompression = 64;
     public const byte ExtIdDamageAvoidance = 65;
@@ -86,6 +130,52 @@ internal static class NetProtocol
     /// <summary>Board pose on the rig stream: flags byte0 absent, or flags1 + RigPose20 + scale4.
     /// Shares the head/hand packet cadence; the extras board record remains for legacy fallback.</summary>
     public const byte ExtIdBoardRigPose = 70;
+    /// <summary>Owner wrist attachment on the same lightweight rig sample as board pose.
+    /// One byte (0/1); absent means ordinary follow/fixed. No wrist offsets or viewer
+    /// settings are needed: the original board pose/scale is already authoritative.</summary>
+    public const byte ExtIdBoardWrist = 100;
+    // Atomic public map-item source. Existing rig/extra prefixes and record36 stay unchanged.
+    public const byte ExtIdTownItemHeld = 101;
+    /// <summary>Public cabinet original-content bank, carried atomically with its rack
+    /// clock. Adds no gameplay action or private card identity to the avatar stream.</summary>
+    public const byte ExtIdTownCatalogBank = 102;
+    public const byte ExtIdTownCatalogHeaders = 103;
+    /// <summary>Reliable common-author public cabinet presentation input and clock.</summary>
+    public const byte MsgTownMerchantControl = 27;
+    public const byte ExtIdTownMerchantControl = 104;
+    /// <summary>Owner properties against an exact locally available native prefab basis.</summary>
+    public const byte ExtIdTownNativeTemplateState = 105;
+    /// <summary>Exact owner-authored purse return endpoints, duration and shared age.
+    /// Additive to numeric town motion; the existing record97 grammar is unchanged.</summary>
+    public const byte ExtIdTownPurseReturn = 106;
+    /// <summary>Original town card return endpoints, easing and common age, independent of artwork.</summary>
+    public const byte ExtIdTownCardReturn = 107;
+    public const byte ExtIdTownVisibleCensus = 108;
+    /// <summary>Exact owner-declared offered native overlay frame against its original physical print.</summary>
+    public const byte ExtIdTownOfferedFrame = 109;
+    /// <summary>Exact native module bundle with shared original property values.
+    /// Reduces repeated metadata without substituting observer defaults or image pixels.</summary>
+    public const byte ExtIdTownOriginalValuePool = 110;
+    /// <summary>Second held-card pose, source and grip on the same compact rig clock
+    /// as the primary card. Explicit absence supersedes older fragmented extras.</summary>
+    public const byte ExtIdRigSecondHeldCard = 111;
+    /// <summary>Receipt for exact retained original metadata, never gameplay permission.</summary>
+    public const byte MsgTownOriginalReceipt = 28;
+    public const byte ExtIdTownOriginalReceipt = 112;
+    /// <summary>One owner-authored native card return clock with exact public
+    /// member geometry. Additive to message26; existing motion records stay unchanged.</summary>
+    public const byte ExtIdTownCardReturnCohort = 113;
+    /// <summary>Request the exact retained town original after native template
+    /// metadata cannot expand. Additive to message28; never acknowledges receipt.</summary>
+    public const byte ExtIdTownOriginalRequest = 114;
+    /// <summary>Losslessly packed exact native return roots, referencing only
+    /// their same-packet cohort and IEEE child bits. Additive to message26.</summary>
+    public const byte ExtIdTownPackedReturnRoots = 115;
+    /// <summary>Exact private offered-card preparation origin carried by its
+    /// native private and Stock frames. Additive to message26; no peer identity is encoded.</summary>
+    public const byte ExtIdTownCardReturnOrigin = 116;
+    // Exact owner-authored offered-card hover activation and native waveform basis.
+    public const byte ExtIdTownOfferedHover = 117;
     /// <summary>Owner fan insertion gap: one byte gap + 1; zero clears the marker.</summary>
     public const byte ExtIdFanInsertionGap = 71;
     /// <summary>Native video source and shared pose, independent of the legacy window record21.</summary>
@@ -97,8 +187,7 @@ internal static class NetProtocol
     public const byte ExtIdCardBurnCompletion = 75;
     /// <summary>Explicit shared map-window ownership: held mask, then automatic-motion mask.
     /// Each byte uses bits 0/1/2 for story/quest/encounter. Zero explicitly clears ownership;
-    /// absence means the peer supplied no ownership statement. Additive TLV; 85 is next free
-    /// (78–81 are reserved by the isolated NPC branch, 82 carries map-button hints).</summary>
+    /// absence means the peer supplied no ownership statement. Additive TLV77.</summary>
     public const byte ExtIdSharedWindowMotion = 77;
     public const byte SharedWindowMotionRecordBytes = 2;
     public const byte SharedWindowMotionMapStoryBit = 1;
@@ -523,7 +612,1863 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 556;
+    public const ushort ModBuild = 671;
+
+    // ModBuild671 — publish the reviewed 1.1.0 release candidate.
+    // The maintainer approved the completed NPC and Steam Frame work for release.
+    // Player highlights explicitly cover fully multiplayer-compatible immersive
+    // town services and Steam Frame compatibility/performance, including the
+    // capability-gated standalone passthrough path. Experimental PC-streaming
+    // passthrough is a separate project and is not part of this release.
+    // No gameplay, presentation, defaults, asset or protocol implementation changes
+    // from670: this increment distinguishes the distributed release in the existing
+    // handshake. Preserve Version3/next-free118 and all accepted hardware behavior.
+    // Release/source-tree CI proof, local golden vectors, strict compilation and
+    // complete archive validation are recorded in RELEASE-671-REVIEW.md.
+
+    // ModBuild670 — retain native merchant confirmation placement across savegames.
+    // Supplied669 screenshot shows a first tutorial purchase on its own party-display
+    // panel instead of inside the non-immersive merchant. The static item-seat event
+    // subscription outlived its exact native box and missed the replacement's Buy/Sell
+    // discriminator. Observe the actual ShowConfirmation instance before its event,
+    // replace/detach the exact subscriber on native-box changes, and retire provenance
+    // on reset. A first Show before the seat's initial tick is covered by the same seam.
+    // Only placement ownership is observed; native question, confirm/cancel callbacks,
+    // purchase validation, fades and tutorial promises remain authoritative.
+    // The native BuyItem lesson finishes at shop exit, not on spending gold. Its
+    // existing exact-promise close bridge is exercised through native entry, purchase,
+    // cancellation and map continuation; no saved tutorial state is written directly.
+    // Immersive confirmations retain their owned native surface. See NPC-670-REVIEW.md
+    // for source/runtime evidence and the separate headset verification boundary.
+    // Version3/next-free118; no asset, configuration, input or TLV changes.
+
+    // ModBuild669 — immersive merchant with an unmodified native flat host.
+    // Paired668 logs identify a VR guest (player2) and a vanilla host. The public
+    // cabinet's CanUseImmersive gate required a compatible native host, preventing
+    // cards/buttons even though public originals already support a guest author.
+    // Prefer a compatible native host for VR coordination, otherwise elect the
+    // lowest compatible live player in the native roster. A coordinator transition
+    // drains old leases before new commit permission; display preparation continues.
+    // The shipped Bolt dispatcher forwards Others before vanilla sentinel rejection.
+    // Non-host coordination therefore uses the existing ReliableOrdered Others lane;
+    // the original version announcement is reliable at its unchanged cadence/budget.
+    // Native confirmations and server-authorized BuyItem still validate on the flat
+    // game host. No native network, shop or gameplay-state patch is introduced.
+    // A failed native template initialization also left stale immutable asset aliases
+    // across retries; retire the failed bank/registry atomically without relaxing
+    // conflicting-original identity. Preserve the unchanged ready-bank fast path.
+    // Retire all lanes in explicit scopes, preserve bounded retry diagnostics, and
+    // stop a replaced-bank capture before its disposed arguments are republished.
+    // See NPC-669-REVIEW.md and lane notes for source/runtime proof and hardware limits.
+    // No asset/config/input/wire grammar/TLV change. Version3 and next-free118 remain.
+
+    // ModBuild668 — move the native enchantress enhancement list toward the resident.
+    // The maintainer must step back after reading the held card to see every option.
+    // Move only ritual section10 by23 cm along station+Z; retain native list size,
+    // height, yaw, content, scrolling, callbacks and all other sections/card effects.
+    // Actual original prop bounds and copied transforms identify the near-right jug
+    // as the limit: the3 mm maximum panel envelope keeps23.196 mm of clearance.
+    // All18 shipped Workbench mesh envelopes and the exact furniture-supported
+    // lantern seats remain clear. Root-scene geometry is a conservative AABB proof,
+    // not a headset-pixel claim. The owner's transformed original enchant.inventory
+    // is already captured/published; observers use that same pose without a local
+    // adjustment. See NPC-668-PLACEMENT.md for inputs, focused tests and limits.
+    // No asset, config, input, wire grammar or TLV change. Version3/next-free118.
+
+    // ModBuild667 — pre-1.1.0 review and bounded continuation/convergence repairs.
+    // Review v1.0.8 through665 before implementation; retain the parallel666
+    // native summon, matrix-plane ring and intrinsic-hover corrections unchanged.
+    // Simultaneous NPC visitors previously retained receiver-local cached authors
+    // even after learning the same visitor set. Shared originals and the ungranted
+    // cosmetic claim fallback now rank live player IDs deterministically; the
+    // actual reliable host grant still owns gameplay permission and takes priority.
+    // Browsing/personal fans remain independent; priestess never becomes exclusive.
+    // Map hover/room teardown now matches the original selector's three eligible
+    // native navigation states, preserving story/quest/service continuation locks.
+    // A marked Frame update retains its existing Proton EXE/cwd/argv restart instead
+    // of losing the VR opt-in through the base Steam URI. Unsafe argv refuses handover.
+    // Production-bound tests include reversed arrival, causal old election controls,
+    // native pointer/teardown state transitions and actual update script generation.
+    // See RELEASE110-REVIEW.md and its NET/FLOW/COMPAT reports for evidence and limits.
+    // No new config/patch surface or TLV. Version3 unchanged; next free118.
+
+    // ModBuild666 — paired665 summon selection and intrinsic offered effects.
+    // The maintainer reports positioned but invisible/nonselectable native summon
+    // enhancement areas, choppy enchantress point-ring facing, and sampled remote
+    // merchant/enchantress hover despite the approved client-local phase exception.
+    // Native Highlight can precede Unity's summon-cell layout, copying zero size
+    // into both the selectable and its original frame shader. Follow only the
+    // four serialized stat targets; preserve native filters, state and callbacks.
+    // Ring axes now use the actual printed matrix plane, including nonuniform
+    // scale, and follow final rendered yaw while retaining the original local spin.
+    // Additive117 carries an immutable activation epoch and owner-measured native
+    // hover amplitude (18-byte payload), never sampled phase. Strip the source
+    // wave from canonical roots; apply one shared local wave after base/yaw motion.
+    // OFF/reoffer/held/return and authored-root-canvas guards prevent stale motion
+    // and double displacement. Existing97/98 and113/115/116 bytes remain unchanged.
+    // Preserve accepted loading, card body/front coupling and native return identity.
+    // Actual native creation, filtering, raycast/selection, ring and hover engine
+    // proofs plus causal controls are recorded in NPC-666-REVIEW.md.
+    // Version3 stays unchanged; next free118. Hardware outcomes remain unverified.
+
+    // ModBuild665 — paired664 offered yaw, summon areas and enchantress return ownership.
+    // The maintainer accepts remote card/UI admission time and body/front motion;
+    // preserve those policies and the already accepted merchant return artwork.
+    // New native UI headers no longer interrupt the exact current private offered
+    // root clock at either NPC. Withdrawal, current transaction ownership, layout
+    // changes and native returns retain authority; no viewer-authored facing is added.
+    // Keep the actual SummonName TMP layout provider enabled while suppressing its
+    // pooled print. Disabling it removed its height and shifted only the small stat
+    // enhancement cells. Broad action rows keep their original geometry.
+    // Additive TLV116 names the exact private offered-card preparation lifetime in
+    // its private and Stock frames. A complete native113 return rekeys that already
+    // rendered observer module into Stock, so the visible original starts the flight.
+    // Retention across source closure is bounded; cold observers use the prepared
+    // Stock original. Session, structure and preparation epoch reject stale reuse.
+    // Version3, existing113/115 and legacy frame bytes remain unchanged; next free117.
+    // Runtime/source proof does not establish headset smoothness or the final image.
+
+    // ModBuild664 — approved PC/Standalone defaults and reproducible graphics profiles.
+    // The maintainer approves the paired configuration audit, with 10 FPS for automatic wall
+    // hiding, 8x MSAA on fresh PC and wrist position (-.166,.010,-.036) m on both platforms.
+    // Fresh Frame seeds OffBlack and 0.25 s view-obstruction checks; both platforms depth-test
+    // healthbars. PC keeps texture-streaming forced Off, Standalone retains the native policy.
+    // Explicit graphics-profile actions now restore those wall/sky choices and independent
+    // pillar LOD; the old cadence door resets too. Startup Bind retains every persisted entry,
+    // including individual quality/calibration choices; native saved/cloud quality is untouched.
+    // Wrist attachment stays Off; rotation, multiplayer pose/visibility rules and wire layout
+    // are unchanged. This is a defaults/profile scope, not a new headset performance claim.
+
+    // ModBuild663 — independent pillar LOD uses the figure distance rules.
+    // Both supplied Frame sinks identify661, terrain0/0 and the saved .75m radius;
+    // the maintainer still must approach columns too closely for original detail.
+    // The earlier fixed-radius repair used the wrong figure band: below the actual
+    // bank67% tier boundary,8/7 makes no visible mesh reduction;20/18 is effective.
+    // Each pillar now compares its own radial VR-camera distance against those
+    // shared size-relative entry/exit rules using its own original full bounds.
+    // Its existing Update matrix supplies both distance and radius; yaw cannot
+    // change the metric. No current figure, figure setting, actor scan or per-eye
+    // figure/reference pass controls a pillar. Figure selection stays unchanged.
+    // New default-on Optimize/ScenarioTerrainPillarDistanceLod is a live EN/DE
+    // Graphics choice; Off restores the saved manual radius. Tracked-hand guards,
+    // ordinary walls, native visibility, continuous morphs and gameplay remain.
+    // More near original geometry is a quality correction, not a new FPS claim.
+    // The superseded active-party reference was never shipped. Focused native
+    // evidence and headset limits: .planning/FRAME-PILLAR-FIGURE-LOD-REVIEW.md.
+    // Version3 and all multiplayer TLVs remain unchanged.
+
+    // ModBuild662 — ordinary wrist-board rotation controls (2026-10-10).
+    // The board category exposed position but kept the existing three wrist-local
+    // angles in Advanced. Show all three angle sliders immediately below position,
+    // using the same hybrid bar/arrow kit with a full +/-180 degree gesture and
+    // existing one-degree fine steps. Existing wrist-mode dependencies hide them
+    // when off; rebuilding preserves all saved components and equivalent turns.
+    // No key, default, placement path or wire layout changes: the original tracked
+    // board root already composes these angles, and record70 carries the resulting
+    // owner orientation unchanged to peers (rather than their own calibration).
+    // Focused actual Unity wrist/menu proof:324 assertions/three existing controls;
+    // options coverage90 matching captions; strict Debug/Release0 warnings/errors.
+    // No complete gate rerun or headset comfort/appearance claim. See the focused
+    // .planning/WRIST-ROTATION-REVIEW.md and retained original-source receipts.
+
+    // ModBuild661 — remaining paired660 NPC presentation defects.
+    // The actual enchantress backing/front pair shares the rendered print frame
+    // through measured original109 affinity; returns, held roots and retirement
+    // supersede obsolete offers. Original overlay depth/order remains unchanged.
+    // Purchased ItemChip returns stage each frozen native Kind1 canvas recipe
+    // beside its existing113 subset, restoring prepared zero-scale fronts before
+    // coherent flight paint. Reordered subsets and newer terminal roots retain
+    // exact source identity; no previous numeric grammar is reinterpreted.
+    // Native exponential release stays exponential through its last active frame;
+    // the received native terminal then owns the settled pose and ordinary root.
+    // Additive114 requests the exact refused compact original on message28,
+    // independently of112 acknowledgements and the15Hz sampling gate. Existing
+    // reliable event budgets remain; full same-sequence repair survives driver
+    // coalescing. First-picture diagnostics retain transaction age across census.
+    // Model105 geometry is owner-authored; omitted native content still requires
+    // its exact basis. Accepted missing ordinary originals borrow existing urgent
+    // turns; retry cooldown/rotation and session order preserve later repairs.
+    // Cold preparation, delivery, causal controls and hardware limits are recorded
+    // in .planning/NPC-661-REVIEW.md and its geometry/merchant/latency reviews.
+    // Exact return roots retain every canvas field with lossless same-packet
+    // root/child bit packing115. Proven-fit cohorts survive extra-tail rollback;
+    // terminal geometry receives its bounded render grace at atomic activation.
+    // Version3 and previous records remain unchanged; next free additive ID116.
+
+    // ModBuild660 — paired658 NPC regression, after pillar659.
+    // Complete received pictures no longer reject the two audited native GPU-only
+    // FX textures; shared CardMesh back artwork has an exact factory identity.
+    // A real null-prefab VRCard publishes its original procedural construction
+    // and owner dimensions, with body clones bound to later native contour work.
+    // Observer layout interpolation preserves owner position through anchor/pivot
+    // changes and rebases active enclosing-host motion across census reparenting.
+    // Native return completion retains the actual final root, destination hand,
+    // atomic original RectTransform layout and synchronized enclosing-host pose;
+    // child/color/alpha animation and the original flight clock remain intact.
+    // Same-original structural panel replacements validate a separate native
+    // candidate before replacing visible buttons; actual withdrawal stays immediate.
+    // Hardware-confirmed658 overlay ordering is unchanged. Exact causal controls,
+    // failed historical assumptions, final checks and hardware limits are recorded
+    // in .planning/NPC-660-REVIEW.md and its asset/delivery/lifecycle/return reviews.
+    // Version3 and existing records remain unchanged; next free additive ID114.
+
+    // ModBuild659 — configured near-view pillar originals, after paired NPC658.
+    // Pillars retain100% authored geometry throughout the existing adjustable
+    // ScenarioTerrainDistanceMeters radius (default0.75m from the radial surface),
+    // including near/far0% caps. Existing4cm hysteresis and live edits stay.
+    // Ordinary walls retain18cm leaning/touch guards; figure policies are unchanged.
+    // No new keys/defaults, actor discovery or wire changes. Focused inherited
+    // terrain source/95-variant proof and final integration boundaries are in
+    // .planning/FRAME-PILLAR-DISTANCE-REVIEW.md. No new headset/FPS evidence.
+
+    // ModBuild658 — paired656 NPC first-picture, return and overlay follow-up.
+    // Real partitioned ability originals now use exact native-basis metadata;
+    // every omitted value is validated before paint, with retained same-sequence
+    // full repair after actual transport completion and compatible peer receipts.
+    // Original text/font output and changed native properties remain owner-authored.
+    // Actual native returns retain their prior artwork header while additive113
+    // carries one common curve/clock with exact original child geometry and live
+    // visibility. Large groups make bounded progress within the unchanged864-byte
+    // numeric event; coherent originals present together, with newer actual roots,
+    // withdrawal and session retirement taking precedence. Native gameplay never
+    // waits for artwork, a return clock or an observer receipt.
+    // Native offered overlay canvases follow their exact physical print's tier at
+    // submission, preserving original hover alpha, hierarchy and material/depth.
+    // The supplied656 videos and old-source controls expose earlier fixture gaps.
+    // Full/native timing, causal source proofs and GL/D3D11/headset limits are in
+    // .planning/NPC-658-REVIEW.md and its three lane reviews. Includes657.
+    // Version3 and existing record97/107 bytes stay;113 is additive, next free114.
+
+    // ModBuild657 — native window-mode donation confirmation ownership.
+    // The shared temple/enhancement prompt now retains its actual raising window
+    // until native hide completion. Closing that window completes the original
+    // cancel or already-chosen confirm/cancel callback before another HUD mode
+    // can reset this pooled singleton's native transition listeners.
+    // Explicit seat reparent edges transfer the converted canvas's original
+    // restoration and input ownership to its physical host; stale owners must
+    // not keep writing its camera, sorting, layers or reveal state. The moved
+    // ordinary dialog uses its physical host's stable input tier, so the host
+    // paper cannot defeat visible buttons. Native gates and overlay tiers stay.
+    // Active/retiring immersive masks retain their actual root and native callback.
+    // Native confirm/cancel callbacks and multiplayer transaction rules remain
+    // authoritative. Focused evidence: .planning/FLAT-657-CONFIRMATION-REVIEW.md.
+    // Includes656 Frame/NPC changes; no asset, config or wire-layout change.
+
+    // ModBuild656 — live Auto wall threshold recovery and nearby pillar detail.
+    // Effective threshold edits in Auto restore the existing native wall path and
+    // restart its observation window; manual Hide all and equivalent values retain
+    // their state. The FPS control now spans5–30, retaining the15FPS default/key.
+    // Positively admitted pillars use an authored-bounds enclosing cylinder for
+    // head distance instead of a view-dependent world AABB; hand guards, budgets,
+    // percentages, hysteresis and all other surfaces retain their existing rules.
+    // Includes655 NPC delivery, flight clocks and comfort. Focused final scope is
+    // .planning/FRAME-WALL-LOD-REVIEW.md; no asset or wire-layout changes.
+
+    // ModBuild655 — native NPC presentation latency, return clocks and map comfort.
+    // Continuous native hover changes previously replaced useful in-flight originals
+    // and reissued baselines during first-picture delivery. Keep exact originals
+    // advancing independently of the latest visible census; real identity changes
+    // and retired-member rendering retain their original precedence.
+    // Merchant returns now pair their verified destination-hand root with the
+    // native flight clock. Observer playback retains one source timeline across
+    // packet jitter and separately delivered front/body originals.
+    // Cabinet price/quantity follow the measured native card edge at larger size.
+    // World dragging and smooth turns use the tracking clock even when Unity game
+    // time stops. Paired653 logs do not prove that clock caused the reported freeze;
+    // bounded Debug input/output traces separate the remaining possible causes.
+    // Focused native replay, causal controls and integration scope are recorded in
+    // .planning/NPC-655-REVIEW.md. No gameplay rule, asset or wire layout changes.
+
+    // ModBuild654 — reliable loaded-game Auto wall protection and Graphics placement.
+    // Frame653 logs prove that optional card/figure preparation vetoed Auto for90s
+    // after native room jobs finished; open VR Options then kept it blocked too.
+    // Observe actual loaded gameplay while cosmetic prewarming/options continue.
+    // Native scene loading and room reveal still reset the cheap two-second window;
+    // one long hitch cannot trigger it. XR input focus is cached from the existing
+    // native session lifecycle, using shipped XrSessionState.Focused (5), rather
+    // than desktop-window focus. No per-frame native focus or UI query is added.
+    // Wall mode and threshold now belong to Graphics/Details. Defaults, stored
+    // choices, scenario latch, door/arch exclusions and instant masking remain.
+    // Manual653 work savings are hardware evidence; repaired Auto timing still
+    // awaits the next Frame run. Retains653 MR,652 wall consumers and651 UI fixes.
+    // Focused actual Unity replay, native lifecycle/ABI evidence and inherited
+    // unchanged gates are recorded in .planning/FRAME-654-REVIEW.md.
+
+    // ModBuild653 — capability-gated native Steam Frame standalone mixed reality.
+    // Detect the existing installed Frame opt-in marker, then query the actual
+    // Wine/OpenXR PrimaryStereo blend modes. Alpha support plus a live session
+    // enables the choice; unavailable choices stay grey with localized Proton/
+    // SteamVR update guidance. Version strings alone cannot prove bridge support.
+    // Use Unity's official queued blend setter and validate actual acceptance
+    // before transparent head clearing. Restore owned modes/camera HDR/sky state
+    // on off/VR stop; preserve external authors and safe session lifetimes.
+    // PC chromakey remains unchanged. No private camera API, compositor hook,
+    // second rendering camera, asset change or network layout change is added.
+    // Actual Unity RGBA/native-tooltip checks, async/lifecycle causal controls
+    // and shipped native-plugin submission proof are recorded separately from
+    // the still-unverified Proton/headset result in FRAME-653-MR-REVIEW.md.
+    // Retains652 wall compromise and651 game UI fixes. Both VR peers use653.
+
+    // ModBuild652 — explicit wall visibility compromise and cheap loaded-game Auto.
+    // Normal keeps the current view-dependent fade; Hide all instantly masks exact
+    // existing wall/attachment members and pauses decisions, animations, recurring
+    // collectors and wall-fade snapshots. Door/gate arches retain their protections.
+    // Auto is the common fresh default: below15 application FPS across a loaded
+    // two-second window, keep walls hidden for the scenario to avoid oscillation.
+    // Both mode and threshold remain editable; loading/focus/options do not trigger.
+    // Native placement/readiness/room changes still refresh the exact inventory.
+    // Hidden wall sources retire their material/substitute work; consumer and
+    // scenery-mask restitution preserve current independent visibility choices.
+    // Retains650 redundant-work removal and651 guarded UI fixes. Startup also
+    // reports bounded read-only OpenXR blend capabilities for the independent MR
+    // investigation; it does not activate passthrough or change render state.
+    // Hardware comparison, causal controls, budgets and integration evidence:
+    // .planning/FRAME-652-REVIEW.md. Both VR peers use the common652 build.
+
+    // ModBuild651 — selected native game UI repairs from Bug Fixes 5.0.0.
+    // Resolve the item bar's actual incoming inventory/action owner before
+    // original predicates/replay. Restore only stale extra-turn UI restrictions
+    // in owner-matching cached choice phases; native SetPhase retains every
+    // played-half/ownership/bonus restriction. Original actions/tokens, native
+    // NetworkVersion and ScenarioRuleLibrary remain unchanged for flat crossplay.
+    // Shared stack/damage/summoner/achievement changes and obsolete save/debug
+    // patches are excluded. All11 supplied patches have individual verdicts in
+    // BUGFIX-651-REVIEW. Retains650 CPU work removal and649 wrist offsets.
+    // Bounded native proofs, source16, strict builds, goldens and compiled scope
+    // are recorded separately; no new full-catalog or connected-HMD claim.
+
+    // ModBuild650 — reduce existing world-material CPU work without a quality trade.
+    // Cache only the exact GameObject/Transform owned for a Renderer lifetime;
+    // layer, activation, ancestry, mesh, native components and held roots stay live.
+    // Read each current ancestry name once inside its callback-free iteration.
+    // Freshly empty renderer/indexed property blocks skip absent effect probes;
+    // emptiness is sampled after callback-capable source resolution for every slot.
+    // Native materials, effects, wall fading, per-eye/nested camera invalidation
+    // and consumer restitution retain their existing guards. No renderer coverage,
+    // shader/asset, graphics setting, profile or wire layout change is introduced.
+    // Old/candidate complete PreCull paths are compared in the same actual Unity
+    // Mono process; local CPU evidence is not a new Steam Frame FPS result.
+    // Source, benchmark shape, causal controls and inherited/focused validation:
+    // .planning/FRAME-650-REVIEW.md. Both VR peers use the same common build650.
+
+    // ModBuild649 — live wrist-board position sliders below the ordinary mode switch.
+    // The existing enabled dependency folds all three axes immediately. Reuse
+    // the native options bar/arrow kit and saved Vector3; axis edits preserve
+    // the other components and use the existing1mm catalog step. A +/-0.5m
+    // gesture range does not rewrite or clamp hand-tuned saved offsets on open.
+    // Actual board placement and owner-authored remote pose stay unchanged.
+    // Focused validation and inherited648 evidence: .planning/WRIST-649-REVIEW.md.
+
+    // ModBuild648 — withdraw the647 room renderer after the Frame regression.
+    // Fully loaded comparable645/647 log windows average94.107/123.976ms;
+    // named mod work increases58.846 to85.127ms, especially terrain5.641 to21.248ms.
+    // Different head poses/window lengths prevent a controlled hardware A/B claim.
+    // The maintainer requests rollback unless a real net gain over the previous
+    // run is established. Offline repairs cannot demonstrate that gain.
+    // Restore646 terrain/environment/world/scenery ownership, profiles, catalog,
+    // generated meshes and the exact646 environment bank. Keep646 NPC/map work.
+    // Five647 config keys remain INERT compatibility storage, outside curated
+    // controls/presets and every render consumer; existing values survive.
+    // Retain the independent corrected646 offered-card test binding. No new
+    // gameplay, wire layout, quality compromise or hardware FPS claim is added.
+    // Diagnosis and actual old-source reproduction: .planning/FRAME-648-LOG-AUDIT.md,
+    // docs/performance/FRAME-648-TERRAIN.md. Validation scope and rollback receipt:
+    // .planning/FRAME-648-REVIEW.md. Peers install the complete648 archive together.
+
+    // ModBuild646 — paired645 town presentation and map-entry review.
+    // A complete newer native original supersedes older cumulative deltas from
+    // the exact same source, while genuinely newer named-baseline dependencies
+    // remain retained. The pre-offer13 -> current35 visible/66 prepared native
+    // picture no longer waits for obsolete fragmented artwork. Payload grammar,
+    // event caps, scheduler debt and background fairness remain unchanged.
+    // Retain explicitly current native children before retiring/replacing their
+    // previous holder; validate the replacement first. Actual withdrawn modules
+    // and closed sessions still retire immediately. No stale-card timeout or
+    // observer gameplay callbacks are introduced. Existing native motion stays.
+    // Kind8 exact return clocks survive intervening artwork only for their
+    // validated native lifetime and current session/structure/census. Reuse the
+    // local return curve; fresh regrabs and true withdrawal retain precedence.
+    // Merchant cabinet clones hide duplicate names/icons and center/enlarge
+    // original price, reputation triangle and stock. Source economics and
+    // owner-captured observer geometry remain native and shared.
+    // Map entry/recenter bounds eye clearance to0.70-1.05m above parchment;
+    // elevated tracking origins no longer spawn inside the cellar ceiling.
+    // Ordinary subsequent tracked movement/locomotion is unchanged. Retains645
+    // smooth native ring/hover fixes and644 Frame policy. Scope, actual-source
+    // controls and inherited-vs-focused evidence: .planning/NPC-646-REVIEW.md.
+    // Both VR peers install646; no new wire/property protocol is introduced.
+
+    // ModBuild645 — repair the Build643 remote enhancement motion report.
+    // Native row roots were recentered by Binding after a newer artwork frame
+    // made the retained root header older than a child-only hover. Preserve the
+    // original parented anchors/extent and independently authored root position;
+    // explicit detached roots retain their existing pivot pinning. The actual
+    // capture/codec/render fixture reproduces old-source vertical row overlap.
+    // Generic numeric animation and the final offered-card fit both wrote ring
+    // rotation. Faster native pulse/fit updates disturbed sparse spin clocks.
+    // User exception2026-10-08 permits viewer-local intrinsic spin phase, with
+    // unchanged original direction/rate and exact shared card plane/facing.
+    // Retain serialized native UIEnchantressEffect timing before template-bank
+    // neutralization; Warm and Resolve carry inert provenance to the final
+    // observer presentation clock. No native gameplay callback is re-enabled.
+    // Fit the original Aura graphics to the actual parent matrix after native
+    // motion, preserving native size/center/alpha and selectable overlay geometry.
+    // Detached Aura publishes exact transformed XY lengths in existing scale
+    // fields instead of Unity's approximate sheared lossyScale. Ordinary templates
+    // and property/wire layouts are unchanged. Withdrawal resets retained clocks.
+    // The same explicit exception permits intrinsic offered merchant/enchantress
+    // bob phase differences at the original amplitude/waveform/rate; no bob or
+    // flight rewrite is included. Scope, causal controls, exact native geometry
+    // and inherited validation limits: .planning/NPC-645-REVIEW.md. Retains644
+    // automatic CPU work removal and all NPC639/crossplay641 repairs. Peers use645.
+
+    // ModBuild644 — target measured fully loaded Frame CPU costs after643.
+    // Current five-room643 windows average78.634ms/frame,43.240ms measured mod;
+    // terrain13.144ms, walls10.477ms and world materials6.214ms are parent totals
+    // including both eye callbacks. Saved .8 now really allocates2728x2728 eyes;
+    // these measurements do not establish a controlled FPS gain or GPU attribution.
+    // Share exact current grabbable/local-held/remote-held roots in terrain ancestry
+    // only within an invocation; native writes, nested cameras and recovery clear
+    // mutable facts. Record lease camera after callback-capable preparation so a
+    // resumed outer render still restores its original native sources.
+    // ScenarioTerrainSubstitution provides an independent original-3D-geometry
+    // comparison while native-slot world simplification remains available. On is
+    // retained by default; Off is a CPU/GPU trade, not a proven Frame improvement.
+    // Already-hidden attachments avoid exact fade1 writes only when genuinely
+    // owned and disabled with no current/queued geometry consumer. Floor, held,
+    // intermediate fade and native re-enable guards remain live. Hide ownership
+    // is recorded only after a real enabled setter; late native disables still
+    // revoke current/queued geometry before the same draw.
+    // User policy2026-10-08: pure work removal ships universally without player
+    // switches. Retire14 existing pure/inert/discovery controls, including shared
+    // environment/UI reads and exact full-detail mesh-bank preparation. Walk-in
+    // discarded measurements always stop; inert AutomaticLOD discovery uses15s.
+    // Four regrouping options remain adjustable: native ForwardAdd coverage,
+    // per-source dynamic lights and supplementary-stream/global material scope
+    // are not equivalent in every existing path. Quality/freshness/diagnostic
+    // choices stay separate. The proposed hidden-write toggle is not shipped.
+    // Current camera masks also omit unreachable source material/scope work,
+    // retaining complete checks for geometry consumers, null cameras and external
+    // camera command buffers. UI captures still invalidate nested reads; no stale
+    // layer union is cached. Terrain's real CPU/geometry trade stays configurable
+    // with bilingual help and the existing Debug quality boundary.
+    // Retains643 native fade, camera and XR fixes, NPC639 and crossplay641. No room
+    // hiding, idle throttling, native static batching, mesh/shader bank, gameplay
+    // command or wire layout change. Scoped automated evidence and next hardware
+    // comparison: docs/performance/FRAME-644-STEADY-CPU.md. VR peers install644.
+    // Strict Debug/Release0/0; source16; full170initial167 plus3exact-source
+    // NPC scoped repeats pass with unchanged deadlines (not onegreenfullrun).
+    // Separate299711 golden assertions; fresh Unity terrain387/79variants,
+    // environment11450/92 andworld-wall736/20. Headset FPS andMP remain unverified.
+
+    // ModBuild643 — integrate checked Frame native-presentation follow-up on642.
+    // A late enabled backbuffer camera could bypass CapturedSet before its first
+    // render. Adopt it through the existing stack policy at final pre-cull, with
+    // native target/stereo/mask ownership preserved. Independent preview RTs,
+    // disabled/manual cameras and the VR head retain their original boundaries.
+    // Frame's private world shader exposes a union property schema, which made
+    // native wall attachments appear to have an inert alpha-only channel. Resolve
+    // current native materials for capability, classification, masonry templates
+    // and swaps; native wall gates/fades remain authoritative without restoring
+    // bindings merely to inspect them or retaining cross-frame reverse mappings.
+    // Saved .8 previously allocated1x; viewport resets to1 then defeated the saved
+    // reduction even after bounded repairs stopped. After successful XR initialize,
+    // allocate the saved capacity while the display is stopped, before start.
+    // Live changes remain allocation-free/coalesced; above-capacity requests wait
+    // for restart. Actual native eye targets/FOV and cold-menu appearance need HMD
+    // confirmation. English/German help matches the session-capacity behavior.
+    // Exact-source worker evidence: actual Unity menu145/33 controls, attachment
+    // 698/four controls, environment11439; quality XR-boundary model114/23+2,
+    // native ownership731/nine controls. This is not native OpenXR or new headset
+    // acceptance. Retains NPC639 and Frame640/642 plus crossplay641. No shader
+    // bank, default, mesh, gameplay command or wire layout change. VR peers install
+    // 643; scoped integration receipts: docs/performance/FRAME-643-INTEGRATION.md.
+
+    // ModBuild642 — integrate the checked steady-render CPU follow-up after641.
+    // Fully loaded five-room638 windows measured terrain9.069ms, world materials
+    // 10.578ms and walls6.423ms per frame. These are optimization targets, not a
+    // measured post-fix saving; nested phase timings must not be added again.
+    // With SharedEnvironmentMaterialReads enabled, terrain stops examining the
+    // prepared remainder once the existing per-camera candidate cap is exhausted.
+    // Recover prior leases first and retain original output for untouched sources.
+    // Share exact current material/factory and registered/held prop ownership reads
+    // only within a synchronous camera pass; native/nested camera writes invalidate
+    // them. Refusal revocation uses actual current terrain leases or active/queued
+    // environment consumers, separately from prepared ownership membership.
+    // Walls skip unused home maps, use exact membership indexing before bounds,
+    // and check the existing census deadline before expensive attachment sampling.
+    // Native animation, room availability, material/MPB freshness and interaction
+    // stay intact. The existing shared-read switch permits an independent-read
+    // comparison; no new quality/profile limit, mesh bank, bundle or wire layout.
+    // Reviewed worker runtime evidence: world623 assertions/four affected controls,
+    // terrain352/one affected control, bridge20contracts/13controls. Byte-identical
+    // checked sources inherit those receipts; integration scope/build/source checks
+    // are recorded in .planning/FRAME-642-STEADY-CPU.md. Retains NPC639/Frame640/
+    // crossplay641. VR peers install642; actual headset FPS remains unverified.
+
+    // ModBuild641 — restore native quest selection and continuation in Flat/VR crossplay.
+    // User report: with two VR/two Flat players, a VR host could not reach quest start;
+    // a Flat host's selection showed Accept briefly, then only lobby rejoin restored it.
+    // The map observer now follows the original HostSelectedQuest/selected location,
+    // independently of VR record20 or the client's browsing marker. Native measured
+    // cancellation remains distinct from an unknown/rebuilding controller. The actual
+    // popup-manager subject owns confirmation, ready-toggle parking and shared pose;
+    // the multiplayer hover and ordinary accepted popup are separate original windows.
+    // Capture the native client preview before map entry and consume it once even if
+    // the ready toggle already retained visibility. Actual desktop answers expire it.
+    // Enable the existing native quest departure option on VR hosts. Under an unchanged
+    // Flat host, only a genuine blocked native Cancel input can admit one original
+    // unready action after departure; preserve native permission, quorum and state ACKs.
+    // Original optional retirement widgets remain reachable in 3D, with their native
+    // tween rect/promise/buttons intact and desktop fallback after conversion failure.
+    // Native-body fixtures and causal controls cover role/display/lifetime transitions;
+    // actual HarmonyX/Unity Mono proves the seven departure targets and scoped states.
+    // Guard mod native-state probes and retain bounded normal failure context. No new
+    // gameplay action, automatic vote, wire layout, default or environment-bank change.
+    // Inherits NPC639 and Frame640. VR peers install641; Flat peers remain native.
+    // Final receipts and outstanding HMD matrix: .planning/CROSSPLAY-QUEST-REVIEW.md.
+
+    // ModBuild640 — integrate the separately checked Frame camera/viewport follow-up.
+    // Native MainMenuVideo's unrestricted mask could capture mod screen geometry
+    // back into its own menu texture. Exclude only the dedicated mod layer during
+    // actual captured-camera rendering; restore current native masks on completion,
+    // interruption and teardown, and keep the shared native UI-layer fallback.
+    // The existing final pre-cull seam repairs late native target/stereo writes;
+    // VRCameraPolicy remains the sole stereo owner and corrects late cameras at
+    // discovery without recurring normal-log floods. Head and previews stay intact.
+    // Frame638 accepted .80 then reverted to1.00 across58 viewport repair writes.
+    // Limit a continuous provider reset to three spaced allocation-free repairs;
+    // retained viewport/new user request/session rearms it. Saved values remain.
+    // Byte-identical reviewed worker evidence: actual native desktop120 assertions/
+    // 25 controls, RenderQuality90/22 plus two startup controls. Integrated source,
+    // strict builds and compiled comparison retain all NPC639 runtime fixes.
+    // No bank/default/wire-layout change. Both peers install640; cold-start Frame
+    // video appearance and actual FPS remain hardware-open. See FRAME-640-INTEGRATION.md.
+
+    // ModBuild639 — resolve the exact native atlas blocker and prove rendered NPC openings.
+    // Both supplied peers were638. All33 mage originals arrived after roughly4s,
+    // but the picture remained inadmissible forever: the native zero-pivot Poison
+    // sprite was a dormant member of BattleOverlayCanvas, absent from Resources'
+    // loaded-Sprite census. The original atlas contains895 members, duplicate
+    // names/pivots and distinct packed geometry. Materialize its exact originals
+    // during native map preparation; retain native UV/mesh provenance in cached
+    // descriptor keys. No generated replacement artwork or game UI activation.
+    // Complete merchant/mage openings get a finite16-page reservation on the
+    // existing864B/50ms event clock, with ordinary-stream progress every4 pages.
+    // Repeated offers cannot inherit old send debt or obsolete fragmented card
+    // originals. Supersession preserves unchanged required exact bytes, declared
+    // baseline dependencies, fragment sequence monotonicity and source identities.
+    // Additive112/message28 acknowledges only actually retained full originals.
+    // All current compatible peers must affirm the exact source/session/module/
+    // sequence/object before cumulative delta reuse; preparation and local send
+    // completion cannot establish receipt. Pending receipts share ReliableOrdered
+    // event admission and survive unknown-owner handshake and admission failure.
+    // Original numeric card/ring/hover motion and rig clocks remain independent;
+    // visitor-local pre-drop guides retain their explicitly approved exception.
+    // The previous fixtures omitted dormant atlas members/full native TMP state,
+    // counted simulated/admitted output and initially ignored an inactive owner's
+    // transaction edge. The replacement follows actual producer/scheduler/driver/
+    // native application plus Camera.Render/readback, full33/59 census, distinct
+    // original options, true re-offers and genuinely fragmented prior offers.
+    // Strict1s local-render results and retained timing failures/causal controls
+    // are documented in NPC-639-PROOF-AUDIT.md; arbitrary network/HMD latency is
+    // not guaranteed. Merchant/native mage values are metadata, never image pixels.
+    // Temple wrist context contracts to1.45m entry/1.65m exit without changing
+    // native donation permission or2.6m NPC attention. Initial map/recenter keeps
+    // taller standing origins and lifts only low eyes to0.70m above the parchment,
+    // accounting for current zoom; ordinary head movement is never clamped.
+    // Both peers must install639. No bundle or saved/default config changes.
+    // Focused evidence/inherited unchanged coverage: .planning/NPC-639-REVIEW.md.
+
+    // ModBuild638 — repair NPC first-picture dependencies, not just queue size.
+    // Both hardware peers were637. The observer assembled15 enhancement members
+    // after2.070s but lacked the named original baseline; exact clones became
+    // visible only after12.754s. The632 proof began with newly registered sources,
+    // warm observer templates, one fast:false capture and direct mirror Receive.
+    // A live fast:true owner with a previously sent baseline and cold observer,
+    // through the actual driver coalescer, reproduces a6.2s repair wait. A new
+    // transaction/visible mount now publishes its current complete original once;
+    // ordinary hover/scroll continues with exact deltas and independent numeric
+    // clocks. Already published hidden sources retain their module lifetime instead
+    // of retiring then reusing IDs. Scheduled town artwork/census fragments use
+    // existing Bolt ReliableOrdered delivery: local send completion never proved
+    // remote receipt. Event864B/50ms cap and other stream fairness stay unchanged;
+    // rig, town motion and activity remain independently Unreliable. No image pixels,
+    // observer-default UI substitutes or additional gameplay authority are introduced.
+    // Additive111 carries the second held-card pose/source/grip and physical hand
+    // assignment atomically with the compact rig; delayed presence cannot overwrite
+    // it. The right card previously rode the large fragmented presence snapshot,
+    // so nominal15Hz sampling did not give it the first card's delivery clock.
+    // Local temple wrist focus now uses stable visitor proximity rather than the
+    // globally animated NPC eyeball and gaze ray; disposing/replacing a ritual
+    // reasserts current local focus instead of briefly restoring ordinary cards.
+    // Old purse proofs stubbed both gates. Permission to donate stays native,
+    // actual purses remain shared and pre-drop guides stay visitor-local. Both
+    // peers must install638. Focused causal/runtime/wire evidence and limitations
+    // are recorded in .planning/NPC-638-REVIEW.md; no headset acceptance is claimed.
+
+    // ModBuild 637 — integrate the Frame636 native world coverage/atmosphere
+    // repair. Exact shipped map data/placement/light coordinators no longer
+    // veto supported static scenery; child actor/interactive/unknown-script
+    // guards remain current. Coverage is independent of the terrain geometry
+    // cap, avoiding its camera-selected native/raw material split. Mode2 keeps
+    // original vertex SH ambient with live WorldMaterialAmbientPercent (100
+    // default;0 retains raw color). The shader bank explicitly uses the native
+    // game's Gamma space and retains actual compiled regular instancing/fog
+    // variants; the builder restores its prior editor settings. Modes0/1 and
+    // native UV/tint/fade/clip remain unchanged.
+    // Terrain captures current poses/config once per Update and skips absent
+    // MPB copies with a fresh per-eye presence check; old private overrides are
+    // cleared. World reads renderer-wide blocks once for all subslots. Existing
+    // native mesh/material/visibility guards and both NeverFade channels remain.
+    // Focused source-bound shader/runtime/native/wiring/terrain controls and
+    // final integration receipts are recorded in FRAME-637-INTEGRATION.md.
+    // No NPC, input or wire-layout behavior change. Install the updated
+    // environment bundle with the assembly; both peers must install637.
+    // Hardware appearance, Frame timings and multiplayer acceptance stay open.
+    //
+
+    // ModBuild 636 — integrate the separately audited whole-game material lane
+    // after the native enchantress635 repair. Optional live world shading stages
+    // 0/1/2 retain native renderer geometry, UV/color textures and visibility;
+    // unsupported or interactive/animated sources retain original materials.
+    // Fresh Frame/Standalone profiles select2; ordinary PC and existing values
+    // retain their original choice. Original floor/wall switches apply at0.
+    // World material variants coordinate with terrain/chunk/instance ownership
+    // and restore before native writes or variant destruction. Settled Off skips
+    // discovery, pass allocation and unowned slot reads; additive unload reseeds
+    // surviving native scenery. No NPC/Net/input behavior changes; all635
+    // original overlay fixes remain. Complete material
+    // inventory covers base game and DLCs. Source-bound149-suite worker coverage
+    // combines147 original passes with2 affected reruns, not a repeated full run.
+    // Main integration validation and boundaries: docs/performance/FRAME-636-INTEGRATION.md.
+    // Install the updated ghvr-environment.bundle with this assembly. Both peers
+    // must install636. Frame FPS and headset appearance remain hardware-open.
+    //
+
+    // ModBuild 635 — Build634 local enchantress overlay follow-up. Quiet visits
+    // now start/stop the shipped UIEnchantressEffect only while the original
+    // highlighted physical offering is present; hidden preparation runs no loop.
+    // Reused native enhancement-area buttons recover their original local basis
+    // after native world-preserving pooling, retaining callbacks and hover state.
+    // Offered-card effects follow the actual print plane rather than assuming a
+    // pooled print has identity rotation; preserve the native rotation clock and
+    // avoid applying a physical size change twice. Original sprites/controllers
+    // and exact-original observer publication remain, with no new wire layout.
+    // Native shutdown skips selection cleanup only when its exact serialized
+    // holder CanvasGroup was already destroyed. Focused original-game animation,
+    // native prefab geometry/input and source-to-observer proofs are recorded in
+    // .planning/NPC-635-REVIEW.md; they do not establish headset acceptance.
+    // Both multiplayer peers must install635. No asset/default changes here.
+    //
+
+    // ModBuild 634 — restore the exact native enchantress EnterShop already-on
+    // BUY branch during quiet preparation. UITab.Activate only invokes its
+    // callback when the toggle changes; NONE/retained SELL otherwise filtered
+    // every empty enhancement area. Native selection, payment/proxy callbacks
+    // and original windows remain unchanged. The original points heading uses
+    // the reversible full-cover background filter, retaining text/icons and
+    // identical owner-authored observer state instead of a null-sprite white bar.
+    // Focused native-mode/counter/grant checks cover reentry, cancellation and
+    // independent resident ownership; no new headset acceptance is claimed.
+    // Integrate the parallel Frame634 source-bound follow-up: fresh Standalone
+    // eye scale .80, accepted-viewport reset recovery, numbered decorative torch
+    // coverage, optional terrain source-check budget (64 fresh Frame, 0 PC),
+    // shared immutable classification and inactive dissolve shader fast path.
+    // Existing saved settings, active wall fade, original geometry fallback,
+    // gameplay and network formats remain. Ship the updated environment bundle
+    // with this assembly. Both multiplayer peers must install634.
+    //
+
+    // ModBuild 633 — integrate the parallel Frame631 startup/PC-quality follow-up
+    // after the complete NPC632 gate. Select quality only after successful OpenXR
+    // initialization; no legacy eye allocation/viewport or native MSAA setter runs
+    // before runtime discovery. Newly initialized stopped displays receive startup
+    // resources; reused live displays remain adopted without reallocating them.
+    // The actual Rig.RenderQuality Update tail uses an explicit phase entry because
+    // Camera.current may retain a stale last camera during valid Update. Unmarked
+    // callers retain conservative rendering guards. Existing slider debounce/MSAA
+    // spacing, deferred viewport refusal and no-live-allocation contract remain.
+    // Source-bound65 assertions/17 causal controls/2 startup guards do not prove
+    // native XR_ERROR_RUNTIME_UNAVAILABLE recovery or headset rendering stability.
+    // Preserve all NPC632 originals, callbacks, parity and queue improvements.
+    // Both peers must install633; no assets, defaults or wire layout change here.
+    //
+
+    // ModBuild 632 — paired Build629 NPC follow-up. Actual remote enhancement
+    // admission took28.557s:44 visible originals repeated large independent property
+    // tables before transport compression. Additive TLV110 shares exact owner scalar,
+    // string, property and node values across one self-contained original picture;
+    // current visible census and first originals travel atomically. IEEE signed zero,
+    // localized original text/fonts, native asset references and unknown additive
+    // headers remain exact. No image pixels, matching observer defaults, earlier
+    // dictionary, bandwidth increase or unbounded priority is introduced.
+    // Visibility depends on actual native/converted ink, not merely active objects.
+    // Transaction withdrawal remains immediate even with unchanged module membership.
+    // Offered frame109 now mounts every native descendant partition to the actual
+    // physical card, retaining stretched canvas geometry and independent per-node
+    // motion clocks; face/header refresh cannot restart native ring interpolation.
+    // Normal immersive merchant, temple and mage visits use original transaction
+    // source islands without whole-window Show/EnterShop, flat mode switching, party
+    // selection, portraits, list navigation or flat entrance animations. Native
+    // payment/ownership/stock/progression callbacks remain original. Preserve native
+    // proxy refreshes, tab availability, points/warnings and owned transaction audio;
+    // isolate cosmetic callback faults from the game's action processor. Source
+    // leases restore on failures and teardown. Explicit original-window mode and
+    // bounded exceptional recovery retain the existing usable native window path.
+    // Priestess wrist/held purse focus follows the actual resident/held context,
+    // independently of hidden native window lifetime. Town pre-drop guides remain
+    // visitor-local; actual cards/purses/options/confirmations/returns stay shared.
+    // Actual Unity native prefab capture plus the unchanged full scheduler admits
+    //44 originals in0.45s ordinary/0.90s maximum eight-stream contention; warm rows
+    // take0.15/0.45s. These are fixture outcomes with an explicit editor font/shader
+    // limitation, not headset latency or Frame FPS acceptance. Independent original
+    // bytes, causal delivery/mount/lifecycle controls and final full gate are retained.
+    // Both peers must install632; no assets, quality defaults or scenario privacy change.
+    //
+
+    // ModBuild 631 — native merchant card minification, on top of the complete
+    // Frame630 integration. Supplied paired logs are Build627: the host exhausted
+    // the 384 MB mip cache and left later item artwork without filtered levels.
+    // Small exact untrimmed atlas sprites now use the existing bounded CPU region
+    // bake; a prepared whole-atlas copy is still reused. Source resolution, pivot,
+    // border, PPU and original asset identities remain. The 384 MB byte ceiling
+    // stays unchanged; the metadata runaway guard rises from 512 to 2048 regions
+    // because the original BattleOverlayCanvas alone contains 895 safe members.
+    // Native Image base and active override art share the filter/arrival/restore
+    // path, including explicit overrides equal to the base. Inert town observers
+    // resolve original asset metadata and immediately use that same local sampling
+    // policy instead of reinstalling mipless pictures. No wire records, card
+    // geometry, concealment, gameplay, quality defaults or asset bundles change.
+    // Actual Unity perspective proofs compare six distance/tilt views per original
+    // item against an 8x reference and retain close-view print resolution. These
+    // prove filtering behavior, not headset temporal appearance or full-game cache
+    // sufficiency in every save; the next paired hardware run remains necessary.
+    //
+
+    // ModBuild 630 — Frame628 hardware follow-up: remove rejected visible idle
+    // sampling and both controls completely; native visible animation stays continuous.
+    // Native offscreen-only animation culling remains independently configurable.
+    // Cosmetic scenario card/figure preparation no longer prolongs the loading indicator
+    // after native loading ends; true room/material work retains its indicator. Loading
+    // presentation no longer writes backgroundLoadingPriority.
+    // Repeated terrain mesh admission and ancestor component reads reuse only one
+    // synchronous invocation; native inactive sources skip expensive pre-cull work.
+    // Existing clone/write fallback, current native state and before-culling restoration
+    // remain. Debug Optimize changes close timing windows; >=5s sparse windows survive
+    // frequent reported-rate changes, which no longer claim proven reprojection.
+    // Resolution chooses session allocation before OpenXR initialization; coalesced live
+    // edits change only the viewport, avoiding the repeated texture recreations at the
+    // captured .80/.85 abrupt end. Larger-than-capacity requests are saved for restart
+    // with EN/DE help. MSAA commits coalesce but hardware stability remains unverified.
+    // Common PC/Frame source/assets and saved controls remain; no gameplay/wire changes
+    // or new stereo/FPS/multiplayer hardware acceptance is established by local proofs.
+    // The explicit idle retirement is the maintainer's 2026-10-06 exception to the
+    // historical never-remove-key rule, narrowly audited by the surface checker.
+    //
+    // ModBuild 629 — paired Build627 offered originals, shared card planes and
+    // outcome-specific immersive flights; integrates on Frame628 without asset changes.
+    // The host admitted the remote mage picture after 24.975 s while waiting for
+    // invisible tooltip/inventory originals. Additive TLV108 declares the exact
+    // currently visible subset and its native mount dependencies; every visible
+    // original remains atomic. Prepared membership is separate, visitor-local
+    // pre-drop guides never become observer dependencies, and hidden unseen
+    // inventory is not serialized merely to present a card. Original partitions
+    // use deterministic 32-node structure, independent of localization. A baseline
+    // becomes a delta dependency only after successful encoding and queue admission;
+    // a >60 KB failure can no longer poison all following deltas. Current visible
+    // revisions borrow bounded existing town turns with debt repayment, without
+    // changing global bandwidth, cadence or continuous rig/hand motion.
+    // Offered-root interpolation has its own clock: hover/material updates cannot
+    // restart it independently of the physical card. Additive TLV109 binds the
+    // actual source native holder/canvas to the exact original print and preserves
+    // native local scale inside stretched/rotated canvases. Per-render composition
+    // retains original child pulses; identity/claim/session checks reject stale
+    // relations and singular temporary scales preserve the last valid frame.
+    // Native inventory outcomes select flights: sold originals retire at the
+    // merchant, acquired originals fly to the buyer, cancelled owned copies return
+    // to their fan and borrowed samples return to the cabinet. Prepare a hidden
+    // canonical purchase original while offered, adopt only the actual acquired
+    // model after success, and retain exact returning originals across NPC/character
+    // changes in the existing cosmetic lane. No gameplay state is manufactured.
+    // Temple TLV106 and accepted blessing behavior, public map card disclosure,
+    // scenario concealment and Frame628 controls remain unchanged. Representative
+    // original-widget transport, source-bound curves, continuous native geometry
+    // and independent wire/control tests are evidence, not a headset acceptance.
+
+    // ModBuild 628 — loaded three-room Frame coverage and independent idle clothing.
+    // The offline PC627 capture showed narrow terrain coverage, no submitted
+    // environment groups and no visible idle sampling after scenario loading.
+    // Admit ten exact original Crypt wall/pillar definitions, retaining native
+    // floors, foundations, doorways, collision and live source/material state.
+    // Permit authored probe defaults only when actual native lighting is compatible;
+    // revoke late-invalid environment/idle leases after all managed pre-cull
+    // callbacks but before native culling. Native writer/clone entry restores
+    // originals synchronously, and failed hook/ownership checks keep native output.
+    // Sample compatible authored-culling idle bodies through the same native LOD
+    // group, retaining automatic/forced LOD, action/hold/clone restoration and
+    // bounded bake work. Disabled-cloth skeletal approximation is independently
+    // adjustable: fresh PC false, fresh Frame true, explicit Fastest true; active
+    // cloth solvers remain native. Interval zero and live Off recover originals.
+    // Debug counters record actual reads/reuse, registry work and surviving camera
+    // submissions, including zeros, without a new normal-level diagnostic stream.
+    // Common PC/Frame code/assets, saved settings, eye resolution, wire format,
+    // network cadence and all NPC627 behavior remain unchanged. Loading hitches
+    // are outside this package's success criterion. Native fixture evidence does
+    // not establish Frame stereo correctness, headset FPS or multiplayer headroom.
+
+    // ModBuild 627 — common PC/Frame reversible rendering handover after NPC626.
+    // Merge the reviewed isolated Build625-based Frame candidate only after the
+    // multiplayer delivery/print/return corrections reached dev. Nine independent
+    // live controls cover verified private environment mesh copies, bounded camera
+    // instancing, cheap continuous wall shading, near/distant 3D wall/pillar detail,
+    // visible event-free idle pose sampling and exact scoped material/UI reads.
+    // Frame detection seeds only fresh entries; existing profiles survive, eye
+    // resolution is unchanged, and PC/Frame ship the same runtime/asset archive.
+    // The private environment bundle retains exact source provenance and on-demand
+    // stream validation. Native geometry/material/collision remain original; masks
+    // are camera leases revoked before native writes/cloning, disable and teardown.
+    // Material loading revokes idle/terrain/environment owners before the initial
+    // native hide as well as completion. Supplementary streams, internal batching
+    // and per-object probe owners retain original submission; terrain keeps native
+    // rendering layers. Visible idle keeps authored LOD and cloth-bearing rigs
+    // native, and late sorting/motion-vector/occlusion changes revoke old proxies.
+    // Unsupported/changed sources keep native rendering. Doors/floors/tactical
+    // contents retain originals, near interaction restores full wall geometry,
+    // native wall dissolve remains continuous, and no 2.5D board is introduced.
+    // Idle sampling excludes transitions/actions/held/eventful rigs and all town
+    // residents. Immediate nonvirtual mirror getter reuse preserves callback/write
+    // order and original virtual reads; it changes no shared content or wire cadence.
+    // Preserve all NPC626 clocks, native originals, print geometry and guide rules.
+    // Source/native fixtures and coverage counters are not new headset FPS evidence.
+
+    // ModBuild 626 — paired Build625 enhancement admission and continuous town returns.
+    // The observer repeatedly rejected the game's exact HeroHighlight_Brute wrapper.
+    // Admit only the audited finite native class-highlight descriptors and prepare
+    // the offered party member's original portrait even before local selection.
+    // Native mage originals establish one complete owner-property baseline; hover,
+    // scroll and highlight changes use the existing cumulative deltas instead of
+    // restarting that full baseline every turn. Complete keyframes avoid a sparse
+    // native-basis mismatch waiting for ten-second repair. Bounded Debug admission
+    // traces distinguish missing modules, original dependencies and first-ready age.
+    // Fit original enhancement children against the actual adopted printed rectangle,
+    // retaining native geometry/state and restoring pooled root transforms on exit.
+    // Additive TLV107 carries exact original town card-return endpoints, child offsets,
+    // curves and clocks. Replay stock SmoothStep, owned-item glide/collapse and native
+    // VRCard SmootherStep/arc each rendered frame. Prepare the stock original while its
+    // canonical avatar hold masks only the duplicate. New returns and their matching
+    // roots receive a coherent finite turn inside the unchanged 864-byte/15Hz budget;
+    // subsequent ages keep normal fair recovery. Accepted purse TLV106 and temple
+    // blessing/audio are unchanged. Fixtures establish source-bound geometry, exact
+    // bytes and continuous motion, not a new headset latency or appearance outcome.
+
+    // ModBuild 625 — Build624 paired NPC publication and local map loading review.
+    // Prepared cabinet turns retain exact immutable originals and send current
+    // TLV103 headers without rebuilding/compressing the full bank on input. Cold
+    // or changed dependencies are encoded one per send turn; completed clocks
+    // acknowledge their actual source so heartbeat/loss repair remains live.
+    // Native offer metadata carries every owner layout/active/text property and
+    // compares only genuinely omitted defaults. Cold receptions are retained and
+    // retried after real original preparation, never discarded until a later repair.
+    // Standard TMP fallback renderers are valid pooled item output (Boots of
+    // Striding); custom gameplay graphics remain rejected and mirrors inert.
+    // TLV106 adds the original .35s purse return against the rendered rig holder,
+    // including visibility lifetime. Blessing uses the exact native temple sound
+    // at the shared commit age, with only its duplicate immersive callback silenced.
+    // Resident gaze follows the visible interpolated remote head. Map loading waits
+    // for local resident/card preparation, never election or remote bank delivery;
+    // a fixed minimum spinner hold is removed. Source/runtime evidence is distinct
+    // from still-unverified headset appearance, network latency and native audio.
+
+    // ModBuild 624 — first-save merchant onboarding closes through the native flow.
+    // A real destination close and a surface-only map switch share the same native
+    // map Toggle. Preserve open merchant/temple/enchantress windows only for the
+    // latter; explicit X/second-cap exits retain the original mode cleanup and FTUE
+    // listeners. A scoped native shop close resolves only its exact pending BuyItem
+    // step after cleanup, independent of old WorldMap toggle listeners or purchases.
+    // The original BuyItem exit hint names X/second Merchant press in EN/DE instead
+    // of reopening WorldMap. Persistent immersive residents still advance their
+    // flat-only steps through original native promises; no saved-state/travel bypass.
+    // No wire layout, canonical item path or cabinet presentation changes.
+
+    // ModBuild 623 — bounded native NPC publication and reliable common cabinet controls.
+    // Paired Build622 evidence isolated final publication CPU spikes, discarded catalogue
+    // authorship/banks on input, purse identity replacement on pickup, and cold native
+    // enchantment templates. Sample at the existing15 Hz transport clock; reuse decoded
+    // immutable frames and canonical content hashes for pose-only changes. Record104
+    // carries reliable public cabinet inputs to the active original author and its clock.
+    // Record105 carries original native property differences against a validated local
+    // prefab basis, with complete repairs; pixels are never transported. A mage picture
+    // is admitted together with its original card, ring and required option rows.
+    // Keep the temple's prepared physical purse identity through wrist/held/return states
+    // and reconstruct its actual original tooltip counter topology without callbacks.
+    // Preserve the canonical avatar/scenario item rendering path confirmed in Build622;
+    // item inspection remains exclusive throughout merchant buy/sell/cancel refreshes.
+    // Automated original-runtime evidence is not a new headset performance measurement.
+
+    // ModBuild 622 — paired original NPC publication, canonical merchant items and safe map switches.
+    // Both supplied hardware peers were Build620; the observer reports an original TownNpc
+    // shader missing from unresolved bank lookup. Resolve original bundled shaders before
+    // material construction, retain the native property contract and prioritize current
+    // public shelf mechanics/cards, actual offered faces and native enhancement rows.
+    // Same-author page changes retain ready clones; reordered members wait for their own
+    // rack clock. The original cassette continues its owner-authored intermediate motion.
+    // The final causal review also found lazy dormant native partitions: public catalogue
+    // loading now prepares original rows/cards and retains their immutable snapshots.
+    // Additive record102 carries a public clock's required content keys and complete changed
+    // originals together. Validate the entire bank and original asset/topology contracts
+    // before admitting its clock; local send completion is never a remote acknowledgement.
+    // Prepared original revisions survive page retirement. Additive record103 carries the
+    // current original headers and explicitly based native property changes before the
+    // complete repair, using the same bounded fragment namespace and scheduler share.
+    // Changed templates, missing originals or invalid parent bindings reject the reference
+    // atomically and retain the full102 repair; no node state is inferred from an observer.
+    // Town capture runs after the actual registered native town, tween and canvas writers,
+    // while the existing board/use-bar sampling cadence remains unchanged.
+    // Merchant item inspection now uses the approved avatar fan/rig held-card pipeline.
+    // The real inspection pile owns its immutable character key, independently of the
+    // ability fan. Map-only additive v3 record101 carries public original item provenance
+    // atomically with each held pose; seat/count/ID checks reject stale native lists.
+    // Owner deadzone float249 complements unchanged count224..247 and inert tombstone248.
+    // Presence maximum is7700, writer7957 and bounded fragment envelope8000; fixed layouts,
+    // scenario concealment and all prior record meanings remain unchanged.
+    // Original resident item sprites and inactive pool templates warm during visible town
+    // preparation. Normal play uses a bounded readiness census, not a full per-frame scan.
+    // Native world-Z aura tween phase transfers into the final offered-card plane. Actual
+    // pooled enhancement rows retain original masks, scrolling, hover and inert observers.
+    // Native purse bounds define grip and bowl placement; styled hand offsets/scale use the
+    // same compensated holder as approved rig cards. Root and body follow the actual hand;
+    // bowl/return animation survives closed wrists. The user explicitly made the temple
+    // pre-drop guide local-only; real purses, NPC poses, blessings and audio remain shared.
+    // Converted original service windows keep title/rows/selection across City/World map
+    // switches. Native story admission already allows connections and waits for a fresh
+    // safe checkpoint; the supplied failed code was truncated, then full-code join worked.
+    // No native admission/save/action/controller bypass is introduced. The review and
+    // original-hierarchy causal proofs are recorded in .planning/NPC-622-REVIEW.md.
+
+    // ModBuild 621 — whole-game small dressing, retained-arch flames and opt-in wrist board.
+    // Read-only original PCG provenance admits 276 exact small mesh identities and their
+    // proven decorative collision, including pages, skulls, shelf books/jugs and chains.
+    // Structural cores, native actors/controllers, large corpse/cross/coffin assemblies,
+    // lights and unknown collision remain protected; zero/low/full budgets are reversible.
+    // Actual native torch/candle-holder/frame attachment inherits persistent arch protection,
+    // even when authored emitters project beyond the arch rectangle. Prior wall-owned fades
+    // restore after pooling/reparenting; ordinary wall sconces keep the historical fade.
+    // Wrist attachment is settings-only and off by default. The same original board root
+    // follows the compensated tracked wrist; Advanced sets hand, offsets, angles and size.
+    // Normal follow/fixed placement and size survive tracking loss, rig/style rebuild and
+    // mode return. The complete follow/fixed control and grip bar hide while wrist-owned;
+    // unavailable grip-bar tutorial lessons are omitted without changing card lessons.
+    // Existing fast rig record70 carries the final owner pose/scale. Additive wire-v3
+    // record100 carries only hidden wrist controls; ordinary packets remain unchanged.
+    // Remote geometry and intermediate motion use the existing owner-authored board path.
+    // No gameplay ownership, native loading flags or card concealment rule changes.
+
+    // ModBuild 620 — restore the original continuous wall/prop dissolve, broaden
+    // whole-game decoration provenance and make VR options help player-facing.
+    // The Build619 point-filtered rank bank is removed; native fade enable remains
+    // explicit. Exact loose/composite decoration meshes and known cosmetic projector
+    // families are reversible presentation masks; structural/gameplay owners survive.
+    // Player help covers EN/DE settings/families and headings on both menu routes;
+    // the legacy map sparkle switch stays bound but INERT and is no longer offered.
+    // Graphics-profile help wraps across its full row at readable size; simpler
+    // environment shading has an explicit ordinary-menu label and retains native walls.
+    // Newly revealed room loading observes real native async handles, not null result
+    // slots, and ends immediately when native jobs complete. Background cosmetic/ghost
+    // preparation no longer extends a completed room's loading indicator. Initial cold
+    // preparation remains bounded, with Debug-only pending-job counts. No native load
+    // flags, wire records, gameplay ownership or local/remote card permissions change.
+
+    // ModBuild 619 — bounded original preparation, native room-load indication and
+    // whole-game cosmetic coverage after Build618's two preparation timeouts.
+    // Cheap cached jobs are batched; portrait waits share an absolute deadline.
+    // Original room generation/material requests and actual presentation queues
+    // re-arm the existing spinner without writing game loading or input state.
+    // Original character/PCG provenance covers heroes, summons, bosses and ordinary/
+    // elite enemies, including LivingSpirit resident particles and mesh eye bands.
+    // Native HIGH wall transitions retain original materials/endpoints while using
+    // progressively ranked native solid/held mask pixels. TMP bar numbers/submeshes
+    // receive the same depth policy as ordinary bar graphics. Hardware verification
+    // remains distinct from native-bytecode and Unity runtime/pixel evidence.
+    // Four explicit graphics actions use native quality callbacks and current Frame
+    // defaults; later manual edits remain authoritative. Technical controls move to
+    // Advanced, pure work-removal/stereo-safety legacy keys remain bound but INERT.
+    // No wire grammar, gameplay authority or local/remote card permissions change.
+
+    // ModBuild 618 — reduce the three ordinary-play hitch paths confirmed in Build617.
+    // Original published waypoint/combat-FX ownership is shared by wall signatures and
+    // live collectors, including pooled reparenting; actual water/wall-shader inputs and
+    // the conservative rescan ceiling remain intact. Debug draw traces reserve restored
+    // endpoints and native route coverage, without claiming native shader pixel parity.
+    // The existing loading spinner now also warms original Consume/Infuse widget arrays,
+    // original area-atlas regions and the actual actors' stat portraits in shared pin/mip
+    // caches. No synthetic native Show, gameplay callback, focus change or artwork exists.
+    // Already-adopted physical VR cards skip only redundant private flat scale/position
+    // writers; native selection/highlight/validity/events and returned/dialog cards retain
+    // their original bodies. Debug-only bounded message/substep costs and strict ghost
+    // miss reasons distinguish remaining native stalls; the full 207ms callback is not
+    // claimed eliminated. Network records, concealment rules, maps, NPC mode, animations,
+    // original presentation and ordinary-player log volume retain their existing contracts.
+
+    // ModBuild 617 — prepare original interaction resources before ordinary scenario input.
+    // The bounded visible preparation period warms every real party class's original card
+    // skins/state/element sprites in existing shared pin/mip caches and reserves inert
+    // ordinary card backings. No native face, gameplay hand, focus change or reveal is
+    // fabricated; local/remote rendering and map/2D/non-NPC paths keep their original rules.
+    // Original figure ghosts are prepared inactive, then validated against today's source
+    // hierarchy/mesh/material/shader/LOD/bones and rebound to current evaluated idle poses
+    // before local or remote pickup. Held actors are never replaced by loading preparation.
+    // Existing native stat chrome/art is warmed without Show/activation; unseen portraits,
+    // native conversion and late/replaced content retain immediate original lazy fallback.
+    // Alternate card/figure work under the existing loading indicator without changing
+    // native loading flags or gating input. Failure/90s cancellation preserves live holds
+    // and valid reserves; actual scene/load/VR teardown releases owned inactive resources.
+    // Debug inventories batch small borrowed component/child work and memoize only proven
+    // complete ancestor chains, retaining configured CPU/work caps and lifecycle invalidation.
+    // Debug SPIKE evidence observes bounded native callback ledgers beyond the first 120
+    // summary frames, per-frame GC collection deltas and available inclusive engine markers.
+    // Reset/resume actual Unity recorders at each boundary; unavailable markers stay n/a.
+    // Reports remain on the existing capped SPIKE emitter; no ordinary per-frame stream.
+    // Native wall delivery is sampled read-only at head-camera pre-render, including indexed
+    // MPBs, material/keyword gates and renderer enable state. Ceiling commits rank their
+    // existing measured phases. Complete native collector closure is not yet proven, so
+    // the safety ceiling remains intact; neither wall pixels nor headset gains are claimed.
+    // All changes are mod-side; original gameplay, native callbacks, wire v3 and bundles
+    // remain unchanged. Hardware must establish actual preparation hits and post-load gains.
+    //
+
+    // ModBuild 616 — original town NPC meshes and the Build 615 Frame hardware review.
+    // Remove the three immersive residents' twelve simplified body derivatives and
+    // their dedicated distance parts 17–28 (53,762,395 bytes). Original resident bodies,
+    // faces, materials, bones and shared pose/audio clocks remain; scenario figure
+    // detail/distance variants retain all 1594 records and 66 byte-identical parts.
+    // Retire the NPC body-detail slider in curated and advanced options; its saved
+    // configuration key remains inert. Scoped per-renderer skinning stays separate.
+    // Fresh/missing-key Frame standalone profiles disable immersive town residents;
+    // PC profiles still enable them. Explicit saved choices are never overwritten.
+    // Preserve native wall fade channels before cheap environment shading, including
+    // floor-classified surfaces with live native wall gates. Native writes restore
+    // owned materials before drawing. Bound only the wall visual fade step so a
+    // stalled frame cannot skip its rendered intermediate states; shared UI/card
+    // fade semantics remain unchanged. Structural chunks were zero in this capture.
+    // Rename attached MonoBehaviour Camera event handlers to avoid invalid automatic
+    // Unity OnPreCull/OnPostRender message signatures; explicit subscriptions remain.
+    // Adaptive display refresh changes close FRAME pacing windows without repeatedly
+    // discarding the separate incremental scene census. Real scene/load/config/debug
+    // lifecycle changes still invalidate it. Bounded Debug progress reports work,
+    // slices and capture span; no routine per-frame normal-level stream is added.
+    // Actual Build 615 loaded scenario mean 49.60ms versus 53.20ms in 612 is an observed
+    // 6.8% improvement, not isolated per-change savings or headset/compositor FPS.
+    // Stable wall publications are skipped 24/24; cold pickup/preview spikes remain,
+    // and most work/waits in the longest frames remain unattributed by these logs.
+    // Native game state, gameplay callbacks and the multiplayer wire grammar stay
+    // unchanged. This is a full install because the indexed asset part set shrinks.
+    // Original Unity runtime/pixel controls and the complete integrated gate prove
+    // source boundaries; the next headset capture must verify final appearance.
+    //
+
+    // ModBuild 615 — all five remaining CPU/render tracks from FRAME-612-ANALYSIS.
+    // Scene-signature churn ignores only active native actor-owned non-water particle
+    // renderers; detached/unknown effects, wall/water signatures and drift stay live.
+    // Exact MeshRenderer bounds are memoized only within one synchronous wall commit,
+    // cleared in finally; commits remain atomic, not spread over gameplay frames.
+    // Native actor/component and active-state audits admit proven stable idle bar checks.
+    // Optional event-free offscreen transform culling preserves original Animator time,
+    // authored culling modes and continuation; action/locomotion/held paths restore first.
+    // The shipped Drake already uses CullUpdateTransforms: the new option must not be
+    // described as a new saving on that rig. Shared town-resident clocks are untouched.
+    // Original UI hierarchy inventories invalidate on actual structure/activity changes;
+    // stable initiative depth, hidden-window and mip-arrival inventories stop rewalking
+    // every descendant. Known sprites, visibility, input and remote animation stay live.
+    // Debug SCENE/SIM/GFX/TEX and lightweight renderer/uGUI census share a sliced budget,
+    // including persistent scenes and cancellation; summary span, total CPU and atomic
+    // overruns remain distinct. Near-grip distance/eligibility/hover/pickup/ghost scopes
+    // add attribution without delaying any contacts or changing callback ordering.
+    // Optional audited readable masonry chunks keep original objects/colliders and use
+    // small native tile/cell boundaries; native writes or command-buffer cameras revert
+    // to originals before drawing. Unknown/unreadable meshes retain native submissions.
+    // A separate native instancing experiment stays OFF: the capture already has 4194
+    // instanced slots. Fresh Frame defaults select structural chunks, audited idle culling,
+    // panel maintenance0.15s and initiative depth0.10s; saved settings are retained.
+    // New diagnostic budget knobs and render compromises are reversible on PC too.
+    // DLL-only: no meshes/bundles, game data, native gameplay commands or TLVs change.
+    // Source-linked Unity proofs and the complete integrated gate are required; final
+    // headset frame-time improvement and appearance remain to be measured on Build615.
+    //
+    // ModBuild 614 — NPC multiplayer native artwork, fair delivery and shared attention.
+    // Both hardware endpoints identify Build612: native atlas wrappers differ across
+    // OpenXR backends, verified template aliases were not all registered, and dense
+    // numeric state waited over six seconds. Original serialized UIInfoTools sprite
+    // provenance and verified template dependency aliases resolve local game artwork;
+    // no card bitmap is sent. Cold originals get a finite urgent share of the existing
+    // presentation scheduler; additive TLV98 packs unchanged TLV97 numbers losslessly
+    // within the original event/cadence. TLV99 shares merchant readiness independently
+    // of native service sessions or personal guides. Town card pre-drop guides are local
+    // by the maintainer's explicit exception; physical cards, wrist/held purses, native
+    // controls, animation, voice and NPC hand poses remain public. Global attention
+    // and speech belong to an actual offered-card owner, never a browsing lease.
+    // The priestess follows the accepted donor through the shared blessing clock.
+    // Public cabinet clock/layout adoption cannot wait for its next card artwork;
+    // rejected category presses do not steal authorship. Live native root rect extents,
+    // anchors and pivots survive baseline/fast playback; absolute pose stays on the header.
+    // Detached-root normalization is defensive, not a proven hardware slab diagnosis.
+    // Existing scenario card concealment, input and board guides remain unchanged.
+    // Unity/native source fixtures and full local gates verify controlled behavior;
+    // actual headset presentation and timing require the next matching614 hardware run.
+
+    // ModBuild 613 — prevent actor skinning budgets from fighting four-bone hands.
+    // The Frame612 capture proves 12,830 global TwoBones -> FourBones repairs: the
+    // new actor budget and existing hand protection wrote the same quality slot.
+    // Only owned figure/NPC renderer quality is capped now, including native Auto;
+    // original Auto/explicit slots restore on Off, VR shutdown and native changes.
+    // Hands keep their original global protection. Exact original hand-guard execution
+    // in both update orders rejects the previous conflict through causal controls.
+    // Debug-only bounded NPC readbacks and end-of-window effective quality snapshots
+    // expose the map-only slider, distance tier and bone cap without a new scene walk.
+    // Existing scenario admission reports also retain actual original/current meshes
+    // in LogOutput.log. These snapshots are not isolated A/B attribution or draw counts.
+    // Frame612 scenario admission and removed native camera passes are log-proven;
+    // remaining wall-table churn and conservative idle-bar refusals are documented,
+    // not claimed fixed. No bundles/wire layouts change; FPS gain needs hardware evidence.
+
+    // ModBuild 612 — reversible Frame CPU/render budgets and visible inline scenario rules.
+    // The supplied Frame610 log still contains discarded native ScenarioCamera/UI Camera
+    // render callbacks. Optional camera suspension removes those automatic passes after a
+    // managed bridge preserves original main-camera and UI-projection identities. Visible
+    // flat menu/preview captures and the active movie decoder remain necessary; missing
+    // bridge setup fails back to existing draw suppression instead of blocking continuation.
+    // Static converted-panel fitting and verified stationary original animation-loop bar
+    // sampling gain configurable intervals. Native input, callbacks, reveals, root changes
+    // and non-loop actions stay immediate. Original loop envelopes stabilize absolute bar
+    // height without following every wing beat; sleeping/waking transitions remain dynamic.
+    // Card diagnostics seed one native registry during startup and follow actual widget
+    // OnEnable/Init/OnDestroy lifetimes instead of repeating a synchronous resource census.
+    // Optional projected-size LOD, NPC body detail and per-renderer bone influence caps use
+    // immutable prepared mesh parts; original materials, skeletons and facial expressions
+    // remain in use. Quality compromises work on PC and Frame and restore when disabled.
+    // Fresh Frame defaults: suspend unused cameras, distance LOD, NPC detail45, two bones,
+    // panel maintenance0.05s and verified idle-bar checks0.1s; saved settings are retained.
+    // Build610 rules were effectively invisible because PlaceHost multiplied metres/pixel
+    // by CanvasScaleMm a second time. Correct native mounting keeps short rules visible;
+    // long rules show a real rendered "...", expand on hover or pin on click and animate
+    // occupied height to move private goals/elements below them. Existing owner-authored
+    // record96 and its interpolated remote clock retain geometry, wording and animation.
+    // FULL INSTALL: new immutable NPC/far-figure mesh bank parts are required. Unity proofs
+    // execute original camera consumers, skinned poses and native rules mounting; hardware
+    // FPS, headset appearance and standalone/Steam Link passthrough remain unverified.
+
+    // ModBuild 611 — responsive shared NPC presentation and reliable offer completion.
+    // Additive message26/record97 carries bounded numeric motion independently of
+    // native artwork fragments. Visitor-held originals use the existing interpolated
+    // avatar hand frames; module/session/structure affinity prevents stale artwork
+    // or numeric packets from replacing a newer physical offering. Cold fan fronts
+    // prewarm while closed and share urgent baseline delivery rather than queueing
+    // behind cabinet decoration. Live controls retain a finite turn independently
+    // of that preload; visible wrist fans have a separate fair turn. Native fan
+    // offsets interpolate over measured owner intervals without overwriting the
+    // approved rig motion or restoring an old target midway through a transition.
+    // A public page replaces the last validated cabinet atomically
+    // only after its current original faces, holders, prices and mechanics are ready;
+    // off-page preload cannot block its reveal or another visitor's category press.
+    // Original asset identity, local-only fingertip topology, dynamic native hints
+    // and independent visitor modules retain the complete public map presentation.
+    // A successful native donation has a durable fast commit clock, independent of
+    // visitor departure; resident activity still authors its animation, VFX and sound.
+    // Native mage cancellation returns its exact card and releases the physical
+    // lease. Merchant/mage show the granted player's existing avatar/name above the
+    // NPC until removal; a delayed obsolete grant cannot resurrect a local tag.
+    // Mage decisions clear the original raised book over the owner's complete yaw
+    // sweep. Temple commits do not create an occupation. The maintainer
+    // explicitly permits one shared mage drop guide (2026-10-03); this visual election
+    // does not remove any eligible visitor's real input or controller feedback.
+
+    // ModBuild 610 — pose-aware actor bars and readable native scenario rules.
+    // Current evaluated native skin/bone envelopes replace the flying-offset floor
+    // and raise-only bar latch, allowing sleeping/flying actors to lower and raise
+    // their bars without baking or scanning geometry on the steady frame path.
+    // Short native rules remain beside the board; long rules open leftward into an
+    // animated readable foldout. Battle goals reserve space clear of the complete
+    // element-caption union. Additive board TLV96 mirrors the owner's native rows,
+    // intermediate geometry, toggle hover and scroll without gameplay callbacks;
+    // existing records52/53 retain their byte layout. Encoded boards beyond the
+    // legacy 40KiB capacity scale only their bounded reassembly deadline; stream
+    // scheduling, bandwidth and all older stream deadlines remain unchanged.
+    // Frame609 hardware shows real
+    // 3408-to-2256 eye targets and a modest loaded-frame improvement, not measured
+    // GPU busy or an isolated figure-slider gain. Remaining card-discovery and
+    // native-effect wall-table work are documented separately from these fixes.
+
+    // ModBuild 609 — isolated Quest conversion and first hardware diagnostic checkpoint.
+    // The local builder snapshots owned PC content, selected mod/tool source and offline
+    // Steam identity; signed ARM64 IL2CPP diagnostic APKs use the game's exact Unity
+    // editor and one OpenXR session with native passthrough. The probe includes an
+    // original animated figure with explicitly approximate diagnostic materials; it
+    // does not run campaign, multiplayer or original saves. Full-game conversion
+    // remains gated by asset recovery, platform/startup adapters and AOT closure.
+    // Shared Quest labels are English/German. Desktop presentation and wire layout
+    // are unchanged; version-handshake equality continues to require matching builds.
+
+    // ModBuild 608 — remove source-proven interaction hitch amplifiers from the Frame607 run.
+    // Home visual copies retain native child names/layers; exact FigureVisualMirror ownership
+    // now excludes these mod copies from non-wall membership and attachment adoption, so a
+    // grab/release cannot rebuild the wall table solely for its home ghost. Native counterparts
+    // and real wall-shader membership keep their existing conservative signatures and gates.
+    // The native HexHighlight prefab also owns its particle renderer on the HexSelect_Control
+    // root, outside the child-particle arrays. Exact same-object ownership excludes these
+    // root selection emitters; unrelated children beneath a selector are still world facts.
+    // CardHalfTone census work is Debug-only and budgeted across actual frames, with a stable
+    // report signature and bounded heartbeat. FaceBlackout no longer builds an unprintable
+    // recurring full inventory; non-dark/non-opaque candidates bypass coverage probes after
+    // tracked restoration checks. Artwork, native opacity correction and recovery remain.
+    // The offline Frame reader accepts negative table-relative head heights without relaxing
+    // readiness/tracking exclusions. Figure application is proven in607, but its open-options
+    // quality sweep does not establish a controlled figure-only FPS gain. Synchronous first-use
+    // mip captures and native/prop work remain targets; hardware cadence must be remeasured.
+
+    // ModBuild 607 — attributable figure-detail hardware measurements and optional window dust.
+    // Figure slider/effect/cloth changes close the completed previous interval with its
+    // latched OLD settings at the early Update seam. A mixed transition frame and its
+    // pending step/camera/counter work are discarded; incomplete native captures are
+    // omitted at that boundary. Preparation and steady work use separate
+    // state/revision labels on FRAME. Stable collection starts only after a two-second
+    // quiet guard after the native figure driver's completed application pass and
+    // closed VR Options, including an unchanged-slider baseline. Bounded Debug
+    // change traces and explicit steady begin markers let offline readers distinguish
+    // preparation, known mixed legacy windows and the intended player/enemy A/B state.
+    // Missing GPU busy counters remain unavailable, never inferred from XR wait time.
+    // Reuse WindowMaterialise for a localized visible toggle; fresh standalone Frame
+    // profiles disable window/surface dust while saved choices and PC defaults remain.
+    // Live OFF completes restoration/native continuation once, including MR underlays;
+    // card burns/flights, native motion and NPC effects retain their separate behavior.
+
+    // ModBuild 606 — Frame605 renderer/logic reduction and spectator semantics.
+    // Discarded native desktop scene/UI/skybox draws are suppressed in VR regardless
+    // of DesktopMirrorLeftEye: On requests the left-eye mirror, Off requests None and
+    // clears the desktop black. Headset captures keep paired reversible ownership.
+    // UI fit queries reuse live ancestors/bounds only inside one measure pass; the
+    // signature memo now holds the observed panel population without eight-slot churn.
+    // Native HexSelect_Control/HexSelectControlParticles owners identify selection-only
+    // visuals, so creating/removing a selector no longer triggers a full wall census.
+    // Masked scenery keeps structural facts but skips unused wall render work; held
+    // props rescue only their own local/remote roots. Pure wall geometry/labels are
+    // prepared early, with same-frame-only child reuse and commit-time room revalidation.
+    // Actual hierarchy changes still require the atomic wall publication transaction.
+    // New reversible environment settings offer small compatible floor draw chunks,
+    // simpler static color shading and positively identified ambient particle budgets.
+    // Native sources keep mesh/material slots and callbacks; draw masks last only for
+    // camera renders, with interrupted-render recovery before native Update. Unannounced
+    // clones restore genuine original materials when disabling the shading compromise.
+    // Offline native actor derivatives make figure sliders affect bodies without authored
+    // LODs. Exact skin/UV/bindpose ownership, solver exclusions, demand part preparation
+    // and live local/remote ghost mesh refresh preserve animation and original restoration.
+    // All 49 indexed native-format parts ship with both packagers; no runtime decimator.
+    // Fresh Frame entries enable the environment compromises and begin with a black
+    // spectator. Existing saved values and PC quality defaults remain. No FPS gain is
+    // inferred from the source: frame/logic/render and EnvironmentBudget.PreCull scopes,
+    // prepared chunks/mesh vertex counts and the next hardware run determine the result.
+
+    // ModBuild 605 — Frame604 proves that the figure mesh caps and cloth OFF execute,
+    // but only eight of seventeen native bodies have coarse authored meshes. A separate
+    // reversible ambient-effects budget removes identified original demon idle particles
+    // and supplemental alpha shells while retaining bodies/combat/condition cues. Native
+    // material-ready callbacks cover late assignments without a steady hierarchy census.
+    // Original forest-bay composites, separate grass blades and wall plant/wood attachments
+    // now qualify with whole-hierarchy and retained-solid-core proofs. At zero density,
+    // proven purely decorative templates use transform-only native placement receipts;
+    // their original visual instances are created only when needed. Source prefab bundles
+    // remain loaded. Finish masks before native loading-screen closure and material reveal.
+    // Home ghosts mirror evaluated native bones/blend shapes instead of restarting idle
+    // controllers or executing copied gameplay callbacks. Figure glow and ghost depth keep
+    // each native cutout mask and UVs, removing the photographed opaque demon rectangles.
+    // All rendering compromises are configurable on PC/Frame; saved settings are retained.
+    // Automated asset/pixel/pose tests are separate from pending headset/FPS acceptance.
+
+    // ModBuild 604 — Frame603's real actor models live under the native gameplay board,
+    // outside additive ProcGen: the optional detail driver reported zero actors/cloth
+    // despite valid zero-detail settings. Native board/actor identity now admits those
+    // models without touching town NPCs or preview/UI objects. Detail and cloth choices
+    // also hold for local/remote grabs; OFF suspends solver, hand contacts and rescale
+    // cooking instead of reviving cloth while held. Native decorative tree trunks are
+    // included by vegetation density, with owned restoration of tree-only picking
+    // colliders; gameplay obstacles and solid mixed floor/masonry geometry stay intact.
+    // Production Unity fixtures reproduce the separate native scenes and policy edges.
+    // Hardware logs establish the previous defect, not acceptance or FPS of this build.
+
+    // ModBuild 603 — Frame601 measured 3,457 decorative renderer masks but still
+    // visible wall/edge foliage; grass retunes were capped by decoration zero.
+    // Independent grass, vegetation and dressing controls now classify anonymous
+    // native LOD leaves and retained structural collider composites without hiding
+    // mixed solid geometry or gameplay props. Optional player/enemy native mesh
+    // detail and figure cloth simulation retain original held figures and restore
+    // owned state. Scoped transient Apparance profiles request native quality zero
+    // only during scenario tile/wall parameter writing, preserving per-quest values,
+    // underground, native detail providers and the proven reveal focus. This choice
+    // freezes per scene and changes at the next load; live decoration/figure knobs
+    // are reversible on every platform. PC keeps original defaults; fresh standalone
+    // Frame adopts the sparse profile, while persisted values remain authoritative.
+    // No card/UI/NPC presentation or wire payload changes. Unity production tests
+    // establish scope/restoration; headset appearance and FPS gain need a new run.
+
+    // ModBuild 602 — PCVR multiplayer town review: one authored resident role,
+    // transition, blessing, contact sound and voice clock; immutable original
+    // font/texture/template identities and preallocated cabinet foley topology.
+    // Public cabinet handover adopts complete cold-page placement (TLV94), seeks
+    // current owner animation age, and keeps held stock on independent TLV95
+    // rather than losing it on visitor/page changes. Temple commit age (TLV93)
+    // retains blessing timing across first receipt/late join. Original native
+    // props/inscriptions ride observer-relative physical depth; gameplay callbacks
+    // remain local and observer copies inert. Additional shared actor lighting
+    // closes ambient/main-light divergence without changing each viewer's scene.
+    // Source-linked Unity tests include two-peer lifetimes, differing borrow order,
+    // and negative controls. Hardware picture/audio outcomes require a new run.
+    //
+    // ModBuild 601 — Build 600's Frame hardware run showed that grass density
+    // zero masked only 27 of 6,560 active renderers. Its first scan preceded
+    // the completed procedural hierarchy, and its eligibility rules excluded
+    // almost all wall-side vegetation and mixed floor dressing. The maintainer
+    // requests a much sparser, essential-scene profile (2026-10-01). A new
+    // reversible decoration-density control defaults to zero on standalone
+    // Frame and full detail on PC; saved settings remain authoritative. Grass
+    // retains its existing key as an additional cap. Generated decorative
+    // vegetation/dressing is classified at mesh level, while structural floor
+    // and wall geometry, actors, doors, gameplay props, pickups, cards and UI
+    // stay intact. Discovery follows settled loading, later placement and room
+    // reveal; renderer masks remain owned, bounded and reversible. Production
+    // classifier/lifecycle tests cover representative native hierarchies rather
+    // than only extracted verdict helpers. Actual eligible counts and Frame FPS
+    // need the next headset run; renderer/material estimates are not draw calls.
+    // No wire-format or asset-bundle change.
+
+    // ModBuild 600 — the Build 599 Frame run confirms severe post-loading
+    // large-scenario cost, with 1493–4341 visible-renderer estimates and
+    // 83–118 ms mean frames. The maintainer explicitly authorized scenery
+    // quality compromises on 2026-10-01. A reversible decorative floor-cover
+    // density budget preserves full PC detail and seeds 25% on standalone
+    // Frame; figures, game obstacles, floors, walls, doors, cards and original
+    // widgets are excluded. It suppresses renderer submission only, without
+    // editing native object/reveal/material state, and discovers new content
+    // through procedural placement notifications. Wall-cache material facts
+    // and ancestor verdicts are reused only within synchronous preparation;
+    // unchanged light scans and Unity writes avoid redundant work everywhere.
+    // The Debug census now samples the actual loaded scenario despite a
+    // prior menu cooldown, excludes forceRenderingOff from its estimates,
+    // and adds six selected game/third-party callback probes. A subsequent
+    // ruling makes Frame a defaults profile: all new quality/work-removal
+    // settings are available on PC too, both new caches can be bypassed,
+    // and the existing desktop-mirror toggle is live on Frame instead of
+    // forced and hidden. Numeric timing spans remain unchanged, but their
+    // residual no longer claims GPU wait or CPU idle; old and new report
+    // text both parse. No wire or
+    // bundle changes. Headset picture and actual frame-rate gains need the
+    // next hardware run; counts and timing spans do not establish GPU busy
+    // time or actual per-eye draw calls.
+
+    // ModBuild 599 — the Build 598 Steam Frame run entered ProcGen directly;
+    // it did not test the 3D map. A low-load interval was mistakenly called
+    // a map result while the HMD was untracked and only seven renderers were
+    // visible. The later large-scenario windows remain about 128–131 ms/frame
+    // at a stable 3408-pixel eye target. Disabling mod wall fade did not yield
+    // a meaningful subjective gain; one wall-off trace lowered named mod time
+    // while total frame time stayed around 125 ms. This build adds bounded
+    // Debug-only real Unity render counters (or explicit n/a in a stripped
+    // player), selected native Update/LateUpdate method timings, and an
+    // evidence-safe log comparison script. It does not change presentation,
+    // gameplay, multiplayer wire format or rendering policy. Hardware frame
+    // rate improvement is not claimed; this measures the base-game/render
+    // bottlenecks needed for the next structural optimization.
+
+    // ModBuild 598 — the Build 597 Frame run opened a large scenario at
+    // 3408 pixels/eye and exposed 282–385 ms wall-table commits, recurring
+    // 15–33 ms water/material scans and a 51–62 ms/frame 3D map. Wall refresh
+    // uses membership indexes for old children instead of quadratic list
+    // scans; water discovers unchanged tiles through placement events; the
+    // material watchdog spreads a complete pass over bounded frames. On the
+    // map, hidden icon mip warms are queued, the cabinet stops ticking its
+    // covered next page, and unchanged NPC/cabinet Unity setters are skipped.
+    // Additional map/NPC scopes distinguish remaining work. Presentation,
+    // multiplayer state and wire format are unchanged. The large scene's
+    // other atomic wall phases and headset frame rate remain hardware-open.
+
+    // ModBuild 597 — the Build 596 Frame trace caught a native enchantress
+    // entry failure after its early enhancement-slot pool warmup. The pool
+    // is again created by the game's own shop entry; off-bar failures now
+    // retain a bounded stack trace. Temple book inscriptions index their
+    // original triangles instead of searching every one per page sample,
+    // and blessing visuals complete before the priestess covers the bowl.
+    // The merchant stops maintaining its fully covered next cassette page.
+    // Re-enabling immersive residents shows the existing loading indicator
+    // until the stations and public cabinet are ready. Window-materialise
+    // visual time advances at most 50 ms per rendered frame while its hard
+    // safety limit still uses wall time, preventing a Frame stall from
+    // finishing the whole effect in one image. These are presentation and
+    // performance changes; no wire format or bundle content changes.
+
+    // ModBuild 596 — global interactive CPU candidate after the Build 594
+    // Frame trace. Dormant floated windows skip repeated conversion and
+    // grab-follow work until their same-frame wake; the physical merchant
+    // visits only exposed/moving catalog pages. Parked local map cards prepare
+    // their shared mip cache before reveal, and remote public map fans pin
+    // class artwork before their first face; scenario secrecy remains gated.
+    // The enchantress builds inactive native card-slot wrappers during map
+    // loading without entering her shop. Pure wall-dressing verdicts are
+    // reused within one commit, while full forensic scene censuses become
+    // opt-in on all platforms. A bounded Debug-only phase/Unity-marker probe
+    // attributes remaining scenario CPU. Existing Frame-specific graphics
+    // defaults remain separate; 2D and original-window paths retain their
+    // native behavior. No wire format or asset-bundle content changes.
+
+    // ModBuild 595 — the WallFade visibility-check option now declares its
+    // actual 0..0.25 s runtime range to BepInEx and the VR options catalog.
+    // Build 594 Frame Debug logs proved that values around 1 s were saved and
+    // displayed while the wall driver kept evaluating at 0.25 s. Existing
+    // out-of-range configs normalize to their former effective value; no
+    // wall behavior, wire format or asset-bundle content changes.
+
+    // ModBuild 594 — the enchantress's original enhancement-point heading
+    // stays visible after its old native card-list ancestor is veiled. The
+    // large Character UI capture-layer sweep uses identity-indexed ownership
+    // instead of repeated linear ledger scans; the merchant refreshes hidden
+    // prices/stock only before their first exposed frame and avoids redundant
+    // per-card scene reads. Steam Frame VR uses the existing discarded-desktop
+    // camera sink regardless of an older saved mirror preference and suppresses
+    // the native flat gamepad connection popup. Debug logs record edits to
+    // the three wall cadence controls and both effective live rates. No wire
+    // format or asset-bundle content changes.
+
+    // ModBuild 593 — Steam Frame standalone installs use a separate set of
+    // fresh VR defaults and suggest a 3408-pixel per-eye SteamVR resolution
+    // through the game's vrpreferences.json. Existing mod, game, and SteamVR
+    // choices remain authoritative. Merchant public-stock reconciliation
+    // avoids repeated quadratic searches while all NPC stands are present.
+    // The invisible native enchantress list no longer reparents its full
+    // pooled card tree on entry. The selected map hand prepares its original
+    // card clones during loading, then activates and fits them in the original
+    // reveal order. Bounded Debug attribution separates residual NPC and
+    // first-fan costs. No wire format or asset-bundle content changes.
+
+    // ModBuild 592 — the release ZIP now keeps the Frame setup implementation
+    // and artwork below BepInEx/plugins/GloomhavenVR/FrameSetup, leaving only
+    // BepInEx and the two installation texts at its root. This layout remains
+    // accepted by the already-published 1.0.8 in-game updater; successful
+    // updates retire only the six obsolete root setup files from earlier
+    // packages. The user-facing setup resolves its nested game path
+    // and also removes those old files on a repeated Frame install. Moving the
+    // player install guides to docs/install changes repository links only.
+    // No gameplay, wire format or asset-bundle content changes in this build.
+
+    // ModBuild 591 — the Build 590 map trace records 12 native character
+    // deselections while switching town destinations, 10 within the old
+    // selection floor's 4 Hz polling window. A tightly scoped map-options
+    // guard retains the already selected, locally controlled portrait during
+    // native CloseWindows/Escape and tab cleanup; ordinary clicks remain native.
+    // The hidden Cheats page can grant the selected character +100 gold through
+    // CMapCharacter.ModifyGold (or the native party purse in shared-gold mode)
+    // and saves through SaveData. Enchantress entry includes two 110-148 ms
+    // TownServicePresentation.Visit spikes. Initial layer restoration of its
+    // 549-node native inventory no longer scans its growing record list; a
+    // focused fixture measures 0.358 to 0.068 ms for that sweep. Debug scopes
+    // split native shop opening from original folio conversion on the next
+    // headset run. This optimization alone does not prove the entire visible
+    // entry hitch resolved. Wire layout and bundles are unchanged. See
+    // .planning/TOWN-591.md.
+
+    // ModBuild 590 — the corrected Build 587 peer trace exposed a destroyed
+    // public-rack observer child that threw from TickRackClocks and then again
+    // from the catch cleanup, aborting thousands of town presentation ticks.
+    // Retire/rebuild dead module descendants from retained owner frames, keep
+    // cleanup Unity-null-safe and isolate a failing rack from other modules.
+    // An enchantress hand offered in the merchant overlap now shares its native
+    // card-cue attention gate; stale Merchant/Enchantress destination no longer
+    // blocks a visitor nearest the priestess. Active deals still take precedence.
+    // Native template structural mismatches remain guarded, with bounded
+    // address/hash/node diagnostics for the next two-client run. Map card-fan
+    // order uses its own model list, so the scenario widget-order diagnostic
+    // no longer falsely reports that map fronts have no order; visible map
+    // fallbacks are bounded at normal log level. Exact remote card pose and
+    // headset parity remain hardware checks. Wire layout and asset bundles
+    // are unchanged. See .planning/TOWN-MP-590.md.
+
+    // ModBuild 589 — Build 587 town multiplayer hardware follow-up. A host's
+    // self-issued resident grant now records its own response and an active
+    // grant cannot time out as unanswered. Failed merchant handoffs cancel and
+    // return the card with in-world retry feedback instead of exposing the
+    // native flat shop. The two unique original atlas descriptors that caused
+    // repeated remote card/price capture failures are recognized without
+    // accepting unrelated same-name textures. Public cabinet category input
+    // no longer depends on character assignment or another visitor's offer;
+    // remote and local decision facing interpolate between owner samples.
+    // The map selection floor remains active even if a stale scenario singleton
+    // survives the return to Guildmaster town and consults the authoritative
+    // assignment before the transient local-control flag. Town ability/purse
+    // focus no longer borrows fan-reorder or foreign transaction gates. This is
+    // source-and-log evidence; exact headset presentation and the reported
+    // offered-card position require a fresh two-client Build 589 run. Wire
+    // layout and asset bundles are unchanged. See .planning/TOWN-MP-589.md.
+
+    // ModBuild 588 — Steam Frame installations can mark their game copy for
+    // explicit VR startup. The original Steam Gloomhaven entry then passes no
+    // --gloomhavenvr argument: both the preloader and plugin return before XR,
+    // graphics changes, config binding and Harmony registration. A separately
+    // named local GloomhavenVR shortcut forwards that exact argument through
+    // Steam to the original app ID, preserving its Proton prefix and saves.
+    // The Frame-only marker is made by the new installer helper and never
+    // shipped in the release archive or created by Windows installation;
+    // ordinary PC startup remains unchanged. Steam Frame Game Mode argument
+    // forwarding and prelaunch per-app VR-settings display still need hardware
+    // confirmation; a lost argument fails closed to flat. No wire layout or
+    // gameplay change. See .planning/STEAM-FRAME-SHORTCUT.md.
+
+    // ModBuild 587 — the Build 586 Frame retest still measured about 59-62 ms
+    // per late map frame at 1728 pixels/eye, close to Build 585 at 3408;
+    // lowering eye-target pixels did not remove the dominant CPU cost. The
+    // merchant catalog now refreshes hidden-page price/card-body mirrors only
+    // when the page becomes exposed, before the local render and shared
+    // snapshot; stable observer election avoids a second body-visibility pass.
+    // Hidden-window veils retain complete per-frame discovery but drop an
+    // impossible ancestor check. Bounded Debug timing separates town catalog,
+    // hidden-window discovery/reassert and slow modal-conversion stages for
+    // the next 3408-pixel hardware comparison. Native content, intermediate
+    // visible animation, input, multiplayer state and wire format are unchanged.
+    // Headset performance and presentation remain unverified. Evidence:
+    // .planning/STEAM-FRAME-FIFTH-HARDWARE.md.
+
+    // ModBuild 586 — remove source-proven duplicate work in the Steam Frame's
+    // measured map/scenario paths. The wall cache reuses its already-collected
+    // material snapshot for foliage classification. Hidden-window veils skip
+    // a repeated CanvasGroup lookup. Town catalog entries apply final
+    // observer/page visibility once per frame instead of toggling hidden
+    // card bodies twice. Panel capture keeps its prior Camera/Transform/
+    // RectTransform values when unchanged in both update phases. Native
+    // content, card order, capture allocation, interaction and multiplayer
+    // presentation are unchanged. The Build 585 screenshots show roughly
+    // 17 FPS on the map; a Build 586 headset gain is not yet measured.
+    // No wire or asset change. Evidence:
+    // .planning/STEAM-FRAME-FOURTH-HARDWARE.md.
+
+    // ModBuild 585 — reduce measured Steam Frame main-thread work without
+    // changing presentation cadence or interaction order. Canvas flattening
+    // skips the angle calculation only for the exact identity quaternion.
+    // Town residents avoid duplicate Acquire/parent writes; catalog/token
+    // presentation reuses stable renderers and corners and skips unchanged
+    // Unity property writes. Wall-cache refreshes reuse a private renderer
+    // buffer and read accepted bounds once. Nested hand timing separates pose
+    // and individual interactors for the next Debug hardware run. These are
+    // source-proven reductions, not measured headset speedups; the supplied
+    // Frame run has no Valve GPU performance CSV. No wire or asset change.
+    // Evidence: .planning/STEAM-FRAME-SECOND-HARDWARE.md.
+
+    // ModBuild 584 — integrate the NPC feature into the sole dev line.
+    // The complete Build 583 town implementation and both required town bundles
+    // merge with dev's Steam Frame Build 559 changes: late additive main-menu
+    // VR Options discovery, Debug-only eye-reach census, and one ordinary-level
+    // eye-resolution request record before Unity may reallocate XR textures.
+    // Bilingual standalone installation remains documented. Neither the NPC
+    // headset picture nor the Frame's native resolution-change exit is claimed
+    // fixed by this merge. No further wire grammar or asset mutation.
+    // Evidence: .planning/TOWN-MP-583.md and STEAM-FRAME-FIRST-HARDWARE.md.
+
+    // ModBuild 583 — multiplayer town-service presentation repair. Original merchant
+    // card materials fit within the existing byte-count property encoding, and
+    // the duplicated small effect-texture wrappers resolve by the verified
+    // original resources.assets identity without GPU pixel readback. The
+    // public cabinet keeps one author while each visiting player retains their
+    // own physical held item and original item fan on observers. Stock-pickup
+    // speech uses the merchant's gaze range. The enchantress's native handoff
+    // range matches her gaze, including overlapping resident approach volumes;
+    // her offered-hand pose no longer waits for the native cue to appear.
+    // Visitor presentations use each resident's permanent stand instead of
+    // cloning a second shrine or workbench for another player. Existing wire
+    // records and their grammar remain unchanged.
+
+    // ModBuild 582 — town cloth retirement, independent voice, purse and options.
+    // Keep the authored static fabric meshes but remove their runtime solver,
+    // hand-contact surfaces and TLV90 publication/replay. Legacy TLV90 decoding
+    // remains for old vectors; no Build 582 peer emits cloth state. Each resident
+    // has its own spatial voice channel so one NPC cannot delay the merchant's
+    // face-target greeting. A priestess purse remains grabbable regardless of
+    // donation eligibility, returns after the completed sink animation, and its
+    // held body is visible from every visiting peer independently of the stand's
+    // elected presentation author. Donation itself still uses native eligibility
+    // and the per-service host grant. The immersive NPC preference is a default-on
+    // toggle under Environment/Campaign map, folded entirely under the 2D map.
+
+    // ModBuild 581 — town interaction and shared-window laser follow-up.
+    // The face author's actual visitor target now starts merchant greeting
+    // before the coin hand is free to enter body attention. An enchantress
+    // hand-focused physical approach can switch an idle Merchant/Temple native
+    // destination, while preserving a live modal and the selected character.
+    // Simultaneous proximity keeps all residents active; each NPC reserves only
+    // when a card or purse is physically parked, never merely on approach.
+    // TLV92 adds a presentation-only per-NPC transaction claim. ReliableOrdered
+    // message 25 carries an independent host grant: no local native purchase,
+    // donation or enhancement callback may start without its matching grant.
+    // An incompatible or unreachable host restores the original native window.
+    // The temple's cover pose considers every current visitor and blessing
+    // revision follows native commit.
+    // Active transparent native click targets and mod close hit planes are
+    // laser surfaces again, including scenario story and combat-log X. Empty
+    // transparent layout remains pass-through. Wire v3 remains unchanged. Build
+    // 580 logs prove the missing input; headset confirmation of 581 is open.
+    // The later dev ModBuild 558 Steam Frame tutorial identity fix is integrated
+    // here. That 558 belongs to the separate dev line; the NPC branch retains
+    // its own monotonic feature ModBuild and does not ship a Frame controller
+    // model or game-side foveated rendering yet.
+
+    // ModBuild 580 — twentieth NPC hardware follow-up on the feature branch.
+    // The merchant greets at the shared gaze edge rather than waiting for the
+    // shorter native shop-visit range, with follower attention retained through
+    // a face-author handover. The priestess's staggered prayer release is
+    // replaced by a continuous, reversible arm route. Town cloth presents its
+    // native motion whenever a tracked hand is near and constrains visible
+    // triangle interiors against hand passage, including remote hands and
+    // station visibility changes. Imported-skin tests now reject false merchant
+    // contact, but the hovering hand-to-belly pose remains open. No wire layout
+    // changes; headset presentation awaits review.
+
+    // ModBuild 579 — nineteenth NPC hardware follow-up on the feature branch.
+    // A visitor entering the enchantress's area while another town service
+    // owns the native destination now retains the approach until that service
+    // exits. Town cloth samples actual wrist-to-index-tip geometry on local
+    // and synchronized remote hands and checks triangle interiors for contact.
+    // The priestess releases prayer with separate arm/wrist/elbow phases.
+    // Build-578 hardware disproved the merchant belly-contact claim: the hands
+    // still visibly hover. That pose is unchanged pending a new imported-skin
+    // contact and intersection scan. No wire layout or town bundle change.
+
+    // ModBuild 578 — eighteenth NPC hardware follow-up on the feature branch.
+    // The offered enchantment card remains a physical laser hit without
+    // reintroducing card-wide trigger pickup; only its original enhancement
+    // areas accept selection. The native aura capture retains its full animated
+    // width. Imported-rig motion keeps the priestess's prayer-to-neutral arms
+    // anatomical and seats the merchant's resting hands against his belly.
+    // Integrates dev ModBuild 557 character-creator and overhead-bar fixes.
+    // No wire layout or town bundle change; headset presentation awaits review.
+
+    // ModBuild 577 — seventeenth NPC hardware follow-up on the feature branch
+    // (FULL INSTALL). Merchant offers retain their native decision for the full
+    // inspection and recover lost physical controls. Original enchantment areas
+    // receive laser input through only their offered card; the native aura fits
+    // rotated/nonuniform card hierarchies. The priestess's transition no longer
+    // detours through an elbow wing; the enchantress cloth starts clear of its
+    // furniture root and keeps continuous, smoothed physical contact. Rebuilt
+    // town art bundle; no wire layout changes.
+
+    // ModBuild 576 — sixteenth NPC hardware follow-up on the feature branch
+    // (FULL INSTALL). Native town unlock and first-map FTUE gates own the
+    // resident, stand and interaction lifetime. Flat merchant navigation-only
+    // tutorial steps complete through native callbacks when immersive services
+    // replace that route; classic and scenario lessons retain native flow.
+    // Merchant cards and cassette sit within the cabinet; sold-out stamps only
+    // appear on shelf. Enchantress offer locator survives native input waits,
+    // its original aura and enhancement areas fit the physical card, and a
+    // prolonged native offer stall restores the original usable VR window.
+    // Spoken enchantress replies and whispered spells use the same voice in
+    // a rebuilt voice bundle. No wire layout changes.
+
+    // ModBuild 575 — fifteenth NPC hardware follow-up on the feature branch
+    // (FULL INSTALL). Merchant Cancel returns the offered card on the first
+    // native click, while cabinet controls stay usable with a parked item and
+    // stock/owned replacement gives release feedback. Stock art is recessed
+    // into the cabinet; sold-out cards are marked, and unavailable stock has
+    // contextual shared speech. The enchantress retains a world-square native
+    // aura, accepts grip pokes on original enhancement areas, and no longer
+    // laser-reclaims the offered card. Priestess idle anatomy and native cloth
+    // response are further refined; incidental speech is less frequent. Full
+    // quality town art and voices load from separate bundles. No wire layout
+    // changes.
+
+    // ModBuild 574 — fourteenth NPC hardware follow-up on the feature branch
+    // (FULL INSTALL). Reused merchant confirmations retain their live native
+    // buttons across immediate buy/sell replacement. Cloth cooks with a tiny
+    // nonzero resting freedom instead of remaining uninitialized. Imported-skin
+    // priestess/merchant arm paths avoid torso intersection throughout transitions;
+    // unused cabinet and enchantress support geometry is removed. The offered
+    // enchantment card retains a full native frame and its actual area buttons
+    // win laser selection over that same card's reclaim collider. Five new
+    // post-offer inspection lines replace stale invitations and relay unchanged
+    // through the existing presentation-only voice packet. No wire layout changes.
+
+    // ModBuild 573 — thirteenth NPC hardware follow-up on the feature branch
+    // (FULL INSTALL). Merchant confirmation ownership recovers when the native
+    // window closes without updating its wrapper state, including stock-to-owned
+    // replacement. The red side banner is removed; the lantern support and
+    // category controls meet the authored cabinet. Priestess arm paths and
+    // transition blend follow the imported shoulder and bowl geometry. The
+    // enchantress retains native multi-area enhancement highlights over one
+    // physical card and speaks on genuine visits and accepted card offers.
+
+    // ModBuild 572 — twelfth NPC hardware follow-up on the feature branch
+    // (FULL INSTALL). Merchant and temple cloth retain visible finger contact;
+    // the cabinet's legs, braces, category controls and lantern mount are
+    // aligned with the authored shell. Priestess prayer and bowl-cover arm
+    // paths avoid crossed hands and use continuous anatomical transitions.
+    // Enchantress handoff previews the native opening state. Merchant,
+    // enchantress and temple offers give local proximity ink and haptics;
+    // visual state follows the existing resident presentation to observers.
+
+    // ModBuild 571 — eleventh NPC hardware follow-up on the feature branch
+    // (FULL INSTALL). Short cloth contacts retain the prior solver snapshot
+    // instead of clearing their visible displacement on the first touch frame.
+    // The priestess moves continuously between prayer, donation availability
+    // and bowl cover; committed donations take precedence over the unavailable
+    // response and stage one shared blessing performance. The enchantress retries
+    // a briefly blocked visit, accepts either physical release button, and shows
+    // the native enhancement controls only for a card actually offered to her.
+    // The merchant cabinet uses a carved PBR shell and detailed physical controls
+    // with their original native icons, card cassette and interaction anchors.
+
+    // ModBuild 570 — tenth NPC hardware follow-up on the feature branch (FULL
+    // INSTALL). Merchant and enchantress voice families now use the same MiniMax
+    // Speech 2.8 HD renderer as the accepted priestess voice; five quiet invented
+    // incantations and five deterministic restrained spell sounds replace English
+    // casting dialogue and the conspicuous native augment cue. Real cloth collision
+    // displays native solver displacement immediately instead of attenuating short
+    // contacts through a second presentation fade. An available priestess lets both
+    // arms hang beside her robe; an already-unavailable visit moves directly from
+    // prayer to the replicated bowl-cover transition. Merchant item widgets detach
+    // safely into the native pool and restore every inner RectTransform channel on
+    // spawn, reclaim and maintenance, preventing the leave/re-enter rotated face.
+    // The native merchant lantern hook now meets the cabinet's authored hanging ring.
+
+    // ModBuild 569 — ninth NPC hardware follow-up on the feature branch (FULL
+    // INSTALL). Immersive service controllers now reclaim already-detached native
+    // child windows, so the flat merchant item list cannot appear behind the physical
+    // resident. Merchant cards synchronously shed stale hidden-window renderer
+    // ownership and restore their canonical fan parent, pose and terminal rotation on
+    // every take-back. Cloth contact follows the already-simulated moving sheet instead
+    // of testing only its original rest surface. Production-bundle renders revise the
+    // priestess shoulder/elbow line and keep the merchant's relaxed thumbs outside his
+    // coat. Buy and sell prompts use distinct synchronized voice families; an
+    // unavailable priestess explains her covered bowl with one of five synchronized
+    // takes. Native story commitment is one central interaction boundary: every
+    // resident eases to neutral, drops its target and stops active or queued speech.
+
+    // ModBuild 568 — eighth NPC hardware follow-up on the feature branch (FULL
+    // INSTALL). The permanent temple resident alone owns the blessing particle
+    // system, and a same-session donation revision is the only play edge; transient
+    // close/reopen and hydration retain their baseline. Smaller additive motes rise
+    // from the bowl, while the unavailable-pose blend now exits continuously instead
+    // of resetting when its temporary manifest disappears. Immersive service windows
+    // are claimed before generic modal conversion, and closed confirmations remain
+    // invisibly owned through their render retirement, removing the captured full
+    // native popup and its conversion spike. Hidden-window veil membership follows
+    // actual ancestry, so pooled item fronts are released immediately when returned
+    // to the wrist fan. The merchant lantern is restored to the cabinet's exterior
+    // bracket and checked against the complete side-wall envelope.
+
+    // ModBuild 567 — seventh NPC hardware follow-up on the feature branch (FULL
+    // INSTALL). Resident attention no longer invents cloth foley from the flat
+    // equipment-toggle UI clip; bounded Debug traces identify any remaining native
+    // town audio request without changing normal player logs. The temple purse uses
+    // the ordinary card-fan wrist reveal while affordability/prior use gates only
+    // interaction. The shared blessing is a seeded billboard particle effect rather
+    // than flown polygon meshes. Town cloth contact measures the real hand capsule
+    // against the physical sheet and no longer re-captures a displaced solver as its
+    // visual zero. Imported priestess shoulders retain their anatomical origin, hip
+    // and bowl-cover poses use continuous complete palm frames, and candles remain
+    // outside the complete arm, book, bowl and lantern envelopes.
+
+    // ModBuild 566 — sixth NPC hardware follow-up on the feature branch (FULL
+    // INSTALL). Automatic resident departure now takes the game's native map-mode
+    // transition without synthesizing pointer events, removing the recurring flat
+    // PlaySound_UIMapOpen cue while physical map presses remain audible. Temple
+    // entry preserves the exact selected native party slot and avoids constructing
+    // an invisible duplicate workspace and two Cloth solvers for the primary stand;
+    // extra multiplayer visitors retain their own visible workspaces. The physical
+    // purse remains visible throughout a visit while affordability and prior use
+    // gate only its interaction. Actual imported-skin renders calibrate both resident
+    // hip poses and the priestess bowl-cover transition. Town runners use map-scale
+    // gravity, bounded travel, continuous table support and episode-relative visible
+    // deformation, returning to their authored drape without rebuilding the solver
+    // or revealing its hidden settled offset. Complete prop bounds separate the
+    // priestess candles from both lanterns, the book and the offering bowl.
+
+    // ModBuild 565 — fifth NPC hardware follow-up on the feature branch (FULL
+    // INSTALL). Original temple input now resolves presentation sessions through
+    // their actual monotonic wire generation, so repeated visits after another NPC
+    // retain the purse, book and eligibility text. Merchant and priestess attention
+    // uses the imported anatomy's true body-facing axis; unavailable temple palms
+    // turn down and blend continuously over the bowl. Town runners reconstruct their
+    // authored 25x13 physical sheet independently of FBX vertex order and simulate at
+    // unit scale, with source-pose following, column-aligned table support and real
+    // local index-tip collision. Native town UIWindow show/hide cues are silenced
+    // before the first immersive open while flat mode retains them. Measured source
+    // gain aligns priestess speech with the other residents, and visible renderer
+    // bounds keep the enchantress lamp wholly supported by its real workbench.
+
+    // ModBuild 564 — fourth NPC hardware follow-up on the feature branch (FULL
+    // INSTALL). The priestess now uses fifteen consistent elderly Wise_Woman
+    // performances with regenerated mouth curves. Her eligible purse remains
+    // upright, snaps exactly into a blue translucent bowl guide and produces one
+    // shared blue/gold blessing; an unavailable donation hides that guide and
+    // closes both hands over the bowl. Reachable anatomical targets put merchant
+    // and priestess hands on their own hips. Merchant and enchantress palms accept
+    // an atomic replacement card; the enchantress practical is grounded to the
+    // actual workbench. One sticky, timeout-bounded lease per resident elects the
+    // only visitor who can interact, author motion or speak while every peer sees
+    // the same result. Additive inner town-service record 91 shares only temple
+    // eligibility and blessing revision. Exact immersive show edges suppress the
+    // remaining flat-service sound without muting native NPC foley.
+
+    // ModBuild 563 — third NPC hardware follow-up on the feature branch. Native
+    // Unity cloth now drives the altar runners and collides with the curved table,
+    // local/remote hands and heads without adding laser targets. Temple donations
+    // continue through the original confirmation lifecycle, and all merchant-item
+    // returns restore the canonical fan parent, original-front readiness and palm
+    // scale. Merchant stock uses the existing zero-alias card-art watcher. Automatic
+    // service fan edges stay silent; local default-on speech/effects preferences are
+    // independent, while shared cue clocks and cabinet motion remain synchronized.
+
+    // ModBuild 562 — second NPC hardware follow-up on the feature branch. Town
+    // speech now has five authored variants per cue family, with the elected
+    // author sharing the chosen cue and timeline. Spatial rolloff is linear;
+    // automatic immersive visits no longer synthesize the flat button sound.
+    // Temple proximity and item-front readiness survive repeated visits, while
+    // visitor elbows, cloth response, practical placement and book parchment
+    // are fitted to the photographed geometry.
+
+    // ModBuild 561 — NPC hardware follow-up on the feature branch. The temple
+    // donation keeps the original native confirmation alive while the source
+    // row is disabled by its modal; returned item cards settle at fan-home
+    // rotation. Resident visitor poses, sleeve hems, book parchment, foley and
+    // speech are revised. The merchant offer transition is authored in TLV81,
+    // and all resident utterances still use shared TLV80 cue timing.
+
+    // ModBuild 560 — NPC hardware follow-up on the feature branch. Resident
+    // activity, coin foley and speech have bounded shared presentation;
+    // confirmation reactions are cosmetic events, never gameplay commands.
+    // The merchant cabinet remains a single elected public presentation;
+    // visitors share its cards and the buyer's original confirmation surfaces.
+    // Temple purse targeting uses the visible bag body and a physical ghost
+    // marker, while the book backing follows the actual original page mesh.
+
+    // ModBuild 559 — town-service hardware follow-up on the NPC feature branch.
+    // Temple purse roots now follow the visible bag base and the native bowl,
+    // with one release diagnosis at Debug and a native-callback marker at Info.
+    // A merchant visit cannot enlarge resident attention or latch the priestess
+    // approach; foley hearing distances use the actual map world scale. Blank
+    // parchment backs the original temple book text. The cabinet crank and altar
+    // runners are reauthored; anchored cloth contact is elected once and sent to
+    // peers in an optional 24-byte tail on residents record79. Private visitor
+    // furniture carries its own 8/16-byte controls in additive record90, so
+    // simultaneous remote visitor clones retain the same intermediate drape.
+    // The 115-byte resident prefix and wire v3 grammar are unchanged. Full worst-case presence becomes
+    // 7673/7680 bytes, with a 257-byte send-buffer margin. Headset presentation
+    // and physical donation still require the next hardware check.
+
+    // ModBuild 558 — hardware follow-up for immersive town residents. Merchant
+    // gaze settles coin work, its crank collider fits the visible grip, and
+    // inspected merchandise stays upright. Native mage-card ownership and the
+    // temple approach tick restore the offering and purse paths. Priestess face
+    // projection and its bundled rig remove duplicate lateral eye/ear marks.
+    // Town foley remains spatial but is audible at normal interaction range.
+    // No wire grammar or release version change; headset appearance pending.
+
+    // ModBuild 557 — integrate immersive town services with the shipped 1.0.8 fixes.
+    // Keep original map story/reward records83/84 and move the feature-only public
+    // map-loadout count to88 and town service bundle to89. Records78–82 and85–87
+    // retain their feature grammar. The bounded extras payload and wire vectors cover
+    // the combined presence records and unchanged v3 fragmentation envelope.
 
     // ModBuild 556 — animated laser-release facing for combat log and control board.
     // Build555 hardware logs show the combat-log policy did request re-facing, but its
@@ -565,6 +2510,95 @@ internal static class NetProtocol
     // animation keeps those controls inactive. No wire grammar changes.
     // Builds 547–552 belong to the isolated NPC branch and are not reused here.
     // Source findings, coverage and hardware limits: .planning/WINDOWS-553.md.
+    // ModBuild 552 — physical town offerings, visible input and native surface fidelity.
+    // Empty canvas frames and passive resident boxes cannot intercept the laser. Mage
+    // approach/distance owns its native service without expanding Character UI; original
+    // per-card enhancement points follow the offered card. Physical reclaim uses the same
+    // actual item/ability card and native cancellation. The priestess receives an original
+    // game purse from the hand into her bowl with original guarded donation authority.
+    // Book ink wraps and conforms to native pages locally and on inert observer copies.
+    // Mirrored mage pronation and varied merchant contact timing retain actual prop contact;
+    // bounded native spatial foley follows shared activity edges and existing volume controls.
+    // Candle core coverage rejects opaque black padding in original additive atlases.
+    // Wire layouts and the environment bundle are unchanged; the new town bundle is required.
+    // Evidence and hardware limits: .planning/research/TOWN-SERVICES-552.md.
+
+    // ModBuild 551 — reclaimable palm transactions, native enchantment folio and quiet residents.
+    // Original confirm/cancel controls float beneath the merchant/enchantress palm; only the
+    // offered card bypasses its own decision's grab gate. Callback-scoped cancellation preserves
+    // native completion when reclaiming, leaving, switching character or disabling town services.
+    // Merchant attention offers a palm only for a nearby eligible held/pending card, shared via
+    // the owner's original private offering-zone membership. Enchantment keeps the complete
+    // original scroll inventory, selected-card hotspots, information and buy/remove controls.
+    // Slower varied occupation phrases replace repeated casting and table bracing; full-skin
+    // contact checks cover attention and departure. Original standing candles use opaque flame
+    // cores while additive glows retain their original fade and timing. Destroyed inscriptions
+    // can be safely disposed during shutdown. Three articulated cabinet shelves roll vertically
+    // with rear clearance and folding holders; original category shutters remain unchanged.
+    // Additive TLV 87 carries version, signed scroll direction and page count. Existing 78/85/86
+    // payloads remain byte-identical. The new Windows town bundle is required on every VR peer.
+    // Evidence, remaining hardware checks: .planning/research/TOWN-SERVICES-551.md.
+
+
+    // ModBuild 550 — direct town interactions and coherent resident contact motion.
+    // Merchant ray/poke hits are inert; the cabinet and offered palm are the entry points.
+    // Cabinet hover owns vertical stick scrolling through the existing locomotion arbitration;
+    // every page still uses the shared mechanical cassette/crank transition. Owned-item fan
+    // contact suppresses the laser, and all held ability/item cards share the wrist-local pose.
+    // Merchant/enchantress handoffs settle the actual card upright above the final IK palm,
+    // gently float, remain visible through native confirmation/options, and return on cancellation.
+    // Only original native callbacks commit a purchase/sale; remote geometry follows the owner.
+    // Resident arm/body retargeting, prayer contact and planted stance address build-549 motion
+    // reports. The merchant worktop clears the actual coat; native candles replace misidentified,
+    // height-scaled scrolls. Matching town bundle required; original environments stay unchanged.
+    // Evidence and hardware limits: .planning/research/TOWN-SERVICES-550.md.
+
+
+    // ModBuild 549 — approved side cabinet and explicit merchant palm transactions.
+    // Persistent original stock lives in one detailed upright cabinet: six native category
+    // pictograms, a physical crank and a retracting cassette behind folding opaque shutters.
+    // Stock inspection shares the scenario item hold/grasp/transfer code. Near the merchant,
+    // the selected controlled character's owned items replace the normal map fan; dropping
+    // an owned/stock item into the offered palm requests sale/purchase. Only the original
+    // final confirmation commits. Leaving, ownership changes and teardown cancel stale offers.
+    // Public cabinet and private service/inspection presentation have independent lifetimes,
+    // fragment assembly and authority. Additive TLV86 identifies cassette motion/public lane;
+    // version3 and previous record layouts remain unchanged. Generic held-card publishing
+    // must not duplicate the town inspection surface. Disabled map hands keep native services.
+    // Actual stationary-lamp slot binding replaces Unity renderer-dependent light ranking:
+    // real 548 NPCs could change lit side after a0.1mm movement. No native lights are changed.
+    // Resident positions use the front semicircle of the authored map reading side; the
+    // original forest/cellar and native map geometry remain unchanged. Shared body motion
+    // and sleeve/skin transitions are validated on imported meshes and continuous hand poses.
+    // Evidence and hardware limits: .planning/research/TOWN-SERVICES-549.md.
+
+    // ModBuild 548 — restore authored room proportions and compact immersive town services.
+    // Hardware rejects build 547's 3.5x horizontal room expansion and oversized counter.
+    // Keep original cellar/forest geometry intact; fit furniture and station positions to it.
+    // Campaign city-event caps have no GuildmasterModeButton: native presentation sampling
+    // must guard that optional field rather than throw for the rest of every map tick.
+    // High-detail-only actors remove geometry/vertex-light LOD transitions; original-portrait
+    // merchant fitting, real iris/lid probes and separated closed corneal clearance repair faces.
+    // Offline Kimodo occupation clips retain native coin/palm contact and planted feet. Playback
+    // uses the existing shared work clock, with no inference or network service during play.
+    // A compact travelling cabinet uses physical revolving trays instead of inventory-wide tables.
+    // Additive TLV85 stages complete original pages and authors unwrapped rack/crank turns,
+    // retaining causal held-card precedence, original opacity, late joins and bounded recovery.
+    // Existing records and protocol version3 are unchanged. Original coin material resolves via
+    // its registered native subasset instead of the missing GUID used by the previous prefab.
+    // Evidence and hardware limits: .planning/research/TOWN-SERVICES-548.md.
+
+    // ModBuild 547 — resume immersive town services on the released 1.0.7 foundation.
+    // Restore feature-only resident, interaction and asset systems alongside map hints,
+    // campaign events, permanent map windows and configurable AoE controls. Version 1.1.0.
+    // User rejects drawers and mechanical occupation loops; this development iteration
+    // rebuilds open counters, actual owned-card palm handoffs, coin contact, coordinated spells
+    // and portrait-fitted face geometry. Authored furniture supports conform through mirrored
+    // transforms; shared semicircle poses retain scenery clearance and restore on opt-out.
+    // Returning offered cards survive native window teardown without a duplicate static fan.
+    // Additive public map-loadout88 and bounded town-bundle89 retain complete native output;
+    // larger manifests, urgent dependencies and separate liveness/age handle heavy catalogues.
+    // See .planning/research/TOWN-SERVICES-547.md for validation and hardware boundaries.
 
     // ModBuild 546 — 1.0.7 map hotfix line, without immersive town services.
     // Restore the separate native campaign city-event control and its original animation;
@@ -576,6 +2610,134 @@ internal static class NetProtocol
     // both locomotion sticks free and defer to the recenter chord; an optional stick binding
     // and live tutorial text follow the configured input. Builds 538–545 remain NPC-only.
     // Automated verification and hardware checklist: .planning/MAP-546.md.
+
+    // ModBuild 545 — physical town stock, offerings and enhancement work surfaces.
+    // Hardware 544 exposed damaged hands/costume joins, unrecognizable/dark faces,
+    // floating decoration and non-grabbable merchandise. Restore portrait landmarks,
+    // anatomical hands/contact markers, fitted clothing and actual practical eye lighting.
+    // Physical merchant filing drawers retain every native stock/owned item without pages;
+    // only a deliberate eligible buy/sell drop dispatches native selection/confirmation.
+    // Temple uses original coin offerings and devotion inscriptions; enchantment retains
+    // original card hotspots, costs, legal rune choices and refund rules on physical objects.
+    // Exact original decoration, held details, drawer movement, drop marks and extra-owner
+    // furniture are mirrored; closed opaque stock is retained without per-frame widget scans.
+    // MaxModules grows to 2048 within unchanged bounded wire envelopes; presence does not grow.
+    // Shared map-relative station poses clear native Guildmaster furniture and custom rooms.
+    // Deferred native confirms revalidate selection after the hide fade; flames advance
+    // between packets without material churn. Original callbacks remain authoritative;
+    // opt-out restores classic windows. Native billboard shaders retain per-object origins
+    // instead of disappearing when Unity dynamically batches their small quads.
+    // See .planning/research/TOWN-SERVICES-545.md for visual/runtime evidence and hardware limits.
+    //
+    // ModBuild 544 — town eye lighting, fitted head/costume joins and resident work activities.
+    // Hardware 543: all six NPC screenshots show black eyes, identity drift (merchant),
+    // scalp texture patches and open/ragged clothing around moving heads. Actual D3D11
+    // shader inspection proves fwdbase omitted VERTEXLIGHT_ON from the eye fragment
+    // programs even though the isolated OpenGL light test passed. Carry the vertex-stage
+    // light selection into the fragment explicitly; retain real practical lighting.
+    // Facial authoring corrects beard-vs-chin landmark fitting, scalp projection and
+    // neck/garment closure. All-angle render evidence is required; a green source check
+    // does not certify headset appearance. Full updated town bundle installation required.
+    // Resident activities use shared work clocks and smooth attention transitions with
+    // real hand targets/native books and coins. Additive TLV81/msg22 preserves previous
+    // records and wire version3; no cosmetic activity owns native transaction continuation.
+    // Original game NPC speech remains unavailable; no generated voices are introduced.
+    // See .planning/research/TOWN-SERVICES-544.md for evidence and hardware limits.
+    //
+    // ModBuild 543 — anatomically fitted town faces with real eyes and shared facial motion.
+    // Head and binocular eye gaze follow one resident authority, preferring active visitors.
+    // Actual bounded angles use a 102-byte map-only packet at 15 Hz (all three residents together);
+    // deterministic blink/expression clocks render every intermediate frame, not just presence at 5 Hz.
+    // Speech is a presentation adapter keyed by exact voice/language cue and utterance generation;
+    // no adapter/cue means a closed silent mouth. Apply after the original body sample.
+    // Original game narration exists, but the audited 551 dialogue nodes for these three
+    // residents have no associated recordings. No generated voice ships; the adapter is unbound.
+    // Additive record 80 and message 21 retain Version 3; resident record 79 is unchanged.
+    // Presence recovery adds 96 bytes: worst 7082 < 7168 assembly capacity; allocation 7339
+    // retains the 257-byte largest-record margin.
+    // Fitted eyelid/lip loops, separate globe/cornea geometry and eleven shape channels per LOD
+    // replace the former static facial shell. Neutral and posed normals share one topology;
+    // anatomical Head/Neck weights preserve the complete jaw during gaze. Original body and
+    // costume channels remain unchanged. Requires the matching 99,211,283-byte town bundle.
+    // Actual bundled prefabs pass binding/anatomy checks; headset appearance remains unverified.
+
+
+    // ModBuild 542 — persistent immersive town residents and physical merchant inspection.
+    // The supplied build-541 run opens merchant/temple/merchant without fallback. Screenshots
+    // instead identify floating stands, damaged generated faces, fixed studio illumination
+    // and a flat merchant presentation. Place all three residents on the actual room floor,
+    // independently of an open service, while retaining original-window rollback when disabled.
+    // The uneven forest needs separate sole/support contact, published by the resident author;
+    // observers must not resample their own terrain. Existing support tops stay fixed.
+    // The NPC is the guarded visit target; hide only its replaced map cap, and include its
+    // collider in pointer arbitration before UI/map dispatch. Native locks and confirmation
+    // paths remain authoritative. Decoration reconstructs original game meshes/material data
+    // without native controllers. Original lantern/candle sources light each stand; entrance
+    // waits for cosmetic loading, never for gameplay continuation.
+    // Additive presence79 publishes canonical poses, scales, floor adjustments, visibility and animation clocks;
+    // the lowest fresh enabled peer authors all residents, including between visits. Disabled
+    // observers still retain actual remote visits. Wire v3 and all old records stay unchanged;
+    // worst presence6986 +257 margin=7243 allocation, within unchanged7168 assembly capacity.
+    // Merchant cards retain their original ItemCardUI face and physical item-card rim/reverse.
+    // Inspection moves that same card, including remotely, and release returns it to the rack
+    // without selecting or buying. Explicit native selection/purchase remains separate.
+    // Additional full-sized merchant workspaces use the free southern clearing; roster changes
+    // wait for held/returning cards, then relocate while invisible. A new presentation generation
+    // prevents remote interpolation across the clearing even if invisible packets are coalesced.
+    // Head/stand asset changes require the matching ghvr-town.bundle, not a DLL-only install.
+    // Source/runtime evidence and remaining headset checks: research/TOWN-SERVICES-542.md.
+
+    // ModBuild 541 — desktop merchant initialization and discoverable town presentation choice.
+    // Build-540 hardware logs show Buy/Sell/All converted, then catalog construction throwing
+    // before the next control. The desktop inventory has no gamepad-only Owned filter; native
+    // mouse-input paths already omit it. Only move that filter when its original exists,
+    // preserving the native control set instead of rolling the whole merchant back to flat UI.
+    // Catalog tests now exercise absent and present Owned controls through repeated opening,
+    // paging, native selection and rollback; the old unconditional access fails the control.
+    // VR options give town services their own first section under Boards, with an explicit
+    // immersive-NPC/original-window choice backed by the unchanged default-true config key.
+    // No asset or wire changes; corrected headset presentation remains a hardware check.
+
+    // ModBuild 540 — first town-service hardware corrections and physical merchant catalog.
+    // Build-539 logs show native item-ID-zero lookup opening GlobalErrorMessage from an
+    // inactive pooled card during mirror template preparation. Validate immutable item data
+    // before borrowing art and restore pooled input/model state; never invoke CItem.YMLData
+    // for a placeholder. Explicit renderer-space LOD bounds correct a 100x undersized NPC
+    // group; town materials retain textured illumination in map scenes without live lights.
+    // The merchant's original filtered inventory now drives six physical item cards with
+    // original prices, buy/sell/filter/exit controls and page navigation on the counter.
+    // Native row selection remains authoritative. Original window wrappers preserve native
+    // permissions and restore hierarchy on option changes, closure and partial setup failure.
+    // Mirrors publish counter cards/controls and their opening alpha, not the obsolete list.
+    // Original item details and paired native rules hints have dedicated visible counter copies;
+    // their hidden list ancestors cannot suppress them or duplicate them in a price strip.
+    // Additional visitors receive full-size furniture-only counter extensions. Only owners
+    // resolve the complete native roster and animate workspace changes; receivers use those
+    // actual poses/material values. Manual tray placement takes precedence over rearrangement.
+    // Modal orphan collection respects live town-service and error-window grip owners.
+    // Both bundles are required; head-mounted presentation still needs hardware verification.
+
+    // ModBuild 539 — optional immersive town visits, enabled by default (user ruling).
+    // VR options switch the local merchant, temple and enchantress between immersive
+    // presentation and the ordinary 1.0.6 window path. Live disable cancels held samples,
+    // restores original section parents and portraits, and preserves the native controller's
+    // selection and continuation. The release fence reads the setting before the next tick.
+    // An observer's local setting never changes an enabled visitor's shared presentation.
+    // No local immersive visitor and no remote session means no template preload or NPC.
+
+    // ModBuild 538 — first immersive town-service hardware variant (dev 1.0.7).
+    // Merchant, temple and enchantress retain native selection, prices, permissions and
+    // confirmations while original sections become movable reading surfaces. Original entries
+    // can be inspected in either hand and placed on a movable work tray to select; cancellation,
+    // pool reuse, character changes and native closure cannot dispatch a stale transaction.
+    // Three rigged NPCs/furniture use a separate ghvr-town.bundle with three mesh LODs and
+    // 4K actor textures. One NPC per service is shared by concurrent visitors. Original widget
+    // output is published through additive town-service messages 19/20 and extension 78;
+    // inert observer copies retain native graphics and receive no gameplay callbacks.
+    // Complete installation requires BOTH matching bundles. Original services remain usable
+    // if optional immersive presentation cannot initialize; animations never own continuation.
+    // Source, render and packaging evidence plus explicit first-headset checklist:
+    // .planning/research/TOWN-SERVICES-FIRST-VARIANT.md. No headset outcome claimed yet.
 
     // ModBuild 537 — independent VR options toggle and native close ordering.
     // Build-536 hardware confirms repeated opening, but host SetFocused(false) dims usable
@@ -24828,7 +26990,7 @@ internal static class NetProtocol
     /// sees; <c>scripts/check-wire-coverage.py</c> fails the guard while any range approaches
     /// full.</para>
     /// </summary>
-    public const int BoardTuneMaxFields = 247;
+    public const int BoardTuneMaxFields = 248;
 
     /// <summary>
     /// Worst-case byte length of a COMPLETE field run — every usable id present at its own width:
@@ -24841,7 +27003,7 @@ internal static class NetProtocol
     /// is stated as an arithmetic expression rather than a literal for exactly this reason: a range
     /// boundary moves in one place and every bound derived from it follows.</para>
     /// </summary>
-    public const int BoardTuneMaxFieldBytes = 47 * 7 + 16 * 4 + 64 * 3 + 64 * 3 + 32 * 3 + 24 * 2;
+    public const int BoardTuneMaxFieldBytes = 47 * 7 + 16 * 4 + 64 * 3 + 64 * 3 + 32 * 3 + 24 * 2 + 5;
 
     /// <summary>Header of one record-28 PAGE, in bytes:
     /// <c>[pageIndex][pageCount][sig lo][sig hi][idLo][idHi][fieldCount]</c>.</summary>
@@ -24933,6 +27095,12 @@ internal static class NetProtocol
     /// <summary>First / last id whose value is an integer COUNT (1 byte).</summary>
     public const byte TuneCountIdMin = 224;
     public const byte TuneCountIdMax = 247;
+    // Unbounded finite config values retain their original single-precision contract.
+    // Count range stays byte-wide; id248 remains the historical zero-width tombstone.
+    public const byte TuneFloatIdMin = 249;
+    public const byte TuneFloatIdMax = 249;
+    /// <summary>[Cards] FanFollowDeadzone — owner position deadzone in metres, finite float249.</summary>
+    public const byte TuneFanFollowDeadzone = 249;
 
     // ---- field ids — WIRE CONSTANTS. Append only inside a range; never renumber. ---------------
     // VECTOR3 (6 B): board-local / mount-local offsets, tray-root metres.
@@ -25844,6 +28012,7 @@ internal static class NetProtocol
         if (id >= TuneColorIdMin && id <= TuneColorIdMax) return 3;
         if (id >= TuneLengthIdMin && id <= TuneAngleIdMax) return 2;
         if (id >= TuneCountIdMin && id <= TuneCountIdMax) return 1;
+        if (id >= TuneFloatIdMin && id <= TuneFloatIdMax) return 4;
         return 0;
     }
 
@@ -26089,6 +28258,20 @@ internal static class NetProtocol
         payload[i++] = (byte)(code & 0xFF);
         payload[i++] = (byte)((code >> 8) & 0xFF);
         return true;
+    }
+
+    /// <summary>Append a finite single-precision field without narrowing an unbounded config.</summary>
+    public static bool WriteTuneFloatField(byte[] payload, ref int i, byte id, float live, float shipped)
+    {
+        if (float.IsNaN(live) || float.IsInfinity(live) || live == shipped || i + 5 > payload.Length) return false;
+        payload[i++] = id; AvatarSerializer.WriteF32(payload, ref i, live); return true;
+    }
+    public static float BoardTuneFloat(byte[]? payload, int offset, int len, byte id, float fallback)
+    {
+        int at = FindBoardTuneField(payload, offset, len, id);
+        if (at < 0) return fallback;
+        float value = AvatarSerializer.ReadF32(payload!, ref at);
+        return float.IsNaN(value) || float.IsInfinity(value) ? fallback : value;
     }
 
     /// <summary>COUNT counterpart of <see cref="WriteTuneLengthField"/> (1 byte, clamped 0..255).</summary>

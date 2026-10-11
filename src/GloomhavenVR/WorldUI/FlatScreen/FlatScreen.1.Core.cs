@@ -223,21 +223,26 @@ internal sealed partial class FlatScreen
 
     // ---- ITEM 9: desktop (flat monitor) = clean LEFT-EYE mirror, nothing else --------------
     /// <summary>
-    /// [WorldUI] DesktopMirrorLeftEye — local default (the WorldUIConfig entry is not
-    /// owned by this branch; see the returned snippet to wire the live toggle). While
-    /// true the flat monitor mirrors ONLY the HMD's LEFT eye: the game-view mirror mode
-    /// is pinned to <c>GameViewRenderMode.LeftEye</c> AND the end-of-frame desktop
-    /// composite blit (the old 2D-menu overlay / blackscreen fallback) is skipped, so no
-    /// menu composite, both-eyes/side-by-side, or UI overlay reaches the desktop.
+    /// [WorldUI] DesktopMirrorLeftEye is the player's live preference on every platform.
+    /// On shows the left eye; Off shows black (maintainer clarification 2026-10-02).
+    /// Discarded native desktop drawing is always suppressed independently.
     /// </summary>
-    private static bool DesktopMirrorLeftEye => WorldUIConfig.DesktopMirrorLeftEye.Value;
-    /// <summary>True while we currently hold <see cref="UnityEngine.XR.XRSettings.gameViewRenderMode"/> at LeftEye.</summary>
+    private bool DesktopMirrorLeftEye => FrameDesktopPolicy.MirrorLeftEye(
+        WorldUIConfig.DesktopMirrorLeftEye.Value, false, VRSession.IsRunning);
+    /// <summary>True while we own the desktop spectator mode (left eye or black).</summary>
     private bool _mirrorModeApplied;
     /// <summary>Original mirror mode captured once so VR-off / hot-reload restores it.</summary>
     private bool _mirrorModeCaptured;
     private UnityEngine.XR.GameViewRenderMode _originalMirrorMode;
     /// <summary>One-time log of the chosen mirror mode (confirms on the next hardware log).</summary>
     private bool _mirrorModeLogged;
+    private bool _mirrorModeLastLeftEye;
+    private bool _legacyMirrorApplied;
+    // Provider mirror ownership is separate from legacy XRSettings. OpenXR consumes
+    // XRDisplaySubsystem's mirror mode; XRSettings alone cannot request no mirror.
+    private readonly System.Collections.Generic.List<UnityEngine.XR.XRDisplaySubsystem> _desktopDisplays = new(2);
+    private readonly System.Collections.Generic.List<DesktopDisplayRecord> _desktopDisplayRecords = new(2);
+    private bool _desktopMirrorWarning;
 
     // ---- ITEM 9 (SCENARIO STATE): scrub game cameras off the desktop backbuffer -------------
     /// <summary>
@@ -264,6 +269,8 @@ internal sealed partial class FlatScreen
     /// </summary>
     private Camera? _maskedCam;
     private int _maskedValue;
+    private CameraClearFlags _maskedClearFlags;
+    private bool _maskedSkybox;
 
     // ---- ITEM 1: hands in front of the menu/intro screen -----------------------------------
     /// <summary>Shader-default render queue of <see cref="_screenMaterial"/> (captured on create).</summary>

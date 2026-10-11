@@ -130,13 +130,11 @@ internal static class MapIconHoverAnimation
     /// integer compare per hover.</summary>
     private static int _verdict;
 
-    /// <summary>True while the map room is standing and the dial says the hover ANIMATION is off,
-    /// i.e. while the postfix will actually undo anything. Since ModBuild 425 the only thing under
-    /// that word is the <c>NodeHoverIndicator</c> particle effect; the 20 % scale step is the
-    /// game's highlight and runs either way. See the class doc for why the two were separated.
-    /// </summary>
+    /// <summary>Suppress native hover particles in the active 3D map. Build620 retires
+    /// the legacy switch; normal native highlight, 20% growth and selection remain intact.
+    /// The original 2D-map path is outside this presentation gate.</summary>
     internal static bool Suppressing =>
-        MapRoomDriver.Active && !(Plugin.MapHoverAnimation?.Value ?? Defaults.MapHoverAnimation);
+        MapRoomDriver.Active;
 
     /// <summary>
     /// HOW MUCH BIGGER THAN ITS AUTHORED SIZE IS THIS LOCATION'S DRAWN ICON RIGHT NOW? The one
@@ -247,8 +245,7 @@ internal static class MapIconHoverAnimation
     }
 
     /// <summary>
-    /// The SUPPRESSED verdict, printed the first time a hover is actually acted on and again after
-    /// any flip of the dial. Edge-triggered on <see cref="_verdict"/> because a hover fires on every
+    /// The SUPPRESSED verdict, printed the first time a hover is actually acted on in a room. Edge-triggered on <see cref="_verdict"/> because a hover fires on every
     /// icon the beam crosses; <see cref="Rearm"/> clears it when the room stands down, so the next
     /// room says it again.
     /// </summary>
@@ -265,15 +262,12 @@ internal static class MapIconHoverAnimation
                           + "see the MAP ICON HOVER HIGHLIGHT line for it. User 2026-09-03: \"Bitte "
                           + "deaktiviere die animationen für das mouseover im Kartenraum wenn ich "
                           + "über ein Kartensymbol hovere - an der Stelle möchte ich es nicht.\" "
-                          + "Turn [MapRoom] HoverAnimation on to get the particle effect back.");
+                          + "The legacy [MapRoom] HoverAnimation value is retained without effect.");
     }
 
     /// <summary>
-    /// The counterpart line for the OTHER state: the room stands, a hover happened, and the dial
-    /// says the particle animation was deliberately kept. Without it "no suppression line in the
-    /// log" has two readings — the dial is on, or the patch never ran — and a hardware round would
-    /// have to guess which. Same edge, same rearm; a flip of the dial in the options pane prints
-    /// whichever of the two is now true.
+    /// The original flat-map hover remains outside this 3D-map presentation gate.
+    /// One verdict per lifecycle preserves useful context without per-hover log growth.
     /// </summary>
     internal static void ReportKept(global::MapLocation loc)
     {
@@ -282,11 +276,10 @@ internal static class MapIconHoverAnimation
         _verdict = 2;
         string where = loc != null && loc.name != null ? loc.name : "?";
         VRLog.Note(Scope, "MAP ICON MOUSEOVER PARTICLE ANIMATION KEPT — first hover of this map "
-                          + $"room landed on '{where}' and [MapRoom] HoverAnimation is ON, so the "
+                          + $"room landed on '{where}' outside the active 3D map suppression path, so the "
                           + "game's NodeHoverIndicator particle effect was left running on purpose. "
-                          + "Switch that setting off (Umgebung & Ton > Karte 3D) for the "
-                          + "no-animation behaviour. The 20% scale highlight is independent of this "
-                          + "dial and runs either way since ModBuild 425.");
+                          + "The active 3D map suppresses only the particle effect. The 20% scale highlight is independent of this "
+                          + "suppression and runs normally since ModBuild 425.");
     }
 
     // ---- THE HOVER HIGHLIGHT MEASUREMENT (ModBuild 425) --------------------------------------

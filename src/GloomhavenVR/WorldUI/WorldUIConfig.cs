@@ -118,6 +118,12 @@ internal static class WorldUIConfig
     /// <summary>START-UP PREFERENCE: should the combat log panel be up when a scenario begins?
     /// (Bound key still "CombatLog" so an existing cfg value survives — see Defaults.)</summary>
     internal static ConfigEntry<bool> CombatLogAtStart = null!;
+    /// <summary>Local town visits use immersive stations; off retains the original service windows.</summary>
+    internal static ConfigEntry<bool> ImmersiveTownServices = null!;
+    /// <summary>Local playback preference; shared resident cue clocks remain authoritative.</summary>
+    internal static ConfigEntry<bool> ImmersiveTownSpeech = null!;
+    /// <summary>Local playback preference for physical resident and furniture foley.</summary>
+    internal static ConfigEntry<bool> ImmersiveTownSoundEffects = null!;
     internal static ConfigEntry<bool> Dialogs = null!;
     internal static ConfigEntry<bool> DecisionDock = null!;
     internal static ConfigEntry<bool> TrayNativeControls = null!;
@@ -130,18 +136,19 @@ internal static class WorldUIConfig
     /// factor of the size they have always shipped at.
     ///
     /// <para>THE UNIT IS REAL MILLIMETRES AT THE EYE, not world units. A bar is a readability
-    /// overlay, and the only statement about "how big is it" that survives a pinch-zoom is its size
-    /// at the eye: the diorama scale is a scale on the RIG, so a world-unit size means a different
-    /// apparent size at every zoom while the same real-millimetre size looks identical at all of
-    /// them. 1.0 = the shipped size, which is <see cref="CanvasScaleMm"/> × 0.35 mm per uGUI pixel
-    /// at the eye (see <see cref="WorldUI.ActorBars"/>); 2.0 is a bar twice as tall and twice as
-    /// wide in front of your face at any table zoom.</para>
+    /// overlay, so its size is stated in millimetres at the reference zoom. The diorama scale is
+    /// on the rig: figure-proportional bars change apparent size as the player zooms. 1.0 is the
+    /// former shipped size at the reference zoom; 2.0 is twice that size at the same zoom.</para>
     ///
     /// <para>THE ONLY BAR-SIZE DIAL THERE IS. The zoom band the bars are allowed to move inside is
-    /// a CONSTANT now (<c>ActorBars.ZoomFollowMin/Max</c>, still 0.7–1.5), not two more sliders —
-    /// see the tombstone at the bind site.</para>
+    /// a CONSTANT on the optional legacy path (<c>ActorBars.ZoomFollowMin/Max</c>, 0.7–1.5),
+    /// not two more sliders — see the tombstone at the bind site.</para>
     /// </summary>
     internal static ConfigEntry<float> BarSizeScale = null!;
+
+    /// <summary>Keep actor bars at a constant size relative to their figures through the full
+    /// table zoom. Off restores the former 0.7–1.5 apparent-size clamp.</summary>
+    internal static ConfigEntry<bool> BarFollowFigureScale = null!;
 
     // [WorldUI] BarZoomMinScale / BarZoomMaxScale are GONE (user ruling 2026-08-13: "Mindest und
     // Maximalgröße der Lebensbalken haben keinen sehbaren einfluss. Es macht irgendwas, aber man
@@ -149,9 +156,9 @@ internal static class WorldUIConfig
     // the table-zoom FOLLOW factor, which is 1.0 at the shipped zoom by construction — so at the
     // zoom the player actually sits at, neither bound was reachable and moving either dial changed
     // nothing at all. The GUARANTEE he originally asked for ("ein minimum und maximum der Größe,
-    // damit sie sich trotz zoomen nie über die Grenzen hinaus skalieren können") is not lost: it is
-    // now the fixed 0.7–1.5 band in ActorBars, applied unconditionally on both size paths. What is
-    // gone is the ability to type numbers into a factor whose effect no player can see.
+    // damit sie sich trotz zoomen nie über die Grenzen hinaus skalieren können") remains on the
+    // optional legacy path as ActorBars' fixed 0.7–1.5 band. The default now follows figures
+    // across the full zoom per the later user ruling.
     internal static ConfigEntry<bool> WristHud = null!;
 
     /// <summary>
@@ -592,6 +599,21 @@ internal static class WorldUIConfig
             "START of a scenario, not a master switch: whatever it says, the VR options row " +
             "'Kampflog jetzt einblenden' brings the panel up at any time, and the panel's own X " +
             "closes it again. Off = it simply is not there until you ask for it.");
+        ImmersiveTownServices = _file.Bind("WorldUI", "ImmersiveTownServices",
+            FrameDefaults.Active ? FrameDefaults.ImmersiveTownServices : Defaults.ImmersiveTownServices,
+            "Show the merchant, temple and enchantress as immersive residents in the 3D map room. " +
+            "Approach their stations and handle physical offerings. Fresh PC profiles enable them; " +
+            "fresh Steam Frame standalone profiles use the original windows. Saved preferences stay. " +
+            "Off restores the original service windows and their " +
+            "controls, including an already open visit. Other players retain their chosen presentation.");
+        ImmersiveTownSpeech = _file.Bind("WorldUI", "ImmersiveTownSpeech", Defaults.ImmersiveTownSpeech,
+            "Play English speech from the immersive merchant, priestess and enchantress. " +
+            "This is a local listening preference: multiplayer still shares the same cue and facial performance. " +
+            "Off stops resident speech immediately without changing the visit or another player's audio.");
+        ImmersiveTownSoundEffects = _file.Bind("WorldUI", "ImmersiveTownSoundEffects", Defaults.ImmersiveTownSoundEffects,
+            "Play physical foley from immersive residents and their furniture, including coins, spells, prayer props " +
+            "and the merchant cabinet. This is a local listening preference and applies immediately. " +
+            "It does not mute ordinary game, card or interface sounds.");
         Dialogs = _file.Bind("WorldUI", "Dialogs", Defaults.Dialogs,
             "Confirmation dialogs as world-space modals in front of the HMD (poke yes/no). " +
             "Off = the generic modal fallback floats the SAME window instead (ModalFallback " +
@@ -629,9 +651,8 @@ internal static class WorldUIConfig
             "Actor HP/effect bars ignore the HEAD DISTANCE — a bar the same size whether you " +
             "lean in or step back (test #14: the old distance compensation grew bars up to 2.5x " +
             "when stepping away, which read as the bars 'growing'). Off = legacy behavior: bars " +
-            "gently grow with head distance to stay readable, bounded by the same fixed 0.7-1.5 " +
-            "band the table zoom is bounded by. This dial says nothing about the TABLE zoom — " +
-            "that is BarSizeScale.");
+            "gently grow with head distance to stay readable. The table-zoom behavior has its " +
+            "own Scale bars with figures toggle; BarSizeScale sets the reference size.");
         BarSizeScale = _file.Bind("WorldUI", "BarSizeScale", Defaults.BarSizeScale,
             new ConfigDescription(
                 "SIZE of the actor HP/effect bars above the miniatures, as a factor of the size " +
@@ -644,11 +665,17 @@ internal static class WorldUIConfig
                 "this dial existed (at the shipped table zoom); the SHIPPED default is not " +
                 "1.0 - it was re-based from a tuned cfg and the menu prints it under this " +
                 "text. " +
-                "Whatever you set here HOLDS while you pinch-zoom the table: the bars follow the " +
-                "zoom only inside a fixed 0.7-1.5 band around the size you chose, so they can " +
-                "neither shrink away nor swallow the board. Live: the next frame is drawn at the " +
-                "new size. Range 0.25-3.",
+                "With Scale bars with figures enabled by default, this size stays proportional " +
+                "to each figure through the full table zoom. When disabled, the former 0.7-1.5 " +
+                "apparent-size band applies. Live: the next frame is drawn at the new size. " +
+                "Range 0.25-3.",
                 new AcceptableValueRange<float>(0.25f, 3f)));
+        BarFollowFigureScale = _file.Bind("WorldUI", "BarFollowFigureScale",
+            Defaults.BarFollowFigureScale,
+            "Scale actor HP/effect bars with their figures through the full table zoom, keeping " +
+            "their size proportional to each miniature. Off restores the previous behavior: " +
+            "the bars follow zoom only within a 0.7-1.5 apparent-size band. The BarSizeScale " +
+            "setting still controls their size at the reference zoom. Takes effect immediately.");
         // BarZoomMinScale / BarZoomMaxScale were bound HERE. REMOVED (user ruling 2026-08-13 —
         // see the tombstone at the fields above). The band they configured is the constant pair
         // ActorBars.ZoomFollowMin/Max, still 0.7 and 1.5, so nothing about the look changed; the
@@ -883,11 +910,12 @@ internal static class WorldUIConfig
                 "grepped rather than guessed at. Drag the window: that MOVE is synchronised and is " +
                 "how a group changes where it hangs. Range 0.3-1.5.",
                 new AcceptableValueRange<float>(0.3f, 1.5f)));
-        DesktopMirrorLeftEye = _file.Bind("WorldUI", "DesktopMirrorLeftEye", Defaults.DesktopMirrorLeftEye,
-            "Flat monitor mirrors ONLY the HMD's LEFT eye: pins XRSettings.gameViewRenderMode to " +
-            "LeftEye and skips the desktop 2D-menu composite blit, so the desktop is a clean " +
-            "single-eye mirror in every state. Off = legacy (2D-menu composite during menus; " +
-            "uncontrolled default XR mirror otherwise).");
+        DesktopMirrorLeftEye = _file.Bind("WorldUI", "DesktopMirrorLeftEye",
+            FrameDefaults.Active ? FrameDefaults.DesktopMirrorLeftEye : Defaults.DesktopMirrorLeftEye,
+            "Show the HMD's left eye on the flat monitor. Off keeps the flat monitor black. " +
+            "Unused native desktop scene/UI drawing is always suppressed while VR runs, " +
+            "independently of this setting. Native menus and 2D-map captures remain visible " +
+            "inside the headset. This live choice applies on PC and Steam Frame; saved choices are retained.");
         // ---- RETIRED 2026-08-09: the wrist HUD's SECOND set of pose dials -------------------
         ShowIntro = _file.Bind("WorldUI", "ShowIntro", Defaults.ShowIntro,
             "Show the game's intro (logos/video, pre-menu scenes) on the floating screen in VR " +
@@ -1055,9 +1083,9 @@ internal static class WorldUIConfig
             "While the flat game shows its loading screen (scene transitions, scenario " +
             "start), float the game's own ROTATING LOADING SPINNER — the icon only, not the " +
             "hints/progress screen — in front of the HMD on the black void, hide the " +
-            "floating 2D screen for the duration, and lower Unity's background loading " +
-            "priority so head/hand rendering hitches less (the load itself takes slightly " +
-            "longer). A few residual single-frame freezes remain (the game's per-transition " +
+            "floating 2D screen for the duration. Native loading priority is retained; " +
+            "optional card and figure preparation does not extend the spinner after the " +
+            "scenario is ready. A few residual single-frame freezes remain (the game's per-transition " +
             "GC pause and synchronous asset-assembly frames cannot be split). Off = vanilla " +
             "behavior: the HMD shows a motionless void during loads.");
 

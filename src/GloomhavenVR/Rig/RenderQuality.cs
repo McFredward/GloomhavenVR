@@ -75,22 +75,21 @@ namespace GloomhavenVR.Rig;
 /// NOT VERIFIED ON HARDWARE: the perceptual claim ("6.4 effective samples looks like 17.7").
 /// The sample arithmetic is verifiable; how it looks is what the A/B in the settings is for.
 ///
-/// RESOLUTION LEVER ([RenderQuality] EyeResolutionScale →
-/// <see cref="XRSettings.eyeTextureResolutionScale"/>): scales the eye-texture allocation.
-/// Above 1 it is brute-force AA that also fixes SHADER/TEXTURE shimmer (specular sparkle,
-/// sub-pixel detail) which geometry-edge MSAA cannot touch; below 1 it is the single largest
-/// GPU saving available here, because all per-pixel work scales with scale². Applies live.
+/// RESOLUTION LEVER ([RenderQuality] EyeResolutionScale): startup chooses an allocation of
+/// the saved value, without reserving a larger target for a possible slider move.
+/// During play only XRSettings.renderViewportScale changes, after a short slider quiet period
+/// in Update. This preserves the XR projection/compositor sub-rect contract and avoids live
+/// swapchain recreation. A request above the session allocation is saved for the next VR start;
+/// the current effective scale remains capped, and player help/readback state that limit.
 ///
-/// VIEWPORT FALLBACK (a constant since the 2026-08-22 settings audit; it was
-/// [RenderQuality] ViewportScaleFallback, default ON): some OpenXR
-/// providers negotiate the swapchain once at session start and ignore
-/// <see cref="XRSettings.eyeTextureResolutionScale"/> afterwards. We cannot know which from
-/// static inspection, so we MEASURE: <see cref="LogEyeTargetDiagnostics"/> reads
-/// <see cref="XRSettings.eyeTextureWidth"/> back against the baseline captured at scale 1.0
-/// and, if the allocation did not move, engages <see cref="XRSettings.renderViewportScale"/>
-/// instead — rendering into a sub-rect of the existing swapchain, which every provider
-/// honours. Either way the log names WHICH lever actually bound, so the resolution row is
-/// never silently dead.
+/// Build628 Frame evidence (2026-10-06): 1.00 -> 0.80 recreated both eye textures, then
+/// 0.80 -> 0.85 requested/recreated both again before Player.log stopped without a managed
+/// exception. This locates the hazardous transition, not the native crash mechanism. Catching
+/// managed exceptions cannot make native graphics-resource recreation safe. Do not restore
+/// the old allocation-first runtime path or reinterpret an API getter as rendered-pixel proof.
+/// Unity2021 documents viewport updates as allocation-free, applied on the next frame, and
+/// rejected during camera rendering or in deferred rendering. Unsupported providers/path remain
+/// explicit refusals; no cropped Camera.rect/projection workaround or live allocation fallback.
 ///
 /// THE MSAA DEFAULT STAYS 8x — RE-EXAMINED 2026-08-23 AGAINST A MEASUREMENT, AND THE MEASUREMENT
 /// SAYS THE SAMPLES ARE NOT THE PROBLEM. The performance round that raised the question had a good
@@ -161,14 +160,17 @@ internal static class RenderQuality
     private const float EyeWidthMatchTolerance = 0.05f;
 
     /// <summary>
-    /// Frames between an MSAA/eye-scale change and the eye-target diagnostic readback —
-    /// long enough for the live swapchain re-allocation to land before we read the desc.
+    /// Frames between a committed quality change and diagnostic readback, allowing viewport
+    /// application/MSAA resource changes to settle before reading native render parameters.
     /// </summary>
     private const int DiagDelayFrames = 30;
 
     // ==========================================================================================
-    //  THE GRAPHICS PRESETS ARE GONE — the whole offering, not just its row
+    //  HISTORICAL DROPDOWN RETIREMENT — the legacy index remains inert
     // ==========================================================================================
+    // Build619: the maintainer requested four explicit profile buttons again. They live in
+    // GraphicsProfiles.cs and write the real controls only on a user press; this retired
+    // legacy index remains inert and no automatic preset-mirroring/latch is restored.
     // WHAT STOOD HERE, from 2026-08-23 to 2026-09-05: a `Preset` struct, a four-entry `Presets`
     // table (Qualität 8x/1.00x, Ausgewogen 4x/0.90x, Leistung 2x/0.80x, Schwache Hardware off/
     // 0.60x, all four with a per-pixel light cap of 0), `CustomPresetIndex`, and `PresetLocIds()`
@@ -206,6 +208,7 @@ internal static class RenderQuality
     // for, and it is exactly the mechanism this one asked to have removed.
 
     private static ConfigFile? _file;
+    private static bool _frameDefaults;
     internal static ConfigEntry<int>? MsaaLevel;
     internal static ConfigEntry<bool>? ForceAnisotropic;
 
@@ -234,19 +237,9 @@ internal static class RenderQuality
     internal static ConfigEntry<int>? QualityPreset;
 
     /// <summary>
-    /// Fall back to <c>XRSettings.renderViewportScale</c> when <c>eyeTextureResolutionScale</c>
-    /// does not move the allocation. ALWAYS ON, and no longer a dial.
-    ///
-    /// <para>2026-08-22 settings audit (user, verbatim): <i>"a) Lösche alle Einstellungen die das
-    /// Spiel breaken könnten wenn die verändert werden. Etwas was das spiel kaputt macht wenn man
-    /// es umstellt ist nicht optional und sollte daher nicht einstellbar sein."</i> The harm, and
-    /// the value that causes it: <c>false</c> removes the fallback that makes
-    /// <c>EyeResolutionScale</c> — a CURATED row on the Grafik page — work at all on providers
-    /// that negotiate the swapchain once at session start, and the row then does nothing while
-    /// still moving. That is the "der X-Offset hat keinen Einfluss" failure, aimed at the one dial
-    /// a player reaches for when the picture is too soft. There is also nothing to decide: the
-    /// choice between the two levers is made BY READING THE ALLOCATION BACK, not by guessing, and
-    /// the [Rig] EYE-TARGET DIAG line names which one bound.</para>
+    /// Historical compatibility constant retained from the 2026-08-22 settings audit. Viewport
+    /// scaling cannot be disabled by configuration. Build630 makes it the ONLY live resolution
+    /// path: a provider refusal is reported explicitly and never retries allocation during play.
     /// </summary>
     internal const bool ViewportScaleFallback = true;
 
@@ -301,15 +294,26 @@ internal static class RenderQuality
     /// </summary>
     private static int _baseEyeWidth;
 
-    /// <summary>
-    /// Which lever the resolution row is actually riding on, decided by readback:
-    /// null = undecided (no scaled value asserted yet), true = the eye texture re-allocated
-    /// (eyeTextureResolutionScale bound), false = it did not and renderViewportScale took over.
-    /// </summary>
-    private static bool? _eyeScaleBinds;
+    /// <summary>Allocation capacity belongs to the OpenXR session, not to a scene/rig rebuild.</summary>
+    private static bool _sessionPrepared;
+    private static float _sessionAllocationScale = 1f;
+    private static float _pendingEyeScale = -1f;
+    private static float _pendingEyeScaleSince;
+    private static int _pendingMsaa = -1;
+    private static float _pendingMsaaSince;
+    private static int _committedMsaa = -1;
+    private static float _nextMsaaApplyTime;
+    private static float _lastEyeRefusal = -1f;
+    private const float SliderQuietSeconds = 0.35f;
+    private const float MsaaResourceQuietSeconds = 1f;
+    private const float ViewportRepairIntervalSeconds = 1f;
+    private const int MaxViewportResetRepairs = 3;
 
     /// <summary>Last value written to <see cref="XRSettings.renderViewportScale"/> by us (1 = untouched).</summary>
     private static float _viewportScaleApplied = 1f;
+    private static bool _viewportScaleAccepted;
+    private static float _nextViewportRepairTime;
+    private static int _viewportResetRepairs;
 
     /// <summary>
     /// Has the resolution row announced itself in the log yet this session?
@@ -345,7 +349,11 @@ internal static class RenderQuality
         if (_file != null)
             return;
         _file = ModuleConfig.Create("rig");
-        MsaaLevel = _file.Bind("RenderQuality", "MsaaLevel", Defaults.MsaaLevel, new ConfigDescription(
+        bool frame = FrameDefaults.Active;
+        _frameDefaults = frame;
+        if (frame)
+            VRLog.Info("Rig", "Steam Frame standalone render defaults selected for unset config keys; saved values take precedence.");
+        MsaaLevel = _file.Bind("RenderQuality", "MsaaLevel", frame ? FrameDefaults.MsaaLevel : Defaults.MsaaLevel, new ConfigDescription(
             "Hardware MSAA sample count for the VR eye render (0 = off, 2/4/8). The game's own "
             + "AA lives in the PostProcessLayer the mod disables and its boot quality level sets "
             + "antiAliasing 0, so without this the HMD has NO anti-aliasing (shimmering card line "
@@ -357,12 +365,12 @@ internal static class RenderQuality
             + "geometry aliasing and their sample counts multiply, so 8x on a heavily supersampled "
             + "target is the expensive half of a job already mostly done.",
             new AcceptableValueList<int>(0, 2, 4, 8)));
-        ForceAnisotropic = _file.Bind("RenderQuality", "ForceAnisotropic", Defaults.ForceAnisotropic,
+        ForceAnisotropic = _file.Bind("RenderQuality", "ForceAnisotropic", frame ? FrameDefaults.ForceAnisotropic : Defaults.ForceAnisotropic,
             "Force anisotropic texture filtering for ALL textures (plus a global min-aniso floor). "
             + "Cuts distant shimmer on flat-on-view textures — card faces, initiative portraits, "
             + "board art. Purely a sampling-quality raise; disable to restore the game's setting.");
         ForceFullTextureResolution = _file.Bind("RenderQuality", "ForceFullTextureResolution",
-            Defaults.ForceFullTextureResolution,
+            frame ? FrameDefaults.ForceFullTextureResolution : Defaults.ForceFullTextureResolution,
             "Force Unity's global texture limit back to 0 — i.e. stop the game discarding the top "
             + "mip levels of every texture. The game's own Options > Graphics > Texture Quality row "
             + "writes this as a MIP-DROP COUNT (FULL/HALF/QUARTER/EIGHTH), it is persisted in the "
@@ -373,7 +381,7 @@ internal static class RenderQuality
             + "and no frame time: a larger mip is not sampled more often, it is sampled from a "
             + "different level. Turn off only to A/B against the game's own setting.");
         ForceTextureStreamingOff = _file.Bind("RenderQuality", "ForceTextureStreamingOff",
-            Defaults.ForceTextureStreamingOff,
+            frame ? FrameDefaults.ForceTextureStreamingOff : Defaults.ForceTextureStreamingOff,
             "Turn Unity's MIPMAP STREAMING off, so every mipped texture is resident at its full "
             + "authored level instead of being held below it until a budget catches up. THIS IS THE "
             + "ANSWER TO 'the higher graphics preset looks WORSE': the game authors streaming ON at "
@@ -389,7 +397,7 @@ internal static class RenderQuality
             + "asset's own value on every quality swap. Turn OFF to hand the decision back to the "
             + "game — TextureStreamingBudgetMB below then raises its budget instead.");
         TextureStreamingBudgetMB = _file.Bind("RenderQuality", "TextureStreamingBudgetMB",
-            Defaults.TextureStreamingBudgetMB, new ConfigDescription(
+            frame ? FrameDefaults.TextureStreamingBudgetMB : Defaults.TextureStreamingBudgetMB, new ConfigDescription(
             "Minimum mipmap-streaming budget in MB, applied ONLY while ForceTextureStreamingOff "
             + "above is false AND the game currently has streaming on. It RAISES the game's own "
             + "budget to at least this value and never lowers it, so a game that already asks for "
@@ -400,7 +408,7 @@ internal static class RenderQuality
             + "picture when the budget is the only thing starving the mip chain; they differ only in "
             + "how much VRAM is held. Inert while the row above is on.",
             new AcceptableValueRange<int>(256, 16384)));
-        EyeResolutionScale = _file.Bind("RenderQuality", "EyeResolutionScale", Defaults.EyeResolutionScale, new ConfigDescription(
+        EyeResolutionScale = _file.Bind("RenderQuality", "EyeResolutionScale", frame ? FrameDefaults.EyeResolutionScale : Defaults.EyeResolutionScale, new ConfigDescription(
             "Render resolution per eye, relative to what the OpenXR runtime asks for (1 = as asked). "
             + "THE primary GPU lever: essentially all per-pixel work — shading, rasterization, the "
             + "MSAA surfaces and their resolve — scales with the SQUARE of this value. 0.7 = about "
@@ -409,7 +417,11 @@ internal static class RenderQuality
             + "below 1 is often still above panel resolution — check the [Rig] EYE-TARGET DIAG line "
             + "for the actual pixel count. Above 1 is the only lever against SHADER/TEXTURE shimmer "
             + "(specular sparkle, sub-pixel detail) that geometry-edge MSAA cannot touch; below 1 "
-            + "softens texture detail before it softens edges. Applies live. "
+            + "softens texture detail before it softens edges. Live changes are coalesced and use "
+            + "the allocated eye viewport without recreating XR textures. Startup allocates "
+            + "the saved resolution; a live request above that session capacity is "
+            + "saved for the next VR restart and remains capped until then. Deferred rendering "
+            + "and providers that refuse viewport scaling cannot apply live resolution changes. "
             + "WHAT IT CANNOT BUY, measured rather than assumed (ModBuild 226 hardware log, the "
             + "[Perf] SPLIT ZOOM axis): with this row and the MSAA row held CONSTANT, one window of "
             + "that session ran 10.97 ms per frame with 23 renderers visible and 71.28 ms with 4841 "
@@ -425,7 +437,7 @@ internal static class RenderQuality
         // outright. The argument for each is written where it now lives; see the constant above
         // and the tombstone in PushDisplayMsaa.
 
-        PixelLightCount = _file.Bind("RenderQuality", "PixelLightCount", Defaults.PixelLightCount, new ConfigDescription(
+        PixelLightCount = _file.Bind("RenderQuality", "PixelLightCount", frame ? FrameDefaults.PixelLightCount : Defaults.PixelLightCount, new ConfigDescription(
             "Maximum number of PER-PIXEL lights. 0 IS WHAT SHIPS SINCE 2026-08-23 (user ruling: the "
             + "row is 'zu gefährlich für normale Nutzer' as an everyday dial), -1 hands the decision "
             + "back to the game, which runs 4. THIS IS THE STRONGEST SINGLE PERFORMANCE LEVER "
@@ -513,14 +525,29 @@ internal static class RenderQuality
         LightStabiliser.BindConfig(_file);
     }
 
-    /// <summary>Per-frame enforcement (VRRigDriver guarded tail step "Rig.RenderQuality").</summary>
-    internal static void Tick()
+    /// <summary>Conservative entry for callers without a known MonoBehaviour frame phase.</summary>
+    internal static void Tick() => TickCore(fromFrameUpdate: false);
+
+    /// <summary>
+    /// VRRigDriver's guarded MonoBehaviour Update tail. Camera.current can retain the last
+    /// rendered camera here (already documented by VRRigDriver.Update and CanvasConversion).
+    /// Build631 PC evidence: five profile edits, Rig.RenderQuality keeps ticking, but no live
+    /// MSAA commit. Build630's Camera.current-null guard could therefore block every edit.
+    /// Trust this actual Update call boundary, not that stale camera value. Unmarked calls
+    /// retain the conservative camera guard; deferred viewport refusal remains independent.
+    /// Never call this entry from rendering callbacks or manual Camera.Render callbacks.
+    /// </summary>
+    internal static void TickFromUpdate() => TickCore(fromFrameUpdate: true);
+
+    private static void TickCore(bool fromFrameUpdate)
     {
         if (!VRSession.IsRunning)
             return;
         Bind();
-        ApplyMsaa();
-        ApplyEyeScale();
+        if (!_sessionPrepared) AdoptRunningSession();
+        bool canWriteRenderResources = fromFrameUpdate || Camera.current == null;
+        ApplyMsaa(canWriteRenderResources);
+        ApplyEyeScale(canWriteRenderResources);
         ApplyAniso();
         ApplyTextureLimit();
         // IMMEDIATELY after the mip-drop force, because the two are one subject: masterTextureLimit
@@ -544,8 +571,8 @@ internal static class RenderQuality
 
     /// <summary>
     /// Schedule the eye-target diagnostic readback <see cref="DiagDelayFrames"/> frames out
-    /// (rig build, MSAA push, eye-scale change) — delayed so the swapchain re-allocation the
-    /// change triggers has landed by the time we read <see cref="XRSettings.eyeTextureDesc"/>.
+    /// (rig build, MSAA push, eye-scale change). Resolution requests do not recreate textures;
+    /// viewport application/MSAA changes settle before native render-parameter readback.
     /// </summary>
     internal static void RequestEyeTargetDiagnostics(string reason)
     {
@@ -819,221 +846,284 @@ internal static class RenderQuality
                           + "expected reading for ANY improvement that did not cross the budget line.");
     }
 
-    private static void ApplyMsaa()
+    /// <summary>
+    /// Select allocation/MSAA after successful OpenXR initialization, before StartSubsystems.
+    /// Only an initialized, stopped display receives resource setters in PrepareDisplays.
+    /// Capacity is the saved request, never an automatic larger target. No legacy XR setter
+    /// may run here: native runtime selection and initialization must precede quality writes.
+    /// </summary>
+    internal static void PrepareSession()
     {
-        int wanted = Sanitize(MsaaLevel!.Value);
+        Bind();
+        SubsystemManager.GetInstances(Displays);
+        foreach (XRDisplaySubsystem display in Displays)
+        {
+            if (!display.running) continue;
+            AdoptRunningSession();
+            return;
+        }
+        ResetSessionState();
+        _sessionPrepared = true;
+        float wanted = WantedEyeScale();
+        // Frame642 accepts a reduced viewport then resets it to 1 every frame. A
+        // full-size allocation therefore defeats a saved .8 even after repairs stop.
+        // Select the actual saved capacity for the initialized, stopped display;
+        // a full viewport then retains the reduction without any live resource write.
+        _sessionAllocationScale = wanted;
+        _viewportScaleApplied = Mathf.Clamp(wanted / _sessionAllocationScale, 0.01f, 1f);
+        _lastLoggedEyeScale = wanted;
+        _pendingEyeScale = wanted;
+        _committedMsaa = Sanitize(MsaaLevel!.Value);
+        _pendingMsaa = _committedMsaa;
+    }
 
+    /// <summary>Newly initialized displays only, before OpenXR StartSubsystems.</summary>
+    internal static void PrepareDisplays()
+    {
+        SubsystemManager.GetInstances(Displays);
+        foreach (XRDisplaySubsystem display in Displays)
+        {
+            if (!display.running) continue;
+            AdoptRunningSession();
+            return; // unexpectedly live/reused display: never allocate or assume new capacity
+        }
+        _viewportScaleAccepted = Displays.Count > 0;
+        foreach (XRDisplaySubsystem display in Displays)
+        {
+            TryStartupSetting(() => display.scaleOfAllRenderTargets = _sessionAllocationScale,
+                "new display allocation");
+            float acceptedAllocation = display.scaleOfAllRenderTargets;
+            if (ValidScale(acceptedAllocation)) _sessionAllocationScale = acceptedAllocation;
+            _viewportScaleApplied = Mathf.Clamp(WantedEyeScale() / _sessionAllocationScale, 0.01f, 1f);
+            TryStartupSetting(() => display.scaleOfAllViewports = _viewportScaleApplied,
+                "new display viewport");
+            _viewportScaleAccepted &= Mathf.Abs(display.scaleOfAllViewports - _viewportScaleApplied) < 0.005f;
+            TryStartupSetting(() => display.SetMSAALevel(Mathf.Max(_committedMsaa, 1)),
+                "new display MSAA");
+        }
+        if (Displays.Count > 0) QualitySettings.antiAliasing = _committedMsaa;
+        if (Displays.Count > 0) _lastPushedDisplayMsaa = _committedMsaa;
+    }
+
+    // Only explicit managed setter-validation refusals are handled here. Native crashes,
+    // graphics allocation failures and arbitrary exceptions are NOT converted into success.
+    private static void TryStartupSetting(System.Action apply, string setting)
+    {
+        try { apply(); }
+        catch (System.Exception e) when (e is System.ArgumentException
+            || e is System.InvalidOperationException)
+        {
+            VRLog.Warn("Rig", $"XR startup setting refused ({setting}): {e.GetType().Name}: {e.Message}. " +
+                              "Retaining the provider's existing value; native allocation/viewport readback follows after startup.");
+        }
+    }
+
+    /// <summary>Hot reload reuses the live allocation without a setter/recreation.</summary>
+    internal static void AdoptRunningSession()
+    {
+        Bind();
+        ResetSessionState();
+        _sessionPrepared = true;
+        float allocation = XRSettings.eyeTextureResolutionScale;
+        SubsystemManager.GetInstances(Displays);
+        if (Displays.Count > 0) allocation = Displays[0].scaleOfAllRenderTargets;
+        _sessionAllocationScale = ValidScale(allocation) ? allocation : 1f;
+        _viewportScaleApplied = XRSettings.renderViewportScale;
+        _committedMsaa = Sanitize(MsaaLevel!.Value);
+    }
+
+    /// <summary>After XR teardown: forget capacity/readbacks before the next session.</summary>
+    internal static void EndSession() => ResetSessionState();
+
+    private static void ResetSessionState()
+    {
+        _sessionPrepared = false;
+        _sessionAllocationScale = 1f;
+        _pendingEyeScale = -1f;
+        _pendingEyeScaleSince = 0f;
+        _pendingMsaa = -1;
+        _pendingMsaaSince = 0f;
+        _committedMsaa = -1;
+        _nextMsaaApplyTime = 0f;
+        _lastPushedDisplayMsaa = -1;
+        _lastLoggedEyeScale = -1f;
+        _lastEyeRefusal = -1f;
+        _baseEyeWidth = 0;
+        _baseMegaSamples = 0;
+        _eyeScaleAnnounced = false;
+        _viewportScaleApplied = 1f;
+        _viewportScaleAccepted = false;
+        _nextViewportRepairTime = 0f;
+        _viewportResetRepairs = 0;
+        _diagCountdown = 0;
+    }
+
+    private static bool ValidScale(float value) => !float.IsNaN(value) && !float.IsInfinity(value) && value > 0f;
+    private static float WantedEyeScale() => ValidScale(EyeResolutionScale!.Value)
+        ? Mathf.Clamp(EyeResolutionScale.Value, MinEyeScale, MaxEyeScale) : 1f;
+
+    private static void ApplyMsaa(bool canWriteRenderResources)
+    {
+        int request = Sanitize(MsaaLevel!.Value);
+        if (request != _pendingMsaa)
+        {
+            _pendingMsaa = request;
+            _pendingMsaaSince = Time.unscaledTime;
+        }
+        // Keep the previously committed level while the user is still cycling the row. Native
+        // quality swaps still get corrected immediately toward that level, never an intermediate
+        // request. Resource-changing commits are separated even after a slow frame/slider burst.
+        if (_committedMsaa < 0) _committedMsaa = request;
+        if (Time.unscaledTime - _pendingMsaaSince >= SliderQuietSeconds
+            && Time.unscaledTime >= _nextMsaaApplyTime && canWriteRenderResources)
+        {
+            if (_committedMsaa != request)
+            {
+                _committedMsaa = request;
+                _nextMsaaApplyTime = Time.unscaledTime + MsaaResourceQuietSeconds;
+            }
+        }
+        int wanted = _committedMsaa;
         int current = QualitySettings.antiAliasing;
-        if (current != wanted)
+        if (current != wanted && canWriteRenderResources)
         {
             QualitySettings.antiAliasing = wanted;
             string quality = QualitySettings.names[QualitySettings.GetQualityLevel()];
             VRLog.Info("Rig", $"MSAA (re)asserted {current}x → {wanted}x (quality level '{quality}'; " +
-                              "the game rewrites antiAliasing on every quality-level swap, so this " +
-                              "re-arms per frame like the skin-weights floor).");
+                              "native quality swaps are corrected toward the committed level).");
         }
-
-        // Push to the live XR display once per value change — the built-in pipeline mirrors
-        // QualitySettings into the eye-texture desc itself, but an explicit SetMSAALevel makes
-        // the swapchain re-allocation deterministic (and covers any pipeline that doesn't).
-        if (wanted != _lastPushedDisplayMsaa)
-        {
-            SubsystemManager.GetInstances(Displays);
-            if (Displays.Count == 0)
-                return; // display not up yet — retry next tick
-            for (int i = 0; i < Displays.Count; i++)
-                Displays[i].SetMSAALevel(Mathf.Max(wanted, 1)); // XR API: 1 = no MSAA
-            _lastPushedDisplayMsaa = wanted;
-            VRLog.Info("Rig", $"XR display MSAA level pushed to {Mathf.Max(wanted, 1)} on " +
-                              $"{Displays.Count} display subsystem(s) — eye textures re-allocate live.");
-            // Read the ACTUAL eye-target sample count back once the re-allocation had time
-            // to land — this is the line that proves (or disproves) the MSAA took effect.
-            RequestEyeTargetDiagnostics($"MSAA push {Mathf.Max(wanted, 1)}x");
-            // [RenderQuality] RebuildRigOnMsaaChange drove a rig rebuild from here — an opt-in
-            // hardware experiment asking whether a rebuild re-binds MSAA. DELETED by the
-            // 2026-08-22 settings audit: its own bound text already closed with "the question this
-            // was originally written to settle … is answered … so this is no longer a diagnostic",
-            // and it shipped as an ordinary player-facing toggle whose ON state tore the whole VR
-            // rig down and rebuilt it — a full view reset, mid-scenario — every time the MSAA row
-            // two lines above was touched. The answer it recorded stands in the class doc.
-        }
+        if (wanted == _lastPushedDisplayMsaa || !canWriteRenderResources) return;
+        SubsystemManager.GetInstances(Displays);
+        if (Displays.Count == 0) return;
+        foreach (XRDisplaySubsystem display in Displays) display.SetMSAALevel(Mathf.Max(wanted, 1));
+        _lastPushedDisplayMsaa = wanted;
+        VRLog.Info("Rig", $"XR display MSAA level pushed to {Mathf.Max(wanted, 1)} on " +
+                          $"{Displays.Count} display subsystem(s) — coalesced resource change; " +
+                          "MSAA still requires native multisample surfaces/resolve.");
+        RequestEyeTargetDiagnostics($"MSAA push {Mathf.Max(wanted, 1)}x");
     }
 
     /// <summary>
-    /// Resolution lever: assert <c>[RenderQuality] EyeResolutionScale</c> onto
-    /// <see cref="XRSettings.eyeTextureResolutionScale"/>. Re-asserted per frame (one float
-    /// compare — the setter re-allocates the eye textures, so it must never be spammed while
-    /// equal); logs + schedules the diagnostic readback once per distinct target value.
-    /// Fully reversible: 1.0 restores the native allocation AND releases the viewport fallback.
-    /// The baseline width is sampled while the scale is still 1.0 — that is the yardstick
-    /// <see cref="VerifyEyeScaleBound"/> later measures the allocation against.
+    /// Called only from the existing Update tail. Coalesce the row, then scale the entire eye's
+    /// rendered sub-rect within its stable allocation. Camera/FOV/rect stay native. Returning to
+    /// 1 means native effective resolution, including when startup allocated a larger target.
     /// </summary>
-    private static void ApplyEyeScale()
+    private static void ApplyEyeScale(bool canWriteRenderResources)
     {
-        float wanted = Mathf.Clamp(EyeResolutionScale!.Value, MinEyeScale, MaxEyeScale);
-
-        if (_baseEyeWidth == 0
-            && Mathf.Abs(XRSettings.eyeTextureResolutionScale - 1f) < 0.0005f
-            && XRSettings.eyeTextureWidth > 0)
-        {
-            _baseEyeWidth = XRSettings.eyeTextureWidth;
-        }
-
-        // ANNOUNCE THE ROW ONCE PER SESSION, WHATEVER IT READS (see _eyeScaleAnnounced for the
-        // report this answers). Waits for a live eye texture so the announcement can quote the
-        // pixel count the runtime actually asked for — the number a player who moved a DIFFERENT
-        // resolution slider will recognise, and the number that tells them their change DID land,
-        // one layer up, without ever touching this row.
+        if (!_sessionPrepared) AdoptRunningSession();
+        float wanted = WantedEyeScale();
+        if (_baseEyeWidth == 0 && Mathf.Abs(_sessionAllocationScale - 1f) < 0.0005f
+            && XRSettings.eyeTextureWidth > 0) _baseEyeWidth = XRSettings.eyeTextureWidth;
         if (!_eyeScaleAnnounced && XRSettings.eyeTextureWidth > 0)
         {
             _eyeScaleAnnounced = true;
-            bool atNative = Mathf.Abs(wanted - 1f) < 0.0005f;
-            VRLog.Info("Rig", $"Eye resolution row [RenderQuality] EyeResolutionScale reads "
-                              + $"{wanted:F2}x — {(atNative ? "the shipped default, i.e. UNCHANGED" : "a changed value")}. "
-                              + $"The runtime is asking for {XRSettings.eyeTextureWidth}x"
-                              + $"{XRSettings.eyeTextureHeight} per eye and this row scales THAT. "
-                              + "IT IS THE ONLY RESOLUTION THE MOD CAN MOVE: the game's own options "
-                              + "page and the Virtual Desktop / SteamVR resolution sliders sit "
-                              + "UPSTREAM of it — changing one of those changes the request quoted "
-                              + "above and never this number, which is why such a change leaves no "
-                              + "trace on this line. In the headset the row is VR-Einstellungen ▸ "
-                              + "Bild ▸ Darstellung ▸ 'Auflösung pro Auge'; on disk it is "
-                              + "dev.gloomhavenvr.rig.cfg. Whether a non-default value BINDS is "
-                              + "read back and named on the EYE-TARGET DIAG line below.");
+            VRLog.Info("Rig", $"Eye resolution row [RenderQuality] EyeResolutionScale reads " +
+                              $"{wanted:F2}x; session allocation scale {_sessionAllocationScale:F2}x, " +
+                              $"eye target {XRSettings.eyeTextureWidth}x{XRSettings.eyeTextureHeight}. " +
+                              "Live changes use the viewport; values above capacity apply next VR restart. " +
+                              "IT IS THE ONLY RESOLUTION THE MOD CAN MOVE: game/SteamVR resolution " +
+                              "changes are upstream and appear in the allocated size above.");
         }
-
-        // Back at native: undo the viewport fallback too, so "1.0" always means "exactly what
-        // the runtime asked for" no matter which lever we were riding.
-        if (Mathf.Abs(wanted - 1f) < 0.0005f && _viewportScaleApplied != 1f)
-            ReleaseViewportScale();
-
-        if (Mathf.Abs(XRSettings.eyeTextureResolutionScale - wanted) < 0.0005f)
+        if (Mathf.Abs(_pendingEyeScale - wanted) > 0.0005f)
         {
-            // The allocation lever is already where we want it. If a previous readback proved
-            // it does not bind here, keep the viewport fallback tracking the wanted value.
-            if (_eyeScaleBinds == false && ViewportScaleFallback
-                && Mathf.Abs(_viewportScaleApplied - wanted) > 0.0005f && Mathf.Abs(wanted - 1f) >= 0.0005f)
+            _pendingEyeScale = wanted;
+            _pendingEyeScaleSince = Time.unscaledTime;
+        }
+        if (Time.unscaledTime - _pendingEyeScaleSince < SliderQuietSeconds || !canWriteRenderResources) return;
+        Camera? head = VRRigDriver.HeadCamera;
+        bool deferred = head != null && (head.actualRenderingPath == RenderingPath.DeferredShading
+            || head.actualRenderingPath == RenderingPath.DeferredLighting);
+        if (deferred)
+        {
+            if (Mathf.Abs(_lastEyeRefusal - wanted) > 0.0005f)
             {
-                ApplyViewportScale(wanted, "resolution row changed while the viewport fallback is engaged");
+                _lastEyeRefusal = wanted;
+                VRLog.Note("Rig", $"Eye resolution live change refused: requested {wanted:F2}x; " +
+                                  "deferred eye rendering does not support allocation-free viewport scaling.");
             }
             return;
         }
-
-        // Write ONCE per distinct target, tracked on our own side rather than on the property's
-        // readback. A provider that ignores this setter also never reflects it in the getter, so
-        // the compare above would be true forever and we would re-issue a swapchain-reallocating
-        // write every single frame — on exactly the runtimes where it buys nothing.
+        _lastEyeRefusal = -1f;
+        float viewport = Mathf.Clamp(wanted / _sessionAllocationScale, 0.01f, 1f);
         if (Mathf.Abs(_lastLoggedEyeScale - wanted) < 0.0005f)
+        {
+            // The Frame633 run first accepted .85 in both native eyes, then lost it
+            // at menu/scenario setup without a config edit. A remembered request
+            // cannot prove current delivery. Repair previously accepted viewports
+            // only in the existing safe Update boundary, at most once per second.
+            // Frame638 accepted .80 immediately but reset to 1.00 on subsequent
+            // frames, causing 58 repair writes. Immediate acceptance cannot justify
+            // an endless fight with the provider. Bound a continuous reset burst;
+            // only a viewport retained beyond the repair interval clears its budget.
+            // A new user request or session can try again without live allocation.
+            if (!_viewportScaleAccepted || Time.unscaledTime < _nextViewportRepairTime) return;
+            if (Mathf.Abs(XRSettings.renderViewportScale - viewport) < 0.005f)
+            {
+                _viewportResetRepairs = 0;
+                return;
+            }
+            if (_viewportResetRepairs >= MaxViewportResetRepairs)
+            {
+                _viewportScaleAccepted = false;
+                VRLog.Note("Rig", $"Eye viewport request did not persist: requested {viewport:F2}, "
+                    + $"readback {XRSettings.renderViewportScale:F2} after {_viewportResetRepairs} spaced repairs. "
+                    + "Automatic repair stopped until a new resolution request or VR session; "
+                    + "the saved setting and XR allocation are unchanged.");
+                RequestEyeTargetDiagnostics("persistent viewport reset; automatic repair stopped");
+                return;
+            }
+            _viewportResetRepairs++;
+            _nextViewportRepairTime = Time.unscaledTime + ViewportRepairIntervalSeconds;
+            _viewportScaleAccepted = ApplyViewportScale(viewport, "restoring a previously accepted viewport after native reset");
+            RequestEyeTargetDiagnostics($"viewport reset repair → {viewport:F2}");
             return;
-        XRSettings.eyeTextureResolutionScale = wanted;
+        }
+        VRLog.Note("Rig", $"Eye resolution live change requested: " +
+                          $"{_lastLoggedEyeScale:F2}x -> {wanted:F2}x " +
+                          $"(eye target before change {XRSettings.eyeTextureWidth}x{XRSettings.eyeTextureHeight}); " +
+                          $"stable allocation {_sessionAllocationScale:F2}x, viewport {viewport:F2}x; " +
+                          (wanted > _sessionAllocationScale + 0.0005f
+                              ? "above-capacity request saved for next VR restart."
+                              : "no XR texture allocation change requested."));
+        if (Mathf.Abs(viewport - 1f) < 0.0005f) ReleaseViewportScale();
+        else ApplyViewportScale(viewport, "coalesced live resolution within the stable session allocation");
+        _viewportScaleAccepted = Mathf.Abs(XRSettings.renderViewportScale - viewport) < 0.005f;
+        _nextViewportRepairTime = Time.unscaledTime + ViewportRepairIntervalSeconds;
+        _viewportResetRepairs = 0;
         _lastLoggedEyeScale = wanted;
-        VRLog.Info("Rig", $"Eye render resolution scale asserted → {wanted:F2} " +
-                          $"(per-pixel GPU work ∝ scale² ≈ {wanted * wanted:F2}x; applies live). " +
-                          "Whether the ALLOCATION follows is read back below — this runtime may " +
-                          "instead need the renderViewportScale fallback.");
-        RequestEyeTargetDiagnostics($"eyeTextureResolutionScale → {wanted:F2}");
+        VRLog.Info("Rig", $"Eye render resolution scale asserted → {wanted:F2} requested; " +
+                          $"effective request capped at {Mathf.Min(wanted, _sessionAllocationScale):F2}x. " +
+                          "Provider viewport readback/render-pass dimensions follow below; API acceptance is not pixel proof.");
+        RequestEyeTargetDiagnostics($"live resolution viewport → {viewport:F2}");
     }
 
-    /// <summary>
-    /// Readback half of the resolution lever, run from <see cref="LogEyeTargetDiagnostics"/>
-    /// once the re-allocation has had <see cref="DiagDelayFrames"/> to land: did the eye
-    /// texture actually change size? If it did, we are done. If it did not, the provider
-    /// ignored the allocation request and <see cref="XRSettings.renderViewportScale"/> takes
-    /// over — the same pixel saving, achieved by rendering into a sub-rect of the swapchain
-    /// the provider already gave us. Returns the sentence appended to the DIAG line.
-    /// </summary>
     private static string VerifyEyeScaleBound()
     {
-        float wanted = Mathf.Clamp(EyeResolutionScale!.Value, MinEyeScale, MaxEyeScale);
-        int actual = XRSettings.eyeTextureWidth;
-
-        // "NOTHING TO VERIFY" WAS THE WHOLE PROBLEM. Thirty of these lines in the ModBuild 226 log
-        // said exactly that and nothing else, so a player asking "did changing the resolution do
-        // anything?" found a sentence that neither confirmed nor denied it. The default case now
-        // states which row is at its default, what the runtime is asking for, and — the part that
-        // actually answers the question — that a resolution changed ANYWHERE ELSE would have moved
-        // the request rather than this row, and is therefore already included in the size below.
-        if (Mathf.Abs(wanted - 1f) < 0.0005f)
-            return $"resolution scale is 1.00 = the shipped default, so the mod is NOT scaling the "
-                   + $"eye render at all — the {XRSettings.eyeTextureWidth}x{XRSettings.eyeTextureHeight} "
-                   + "per eye above is exactly what the OpenXR runtime asked for. IF YOU CHANGED A "
-                   + "RESOLUTION AND ARE LOOKING FOR ITS EFFECT: a change made in the game's options "
-                   + "page or in Virtual Desktop / SteamVR lands in THAT number, not in this one, so "
-                   + "compare the per-eye size against a previous log rather than expecting this row "
-                   + "to move. The mod's own lever is [RenderQuality] EyeResolutionScale "
-                   + "(VR-Einstellungen ▸ Bild ▸ Darstellung ▸ 'Auflösung pro Auge'), and at 1.00 it "
-                   + "has done nothing, correctly.";
-        if (_baseEyeWidth <= 0 || actual <= 0)
-            return "resolution scale cannot be verified yet — no baseline eye width sampled at scale 1.0 " +
-                   "(the scale was already off-native when the rig came up); the row still applies, but " +
-                   "which lever carries it is unknown this session.";
-
-        float expected = _baseEyeWidth * wanted;
-        bool allocationMoved = Mathf.Abs(actual - expected) <= expected * EyeWidthMatchTolerance;
-
-        if (allocationMoved)
-        {
-            if (_eyeScaleBinds != true)
-            {
-                _eyeScaleBinds = true;
-                if (_viewportScaleApplied != 1f)
-                    ReleaseViewportScale();
-            }
-            return $"resolution scale BOUND via eyeTextureResolutionScale — eye texture went " +
-                   $"{_baseEyeWidth}px → {actual}px wide (expected ~{expected:F0}px at {wanted:F2}x).";
-        }
-
-        _eyeScaleBinds = false;
-        // The "fallback is OFF, so the resolution row is doing NOTHING" branch stood here, and it
-        // could never be reached again: ViewportScaleFallback is a constant since the 2026-08-22
-        // settings audit, precisely so that no cfg can put the curated resolution row into that
-        // silent state.
-        bool fallbackStuck = ApplyViewportScale(wanted, $"eyeTextureResolutionScale did not move the allocation " +
-                                                        $"({actual}px, expected ~{expected:F0}px)");
-
-        // THE THIRD OUTCOME, WHICH HAD NO SENTENCE UNTIL NOW: both levers refused. The class doc
-        // says "every provider honours renderViewportScale", and that is a claim about providers,
-        // not a proof — a claim this readback can now falsify per session instead of per project.
-        // If it ever prints, the resolution row genuinely did nothing on this runtime and the log
-        // says so in the words the report asked for, rather than leaving the player to guess.
-        if (!fallbackStuck)
-        {
-            return $"resolution scale {wanted:F2} DID NOTHING AT ALL on this runtime — the eye "
-                   + $"texture stayed {actual}px wide (expected ~{expected:F0}px) AND the "
-                   + $"renderViewportScale fallback did not stick either (reads "
-                   + $"{XRSettings.renderViewportScale:F2} straight after the write). Both levers "
-                   + "this mod has were refused by the provider, so the row is inert HERE and no "
-                   + "value you set in it will change the picture or the frame rate. Nothing is "
-                   + "broken and nothing needs undoing; use the resolution slider of Virtual Desktop "
-                   + "/ SteamVR instead, which sits upstream of both.";
-        }
-
-        return $"resolution scale did not bind via eyeTextureResolutionScale (eye texture still " +
-               $"{actual}px wide) — renderViewportScale {wanted:F2} engaged instead AND READ BACK " +
-               "as applied; the pixel saving is real, it just comes from rendering a sub-rect of " +
-               "the swapchain rather than a smaller swapchain.";
+        float wanted = WantedEyeScale();
+        float expectedViewport = Mathf.Clamp(wanted / _sessionAllocationScale, 0.01f, 1f);
+        float actualViewport = XRSettings.renderViewportScale;
+        bool accepted = Mathf.Abs(actualViewport - expectedViewport) < 0.005f;
+        bool dimensionsChanged = _baseEyeWidth > 0
+            && Mathf.Abs(XRSettings.eyeTextureWidth - _baseEyeWidth) > _baseEyeWidth * EyeWidthMatchTolerance;
+        return $"resolution scale {wanted:F2} requested; stable session allocation {_sessionAllocationScale:F2}, " +
+               $"viewport {expectedViewport:F2} requested / {actualViewport:F2} readback " +
+               (accepted ? "ACCEPTED by engine API; AND READ BACK" : "REFUSED or still pending; DID NOTHING AT ALL through this viewport request so far") +
+               $"; rendered size estimate {XRSettings.eyeTextureWidth * actualViewport:F0}x" +
+               $"{XRSettings.eyeTextureHeight * actualViewport:F0} per eye. " +
+               (wanted > _sessionAllocationScale + 0.0005f ? "Larger allocation saved for next VR restart. " : "") +
+               (dimensionsChanged ? "Upstream allocation changed since this session's baseline. " : "") +
+               "This estimates pixel work, not headset pixels/FPS; native render-parameter viewports and hardware verify provider behavior. " +
+               "IF YOU CHANGED A RESOLUTION AND ARE LOOKING FOR ITS EFFECT: upstream runtime changes appear in the allocation, while this row changes the viewport.";
     }
 
-    /// <summary>
-    /// Write the viewport fallback and READ IT STRAIGHT BACK. Returns whether it stuck.
-    ///
-    /// <para>The readback is the point: this is the last lever the mod has, so "it did not take
-    /// either" is the only honest way to say "your resolution change did nothing", and the caller
-    /// prints exactly that. <c>renderViewportScale</c> is a plain engine-side property with no
-    /// swapchain re-allocation behind it, so unlike <c>eyeTextureResolutionScale</c> it reflects
-    /// immediately and needs no settling frames — which is why this check is inline rather than
-    /// another delayed diagnostic.</para>
-    /// </summary>
     private static bool ApplyViewportScale(float wanted, string reason)
     {
         XRSettings.renderViewportScale = wanted;
         _viewportScaleApplied = wanted;
         bool stuck = Mathf.Abs(XRSettings.renderViewportScale - wanted) < 0.005f;
-        VRLog.Info("Rig", $"renderViewportScale → {wanted:F2} ({reason}); readback "
-                          + $"{XRSettings.renderViewportScale:F2} = {(stuck ? "APPLIED" : "REFUSED — this provider ignores the viewport lever too")}. "
-                          + $"Per-pixel GPU work ∝ scale² ≈ {wanted * wanted:F2}x; the compositor "
-                          + "samples only the rendered sub-rect, so the view is unchanged apart "
-                          + "from sharpness.");
+        VRLog.Info("Rig", $"renderViewportScale → {wanted:F2} ({reason}); readback " +
+                          $"{XRSettings.renderViewportScale:F2} = {(stuck ? "ACCEPTED by engine API" : "REFUSED")}. " +
+                          "The provider's rendered viewport is verified separately after settling.");
         return stuck;
     }
 
@@ -1041,7 +1131,8 @@ internal static class RenderQuality
     {
         XRSettings.renderViewportScale = 1f;
         _viewportScaleApplied = 1f;
-        VRLog.Info("Rig", "renderViewportScale released → 1.00 (resolution row back at native).");
+        VRLog.Info("Rig", "renderViewportScale released → 1.00 (full allocated eye viewport; " +
+                          $"session allocation {_sessionAllocationScale:F2}x, requested {WantedEyeScale():F2}x).");
     }
 
     /// <summary>
@@ -1055,7 +1146,7 @@ internal static class RenderQuality
     /// </summary>
     private static void LogEyeTargetDiagnostics(string reason)
     {
-        int wanted = Sanitize(MsaaLevel!.Value);
+        int wanted = _committedMsaa < 0 ? Sanitize(MsaaLevel!.Value) : _committedMsaa;
         RenderTextureDescriptor desc = XRSettings.eyeTextureDesc;
 
         Camera? head = VRRigDriver.HeadCamera;
@@ -1096,6 +1187,16 @@ internal static class RenderQuality
                     VRLog.Info("Rig", $"EYE-TARGET DIAG: display {i} renderPass {p}: " +
                                       $"{rt.width}x{rt.height} msaaSamples={rt.msaaSamples} fmt={rt.colorFormat} " +
                                       $"dim={rt.dimension}.");
+                    if (head != null)
+                    {
+                        for (int view = 0; view < pass.GetRenderParameterCount(); view++)
+                        {
+                            pass.GetRenderParameter(head, view, out XRDisplaySubsystem.XRRenderParameter parameter);
+                            VRLog.Info("Rig", $"EYE-TARGET DIAG: display {i} renderPass {p} view {view}: " +
+                                              $"native viewport {parameter.viewport}; target remains {rt.width}x{rt.height}. " +
+                                              "Projection remains authored by XR; no Camera.rect crop is used.");
+                        }
+                    }
                 }
             }
             catch (System.Exception e)
@@ -1135,7 +1236,9 @@ internal static class RenderQuality
         // than inventing one out of the tuned state.
         if (_baseMegaSamples <= 0
             && Mathf.Abs(Mathf.Clamp(EyeResolutionScale!.Value, MinEyeScale, MaxEyeScale) - 1f) < 0.0005f
-            && viewport > 0.995f && wanted == Defaults.MsaaLevel && megaSamples > 0)
+            && viewport > 0.995f
+            && wanted == (_frameDefaults ? FrameDefaults.MsaaLevel : Defaults.MsaaLevel)
+            && megaSamples > 0)
         {
             _baseMegaSamples = megaSamples;
         }
@@ -1482,7 +1585,7 @@ internal static class RenderQuality
         Core.PerfMonitor.MarkChange($"MSAA {Sanitize(MsaaLevel!.Value)}x → {next}x");
         MsaaLevel!.Value = next;
         // No further plumbing needed: Tick's compare re-asserts QualitySettings and pushes
-        // the new level to the XR display next frame; BepInEx persists on set.
+        // the final coalesced level to the XR display; BepInEx persists on set.
     }
 
     // ---- panel accessors: "Supersampling" stepper row — no caller today (see the MSAA block) --
@@ -1497,9 +1600,9 @@ internal static class RenderQuality
     /// <summary>
     /// Step <c>[RenderQuality] EyeResolutionScale</c> by ±0.1, clamped to
     /// <see cref="MinEyeScale"/>–<see cref="MaxEyeScale"/> (rounded to one decimal so repeated
-    /// presses never drift off the 0.1 grid the shipped values sit on). Applies live: Tick re-asserts
-    /// the scale, and the readback then decides whether the allocation or the viewport lever
-    /// carries it. BepInEx persists on set.
+    /// presses never drift off the 0.1 grid the shipped values sit on). Tick coalesces viewport
+    /// changes; values above the current allocation stay saved for the next VR restart.
+    /// BepInEx persists on set.
     /// </summary>
     internal static void StepEyeScale(int delta)
     {

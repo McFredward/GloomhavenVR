@@ -1,5 +1,13 @@
 # Working on GloomhavenVR
 
+## Unified development workflow (2026-09-29)
+
+The maintainer requested integration of `feature/immersive-town-services` into
+`dev`. All subsequent NPC, Steam Frame, and other development now integrates and
+pushes to `dev`; create worker worktrees from the current `dev` commit. The NPC
+feature still targets a release of at least 1.1.0, but it no longer has a separate
+active integration branch. The former NPC branch remains historical ancestry.
+
 Read `CLAUDE.md`, `.planning/STATE.md`, and the newest build notes beside
 `NetProtocol.ModBuild` before implementation. `CLAUDE.md` retains the project's
 technical contracts and historical reasoning; the rules below adapt its workflow
@@ -13,11 +21,28 @@ to Codex and record the user's instructions of 2026-09-08.
 - Review worker changes, integrate them into `dev`, run the complete required
   checks, and push directly to `origin/dev`. This is authorized by the user;
   another confirmation is unnecessary. Never push worker branches or force-push.
+- During implementation, workers run the relevant focused suites and source checks
+  for their owned changes. For substantial integrations, the primary agent runs
+  the complete local gate, including `scripts/wire-tests.sh` and its golden vectors.
+  The maintainer's explicit 2026-10-06 clarification permits focused subsets for
+  small, bounded changes. After a limited repair, rerun the affected checks and
+  reuse already passing evidence for unchanged areas rather than repeating the
+  entire suite. Record the tested scope and inherited evidence honestly: a focused
+  `--suite` pass is not a new complete-gate pass.
 - Speak to the user in German. Write code, comments, and developer documentation
   in English. Product strings remain English and German through `Core/Loc`.
 - Hardware evidence lives in the main checkout's gitignored `.planning/debug/`;
   the other player's logs are in `.planning/debug/remote/`. Verify both build
   banners and inspect supplied screenshots before assigning a cause.
+- The user's 2026-10-11 storage ruling requires cleanup after every test run.
+  Once its processes have stopped, remove regenerable project caches while
+  preserving logs, results, source/manifest/capture evidence, hardware inputs,
+  `.keep` pins and current deliverables. The central suite runner performs this
+  completion cleanup for passing, failed and interrupted runs; standalone
+  fixture invocations must use the same `cleanup_completed_run` API after
+  killing/reaping their processes. Remove old generated test caches when needed,
+  checking active worktrees and borrowed inputs first; never sweep shared game
+  references or another agent's active run.
 - Initialize worker dependencies with `scripts/worktree-setup.sh`. Keep any new
   refactor baseline private to its worktree; never overwrite a shared symlink.
 - Never use `git stash`. Preserve unrelated work and the read-only game references.
@@ -40,12 +65,28 @@ to Codex and record the user's instructions of 2026-09-08.
 
 ## Multiplayer visual parity
 
+The user's 2026-10-03 NPC review explicitly makes town **card pre-drop guides**
+visitor-local: do not synchronize the merchant/enchantress "place card here"
+guide. The user's 2026-10-04 paired-log review extends this exception to the
+temple purse pre-drop ghost: display each visitor's guide locally, never a second
+observer copy. Actual wrist-preview/held/donated purses, held/offered cards,
+resident offered-hand poses, options, confirmations, return flights and audio
+remain shared; scenario board guides keep their existing synchronization.
+
 The user's 2026-09-09 review instruction covers everything the owner sees: original widgets,
 content, appearance, order, geometry, state, effects and intermediate animation. Only an
 explicitly user-confirmed exception permits a divergence. Historical deferrals, performance
 arguments and implementation comments are not approvals. Record the source of each actual
 exception; fix newly discovered divergences within the authorized review. Native prefab clones
 must retain original presentation without running gameplay controllers or callbacks.
+
+The user's 2026-10-08 motion clarification permits client-local phases for two
+intrinsic repeating effects: the enchantress offered-card ring spin and the
+up/down hover of offered cards at the merchant and enchantress. Preserve each
+original effect's direction, speed, amplitude and waveform. Ring orientation
+and plane still follow the physical card exactly; this phase exception does not
+permit different card facing/content, displaced enhancement overlays, changed
+interaction state, or divergent flights.
 
 The latest multiplayer test ruling (2026-09-09, ModBuild 486 evidence) supersedes older
 pile/active-card face exceptions: during the action phase cards are face-up; during

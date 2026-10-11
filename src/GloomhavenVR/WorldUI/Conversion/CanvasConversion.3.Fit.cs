@@ -345,11 +345,14 @@ internal static partial class CanvasConversion
         }
 
         rect.GetWorldCorners(CornerScratch);
+        // Read one native transform matrix instead of crossing the native boundary
+        // for every corner. The host cannot change during this synchronous measure.
+        Matrix4x4 toHost = panel.HostRect.worldToLocalMatrix;
         Vector2 min = new(float.MaxValue, float.MaxValue);
         Vector2 max = new(float.MinValue, float.MinValue);
         for (int c = 0; c < 4; c++)
         {
-            Vector3 local = panel.HostRect.InverseTransformPoint(CornerScratch[c]);
+            Vector3 local = toHost.MultiplyPoint3x4(CornerScratch[c]);
             if (local.x < min.x) min.x = local.x;
             if (local.y < min.y) min.y = local.y;
             if (local.x > max.x) max.x = local.x;
@@ -361,11 +364,18 @@ internal static partial class CanvasConversion
         RectTransform? clipper = FindEnclosingClipper(panel, rect);
         if (clipper != null)
         {
-            clipper.GetWorldCorners(CornerScratch);
-            Vector3 ca = panel.HostRect.InverseTransformPoint(CornerScratch[0]);
-            Vector3 cc = panel.HostRect.InverseTransformPoint(CornerScratch[2]);
-            Vector2 clipMin = Vector2.Min(ca, cc);
-            Vector2 clipMax = Vector2.Max(ca, cc);
+            if (!ClipperRectMemo.TryGetValue(clipper, out Rect clipBounds))
+            {
+                clipper.GetWorldCorners(CornerScratch);
+                Vector3 ca = toHost.MultiplyPoint3x4(CornerScratch[0]);
+                Vector3 cc = toHost.MultiplyPoint3x4(CornerScratch[2]);
+                Vector2 first = Vector2.Min(ca, cc);
+                Vector2 last = Vector2.Max(ca, cc);
+                clipBounds = Rect.MinMaxRect(first.x, first.y, last.x, last.y);
+                ClipperRectMemo[clipper] = clipBounds;
+            }
+            Vector2 clipMin = clipBounds.min;
+            Vector2 clipMax = clipBounds.max;
             min = Vector2.Max(min, clipMin);
             max = Vector2.Min(max, clipMax);
             if (max.x - min.x < 0.5f || max.y - min.y < 0.5f)
@@ -448,6 +458,7 @@ internal static partial class CanvasConversion
     internal static void BeginContentQuery()
     {
         ClipperMemo.Clear();
+        ClipperRectMemo.Clear();
         AuthoredOffsetMemo.Clear();
     }
 
@@ -680,9 +691,11 @@ internal static partial class CanvasConversion
         return sb.ToString();
     }
 
-    /// <summary>Per-pass memo (keyed by a graphic's immediate parent — siblings share one walk)
-    /// for <see cref="FindEnclosingClipper"/>; cleared at the start of every measure pass.</summary>
-    private static readonly Dictionary<Transform, RectTransform?> ClipperMemo = new(32);
+    /// <summary>Per-pass nearest clipper memo for every visited ancestor, shared by row siblings.
+    /// Used by <see cref="FindEnclosingClipper"/>; cleared at the start of every measure pass.</summary>
+    private static readonly Dictionary<Transform, RectTransform?> ClipperMemo = new(64);
+    private static readonly List<Transform> ClipperAncestorScratch = new(16);
+    private static readonly Dictionary<RectTransform, Rect> ClipperRectMemo = new(8);
 
     /// <summary>
     /// Task #4: nearest enclosing clipper of a graphic — an enabled <see cref="RectMask2D"/> or
@@ -699,9 +712,18 @@ internal static partial class CanvasConversion
         if (ClipperMemo.TryGetValue(parent, out RectTransform? memo))
             return memo;
 
+        // Build 605 spends repeated native component probes on the shared ancestor
+        // chain of every distinct item-row parent. Cache every visited ancestor in
+        // this measurement only, so descendants reuse the same nearest clipper.
+        // BeginContentQuery and each fit/hit measure clear the memo; hierarchy,
+        // scrolling, live mask changes and animation are still re-read next pass.
+        ClipperAncestorScratch.Clear();
         RectTransform? found = null;
         for (Transform? p = parent; p != null; p = p.parent)
         {
+            if (ClipperMemo.TryGetValue(p, out found))
+                break;
+            ClipperAncestorScratch.Add(p);
             var rm = p.GetComponent<RectMask2D>();
             if (rm != null && rm.enabled)
             {
@@ -715,9 +737,11 @@ internal static partial class CanvasConversion
                 break;
             }
             if (ReferenceEquals(p, panel.Target) || ReferenceEquals(p, panel.HostRect))
-                break; // never walk past the conversion root into the host/scene
+                break;
         }
-        ClipperMemo[parent] = found;
+        for (int i = 0; i < ClipperAncestorScratch.Count; i++)
+            ClipperMemo[ClipperAncestorScratch[i]] = found;
+        ClipperAncestorScratch.Clear();
         return found;
     }
 
@@ -759,6 +783,7 @@ internal static partial class CanvasConversion
         s_lastFrameClamped = false;
 
         ClipperMemo.Clear();
+        ClipperRectMemo.Clear();
         AuthoredOffsetMemo.Clear();
         // ModBuild 449: this memo now has a second reader on this path, and its documented lifetime
         // is "cleared at the top of every measure" for the reason its own comment gives — subtrees
@@ -3152,7 +3177,7 @@ internal static partial class CanvasConversion
 
     /// <summary>
     /// WHICH SUB-VIEWS THE GAME CURRENTLY HAS OPEN INSIDE THIS WINDOW — asked of the game's own
-    /// serialized references, never of the hierarchy and never by name.
+    /// serialized references, never by a hierarchy name.
     ///
     /// <para><c>NewPartyDisplayUI</c> holds all six of them as <c>[SerializeField]</c>s with public
     /// accessors (<c>AbilityCardsDisplay</c>, <c>EnhancementCardsDisplay</c>, <c>PerkManager</c>,
@@ -3166,8 +3191,11 @@ internal static partial class CanvasConversion
     /// alpha tween reaches zero — UIWindow.cs:746) plus a descendant test against the conversion
     /// target.</para>
     ///
-    /// <para>A candidate nested inside another candidate is dropped: the group transform must be
-    /// applied once per independent root or the inner one would be scaled twice.</para>
+    /// <para>Character creation is a seventh presentation root: its own UIWindow is serialized under the
+    /// campaign selector's CharacterCreator, and can remain shown while the selector's UIWindow is
+    /// hidden. The build-577 hardware log had a visible creator with zero fitted sub-views and a
+    /// cropped right edge. A candidate nested inside another candidate is dropped: the group
+    /// transform must be applied once per independent root or the inner one would be scaled twice.</para>
     /// </summary>
     private static void CollectActiveSubViews(ConvertedPanel panel, FixedFitState fx)
     {
@@ -3193,6 +3221,13 @@ internal static partial class CanvasConversion
             AddSubViewCandidate(panel, display.EnhancementCardsDisplay);
             AddSubViewCandidate(panel, display.PerkManager);
             AddSubViewCandidate(panel, display.CharacterSelector);
+            // Character creation uses its own UIWindow after hiding the party selector.
+            // The creator remains drawn inside this converted panel while the selector's
+            // UIWindow reports hidden, so treating the selector as the only candidate
+            // leaves the entire creation view unseated and clips its right edge in VR.
+            AddSubViewCandidate(panel,
+                (display.CharacterSelector as UICampaignAdventurePartyAssemblyWindow)?
+                    .CharacterCreator?.CreatorWindow);
             AddSubViewCandidate(panel, display.ItemInventoryDisplay);
             AddSubViewCandidate(panel, display.BattleGoalWindow);
         }
@@ -3412,6 +3447,7 @@ internal static partial class CanvasConversion
         Vector2 frame = panel.Target.rect.size;
 
         ClipperMemo.Clear();
+        ClipperRectMemo.Clear();
         AuthoredOffsetMemo.Clear();
         TransientMemo.Clear();
         FixedFitGraphics.Clear();
@@ -4780,7 +4816,8 @@ internal static partial class CanvasConversion
         // after its pre-reveal first fit had committed — a hit-rect update hung off the fit's own
         // gates would be blind in exactly the cases that produced the report. Self-throttled
         // (FitCheckIntervalFrames, staggered per panel) and self-guarded; see TickHitRect.
-        TickHitRect(panel);
+        using (PerfMonitor.Scope("CanvasConversion.HitRect"))
+            TickHitRect(panel);
 
         if (!panel.FitEnabled)
             return;
@@ -6568,6 +6605,7 @@ internal static partial class CanvasConversion
         // Same per-pass contract as TryMeasureContent: both memos are keyed by live Transforms and
         // must not survive into a walk taken at a different moment.
         ClipperMemo.Clear();
+        ClipperRectMemo.Clear();
         AuthoredOffsetMemo.Clear();
         HitGraphicScratch.Clear();
         root.GetComponentsInChildren(includeInactive: false, HitGraphicScratch);

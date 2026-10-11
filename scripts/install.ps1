@@ -35,7 +35,7 @@
 
     Safe to re-run any time - every step is idempotent and only rebuilds/copies
     what changed. BepInEx 5.4.23.5 (x64) must already be installed in the game
-    folder (see INSTALL.md).
+    folder (see docs/install/INSTALL.md).
 
 .EXAMPLE
     .\scripts\install.ps1
@@ -78,12 +78,70 @@ if ($FakeVersion) {
 # Ignored Unity output can be stale. Select the committed asset set by default and
 # reject a missing explicitly requested local build before any installation writes.
 $bundle = Join-Path $root "prebuilt\gloomhavenvr.bundle"
+$townBundle = Join-Path $root "prebuilt\ghvr-town.bundle"
+$townVoicesBundle = Join-Path $root "prebuilt\ghvr-town-voices.bundle"
+$environmentBundle = Join-Path $root "prebuilt\ghvr-environment.bundle"
 if ($UseLocalBundle) {
     $bundle = Join-Path $root "unity\GloomhavenVR.Assets\Build\Bundles\gloomhavenvr.bundle"
+    $townBundle = Join-Path $root "unity\GloomhavenVR.Assets\Build\TownServices\ghvr-town.bundle"
+    $townVoicesBundle = Join-Path $root "unity\GloomhavenVR.Assets\Build\TownServices\ghvr-town-voices.bundle"
+    $environmentBundle = Join-Path $root "unity\GloomhavenVR.Assets\Build\Environment\ghvr-environment.bundle"
     if (-not (Test-Path -LiteralPath $bundle -PathType Leaf)) {
         Write-Error "-UseLocalBundle requested a missing local bundle: $bundle"
     }
 }
+if (-not (Test-Path -LiteralPath $townBundle -PathType Leaf)) {
+    Write-Error "Missing town-service asset bundle: $townBundle"
+}
+if (-not (Test-Path -LiteralPath $townVoicesBundle -PathType Leaf)) {
+    Write-Error "Missing town-service voice bundle: $townVoicesBundle"
+}
+if (-not (Test-Path -LiteralPath $environmentBundle -PathType Leaf)) {
+    Write-Error "Missing environment asset bundle: $environmentBundle"
+}
+# Prepared native figure derivatives ship as independently indexed parts. Verify this
+# complete set before deployment, including without Python on a Windows developer PC.
+$figureFolder = Join-Path $root "prebuilt"
+$figureIndex = Join-Path $figureFolder "ghvr-figure-meshes-index.json"
+if (-not (Test-Path -LiteralPath $figureIndex -PathType Leaf)) {
+    Write-Error "Missing figure mesh index: $figureIndex"
+}
+if ((Get-Item -LiteralPath $figureIndex).Length -gt 1MB) { Write-Error "Figure mesh index exceeds runtime bound." }
+$figureEntries = @((Get-Content -LiteralPath $figureIndex -Raw -Encoding UTF8 | ConvertFrom-Json).entries)
+if ($figureEntries.Count -eq 0 -or $figureEntries.Count -gt 4096) { Write-Error "Invalid figure mesh index count." }
+$figureNames = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+$figurePartNames = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+foreach ($entry in $figureEntries) {
+    if ($entry.mesh -notmatch '^figure-[0-9a-f]{16}-(5|20|45|75)$') { Write-Error "Invalid figure mesh identity." }
+    $figureTier = $Matches[1]
+    # Build612 adds tier5 and mixed-tier distance parts. Build616 removes NPC bodies;
+    # the same identity grammar remains for the retained scenario derivatives.
+    # Keep the same grammar as check-figure-mesh-bank.py; legacy numeric parts must
+    # still match the indexed mesh tier. Distance parts intentionally contain any tier.
+    if ($entry.bank -notmatch '^ghvr-figure-meshes-(5|20|45|75|distance)-[0-9]{2}\.bundle$' -or
+        ($Matches[1] -ne 'distance' -and $Matches[1] -ne $figureTier)) {
+        Write-Error "Invalid figure mesh part filename or tier."
+    }
+    if (-not $figureNames.Add($entry.mesh)) { Write-Error "Duplicate figure mesh identity." }
+    [void]$figurePartNames.Add($entry.bank)
+}
+$figureBanks = @(Get-ChildItem -LiteralPath $figureFolder -Filter "ghvr-figure-meshes-*.bundle" -File)
+if ($figureBanks.Count -ne $figurePartNames.Count) { Write-Error "Missing or orphan figure mesh parts." }
+foreach ($part in $figureBanks) {
+    if (-not $figurePartNames.Contains($part.Name)) { Write-Error "Orphan figure mesh part: $($part.Name)" }
+    $stream = [IO.File]::OpenRead($part.FullName)
+    try {
+        $header = New-Object byte[] 64
+        $read = $stream.Read($header, 0, $header.Length)
+        if ($read -lt 29 -or [Text.Encoding]::ASCII.GetString($header, 0, 8) -ne "UnityFS`0" -or
+            $header[8] -ne 0 -or $header[9] -ne 0 -or $header[10] -ne 0 -or $header[11] -ne 7 -or
+            [Text.Encoding]::ASCII.GetString($header, 12, 17) -ne "5.x.x`02021.3.5f1`0") {
+            Write-Error "Incompatible figure mesh part: $($part.Name)"
+        }
+    } finally { $stream.Dispose() }
+}
+Write-Host "Figure mesh sources: $($figureEntries.Count) derivatives in $($figureBanks.Count) indexed parts."
+
 Write-Host "Asset bundle source: $bundle"
 if (-not (Test-Path -LiteralPath $bundle -PathType Leaf)) { $bundle = $null }
 
@@ -169,7 +227,7 @@ Write-Host "    game: $GamePath"
 if (-not (Test-Path (Join-Path $GamePath "BepInEx\core\BepInEx.dll"))) {
     Write-Error ("BepInEx not found in '$GamePath'. Install BepInEx 5.4.23.5 x64 first: " +
         "https://github.com/BepInEx/BepInEx/releases/tag/v5.4.23.5 (extract into the game folder, " +
-        "run the game once, then re-run this script). See INSTALL.md.")
+        "run the game once, then re-run this script). See docs/install/INSTALL.md.")
 }
 
 # --- 3. point the build at the game's Managed folder -----------------------
@@ -338,6 +396,7 @@ function Write-WindowsText([string]$Source, [string]$Destination, [hashtable]$Re
     $text = $text.Replace("`r`n", "`n").Replace("`n", "`r`n")
     [System.IO.File]::WriteAllText($Destination, $text, $script:Utf8Bom)
 }
+. (Join-Path $PSScriptRoot "frame-archive.ps1")
 
 # Match package-release.sh: retain the mod licence and pinned runtime notices in installs
 # and archives. The updater already accepts these paths below BepInEx.
@@ -363,6 +422,11 @@ if (-not $bundle) {
                    "flat board, no environments. Shipping packaging\gloomhavenvr.bundle.README.txt in its place.")
     Write-WindowsText (Join-Path $root "packaging\gloomhavenvr.bundle.README.txt") (Join-Path $pluginDir "gloomhavenvr.bundle.README.txt")
 }
+Copy-Item -LiteralPath $townBundle -Destination (Join-Path $pluginDir "ghvr-town.bundle") -Force
+Copy-Item -LiteralPath $townVoicesBundle -Destination (Join-Path $pluginDir "ghvr-town-voices.bundle") -Force
+Copy-Item -LiteralPath $environmentBundle -Destination (Join-Path $pluginDir "ghvr-environment.bundle") -Force
+Copy-Item -LiteralPath $figureIndex -Destination $pluginDir -Force
+foreach ($part in $figureBanks) { Copy-Item -LiteralPath $part.FullName -Destination $pluginDir -Force }
 if ($bundle) {
     Copy-Item $bundle -Destination (Join-Path $pluginDir "gloomhavenvr.bundle") -Force
     # A STALE README FROM AN EARLIER INSTALL MUST GO (2026-09-03). The zip is built from this
@@ -399,6 +463,25 @@ $legacyPreloader = Join-Path $GamePath "BepInEx\patchers\GloomhavenVR.Preload.dl
 if (Test-Path $legacyPreloader) {
     Remove-Item $legacyPreloader -Force
     Write-Host "    removed legacy preloader at BepInEx\patchers\GloomhavenVR.Preload.dll"
+}
+
+# Before the Frame helpers moved below the plugin directory, a release ZIP
+# placed these files directly in the game root. A local source install may
+# run against that older extraction. Remove only our exact obsolete filenames;
+# keep both installation guides at the root.
+$legacyFrameFiles = @(
+    'install-steam-frame.sh',
+    'steam-frame-config.py',
+    'frame-boot-config.py',
+    'GloomhavenVR-steam-logo.png',
+    'GloomhavenVR-steam-icon.png',
+    'GloomhavenVR-Setup.desktop')
+foreach ($name in $legacyFrameFiles) {
+    $legacyFrameFile = Join-Path $GamePath $name
+    if (Test-Path -LiteralPath $legacyFrameFile -PathType Leaf) {
+        Remove-Item -LiteralPath $legacyFrameFile -Force
+        Write-Host "    removed obsolete Frame setup file: $name"
+    }
 }
 
 Write-Host "    plugin + RuntimeDeps + preloader + natives$(if ($bundle) { ' + gloomhavenvr.bundle' }) deployed"
@@ -520,6 +603,10 @@ if (-not $NoPackage) {
 
     Copy-Item -Recurse -Force $pluginDir  (Join-Path $stage "BepInEx\plugins\GloomhavenVR")
     Copy-Item -Recurse -Force $patcherDir (Join-Path $stage "BepInEx\patchers\GloomhavenVR")
+    # A Frame-only marker may exist in the installed game tree. It must never
+    # propagate into a cross-platform archive, where it would opt PC users out.
+    $frameMarker = Join-Path $stage "BepInEx\patchers\GloomhavenVR\frame-launch-opt-in.marker"
+    if (Test-Path -LiteralPath $frameMarker) { Remove-Item -LiteralPath $frameMarker -Force }
 
     $templates = @{
         "INSTALL.txt"         = Join-Path $root "packaging\INSTALL.txt.in"
@@ -536,23 +623,72 @@ if (-not $NoPackage) {
         Write-WindowsText $template (Join-Path $stage $name) @{ '@VERSION@' = $version }
     }
 
+    # Keep all Frame setup files below the plugin directory. Older published
+    # updaters accept only BepInEx and the two installation guides at the root.
+    # These files do not alter PC launches; only the explicit Frame helper
+    # creates the opt-in marker.
+    $frameSetupDir = Join-Path $stage "BepInEx\plugins\GloomhavenVR\FrameSetup"
+    New-Item -ItemType Directory -Force -Path $frameSetupDir | Out-Null
+    # The stage is copied from the installed plugin tree; drop only the two
+    # superseded images so a local update cannot put them back into a new ZIP.
+    foreach ($oldArtwork in @('GloomhavenVR-steam-logo.png', 'GloomhavenVR-steam-icon.png')) {
+        $oldArtworkPath = Join-Path $frameSetupDir $oldArtwork
+        if (Test-Path -LiteralPath $oldArtworkPath -PathType Leaf) {
+            Remove-Item -LiteralPath $oldArtworkPath -Force
+        }
+    }
+    Write-UnixLauncher (Join-Path $root "scripts\install-steam-frame.sh") `
+                       (Join-Path $frameSetupDir "install-steam-frame.sh")
+    Write-UnixLauncher (Join-Path $root "scripts\steam-frame-config.py") `
+                       (Join-Path $frameSetupDir "steam-frame-config.py")
+    Write-UnixLauncher (Join-Path $root "scripts\frame-boot-config.py") `
+                       (Join-Path $frameSetupDir "frame-boot-config.py")
+    Write-UnixLauncher (Join-Path $root "GloomhavenVR-Setup.desktop") `
+                       (Join-Path $frameSetupDir "GloomhavenVR-Setup.desktop")
+    $steamArtworkSource = Join-Path $root "src\GloomhavenVR\Assets\SteamFrameArtwork"
+    $steamArtworkDestination = Join-Path $frameSetupDir "SteamArtwork"
+    New-Item -ItemType Directory -Force -Path $steamArtworkDestination | Out-Null
+    foreach ($artwork in @('library_600x900.png', 'library_header.png', 'library_hero.png',
+                           'logo.png', 'icon.png')) {
+        $artworkSource = Join-Path $steamArtworkSource $artwork
+        if (-not (Test-Path -LiteralPath $artworkSource -PathType Leaf)) {
+            Write-Error "Missing Steam Frame artwork: $artworkSource"
+        }
+        Copy-Item -LiteralPath $artworkSource -Destination (Join-Path $steamArtworkDestination $artwork)
+    }
+
     # No graphics-jobs enabler ships any more: the preloader writes boot.config
     # itself and restarts the game once on the boot that needs it.
 
     Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $zip -Force
+    Set-ZipUnixLaunchers $zip
     Remove-Item -Recurse -Force $stage
 
     # The same load-bearing paths package-release.sh asserts. A zip that is
     # missing one of these looks fine and fails at the stranger's machine.
     $required = @(
         "BepInEx/plugins/GloomhavenVR/GloomhavenVR.dll",
+        "BepInEx/plugins/GloomhavenVR/ghvr-town.bundle",
+        "BepInEx/plugins/GloomhavenVR/ghvr-town-voices.bundle",
+        "BepInEx/plugins/GloomhavenVR/ghvr-environment.bundle",
+        "BepInEx/plugins/GloomhavenVR/ghvr-figure-meshes-index.json",
         "BepInEx/plugins/GloomhavenVR/LICENSE.txt",
         "BepInEx/plugins/GloomhavenVR/Licenses/SOURCES.txt",
         "BepInEx/plugins/GloomhavenVR/RuntimeDeps/Unity.XR.OpenXR.dll",
         "BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll",
         "BepInEx/patchers/GloomhavenVR/Natives/openxr_loader.dll",
         "INSTALL.txt",
-        "INSTALL-DEUTSCH.txt")
+        "INSTALL-DEUTSCH.txt",
+        "BepInEx/plugins/GloomhavenVR/FrameSetup/install-steam-frame.sh",
+        "BepInEx/plugins/GloomhavenVR/FrameSetup/steam-frame-config.py",
+        "BepInEx/plugins/GloomhavenVR/FrameSetup/frame-boot-config.py",
+        "BepInEx/plugins/GloomhavenVR/FrameSetup/GloomhavenVR-Setup.desktop",
+        "BepInEx/plugins/GloomhavenVR/FrameSetup/SteamArtwork/library_600x900.png",
+        "BepInEx/plugins/GloomhavenVR/FrameSetup/SteamArtwork/library_header.png",
+        "BepInEx/plugins/GloomhavenVR/FrameSetup/SteamArtwork/library_hero.png",
+        "BepInEx/plugins/GloomhavenVR/FrameSetup/SteamArtwork/logo.png",
+        "BepInEx/plugins/GloomhavenVR/FrameSetup/SteamArtwork/icon.png")
+    foreach ($part in $figureBanks) { $required += "BepInEx/plugins/GloomhavenVR/$($part.Name)" }
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     # Every .txt in the archive must open cleanly on Windows: valid UTF-8, BOM, CRLF, and none
     # of the two characters a double encoding always produces (U+00C3 from an umlaut's lead
@@ -561,7 +697,12 @@ if (-not $NoPackage) {
     $textProblems = @()
     $archive = [System.IO.Compression.ZipFile]::OpenRead($zip)
     try {
-        $entries = $archive.Entries | ForEach-Object { $_.FullName -replace '\\', '/' }
+        $entries = $archive.Entries | ForEach-Object { $_.FullName }
+        $backslashEntries = @($entries | Where-Object { $_.Contains('\') })
+        if ($backslashEntries) {
+            $examples = (@($backslashEntries | Select-Object -First 3) -join ', ')
+            Write-Error "Packaged ZIP still contains Windows path separators: $examples"
+        }
         foreach ($entry in $archive.Entries) {
             if (-not $entry.FullName.ToLowerInvariant().EndsWith('.txt')) { continue }
             $ms = New-Object System.IO.MemoryStream
@@ -590,6 +731,15 @@ if (-not $NoPackage) {
         }
     }
     finally { $archive.Dispose() }
+    $allowedTopLevel = @('BepInEx', 'INSTALL.txt', 'INSTALL-DEUTSCH.txt')
+    $topLevel = @($entries | ForEach-Object { ($_ -replace '^\./', '').Split('/')[0] } | Sort-Object -Unique)
+    $unexpectedTopLevel = @($topLevel | Where-Object { $allowedTopLevel -notcontains $_ })
+    $missingTopLevel = @($allowedTopLevel | Where-Object { $topLevel -notcontains $_ })
+    if ($unexpectedTopLevel -or $missingTopLevel) {
+        Write-Error ("Unexpected release ZIP top-level layout. Extra: " +
+                     ($unexpectedTopLevel -join ', ') + "; missing: " +
+                     ($missingTopLevel -join ', '))
+    }
     $missing = $required | Where-Object { $entries -notcontains $_ }
     if ($missing) {
         Write-Error "Packaged zip is missing:`n  $($missing -join "`n  ")"

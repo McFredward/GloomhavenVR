@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Reflection;
 using GloomhavenVR.Core;
 using UnityEngine;
 
@@ -603,6 +604,10 @@ internal static class FigureCloth
         /// cape", which a user report cannot tell apart and which need opposite responses.</summary>
         public int FoundCloths;
 
+        /// <summary>Capture retries after cloth ON happen at most once per frame, only for the
+        /// short native enable/reset handover. No steady-state or OFF subtree sweep is added.</summary>
+        public int LastCaptureFrame = -1;
+
         /// <summary>The size this gesture started from, and the smallest and largest size it
         /// reached. EVERY arm table this lane has produced was measured at 1.345×, because that is
         /// the factor one ModBuild 289 log happened to settle at. His ModBuild 290 log settles at
@@ -632,6 +637,91 @@ internal static class FigureCloth
     private static readonly Dictionary<int, Tracked> _tracked = new();
     private static readonly List<int> _scratch = new(4);
 
+    // Build 604 hardware clarification: cloth OFF includes held/scaled local and remote figures.
+    // The original rescale driver used to revive PhysX during its two-frame cook even while the
+    // optional detail driver disabled it later. Suspend that work at its source. A cloth caught
+    // DOWN still belonged to an originally enabled solver; hand that ownership to the detail
+    // driver rather than misclassifying it as authored disabled and stranding it after ON.
+    private static readonly Dictionary<Cloth, GameObject> _disabledManaged = new();
+    private static readonly List<Cloth> _disabledScratch = new(4);
+    private static bool _resumePending;
+    private static int _resumeCaptureUntilFrame = -1;
+    private static readonly FieldInfo? NativeForcingPosition = typeof(ActorBehaviour).GetField(
+        "m_ForcingPositionChangeCounter", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+    private static bool SimulationDisabled => VRSession.IsRunning && !PerfConfig.FigureClothSimulationEnabled;
+
+    internal static bool TakeDisabledSimulationOwnership(Cloth cloth) => _disabledManaged.Remove(cloth);
+
+    /// <summary>
+    /// Abandon pending rescale cooks without their enable transition. Original coefficients,
+    /// stiffness and a live cook's collider stash are restored while the solver stays disabled;
+    /// ordinary skinned bone animation and root movement are untouched. No hierarchy discovery,
+    /// coefficient rebuilding, cook, hand sampling or new record runs in the steady OFF state.
+    /// </summary>
+    internal static void StopForDisabledSimulation()
+    {
+        _resumePending = true;
+        if (_tracked.Count == 0) { FigureClothHands.Clear(); return; }
+        PruneDisabledSimulationOwnership();
+        foreach (Tracked t in _tracked.Values)
+        {
+            for (int i = 0; i < t.Cloths.Count; i++)
+            {
+                Cloth c = t.Cloths[i];
+                if (c == null) continue;
+                _disabledManaged[c] = t.Root;
+                c.enabled = false;
+                c.coefficients = t.Pristine[i];
+                c.stretchingStiffness = t.PristineStretch[i];
+                if (i < t.LiveDown.Count && t.LiveDown[i])
+                {
+                    // A live stash can contain our free-hand probe. Remove that owned pair
+                    // before returning the native array, including after an ordinary detach.
+                    if (t.LiveSpheres != null) FigureClothHands.RestoreNativeColliders(c, t.LiveSpheres);
+                    if (t.LiveCapsules != null) c.capsuleColliders = t.LiveCapsules;
+                }
+                c.ClearTransformMotion();
+            }
+        }
+        FigureClothHands.Clear();
+        _tracked.Clear();
+        _scratch.Clear();
+    }
+
+    private static void PruneDisabledSimulationOwnership()
+    {
+        _disabledScratch.Clear();
+        foreach (KeyValuePair<Cloth, GameObject> item in _disabledManaged)
+            if (item.Key == null || item.Value == null) _disabledScratch.Add(item.Key!); // Unity-destroyed wrapper, never a CLR-null dictionary key
+        foreach (Cloth cloth in _disabledScratch) _disabledManaged.Remove(cloth);
+        _disabledScratch.Clear();
+    }
+
+    private static void RestoreDisabledSimulationOwnership()
+    {
+        // Normally the scenario detail driver takes these claims. This closes the teardown/ON
+        // edge before that discovery, without cancelling the game's two-frame teleport reset.
+        foreach (KeyValuePair<Cloth, GameObject> item in _disabledManaged)
+        {
+            Cloth c = item.Key;
+            if (c == null || item.Value == null || c.enabled) continue;
+            ActorBehaviour? actor = ActorBehaviour.GetActorBehaviour(item.Value);
+            bool forcing = actor != null && NativeForcingPosition?.GetValue(actor) is int count && count > 0;
+            if (!forcing) c.enabled = true;
+        }
+        _disabledManaged.Clear();
+    }
+
+    private static void BeginEnabledSimulation()
+    {
+        if (_resumePending)
+        {
+            _resumePending = false;
+            _resumeCaptureUntilFrame = Time.frameCount + 3;
+        }
+        if (_disabledManaged.Count > 0) RestoreDisabledSimulationOwnership();
+    }
+
     /// <summary>Figure roots whose census line has been printed. PER FIGURE, not per session: the
     /// ModBuild 290 census fired once, on a figure with an 82-particle cape, and was then read as
     /// evidence about a session in which the counters say cloths up to 143 particles were cooked
@@ -658,6 +748,8 @@ internal static class FigureCloth
     /// </summary>
     internal static void Note(GameObject? root, float factor)
     {
+        if (SimulationDisabled) { StopForDisabledSimulation(); return; }
+        BeginEnabledSimulation();
         if (root == null || float.IsNaN(factor) || float.IsInfinity(factor) || factor <= 0f)
             return;
 
@@ -688,6 +780,14 @@ internal static class FigureCloth
             if (factor < t.GestureMinFactor) t.GestureMinFactor = factor;
             if (factor > t.GestureMaxFactor) t.GestureMaxFactor = factor;
         }
+        else if (t.Suspended && t.Cloths.Count == 0 && t.FoundCloths > 0
+                 && Time.frameCount <= _resumeCaptureUntilFrame && t.LastCaptureFrame != Time.frameCount)
+        {
+            // ON's first scale Note can precede the detail driver's LateUpdate enable, or
+            // native ForceSetLoco's two-frame reset. Recapture once it can actually simulate;
+            // otherwise the unchanged held factor would leave this empty record latched.
+            Suspend(t);
+        }
     }
 
     /// <summary>
@@ -703,6 +803,8 @@ internal static class FigureCloth
     /// </summary>
     internal static void Tick()
     {
+        if (SimulationDisabled) { StopForDisabledSimulation(); return; }
+        BeginEnabledSimulation();
         if (_tracked.Count == 0)
             return;
 
@@ -739,15 +841,20 @@ internal static class FigureCloth
             _tracked.Remove(_scratch[i]);
     }
 
-    /// <summary>Forget everything (driver teardown / scene change). It touches the cloths in
-    /// exactly ONE way: any cloth caught between the two frames of a live cook is brought back up
-    /// first. Everything else is left alone, because the figures these cloths belong to are going
-    /// away with the scene and a Unity-null component cannot be written to anyway — but a cloth
-    /// that is <c>enabled == false</c> when we stop ticking is a cape that is a plain skinned mesh
-    /// for the life of the figure, and the driver can be torn down by a config toggle without the
-    /// scene going anywhere.</summary>
+    /// <summary>Forget rescale work on teardown/scene change. With simulation ON, finish an
+    /// interrupted live cook so an ordinary driver teardown cannot strand it disabled. With
+    /// explicit cloth OFF, stop without an enable transition, restore owned inputs and retain
+    /// only original-enabled claims until the detail driver adopts them or ON restores them.
+    /// Destroyed components and roots are pruned rather than retained across scene changes.</summary>
     internal static void Clear()
     {
+        if (SimulationDisabled)
+        {
+            StopForDisabledSimulation();
+            PruneDisabledSimulationOwnership();
+            return;
+        }
+        BeginEnabledSimulation();
         foreach (KeyValuePair<int, Tracked> kv in _tracked)
         {
             Tracked t = kv.Value;
@@ -767,6 +874,7 @@ internal static class FigureCloth
     /// </summary>
     private static void Suspend(Tracked t)
     {
+        t.LastCaptureFrame = Time.frameCount;
         t.Suspended = true;
 
         // THE GESTURE RECORDER STARTS HERE, because this method IS the start edge of a gesture:

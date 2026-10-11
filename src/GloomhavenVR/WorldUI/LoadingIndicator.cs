@@ -4,6 +4,9 @@ using System.Globalization;
 using System.IO;
 using BepInEx;
 using GloomhavenVR.Core;
+using GloomhavenVR.Net;
+using GloomhavenVR.Net.TownServices;
+using GloomhavenVR.WorldUI.MapRoom;
 using HarmonyLib;
 using UnityEngine;
 using UnityEngine.UI;
@@ -38,12 +41,12 @@ namespace GloomhavenVR.WorldUI;
 ///   menu composite) hides and the Menu2D head camera's black void clear carries the
 ///   backdrop. The gate is recomputed every tick, so the screen returns through its normal
 ///   Show() path the moment loading ends. Hands stay visible (mod layer).</item>
-/// <item>Smaller hitches (part 2): while loading, <c>Application.backgroundLoadingPriority</c>
-///   is dropped to <c>Low</c> — Unity's async-integration time slice per frame shrinks, so
-///   the many 25–100 ms integration hitches get smaller at the cost of a somewhat longer
-///   load. The game never sets the value and only polls <c>isDone</c>, so nothing depends
-///   on load timing. The EXACT prior value is captured before the flip and restored when
-///   loading ends (and defensively on <see cref="Shutdown"/>).</item>
+/// <item>Native loading priority is retained. The former <c>Low</c> override deliberately
+///   lengthened asynchronous integration to smooth loading hitches. The user explicitly
+///   accepts those hitches and reported excessive loading in the Build628 Frame capture;
+///   presentation must not throttle native loading. Optional card/figure cache preparation
+///   continues after native completion without owning the spinner or flat-screen gate.
+///   A newly revealed room still shows its actual procedural/material work.</item>
 /// </list>
 ///
 /// The residual big single frames (per-transition GC.Collect spike, procgen
@@ -189,12 +192,16 @@ namespace GloomhavenVR.WorldUI;
 /// every tick re-resolves <c>VRRigDriver.HeadCamera</c> and rebuilds on Unity-null, so the
 /// indicator survives any number of rig cycles. Purely local presentation (MP: nothing on
 /// the wire); every game-object mutation is mod-owned; [WorldUI] LoadingIndicator=false
-/// disables the whole feature (visuals, gate and priority flip).
+/// disables the whole feature (visuals and gate).
 /// </summary>
 internal sealed class LoadingIndicator
 {
     // ---- placement (head-local) --------------------------------------------------------
     private const float DistanceMeters = 1.5f;
+    // The VR options window stays open while its NPC toggle is pressed. Put the
+    // reload spinner in front of that window instead of hiding it behind the pane.
+    private const float TownReloadDistanceMeters = 0.65f;
+    private const float TownReloadScale = 0.55f;
     private const float BelowEyeMeters = 0.18f;
     private const float SizeMeters = 0.25f;
     /// <summary>Overlay sits this far in FRONT of the base quad (toward the head) so the
@@ -256,9 +263,9 @@ internal sealed class LoadingIndicator
     }
 
     /// <summary>
-    /// True while the loading indicator owns the HMD picture — <c>FlatScreen.WantVisible</c>
-    /// returns false so ONLY spinner + hands show on the void. Recomputed every tick;
-    /// false the instant loading ends or the feature is toggled off (gate self-restores).
+    /// True only during an actual game/boot load, when the flat capture is unusable.
+    /// A town-service reload shows its spinner without hiding a native fallback or
+    /// rescue window that might still be needed if optional art fails to initialize.
     /// </summary>
     internal static bool FlatScreenSuppressed { get; private set; }
 
@@ -298,14 +305,24 @@ internal sealed class LoadingIndicator
     private float _overlayAlpha;
     private bool _increaseAlpha;
 
-    // Background-loading-priority flip (part 2).
-    private bool _prioritySet;
-    private UnityEngine.ThreadPriority _priorPriority;
+    // Observe native loading edges; this display never writes async loading priority.
+    private bool _nativeLoadingObserved;
+    private float _nativeLoadingStartedAt;
 
     // Appear/disappear ramp: 0 = fully gone (root deactivated), 1 = fully shown.
     private float _fade;
 
     private bool _shownLogged;
+
+    // Initial map entry and an options toggle can outlive native loading flags. Keep the
+    // existing spinner until original resident/card preparation finishes, with a bounded exit.
+    private bool _townModeObserved;
+    private bool _townWasEnabled;
+    private bool _townMapWasActive;
+    private bool _townReloadActive;
+    private bool _townReloadVisual;
+    private float _townReloadStartedAt;
+    private const float TownReloadMaximumSeconds = 45f;
 
     // Boot clause state.
     private BootCoverage _boot;
@@ -316,25 +333,30 @@ internal sealed class LoadingIndicator
 
     public void Tick()
     {
-        // Short circuit, in this order on purpose: with VR off, or the feature off, NOTHING
-        // below runs — not the poll, not the boot latch, not its one-off object search.
-        bool want = VRSession.IsRunning && WorldUIConfig.LoadingIndicator.Value && IsGameLoading();
+        // The indicator option disables all its polling and presentation. The town
+        // services themselves keep preparing independently of this visual option.
+        bool indicatorEnabled = VRSession.IsRunning && WorldUIConfig.LoadingIndicator.Value;
+        if (VRSession.IsRunning && !indicatorEnabled)
+        {
+            _townModeObserved = true;
+            _townWasEnabled = WorldUIConfig.ImmersiveTownServices.Value;
+            _townReloadActive = false;
+        }
+        bool townReload = indicatorEnabled && TickTownReload();
+        bool nativeGameLoading = indicatorEnabled && IsGameLoading();
+        bool gameLoading = indicatorEnabled && (nativeGameLoading || ScenarioInteractionPreparation.ShowsLoadingIndicator);
+        bool want = townReload || gameLoading;
+        if (townReload && !gameLoading) _townReloadVisual = true;
+        else if (gameLoading) _townReloadVisual = false;
 
-        // Part 2 runs whenever the feature is on and a load is in flight — flipped and
-        // restored on the edges only, one log line each (existing VRLog style).
-        //
-        // NOT during the boot window, and that exclusion is deliberate: shrinking Unity's
-        // async-integration slice buys smoother frames by making the load LONGER, and the boot
-        // load is the one the user is complaining about the length of. It would also buy
-        // nothing there — the frames that stall are the game's own synchronous YML parse on
-        // the main thread, not async integration, so a smaller slice cannot touch them. The
-        // boot clause is a display decision and stays one; it must not sit on the load path.
-        TickLoadPriority(want && _boot != BootCoverage.Covering);
+        // Build628 retained the initial spinner for 61.81s of optional card/figure
+        // prewarming AFTER the native screen/input had completed. Do not manufacture
+        // another loading period for those caches, or throttle the native async loader.
+        TickNativeLoading(nativeGameLoading && _boot != BootCoverage.Covering);
 
-        // The flat-screen gate keeps its shipped edge-exact semantics (the screen returns the
-        // instant loading ends). The spinner's own fade-out then cross-fades over the screen
-        // that just came back, rather than delaying it by a ramp on every load.
-        FlatScreenSuppressed = want;
+        // Only a real scene load owns the full picture. A town-mode toggle leaves
+        // original/rescue windows reachable while its spinner runs in front of options.
+        FlatScreenSuppressed = gameLoading;
 
         // Appear/disappear WITH the animation (hard rule): one unscaled ramp both ways. It is
         // also what makes the boot arming bearable — the spinner rises over the intro's last
@@ -365,12 +387,29 @@ internal sealed class LoadingIndicator
         if (_root == null)
             return; // hard build failure already logged (once)
 
-        if (_root.transform.parent != head.transform)
+        float distance = _townReloadVisual ? TownReloadDistanceMeters : DistanceMeters;
+        Vector3 localPosition = new Vector3(0f, -BelowEyeMeters, distance);
+        Vector3 localScale = Vector3.one * (_townReloadVisual ? TownReloadScale : 1f);
+        bool attach = _root.transform.parent != head.transform;
+        if (attach)
         {
             _root.transform.SetParent(head.transform, worldPositionStays: false);
-            _root.transform.localPosition = new Vector3(0f, -BelowEyeMeters, DistanceMeters);
             _root.transform.localRotation = Quaternion.identity; // child of the head = always facing
-            _root.transform.localScale = Vector3.one;
+        }
+        if (attach || !_root.activeSelf)
+        {
+            _root.transform.localPosition = localPosition;
+            _root.transform.localScale = localScale;
+        }
+        else
+        {
+            // A scene load can start while the town spinner is still up. Ease its
+            // head-local seat and size instead of snapping the visible disc away.
+            float step = Mathf.Min(Time.unscaledDeltaTime, 0.05f);
+            _root.transform.localPosition = Vector3.MoveTowards(
+                _root.transform.localPosition, localPosition, step * 4f);
+            _root.transform.localScale = Vector3.MoveTowards(
+                _root.transform.localScale, localScale, step * 2.5f);
         }
         if (!_root.activeSelf)
             _root.SetActive(true);
@@ -378,10 +417,12 @@ internal sealed class LoadingIndicator
         {
             _shownLogged = true;
             VRLog.Info("WorldUI", $"Loading indicator shown: {(_boot == BootCoverage.Covering ? "BOOT window (intro over, " +
-                                      "Gloomhaven_unified loading — the game shows nothing here)" : "game spinner")} " +
-                                  $"{DistanceMeters:0.0} m ahead of head '{head.name}' (step {_spinDegrees:0.#}° / " +
+                                      "Gloomhaven_unified loading — the game shows nothing here)" :
+                                      townReload && !gameLoading ? "immersive town services reloading" : "game spinner")} " +
+                                  $"{distance:0.00} m ahead of head '{head.name}' (step {_spinDegrees:0.#}° / " +
                                   $"{_stepSeconds:0.###}s, glow {_glowStep:0.###}, min alpha {_minAlpha:0.##}, " +
-                                  $"fade {FadeSeconds:0.00}s) — flat screen suppressed for the load.");
+                                  $"fade {FadeSeconds:0.00}s) — flat screen "
+                                  + (gameLoading ? "suppressed for the scene load." : "left available during town reload."));
         }
 
         Animate();
@@ -391,10 +432,11 @@ internal sealed class LoadingIndicator
     /// provisional ring, drop that too so the next show re-reads the game's own sprites.</summary>
     private void HideNow()
     {
+        _townReloadVisual = false;
         if (_root != null && _root.activeSelf)
         {
             _root.SetActive(false);
-            VRLog.Info("WorldUI", "Loading indicator hidden (loading ended, faded out) — flat screen released.");
+            VRLog.Info("WorldUI", "Loading indicator hidden after fade; any scene-load flat-screen gate is released.");
         }
         _shownLogged = false;
         if (_artIsProvisional && SceneController.Instance != null)
@@ -403,13 +445,8 @@ internal sealed class LoadingIndicator
 
     public void Shutdown()
     {
-        // Defensive restore: never leave the process with a lowered loading priority.
-        if (_prioritySet)
-        {
-            Application.backgroundLoadingPriority = _priorPriority;
-            _prioritySet = false;
-            VRLog.Info("WorldUI", $"Loading indicator shutdown: backgroundLoadingPriority restored to {_priorPriority}.");
-        }
+        _nativeLoadingObserved = false;
+        _nativeLoadingStartedAt = 0f;
         FlatScreenSuppressed = false;
         if (_root != null)
         {
@@ -501,6 +538,61 @@ internal sealed class LoadingIndicator
         // ordinary poll goes true, which is the tick it retires on.
         bool boot = TickBootCoverage(sc, ordinary);
         return ordinary || boot;
+    }
+
+    private bool TickTownReload()
+    {
+        bool enabled = WorldUIConfig.ImmersiveTownServices.Value;
+        if (!_townModeObserved)
+        {
+            _townModeObserved = true;
+            _townWasEnabled = enabled;
+            return false;
+        }
+        bool switchedOn = enabled && !_townWasEnabled;
+        _townWasEnabled = enabled;
+        if (!enabled || !MapRoomDriver.Active)
+        {
+            _townMapWasActive = false;
+            _townReloadActive = false;
+            return false;
+        }
+        bool enteredMap = !_townMapWasActive;
+        _townMapWasActive = true;
+        if (switchedOn || enteredMap)
+        {
+            _townReloadActive = true;
+            _townReloadStartedAt = Time.unscaledTime;
+            VRLog.Info("WorldUI", "Immersive town services enabled: showing the loading indicator until unlocked residents are ready.");
+        }
+        if (!_townReloadActive) return false;
+
+        float elapsed = Time.unscaledTime - _townReloadStartedAt;
+        if (TownServiceAssets.IsUnavailable || elapsed >= TownReloadMaximumSeconds)
+        {
+            _townReloadActive = false;
+            VRLog.Warn("WorldUI", "Immersive town services reload ended without every resident ready; "
+                + "native service windows remain the fallback.");
+            return false;
+        }
+        if (TownServiceAssets.IsLoading)
+            return true;
+        for (byte service = 1; service <= 3; service++)
+            if (TownServiceAvailability.NativeUnlocked(service) && !TownServicePopulation.Available(service))
+                return true;
+        // Original avatar art alone does not prepare the cabinet's hidden native
+        // price/body/card partitions. Prepare both before dismissing this display
+        // spinner; native input and loading flags remain independent. Remote bank
+        // delivery/election is not local loading work and must not hold this spinner.
+        if (TownServiceAvailability.NativeUnlocked(1) && TownServiceGrantSync.CanUseImmersive
+            && !TownServicePresentation.NativeFallbackFor(1)
+            && (TownServicePublicMerchant.Catalog == null
+                || !TownServicePublicMerchant.PrepareCatalogForLoading()
+                || !NetAvatarDriver.PrepareMerchantCardsForLoading()))
+            return true;
+        _townReloadActive = false;
+        VRLog.Info("WorldUI", $"Immersive town services ready after {elapsed:0.00}s; loading indicator released.");
+        return false;
     }
 
     /// <summary>
@@ -611,23 +703,23 @@ internal sealed class LoadingIndicator
         }
     }
 
-    // ---- part 2: async-integration slice shrink ------------------------------------------
+    // ---- native loading lifecycle (observation only) -------------------------------------
 
-    private void TickLoadPriority(bool loading)
+    private void TickNativeLoading(bool loading)
     {
-        if (loading && !_prioritySet)
+        if (loading == _nativeLoadingObserved) return;
+        _nativeLoadingObserved = loading;
+        if (loading)
         {
-            _priorPriority = Application.backgroundLoadingPriority;
-            Application.backgroundLoadingPriority = UnityEngine.ThreadPriority.Low;
-            _prioritySet = true;
-            VRLog.Info("WorldUI", $"Loading started: backgroundLoadingPriority {_priorPriority} → Low " +
-                                  "(smaller per-frame async-integration slices — smaller hitches, slightly longer load).");
+            _nativeLoadingStartedAt = Time.realtimeSinceStartup;
+            VRLog.Info("WorldUI", $"Loading started: backgroundLoadingPriority {Application.backgroundLoadingPriority} "
+                + "retained; native loading owns the spinner, optional interaction caches do not.");
         }
-        else if (!loading && _prioritySet)
+        else
         {
-            Application.backgroundLoadingPriority = _priorPriority;
-            _prioritySet = false;
-            VRLog.Info("WorldUI", $"Loading ended: backgroundLoadingPriority restored to {_priorPriority}.");
+            VRLog.Info("WorldUI", $"Loading ended: native loading display released after "
+                + $"{Time.realtimeSinceStartup - _nativeLoadingStartedAt:0.00}s; "
+                + "optional interaction caches continue without holding the spinner.");
         }
     }
 

@@ -90,10 +90,9 @@ internal static class LocalRigSampler
             state.HeldFigurePose.Rotation = ar;
         }
 
-        // Held card (cosmetic, additive FlagHeldCard field): a single VRCard grip-held in
-        // either hand (plucked from the fan or a pile viewer). Pose only — the card's
-        // identity NEVER rides the wire (peers render a back slab; anti-cheat stance of
-        // the remote fan). The open fan itself is covered by the extras packet's count.
+        // The unchanged primary pose slot chooses the left card when both hands
+        // hold one. Face addresses follow the existing visibility/provenance rules;
+        // public map item metadata is already part of this compact rig packet.
         state.HasHeldCard = TrySampleHeldCard(out Vector3 cp, out Quaternion cr);
         if (state.HasHeldCard)
         {
@@ -101,9 +100,26 @@ internal static class LocalRigSampler
             state.HeldCardPose.Position = acp;
             state.HeldCardPose.Rotation = acr;
             SampleHeldCardFaces(out state.HeldFaceCode, out state.HeldFaceCount,
-                out state.SecondHeldFaceCode, out state.SecondHeldFaceCount, out state.HeldFaceActorId, out _);
+                out state.SecondHeldFaceCode, out state.SecondHeldFaceCount, out state.HeldFaceActorId, out state.SecondHeldFaceActorId);
             state.HasHeldCardFace = true;
+            state.HeldTownItem = SampleHeldTownItem(1);
             state.HasHeldMapCard = SampleHeldMapCard(1, out state.HeldMapKey, out state.HeldMapPoolSeat, out state.HeldMapPoolCount, out state.HeldMapArcSeat);
+        }
+
+        // Keep both card poses, addresses and grip rules on the wrists' delivery clock.
+        // Slot2 previously rode the large fragmented extras snapshot; its nominal
+        // 15Hz sampling did not give it the compact primary card's arrival cadence.
+        state.HasSecondHeldCardState = true;
+        state.PrimaryHeldCardLeft = state.HasHeldCard && HoldsCardShape(VRHands.Left);
+        state.HeldCardGripMask = SampleHeldCardGripMask();
+        state.HasSecondHeldCard = state.HasHeldCard && TrySampleSecondHeldCard(out cp, out cr);
+        if (state.HasSecondHeldCard)
+        {
+            anchor.ToAnchor(cp, cr, out state.SecondHeldCardPose.Position, out state.SecondHeldCardPose.Rotation);
+            state.HasSecondHeldCardFace = true;
+            state.SecondHeldTownItem = SampleHeldTownItem(2);
+            state.HasSecondHeldMapCard = SampleHeldMapCard(2, out state.SecondHeldMapKey,
+                out state.SecondHeldMapPoolSeat, out state.SecondHeldMapPoolCount, out state.SecondHeldMapArcSeat);
         }
 
         // Nothing to say if we have neither a head nor a tracked hand.
@@ -170,12 +186,9 @@ internal static class LocalRigSampler
     /// TWO SIMULTANEOUS HELD CARDS (both-hands ruling: either hand can take a card, so e.g. the
     /// gate hand can hold a browse card while the dominant hand plucks another): the rig packet's
     /// <c>FlagHeldCard</c> field carries exactly ONE pose and its layout must not change, so this
-    /// sampler keeps its deterministic left-first preference unchanged — and the OTHER hand's
-    /// card rides the extras packet as extension record
-    /// <see cref="NetProtocol.ExtIdSecondHeldCard"/> (<see cref="TrySampleSecondHeldCard"/>), so
-    /// peers now see BOTH cards (user ruling 2026-08-04: "Wenn Karten in beiden Haenden sind,
-    /// soll das auch synchronisiert werden"). The split is deterministic by construction: this
-    /// slot names the LEFT hand's card whenever two are held, record 10 names the RIGHT's.</summary>
+    /// sampler keeps its deterministic left-first preference unchanged. The other card
+    /// now travels in the same rig packet's atomic record111, with record10 retained as
+    /// a legacy extras fallback. Both slots therefore arrive with the tracked wrists.</summary>
     private static bool TrySampleHeldCard(out Vector3 pos, out Quaternion rot)
     {
         return TryHeldCard(VRHands.Left, out pos, out rot)
@@ -189,8 +202,8 @@ internal static class LocalRigSampler
     /// preference), so the second card is by definition the RIGHT hand's. While only one hand —
     /// either one — holds a card, the rig slot already carries it and this returns false, which
     /// keeps the extras record absent and the idle/one-card packet byte-identical to build 49.
-    /// Read by <see cref="NetAvatarDriver"/>'s extras sender (extension record
-    /// <see cref="NetProtocol.ExtIdSecondHeldCard"/>). Pose only, no identity, ever.
+    /// Read by this sampler's atomic rig state and the legacy extras sender. The pose
+    /// and its face/source address are sampled together in <see cref="TrySample"/>.
     /// </summary>
     public static bool TrySampleSecondHeldCard(out Vector3 pos, out Quaternion rot)
     {
@@ -216,7 +229,8 @@ internal static class LocalRigSampler
     private static bool HoldsCardShape(VRHand? hand)
         => hand != null && hand.Grabber != null
            && (hand.Grabber.Held is Cards.ItemsPile.ItemChip chip && chip != null
-               || hand.Grabber.Held is Cards.VRCard card && card != null);
+               || hand.Grabber.Held is Cards.VRCard card && card != null
+               || hand.Grabber.Held is WorldUI.TownServiceToken token && token.IsItemCard);
 
     /// <summary>
     /// WHICH HELD-CARD POSE SLOTS ARE RIGID — extension record
@@ -325,6 +339,19 @@ internal static class LocalRigSampler
         if (left && right) SampleHeldFace(VRHands.Right, out code1, out count1, out actor1);
     }
 
+    internal static TownItemHeldSource? SampleHeldTownItem(int poseSlot)
+    {
+        if (RevealGate.InScenario) return null;
+        bool left = HoldsCardShape(VRHands.Left), right = HoldsCardShape(VRHands.Right);
+        if ((!left && !right) || (poseSlot == 2 && (!left || !right))) return null;
+        VRHand? hand = poseSlot == 2 || !left ? VRHands.Right : VRHands.Left;
+        if (hand?.Grabber?.Held is Cards.ItemsPile.ItemChip chip
+            && WorldUI.MapRoom.MapRoomHand.TryNameMerchantItem(chip, out TownItemHeldSource owned)) return owned;
+        if (hand?.Grabber?.Held is WorldUI.TownServiceToken token
+            && WorldUI.TownServiceCatalog.TryNameHeldStock(token, out TownItemHeldSource stock, out _)) return stock;
+        return null;
+    }
+
     internal static bool SampleHeldMapCard(int poseSlot, out uint key, out ushort seat, out ushort count, out byte arcSeat)
     {
         key = 0; seat = count = 0; arcSeat = 255;
@@ -339,7 +366,21 @@ internal static class LocalRigSampler
     private static void SampleHeldFace(VRHand? hand, out byte code, out byte count, out int actorId)
     {
         code = count = 0; actorId = 0;
-        if (!RevealGate.InScenario) { NameHeldMapCard(hand, out code, out count); return; }
+        if (!RevealGate.InScenario)
+        {
+            object? heldMap = hand?.Grabber?.Held;
+            TownItemHeldSource itemSource;
+            if (heldMap is Cards.ItemsPile.ItemChip mapChip
+                && WorldUI.MapRoom.MapRoomHand.TryNameMerchantItem(mapChip, out itemSource)
+                || heldMap is WorldUI.TownServiceToken token
+                && WorldUI.TownServiceCatalog.TryNameHeldStock(token, out itemSource, out _))
+            {
+                code = NetProtocol.EncodeHeldFace(NetProtocol.HeldFaceListItems, itemSource.Kind == TownItemHeldSource.Owned ? itemSource.Seat : -1);
+                count = (byte)System.Math.Min(255, (int)itemSource.Count);
+                return;
+            }
+            NameHeldMapCard(hand, out code, out count); return;
+        }
         // A physical hold survives a board focus change. Read the actual held widget/chip's
         // owner, never the newly displayed character or whichever item fan happens to be open.
         object? held = hand?.Grabber?.Held;
@@ -1169,7 +1210,10 @@ internal static class LocalRigSampler
         // board-laser pluck (ItemChip.OnPoke → ProximityGrabber.ForceGrab) BOTH set Grabber.Held to
         // the chip itself, so one pattern match covers every way an item card gets into a hand.
         Cards.ItemsPile.ItemChip? chip = hand.Grabber.Held as Cards.ItemsPile.ItemChip;
-        Transform? t = chip != null
+        Transform? stockRoot = null;
+        if (hand.Grabber.Held is WorldUI.TownServiceToken stock)
+            WorldUI.TownServiceCatalog.TryNameHeldStock(stock, out _, out stockRoot);
+        Transform? t = stockRoot != null ? stockRoot : chip != null
             ? chip.transform
             : hand.Grabber.Held is Cards.VRCard card && card != null ? card.transform : null;
         if (t == null)

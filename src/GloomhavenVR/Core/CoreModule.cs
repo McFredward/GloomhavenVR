@@ -57,12 +57,65 @@ internal sealed class CoreModule : IVRModule
         // Frame-pacing instrumentation (2026-07 perf pass). Cheap and self-disabling: with
         // [Perf] Enabled = false its host costs one bool test per frame and nothing else.
         PerfMonitor.Install(_hostGo);
+        ScenarioInteractionPreparation.Install(_hostGo);
 
         // ModBuild 228. Installed on the SAME unconditional host and for the same reason: the
         // flat-screen session is the reference reading the VR one has to be judged against, and its
         // two behaviour dials gate themselves on VRSession.IsRunning rather than on this call site,
         // so a session that never reached VR stays the vanilla game.
+        // Bind the native projection bridge during bootstrap, before interactive scene work.
+        NativeCameraRenderBudget.Prepare();
         AutoLod.Install(_hostGo);
+        ScenarioSceneryBudget.Install(_hostGo);
+        ScenarioGenerationDetail.Install();
+        ScenarioFigureDetailBudget.Install(_hostGo);
+        ScenarioIdleAnimationBudget.Install(_hostGo, () => PerfConfig.OffscreenIdleAnimationOn);
+        WorldMaterialBudget.ConfigureAssetPreparation(ScenarioEnvironmentAssets.EnsureLoaded);
+        WorldMaterialBudget.ConfigureAmbientWeight(() => PerfConfig.WorldMaterialAmbientWeight);
+        WorldMaterialBudget.ConfigurePerformanceWallVisibility(WallSegmentFade.IsPerformanceHidden);
+        ScenarioTerrainBudget.ConfigurePerformanceWallVisibility(WallSegmentFade.IsPerformanceHidden);
+        ScenarioEnvironmentBudget.ConfigurePerformanceWallIntegration(WallSegmentFade.IsPerformanceHidden,
+            WallSegmentFade.NotifyPerformanceContentChange, WallSegmentFade.NotifyPerformanceRendererReady);
+        ScenarioSceneryBudget.ConfigurePerformanceWallMasks(WallSegmentFade.RetainPerformanceMaskOnForeignRelease,
+            WallSegmentFade.NotifyPerformanceContentChange);
+        WallSegmentFade.ConfigurePerformanceMaskRestored(renderer =>
+        {
+            ScenarioSceneryBudget.AfterPerformanceWallRestore(renderer);
+            ScenarioTerrainBudget.MaterialReady(renderer);
+        });
+        WorldMaterialBudget.ConfigureBeforeVariantDisposal(ScenarioEnvironmentBudget.BeforeWorldMaterialDisposal);
+        WorldMaterialBudget.ConfigureCanonicalSource(ScenarioEnvironmentBudget.CanonicalMaterial);
+        WorldMaterialBudget.ConfigureSourceChanged(ScenarioEnvironmentBudget.WorldMaterialChanged);
+        WorldMaterialBudget.ConfigureRenderSubstituteOwnership(renderer =>
+            ScenarioTerrainBudget.OwnsRenderSubstitute(renderer) || ScenarioEnvironmentBudget.OwnsRenderSubstitute(renderer));
+        WorldMaterialBudget.ConfigureRenderSubstituteRevocation(renderer =>
+            ScenarioTerrainBudget.HasCurrentRenderLease(renderer) || ScenarioEnvironmentBudget.OwnsRenderSubstitute(renderer));
+        // Refresh world uniforms after all native pre-cull writers, before the existing
+        // environment owner validates its substitutes at the same native boundary.
+        WorldMaterialBudget.Install(_hostGo);
+        ScenarioEnvironmentBudget.ConfigureWorldMaterialIntegration(WorldMaterialBudget.QueueRoot,
+            WorldMaterialBudget.MaterialReady, WorldMaterialBudget.BeforeNativeRendererWrite,
+            WorldMaterialBudget.BeforeNativeContentChange, WorldMaterialBudget.CanonicalMaterial,
+            WorldMaterialBudget.IsOwnedVariant, () => PerfConfig.WorldMaterialQualityMode > 0);
+        ScenarioTerrainBudget.ConfigureWorldMaterialIntegration(WorldMaterialBudget.VariantFor,
+            WorldMaterialBudget.BeginMaterialReadPass, () => PerfConfig.WorldMaterialQualityMode > 0,
+            WorldMaterialBudget.IsOwnedVariant);
+        ScenarioEnvironmentMeshBank.ConfigureAssetPreparation(ScenarioEnvironmentAssets.EnsureLoaded);
+        ScenarioTerrainBudget.ConfigureMeshBank(ScenarioEnvironmentMeshBank.IsTerrainEligible,
+            ScenarioEnvironmentMeshBank.TryGetDetail);
+        ScenarioTerrainBudget.ConfigureAssetPreparation(() => ScenarioEnvironmentMeshBank.IsReady,
+            () => ScenarioEnvironmentMeshBank.IsUnavailable || ScenarioEnvironmentAssets.IsUnavailable);
+        ScenarioTerrainBudget.ConfigureNativeCameraConsumers(ScenarioEnvironmentBudget.HasNativeCommandBufferConsumers);
+        ScenarioTerrainBudget.ConfigureCanonicalMaterial(ScenarioEnvironmentBudget.CanonicalMaterial);
+        // Terrain owns only its private wall/detail proxies. Floors remain available to the
+        // exact environment submission lane; neither owner may mask the other's replacement.
+        ScenarioTerrainBudget.Install(_hostGo);
+        ScenarioEnvironmentBudget.ConfigureTerrainIntegration(ScenarioTerrainBudget.QueueRoot,
+            ScenarioTerrainBudget.MaterialReady, ScenarioTerrainBudget.BeforeNativeRendererWrite,
+            ScenarioTerrainBudget.BeforeNativeContentChange, ScenarioTerrainBudget.OwnsRenderSubstitute);
+        ScenarioEnvironmentBudget.ConfigureStructuralBatching(() => PerfConfig.StructuralBatchingOn);
+        ScenarioEnvironmentBudget.Install(_hostGo);
+        ScenarioStructuralInstancing.Install(_hostGo, () => PerfConfig.StructuralInstancingOn);
         // The grep list is exhaustive on purpose. Every hardware round of this project starts with
         // somebody being told which string to search a 9 MB Player.log for, and a line nobody knows
         // the name of is a line nobody reads — [Perf] SCENE spent five ModBuilds switched off while
@@ -114,10 +167,20 @@ internal sealed class CoreModule : IVRModule
 
     public void Shutdown()
     {
+        NativeCameraRenderBudget.Shutdown();
         Loc.Dispose(); // detach the engine localization event (hot-reload teardown)
         ExceptionTraces.Shutdown(); // puts the game's own StackTraceLogType.None straight back
+        ScenarioInteractionPreparation.Reset();
         PerfMonitor.Shutdown(); // drop the sampling host + every step record before the GO dies
         AutoLod.Shutdown();     // re-enable every AutomaticLOD it disabled, restore lodBias
+        ScenarioSceneryBudget.Shutdown(); // restore only decorative submissions this budget owns
+        ScenarioIdleAnimationBudget.Shutdown();
+        ScenarioTerrainBudget.Shutdown();
+        ScenarioStructuralInstancing.Shutdown();
+        ScenarioEnvironmentBudget.Shutdown(); // restore only optional static render substitutions
+        WorldMaterialBudget.Shutdown(); // restore only owned material references after substitutes are gone
+        ScenarioGenerationDetail.Shutdown(); // release transient generation profiles, never game assets
+        ScenarioFigureDetailBudget.Shutdown(); // restore original actor LODs and owned cloth simulation
 
         if (_hostGo != null)
         {

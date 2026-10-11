@@ -63,11 +63,27 @@ internal static partial class Defaults
     internal const bool CullSubmitSplit = true;              // => [Perf] CullSubmitSplit  (ON since ModBuild 227. Pure measurement, changes no pixel: two timer reads per camera render. It decides whether the head camera's 6–9ms/frame over 8,600 renderers is CULL — in which case the blanket 0xFFFFFFFF head mask vs the game's own 0x700FFF17 ScenarioCamera mask is the next lever — or SUBMIT, in which case it is not)
     internal const bool ProfileDefaultsMigrated227 = false;   // => [Perf] ProfileDefaultsMigrated227  (pinned: one-shot migration marker — a fresh install must start false, or the ModBuild 227 SceneProfile/CullSubmitSplit flip never reaches an existing cfg)
     internal const bool LodCensus = true;                    // => [Perf] LodCensus  (ON: pure measurement, one line per scene. The 227 SIM reading put 2560 of 2986 Update entries — 86% — in ONE third-party type, and the analysis that named it also asserted "the game has no LODGroup at all" while the GFX line in the same log read "LOD groups: 1277 active". This walk settles both, names which camera decides the level, prints the level distribution the scene is actually running at, and prints QualitySettings.masterTextureLimit — the competing mechanism for the separate "matschige Texturen" report, which no line in this log has ever carried)
-    internal const bool CacheTickDelegates = true;           // => [Optimize] CacheTickDelegates
-    internal const bool MapIconCache = true;                 // => [Optimize] MapIconCache
-    internal const bool FigureScanCache = true;              // => [Optimize] FigureScanCache
-    internal const bool LeanLogStrings = true;               // => [Optimize] LeanLogStrings
-    internal const bool TooltipScanGate = true;              // => [Optimize] TooltipScanGate
+    internal const int ScenarioSceneryDensityPercent = 100; // => [Optimize] ScenarioSceneryDensityPercent
+    internal const int ScenarioDecorationDensityPercent = 100; // => [Optimize] ScenarioDecorationDensityPercent
+    internal const int ScenarioVegetationDensityPercent = 100; // => [Optimize] ScenarioVegetationDensityPercent
+    internal const float ActorBarPoseCheckIntervalSeconds = 0f;
+    internal const bool OffscreenIdleAnimation = false;     // => [Optimize] OffscreenIdleAnimation
+    internal const bool ScenarioStructuralBatching = false; // => [Optimize] ScenarioStructuralBatching
+    internal const bool ScenarioStructuralInstancing = false; // => [Optimize] ScenarioStructuralInstancing
+    internal const float SceneProfileBudgetMilliseconds = .5f; // => [Perf] SceneProfileBudgetMilliseconds
+    internal const int SceneProfileObjectsPerFrame = 64;    // => [Perf] SceneProfileObjectsPerFrame
+    internal const float UiMaintenanceIntervalSeconds = 0f;
+    internal const bool FigureDistanceLod = false;
+    internal const int TownNpcDetailPercent = 100;          // => [Optimize] TownNpcDetailPercent (INERT compatibility key; original NPC meshes only)
+    internal const int SkinningBoneLimit = 0;
+    internal const int ScenarioPlayerFigureDetailPercent = 100; // => [Optimize] ScenarioPlayerFigureDetailPercent
+    internal const int ScenarioEnemyFigureDetailPercent = 100; // => [Optimize] ScenarioEnemyFigureDetailPercent
+    internal const int ScenarioFigureEffectsDensityPercent = 100; // => [Optimize] ScenarioFigureEffectsDensityPercent
+    internal const bool ScenarioFigureClothSimulation = true; // => [Optimize] ScenarioFigureClothSimulation
+    internal const bool ScenarioStaticBatching = false; // => [Optimize] ScenarioStaticBatching
+    internal const bool ScenarioSimpleEnvironmentShading = false; // => [Optimize] ScenarioSimpleEnvironmentShading
+    internal const int ScenarioEnvironmentEffectsDensityPercent = 100; // => [Optimize] ScenarioEnvironmentEffectsDensityPercent
+    internal const bool ReduceScenarioGenerationDetail = false; // => [Optimize] ReduceScenarioGenerationDetail
     internal const float FanRelayoutMinInterval = 0f;        // => [Optimize] FanRelayoutMinInterval
     internal const float WallFadeEvalInterval = 0f;          // => [Optimize] WallFadeEvalInterval
     internal const float InitiativeDepthEvalInterval = 0f;   // => [Optimize] InitiativeDepthEvalInterval
@@ -121,8 +137,6 @@ internal static partial class Defaults
     internal const bool HeadDepthPrepass = false;            // => [Optimize] HeadDepthPrepass
     internal const string HeadCullingMaskDrop = "";          // => [Optimize] HeadCullingMaskDrop
     internal const bool HeadMaskFromScenarioCamera = false;  // => [Optimize] HeadMaskFromScenarioCamera
-    internal const bool AutomaticLodIdleSkip = true;         // => [Optimize] AutomaticLodIdleSkip  (ON, VR only. Not a judgement call: the sweep disables an instance only after READING its own LODSwitchMode as UnityLODGroup, which is the exact condition under which AutomaticLOD.Update returns on its FIRST statement — the component's own test, run per instance. 2560 of 2986 entries on Unity's Update list on the 2026-08-22 log. The LODGroup that actually picks the level is a different component and is untouched; every disabled instance is restored on teardown, on hot-reload and on a dial flip)
-    internal const float AutomaticLodSweepSeconds = 15f;     // => [Optimize] AutomaticLodSweepSeconds  (a revealed room instantiates new AutomaticLOD; 15s is the worst-case latency before those come off the list too. One typed FindObjectsOfType per sweep, which the [Perf] LOD line times and prints — at a single-digit-ms scan this is far under a tenth of a percent of a frame amortised, against a saving paid on all ~1350 frames in that window)
     internal const float LodBias = 0f;                       // => [Optimize] LodBias  (0 = leave QualitySettings.lodBias at the quality level's own value = TODAY'S BEHAVIOUR, changes no pixel. The VR correction factor is tan(fovVR/2)/tan(fovFlat/2), two numbers this project has never measured — the [Perf] LOD line prints them and the exact value that would restore the flat game's LOD choice. Nothing gets tuned here before that reading exists)
 
     // ---- Core/SkyAlternative.cs ----------------------------------------------------
@@ -292,11 +306,9 @@ internal static partial class Defaults
     // and an install that never opens the menu behave exactly as ModBuild 277 did. This is a
     // tuning surface, not a retune — the same rule the ModBuild 272 walk-in promotion followed.
     internal const float RescanIntervalSeconds = 2f;         // => [WallFade] RescanIntervalSeconds
-    // 0 = every frame, which is what [Optimize] WallFadeEvalInterval has shipped as since the
-    // 2026-07 perf pass and therefore what this must ship as: a non-zero default here would be
-    // a silent behaviour change smuggled in on a surfacing commit, and it would also override
-    // whatever a returning tester already has in his perf.cfg. The measured recommendation and
-    // its derivation live in .planning/perf/FINDINGS.md; the number is a human's to choose.
+    // PC 0 means unset here: the legacy cadence door or the shared 0.05 s fallback applies.
+    // Build664 seeds fresh Standalone entries from FrameDefaults.WallEvalIntervalSeconds
+    // under the maintainer's explicit choice. Existing saved entries remain authoritative.
     internal const float EvalIntervalSeconds = 0f;           // => [WallFade] EvalIntervalSeconds
     // ModBuild 437 — THE CADENCE THAT APPLIES WHEN NEITHER DIAL IS SET, and it is a new
     // constant rather than a new default for the two above BECAUSE A DEFAULT WOULD NOT HAVE
@@ -328,7 +340,6 @@ internal static partial class Defaults
     // and it is safe by construction — while the walk-in latch holds, every wall is forced solid
     // by decree, so the decision, the coverage sampling and the rescan cadence are all computing
     // an answer the segment loop throws away one branch later.
-    internal const bool WalkInSuspendSampling = true;        // => [WallFade] WalkInSuspendSampling
     // ModBuild 278 — the WHICH-RENDERERS census (see WallSegmentFadeCulprits.cs). It shipped ON
     // "because it is the whole point of the build": 28 of 33 commits in the ModBuild 277 log
     // fired on "the SCENE signature moved" and nothing shipped could say what moved it.
@@ -346,6 +357,7 @@ internal static partial class Defaults
     // a deletion. Turn the key back on the day §7.2 is implemented: that is precisely the run
     // where it has to name, renderer by renderer, what the narrowing dropped.
     internal const bool SignatureCulpritCensus = false;      // => [WallFade] SignatureCulpritCensus  (pinned: ModBuild 284 turned this OFF deliberately — the question it exists to ask has been asked and answered, and it is the "a probe that answered is spent" entry. The 2026-08-26 cfg snapshot carries a value that PREDATES that decision, not a chosen one; turn it back on the day WALL-FADE-CLOSEOUT §7.2 is implemented)
+    internal const bool DeepSceneCensus = false;             // => [WallFade] DeepSceneCensus (full-scene forensic scans are opt-in on every platform)
     // ModBuild 281 (PERF B step 3) — the CHURN gate (see WallSegmentFade.CommitGate.cs). It
     // shipped ON for the same reason SignatureCulpritCensus above it did: PERF B removes the
     // ~95 ms commit frame by spreading it over ~63 frames, and the one thing that can go wrong

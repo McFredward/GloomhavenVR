@@ -3,6 +3,7 @@ using GloomhavenVR.Core;
 using GloomhavenVR.Core.Events;
 using UnityEngine;
 using UnityEngine.UI;
+using SpriteMemoryManagement;
 
 namespace GloomhavenVR.WorldUI.Surfaces;
 
@@ -177,6 +178,158 @@ internal sealed class StatPanelSurface
     /// write back into <c>Singleton&lt;ActorStatPanel&gt;._instance</c>. Never a copy (copies carry
     /// no ActorStatPanel component at all), never null.</summary>
     private static ActorStatPanel? _realPanel;
+
+    // Build617: cache only already-authored original imagery while the scenario loader is up.
+    // Never Show a made-up actor, instantiate a live singleton or create a preview camera.
+    // Build618 also resolves the original portraits for existing actors. Loading uses our own
+    // GUID pins, never the native ImageSpriteLoader or a synthetic panel Show.
+    private readonly struct PreparationArt
+    {
+        internal PreparationArt(Sprite sprite) { Sprite = sprite; Texture = null; Reference = null; }
+        internal PreparationArt(Texture2D texture) { Sprite = null; Texture = texture; Reference = null; }
+        internal PreparationArt(ReferenceToSprite reference) { Sprite = null; Texture = null; Reference = reference; }
+        internal readonly Sprite? Sprite;
+        internal readonly Texture2D? Texture;
+        internal readonly ReferenceToSprite? Reference;
+    }
+    private static readonly List<PreparationArt> Preparation = new();
+    private static int _preparedArt, _preparationFailures;
+    private static float _portraitWaitUntil, _portraitDiscoveryUntil;
+    private static ActorBehaviour[] _portraitActors = System.Array.Empty<ActorBehaviour>();
+    private static readonly HashSet<Sprite> PreparationSprites = new();
+    private static bool _portraitDiscoveryPending;
+    internal static int InteractionPreparationTotal => Preparation.Count + (_portraitDiscoveryPending ? 1 : 0);
+    internal static int InteractionPreparationCompleted => _preparedArt;
+    internal static bool InteractionPreparationReady => !_portraitDiscoveryPending && _preparedArt >= Preparation.Count;
+
+    internal static void BeginInteractionPreparation(ActorBehaviour[]? actors = null)
+    {
+        ResetInteractionPreparation();
+        if (WorldUIConfig.PanelMipBake == null || !WorldUIConfig.PanelMipBake.Value) return;
+        HashSet<Sprite> sprites = PreparationSprites;
+        var textures = new HashSet<Texture2D>();
+        if (Singleton<ActorStatPanel>.IsInitialized)
+            CollectPreparationArt(ActorStatPanel.Instance, sprites, textures);
+        if (Singleton<EnemyCurrentTurnStatPanel>.IsInitialized)
+            CollectPreparationArt(EnemyCurrentTurnStatPanel.Instance, sprites, textures);
+        if (actors != null && actors.Length != 0)
+        {
+            _portraitActors = actors;
+            _portraitDiscoveryPending = true;
+            _portraitDiscoveryUntil = Time.realtimeSinceStartup + 30f;
+            _portraitWaitUntil = _portraitDiscoveryUntil;
+            TryCollectOriginalPortraits();
+        }
+    }
+
+    private static bool TryCollectOriginalPortraits()
+    {
+        if (!_portraitDiscoveryPending || UIInfoTools.Instance == null) return false;
+        _portraitDiscoveryPending = false;
+        ActorBehaviour[] actors = _portraitActors;
+        _portraitActors = System.Array.Empty<ActorBehaviour>();
+        var references = new HashSet<ReferenceToSprite>();
+        StatPortraitPreparation.Collect(actors,
+            portrait => { if (PreparationSprites.Add(portrait)) Preparation.Add(new PreparationArt(portrait)); },
+            portrait =>
+            {
+                if (!references.Add(portrait)) return;
+                Preparation.Add(new PreparationArt(portrait));
+                // Start asynchronously through the existing coordinator's one-resource
+                // queue while figure ghosts are prepared; do not load in this callback.
+                Cards.ScenarioCardPreparation.IncludeOriginalReference(portrait);
+            });
+        return true;
+    }
+
+    private static void CollectPreparationArt(Component? root, HashSet<Sprite> sprites, HashSet<Texture2D> textures)
+    {
+        if (root == null) return;
+        foreach (Image image in root.GetComponentsInChildren<Image>(includeInactive: true))
+            if (image != null && image.sprite != null && sprites.Add(image.sprite))
+                Preparation.Add(new PreparationArt(image.sprite));
+        foreach (RawImage raw in root.GetComponentsInChildren<RawImage>(includeInactive: true))
+            if (raw != null && raw.texture is Texture2D texture && texture != null && textures.Add(texture))
+                Preparation.Add(new PreparationArt(texture));
+    }
+
+    internal static void TickInteractionPreparation()
+    {
+        if (InteractionPreparationReady) return;
+        if (_portraitDiscoveryPending)
+        {
+            if (WorldUIConfig.PanelMipBake != null && WorldUIConfig.PanelMipBake.Value)
+            {
+                if (TryCollectOriginalPortraits()) return;
+                if (Time.realtimeSinceStartup < _portraitDiscoveryUntil) return;
+                if (++_preparationFailures <= 2)
+                    VRLog.Warn("WorldUI", $"Original stat portrait discovery timed out waiting for native UI resources; live preview remains available (report {_preparationFailures}/2).");
+            }
+            _portraitDiscoveryPending = false;
+            _portraitActors = System.Array.Empty<ActorBehaviour>();
+            return;
+        }
+        float metadataDeadline = Time.realtimeSinceStartup + .002f;
+        for (int job = 0; job < 64 && !InteractionPreparationReady; job++)
+        {
+            if (job > 0 && Time.realtimeSinceStartup >= metadataDeadline) return;
+            PreparationArt art = Preparation[_preparedArt++];
+            if (WorldUIConfig.PanelMipBake == null || !WorldUIConfig.PanelMipBake.Value) continue;
+            using var timing = VRLog.WantsDebug ? PerfMonitor.Scope("FigurePreparation.StatArt") : default;
+            bool cold = false;
+            try
+            {
+                // Populate the shared cache; original UI assignments and lifetime stay live.
+                if (art.Reference != null)
+                {
+                    Cards.CardArtPin.PinReference(art.Reference);
+                    Sprite? portrait = Cards.CardArtPin.PreparedSprite(art.Reference, out bool pending);
+                    if (portrait != null)
+                    {
+                        cold = Cards.CardFaceMipBake.RequiresColdPreparation(portrait);
+                        Cards.CardFaceMipBake.ReplacementFor(portrait);
+                    }
+                    else if (pending && Time.realtimeSinceStartup < _portraitWaitUntil)
+                    {
+                        // One absolute wait for the whole pass, with ready later portraits
+                        // allowed to advance. No serial 30-second timeout per reference.
+                        _preparedArt--;
+                        Preparation.RemoveAt(_preparedArt);
+                        Preparation.Add(art);
+                        continue;
+                    }
+                    else if (++_preparationFailures <= 2)
+                        VRLog.Warn("WorldUI", $"Stat portrait preparation unavailable or timed out; original live preview remains available (report {_preparationFailures}/2).");
+                }
+                else if (art.Sprite != null)
+                {
+                    cold = Cards.CardFaceMipBake.RequiresColdPreparation(art.Sprite);
+                    Cards.CardFaceMipBake.ReplacementFor(art.Sprite);
+                }
+                else if (art.Texture != null && art.Texture.mipmapCount <= 1)
+                {
+                    // Raw authored panel textures are uncommon; conservatively treat this
+                    // as the single possible cold texture operation in the current frame.
+                    cold = true;
+                    Cards.CardFaceMipBake.BakedTextureFor(art.Texture);
+                }
+            }
+            catch (System.Exception ex)
+            {
+                if (++_preparationFailures <= 2)
+                    VRLog.Warn("WorldUI", $"Stat imagery preparation skipped ({ex.GetType().Name}: {ex.Message}); original live stat preview remains available (report {_preparationFailures}/2).");
+            }
+            if (cold) return;
+        }
+    }
+
+    internal static void ResetInteractionPreparation()
+    {
+        Preparation.Clear(); PreparationSprites.Clear();
+        _preparedArt = _preparationFailures = 0;
+        _portraitWaitUntil = _portraitDiscoveryUntil = 0f;
+        _portraitDiscoveryPending = false; _portraitActors = System.Array.Empty<ActorBehaviour>();
+    }
 
     /// <summary>Viewer-relative dock side for a hand: RIGHT hand → viewer-LEFT (-1), LEFT hand →
     /// viewer-RIGHT (+1), so the holding hand never occludes its own panel (item 5).
@@ -470,8 +623,9 @@ internal sealed class StatPanelSurface
                 // local rotation, and CanvasConversion.LateTick RE-runs the flatten EVERY frame
                 // while shown (FlattenEnabled) so a NEW ENEMY TYPE repopulating the card with
                 // fresh tilted stat rows / ability text can NEVER re-acquire the 3D tilt.
-                watch.Panel = CanvasConversion.Convert(watch.Attached.transform as RectTransform, name,
-                    pokeable: false, sortingOrder: StatPanelSortingOrder, flatten2D: true);
+                using (VRLog.WantsDebug ? PerfMonitor.Scope("StatPanel.Convert") : default)
+                    watch.Panel = CanvasConversion.Convert(watch.Attached.transform as RectTransform, name,
+                        pokeable: false, sortingOrder: StatPanelSortingOrder, flatten2D: true);
                 if (watch.Panel != null)
                 {
                     // MR backing opt-out (user ruling 2026-08-04, reported on the figure-grab
@@ -490,7 +644,8 @@ internal sealed class StatPanelSurface
                     // sampling the game's MIPLESS UI atlases and the mipless 512² enemy portraits
                     // ('cultist', 'living bones', 'living corpse elite' … in the hardware log).
                     // It had never been wired to the bake at all. Immediate pass, then cadence.
-                    watch.RescanMips(name);
+                    using (VRLog.WantsDebug ? PerfMonitor.Scope("StatPanel.FirstMips") : default)
+                        watch.RescanMips(name);
                 }
             }
         }
@@ -612,6 +767,7 @@ internal sealed class StatPanelSurface
     /// </summary>
     private static void BuildStaticCopy(ActorStatPanel real, ScenarioRuleLibrary.CActor actor)
     {
+        using var timing = VRLog.WantsDebug ? PerfMonitor.Scope("StatPanel.Snapshot") : default;
         DestroyCopy();
 
         var holder = new GameObject("GloomhavenVR.StatPanelCopyHolder");
@@ -979,6 +1135,7 @@ internal sealed class StatPanelSurface
 
     public void Shutdown()
     {
+        ResetInteractionPreparation();
         VREvents.MiniaturePoked -= OnMiniaturePoked;
         _actorPanel.Detach();
         _enemyTurnPanel.Detach();

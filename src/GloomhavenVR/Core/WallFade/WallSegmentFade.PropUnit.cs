@@ -1017,8 +1017,8 @@ internal static partial class WallSegmentFade
                 if (m == null || IsModObject(m))
                     continue;
                 kept++;
-                if (!have) { union = m.bounds; have = true; }
-                else union.Encapsulate(m.bounds);
+                if (!have) { union = WallCommitGeometryReads.Read(m); have = true; }
+                else union.Encapsulate(WallCommitGeometryReads.Read(m));
             }
             if (!have || kept < 2)
                 return null;
@@ -1505,7 +1505,7 @@ internal static partial class WallSegmentFade
                 // FALSIFIED BY: a FADE WRITE row for a renderer IsWaterProtected returns true for,
                 // or a WATER FEATURE census whose pond/basin/rim is not solid. Either means the
                 // skip leaked and this goes back to being a refusal.
-                if (IsWaterProtected(m.bounds))
+                if (IsWaterProtected(WallCommitGeometryReads.Read(m)))
                 {
                     _propUnitWaterSkipped++;
                     NotePropUnitLeftVisible(m, "the WATER rect holds it as part of the water "
@@ -1628,7 +1628,10 @@ internal static partial class WallSegmentFade
                     if (at < 0)
                         continue;
                     if (seg.HasBlock)
+                    {
+                        ScenarioEnvironmentBudget.BeforeNativeRendererWrite(m);
                         m.SetPropertyBlock(null);
+                    }
                     seg.Renderers.RemoveAt(at);
                     moved++;
                     _propUnitTouched.Add(m); // so the FADE WRITE census can attribute it
@@ -1696,8 +1699,8 @@ internal static partial class WallSegmentFade
                 {
                     if (m == null || !owner.Renderers.Contains(m))
                         continue;
-                    if (!owner.HasBounds) { owner.Bounds = m.bounds; owner.HasBounds = true; }
-                    else owner.Bounds.Encapsulate(m.bounds);
+                    if (!owner.HasBounds) { owner.Bounds = WallCommitGeometryReads.Read(m); owner.HasBounds = true; }
+                    else owner.Bounds.Encapsulate(WallCommitGeometryReads.Read(m));
                 }
             }
             foreach (Segment loser in _propUnitLosers)
@@ -1755,7 +1758,10 @@ internal static partial class WallSegmentFade
                 if (at >= 0)
                 {
                     if (owner.HasBlock)
+                    {
+                        ScenarioEnvironmentBudget.BeforeNativeRendererWrite(m);
                         m.SetPropertyBlock(null);
+                    }
                     owner.Renderers.RemoveAt(at);
                     _propUnitClaimed.Remove(m);
                     pulled++;
@@ -1815,8 +1821,7 @@ internal static partial class WallSegmentFade
         /// swap-template donation) as it decides.</summary>
         private bool RendererHasWallFadeChannel(MeshRenderer r)
         {
-            _matScratch.Clear();
-            r.GetSharedMaterials(_matScratch);
+            ReadFadeMaterials(r, _matScratch);
             foreach (Material m in _matScratch)
             {
                 if (m == null || m.shader == null)
@@ -1914,7 +1919,7 @@ internal static partial class WallSegmentFade
             // WATER stays out (user ruling 2026-08-09, brunnen.png): a fountain's basin and its
             // water plane are a feature that never fades, and unlike the ground band that is a
             // ruling about the OBJECT, not a band the object happens to sit in.
-            if (IsWaterProtected(m.bounds))
+            if (IsWaterProtected(WallCommitGeometryReads.Read(m)))
             {
                 NotePropUnitLeftVisible(m, "water feature (user ruling 2026-08-09) — never fades");
                 return false;
@@ -1933,7 +1938,7 @@ internal static partial class WallSegmentFade
                 return false;
             }
             if (RoomDecisionValid(owner.RoomIndex) && owner.RoomIndex < _live.RoomFloorY.Count
-                && m.bounds.max.y <= _live.RoomFloorY[owner.RoomIndex] + GroundExclusionHeightWU)
+                && WallCommitGeometryReads.Read(m).max.y <= _live.RoomFloorY[owner.RoomIndex] + GroundExclusionHeightWU)
             {
                 // Recruited THROUGH the ground band — the ModBuild-258 lift. Counted separately
                 // so the next log states how many pieces the rule actually recovered, and from
@@ -2041,6 +2046,11 @@ internal static partial class WallSegmentFade
                     lost = true;
                     continue;
                 }
+                // Purely decorative budget masks own visibility, not the native room/occluder
+                // facts. Keep membership and restoration; avoid union and material writes until
+                // this renderer is visible again. The ordinary per-frame loop resumes immediately.
+                if (SkipBudgetMaskedAttachment(p, seg.UnitDressingState, ref highest))
+                    continue;
                 // The fade this PIECE reads — its owner's, or that of any fade-eligible segment
                 // its own AABB reaches into, whichever is higher. Nothing here writes a segment.
                 float eff = UnionFade(r, seg);
@@ -2133,8 +2143,8 @@ internal static partial class WallSegmentFade
             {
                 if (m == null)
                     continue;
-                if (!have) { union = m.bounds; have = true; }
-                else union.Encapsulate(m.bounds);
+                if (!have) { union = WallCommitGeometryReads.Read(m); have = true; }
+                else union.Encapsulate(WallCommitGeometryReads.Read(m));
             }
             if (!have)
                 return float.MaxValue;

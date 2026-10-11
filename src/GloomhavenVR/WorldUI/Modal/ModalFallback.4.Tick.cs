@@ -453,6 +453,17 @@ internal static partial class ModalFallback
             return false;
         if (wp.Window.GetComponent<UIQuestPopup>() == null)
             return false;
+        // The manager owns two separate subjects: accepted/local selection and the
+        // host-proposal hover. Ending one must release that original popup even while
+        // the other still names a quest. In mixed lobbies a native cancellation has
+        // no VR record20, so the manager's measured subject lifetime is authoritative.
+        if (MapRoom.NativeMapQuestSelection.TryHasSubject(wp.Window, out bool hasSubject)
+            && !hasSubject)
+        {
+            why = "this original quest popup's own manager subject has ended; another selected "
+                  + "quest or multiplayer hover cannot keep this separate view sticky";
+            return true;
+        }
         if (!MapRoom.MapLocationInteractor.QuestSelectionCleared(out string cleared))
         {
             why = cleared;
@@ -2286,6 +2297,8 @@ internal static partial class ModalFallback
         {
             if (window == null)
                 continue;
+            if (TownServicePresentation.OwnsWindow(window))
+                continue;
             // Test #21/#22: while the decision dock claims this window, it is NOT
             // part of the generic modal path — no float, no screen, no ModalUI
             // (still tracked in Open: the claim is re-checked every tick, so a
@@ -2835,9 +2848,10 @@ internal static partial class ModalFallback
         for (int i = 0; i < OpenWindows.Count; i++)
         {
             UIWindow window = OpenWindows[i];
-            // A native callback can finish the story after the poll was sampled.
-            // Do not re-float it in the same pass that released its closed last page.
-            if (NativeStoryWindow.IsCompleted(window))
+            // Town services keep their original interaction surface, and a native
+            // story completion must not be re-floated from this tick's stale poll.
+            if (TownServicePresentation.OwnsWindow(window)
+                || NativeStoryWindow.IsCompleted(window))
                 continue;
             // Composite adoption runs after OpenWindows was sampled. Recheck the live
             // hierarchy here: a newly parked hint must not be converted again this tick.
@@ -2968,7 +2982,11 @@ internal static partial class ModalFallback
         //    A HOVER CARD has no grab frame at all (ModBuild 181) — TickHoverCards owns its pose.
         for (int i = 0; i < Converted.Count; i++)
         {
-            if (Converted[i].HoverCard)
+            // TickWindowLiveness ran in the release phase above and owns every wake edge.
+            // A dormant float's canvas, bar and collider are all hidden; following its grab
+            // frame cannot affect a visible pixel or input target. Its saved pose and shared
+            // state are refreshed on the first tick it wakes, before rendering that frame.
+            if (Converted[i].HoverCard || Converted[i].Dormant)
                 continue;
             // ...and its grab bar is re-tinted from the LIVE shared-window predicate in the same
             // pass. THIS is the one place that knows both halves — the mod-owned GrabbableModal and
@@ -2992,8 +3010,10 @@ internal static partial class ModalFallback
             // grab: the handle's release edge, and the two net pose appliers. This is the one place
             // per tick that knows both halves, so a window that wears the network badge is exactly a
             // window that will not re-face — one fact, one evaluation, no second predicate to drift.
-            Converted[i].Grab?.SyncSharedState(Converted[i].Window);
-            Converted[i].Grab?.Tick();
+            using (PerfMonitor.Scope("ModalFallback.GrabSharedState"))
+                Converted[i].Grab?.SyncSharedState(Converted[i].Window);
+            using (PerfMonitor.Scope("ModalFallback.GrabPoseAndBar"))
+                Converted[i].Grab?.Tick();
         }
         TickHoverCards();
         EnterPhase(PhaseDestinations);
@@ -3132,8 +3152,9 @@ internal static partial class ModalFallback
         // Screen policy: full composite for style=screen; for style=window only the
         // windows that FAILED to convert raise it (per-window automatic fallback).
         // The manual chord path forces the screen inside FlatScreen regardless.
-        ScreenWanted = wantLock && (!WorldUIConfig.ModalWindowStyle || Failed.Count > 0
-                                    || ErrorScreenWanted); // part 10: unfloatable error box
+        ScreenWanted = (wantLock && (!WorldUIConfig.ModalWindowStyle || Failed.Count > 0
+                                     || ErrorScreenWanted)) // part 10: unfloatable error box
+                       || MapRoom.MapRetirementPrompt.ScreenFallbackWanted;
         VRModeStateMachine.SetAuxModal(wantLock); // ModalUI only for genuine blockers (item 3b)
 
         // ---- close the measurement out (see the SUB-STEP ATTRIBUTION block) ------------------

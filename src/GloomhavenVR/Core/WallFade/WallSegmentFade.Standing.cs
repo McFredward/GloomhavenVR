@@ -523,6 +523,7 @@ internal static partial class WallSegmentFade
             // it holds no outcome, only the text of one, and every operand in it is measured
             // geometry that this scope is dropping on the line above.
             _standingWhyMemo.Clear();
+            ClearPreparedStandingLabels();
             // PERF S3 dropped the per-node subtree facts here too. PERF S4 moved that single
             // line to the top of CommitWallCache: this scope now opens one stage earlier, and
             // the node-fact WINDOW may not move with it, because its constancy argument is about
@@ -551,25 +552,6 @@ internal static partial class WallSegmentFade
             _wallSectionFail.Clear();
             _wallSectionFailSeen.Clear();
             _wallSectionFailCount = 0;
-        }
-
-        /// <summary>The PROP UNIT of a renderer for the FIGURE arm: the nearest ancestor (itself
-        /// included) carrying one of the figure/actor components. Null when there is none — then
-        /// the renderer matched only as a <c>SkinnedMeshRenderer</c> and there is no unit to
-        /// protect as a whole.</summary>
-        private static Transform? FigurePropRootOf(Transform? t)
-        {
-            while (t != null)
-            {
-                if (t.GetComponent<ActorBehaviour>() != null
-                    || t.GetComponent<CInteractableActor>() != null
-                    || t.GetComponent<Animator>() != null)
-                {
-                    return t;
-                }
-                t = t.parent;
-            }
-            return null;
         }
 
         /// <summary>The PROP UNIT of a renderer for the FLOOR arm: ModBuild 167's grouping, the
@@ -674,7 +656,7 @@ internal static partial class WallSegmentFade
             if (judged == WallStandingProp.FloorVerdict.WallFeatureFragment)
             {
                 _standingWallCutRoots.Add(root!);
-                string named = $"'{root!.name}' {Why()}";
+                string named = StandingNamedWhy(root!, figure, Why());
                 if (_standingWallCutNames.TryGetValue(named, out int seen))
                     _standingWallCutNames[named] = seen + 1;
                 else if (_standingWallCutNames.Count < StandingWallCutNameCap)
@@ -720,7 +702,7 @@ internal static partial class WallSegmentFade
                     wallSection = true;
                     sectionOverride = sectionWhy; // Why() returns this from here on, as before
                     _wallSectionRoots.Add(root!);
-                    string sentence = $"'{root!.name}' {sectionWhy}";
+                    string sentence = StandingNamedWhy(root!, figure, sectionWhy);
                     _wallSectionSeen.Add(sentence);
                     if (_wallSectionNames.TryGetValue(sentence, out int seen))
                         _wallSectionNames[sentence] = seen + 1;
@@ -757,7 +739,7 @@ internal static partial class WallSegmentFade
 
             if (armed)
             {
-                _standingPropDesc[root!] = $"'{root!.name}' {Why()}";
+                _standingPropDesc[root!] = StandingNamedWhy(root!, figure, Why());
             }
             else if (!verdict && unit.MinY - floorY <= WallStandingProp.FootBandWU
                      && _standingNearMiss.Count < StandingNearMissCap)
@@ -768,7 +750,7 @@ internal static partial class WallSegmentFade
                 // ALSO the roster of units the ModBuild-258 whole-unit rule applies to (a near
                 // miss IS a unit the mod has called architecture), so a truncated list hides the
                 // very units whose bases should have been recruited.
-                _standingNearMiss[root!] = $"'{root!.name}' {Why()}";
+                _standingNearMiss[root!] = StandingNamedWhy(root!, figure, Why());
             }
             return armed;
 
@@ -891,7 +873,33 @@ internal static partial class WallSegmentFade
         /// PREPARE INVARIANT in WallSegmentFade.Prepare.cs.</summary>
         private void WarmStandingUnit(Renderer r)
         {
-            ResolveStandingUnit(r, out _, out _, out _, out _, out _, out _, out _);
+            if (!ResolveStandingUnit(r, out bool figure, out Transform? root,
+                                     out WallStandingProp.Unit unit, out float floorY,
+                                     out bool vegetation, out _, out bool wallCut))
+                return;
+            WallStandingProp.FloorVerdict verdict =
+                WallStandingProp.Judge(unit, floorY, figure, wallCut);
+            // The same geometry branch as IsStandingProp, without recording any census outcome
+            // or making the renderer's provenance decision early. It fills derivation memos only.
+            if (figure && verdict == WallStandingProp.FloorVerdict.StandsOnFloor)
+            {
+                bool windowWall = r.transform.parent != null
+                                  && WallInUnitWindowMemoized(r.transform.parent);
+                WallSectionGeometry(r, root!, unit, floorY, windowWall, wallCut, vegetation, out _);
+            }
+            if (verdict == WallStandingProp.FloorVerdict.StandsOnFloor
+                || verdict == WallStandingProp.FloorVerdict.WallFeatureFragment
+                || unit.MinY - floorY <= WallStandingProp.FootBandWU)
+            {
+                if (!_standingWhyMemo.TryGetValue(root!, out StandingWhy why)
+                    || why.Figure != figure)
+                {
+                    why = new StandingWhy(figure,
+                        WallStandingProp.Describe(unit, floorY, figure, vegetation, wallCut, verdict));
+                    _standingWhyMemo[root!] = why;
+                }
+                StandingNamedWhy(root!, figure, why.Why);
+            }
         }
 
         /// <summary>Measure a unit once per rescan: the union AABB of every renderer under its
@@ -943,8 +951,8 @@ internal static partial class WallSegmentFade
                 // hits per unit per RESCAN.
                 if (!fadeChannel && RendererHasFadeChannel(piece))
                     fadeChannel = true;
-                if (!have) { union = piece.bounds; have = true; }
-                else union.Encapsulate(piece.bounds);
+                if (!have) { union = WallCommitGeometryReads.Read(piece); have = true; }
+                else union.Encapsulate(WallCommitGeometryReads.Read(piece));
             }
             _standingUnitScratch.Clear();
             bool ok = have && NearestAnchoredFloorY(union.min.y, out floorY);
@@ -993,8 +1001,7 @@ internal static partial class WallSegmentFade
         /// </summary>
         private bool RendererHasFadeChannel(Renderer r)
         {
-            _standingMatScratch.Clear();
-            r.GetSharedMaterials(_standingMatScratch);
+            ReadFadeMaterials(r, _standingMatScratch);
             bool any = false;
             foreach (Material m in _standingMatScratch)
             {

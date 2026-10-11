@@ -570,6 +570,30 @@ internal static class RemoteAbilityCardSource
         return FacePath.None;
     }
 
+    /// <summary>Prepare the actual map-hand print while its slab is still parked. The same
+    /// clone is revealed later; this is not a second art cache or an extra pooled widget.</summary>
+    internal static bool PreparePooledFace(RemoteCardArt art, CAbilityCard card)
+    {
+        if (art == null || card == null)
+            return false;
+        try { return TryPooledClone(art, card, prepareOnly: true); }
+        catch (System.Exception ex)
+        {
+            VRLog.Debug("Net", $"Map-hand face preparation skipped card {card.ID} ({ex.Message}).");
+            art.HideFront();
+            return false;
+        }
+    }
+
+    /// <summary>Activate a previously prepared map print once its card is in the hierarchy.</summary>
+    internal static FacePath ShowPreparedPooledFace(RemoteCardArt art, CAbilityCard card)
+    {
+        if (art == null || card == null || !BorrowedFaces.TryGetValue(art, out BorrowedFace borrowed)
+            || !ReferenceEquals(borrowed.Card, card) || !art.HasPreparedFront)
+            return FacePath.None;
+        return art.ShowPreparedFront() ? Report(FacePath.PooledBorrow, card) : FacePath.None;
+    }
+
     /// <summary>One Info line the first time each path is exercised in a session — enough for a
     /// hardware log to state WHICH mechanism is carrying the fidelity, without a line per card.</summary>
     private static FacePath Report(FacePath path, CAbilityCard card)
@@ -666,11 +690,16 @@ internal static class RemoteAbilityCardSource
     /// event detection (AbilityCardUI.cs:1312-1335). We add no mutation of our own beyond that call
     /// pair, so the widget the pool gets back is the widget the pool handed out.
     /// </summary>
-    private static bool TryPooledClone(RemoteCardArt art, CAbilityCard card)
+    private static bool TryPooledClone(RemoteCardArt art, CAbilityCard card,
+        bool prepareOnly = false)
     {
         if (ObjectPool.instance == null || card.ID == 0)
             return false;
 
+        // The Build 592 Frame map fan borrows ten source widgets on its first reveal.
+        // Time the native pool stages separately from RemoteCardArt.Build so the next
+        // capture can tell whether the hitch is source manufacture or face presentation.
+        // No stage is deferred: every front still reaches the first visible frame.
         // Reset the art's source dedup first: the borrowed widget is transient, so its instance id
         // carries no meaning across calls and must never be allowed to dedup a genuinely new card.
         art.HideFront();
@@ -687,8 +716,9 @@ internal static class RemoteAbilityCardSource
             holder.transform.SetParent(ObjectPool.instance.transform, worldPositionStays: false);
             holder.SetActive(false);
 
-            cardGo = ObjectPool.SpawnCard(card.ID, ObjectPool.ECardType.Ability, holder.transform,
-                resetLocalScale: true, resetToMiddle: true, resetLocalRotation: false, activate: false);
+            using (Core.PerfMonitor.Scope("Net.CardAppearance.PoolSpawn"))
+                cardGo = ObjectPool.SpawnCard(card.ID, ObjectPool.ECardType.Ability, holder.transform,
+                    resetLocalScale: true, resetToMiddle: true, resetLocalRotation: false, activate: false);
             if (cardGo == null)
                 return false;
 
@@ -700,7 +730,8 @@ internal static class RemoteAbilityCardSource
             // Everything the CLONE needs to draw is already baked on the widget by the pool's own
             // MakeFullCard (name, initiative, level, both action layouts — FullAbilityCard.cs:456+);
             // Init adds the skin, which RemoteCardArt re-hands to the clone.
-            ui.Init(card, disableEventDetection: true);
+            using (Core.PerfMonitor.Scope("Net.CardAppearance.PoolInit"))
+                ui.Init(card, disableEventDetection: true);
 
             // BEST-EFFORT ONLY. Show() → FullAbilityCard.ShowCard() kicks the skin's async header-art
             // load through an ImageAddressableLoader keyed on the widget — but our borrowed widget is
@@ -708,14 +739,22 @@ internal static class RemoteAbilityCardSource
             // it can legitimately refuse. That costs us nothing: the clone carries the same _skin and
             // runs its OWN OnEnable → ShowCard once it activates (FullAbilityCard.cs:430), which is
             // where the header art actually arrives. So a failure here must never sink the path.
-            try { ui.Show(); }
+            try
+            {
+                using (Core.PerfMonitor.Scope("Net.CardAppearance.PoolShow"))
+                    ui.Show();
+            }
             catch (System.Exception e)
             {
                 VRLog.Debug("Net", $"Borrowed ability card Show() skipped ({e.Message}) — the clone " +
                                    "reloads its own header art on activation.");
             }
 
-            bool shown = art.ShowFront(ui.fullAbilityCard);
+            bool shown = prepareOnly
+                ? art.PrepareFront(ui.fullAbilityCard.gameObject,
+                    ui.fullAbilityCard.GetInstanceID(), ui.fullAbilityCard,
+                    SkinFixup(ui.fullAbilityCard))
+                : art.ShowFront(ui.fullAbilityCard);
             if (shown)
             {
                 BorrowedFace borrowed = BorrowedFaces.GetValue(art, _ => new BorrowedFace());
@@ -731,7 +770,11 @@ internal static class RemoteAbilityCardSource
             // source here cannot disturb it.
             if (cardGo != null && ui != null)
             {
-                try { ObjectPool.RecycleCard(ui.CardID, ObjectPool.ECardType.Ability, cardGo); }
+                try
+                {
+                    using (Core.PerfMonitor.Scope("Net.CardAppearance.PoolRecycle"))
+                        ObjectPool.RecycleCard(ui.CardID, ObjectPool.ECardType.Ability, cardGo);
+                }
                 catch (System.Exception e) { VRLog.Warn("Net", $"Ability-card borrow recycle failed: {e.Message}"); }
             }
             else if (cardGo != null)

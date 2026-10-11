@@ -58,7 +58,16 @@ internal sealed class NewPartyDisplayUI : UnityEngine.Object
     internal static NewPartyDisplayUI? PartyDisplay;
     internal UnityEngine.UI.UIWindow? window;
     internal readonly HashSet<UnityEngine.Object> hideRequests = new();
+    internal NewPartyCharacterUI? SelectedUISlot;
+    internal void DisableMapOptions() { }
+    internal void EnableMapOptions() { }
 }
+internal sealed class NewPartyCharacterUI : UnityEngine.Object
+{
+    internal object? Data;
+    internal void OnClick() { }
+}
+internal static class MapFTUEManager { internal static bool IsPlaying; }
 internal sealed partial class AdventureMapUIManager : UnityEngine.Object
 {
     // Matches the native manager's request-set contract, independent of visual alpha.
@@ -92,9 +101,11 @@ internal static class FFSNetwork { internal static bool IsOnline; }
 namespace GloomhavenVR.WorldUI.MapRoom
 {
     internal static class MapRoomDriver { internal static bool Active; }
+    internal static class MapCharacterSelection { internal static object? Selected; }
 }
 namespace GloomhavenVR.WorldUI
 {
+    internal static class WorldUIConfig { internal static bool ConversionActive; }
     internal static class MapQuestReadyUp { internal static void Reset() { } }
     internal static class MapQuestReadyRoster { internal static void Reset() { } }
     internal static partial class StoryComposite
@@ -140,4 +151,19 @@ internal static class VRLog
 {
     internal static void Note(string scope, string message) { }
     internal static void Info(string scope, string message) { }
+    internal static void Warn(string scope, string message) { }
+}
+
+namespace GloomhavenVR.Core { }
+
+namespace HarmonyLib
+{
+    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = true)]
+    internal sealed class HarmonyPatch : Attribute
+    {
+        internal HarmonyPatch() { }
+        internal HarmonyPatch(Type type, string method) { }
+    }
+    [AttributeUsage(AttributeTargets.Method)] internal sealed class HarmonyPrefix : Attribute { }
+    [AttributeUsage(AttributeTargets.Method)] internal sealed class HarmonyFinalizer : Attribute { }
 }

@@ -780,6 +780,9 @@ internal static partial class CanvasConversion
             AddSeatVeilMember(panel, display.EnhancementCardsDisplay);
             AddSeatVeilMember(panel, display.PerkManager);
             AddSeatVeilMember(panel, display.CharacterSelector);
+            AddSeatVeilMember(panel,
+                (display.CharacterSelector as UICampaignAdventurePartyAssemblyWindow)?
+                    .CharacterCreator?.CreatorWindow);
             AddSeatVeilMember(panel, display.ItemInventoryDisplay);
             AddSeatVeilMember(panel, display.BattleGoalWindow);
         }

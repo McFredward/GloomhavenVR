@@ -1,0 +1,654 @@
+using System;
+using System.IO;
+using System.Text;
+using System.Collections.Generic;
+
+namespace GloomhavenVR.Net.TownServices;
+
+/// <summary>One complete module revision, split into additive TLV78 records inside GVR1.</summary>
+internal static partial class TownServiceCodec
+{
+    internal const byte MessageType = 19, FragmentType = 20, RecordId = 78;
+    internal const byte WorkspaceClothRecordId = NetProtocol.ExtIdTownWorkspaceCloth;
+    internal const byte TempleInteractionRecordId = NetProtocol.ExtIdTownInteraction;
+    internal const byte TransactionRecordId = NetProtocol.ExtIdTownTransaction;
+    internal const byte DonationClockRecordId = NetProtocol.ExtIdTownDonationClock;
+    internal const byte CatalogLayoutRecordId = NetProtocol.ExtIdTownCatalogLayout;
+    internal const byte VisitorStockRecordId = NetProtocol.ExtIdTownVisitorStock;
+    internal const byte CatalogBankRecordId = NetProtocol.ExtIdTownCatalogBank;
+    internal const byte CatalogHeadersRecordId = NetProtocol.ExtIdTownCatalogHeaders;
+    internal const byte NativeTemplateStateRecordId = NetProtocol.ExtIdTownNativeTemplateState;
+    internal const byte VisibleCensusRecordId = NetProtocol.ExtIdTownVisibleCensus;
+    private static readonly UTF8Encoding Utf8 = new(false, true);
+
+    internal static byte[] Write(TownServiceFrame frame)
+    {
+        Validate(frame);
+        using var body = new MemoryStream();
+        using (var w = new BinaryWriter(body, Utf8, true))
+        {
+            w.Write((byte)2); w.Write(frame.Service); w.Write(frame.Session); w.Write(frame.Sequence); w.Write(frame.BaseSequence);
+            w.Write(frame.Module); w.Write(frame.Template); WriteText(w, frame.TemplateAddress); w.Write(frame.Structure); w.Write(frame.Visible);
+            w.Write(frame.ParentModule); w.Write(frame.ParentBinding); w.Write(frame.ParentAlpha);
+            w.Write(frame.SampleTime); w.Write(frame.SessionAge); w.Write((ushort)frame.Modules.Length);
+            foreach (ushort module in frame.Modules) w.Write(module);
+            foreach (float value in frame.Pose) w.Write(value);
+            w.Write(frame.HasCanvasFrame);
+            if (frame.HasCanvasFrame)
+            {
+                foreach (float value in frame.CanvasPose) w.Write(value);
+                foreach (float value in frame.CanvasRect) w.Write(value);
+                foreach (float value in frame.CanvasSettings) w.Write(value);
+                w.Write(frame.CanvasSortingOrder); w.Write(frame.CanvasSortingLayer);
+            }
+            var pool = new List<TownServiceValue>();
+            var indices = new Dictionary<TownServiceValue, ushort>(TownServiceValueComparer.Instance);
+            foreach (TownServiceNode node in frame.Nodes)
+                for (ushort key = 1; key <= TownServiceProperty.Last; key++)
+                    if (node.Values.TryGetValue(key, out TownServiceValue? value) && !indices.ContainsKey(value))
+                    { indices.Add(value, checked((ushort)pool.Count)); pool.Add(value); }
+            w.Write((ushort)pool.Count);
+            foreach (TownServiceValue value in pool)
+            {
+                w.Write((ushort)value.Numbers.Length);
+                foreach (float number in value.Numbers) w.Write(number);
+                w.Write((byte)value.Text.Length);
+                foreach (string text in value.Text) WriteText(w, text);
+            }
+            w.Write((ushort)frame.Nodes.Length);
+            foreach (TownServiceNode node in frame.Nodes)
+            {
+                w.Write(node.Binding); w.Write((byte)node.Values.Count);
+                // Property order is canonical, independent of Dictionary implementation/runtime.
+                for (ushort key = 1; key <= TownServiceProperty.Last; key++)
+                {
+                    if (!node.Values.TryGetValue(key, out TownServiceValue? value)) continue;
+                    w.Write(key); w.Write(indices[value]);
+                }
+            }
+        }
+        byte[] visibleCensus = Array.Empty<byte>();
+        if (frame.RequiredVisibleModules != null)
+        {
+            using var census = new MemoryStream();
+            using (var w = new BinaryWriter(census, Utf8, true))
+            { w.Write((byte)1); w.Write((ushort)frame.RequiredVisibleModules.Length);
+              foreach (ushort id in frame.RequiredVisibleModules) w.Write(id); }
+            visibleCensus = census.ToArray();
+        }
+        byte[] raw = body.ToArray();
+        byte[] rack = frame.Rack != null ? frame.Rack.Write(frame.Module) : frame.RackMember?.Write(frame.Module) ?? Array.Empty<byte>();
+        int mechanismBytes = frame.Rack?.Cassette == true || frame.PublicCatalog ? 8 : 0;
+        int rollerBytes = frame.Rack?.Cassette == true ? 6 : 0;
+        int clothBytes = frame.WorkspaceCloth == null ? 0 : frame.WorkspaceCloth.Length + 4;
+        int interactionBytes = (frame.TempleDonationKnown ? 8 : 0) + (frame.TransactionActive ? 3 : 0)
+            + (frame.HasTempleDonationCommitAge ? 7 : 0);
+        byte[] layout = frame.Rack?.Layout != null ? TownCatalogLayout.Write(frame.Rack.Layout) : Array.Empty<byte>();
+        byte[] bank = frame.CatalogBank?.Write(frame) ?? Array.Empty<byte>();
+        byte[] headers = frame.CatalogBank?.WriteHeaders(frame) ?? Array.Empty<byte>();
+        int size = rollerBytes + mechanismBytes + clothBytes + interactionBytes + 6 + raw.Length + 2 * ((raw.Length + 254) / 255) + rack.Length + 2 * ((rack.Length + 254) / 255);
+        int legacySize = size;
+        size += layout.Length + 2 * ((layout.Length + 254) / 255) + (frame.VisitorStock ? 3 : 0);
+        size += bank.Length + 2 * ((bank.Length + 254) / 255);
+        size += headers.Length + 2 * ((headers.Length + 254) / 255);
+        size += frame.NativeTemplateBasisKey == 0 ? 0 : 11;
+        size += visibleCensus.Length + 2 * ((visibleCensus.Length + 254) / 255);
+        size += frame.ReturnOrigin == null ? 0 : 22;
+        size += frame.OfferedHover == null ? 0 : 20;
+        if (size > TownServiceFrame.MaxBytes) throw new InvalidDataException("Town-service module exceeds the bounded snapshot size.");
+        var packet = new byte[size];
+        // NetProtocol.Magic (0x47565231) is written little endian by every existing lane.
+        packet[0] = 0x31; packet[1] = 0x52; packet[2] = 0x56; packet[3] = 0x47;
+        packet[4] = 3; packet[5] = MessageType;
+        for (int at = 6, offset = 0; offset < raw.Length;)
+        {
+            int count = Math.Min(255, raw.Length - offset);
+            packet[at++] = RecordId; packet[at++] = (byte)count;
+            Buffer.BlockCopy(raw, offset, packet, at, count); at += count; offset += count;
+        }
+        for (int at = 6 + raw.Length + 2 * ((raw.Length + 254) / 255), offset = 0; offset < rack.Length;)
+        {
+            int count = Math.Min(255, rack.Length - offset); packet[at++] = TownRackState.RecordId; packet[at++] = (byte)count;
+            Buffer.BlockCopy(rack, offset, packet, at, count); at += count; offset += count;
+        }
+        if (frame.WorkspaceCloth != null)
+        {
+            int at = 6 + raw.Length + 2 * ((raw.Length + 254) / 255)
+                + rack.Length + 2 * ((rack.Length + 254) / 255);
+            packet[at++] = WorkspaceClothRecordId;
+            packet[at++] = (byte)(frame.WorkspaceCloth.Length + 2);
+            packet[at++] = 1; // cloth-control grammar
+            packet[at++] = (byte)(frame.WorkspaceCloth.Length / 8);
+            Buffer.BlockCopy(frame.WorkspaceCloth, 0, packet, at, frame.WorkspaceCloth.Length);
+        }
+        if (frame.TempleDonationKnown)
+        {
+            int at = 6 + raw.Length + 2 * ((raw.Length + 254) / 255)
+                + rack.Length + 2 * ((rack.Length + 254) / 255) + clothBytes;
+            packet[at++] = TempleInteractionRecordId;
+            packet[at++] = 6;
+            packet[at++] = 1; // shared town-interaction grammar
+            packet[at++] = frame.TempleDonationAvailable ? (byte)1 : (byte)0;
+            for (int i = 0; i < 4; i++) packet[at + i] = (byte)(frame.TempleDonationRevision >> (8 * i));
+        }
+        if (frame.TransactionActive)
+        {
+            int at = 6 + raw.Length + 2 * ((raw.Length + 254) / 255)
+                + rack.Length + 2 * ((rack.Length + 254) / 255) + clothBytes
+                + (frame.TempleDonationKnown ? 8 : 0);
+            packet[at++] = TransactionRecordId;
+            packet[at++] = 1;
+            packet[at] = 1; // active reservation grammar
+        }
+        if (frame.HasTempleDonationCommitAge)
+        {
+            int at = 6 + raw.Length + 2 * ((raw.Length + 254) / 255)
+                + rack.Length + 2 * ((rack.Length + 254) / 255) + clothBytes
+                + (frame.TempleDonationKnown ? 8 : 0) + (frame.TransactionActive ? 3 : 0);
+            packet[at++] = DonationClockRecordId; packet[at++] = 5; packet[at++] = 1;
+            byte[] age = BitConverter.GetBytes(frame.TempleDonationCommitAge);
+            if (!BitConverter.IsLittleEndian) Array.Reverse(age);
+            Buffer.BlockCopy(age, 0, packet, at, 4);
+        }
+        if (mechanismBytes != 0)
+        { packet[legacySize - rollerBytes - 8] = TownCassetteMotion.RecordId; packet[legacySize - rollerBytes - 7] = 6; packet[legacySize - rollerBytes - 6] = 1; packet[legacySize - rollerBytes - 5] = (byte)((frame.Rack?.Cassette == true ? 1 : 0) | (frame.PublicCatalog ? 2 : 0));
+          for (int i = 0; i < 4; i++) packet[legacySize - rollerBytes - 4 + i] = (byte)(frame.PublicClaim >> (8 * i)); }
+        if (rollerBytes != 0)
+        { packet[legacySize - 6] = TownCassetteMotion.RollerRecordId; packet[legacySize - 5] = 4; packet[legacySize - 4] = 1;
+          packet[legacySize - 3] = unchecked((byte)frame.Rack!.ScrollDirection);
+          packet[legacySize - 2] = (byte)frame.Rack.PageCount; packet[legacySize - 1] = (byte)(frame.Rack.PageCount >> 8); }
+        int tail = legacySize;
+        for (int offset = 0; offset < layout.Length;)
+        {
+            int count = Math.Min(255, layout.Length - offset);
+            packet[tail++] = CatalogLayoutRecordId; packet[tail++] = (byte)count;
+            Buffer.BlockCopy(layout, offset, packet, tail, count); tail += count; offset += count;
+        }
+        if (frame.VisitorStock)
+        { packet[tail++] = VisitorStockRecordId; packet[tail++] = 1; packet[tail++] = 1; }
+        for (int offset = 0; offset < bank.Length;)
+        {
+            int count = Math.Min(255, bank.Length - offset);
+            packet[tail++] = CatalogBankRecordId; packet[tail++] = (byte)count;
+            Buffer.BlockCopy(bank, offset, packet, tail, count); tail += count; offset += count;
+        }
+        for (int offset = 0; offset < headers.Length;)
+        {
+            int count = Math.Min(255, headers.Length - offset);
+            packet[tail++] = CatalogHeadersRecordId; packet[tail++] = (byte)count;
+            Buffer.BlockCopy(headers, offset, packet, tail, count); tail += count; offset += count;
+        }
+        if (frame.NativeTemplateBasisKey != 0)
+        {
+            packet[tail++] = NativeTemplateStateRecordId; packet[tail++] = 9; packet[tail++] = 1;
+            for (int i = 0; i < 8; i++) packet[tail++] = (byte)(frame.NativeTemplateBasisKey >> (i * 8));
+        }
+        for (int offset = 0; offset < visibleCensus.Length;)
+        {
+            int count = Math.Min(255, visibleCensus.Length - offset);
+            packet[tail++] = VisibleCensusRecordId; packet[tail++] = (byte)count;
+            Buffer.BlockCopy(visibleCensus, offset, packet, tail, count); tail += count; offset += count;
+        }
+        if (frame.ReturnOrigin != null) WriteReturnOrigin(packet, ref tail, frame.ReturnOrigin);
+        if (frame.OfferedHover != null) WriteOfferedHover(packet, ref tail, frame.OfferedHover);
+        return packet;
+    }
+
+    internal static bool TryRead(byte[] packet, int length, out TownServiceFrame? frame)
+        => TryReadCore(packet, length, out frame, allowBank: true);
+
+    // Reject TLV102 before invoking its inflater when reading an original bank child.
+    internal static bool TryReadCore(byte[] packet, int length, out TownServiceFrame? frame, bool allowBank)
+    {
+        frame = null;
+        if (packet == null || length < 8 || length > packet.Length || length > TownServiceFrame.MaxBytes
+            || packet[0] != 0x31 || packet[1] != 0x52 || packet[2] != 0x56 || packet[3] != 0x47
+            || packet[4] != 3 || packet[5] != MessageType) return false;
+        try
+        {
+            using var body = new MemoryStream();
+            using var rack = new MemoryStream();
+            using var layout = new MemoryStream();
+            using var bank = new MemoryStream();
+            using var headers = new MemoryStream();
+            using var visibleCensus = new MemoryStream();
+            bool visitorStock = false; ulong nativeTemplateBasisKey = 0;
+            byte[]? workspaceCloth = null;
+            TownCardReturnOrigin? returnOrigin = null;
+            TownOfferedHover? offeredHover = null;
+            bool templeDonationKnown = false, templeDonationAvailable = false; uint templeDonationRevision = 0;
+            bool transactionActive = false;
+            bool hasDonationCommitAge = false; float donationCommitAge = 0f;
+            bool rollerSeen = false; sbyte scrollDirection = 0; ushort pageCount = 1;
+            bool cassette = false, publicCatalog = false, mechanismSeen = false; uint publicClaim = 0;
+            for (int at = 6; at < length;)
+            {
+                if (at + 2 > length) return false;
+                byte record = packet[at++], count = packet[at++];
+                if (at + count > length || (count == 0 && record == RecordId)) return false;
+                if (record == ReturnOriginRecordId)
+                { if (returnOrigin != null || !TryReadReturnOrigin(packet, at, count, out returnOrigin)) return false; }
+                if (record == OfferedHoverRecordId)
+                { if (offeredHover != null || !TryReadOfferedHover(packet, at, count, out offeredHover)) return false; }
+                if (record == RecordId) body.Write(packet, at, count);
+                if (record == TownRackState.RecordId)
+                { if (count == 0) return false; rack.Write(packet, at, count); }
+                if (record == CatalogLayoutRecordId)
+                {
+                    if (count == 0 || layout.Length + count > 3 + 6 * TownCatalogLayout.MaxLayout) return false;
+                    layout.Write(packet, at, count);
+                }
+                if (record == CatalogBankRecordId)
+                {
+                    if (!allowBank || count == 0 || bank.Length + count > TownCatalogBank.MaxPayloadBytes) return false;
+                    bank.Write(packet, at, count);
+                }
+                if (record == CatalogHeadersRecordId)
+                {
+                    if (!allowBank || count == 0 || headers.Length + count > TownCatalogBank.MaxHeaderPayloadBytes) return false;
+                    headers.Write(packet, at, count);
+                }
+                if (record == VisibleCensusRecordId)
+                {
+                    if (count == 0 || visibleCensus.Length + count > 3 + 2 * TownServiceFrame.MaxModules) return false;
+                    visibleCensus.Write(packet, at, count);
+                }
+                if (record == NativeTemplateStateRecordId)
+                {
+                    if (nativeTemplateBasisKey != 0 || count != 9 || packet[at] != 1) return false;
+                    for (int i = 0; i < 8; i++) nativeTemplateBasisKey |= (ulong)packet[at + 1 + i] << (8 * i);
+                    if (nativeTemplateBasisKey == 0) return false;
+                }
+                if (record == VisitorStockRecordId)
+                {
+                    if (visitorStock || count != 1 || packet[at] != 1) return false;
+                    visitorStock = true;
+                }
+                if (record == WorkspaceClothRecordId)
+                {
+                    if (count >= 1 && packet[at] == 1)
+                    {
+                        if (workspaceCloth != null || (count != 10 && count != 18)
+                            || packet[at + 1] != (count - 2) / 8) return false;
+                        workspaceCloth = new byte[count - 2];
+                        Buffer.BlockCopy(packet, at + 2, workspaceCloth, 0, workspaceCloth.Length);
+                    }
+                    else return false;
+                }
+                if (record == TempleInteractionRecordId)
+                {
+                    if (templeDonationKnown || count != 6 || packet[at] != 1 || packet[at + 1] > 1) return false;
+                    templeDonationKnown = true; templeDonationAvailable = packet[at + 1] == 1;
+                    templeDonationRevision = (uint)(packet[at + 2] | packet[at + 3] << 8
+                        | packet[at + 4] << 16 | packet[at + 5] << 24);
+                }
+                if (record == TransactionRecordId)
+                {
+                    if (transactionActive || count != 1 || packet[at] != 1) return false;
+                    transactionActive = true;
+                }
+                if (record == DonationClockRecordId)
+                {
+                    if (hasDonationCommitAge || count != 5 || packet[at] != 1) return false;
+                    hasDonationCommitAge = true;
+                    byte[] age = new byte[4]; Buffer.BlockCopy(packet, at + 1, age, 0, 4);
+                    if (!BitConverter.IsLittleEndian) Array.Reverse(age);
+                    donationCommitAge = BitConverter.ToSingle(age, 0);
+                }
+                if (record == TownCassetteMotion.RecordId)
+                {
+                    if (mechanismSeen || count != 6 || packet[at] != 1 || (packet[at + 1] == 0 || packet[at + 1] > 3)) return false;
+                    mechanismSeen = true; cassette = (packet[at + 1] & 1) != 0; publicCatalog = (packet[at + 1] & 2) != 0;
+                    for (int i = 0; i < 4; i++) publicClaim |= (uint)packet[at + 2 + i] << (8 * i);
+                }
+                if (record == TownCassetteMotion.RollerRecordId)
+                {
+                    if (rollerSeen || count != 4 || packet[at] != 1) return false;
+                    rollerSeen = true; scrollDirection = unchecked((sbyte)packet[at + 1]);
+                    pageCount = (ushort)(packet[at + 2] | packet[at + 3] << 8);
+                }
+                at += count;
+            }
+            body.Position = 0;
+            using var r = new BinaryReader(body, Utf8, false);
+            byte version = r.ReadByte(); if (version != 1 && version != 2) return false;
+            var result = new TownServiceFrame { Service = r.ReadByte(), Session = r.ReadUInt32(),
+                Sequence = r.ReadUInt64(), BaseSequence = r.ReadUInt64(), Module = r.ReadUInt16(), Template = r.ReadUInt16(), TemplateAddress = ReadText(r),
+                Structure = r.ReadUInt32() };
+            result.NativeTemplateBasisKey = nativeTemplateBasisKey;
+            result.WorkspaceCloth = workspaceCloth;
+            result.TempleDonationKnown = templeDonationKnown;
+            result.TempleDonationAvailable = templeDonationAvailable;
+            result.TempleDonationRevision = templeDonationRevision;
+            result.TransactionActive = transactionActive;
+            result.HasTempleDonationCommitAge = hasDonationCommitAge;
+            result.TempleDonationCommitAge = donationCommitAge;
+            byte shown = r.ReadByte(); if (shown > 1) return false;
+            result.Visible = shown != 0; result.ParentModule = r.ReadUInt16(); result.ParentBinding = r.ReadUInt32();
+            result.ParentAlpha = r.ReadSingle(); result.SampleTime = r.ReadSingle(); result.SessionAge = r.ReadSingle();
+            int modules = version == 1 ? r.ReadByte() : r.ReadUInt16();
+            if (modules > TownServiceFrame.MaxModules) return false;
+            result.Modules = new ushort[modules];
+            for (int i = 0; i < modules; i++) result.Modules[i] = r.ReadUInt16();
+            for (int i = 0; i < result.Pose.Length; i++) result.Pose[i] = r.ReadSingle();
+            byte canvas = r.ReadByte(); if (canvas > 1) return false; result.HasCanvasFrame = canvas != 0;
+            if (result.HasCanvasFrame)
+            {
+                for (int i = 0; i < result.CanvasPose.Length; i++) result.CanvasPose[i] = r.ReadSingle();
+                for (int i = 0; i < result.CanvasRect.Length; i++) result.CanvasRect[i] = r.ReadSingle();
+                for (int i = 0; i < result.CanvasSettings.Length; i++) result.CanvasSettings[i] = r.ReadSingle();
+                result.CanvasSortingOrder = r.ReadInt32(); result.CanvasSortingLayer = r.ReadInt32();
+            }
+            int valueCount = r.ReadUInt16();
+            if (valueCount > TownServiceFrame.MaxNodes * TownServiceProperty.Last) return false;
+            var pool = new TownServiceValue[valueCount];
+            for (int p = 0; p < valueCount; p++)
+            {
+                int n = r.ReadUInt16(); if (n > 1024) return false;
+                var value = new TownServiceValue { Numbers = new float[n] };
+                for (int v = 0; v < n; v++) value.Numbers[v] = r.ReadSingle();
+                int t = r.ReadByte(); if (t > TownServiceFrame.MaxProperties) return false;
+                value.Text = new string[t];
+                for (int v = 0; v < t; v++) value.Text[v] = ReadText(r);
+                pool[p] = value;
+            }
+            int nodes = r.ReadUInt16();
+            if (nodes > TownServiceFrame.MaxNodes) return false;
+            result.Nodes = new TownServiceNode[nodes];
+            for (int i = 0; i < nodes; i++)
+            {
+                var node = new TownServiceNode { Binding = r.ReadUInt32() };
+                int properties = r.ReadByte();
+                if (properties > TownServiceProperty.Last) return false;
+                ushort previous = 0;
+                for (int p = 0; p < properties; p++)
+                {
+                    ushort key = r.ReadUInt16();
+                    if (key <= previous || key > TownServiceProperty.Last) return false;
+                    previous = key;
+                    int index = r.ReadUInt16(); if (index >= pool.Length) return false;
+                    node.Values.Add(key, pool[index]);
+                }
+                result.Nodes[i] = node;
+            }
+            if (body.Position != body.Length) return false;
+            if (rack.Length != 0)
+            {
+                byte[] extension = rack.ToArray();
+                if (extension[0] == 1) result.Rack = TownRackState.Read(extension, result.Module);
+                else if (extension[0] == 2) result.RackMember = TownRackStamp.Read(extension, result.Module);
+                else return false;
+            }
+            if (cassette) { if (result.Rack == null) return false; result.Rack.Cassette = true; }
+            if (rollerSeen)
+            {
+                if (!cassette || result.Rack == null) return false;
+                result.Rack.ScrollDirection = scrollDirection; result.Rack.PageCount = pageCount;
+            }
+            if (layout.Length != 0)
+            {
+                if (!publicCatalog || result.Rack?.Cassette != true) return false;
+                result.Rack.Layout = TownCatalogLayout.Read(layout.ToArray());
+            }
+            result.ReturnOrigin = returnOrigin;
+            result.OfferedHover = offeredHover;
+            result.VisitorStock = visitorStock;
+            result.PublicCatalog = publicCatalog; result.PublicClaim = publicClaim;
+            if (bank.Length != 0) result.CatalogBank = TownCatalogBank.Read(bank.ToArray(), result);
+            if (headers.Length != 0)
+            {
+                if (result.CatalogBank == null) return false;
+                result.CatalogBank.ReadHeaders(headers.ToArray(), result);
+            }
+            if (visibleCensus.Length != 0)
+            {
+                visibleCensus.Position = 0;
+                using var census = new BinaryReader(visibleCensus, Utf8, true);
+                if (census.ReadByte() != 1) return false;
+                int count = census.ReadUInt16();
+                if (count > TownServiceFrame.MaxModules || visibleCensus.Length != 3 + 2 * count) return false;
+                result.RequiredVisibleModules = new ushort[count];
+                for (int i = 0; i < count; i++) result.RequiredVisibleModules[i] = census.ReadUInt16();
+            }
+            Validate(result); frame = result; return true;
+        }
+        catch (InvalidDataException) { return false; }
+        catch (IOException) { return false; }
+        catch (ArgumentException) { return false; }
+        catch (OverflowException) { return false; }
+    }
+
+    // The bundle is only a lossless transport container. Every child remains a complete
+    // independently sequenced original module packet; no observer-template defaults apply.
+    internal const int MaxBundleFrames = 32;
+    internal const byte BundleRecordId = 89; // NetProtocol.ExtIdTownServiceBundle
+    internal static byte[] WriteBundle(IReadOnlyList<byte[]> packets)
+    {
+        if (packets.Count < 1 || packets.Count > MaxBundleFrames) throw new InvalidDataException("Invalid town bundle count.");
+        using var body = new MemoryStream();
+        body.WriteByte(3); body.WriteByte((byte)packets.Count);
+        TownServiceFrame? first = null;
+        foreach (byte[] packet in packets)
+        {
+            if (!TryRead(packet, packet.Length, out TownServiceFrame? frame) || frame!.Module == TownServiceFrame.ManifestModule)
+                throw new InvalidDataException("Invalid town bundle member.");
+            if (first != null && (frame.Service != first.Service || frame.Session != first.Session
+                || frame.VisitorStock != first.VisitorStock || frame.PublicCatalog != first.PublicCatalog))
+                throw new InvalidDataException("Town bundle mixes independent presentation lanes.");
+            first ??= frame;
+            body.WriteByte((byte)packet.Length); body.WriteByte((byte)(packet.Length >> 8));
+            body.Write(packet, 0, packet.Length);
+        }
+        byte[] raw = body.ToArray();
+        int size=6+raw.Length+2*((raw.Length+254)/255);
+        if(size>TownServiceFrame.MaxBytes)throw new InvalidDataException("Town bundle exceeds snapshot bound.");
+        var result=new byte[size];result[0]=0x31;result[1]=0x52;result[2]=0x56;result[3]=0x47;result[4]=3;result[5]=MessageType;
+        for(int at=6,offset=0;offset<raw.Length;)
+        {
+            int count=Math.Min(255,raw.Length-offset);result[at++]=BundleRecordId;result[at++]=(byte)count;
+            Buffer.BlockCopy(raw,offset,result,at,count);at+=count;offset+=count;
+        }
+        return result;
+    }
+    internal static bool TryReadBundle(byte[] packet, int length, out byte[][]? packets)
+    {
+        packets=null;
+        if(packet==null||length<10||length>packet.Length||length>TownServiceFrame.MaxBytes
+            ||packet[0]!=0x31||packet[1]!=0x52||packet[2]!=0x56||packet[3]!=0x47
+            ||packet[4]!=3||packet[5]!=MessageType)return false;
+        if (HasOriginalValuePool(packet, length)) return TryReadOriginalValuePool(packet, length, out packets);
+        using var body=new MemoryStream();
+        for(int at=6;at<length;)
+        {
+            if(at+2>length)return false;int record=packet[at++],count=packet[at++];
+            if(at+count>length||count==0)return false;
+            if(record==BundleRecordId)body.Write(packet,at,count);at+=count;
+        }
+        byte[] raw=body.ToArray();
+        if(raw.Length<2||raw[0]!=3||raw[1]<1||raw[1]>MaxBundleFrames)return false;
+        var result=new byte[raw[1]][];int position=2;byte service=0;uint session=0;bool visitorStock=false,publicCatalog=false;
+        for(int i=0;i<result.Length;i++)
+        {
+            if(position+2>raw.Length)return false;int count=raw[position]|raw[position+1]<<8;position+=2;
+            if(count<8||position+count>raw.Length)return false;
+            var member=new byte[count];Buffer.BlockCopy(raw,position,member,0,count);position+=count;
+            if(!TryRead(member,count,out TownServiceFrame? frame)||frame!.Module==TownServiceFrame.ManifestModule)return false;
+            if(i==0){service=frame.Service;session=frame.Session;visitorStock=frame.VisitorStock;publicCatalog=frame.PublicCatalog;}
+            else if(frame.Service!=service||frame.Session!=session||frame.VisitorStock!=visitorStock||frame.PublicCatalog!=publicCatalog)return false;
+            result[i]=member;
+        }
+        if(position!=raw.Length)return false;packets=result;return true;
+    }
+
+    private static void WriteText(BinaryWriter writer, string text)
+    {
+        byte[] bytes = Utf8.GetBytes(text);
+        if (bytes.Length > 16384) throw new InvalidDataException("Town-service text exceeds the bounded size.");
+        writer.Write((ushort)bytes.Length); writer.Write(bytes);
+    }
+    private static string ReadText(BinaryReader reader)
+    {
+        int count = reader.ReadUInt16();
+        if (count > 16384 || count > reader.BaseStream.Length - reader.BaseStream.Position)
+            throw new InvalidDataException("Truncated town-service text.");
+        return Utf8.GetString(reader.ReadBytes(count));
+    }
+    internal static void Validate(TownServiceFrame frame)
+    {
+        ValidateReturnOrigin(frame);
+        ValidateOfferedHover(frame);
+        if (frame.VisitorStock && (frame.Service != 1 || frame.PublicCatalog
+            || frame.Rack != null || frame.RackMember != null || frame.TransactionActive
+            || frame.TempleDonationKnown || frame.WorkspaceCloth != null
+            || frame.Module == TownServiceFrame.VoiceModule && !IsStockInspectionVoice(frame)))
+            throw new InvalidDataException("Invalid visitor stock presentation lane.");
+        if (frame.Rack?.Layout != null)
+        {
+            if (!frame.PublicCatalog || !frame.Rack.Cassette)
+                throw new InvalidDataException("Full cabinet placement belongs to a public cassette clock.");
+            TownCatalogLayout.Validate(frame.Rack.Layout);
+        }
+        if (frame.PublicCatalog && frame.Service != 1 || !frame.PublicCatalog && frame.PublicClaim != 0)
+            throw new InvalidDataException("Invalid public merchant lane");
+        if (frame.RackMember != null)
+        {
+            if (frame.Service != 1 || frame.Rack != null) throw new InvalidDataException("Invalid cabinet membership");
+            frame.RackMember.Write(frame.Module);
+        }
+        if (frame.Rack != null)
+        {
+            if (frame.Service != 1 || (frame.TemplateAddress == null || !frame.TemplateAddress.StartsWith("merchant.rack|", StringComparison.Ordinal)))
+                throw new InvalidDataException("Cabinet clock belongs to a merchant rack module");
+            frame.Rack.Validate(frame.Module);
+        }
+        if (frame.WorkspaceCloth != null)
+        {
+            int expected = frame.Service == 2 ? 16 : frame.Service is 1 or 3 ? 8 : 0;
+            string prefix = frame.Service == 1 ? "merchant.counter|"
+                : frame.Service == 2 ? "temple.counter|" : "enchant.counter|";
+            if (frame.PublicCatalog || frame.Module == TownServiceFrame.ManifestModule
+                || frame.WorkspaceCloth.Length != expected || expected == 0
+                || frame.TemplateAddress == null || !frame.TemplateAddress.StartsWith(prefix, StringComparison.Ordinal))
+                throw new InvalidDataException("Workspace cloth belongs to private station furniture.");
+            for (int at = 0; at < frame.WorkspaceCloth.Length; at++)
+            {
+                int value = unchecked((sbyte)frame.WorkspaceCloth[at]);
+                if (Math.Abs(value) > (at % 8 < 4 ? 100 : 125))
+                    throw new InvalidDataException("Workspace cloth control exceeds its physical bound.");
+            }
+        }
+        if (frame.TempleDonationKnown && (frame.PublicCatalog || frame.Service != 2
+            || frame.Module != TownServiceFrame.ManifestModule || !frame.Visible))
+            throw new InvalidDataException("Temple donation availability belongs to the active private temple manifest.");
+        if (!frame.TempleDonationKnown && frame.TempleDonationAvailable)
+            throw new InvalidDataException("Temple donation availability is missing its known-state marker.");
+        if (!frame.TempleDonationKnown && frame.TempleDonationRevision != 0)
+            throw new InvalidDataException("Temple donation revision is missing its known-state marker.");
+        Finite(frame.TempleDonationCommitAge);
+        if (frame.HasTempleDonationCommitAge && (!frame.TempleDonationKnown
+            || frame.TempleDonationCommitAge < 0f || frame.TempleDonationCommitAge > 30f)
+            || !frame.HasTempleDonationCommitAge && frame.TempleDonationCommitAge != 0f)
+            throw new InvalidDataException("Invalid committed temple donation age.");
+        if (frame.TransactionActive && (frame.PublicCatalog
+            || frame.Module != TownServiceFrame.ManifestModule || !frame.Visible))
+            throw new InvalidDataException("Transaction reservation belongs to an active private service manifest.");
+
+        if (frame.Module == TownServiceFrame.BundleStream || frame.Service < 1 || frame.Service > 3 || frame.Session == 0 || frame.Sequence == 0
+            || frame.BaseSequence >= frame.Sequence && frame.BaseSequence != 0
+            || (frame.Template == 0 && frame.Module != TownServiceFrame.ManifestModule)
+            || frame.TemplateAddress == null || frame.TemplateAddress.Length > 1024
+            || frame.Pose == null || frame.Pose.Length != 10 || frame.Nodes == null
+            || frame.Nodes.Length > TownServiceFrame.MaxNodes
+            || (frame.Visible && frame.Nodes.Length == 0 && frame.Module != TownServiceFrame.ManifestModule && frame.BaseSequence == 0)
+            || frame.Modules == null || frame.Modules.Length > TownServiceFrame.MaxModules
+            || (frame.Module != TownServiceFrame.ManifestModule && frame.Modules.Length != 0))
+            throw new InvalidDataException("Invalid town-service module identity.");
+        if (frame.NativeTemplateBasisKey != 0 && ((frame.Service != 3 && !(frame.Service == 1 && (frame.PublicCatalog
+                || frame.TemplateAddress.StartsWith("item.confirm.part.", StringComparison.Ordinal))))
+            || frame.VisitorStock || frame.Module >= TownServiceFrame.VoiceModule
+            || frame.BaseSequence != 0 || frame.CatalogBank != null || frame.Rack != null))
+            throw new InvalidDataException("Original template state belongs to a complete original town module.");
+        if (frame.CanvasPose == null || frame.CanvasPose.Length != 10 || frame.CanvasRect == null || frame.CanvasRect.Length != 4
+            || frame.CanvasSettings == null || frame.CanvasSettings.Length != 5) throw new InvalidDataException("Invalid town canvas frame.");
+        foreach (float value in frame.CanvasPose) Finite(value);
+        foreach (float value in frame.CanvasRect) Finite(value);
+        foreach (float value in frame.CanvasSettings) Finite(value);
+        if (frame.HasCanvasFrame)
+        {
+            double canvasNorm = 0; for (int i = 3; i < 7; i++) canvasNorm += frame.CanvasPose[i] * (double)frame.CanvasPose[i];
+            if (Math.Abs(canvasNorm - 1) > .01 || frame.CanvasRect[0] < 0 || frame.CanvasRect[1] < 0)
+                throw new InvalidDataException("Invalid town canvas geometry.");
+        }
+        Finite(frame.SampleTime);
+        Finite(frame.SessionAge);
+        if (frame.SessionAge < 0) throw new InvalidDataException("Invalid town-service session age.");
+        Finite(frame.ParentAlpha);
+        if (frame.ParentAlpha < 0 || frame.ParentAlpha > 1 || frame.ParentModule == frame.Module
+            && frame.Module != TownServiceFrame.ManifestModule
+            || (frame.ParentModule == TownServiceFrame.ManifestModule ? frame.ParentBinding != 0
+                : frame.ParentBinding == 0))
+            throw new InvalidDataException("Invalid town-service parent.");
+        if (frame.Module == TownServiceFrame.ManifestModule
+            && (frame.Template != 0 || frame.Structure != 0 || frame.Nodes.Length != 0 || frame.BaseSequence != 0 || (!frame.Visible && frame.Modules.Length != 0)))
+            throw new InvalidDataException("Malformed town-service manifest.");
+        if (frame.SampleTime < 0) throw new InvalidDataException("Invalid town-service sample time.");
+        for (int i = 0; i < frame.Modules.Length; i++)
+            if (frame.Modules[i] >= TownServiceFrame.VoiceModule || (i > 0 && frame.Modules[i] <= frame.Modules[i - 1]))
+                throw new InvalidDataException("Invalid town-service manifest.");
+        if (frame.RequiredVisibleModules != null)
+        {
+            if (frame.Module != TownServiceFrame.ManifestModule || frame.PublicCatalog || frame.VisitorStock
+                || frame.Service != 3 || frame.RequiredVisibleModules.Length > TownServiceFrame.MaxModules
+                || (!frame.Visible && frame.RequiredVisibleModules.Length != 0))
+                throw new InvalidDataException("Visible original census belongs to an enhancement manifest.");
+            for (int i = 0; i < frame.RequiredVisibleModules.Length; i++)
+                if ((i > 0 && frame.RequiredVisibleModules[i] <= frame.RequiredVisibleModules[i - 1])
+                    || Array.BinarySearch(frame.Modules, frame.RequiredVisibleModules[i]) < 0)
+                    throw new InvalidDataException("Visible original census must be a sorted manifest subset.");
+        }
+        foreach (float value in frame.Pose) Finite(value);
+        double norm = 0;
+        for (int i = 3; i < 7; i++) norm += frame.Pose[i] * (double)frame.Pose[i];
+        if (Math.Abs(norm - 1) > .01) throw new InvalidDataException("Invalid town-service rotation.");
+        var bindings = new HashSet<uint>();
+        foreach (TownServiceNode node in frame.Nodes)
+        {
+            if (node == null || node.Binding == 0 || !bindings.Add(node.Binding) || node.Values.Count > TownServiceProperty.Last)
+                throw new InvalidDataException("Invalid town-service node.");
+            foreach (var pair in node.Values)
+            {
+                TownServiceValue value = pair.Value;
+                if (pair.Key == 0 || pair.Key > TownServiceProperty.Last || value == null
+                    || value.Numbers == null || value.Numbers.Length > 1024 || value.Text == null
+                    || value.Text.Length > TownServiceFrame.MaxProperties)
+                    throw new InvalidDataException("Invalid town-service property.");
+                foreach (float number in value.Numbers) Finite(number);
+                foreach (string text in value.Text)
+                    if (text == null || Utf8.GetByteCount(text) > 16384)
+                        throw new InvalidDataException("Invalid town-service text.");
+            }
+        }
+        frame.CatalogBank?.Validate(frame);
+    }
+
+    // Public item inspection may outlive the visitor's private focus at another NPC.
+    // Its three cosmetic reactions have no transaction authority. Keep the exact
+    // unchanged voice envelope and refuse trade/donation commands on the stock lane.
+    private static bool IsStockInspectionVoice(TownServiceFrame frame)
+    {
+        if (frame.Structure != 0x564F0000u && frame.Structure != 0x564F0008u
+            && frame.Structure != 0x564F0009u) return false;
+        if (frame.Sequence > uint.MaxValue || frame.BaseSequence != 0 || frame.Template != 1
+            || frame.TemplateAddress != TownServiceFrame.VoiceAddress || !frame.Visible
+            || frame.ParentModule != TownServiceFrame.ManifestModule || frame.ParentBinding != 0
+            || frame.ParentAlpha != 1f || frame.HasCanvasFrame || frame.Modules == null
+            || frame.Modules.Length != 0 || frame.Nodes == null || frame.Nodes.Length != 1
+            || frame.Nodes[0] == null || frame.Nodes[0].Binding != 1 || frame.Nodes[0].Values.Count != 0
+            || frame.Pose == null || frame.Pose.Length != 10) return false;
+        for (int at = 0; at < 10; at++)
+            if (frame.Pose[at] != (at >= 6 ? 1f : 0f)) return false;
+        return true;
+    }
+    private static void Finite(float value)
+    { if (float.IsNaN(value) || float.IsInfinity(value)) throw new InvalidDataException("Non-finite town-service geometry."); }
+}

@@ -58,6 +58,15 @@ internal static class NetHeldProps
 
     internal static int Count => Held.Count;
 
+    /// <summary>Copy only actual remote visual roots for targeted scenery rescue. The caller
+    /// owns its scratch list; membership remains owned by ReplaceWith and no wire state changes.
+    /// </summary>
+    internal static void CopyVisualRoots(List<GameObject> destination)
+    {
+        foreach (GameObject visual in Visuals.Values)
+            if (visual != null) destination.Add(visual);
+    }
+
     /// <summary>Grab lock / ghost gate: is a REMOTE player holding this prop right now? Hashes the
     /// prop's guid, so it answers correctly for a <c>CObjectProp</c> instance the scenario has
     /// re-keyed since the hold began (see the class doc).</summary>

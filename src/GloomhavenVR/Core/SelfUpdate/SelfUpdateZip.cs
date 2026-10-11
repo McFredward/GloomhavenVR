@@ -55,8 +55,10 @@ internal static class SelfUpdateZip
     /// checks "is anything else there" agree on every zip except the one that changed.</para>
     ///
     /// <para>A SET RATHER THAN A SECOND CONSTANT, because the next translated INSTALL file must be
-    /// one line here and not a third code path. Order is irrelevant; the lookup is a short linear
-    /// scan over two entries on a path that runs once per downloaded archive.</para>
+    /// one line here and not a third code path. Keep the root set at these two filenames:
+    /// existing released updaters reject an archive with any additional root entry before new
+    /// code can run. The Steam Frame launcher therefore belongs under BepInEx/. Order is
+    /// irrelevant; the lookup is a short linear scan on a path that runs once per archive.</para>
     /// </summary>
     internal static readonly string[] AllowedRootFiles =
     {
@@ -399,5 +401,6 @@ internal static class SelfUpdateZip
     }
 
     private static Stream EntryOpen(object entry) =>
-        (Stream)_open!.Invoke(entry, Array.Empty<object>());
+        _open!.Invoke(entry, Array.Empty<object>()) as Stream
+        ?? throw new InvalidOperationException("ZipArchiveEntry.Open did not return a stream");
 }

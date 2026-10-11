@@ -282,6 +282,9 @@ internal static partial class CanvasConversion
             MixOpenSubView(panel, display.EnhancementCardsDisplay, ref signature, ref members);
             MixOpenSubView(panel, display.PerkManager, ref signature, ref members);
             MixOpenSubView(panel, display.CharacterSelector, ref signature, ref members);
+            MixOpenSubView(panel,
+                (display.CharacterSelector as UICampaignAdventurePartyAssemblyWindow)?
+                    .CharacterCreator?.CreatorWindow, ref signature, ref members);
             MixOpenSubView(panel, display.ItemInventoryDisplay, ref signature, ref members);
             MixOpenSubView(panel, display.BattleGoalWindow, ref signature, ref members);
         }
@@ -355,7 +358,7 @@ internal static partial class CanvasConversion
     /// sub-views are open" take this term — <c>CollectActiveSubViews</c> (what the fit places),
     /// <see cref="SubViewOpenSetSignature"/> (what the burst and the seat veil key on) and
     /// <c>CollectSubViewSeatVeilMembers</c> (what the veil withholds). The two that enumerate the
-    /// same six references for a DIFFERENT question keep the old test on purpose:
+    /// six original references for a DIFFERENT question keep the old test on purpose:
     /// <c>PanelInkBounds</c> and <c>PanelSupersample</c> ask "what may draw into this capture
     /// frame", and a sub-view mid-fade draws — narrowing their answer would clip it. Two
     /// questions, two tests [[two-fans-one-name]].</para>

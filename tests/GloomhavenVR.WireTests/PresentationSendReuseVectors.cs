@@ -15,7 +15,9 @@ internal static class PresentationSendReuseVectors
             before[peer] = Scheduler((ulong)(32 * (peer + 1)));
             after[peer] = Scheduler((ulong)(32 * (peer + 1)));
         }
-        var bytes = new byte[Math.Max(CardAppearanceCodec.MaxSize, ItemAppearanceCodec.MaxSize)];
+        // This one reused buffer must admit every encoded presentation type, including Rules96.
+        var bytes = new byte[Math.Max(NativeBoardCodec.MaxSize,
+            Math.Max(CardAppearanceCodec.MaxSize, ItemAppearanceCodec.MaxSize))];
         for (int frame = 0; frame < 12; frame++)
         {
             for (int peer = 0; peer < 4; peer++)

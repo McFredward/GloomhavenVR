@@ -111,7 +111,7 @@ internal static partial class VROptionsTab
     /// catalog clamps against LIVE ranges, so one setting can move another (BoardPitchMin against
     /// BoardPitchMax), and only the labels used to follow.</para>
     /// </summary>
-    private static readonly List<(Slider bar, ConfigCatalog.ConfigItem item)> Sliders = new(32);
+    private static readonly List<(Slider bar, ConfigCatalog.ConfigItem item, int component)> Sliders = new(32);
 
     /// <summary>
     /// Components on a cloned row that belong to the GAME's binding of it. Matched by type NAME
@@ -622,7 +622,7 @@ internal static partial class VROptionsTab
             {
                 // Loc.Mod hands the id back when a key is absent — the "no hint" signal HintFor
                 // already relies on; never show a raw key as a tooltip.
-                string hint = Loc.Mod(hintKey!);
+                string hint = Loc.ModHelpForPlayers(hintKey!) ?? Loc.Mod(hintKey!);
                 if (!string.Equals(hint, hintKey, StringComparison.Ordinal))
                     AttachHoverHint(title, hint, caption);
             }
@@ -649,13 +649,43 @@ internal static partial class VROptionsTab
     /// <para>Plain caption style, so it sits visibly below the header rather than competing with
     /// it.</para>
     /// </summary>
-    private static void BuildNote(Transform parent, string text)
+    private static void BuildNote(Transform parent, string text, bool multiline = false)
     {
         GameObject row = StampRow(_toggleTemplate, parent, out TMP_Text? title, out Transform? option);
         if (title != null)
         {
             title.text = text;
             ApplyOptionCaption(title);
+            if (multiline)
+            {
+                // Notes have no value/control column. Use that space and grow the row
+                // at its readable authored size instead of overflowing a one-line title.
+                RectTransform rect = title.rectTransform;
+                rect.anchorMin = Vector2.zero;
+                rect.anchorMax = Vector2.one;
+                rect.offsetMin = new Vector2(12f, 8f);
+                rect.offsetMax = new Vector2(-12f, -8f);
+                title.enableAutoSizing = false;
+                title.enableWordWrapping = true;
+                title.overflowMode = TextOverflowModes.Overflow;
+                float available = ((RectTransform)parent).rect.width;
+                if (available <= 24f) available = ((RectTransform)row.transform).rect.width;
+                LayoutGroup? group = parent.GetComponent<LayoutGroup>();
+                float width = Mathf.Max(1f, available - (group?.padding.horizontal ?? 0) - 24f);
+                float height = title.GetPreferredValues(text, width, float.PositiveInfinity).y + 16f;
+                LayoutElement? layout = row.GetComponent<LayoutElement>();
+                if (layout != null)
+                {
+                    if (layout is LayoutElementExtended extended)
+                    {
+                        extended.MaxHeight = -1f;
+                        extended.scalePreferredHeight = 1f;
+                    }
+                    height = Mathf.Max(layout.minHeight, height);
+                    layout.minHeight = layout.preferredHeight = height;
+                    layout.flexibleHeight = 0f;
+                }
+            }
         }
 
         if (option != null)
@@ -1230,9 +1260,31 @@ internal static partial class VROptionsTab
         dropdown.AddOptions(options);
         dropdown.SetValueWithoutNotify(Mathf.Clamp(current, 0, names.Length - 1));
         dropdown.RefreshShownValue();
-        dropdown.onValueChanged.AddListener(index => Apply(item, () => apply(index)));
-
+        dropdown.onValueChanged.AddListener(index =>
+        {
+            if (IsEnvironmentChoice(item) && index == MixedRealityEnvironmentIndex && !MixedRealityCanEnable)
+            {
+                dropdown.SetValueWithoutNotify(EnvironmentIndex());
+                return;
+            }
+            Apply(item, () => apply(index));
+        });
         AttachTooltip(row, item, title, hintKey);
+        if (IsEnvironmentChoice(item))
+            RegisterMixedRealityAvailabilityRefresh(() =>
+            {
+                if (dropdown == null)
+                    return;
+                if (dropdown.options.Count > MixedRealityEnvironmentIndex)
+                    dropdown.options[MixedRealityEnvironmentIndex].text = MixedRealityCanEnable
+                        ? names[MixedRealityEnvironmentIndex]
+                        : "<color=#8C8C8C>" + names[MixedRealityEnvironmentIndex] + "</color>";
+                dropdown.SetValueWithoutNotify(EnvironmentIndex());
+                dropdown.RefreshShownValue();
+                // A fallback dropdown still explains why its MR choice is unavailable.
+                if (title != null)
+                    AttachHoverHint(title, !MixedRealityCanEnable ? MixedRealityHint() : HintFor(item, hintKey), item.Key);
+            });
     }
 
     /// <summary>Pick the control shape from what the entry actually is, and build that row.</summary>
@@ -1263,6 +1315,19 @@ internal static partial class VROptionsTab
         if (item.Kind == ConfigCatalog.ConfigKind.Choice
             && item.Choices != null && item.Choices.Length > 0
             && BuildChoiceRow(parent, item, caption, hintKey))
+            return;
+
+        // The wrist position has a practical drag range, without clamping saved
+        // vectors or changing the other axes. Reuse the ordinary bar/arrow kit.
+        if (item.Section == "Cards" && item.Key == "WristBoardOffsetMeters"
+            && BuildBarAndArrowsRow(parent, item, caption, hintKey, component, -.5f, .5f))
+            return;
+
+        // Offer a complete turn on every wrist-local axis next to the position
+        // controls. As with position, the bar range does not rewrite saved
+        // components when rows are built; the ordinary arrows retain fine steps.
+        if (item.Section == "Cards" && item.Key == "WristBoardAnglesDegrees"
+            && BuildBarAndArrowsRow(parent, item, caption, hintKey, component, -180f, 180f))
             return;
 
         // A bar needs a scalar with both ends known; a vector component or an open-ended number has
@@ -1448,6 +1513,8 @@ internal static partial class VROptionsTab
                 toggle.SetIsOnWithoutNotify(now);
         });
         AttachTooltip(row, item, title, hintKey);
+        if (IsMixedRealitySwitch(item))
+            RegisterMixedRealityAvailabilityRefresh(() => RefreshMixedRealitySwitch(item, toggle, title));
         return true;
     }
 
@@ -1478,9 +1545,8 @@ internal static partial class VROptionsTab
 
         for (int i = 0; i < choices.Length; i++)
         {
-            string text = choices[i]?.ToString() ?? string.Empty;
-            labels.Add(new TMP_Dropdown.OptionData(text));
-            if (string.Equals(text, now, StringComparison.Ordinal))
+            labels.Add(new TMP_Dropdown.OptionData(choices[i] == null ? string.Empty : ConfigCatalog.ChoiceText(item, choices[i])));
+            if (string.Equals(choices[i]?.ToString() ?? string.Empty, now, StringComparison.Ordinal))
                 current = i;
         }
 
@@ -1531,7 +1597,8 @@ internal static partial class VROptionsTab
     /// the ONLY bar-less path a bounded scalar has now, which is why it must keep working.</para>
     /// </summary>
     private static bool BuildBarAndArrowsRow(Transform parent, ConfigCatalog.ConfigItem item,
-                                             string? caption, string? hintKey)
+                                             string? caption, string? hintKey, int component = 0,
+                                             double? minimum = null, double? maximum = null)
     {
         GameObject row = StampRow(_toggleTemplate, parent, out TMP_Text? title, out Transform? option);
         if (option == null || _sliderControl == null)
@@ -1543,7 +1610,9 @@ internal static partial class VROptionsTab
 
         if (title != null)
         {
-            title.text = Caption(item, caption);
+            title.text = item.Components > 1
+                ? $"{Caption(item, caption)} · {ConfigCatalog.ComponentLabel(item, component)}"
+                : Caption(item, caption);
             ApplyOptionCaption(title);
             IndentDependent(title, item);
             ProbeCaptionFit(title, item.Key);
@@ -1575,7 +1644,7 @@ internal static partial class VROptionsTab
         // hold is not what makes this row usable — but a row where the arrows behave differently
         // from every other row's arrows is its own small lie, and the fine steps ConfigSteps hands
         // out now are exactly as fine on a bounded dial as on an unbounded one.
-        BuildArrow(strip, flip: true, () => Edit(item, 0, -1), repeat: true);
+        BuildArrow(strip, flip: true, () => Edit(item, component, -1), repeat: true);
 
         // The bar gets its own holder so PlaceControl can stretch the harvested slider into it
         // while the layout group decides how wide "it" is: the arrows keep their 26 px, the bar
@@ -1595,20 +1664,23 @@ internal static partial class VROptionsTab
         }
 
         slider.onValueChanged.RemoveAllListeners();
-        slider.minValue = (float)item.Min;
-        slider.maxValue = (float)item.Max;
+        double min = minimum ?? item.Min;
+        double max = maximum ?? item.Max;
+        slider.minValue = (float)min;
+        slider.maxValue = (float)max;
         slider.wholeNumbers = item.Integral;
-        slider.SetValueWithoutNotify(ReadNumber(item));
-        slider.onValueChanged.AddListener(v => Apply(item, () => WriteNumber(item, SnapToStep(item, v))));
+        slider.SetValueWithoutNotify(ReadNumber(item, component));
+        slider.onValueChanged.AddListener(v => Apply(item,
+            () => WriteNumber(item, SnapToStep(item, v, min, max), component)));
 
-        BuildArrow(strip, flip: false, () => Edit(item, 0, +1), repeat: true);
+        BuildArrow(strip, flip: false, () => Edit(item, component, +1), repeat: true);
 
         // Every non-caption label in the row follows the live value — the slider's own amount text
         // included, which is the number the player reads between the arrows. Registering the
         // SLIDER as well is what keeps the bar's handle under an ARROW press: Apply repaints the
         // labels, and without this the handle would sit where the last drag left it.
-        BindValueLabels(row, title, item, component: 0);
-        Sliders.Add((slider, item));
+        BindValueLabels(row, title, item, component);
+        Sliders.Add((slider, item, component));
 
         AttachTooltip(row, item, title, hintKey);
         return true;
@@ -1620,13 +1692,13 @@ internal static partial class VROptionsTab
     /// feature. A step that is zero or worse (there is no such entry today, but a future
     /// <see cref="ConfigSteps"/> line could produce one) leaves the value exactly as dragged.
     /// </summary>
-    private static float SnapToStep(ConfigCatalog.ConfigItem item, float value)
+    private static float SnapToStep(ConfigCatalog.ConfigItem item, float value, double min, double max)
     {
         double step = item.BaseStep;
         if (step <= 0d || double.IsNaN(step) || double.IsInfinity(step))
             return value;
-        double snapped = item.Min + Math.Round((value - item.Min) / step) * step;
-        return (float)Math.Min(item.Max, Math.Max(item.Min, snapped));
+        double snapped = min + Math.Round((value - min) / step) * step;
+        return (float)Math.Min(max, Math.Max(min, snapped));
     }
 
     /// <summary>
@@ -1728,6 +1800,19 @@ internal static partial class VROptionsTab
     /// </summary>
     private static void Apply(ConfigCatalog.ConfigItem item, Action edit)
     {
+        // Reject an unavailable native-MR enable even from the generic Advanced
+        // row or a programmatic toggle event; a saved true value can still be cleared.
+        if (IsMixedRealitySwitch(item) && !CanEditMixedRealitySwitch(item))
+            return;
+
+        // A wall-cadence edit has two differently named controls plus the older
+        // [Optimize] fallback. The effective values matter more than the slider
+        // position, and a map transition can end wall sampling before its next
+        // periodic report. Record actual UI writes at Debug, never every frame.
+        bool wallCadence = (item.Section == "WallFade"
+                            && (item.Key == "RescanIntervalSeconds" || item.Key == "EvalIntervalSeconds"))
+                           || (item.Section == "Optimize" && item.Key == "WallFadeEvalInterval");
+        object? before = wallCadence ? item.Entry.BoxedValue : null;
         try
         {
             edit();
@@ -1737,6 +1822,13 @@ internal static partial class VROptionsTab
             VRLog.Warn("WorldUI", $"VR options tab: editing {item.Section}/{item.Key} threw ({e.Message}).");
             return;
         }
+
+        if (wallCadence && VRLog.WantsDebug)
+            VRLog.Debug("WorldUI", $"WALL CADENCE EDIT {item.Section}/{item.Key}: "
+                + $"stored {before} -> {item.Entry.BoxedValue} "
+                + $"(changed={!Equals(before, item.Entry.BoxedValue)}); effective table rebuild "
+                + $"{WallFadeTuning.RescanIntervalSeconds:F3}s, occlusion check "
+                + $"{WallFadeTuning.EffectiveEvalIntervalSeconds:F3}s.");
 
         for (int i = 0; i < ValueLabels.Count; i++)
         {
@@ -1758,12 +1850,12 @@ internal static partial class VROptionsTab
         // drag and re-enter Apply.
         for (int i = 0; i < Sliders.Count; i++)
         {
-            (Slider bar, ConfigCatalog.ConfigItem owner) = Sliders[i];
+            (Slider bar, ConfigCatalog.ConfigItem owner, int component) = Sliders[i];
             if (bar == null)
                 continue;
             try
             {
-                bar.SetValueWithoutNotify(ReadNumber(owner));
+                bar.SetValueWithoutNotify(ReadNumber(owner, component));
             }
             catch
             {
@@ -1782,11 +1874,13 @@ internal static partial class VROptionsTab
 
 
 
-    private static float ReadNumber(ConfigCatalog.ConfigItem item)
+    private static float ReadNumber(ConfigCatalog.ConfigItem item, int component = 0)
     {
         try
         {
-            return Convert.ToSingle(item.Entry.BoxedValue);
+            return item.Kind == ConfigCatalog.ConfigKind.Components
+                ? (float)ConfigCatalog.Component(item.Entry.BoxedValue, component)
+                : Convert.ToSingle(item.Entry.BoxedValue);
         }
         catch
         {
@@ -1799,8 +1893,13 @@ internal static partial class VROptionsTab
     /// and the setting silently stops responding, so the conversion happens here where it can be
     /// reported.
     /// </summary>
-    private static void WriteNumber(ConfigCatalog.ConfigItem item, float value)
+    private static void WriteNumber(ConfigCatalog.ConfigItem item, float value, int component = 0)
     {
+        if (item.Kind == ConfigCatalog.ConfigKind.Components)
+        {
+            item.Entry.BoxedValue = ConfigCatalog.WithComponent(item.Entry.BoxedValue, component, value);
+            return;
+        }
         Type type = item.Entry.SettingType;
         item.Entry.BoxedValue = item.Integral
             ? Convert.ChangeType(Mathf.RoundToInt(value), type)
@@ -2207,12 +2306,17 @@ internal static partial class VROptionsTab
     /// </summary>
     private static void AttachHoverHint(TMP_Text title, string text, string what)
     {
+        title.raycastTarget = true;
+        AttachHoverHint(title.gameObject, text, what);
+    }
+
+    /// <summary>Keep disabled controls raycastable so hovering explains their unavailability.</summary>
+    private static void AttachHoverHint(GameObject receiver, string text, string what)
+    {
         try
         {
-            title.raycastTarget = true;
-
-            var target = title.gameObject.GetComponent<UITextTooltipTarget>()
-                         ?? title.gameObject.AddComponent<UITextTooltipTarget>();
+            var target = receiver.GetComponent<UITextTooltipTarget>()
+                         ?? receiver.AddComponent<UITextTooltipTarget>();
             target.Initialize(UITooltip.Corner.Auto, Vector2.zero, anchorToExactMouseTargetInstead: false,
                               width: HintWidth, height: 50f, autoAdjustHeight: true, hideBackground: false);
 
@@ -2250,12 +2354,15 @@ internal static partial class VROptionsTab
     /// </summary>
     private static string HintFor(ConfigCatalog.ConfigItem item, string? hintKey)
     {
-        string text = string.Empty;
+        if (IsMixedRealitySwitch(item))
+            return MixedRealityHint();
 
-        if (!string.IsNullOrEmpty(hintKey))
+        string text = Loc.ConfigHelpForPlayers(item.Section, item.Key) ?? string.Empty;
+
+        if (text.Length == 0 && !string.IsNullOrEmpty(hintKey))
         {
             // Loc.Mod hands the id back when a key is absent — that is the "no curated hint" signal.
-            string curated = Loc.Mod(hintKey!);
+            string curated = Loc.ModHelpForPlayers(hintKey!) ?? Loc.Mod(hintKey!);
             if (!string.Equals(curated, hintKey, StringComparison.Ordinal))
                 text = curated;
         }
@@ -2300,6 +2407,7 @@ internal static partial class VROptionsTab
                 UnityEngine.Object.Destroy(Rows[i]);
         }
         Rows.Clear();
+        ClearMixedRealityAvailabilityRefreshers();
         ValueLabels.Clear();
         Sliders.Clear();
     }

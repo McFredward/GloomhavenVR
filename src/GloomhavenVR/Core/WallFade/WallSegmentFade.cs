@@ -74,12 +74,13 @@ internal static class WallFadeTuning
     /// <summary>ModBuild 278: seconds between two fade DECISIONS (sample visibility + blocked
     /// fraction). The [WallFade] door onto what [Optimize] WallFadeEvalInterval already did.</summary>
     internal static ConfigEntry<float>? EvalIntervalSecondsEntry;
-    /// <summary>ModBuild 278: suspend the decision, the coverage sampling and the rescan cadence
-    /// while the walk-in stand-down holds every wall solid anyway.</summary>
-    internal static ConfigEntry<bool>? WalkInSuspendSampling;
     /// <summary>ModBuild 278: name WHICH renderers moved the scene half of the skip signature on
     /// a cycle that refused to skip (see WallSegmentFadeCulprits.cs).</summary>
     internal static ConfigEntry<bool>? SignatureCulpritCensus;
+    /// <summary>Expensive room-column and generated-tile forensic scans. Every profile keeps
+    /// the ordinary wall heartbeat and budget report, but opts out of these full-scene
+    /// diagnostics unless a wall-geometry investigation explicitly needs them.</summary>
+    internal static ConfigEntry<bool>? DeepSceneCensus;
     /// <summary>ModBuild 279 (Option A): let the skip signature stop listening to renderers the
     /// round-7 ruling puts beyond every adoption lane's reach. Ships OFF — see
     /// <see cref="FigureExemptSkipOn"/>.</summary>
@@ -261,7 +262,7 @@ internal static class WallFadeTuning
             "all, because your eye would have to be near the floor. Live; clamped 0.00-1.00.");
 
         RescanIntervalSecondsEntry = config.Bind("WallFade", "RescanIntervalSeconds",
-            Defaults.RescanIntervalSeconds,
+            FrameDefaults.Active ? FrameDefaults.WallRescanIntervalSeconds : Defaults.RescanIntervalSeconds,
             "How often the mod REBUILDS its table of which renderers belong to which wall — the "
             + "sweep/classify/survey pipeline whose last step is one atomic frame. THIS IS THE "
             + "SETTING BEHIND THE SHORT HITCHES: on the ModBuild 277 hardware log that final "
@@ -278,8 +279,8 @@ internal static class WallFadeTuning
             + "frame entirely (80 of 113 in that same log), so raising this thins out the ones "
             + "that are left rather than removing a fixed cost. Live; clamped 0.50-15.00.");
         EvalIntervalSecondsEntry = config.Bind("WallFade", "EvalIntervalSeconds",
-            Defaults.EvalIntervalSeconds,
-            "How often the mod CHECKS whether a wall is hiding the floor you are looking at — "
+            FrameDefaults.Active ? FrameDefaults.WallEvalIntervalSeconds : Defaults.EvalIntervalSeconds,
+            new ConfigDescription("How often the mod CHECKS whether a wall is hiding the floor you are looking at — "
             + "the per-frame half: it projects every room's floor samples through your head "
             + "camera and re-measures every wall against them. 0 = not set here, which since "
             + "ModBuild 437 means the shipped cadence of 0.05 s (20 Hz) rather than every single "
@@ -300,23 +301,12 @@ internal static class WallFadeTuning
             + "fade animation's own smear and cannot be seen. IF THIS IS 0, the older "
             + "[Optimize] WallFadeEvalInterval in dev.gloomhavenvr.perf.cfg still applies, and "
             + "if that is 0 too the shipped 0.05 s applies; any non-zero value here overrides "
-            + "both. Live; clamped 0.00-0.25.");
-        WalkInSuspendSampling = config.Bind("WallFade", "WalkInSuspendSampling",
-            Defaults.WalkInSuspendSampling,
-            "While you are standing INSIDE the play field (see 'Im Spielfeld: alle Wände "
-            + "massiv'), stop measuring the walls altogether instead of measuring them and "
-            + "throwing the answer away. In that mode every wall is held fully solid by decree, "
-            + "so the coverage check, the fade decision and the periodic table rebuild are all "
-            + "computing a verdict that the very next line of code overrules — this switch just "
-            + "stops paying for it, which is the frame time back for free while you are down "
-            + "among the walls. NOTHING IS BROKEN BY IT: a rebuild already in flight is allowed "
-            + "to finish rather than being torn up mid-way, a room the game reveals while you "
-            + "are in there still triggers one immediately, and the moment you step or zoom out "
-            + "the very next frame resumes both the measuring and the rebuild — no waiting out "
-            + "a skipped cadence. Multiplayer is unaffected: what your teammates see is decided "
-            + "on THEIR machines, and a fade you had before you walked in is still broadcast. "
-            + "OFF = keep measuring while the mode holds, which is the ModBuild 277 behaviour. "
-            + "Live (the very next frame).");
+            + "both. Live; clamped 0.00-0.25.",
+            // The VR options catalog reads BepInEx's acceptable range. The runtime accessor
+            // already capped this at 0.25, but without a declared range the row let a player
+            // save 1.00 while the driver kept using 0.25 (Frame Build 594 evidence).
+            // BepInEx now normalizes old out-of-range cfg values to the SAME effective value.
+            new AcceptableValueRange<float>(0f, 0.25f)));
         SignatureCulpritCensus = config.Bind("WallFade", "SignatureCulpritCensus",
             Defaults.SignatureCulpritCensus,
             "DIAGNOSTIC, not a behaviour. When the mod decides it has to rebuild its wall table "
@@ -330,6 +320,14 @@ internal static class WallFadeTuning
             + "on that. It runs only on a cycle that is already going to rebuild, at most once "
             + "every few seconds, and reports its own cost as the step 'WallFade.SigDiag' so it "
             + "can never become an unmeasured tax. Live.");
+        DeepSceneCensus = config.Bind("WallFade", "DeepSceneCensus",
+            Defaults.DeepSceneCensus,
+            "DIAGNOSTIC only. Scan every mesh and generated map tile to log room-floor columns, "
+            + "tile children and the Apparance viewpoint when the wall heartbeat changes. The "
+            + "New profiles start with this OFF because the Build 594 Frame log measured "
+            + "65.7 ms in the diagnostic census on one post-load frame; the normal wall heartbeat, "
+            + "commit budget, signatures and failure reports remain active. Switch this ON when "
+            + "investigating missing geometry. It never changes wall decisions or appearance. Live.");
         FigureExemptSkip = config.Bind("WallFade", "FigureExemptSkip",
             Defaults.FigureExemptSkip,
             "EXPERIMENTAL, OFF BY DEFAULT, AND MEASURED EITHER WAY. Heroes, monsters and their "
@@ -679,9 +677,10 @@ internal static class WallFadeTuning
 
     /// <summary>
     /// ModBuild 278 — seconds between two RESCAN CYCLES. The number inside Clamped() is only the
-    /// PRE-BIND fallback; the shipped default is <c>Defaults.RescanIntervalSeconds</c>, and the
-    /// two must stay equal (this project has lost two rounds to reading the fallback as the
-    /// shipped default — see the ledger entry "A clamp fallback is not a default").
+    /// PRE-BIND fallback; fresh PC configs use <c>Defaults.RescanIntervalSeconds</c>, while
+    /// a fresh Steam Frame standalone config starts at <c>FrameDefaults.WallRescanIntervalSeconds</c>.
+    /// This project has lost two rounds to reading the fallback as the shipped default — see
+    /// the ledger entry "A clamp fallback is not a default".
     ///
     /// <para>THE LOWER CLAMP IS 0.5 AND IT IS A SAFETY BAR, not taste. The cycle's own stages are
     /// budgeted per frame (census 1.5 ms, survey 1.5 ms, prepare 1.5 ms) and a scene of ~5800
@@ -752,17 +751,17 @@ internal static class WallFadeTuning
         }
     }
 
-    /// <summary>ModBuild 278 kill switch for the walk-in suspension. Read live every frame and
-    /// printed live on the suspension's own edge line, because a remedy that silently did not
-    /// run has cost this project a whole build before.</summary>
-    internal static bool WalkInSuspendSamplingOn =>
-        WalkInSuspendSampling == null || WalkInSuspendSampling.Value;
+    /// <summary>Always omit measurements overruled by the native walk-in solid-wall branch.</summary>
+    internal static bool WalkInSuspendSamplingOn => true;
 
     /// <summary>ModBuild 278 — the WHICH-RENDERERS census (WallSegmentFadeCulprits). Defaults ON
     /// while unbound: an instrument that is off in the capture that was supposed to answer the
     /// question is a wasted round, and this project has had three of those.</summary>
     internal static bool SignatureCulpritCensusOn =>
         SignatureCulpritCensus == null || SignatureCulpritCensus.Value;
+
+    internal static bool DeepSceneCensusOn =>
+        DeepSceneCensus == null ? Defaults.DeepSceneCensus : DeepSceneCensus.Value;
 
     /// <summary>
     /// ModBuild 279 (Option A) — MAY THE SKIP SIGNATURE STOP LISTENING TO FIGURES?
@@ -859,7 +858,7 @@ internal static class WallFadeTuning
 ///   fades); then <c>m = (occ.a &gt;= fragDepth) ? 1 : (1-occ.r)</c>,
 ///   <c>discard if m - _Cutoff &lt; 0</c> (<c>_Cutoff</c> = "Mask Clip Value", cb0[4].y).</item>
 /// <item>HIGH variant (<c>Amp_Basic_WallFade</c>, misc_high_shaders), blob216 lines 165-229:
-///   same map term <c>m</c>, <c>M = m·_ToggleWallfade</c> (material float, cb0[6].x);
+///   same map term <c>m</c>, <c>M = m·_EnableOcclusionMap</c> (material float, cb0[6].x);
 ///   <c>S = smoothstep(sat(3.33·((0.02·dist + screenRadial)^8 + (1-worldY)/3)))</c> — the
 ///   world-Y foundation ramp and the screen-edge vignette are SUMMED INSIDE one scalar;
 ///   <c>n</c> = time-drifting world-space simplex noise; <c>A = max(M,S) + 42n·(1-max(M,S))</c>;
@@ -869,15 +868,18 @@ internal static class WallFadeTuning
 /// Unity property precedence is MPB &gt; material &gt; global, so a per-renderer
 /// MaterialPropertyBlock can open the gate (<c>ToggleWallFade=1</c>), substitute the map
 /// (<c>_TilesOcclusionMap</c> = a small CONSTANT texture) and set <c>_Cutoff</c> /
-/// <c>_ToggleWallfade</c>. Concretely:
+/// <c>_EnableOcclusionMap</c>. The historical alias remains for other shader families.
+/// Concretely:
 /// <list type="bullet">
 /// <item>TRANSITION (0&lt;fade&lt;1): map = low-frequency VALUE-NOISE texture (r in [0.06,1],
 ///   a=0 — fails the reversed-Z depth compare, so <c>m = 1-noise</c>),
-///   <c>_Cutoff = lerp(-0.05, 1, fade)</c> → progressive dissolve; the high variant
-///   additionally dithers/vignettes with its own view terms. The noise is sampled at SCREEN
+///   bilinear filtering and <c>_Cutoff = lerp(-0.15, 1, fade)</c> for walls
+///   (<c>lerp(-0.05, 1, fade)</c> for mounted props). Native HIGH additionally uses
+///   its original simplex noise/foundation/vignette branches. Build620 restores these
+///   exact pre-619 inputs; the approved appearance still needs headset verification. The noise is sampled at SCREEN
 ///   UV by the shader itself, so the pattern slides under head motion — confined to the
-///   ~0.35s dissolve, cosmetic (under conventional-Z it would degrade to an end-of-sweep
-///   pop; the rig is D3D11 reversed-Z).</item>
+///   ~0.35s dissolve. Alpha zero takes the native <c>1-r</c> branch at visible
+///   fragments with positive depth under both conventional and reversed Z).</item>
 /// <item>HELD FADED (fade=1) — R3 (foundation-band fix; the R2 held state below deleted
 ///   the base course, the user's bug): drive EXACTLY the value the flat game's own
 ///   occlusion map delivers over a revealed room. The game never touches <c>_Cutoff</c>
@@ -893,7 +895,7 @@ internal static class WallFadeTuning
 ///   the degenerate exact far/near-plane pixel), <c>_Cutoff</c> = the material's
 ///   AUTHORED "Mask Clip Value" (clamped 0.05–0.95; with m = 0 any 0&lt;c&lt;1 yields
 ///   the same held geometry — the authored value only shapes the HIGH dither density,
-///   matching the flat game exactly), <c>_ToggleWallfade=1</c>. LOW (blob264 lines
+///   matching the flat game exactly), <c>_EnableOcclusionMap=1</c>. LOW (blob264 lines
 ///   46-49, 69-71): <c>clip = 0 - c &lt; 0</c> → constant discard wherever objY ≥ 0.4;
 ///   the base course below the shader's hard object-Y gate stays solid. HIGH (blob216
 ///   lines 216-229): <c>M = 0</c> → <c>B = S</c>, <c>A = S + 42n(1-S)</c>, so at the
@@ -1108,6 +1110,10 @@ internal static partial class WallSegmentFade
         /// that left a still-faded segment gets its property block cleared instead of keeping a
         /// stale fade forever.</summary>
         public readonly List<MeshRenderer> PrevRenderers = new();
+        /// <summary>Lazy membership index of <see cref="PrevRenderers"/> for the standing-prop
+        /// restitution check during refresh. Both use Unity's object equality; the list keeps
+        /// the original restore order while the set avoids a scan per rejected child.</summary>
+        public readonly HashSet<MeshRenderer> PrevRendererSet = new();
         /// <summary>Foliage ATTACHMENTS (grass/vines/bushes dressing this wall — Foliage-family
         /// shaders, no fade path of their own): dissolved via an alpha-cutoff ramp while the wall
         /// fades and fully hidden in the held state, restored exactly when the wall returns.</summary>
@@ -1395,8 +1401,8 @@ internal static partial class WallSegmentFade
         /// request 2026-08-25: <i>"Würde es helfen hier die Abtastrate … etwas zu verringern?
         /// Am Besten lass sie in den Einstellungen selber einstellen können."</i>) — it was
         /// <c>private const float RescanIntervalSeconds = 2f</c> from the subsystem's first
-        /// build until then, and <c>Defaults.RescanIntervalSeconds</c> holds that same 2.0 so
-        /// nothing moves at the shipped value.
+        /// build until then. The PC default remains 2.0; the separate tested Frame default
+        /// is 4.0. An existing saved value wins on either platform.
         ///
         /// <para>READ IT FOR DISPLAY AND FOR SCHEDULING, NEVER FOR JUDGING A CYCLE THAT IS
         /// ALREADY OPEN. The value can change between the frame a cycle was scheduled on and
@@ -1408,6 +1414,7 @@ internal static partial class WallSegmentFade
         private const float DiagIntervalSeconds = 2f;  // throttled hardware diagnostic cadence
 
         private static readonly int TilesOcclusionMapId = Shader.PropertyToID("_TilesOcclusionMap");
+        private static readonly int NativeMapEnableId = Shader.PropertyToID("_EnableOcclusionMap");
         private static readonly int ToggleWallFadeId = Shader.PropertyToID("ToggleWallFade");
         private static readonly int ToggleWallfadeMatId = Shader.PropertyToID("_ToggleWallfade");
         private static readonly int CutoffId = Shader.PropertyToID("_Cutoff");
@@ -1489,6 +1496,12 @@ internal static partial class WallSegmentFade
         /// renderer.enabled every frame.</summary>
         private readonly HashSet<MeshRenderer> _siblingOwned = new();
         private readonly List<MeshRenderer> _subtreeScratch = new();
+        // The wall-cache refresh owns this list for its whole synchronous pass. It must not
+        // share _subtreeScratch: standing/prop-unit predicates called from that pass use it.
+        private readonly List<MeshRenderer> _wallCacheRendererScratch = new(64);
+        /// <summary>Current renderer/foliage membership during FinishRefresh. Reused between
+        /// segments; the segment's own lists retain the order in which leavers are restored.</summary>
+        private readonly HashSet<MeshRenderer> _refreshMembership = new();
         /// <summary>An ancestor whose subtree holds more MeshRenderers than this is a CONTAINER
         /// (the 'L :' Apparance layer/section-root class), not a prefab-sized asset — the walk
         /// stops there and attaches nothing (fail-open: the ugly remnant stays visible, which
@@ -1626,7 +1639,7 @@ internal static partial class WallSegmentFade
         private long _coverageSegments;   // BlockedFraction calls
         private long _coverageSamples;    // (segment, sample) pairs the broad phase looked at
         private long _coverageBoxSkips;   // pairs the managed box reject removed before the ICall
-        private long _coveragePieceReads; // Renderer.bounds reads the narrow phase actually made
+        private long _coveragePieceReads; // Renderer.bounds reads the narrow phase actually requested
         private long _coveragePieceHits;  // narrow-phase piece tests served from the per-segment cache
         private readonly Dictionary<MeshRenderer, float> _floorYByRenderer = new(); // volume anchors
         private readonly List<float> _floorYScratch = new();    // median fallback scratch
@@ -1777,12 +1790,17 @@ internal static partial class WallSegmentFade
             /// <c>(bounds.center.x, bounds.min.y, bounds.center.z)</c> for anything else, so
             /// <c>Anchor.y</c> IS the <c>anchorY</c> both passes use.</summary>
             public Vector3 Anchor;
-            /// <summary>Fixed for a renderer's lifetime, so a census verdict on it can never
-            /// go stale: the mod LAYER and the 'GloomhavenVR.' name prefix are both stamped at
-            /// creation. (<c>enabled</c> is deliberately NOT cached — the game flips it at
+            /// <summary>Presentation excluded from every wall collector. Mod layers/names
+            /// and exact FigureVisualMirror owners are stamped at creation. Native pooled
+            /// particle ownership is re-evaluated on warm slices, using the same verdict as
+            /// live collectors; a reassigned prefab must not retain its old exemption.
+            /// Native-named children of a visual clone retain that owner, including
+            /// inactive LODs. (<c>enabled</c> is deliberately NOT cached — the game flips it at
             /// will, and a stale <c>enabled</c> used as a reject would NARROW a candidate set.
             /// Every pass that cares reads it live.)</summary>
             public bool Mod;
+            // Immutable mod-owned half, separate from mutable native particle membership.
+            public bool ModPresentation;
             public bool WallFadeShader;
             public bool FoliageShader;
             public bool WaterSurface;
@@ -2002,6 +2020,7 @@ internal static partial class WallSegmentFade
         private int _cycleClassifyFrames;
         private float _cycleWorstFrameMillis;
         private float _cycleWorstCommitMillis;
+        private long _cycleGeometryNativeReads, _cycleGeometryReusedReads;
         private float _cycleWorstSweepMillis;
         private float _nextBudgetLogTime;
         private bool _budgetLoggedOnce;
@@ -2071,14 +2090,30 @@ internal static partial class WallSegmentFade
         private bool _failureLogged;
         private bool _heartbeatLogged;
 
-        private void OnEnable() => SceneManager.sceneLoaded += OnSceneLoaded;
+        private void OnEnable()
+        {
+            SceneManager.sceneLoaded += OnSceneLoaded;
+            Camera.onPreRender += HandleWallDrawTrace;
+        }
 
-        private void OnDisable() => SceneManager.sceneLoaded -= OnSceneLoaded;
+        private void OnDisable()
+        {
+            ResetPerformanceVisibility("driver disabled");
+            SceneManager.sceneLoaded -= OnSceneLoaded;
+            Camera.onPreRender -= HandleWallDrawTrace;
+            ClearWallDrawTrace();
+        }
 
         private void OnDestroy() => Teardown();
 
         private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
         {
+            // Additive scene arrivals do not end a loaded scenario's Auto latch.
+            // A new Game scene does; other arrivals invalidate the hidden inventory.
+            if (scene.name == "Game") ResetPerformanceVisibility("scenario scene loaded");
+            else if (PerformanceWallsHidden) InvalidatePerformanceInventory();
+            ClearWallDrawTrace();
+            ClearCeilingCommitTrace();
             // Scenario scenes are additive; walls/volumes stream in — rescan promptly. Old
             // renderers die with their scene, so blocks need no explicit clearing here.
             _nextRescan = 0f;
@@ -2152,6 +2187,10 @@ internal static partial class WallSegmentFade
                 // for the arithmetic and for why the applier tier is sampled.
                 using (PerfMonitor.Scope("WallFade.Late"))
                 {
+                    // The quality compromise replaces the ordinary pipeline entirely. Its
+                    // settled path does no wall census, fade animation or diagnostics.
+                    if (TickPerformanceVisibility())
+                        return;
                     BeginTickFrame();
                     try
                     {
@@ -2425,7 +2464,9 @@ internal static partial class WallSegmentFade
             _lastVisibleCount = visibleCount;
             bool reevalArmed = _perspective.Armed(now);
 
-            float fadeStep = OcclusionFade.StepFactor(Time.unscaledDeltaTime, FadeTauSeconds);
+            float frameDelta = Time.unscaledDeltaTime;
+            float fadeStep = OcclusionFade.StepFactor(AnimationDelta(frameDelta), FadeTauSeconds);
+            NoteAnimationClock(frameDelta, now);
             // The coverage EMA advances by the time since the last EVALUATION, not since the last
             // frame — otherwise skipping evaluations would silently stretch its time constant and
             // change the fade decision, which is exactly what the interval must NOT do.
@@ -2865,7 +2906,16 @@ internal static partial class WallSegmentFade
                 _heartbeatLogged = true;
                 _heartbeatSegCount = _live.Segments.Count;
                 _heartbeatFadeRenderers = _censusFadeRenderers;
-                LogFloorColumnCensus();
+                // These two full-scene searches are forensic output only. On Build 594's Frame
+                // scenario one heartbeat cost 65.7 ms after the loading indicator had gone;
+                // the wall table and all visual appliers had already completed. Keep the
+                // bounded summary below, and allow explicit opt-in when investigating floors.
+                if (WallFadeTuning.DeepSceneCensusOn)
+                {
+                    using var _deepCensusScope = PerfMonitor.Scope("WallFade.Census.Deep");
+                    LogFloorColumnCensus();
+                }
+                using var _summaryCensusScope = PerfMonitor.Scope("WallFade.Census.Summary");
                 LogMountedCensus();
                 // ModBuild 262: LogWallPathAudit is NO LONGER driven from here. Hanging off this
                 // block is exactly why the 260 log holds three of them and no steady state — the
@@ -3461,7 +3511,7 @@ internal static partial class WallSegmentFade
             if (r == null)
                 return;
             _narrowPieces.Add(r);
-            _narrowBounds.Add(r.bounds);
+            _narrowBounds.Add(WallCommitGeometryReads.Read(r));
             _narrowFromList.Add(fromList);
             _coveragePieceReads++;
         }
@@ -4009,7 +4059,7 @@ internal static partial class WallSegmentFade
             byContains = false;
             if (r == null)
                 return false;
-            Bounds rb = r.bounds;
+            Bounds rb = WallCommitGeometryReads.Read(r);
             meshes++;
             if (!rb.IntersectRay(ray, out float rd))
                 return false;
@@ -4072,7 +4122,7 @@ internal static partial class WallSegmentFade
 
         private static bool ContainsHead(Renderer? r, Vector3 headPos, ref string meshName)
         {
-            if (r == null || !r.bounds.Contains(headPos))
+            if (r == null || !WallCommitGeometryReads.Read(r).Contains(headPos))
                 return false;
             meshName = r.name;
             return true;
@@ -4110,7 +4160,7 @@ internal static partial class WallSegmentFade
                         continue;
                     if (listed++ >= 6) { rl.Append(", …"); break; }
                     if (rl.Length > 0) rl.Append(", ");
-                    rl.Append(r.name).Append('@').Append(r.bounds.max.y.ToString("F1"));
+                    rl.Append(r.name).Append('@').Append(WallCommitGeometryReads.Read(r).max.y.ToString("F1"));
                 }
                 string cutoff = $"map occ(r=1,a=0)→m=0, _Cutoff={seg.HeldCutoff:0.00} " +
                     (seg.CutoffAuthored ? "(authored)" : "(fallback)");
@@ -4256,6 +4306,7 @@ internal static partial class WallSegmentFade
             if (r == null)
                 return;
             ShowIfWeHid(r); // enable ledger — never re-enable what the GAME switched off
+            ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
             r.SetPropertyBlock(null);
         }
 
@@ -4289,7 +4340,10 @@ internal static partial class WallSegmentFade
                 if (r == null)
                     continue;
                 if (wroteBlock)
+                {
+                    ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
                     r.SetPropertyBlock(null);
+                }
                 ShowIfWeHid(r); // enable ledger — never re-enable what the GAME switched off
             }
             seg.FoliageProps.Clear();
@@ -4309,7 +4363,10 @@ internal static partial class WallSegmentFade
                     || p.DissolveControlId >= 0;
                 RestorePropSwap(p, r);
                 if (wroteBlock)
+                {
+                    ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
                     r.SetPropertyBlock(null);
+                }
             }
             ShowIfWeHid(r); // enable ledger — never re-enable what the GAME switched off
         }
@@ -4338,7 +4395,10 @@ internal static partial class WallSegmentFade
                 if (r == null)
                     continue;
                 if (wroteBlock)
+                {
+                    ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
                     r.SetPropertyBlock(null);
+                }
                 ShowIfWeHid(r); // enable ledger — never re-enable what the GAME switched off
             }
             seg.SiblingProps.Clear();
@@ -4374,7 +4434,7 @@ internal static partial class WallSegmentFade
             // steady state this is one enabled compare per sibling.
             foreach (MeshRenderer s in seg.Siblings)
             {
-                if (s == null)
+                if (s == null || ScenarioSceneryBudget.IsOwnedHidden(s))
                     continue;
                 if (!seg.SiblingProps.TryGetValue(s, out MountedProp? p))
                 {
@@ -4440,7 +4500,7 @@ internal static partial class WallSegmentFade
             // wall is held faded must be re-hidden this frame, not never.
             foreach (MeshRenderer f in seg.Foliage)
             {
-                if (f == null)
+                if (f == null || ScenarioSceneryBudget.IsOwnedHidden(f))
                     continue;
                 // ModBuild 254: classify per material rather than writing one shared _Cutoff MPB
                 // blind to all of them — ClassifyProp reads what this material can actually
@@ -4566,7 +4626,11 @@ internal static partial class WallSegmentFade
                     foreach (MeshRenderer r in seg.Renderers)
                     {
                         if (r != null)
+                        {
+                            ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
                             r.SetPropertyBlock(null);
+                            NoteWallDrawWrite(seg, r, null);
+                        }
                     }
                 }
                 return;
@@ -4577,10 +4641,11 @@ internal static partial class WallSegmentFade
             _mpb ??= new MaterialPropertyBlock();
             _mpb.Clear();
             _mpb.SetInteger(ToggleWallFadeId, 1);
-            // HIGH-variant map scale M = m·_ToggleWallfade (cb0[6].x) — pin to 1 so the held
-            // math below holds regardless of the material's authored value; the LOW shader
-            // has no such property (MPB entry simply unused there).
+            // Keep the historical aliases for other native families. The original HIGH/
+            // N_MRAO bytecode uses _EnableOcclusionMap instead; its native flat-camera
+            // producer can be suspended in VR, so provide the actual binding explicitly.
             _mpb.SetFloat(ToggleWallfadeMatId, 1f);
+            _mpb.SetFloat(NativeMapEnableId, 1f);
             // TOGGLE-NATIVE materials (round 8, Amp_Basic_N_MRAO masonry): open their gate
             // too — the same fade subgraph behind a differently-named material switch.
             // Unused entry on the classic WallFade shaders, exactly like _ToggleWallfade on
@@ -4589,32 +4654,14 @@ internal static partial class WallSegmentFade
             // the material becomes the shader-swap candidate — the toggle diag line plus the
             // next hardware round adjudicate.
             _mpb.SetFloat(WallFadeOnMatId, 1f);
-            // THE NOISE MAP IS THE DISSOLVE. THE OCCLUDED MAP IS A SWITCH. (ModBuild 255 —
-            // reverting my own ModBuild 252 change, which was wrong and is the primary cause of
-            // the report "das aufploppen und verschwinden der Wände ist jetzt plötzlich keine
-            // smoothe animation mehr" — note "jetzt plötzlich", i.e. since that build.)
-            //
-            // 252 replaced the noise ramp with a sweep of _Cutoff against the OCCLUDED map, on
-            // the reasoning that the HIGH shader's world-Y term S is a gradient, so a rising c
-            // would dissolve the wall top-down. That reasoning ignored the clause written three
-            // lines further down in this very file: with M = 0 the shader multiplies the
-            // NOISE BY ZERO. Removing the noise removes the only per-pixel variation the cutoff
-            // had to sweep across, which leaves clip = -c for the whole upper wall: solid while
-            // c < 0, discarded the instant c > 0. With c = Lerp(-0.05, 0.50, Fade) that crossing
-            // happens at Fade ≈ 0.09 — one frame into a 0.35 s ramp. It was never a gradient
-            // sweep; it was a one-frame switch wearing a ramp's clothes.
-            //
-            // HARDWARE CONFIRMS IT, in both directions. Frame-by-frame on the user's 30 fps
-            // capture (wände_probleme.mp4): pop-OUT at #148→#149 (t 4.900→4.933) and pop-IN at
-            // #349→#350 (t 11.600→11.633, camera shift measured at exactly (0,0)), each a single
-            // 33 ms step with flat patch means on both sides and ZERO intermediate samples. A
-            // 0.35 s ramp would have produced about ten.
-            //
-            // So the noise path is restored for every variant. Its cost is the known step at the
-            // Fade == 1 boundary — the foundation band winks as the map swaps — which is real,
-            // is what 252 set out to fix, and is a band at the wall's base rather than the whole
-            // wall. It is the pre-252 behaviour that drew no complaint for many builds. The
-            // ANIMATION line reports it as the residual rather than claiming it away.
+            // Build620 restores the maintainer-approved pre-619 bilinear Perlin map and
+            // continuous cutoff sweep for every native route. Build619's point-filtered
+            // binary rank maps produced visible square patches in the PC hardware test;
+            // preserving endpoints alone did not preserve the approved animation.
+            // The exact original map-enable binding above remains independent of the
+            // unused native camera. No new mask bank, shader or material is introduced.
+            // The original HIGH branch still has its native foundation/vignette residual;
+            // surrogate fragment inputs cannot establish the final headset appearance.
             if (seg.Fade >= 1f)
             {
                 // Held fully faded (R3, foundation-band fix): constant r=1,a=0 map → map
@@ -4635,8 +4682,8 @@ internal static partial class WallSegmentFade
             {
                 // Dissolve: sweep the clip threshold across the noise texture's value range
                 // (screen-space pattern — cosmetic, confined to the ~0.35s transition). This is
-                // the ONLY path in this method that produces intermediate pixels: m = 1-r varies
-                // per texel across the noise, so a rising c retires the wall progressively.
+                // the historical continuous-map path: m = 1-r varies per texel across
+                // the noise. Native HIGH retains its own additional fragment branches.
                 _mpb.SetTexture(TilesOcclusionMapId, _noiseTex!);
                 // THE RAMP STARTS BELOW ZERO ON PURPOSE (ModBuild 256). seg.Fade cannot be
                 // observed near 0: fadeStep = 1-exp(-dt/0.12) is ~0.088 at 90 Hz, so the very
@@ -4676,6 +4723,7 @@ internal static partial class WallSegmentFade
                 // renderer that has no block is a no-op. See WallSegmentFade.Floor.cs.
                 if (FloorNeverFades(r))
                 {
+                    ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
                     r.SetPropertyBlock(null);
                     continue;
                 }
@@ -4687,11 +4735,18 @@ internal static partial class WallSegmentFade
                 // back. ShowIfWeHid is ledgered - a renderer the GAME switched off stays off.
                 if (HeldNeverFades(r))
                 {
+                    ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
                     r.SetPropertyBlock(null);
                     ShowIfWeHid(r);
                     continue;
                 }
+                // Budget-owned optional geometry remains in all room/coverage tables; its
+                // pixel delivery is already masked. Unfade restitution above remains unconditional.
+                if (ScenarioSceneryBudget.IsOwnedHidden(r))
+                    continue;
+                ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
                 r.SetPropertyBlock(_mpb);
+                NoteWallDrawWrite(seg, r, _mpb);
             }
             if (lostRenderer)
                 _nextRescan = 0f; // wall regenerated mid-fade — re-collect promptly
@@ -4728,7 +4783,7 @@ internal static partial class WallSegmentFade
                 // has paid for). The actor veto inside IsWallGeneratedDressing is what keeps
                 // this narrower than the guard, never wider: a real figure fails it twice over.
                 if (p.Renderer != null && IsFigureOrActorRenderer(p.Renderer)
-                    && !IsWallGeneratedDressing(p.Renderer))
+                    && !IsWallGeneratedDressingInCommit(p.Renderer))
                 {
                     _figurePurgeScratch.Add(p);
                 }
@@ -5361,7 +5416,11 @@ internal static partial class WallSegmentFade
                     f.Mountable = IsMountableRendererType(r);
                     ClassifyMaterialsAndName(r, ref f);
                 }
-                f.Bounds = r.bounds;
+                // Pool reuse/reparenting can change the original native visual owner.
+                // Keep immutable material facts cold, but share the live ownership verdict
+                // with every collector rather than retaining an old pool claim.
+                if (!cold && f.Particles) f.Mod = f.ModPresentation || IsNativeNonWallPresentation(r);
+                f.Bounds = WallCommitGeometryReads.Read(r);
                 f.Anchor = f.Particles
                     ? r.transform.position
                     : new Vector3(f.Bounds.center.x, f.Bounds.min.y, f.Bounds.center.z);
@@ -5484,6 +5543,9 @@ internal static partial class WallSegmentFade
                 // EXEMPT rows that are not mod-owned, or a session in which a wall stays solid
                 // while that line's exempt count is the only thing moving.
                 bool modExempt = f.Mod && !(f.Mesh != null && f.WallFadeShader);
+                // Birth/death/pooled activation of exact native actor particles cannot enter
+                // mesh-only lanes; water and detached scenery effects remain conservative.
+                modExempt |= !f.WallFadeShader && IsActorParticleSignatureExempt(r, f.WaterSurface);
                 // ModBuild 440: the instance id goes into the row bank too. It costs no
                 // interop — it is the very value `ident` was folded from one line above — and it
                 // is what makes the census's diff order-free across a fresh sweep.
@@ -5570,8 +5632,7 @@ internal static partial class WallSegmentFade
         private void ClassifyMaterialsAndName(Renderer r, ref RendererFact f)
         {
             bool wallFade = false, foliage = false, water = false;
-            _matScratch.Clear();
-            r.GetSharedMaterials(_matScratch);
+            ReadFadeMaterials(r, _matScratch);
             for (int mi = 0; mi < _matScratch.Count; mi++)
             {
                 Material mat = _matScratch[mi];
@@ -5610,13 +5671,13 @@ internal static partial class WallSegmentFade
 
             string n = r.name;
             f.Name = n; // ModBuild 278 — see RendererFact.Name; the string is already allocated
-            // IsModObject, verbatim: the mod layer OR the repo-convention name prefix (hardware
-            // round 3 — the MR sky backing 'GloomhavenVR.MrBacking' leaked into the near-miss
-            // census through the layer-only test). ModBuild 443 adds FigureGrab's own prefix,
-            // which this test had never known about and which the mod's figure-glow clones are
-            // the only users of in a scene — see VRLayers.ModOwnedNamePrefix and IsModObject.
-            f.Mod = r.gameObject.layer == VRLayers.ModLayer
-                || ModVisualOwnership.IsName(n);
+            // The same exact owner verdict serves cold census and live adoption. CloneVisual
+            // keeps native child names/layers, so those children need their FigureVisualMirror
+            // ancestor rather than a broader figure/name heuristic. Exact native published
+            // selection decals/particles also remain non-wall presentation.
+            // Actual wall-shader members retain their conservative scene signature below.
+            f.ModPresentation = IsModPresentation(r, n);
+            f.Mod = f.ModPresentation || IsNativeNonWallPresentation(r);
             // The authored water name family, consulted — as before — only when the shader
             // family already said no. See WallSegmentFade.Water.cs.
             f.WaterSurface = water || IsWaterNameFamily(n);
@@ -5668,7 +5729,13 @@ internal static partial class WallSegmentFade
               .Append($"{WorstCommitPhaseName} at {_cycleWorstCommitPhaseMillis:F2}ms; ")
               .Append($"{CommitPhaseCount} of {CommitPhaseCount} phase(s) still run ATOMICALLY; ")
               .Append($"the standing-prop scope was opened by the commit itself on ")
-              .Append($"{_cycleScopeSelfOpened} cycle(s) (>0 means the prepare stage did not run).");
+              .Append($"{_cycleScopeSelfOpened} cycle(s) (>0 means the prepare stage did not run). ")
+              .Append($"WALL-PROVENANCE MEMO: {_wallGeneratedDressingMemoHits} repeated ")
+              .Append($"query/queries reused, {_wallGeneratedDressingMemoMisses} first queries ")
+              .Append("answered during synchronous commits in this window.");
+            sb.Append(" COMMIT-GEOMETRY READS: ").Append(_cycleGeometryNativeReads)
+              .Append(" exact native mesh bounds, ").Append(_cycleGeometryReusedReads)
+              .Append(" repeated same-publication reads reused; no geometry survives a frame.");
             AppendSkipClause(sb);
             AppendPrepareClause(sb);
             AppendCommitPhaseBreakdown(sb);
@@ -5686,16 +5753,21 @@ internal static partial class WallSegmentFade
             _cycleClassifyFrames = 0;
             _cycleWorstFrameMillis = 0f;
             _cycleWorstCommitMillis = 0f;
+            _cycleGeometryNativeReads = _cycleGeometryReusedReads = 0;
             _cycleWorstSweepMillis = 0f;
             _cyclePrepareFrames = 0;
             _cycleWorstPrepareMillis = 0f;
             _cyclePrepareTotalMillis = 0f;
             _cyclePrepWarmedRenderers = 0;
+            _cyclePreparedChildReads = 0;
+            _cyclePreparedChildHits = 0;
             _cyclePrepWarmedRoots = 0;
             _cyclePrepRefusedReveal = 0;
             _cyclePrepRefusedBoard = 0;
             _cyclePrepDroppedAnchors = 0;
             _cycleScopeSelfOpened = 0;
+            _wallGeneratedDressingMemoHits = 0;
+            _wallGeneratedDressingMemoMisses = 0;
             _cycleSurveyFrames = 0;
             _cycleWorstSurveyMillis = 0f;
             _cycleSurveyTotalMillis = 0f;
@@ -5731,9 +5803,14 @@ internal static partial class WallSegmentFade
         {
             // PERF S1: one memo scope for the whole (synchronous) rescan — see
             // FigureAncestryMemo for why that cannot change a single figure verdict.
+            _wallGeneratedDressingCommitMemo.Clear();
             BeginFigureMemo();
             try { RescanCore(gen); }
-            finally { EndFigureMemo(); }
+            finally
+            {
+                EndFigureMemo();
+                _wallGeneratedDressingCommitMemo.Clear();
+            }
         }
 
         /// <summary>
@@ -5756,6 +5833,8 @@ internal static partial class WallSegmentFade
         private void RescanCore(TilesOcclusionGenerator gen)
         {
             BeginCommitPhases();
+            WallCommitGeometryReads.Begin(PerfConfig.SharedWallReadCacheOn);
+            bool completed = false;
             try
             {
                 // Figures first (round 7): nothing below may keep or re-take an actor renderer.
@@ -5778,7 +5857,11 @@ internal static partial class WallSegmentFade
                 using (Phase(CommitPhase.DeadSegments))
                     CommitDeadSegments();
                 using (Phase(CommitPhase.WallCache))
-                    CommitWallCache();
+                {
+                    BeginWallCacheMaterialFacts();
+                    try { CommitWallCache(); }
+                    finally { EndWallCacheMaterialFacts(); }
+                }
                 using (Phase(CommitPhase.Doors))
                     CommitDoorRoots();
                 // GATE COLUMNS (user ruling 2026-08-07): the wall EMBEDDING each doorway fades
@@ -5859,7 +5942,7 @@ internal static partial class WallSegmentFade
                 // MP sync (record 17): refresh every segment's cross-machine wire key — needs the
                 // final table and the room labels (part of the key derivation).
                 using (Phase(CommitPhase.WireKeys))
-                    ComputeWireKeys();
+                    if (!PerformanceWallsHidden) ComputeWireKeys();
                 // Gate-lift links (round 12): bind embedding walls to their gate columns.
                 using (Phase(CommitPhase.GateLift))
                     LinkGateLifts();
@@ -5882,12 +5965,19 @@ internal static partial class WallSegmentFade
                 // phase reads the room registry AND every segment's FINAL decision AABB.
                 using (Phase(CommitPhase.BoardVolume))
                     CommitBoardVolume();
+                completed = true;
             }
             finally
             {
                 // In a finally so a throwing phase still leaves the window arithmetic consistent
                 // — a diagnostic that lies after an exception is worse than none.
+                long nativeReads = WallCommitGeometryReads.NativeReads;
+                long reusedReads = WallCommitGeometryReads.ReusedReads;
+                _cycleGeometryNativeReads += nativeReads;
+                _cycleGeometryReusedReads += reusedReads;
+                WallCommitGeometryReads.End();
                 EndCommitPhases();
+                NoteCeilingCommitTrace(nativeReads, reusedReads, completed);
             }
         }
 
@@ -6235,14 +6325,14 @@ internal static partial class WallSegmentFade
                     if (_keyToRoomScratch.TryGetValue(groupKey, out int idx))
                     {
                         Bounds merged = _live.RoomBounds[idx];
-                        merged.Encapsulate(r.bounds);
+                        merged.Encapsulate(WallCommitGeometryReads.Read(r));
                         _live.RoomBounds[idx] = merged;
                         _roomRendererCounts[idx]++;
                         continue;
                     }
                     _keyToRoomScratch[groupKey] = _live.RoomBounds.Count;
                 }
-                _live.RoomBounds.Add(r.bounds);
+                _live.RoomBounds.Add(WallCommitGeometryReads.Read(r));
                 _live.RoomFloorY.Add(anchored ? floorY : float.NaN);
                 _live.RoomFloorAnchored.Add(anchored);
                 _live.RoomLabels.Add(key != null && _roomMapLabelByRenderer.TryGetValue(r, out string lbl)
@@ -6476,10 +6566,13 @@ internal static partial class WallSegmentFade
                     // has no fade channel at all, stayed hanging in mid-air. Water-protected
                     // pieces leave the segment on the same path as the ground band, so they
                     // are held solid with the same machinery (block cleared, AABB rebuilt).
-                    if (r == null || (r.bounds.max.y > ceiling && !IsWaterProtected(r.bounds)))
+                    if (r == null || (WallCommitGeometryReads.Read(r).max.y > ceiling && !IsWaterProtected(WallCommitGeometryReads.Read(r))))
                         continue;
                     if (seg.HasBlock)
-                        r.SetPropertyBlock(null); // it was mid-fade — return it to solid NOW
+                    {
+                        ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
+                        r.SetPropertyBlock(null);
+                    } // it was mid-fade — return it to solid NOW
                     seg.Renderers.RemoveAt(i);
                     changed = true;
                 }
@@ -6488,7 +6581,7 @@ internal static partial class WallSegmentFade
                 for (int i = seg.Foliage.Count - 1; i >= 0; i--)
                 {
                     MeshRenderer f = seg.Foliage[i];
-                    if (f == null || (f.bounds.max.y > ceiling && !IsWaterProtected(f.bounds)))
+                    if (f == null || (WallCommitGeometryReads.Read(f).max.y > ceiling && !IsWaterProtected(WallCommitGeometryReads.Read(f))))
                         continue;
                     if (seg.FoliageState != 0)
                         RestoreFoliageRenderer(f);
@@ -6505,7 +6598,7 @@ internal static partial class WallSegmentFade
                 for (int i = seg.Body.Count - 1; i >= 0; i--)
                 {
                     Renderer br = seg.Body[i].Renderer;
-                    if (br == null || (br.bounds.max.y > ceiling && !IsWaterProtected(br.bounds)))
+                    if (br == null || (WallCommitGeometryReads.Read(br).max.y > ceiling && !IsWaterProtected(WallCommitGeometryReads.Read(br))))
                         continue;
                     if (seg.BodyState != 0)
                         RestoreProp(seg.Body[i]);
@@ -6542,12 +6635,12 @@ internal static partial class WallSegmentFade
                         continue;
                     if (!seg.HasBounds)
                     {
-                        seg.Bounds = r.bounds;
+                        seg.Bounds = WallCommitGeometryReads.Read(r);
                         seg.HasBounds = true;
                     }
                     else
                     {
-                        seg.Bounds.Encapsulate(r.bounds);
+                        seg.Bounds.Encapsulate(WallCommitGeometryReads.Read(r));
                     }
                 }
                 foreach (MountedProp p in seg.Body)
@@ -6556,12 +6649,12 @@ internal static partial class WallSegmentFade
                         continue;
                     if (!seg.HasBounds)
                     {
-                        seg.Bounds = p.Renderer.bounds;
+                        seg.Bounds = WallCommitGeometryReads.Read(p.Renderer);
                         seg.HasBounds = true;
                     }
                     else
                     {
-                        seg.Bounds.Encapsulate(p.Renderer.bounds);
+                        seg.Bounds.Encapsulate(WallCommitGeometryReads.Read(p.Renderer));
                     }
                 }
                 if (seg.HasBounds)
@@ -6640,7 +6733,10 @@ internal static partial class WallSegmentFade
                     foreach (MeshRenderer r in group.Renderers)
                     {
                         if (r != null)
+                        {
+                            ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
                             r.SetPropertyBlock(null);
+                        }
                     }
                 }
                 foreach (MeshRenderer r in group.Renderers)
@@ -6661,7 +6757,7 @@ internal static partial class WallSegmentFade
                     if (CollectWallFadeInfo(r, sub, relaxG))
                     {
                         sub.Renderers.Add(r);
-                        sub.Bounds = r.bounds;
+                        sub.Bounds = WallCommitGeometryReads.Read(r);
                         sub.HasBounds = true;
                         sub.RunPassenger = relaxG && IsStandingFigureProp(r);
                     }
@@ -6773,7 +6869,7 @@ internal static partial class WallSegmentFade
                     // instead and fades NATIVELY with the gate face (round 12: the
                     // round-11 "leave unclaimed" left them solid forever). Sliver-skipped
                     // doors keep the old full-radius grouping.
-                    if (HasGateColumnFor(doorRoot) && !IsArchProtected(r.bounds, r.name))
+                    if (HasGateColumnFor(doorRoot) && !IsArchProtected(WallCommitGeometryReads.Read(r), r.name))
                     {
                         UnityGameEditorDoorProp? gdp =
                             doorRoot.GetComponent<UnityGameEditorDoorProp>();
@@ -6782,7 +6878,7 @@ internal static partial class WallSegmentFade
                         {
                             gseg.Renderers.Add(r);
                             Bounds gb = gseg.Bounds;
-                            gb.Encapsulate(r.bounds);
+                            gb.Encapsulate(WallCommitGeometryReads.Read(r));
                             gseg.Bounds = gb;
                         }
                         continue;
@@ -6816,12 +6912,12 @@ internal static partial class WallSegmentFade
                     seg.Renderers.Add(r);
                     if (!seg.HasBounds)
                     {
-                        seg.Bounds = r.bounds;
+                        seg.Bounds = WallCommitGeometryReads.Read(r);
                         seg.HasBounds = true;
                     }
                     else
                     {
-                        seg.Bounds.Encapsulate(r.bounds);
+                        seg.Bounds.Encapsulate(WallCommitGeometryReads.Read(r));
                     }
                     _censusAdopted++;
                 }
@@ -6945,7 +7041,9 @@ internal static partial class WallSegmentFade
         private void RefreshSplitWall(ProceduralWall wall)
         {
             _splitPieceScratch.Clear();
-            MeshRenderer[] all = wall.GetComponentsInChildren<MeshRenderer>(includeInactive: false);
+            _wallCacheRendererScratch.Clear();
+            wall.GetComponentsInChildren(includeInactive: false, _wallCacheRendererScratch);
+            List<MeshRenderer> all = _wallCacheRendererScratch;
             foreach (MeshRenderer r in all)
             {
                 if (r == null)
@@ -6982,7 +7080,7 @@ internal static partial class WallSegmentFade
                 if (CollectWallFadeInfo(r, sub, relaxG))
                 {
                     sub.Renderers.Add(r);
-                    sub.Bounds = r.bounds;
+                    sub.Bounds = WallCommitGeometryReads.Read(r);
                     sub.HasBounds = true;
                     sub.RunPassenger = relaxG && IsStandingFigureProp(r);
                 }
@@ -7008,7 +7106,7 @@ internal static partial class WallSegmentFade
                     continue;
                 Segment? best = null;
                 float bestSq = float.PositiveInfinity;
-                Vector3 c = r.bounds.center;
+                Vector3 c = WallCommitGeometryReads.Read(r).center;
                 foreach (Segment piece in _splitPieceScratch)
                 {
                     if (!piece.HasBounds)
@@ -7073,7 +7171,7 @@ internal static partial class WallSegmentFade
         /// walk's documented fail-open), while the door prop is a SIBLING subtree — but the door
         /// object knows exactly where it stands, and archway frames exist only around doors.
         /// </summary>
-        private Transform? FindDoorwayRoot(MeshRenderer r) => FindDoorwayRootFor(r.bounds);
+        private Transform? FindDoorwayRoot(MeshRenderer r) => FindDoorwayRootFor(WallCommitGeometryReads.Read(r));
 
         /// <summary>The same link on a bare box (ModBuild 410): the free-standing lane asks it
         /// for meshes AND particle emitters (a zero-size box at the emitter), so a doorway's
@@ -7168,9 +7266,9 @@ internal static partial class WallSegmentFade
                                 continue;
                             if (RendererUsesWallFade(c))
                                 continue;
-                            if (c.bounds.max.y <= ceiling)
+                            if (WallCommitGeometryReads.Read(c).max.y <= ceiling)
                                 continue; // floor-ish — never rides a fade, in any form
-                            if (IsWaterProtected(c.bounds))
+                            if (IsWaterProtected(WallCommitGeometryReads.Read(c)))
                                 continue; // fountain/pond (user ruling 2026-08-09) — never fades
                             if (c.GetComponentInParent<ProceduralWall>() != null
                                 || c.GetComponentInParent<ActorBehaviour>() != null
@@ -7284,7 +7382,7 @@ internal static partial class WallSegmentFade
                 {
                     if (mr == null)
                         continue;
-                    Bounds b = mr.bounds;
+                    Bounds b = WallCommitGeometryReads.Read(mr);
                     if (center.x < b.min.x || center.x > b.max.x
                         || center.z < b.min.z || center.z > b.max.z)
                         continue;
@@ -7455,7 +7553,7 @@ internal static partial class WallSegmentFade
                         if (mr.enabled)
                             drawing++;
                     }
-                    Bounds b = mr.bounds;
+                    Bounds b = WallCommitGeometryReads.Read(mr);
                     if (!haveBounds) { union = b; haveBounds = true; }
                     else union.Encapsulate(b);
                 }
@@ -7482,7 +7580,7 @@ internal static partial class WallSegmentFade
                     if (mr == null)
                         continue;
                     if (listed >= MaxChildRendererSamples) { sb.Append(" …"); break; }
-                    Bounds b = mr.bounds;
+                    Bounds b = WallCommitGeometryReads.Read(mr);
                     bool disabled = mr.gameObject.activeInHierarchy && !mr.enabled;
                     sb.Append(listed == 0 ? "; sample: '" : " '").Append(mr.name)
                       .Append("'[").Append(mr.gameObject.activeInHierarchy
@@ -7573,23 +7671,15 @@ internal static partial class WallSegmentFade
 
         /// <summary>Mod-owned visual (hands, cards, panels, MR backing plates…)? Never scenery:
         /// such a renderer must neither be adopted by ANY attachment sweep nor appear in their
-        /// candidate/near-miss diagnostics. Two signals, because not every mod object lives on
+        /// candidate/near-miss diagnostics. Several signals, because not every mod object lives on
         /// the mod layer: hardware round 3 caught the MR sky backing 'GloomhavenVR.MrBacking'
         /// (y[21.3..33.3]) in the stacked-shell NEAR-MISS census — every mod-created object
         /// carries the 'GloomhavenVR.' name prefix (repo convention), so that prefix is the
-        /// second, layer-independent test.</summary>
-        private static bool IsModObject(Renderer r) =>
-            r.gameObject.layer == VRLayers.ModLayer
-            // ModBuild 443 — THE THIRD SIGNAL, and it is the SECOND CONVENTION rather than a
-            // widening. 'GloomhavenVR.' is what CanvasConversion stamps; FigureGrab stamps 'VR'
-            // (VROverlay, VRFigureHighlight, VRFigureGhost, VR_FigureReach, VRGhostDepth) and
-            // this test knew nothing about it, so the mod's own figure-glow clones read as
-            // SCENERY. See VRLayers.ModOwnedNamePrefix for the ModBuild 442 rows that measured
-            // it, for the zero false positives across that session's ~9,000 renderers, and for
-            // the failure direction. Build 530 corrects the old claim that GloomhavenVR.
-            // starts with VR: both independent prefixes must be tested. The build-529 log
-            // actually adopted MR plates as orphaned architecture without this union.
-            || ModVisualOwnership.IsName(r.name);
+        /// second, layer-independent test. Visual clone children instead retain native names
+        /// and layers; their exact FigureVisualMirror ancestry is the ownership proof shared
+        /// with the cold classifier. Native figures and scenery without it stay unchanged.
+        /// </summary>
+        private static bool IsModObject(Renderer r) => IsModPresentation(r, r.name) || IsNativeNonWallPresentation(r);
 
         /// <summary>
         /// FIGURES ARE NEVER TOUCHED — round-7 ruling, same severity as the Lights rule
@@ -7702,7 +7792,14 @@ internal static partial class WallSegmentFade
 
         private static void BeginFigureMemo()
         {
+            VisualMirrorOwnershipMemo.Clear();
+            NativeVisualOwnershipMemo.Clear();
+            NativeVisualMaterials.Clear();
+            NativeActionRoots.Clear();
+            _nativeActionRootsReady = false;
             FigureAncestryMemo.Clear();
+            FigureRootMemo.Clear();
+            _figureRootMemoActive = PerfConfig.SharedWallReadCacheOn;
             GameLogicAncestryMemo.Clear();
             WallGeneratorAncestryMemo.Clear();
             _figureMemoActive = true;
@@ -7711,7 +7808,14 @@ internal static partial class WallSegmentFade
         private static void EndFigureMemo()
         {
             _figureMemoActive = false;
+            _figureRootMemoActive = false;
+            VisualMirrorOwnershipMemo.Clear();
+            NativeVisualOwnershipMemo.Clear();
+            NativeVisualMaterials.Clear();
+            NativeActionRoots.Clear();
+            _nativeActionRootsReady = false;
             FigureAncestryMemo.Clear(); // never hold transform references across frames
+            FigureRootMemo.Clear();
             GameLogicAncestryMemo.Clear();
             WallGeneratorAncestryMemo.Clear();
         }
@@ -7879,11 +7983,40 @@ internal static partial class WallSegmentFade
                 && r.GetComponentInParent<CInteractableActor>() == null;
         }
 
+        // The restitution and mounted passes ask this same pure ancestry/actor question for
+        // one renderer several times in a single synchronous commit. Those passes neither
+        // reparent objects nor add/remove actor components, so the answer cannot change until
+        // the commit returns. Keep this separate from ClassifySlice: classification spans
+        // frames, and caching its answer into the commit would miss a late scene change.
+        private readonly Dictionary<Renderer, bool> _wallGeneratedDressingCommitMemo = new(256);
+        private int _wallGeneratedDressingMemoHits;
+        private int _wallGeneratedDressingMemoMisses;
+
+        private bool IsWallGeneratedDressingInCommit(Renderer r)
+        {
+            if (_wallGeneratedDressingCommitMemo.TryGetValue(r, out bool cached))
+            {
+                _wallGeneratedDressingMemoHits++;
+                return cached;
+            }
+            bool result = IsWallGeneratedDressing(r);
+            _wallGeneratedDressingCommitMemo[r] = result;
+            _wallGeneratedDressingMemoMisses++;
+            return result;
+        }
+
         /// <summary>Any shared material on a foliage-family shader? (Cached per Shader.)</summary>
         private bool RendererUsesFoliage(MeshRenderer r)
         {
-            _matScratch.Clear();
-            r.GetSharedMaterials(_matScratch);
+            ReadFadeMaterials(r, _matScratch);
+            return SharedMaterialsUseFoliage();
+        }
+
+        /// <summary>Inspect the material list already read from this renderer. The cache-wall
+        /// refresh uses this immediately after a failed fade-material scan; both verdicts then
+        /// see the same live materials without a second Unity query.</summary>
+        private bool SharedMaterialsUseFoliage()
+        {
             foreach (Material m in _matScratch)
             {
                 if (m == null)
@@ -7926,8 +8059,7 @@ internal static partial class WallSegmentFade
         /// </summary>
         private bool RendererIsWallFadeCapable(MeshRenderer r)
         {
-            _matScratch.Clear();
-            r.GetSharedMaterials(_matScratch);
+            ReadFadeMaterials(r, _matScratch);
             foreach (Material m in _matScratch)
             {
                 if (m == null)
@@ -7966,7 +8098,7 @@ internal static partial class WallSegmentFade
             _splitToggleRescued++;
             if (_splitToggleRescuedNames.Count >= SplitToggleRescuedNameCap)
                 return;
-            Bounds b = r.bounds;
+            Bounds b = WallCommitGeometryReads.Read(r);
             _splitToggleRescuedNames.Add(
                 $"'{r.name}' y[{b.min.y:0.0}..{b.max.y:0.0}] under "
                 + $"'{(wall != null ? wall.name : "<dead>")}'");
@@ -7974,8 +8106,7 @@ internal static partial class WallSegmentFade
 
         private bool RendererUsesWallFade(MeshRenderer r)
         {
-            _matScratch.Clear();
-            r.GetSharedMaterials(_matScratch);
+            ReadFadeMaterials(r, _matScratch);
             foreach (Material m in _matScratch)
             {
                 if (m == null)
@@ -8030,8 +8161,9 @@ internal static partial class WallSegmentFade
         /// audit — all known gate spellings, each with its liveness rule)? Requires
         /// <c>_Cutoff</c> (the clip the fade sweeps), then:
         /// <list type="bullet">
-        /// <item><c>_ToggleWallfade</c> — a runtime float uniform (DXBC-verified on the HIGH
-        ///   variant + ParticleMaster): always driveable → native.</item>
+        /// <item><c>_ToggleWallfade</c> — historical material gate alias; its presence
+        ///   admits the authored native family. Original HIGH/N_MRAO bytecode uses
+        ///   <c>_EnableOcclusionMap</c>, supplied explicitly in the wall/prop MPBs.</item>
         /// <item><c>_WallFade_On</c> — a compile-time switch (keyword
         ///   <c>_WALLFADE_ON_ON</c>; ModBuild-65 adjudication): native only when the
         ///   authored value is 1 or the keyword is enabled — otherwise the fade branch is
@@ -8045,6 +8177,7 @@ internal static partial class WallSegmentFade
         /// </summary>
         private static bool HasLiveWallFadeToggle(Material m)
         {
+            m = FadeSourceMaterial(m);
             if (!m.HasProperty(CutoffId))
                 return false;
             if (m.HasProperty(ToggleWallfadeMatId))
@@ -8061,8 +8194,7 @@ internal static partial class WallSegmentFade
         /// solid, deliberately untouched.</summary>
         private bool HasGatedOffWallFadeToggle(MeshRenderer r)
         {
-            _matScratch.Clear();
-            r.GetSharedMaterials(_matScratch);
+            ReadFadeMaterials(r, _matScratch);
             foreach (Material m in _matScratch)
             {
                 if (m == null || m.shader == null || !m.HasProperty(CutoffId))
@@ -8317,7 +8449,7 @@ internal static partial class WallSegmentFade
                 {
                     _paFigures++;
                 }
-                else if (roomKnown && r.bounds.max.y <= ceiling)
+                else if (roomKnown && WallCommitGeometryReads.Read(r).max.y <= ceiling)
                 {
                     _paGround++;
                 }
@@ -8326,11 +8458,11 @@ internal static partial class WallSegmentFade
                 // renderer back off its wall, which is precisely what left it owned by no list.
                 // Asked after the ground band so that band keeps its meaning, and before
                 // gated-off/UNCLAIMED so a ruling can never be reported as a defect.
-                else if (IsWaterProtected(r.bounds))
+                else if (IsWaterProtected(WallCommitGeometryReads.Read(r)))
                 {
                     _paWater++;
                 }
-                else if (IsArchProtected(r.bounds, r.name))
+                else if (IsArchProtected(WallCommitGeometryReads.Read(r), r.name))
                 {
                     _paArch++;
                 }
@@ -8517,6 +8649,7 @@ internal static partial class WallSegmentFade
 
         private void LogToggleNativeMaterialOnce(Material m)
         {
+            m = FadeSourceMaterial(m);
             if (_loggedToggleMats.Count >= 6
                 || !_loggedToggleMats.Add(m.shader.name + "/" + m.name))
                 return;
@@ -9717,12 +9850,17 @@ internal static partial class WallSegmentFade
             BeginRefresh(seg);
             if (seg.Anchor == null)
                 return;
-            MeshRenderer[] all = seg.Anchor.GetComponentsInChildren<MeshRenderer>(includeInactive: false);
+            // Preserve native hierarchy order. A read from this same preparation frame may
+            // be reused; earlier-frame reads always use the live native walk. Nothing below
+            // may borrow this destination list.
+            ReadWallCacheChildren(seg.Anchor, _wallCacheRendererScratch);
+            List<MeshRenderer> all = _wallCacheRendererScratch;
             foreach (MeshRenderer r in all)
             {
                 if (r == null)
                     continue;
-                if (!CollectWallFadeInfo(r, seg))
+                if (!CollectWallFadeInfo(r, seg, figureArmOnly: false,
+                                         out bool materialsRead))
                 {
                     // Not fade-capable — but a foliage dressing of this wall rides its fade
                     // (the "Gestrüpp-Wand" report). Ground-level tufts are dropped later by
@@ -9737,19 +9875,27 @@ internal static partial class WallSegmentFade
                     // Foliage-shaded and comes here, and a canopy intercepts more rays to the
                     // floor grid than a trunk does. See WallSegmentFade.Standing.cs,
                     // IsStandingFigureOnlyProp.
-                    if (RendererUsesFoliage(r) && !IsStandingFigureOnlyProp(r))
+                    // The first predicate already scanned this renderer's shared materials
+                    // unless it refused a standing prop before the material walk. Reuse that
+                    // exact list on the ordinary miss; preserve the live read on the early
+                    // refusal. Build 585 measured WallCache at 21-35 ms per scenario commit,
+                    // with hundreds of wall-cache children warmed before each one.
+                    bool foliage = materialsRead ? SharedMaterialsUseFoliage()
+                                                 : RendererUsesFoliage(r);
+                    if (foliage && !IsStandingFigureOnlyProp(r))
                         seg.Foliage.Add(r);
                     continue;
                 }
                 seg.Renderers.Add(r);
+                Bounds bounds = WallCommitGeometryReads.Read(r);
                 if (!seg.HasBounds)
                 {
-                    seg.Bounds = r.bounds;
+                    seg.Bounds = bounds;
                     seg.HasBounds = true;
                 }
                 else
                 {
-                    seg.Bounds.Encapsulate(r.bounds);
+                    seg.Bounds.Encapsulate(bounds);
                 }
                 // Renderer may be brand new (Apparance rebuild) while the segment is mid-fade —
                 // Apply() runs every frame for faded segments and will cover it.
@@ -9760,7 +9906,7 @@ internal static partial class WallSegmentFade
             // tileset whose wall shaders live outside the WallFade family — the one case neither
             // discovery source can fade. The heartbeat prints the shader names so the next
             // hardware log identifies the family to add.
-            if (seg.Renderers.Count == 0 && all.Length > 0)
+            if (seg.Renderers.Count == 0 && all.Count > 0)
             {
                 _censusWallsWithoutFade++;
                 if (_unfadeableWallShaders.Count < 8)
@@ -9769,8 +9915,7 @@ internal static partial class WallSegmentFade
                     {
                         if (r == null)
                             continue;
-                        _matScratch.Clear();
-                        r.GetSharedMaterials(_matScratch);
+                        ReadFadeMaterials(r, _matScratch);
                         foreach (Material m in _matScratch)
                         {
                             if (m != null && m.shader != null && _unfadeableWallShaders.Count < 8)
@@ -9798,6 +9943,7 @@ internal static partial class WallSegmentFade
         {
             seg.PrevRenderers.Clear();
             seg.PrevRenderers.AddRange(seg.Renderers);
+            seg.PrevRendererSet.Clear();
             seg.Renderers.Clear();
             seg.PrevFoliage.Clear();
             seg.PrevFoliage.AddRange(seg.Foliage);
@@ -9819,15 +9965,27 @@ internal static partial class WallSegmentFade
         /// ever touches them again), then derive the blocked-test epsilon from the new bounds.</summary>
         private void FinishRefresh(Segment seg)
         {
-            if (seg.HasBlock)
+            // A large room can place hundreds of children under one wall. Comparing each old
+            // renderer against the newly collected list with List.Contains made this leaver
+            // pass quadratic, including on a no-change commit. Keep the lists for their authored
+            // order; use a reusable set solely for the membership verdict.
+            _refreshMembership.Clear();
+            if (seg.HasBlock && seg.PrevRenderers.Count > 0)
             {
+                foreach (MeshRenderer renderer in seg.Renderers)
+                    _refreshMembership.Add(renderer);
                 foreach (MeshRenderer prev in seg.PrevRenderers)
                 {
-                    if (prev != null && !seg.Renderers.Contains(prev))
+                    if (prev != null && !_refreshMembership.Contains(prev))
+                    {
+                        ScenarioEnvironmentBudget.BeforeNativeRendererWrite(prev);
                         prev.SetPropertyBlock(null);
+                    }
                 }
             }
+            _refreshMembership.Clear();
             seg.PrevRenderers.Clear();
+            seg.PrevRendererSet.Clear();
             // Foliage that LEFT the segment is restored unconditionally — a hidden bush no
             // list points at any more would otherwise stay invisible forever. ModBuild 254:
             // foliage carries dissolve RECORDS now, so a leaver must also have its swapped
@@ -9836,9 +9994,14 @@ internal static partial class WallSegmentFade
             // scenario is the fastest leak in the subsystem. Unconditional on the record rather
             // than on FoliageState, because a piece can hold a swap while the segment reads
             // solid (the record survives one frame longer than the state).
+            if (seg.PrevFoliage.Count > 0)
+            {
+                foreach (MeshRenderer renderer in seg.Foliage)
+                    _refreshMembership.Add(renderer);
+            }
             foreach (MeshRenderer prev in seg.PrevFoliage)
             {
-                if (prev == null || seg.Foliage.Contains(prev))
+                if (prev == null || _refreshMembership.Contains(prev))
                     continue;
                 if (seg.FoliageProps.TryGetValue(prev, out MountedProp? gone))
                 {
@@ -9848,6 +10011,7 @@ internal static partial class WallSegmentFade
                 if (seg.FoliageState != 0)
                     RestoreFoliageRenderer(prev);
             }
+            _refreshMembership.Clear();
             seg.PrevFoliage.Clear();
             if (seg.HasBounds)
             {
@@ -9878,6 +10042,13 @@ internal static partial class WallSegmentFade
         /// that then rides its run as a PASSENGER without ever voting on it.</param>
         private bool CollectWallFadeInfo(MeshRenderer r, Segment seg, bool figureArmOnly = false)
         {
+            return CollectWallFadeInfo(r, seg, figureArmOnly, out _);
+        }
+
+        private bool CollectWallFadeInfo(MeshRenderer r, Segment seg, bool figureArmOnly,
+                                         out bool materialsRead)
+        {
+            materialsRead = false;
             // STANDING PROPS ARE NEVER WALL GEOMETRY (user report 2026-08-15, skelet.jpg —
             // the skeleton statue's skull faded with 'Wall 1' while its body stayed). This is
             // the ONE choke point every wall-renderer collection path goes through — the cache
@@ -9896,34 +10067,41 @@ internal static partial class WallSegmentFade
                 // our fade block right now. FinishRefresh only clears leavers while the
                 // segment HasBlock; clear it here unconditionally so a prop can never stay
                 // half-dissolved because its owner happened to be solid this frame.
-                if (seg.PrevRenderers.Contains(r))
+                if (seg.PrevRenderers.Count > 0)
+                {
+                    // Most wall children are not standing props. Build this index only after
+                    // the first refusal in this segment rather than for every wall on every
+                    // commit. An empty old list has nothing to restore.
+                    if (seg.PrevRendererSet.Count == 0)
+                    {
+                        foreach (MeshRenderer prev in seg.PrevRenderers)
+                            seg.PrevRendererSet.Add(prev);
+                    }
+                }
+                if (seg.PrevRendererSet.Contains(r))
+                {
+                    ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
                     r.SetPropertyBlock(null);
+                }
                 return false;
             }
             bool any = false;
-            _matScratch.Clear();
-            r.GetSharedMaterials(_matScratch);
+            ReadFadeMaterials(r, _matScratch);
+            materialsRead = true;
             foreach (Material m in _matScratch)
             {
-                if (m == null || m.shader == null)
+                if (m == null)
                     continue;
-                // PERF S4: the name and its two Contains tests come out of the per-Shader cache
-                // (_shaderFadeName) instead of an interop allocation per material per renderer
-                // per commit. Same two expressions, same order, one entry per Shader.
-                ShaderFadeName nameInfo = FadeNameOf(m.shader);
-                string shaderName = nameInfo.Name;
-                bool byName = nameInfo.ByName;
-                bool low = nameInfo.Low;
-                bool byToggle = !byName && HasLiveWallFadeToggle(m);
-                if (!byName && !byToggle)
+                WallMaterialFact material = WallMaterialFactOf(m);
+                if (!material.Valid || (!material.ByName && !material.ByToggle))
                     continue;
+                string shaderName = material.Name;
                 any = true;
-                if (byToggle)
+                if (material.ByToggle)
                 {
                     seg.ToggleNative++;
                     LogToggleNativeMaterialOnce(m);
                     CaptureMasonryTemplate(m); // round-11 dissolve-swap template donor
-                    shaderName += "(toggle-native)";
                 }
                 // Held-state cutoff = the material's authored "Mask Clip Value" — the flat
                 // game never writes _Cutoff, so this IS the value its fade runs with.
@@ -9931,15 +10109,15 @@ internal static partial class WallSegmentFade
                 // identical geometry (c only shapes the HIGH variant's dither density),
                 // while c = 0 would disable the LOW discard and c ≥ 1 would kill the HIGH
                 // foundation band (clip = 1-c).
-                if (!seg.CutoffAuthored && m.HasProperty(CutoffId))
+                if (!seg.CutoffAuthored && material.HasCutoff)
                 {
-                    seg.HeldCutoff = Mathf.Clamp(m.GetFloat(CutoffId), 0.05f, 0.95f);
+                    seg.HeldCutoff = material.Cutoff;
                     seg.CutoffAuthored = true;
                 }
                 // Read off the RAW name's cached fact: the "(toggle-native)" suffix appended
                 // above carries no capital L, so this is the same answer the old
                 // shaderName.Contains("Low") gave on either branch.
-                if (low)
+                if (material.Low)
                     seg.VariantLow = true;
                 else
                     seg.VariantHigh = true;
@@ -10034,6 +10212,7 @@ internal static partial class WallSegmentFade
                 {
                     if (r != null)
                     {
+                        ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
                         r.SetPropertyBlock(null);
                         cleared++;
                     }
@@ -10050,6 +10229,8 @@ internal static partial class WallSegmentFade
         /// <summary>Full teardown: revert every renderer and destroy our textures.</summary>
         internal void Teardown()
         {
+            try { ResetPerformanceVisibility("teardown"); }
+            catch { /* renderers already dying with the scene */ }
             try { ClearAllBlocks("teardown"); }
             catch { /* renderers already dying with the scene */ }
             // Nothing we ever hid may survive a teardown — including a prop whose owner segment

@@ -33,6 +33,7 @@ internal struct AvatarState
     public bool HasBoard;
     public RigPose BoardPose;
     public float BoardScale;
+    public bool WristBoard;
 
     public bool HeadValid;
     public RigPose Head;
@@ -101,9 +102,25 @@ internal struct AvatarState
     /// <see cref="HasHeldCard"/>).</summary>
     public RigPose HeldCardPose;
 
+    // Atomic two-card state uses the same compact packet and clock as both wrists.
+    // Explicit absence retires slot2; slower legacy presence must not revive it.
+    public bool HasSecondHeldCardState;
+    public bool HasSecondHeldCard;
+    public RigPose SecondHeldCardPose;
+    public bool HasSecondHeldCardFace;
+    public bool HasSecondHeldMapCard;
+    public int SecondHeldFaceActorId;
+    public TownItemHeldSource? SecondHeldTownItem;
+    public uint SecondHeldMapKey;
+    public ushort SecondHeldMapPoolSeat, SecondHeldMapPoolCount;
+    public byte SecondHeldMapArcSeat;
+    public byte HeldCardGripMask;
+    public bool PrimaryHeldCardLeft;
+
     // Additive rig-tail records: source address and actor sampled with the pose.
     public bool HasHeldCardFace;
     public bool HasHeldMapCard;
+    public TownItemHeldSource? HeldTownItem;
     public uint HeldMapKey;
     public ushort HeldMapPoolSeat, HeldMapPoolCount;
     public byte HeldMapArcSeat;

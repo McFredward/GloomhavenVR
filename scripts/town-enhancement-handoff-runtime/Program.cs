@@ -1,0 +1,1524 @@
+using System;
+using GloomhavenVR.Cards;
+using GloomhavenVR.Hands;
+using GloomhavenVR.Hands.Interact;
+using GloomhavenVR.Rig;
+using GloomhavenVR.WorldUI;
+using GloomhavenVR.WorldUI.MapRoom;
+using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
+
+public static class InteractionProgram
+{
+    private static int count;
+    private static void Check(bool condition, string reason) { count++; if (!condition) throw new Exception(reason); }
+    public static int Run()
+    {
+        count = 0;
+        OfferFeedback();
+        SharedOfferGuide();
+        NativeFrame();
+        PhysicalCardAura();
+        NativePrintedAreaAlignment();
+        NativePhysicalPoke();
+        NativeLaserOcclusion();
+        FirstVisitCue();
+        Approach();
+        WalkAway();
+        foreach (float scale in new[] { .05f, 1f, 2f, 198.12f })
+        for (int scenario = 0; scenario < 22; scenario++) RunCase(scale, scenario);
+        SwapOffering();
+        CancellationLifecycle();
+        return count;
+    }
+
+    private static void NativeFrame()
+    {
+        var root = new GameObject("CardHilight", typeof(RectTransform), typeof(Canvas),
+            typeof(GraphicRaycaster), typeof(UIEnhancementCardHighlighter));
+        root.GetComponent<Canvas>().renderMode = RenderMode.ScreenSpaceOverlay;
+        ((RectTransform)root.transform).sizeDelta = new Vector2(325.1f, 449.5f);
+        var aura = new GameObject("Aura", typeof(RectTransform));
+        aura.transform.SetParent(root.transform, false);
+        ((RectTransform)aura.transform).sizeDelta = new Vector2(500f, 500f);
+        var types = new GameObject("Types", typeof(RectTransform));
+        types.transform.SetParent(aura.transform, false);
+        // Production can use a zero-sized Buy/Sell group with its actual drawing
+        // nested below it. The old test put Image on Buy and missed the headset oval.
+        var buy = new GameObject("Buy", typeof(RectTransform));
+        buy.transform.SetParent(types.transform, false);
+        foreach (RectTransform stretch in new[] { (RectTransform)types.transform })
+        { stretch.anchorMin = Vector2.zero; stretch.anchorMax = Vector2.one; stretch.sizeDelta = Vector2.zero; }
+        var ink = new GameObject("Visible cyan ring", typeof(RectTransform), typeof(Image));
+        ink.transform.SetParent(buy.transform, false);
+        ((RectTransform)ink.transform).sizeDelta = new Vector2(500f, 500f);
+        var auraRect = (RectTransform)aura.transform;
+        auraRect.localScale = new Vector3(.36f, 1.42f, 1f);
+        var auraImage = ink.GetComponent<Image>();
+        auraImage.raycastTarget = true;
+        var nativeFrame = new GameObject("GUI_LevelUp_Frame", typeof(RectTransform), typeof(Image));
+        nativeFrame.transform.SetParent(root.transform, false);
+        var rect = (RectTransform)nativeFrame.transform;
+        rect.sizeDelta = new Vector2(100f, 100f);
+        rect.localScale = new Vector3(.02f, 1f, 1f); // captured squeezed flat animation
+        rect.GetComponent<Image>().raycastTarget = true;
+        var area = new GameObject("Native enhancement area", typeof(RectTransform), typeof(Image), typeof(Button),
+            typeof(UIEnhancementButtonHighlight));
+        area.transform.SetParent(root.transform, false);
+        var areaImage = area.GetComponent<Image>();
+        areaImage.raycastTarget = true;
+        ((RectTransform)area.transform).sizeDelta = new Vector2(150f, 80f);
+        var card = new GameObject("Native print", typeof(RectTransform), typeof(AbilityCardUI), typeof(Image));
+        card.transform.SetParent(root.transform, false);
+        var mask = card.AddComponent<TownServiceNativeEnhancementCardMask>();
+        mask.Mask();
+        Check(TownServiceNativeEnhancementCardMask.TryAuraCaptureBounds((RectTransform)root.transform,
+                out Rect initialCapture) && initialCapture.width > 325f,
+            "native aura reserves its full width beyond CardHilight's narrow host for panel capture");
+        Check(rect.sizeDelta == Vector2.zero && Mathf.Abs(rect.localScale.x - 1f) < .001f
+            && !rect.GetComponent<Image>().raycastTarget,
+            "world-space full-card frame occupies the card rather than a squeezed vertical strip and cannot steal native clicks");
+        Check(!auraImage.raycastTarget && areaImage.raycastTarget,
+            "original aura cannot intercept a grip-held fingertip or laser press on the native enhancement area");
+        var events = new GameObject("EventSystem", typeof(EventSystem));
+        int nativeClicks = 0;
+        area.GetComponent<Button>().onClick.AddListener(() => nativeClicks++);
+        Canvas.ForceUpdateCanvases();
+        var pointer = new PointerEventData(events.GetComponent<EventSystem>())
+        { position = RectTransformUtility.WorldToScreenPoint(null, area.transform.position), button = PointerEventData.InputButton.Left };
+        bool areaHit = areaImage.Raycast(pointer.position, null);
+        Check(areaHit && areaImage.raycastTarget && !auraImage.raycastTarget,
+            "grip-held fingertip projection reaches the original native ability button while aura pixels do not claim input");
+        ExecuteEvents.Execute(area, pointer, ExecuteEvents.pointerClickHandler);
+        Check(nativeClicks == 1, "physical area press follows the original native button callback exactly once");
+        float firstPulse = Diameter((RectTransform)ink.transform);
+        Check(SquareInWorld((RectTransform)ink.transform)
+            && Mathf.Abs(firstPulse - Mathf.Sqrt(500f * 500f * .36f * 1.42f) * 1.08f) < 1f,
+            "actual submitted enchantress aura ink is round and preserves the native pulse size");
+        rect.localScale = new Vector3(.02f, 1f, 1f); // native animation rewrites X after the initial mask
+        auraRect.localScale = new Vector3(.13f, 1.52f, 1f); // native effects can animate later than Ritual.Tick
+        mask.SendMessage("LateUpdate");
+        Check(Mathf.Abs(rect.localScale.x - 1f) < .001f,
+            "native flat animation cannot resquash the physical frame before render");
+        mask.SendMessage("OnBeforeCanvasRender");
+        float secondPulse = Diameter((RectTransform)ink.transform);
+        Check(SquareInWorld((RectTransform)ink.transform)
+            && Mathf.Abs(secondPulse - Mathf.Sqrt(500f * 500f * .13f * 1.52f) * 1.08f) < 1f
+            && secondPulse < firstPulse,
+            "render boundary corrects late native aura animation while retaining its pulse amplitude");
+        Check(TownServiceNativeEnhancementCardMask.TryAuraCaptureBounds((RectTransform)root.transform,
+                out Rect settledCapture) && settledCapture.width >= initialCapture.width - .01f,
+            "later smaller pulse cannot collapse the reserved capture frame across the cyan ring");
+        ink.GetComponent<Image>().enabled = false;
+        Check(TownServiceNativeEnhancementCardMask.TryAuraCaptureBounds((RectTransform)root.transform,
+                out Rect culledCapture) && culledCapture.width >= settledCapture.width - .01f,
+            "transient native graphic absence keeps the offered ring's capture width");
+        ink.GetComponent<Image>().enabled = true;
+        mask.SendMessage("OnBeforeCanvasRender");
+        Check(Mathf.Abs(Diameter((RectTransform)ink.transform) - secondPulse) < .01f,
+            "repeated canvas submissions do not inflate the native aura without a new animation write");
+        // The headset video varies the card/head angle. The old correction measured
+        // this rotated child but scaled Aura's different parent axes, so the same
+        // native ring became a narrow oval as it turned. Exercise real Unity
+        // RectTransform world corners at several child + card rotations.
+        var shearingParent = new GameObject("Outer nonuniform parent", typeof(RectTransform));
+        shearingParent.transform.SetParent(root.transform, false);
+        shearingParent.transform.localScale = new Vector3(1.22f, .78f, 1f);
+        var scaledParent = new GameObject("Rotated nonuniform parent", typeof(RectTransform));
+        scaledParent.transform.SetParent(shearingParent.transform, false);
+        scaledParent.transform.localRotation = Quaternion.Euler(0f, 0f, 29f);
+        scaledParent.transform.localScale = new Vector3(1.4f, .65f, 1f);
+        aura.transform.SetParent(scaledParent.transform, false);
+        foreach (float angle in new[] { 0f, 24f, 47f, 81f, 135f })
+        {
+            auraRect.localScale = new Vector3(.31f, 1.65f, 1f);
+            auraRect.localRotation = Quaternion.Euler(0f, 0f, angle * .33f);
+            ink.transform.localRotation = Quaternion.Euler(0f, 0f, angle);
+            root.transform.rotation = Quaternion.Euler(17f, angle * .47f, -12f);
+            mask.SendMessage("OnBeforeCanvasRender");
+            Check(CircleInWorld((RectTransform)ink.transform),
+                "rotated native ink remains a world-space circle around the physical card");
+            float rotatedDiameter = Diameter((RectTransform)ink.transform);
+            mask.SendMessage("OnBeforeCanvasRender");
+            Check(CircleInWorld((RectTransform)ink.transform)
+                && Mathf.Abs(Diameter((RectTransform)ink.transform) - rotatedDiameter) < .001f,
+                "repeated render callbacks do not change a sheared-parent ring diameter");
+        }
+        // A circle can pass every shape assertion yet its texture can stop turning.
+        // The original world-Z callback advances continuously, including when the
+        // parent requires principal-axis stretch correction. Check the actual ink,
+        // rather than only the group's (necessarily corrected) local Euler angle.
+        root.transform.rotation = Quaternion.Euler(17f, 41f, -12f);
+        float firstInkAngle = 0f;
+        for (int phase = 0; phase <= 360; phase += 15)
+        {
+            auraRect.localScale = Vector3.one;
+            ink.transform.localRotation = Quaternion.identity;
+            aura.transform.eulerAngles = new Vector3(0f, 0f, phase);
+            mask.SendMessage("OnBeforeCanvasRender");
+            Vector3 edge = ink.transform.TransformVector(Vector3.right).normalized;
+            float drawnAngle = Mathf.Atan2(Vector3.Dot(edge, root.transform.up),
+                Vector3.Dot(edge, root.transform.right)) * Mathf.Rad2Deg;
+            if (phase == 0) firstInkAngle = drawnAngle;
+            Check(Mathf.Abs(Mathf.DeltaAngle(drawnAngle - firstInkAngle, phase)) < .1f,
+                "original textured native aura retains continuous phase through a sheared parent");
+        }
+        mask.Restore();
+        Check(!TownServiceNativeEnhancementCardMask.TryAuraCaptureBounds((RectTransform)root.transform,
+                out _), "capture reservation ends with the physical offer");
+        Check(rect.sizeDelta == new Vector2(100f, 100f) && Mathf.Abs(rect.localScale.x - .02f) < .001f
+            && rect.GetComponent<Image>().raycastTarget,
+            "native frame transform and input return to their original flat state");
+        Check(auraImage.raycastTarget && areaImage.raycastTarget
+            && Mathf.Abs(auraRect.localScale.x - .36f) < .001f
+            && Mathf.Abs(auraRect.localScale.y - 1.42f) < .001f,
+            "original aura input and transform return to native ownership when the card leaves the palm");
+        UnityEngine.Object.DestroyImmediate(events);
+        UnityEngine.Object.DestroyImmediate(root);
+    }
+
+    private static bool SquareInWorld(RectTransform rect)
+    {
+        var corners = new Vector3[4];
+        rect.GetWorldCorners(corners);
+        float width = Vector3.Distance(corners[0], corners[3]);
+        float height = Vector3.Distance(corners[0], corners[1]);
+        return width > .001f && Mathf.Abs(width / height - 1f) < .01f;
+    }
+
+    private static bool CircleInWorld(RectTransform rect)
+    {
+        var corners = new Vector3[4]; rect.GetWorldCorners(corners);
+        Vector3 right = corners[3] - corners[0], up = corners[1] - corners[0];
+        return right.magnitude > .001f
+            && Mathf.Abs(right.magnitude / up.magnitude - 1f) < .01f
+            && Mathf.Abs(Vector3.Dot(right.normalized, up.normalized)) < .01f;
+    }
+
+    private static bool DiameterAtLeast(RectTransform ink, RectTransform card, float fraction)
+    {
+        var ring = new Vector3[4]; var face = new Vector3[4];
+        ink.GetWorldCorners(ring); card.GetWorldCorners(face);
+        return Vector3.Distance(ring[0], ring[1]) >= Vector3.Distance(face[0], face[1]) * fraction;
+    }
+
+    private static float Diameter(RectTransform ink)
+    {
+        var corners = new Vector3[4]; ink.GetWorldCorners(corners);
+        return Vector3.Distance(corners[0], corners[1]);
+    }
+
+    private static void PhysicalCardAura()
+    {
+        var fixture = new GameObject("Physical aura fixture");
+        var native = new GameObject("Native", typeof(UIWindow), typeof(UINewEnhancementWindow));
+        native.transform.SetParent(fixture.transform, false);
+        var shop = native.GetComponent<UINewEnhancementWindow>();
+        var highlighter = new GameObject("CardHilight", typeof(RectTransform),
+            typeof(UIEnhancementCardHighlighter));
+        highlighter.transform.SetParent(native.transform, false);
+        ((RectTransform)highlighter.transform).sizeDelta = new Vector2(325f, 450f);
+        highlighter.transform.localScale = Vector3.one * .0004f;
+        shop.cardHolder = highlighter.GetComponent<UIEnhancementCardHighlighter>();
+        var aura = new GameObject("Aura", typeof(RectTransform)); aura.transform.SetParent(highlighter.transform, false);
+        var types = new GameObject("Types", typeof(RectTransform)); types.transform.SetParent(aura.transform, false);
+        var buy = new GameObject("Buy", typeof(RectTransform)); buy.transform.SetParent(types.transform, false);
+        var ink = new GameObject("Actual effect ink", typeof(RectTransform), typeof(Image));
+        ink.transform.SetParent(buy.transform, false);
+        ((RectTransform)ink.transform).sizeDelta = new Vector2(300f, 700f);
+        var printed = new GameObject("Original printed card", typeof(RectTransform), typeof(AbilityCardUI));
+        printed.transform.SetParent(highlighter.transform, false);
+        var station = new GameObject("Resident").transform; station.SetParent(fixture.transform, false);
+        var palm = new GameObject("ActivityOfferingPalm").transform; palm.SetParent(station, false);
+        var fan = new GameObject("Fan").transform; fan.SetParent(fixture.transform, false);
+        CardsDriver.FanRoot = fan;
+        var card = new GameObject("Physical card", typeof(VRCard)).GetComponent<VRCard>();
+        card.transform.SetParent(fan, false); card.Owner = shop.character; card.Model.ID = 573;
+        CardsDriver.OffScenarioFanCards = new[] { card };
+        var slot = new GameObject("Native slot", typeof(RectTransform), typeof(Button), typeof(UIEnhanceCardSlot))
+            .GetComponent<UIEnhanceCardSlot>();
+        slot.transform.SetParent(native.transform, false); slot.Selectable = slot.GetComponent<Button>();
+        slot.AbilityCard = printed.GetComponent<AbilityCardUI>(); slot.AbilityCard.AbilityCard = card.Model;
+        slot.Selected = () => { shop.selectedCard = slot.AbilityCard; shop.cardHolder.Card = slot.AbilityCard; };
+        shop.CardsDisplay.slotsPool.Add(slot);
+        using (var handoff = new TownServiceEnhancementHandoff(shop, station, () => true, () => true))
+        {
+            handoff.Tick(); card.transform.position = handoff.Seat.position;
+            Check(TownServiceEnhancementHandoff.TryOffer(card), "original card can be offered for physical aura test");
+            var mask = printed.GetComponent<TownServiceNativeEnhancementCardMask>();
+            Check(mask != null, "same-frame handoff hides only duplicate art and reacts to the accepted offer");
+            mask.SendMessage("OnBeforeCanvasRender");
+            var corners = new Vector3[4]; ((RectTransform)ink.transform).GetWorldCorners(corners);
+            float diameter = Vector3.Distance(corners[0], corners[1]);
+            float physical = CardsConfig.CardHeight * card.transform.lossyScale.x;
+            Check(diameter >= physical * 1.03f && diameter <= physical * 1.13f
+                && SquareInWorld((RectTransform)ink.transform),
+                "rendered native aura follows the actual physical card, not the 325x450 highlighter root");
+            mask.SendMessage("OnBeforeCanvasRender");
+            Check(Mathf.Abs(Diameter((RectTransform)ink.transform) - diameter) < .0001f,
+                "physical-card mapping does not grow on repeated canvas submissions");
+            ((RectTransform)aura.transform).localScale = new Vector3(.7f, .7f, 1f);
+            mask.SendMessage("OnBeforeCanvasRender");
+            Check(SquareInWorld((RectTransform)ink.transform)
+                && Mathf.Abs(Diameter((RectTransform)ink.transform) - diameter * .7f) < .002f,
+                "later native aura pulse remains visible at the physical card's scale");
+
+            // Reproduce the real UIEnchantressEffect tween, which assigns WORLD
+            // Euler Z rather than local rotation. The old fixture only varied
+            // local X/Y scale under a planar parent and could not catch this.
+            var surface = new TownServiceSurface { Id = 11 };
+            surface.Place = () => highlighter.transform.SetPositionAndRotation(
+                handoff.Seat.position, handoff.Seat.rotation);
+            TownServicePresentation.Ritual = new TownServiceRitual { Handoff = handoff };
+            TownServicePresentation.Ritual.Surfaces.Add(surface);
+            for (int i = 0; i < 4; i++)
+            {
+                card.transform.SetPositionAndRotation(new Vector3(.25f + i * .1f, .4f, -.3f),
+                    Quaternion.Euler(16f, 38f + i * 41f, 12f));
+                aura.transform.eulerAngles = new Vector3(0f, 0f, 27f + i * 33f);
+                handoff.LateTick();
+                Check(Vector3.Distance(highlighter.transform.position, card.transform.position) < .00001f
+                    && Vector3.Dot(ink.transform.forward, card.transform.forward) > .9999f,
+                    "native world-Z tween follows the exact offered-card position and normal before publication");
+                Check(Mathf.Abs(Mathf.DeltaAngle(aura.transform.localEulerAngles.z, 27f + i * 33f)) < .01f,
+                    "native world-Z animation keeps its original phase in the moving card plane");
+            }
+            Check(surface.Placements == 4,
+                "original ability hotspots are placed after the final offered-card sample");
+            TownServicePresentation.Ritual = null;
+        }
+        UnityEngine.Object.DestroyImmediate(fixture);
+    }
+
+    private static void NativePrintedAreaAlignment()
+    {
+        var fixture = new GameObject("Original print alignment fixture");
+        var station = new GameObject("Station").transform;
+        station.SetParent(fixture.transform, false);
+        var palm = new GameObject("ActivityOfferingPalm").transform;
+        palm.SetParent(station, false);
+        var native = new GameObject("Native shop", typeof(RectTransform), typeof(UIWindow), typeof(UINewEnhancementWindow));
+        native.transform.SetParent(fixture.transform, false);
+        UINewEnhancementWindow shop = native.GetComponent<UINewEnhancementWindow>();
+        var holder = new GameObject("CardHilight", typeof(RectTransform), typeof(UIEnhancementCardHighlighter));
+        holder.transform.SetParent(native.transform, false);
+        ((RectTransform)holder.transform).sizeDelta = new Vector2(325f, 450f);
+        holder.transform.localScale = Vector3.one * .00052f;
+        var printed = new GameObject("Native pooled card", typeof(RectTransform), typeof(AbilityCardUI));
+        printed.transform.SetParent(holder.transform, false);
+        var nativeFace = new GameObject("FullAbilityCard", typeof(RectTransform), typeof(FullAbilityCard));
+        nativeFace.transform.SetParent(printed.transform, false);
+        RectTransform nativeRect = (RectTransform)nativeFace.transform;
+        nativeRect.sizeDelta = new Vector2(294f, 450f);
+        nativeRect.pivot = new Vector2(.37f, .62f);
+        nativeRect.anchoredPosition = new Vector2(13f, -7f);
+        nativeRect.localScale = Vector3.one * .81f;
+        printed.GetComponent<AbilityCardUI>().fullAbilityCard = nativeFace.GetComponent<FullAbilityCard>();
+        shop.cardHolder = holder.GetComponent<UIEnhancementCardHighlighter>();
+        var card = new GameObject("Actual offered VR card", typeof(VRCard)).GetComponent<VRCard>();
+        card.transform.SetParent(fixture.transform, false);
+        var physicalFace = new GameObject("Adopted full face", typeof(RectTransform), typeof(FullAbilityCard));
+        physicalFace.transform.SetParent(card.transform, false);
+        RectTransform physicalRect = (RectTransform)physicalFace.transform;
+        physicalRect.sizeDelta = new Vector2(294f, 450f);
+        physicalRect.pivot = new Vector2(.5f, .5f);
+        physicalRect.localScale = Vector3.one * (CardsConfig.CardHeight / 450f * .94f);
+        physicalRect.localPosition = new Vector3(0f, 0f, -.0012f);
+        var slot = new GameObject("Native owned slot", typeof(UIEnhanceCardSlot), typeof(Button)).GetComponent<UIEnhanceCardSlot>();
+        slot.transform.SetParent(native.transform, false);
+        slot.Selectable = slot.GetComponent<Button>();
+        slot.AbilityCard = printed.GetComponent<AbilityCardUI>();
+        slot.AbilityCard.AbilityCard = card.Model;
+        slot.Selected = () => { shop.selectedCard = slot.AbilityCard; shop.cardHolder.Card = slot.AbilityCard; };
+        shop.CardsDisplay.slotsPool.Add(slot);
+        var area = new GameObject("Native selectable printed row", typeof(RectTransform), typeof(Image), typeof(UIEnhancementButtonHighlight));
+        // Match the actual HighlightButtons reuse path: the pooled original starts
+        // in the flat holder and SetParent(target) preserves its WORLD basis.
+        // The old fixture used false and silently pre-corrected the real defect.
+        area.transform.SetParent(fixture.transform, false);
+        area.transform.SetParent(nativeFace.transform);
+        RectTransform nativeArea = (RectTransform)area.transform;
+        nativeArea.anchorMin = nativeArea.anchorMax = new Vector2(.2f, .7f);
+        nativeArea.pivot = new Vector2(.15f, .8f);
+        nativeArea.anchoredPosition = new Vector2(21f, -39f);
+        nativeArea.sizeDelta = new Vector2(178f, 76f);
+        var targetArea = new GameObject("Corresponding printed row", typeof(RectTransform));
+        targetArea.transform.SetParent(physicalFace.transform, false);
+        RectTransform targetRect = (RectTransform)targetArea.transform;
+        targetRect.anchorMin = nativeArea.anchorMin; targetRect.anchorMax = nativeArea.anchorMax;
+        targetRect.pivot = nativeArea.pivot;
+        targetRect.anchoredPosition = nativeArea.anchoredPosition;
+        targetRect.sizeDelta = nativeArea.sizeDelta;
+        var sourceCorners = new Vector3[4]; var targetCorners = new Vector3[4];
+        using (var handoff = new TownServiceEnhancementHandoff(shop, station, () => true, () => true))
+        {
+            handoff.Tick(); card.transform.position = handoff.Seat.position;
+            Check(TownServiceEnhancementHandoff.TryOffer(card), "original native print alignment accepts the actual owned card");
+            TownServiceNativeEnhancementCardMask mask = printed.GetComponent<TownServiceNativeEnhancementCardMask>();
+            foreach (float scale in new[] { .05f, .5f, 1f, 2f })
+            foreach (float angle in new[] { 0f, 37f, 118f })
+            foreach (float printRotation in new[] { 0f, 29f, 90f })
+            {
+                nativeRect.localRotation = printRotation == 90f
+                    ? Quaternion.Euler(11f, 90f, 7f) : Quaternion.Euler(0f, 0f, printRotation);
+                card.transform.SetPositionAndRotation(new Vector3(.17f, .8f, -.31f), Quaternion.Euler(14f, angle, -11f));
+                card.transform.localScale = Vector3.one * scale;
+                // Reproduce the real generic surface's nominal host placement,
+                // including a different pivot and the old 0.8mm depth separation.
+                holder.transform.SetPositionAndRotation(card.transform.position - card.transform.forward * .002f, card.transform.rotation);
+                holder.transform.localScale = new Vector3(.00052f * .73f, .00052f * 1.16f, .00052f);
+                mask.SendMessage("LateUpdate");
+                nativeArea.GetWorldCorners(sourceCorners); targetRect.GetWorldCorners(targetCorners);
+                for (int corner = 0; corner < 4; corner++)
+                {
+                    Vector3 delta = sourceCorners[corner] - targetCorners[corner];
+                    Check(Mathf.Abs(Vector3.Dot(delta, physicalRect.right)) < .000002f * Mathf.Max(1f, scale)
+                        && Mathf.Abs(Vector3.Dot(delta, physicalRect.up)) < .000002f * Mathf.Max(1f, scale),
+                        "native selectable print corners match the adopted face at every card rotation, pivot and inspect scale");
+                }
+                Vector3 submitted = nativeArea.position;
+                mask.SendMessage("OnBeforeCanvasRender");
+                Check(Vector3.Distance(submitted, nativeArea.position) < .000001f * Mathf.Max(1f, scale),
+                    "repeated native print submissions retain exact alignment without cumulative movement");
+                Check(area.GetComponent<Image>().enabled,
+                    "native offered area graphics remain enabled across alignment and render callbacks");
+            }
+            mask.Restore();
+            Check((holder.transform.localScale - Vector3.one * .00052f).sqrMagnitude < .000000000001f
+                && holder.transform.localPosition == Vector3.zero
+                && Quaternion.Angle(holder.transform.localRotation, Quaternion.identity) < .001f,
+                "native print ancestor geometry returns to its captured owner when the offer ends");
+        }
+        UnityEngine.Object.DestroyImmediate(fixture);
+    }
+
+    private static void NativePhysicalPoke()
+    {
+        var cameraGo = new GameObject("Head camera", typeof(Camera));
+        var camera = cameraGo.GetComponent<Camera>();
+        cameraGo.transform.position = new Vector3(0f, 0f, -2f);
+        cameraGo.transform.rotation = Quaternion.identity;
+        camera.nearClipPlane = .01f;
+        camera.farClipPlane = 5f;
+        var events = new GameObject("EventSystem", typeof(EventSystem));
+        var root = new GameObject("Native palm card", typeof(RectTransform), typeof(Canvas),
+            typeof(GraphicRaycaster), typeof(UIEnhancementCardHighlighter));
+        var canvas = root.GetComponent<Canvas>();
+        canvas.renderMode = RenderMode.WorldSpace;
+        canvas.worldCamera = camera;
+        ((RectTransform)root.transform).sizeDelta = new Vector2(.4f, .5f);
+        var aura = new GameObject("Aura", typeof(RectTransform), typeof(Image));
+        aura.transform.SetParent(root.transform, false);
+        ((RectTransform)aura.transform).sizeDelta = new Vector2(.25f, .25f);
+        aura.GetComponent<Image>().raycastTarget = true;
+        var area = new GameObject("Original ability area", typeof(RectTransform), typeof(Image),
+            typeof(Button), typeof(UIEnhancementButtonHighlight));
+        area.transform.SetParent(root.transform, false);
+        ((RectTransform)area.transform).sizeDelta = new Vector2(.18f, .1f);
+        area.GetComponent<Image>().raycastTarget = true;
+        var card = new GameObject("Native print", typeof(RectTransform), typeof(AbilityCardUI));
+        card.transform.SetParent(root.transform, false);
+        var mask = card.AddComponent<TownServiceNativeEnhancementCardMask>();
+        mask.Mask();
+        Check(root.GetComponent<GraphicRaycaster>().ignoreReversedGraphics,
+            "native card uses its original raycaster winding rule while masked");
+        var tip = new GameObject("Tracked index tip");
+        var hand = new VRHand();
+        hand.Rig.IndexTip = tip.transform;
+        int nativeClicks = 0;
+        area.GetComponent<Button>().onClick.AddListener(() => nativeClicks++);
+        var poke = new PokeInteractor(hand);
+        UguiPokeSurfaces.Surfaces.Add(canvas);
+        var physical = new GameObject("Physical offered card", typeof(BoxCollider));
+        physical.transform.position = new Vector3(0f, 0f, -.025f);
+        physical.GetComponent<BoxCollider>().size = new Vector3(.3f, .4f, .006f);
+        try
+        {
+            Canvas.ForceUpdateCanvases();
+            Physics.SyncTransforms();
+            Ray laser = new(camera.transform.position, Vector3.forward);
+            var cardHit = physical.GetComponent<BoxCollider>().Raycast(laser, out RaycastHit cardPoint, 5f);
+            Vector2 uiPoint = RectTransformUtility.WorldToScreenPoint(camera, area.transform.position);
+            // NullGfxDevice under -nographics yields no GraphicRaycaster output;
+            // Image.Raycast still exercises the original Unity Graphic geometry.
+            Check(cardHit && cardPoint.distance < Vector3.Distance(camera.transform.position, root.transform.position)
+                && area.GetComponent<Image>().raycastTarget
+                && area.GetComponent<Image>().Raycast(uiPoint, camera),
+                "original enhancement area remains laser-raycastable behind its physical card collider"
+                    + " (cardHit=" + cardHit + " cardDist=" + cardPoint.distance + ")");
+            tip.transform.position = new Vector3(0f, 0f, -.03f);
+            poke.Tick();
+            tip.transform.position = new Vector3(0f, 0f, -.003f);
+            poke.Tick();
+            tip.transform.position = new Vector3(0f, 0f, .014f);
+            poke.Tick();
+            Check(nativeClicks == 0, "physical fingertip without grip cannot select the native ability area");
+            tip.transform.position = new Vector3(0f, 0f, -.03f);
+            hand.GripPressed = true;
+            poke.Tick();
+            tip.transform.position = new Vector3(0f, 0f, -.003f);
+            poke.Tick();
+            tip.transform.position = new Vector3(0f, 0f, .014f);
+            poke.Tick();
+            Check(nativeClicks == 1,
+                "production fingertip plane/depth/grip route clicks the original ability Button once through the masked aura");
+            poke.Tick();
+            Check(nativeClicks == 1, "one continuous grip press cannot duplicate the native area callback");
+            if (SystemInfo.graphicsDeviceType != UnityEngine.Rendering.GraphicsDeviceType.Null)
+            {
+                // Use the unmodified canvas and its normal GraphicRaycaster
+                // winding rule. A synthetic reversed canvas is not evidence
+                // about the game's converted card orientation.
+                camera.Render();
+                Canvas.ForceUpdateCanvases();
+                var uiHits = new System.Collections.Generic.List<RaycastResult>();
+                root.GetComponent<GraphicRaycaster>().Raycast(
+                    new PointerEventData(events.GetComponent<EventSystem>()) { position = uiPoint }, uiHits);
+                Check(uiHits.Count > 0 && uiHits[0].gameObject == area,
+                    "rendered GraphicRaycaster chooses original ability area behind offered card"
+                    + " (hits=" + uiHits.Count + " top=" + (uiHits.Count > 0 ? uiHits[0].gameObject.name : "none")
+                    + " graphics=" + GraphicRegistry.GetGraphicsForCanvas(canvas).Count
+                    + " depth=" + area.GetComponent<Image>().depth
+                    + " reversed=" + root.GetComponent<GraphicRaycaster>().ignoreReversedGraphics
+                    + " camera=" + canvas.worldCamera + " screen=" + uiPoint + ")");
+            }
+        }
+        finally
+        {
+            UguiPokeSurfaces.Surfaces.Clear();
+            poke.CancelAll();
+            mask.Restore();
+            Check(root.GetComponent<GraphicRaycaster>().ignoreReversedGraphics,
+                "native card raycaster winding remains untouched after release");
+            UnityEngine.Object.DestroyImmediate(tip);
+            UnityEngine.Object.DestroyImmediate(root);
+            UnityEngine.Object.DestroyImmediate(physical);
+            UnityEngine.Object.DestroyImmediate(events);
+            UnityEngine.Object.DestroyImmediate(cameraGo);
+        }
+    }
+
+    private static void NativeLaserOcclusion()
+    {
+        const float panel = 2f, card = 1.90f, epsilon = .005f;
+        float none = float.PositiveInfinity;
+        Check(Mathf.Abs(NativeVisualDistanceFixture.ResolveVisualHitDistance(
+                none, none, card, 5f) - card) < .0001f,
+            "laser ends at offered physical card even when the game physics ray mask excludes it");
+        Check(Mathf.Abs(NativeVisualDistanceFixture.ResolveVisualHitDistance(
+                panel, none, card, 5f) - card) < .0001f,
+            "native enhancement area can receive the pointer while its visible laser ends on the physical card");
+        Check(Mathf.Abs(NativeVisualDistanceFixture.ResolveVisualHitDistance(
+                panel + 1f, none, card, 5f) - card) < .0001f,
+            "a fresh or one-frame-old background UI beam cannot extend past a nearer offered card");
+        Check(Mathf.Abs(NativeVisualDistanceFixture.ResolveVisualHitDistance(
+                panel, none, none, 5f) - panel) < .0001f,
+            "ordinary unobstructed UI beam still ends on its original panel");
+        Check(Mathf.Abs(NativeVisualDistanceFixture.ResolveVisualHitDistance(
+                none, 1.5f, card, 5f) - 1.5f) < .0001f,
+            "an unrelated nearer physics surface still stops the beam before the offered card");
+        Check(Mathf.Abs(NativeVisualDistanceFixture.ResolveVisualHitDistance(
+                none, none, none, 5f) - 5f) < .0001f,
+            "open laser remains unchanged away from solid occluders");
+        var offered = new GameObject("Exact offered card", typeof(VRCard), typeof(BoxCollider));
+        offered.transform.position = new Vector3(0f, 0f, -.1f);
+        offered.GetComponent<BoxCollider>().size = new Vector3(.4f, .5f, .02f);
+        var foreign = new GameObject("Foreign collider behind card", typeof(BoxCollider));
+        foreign.transform.position = new Vector3(0f, 0f, -.04f);
+        foreign.GetComponent<BoxCollider>().size = new Vector3(.4f, .5f, .02f);
+        Physics.SyncTransforms();
+        Ray ray = new(new Vector3(0f, 0f, -2f), Vector3.forward);
+        float blocked = NativePhysicsOcclusionFixture.OtherPhysicsOccludingDistance(
+            offered.GetComponent<VRCard>(), ray.origin, ray.direction, 2f, Physics.DefaultRaycastLayers);
+        Check(blocked > 1.9f && blocked < 2f,
+            "physics rescan finds a foreign collider between offered card and native area");
+        UnityEngine.Object.DestroyImmediate(foreign);
+        Physics.SyncTransforms();
+        Check(float.IsPositiveInfinity(NativePhysicsOcclusionFixture.OtherPhysicsOccludingDistance(
+            offered.GetComponent<VRCard>(), ray.origin, ray.direction, 2f, Physics.DefaultRaycastLayers)),
+            "physics rescan excludes only the offered card's own collider");
+        var saturation = new GameObject("Offered-card collider saturation");
+        saturation.transform.SetParent(offered.transform, false);
+        for (int i = 0; i < 70; i++)
+        {
+            var child = new GameObject("Card child collider", typeof(BoxCollider));
+            child.transform.SetParent(saturation.transform, false);
+            child.transform.localPosition = new Vector3(0f, 0f, .06f);
+            child.GetComponent<BoxCollider>().size = new Vector3(.4f, .5f, .002f);
+        }
+        Physics.SyncTransforms();
+        Check(NativePhysicsOcclusionFixture.OtherPhysicsOccludingDistance(
+            offered.GetComponent<VRCard>(), ray.origin, ray.direction, 2f, Physics.DefaultRaycastLayers) == 0f,
+            "a full reusable physics hit buffer fails closed instead of missing a later blocker");
+        UnityEngine.Object.DestroyImmediate(saturation);
+        Physics.SyncTransforms();
+        Check(float.IsPositiveInfinity(NativePhysicsOcclusionFixture.OtherPhysicsOccludingDistance(
+            offered.GetComponent<VRCard>(), ray.origin, ray.direction, 2f, Physics.DefaultRaycastLayers)),
+            "reused physics scratch does not keep stale hits from a previous crowded frame");
+        UnityEngine.Object.DestroyImmediate(offered);
+        Check(NativeAreaOcclusionFixture.OfferedAreaClear(panel, card, card,
+            none, none, none, none, none, epsilon),
+            "only the physical offered card in front of its native area allows the laser through");
+        Check(NativeAreaOcclusionFixture.OfferedAreaClear(panel, card, card,
+            none, none, none, none, none, epsilon),
+            "excluding the exact offered card from the second physics scan permits its original area");
+        Check(!NativeAreaOcclusionFixture.OfferedAreaClear(panel, card, card,
+            none, 1.95f, none, none, none, epsilon),
+            "a board behind the offered card still occludes the native button");
+        Check(!NativeAreaOcclusionFixture.OfferedAreaClear(panel, card, card,
+            1.95f, none, none, none, none, epsilon),
+            "a different raised fan card behind the offered card still occludes the button");
+        Check(!NativeAreaOcclusionFixture.OfferedAreaClear(panel, card, card,
+            none, none, none, 1.95f, none, epsilon),
+            "a second physical town prop behind the offered card still occludes the button");
+        Check(!NativeAreaOcclusionFixture.OfferedAreaClear(panel, card, card,
+            none, none, 1.95f, none, none, epsilon),
+            "a resident blocker behind the offered card still occludes the button");
+        Check(!NativeAreaOcclusionFixture.OfferedAreaClear(panel, card, card,
+            none, none, none, none, 1.95f, epsilon),
+            "an unrelated physics hit behind the offered card still occludes the button");
+        Check(!NativeAreaOcclusionFixture.OfferedAreaClear(panel, card, 1.80f,
+            none, none, none, none, none, epsilon),
+            "a nearer solid surface cannot masquerade as the offered card");
+        Check(!NativeAreaOcclusionFixture.OfferedAreaClear(panel, 2.10f, 2.10f,
+            none, none, none, none, none, epsilon),
+            "the offered card must actually lie between laser and native button");
+    }
+
+    private static void FirstVisitCue()
+    {
+        var root = new GameObject("First visit fixture");
+        var native = new GameObject("Native", typeof(UIWindow), typeof(UINewEnhancementWindow));
+        native.transform.SetParent(root.transform, false);
+        var shop = native.GetComponent<UINewEnhancementWindow>();
+        native.GetComponent<UIWindow>().IsOpen = false;
+        TownServicePresentation.QuietWindow = native.GetComponent<UIWindow>();
+        var station = new GameObject("Resident").transform; station.SetParent(root.transform, false);
+        var palm = new GameObject("ActivityOfferingPalm").transform; palm.SetParent(station, false);
+        var card = new GameObject("Owned map card", typeof(VRCard)).GetComponent<VRCard>();
+        card.transform.SetParent(root.transform, false); card.Owner = shop.character; card.Model.ID = 412;
+        CardsDriver.OffScenarioFanCards = new[] { card };
+        var slot = new GameObject("Native slot", typeof(RectTransform), typeof(Button), typeof(UIEnhanceCardSlot))
+            .GetComponent<UIEnhanceCardSlot>();
+        slot.transform.SetParent(native.transform, false); slot.Selectable = slot.GetComponent<Button>();
+        slot.AbilityCard = new GameObject("Native card", typeof(AbilityCardUI)).GetComponent<AbilityCardUI>();
+        slot.AbilityCard.AbilityCard = card.Model;
+        slot.Selected = () => shop.selectedCard = slot.AbilityCard;
+        shop.CardsDisplay.slotsPool.Add(slot);
+        var hand = new VRHand(); VRHands.Left = hand; VRHands.Right = null;
+        hand.Grabber.Held = card; card.IsHeld = true;
+        bool input = false;
+        TownServicePresentation.SessionAge = .08f;
+        using (var handoff = new TownServiceEnhancementHandoff(shop, station, () => true, () => input))
+        {
+            Check(!TownServiceEnhancementHandoff.HasVisibleCue,
+                "offering hand remains lowered until a native locator has been painted");
+            handoff.Tick(); card.transform.position = handoff.Seat.position; handoff.Tick();
+            CanvasGroup gate = handoff.Zone.GetComponent<CanvasGroup>();
+            Check(gate.alpha > .3f && gate.alpha < .5f && hand.HoverTicks == 0 && hand.ClickPulses == 0,
+                "first opening shows neutral palm locator while native input remains blocked");
+            Check(TownServiceEnhancementHandoff.HasVisibleCue,
+                "resident offering pose has a visible native locator while card input initializes");
+            TownServicePresentation.SessionAge = 1.4f;
+            handoff.Tick();
+            Check(gate.alpha > .3f && gate.alpha < .5f,
+                "slow relocation keeps a visible noninteractive palm locator past the old 350 ms cutoff");
+            card.IsHeld = false; hand.Grabber.Held = null;
+            Check(!TownServiceEnhancementHandoff.TryOffer(card) && handoff.Card == null,
+                "first opening preview cannot commit native card selection");
+            card.IsHeld = true; hand.Grabber.Held = card;
+            input = true; handoff.Tick();
+            Check(gate.alpha == 1f && hand.HoverTicks == 1 && hand.ClickPulses == 1,
+                "ready first visit turns the same locator into a haptic snap target");
+            slot.Selectable.interactable = false; handoff.Tick();
+            Check(gate.alpha > .3f && gate.alpha < .5f && !TownServiceEnhancementHandoff.TryOffer(card),
+                "native row refresh retains a visible locator without pretending the disabled slot accepts a card");
+            slot.Selectable.interactable = true; handoff.Tick();
+            Check(gate.alpha == 1f,
+                "restored native row resumes the actionable overlay on the same visit");
+            CardsDriver.OffScenarioFanCards = Array.Empty<VRCard>(); handoff.Tick();
+            Check(gate.alpha == 1f,
+                "held owned card remains offerable when the visible fan no longer lists its plucked card");
+        }
+        Check(!TownServiceEnhancementHandoff.HasVisibleCue,
+            "disposed enhancement visit never leaves an unbacked offering-hand pose");
+        CardsDriver.OffScenarioFanCards = new[] { card };
+        TownServicePresentation.SessionAge = 3f;
+        using (var revisit = new TownServiceEnhancementHandoff(shop, station, () => true, () => true))
+        { revisit.Tick(); Check(revisit.Zone.GetComponent<CanvasGroup>().alpha == 1f,
+            "later visit is ready without inheriting a stale preview latch"); }
+        int nativeSelections = 0;
+        slot.Selected = () => { nativeSelections++; shop.selectedCard = slot.AbilityCard; };
+        GloomhavenVR.Net.TownServices.TownServiceMirror.Settled = false;
+        using (var claim = new TownServiceEnhancementHandoff(shop, station, () => true, () => true))
+        {
+            claim.Tick(); card.IsHeld = false; hand.Grabber.Held = null;
+            card.transform.position = claim.Seat.position;
+            GloomhavenVR.Net.TownServices.TownServiceMirror.CanBegin = false;
+            claim.Tick();
+            Check(!TownServiceEnhancementHandoff.TryOffer(card) && claim.Card == null
+                && nativeSelections == 0,
+                "another visitor's parked card blocks this Mage only before local physical offer");
+            GloomhavenVR.Net.TownServices.TownServiceMirror.CanBegin = true;
+            claim.Tick();
+            Check(TownServiceEnhancementHandoff.TryOffer(card) && ReferenceEquals(claim.Card, card)
+                && nativeSelections == 0 && TownServiceEnhancementHandoff.HasVisibleCue,
+                "physical card parks and keeps offering hand visible before resident claim settles");
+            GloomhavenVR.Net.TownServices.TownServiceMirror.CanBegin = false;
+            Check(TownServiceEnhancementHandoff.CanReclaim(card),
+                "an existing physical offer remains manually reclaimable while a peer claim changes");
+            claim.Tick();
+            Check(nativeSelections == 0 && ReferenceEquals(claim.Card, card),
+                "unsettled competing visitor claim cannot invoke original native selection");
+            GloomhavenVR.Net.TownServices.TownServiceMirror.CanBegin = true;
+            GloomhavenVR.Net.TownServices.TownServiceMirror.Settled = true;
+            claim.Tick();
+            Check(nativeSelections == 1 && ReferenceEquals(claim.Card, card),
+                "settled resident claim selects the original native enhancement card exactly once");
+            int inactiveConfirm = 0;
+            TownServicePresentation.Active = false;
+            Action inactiveNative = () => inactiveConfirm++;
+            Action? inactiveCancel = null;
+            TownServiceEnhancementGrantGuard.Prefix(ref inactiveNative, ref inactiveCancel);
+            inactiveNative();
+            Check(inactiveConfirm == 1 && claim.Card == card,
+                "an inactive immersive service leaves the original confirmation callback untouched");
+            TownServicePresentation.Active = true;
+            var replacement = new GameObject("Ungrantable replacement", typeof(VRCard)).GetComponent<VRCard>();
+            replacement.transform.SetParent(root.transform, false);
+            replacement.Owner = shop.character; replacement.Model.ID = card.Model.ID;
+            replacement.transform.position = claim.Seat.position;
+            GloomhavenVR.Net.TownServices.TownServiceMirror.Settled = false;
+            Check(!TownServiceEnhancementHandoff.TryOffer(replacement)
+                && ReferenceEquals(claim.Card, card) && nativeSelections == 1,
+                "expired resident grant refuses replacement without evicting the parked original");
+            var confirmation = new GameObject("Revoked rune confirmation", typeof(UIWindow),
+                typeof(UIEnhancementConfirmationBox));
+            confirmation.transform.SetParent(root.transform, false);
+            Singleton<UIEnhancementConfirmationBox>.Instance = confirmation.GetComponent<UIEnhancementConfirmationBox>();
+            shop._isConfirmationBoxOpened = true;
+            TownServicePalmConfirmation.Owned = true;
+            int priorCancels = TownServicePalmConfirmation.Cancels;
+            int priorClears = shop.Clears;
+            int committed = 0;
+            Action nativeConfirm = () => committed++;
+            Action? nativeCancel = null;
+            TownServiceEnhancementGrantGuard.Prefix(ref nativeConfirm, ref nativeCancel);
+            nativeConfirm();
+            Check(claim.Card == null && CardsDriver.LastReturned == card
+                && shop.selectedCard == null && shop.Clears == priorClears + 1
+                && TownServicePalmConfirmation.Cancels == priorCancels + 1
+                && !confirmation.GetComponent<UIWindow>().IsOpen && nativeSelections == 1 && committed == 0,
+                "revoked grant at native callback dispatch closes confirmation without committing or waiting for Tick");
+            shop._isConfirmationBoxOpened = false;
+            Singleton<UIEnhancementConfirmationBox>.Instance = null;
+            GloomhavenVR.Net.TownServices.TownServiceMirror.Settled = true;
+        }
+        int ordinaryConfirm = 0;
+        TownServicePresentation.Active = false;
+        Action fallbackConfirm = () => ordinaryConfirm++;
+        Action? fallbackCancel = null;
+        TownServiceEnhancementGrantGuard.Prefix(ref fallbackConfirm, ref fallbackCancel);
+        fallbackConfirm();
+        Check(ordinaryConfirm == 1, "flat or inactive service confirmation keeps its original callback");
+        TownServicePresentation.Active = true;
+        var deniedCard = new GameObject("Denied claim card", typeof(VRCard)).GetComponent<VRCard>();
+        deniedCard.transform.SetParent(root.transform, false);
+        deniedCard.Owner = shop.character; deniedCard.Model.ID = card.Model.ID;
+        CardsDriver.OffScenarioFanCards = new[] { deniedCard };
+        GloomhavenVR.Net.TownServices.TownServiceMirror.Settled = false;
+        using (var claim = new TownServiceEnhancementHandoff(shop, station, () => true, () => true))
+        {
+            claim.Tick(); deniedCard.transform.position = claim.Seat.position;
+            Check(TownServiceEnhancementHandoff.TryOffer(deniedCard),
+                "physical card starts a new per-resident grant request");
+            GloomhavenVR.Net.TownServices.TownServiceMirror.Denied = true;
+            claim.Tick();
+            Check(claim.Card == null && CardsDriver.LastReturned == deniedCard && nativeSelections == 1,
+                "host Busy returns the parked Mage card immediately without native selection");
+            GloomhavenVR.Net.TownServices.TownServiceMirror.Denied = false;
+        }
+        var timeoutCard = new GameObject("Claim timeout card", typeof(VRCard)).GetComponent<VRCard>();
+        timeoutCard.transform.SetParent(root.transform, false);
+        timeoutCard.Owner = shop.character; timeoutCard.Model.ID = card.Model.ID;
+        CardsDriver.OffScenarioFanCards = new[] { timeoutCard };
+        GloomhavenVR.Net.TownServices.TownServiceMirror.Settled = false;
+        using (var claim = new TownServiceEnhancementHandoff(shop, station, () => true, () => true))
+        {
+            claim.Tick(); timeoutCard.transform.position = claim.Seat.position;
+            Check(TownServiceEnhancementHandoff.TryOffer(timeoutCard),
+                "second physical card can park during a new claim");
+            typeof(TownServiceEnhancementHandoff).GetField("_claimDeadline",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+                .SetValue(claim, -1f);
+            claim.Tick();
+            Check(claim.Card == null && CardsDriver.LastReturned == timeoutCard && nativeSelections == 1,
+                "lost resident claim returns the real card without invoking native selection");
+        }
+        var tickRevokedCard = new GameObject("Post-selection revoked card", typeof(VRCard)).GetComponent<VRCard>();
+        tickRevokedCard.transform.SetParent(root.transform, false);
+        tickRevokedCard.Owner = shop.character; tickRevokedCard.Model.ID = card.Model.ID;
+        CardsDriver.OffScenarioFanCards = new[] { tickRevokedCard };
+        GloomhavenVR.Net.TownServices.TownServiceMirror.Settled = true;
+        using (var claim = new TownServiceEnhancementHandoff(shop, station, () => true, () => true))
+        {
+            claim.Tick(); tickRevokedCard.transform.position = claim.Seat.position;
+            Check(TownServiceEnhancementHandoff.TryOffer(tickRevokedCard)
+                && nativeSelections == 2 && claim.Card == tickRevokedCard,
+                "settled new Mage offer invokes the original native selector");
+            var fastConfirmation = new GameObject("Unconverted rune confirmation", typeof(UIWindow),
+                typeof(UIEnhancementConfirmationBox));
+            fastConfirmation.transform.SetParent(root.transform, false);
+            var fastBox = fastConfirmation.GetComponent<UIEnhancementConfirmationBox>();
+            Singleton<UIEnhancementConfirmationBox>.Instance = fastBox;
+            shop._isConfirmationBoxOpened = true;
+            TownServicePalmConfirmation.Owned = false;
+            GloomhavenVR.Net.TownServices.TownServiceMirror.Settled = false;
+            claim.Tick();
+            Check(claim.Card == null && CardsDriver.LastReturned == tickRevokedCard
+                && shop.selectedCard == null && nativeSelections == 2
+                && fastBox.Hides == 1 && !fastConfirmation.GetComponent<UIWindow>().IsOpen,
+                "revoked selected grant closes even an unconverted prompt and returns card on Tick");
+            shop._isConfirmationBoxOpened = false;
+            Singleton<UIEnhancementConfirmationBox>.Instance = null;
+        }
+        GloomhavenVR.Net.TownServices.TownServiceMirror.Settled = true;
+        CardsDriver.Complete();
+        CardsDriver.OffScenarioFanActive = false;
+        _ = TownServiceEnhancementHandoff.Returning;
+        CardsDriver.OffScenarioFanActive = true;
+        CardsDriver.Returned = 0; CardsDriver.LastReturned = null; CardsDriver.Completed = null;
+        VRHands.Left = null; card.IsHeld = false;
+        Check(!native.GetComponent<UIWindow>().IsOpen,
+            "quiet mage preview claim cancellation and original selection never open the flat service window");
+        TownServicePresentation.QuietWindow = null;
+        UnityEngine.Object.DestroyImmediate(root);
+    }
+
+    private static void OfferFeedback()
+    {
+        var root = new GameObject("Offer cue", typeof(RectTransform), typeof(CanvasGroup));
+        var border = new GameObject("Border", typeof(RectTransform), typeof(Image));
+        border.transform.SetParent(root.transform, false);
+        var cue = new TownServiceOfferFeedback(root.GetComponent<CanvasGroup>(), root.transform);
+        var hand = new VRHand();
+        cue.Tick(false, hand, 0f, true, .43f); cue.Paint(false);
+        Check(hand.HoverTicks == 0 && hand.ClickPulses == 0 && root.GetComponent<CanvasGroup>().alpha == 0f,
+            "blocked native offer has no visual or haptic preview");
+        cue.Tick(true, hand, .7f, false, .43f); cue.Paint(true);
+        Check(root.GetComponent<CanvasGroup>().alpha > .99f && hand.HoverTicks == 0,
+            "valid empty handoff target is visible before card approach");
+        cue.Tick(true, hand, .30f, false, .43f);
+        cue.Tick(true, hand, .22f, false, .43f);
+        Check(hand.HoverTicks == 1 && hand.ClickPulses == 0,
+            "approach has one debounced hover pulse");
+        cue.Tick(true, hand, .10f, true, .43f);
+        cue.Tick(true, hand, .08f, true, .43f);
+        Check(hand.HoverTicks == 1 && hand.ClickPulses == 1,
+            "native accept volume has one debounced snap pulse");
+        var secondHand = new VRHand();
+        cue.Tick(true, secondHand, .09f, true, .43f);
+        Check(secondHand.HoverTicks == 1 && secondHand.ClickPulses == 1,
+            "a different controller receives its own approach and snap edge");
+        cue.Tick(false, hand, .08f, true, .43f); cue.Paint(false);
+        Check(root.GetComponent<CanvasGroup>().alpha == 0f && hand.ClickPulses == 1,
+            "native disablement clears an apparently actionable target");
+        var bowl = new TownServiceOfferFeedback();
+        var purseHand = new VRHand();
+        bowl.Tick(true, purseHand, .20f, false, .28f, snapPulse: false);
+        bowl.Tick(true, purseHand, .05f, true, .28f, snapPulse: false);
+        Check(purseHand.HoverTicks == 1 && purseHand.ClickPulses == 0,
+            "priestess approach adds one hover pulse without duplicating the purse token's inside-bowl snap pulse");
+        UnityEngine.Object.DestroyImmediate(root);
+    }
+
+    private static void SharedOfferGuide()
+    {
+        // Build614 user-approved exception: map drop guides are local only. The
+        // original per-visitor feedback and valid native eligibility stay intact.
+        var root = new GameObject("Local visitor guide", typeof(RectTransform), typeof(CanvasGroup));
+        var border = new GameObject("Border", typeof(RectTransform), typeof(Image));
+        border.transform.SetParent(root.transform, false);
+        var gate = root.GetComponent<CanvasGroup>(); var ink = border.GetComponent<Image>();
+        var duplicate = new GameObject("Legacy remote guide", typeof(RectTransform), typeof(CanvasGroup));
+        var remoteGate = duplicate.GetComponent<CanvasGroup>();
+        var cue = new TownServiceOfferFeedback(gate, root.transform);
+        var hand = new VRHand();
+        TownServiceSharedCue.Reset();
+        GloomhavenVR.Net.TownServices.TownServiceGrantSync.Owner = 0;
+        TownServicePopulation.IsFaceAuthor = true;
+        GloomhavenVR.Net.TownServices.TownServiceMirror.ShowCue = false;
+        TownServiceSharedCue.SetLocal(true, .24f);
+        TownServiceSharedCue.ObserveVisitor(22, 900, true, .81f);
+        TownServiceSharedCue.ObserveVisitor(33, 901, false, 1f);
+        TownServiceSharedCue.Tick();
+        Check(!TownServiceSharedCue.PublishedReady && TownServiceSharedCue.PublishedGuideOwner == 0
+            && TownServiceSharedCue.PublishedStrength == 0f && TownServiceSharedCue.HasReadyVisitor(3),
+            "visitor readiness drives the global offered-hand pose without publishing shared guide ink");
+        cue.Tick(true, hand, .05f, true, .43f); cue.Paint(true);
+        Color ownInk = ink.color; Vector3 ownScale = root.transform.localScale;
+        TownServiceSharedCue.PaintLocal(gate, root.transform);
+        Check(gate.alpha == 1f && ink.color == ownInk && root.transform.localScale == ownScale
+            && hand.HoverTicks == 1 && hand.ClickPulses == 1,
+            "another visitor cannot change the actual local guide ink scale or haptics");
+        TownServiceSharedCue.ObserveShared(11, true, .98f, 22);
+        remoteGate.alpha = 1f; remoteGate.interactable = remoteGate.blocksRaycasts = true;
+        TownServiceSharedCue.PaintRemote(remoteGate, duplicate.transform);
+        Check(remoteGate.alpha == 0f && !remoteGate.interactable && !remoteGate.blocksRaycasts
+            && TownServiceSharedCue.GuideOwner == 0,
+            "legacy shared guide samples never restore remote pre-drop drawing or occupation");
+        GloomhavenVR.Net.TownServices.TownServiceGrantSync.Owner = 22;
+        TownServiceSharedCue.PaintLocal(gate, root.transform);
+        Check(gate.alpha == 1f && ink.color == ownInk && root.transform.localScale == ownScale,
+            "physical occupation does not repaint a valid local replacement guide");
+        GloomhavenVR.Net.TownServices.TownServiceGrantSync.Owner = 0;
+        var visitorField = typeof(TownServiceSharedCue).GetField("Visitors", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;
+        var visitors = (System.Collections.IDictionary)visitorField.GetValue(null)!;
+        object remote = visitors[22]!;
+        remote.GetType().GetField("Received", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.SetValue(remote, Time.unscaledTime - 4f);
+        visitors[22] = remote;
+        TownServiceSharedCue.SetLocal(false, 0f); TownServiceSharedCue.Tick();
+        Check(!TownServiceSharedCue.HasReadyVisitor(3),
+            "expired visitor readiness cannot leave a phantom global offering pose");
+        TownServiceSharedCue.Reset();
+        Check(!TownServiceSharedCue.LocalReady && !TownServiceSharedCue.HasReadyVisitor(3)
+            && TownServiceSharedCue.LocalStrength == 0f,
+            "scene reset clears local and remote visitor readiness");
+        GloomhavenVR.Net.TownServices.TownServiceMirror.ShowCue = true;
+        UnityEngine.Object.DestroyImmediate(root); UnityEngine.Object.DestroyImmediate(duplicate);
+    }
+
+    private static void SwapOffering()
+    {
+        var root = new GameObject("Swap fixture");
+        var native = new GameObject("Native", typeof(UIWindow), typeof(UINewEnhancementWindow));
+        native.transform.SetParent(root.transform, false);
+        var shop = native.GetComponent<UINewEnhancementWindow>();
+        var station = new GameObject("Resident").transform; station.SetParent(root.transform, false);
+        var palm = new GameObject("ActivityOfferingPalm").transform; palm.SetParent(station, false);
+        palm.localPosition = new Vector3(-.18f, 1.14f, .23f);
+        var fan = new GameObject("Fan").transform; fan.SetParent(root.transform, false); CardsDriver.FanRoot = fan;
+        VRCard Card(int id)
+        {
+            var card = new GameObject("Card " + id, typeof(VRCard)).GetComponent<VRCard>();
+            card.transform.SetParent(fan, false); card.Owner = shop.character; card.Model.ID = id;
+            new GameObject("Full", typeof(FullAbilityCard)).transform.SetParent(card.transform, false);
+            return card;
+        }
+        UIEnhanceCardSlot Slot(VRCard card)
+        {
+            var slot = new GameObject("Slot " + card.Model.ID, typeof(RectTransform), typeof(Button), typeof(UIEnhanceCardSlot)).GetComponent<UIEnhanceCardSlot>();
+            slot.transform.SetParent(native.transform, false); slot.Selectable = slot.GetComponent<Button>();
+            slot.AbilityCard = new GameObject("Original " + card.Model.ID, typeof(AbilityCardUI)).GetComponent<AbilityCardUI>();
+            slot.AbilityCard.transform.SetParent(slot.transform, false); slot.AbilityCard.AbilityCard = card.Model;
+            slot.AbilityCard.fullAbilityCard = new GameObject("Full", typeof(FullAbilityCard)).GetComponent<FullAbilityCard>();
+            slot.Selected = () => shop.selectedCard = slot.AbilityCard;
+            shop.CardsDisplay.slotsPool.Add(slot); return slot;
+        }
+        VRCard first = Card(301), replacement = Card(302), rejected = Card(303);
+        Slot(first); Slot(replacement); UIEnhanceCardSlot rejectedSlot = Slot(rejected);
+        rejectedSlot.Selected = () => { shop.selectedCard = rejectedSlot.AbilityCard; throw new Exception("replacement rejected"); };
+        CardsDriver.OffScenarioFanCards = new[] { first, replacement, rejected };
+        CardsDriver.Returned = CardsDriver.Rebuilds = 0; CardsDriver.LastReturned = null;
+        using (var handoff = new TownServiceEnhancementHandoff(shop, station, () => true, () => true))
+        {
+            handoff.Tick(); first.transform.position = handoff.Seat.position;
+            Check(TownServiceEnhancementHandoff.TryOffer(first), "first valid owned card occupies enchantress palm");
+            rejected.transform.position = handoff.Seat.position;
+            Check(!TownServiceEnhancementHandoff.TryOffer(rejected) && ReferenceEquals(handoff.Card, first)
+                && CardsDriver.Returned == 0 && ReferenceEquals(shop.selectedCard!.AbilityCard, first.Model),
+                "rejected replacement preserves prior enchantress card atomically");
+            replacement.transform.position = handoff.Seat.position;
+            Check(TownServiceEnhancementHandoff.TryOffer(replacement), "second valid owned card atomically swaps into enchantress palm");
+            Check(ReferenceEquals(handoff.Card, replacement) && ReferenceEquals(shop.selectedCard!.AbilityCard, replacement.Model),
+                "replacement owns both physical and native enchantment selection");
+            Check(CardsDriver.Returned == 1 && ReferenceEquals(CardsDriver.LastReturned, first) && first.IsFlying,
+                "displaced enchantment card takes canonical fan return flight");
+            Check(TownServiceEnhancementHandoff.IsParked(first) && TownServiceEnhancementHandoff.IsParked(replacement),
+                "returning old card and parked replacement remain uniquely published");
+            Check(!TownServiceEnhancementHandoff.TryOffer(replacement), "same parked card cannot replace itself");
+            CardsDriver.Complete();
+            Check(!TownServiceEnhancementHandoff.IsParked(first) && TownServiceEnhancementHandoff.IsParked(replacement),
+                "displaced card retires only after its canonical return completes");
+        }
+        CardsDriver.Complete();
+        UnityEngine.Object.DestroyImmediate(root);
+    }
+
+    private static void CancellationLifecycle()
+    {
+        var root = new GameObject("Cancellation fixture");
+        var native = new GameObject("Native", typeof(UIWindow), typeof(UINewEnhancementWindow));
+        native.transform.SetParent(root.transform, false);
+        var shop = native.GetComponent<UINewEnhancementWindow>();
+        var station = new GameObject("Resident").transform; station.SetParent(root.transform, false);
+        new GameObject("ActivityOfferingPalm").transform.SetParent(station, false);
+        var fan = new GameObject("Fan").transform; fan.SetParent(root.transform, false); CardsDriver.FanRoot = fan;
+        VRCard Make(int id)
+        {
+            var card = new GameObject("Card " + id, typeof(VRCard)).GetComponent<VRCard>();
+            card.transform.SetParent(fan, false); card.Owner = shop.character; card.Model.ID = id;
+            var slot = new GameObject("Slot", typeof(RectTransform), typeof(Button), typeof(UIEnhanceCardSlot))
+                .GetComponent<UIEnhanceCardSlot>();
+            slot.transform.SetParent(native.transform, false); slot.Selectable = slot.GetComponent<Button>();
+            slot.AbilityCard = new GameObject("Original", typeof(AbilityCardUI)).GetComponent<AbilityCardUI>();
+            slot.AbilityCard.transform.SetParent(slot.transform, false); slot.AbilityCard.AbilityCard = card.Model;
+            slot.Selected = () => shop.selectedCard = slot.AbilityCard;
+            shop.CardsDisplay.slotsPool.Add(slot);
+            return card;
+        }
+        VRCard first = Make(711), second = Make(712);
+        CardsDriver.OffScenarioFanCards = new[] { first, second };
+        CardsDriver.Returned = 0; CardsDriver.LastReturned = null; CardsDriver.Completed = null;
+        VRHands.Left = VRHands.Right = VRHands.Primary = null;
+        VRRigDriver.HeadCamera = null;
+        var eventSystem = new GameObject("Native decision events", typeof(EventSystem));
+        eventSystem.transform.SetParent(root.transform, false);
+        var prompt = new GameObject("Native rune prompt", typeof(UIWindow), typeof(UIEnhancementConfirmationBox));
+        prompt.transform.SetParent(root.transform, false);
+        var box = prompt.GetComponent<UIEnhancementConfirmationBox>();
+        prompt.GetComponent<UIWindow>().IsOpen = false;
+        Singleton<UIEnhancementConfirmationBox>.Instance = box;
+        var rune = new GameObject("Native selected effect", typeof(RectTransform), typeof(Button)).GetComponent<Button>();
+        rune.transform.SetParent(native.transform, false);
+        var cancelButton = new GameObject("Native cancel", typeof(RectTransform), typeof(Button)).GetComponent<Button>();
+        cancelButton.transform.SetParent(prompt.transform, false); cancelButton.onClick.AddListener(box.Hide);
+        int nativeCancels = 0;
+        using (var handoff = new TownServiceEnhancementHandoff(shop, station, () => true, () => true))
+        {
+            handoff.Tick(); first.transform.position = handoff.Seat.position;
+            Check(TownServiceEnhancementHandoff.TryOffer(first), "cancellation fixture starts with an actual accepted native offering");
+            rune.onClick.AddListener(() =>
+            {
+                shop._isConfirmationBoxOpened = true;
+                Action confirm = () => throw new Exception("cancel must never invoke the original purchase callback");
+                Action? cancel = () => { nativeCancels++; shop._isConfirmationBoxOpened = false; };
+                TownServiceEnhancementGrantGuard.Prefix(ref confirm, ref cancel);
+                box.ShowConfirmation("Native effect", "Native cost", null!, "Effect", confirm, "Buy", "Cancel", cancel!);
+            });
+            var pointer = new PointerEventData(eventSystem.GetComponent<EventSystem>()) { button = PointerEventData.InputButton.Left };
+            ExecuteEvents.Execute(rune.gameObject, pointer, ExecuteEvents.pointerClickHandler);
+            handoff.Tick();
+            Check(shop._isConfirmationBoxOpened && ReferenceEquals(handoff.Card, first),
+                "original effect press enters the native confirmation while retaining the physical offered card");
+            int releases = GloomhavenVR.Net.TownServices.TownServiceMirror.TransactionReleases;
+            ExecuteEvents.Execute(cancelButton.gameObject, pointer, ExecuteEvents.pointerClickHandler);
+            Check(nativeCancels == 0 && ReferenceEquals(handoff.Card, first),
+                "native cancel starts its own transition before its original Hidden cleanup runs");
+            box.CompleteHide(); box.CompleteHide();
+            Check(nativeCancels == 1 && !shop._isConfirmationBoxOpened && handoff.Card == null
+                && shop.selectedCard == null && CardsDriver.Returned == 1,
+                "original native cancellation runs once and retires the exact parked card and selection");
+            Check(GloomhavenVR.Net.TownServices.TownServiceMirror.TransactionReleases == releases + 1,
+                "native cancellation immediately releases the physical resident reservation");
+            CardsDriver.Complete();
+            second.transform.position = handoff.Seat.position;
+            Check(TownServiceEnhancementHandoff.TryOffer(second),
+                "another owned card can be accepted immediately after original cancellation without reopening the service");
+            Action? stale = TownServiceEnhancementHandoff.GuardNativeCancellation(() => nativeCancels++);
+            first.transform.position = handoff.Seat.position;
+            Check(TownServiceEnhancementHandoff.TryOffer(first), "replacement card takes the current native selection");
+            releases = GloomhavenVR.Net.TownServices.TownServiceMirror.TransactionReleases;
+            stale!();
+            Check(ReferenceEquals(handoff.Card, first)
+                && GloomhavenVR.Net.TownServices.TownServiceMirror.TransactionReleases == releases,
+                "a delayed prior cancellation cannot remove or release a replacement offering");
+            Action? wrongSession = TownServiceEnhancementHandoff.GuardNativeCancellation(null);
+            uint session = TownServicePresentation.Session;
+            TownServicePresentation.Session++;
+            wrongSession!();
+            Check(ReferenceEquals(handoff.Card, first), "a delayed cancellation never affects a different native visit");
+            TownServicePresentation.Session = session;
+            Action? failing = TownServiceEnhancementHandoff.GuardNativeCancellation(() => throw new InvalidOperationException("native test failure"));
+            bool threw = false;
+            try { failing!(); } catch (InvalidOperationException) { threw = true; }
+            Check(threw && handoff.Card == null,
+                "native cancellation exceptions remain visible while physical reservation cleanup is guaranteed");
+            CardsDriver.Complete();
+            GloomhavenVR.Net.TownServices.TownServiceMirror.ShowCue = false;
+            handoff.Tick();
+            Check(handoff.Zone.GetComponent<CanvasGroup>().alpha == 1f,
+                "another picture author never hides this visitor's valid local palm cue");
+            first.transform.position = handoff.Seat.position;
+            Check(TownServiceEnhancementHandoff.TryOffer(first),
+                "local-only guide presentation retains the eligible visitor's physical handoff");
+            GloomhavenVR.Net.TownServices.TownServiceMirror.ShowCue = true;
+        }
+        CardsDriver.Complete(); CardsDriver.OffScenarioFanActive = false;
+        _ = TownServiceEnhancementHandoff.Returning; CardsDriver.OffScenarioFanActive = true;
+        Action original = () => nativeCancels++;
+        Check(ReferenceEquals(TownServiceEnhancementHandoff.GuardNativeCancellation(original), original),
+            "an ordinary flat cancellation retains its exact original native callback");
+        Singleton<UIEnhancementConfirmationBox>.Instance = null;
+        UnityEngine.Object.DestroyImmediate(root);
+    }
+    private static void RunCase(float scale, int scenario)
+    {
+        var root = new GameObject("Fixture"); root.transform.localScale = Vector3.one * scale;
+        var native = new GameObject("Native", typeof(UIWindow), typeof(UINewEnhancementWindow)); native.transform.SetParent(root.transform, false);
+        var shop = native.GetComponent<UINewEnhancementWindow>();
+        var station = new GameObject("Resident").transform; station.SetParent(root.transform, false);
+        var palm = new GameObject("ActivityOfferingPalm").transform; palm.SetParent(station, false); palm.localPosition = new Vector3(-.18f, 1.14f, .23f);
+        TownServicePopulation.Station = new TownServiceStation { Root = station };
+        var fan = new GameObject("Fan").transform; fan.SetParent(root.transform, false); CardsDriver.FanRoot = fan;
+        var card = new GameObject("ActualHandCard", typeof(VRCard)).GetComponent<VRCard>(); card.transform.SetParent(fan, false);
+        card.transform.position = palm.position; card.Owner = shop.character;
+        card.Model.ID = 123;
+        var face = new GameObject("Full", typeof(FullAbilityCard)).GetComponent<FullAbilityCard>(); face.transform.SetParent(card.transform, false);
+        new GameObject("Top").transform.SetParent(face.transform, false);
+        var secondFaceTop = new GameObject("Top").transform; secondFaceTop.SetParent(face.transform, false);
+        var slot = new GameObject("OriginalSlot", typeof(RectTransform), typeof(Button), typeof(UIEnhanceCardSlot)).GetComponent<UIEnhanceCardSlot>();
+        slot.transform.SetParent(native.transform, false); slot.Selectable = slot.GetComponent<Button>();
+        slot.AbilityCard = new GameObject("OriginalCard", typeof(AbilityCardUI)).GetComponent<AbilityCardUI>();
+        slot.AbilityCard.transform.SetParent(slot.transform, false); slot.AbilityCard.AbilityCard = card.Model;
+        if (scenario == 21) slot.AbilityCard.AbilityCard = new ScenarioRuleLibrary.CAbilityCard { ID = card.Model.ID };
+        slot.AbilityCard.fullAbilityCard = new GameObject("Full", typeof(FullAbilityCard)).GetComponent<FullAbilityCard>();
+        slot.AbilityCard.fullAbilityCard.transform.SetParent(slot.AbilityCard.transform, false);
+        var originalTop = new GameObject("Top").transform; originalTop.SetParent(slot.AbilityCard.fullAbilityCard.transform, false);
+        var secondOriginalTop = new GameObject("Top").transform; secondOriginalTop.SetParent(slot.AbilityCard.fullAbilityCard.transform, false);
+        var nativePrint = new GameObject("Native print", typeof(RectTransform), typeof(Image)).GetComponent<Image>();
+        nativePrint.transform.SetParent(slot.AbilityCard.fullAbilityCard.transform, false);
+        var nativeArea = new GameObject("Native enhancement area", typeof(RectTransform),
+            typeof(Image), typeof(UIEnhancementButtonHighlight)).GetComponent<Image>();
+        nativeArea.transform.SetParent(slot.AbilityCard.fullAbilityCard.transform, false);
+        shop.CardsDisplay.slotsPool.Add(slot);
+        bool alive = true, input = true; int selected = 0;
+        int priorOfferLines = TownServiceVoice.Inspections;
+        slot.Selected = () =>
+        {
+            selected++; shop.selectedCard = slot.AbilityCard; shop.cardHolder.Card = slot.AbilityCard;
+            if (scenario == 5) shop.character = new Owner { CharacterID = "foreign" };
+            if (scenario == 6) slot.AbilityCard.AbilityCard = new ScenarioRuleLibrary.CAbilityCard();
+            if (scenario == 7) throw new Exception("native callback failed");
+        };
+        CardsDriver.Returned = CardsDriver.Rebuilds = 0; CardsDriver.LastReturned = null;
+        VRRigDriver.HeadCamera = null; VRHands.Left = VRHands.Right = null;
+        VRHands.Primary = scenario == 20 ? new VRHand { WorldScale = 3f * scale } : null;
+        MapRoomDriver.Active = true;
+        CardsDriver.OffScenarioFanCards = new[] { card };
+        using (var handoff = new TownServiceEnhancementHandoff(shop, station, () => alive, () => input))
+        {
+            handoff.Tick();
+            Check(handoff.Zone.GetComponent<CanvasGroup>().alpha == 1f && !card.IsHeld,
+                scenario == 21 ? "same owned card ID survives a native enhancement-list model refresh"
+                    : "empty ready palm advertises an owned offering without requiring a held card");
+            if (scenario == 1) shop.character = new Owner { CharacterID = "foreign" };
+            if (scenario == 2) card.transform.position = palm.TransformPoint(new Vector3(0f, 0f, 1f));
+            if (scenario == 3) slot.Selectable.interactable = false;
+            if (scenario == 4) card.Owned = false;
+            if (scenario == 8) shop._isConfirmationBoxOpened = true;
+            if (scenario == 9) card.IsHeld = true;
+            if (scenario == 1 || scenario == 3 || scenario == 4 || scenario == 8)
+            {
+                handoff.Tick();
+                float alpha = handoff.Zone.GetComponent<CanvasGroup>().alpha;
+                Check(scenario == 3 ? alpha > .3f && alpha < .5f : alpha == 0f,
+                    "disabled owned row shows only the waiting preview; foreign or confirmation cards show no drop cue");
+            }
+            bool offered = TownServiceEnhancementHandoff.TryOffer(card);
+            string reason = scenario == 1 ? "foreign native character refuses offering"
+                : scenario == 2 ? "distant release refuses offering"
+                : scenario == 3 ? "disabled native slot refuses offering"
+                : scenario == 5 ? "native callback owner race refuses offering" : "invalid offering is refused";
+            Check(offered == (scenario == 0 || scenario >= 10), reason);
+            if (offered)
+            {
+                if (scenario == 21) Check(!ReferenceEquals(card.Model, shop.selectedCard!.AbilityCard),
+                    "same owned card ID survives a native enhancement-list model refresh");
+                Check(selected == 1 && ReferenceEquals(handoff.Card, card), "one native selection parks the original card");
+                var palmCanvas = new GameObject("Palm canvas", typeof(Canvas)).GetComponent<Canvas>();
+                var wrongCanvas = new GameObject("Other canvas", typeof(Canvas)).GetComponent<Canvas>();
+                var area = nativeArea.GetComponent<UIEnhancementButtonHighlight>();
+                area.Ability = new object();
+                TownServicePresentation.Ritual = new TownServiceRitual { Handoff = handoff };
+                TownServicePresentation.Ritual.Surfaces.Add(new TownServiceSurface
+                    { Id = 11, Panel = new ConvertedPanel { HostCanvas = palmCanvas } });
+                Check(TownServiceEnhancementHandoff.TryNativeArea(palmCanvas, nativeArea.gameObject, out VRCard? selectedCard)
+                    && ReferenceEquals(selectedCard, card),
+                    "laser over a live original ability-area button selects that native area on the offered card");
+                Check(!TownServiceEnhancementHandoff.TryNativeArea(wrongCanvas, nativeArea.gameObject, out _)
+                    && !TownServiceEnhancementHandoff.TryNativeArea(palmCanvas, nativePrint.gameObject, out _),
+                    "unrelated canvas and non-ability card print never steal the physical reclaim trigger");
+                shop._isConfirmationBoxOpened = true;
+                Check(!TownServiceEnhancementHandoff.TryNativeArea(palmCanvas, nativeArea.gameObject, out _),
+                    "native confirmation closes the area-selection laser gate");
+                shop._isConfirmationBoxOpened = false;
+                TownServicePresentation.Ritual = null;
+                UnityEngine.Object.DestroyImmediate(palmCanvas.gameObject);
+                UnityEngine.Object.DestroyImmediate(wrongCanvas.gameObject);
+                Check(!nativePrint.enabled && nativeArea.enabled
+                    && TownServiceVoice.Inspections == priorOfferLines + 1,
+                    "same-frame handoff hides only duplicate art and reacts to the accepted offer");
+                Check(TownServiceEnhancementHandoff.IsParked(card), "parked card excluded from fan adoption");
+                Check(handoff.Face == face.transform && handoff.CloneOf(originalTop) == face.transform.Find("Top"), "actual printed face retains native provenance");
+                Check(handoff.CloneOf(secondOriginalTop) == secondFaceTop, "same-named printed nodes retain distinct native provenance");
+                Check(card.FullCollider && card.Grabbable && TownServiceEnhancementHandoff.CanReclaim(card), "offering remains reclaimable");
+                Check(!TownServiceEnhancementHandoff.TryOffer(card), "duplicate release cannot select twice");
+                palm.localPosition += new Vector3(.1f, .04f, -.02f); handoff.Tick();
+                Check(Mathf.Abs((card.transform.position.y - palm.position.y) / scale - (scenario == 20 ? .405f : .17f)) < .007f
+                    && (new Vector2(card.transform.position.x - palm.position.x, card.transform.position.z - palm.position.z)).magnitude < .001f * scale,
+                    "physical offering floats upright above actual palm at every scale");
+                Check(Vector3.Dot(card.transform.up, Vector3.up) > .999f, "offered ability card is upright over the palm");
+                if (scenario == 20)
+                    Check(Mathf.Abs(card.transform.lossyScale.x / scale - 3f) < .001f,"offered mage card preserves tracked reading size across independent resident scale");
+                if (scenario == 10)
+                {
+                    var hand = new VRHand();
+                    input=false; shop._isConfirmationBoxOpened=true;
+                    var confirm=new GameObject("NativeRuneConfirmation",typeof(UIWindow),typeof(UIEnhancementConfirmationBox));
+                    confirm.transform.SetParent(root.transform,false);
+                    Singleton<UIEnhancementConfirmationBox>.Instance=confirm.GetComponent<UIEnhancementConfirmationBox>();
+                    GloomhavenVR.Core.Events.VRModeStateMachine.CurrentMode=GloomhavenVR.Core.Events.VRMode.ModalUI;
+                    TownServicePalmConfirmation.Owned=false;
+                    Check(!hand.Grabber.ForceGrab(card,true),"unowned rune prompt retains ordinary modal grab block");
+                    TownServicePalmConfirmation.Owned=true;
+                    Check(hand.Grabber.ForceGrab(card,true),"actual routed grab reclaims mage card through owned native confirmation");
+                    TownServicePalmConfirmation.Owned=false;
+                    GloomhavenVR.Core.Events.VRModeStateMachine.CurrentMode=GloomhavenVR.Core.Events.VRMode.TableIdle;
+                    Check(handoff.Card == null && shop.selectedCard == null, "manual reclaim clears native options");
+                    Check(CardsDriver.Returned == 0, "manual reclaim preserves held card");
+                    card.transform.SetParent(fan, true); card.IsHeld = false;
+                    Check(TownServiceEnhancementHandoff.ReturnReclaimed(card) && CardsDriver.Returned == 1, "reclaimed release returns to hand rather than palm");
+                    Check(!TownServiceEnhancementHandoff.ReturnReclaimed(card), "reclaimed release is one shot");
+                }
+                else if (scenario == 11)
+                {
+                    input = false; handoff.Tick();
+                    Check(handoff.Card == card, "opening input fade retains offering");
+                }
+                else if (scenario >= 18)
+                {
+                    handoff.Dispose();
+                    var returning = TownServiceEnhancementHandoff.Returning;
+                    Check(returning.Count == 1 && returning[0].Card == card
+                        && returning[0].CardId == 123 && returning[0].Face == face.transform,
+                        "return presentation survives ritual disposal with actual face and fixed identity");
+                    UnityEngine.Object.DestroyImmediate(slot.AbilityCard.gameObject);
+                    Check(returning[0].Face == face.transform && returning[0].CardId == 123,
+                        "native pool recycling cannot change return face provenance");
+                    Check(TownServiceEnhancementHandoff.IsParked(card), "return flight stays excluded from static fan");
+                    if (scenario == 18)
+                    {
+                        CardsDriver.Complete();
+                        Check(TownServiceEnhancementHandoff.Returning.Count == 0 && !TownServiceEnhancementHandoff.IsParked(card),
+                            "only actual flight completion retires return presentation");
+                    }
+                    else
+                    {
+                        MapRoomDriver.Active = false;
+                        Check(TownServiceEnhancementHandoff.Returning.Count == 0, "map teardown clears return presentation");
+                        MapRoomDriver.Active = true;
+                    }
+                }
+                else if (scenario >= 12)
+                {
+                    if (scenario == 12)
+                    {
+                        var camera = new GameObject("Head", typeof(Camera)).GetComponent<Camera>(); camera.transform.SetParent(root.transform, false);
+                        camera.transform.position = palm.TransformPoint(new Vector3(0f, 0f, 3f)); VRRigDriver.HeadCamera = camera;
+                    }
+                    if (scenario == 13) card.CurrentCharacter = false;
+                    if (scenario == 14) card.InLoadout = false;
+                    if (scenario == 15) alive = false;
+                    if (scenario == 16) shop.selectedCard = null;
+                    if (scenario == 17) slot.AbilityCard.AbilityCard = new ScenarioRuleLibrary.CAbilityCard();
+                    handoff.Tick();
+                    Check(handoff.Card == null && CardsDriver.Returned == 1 && CardsDriver.LastReturned == card,
+                        scenario == 12 ? "walking away returns original card" : "stale owner or native selection returns original card");
+                }
+            }
+            else
+            {
+                Check(handoff.Card == null && !TownServiceEnhancementHandoff.IsParked(card), "rejection never steals card ownership");
+                if (scenario < 5 || scenario == 8 || scenario == 9) Check(selected == 0, reason);
+            }
+        }
+        if (scenario == 0)
+        {
+            slot.AbilityCard.gameObject.SetActive(false);
+            Check(nativePrint.enabled && nativeArea.enabled,
+                "native pooled card restores its artwork when the game disables it");
+        }
+        Check(card != null, "disposing station never destroys actual map card");
+        UnityEngine.Object.DestroyImmediate(root);
+        TownServicePopulation.Station = null; VRRigDriver.HeadCamera = null;
+    }
+
+    private static void WalkAway()
+    {
+        var root=new GameObject("Empty visit",typeof(UIWindow),typeof(UINewEnhancementWindow));
+        var palm=new GameObject("ActivityOfferingPalm").transform;palm.SetParent(root.transform,false);
+        TownServicePopulation.Station=new TownServiceStation{Root=root.transform};
+        var head=new GameObject("Head",typeof(Camera)).GetComponent<Camera>();
+        VRRigDriver.HeadCamera=head; MapRoomDriver.Active=true;
+        WorldUIConfig.ImmersiveTownServices.Value=true; CardsDriver.OffScenarioFanCards=null;
+        using(var handoff=new TownServiceEnhancementHandoff(root.GetComponent<UINewEnhancementWindow>(),root.transform,()=>true,()=>true))
+        {
+            handoff.Tick();head.transform.position=Vector3.forward*3f;
+            int closed=ModalFallback.Closed;
+            TownServiceEnhancementHandoff.TickApproach();
+            Check(ModalFallback.Closed==closed+1 && !root.GetComponent<UIWindow>().IsOpen,
+                "walking away closes empty native service through its existing exit path");
+            TownServiceEnhancementHandoff.TickApproach();
+            Check(ModalFallback.Closed==closed+1,"closed service is not repeatedly exited");
+        }
+        UnityEngine.Object.DestroyImmediate(root);UnityEngine.Object.DestroyImmediate(head.gameObject);
+        TownServicePopulation.Station=null;VRRigDriver.HeadCamera=null;
+    }
+
+    private static void Approach()
+    {
+        var root = new GameObject("Approach");
+        var palm = new GameObject("ActivityOfferingPalm").transform; palm.SetParent(root.transform, false);
+        TownServicePopulation.Station = new TownServiceStation { Root = root.transform, AttendsLocal = false };
+        var firstSlot = new NewPartyCharacterUI();
+        var selectedSlot = new NewPartyCharacterUI();
+        NewPartyDisplayUI.PartyDisplay = new NewPartyDisplayUI
+        { FirstSlot = firstSlot, SelectedUISlot = selectedSlot };
+        MapRoomDriver.SwitchForcesFirst = true;
+        var card = new GameObject("OwnedCard", typeof(VRCard)).GetComponent<VRCard>(); card.transform.SetParent(root.transform, false);
+        var previousOwner = MapRoomHand.LocalCharacter;
+        MapRoomHand.LocalCharacter = card.Owner;
+        Check(!MapRoomHand.HasOwnedTownAbilityCards(), "empty native owned loadout cannot open another service");
+        card.Owner.AbilityLoadout.Add(card.Model);
+        MapRoomHand.InspectionBlocked = true;
+        int releasesBeforeCensus = MapRoomHand.InspectionReleases;
+        var fanBeforeCensus = CardsDriver.OffScenarioFanCards;
+        Check(MapRoomHand.HasOwnedTownAbilityCards() && MapRoomHand.InspectionBlocked
+            && MapRoomHand.InspectionReleases == releasesBeforeCensus
+            && ReferenceEquals(CardsDriver.OffScenarioFanCards, fanBeforeCensus)
+            && ReferenceEquals(NewPartyDisplayUI.PartyDisplay.SelectedUISlot, selectedSlot),
+            "native availability census preserves selected character and hidden inspection fan");
+        MapRoomHand.LocalCharacter = null;
+        Check(!MapRoomHand.HasOwnedTownAbilityCards(), "unassigned visitor has no owned native ability loadout");
+        MapRoomHand.LocalCharacter = card.Owner;
+        MapRoomDriver.Active = false;
+        Check(!MapRoomHand.HasOwnedTownAbilityCards(), "inactive map has no owned town ability availability");
+        MapRoomDriver.Active = true;
+        MapRoomHand.InspectionBlocked = false;
+        var hand = new VRHand(); hand.Grabber.Held = card; VRHands.Left = hand;
+        var fanPalm = new GameObject("FanPalm").transform; hand.Rig.PalmCenter = fanPalm;
+        CardsDriver.OffScenarioFanCards = new[] { card };
+        var head = new GameObject("Head", typeof(Camera)).GetComponent<Camera>(); head.transform.SetParent(root.transform, false);
+        VRRigDriver.HeadCamera = head;
+        void Outside()
+        {
+            head.transform.position = palm.position + Vector3.forward * 3f;
+            card.transform.position = palm.position + Vector3.forward * 3f;
+            fanPalm.position = palm.position + Vector3.forward * 3f;
+            TownServiceEnhancementHandoff.TickApproach();
+        }
+        void Offer() { card.transform.position = palm.position; TownServiceEnhancementHandoff.TickApproach(); }
+        Outside();
+        TownServiceQuietController.Requests = 0; GuildmasterDestinations.Mode = EGuildmasterMode.None;
+        card.Owned = false; Offer();
+        Check(TownServiceQuietController.Requests == 0, "foreign held card never opens native service");
+        card.Owned = true; StoryComposite.PointOfNoReturn = true; Outside(); Offer();
+        Check(TownServiceQuietController.Requests == 0, "story commitment prevents automatic visit");
+        StoryComposite.PointOfNoReturn = false; MapRoomDriver.CanVisit = false; Outside(); Offer();
+        Check(TownServiceQuietController.Requests == 0, "native unavailable service never opens");
+        MapRoomDriver.CanVisit = true; Outside();
+        TownServiceEnhancementHandoff.TickApproach(); Check(TownServiceQuietController.Requests == 0, "distant card never opens service");
+        GloomhavenVR.Net.TownServices.TownServiceGrantSync.CanUseImmersive = false;
+        Offer();
+        Check(TownServiceQuietController.Requests == 0,
+            "an incompatible multiplayer host leaves the original native service path available");
+        GloomhavenVR.Net.TownServices.TownServiceGrantSync.CanUseImmersive = true;
+        Outside();
+        Offer();
+        Check(TownServiceQuietController.Requests == 1, "owned card approach requests original callbacks without opening a flat window");
+        Check(ReferenceEquals(NewPartyDisplayUI.PartyDisplay.SelectedUISlot, selectedSlot)
+            && selectedSlot.Clicks == 0,
+            "quiet entry preserves the exact selected slot without selecting it again");
+        Check(MapRoomDriver.Visits == 0 && GuildmasterDestinations.CurrentDestinationMode() == EGuildmasterMode.None, "quiet enchantress entry never presses or changes the flat native destination");
+        TownServiceEnhancementHandoff.TickApproach(); Check(TownServiceQuietController.Requests == 1, "repeated approach cannot toggle native service");
+        GuildmasterDestinations.Mode = EGuildmasterMode.None;
+        System.Threading.Thread.Sleep(125);
+        TownServiceEnhancementHandoff.TickApproach(); Check(TownServiceQuietController.Requests == 1, "explicit close remains closed while card stays near");
+        VRHands.Left = null; Outside(); head.transform.position = palm.position;
+        TownServiceEnhancementHandoff.TickApproach(); Check(TownServiceQuietController.Requests == 2, "head proximity opens original service without a held card");
+        GuildmasterDestinations.Mode = EGuildmasterMode.None;
+        TownServiceEnhancementHandoff.TickApproach(); Check(TownServiceQuietController.Requests == 2, "explicit close remains closed while head stays near");
+        head.transform.position = palm.position + Vector3.forward * 1.6f; TownServiceEnhancementHandoff.TickApproach();
+        head.transform.position = palm.position; TownServiceEnhancementHandoff.TickApproach();
+        Check(TownServiceQuietController.Requests == 2, "head hysteresis avoids boundary reopen");
+        Outside(); head.transform.position = palm.position; TownServiceEnhancementHandoff.TickApproach();
+        Check(TownServiceQuietController.Requests == 3, "leaving and returning re-arms proximity greeting");
+        var merchantRoot = new GameObject("Merchant competitor");
+        merchantRoot.transform.position = root.transform.position - Vector3.right * 2.65f;
+        TownServicePopulation.MerchantStation = new TownServiceStation { Root = merchantRoot.transform };
+        TownServicePopulation.Station!.AttendsLocal = false;
+        GuildmasterDestinations.Mode = EGuildmasterMode.Merchant;
+        VRHands.Left = hand;
+        Outside(); head.transform.position = palm.position - Vector3.right * 2.35f; TownServiceEnhancementHandoff.TickApproach();
+        Check(TownServiceQuietController.Requests == 3 && TownServiceQuietController.InteractionMode == EGuildmasterMode.Merchant,
+            "head-only overlap keeps the nearer idle merchant destination and its item hand intact");
+        MapRoomHand.InspectionBlocked = true;
+        fanPalm.position = palm.position;
+        Check(TownServiceEnhancementHandoff.WantsAbilityFan,
+            "fan hand toward the enchantress requests ability cards while both residents remain near");
+        TownServiceMerchantHandoff.WantsOffering = true;
+        System.Threading.Thread.Sleep(125);
+        TownServiceEnhancementHandoff.TickApproach();
+        Check(TownServiceQuietController.Requests == 3 && MapRoomHand.InspectionReleases == 0,
+            "parked merchant item is not interrupted by a competing mage hand focus");
+        TownServiceMerchantHandoff.WantsOffering = false;
+        System.Threading.Thread.Sleep(125);
+        TownServiceEnhancementHandoff.TickApproach();
+        Check(TownServiceQuietController.Requests == 4 && TownServiceQuietController.InteractionMode == EGuildmasterMode.Enchantress,
+            "intentional fan-hand focus switches the local native destination from merchant to enchantress");
+        Check(MapRoomHand.InspectionReleases == 1,
+            "merchant item fan is released after the native enchantress visit succeeds");
+        GuildmasterDestinations.Mode = EGuildmasterMode.None;
+        System.Threading.Thread.Sleep(125); TownServiceEnhancementHandoff.TickApproach();
+        Check(TownServiceQuietController.Requests == 4,
+            "closing a visit switched from merchant does not reopen it while still near");
+        GuildmasterDestinations.Mode = EGuildmasterMode.None;
+        TownServiceEnhancementHandoff.TickApproach();
+        Check(TownServiceQuietController.Requests == 4, "explicitly closing the deferred enchantress visit stays closed while still near");
+        Outside(); MapRoomDriver.CanVisit = false;
+        head.transform.position = palm.position; TownServiceEnhancementHandoff.TickApproach();
+        Check(TownServiceQuietController.Requests == 4, "native rail briefly unavailable cannot consume the visitor's approach");
+        MapRoomDriver.CanVisit = true; TownServiceEnhancementHandoff.TickApproach();
+        Check(TownServiceQuietController.Requests == 4, "pending native rail retries are rate-limited between frames");
+        System.Threading.Thread.Sleep(125); TownServiceEnhancementHandoff.TickApproach();
+        Check(TownServiceQuietController.Requests == 5, "pending approach opens when original native rail becomes ready");
+        GuildmasterDestinations.Mode = EGuildmasterMode.None; TownServiceEnhancementHandoff.TickApproach();
+        Check(TownServiceQuietController.Requests == 5, "explicit close clears a previously deferred approach");
+        Outside(); GloomhavenVR.Core.Events.VRModeStateMachine.CurrentMode = GloomhavenVR.Core.Events.VRMode.ModalUI;
+        head.transform.position = palm.position; TownServiceEnhancementHandoff.TickApproach();
+        Check(TownServiceQuietController.Requests == 5, "modal confirmation prevents proximity opening");
+        GloomhavenVR.Core.Events.VRModeStateMachine.CurrentMode = GloomhavenVR.Core.Events.VRMode.TableIdle;
+        System.Threading.Thread.Sleep(125); TownServiceEnhancementHandoff.TickApproach(); Check(TownServiceQuietController.Requests == 6,
+            "transient modal or unloaded cards defer the original visit instead of consuming its proximity edge");
+        GuildmasterDestinations.Mode = EGuildmasterMode.None; TownServiceEnhancementHandoff.TickApproach();
+        Check(TownServiceQuietController.Requests == 6, "explicit close of a deferred modal approach remains closed");
+        VRHands.Left = hand; card.transform.position = palm.position; TownServiceEnhancementHandoff.TickApproach();
+        Check(TownServiceQuietController.Requests == 7, "deliberately offering a card overrides an earlier proximity close");
+        GuildmasterDestinations.Mode = EGuildmasterMode.None; Outside(); VRHands.Left = null;
+        CardsDriver.OffScenarioFanCards = null; head.transform.position = palm.position;
+        TownServiceEnhancementHandoff.TickApproach();
+        Check(TownServiceQuietController.Requests == 7, "head arrival before owned map cards finish building stays pending");
+        CardsDriver.OffScenarioFanCards = new[] { card };
+        System.Threading.Thread.Sleep(125); TownServiceEnhancementHandoff.TickApproach();
+        Check(TownServiceQuietController.Requests == 8, "pending visit opens after the map cards load without stepping away");
+        GuildmasterDestinations.Mode = EGuildmasterMode.None; Outside();
+        head.transform.position = palm.position + Vector3.up * 1.5f;
+        TownServiceEnhancementHandoff.TickApproach();
+        Check(TownServiceQuietController.Requests == 9, "visitor attention uses the floor-plane reach even when HMD is above the palm");
+        GuildmasterDestinations.Mode = EGuildmasterMode.None; WorldUIConfig.MapRoomHand!.Value = false;
+        Outside(); head.transform.position = palm.position; Offer();
+        Check(!TownServiceEnhancementHandoff.Enabled && TownServiceQuietController.Requests == 9, "disabled map hand prevents automatic immersive opening");
+        WorldUIConfig.MapRoomHand.Value = true;
+        var templeRoot = new GameObject("Temple competitor");
+        templeRoot.transform.position = root.transform.position + Vector3.right * 2.65f;
+        TownServicePopulation.TempleStation = new TownServiceStation { Root = templeRoot.transform };
+        Outside(); GuildmasterDestinations.Mode = EGuildmasterMode.Temple;
+        VRHands.Left = hand;
+        fanPalm.position = palm.position + Vector3.right * 2.35f;
+        head.transform.position = palm.position + Vector3.right * 2.35f; TownServiceEnhancementHandoff.TickApproach();
+        Check(TownServiceQuietController.Requests == 9 && TownServiceQuietController.InteractionMode == EGuildmasterMode.Temple,
+            "head-only overlap keeps the nearer idle temple destination available: visits="
+            + TownServiceQuietController.Requests + " mode=" + GuildmasterDestinations.Mode);
+        MapRoomHand.InspectionBlocked = true;
+        System.Threading.Thread.Sleep(125);
+        fanPalm.position = palm.position; TownServiceEnhancementHandoff.TickApproach();
+        Check(TownServiceQuietController.Requests == 10 && TownServiceQuietController.InteractionMode == EGuildmasterMode.Enchantress,
+            "deliberate fan-hand focus switches from a completed temple visit");
+        Check(MapRoomHand.TempleInspectionReleases == 1 && !MapRoomHand.InspectionBlocked,
+            "temple purse hand is released after the native enchantress visit succeeds");
+        Outside(); GuildmasterDestinations.Mode = EGuildmasterMode.Merchant;
+        var confirmation = new GameObject("Trade confirmation", typeof(UIWindow), typeof(UIItemConfirmationBox))
+            .GetComponent<UIItemConfirmationBox>();
+        Singleton<UIItemConfirmationBox>.Instance = confirmation;
+        confirmation.IsActive = true;
+        fanPalm.position = palm.position;
+        head.transform.position = palm.position; TownServiceEnhancementHandoff.TickApproach();
+        Check(TownServiceQuietController.Requests == 10 && TownServiceQuietController.InteractionMode == EGuildmasterMode.Merchant,
+            "a live merchant purchase confirmation is never interrupted by resident approach");
+        confirmation.GetComponent<UIWindow>().IsOpen = false;
+        fanPalm.position = palm.position;
+        System.Threading.Thread.Sleep(125); TownServiceEnhancementHandoff.TickApproach();
+        Check(TownServiceQuietController.Requests == 11 && TownServiceQuietController.InteractionMode == EGuildmasterMode.Enchantress,
+            "closed merchant confirmation cannot strand a physical visit behind stale IsActive");
+        Singleton<UIItemConfirmationBox>.Instance = null;
+        UnityEngine.Object.DestroyImmediate(confirmation.gameObject);
+        Outside(); GuildmasterDestinations.Mode = EGuildmasterMode.Trainer;
+        head.transform.position = palm.position; TownServiceEnhancementHandoff.TickApproach();
+        Check(TownServiceQuietController.Requests == 11 && TownServiceQuietController.InteractionMode == EGuildmasterMode.Trainer,
+            "physical enchantress approach cannot interrupt a non-service destination");
+        TownServicePopulation.MageStation = new TownServiceStation { Root = root.transform };
+        Outside(); GuildmasterDestinations.Mode = EGuildmasterMode.Temple;
+        fanPalm.position = root.transform.position + Vector3.right * 1.35f;
+        head.transform.position = root.transform.position + Vector3.right * 1.35f;
+        TownServiceEnhancementHandoff.TickApproach();
+        Check(TownServiceQuietController.Requests == 11 && TownServiceQuietController.InteractionMode == EGuildmasterMode.Temple,
+            "overlapping approach cannot switch away from the physically nearer temple");
+        head.transform.position = root.transform.position + Vector3.right * .9f;
+        fanPalm.position = root.transform.position + Vector3.right * .9f;
+        System.Threading.Thread.Sleep(125); TownServiceEnhancementHandoff.TickApproach();
+        Check(TownServiceQuietController.Requests == 12 && TownServiceQuietController.InteractionMode == EGuildmasterMode.Enchantress,
+            "moving closer to the enchantress switches without crossing her approach boundary again");
+        GuildmasterDestinations.Mode = EGuildmasterMode.Temple;
+        System.Threading.Thread.Sleep(125);
+        TownServiceEnhancementHandoff.TickApproach();
+        Check(TownServiceQuietController.Requests == 12 && TownServiceQuietController.InteractionMode == EGuildmasterMode.Temple,
+            "a deliberate temple destination press is not undone while the visitor stands still");
+        Vector3 midpoint = root.transform.position + Vector3.right * 1.3f;
+        Check(TownServiceEnhancementHandoff.PrefersEnchantress(midpoint, EGuildmasterMode.Enchantress)
+            && !TownServiceEnhancementHandoff.PrefersEnchantress(midpoint, EGuildmasterMode.Temple),
+            "overlapping resident approach keeps the current destination inside the stable tie band");
+        Check(TownServiceEnhancementHandoff.PrefersEnchantress(midpoint, EGuildmasterMode.Merchant)
+            && TownServiceEnhancementHandoff.PrefersEnchantress(midpoint, EGuildmasterMode.None),
+            "an unrelated destination cannot bias a nearer enchantress toward the temple");
+        Check(TownServiceEnhancementHandoff.PrefersEnchantress(midpoint - Vector3.right * .2f, EGuildmasterMode.Temple)
+            && !TownServiceEnhancementHandoff.PrefersEnchantress(midpoint + Vector3.right * .2f, EGuildmasterMode.Enchantress),
+            "moving decisively toward either stand assigns the native destination to the nearer resident");
+        GuildmasterDestinations.Mode = EGuildmasterMode.None;
+        VRHands.Left = null;
+        Outside();
+        head.transform.position = root.transform.position + Vector3.forward * 2.30f;
+        TownServiceEnhancementHandoff.TickApproach();
+        Check(TownServiceQuietController.Requests == 13,
+            "gaze-edge visitor opens the native enchantress before stepping into the old 1.4 m palm zone");
+        GuildmasterDestinations.Mode = EGuildmasterMode.Merchant;
+        Outside();
+        head.transform.position = root.transform.position + Vector3.forward * 2.30f;
+        TownServiceEnhancementHandoff.TickApproach();
+        Check(TownServiceQuietController.Requests == 14 && TownServiceQuietController.InteractionMode == EGuildmasterMode.Enchantress,
+            "nearest enchantress opens for an idle visitor even while the prior native destination is merchant");
+        // Build 587 peer evidence: the enchantress's attention hand can extend in
+        // the merchant overlap, but the native Merchant destination previously
+        // blocked her card cue unless the visitor walked past the distance midpoint.
+        // The face attention test must elect that offered hand without requiring
+        // the headset to point at her; a parked merchant deal still wins.
+        TownServicePopulation.TempleStation = null;
+        TownServicePopulation.MageStation!.AttendsLocal = true;
+        Outside(); GuildmasterDestinations.Mode = EGuildmasterMode.Merchant;
+        head.transform.position = root.transform.position - Vector3.right * 1.4f;
+        head.transform.rotation = Quaternion.LookRotation(Vector3.back);
+        TownServiceMerchantHandoff.WantsOffering = true;
+        TownServiceEnhancementHandoff.TickApproach();
+        Check(TownServiceQuietController.Requests == 14 && TownServiceQuietController.InteractionMode == EGuildmasterMode.Merchant,
+            "looking at the offering enchantress cannot interrupt a parked merchant transaction");
+        TownServiceMerchantHandoff.WantsOffering = false;
+        System.Threading.Thread.Sleep(125); TownServiceEnhancementHandoff.TickApproach();
+        Check(TownServiceQuietController.Requests == 15 && TownServiceQuietController.InteractionMode == EGuildmasterMode.Enchantress,
+            "local face attention opens the offering enchantress's card cue despite a nearer idle merchant and averted gaze");
+        TownServicePopulation.TempleStation = new TownServiceStation { Root = templeRoot.transform };
+        Outside(); GuildmasterDestinations.Mode = EGuildmasterMode.Temple;
+        head.transform.position = root.transform.position + Vector3.right * 1.35f;
+        TownServiceEnhancementHandoff.TickApproach();
+        Check(TownServiceQuietController.Requests == 15 && TownServiceQuietController.InteractionMode == EGuildmasterMode.Temple,
+            "mage face attention cannot immediately undo a nearer priestess's native visit in their overlap");
+        UnityEngine.Object.DestroyImmediate(templeRoot);
+        UnityEngine.Object.DestroyImmediate(merchantRoot);
+        UnityEngine.Object.DestroyImmediate(fanPalm.gameObject);
+        TownServicePopulation.MageStation = TownServicePopulation.TempleStation = null;
+        TownServicePopulation.MerchantStation = null;
+        UnityEngine.Object.DestroyImmediate(root); VRHands.Left = null; VRRigDriver.HeadCamera = null; TownServicePopulation.Station = null;
+        NewPartyDisplayUI.PartyDisplay = null; MapRoomDriver.SwitchForcesFirst = false;
+        MapRoomHand.LocalCharacter = previousOwner;
+    }
+}

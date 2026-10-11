@@ -10,9 +10,11 @@ namespace GloomhavenVR.Net;
 /// </summary>
 internal sealed class ExtrasFragments
 {
-    // Story/reward opening histories raise the worst extras payload to7379 bytes.
-    // Grammar/chunk size remain unchanged; ten bounded datagrams cover this payload.
-    internal const int MaxSnapshotBytes = 7680;
+    // Complete cloth controls, held item101 and float tuning249 raise the legal maximum
+    // to 7700 bytes. 8000 retains the writer's 257-byte margin within ten existing
+    // four-chunk datagrams. Rounding to8192 adds an eleventh saturated presence
+    // turn and exceeds its unchanged five-second assembly deadline at full load.
+    internal const int MaxSnapshotBytes = 8000;
     internal const int MaxDatagramBytes = 864;
     internal const int ChunkBytes = 200;
     private const int MetadataBytes = 12; // sequence:u64, snapshot length:u16, offset:u16
@@ -24,6 +26,7 @@ internal sealed class ExtrasFragments
     // seconds. Memory stays bounded by MaxPeers and snapshotLimit; gameplay timeouts do not change.
     internal const double PresentationAssemblyLifetime = 32;
     private readonly double _assemblyLifetime;
+    private readonly int _lifetimeSizeBase;
     private readonly Dictionary<int, Pending> _peers = new();
     private readonly byte _payloadType;
     private readonly byte _envelopeType;
@@ -31,14 +34,17 @@ internal sealed class ExtrasFragments
 
     internal ExtrasFragments(byte payloadType = NetProtocol.MsgExtras,
         byte envelopeType = NetProtocol.MsgExtrasFragments, int snapshotLimit = MaxSnapshotBytes,
-        double assemblyLifetime = 5)
+        double assemblyLifetime = 5, int lifetimeSizeBase = 0)
     {
         _payloadType = payloadType;
         _envelopeType = envelopeType;
         if (double.IsNaN(assemblyLifetime) || double.IsInfinity(assemblyLifetime) || assemblyLifetime <= 0)
             throw new ArgumentOutOfRangeException(nameof(assemblyLifetime));
+        if (lifetimeSizeBase < 0 || lifetimeSizeBase > snapshotLimit)
+            throw new ArgumentOutOfRangeException(nameof(lifetimeSizeBase));
         _snapshotLimit = snapshotLimit;
         _assemblyLifetime = assemblyLifetime;
+        _lifetimeSizeBase = lifetimeSizeBase;
     }
 
     private sealed class Pending
@@ -62,7 +68,7 @@ internal sealed class ExtrasFragments
         if (snapshot == null || length < 6 || length > snapshot.Length
             || length > snapshotLimit || NetPacket.PeekType(snapshot, length) != payloadType)
             throw new ArgumentException("Invalid presentation snapshot.", nameof(snapshot));
-        if (compress && PresentationCompression.TryCompress(snapshot, length) is byte[] packed)
+        if (compress && PresentationCompression.TryCompress(snapshot, length, payloadType == TownServices.TownServiceCodec.MessageType) is byte[] packed)
             return EncodeCompressed(snapshot, length, sequence, payloadType, packed);
         int chunkCount = (length + ChunkBytes - 1) / ChunkBytes;
         var packets = new byte[(chunkCount + 3) / 4][];
@@ -174,7 +180,7 @@ internal sealed class ExtrasFragments
             if (sequence == state.Sequence && state.Bytes == null) return null;
             if (sequence == state.Sequence && (state.Bytes!.Length != total
                 || state.Compressed != compressed || state.OriginalLength != originalLength
-                || now - state.Started > _assemblyLifetime))
+                || now - state.Started > AssemblyLifetime(state.Bytes.Length)))
             {
                 state.Bytes = null; state.Received = null;
                 return null;
@@ -220,6 +226,13 @@ internal sealed class ExtrasFragments
             : NetPacket.PeekType(complete, complete.Length) == _payloadType ? complete : null;
     }
 
+    // Build 610's board may carry original rules beyond its legacy 40 KiB cap. Synthetic sustained
+    // maximum traffic takes 43 s (50 s with town traffic), so 32 s discarded valid queued boards.
+    // Only that assembler opts in; smaller/compressed boards keep 32 s. Scale from
+    // validated ENCODED bytes, never raw size or subsequent activity. Memory/peers remain bounded.
+    private double AssemblyLifetime(int encodedLength) => _lifetimeSizeBase > 0 && encodedLength > _lifetimeSizeBase
+        ? _assemblyLifetime * (encodedLength / (double)_lifetimeSizeBase) : _assemblyLifetime;
+
     /// <summary>Validate every compressed page's routing metadata before selecting an assembler.</summary>
     internal static int CompressedPayloadType(byte[] packet, int length)
     {
@@ -247,6 +260,7 @@ internal sealed class ExtrasFragments
     }
 
     private static bool PayloadAllowed(int type) => type == NetProtocol.MsgExtras
+        || type == TownServices.TownServiceCodec.MessageType
         || type == NetProtocol.MsgUseBarAnimation || type == NetProtocol.MsgCardPlume
         || type == NetProtocol.MsgNativeUseBar || type == NetProtocol.MsgNativeBoard
         || type == NetProtocol.MsgCardAppearance || type == NetProtocol.MsgNativeDecisionPrompt || type == NetProtocol.MsgItemAppearance

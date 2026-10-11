@@ -14,8 +14,11 @@ internal sealed class RemoteElementRenderedHierarchy
     private readonly bool _required;
 
     internal RemoteElementRenderedHierarchy(NativeElementBindings bindings, RemoteWidgetMirror mirror)
+        : this(bindings.Render, mirror, bindings.RequiresRenderedHierarchy) { }
+
+    internal RemoteElementRenderedHierarchy(NativeElementRenderBinding source, RemoteWidgetMirror mirror, bool required = true)
     {
-        _source = bindings.Render; _required = bindings.RequiresRenderedHierarchy;
+        _source = source; _required = required;
         _targets = new NativeElementRenderBinding.Node[_source.Nodes.Length];
         for (int i = 0; i < _targets.Length; i++)
         {

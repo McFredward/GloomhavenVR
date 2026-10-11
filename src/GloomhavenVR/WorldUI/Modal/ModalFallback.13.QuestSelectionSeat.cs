@@ -83,7 +83,7 @@ internal static partial class ModalFallback
 
     /// <summary>Is this window the quest info popup — the game's own ID, never a name.</summary>
     private static bool IsQuestPopupWindow(UIWindow? window) =>
-        window != null && window.ID == UIWindowID.QuestPopup;
+        window != null && window.GetComponent<UIQuestPopup>() != null;
 
     /// <summary>The <c>UIWindow</c> a converted panel stands for, read the way
     /// <c>TryCornerWindowSide</c> reads it (the target's own component first, the registry second

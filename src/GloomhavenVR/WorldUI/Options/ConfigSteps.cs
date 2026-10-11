@@ -118,6 +118,11 @@ internal static class ConfigSteps
     /// </summary>
     private static readonly Dictionary<string, double> Explicit = new(StringComparer.Ordinal)
     {
+        // Millisecond work budgets are not the Seconds suffix's wall-clock intervals.
+        // 0.1ms lands on the 0.5ms default; 16 work items keeps the 8..512 integral
+        // range reachable without hundreds of button presses.
+        ["Perf/SceneProfileBudgetMilliseconds"] = 0.1d,
+        ["Perf/SceneProfileObjectsPerFrame"] = 16d,
         // ---- The retired "Komfort ▸ Tisch & Welt" block -------------------------------------
         // Rig/WorldScale is GONE (2026-08: the "Tischgröße" setting was removed, legacy no-op)
         // and so is Comfort/TableHeightOffset (2026-08: "Tischhöhe" removed — free locomotion
@@ -183,6 +188,14 @@ internal static class ConfigSteps
         // ---- Grafik ▸ Darstellung (2026-08 overhaul promotions) ---------------------------
         ["RenderQuality/EyeResolutionScale"] = 0.05d, // 5 % per press — ~10 % pixel-work change
         ["RenderQuality/PixelLightCount"] = 1d,       // a light at a time (int; -1 = game's own)
+        ["Optimize/ScenarioSceneryDensityPercent"] = 5d, // full detail to sparse cover in 20 presses
+        ["Optimize/ScenarioDecorationDensityPercent"] = 5d,
+        ["Optimize/ScenarioVegetationDensityPercent"] = 5d,
+        ["Optimize/ScenarioPlayerFigureDetailPercent"] = 5d,
+        ["Optimize/ScenarioEnemyFigureDetailPercent"] = 5d,
+        ["Optimize/ScenarioFigureEffectsDensityPercent"] = 5d,
+        ["Optimize/ScenarioEnvironmentEffectsDensityPercent"] = 5d,
+        ["Optimize/WallAutoHideBelowFpsCount"] = 1d, // tune the loaded-gameplay threshold one FPS at a time
 
         // ---- Brett & Karten ---------------------------------------------------------------
         ["Cards/TrayScale"] = 0.05d,             // 5 % of the board size

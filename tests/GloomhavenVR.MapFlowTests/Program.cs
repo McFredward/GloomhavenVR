@@ -15,10 +15,75 @@ internal static class Program
     private static void Main()
     {
         LoadoutTransition();
+        MapSelectionTransitions();
         NativePartyContainerTransitions();
         NativeMapLocks();
         FailedTravelParking();
         Console.WriteLine($"Map flow production regression harness: {_assertions:N0} assertions passed.");
+    }
+
+    private static void MapSelectionTransitions()
+    {
+        MapRoomDriver.Active = true;
+        WorldUIConfig.ConversionActive = true;
+        MapFTUEManager.IsPlaying = false;
+        var character = new object();
+        var slot = new NewPartyCharacterUI { Data = character };
+        var panel = new NewPartyDisplayUI { SelectedUISlot = slot };
+        NewPartyDisplayUI.PartyDisplay = panel;
+        MapCharacterSelection.Selected = character;
+
+        bool entered = false;
+        MapSelectionTransition.Begin(ref entered);
+        Check(entered, "An owned visible character arms the synchronous native map-options scope");
+        Check(!MapSelectionTransition.BeforePortraitClick(slot),
+            "Native CloseWindows/Escape must not click the already selected portrait off");
+        Check(!MapSelectionTransition.BeforeSelectionChange(panel, false, slot),
+            "Native tab DeselectCurrent must not clear the selected character on map return");
+        Check(MapSelectionTransition.BeforeSelectionChange(panel, true, slot),
+            "A real positive character selection is never suppressed");
+        Check(ReferenceEquals(panel.SelectedUISlot, slot),
+            "The entire map-options transition leaves the original selected slot in place");
+        Check(MapSelectionTransition.End(null, entered) == null, "Native completion passes through");
+        Check(MapSelectionTransition.BeforePortraitClick(slot),
+            "A normal user portrait click after the transition can still change selection");
+        Check(MapSelectionTransition.BeforeSelectionChange(panel, false, slot),
+            "A normal user deselection after the transition remains native");
+
+        MapSelectionTransition.Begin(ref entered);
+        var other = new NewPartyCharacterUI { Data = new object() };
+        Check(MapSelectionTransition.BeforePortraitClick(other),
+            "Another slot remains clickable even during a map-options transition");
+        Check(MapSelectionTransition.BeforeSelectionChange(panel, false, other),
+            "Another slot's deselection remains native");
+        MapCharacterSelection.Selected = null;
+        Check(MapSelectionTransition.BeforePortraitClick(slot),
+            "An unassigned or foreign selected slot cannot be held by the local guard");
+        MapSelectionTransition.End(null, entered);
+
+        MapCharacterSelection.Selected = character;
+        MapFTUEManager.IsPlaying = true;
+        MapSelectionTransition.Begin(ref entered);
+        Check(!entered && MapSelectionTransition.BeforePortraitClick(slot),
+            "The scripted map tutorial retains native selection behavior");
+        MapSelectionTransition.End(null, entered);
+        MapFTUEManager.IsPlaying = false;
+        MapRoomDriver.Active = false;
+        MapSelectionTransition.Begin(ref entered);
+        Check(!entered && MapSelectionTransition.BeforePortraitClick(slot),
+            "The non-VR map and scenario remain untouched");
+        MapSelectionTransition.End(null, entered);
+        MapRoomDriver.Active = true;
+
+        // The finalizer must release its scope even after a native exception.
+        MapSelectionTransition.Begin(ref entered);
+        var fault = new InvalidOperationException("native fault");
+        Check(ReferenceEquals(MapSelectionTransition.End(fault, entered), fault),
+            "A native failure is returned unchanged by the finalizer");
+        Check(MapSelectionTransition.BeforePortraitClick(slot),
+            "An exceptional exit cannot leave later real clicks blocked");
+        MapCharacterSelection.Selected = null;
+        NewPartyDisplayUI.PartyDisplay = null;
     }
 
     private static void FailedTravelParking()

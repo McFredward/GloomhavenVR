@@ -41,12 +41,30 @@ CONFIG=Release
 # bundle unless the developer explicitly requests their local build. Validate that
 # request before building or replacing anything in dist/.
 BUNDLE="$ROOT/prebuilt/gloomhavenvr.bundle"
+TOWN_BUNDLE="$ROOT/prebuilt/ghvr-town.bundle"
+TOWN_VOICES_BUNDLE="$ROOT/prebuilt/ghvr-town-voices.bundle"
+ENVIRONMENT_BUNDLE="$ROOT/prebuilt/ghvr-environment.bundle"
 if [[ "${GHVR_USE_LOCAL_BUNDLE:-0}" == "1" ]]; then
     BUNDLE="$ROOT/unity/GloomhavenVR.Assets/Build/Bundles/gloomhavenvr.bundle"
+    TOWN_BUNDLE="$ROOT/unity/GloomhavenVR.Assets/Build/TownServices/ghvr-town.bundle"
+    TOWN_VOICES_BUNDLE="$ROOT/unity/GloomhavenVR.Assets/Build/TownServices/ghvr-town-voices.bundle"
+    ENVIRONMENT_BUNDLE="$ROOT/unity/GloomhavenVR.Assets/Build/Environment/ghvr-environment.bundle"
     if [[ ! -f "$BUNDLE" ]]; then
         echo "error: GHVR_USE_LOCAL_BUNDLE=1 requested a missing local bundle: $BUNDLE" >&2
         exit 1
     fi
+fi
+if [[ ! -f "$TOWN_BUNDLE" ]]; then
+    echo "error: missing town-service asset bundle: $TOWN_BUNDLE" >&2
+    exit 1
+fi
+if [[ ! -f "$TOWN_VOICES_BUNDLE" ]]; then
+    echo "error: missing town-service voice bundle: $TOWN_VOICES_BUNDLE" >&2
+    exit 1
+fi
+if [[ ! -f "$ENVIRONMENT_BUNDLE" ]]; then
+    echo "error: missing environment asset bundle: $ENVIRONMENT_BUNDLE" >&2
+    exit 1
 fi
 echo "Asset bundle source: $BUNDLE"
 
@@ -72,6 +90,11 @@ if [[ ${#RUNTIMEDEPS[@]} -eq 0 ]]; then
     exit 1
 fi
 
+# Split figure banks are a committed asset set, independent of the companion town build.
+python3 "$ROOT/scripts/check-figure-mesh-bank.py" "$ROOT/prebuilt"
+FIGURE_BANKS=("$ROOT"/prebuilt/ghvr-figure-meshes-*.bundle)
+FIGURE_INDEX="$ROOT/prebuilt/ghvr-figure-meshes-index.json"
+
 # ---- build --------------------------------------------------------------------------------
 if ! command -v dotnet >/dev/null 2>&1 && [[ -x "$HOME/.dotnet/dotnet" ]]; then
     export DOTNET_ROOT="$HOME/.dotnet"
@@ -92,13 +115,18 @@ ZIP="$DIST/GloomhavenVR-$VERSION.zip"
 rm -rf "$STAGE" "$ZIP"
 PLUGDIR="$STAGE/BepInEx/plugins/GloomhavenVR"
 PATCHDIR="$STAGE/BepInEx/patchers/GloomhavenVR"
-mkdir -p "$PLUGDIR/RuntimeDeps" "$PATCHDIR/Natives"
+FRAMESETUP="$PLUGDIR/FrameSetup"
+mkdir -p "$PLUGDIR/RuntimeDeps" "$PATCHDIR/Natives" "$FRAMESETUP"
 
 cp "$PLUGIN" "$PLUGDIR/"
 cp "${RUNTIMEDEPS[@]}" "$PLUGDIR/RuntimeDeps/"
 [[ -f "$ROOT/libs/RuntimeDeps/versions.json" ]] && cp "$ROOT/libs/RuntimeDeps/versions.json" "$PLUGDIR/RuntimeDeps/"
 cp "$PRELOADER" "$PATCHDIR/"
 cp "${NATIVES[@]}" "$PATCHDIR/Natives/"
+[[ ! -e "$PATCHDIR/frame-launch-opt-in.marker" ]] || {
+    echo 'error: Frame-only opt-in marker must never ship in a release archive' >&2
+    exit 1
+}
 
 # ---- text files a Windows user double-clicks -------------------------------------------------
 # stage_text SRC DEST: render @VERSION@ and write DEST as UTF-8 WITH BOM and CRLF line endings,
@@ -143,6 +171,12 @@ else
     stage_text "$ROOT/packaging/gloomhavenvr.bundle.README.txt" "$PLUGDIR/gloomhavenvr.bundle.README.txt"
 fi
 
+cp "$TOWN_BUNDLE" "$PLUGDIR/ghvr-town.bundle"
+cp "$TOWN_VOICES_BUNDLE" "$PLUGDIR/ghvr-town-voices.bundle"
+cp "$ENVIRONMENT_BUNDLE" "$PLUGDIR/ghvr-environment.bundle"
+cp "$FIGURE_INDEX" "$PLUGDIR/"
+cp "${FIGURE_BANKS[@]}" "$PLUGDIR/"
+
 # ---- INSTALL.txt / INSTALL-DEUTSCH.txt -------------------------------------------------------
 # ONE source of truth per language for the text a drag-and-drop user reads:
 # packaging/INSTALL.txt.in and packaging/INSTALL.de.txt.in. install.ps1 renders the same
@@ -165,6 +199,24 @@ done
 # no BOM and LF endings, which is what a Windows viewer without a BOM heuristic reads as ANSI.
 stage_text "$TEMPLATE"    "$STAGE/INSTALL.txt"
 stage_text "$TEMPLATE_DE" "$STAGE/INSTALL-DEUTSCH.txt"
+
+# All Frame setup files live with the plugin. The game root contains only the
+# BepInEx tree and two installation guides, matching the allowlist enforced by
+# older published in-game updaters. The helper, its Python companions, and KDE
+# launcher must survive a CRLF checkout.
+# Unlike the Windows-readable .txt files above, these need LF; the shell and
+# desktop launchers also need executable ZIP modes. The opt-in marker never
+# ships: extracting on a PC must not change its normal launch.
+sed 's/\r$//' "$ROOT/scripts/install-steam-frame.sh" > "$FRAMESETUP/install-steam-frame.sh"
+sed 's/\r$//' "$ROOT/scripts/steam-frame-config.py" > "$FRAMESETUP/steam-frame-config.py"
+sed 's/\r$//' "$ROOT/scripts/frame-boot-config.py" > "$FRAMESETUP/frame-boot-config.py"
+sed 's/\r$//' "$ROOT/GloomhavenVR-Setup.desktop" > "$FRAMESETUP/GloomhavenVR-Setup.desktop"
+chmod 0755 "$FRAMESETUP/install-steam-frame.sh" "$FRAMESETUP/GloomhavenVR-Setup.desktop"
+STEAM_ARTWORK="$ROOT/src/GloomhavenVR/Assets/SteamFrameArtwork"
+mkdir -p "$FRAMESETUP/SteamArtwork"
+for artwork in library_600x900.png library_header.png library_hero.png logo.png icon.png; do
+    cp "$STEAM_ARTWORK/$artwork" "$FRAMESETUP/SteamArtwork/$artwork"
+done
 
 # NO graphics-jobs enabler ships any more. The preloader writes boot.config itself
 # and restarts the game once on the boot that needs it, so a script whose whole job
@@ -195,13 +247,26 @@ unzip -l "$ZIP"
 LISTING="$(unzip -l "$ZIP")"
 for path in \
     "BepInEx/plugins/GloomhavenVR/GloomhavenVR.dll" \
+    "BepInEx/plugins/GloomhavenVR/ghvr-town.bundle" \
+    "BepInEx/plugins/GloomhavenVR/ghvr-town-voices.bundle" \
+    "BepInEx/plugins/GloomhavenVR/ghvr-environment.bundle" \
+    "BepInEx/plugins/GloomhavenVR/ghvr-figure-meshes-index.json" \
     "BepInEx/plugins/GloomhavenVR/LICENSE.txt" \
     "BepInEx/plugins/GloomhavenVR/Licenses/SOURCES.txt" \
     "BepInEx/plugins/GloomhavenVR/RuntimeDeps/Unity.XR.OpenXR.dll" \
     "BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll" \
     "BepInEx/patchers/GloomhavenVR/Natives/openxr_loader.dll" \
     "INSTALL.txt" \
-    "INSTALL-DEUTSCH.txt"; do
+    "INSTALL-DEUTSCH.txt" \
+    "BepInEx/plugins/GloomhavenVR/FrameSetup/install-steam-frame.sh" \
+    "BepInEx/plugins/GloomhavenVR/FrameSetup/steam-frame-config.py" \
+    "BepInEx/plugins/GloomhavenVR/FrameSetup/frame-boot-config.py" \
+    "BepInEx/plugins/GloomhavenVR/FrameSetup/GloomhavenVR-Setup.desktop" \
+    "BepInEx/plugins/GloomhavenVR/FrameSetup/SteamArtwork/library_600x900.png" \
+    "BepInEx/plugins/GloomhavenVR/FrameSetup/SteamArtwork/library_header.png" \
+    "BepInEx/plugins/GloomhavenVR/FrameSetup/SteamArtwork/library_hero.png" \
+    "BepInEx/plugins/GloomhavenVR/FrameSetup/SteamArtwork/logo.png" \
+    "BepInEx/plugins/GloomhavenVR/FrameSetup/SteamArtwork/icon.png"; do
     if ! grep -qF -- "$path" <<<"$LISTING"; then
         echo "error: packaged zip is missing '$path'" >&2
         exit 1
@@ -210,7 +275,12 @@ done
 
 # Every text file in the archive must open cleanly on Windows: valid UTF-8, BOM, CRLF, and no
 # double-encoded umlauts. Fails the run — a zip that renders "raumgroÃŸes" is not a release.
+for figure_part in "${FIGURE_BANKS[@]}"; do
+    path="BepInEx/plugins/GloomhavenVR/${figure_part##*/}"
+    [[ "$LISTING" == *"$path"* ]] || { echo "error: missing figure mesh part '$path'" >&2; exit 1; }
+done
 python3 "$ROOT/scripts/check-package-text.py" "$ZIP"
+python3 "$ROOT/scripts/check-frame-launchers.py" "$ZIP"
 
 echo
 echo "Layout verified (plugin, RuntimeDeps, preloader, natives, INSTALL.txt + INSTALL-DEUTSCH.txt)."

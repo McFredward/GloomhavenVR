@@ -169,6 +169,7 @@ namespace GloomhavenVR.WorldUI
     }
     internal sealed class ConvertedPanel
     {
+        internal bool IsAlive => HostGo != null;
         public UnityEngine.RectTransform Target = null!, HostRect = null!;
         public UnityEngine.GameObject HostGo = null!;
         public UnityEngine.Canvas HostCanvas = null!;
@@ -200,14 +201,32 @@ namespace GloomhavenVR.WorldUI
         internal const int ModalHostSortingOrder = 1000;
         internal sealed class WindowPanel { internal GrabbableModal? Grab; }
         internal static readonly List<WindowPanel> Converted = new();
+        // Other presentation owners are absent in movie fixtures. The separate town
+        // ownership suite exercises their real live/retired combinations.
+        private static ConvertedPanel? _errorPanel = null;
+        private static GrabbableModal? _errorGrab = null;
         private static int _chromeLive, _chromeOrphansSinceCensus;
         internal static int Orphans => _chromeOrphansSinceCensus;
         internal static int LastSweepCount => _chromeLive;
         internal static void SweepForTest() => SweepOrphanChrome();
     }
+    internal static class TownServicePresentation
+    {
+        internal static bool OwnsGrab(GrabbableModal holder) => false;
+    }
     internal static class SharedWindowSizeLaw
     {
         internal static float SharedGrabFactor(float factor) => factor;
         internal static float ExtraScale(UnityEngine.Vector2 size, float mm) => 1 / mm;
+    }
+}
+
+namespace GloomhavenVR.WorldUI.MapRoom
+{
+    internal static class MapRetirementPrompt
+    {
+        internal static GloomhavenVR.WorldUI.GrabbableModal? OwnedGrab;
+        internal static bool OwnsGrab(GloomhavenVR.WorldUI.GrabbableModal holder) =>
+            ReferenceEquals(holder, OwnedGrab);
     }
 }

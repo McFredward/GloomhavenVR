@@ -41,15 +41,17 @@ namespace GloomhavenVR.Net;
 /// therefore performs zero pool spawns, zero clones and zero allocations per frame — the borrow runs
 /// only when the item in a given slot actually changes.
 /// </summary>
-/// <remarks>CLASSIFICATION: PER-ACTOR MODEL — ZERO wire. The item identities come from the
-/// host-replicated <c>CPlayerActor.Inventory.AllItems</c> that every client already holds, never from
-/// a packet; the face is manufactured locally from the game's own pool. Item IDENTITY stays
-/// DELIBERATELY-NOT on the wire. See INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
-internal static class RemoteItemCardSource
+/// <remarks>Scenario faces retain the per-actor model contract: item identities come from
+/// host-replicated Inventory.AllItems. Public map fans read the exact native map character list;
+/// atomic held source101 additionally carries immutable public CharacterKey/ItemID/Seat/Count,
+/// so stock cards and held cards survive character focus changes and seats above30. Both paths
+/// manufacture original geometry and sprites locally; no bitmap or native instance ID is sent.</remarks>
+internal static partial class RemoteItemCardSource
 {
     /// <summary>One-shot latch for the "the item borrow works on this build" line — once per session,
     /// never once per card.</summary>
     private static bool s_logged;
+    private static readonly System.Collections.Generic.HashSet<int> RejectedMapFronts = new();
 
     /// <summary>
     /// Stable dedup key for <paramref name="item"/>, in <see cref="RemoteCardArt"/>'s key space.
@@ -132,6 +134,9 @@ internal static class RemoteItemCardSource
         if (art == null || item == null)
             return false;
 
+        // Map fronts are public originals. Never construct a visible grey asynchronous
+        // placeholder; the early map preparation pins precisely the native sprite keys.
+        if (!RevealGate.InScenario && (RejectedMapFronts.Contains(item.ID) || !TryPreparedMapItem(item, out _, out _))) return false;
         int key = KeyFor(item);
         if (art.ShowsKey(key))
         {
@@ -145,8 +150,11 @@ internal static class RemoteItemCardSource
         }
         catch (System.Exception e)
         {
-            VRLog.Warn("Net", $"Remote ITEM face: pooled borrow failed ({e.Message}) — the chip keeps " +
-                              "its card BACK.");
+            // An unsupported native Graphic/controller contract cannot heal on a frame retry.
+            // Report the actual adapter failure once per public item and keep its front pending.
+            if (!RevealGate.InScenario && e is System.IO.InvalidDataException && !RejectedMapFronts.Add(item.ID)) return false;
+            VRLog.Warn("Net", $"Remote ITEM face: pooled borrow failed ({e.Message}) — "
+                + (RevealGate.InScenario ? "the chip keeps its card BACK." : "the public original front remains pending."));
             art.HideFront();
             return false;
         }
@@ -214,11 +222,33 @@ internal static class RemoteItemCardSource
             // The closure is the one allocation of this path and it happens ONLY on a real rebuild
             // (the ShowsKey dedup in ShowFace is what keeps a settled fan off it entirely).
             CItem captured = item;
+            // Validate read-only before the generic art backend can catch/consume an adapter
+            // exception. This keeps unsupported native graphics a single bounded source failure.
+            if (!RevealGate.InScenario)
+                foreach (var graphic in cardGo.GetComponentsInChildren<UnityEngine.UI.Graphic>(true))
+                {
+                    var type = graphic.GetType();
+                    if (!TownServices.TownServiceNeutralize.EngineGraphic(type))
+                        throw new System.IO.InvalidDataException("Native custom graphic requires an explicit original mesh adapter: " + type.FullName);
+                }
             bool shown = art.ShowFront(cardGo, key, skinSource: null, beforeActivate: clone =>
             {
                 var cloneUi = clone.GetComponent<ItemCardUI>();
                 if (cloneUi != null)
+                {
                     cloneUi.item = captured;
+                    if (!RevealGate.InScenario && TryPreparedMapItem(captured, out Sprite? background, out Sprite? icon))
+                    {
+                        // Artwork is complete before activation. The inactive native copy
+                        // retains its original hierarchy/materials without an async controller.
+                        cloneUi.enabled = false;
+                        cloneUi.cardBackground.sprite = background;
+                        cloneUi.cardBackground.enabled = true;
+                        if (cloneUi.validOwnerIcon != null)
+                        { cloneUi.validOwnerIcon.sprite = icon; cloneUi.validOwnerIcon.enabled = icon != null; }
+                    }
+                }
+                if (!RevealGate.InScenario) TownServices.TownServiceNeutralize.Apply(clone);
             }, spentLook: LookOf(item));
             if (shown)
                 ReportOnce(item);
@@ -259,6 +289,6 @@ internal static class RemoteItemCardSource
         VRLog.Info("Net", $"Remote ITEM card FACE path = PooledBorrow (first use; e.g. item id {item.ID}) — " +
                           "a peer's equipped item is now the REAL game item card (art, title, symbol, " +
                           "condition), cloned locally from a widget borrowed from and returned to the " +
-                          "game's own pool. Zero wire traffic, zero item identity on the wire.");
+                          "game's own pool. Scenario identities stay in native inventory; public map held sources use101.");
     }
 }

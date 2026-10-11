@@ -1,0 +1,538 @@
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.Rendering;
+
+namespace GloomhavenVR.Board.FigureGrab;
+
+/// <summary>Copies evaluated presentation without instantiating native scripts or Animator
+/// controllers. Animation events and StateMachineBehaviours must never run on a home ghost.</summary>
+[DefaultExecutionOrder(29950)]
+internal sealed class FigureVisualMirror : MonoBehaviour
+{
+    internal readonly struct AnimatorPose
+    {
+        internal AnimatorPose(Animator animator)
+        {
+            Name = animator.name;
+            States = new AnimatorStateInfo[animator.layerCount];
+            NextStates = new AnimatorStateInfo[animator.layerCount];
+            Transitions = new AnimatorTransitionInfo[animator.layerCount];
+            Weights = new float[animator.layerCount];
+            for (int i = 0; i < States.Length; i++)
+            {
+                States[i] = animator.GetCurrentAnimatorStateInfo(i);
+                NextStates[i] = animator.GetNextAnimatorStateInfo(i);
+                Transitions[i] = animator.GetAnimatorTransitionInfo(i);
+                Weights[i] = animator.GetLayerWeight(i);
+            }
+            Parameters = animator.parameters;
+            Values = new float[Parameters.Length];
+            Integers = new int[Parameters.Length];
+            Booleans = new bool[Parameters.Length];
+            for (int i = 0; i < Parameters.Length; i++)
+            {
+                AnimatorControllerParameter p = Parameters[i];
+                if (p.type == AnimatorControllerParameterType.Float) Values[i] = animator.GetFloat(p.nameHash);
+                else if (p.type == AnimatorControllerParameterType.Int) Integers[i] = animator.GetInteger(p.nameHash);
+                else if (p.type == AnimatorControllerParameterType.Bool) Booleans[i] = animator.GetBool(p.nameHash);
+                // Triggers are consumed events, never replayed by a visual copy.
+            }
+        }
+        internal readonly string Name;
+        internal readonly AnimatorStateInfo[] States, NextStates;
+        internal readonly AnimatorTransitionInfo[] Transitions;
+        internal readonly float[] Weights, Values;
+        internal readonly int[] Integers;
+        internal readonly bool[] Booleans;
+        internal readonly AnimatorControllerParameter[] Parameters;
+    }
+
+    private readonly List<(Transform Source, Transform Copy)> _transforms = new();
+    private readonly List<(Renderer Source, Renderer Copy, int Shapes, bool Visibility, bool Masks, bool Ready)> _renderers = new();
+    private readonly List<Material> _readyMaterials = new(4);
+    private bool _home;
+    private GameObject? _preparedSource;
+    private readonly List<(Transform Node, Transform? Parent, int Children, Renderer[] Renderers, LODGroup[] Groups)> _preparedNodes = new();
+    private readonly List<(LODGroup Group, LOD[] Table, bool Enabled, Vector3 Centre, float Size, LODFadeMode Fade, bool Animate)> _preparedLods = new();
+    private readonly struct PreparedSlot
+    {
+        internal PreparedSlot(Renderer renderer)
+        {
+            Renderer = renderer; Mesh = FigureOverlay.SourceMesh(renderer);
+            Vertices = Mesh != null ? Mesh.vertexCount : 0;
+            Submeshes = Mesh != null ? Mesh.subMeshCount : 0;
+            Shapes = Mesh != null ? Mesh.blendShapeCount : 0;
+            Sprite = renderer is SpriteRenderer sprite ? sprite.sprite : null;
+            SkinnedMeshRenderer? skin = renderer as SkinnedMeshRenderer;
+            RootBone = skin?.rootBone; Bones = skin != null ? skin.bones : System.Array.Empty<Transform>();
+            Materials = renderer.sharedMaterials; Shaders = new Shader?[Materials.Length]; Queues = new int[Materials.Length];
+            for (int i = 0; i < Materials.Length; i++)
+            {
+                Shaders[i] = Materials[i] != null ? Materials[i].shader : null;
+                Queues[i] = Materials[i] != null ? Materials[i].renderQueue : -1;
+            }
+        }
+        internal readonly Renderer Renderer;
+        internal readonly Mesh? Mesh;
+        internal readonly int Vertices, Submeshes, Shapes;
+        internal readonly Sprite? Sprite;
+        internal readonly Transform? RootBone;
+        internal readonly Transform[] Bones;
+        internal readonly Material[] Materials;
+        internal readonly Shader?[] Shaders;
+        internal readonly int[] Queues;
+    }
+    private readonly List<PreparedSlot> _preparedSlots = new();
+    private readonly List<Renderer> _slotScratch = new(2);
+    private readonly List<LODGroup> _groupScratch = new(1);
+    private readonly List<Material> _materialScratch = new(4);
+    private readonly List<(Transform Source, Transform Copy)> _homeRing = new();
+    internal AnimatorPose[] InitialAnimatorPoses { get; private set; } = System.Array.Empty<AnimatorPose>();
+
+    /// <summary>A complete visual hierarchy with original sibling order/bone references. It has
+    /// no native component whose Awake, animation callback or physics could affect gameplay.</summary>
+    internal static GameObject CloneVisual(GameObject source, Vector3 position, Quaternion rotation,
+                                            Vector3 scale, out FigureVisualMirror mirror, bool activate = true)
+    {
+        var root = new GameObject("VRFigureGhost");
+        root.SetActive(false);
+        var map = new Dictionary<Transform, Transform>();
+        CopyTree(source.transform, root.transform, map);
+        root.transform.SetPositionAndRotation(position, rotation);
+        root.transform.localScale = scale;
+        mirror = root.AddComponent<FigureVisualMirror>();
+        mirror._home = true;
+        foreach (KeyValuePair<Transform, Transform> pair in map)
+        {
+            if (pair.Key != source.transform) mirror._transforms.Add((pair.Key, pair.Value));
+            if (ModOwned(pair.Key, source.transform)) continue;
+            foreach (Renderer renderer in pair.Key.GetComponents<Renderer>())
+            {
+                Renderer? copy = CopyRenderer(renderer, pair.Value, map);
+                if (copy != null) mirror.Bind(renderer, copy);
+            }
+        }
+        // Retain the native LOD topology. Disabled/coarse source renderer masks are additionally
+        // copied each frame so an owned performance mask cannot reappear through the ghost.
+        foreach (KeyValuePair<Transform, Transform> pair in map)
+        {
+            foreach (LODGroup original in pair.Key.GetComponents<LODGroup>())
+            {
+                LOD[] table = original.GetLODs();
+                for (int i = 0; i < table.Length; i++)
+                {
+                    var renderers = new List<Renderer>();
+                    foreach (Renderer r in table[i].renderers)
+                        foreach (var binding in mirror._renderers)
+                            if (binding.Source == r) renderers.Add(binding.Copy);
+                    table[i].renderers = renderers.ToArray();
+                }
+                var group = pair.Value.gameObject.AddComponent<LODGroup>();
+                group.SetLODs(table);
+                group.localReferencePoint = original.localReferencePoint;
+                group.size = original.size;
+                group.fadeMode = original.fadeMode;
+                group.animateCrossFading = original.animateCrossFading;
+                group.enabled = original.enabled;
+            }
+        }
+        mirror.CaptureAnimatorPoses(source);
+        mirror.Sync();
+        root.SetActive(activate);
+        return root;
+    }
+
+    private void CaptureAnimatorPoses(GameObject source)
+    {
+        Animator[] animators = source.GetComponentsInChildren<Animator>(true);
+        var poses = new List<AnimatorPose>(animators.Length);
+        foreach (Animator animator in animators)
+            if (animator.runtimeAnimatorController != null && animator.isInitialized)
+                poses.Add(new AnimatorPose(animator));
+        InitialAnimatorPoses = poses.ToArray();
+    }
+
+    /// <summary>Receipt for the exact original topology/material/bone identities used to prepare
+    /// this inert ghost. Mod-owned hover/reach children are not native source identity.</summary>
+    internal void SealPreparedSource(GameObject source)
+    {
+        _preparedSource = source;
+        _preparedNodes.Clear(); _preparedSlots.Clear(); _preparedLods.Clear();
+        CapturePreparedNode(source.transform, source.transform);
+    }
+
+    private void CapturePreparedNode(Transform node, Transform root)
+    {
+        if (node != root && ModOwned(node, root)) return;
+        node.GetComponents(_slotScratch);
+        Renderer[] renderers = _slotScratch.ToArray();
+        node.GetComponents(_groupScratch);
+        LODGroup[] groups = _groupScratch.ToArray();
+        _preparedNodes.Add((node, node == root ? null : node.parent, NativeChildCount(node), renderers, groups));
+        foreach (LODGroup group in groups)
+            _preparedLods.Add((group, group.GetLODs(), group.enabled, group.localReferencePoint,
+                group.size, group.fadeMode, group.animateCrossFading));
+        foreach (Renderer renderer in renderers)
+            _preparedSlots.Add(new PreparedSlot(renderer));
+        for (int i = 0; i < node.childCount; i++) CapturePreparedNode(node.GetChild(i), root);
+    }
+
+    private static int NativeChildCount(Transform node)
+    {
+        int count = 0;
+        for (int i = 0; i < node.childCount; i++)
+            if (!node.GetChild(i).name.StartsWith(Core.VRLayers.ModOwnedNamePrefix, System.StringComparison.Ordinal)) count++;
+        return count;
+    }
+
+    internal string PreparedMismatchReason { get; private set; } = string.Empty;
+    private bool PreparedMismatch(string reason) { PreparedMismatchReason = reason; return false; }
+
+    internal bool MatchesPreparedSource(GameObject source)
+    {
+        PreparedMismatchReason = string.Empty;
+        if (source == null || source != _preparedSource || _preparedNodes.Count == 0) return PreparedMismatch("source-root");
+        foreach (var node in _preparedNodes)
+        {
+            if (node.Node == null || (node.Node != source.transform && node.Node.parent != node.Parent)
+                || NativeChildCount(node.Node) != node.Children) return PreparedMismatch("hierarchy");
+            node.Node.GetComponents(_slotScratch);
+            if (_slotScratch.Count != node.Renderers.Length) return PreparedMismatch("renderer-count");
+            for (int i = 0; i < _slotScratch.Count; i++) if (_slotScratch[i] != node.Renderers[i]) return PreparedMismatch("renderer-identity");
+            node.Node.GetComponents(_groupScratch);
+            if (_groupScratch.Count != node.Groups.Length) return PreparedMismatch("lod-component-count");
+            for (int i = 0; i < _groupScratch.Count; i++) if (_groupScratch[i] != node.Groups[i]) return PreparedMismatch("lod-component-identity");
+        }
+        foreach (var slot in _preparedSlots)
+        {
+            if (slot.Renderer == null || FigureOverlay.SourceMesh(slot.Renderer) != slot.Mesh) return PreparedMismatch("mesh-identity");
+            if (slot.Mesh != null && (slot.Mesh.vertexCount != slot.Vertices
+                || slot.Mesh.subMeshCount != slot.Submeshes || slot.Mesh.blendShapeCount != slot.Shapes)) return PreparedMismatch("mesh-topology");
+            if (slot.Renderer is SpriteRenderer sprite && sprite.sprite != slot.Sprite) return PreparedMismatch("sprite-identity");
+            slot.Renderer.GetSharedMaterials(_materialScratch);
+            if (_materialScratch.Count != slot.Materials.Length) return PreparedMismatch("material-count");
+            for (int i = 0; i < _materialScratch.Count; i++)
+                if (_materialScratch[i] != slot.Materials[i]
+                    || (_materialScratch[i] != null ? _materialScratch[i].shader : null) != slot.Shaders[i]
+                    || (_materialScratch[i] != null ? _materialScratch[i].renderQueue : -1) != slot.Queues[i]) return PreparedMismatch("material-shader-queue");
+            if (slot.Renderer is SkinnedMeshRenderer skin)
+            {
+                if (skin.rootBone != slot.RootBone) return PreparedMismatch("root-bone");
+                Transform[] bones = skin.bones;
+                if (bones.Length != slot.Bones.Length) return PreparedMismatch("bone-count");
+                for (int i = 0; i < bones.Length; i++) if (bones[i] != slot.Bones[i]) return PreparedMismatch("bone-identity");
+            }
+        }
+        foreach (var lod in _preparedLods)
+        {
+            if (lod.Group == null || lod.Group.enabled != lod.Enabled || lod.Group.localReferencePoint != lod.Centre
+                || lod.Group.size != lod.Size || lod.Group.fadeMode != lod.Fade
+                || lod.Group.animateCrossFading != lod.Animate) return PreparedMismatch("lod-settings");
+            LOD[] table = lod.Group.GetLODs();
+            if (table.Length != lod.Table.Length) return PreparedMismatch("lod-level-count");
+            for (int i = 0; i < table.Length; i++)
+            {
+                if (table[i].screenRelativeTransitionHeight != lod.Table[i].screenRelativeTransitionHeight
+                    || table[i].fadeTransitionWidth != lod.Table[i].fadeTransitionWidth
+                    || table[i].renderers.Length != lod.Table[i].renderers.Length) return PreparedMismatch("lod-level-settings");
+                for (int j = 0; j < table[i].renderers.Length; j++)
+                    if (table[i].renderers[j] != lod.Table[i].renderers[j]) return PreparedMismatch("lod-renderer-identity");
+            }
+        }
+        return true;
+    }
+
+    /// <summary>Run while inactive immediately before pickup. Nothing plays an Animator or a
+    /// native callback: the current evaluated bones, masks and blend shapes are the authority.</summary>
+    internal void RefreshPreparedPose(GameObject source)
+    {
+        CaptureAnimatorPoses(source);
+        foreach (var pair in _homeRing)
+        {
+            if (pair.Source == null || pair.Copy == null) continue;
+            Transform original = pair.Source, twin = pair.Copy;
+            twin.localPosition = original.localPosition;
+            twin.localRotation = original.localRotation;
+            twin.localScale = original.localScale;
+            twin.gameObject.SetActive(original.gameObject.activeSelf);
+        }
+        foreach (var pair in _renderers)
+        {
+            if (pair.Source == null || pair.Copy == null) continue;
+            if (pair.Source is SkinnedMeshRenderer sourceSkin && pair.Copy is SkinnedMeshRenderer copySkin)
+            {
+                copySkin.localBounds = sourceSkin.localBounds;
+                copySkin.quality = sourceSkin.quality;
+                copySkin.updateWhenOffscreen = sourceSkin.updateWhenOffscreen;
+            }
+            if (pair.Source is SpriteRenderer sourceSprite && pair.Copy is SpriteRenderer copySprite)
+            {
+                copySprite.color = sourceSprite.color; copySprite.flipX = sourceSprite.flipX;
+                copySprite.flipY = sourceSprite.flipY; copySprite.drawMode = sourceSprite.drawMode;
+                copySprite.size = sourceSprite.size; copySprite.tileMode = sourceSprite.tileMode;
+                copySprite.adaptiveModeThreshold = sourceSprite.adaptiveModeThreshold;
+                copySprite.maskInteraction = sourceSprite.maskInteraction;
+                copySprite.spriteSortPoint = sourceSprite.spriteSortPoint;
+            }
+            if (!pair.Visibility)
+            {
+                // Preserve the CURRENT home ring before its source is suppressed in the hand.
+                pair.Copy.sharedMaterials = pair.Source.sharedMaterials;
+                pair.Copy.enabled = pair.Source.enabled;
+                pair.Copy.forceRenderingOff = pair.Source.forceRenderingOff;
+            }
+            if (!pair.Masks) continue;
+            pair.Source.GetSharedMaterials(_materialScratch);
+            FigureOverlayMasks.Apply(pair.Source, pair.Copy, _materialScratch);
+        }
+        Sync();
+    }
+
+    private static void CopyTree(Transform source, Transform copy, Dictionary<Transform, Transform> map)
+    {
+        copy.gameObject.layer = source.gameObject.layer;
+        copy.localPosition = source.localPosition;
+        copy.localRotation = source.localRotation;
+        copy.localScale = source.localScale;
+        map.Add(source, copy);
+        for (int i = 0; i < source.childCount; i++)
+        {
+            Transform child = source.GetChild(i);
+            var go = new GameObject(child.name);
+            go.SetActive(child.gameObject.activeSelf);
+            go.transform.SetParent(copy, false);
+            CopyTree(child, go.transform, map);
+        }
+    }
+
+    private static Renderer? CopyRenderer(Renderer source, Transform parent,
+                                          Dictionary<Transform, Transform> map)
+    {
+        Renderer copy;
+        if (source is SkinnedMeshRenderer skinned && skinned.sharedMesh != null)
+        {
+            var target = parent.gameObject.AddComponent<SkinnedMeshRenderer>();
+            target.sharedMesh = skinned.sharedMesh;
+            Transform[] bones = skinned.bones;
+            for (int i = 0; i < bones.Length; i++)
+                bones[i] = bones[i] != null && map.TryGetValue(bones[i], out Transform twin) ? twin : null!;
+            target.bones = bones;
+            target.rootBone = skinned.rootBone != null && map.TryGetValue(skinned.rootBone, out Transform root)
+                ? root : null;
+            target.localBounds = skinned.localBounds;
+            target.quality = skinned.quality;
+            target.updateWhenOffscreen = skinned.updateWhenOffscreen;
+            FigureOverlay.CopyBlendShapeWeights(skinned, target);
+            copy = target;
+        }
+        else if (source is MeshRenderer && source.TryGetComponent(out MeshFilter filter)
+                 && filter.sharedMesh != null)
+        {
+            parent.gameObject.AddComponent<MeshFilter>().sharedMesh = filter.sharedMesh;
+            copy = parent.gameObject.AddComponent<MeshRenderer>();
+        }
+        else if (source is SpriteRenderer sprite)
+        {
+            // Native selection art/props can be sprites. Preserve their authored atlas,
+            // geometry and presentation without instantiating any of their native controllers.
+            var target = parent.gameObject.AddComponent<SpriteRenderer>();
+            target.sprite = sprite.sprite;
+            target.color = sprite.color;
+            target.flipX = sprite.flipX;
+            target.flipY = sprite.flipY;
+            target.drawMode = sprite.drawMode;
+            target.size = sprite.size;
+            target.tileMode = sprite.tileMode;
+            target.adaptiveModeThreshold = sprite.adaptiveModeThreshold;
+            target.maskInteraction = sprite.maskInteraction;
+            target.spriteSortPoint = sprite.spriteSortPoint;
+            copy = target;
+        }
+        else return null; // Particle/trail/line systems are not a surface ghost.
+        copy.sharedMaterials = source.sharedMaterials;
+        copy.enabled = source.enabled;
+        copy.forceRenderingOff = source.forceRenderingOff;
+        copy.sortingLayerID = source.sortingLayerID;
+        copy.sortingOrder = source.sortingOrder;
+        copy.shadowCastingMode = source.shadowCastingMode;
+        copy.receiveShadows = source.receiveShadows;
+        copy.lightProbeUsage = source.lightProbeUsage;
+        copy.reflectionProbeUsage = source.reflectionProbeUsage;
+        return copy;
+    }
+
+    internal void Bind(Renderer source, Renderer copy)
+    {
+        int shapes = source is SkinnedMeshRenderer skin && skin.sharedMesh != null
+            ? skin.sharedMesh.blendShapeCount : 0;
+        _renderers.Add((source, copy, shapes, true, false, Ready(source)));
+    }
+
+    internal void Retain(List<Renderer> retained, Transform? ring)
+    {
+        for (int i = _renderers.Count - 1; i >= 0; i--)
+        {
+            var pair = _renderers[i];
+            if (!retained.Contains(pair.Copy)) { _renderers.RemoveAt(i); continue; }
+            bool preserve = ring != null && (pair.Copy.transform == ring || pair.Copy.transform.IsChildOf(ring));
+            _renderers[i] = (pair.Source, pair.Copy, pair.Shapes, !preserve, !preserve, pair.Ready);
+        }
+        // A preserved home ring must not follow suppression of the live in-hand ring.
+        if (ring != null)
+            foreach (var pair in _transforms)
+                if (pair.Copy != null && (pair.Copy == ring || pair.Copy.IsChildOf(ring))) _homeRing.Add(pair);
+        _transforms.RemoveAll(pair => pair.Copy == null || ModOwned(pair.Copy, transform)
+            || (ring != null && (pair.Copy == ring || pair.Copy.IsChildOf(ring))));
+    }
+
+    private static bool ModOwned(Transform node, Transform root)
+    {
+        for (Transform? current = node; current != null && current != root; current = current.parent)
+            if (current.name.StartsWith(Core.VRLayers.ModOwnedNamePrefix, System.StringComparison.Ordinal)) return true;
+        return false;
+    }
+
+    internal void BindDepth(Renderer ghost, Renderer depth)
+    {
+        for (int i = 0; i < _renderers.Count; i++)
+            if (_renderers[i].Copy == ghost)
+            {
+                var pair = _renderers[i];
+                Bind(pair.Source, depth);
+                _renderers[_renderers.Count - 1] = (pair.Source, depth, pair.Shapes, true, true, pair.Ready);
+                return;
+            }
+    }
+
+    /// <summary>Live highlight parts already share native bones; static props, blend shapes and
+    /// runtime visibility need the same evaluated-presentation binding as a home ghost.</summary>
+    internal static void BindHighlight(Renderer source, Renderer copy)
+    {
+        var mirror = copy.gameObject.AddComponent<FigureVisualMirror>();
+        mirror.Bind(source, copy);
+        var pair = mirror._renderers[0];
+        mirror._renderers[0] = (pair.Source, pair.Copy, pair.Shapes, true, true, pair.Ready);
+        mirror.Sync();
+    }
+
+    private void LateUpdate() => Sync();
+
+    internal void Sync()
+    {
+        foreach (var pair in _transforms)
+        {
+            if (pair.Source == null || pair.Copy == null) continue;
+            pair.Copy.localPosition = pair.Source.localPosition;
+            pair.Copy.localRotation = pair.Source.localRotation;
+            pair.Copy.localScale = pair.Source.localScale;
+            if (pair.Copy.gameObject.activeSelf != pair.Source.gameObject.activeSelf)
+                pair.Copy.gameObject.SetActive(pair.Source.gameObject.activeSelf);
+        }
+        for (int binding = 0; binding < _renderers.Count; binding++)
+        {
+            var pair = _renderers[binding];
+            if (pair.Copy == null) continue;
+            if (pair.Source == null) { pair.Copy.enabled = false; continue; }
+            if (pair.Visibility)
+            {
+                bool ready = Ready(pair.Source);
+                // MaterialLoaderData disables native renderers while loading. On the first
+                // ready edge read actual materials/masks once; no sharedMaterials/hierarchy
+                // queries allocate on ordinary steady-state frames.
+                if (pair.Masks && ready && !pair.Ready)
+                {
+                    _readyMaterials.Clear();
+                    pair.Source.GetSharedMaterials(_readyMaterials);
+                    FigureOverlayMasks.Apply(pair.Source, pair.Copy, _readyMaterials);
+                }
+                _renderers[binding] = (pair.Source, pair.Copy, pair.Shapes, pair.Visibility, pair.Masks, ready);
+                pair.Copy.enabled = pair.Source.enabled && (!pair.Source.gameObject.scene.IsValid()
+                    || pair.Source.gameObject.activeInHierarchy);
+                pair.Copy.forceRenderingOff = pair.Source.forceRenderingOff;
+            }
+            if (!_home)
+            {
+                pair.Copy.transform.SetPositionAndRotation(pair.Source.transform.position, pair.Source.transform.rotation);
+                FigureOverlay.MatchCloneWorldScale(pair.Copy.transform, pair.Copy.transform.parent, pair.Source.transform);
+            }
+            // A saved optional figure budget can change while a local/remote home ghost or
+            // highlight already exists. Follow the actual source slot instead of retaining a
+            // stale simplified mesh after restoration; shared bank meshes stay alive for every
+            // visual twin. Materials/bones/native controllers are unchanged.
+            if (pair.Source is SkinnedMeshRenderer meshSource && pair.Copy is SkinnedMeshRenderer meshCopy)
+            {
+                if (meshCopy.sharedMesh != meshSource.sharedMesh) meshCopy.sharedMesh = meshSource.sharedMesh;
+                if (meshCopy.quality != meshSource.quality) meshCopy.quality = meshSource.quality;
+            }
+            else if (pair.Source is MeshRenderer && pair.Copy is MeshRenderer
+                     && pair.Source.TryGetComponent(out MeshFilter sourceFilter)
+                     && pair.Copy.TryGetComponent(out MeshFilter copyFilter)
+                     && copyFilter.sharedMesh != sourceFilter.sharedMesh)
+                copyFilter.sharedMesh = sourceFilter.sharedMesh;
+            if (pair.Shapes > 0 && pair.Source is SkinnedMeshRenderer from && pair.Copy is SkinnedMeshRenderer to)
+                for (int i = 0; i < pair.Shapes; i++) to.SetBlendShapeWeight(i, from.GetBlendShapeWeight(i));
+        }
+        // The ghost owner is the sole root-pose author. In particular, an updated board/home
+        // transform must not be overwritten by a second grab-time pose cached in this mirror.
+    }
+
+    private static bool Ready(Renderer renderer) => renderer.enabled && !renderer.forceRenderingOff
+        && (!renderer.gameObject.scene.IsValid() || renderer.gameObject.activeInHierarchy);
+}
+
+/// <summary>Keep each native cutout silhouette and UV mapping when replacing its lighting with
+/// a tint. Mask UVs are separate from the highlight's animated MainTex scroll.</summary>
+internal static class FigureOverlayMasks
+{
+    private static readonly int UseMask = Shader.PropertyToID("_UseAlphaMask");
+    private static readonly int MaskTex = Shader.PropertyToID("_AlphaMaskTex");
+    private static readonly int MaskST = Shader.PropertyToID("_AlphaMaskTex_ST");
+    private static readonly int Cutoff = Shader.PropertyToID("_AlphaMaskCutoff");
+
+    internal static void Apply(Renderer source, Renderer target, IReadOnlyList<Material> materials)
+    {
+        int count = target.sharedMaterials.Length;
+        for (int i = 0; i < count; i++)
+        {
+            // Unity reuses the last source material when there are fewer materials than
+            // submeshes. Keep its cutout on every such submesh, rather than tinting the rest solid.
+            Material? material = materials.Count > 0 ? materials[Mathf.Min(i, materials.Count - 1)] : null;
+            var block = new MaterialPropertyBlock();
+            if (material != null && IsCutout(material))
+            {
+                string property = material.HasProperty("_Diffuse") ? "_Diffuse" : "_MainTex";
+                Texture? texture = material.HasProperty(property) ? material.GetTexture(property) : null;
+                if (texture != null)
+                {
+                    Vector2 scale = material.GetTextureScale(property), offset = material.GetTextureOffset(property);
+                    block.SetFloat(UseMask, 1f);
+                    block.SetTexture(MaskTex, texture);
+                    block.SetVector(MaskST, new Vector4(scale.x, scale.y, offset.x, offset.y));
+                    block.SetFloat(Cutoff, material.HasProperty("_Cutoff") ? material.GetFloat("_Cutoff") : 0.5f);
+                }
+            }
+            target.SetPropertyBlock(block, i);
+        }
+        target.enabled = source.enabled;
+        target.forceRenderingOff = source.forceRenderingOff;
+    }
+
+    private static bool IsCutout(Material material)
+    {
+        string tag = material.GetTag("RenderType", false, string.Empty);
+        return (tag.Contains("Cutout") || tag.Contains("Foliage") || tag.Contains("Grass") || tag.Contains("TreeLeaf"))
+            && (!material.HasProperty("_Diffuse_Alpha_On") || material.GetFloat("_Diffuse_Alpha_On") > 0f);
+    }
+
+    internal static void Copy(Renderer source, Renderer target, int submeshes)
+    {
+        var block = new MaterialPropertyBlock();
+        for (int i = 0; i < submeshes; i++)
+        {
+            source.GetPropertyBlock(block, i);
+            target.SetPropertyBlock(block, i);
+        }
+        target.enabled = source.enabled;
+        target.forceRenderingOff = source.forceRenderingOff;
+    }
+}

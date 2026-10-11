@@ -1149,6 +1149,8 @@ internal static partial class WallSegmentFade
             var p = new MountedProp { Renderer = r };
             Material? mat = r.sharedMaterial;
             if (mat != null)
+                mat = FadeSourceMaterial(mat);
+            if (mat != null)
             {
                 if (mat.HasProperty(TintColorId)) p.ColorId = TintColorId;
                 else if (mat.HasProperty(ColorPropId)) p.ColorId = ColorPropId;
@@ -1246,6 +1248,17 @@ internal static partial class WallSegmentFade
                 RestoreHeldProp(p, r);
                 return;
             }
+            // Fully hidden attachments cannot deliver pixels. Keep live floor/held guards
+            // ahead of this gate, and ask the actual enabled flag and our own hide ledger:
+            // a native re-enable, intermediate return or unowned disable immediately takes
+            // the complete original drive again. A current geometry consumer also takes
+            // that path so its masks/submission are released before this same draw. No
+            // main wall/foundation is skipped here.
+            if (fade == 1f
+                && _hidByEnable.Contains(r) && !r.enabled
+                && !ScenarioTerrainBudget.HasCurrentRenderLease(r)
+                && !ScenarioEnvironmentBudget.OwnsRenderSubstitute(r))
+                return;
             if (p.NativeFade)
             {
                 // Round 15: the piece runs the game's own masonry fade branch — either on its
@@ -1281,6 +1294,7 @@ internal static partial class WallSegmentFade
                     _mountedMpb.SetFloat(p.DissolveControlId,
                         Mathf.Lerp(p.BaseDissolveControl, 1f, fade));
                 }
+                ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
                 r.SetPropertyBlock(_mountedMpb);
             }
             if (p.System != null)
@@ -1338,7 +1352,10 @@ internal static partial class WallSegmentFade
             NoteOwnershipChange(r, "released(" + reason + ")"); // churn tripwire (round 11)
             NoteReleaseOverFadedWall(r, owner, reason);
             if (wroteBlock)
+            {
+                ScenarioEnvironmentBudget.BeforeNativeRendererWrite(r);
                 r.SetPropertyBlock(null);
+            }
             if (p.System != null)
             {
                 ParticleSystem.MainModule main = p.System.main;
@@ -1467,6 +1484,11 @@ internal static partial class WallSegmentFade
                     lost = true;
                     continue;
                 }
+                // Purely decorative budget masks own visibility, not the native room/occluder
+                // facts. Keep membership and restoration; avoid union and material writes until
+                // this renderer is visible again. The ordinary per-frame loop resumes immediately.
+                if (SkipBudgetMaskedAttachment(p, seg.MountedState, ref highest))
+                    continue;
                 // THE ONE LINE THE UNION RULE CHANGES: the fade this PIECE reads. Never the
                 // segment's own — nothing here writes seg.Fade, seg.State or seg.PendingRaw.
                 float eff = UnionFade(p.Renderer, seg);
@@ -1584,7 +1606,7 @@ internal static partial class WallSegmentFade
         {
             if (_mountedRejects.Count >= MountedRejectCap || float.IsInfinity(_mountedAirborneBar))
                 return;
-            Bounds b = c.bounds;
+            Bounds b = WallCommitGeometryReads.Read(c);
             float anchorY = c is ParticleSystemRenderer ? c.transform.position.y : b.min.y;
             if (anchorY < _mountedAirborneBar)
                 return; // rests on something — would not float even if the wall went
@@ -1669,7 +1691,7 @@ internal static partial class WallSegmentFade
         /// </summary>
         private static bool IsActuallyDrawing(Renderer r)
         {
-            if (r == null || !r.enabled || !r.gameObject.activeInHierarchy)
+            if (r == null || !r.enabled || r.forceRenderingOff || !r.gameObject.activeInHierarchy)
                 return false;
             if (r is ParticleSystemRenderer)
             {
@@ -2011,6 +2033,24 @@ internal static partial class WallSegmentFade
                         // releases below therefore only ever touch a prop THIS segment owns.
                         if (p.Renderer == null || !_mountedOwned.Add(p.Renderer))
                             continue;
+                        // Pool reparenting may turn previously carried scenery into an
+                        // exact published native selection/action visual. Restitute it
+                        // before sticky carry; signature and all collectors use this owner.
+                        if (IsModObject(p.Renderer))
+                        {
+                            RestoreProp(p);
+                            _mountedOwned.Remove(p.Renderer);
+                            continue;
+                        }
+                        // Native pool/attachment changes can move an already carried
+                        // effect onto a retained arch. Release our previous fade before
+                        // the sticky lane can hide it for the neighbouring wall again.
+                        if (IsArchMountedEffect(p.Renderer))
+                        {
+                            RestoreProp(p);
+                            _mountedOwned.Remove(p.Renderer);
+                            continue;
+                        }
                         // Figures are NEVER carried, sticky or not (round-7 ruling).
                         //
                         // MODBUILD 268 — THE FIFTH SITE. ModBuild 266 lifted this same refusal
@@ -2040,7 +2080,7 @@ internal static partial class WallSegmentFade
                         bool carriedWallBuilt = false;
                         if (IsFigureOrActorRenderer(p.Renderer))
                         {
-                            if (!IsWallGeneratedDressing(p.Renderer))
+                            if (!IsWallGeneratedDressingInCommit(p.Renderer))
                             {
                                 RestoreProp(p, seg, "FIGURE — never carried (round-7 ruling)");
                                 _mountedReleased.Add(p);
@@ -2274,7 +2314,7 @@ internal static partial class WallSegmentFade
                     bool wallBuilt = false;
                     if (!f.Mountable)
                     {
-                        if (!IsWallGeneratedDressing(c))
+                        if (!IsWallGeneratedDressingInCommit(c))
                         {
                             if (StructuralSkipArmed)
                             {
@@ -2330,7 +2370,7 @@ internal static partial class WallSegmentFade
                         // sconce dressing and proceeds into the geometric tests below so it
                         // rides its wall (gate columns included). Wall-sized fade meshes
                         // keep the old skip: they are walls, not dressing.
-                        Bounds fb = mr.bounds;
+                        Bounds fb = WallCommitGeometryReads.Read(mr);
                         bool sconceScale = fb.size.x <= MountedMaxSpanWU
                             && fb.size.y <= MountedMaxSpanWU
                             && fb.size.z <= MountedMaxSpanWU
@@ -2352,7 +2392,7 @@ internal static partial class WallSegmentFade
                     // drift every frame, which is what made the candles blink.
                     bool particles = c is ParticleSystemRenderer;
                     _mountedPastStructural++; // ModBuild 439 — past every structural reject
-                    Bounds b = c.bounds;
+                    Bounds b = WallCommitGeometryReads.Read(c);
                     // PERF S6 (2026-09-05) — THE EMITTER POSITION IS READ ONCE. `c.transform`
                     // is a native property get and `.position` is another, and the pair was
                     // taken FIVE times per particle candidate — twice here, twice for the
@@ -2382,7 +2422,7 @@ internal static partial class WallSegmentFade
                     // would be tested under its old name for at most one cycle; nothing in this
                     // tileset renames a GameObject at runtime, and the arch rect's own name test
                     // is a "Door" substring on a prefab name.
-                    if (IsArchProtected(archProbe, f.Name ?? c.name))
+                    if (IsArchProtected(archProbe, f.Name ?? c.name) || IsArchMountedEffect(c, f.Name))
                         continue; // the doorway's arch stays solid (user ruling 2026-08-07)
                     // WATER FEATURE (user ruling 2026-08-09, brunnen.png): the fountain's own
                     // waterfall/spark emitters sit inside its basin — they must not be mounted
@@ -2783,7 +2823,7 @@ internal static partial class WallSegmentFade
                     // a figure is never a child of a wall's Generated Content.
                     if (IsFigureOrActorRenderer(c))
                     {
-                        if (!IsWallGeneratedDressing(c))
+                        if (!IsWallGeneratedDressingInCommit(c))
                         {
                             NoteMountedReject(c, anchorY, bestGap,
                                 "FIGURE (never touched — round-7 ruling, Lights-rule severity)");
@@ -2813,7 +2853,7 @@ internal static partial class WallSegmentFade
                         // protected for STANDING ON THE FLOOR. The 2026-08-19 skull keeps every
                         // renderer it has: its unit has no figure ancestry, so this arm reads
                         // false for it and the refusal below stands unchanged.
-                        if (!(IsStandingFigureOnlyProp(c) && IsWallGeneratedDressing(c)))
+                        if (!(IsStandingFigureOnlyProp(c) && IsWallGeneratedDressingInCommit(c)))
                         {
                             NoteStandingPropBlocked(c, null);
                             NoteMountedReject(c, anchorY, bestGap,
@@ -3356,7 +3396,7 @@ internal static partial class WallSegmentFade
         /// half of the conjunction failed instead of printing one sentence for both.</param>
         private bool IsWallBuiltUnitDressing(Renderer r, out bool provenance)
         {
-            provenance = IsWallGeneratedDressing(r);
+            provenance = IsWallGeneratedDressingInCommit(r);
             return provenance && StandingFloorUnitRootOf(r) != null;
         }
 
@@ -3441,7 +3481,7 @@ internal static partial class WallSegmentFade
             bool particles = r is ParticleSystemRenderer;
             Bounds b = particles
                 ? new Bounds(r.transform.position, Vector3.zero)
-                : r.bounds;
+                : WallCommitGeometryReads.Read(r);
             if (!particles)
             {
                 Vector3 sz = b.size;
@@ -3583,7 +3623,8 @@ internal static partial class WallSegmentFade
                 return false;
             foreach (MountedProp p in lane)
             {
-                if (p.Renderer != null && ForeignFade(p.Renderer) > owner.Fade)
+                if (p.Renderer != null && !ScenarioSceneryBudget.IsOwnedHidden(p.Renderer)
+                    && ForeignFade(p.Renderer) > owner.Fade)
                     return true;
             }
             return false;

@@ -61,6 +61,9 @@ static class Program
         var fixturePanel = new ConvertedPanel { HostGo = new GameObject("Other panel") };
         orphan.Build(fixturePanel, 1f, "Native video");
         ordinary.Build(fixturePanel, 1f, "Ordinary modal");
+        var retirement = new GrabbableModal();
+        retirement.Build(fixturePanel, 1f, "Native retirement prompt");
+        GloomhavenVR.WorldUI.MapRoom.MapRetirementPrompt.OwnedGrab = retirement;
         ModalFallback.Converted.Add(new ModalFallback.WindowPanel { Grab = ordinary });
         var position = ownGrab.GrabRoot.position;
         foreach (var panel in CanvasConversion.Ordered)
@@ -76,8 +79,13 @@ static class Program
         }
         Check(!ownGrab.Destroyed && NativeVideoWindow.OwnsGrab(ownGrab), "orphan sweep preserves the live movie holder");
         Check(ownGrab.GrabRoot.position.Equals(position), "orphan sweeps do not relocate the movie");
+        Check(!retirement.Destroyed, "orphan sweep preserves the separately owned retirement prompt beside the movie");
         Check(orphan.Destroyed && ModalFallback.Orphans == 1, "same-name orphan is still destroyed");
-        Check(!ordinary.Destroyed && ModalFallback.LastSweepCount == 2, "ordinary modal ownership stays valid");
+        Check(!ordinary.Destroyed && ModalFallback.LastSweepCount == 3, "ordinary modal ownership stays valid");
+        GloomhavenVR.WorldUI.MapRoom.MapRetirementPrompt.OwnedGrab = null;
+        ModalFallback.SweepForTest();
+        Check(retirement.Destroyed && !ownGrab.Destroyed && !ordinary.Destroyed,
+            "ended retirement ownership is collected without destroying the movie or ordinary modal");
         ordinary.Destroy();
         ModalFallback.Converted.Clear();
         Check(NativeVideoWindow.Window == window && GrabbableModal.LiveCount == 1, "stable frames do not rebuild chrome");

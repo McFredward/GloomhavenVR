@@ -41,6 +41,9 @@ namespace GloomhavenVR.WorldUI;
 internal sealed class WindowMaterialiseRunner : MonoBehaviour
 {
     private const string Scope = "WorldUI";
+    // A compositor stall must not consume an entire visual transition in one render.
+    // Normal 72/90 Hz frames are unaffected; slow headsets get more displayed steps.
+    private const float MaxVisualStepSeconds = 0.05f;
 
     // Per-frame (two of them).
     private static readonly int FrontId = Shader.PropertyToID("_Front");
@@ -78,6 +81,7 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
 
     private Action? _onDone;
     private float _elapsed;
+    private float _wallElapsed;
     private bool _finished;
     private bool _reported;
 
@@ -455,17 +459,19 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
                 return;
             }
 
-            _elapsed += Time.unscaledDeltaTime;
+            float frameSeconds = Mathf.Max(0f, Time.unscaledDeltaTime);
+            _wallElapsed += frameSeconds;
+            _elapsed += Mathf.Min(frameSeconds, MaxVisualStepSeconds);
             if (PointerBlind)
-                _blindSeconds += Time.unscaledDeltaTime;
+                _blindSeconds += frameSeconds;
 
             // THE WATCHDOG. Not a timing mechanism — the ramp below finishes on its own — but the
             // answer to "what if _seconds was somehow zero, or unscaledDeltaTime is pathological".
             // A window may not be held by this effect for longer than the code ceiling plus slack,
             // full stop.
-            if (_elapsed > WindowMaterialise.HardCeilingSeconds + WindowMaterialise.WatchdogSlackSeconds)
+            if (_wallElapsed > WindowMaterialise.HardCeilingSeconds + WindowMaterialise.WatchdogSlackSeconds)
             {
-                Finish($"WATCHDOG at {_elapsed:F2}s", restore: true);
+                Finish($"WATCHDOG at {_wallElapsed:F2}s wall time", restore: true);
                 return;
             }
 
@@ -712,7 +718,7 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
         double mean = _frames > 0 ? _totalMs / _frames : 0d;
         VRLog.Info(Scope, $"WINDOW MATERIALISE {(_materialising ? "APPEAR" : "VANISH")} on "
                           + $"'{WindowMaterialise.Name(Panel)}' ended ({reason}) after "
-                          + $"{_elapsed:F2}s of {_seconds:F2}s over {_frames} frame(s). "
+                          + $"{_wallElapsed:F2}s wall / {_elapsed:F2}s visual of {_seconds:F2}s over {_frames} frame(s). "
                           + $"{n} CanvasRenderer(s) driven, {shards} shard(s) in the air; per-frame "
                           + $"cost MEASURED at {mean:F3} ms mean, {_worstMs:F3} ms worst. That is the "
                           + $"alpha write for every element ({WindowMaterialiseField.Samples} "

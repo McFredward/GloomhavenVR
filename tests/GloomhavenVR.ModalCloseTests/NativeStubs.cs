@@ -49,6 +49,14 @@ namespace GloomhavenVR.Core
 namespace GloomhavenVR.WorldUI
 {
     using UnityEngine.UI;
+    // Exact native promise identity/eligibility is covered by the onboarding suite.
+    // These modal-admission subjects have no pending merchant tutorial snapshot.
+    internal static class TownServiceTutorialPatches
+    {
+        internal sealed class MerchantClose { }
+        internal static MerchantClose? CaptureConvertedMerchantClose(UIWindow window) => null;
+        internal static void CompleteConvertedMerchantClose(UIWindow window, MerchantClose? close) { }
+    }
     // Semantic message continuation is exercised with its production helper in the
     // separate message-continuation suite. These subjects have no such controller.
     internal static class MessageWindowContinuation

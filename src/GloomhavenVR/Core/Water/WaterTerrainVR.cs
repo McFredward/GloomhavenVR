@@ -281,7 +281,19 @@ internal static class WaterTerrainVR
         // The respawn seam (see the class header): Apparance destroys and re-instantiates these
         // quads, so polling for them is a race by construction. Idempotent — Harmony no-ops a
         // second PatchAll of the same class, and the postfix itself no-ops once _driver is null.
-        VRSession.Harmony?.PatchAll(typeof(ProceduralBase_NotifyContentPlacementComplete_WaterPatch));
+        try
+        {
+            if (VRSession.Harmony != null)
+            {
+                VRSession.Harmony.PatchAll(typeof(ProceduralBase_NotifyContentPlacementComplete_WaterPatch));
+                _driver.UsePlacementHook = true;
+            }
+        }
+        catch (Exception e)
+        {
+            // Keep the old round-robin discovery when the game's placement seam changes.
+            VRLog.Warn(Name, "water placement hook unavailable; using tile polling (" + e.Message + ")");
+        }
         VRLog.Info(Name,
             "WaterTerrainVR installed — the parts of the game's water FEATURE (the film "
             + "'TERRAIN_Water_Plane' on shader family 'Water_Sh*' AND the basin bed/rim inside "
@@ -568,10 +580,10 @@ internal static class WaterTerrainVR
 
     private sealed class Driver : MonoBehaviour
     {
-        /// <summary>Discovery cadence. Slow on purpose: this must never become a per-frame scene
-        /// sweep (the PERF S1 lesson — every full FindObjectsOfType cost 10-15 ms in a
-        /// 3000-renderer room and was the measured cause of the hitches). ENFORCEMENT runs every
-        /// frame, but only over the already-tracked set and without touching a component walk.</summary>
+        /// <summary>Cadence for material settings and registry collection. The successful
+        /// placement hook makes discovery event-driven; only new active tiles are deeply seeded.
+        /// A failed hook retains the old one-tile-per-tick fallback. ENFORCEMENT runs every
+        /// frame over the already-tracked set without a component walk.</summary>
         private const float TickInterval = 0.25f;
 
         /// <summary>Census restatement floor — the heavy line is worth one every 30 s at most.</summary>
@@ -599,18 +611,25 @@ internal static class WaterTerrainVR
         /// claim the room's walls.</summary>
         private static readonly Vector3 ProbePadding = new(1.5f, 1.5f, 1.5f);
 
-        /// <summary>Round-robin cursor over the map-tile registry: ONE tile examined per tick in
-        /// the steady state. A reveal is caught by <see cref="_lastTileCount"/> instead of by
-        /// waiting for the cursor to come round, so new water is retuned within one tick of the
-        /// tile appearing rather than within a full lap.</summary>
+        /// <summary>Round-robin cursor used only if the placement hook could not be armed.</summary>
         private int _cursor;
+
+        /// <summary>The placement postfix reports every Apparance rebuild in its own frame.
+        /// Once armed, a quarterly deep walk of every unchanged tile only traverses thousands
+        /// of unrelated renderers and causes visible Frame hitches in large dry rooms. Newly
+        /// active tiles still get one complete seed walk; changed subtrees arrive through the
+        /// postfix. If the patch could not be armed, retain the previous polling path.</summary>
+        internal bool UsePlacementHook;
+
+        private readonly HashSet<ProceduralMapTile> _seenTiles = new();
+        private readonly HashSet<ProceduralMapTile> _activeTiles = new();
+        private readonly List<ProceduralMapTile> _retiredTiles = new();
+        private bool _newFilmNeedsBasinScan;
 
         private float _next;
         private float _nextCensus;
 
-        /// <summary>Tile count at the last sweep. A change means content appeared or went — the
-        /// one moment a FULL pass over every tile is worth its cost, and the moment ModBuild 158's
-        /// round-robin was too slow for.</summary>
+        /// <summary>Tile count at the last sweep, retained for the fail-open polling path.</summary>
         private int _lastTileCount = -1;
 
         /// <summary>Every renderer we own the materials of, and what we have to hand back.</summary>
@@ -986,7 +1005,8 @@ internal static class WaterTerrainVR
             {
                 _pendingOverflow = false;
                 _pending.Clear();
-                _lastTileCount = -1; // force the next Discover() into a full pass
+                _seenTiles.Clear();
+                _lastTileCount = -1; // force the fail-open polling path into a full pass
                 _next = 0f;          // …and let it happen on this tick rather than the next
                 return;
             }
@@ -1038,20 +1058,49 @@ internal static class WaterTerrainVR
                 // ModBuild 158's flicker lived in and this renderer is currently un-retuned.
                 _reasserts++;
                 ReleaseAt(i, restore: false);
+                _seenTiles.Clear();
                 _lastTileCount = -1;
                 _next = 0f;
             }
         }
 
-        /// <summary>One tile per tick in the steady state; EVERY tile on the tick after the tile
-        /// count moved. That is what makes a room reveal retune its water within a quarter second
-        /// instead of within a full lap of the registry — the gap ModBuild 158's flicker lived in.
-        /// The full pass costs one GetComponentsInChildren per tile and happens only on a content
-        /// change, which already carries seconds of reveal animation.</summary>
+        /// <summary>Seed each newly active tile once. Apparance reports later content rebuilds
+        /// through QueueSubtree in the same frame. The old polling path remains available when
+        /// the placement hook cannot be installed; it must not run in the ordinary large-room
+        /// steady state, where one deep tile walk cost up to 33 ms in the Frame trace.</summary>
         private void Discover()
         {
             SceneRegistry.MapTiles.Collect(_tileScratch);
             int count = _tileScratch.Count;
+            if (UsePlacementHook)
+            {
+                if (_newFilmNeedsBasinScan)
+                {
+                    // A basin may have been placed under a different tile before its film.
+                    // Reconsider those earlier tiles once, when the film first appears.
+                    _newFilmNeedsBasinScan = false;
+                    _seenTiles.Clear();
+                }
+                _activeTiles.Clear();
+                for (int i = 0; i < count; i++)
+                {
+                    ProceduralMapTile tile = _tileScratch[i];
+                    if (tile == null)
+                        continue;
+                    _activeTiles.Add(tile);
+                    if (_seenTiles.Add(tile))
+                        ExamineTile(tile);
+                }
+                // Collect excludes inactive/destroyed tiles. Forget them so reactivation gets
+                // the same seed walk as a new tile, even when the active count is unchanged.
+                _retiredTiles.Clear();
+                foreach (ProceduralMapTile tile in _seenTiles)
+                    if (!_activeTiles.Contains(tile))
+                        _retiredTiles.Add(tile);
+                foreach (ProceduralMapTile tile in _retiredTiles)
+                    _seenTiles.Remove(tile);
+                return;
+            }
             if (count == 0)
             {
                 _lastTileCount = 0;
@@ -1207,6 +1256,8 @@ internal static class WaterTerrainVR
             _liveInstances += instances.Length;
             _owned[r] = o;
             _tracked.Add(r);
+            if (isFilm && WantBasin)
+                _newFilmNeedsBasinScan = true;
 
             // A renderer with probe usage OFF cannot see our local probe at all — it takes the
             // scene default, which is the skybox, which is the swimming mirror. Nudging it to
@@ -1352,7 +1403,10 @@ internal static class WaterTerrainVR
             {
                 _appliedBasin = basin;
                 if (basin)
-                    _lastTileCount = -1; // turned ON: sweep every tile once so it takes at once
+                {
+                    _seenTiles.Clear(); // turned ON: seed every active tile once
+                    _lastTileCount = -1; // also force the fail-open polling path
+                }
                 else
                     ReleaseBasin();
             }

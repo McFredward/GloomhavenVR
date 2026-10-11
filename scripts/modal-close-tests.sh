@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source_root="${GHVR_TEST_SOURCE_ROOT:-$repo_root}"
 export PATH="${DOTNET_ROOT:-$HOME/.dotnet}:$PATH"
 project="$repo_root/tests/GloomhavenVR.ModalCloseTests/GloomhavenVR.ModalCloseTests.csproj"
 mutation_dir="$(mktemp -d)"
 trap 'rm -rf "$mutation_dir"' EXIT
-python3 - "$repo_root" "$mutation_dir" <<'PY'
+python3 - "$source_root" "$mutation_dir" <<'PY'
 import pathlib, sys
 root, out = map(pathlib.Path, sys.argv[1:])
 source = (root / 'src/GloomhavenVR/WorldUI/Modal/ModalFallback.7.Close.cs').read_text()
@@ -15,7 +16,11 @@ end = source.index('\n    /// <summary>', start)
 # MandatoryDecisionTerm compile directly from production, including rescue ownership.
 (out / 'Close.fixture').write_text('using System;\nusing GloomhavenVR.Core;\nusing UnityEngine.UI;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class ModalFallback {\n' + source[start:end] + '\n}\n')
 PY
-dotnet run --project "$project" --configuration Release --property:CloseSource="$mutation_dir/Close.fixture"
+dotnet run --project "$project" --configuration Release --property:CloseSource="$mutation_dir/Close.fixture" \
+    --property:DecisionSource="$source_root/src/GloomhavenVR/WorldUI/Modal/MandatoryDecision.cs" \
+    --property:StorySource="$source_root/src/GloomhavenVR/WorldUI/Modal/NativeStoryWindow.cs" \
+    --property:TermsSource="$source_root/src/GloomhavenVR/WorldUI/Modal/MandatoryDecisionTerm.cs" \
+    --property:CloseScopeSource="$source_root/src/GloomhavenVR/WorldUI/MapRoom/TownWindowCloseScope.cs"
 cp "$repo_root/tests/GloomhavenVR.ModalCloseTests/"*.cs "$mutation_dir/"
 cp "$project" "$mutation_dir/"
 for mutation in missing-guard late-guard no-rescue hide-before-rescue; do
@@ -42,9 +47,10 @@ PY
     esac
     if dotnet run --project "$mutation_dir/GloomhavenVR.ModalCloseTests.csproj" --configuration Release \
         --property:CloseSource="$mutation_dir/Close.mutant" \
-        --property:DecisionSource="$repo_root/src/GloomhavenVR/WorldUI/Modal/MandatoryDecision.cs" \
-        --property:StorySource="$repo_root/src/GloomhavenVR/WorldUI/Modal/NativeStoryWindow.cs" \
-        --property:TermsSource="$repo_root/src/GloomhavenVR/WorldUI/Modal/MandatoryDecisionTerm.cs" > "$mutation_dir/mutant.log" 2>&1; then
+        --property:DecisionSource="$source_root/src/GloomhavenVR/WorldUI/Modal/MandatoryDecision.cs" \
+        --property:StorySource="$source_root/src/GloomhavenVR/WorldUI/Modal/NativeStoryWindow.cs" \
+        --property:TermsSource="$source_root/src/GloomhavenVR/WorldUI/Modal/MandatoryDecisionTerm.cs" \
+        --property:CloseScopeSource="$source_root/src/GloomhavenVR/WorldUI/MapRoom/TownWindowCloseScope.cs" > "$mutation_dir/mutant.log" 2>&1; then
         cat "$mutation_dir/mutant.log"
         echo "FAIL: $mutation escaped modal close regression test." >&2
         exit 1

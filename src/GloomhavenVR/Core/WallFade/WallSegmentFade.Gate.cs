@@ -286,7 +286,7 @@ internal static partial class WallSegmentFade
                 {
                     if (r == null)
                         continue;
-                    Bounds rb = r.bounds;
+                    Bounds rb = WallCommitGeometryReads.Read(r);
                     if (!haveAll)
                     {
                         all = rb;

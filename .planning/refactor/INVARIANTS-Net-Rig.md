@@ -35,6 +35,58 @@
 
 ---
 
+
+## Build622 additive map item contract (2026-10-05)
+
+The fixed v3 rig/extras layouts remain frozen. Additive TLV101 names only public
+3D-map items: kind, immutable character key, original public item ID and native
+ushort seat/count. Primary provenance travels atomically in its rig pose; secondary
+provenance travels with its own extras held pose. Reject duplicates, conflicting
+actor/map provenance, missing poses and stale count/seat/ID matches. Never apply
+this source in a scenario. The actual inspection pile owns record20's character
+key; the separate ability fan or viewer focus is not its owner. Existing scenario
+item rendering/pose and disclosure predicates stay authoritative in scenarios.
+
+Float249 is the owner's finite metre deadzone; count224..247 stays byte-wide and
+zero-width248 stays retired. Actual complete-cloth145 makes the old bound7680;
+101 adds15 and249 adds5. Worst presence7700, writer7957, envelope8000. All existing
+record lengths/header/chunk grammar are unchanged, with literal golden controls.
+Ready same-author public cabinet originals survive page epochs. Reordered future
+members wait for their matching rack clock before mutating current modules;
+new-author changes still require atomic group handover. Native originals and
+owner-authored intermediate motion remain mandatory.
+
+TLV102 belongs only to the independent public cabinet lane. It binds the rack's
+current/transition member IDs to exact original content keys and includes complete
+canonical updates with the same service, session and claim. Validate every member,
+original property, native asset and template topology before admitting the picture.
+Neither a matching page epoch nor local datagram completion is proof of remote
+content readiness. Retain the complete bank through heartbeats and lossy delivery;
+never substitute a gray front, blank page or a paused observer clock. New-original
+preparation is bounded during loading and hidden cached pages stay dormant during
+steady play. Existing record78, numeric motion and original widget contracts remain
+authoritative; no card bitmap or native gameplay callback is transmitted.
+
+Additive103 supplements unchanged102 version1 references with the current author's
+complete native headers and, when necessary, exact original property deltas naming
+a genuinely cached base content key. Original node values are never inferred from
+a page or guessed from local presentation. Validate the complete reconstructed
+target hash, actual template lifetime and original parent bindings before any
+pending/baseline/clock mutation. A monotonically newer claim can reauthorize exact
+cached originals from the same real peer/service/session; another peer or session
+cannot inherit them. Reference and complete recovery packets of the same sequence
+must coexist until admission, so a rejected reference cannot discard its repair.
+Fast clocks share the unchanged bounded transport budget and retain full repairs;
+local completion is never an acknowledgement. Hidden prepared originals remain
+unexposed and cache/repair work remains bounded.
+
+The read-only town publisher runs at the end of the actual registered LateUpdate
+writer list, after native town/card/ring/scroll writes, grip-bar tweens and final
+canvas sorting. Do not move the already approved board/use-bar capture or reorder
+native continuation to accommodate this presentation-only sampler.
+
+---
+
 # PART I — THE WIRE FORMAT (FROZEN)
 
 ## 0. Why this section exists

@@ -522,8 +522,10 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     /// <summary>Depth-bearing transforms this tick (reused; no per-frame allocation).</summary>
     private readonly List<DepthNode> _depthScratch = new(64);
 
-    /// <summary>DFS work stack for the per-portrait subtree walk (reused; no per-frame allocation).</summary>
-    private readonly List<Transform> _depthStack = new(64);
+    /// <summary>Membership cache; native hierarchy/activation changes invalidate before rendering.</summary>
+    private UiHierarchyInventory? _depthInventory;
+    private int _depthRevision = -1;
+    private float _depthCap = float.NaN;
 
     /// <summary>Next unscaled time <see cref="NormalizeDepth"/> may run when
     /// <c>[Optimize] InitiativeDepthEvalInterval</c> is non-zero. Inert at the default 0.</summary>
@@ -706,7 +708,13 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
             if (!_reorderActive)
             {
                 float depthInterval = PerfConfig.InitiativeDepthInterval;
-                if (depthInterval <= 0f || Time.unscaledTime >= _nextDepthEval)
+                Transform? depthHolder = InitiativeTrack.Instance != null
+                    ? InitiativeTrack.Instance.initiativeTrackHolder : null;
+                bool changed = _depthInventory == null || _depthInventory.IsDirty
+                    || !ReferenceEquals(_depthInventory.Root, depthHolder)
+                    || _depthRevision != _depthInventory.Revision
+                    || _depthCap != WorldUIConfig.InitiativeDepthMaxSpreadPx.Value;
+                if (changed || depthInterval <= 0f || Time.unscaledTime >= _nextDepthEval)
                 {
                     _nextDepthEval = Time.unscaledTime + depthInterval;
                     using (PerfMonitor.Scope("InitTrack.NormalizeDepth"))
@@ -1471,99 +1479,50 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
         if (holder == null)
             return;
 
-        // The row's visible recession/emphasis is authored NOT on the holder's DIRECT
-        // children (their local z are ~equal — remapping only those did nothing and 0 was
-        // never flat) but on transforms NESTED inside each portrait: the avatar image, and
-        // the selection frame whose forward z pops the acting actor toward the head ("manche
-        // hervorgehoben"). The game's own selection path never moves a portrait transform in
-        // z or scale (Select → selectionObject.SetActive + material _FXAnim only), so the
-        // pop is authored geometry, not an animated offset — a subtree walk reaches all of
-        // it. Zeroing local z on this single world-space uGUI canvas removes ONLY the
-        // geometric protrusion; draw order is hierarchy-based, so the selection glow stays
-        // visible (whose turn it is is never hidden) — the row just goes flat.
-        _depthScratch.Clear();
-        int visited = 0;
-        float rawMin = 0f; // the holder plane (local z == 0) is the shallow reference
-        float rawMax = 0f;
-        // INDEXED, not `foreach (Transform rootChild in holder)` (S2 perf round). Transform's
-        // enumerator is a CLASS returned as a non-generic IEnumerator, so the foreach allocated one
-        // object per tick on a per-frame path — gen0 pressure for nothing. GetChild(i) in index
-        // order visits exactly the same children in exactly the same order.
-        int rootCount = holder.childCount;
-        for (int r = 0; r < rootCount; r++)
+        if (_depthInventory == null || !ReferenceEquals(_depthInventory.Root, holder))
         {
-            Transform rootChild = holder.GetChild(r);
-            if (!rootChild.gameObject.activeSelf)
-                continue;
-            // The ENTRY ROOTS themselves are deliberately NOT candidates (round 2). Their authored
-            // z are ~equal and flat — remapping only them was tried and did nothing — but they ARE
-            // the transforms vanilla's world-x writes leak an out-of-plane offset onto (see
-            // InitiativeReorderSlide's round-2 note). Left in the candidate set, the FIRST frame
-            // that carried such a leak would be recorded here as that entry's "authored" depth and
-            // then re-asserted forever, which both cements the leak and turns the row's real
-            // recession into noise (the remap factor is cap / spread). The row's axis guard owns
-            // an entry root's z; this pass owns the depth NESTED inside each portrait, which is
-            // where the game actually authored it.
-            // childCount hoisted here and at the DFS node below: it is a Unity interop property
-            // read, it was evaluated on EVERY loop iteration, and neither loop body can change the
-            // child count of the transform it is reading (both only push onto _depthStack). Same
-            // children, same order, ~one interop call per node instead of one per node PLUS one per
-            // child.
-            int seedCount = rootChild.childCount;
-            for (int k = 0; k < seedCount; k++)
-            {
-                Transform seed = rootChild.GetChild(k);
-                if (seed.gameObject.activeSelf)
-                    _depthStack.Add(seed);
-            }
-            while (_depthStack.Count > 0)
-            {
-                int last = _depthStack.Count - 1;
-                Transform t = _depthStack[last];
-                _depthStack.RemoveAt(last);
+            _depthInventory?.Dispose();
+            _depthInventory = new UiHierarchyInventory(holder);
+        }
+        bool rebuilt = _depthInventory.Refresh();
+        bool membershipChanged = rebuilt || _depthRevision != _depthInventory.Revision;
+        _depthRevision = _depthInventory.Revision;
+        _depthCap = WorldUIConfig.InitiativeDepthMaxSpreadPx.Value;
+        PerfMonitor.Count("InitDepth.InventoryRebuilds", rebuilt ? 1 : 0);
 
+        // Native portrait z is authored geometry; selection only toggles children and
+        // material FX. Inventory only depth-bearing nodes on membership/activity changes;
+        // steady maintenance reads their live visibility and transforms, not every flat
+        // text/graphic descendant. Native hierarchy/activation callbacks bypass the interval.
+        int visited = 0;
+        if (membershipChanged)
+        {
+            _depthScratch.Clear();
+            IReadOnlyList<Transform> nodes = _depthInventory.Nodes;
+            for (int i = 0; i < nodes.Count; i++)
+            {
+                Transform node = nodes[i];
+                if (node == null || ReferenceEquals(node, holder)
+                    || ReferenceEquals(node.parent, holder) || !node.gameObject.activeInHierarchy)
+                    continue;
                 visited++;
-
-                // Record the authored z once; thereafter the remap reads from here, so a
-                // prior frame's compressed value never becomes the new baseline. Only
-                // depth-BEARING transforms are tracked (|z| >= epsilon) — a flat transform's
-                // target is always 0, so tracking it would only add pointless writes.
-                //
-                // ONE dictionary lookup per node instead of two (S2 perf round). The shipped body
-                // asked TryGetValue and then ContainsKey for the very same key on every node of
-                // every portrait subtree, every frame. The three cases are enumerated and each is
-                // bit-identical to the shipped answer: key present ⇒ tracked with the stored raw;
-                // key absent and |z| ≥ epsilon ⇒ recorded, then tracked with that z (which is what
-                // ContainsKey found); key absent and |z| < epsilon ⇒ not recorded, not tracked.
-                bool tracked;
-                if (_rawDepth.TryGetValue(t, out float raw))
+                bool tracked = _rawDepth.TryGetValue(node, out float raw);
+                if (!tracked)
                 {
-                    tracked = true;
-                }
-                else
-                {
-                    raw = t.localPosition.z;
+                    raw = node.localPosition.z;
                     tracked = Mathf.Abs(raw) >= DepthEpsilonPixels;
-                    if (tracked)
-                        _rawDepth[t] = raw;
+                    if (tracked) _rawDepth[node] = raw;
                 }
-                if (tracked)
-                {
-                    _depthScratch.Add(new DepthNode { T = t, Raw = raw });
-                    if (raw < rawMin)
-                        rawMin = raw;
-                    if (raw > rawMax)
-                        rawMax = raw;
-                }
-
-                int childCount = t.childCount;
-                for (int i = 0; i < childCount; i++)
-                {
-                    Transform c = t.GetChild(i);
-                    if (c.gameObject.activeSelf)
-                        _depthStack.Add(c);
-                }
+                if (tracked) _depthScratch.Add(new DepthNode { T = node, Raw = raw });
             }
+        }
+        float rawMin = 0f, rawMax = 0f;
+        for (int i = 0; i < _depthScratch.Count; i++)
+        {
+            DepthNode node = _depthScratch[i];
+            if (node.T == null || !node.T.gameObject.activeInHierarchy) continue;
+            if (node.Raw < rawMin) rawMin = node.Raw;
+            if (node.Raw > rawMax) rawMax = node.Raw;
         }
 
         float rawSpread = rawMax - rawMin;
@@ -1588,6 +1547,7 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
             // node.Raw IS _rawDepth[node.T] — the walk above only ever records a node with the
             // value it just read out of (or wrote into) that dictionary, so dropping the lookup
             // here changes nothing but the cost.
+            if (node.T == null || !node.T.gameObject.activeInHierarchy) continue;
             float target = node.Raw * scale;
             Vector3 lp = node.T.localPosition;
             if (Mathf.Abs(lp.z - target) > 0.001f)
@@ -1602,6 +1562,10 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     /// <summary>Restore each recorded portrait's authored z (reversibility) and forget them.</summary>
     private void RestoreDepth()
     {
+        _depthInventory?.Dispose();
+        _depthInventory = null;
+        _depthRevision = -1;
+        _depthCap = float.NaN;
         if (_rawDepth.Count == 0)
             return;
         foreach (KeyValuePair<Transform, float> kv in _rawDepth)
@@ -1816,6 +1780,45 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
 /// </summary>
 internal sealed class ElementBoardSurface : TrayMountedPanelSurface
 {
+    internal static float SeatCorrectionMeters { get; private set; }
+    private Graphic[] _captionGraphics = System.Array.Empty<Graphic>();
+    private readonly Vector3[] _captionCorners = new Vector3[4];
+    protected override Vector3 MountOffset => new(0f, SeatCorrectionMeters, 0f);
+    protected override void Place()
+    {
+        base.Place();
+        if (Panel == null || Mount == null) { SeatCorrectionMeters = 0f; return; }
+        float top = 0f;
+        foreach (Graphic graphic in _captionGraphics)
+        {
+            if (graphic == null || !graphic.enabled || !graphic.gameObject.activeInHierarchy || graphic.color.a <= 0f
+                || graphic.canvasRenderer.GetAlpha() <= 0f || (graphic is TMP_Text text && string.IsNullOrWhiteSpace(text.text))) continue;
+            bool hidden = false;
+            for (Transform? ancestor = graphic.transform; ancestor != null && ancestor != Panel.HostTransform.parent; ancestor = ancestor.parent)
+            { CanvasGroup? group = ancestor.GetComponent<CanvasGroup>(); if (group != null && group.enabled && group.alpha <= 0f) { hidden = true; break; } }
+            if (hidden) continue;
+            if (graphic is TMP_Text caption)
+            {
+                Bounds bounds = caption.textBounds;
+                if (bounds.size.x <= 0f || bounds.size.y <= 0f) continue;
+                Vector3 center = bounds.center, extents = bounds.extents;
+                _captionCorners[0] = caption.transform.TransformPoint(center + new Vector3(-extents.x, -extents.y, 0f));
+                _captionCorners[1] = caption.transform.TransformPoint(center + new Vector3(-extents.x, extents.y, 0f));
+                _captionCorners[2] = caption.transform.TransformPoint(center + new Vector3(extents.x, extents.y, 0f));
+                _captionCorners[3] = caption.transform.TransformPoint(center + new Vector3(extents.x, -extents.y, 0f));
+            }
+            else graphic.rectTransform.GetWorldCorners(_captionCorners);
+            foreach (Vector3 corner in _captionCorners) top = Mathf.Max(top, Mount.InverseTransformPoint(corner).y - SeatCorrectionMeters);
+        }
+        Transform? objectives = PlayTray.Current?.ObjectivesMount;
+        if (objectives == null) { SeatCorrectionMeters = 0f; return; }
+        float bottom = -(ObjectivesSurface.DockedHeightMeters * .5f + ScenarioRulesSurface.DockedDropMeters
+            + ObjectivesSurface.BattleGoalReserveMeters + ScenarioRulesSurface.StackGapMeters);
+        Vector3 columnBottom = objectives.TransformPoint(new Vector3(0f, bottom, 0f));
+        float corrected = Mathf.Min(0f, Mount.InverseTransformPoint(columnBottom).y - top);
+        if (Mathf.Abs(corrected - SeatCorrectionMeters) > .00001f) { SeatCorrectionMeters = corrected; base.Place(); }
+    }
+
     public override string Name => "ElementBoard";
     // ALWAYS ON (user ruling 2026-08-13): the [WorldUI] ElementBoard dial is gone — the
     // element infusions are state you must read to spend them.
@@ -1844,10 +1847,17 @@ internal sealed class ElementBoardSurface : TrayMountedPanelSurface
     /// by-construction rule the initiative track uses: fullscreen siblings on the
     /// root canvas can never leak into the measured rect.
     /// </summary>
+    protected override void ReleasePanel(ConvertedPanel panel)
+    { SeatCorrectionMeters = 0f; _captionGraphics = System.Array.Empty<Graphic>(); base.ReleasePanel(panel); }
+    public override void Tick()
+    { base.Tick(); if (Panel == null) SeatCorrectionMeters = 0f; }
     protected override void OnConverted()
     {
         if (Panel != null && InfusionBoardUI.Instance != null)
+            {
             Panel.FitContentRoot = InfusionBoardUI.Instance.elementsHolder as RectTransform;
+            _captionGraphics = Panel.Target.GetComponentsInChildren<Graphic>(true);
+        }
     }
 }
 
@@ -2908,10 +2918,12 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
     /// written, so the Update-pass caller only ranks a label that is really laid out (ranking a
     /// zero-width or unplaced label would measure a distance to nowhere).</para>
     /// </summary>
+    internal static float BattleGoalReserveMeters { get; private set; }
+
     private bool PlaceQuestLabel()
     {
         if (Panel == null || _questGo == null || !_questGo.activeSelf)
-            return false;
+        { BattleGoalReserveMeters = 0f; return false; }
 
         // Anchored below the host's world rect (the exact plane the converted objectives render
         // on), sized proportional to the panel width so it rides tray grabs/resizes and diorama
@@ -2921,6 +2933,7 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
         float width = (QuestCorners[3] - bl).magnitude;
         if (width < 1e-4f)
             return false; // not laid out yet
+        BattleGoalReserveMeters = width / Mathf.Max(Mount != null ? Mount.lossyScale.x : 1f, 1e-6f) * (QuestGapFrac + QuestRectHeightFrac);
         Vector3 up = (QuestCorners[1] - bl).normalized;
         Vector3 bottomCenter = (bl + QuestCorners[3]) * 0.5f;
         Transform t = _questGo!.transform;
@@ -3416,7 +3429,7 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
 }
 
 // =================================================================================================
-//  Scenario SPECIAL RULES ("Spezialregeln") — GLOBAL, docked under the objectives
+//  Scenario SPECIAL RULES ("Spezialregeln") — original native content, owner-authored layout
 // =================================================================================================
 
 /// <summary>
@@ -3476,347 +3489,83 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
 /// and it is also the vanilla picture, which outranks a mod-invented "keine besonderen Regeln"
 /// line the user never asked for.
 /// </summary>
-/// <remarks>CLASSIFICATION: GLOBAL — scenario-wide, bit-identical on every client, ZERO wire.
-/// Source: <c>ScenarioManager.CurrentScenarioState.ScenarioModifiers</c> rendered by the game's own
-/// <c>UIManager.ScenarioModifierContainer</c>, which every client builds for itself from its own
-/// copy of the model.</remarks>
+/// <remarks>Original public scenario content comes from the game's ScenarioModifierContainer.
+/// Record96 carries the owner's exact original rows, style, hover and intermediate geometry.
+/// The maintainer's Build610 hardware correction (2026-10-03) supersedes the leftward header:
+/// original prose remains in place, long prose ends in a native ellipsis preview and expands
+/// vertically on hover or click. The animated occupied height moves the battle goal and element
+/// captions below it; peers consume those same owner frames without gameplay callbacks.</remarks>
 internal sealed class ScenarioRulesSurface : TrayMountedPanelSurface
 {
-    public override string Name => "ScenarioRules";
-
-    /// <summary>
-    /// ALWAYS ON, for the reason <see cref="ObjectivesSurface.ConfigEnabled"/> gives: the scenario
-    /// goal is what the whole scenario is for, and a rule that damages the party every round is
-    /// part of that goal, not a decoration. A dial here would also be a dial on ONE HALF of a
-    /// shared surface — the peers' copy is drawn by <c>RemoteObjectivesPanel</c>, which has no
-    /// dials at all — and "it syncs fully or not at all" forbids exactly that.
-    /// </summary>
-    protected override bool ConfigEnabled => true;
-
-    /// <summary>
-    /// Shares the objectives' slot. <see cref="PanelSlot"/> is ONLY the floating fallback pose for
-    /// the frames where no tray mount exists (and the dev preview); the real seat is the mount
-    /// below. Two panels in one fallback slot would overlap there — which is precisely why this
-    /// surface refuses to convert without an anchor: see <see cref="WantConverted"/>, whose
-    /// <c>DockedHeightMeters &gt; 0</c> term is false whenever the objectives dock is not placed,
-    /// and the objectives dock is not placed exactly when there is no mount.
-    /// </summary>
-    protected override PanelSlot Slot => PanelSlot.Objectives;
-
-    protected override Transform? Mount => PlayTray.Current?.ObjectivesMount;
-
-    /// <summary>
-    /// THE SAME COLUMN AS THE OBJECTIVES, deliberately read from the same expression rather than
-    /// from a constant of its own: the two sections are one block in the player's eye, and a rules
-    /// paragraph that re-wrapped at a different column from the goals above it would read as two
-    /// unrelated panels. It also means the user's existing 'Breite' dial moves both.
-    /// </summary>
-    protected override float MountWidth =>
-        PlayTray.ObjectivesMountWidth * CardsConfig.ObjectivesWidth(CardsConfig.CurrentBoard).Value;
-
-    /// <summary>
-    /// HOW MUCH OF THE LEFT COLUMN THE RULES MAY TAKE, and it is not a free choice — the column is
-    /// already full. <c>PlayTray</c> authors it as objectives (0.32 m budget, centred on the mount)
-    /// then a 12 mm clearance then the element board (0.12 m), i.e. the element board's TOP EDGE
-    /// sits at <c>-(0.32/2 + 0.012) = -0.172 m</c> board-local, with nothing between. The space
-    /// this section occupies is therefore the objectives' OWN UNUSED BUDGET: they settle at 80–98 px
-    /// of their 461 px allowance on hardware (see <see cref="ObjectivesSurface.FitWidthToMount"/>'s
-    /// derivation), which at this density is 56–68 mm tall, so ~0.03 m below the mount is free.
-    ///
-    /// <para>THE ARITHMETIC THIS NUMBER HAS TO SATISFY. This panel's top edge is at
-    /// <c>-(objHalf + 12 mm)</c> and its bottom at one budget below that, and the bottom must clear
-    /// -0.172 m. At the hardware-observed objectives height (objHalf ≈ 0.030) the bottom lands at
-    /// -0.132 m, clearing by 40 mm. At the WORST case the objectives doc derives — the narrowest
-    /// 0.5× column, "roughly double the line count", objHalf ≈ 0.065 — it lands at -0.167 m and
-    /// still clears, by 5 mm. That worst case is what sized this: 0.12 (the element strip's own
-    /// budget, which the first cut copied) overlaps the element board by 40 mm there.</para>
-    ///
-    /// <para>STATED RATHER THAN SMOOTHED OVER: an objectives panel taller than ≈0.13 m would push
-    /// this section into the element board. I have no reading of one — the tallest the hardware log
-    /// reports is 98 px — so this is a bound from the objectives surface's own derivation, not a
-    /// measurement, and a report of the rules sitting over the elements is the evidence that the
-    /// objectives can get taller than that derivation allows. The overflow direction is safe
-    /// meanwhile: the shared dock fit clamps CONTENT against this budget, so a long rules paragraph
-    /// renders smaller and never spills past it.</para>
-    ///
-    /// <para>MIRRORED in <c>RemoteObjectivesPanel.ScenarioRulesBudget</c> and linted — a peer board
-    /// whose rules were allowed a different height would wrap and scale them differently from the
-    /// owner's, which is the 1:1 ruling broken by a budget.</para>
-    /// </summary>
     internal const float RulesBudgetMeters = 0.09f;
-
-    protected override float MountMaxHeight => RulesBudgetMeters;
-
-    /// <summary>Right edge on the mount and growing DOWN-LEFT — the mount point is this panel's
-    /// TOP-RIGHT corner. See the class doc for why the vertical term is -1 here and 0 above.</summary>
-    protected override Vector2 GrowDirection => new(-1f, -1f);
-
-    /// <summary>
-    /// GAP between the objectives dock's bottom edge and the rules' top edge, mount-local metres.
-    ///
-    /// <para>MIRRORED in <c>RemoteObjectivesPanel.ScenarioRulesStackGap</c>, and the pair is linted
-    /// by <c>scripts/check-mirrors.sh</c>. It has to be one value: it is the only thing that sets
-    /// how far the rules sit under the goals, and a peer board whose gap disagreed with the
-    /// owner's would be the 1:1 ruling broken by a number nobody would think to check. The lint is
-    /// this repo's own answer to that shape (see that script's header) and is cheaper than routing
-    /// a WorldUI constant into <c>Net/</c>.</para>
-    ///
-    /// <para>12 mm is the left column's own clearance — the same gap <c>PlayTray.ElementMountBase</c>
-    /// already puts between the objectives budget and the element board, so the three sections of
-    /// that column are evenly spaced rather than each picking its own number.</para>
-    /// </summary>
     internal const float StackGapMeters = 0.012f;
-
-    /// <summary>
-    /// HOW FAR THIS SECTION PUSHES THE REST OF THE COLUMN DOWN — mount-local metres from the
-    /// OBJECTIVES dock's bottom edge to THIS dock's bottom edge, i.e. <see cref="StackGapMeters"/>
-    /// plus the height this panel actually came out at. Zero means "the rules are not on screen",
-    /// and a seat below reads that as "the objectives are the bottom of the column".
-    ///
-    /// <para>PUBLISHED FOR THE SAME REASON <see cref="ObjectivesSurface.DockedHeightMeters"/> is,
-    /// one step further down. This surface seats itself from the objectives' live height because
-    /// an ASSUMED height is drift; the battle-goal label under it
-    /// (<see cref="ObjectivesSurface.PlaceQuestLabel"/>) had no term for THIS panel at all and
-    /// therefore seated itself against the objectives too — two surfaces on one anchor, drawn on
-    /// top of each other (user, 2026-09-07: "Der Text der Sonderregeln liegt über dem Text der
-    /// privaten Quest"). The column is three seats deep, so the relation has to run three deep.</para>
-    ///
-    /// <para>MOUNT-LOCAL METRES, NOT WORLD, and that is what makes it safe to read across a tick
-    /// boundary: it is a FIT quantity (<c>rect.height × metersPerPixel</c>), so it moves only when
-    /// the panel re-lays-out — never with the tray grab, the diorama zoom or the board pose, which
-    /// the reader multiplies in live from the shared mount's own lossy scale. STATIC because the
-    /// seat is a relation between two SURFACES and <see cref="WorldUIModule"/> owns exactly one
-    /// instance of each.</para>
-    ///
-    /// <para>WITHIN-FRAME, NOT LAST FRAME'S, despite this surface ticking AFTER the objectives:
-    /// the docked panels place TWICE per frame (Update, then LateUpdate — see
-    /// <see cref="TrayMountedPanelSurface.LateTick"/>), so the value the objectives' LateUpdate
-    /// pass reads is the one this surface wrote in the SAME frame's Update pass. The ordering
-    /// constraint in <see cref="WorldUIModule"/>'s slot list is therefore still exactly right and
-    /// must not be inverted to "fix" a staleness that does not exist.</para>
-    /// </summary>
     internal static float DockedDropMeters { get; private set; }
-
-    /// <summary>
-    /// Republish <see cref="DockedDropMeters"/> from the height this tick actually applied.
-    /// AFTER <c>base.Place()</c>, which is what writes <see cref="TrayMountedPanelSurface.AppliedHeightMeters"/>
-    /// and what decides whether this dock is on screen at all — an invisible dock occupies none of
-    /// the column and must publish 0, or the battle goal below it would hold a gap open for a
-    /// section nobody can see.
-    /// </summary>
+    internal static BoardRulesFoldout? Presentation { get; private set; }
+    internal static Transform? PresentationMount { get; private set; }
+    public override string Name => "ScenarioRules";
+    protected override bool ConfigEnabled => true;
+    protected override PanelSlot Slot => PanelSlot.Objectives;
+    protected override Transform? Mount => PlayTray.Current?.ObjectivesMount;
+    protected override float MountWidth => PlayTray.ObjectivesMountWidth * CardsConfig.ObjectivesWidth(CardsConfig.CurrentBoard).Value;
+    protected override float MountMaxHeight => RulesBudgetMeters;
+    protected override Vector2 GrowDirection => new(-1f, -1f);
+    protected override float DensityScale => .6f;
+    protected override bool FitWidthToMount => false;
+    protected override RectTransform? FindTarget() => UIManager.Instance != null
+        && UIManager.Instance.ScenarioModifierContainer != null ? UIManager.Instance.ScenarioModifierContainer.transform as RectTransform : null;
+    protected override bool WantConverted => base.WantConverted && ObjectivesSurface.DockedHeightMeters > 0f && RuleRowCount() > 0;
+    private float _rowCheckAt;
+    private int _rows;
+    private int _loggedRows = -1;
+    private bool _loggedOverflow;
+    private int RuleRowCount()
+    {
+        if (Time.unscaledTime < _rowCheckAt) return _rows;
+        _rowCheckAt = Time.unscaledTime + .25f; _rows = 0;
+        RectTransform? root = FindTarget();
+        if (root != null) foreach (ScenarioModifierUI row in root.GetComponentsInChildren<ScenarioModifierUI>(true))
+            if (row != null && row.gameObject.activeSelf) _rows++;
+        return _rows;
+    }
+    protected override void OnConverted()
+    {
+        if (Panel == null) return;
+        Panel.FitEnabled = false;
+        Presentation = new BoardRulesFoldout(Panel.HostRect, Panel.Target, true);
+        Panel.MrVisualRoot = Presentation.VisualRoot;
+        PresentationMount = Mount;
+    }
     protected override void Place()
     {
-        base.Place();
-        DockedDropMeters = Panel != null
-                           && Panel.HostGo != null
-                           && Panel.HostGo.activeInHierarchy
-                           && AppliedHeightMeters > 0f
-            ? StackGapMeters + AppliedHeightMeters
-            : 0f;
+        if (Panel == null || Mount == null || Presentation == null) return;
+        Presentation.Tick(MountWidth, Time.unscaledDeltaTime);
+        if (_loggedRows != _rows || _loggedOverflow != Presentation.Overflow)
+        {
+            _loggedRows = _rows; _loggedOverflow = Presentation.Overflow;
+            VRLog.Info("WorldUI", $"SCENARIO RULES: {_rows} original row(s), overflow foldout={Presentation.Overflow}; "
+                + $"native glyph density {1000f / BoardRulesFoldout.Density:F4} mm/px, reserved column {Presentation.OccupiedMeters * 1000f:F1} mm; original inline text preview.");
+        }
+        Vector3 offset = new(0f, -(ObjectivesSurface.DockedHeightMeters * .5f + StackGapMeters), 0f);
+        // Density is already metres per native pixel. PlaceHost multiplies its argument by
+        // CanvasScaleMm again and made Build610 owner rules microscopic; remote record96 used
+        // the correct 1/Density. Use the same direct dock placement as the other tray surfaces.
+        Transform host = Panel.HostTransform;
+        host.SetPositionAndRotation(Mount.TransformPoint(offset), Mount.rotation);
+        host.localScale = Vector3.one * (Mount.lossyScale.x / BoardRulesFoldout.Density);
+        Panel.HostGo.SetActive(Mount.gameObject.activeInHierarchy);
+        Panel.OrderCluster = PlayTray.Current;
+        DockedDropMeters = Panel.HostGo.activeInHierarchy ? StackGapMeters + Presentation.OccupiedMeters : 0f;
     }
-
-    /// <summary>
-    /// Released (no special rules on this scenario, no objectives anchor, no scenario at all) —
-    /// <see cref="Place"/> is not called on a surface with no panel, so the last published drop
-    /// would stand forever and push the battle goal down past a section that no longer exists.
-    /// Checked AFTER the base tick, which is the call that can clear <c>Panel</c>.
-    /// </summary>
+    public override void LateTick() => Place();
     public override void Tick()
     {
         base.Tick();
-        if (Panel == null)
-            DockedDropMeters = 0f;
+        if (Panel == null) { Presentation?.Dispose(); Presentation = null; PresentationMount = null; DockedDropMeters = 0f; }
     }
-
-    /// <summary>
-    /// Seated under the objectives' LIVE height, re-read every <see cref="TrayMountedPanelSurface.Place"/>.
-    /// The objectives dock is centred on the shared mount (its own grow.y is 0), so its bottom edge
-    /// is half its height below the anchor; this panel's top edge goes one gap under that.
-    /// </summary>
-    protected override Vector3 MountOffset =>
-        new(0f, -(ObjectivesSurface.DockedHeightMeters * 0.5f + StackGapMeters), 0f);
-
-    /// <summary>
-    /// Read like the objectives text, at arm's length, so it takes the objectives' density
-    /// verbatim (test #17's 0.6× — the shared tray density rendered this size of text too small).
-    /// A rules paragraph set at a different size from the goals directly above it would look like a
-    /// different panel, and the peers' copy uses the same number for the same reason.
-    /// </summary>
-    protected override float DensityScale => 0.6f;
-
-    /// <summary>
-    /// False for the reason <see cref="ObjectivesSurface.FitWidthToMount"/> derives at length: this
-    /// panel's content is FORCED to the width budget by <see cref="ApplyContentWidth"/>, so the
-    /// shared uniform fit's width term degenerates and turns the 'Breite' dial into a size dial.
-    /// The height budget alone remains, as an overflow guard.
-    /// </summary>
-    protected override bool FitWidthToMount => false;
-
-    protected override RectTransform? FindTarget()
+    protected override void ReleasePanel(ConvertedPanel panel)
     {
-        UIManager manager = UIManager.Instance;
-        return manager != null && manager.ScenarioModifierContainer != null
-            ? manager.ScenarioModifierContainer.transform as RectTransform
-            : null;
-    }
-
-    /// <summary>
-    /// Convert only when there is something to show AND something to hang it under.
-    ///
-    /// <para>ROW COUNT: <c>ScenarioModifierContainer</c> keeps its instance list private, so the
-    /// rows are counted as the live <c>ScenarioModifierUI</c> children — which is the same set by
-    /// construction (the container is the only thing that ever instantiates one, always as its own
-    /// child). Counting the WIDGETS rather than re-deriving the model list is deliberate: the
-    /// container has already applied both of the game's filters (<c>IsHidden</c>/<c>Deactivated</c>,
-    /// and "the localised string came back empty"), and re-implementing them here is how two
-    /// pictures of one thing start to disagree.</para>
-    ///
-    /// <para>ANCHOR: with no objectives height there is no seat, and converting anyway would put
-    /// the rules on top of the goals for as long as that lasted.</para>
-    /// </summary>
-    protected override bool WantConverted =>
-        base.WantConverted && ObjectivesSurface.DockedHeightMeters > 0f && RuleRowCount() > 0;
-
-    /// <summary>Cached row count and the time it was taken. <see cref="WantConverted"/> is read on
-    /// every tick and <see cref="RuleRowCount"/> allocates (GetComponentsInChildren), so an
-    /// uncached read would put one array per frame on the heap for a number that changes only when
-    /// the game adds or removes a modifier — an event, not a frame. 0.25 s is the same cadence the
-    /// remote board refreshes its own content at.</summary>
-    private const float RuleCountCacheSeconds = 0.25f;
-    private int _cachedRuleRows;
-    private float _ruleCountAt = -1f;
-
-    /// <summary>Live drawn rule rows — see <see cref="WantConverted"/> for why the widgets are the
-    /// population and not the model list. Wrapped: a half-initialised UIManager must read 0, never
-    /// throw into the surface tick.</summary>
-    private int RuleRowCount()
-    {
-        float now = Time.unscaledTime;
-        if (_ruleCountAt >= 0f && now - _ruleCountAt < RuleCountCacheSeconds)
-            return _cachedRuleRows;
-        _ruleCountAt = now;
-        _cachedRuleRows = CountRuleRows();
-        return _cachedRuleRows;
-    }
-
-    private static int CountRuleRows()
-    {
-        try
-        {
-            UIManager manager = UIManager.Instance;
-            ScenarioModifierContainer? container =
-                manager != null ? manager.ScenarioModifierContainer : null;
-            if (container == null)
-                return 0;
-            int n = 0;
-            foreach (ScenarioModifierUI row in
-                     container.GetComponentsInChildren<ScenarioModifierUI>(includeInactive: false))
-                if (row != null && row.gameObject.activeInHierarchy)
-                    n++;
-            return n;
-        }
-        catch { return 0; }
-    }
-
-    /// <summary>
-    /// Force the wrap column onto the container root, exactly as
-    /// <c>ObjectivesSurface.ApplyContentWidth</c> does and for the identical reason: the
-    /// container's authored rect comes from ITS parent's layout in the game's 2D HUD, and once
-    /// <see cref="CanvasConversion"/> re-parents it nothing drives the width any more, so it
-    /// converts at the degenerate-rect placeholder and every line wraps to a word or two.
-    ///
-    /// <para>Simpler here than on the objectives, because the row prefab is simpler: a
-    /// <c>ScenarioModifierUI</c> is one <c>TextMeshProUGUI</c>, so the column reaches the text
-    /// through the container's own layout with no nested horizontal groups and no stretch-anchored
-    /// progress bar to preserve. Nothing below the root is touched.</para>
-    /// </summary>
-    protected override void OnConverted()
-    {
-        // DROP THE LATCH FIRST. CanvasConversion.Release restores the container's pristine 2D
-        // OriginalSizeDelta, so a re-conversion arrives with the game's own rect back in place and
-        // the column has to be re-forced — a latch carried across the release would remember a
-        // write that no longer exists and never write again. (Nothing needs restoring on the way
-        // out for the same reason: Release already puts the authored rect back, which is why this
-        // surface has no RestoreContentWidth counterpart to ObjectivesSurface's.)
-        _appliedColumnPx = -1f;
-        ApplyContentWidth();
-    }
-
-    public override void LateTick()
-    {
-        base.LateTick();
-        ApplyContentWidth(); // the budget is live: a 'Breite' change must re-wrap next frame
-        LogRules();
-    }
-
-    /// <summary>Last column we wrote, so the per-tick re-force is a no-op until it really moves.</summary>
-    private float _appliedColumnPx = -1f;
-
-    /// <summary>
-    /// Force the wrap column onto the container root. LOAD-BEARING AND NOTHING ELSE: the report
-    /// lives in <see cref="LogRules"/>, deliberately separate, because this project has already had
-    /// a spent <c>Log*</c> method deleted with a real write hiding inside it.
-    /// </summary>
-    private void ApplyContentWidth()
-    {
-        if (Panel == null)
-            return;
-        RectTransform? root = Panel.Target;
-        if (root == null)
-            return;
-
-        // wantPx = the mount budget at THIS panel's density — the identical product the objectives
-        // write, so the two sections wrap at the same column by construction rather than by two
-        // numbers that happen to agree today.
-        float wantPx = MountWidth * PlayTray.TrayPixelsPerMeter * DensityScale;
-        if (wantPx < 1f || Mathf.Abs(wantPx - _appliedColumnPx) < 0.5f)
-            return;
-        _appliedColumnPx = wantPx;
-
-        Vector2 size = root.sizeDelta;
-        root.sizeDelta = new Vector2(wantPx, size.y);
-        LayoutRebuilder.MarkLayoutForRebuild(root);
-    }
-
-    /// <summary>Last (column, rows) pair reported — the rules line is one per real change, and the
-    /// ROW COUNT is part of the key because the game may add a modifier mid-scenario
-    /// (<c>ScenarioModifierContainer.ModifyUpdatedHiddenOrDeactivatedState</c>).</summary>
-    private float _loggedColumnPx = -1f;
-    private int _loggedRuleRows = -1;
-
-    private void LogRules()
-    {
-        if (Panel == null)
-            return;
-        int rows = RuleRowCount();
-        if (Mathf.Abs(_appliedColumnPx - _loggedColumnPx) < 0.5f && rows == _loggedRuleRows)
-            return;
-        _loggedColumnPx = _appliedColumnPx;
-        _loggedRuleRows = rows;
-        float wantPx = _appliedColumnPx;
-
-        // HW-VERIFY
-        VRLog.Note("WorldUI", $"SCENARIO RULES: {rows} special-rule row(s) docked under " +
-            $"the objectives on the LOCAL board, wrap column forced to {wantPx:F0} px " +
-            $"({MountWidth * 1000f:F0} mm × {PlayTray.TrayPixelsPerMeter:F0} px/m × density " +
-            $"{DensityScale:F2}), seated {ObjectivesSurface.DockedHeightMeters * 0.5f + StackGapMeters:F3} m " +
-            "under the objectives mount. SOURCE: the game's own UIManager.ScenarioModifierContainer " +
-            "(the widget, converted — not a mod redraw), so every sentence is the game's own " +
-            "localised text in the player's language. READ IT LIKE THIS. WORKING: this line appears " +
-            "on a scenario that HAS special rules, with a row count matching what the flat HUD " +
-            "would list and a column within a pixel of the 'OBJECTIVES WIDTH APPLIED' number — the " +
-            "two sections are one block and must wrap identically. INERT: no line at all on a " +
-            "scenario the player is taking per-round damage in; that means WantConverted never " +
-            "opened, and its three terms say which — no scenario, no objectives anchor " +
-            "(DockedHeightMeters 0), or 0 rows. A count of 0 NEVER reaches this line: 0 rows is " +
-            "the scenario genuinely having no special rules, which collapses the section exactly " +
-            "as the flat game's DecorateSpecialRules does, and is reported by the ABSENCE of this " +
-            "line together with a scenario that shows no rules on the flat HUD either. BEYOND THE " +
-            "INSTRUMENT: rows are counted as live ScenarioModifierUI children, so a rule the game " +
-            "holds but never spawns a widget for (IsHidden, Deactivated, or an empty " +
-            "LocalizeText) is invisible to this count BY DESIGN — it is invisible to the flat game " +
-            "too, and a report of a rule that vanilla shows and this does not would be the first " +
-            "evidence that those two populations differ.");
+        panel.MrVisualRoot = null; Presentation?.Dispose(); Presentation = null; PresentationMount = null; DockedDropMeters = 0f;
+        base.ReleasePanel(panel);
     }
 }
 

@@ -1,58 +1,52 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using Unity.Profiling;
 using UnityEngine;
 
 namespace GloomhavenVR.Core;
 
 /// <summary>
-/// WHERE THE FRAME ACTUALLY GOES — the measurement that decides the 2026-07 judder
-/// investigation, added after the pixel-budget hypothesis was refuted on hardware.
+/// Clock-bracketed main-thread frame spans, added after the 2026-07 pixel-budget test.
 ///
 /// <para>WHY THIS EXISTS. <see cref="PerfMonitor"/> measures the frame INTERVAL and the mod's own
-/// share of it. Both were unambiguous: the mod costs ~2 % of the frame, and the frame is ~23 ms
+/// share of it. In the original 2026-07 capture, the mod cost ~2 % of the frame, and it was ~23 ms
 /// against an 11.11 ms budget. What neither could answer is WHICH LAYER is spending the other
 /// 98 %. The one counter that looked like an answer — the XR runtime's <c>gpu</c> figure — read
 /// almost exactly the frame interval in every window, and a "GPU time" that equals total frame
 /// time and does not move when the pixel-sample budget is cut 11× is not reporting GPU busy time;
 /// it is reporting the interval or a wait. So a preset sweep on hardware moved it by 7 % and
-/// taught us nothing. This class replaces that guess with a decomposition that CANNOT be fooled,
-/// because it is built out of the mod's own clock reads at known points in Unity's frame.</para>
+/// taught us nothing. This class uses clock reads at known Unity callbacks to distinguish measured
+/// spans from the remaining interval; it cannot name work outside those callbacks.</para>
 ///
 /// <para>THE DECOMPOSITION. Unity's main thread runs a frame as
 /// <c>Update → LateUpdate → render loop (cull + submit, per camera) → present/wait → next
 /// Update</c>. Three timestamps bracket that:</para>
 /// <list type="number">
 /// <item><b>logic span</b> — from <see cref="PerfMonitor"/>'s host <c>Update</c> (execution order
-/// −30000, the first thing in the frame) to this class's tail <c>LateUpdate</c> (order +30000,
-/// the last). Everything the game and the mod COMPUTE lives in here.</item>
+/// −30000) to this class's tail <c>LateUpdate</c> (order +30000). It includes the callbacks and
+/// engine work between those seams, but not all main-thread work in a frame.</item>
 /// <item><b>render-loop span</b> — from the first <see cref="Camera.onPreCull"/> to the last
 /// <see cref="Camera.onPostRender"/> of the same frame. This is the main thread inside Unity's
-/// rendering: culling plus draw-call submission (and, when the render thread's queue is full,
-/// the main thread's own blocking inside those submits). It is also measured PER CAMERA, which
+/// rendering callbacks and any engine work or waits between them. It is also measured PER CAMERA, which
 /// is the number that prices the scenario camera's third full-scene render into a sink texture
 /// nothing reads — and each camera's figure is split again at <see cref="Camera.onPreRender"/>
-/// into CULL (visibility determination; scales with how many renderers exist and pass the culling
-/// mask) and SUBMIT (draw calls, including a forward camera's depth-texture prepass and every
-/// shadow map). "The render loop owns the frame" is true of both halves and their levers are
-/// different, so the split is measured rather than argued.</item>
-/// <item><b>blocked</b> — the remainder of the frame interval. The main thread is neither
-/// computing nor submitting: it is waiting for the GPU, for the compositor's next present slot,
-/// or for the XR runtime. A frame that is nearly all "blocked" is NOT a CPU problem, and no
-/// amount of draw-call or logic optimisation will move it.</item>
+/// into preCull→preRender and preRender→postRender spans. These bracket cull and submit phases but
+/// are not exclusive timers for either operation.</item>
+/// <item><b>blocked</b> — the unbracketed remainder of the frame interval. It can include native
+/// Unity work (such as canvas rebuilds), waits, and XR/compositor pacing. This instrument cannot
+/// identify those parts or establish GPU busy time.</item>
 /// </list>
 ///
-/// <para>READING IT. The verdict line states which of the three owns the frame, in words, so the
-/// next hardware log answers the question by itself:</para>
+/// <para>READING IT. The verdict line names the largest measured span or unbracketed remainder;
+/// it does not assign an exclusive CPU/GPU cause:</para>
 /// <list type="bullet">
-/// <item><c>logic ≈ frame</c> → the game's own <c>Update</c>/<c>LateUpdate</c> is the wall.</item>
-/// <item><c>render ≈ frame</c> → draw-call submission is the wall. MultiPass doubling the head
-/// camera's passes is then the direct cause, and the sink renders are pure waste on top.</item>
-/// <item><c>blocked ≈ frame</c> → the CPU is idle and we are waiting on the GPU or the
-/// compositor. Note that a runtime that has locked the app to half rate produces exactly this
-/// signature WITHOUT the GPU being full, which is why <see cref="PerfMonitor"/> now shouts when
-/// the display rate changes: below a rate lock every timing is quantised to the new interval and
-/// comparisons across the boundary are meaningless.</item>
+/// <item><c>logic ≈ frame</c> → the Update→LateUpdate bracket is large; named callbacks and mod
+/// steps are needed to identify work inside it.</item>
+/// <item><c>render ≈ frame</c> → the camera callback bracket is large; cull/submit seams and
+/// scene counts give context, not draw-call or GPU timers.</item>
+/// <item><c>blocked ≈ frame</c> → the unbracketed interval is large; engine work and waits remain
+/// possible. A runtime rate lock can also quantise the apparent frame interval.</item>
 /// </list>
 ///
 /// <para>FRAMETIMINGMANAGER. Unity's own <c>FrameTimingManager</c> is queried too, because when
@@ -64,7 +58,7 @@ namespace GloomhavenVR.Core;
 /// bind, every one of its figures prints <c>n/a</c> and the spans above still answer the
 /// question on their own. The call is latched behind its own try/catch so a struct-shape
 /// mismatch on some other Unity version degrades to n/a instead of taking the instrumentation
-/// down.</para>
+/// down. Clock-bracketed spans alone do not answer the GPU question.</para>
 ///
 /// <para>THE VIEWPOINT (see <c>PerfFrameSplit.Zoom.cs</c>). Every recorded frame also carries WHERE
 /// IT WAS SEEN FROM: the head's height above the board plane, its distance from the board centre,
@@ -111,19 +105,14 @@ internal static partial class PerfFrameSplit
         public double WindowSeconds;
 
         /// <summary>
-        /// Of <see cref="WindowSeconds"/>, the part spent CULLING — onPreCull → onPreRender, which
-        /// is exactly Unity's visibility determination for this camera/pass. Split out because the
-        /// two halves have DIFFERENT levers: culling scales with the number of renderers that
-        /// exist and pass the culling mask, submission with the number of draw calls the visible
-        /// ones produce. "The render loop owns the frame" does not say which, and picking the
-        /// wrong one is a wasted round on hardware.
+        /// Of <see cref="WindowSeconds"/>, the onPreCull→onPreRender callback interval. It
+        /// brackets culling-related engine work but is not an exclusive culling timer.
         /// </summary>
         public double WindowCullSeconds;
 
         /// <summary>
-        /// Of <see cref="WindowSeconds"/>, the part spent SUBMITTING — onPreRender → onPostRender.
-        /// Includes the built-in forward path's depth-texture prepass and any shadow-map passes,
-        /// because both happen inside this camera's render between those two callbacks.
+        /// Of <see cref="WindowSeconds"/>, the onPreRender→onPostRender callback interval.
+        /// Rendering, engine work and possible waits can all occur between those seams.
         /// </summary>
         public double WindowSubmitSeconds;
 
@@ -158,6 +147,49 @@ internal static partial class PerfFrameSplit
     private static long _logicStart;      // set at the top of the frame (PerfMonitor's host)
     private static long _logicEnd;        // set by the tail component's LateUpdate
     private static bool _logicEndSeen;
+    private static long _updateEnd;       // last Update at order +30000
+    private static long _lateStart;       // first LateUpdate at order -30000
+    private static bool _updateEndSeen, _lateStartSeen;
+
+    // The seam is a fallback when the game's release player strips Unity's built-in profiler
+    // markers. It partitions the SAME Update→LateUpdate span as SPLIT, without touching the
+    // player loop or walking scene objects. Its components are disabled outside the brief Debug
+    // capture, so they do not live on Unity's ordinary per-frame behaviour lists.
+    private static double _updateSum, _betweenSum, _lateSum;
+    private static int _phaseCount;
+
+    private const int NativeProbeFrames = 120;
+    private const int NativeProbeCapacity = 128;
+    private static bool _probeSampling, _probeFrameOpen;
+    private static int _probeFrames;
+    internal static int NativeProbeCapturedFrames => _probeFrames;
+    // A current callback contributes directly to native captures. An incomplete capture
+    // cannot accompany a figure-boundary summary that discards that callback's frame.
+    internal static bool NativeProbeComplete => !_probeSampling;
+    private static double _probeManagementMs;
+
+    // These Unity marker names are documented for 2021.3. A release player may expose none of
+    // them; Valid/Count are checked separately so missing data never masquerades as zero work.
+    // ScriptRunBehaviourUpdate includes BehaviourUpdate and coroutines; never add those figures.
+    private sealed class NativeProbe
+    {
+        internal NativeProbe(string name) => Name = name;
+        internal readonly string Name;
+        internal ProfilerRecorder Recorder;
+        internal bool Created;
+        internal bool Valid;
+        internal string Fault = string.Empty;
+    }
+
+    private static readonly NativeProbe[] NativeProbes =
+    {
+        new("Update.ScriptRunBehaviourUpdate"),
+        new("BehaviourUpdate"),
+        new("CoroutinesDelayedCalls"),
+        new("PreLateUpdate.ScriptRunBehaviourLateUpdate"),
+        new("Director.PrepareFrame"),
+    };
+    private static bool _nativeProbesOn;
 
     private static long _renderFirst;     // first onPreCull of the frame
     private static long _renderLast;      // last onPostRender of the frame
@@ -207,6 +239,8 @@ internal static partial class PerfFrameSplit
     private static string _ftFault = string.Empty;
 
     private static PerfSplitTail? _tail;
+    private static PerfUpdateTail? _updateTail;
+    private static PerfLateHead? _lateHead;
     private static bool _hooked;
 
     /// <summary>Whether <see cref="OnPreRender"/> is currently subscribed (tracked apart from
@@ -226,16 +260,34 @@ internal static partial class PerfFrameSplit
     {
         if (_tail == null)
             _tail = root.AddComponent<PerfSplitTail>();
+        if (_updateTail == null)
+            _updateTail = root.AddComponent<PerfUpdateTail>();
+        _updateTail.enabled = false;
+        if (_lateHead == null)
+            _lateHead = root.AddComponent<PerfLateHead>();
+        _lateHead.enabled = false;
     }
 
     /// <summary>Drop the component, the hooks and every record (hot-reload teardown; never throws).</summary>
     internal static void Shutdown()
     {
         SetActive(false);
+        SetNativeProbesActive(false);
+        PerfNativeLoopProbe.Shutdown();
         if (_tail != null)
         {
             UnityEngine.Object.Destroy(_tail);
             _tail = null;
+        }
+        if (_updateTail != null)
+        {
+            UnityEngine.Object.Destroy(_updateTail);
+            _updateTail = null;
+        }
+        if (_lateHead != null)
+        {
+            UnityEngine.Object.Destroy(_lateHead);
+            _lateHead = null;
         }
         Cameras.Clear();
         CameraOrder.Clear();
@@ -306,6 +358,8 @@ internal static partial class PerfFrameSplit
     internal static void RollFrame(bool enabled, bool record, float frameMs)
     {
         SetActive(enabled);
+        SetNativeProbesActive(enabled && VRLog.WantsDebug);
+        bool sampledFrame = _probeFrameOpen;
         long now = Stopwatch.GetTimestamp();
 
         if (enabled && record && _logicStart != 0L)
@@ -333,6 +387,15 @@ internal static partial class PerfFrameSplit
                 _count++;
                 _logicSum += logicMs;
                 _renderSum += renderMs;
+                if (sampledFrame && _updateEndSeen && _lateStartSeen
+                    && _logicStart <= _updateEnd && _updateEnd <= _lateStart
+                    && _lateStart <= _logicEnd)
+                {
+                    _updateSum += (_updateEnd - _logicStart) / freq * 1000d;
+                    _betweenSum += (_lateStart - _updateEnd) / freq * 1000d;
+                    _lateSum += (_logicEnd - _lateStart) / freq * 1000d;
+                    _phaseCount++;
+                }
                 if (logicMs > _logicMax)
                     _logicMax = logicMs;
                 if (renderMs > _renderMax)
@@ -385,9 +448,14 @@ internal static partial class PerfFrameSplit
         _logicStart = now;
         _logicEnd = now;
         _logicEndSeen = false;
+        _updateEndSeen = false;
+        _lateStartSeen = false;
         _renderSeen = false;
         _camOpenId = 0;
         _camCullDone = 0L;
+        if (sampledFrame && record && _probeSampling && ++_probeFrames >= NativeProbeFrames)
+            StopProbeSampling();
+        _probeFrameOpen = _probeSampling;
     }
 
     /// <summary>Tail hook: the last main-thread instant before Unity's render loop.</summary>
@@ -397,6 +465,116 @@ internal static partial class PerfFrameSplit
             return;
         _logicEnd = Stopwatch.GetTimestamp();
         _logicEndSeen = true;
+    }
+
+    private static void MarkUpdateEnd()
+    {
+        if (!_active || !VRLog.WantsDebug)
+            return;
+        _updateEnd = Stopwatch.GetTimestamp();
+        _updateEndSeen = true;
+    }
+
+    private static void MarkLateStart()
+    {
+        if (!_active || !VRLog.WantsDebug)
+            return;
+        _lateStart = Stopwatch.GetTimestamp();
+        _lateStartSeen = true;
+    }
+
+    private static void SetNativeProbesActive(bool on)
+    {
+        if (on == _nativeProbesOn)
+            return;
+        _nativeProbesOn = on;
+        if (!on)
+            StopProbeSampling();
+        long started = Stopwatch.GetTimestamp();
+        for (int i = 0; i < NativeProbes.Length; i++)
+        {
+            NativeProbe p = NativeProbes[i];
+            if (!on)
+            {
+                if (p.Created)
+                {
+                    try { p.Recorder.Dispose(); }
+                    catch (Exception) { /* A failed diagnostic cleanup cannot break gameplay. */ }
+                }
+                p.Created = false;
+                p.Valid = false;
+                p.Fault = string.Empty;
+                continue;
+            }
+            StartNativeProbe(p);
+        }
+        if (on)
+            StartProbeSampling();
+        _probeManagementMs += (Stopwatch.GetTimestamp() - started)
+                              * 1000d / Stopwatch.Frequency;
+    }
+
+    private static void StartProbeSampling()
+    {
+        _probeFrames = 0;
+        _probeSampling = true;
+        PerfNativeLoopProbe.Start();
+        if (_updateTail != null)
+            _updateTail.enabled = true;
+        if (_lateHead != null)
+            _lateHead.enabled = true;
+        _probeFrameOpen = true;
+    }
+
+    private static void StopProbeSampling()
+    {
+        if (!_probeSampling)
+            return;
+        long started = Stopwatch.GetTimestamp();
+        _probeSampling = false;
+        _probeFrameOpen = false;
+        PerfNativeLoopProbe.Stop(_probeFrames);
+        if (_updateTail != null)
+            _updateTail.enabled = false;
+        if (_lateHead != null)
+            _lateHead.enabled = false;
+        for (int i = 0; i < NativeProbes.Length; i++)
+        {
+            NativeProbe p = NativeProbes[i];
+            if (!p.Valid)
+                continue;
+            try { p.Recorder.Stop(); }
+            catch (Exception e) { p.Fault = e.GetType().Name; p.Valid = false; }
+        }
+        _probeManagementMs += (Stopwatch.GetTimestamp() - started)
+                              * 1000d / Stopwatch.Frequency;
+    }
+
+    private static void StartNativeProbe(NativeProbe p)
+    {
+        if (p.Created)
+        {
+            try { p.Recorder.Dispose(); }
+            catch (Exception) { /* Try to recover this optional diagnostic next window. */ }
+        }
+        p.Created = false;
+        p.Valid = false;
+        p.Fault = string.Empty;
+        try
+        {
+            // Main-thread only, one summed timing per frame. The 128-sample buffer covers the
+            // 120-frame capture and does not wrap. Setup is never on the per-frame hot path.
+            p.Recorder = new ProfilerRecorder(p.Name, NativeProbeCapacity,
+                ProfilerRecorderOptions.SumAllSamplesInFrame
+                | ProfilerRecorderOptions.CollectOnlyOnCurrentThread
+                | ProfilerRecorderOptions.StartImmediately);
+            p.Created = true;
+            p.Valid = p.Recorder.Valid;
+        }
+        catch (Exception e)
+        {
+            p.Fault = e.GetType().Name;
+        }
     }
 
     private static void OnPreCull(Camera cam)
@@ -424,12 +602,8 @@ internal static partial class PerfFrameSplit
     }
 
     /// <summary>
-    /// Unity fires this AFTER culling and BEFORE the camera's rendering, so it is the one seam
-    /// that separates the render loop's two halves. Culling scales with how many renderers EXIST
-    /// and pass the culling mask; submission scales with how many DRAW CALLS the survivors
-    /// produce (and a forward camera's depth-texture prepass and every shadow map are on the
-    /// submission side). The SPLIT line's "render loop owns the frame" verdict cannot distinguish
-    /// them, and their levers are different, so the distinction is measured rather than guessed.
+    /// Unity's onPreRender callback gives a phase seam inside a camera render. The two intervals
+    /// on either side are useful context, but neither exclusively measures culling or draw calls.
     /// </summary>
     private static void OnPreRender(Camera cam)
     {
@@ -502,7 +676,47 @@ internal static partial class PerfFrameSplit
 
     internal static void ResetWindow()
     {
+        // A graphics-setting MARK can close a window before the 120-frame Debug capture ends.
+        // Finish that partial capture before resetting and starting the next state-specific one.
+        if (_probeSampling)
+            StopProbeSampling();
         _count = 0;
+        _updateSum = 0d;
+        _betweenSum = 0d;
+        _lateSum = 0d;
+        _phaseCount = 0;
+        _probeManagementMs = 0d;
+        if (_nativeProbesOn)
+        {
+            long started = Stopwatch.GetTimestamp();
+            for (int i = 0; i < NativeProbes.Length; i++)
+            {
+                NativeProbe p = NativeProbes[i];
+                if (!p.Valid)
+                {
+                    // A marker can register when a scenario activates. Retry only at a window
+                    // boundary so early menu availability cannot make every later window n/a.
+                    StartNativeProbe(p);
+                    continue;
+                }
+                try
+                {
+                    p.Recorder.Reset();
+                    p.Recorder.Start();
+                }
+                catch (Exception e)
+                {
+                    try { p.Recorder.Dispose(); }
+                    catch (Exception) { /* Preserve the original probe failure. */ }
+                    p.Created = false;
+                    p.Valid = false;
+                    p.Fault = e.GetType().Name;
+                }
+            }
+            StartProbeSampling();
+            _probeManagementMs += (Stopwatch.GetTimestamp() - started)
+                                  * 1000d / Stopwatch.Frequency;
+        }
         _viewPrepared = false;   // the distance ordering below belongs to the window that just closed
         _logicSum = 0d;
         _renderSum = 0d;
@@ -531,12 +745,13 @@ internal static partial class PerfFrameSplit
     internal static bool HasWindow => _count > 1;
 
     /// <summary>
-    /// Compose the <c>[Perf] SPLIT</c> line: the three spans, the per-camera render cost, and a
-    /// verdict in words naming which layer owns the frame. <paramref name="frameMeanMs"/> is
+    /// Compose the <c>[Perf] SPLIT</c> line: two callback spans, the unbracketed remainder,
+    /// per-camera intervals, and a bounded interpretation. <paramref name="frameMeanMs"/> is
     /// PerfMonitor's own mean frame interval for the same window, so the two lines are directly
     /// comparable.
     /// </summary>
-    internal static void AppendSplit(System.Text.StringBuilder sb, float windowSeconds, float frameMeanMs)
+    internal static void AppendSplit(System.Text.StringBuilder sb, float windowSeconds, float frameMeanMs,
+        bool includeNativeCapture = true)
     {
         float logicMean = (float)(_logicSum / _count);
         float renderMean = (float)(_renderSum / _count);
@@ -549,12 +764,13 @@ internal static partial class PerfFrameSplit
         float renderP50 = Percentile(RenderMs, 0.50f);
         float logicP95 = Percentile(LogicMs, 0.95f);
         float renderP95 = Percentile(RenderMs, 0.95f);
-        // The render loop runs INSIDE neither span's overlap: logic ends before the first cull.
+        // These are callback brackets, not a full main-thread timeline. The remainder can hold
+        // Unity engine work outside both brackets as well as waits; it is not a GPU timer.
         float blockedMean = Mathf.Max(0f, frameMeanMs - logicMean - renderMean);
 
         sb.Append("SPLIT ").Append(windowSeconds.ToString("F1")).Append("s n=").Append(_count)
-          .Append(" — where the ").Append(frameMeanMs.ToString("F2"))
-          .Append("ms frame goes on the MAIN THREAD")
+          .Append(" — clock-bracketed spans of the ").Append(frameMeanMs.ToString("F2"))
+          .Append("ms frame (MAIN THREAD callbacks; residual is unbracketed)")
           .Append(" | logic (Update→LateUpdate) ").Append(logicMean.ToString("F2"))
           .Append(" p50 ").Append(logicP50.ToString("F2"))
           .Append(" p95 ").Append(logicP95.ToString("F2"))
@@ -565,7 +781,7 @@ internal static partial class PerfFrameSplit
           .Append(" p95 ").Append(renderP95.ToString("F2"))
           .Append(" max ").Append(_renderMax.ToString("F2")).Append("ms (")
           .Append(Share(renderMean, frameMeanMs)).Append(')')
-          .Append(" | blocked (waiting on GPU/compositor) ").Append(blockedMean.ToString("F2"))
+          .Append(" | blocked (unbracketed engine work/waits) ").Append(blockedMean.ToString("F2"))
           .Append("ms (").Append(Share(blockedMean, frameMeanMs)).Append(')');
 
         AppendStalls(sb, logicMean, logicP50, renderMean, renderP50);
@@ -577,6 +793,72 @@ internal static partial class PerfFrameSplit
         AppendZoom(sb);
 
         sb.Append(" | VERDICT: ").Append(Verdict(logicMean, renderMean, blockedMean, frameMeanMs));
+        if (VRLog.WantsDebug)
+        {
+            if (includeNativeCapture) AppendDebugLogic(sb);
+            else sb.Append(" | Debug capture omitted: incomplete at figure boundary");
+        }
+    }
+
+    /// <summary>
+    /// Debug-only phase clock fallback plus Unity's own selected markers. The phase clocks
+    /// partition our logic span; profiler figures are inclusive and overlap one another. Neither
+    /// instrument can name individual game methods without a development player or invasive
+    /// Harmony patches, so the output explicitly stops short of that claim.
+    /// </summary>
+    private static void AppendDebugLogic(System.Text.StringBuilder sb)
+    {
+        sb.Append(" | LOGIC PHASES (Debug, order -30000/+30000 seams, first ")
+          .Append(NativeProbeFrames).Append(" frames/window; ")
+          .Append(_phaseCount).Append('/').Append(_count).Append(" aligned frame(s)): ");
+        if (_phaseCount == 0)
+            sb.Append("n/a (a phase seam was not reached)");
+        else
+        {
+            sb.Append("Update ").Append((_updateSum / _phaseCount).ToString("F2"))
+              .Append("ms, native/interphase ")
+              .Append((_betweenSum / _phaseCount).ToString("F2"))
+              .Append("ms, LateUpdate ")
+              .Append((_lateSum / _phaseCount).ToString("F2"))
+              .Append("ms; these three sum to the logic span on the aligned frames");
+        }
+        sb.Append(" | PROBE management ").Append(_probeManagementMs.ToString("F2"))
+          .Append("ms/window (setup/stop only; native collection overhead is not isolated)")
+          .Append(" | UNITY MARKERS (Debug, inclusive; nested values must not be added):");
+        if (!_nativeProbesOn)
+        {
+            sb.Append(" off");
+            return;
+        }
+        for (int i = 0; i < NativeProbes.Length; i++)
+        {
+            NativeProbe p = NativeProbes[i];
+            sb.Append(i == 0 ? " " : ", ").Append(p.Name).Append(' ');
+            if (!p.Valid)
+            {
+                sb.Append("n/a (").Append(p.Fault.Length == 0 ? "unavailable in player" : p.Fault)
+                  .Append(')');
+                continue;
+            }
+            try
+            {
+                int n = p.Recorder.Count;
+                if (n == 0)
+                {
+                    sb.Append("n/a (no samples)");
+                    continue;
+                }
+                double ns = 0d;
+                for (int j = 0; j < n; j++)
+                    ns += p.Recorder.GetSample(j).Value;
+                sb.Append((ns / 1_000_000d / n).ToString("F2"))
+                  .Append("ms/sample (").Append(n).Append(" sample(s) in the capped capture)");
+            }
+            catch (Exception e)
+            {
+                sb.Append("n/a (").Append(e.GetType().Name).Append(')');
+            }
+        }
     }
 
     /// <summary>
@@ -687,8 +969,7 @@ internal static partial class PerfFrameSplit
     }
 
     /// <summary>
-    /// The whole point of the line: say, in words, which layer owns the frame — and say plainly
-    /// when the answer is "none of the ones the mod can move".
+    /// Name the largest observed bracket or residual without assigning an unmeasured cause.
     /// </summary>
     private static string Verdict(float logic, float render, float blocked, float frame)
     {
@@ -696,30 +977,26 @@ internal static partial class PerfFrameSplit
             return "no frame time to attribute";
         float l = logic / frame, r = render / frame, b = blocked / frame;
         if (l >= 0.5f)
-            return $"MAIN-THREAD LOGIC owns the frame ({l * 100f:F0}%). The game's own Update/LateUpdate "
-                   + "is the wall — draw calls and pixels are not. The mod's share of that is on the "
-                   + "STEPS line above; if it is small, this is the game's own code and the mod cannot "
-                   + "move it.";
+            return $"MAIN-THREAD LOGIC bracket spans {l * 100f:F0}% of the frame. It contains "
+                   + "Update→LateUpdate callbacks and engine work between those seams; the STEPS "
+                   + "and NATIVE lines identify only measured portions. This span alone does not "
+                   + "identify a specific game method or exclude other frame costs.";
         if (r >= 0.35f)
-            return $"the RENDER LOOP owns the frame ({r * 100f:F0}%). The main thread is inside culling "
-                   + "and draw-call submission, so the levers are the NUMBER of things submitted, not "
-                   + "their pixel cost: MultiPass renders the head camera twice, and every extra camera "
-                   + "listed above is a whole additional scene submission. WHICH HALF is the next question, "
-                   + "and the two have different levers — cull scales with how many renderers exist and "
-                   + "pass the culling mask (see the SCENE line's per-layer counts), submit with how many "
-                   + "draw calls the visible ones produce (materials, shadow passes, the forward depth "
-                   + "prepass; see the SCENE and GFX lines). "
+            return $"the RENDER LOOP callback bracket spans {r * 100f:F0}% of the frame. Per-camera "
+                   + "preCull→preRender and preRender→postRender spans locate the larger phase but "
+                   + "include engine work and possible waits; scene material slots are candidates, "
+                   + "not measured draw calls or GPU busy time. "
                    + (PerfConfig.CullSubmitSplitOn
-                       ? "The per-camera cull/submit figures above answer it."
-                       : "Switch [Perf] CullSubmitSplit on to have the per-camera figures above answer it.");
+                       ? "Read the per-camera seam figures above for WHICH HALF has the longer callback interval."
+                       : "Switch [Perf] CullSubmitSplit on for the per-camera seam intervals.");
         if (b >= 0.5f)
-            return $"the main thread is BLOCKED for {b * 100f:F0}% of the frame — it is neither computing "
-                   + "nor submitting, it is waiting. That is the GPU, the XR compositor, or a runtime "
-                   + "rate lock (check the display Hz on the FRAME line: a halved rate produces exactly "
-                   + "this signature with the GPU nowhere near full). CPU-side optimisation cannot move "
-                   + "a frame that looks like this.";
+            return $"the BLOCKED-labelled unbracketed remainder is {b * 100f:F0}% of the frame. "
+                   + "It can contain Unity main-thread work outside these callbacks (including canvas "
+                   + "rebuilds), engine waits, XR/compositor pacing or a rate lock. This span cannot "
+                   + "show whether the CPU or GPU is idle; check independent profiler markers or "
+                   + "hardware A/B evidence before choosing a lever.";
         return $"no single layer dominates (logic {l * 100f:F0}%, render {r * 100f:F0}%, blocked "
-               + $"{b * 100f:F0}%) — the frame is spread across all three.";
+               + $"{b * 100f:F0}% unbracketed); these are clock intervals, not exclusive causes.";
     }
 
     private static string Share(float part, float whole) =>
@@ -737,15 +1014,12 @@ internal static partial class PerfFrameSplit
 
     /// <summary>
     /// HOW MUCH THERE IS TO DRAW. <c>UnityStats</c> (batches, draw calls, tris) is editor-only, so
-    /// the closest runtime proxy is a census of the renderers that COULD be submitted: total,
-    /// enabled, and how many the culling actually kept last frame. Together with the camera-pass
-    /// count above it prices a scene submission — an extra camera costs roughly "visible × its own
-    /// culling", which is exactly the question the sink-render experiment asks.
+    /// the available runtime context is a renderer census: total, enabled, and isVisible to any
+    /// camera across a stated capture span. It cannot count actual head-camera draws or price a pass.
     ///
-    /// <para>DELIBERATELY ONCE PER WINDOW, NEVER PER FRAME: <c>FindObjectsOfType</c> walks every
-    /// loaded object and allocates the array, which is far too expensive for a frame budget and
-    /// would make the instrumentation the stutter. At a 30 s cadence it is one hitch of a few
-    /// milliseconds per window, and it is skipped entirely while the census is switched off.</para>
+    /// <para>Build615 replaces the former synchronous global queries with the shared incremental
+    /// scene-root census. This summary requests/adopts only bounded diagnostic work and cached
+    /// numeric counts; SceneProfile off still prepares the lighter original ZOOM roster.</para>
     ///
     /// <para>IT COUNTS uGUI GRAPHICS TOO, AND THAT HALF EXISTS BECAUSE ITS ABSENCE COST A SESSION
     /// (2026-08-09). <c>Graphic</c> does NOT derive from <see cref="Renderer"/> — a uGUI Image is a
@@ -760,93 +1034,21 @@ internal static partial class PerfFrameSplit
     /// Unity rebuilds canvases in <c>PostLateUpdate.PlayerUpdateCanvases</c> — AFTER the tail
     /// LateUpdate that closes the logic span, and BEFORE the camera callbacks that open the render
     /// span. So <c>Canvas.SendWillRenderCanvases</c> and <c>BuildBatch</c> land in NEITHER measured
-    /// span: their whole cost falls into the "blocked (waiting on GPU/compositor)" remainder, whose
+    /// span: their whole cost falls into the "blocked (unbracketed engine work/waits)" remainder, whose
     /// name then actively misleads. That is exactly what the capture shows — logic flat, render
     /// loop flat at ~2.3 ms, camera passes flat at 4.0, renderers flat, and "blocked" climbing 5 ms
-    /// → 83 ms. A growing graphic count is the ONE number that separates "the compositor is
-    /// struggling" from "we are rebuilding an ever-larger canvas", and it is one line of census.</para>
+    /// → 83 ms. A growing graphic count reveals a possible canvas-work explanation, which must
+    /// still be checked against profiler evidence or a targeted intervention.</para>
     /// </summary>
     internal static void AppendSceneCensus(System.Text.StringBuilder sb)
-    {
-        Renderer[] all;
-        try
-        {
-            all = UnityEngine.Object.FindObjectsOfType<Renderer>();
-        }
-        catch (Exception e)
-        {
-            sb.Append(" | scene census n/a (").Append(e.GetType().Name).Append(')');
-            return;
-        }
-        // The walk doubles as the ZOOM axis's SEED: every renderer's visibility is written into the
-        // shadow array and the total into the running counter, so the per-frame slice sampler starts
-        // correct instead of ramping up over its first sweep. Costs one bool store per renderer on a
-        // walk that was already happening.
-        bool[] shadow = RosterShadow(all.Length);
-        int enabled = 0, visible = 0;
-        for (int i = 0; i < all.Length; i++)
-        {
-            Renderer r = all[i];
-            bool vis = false;
-            if (r != null && r.enabled)
-            {
-                enabled++;
-                vis = r.isVisible;
-                if (vis)
-                    visible++;
-            }
-            shadow[i] = vis;
-        }
-        SeedRoster(all, visible, shadow);
-        sb.Append(" | scene census: ").Append(all.Length).Append(" renderer(s), ")
-          .Append(enabled).Append(" enabled, ").Append(visible)
-          .Append(" visible to at least one camera (ONE INSTANT, sampled once per window — the "
-                  + "per-frame cost of this walk would itself be a stutter, which is why this "
-                  + "number shows no trend across windows and the ZOOM clause above carries the "
-                  + "per-frame estimate instead. This walk is also that estimate's seed)");
-        AppendGraphicCensus(sb);
-    }
+        => PerfSceneProfile.AppendFrameCensus(sb);
 
-    /// <summary>The uGUI half of <see cref="AppendSceneCensus"/> — see there for why it exists.
-    /// Separate method so a throw inside it cannot cost the renderer census that already
-    /// succeeded.</summary>
-    private static void AppendGraphicCensus(System.Text.StringBuilder sb)
-    {
-        UnityEngine.UI.Graphic[] graphics;
-        try
-        {
-            graphics = UnityEngine.Object.FindObjectsOfType<UnityEngine.UI.Graphic>();
-        }
-        catch (Exception e)
-        {
-            sb.Append("; uGUI census n/a (").Append(e.GetType().Name).Append(')');
-            return;
-        }
+    // Preserve the established smoothed ZOOM roster; its seed now arrives from the
+    // bounded census pump instead of a second full renderer/uGUI walk at the summary.
+    internal static void AdoptCensusRoster(Renderer[] all, int visible, bool[] seen)
+        => SeedRoster(all, visible, seen);
 
-        int enabled = 0, mod = 0;
-        for (int i = 0; i < graphics.Length; i++)
-        {
-            UnityEngine.UI.Graphic g = graphics[i];
-            if (g == null || !g.enabled)
-                continue;
-            enabled++;
-            // MOD-OWNED means "under one of our own world-space hosts", which is where a mirrored
-            // panel's clone lives. Splitting them out is what turns "UI is growing" into "OUR UI is
-            // growing" without a second capture: the game's own HUD churns legitimately, ours must
-            // not. Resolved by layer, which costs an int compare — no name string, no allocation.
-            if (g.gameObject.layer == VRLayers.ModLayer)
-                mod++;
-        }
-
-        sb.Append("; uGUI: ").Append(graphics.Length).Append(" graphic(s), ")
-          .Append(enabled).Append(" enabled, ").Append(mod)
-          .Append(" on the mod's own layer. A Graphic is NOT a Renderer, so the count "
-                  + "above cannot see these — and canvas rebuild runs after LateUpdate and before "
-                  + "the render loop, so its cost shows up as 'blocked', not as logic or submit. "
-                  + "A mod count that CLIMBS window over window with a steady scenario is an object "
-                  + "leak onto a world-space canvas, which is precisely the shape that collapsed "
-                  + "both machines of the 2026-08-09 multiplayer session");
-    }
+    internal static void ClearCensusRoster() => DropRoster();
 
     /// <summary>One clause for the startup CAPS line.</summary>
     internal static string Describe() =>
@@ -888,6 +1090,42 @@ internal static partial class PerfFrameSplit
             {
                 _faulted = true;
                 VRLog.Error(Scope0, $"Frame-split tail threw and DISABLED ITSELF: {e}");
+            }
+        }
+    }
+
+    [DefaultExecutionOrder(30000)]
+    private sealed class PerfUpdateTail : MonoBehaviour
+    {
+        private bool _faulted;
+
+        private void Update()
+        {
+            if (_faulted)
+                return;
+            try { MarkUpdateEnd(); }
+            catch (Exception e)
+            {
+                _faulted = true;
+                VRLog.Error(Scope0, $"Frame-split Update seam threw and DISABLED ITSELF: {e}");
+            }
+        }
+    }
+
+    [DefaultExecutionOrder(-30000)]
+    private sealed class PerfLateHead : MonoBehaviour
+    {
+        private bool _faulted;
+
+        private void LateUpdate()
+        {
+            if (_faulted)
+                return;
+            try { MarkLateStart(); }
+            catch (Exception e)
+            {
+                _faulted = true;
+                VRLog.Error(Scope0, $"Frame-split LateUpdate seam threw and DISABLED ITSELF: {e}");
             }
         }
     }

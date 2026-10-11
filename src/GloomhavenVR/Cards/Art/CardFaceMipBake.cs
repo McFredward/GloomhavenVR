@@ -135,8 +135,11 @@ internal static class CardFaceMipBake
     /// </summary>
     private const int MaxBakedTextures = 256;
 
-    /// <summary>Runaway guard on PER-SPRITE bakes — see <see cref="MaxBakedTextures"/>.</summary>
-    private const int MaxSpriteBakes = 512;
+    /// <summary>Runaway metadata guard, independent of the unchanged byte ceiling.
+    /// The original BattleOverlayCanvas alone contains 895 safe sprite regions; its
+    /// 555 untrimmed members now share the economical region path. The old 512 guard
+    /// would reject legitimate native card/icon regions despite ample byte headroom.</summary>
+    private const int MaxSpriteBakes = 2048;
 
     /// <summary>Largest side for a per-sprite baked texture (card-face sprites are ≤ ~1024).</summary>
     private const int MaxSpriteDim = 2048;
@@ -310,17 +313,7 @@ internal static class CardFaceMipBake
             {
                 if (img == null)
                     continue;
-                Sprite? sprite = img.sprite;
-                if (sprite == null)
-                    continue;
-                if (s_originalByReplacement.ContainsKey(sprite.GetInstanceID()))
-                    continue; // already sampling one of OUR baked copies
-                Sprite? replacement = ReplacementFor(sprite);
-                if (replacement != null)
-                {
-                    img.sprite = replacement;
-                    swapped++;
-                }
+                swapped += ApplyTo(img);
             }
             if (swapped > 0 && !s_swapLogged)
             {
@@ -338,6 +331,34 @@ internal static class CardFaceMipBake
                 s_errorLogged = true;
                 VRLog.Warn("Cards", $"Face mip-bake rescan failed ({ex.GetType().Name}: {ex.Message}) — " +
                                     "faces keep the original mipless sprites.");
+            }
+        }
+    }
+
+    /// <summary>Fill only the shared sprite replacement cache while a cloned card is
+    /// still parked. The normal Rescan runs after OnEnable to apply the replacements
+    /// and perform silhouette, pad and effect maintenance on the final layout.</summary>
+    internal static void WarmSprites(Component? faceRoot)
+    {
+        if (faceRoot == null || CardsConfig.FaceMipBake == null || !CardsConfig.FaceMipBake.Value)
+            return;
+        try
+        {
+            foreach (Image image in faceRoot.GetComponentsInChildren<Image>(includeInactive: true))
+            {
+                if (image == null)
+                    continue;
+                PresentationFor(image.sprite);
+                PresentationFor(image.overrideSprite);
+            }
+        }
+        catch (System.Exception ex)
+        {
+            if (!s_errorLogged)
+            {
+                s_errorLogged = true;
+                VRLog.Warn("Cards", $"Parked face mip warm-up failed ({ex.GetType().Name}: {ex.Message}) "
+                    + "— activation will use the ordinary rescan.");
             }
         }
     }
@@ -362,11 +383,14 @@ internal static class CardFaceMipBake
                 if (img == null)
                     continue;
                 Sprite? sprite = img.sprite;
-                if (sprite != null
-                    && s_originalByReplacement.TryGetValue(sprite.GetInstanceID(), out Sprite original)
-                    && original != null)
+                if (sprite != null) img.sprite = OriginalFor(sprite);
+                // Query AFTER the base write. A null override follows the restored
+                // base; an explicit override equal to the old base stays independent.
+                Sprite? draw = img.overrideSprite;
+                if (draw != null)
                 {
-                    img.sprite = original;
+                    Sprite original = OriginalFor(draw);
+                    if (!ReferenceEquals(original, draw)) img.overrideSprite = original;
                 }
             }
         }
@@ -378,6 +402,32 @@ internal static class CardFaceMipBake
                 VRLog.Warn("Cards", $"Face mip-bake restore failed ({ex.GetType().Name}: {ex.Message}).");
             }
         }
+    }
+
+    /// <summary>Local sampling policy; asset banks and wire identities always retain
+    /// OriginalFor. A native town observer must use the same cache as the owning card,
+    /// rather than assigning its resolved mipless original directly.</summary>
+    internal static Sprite? PresentationFor(Sprite? source)
+    {
+        if (source == null || CardsConfig.FaceMipBake == null || !CardsConfig.FaceMipBake.Value)
+            return source;
+        return IsBakedSprite(source) ? source : ReplacementFor(source) ?? source;
+    }
+
+    /// <summary>Filter the base and any independently authored override. Read the
+    /// override AFTER changing the base: a null override now follows the filtered base,
+    /// while an explicit override equal to the OLD base still needs filtering. This
+    /// preserves Unity's implicit-base behavior without accessing private Image fields.</summary>
+    internal static int ApplyTo(Image image)
+    {
+        Sprite? source = image.sprite;
+        Sprite? filtered = PresentationFor(source);
+        int swapped = 0;
+        if (!ReferenceEquals(source, filtered)) { image.sprite = filtered; swapped++; }
+        Sprite? draw = image.overrideSprite;
+        filtered = PresentationFor(draw);
+        if (!ReferenceEquals(draw, filtered)) { image.overrideSprite = filtered; swapped++; }
+        return swapped;
     }
 
     /// <summary>
@@ -401,6 +451,12 @@ internal static class CardFaceMipBake
         if (s_replacementBySource.TryGetValue(id, out Sprite? cached))
             return cached;
 
+        // Build616's ordinary class switch spent 172ms inside Cards.Driver while new
+        // class strips and ConsumeDark appeared. Attribute actual cold work, including
+        // preparation, without adding another per-card/per-frame diagnostic stream.
+        using var scope = PerfMonitor.Scope("Cards.SpriteMipMiss");
+        PerfMonitor.Count("Cards.SpriteMipMisses");
+
         Sprite? made = null;
         Texture2D? srcTex = source.texture;
         if (srcTex != null && srcTex.mipmapCount <= 1) // already-mipped textures need nothing
@@ -418,7 +474,7 @@ internal static class CardFaceMipBake
                 LogSpriteSkip(source, "TIGHT atlas packing — neighboring sprites share its rectangular " +
                                       "atlas area, a rect copy would render their fragments");
             }
-            else if (TryExactRect(source, out Rect texRect))
+            else if (TryExactRect(source, out Rect texRect) && !PreferRegion(source, srcTex))
             {
                 // Fast path: plain unrotated, untrimmed rect — an equivalent FullRect
                 // sprite on the SHARED mipmapped atlas copy (one bake serves many sprites).
@@ -442,6 +498,79 @@ internal static class CardFaceMipBake
         s_replacementBySource[id] = made;
         return made;
     }
+
+    /// <summary>Read-only preparation cache test. A cached null is a completed native
+    /// geometry/packing verdict, so loading must not spend another frame retrying it.</summary>
+    internal static bool IsPrepared(Sprite source) => source != null
+        && (source.texture == null || source.texture.mipmapCount > 1
+            || s_replacementBySource.ContainsKey(OriginalFor(source).GetInstanceID()));
+
+    /// <summary>Whether warming can create/read back a texture. New Sprite wrappers on
+    /// an already prepared atlas/region are cheap CPU metadata and may share a bounded tick.
+    /// This predicts work only; ReplacementFor retains all original geometry/budget guards.</summary>
+    internal static bool RequiresColdPreparation(Sprite source)
+    {
+        source = OriginalFor(source);
+        if (IsPrepared(source) || IsRotatedPacked(source) || IsTightPacked(source)) return false;
+        Texture2D atlas = source.texture;
+        if (TryExactRect(source, out _) && !PreferRegion(source, atlas))
+            return !s_bakedByTexture.ContainsKey(atlas.GetInstanceID())
+                && !s_bakedByIdentity.ContainsKey(IdentityOf(atlas));
+        try
+        {
+            Rect tr = source.textureRect;
+            Vector2 off = source.textureRectOffset;
+            string key = $"{IdentityOf(atlas)}|{Mathf.RoundToInt(tr.x)},{Mathf.RoundToInt(tr.y)},{Mathf.RoundToInt(tr.width)}x{Mathf.RoundToInt(tr.height)}|{Mathf.RoundToInt(source.rect.width)}x{Mathf.RoundToInt(source.rect.height)}|+{Mathf.RoundToInt(off.x)},{Mathf.RoundToInt(off.y)}";
+            return !s_regionTextureByKey.ContainsKey(key);
+        }
+        catch (System.Exception) { return true; }
+    }
+
+    /// <summary>Load-time warming of one original sprite. Uses the very same cache as
+    /// local and remote faces, with no Image assignment or native widget activation.</summary>
+    internal static void WarmSprite(Sprite? sprite)
+    {
+        if (sprite == null || CardsConfig.FaceMipBake == null || !CardsConfig.FaceMipBake.Value)
+            return;
+        ReplacementFor(OriginalFor(sprite));
+    }
+
+    /// <summary>Warm a fresh, unassigned SpriteAtlas.GetSprites clone. The heavy atlas
+    /// copy/readback and region texture retain their existing shared cache owners. The
+    /// temporary clone/replacement pair has no live consumer and must not accumulate
+    /// per-source entries on repeated scenario preparation. Caller destroys its clone;
+    /// this API must never be used on original Image art or a local/remote live face.</summary>
+    internal static void WarmTemporarySprite(Sprite temporaryOriginal)
+    {
+        try { WarmSprite(temporaryOriginal); }
+        finally
+        {
+            int source = temporaryOriginal.GetInstanceID();
+            if (s_replacementBySource.TryGetValue(source, out Sprite? replacement))
+            {
+                s_replacementBySource.Remove(source);
+                if (replacement != null)
+                {
+                    s_originalByReplacement.Remove(replacement.GetInstanceID());
+                    Object.Destroy(replacement);
+                }
+            }
+        }
+    }
+
+    /// <summary>Build631's supplied Build627 host exhausted the unchanged 384 MB
+    /// cache before several item faces arrived. The first small untrimmed sprite had
+    /// paid for an entire 4096-square UI atlas (~85 MB) rather than its own pixels.
+    /// Use the existing exact CPU row-slice path for a small region instead. Reuse a
+    /// whole-atlas copy when it already exists, avoiding a second pixel allocation.
+    /// Full-coverage and oversized sprites retain the original shared-atlas path;
+    /// mip zero, pivot, border, PPU and source identity are unchanged.</summary>
+    private static bool PreferRegion(Sprite source, Texture2D atlas) =>
+        atlas.width <= MaxTextureDim && atlas.height <= MaxTextureDim
+        && source.rect.width <= MaxSpriteDim && source.rect.height <= MaxSpriteDim
+        && source.rect.width * source.rect.height * 4f <= (long)atlas.width * atlas.height
+        && !(s_bakedByTexture.TryGetValue(atlas.GetInstanceID(), out Texture2D? baked) && baked != null)
+        && !(s_bakedByIdentity.TryGetValue(IdentityOf(atlas), out baked) && baked != null);
 
     /// <summary>Pivot in normalized rect space, as Sprite.Create wants it.</summary>
     private static Vector2 NormalizedPivot(Sprite source) => new(
@@ -777,6 +906,9 @@ internal static class CardFaceMipBake
         int id = tex.GetInstanceID();
         if (s_bakedByTexture.TryGetValue(id, out Texture2D? known))
             return known;
+
+        using var scope = PerfMonitor.Scope("Cards.AtlasMipMiss");
+        PerfMonitor.Count("Cards.AtlasMipMisses");
 
         // Content-identity dedupe: a SECOND Texture2D instance wrapping the same atlas
         // (the log's double ~85 MB bake of 'sactx-…-811e9640') reuses the first bake.

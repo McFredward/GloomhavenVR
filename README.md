@@ -36,7 +36,8 @@
 </p>
 
 <p align="center">
-  <a href="INSTALL.md"><b>Install →</b></a> &nbsp;·&nbsp;
+  <a href="docs/install/INSTALL.md"><b>Install →</b></a> &nbsp;·&nbsp;
+  <a href="docs/install/INSTALL-STEAM-FRAME.md"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/steam-frame-icon-dark.svg"><img src="docs/img/steam-frame-icon.svg" width="18" height="18" alt=""></picture>&nbsp;<b>Install on Steam Frame →</b></a> &nbsp;·&nbsp;
   <a href="docs/PLAYING.md">Playing &amp; controls</a>
 </p>
 
@@ -63,13 +64,14 @@ Drop it and it settles back onto a hex.
   all on one desk that hangs off a rod you can put wherever you like.
 - Reach into the scenario. Lift a miniature to read the turn it is about to take, or grab the whole
   board with both hands to drag, turn and zoom it.
-- The campaign map. Between scenarios you stand in a cellar over the map of Gloomhaven,
-  with the quests on the wall next to you.
+- A 3D campaign map. The map lies on a table in the cellar; the quest list floats above the
+  table's right edge.
 - Full VR multiplayer. Masks, hands, boards and pointing fingers are visible to everyone, and people
   without a headset can play in the same game on a flat screen.
 - Two environments built for the mod: an indoor cellar and an outdoor night forest, both reacting
   to the scenario's elements.
-- Mixed reality. The sky drops away and the table stands in your actual room.
+- Mixed reality. The sky drops away and the table stands in your actual room, including native
+  passthrough on Steam Frame standalone with a compatible SteamVR/Proton runtime.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
@@ -92,9 +94,10 @@ People without a headset join the same game on a flat screen.
 
 ## Cards, the control board and the table
 
-The control board is a desk that stands in front of you: two recesses for this round's cards, keys
+The control board has two recesses for this round's cards, keys
 you press with a fingertip, and a rod underneath for moving the whole thing. There is a labelled
 picture of every part of it in the [playing guide](docs/PLAYING.md#cards-and-the-control-board).
+It can follow you, stay fixed in the room, or attach to your wrist through **VR Options**.
 
 <p align="center">
   <video src="https://github.com/user-attachments/assets/51b8518b-6bd9-4ab8-9699-a201e8bd1342" width="720" controls muted loop></video>
@@ -117,8 +120,8 @@ pick a hex, an enemy, a door or a chest. Or hold grip and touch it with a finger
   <video src="https://github.com/user-attachments/assets/dadbad52-bde7-48bc-9518-b3a831096550" width="720" controls muted loop></video>
 </p>
 
-Between scenarios you stand in a cellar with the map of Gloomhaven spread out on the table in front
-of you. The quests hang on the wall where you can read them, and unlocking one lights up the room.
+With the 3D campaign map enabled, Gloomhaven's map lies on the table in the cellar. The quest list
+floats above the table's right edge.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
@@ -126,13 +129,15 @@ of you. The quests hang on the wall where you can read them, and unlocking one l
 
 ## Environments
 
-An indoor cellar and an outdoor night forest, both built for the mod. They have firelight, ambient
-sound, a star field taken from a real catalogue, and the odd thing that happens if you stand around
-long enough.
+An indoor cellar and an outdoor night forest, both built for the mod. Both have firelight and
+ambient sound; the night forest has a star field taken from a real catalogue. You may notice
+something else if you stand around long enough.
 
 There is one setting for this, with five options. Same table, same scenario in all of them. The two
 rooms above are the ones built for the mod. The other three are the game's own sky, no sky at all,
-and a green key so your streaming app can put the table in your real room.
+and mixed reality. Steam Frame standalone uses native passthrough; PC streaming uses a green key
+with a compatible streaming app. On the Frame, choose **Mixed reality** in **VR Options → World & sound**.
+If it is grey, hover over it for guidance on updating SteamVR and the game's Proton version.
 
 <p align="center">
   <img src="docs/img/env-styles-en.png" width="720" alt="The five environment settings: cellar and night forest, both built for this mod, above the game's own sky, off (black) and mixed reality">
@@ -148,6 +153,34 @@ ambient level, Dark eclipses the moon.
   <img src="docs/img/env-elements.jpg" width="720" alt="The same camera with the element off and on"><br>
   <i>Same camera, element off left and on right.</i>
 </p>
+
+<p align="center">
+  <img src="docs/img/divider-small.png" width="340" alt="">
+</p>
+
+## Immersive NPC interactions
+
+With immersive NPCs enabled, unlocked townsfolk stay at their stands around the 3D map.
+
+<table>
+<tr>
+<td width="33%" align="center"><img src="docs/img/town-merchant.png" width="230" alt="Merchant and item cabinet"></td>
+<td width="33%" align="center"><img src="docs/img/town-enchantress.png" width="230" alt="Enchantress at her stand"></td>
+<td width="33%" align="center"><img src="docs/img/town-priestess.png" width="230" alt="Priestess at her altar"></td>
+</tr>
+<tr>
+<td><b>Merchant:</b> Take an item from his cabinet to buy, or from your item fan to sell. Place it in his hand and confirm.</td>
+<td><b>Enchantress:</b> Place an ability card in her hand, then choose the part to enhance.</td>
+<td><b>Priestess:</b> Offer the coin purse from your hand to her bowl to donate.</td>
+</tr>
+</table>
+
+In multiplayer, everyone shares the merchant's cabinet. An avatar and name above the merchant
+or enchantress show who is using their hand; removing the card frees that NPC again.
+
+Immersive town NPCs default to on for PCVR and off for new Steam Frame standalone profiles.
+Saved choices are kept. To use the original windows, switch them off under
+**VR Options ▸ World & sound ▸ Campaign map**. This setting is hidden when the original 2D map is on.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
@@ -172,10 +205,17 @@ not yours.
 
 ## Requirements and install
 
-**Gloomhaven (Digital)** for PC (Steam, GOG, or Epic Games Store) · Windows · a PC-VR headset
-with two tracked controllers · room-scale. It was developed on a Quest 3 over Virtual Desktop.
+**Gloomhaven (Digital)** from Steam, GOG, or Epic Games Store · Windows PC VR or Steam Frame
+standalone · two tracked controllers · room-scale. It was developed on a Quest 3 over Virtual Desktop.
 
-[→ Install guide](INSTALL.md) · [→ Playing & controls](docs/PLAYING.md)
+[→ Install](docs/install/INSTALL.md) · <a href="docs/install/INSTALL-STEAM-FRAME.md"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/steam-frame-icon-dark.svg"><img src="docs/img/steam-frame-icon.svg" width="18" height="18" alt=""></picture>&nbsp;→ Install on Steam Frame</a> · [→ Playing & controls](docs/PLAYING.md)
+
+On Steam Frame, setup adds a second library entry: launch **GloomhavenVR** for VR.
+The original **Gloomhaven** entry remains for flat play; both use the same saves.
+
+<p align="center">
+  <img src="docs/img/frame-install/06-library.jpg" width="640" alt="Steam Frame library with the original Gloomhaven entry and the separate GloomhavenVR entry to launch for VR.">
+</p>
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
@@ -183,7 +223,7 @@ with two tracked controllers · room-scale. It was developed on a Quest 3 over V
 
 ## Credits and licence
 
-- **ARMA** and **JJ-Pueppi** tested this over a lot of sessions in the headset. 
+- **ARMA**, **JJ-Pueppi** and **Kronosbasher**, for testing the mod in VR.
 - **ARMA** also made the 3D assets: the hands, the masks and the boards. They started out as
   AI-generated shapes, which are not usable as they come. He remodelled, cleaned up, re-rigged and
   textured them in Blender until they hold up at arm's length in a headset.
@@ -191,11 +231,14 @@ with two tracked controllers · room-scale. It was developed on a Quest 3 over V
   (GPL-3.0), for the VR startup pattern, headset failover and finger curling this mod adapts.
 - **[UUVR](https://github.com/Raicuparta/uuvr)** (GPL-3.0), for the flat-screen-in-VR pattern, used
   where a world panel is not the right answer.
+- **fingoldfish (gummyboars)**, author of [Bug Fixes](https://www.nexusmods.com/gloomhaven/mods/8?tab=description)
+  (MIT), for selected game UI fixes adapted into this mod.
 - **Demeo** (Resolution Games), whose interaction model this mod follows. No assets or code from it
   are used.
 
-**Licence: GPL-3.0**, see [LICENSE](LICENSE). The mod ships only its own code and its own licensed
-artwork. No game files, no game assets, no decompiled sources.
+**Licence: GPL-3.0**, see [LICENSE](LICENSE). The mod ships its own code and licensed assets;
+third-party terms are listed in [packaging/THIRD-PARTY.txt](packaging/THIRD-PARTY.txt). No game
+files, game assets or decompiled sources are included.
 
 Not affiliated with Flaming Fowl Studios, Twin Sails Interactive, Asmodee or Cephalofair Games.
 Gloomhaven and its artwork belong to their owners.

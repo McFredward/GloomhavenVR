@@ -7,12 +7,26 @@ python3 "$repo_root/tests/GloomhavenVR.MrScenarioTests/extract.py"
 dotnet run --project "$project" --configuration Release
 python3 - "$repo_root" <<'PY'
 from pathlib import Path
-import sys
+import sys, re
 r=Path(sys.argv[1]); wall=(r/'src/GloomhavenVR/Core/WallFade/WallSegmentFade.cs').read_text()
+ownership=(r/'src/GloomhavenVR/Core/WallFade/WallSegmentFade.SelectionFacts.cs').read_text()
 mr=(r/'src/GloomhavenVR/Core/MixedReality/MixedReality.cs').read_text()
 layers=(r/'src/GloomhavenVR/Core/VRLayers.cs').read_text()
-assert '|| ModVisualOwnership.IsName(n);' in wall
-assert '|| ModVisualOwnership.IsName(r.name);' in wall
+# Cold census and live adoption share the exact presentation-owner predicate.
+# Bind its original layer/name arms through that helper, rather than requiring
+# their old inline location. Executable wall facts test its actual verdicts.
+mod_assignment=re.search(r'f\.Mod\s*=([^;]+);', wall)
+assert mod_assignment is not None
+assert 'f.ModPresentation' in mod_assignment.group(1)
+assert 'f.ModPresentation = IsModPresentation(r, n);' in wall
+assert 'IsNativeNonWallPresentation(r)' in mod_assignment.group(1)
+assert 'bool owned = IsNativeHexSelectionVisual(renderer);' in ownership
+predicate=re.search(r'private static bool IsModPresentation\([^;]+?=>([^;]+);', ownership)
+assert predicate is not None
+assert 'renderer.gameObject.layer == VRLayers.ModLayer' in predicate.group(1)
+assert '|| ModVisualOwnership.IsName(name)' in predicate.group(1)
+assert '|| IsFigureVisualMirrorRenderer(renderer)' in predicate.group(1)
+assert 'private static bool IsModObject(Renderer r) => IsModPresentation(r, r.name) || IsNativeNonWallPresentation(r);' in wall
 assert 'internal const string ModOwnedNamePrefix = "VR";' in layers
 assert 'internal const string ModOwnedQualifiedPrefix = "GloomhavenVR.";' in layers
 region=mr[mr.index('private static void RegionMembershipPass('):mr.index('private enum RegionVerdict')]
@@ -35,21 +49,26 @@ assert 'RetireSceneryBackings();' in tick
 assert 'ForceUnseenOpaque();' not in tick
 assert mr.count('ForceUnseenOpaque(') == 1 # declaration, no creation caller
 assert 'HideSkyGeometry();' in tick and 'ForceSolid(head, key);' in tick
-assert '_file != null && Enabled.Value && VRSession.IsRunning;' in mr
+# Native Frame backings must wait for accepted alpha composition. Preserve the
+# original VR/config guards without requiring the former chromakey-only expression.
+backings = re.search(r'internal static bool BackingsWanted\s*=>(.*?);', mr, re.S)
+assert backings is not None
+assert '_file != null && Enabled.Value && VRSession.IsRunning' in backings.group(1)
+assert '(!FrameNativePassthrough.Required || FrameNativePassthrough.IsActive)' in backings.group(1)
 assert mr.count('"INERT since build 532. MR backings are UI-only. Retained for configuration compatibility. "') == 7
 restore=mr[mr.index('private static void RestoreUnseenUnderlays('):mr.index('private static void RestoreSky(')]
 for name in ('plate', 'fill', 'rim'):
     assert restore.index(name+'.enabled = false;') < restore.index('Destroy('+name+'.gameObject)')
 assert 'MrRimCurtain.ReleaseMeshes();' in restore
 assert 'WorldUI.' not in restore
-print('MR scenario ownership: 26 source bindings passed.')
+print('MR scenario ownership: shared presentation ownership and MR source bindings passed.')
 PY
 mutation_dir="$(mktemp -d)"
 trap 'rm -rf "$mutation_dir"' EXIT
 for mutation in prefix overlap cutout inactive retirement sky-furniture; do
     python3 - "$repo_root" "$mutation_dir/Mutated.cs" "$mutation" <<'PY'
 from pathlib import Path
-import sys
+import sys, re
 r=Path(sys.argv[1]); mutation=sys.argv[3]
 path='Core/ModVisualOwnership.cs' if mutation=='prefix' else 'Core/MixedReality/MrUnseenRegionEligibility.cs'
 s=(r/'tests/GloomhavenVR.MrScenarioTests/obj/Retirement.g.cs').read_text() if mutation=='retirement' else (r/'src/GloomhavenVR'/path).read_text()

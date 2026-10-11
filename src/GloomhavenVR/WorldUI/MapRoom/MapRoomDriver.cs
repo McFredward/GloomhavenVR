@@ -240,8 +240,17 @@ internal static class MapRoomDriver
     /// <see cref="GuildmasterDestinations.LeaveMode"/> to return to the map, which is what runs
     /// the game's mode Exit. False when the room is down or the bar carries no such button.
     /// </summary>
-    internal static bool PressGuildmasterMode(EGuildmasterMode mode, string source) =>
-        Active && Buttons.PressMode(mode, source);
+    internal static bool CanVisitTownService(EGuildmasterMode mode) => Active && Buttons.CanVisitTownService(mode);
+
+    internal static bool PressGuildmasterMode(EGuildmasterMode mode, string source,
+        bool suppressNativeSound = false)
+    {
+        if (!Active) return false;
+        bool audioScope = suppressNativeSound
+            && TownServiceNativeAudioSilence.BeginAutomaticTransition(mode, source);
+        try { return Buttons.PressMode(mode, source, suppressNativeSound); }
+        finally { TownServiceNativeAudioSilence.EndAutomaticTransition(audioScope); }
+    }
 
     /// <summary>
     /// Evaluate the mode predicate. Called once per frame from <c>VRRigDriver.UpdateBody</c>
@@ -691,20 +700,21 @@ internal static class MapRoomDriver
         if (!Active)
             return;
         bool have = Parchment.Ensure(_choreo);
-        Icons.Tick(have ? head : null, Parchment.Renderer, _choreo);
+        using (PerfMonitor.Scope("MapRoom.Icons"))
+            Icons.Tick(have ? head : null, Parchment.Renderer, _choreo);
         // Laser + fingertip on the location icons (phase 4). Runs whether or not the parchment is
         // momentarily unmeasurable: the icons are their own GameObjects with their own colliders,
         // and losing input for the frames of a world↔city switch would be a worse bug than a
         // hover on an icon whose parchment is being swapped underneath it.
-        Locations.Tick();
+        using (PerfMonitor.Scope("MapRoom.Locations")) Locations.Tick();
         // The guildmaster bar as physical table buttons (phase 6). Same reasoning as above for
         // running it unconditionally: the buttons are their own GameObjects and do not depend on
         // the parchment being measurable this frame.
-        Buttons.Tick();
+        using (PerfMonitor.Scope("MapRoom.Buttons")) Buttons.Tick();
         // The game's own Reisen/Abbrechen buttons ride the floated quest window (phase 4b) — they
         // live in the flat map HUD, which this room does not draw, so without this they exist and
         // cannot be reached. Level-triggered; see MapTravelConfirm.
-        MapTravelConfirm.Reconcile(ModalFallback.FloatedWindowWithId(UIWindowID.QuestPopup));
+        MapTravelConfirm.Reconcile(ModalFallback.FloatedQuestConfirmationWindow());
         // "No character selected" is not a state on the map either (user ruling 2026-08-15, "Auch in
         // der Map soll gelten…"). Level-triggered and self-cadenced — two float compares on all but
         // every fourth frame — and entirely self-guarding, so it never throws into this call. It must
@@ -714,7 +724,7 @@ internal static class MapRoomDriver
         // player's own hand, not off the parchment, so a world<->city switch must not blink it. It
         // is entirely self-guarding (its own dial, its own capability latch, its own try) and never
         // throws into this call.
-        Hand.Tick();
+        using (PerfMonitor.Scope("MapRoom.Hand")) Hand.Tick();
         // The four table legs at the corners of the game's own tabletop (user, against ModBuild 197:
         // "Instead I want the TABLE to get TABLE LEGS at its 4 CORNERS, and these should STAND ON
         // THE FLOOR of the environment"). Called UNCONDITIONALLY — not gated on `have` like the rest
@@ -768,6 +778,7 @@ internal static class MapRoomDriver
         // Hand the game's travel options back before the room disappears under them — a container
         // left parented into a host we are about to destroy would take the Reisen button with it.
         MapTravelConfirm.Reset();
+        MapRetirementPrompt.Reset();
         // AND THE ROOM'S WINDOWS GO WITH THE ROOM (ModBuild 226, user report 16: "Als ich dann zu
         // einem Szenario gejoint bin, habe ich dort zwei Fenster gesehen, die dort NICHT hingehören
         // … Beides Fenster aus der 3D-Map-Umgebung"). Deliberately AFTER MapTravelConfirm.Reset —

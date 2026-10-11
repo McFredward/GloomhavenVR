@@ -311,6 +311,22 @@ internal static partial class PanelSupersample
         }
         ContentStack.Clear();
 
+        // The converted CardHilight canvas is narrower than the native aura around
+        // an offered physical card. Its animated Graphic can temporarily drop
+        // out of this drawable-ink walk between native animation phases. The
+        // build-577 headset log repeatedly
+        // resized CardHilight from a ~700 px square to the 325 px host width; the
+        // video shows exactly those missing left and right arcs. The offer mask
+        // retains the ring's live footprint until that offer ends, independent of
+        // a transient uGUI cull readback. No other window gets a reserved margin.
+        bool offeredAura = TownServiceNativeEnhancementCardMask.TryAuraCaptureBounds(host,
+            out Rect auraBounds);
+        if (offeredAura)
+        {
+            union = Union(union, auraBounds);
+            NoteExtremes("native enhancement aura", auraBounds);
+        }
+
         // THE CLAMP — the one place content can still be lost, so it keeps the host rect centred and
         // gives away as much of the overspill as the budget allows, edge by edge.
         //
@@ -328,8 +344,12 @@ internal static partial class PanelSupersample
         // The expansion limit is rounded OUTWARD too, never inward: this grid must not be able to
         // crop a single pixel more than ModBuild 200 already did. It costs at most one grid cell of
         // extra transparent margin on a window that was already at the limit.
-        float padX = QuantiseUp(hostRect.width * (MaxContentExpansion - 1f) * 0.5f);
-        float padY = QuantiseUp(hostRect.height * (MaxContentExpansion - 1f) * 0.5f);
+        // The native ring is as wide as ~850 authored pixels around a 325 px
+        // CardHilight host. The ordinary 2x cap would still crop a correctly
+        // measured ring; reserve up to 3x only while this offer is active.
+        float expansion = offeredAura ? 3f : MaxContentExpansion;
+        float padX = QuantiseUp(hostRect.width * (expansion - 1f) * 0.5f);
+        float padY = QuantiseUp(hostRect.height * (expansion - 1f) * 0.5f);
         float needLeft = Mathf.Clamp(QuantiseUp(hostRect.xMin - union.xMin), 0f, padX);
         float needRight = Mathf.Clamp(QuantiseUp(union.xMax - hostRect.xMax), 0f, padX);
         float needDown = Mathf.Clamp(QuantiseUp(hostRect.yMin - union.yMin), 0f, padY);
@@ -416,7 +436,7 @@ internal static partial class PanelSupersample
             VRLog.Warn(Scope, $"PANEL SUPERSAMPLE: '{e.Window}' draws content that reaches "
                               + $"{union.width:F0}x{union.height:F0} uGUI px around a "
                               + $"{hostRect.width:F0}x{hostRect.height:F0} host rect — more than the "
-                              + $"{MaxContentExpansion:F0}x expansion this path will frame. THE "
+                              + $"{expansion:F0}x expansion this path will frame. THE "
                               + $"CONSEQUENCE: the capture frames {frame.width:F0}x{frame.height:F0} "
                               + "and whatever lies outside THAT is cropped from the supersampled "
                               + "image; it was visible before this build and is not now. The clamp "

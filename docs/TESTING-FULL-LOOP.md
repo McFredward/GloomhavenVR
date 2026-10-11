@@ -39,8 +39,8 @@
 ## 0. Fresh install (release artifact)
 
 1. Clean Gloomhaven install (verify game files / remove old `BepInEx/`).
-2. Install BepInEx 5.4.23.5 per `INSTALL.md` §1; boot flat once; `LogOutput.log` exists.
-3. Extract `dist/GloomhavenVR-<version>.zip` over the game folder (`INSTALL.md` §2).
+2. Install BepInEx 5.4.23.5 per [`INSTALL.md`](install/INSTALL.md) §1; boot flat once; `LogOutput.log` exists.
+3. Extract `dist/GloomhavenVR-<version>.zip` over the game folder ([`INSTALL.md`](install/INSTALL.md) §2).
 4. Boot with the headset active.
 
 - [ ] Log shows, in order: `OpenXR runtime assets ready (package 1.10.0)` →

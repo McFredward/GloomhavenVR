@@ -1,0 +1,23 @@
+[
+  {
+    "mesh": "LOD0_0",
+    "vertices": 70708,
+    "changed": 12464,
+    "protected_vertices": 58244,
+    "non_leg_weights_unchanged": true
+  },
+  {
+    "mesh": "LOD1_0",
+    "vertices": 24989,
+    "changed": 4497,
+    "protected_vertices": 20492,
+    "non_leg_weights_unchanged": true
+  },
+  {
+    "mesh": "LOD2_0",
+    "vertices": 15113,
+    "changed": 1367,
+    "protected_vertices": 13746,
+    "non_leg_weights_unchanged": true
+  }
+]

@@ -162,7 +162,7 @@ namespace UnityEngine
         public static int RoundToInt(float value) => (int)Math.Round(value);
         public static float Clamp01(float value) => Math.Clamp(value,0,1);
     }
-    public static class Time { public static int frameCount => 1; }
+    public static class Time { public static int frameCount { get; set; } = 1; }
 }
 namespace UnityEngine.UI
 {
@@ -212,6 +212,7 @@ namespace GloomhavenVR.WorldUI
     internal sealed class ConvertedPanel
     {
         internal UnityEngine.Transform? FitContentRoot => null;
+        internal UnityEngine.RectTransform? MrVisualRoot { get; set; }
         public UnityEngine.RectTransform HostRect = null!;
         public UnityEngine.RectTransform Target = null!;
         public UnityEngine.UI.Graphic? ContentGraphic;

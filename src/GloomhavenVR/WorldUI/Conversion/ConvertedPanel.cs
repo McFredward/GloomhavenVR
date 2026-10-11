@@ -11,6 +11,7 @@ namespace GloomhavenVR.WorldUI;
 /// </summary>
 internal sealed class ConvertedPanel
 {
+    internal PanelMaintenanceCadence.State FitMaintenance;
     // What was moved.
     public RectTransform Target = null!;
 
@@ -54,6 +55,10 @@ internal sealed class ConvertedPanel
     // ---- content-fit state (test #14 item 1; driven by CanvasConversion.Tick) ----------
     /// <summary>Optional narrower subtree to measure (e.g. the story window's UICharacterStoryBox).</summary>
     public RectTransform? FitContentRoot;
+
+    /// <summary>Optional presentation wrapper for MR paint only. It includes owned informational
+    /// chrome and original clipping ancestors without changing native target ownership or fit.</summary>
+    public RectTransform? MrVisualRoot;
 
     /// <summary>
     /// True when the target converted with a degenerate (&lt;1 px) rect that Convert

@@ -212,6 +212,18 @@ internal static partial class CanvasConversion
                      canvas.GetInstanceID(), offset);
     }
 
+    /// <summary>Restore a known cluster after an original presentation sample wrote its
+    /// native sorting values. Stable camera ranks do not otherwise trigger another apply.</summary>
+    internal static void ReassertFurniture(IFurnitureOrderAnchor anchor)
+    {
+        foreach (FurnitureGroup group in FurnitureGroups)
+            if (ReferenceEquals(group.Anchor, anchor))
+            {
+                if (group.AppliedRank >= 0) ApplyFurnitureOrder(group);
+                return;
+            }
+    }
+
     private static FurnitureGroup GroupFor(IFurnitureOrderAnchor anchor)
     {
         for (int i = 0; i < FurnitureGroups.Count; i++)
@@ -529,12 +541,13 @@ internal static partial class CanvasConversion
     /// resulting band. Throttled like the ladder's own diagnostics.</summary>
     private static void LogFurnitureOrder(FurnitureGroup group, int previousRank, float dist)
     {
+        if (!VRLog.Wants(VRLogLevel.Debug)) return;
         float now = Time.unscaledTime;
         if (now < s_nextFurnitureLogAt)
             return;
         s_nextFurnitureLogAt = now + OrderDiagMinIntervalSeconds;
         int bandBase = FurnitureBandBase(group.AppliedRank);
-        VRLog.Info("WorldUI", $"FURNITURE ORDER: '{group.Anchor.FurnitureOrderName}' " +
+        VRLog.Debug("WorldUI", $"FURNITURE ORDER: '{group.Anchor.FurnitureOrderName}' " +
                               $"({group.Entries.Count} renderer(s), d={dist:F2}m) ranks ABOVE " +
                               $"{group.AppliedRank} farther panel(s) (was {previousRank}) - band " +
                               $"{bandBase}..{bandBase + FurnitureBandWidth - 1}. Its transparent " +

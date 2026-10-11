@@ -147,8 +147,10 @@ internal static partial class VROptionsTab
                         // SIZE: size and height are the two questions anyone asks about a bar.
                         new BoardRef("WorldUI", "BarHeightOffset", perBoard: false),
                         // BarZoomMinScale / BarZoomMaxScale stood here. Removed 2026-08-13 with
-                        // their bindings — the band is a constant now (ActorBars.ZoomFollowMin).
+                        // their bindings — the former band is a constant in ActorBars, selected
+                        // by BarFollowFigureScale=Off.
                         new BoardRef("WorldUI", "BarFixedSize", perBoard: false),
+                        new BoardRef("WorldUI", "BarFollowFigureScale", perBoard: false),
                         new BoardRef("WorldUI", "BarsOccluded", perBoard: false),
                     },
                 },
@@ -293,6 +295,9 @@ internal static partial class VROptionsTab
                     Entries = new[]
                     {
                         new BoardRef("WorldUI", "MapRoomHand", perBoard: false),
+                        new BoardRef("WorldUI", "ImmersiveTownServices", perBoard: false),
+                        new BoardRef("WorldUI", "ImmersiveTownSpeech", perBoard: false),
+                        new BoardRef("WorldUI", "ImmersiveTownSoundEffects", perBoard: false),
                         new BoardRef("WorldUI", "TravelButtonOffsetXWindowHeights", perBoard: false),
                         new BoardRef("WorldUI", "TravelButtonOffsetYWindowHeights", perBoard: false),
                     },
@@ -519,6 +524,11 @@ internal static partial class VROptionsTab
                         new BoardRef("Cards", "Board", perBoard: false),
                         new BoardRef("Cards", "TrayScale", perBoard: false),
                         new BoardRef("Cards", "TrayFollow", perBoard: false),
+                        new BoardRef("Cards", "WristBoardEnabled", perBoard: false),
+                        new BoardRef("Cards", "WristBoardHand", perBoard: false),
+                        new BoardRef("Cards", "WristBoardOffsetMeters", perBoard: false),
+                        new BoardRef("Cards", "WristBoardAnglesDegrees", perBoard: false),
+                        new BoardRef("Cards", "WristBoardScale", perBoard: false),
                         // The fingertip pad around the board's small default-action buttons
                         // (ModBuild 403). Listed here by hand since the 2026-09-05 ruling (b) took
                         // it off the curated Brett & Karten page — a hitbox padding in authored

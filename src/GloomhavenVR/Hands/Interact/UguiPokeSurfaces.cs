@@ -36,6 +36,17 @@ internal static class UguiPokeSurfaces
     // (RayUguiDriver, PokeInteractor) keeps intersecting the HOST rect alone.
     private static readonly Dictionary<Canvas, List<Canvas>> NestedByHost = new(8);
 
+    // Only explicit MapDialogSeat transfers opt into the raiser's stable input tier.
+    // Ordinary nested canvases retain their authored order comparison unchanged.
+    private static readonly Dictionary<Canvas, SeatedBinding> SeatedNestedHosts = new(2);
+
+    private readonly struct SeatedBinding
+    {
+        internal SeatedBinding(Canvas host, int orderOffset) { Host = host; OrderOffset = orderOffset; }
+        internal readonly Canvas Host;
+        internal readonly int OrderOffset;
+    }
+
     public static void Register(Canvas canvas) => Register(canvas, null);
 
     /// <summary>
@@ -64,6 +75,10 @@ internal static class UguiPokeSurfaces
         if (canvas != null)
         {
             Tunings.Remove(canvas);
+            if (NestedByHost.TryGetValue(canvas, out List<Canvas>? owned))
+                for (int i = 0; i < owned.Count; i++)
+                    if (SeatedNestedHosts.TryGetValue(owned[i], out SeatedBinding seat) && ReferenceEquals(seat.Host, canvas))
+                        SeatedNestedHosts.Remove(owned[i]);
             NestedByHost.Remove(canvas);
         }
     }
@@ -87,6 +102,34 @@ internal static class UguiPokeSurfaces
             list.Add(nested);
     }
 
+    /// <summary>Give a physically seated shared dialog the raiser's stable input tier.
+    /// Its native canvas may retain a lower authored/live order than the modal host's
+    /// conversion tier; the host paper must not intercept its original buttons.</summary>
+    internal static void RegisterSeatedNested(Canvas host, Canvas nested, int orderOffset)
+    {
+        RegisterNested(host, nested);
+        if (host != null && nested != null) SeatedNestedHosts[nested] = new SeatedBinding(host, orderOffset);
+    }
+
+    internal static bool TrySeatedHostOf(Canvas? nested, out Canvas? host, out int orderOffset)
+    {
+        host = null; orderOffset = 0;
+        if (nested == null || nested.overrideSorting || !SeatedNestedHosts.TryGetValue(nested, out SeatedBinding seat)
+            || seat.Host == null || !nested.transform.IsChildOf(seat.Host.transform)) return false;
+        host = seat.Host; orderOffset = seat.OrderOffset; return true;
+    }
+
+    /// <summary>Retire one explicitly transferred native subtree without unregistering its
+    /// former host or changing any native raycaster's enabled state.</summary>
+    internal static void UnregisterNested(Canvas? host, Canvas nested)
+    {
+        if (host == null || !NestedByHost.TryGetValue(host, out List<Canvas>? list)) return;
+        list.Remove(nested);
+        if (SeatedNestedHosts.TryGetValue(nested, out SeatedBinding seat) && ReferenceEquals(seat.Host, host))
+            SeatedNestedHosts.Remove(nested);
+        if (list.Count == 0) NestedByHost.Remove(host);
+    }
+
     /// <summary>Nested canvases registered for a host (null when none; do not mutate).</summary>
     internal static List<Canvas>? NestedOf(Canvas? host) =>
         host != null && NestedByHost.TryGetValue(host, out List<Canvas>? list) ? list : null;
@@ -105,6 +148,7 @@ internal static class UguiPokeSurfaces
         // Drop tunings/nested lists whose canvases died (rare; allocation acceptable here).
         PruneDeadKeys(Tunings);
         PruneDeadKeys(NestedByHost);
+        PruneDeadKeys(SeatedNestedHosts);
     }
 
     private static void PruneDeadKeys<TValue>(Dictionary<Canvas, TValue> map)
@@ -129,6 +173,7 @@ internal static class UguiPokeSurfaces
         Surfaces.Clear();
         Tunings.Clear();
         NestedByHost.Clear();
+        SeatedNestedHosts.Clear();
     }
 }
 

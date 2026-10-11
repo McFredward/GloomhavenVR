@@ -1,4 +1,5 @@
 using System;
+using GloomhavenVR.Core;
 using System.Collections.Generic;
 
 namespace GloomhavenVR.WorldUI;
@@ -127,6 +128,11 @@ internal static partial class VROptionsTab
         // ---- Grafik ▸ Leistung: "Has no effect at all when EnableGraphicsJobs is false" --------
         ["Core/AutoRestartForGraphicsJobs"] = new("Core", "EnableGraphicsJobs", On),
 
+        // ---- Komfort ▸ Sichtbarkeit: instant all-wall hiding overrides look-dependent fading.
+        // Auto still starts with regular walls, so their saved tuning remains available there.
+        ["Optimize/WallAutoHideBelowFpsCount"] = new("Optimize", "WallVisibilityModeCount", static v => v is int mode && mode == 2),
+        ["Compat/WallFade"] = new("Optimize", "WallVisibilityModeCount", static v => v is int mode && mode != 1),
+
         // ---- Grafik ▸ Darstellung: the window supersample FACTOR is the tuning OF its switch,
         //      and the bound description says so in as many words ("Has no effect while
         //      PanelSupersample is off"). The code makes that literally true: PanelSupersample's
@@ -141,6 +147,11 @@ internal static partial class VROptionsTab
         // PanelSupersample.2.Capture.CreateMipRt and re-asserted in ResolveAndMip, both of which
         // only run for an engaged entry).
         ["WorldUI/PanelMipLodOffset"] = new("WorldUI", "PanelSupersample", On),
+        // These are only the dust/sweep effect's calibration. Native window motion,
+        // handles, card burns and gameplay continuation do not depend on this toggle.
+        ["WorldUI/WindowMaterialiseAppearSeconds"] = new("WorldUI", "WindowMaterialise", On),
+        ["WorldUI/WindowMaterialiseVanishSeconds"] = new("WorldUI", "WindowMaterialise", On),
+        ["WorldUI/WindowMaterialiseIntensity"] = new("WorldUI", "WindowMaterialise", On),
 
         // ---- Umgebung & Ton ▸ Kampagnenkarte: the map-room card hand exists only inside the 3D
         //      map room. Not an inference from its name: the hand is engaged from exactly one place
@@ -158,6 +169,12 @@ internal static partial class VROptionsTab
         //      the whole map-room family away for every player on the NEW DEFAULT, i.e. for almost
         //      everyone, and it would have looked like the rows had simply been deleted.
         ["WorldUI/MapRoomHand"] = new("Rig", "Vanilla2DMap", Off),
+        // All three residents and their audio exist only in the 3D map room.
+        // The audio controls additionally fold under the immersive master below,
+        // so the entire family disappears with the original 2D map.
+        ["WorldUI/ImmersiveTownServices"] = new("Rig", "Vanilla2DMap", Off),
+        ["WorldUI/ImmersiveTownSpeech"] = new("WorldUI", "ImmersiveTownServices", On),
+        ["WorldUI/ImmersiveTownSoundEffects"] = new("WorldUI", "ImmersiveTownServices", On),
         // The travel-confirm button is parked only inside the 3D map room: MapTravelConfirm
         // .Reconcile is called from exactly one place (MapRoomDriver, guarded by
         // MapRoomDriver.Active) and its own first branch unparks whenever !Active — so with the
@@ -195,6 +212,11 @@ internal static partial class VROptionsTab
         //      "Begrenzt mit Neigung" scheme (BoardMoveMode.LimitedPitch, whose own enum doc names
         //      BoardPitchMin/Max as the window it clamps to). All six per-board keys, so the pair
         //      folds on every board; the variant filter then shows the selected board's.
+        ["Cards/TrayFollow"] = new("Cards", "WristBoardEnabled", Off),
+        ["Cards/WristBoardHand"] = new("Cards", "WristBoardEnabled", On),
+        ["Cards/WristBoardOffsetMeters"] = new("Cards", "WristBoardEnabled", On),
+        ["Cards/WristBoardAnglesDegrees"] = new("Cards", "WristBoardEnabled", On),
+        ["Cards/WristBoardScale"] = new("Cards", "WristBoardEnabled", On),
         ["Cards/BoardPitchMin_Oak"] = new("Cards", "BoardMoveMode", Named("LimitedPitch")),
         ["Cards/BoardPitchMin_Steel"] = new("Cards", "BoardMoveMode", Named("LimitedPitch")),
         ["Cards/BoardPitchMin_Bronze"] = new("Cards", "BoardMoveMode", Named("LimitedPitch")),
@@ -419,7 +441,12 @@ internal static partial class VROptionsTab
     /// THE one row filter: the own-page hand-off, the per-variant fold and the dependency fold
     /// together. Every view — curated tabs, automatic topic pages, the hand-arranged trees — asks
     /// this and nothing else, so the three mechanisms can never disagree between pages.
+    /// Platform-specific defaults never remove a working performance toggle from the menu.
     /// </summary>
     private static bool IsRowVisible(ConfigCatalog.ConfigItem item) =>
-        !HasItsOwnPage(item) && IsShownForCurrentVariant(item) && DependencyMet(item);
+        !HasItsOwnPage(item)
+        // Native alpha passthrough uses no chroma-key color. Keep its saved value
+        // for PC streaming without offering an ineffective Frame-only control.
+        && !(FrameNativePassthrough.Required && item.Section == "MixedReality" && item.Key == "KeyColor")
+        && IsShownForCurrentVariant(item) && DependencyMet(item);
 }

@@ -45,6 +45,11 @@ internal static class NativeVideoWindow
     internal static bool Visible => _root != null && _root.activeSelf;
     internal static uint NativePlaybackGeneration => _nativePlaybackGeneration;
 
+    // The native movie camera is also the decoder's live presentation/continuation lease.
+    // Its pixels already go to the discarded sink; disabling it would invalidate NativePlayer.
+    internal static bool OwnsRenderCamera(Camera? camera) => camera != null
+        && VideoCamera.s_This != null && VideoCamera.s_This.m_Camera == camera;
+
     /// <summary>Never returns the network mirror: only native playback may originate a movie.</summary>
     internal static VideoPlayer? NativePlayer
     {

@@ -451,7 +451,7 @@ internal static partial class CanvasConversion
     /// </summary>
     private static Camera? FindGameUiCamera(Camera head)
     {
-        int count = Core.VRCameraPolicy.GetAllCamerasNonAlloc(out Camera[] cams);
+        int count = Core.NativeCameraRenderBudget.GetProjectionCamerasNonAlloc(out Camera[] cams);
         Camera? byMask = null;
         for (int i = 0; i < count; i++)
         {
@@ -593,7 +593,14 @@ internal static partial class CanvasConversion
             }
             if (t.gameObject.layer != modLayer)
             {
-                if (!IsRelayered(panel, t))
+                // Convert calls the initial sweep exactly once on a fresh panel. No
+                // node has a restoration record yet, and this DFS visits each node
+                // once. Searching the growing list here made a 549-node original
+                // enhancement inventory perform ~150k pointless comparisons while
+                // its native window opened on the VR main thread. Later sweeps keep
+                // the duplicate guard: a game child may be relayered by its owner
+                // between frames and must retain its FIRST original layer on release.
+                if (initial || !IsRelayered(panel, t))
                     panel.Relayered.Add(new LayerRecord { Transform = t, OriginalLayer = t.gameObject.layer });
                 t.gameObject.layer = modLayer;
                 moved++;
@@ -749,6 +756,16 @@ internal static partial class CanvasConversion
 
     /// <summary>Local rotation counts as 3D beyond this angle (degrees) off identity.</summary>
     private const float FlattenAngleEpsilon = 0.05f;
+
+    /// <summary>Skip the angle calculation for the exact identity used by ordinary UI
+    /// transforms. Keep Unity's existing angle test for every other quaternion, including
+    /// equivalent representations and rotations near the flatten threshold.</summary>
+    private static bool IsFlattenRotationTilted(Quaternion rotation)
+    {
+        if (rotation.x == 0f && rotation.y == 0f && rotation.z == 0f && rotation.w == 1f)
+            return false;
+        return Quaternion.Angle(rotation, Quaternion.identity) > FlattenAngleEpsilon;
+    }
 
     /// <summary>Local z counts as 3D beyond this many uGUI pixels.</summary>
     private const float FlattenZEpsilon = 0.01f;
@@ -912,7 +929,7 @@ internal static partial class CanvasConversion
                 continue; // pruned at cycle end; never allocate a removal on the per-frame path
             Vector3 pos = tf.localPosition;
             Quaternion rot = tf.localRotation;
-            if (Quaternion.Angle(rot, Quaternion.identity) > FlattenAngleEpsilon)
+            if (IsFlattenRotationTilted(rot))
             {
                 tf.localRotation = Quaternion.identity;
                 reasserts++;
@@ -980,7 +997,7 @@ internal static partial class CanvasConversion
 
             Vector3 pos = t.localPosition;
             Quaternion rot = t.localRotation;
-            bool tiltedRot = Quaternion.Angle(rot, Quaternion.identity) > FlattenAngleEpsilon;
+            bool tiltedRot = IsFlattenRotationTilted(rot);
             bool tiltedZ = Mathf.Abs(pos.z) > FlattenZEpsilon;
             if (!tiltedRot && !tiltedZ)
                 continue;

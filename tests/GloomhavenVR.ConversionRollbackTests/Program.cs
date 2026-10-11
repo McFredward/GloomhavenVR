@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using UnityEngine;
 using UnityEngine.UI;
 using GloomhavenVR.WorldUI;
@@ -47,8 +48,31 @@ internal static class Program
             }
         }
     }
-    private static void Main()
+    private static void BenchmarkLayerSweep()
     {
+        // Diagnostic only: compares the extracted production method against the
+        // previous method in the same managed fixture. Unity's native component
+        // and canvas costs are absent, so this is not a headset-frame estimate.
+        const int runs=150;
+        long ticks=0;
+        for(int run=0;run<runs;run++)
+        {
+            var panel=new ConvertedPanel { HostGo=new GameObject("original enhancement inventory") };
+            panel.HostGo.layer=5;
+            for(int i=0;i<549;i++)
+            {
+                var child=new GameObject("native card option") { layer=5 };
+                panel.HostGo.transform.AddChild(child.transform);
+            }
+            long before=Stopwatch.GetTimestamp();
+            CanvasConversion.SweepForTest(panel,initial:true);
+            ticks+=Stopwatch.GetTimestamp()-before;
+        }
+        Console.WriteLine($"Layer sweep 549 nodes: {ticks*1000.0/Stopwatch.Frequency/runs:F3} ms/run over {runs} runs.");
+    }
+    private static void Main(string[] args)
+    {
+        if(args.Length==1 && args[0]=="--layer-bench") { BenchmarkLayerSweep();return; }
         // Inject at each conversion ownership boundary. The executed scope, rollback,
         // Release and host-destruction guard are production methods extracted unchanged.
         for(int phase=0;phase<4;phase++)
@@ -119,6 +143,35 @@ internal static class Program
         Check(CanvasConversion.Pending(detachedOnly.Target) && detachedOnly.AdoptedCanvases.Count==1,"Scene-root detach must not complete a pending original-home restore");
         detachedOnly.Target.RefuseSpecificParent=null;CanvasConversion.Retry();NativeRestored(detachedOnly);
         Check(!CanvasConversion.Pending(detachedOnly.Target),"Retry must restore live native home after safety detach");
+        // Run the production relayer on an enchantress-sized original subtree.
+        // Initial ownership records every original layer once. A later native
+        // relayer must not overwrite that snapshot, while a newly pooled child
+        // must still acquire one. The second assertion rejects an unguarded
+        // recurring sweep even if the initial fast path looks correct.
+        var layerPanel=new ConvertedPanel { HostGo=new GameObject("large original enhancement list") };
+        layerPanel.HostGo.layer=5;
+        var originalNodes=new List<GameObject>();
+        for(int i=0;i<549;i++)
+        {
+            var child=new GameObject("native slot " + i) { layer=5 };
+            layerPanel.HostGo.transform.AddChild(child.transform);originalNodes.Add(child);
+        }
+        CanvasConversion.SweepForTest(layerPanel,initial:true);
+        Check(layerPanel.Relayered.Count==550,"Initial large conversion records each original layer once");
+        Check(originalNodes.TrueForAll(node=>node.layer==27),"Initial large conversion moves every original UI node");
+        originalNodes[20].layer=13;
+        CanvasConversion.SweepForTest(layerPanel,initial:false);
+        Check(layerPanel.Relayered.Count==550 && layerPanel.Relayered[21].OriginalLayer==5,
+            "Recurring sweep preserves the first original layer after native relayering");
+        var pooled=new GameObject("pooled native slot") { layer=9 };
+        layerPanel.HostGo.transform.AddChild(pooled.transform);
+        CanvasConversion.SweepForTest(layerPanel,initial:false);
+        Check(layerPanel.Relayered.Count==551 && layerPanel.Relayered[550].OriginalLayer==9 && pooled.layer==27,
+            "Recurring sweep records a newly pooled child and its native layer");
+        pooled.layer=7;
+        CanvasConversion.SweepForTest(layerPanel,initial:false);
+        Check(layerPanel.Relayered.Count==551 && layerPanel.Relayered[550].OriginalLayer==9,
+            "Recurring sweep never replaces pooled child's first native layer");
         Console.WriteLine($"Conversion rollback production harness: {_assertions} assertions passed.");
     }
 }

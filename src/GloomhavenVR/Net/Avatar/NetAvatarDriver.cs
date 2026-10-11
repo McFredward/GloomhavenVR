@@ -552,6 +552,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
     private byte _lastSentFaceCode1;
     private byte _lastSentFaceCount0, _lastSentFaceCount1;
     private int _lastSentSecondFaceActor;
+    private TownItemHeldSource? _lastSentSecondTownItem;
     private uint _lastSentSecondMapKey;
     private byte _lastSentSecondMapArcSeat;
     private ushort _lastSentSecondMapSeat, _lastSentSecondMapCount;
@@ -797,6 +798,124 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         return mm > 0f;
     }
 
+    internal static bool TryGetTownFaceHead(int player, out Vector3 head)
+    {
+        head = Vector3.zero;
+        NetAvatarDriver? driver = _instance;
+        if (driver == null || !driver._avatars.TryGetValue(player, out RemoteAvatar avatar)
+            || avatar == null || avatar.TimeSinceUpdate > NetProtocol.StaleTimeoutSeconds
+            || !avatar.TryGetHeadWorld(out head)) return false;
+        // Gaze follows the same already-interpolated head the player can see. The
+        // raw target is still required for freshness/first activation, but following
+        // its 15 Hz steps introduces a second stuttering path beside the smooth mask.
+        if (avatar.HeadHolder != null && avatar.HeadHolder.gameObject.activeInHierarchy)
+            head = avatar.HeadHolder.position;
+        return true;
+    }
+
+    /// <summary>Use the same interpolated rig hand that already carries remote
+    /// scenario cards. Town props must not chase a separate delayed world pose.</summary>
+    internal static bool TryGetTownHeldStock(int peer, int wanted, out int itemId)
+    {
+        itemId = 0;
+        NetAvatarDriver? driver = _instance;
+        if (driver == null || !driver._avatars.TryGetValue(peer, out RemoteAvatar avatar)
+            || avatar.TimeSinceUpdate > NetProtocol.StaleTimeoutSeconds) return false;
+        for (int slot = 1; slot <= 2; slot++)
+        {
+            TownItemHeldSource? source = avatar.HeldTownItemSource(slot);
+            if (source.HasValue && source.Value.Kind == TownItemHeldSource.Stock
+                && (wanted == 0 || source.Value.ItemId == wanted) && avatar.HoldsTownStock(source.Value.ItemId))
+            { itemId = source.Value.ItemId; return true; }
+        }
+        return false;
+    }
+
+    internal static bool IsTownStockHeld(int itemId)
+    {
+        NetAvatarDriver? driver = _instance;
+        if (driver == null || itemId <= 0) return false;
+        foreach (RemoteAvatar avatar in driver._avatars.Values)
+            if (avatar.TimeSinceUpdate <= NetProtocol.StaleTimeoutSeconds && avatar.HoldsTownStock(itemId)) return true;
+        return false;
+    }
+
+    internal static bool TryGetTownMotionHand(int player, byte hand, out Transform? root)
+    {
+        root = null;
+        NetAvatarDriver? driver = _instance;
+        if (hand > 1 || driver == null || !driver._avatars.TryGetValue(player, out RemoteAvatar avatar)
+            || avatar == null || avatar.TimeSinceUpdate > NetProtocol.StaleTimeoutSeconds) return false;
+        Transform holder = hand == 0 ? avatar.LeftHandHolder : avatar.RightHandHolder;
+        if (!holder.gameObject.activeInHierarchy) return false;
+        root = holder;
+        return true;
+    }
+
+    internal static bool TryGetTownClothHead(int player, out Vector3 head, out float scale)
+    {
+        head = Vector3.zero; scale = 1f;
+        NetAvatarDriver? driver = _instance;
+        if (driver == null || !driver._avatars.TryGetValue(player, out RemoteAvatar avatar)
+            || avatar == null || avatar.TimeSinceUpdate > NetProtocol.StaleTimeoutSeconds
+            || !avatar.TryGetHeadWorld(out head)) return false;
+        scale = avatar.AppliedScale;
+        return true;
+    }
+
+    /// <summary>Current visible peer hand centres for owner-authored town cloth contact.
+    /// Only live, active hand holders are eligible; an absent tracked side must never
+    /// reuse the previous holder position as a phantom collision.</summary>
+    internal static bool TryGetTownClothHands(int player, out Vector3 left, out Vector3 right,
+        out bool leftValid, out bool rightValid)
+    {
+        left = right = Vector3.zero; leftValid = rightValid = false;
+        NetAvatarDriver? driver = _instance;
+        if (driver == null || !driver._avatars.TryGetValue(player, out RemoteAvatar avatar)
+            || avatar == null || avatar.TimeSinceUpdate > NetProtocol.StaleTimeoutSeconds) return false;
+        Transform l = avatar.LeftHandHolder, r = avatar.RightHandHolder;
+        if (l.gameObject.activeInHierarchy) { left = l.position; leftValid = true; }
+        if (r.gameObject.activeInHierarchy) { right = r.position; rightValid = true; }
+        return leftValid || rightValid;
+    }
+
+    /// <summary>Peer palm, wrist and index tip positions for the SAME native
+    /// tapered cloth capsule as the local hand. The old palm-forward 9 cm tip
+    /// and fixed wrist extension differed by glove style and finger curl. The
+    /// existing mirrored HandRig already has the exact anchors; read them
+    /// directly, without a hierarchy scan or extra wire data.</summary>
+    internal static bool TryGetTownClothHandProbes(int player, out Vector3 left,
+        out Vector3 leftWrist, out Vector3 leftTip, out Vector3 right,
+        out Vector3 rightWrist, out Vector3 rightTip,
+        out bool leftValid, out bool rightValid, out float peerScale)
+    {
+        left = leftWrist = leftTip = right = rightWrist = rightTip = Vector3.zero;
+        leftValid = rightValid = false;
+        peerScale = 1f;
+        NetAvatarDriver? driver = _instance;
+        if (driver == null || !driver._avatars.TryGetValue(player, out RemoteAvatar avatar)
+            || avatar == null || avatar.TimeSinceUpdate > NetProtocol.StaleTimeoutSeconds) return false;
+        Transform l = avatar.LeftHandHolder, r = avatar.RightHandHolder;
+        Transform? lp = avatar.PalmAnchorFor(l), rp = avatar.PalmAnchorFor(r);
+        Transform? lw = avatar.WristAnchorFor(l), rw = avatar.WristAnchorFor(r);
+        Transform? lt = avatar.IndexTipAnchorFor(l), rt = avatar.IndexTipAnchorFor(r);
+        if (l.gameObject.activeInHierarchy && lp != null && lw != null && lt != null)
+        { left = lp.position; leftWrist = lw.position; leftTip = lt.position; leftValid = true; }
+        if (r.gameObject.activeInHierarchy && rp != null && rw != null && rt != null)
+        { right = rp.position; rightWrist = rw.position; rightTip = rt.position; rightValid = true; }
+        peerScale = avatar.AppliedScale;
+        return leftValid || rightValid;
+    }
+
+    internal static void CollectTownFacePeers(List<int> into)
+    {
+        NetAvatarDriver? driver = _instance;
+        if (driver == null) return;
+        foreach (var pair in driver._avatars)
+            if (pair.Value != null && pair.Value.TimeSinceUpdate <= NetProtocol.StaleTimeoutSeconds
+                && pair.Value.TryGetHeadWorld(out _)) into.Add(pair.Key);
+    }
+
     /// <summary>
     /// Append every peer's last RECEIVED head world position to <paramref name="into"/> and return
     /// how many were added.
@@ -980,9 +1099,10 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
     private void Update()
     {
         float dt = Time.unscaledDeltaTime;
-
         using (Core.PerfMonitor.Scope("Net.Avatar"))
         {
+            try { PrepareMerchantCards(); }
+            catch (Exception e) { LogPhaseError("PrepareMerchantCards", e); }
             // EVERY phase runs behind its own catch, because the phases are INDEPENDENT and an
             // exception must only cost the phase it happened in. The second multiplayer test
             // proved the opposite contract fatal: one deterministic NRE inside ApplyPending
@@ -1162,6 +1282,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         // same nominal rate and receiver easing. Includes follow, fixed, grabs and scaling;
         // no inferred attachment to the head can distort the owner's actual board pose.
         state.HasBoardPose = true;
+        state.WristBoard = PlayTray.Current?.WristControlsHidden == true;
         Transform? board = PlayTray.Current?.Root;
         state.HasBoard = board != null;
         if (board != null)
@@ -1245,7 +1366,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         if (fanInsertionGap > handNow || fanInsertionGap > 16) fanInsertionGap = -1;
         bool fanPresentationChanged = _fanPresentationSent.HasChanged(
             fanArcOrder, fanArcOrderCount, _fanArcOrderBuf, fanInsertionGap);
-        ItemsPile? itemsNow = ItemsPile.Current;
+        ItemsPile? itemsNow = RevealGate.InScenario ? ItemsPile.Current : ItemsPile.InspectionCurrent;
         int itemsCount = itemsNow != null && itemsNow.IsOpen ? itemsNow.Chips.Count : 0;
         bool countsChanged = handNow != _lastSentHandCount || itemsCount != _lastSentItemCount;
 
@@ -1272,7 +1393,8 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         // single scan the owner's own recess is driven from — a stale index would leave a slab lying
         // in a recess that is empty on the owner's board, which is worse than none.
         ItemsPile? recessNow = ItemsPile.RecessOwner;
-        int itemClip = recessNow != null ? recessNow.ClippedChipIndex : -1;
+        int itemClip = RevealGate.InScenario ? (recessNow != null ? recessNow.ClippedChipIndex : -1)
+            : ItemsPile.InspectionOwner?.InspectionOfferingSeat ?? -1;
         // THE CARD OUTLIVES THE FAN (user report 2026-08-09; local half in ItemsPile._keptClip). The
         // clamp used to be unconditional, which quietly encoded "no fan => no card in the recess" —
         // and that is precisely the state the owner now spends most of the decision in: they lay the
@@ -1409,7 +1531,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         string fanHlSource = fanHl >= 0 ? "pile browser" : "none";
         if (fanHl < 0)
         {
-            fanHl = ItemsPile.Current?.HighlightedIndex ?? -1;
+            fanHl = itemsNow?.HighlightedIndex ?? -1;
             if (fanHl >= 0)
                 fanHlSource = "item fan";
         }
@@ -1685,14 +1807,9 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
                     || secondPropSizeCode != _lastSentSecondPropSize));
         bool propDue = propMoving && _extrasAccumulator >= fastInterval;
 
-        // SECOND HELD CARD (extension record 10): the card in the player's OTHER hand, present
-        // only while BOTH hands hold one — the rig packet's FlagHeldCard slot keeps carrying the
-        // sampler's unchanged left-first pick, so this is deterministically the RIGHT hand's card.
-        // Sampled BEFORE the rate gate so it can pre-empt it, and converted to the shared anchor
-        // frame here (once) so the change test compares the very bytes that go on the wire. Same
-        // edge/motion treatment as the second figure above: grab/release pre-empt outright, and
-        // while the card moves the whole extras packet rides at the rig rate so both held cards
-        // stream at the same cadence.
+        // Legacy record10 remains a fallback snapshot. Both held-card poses, source
+        // and grip now travel atomically in the compact rig (111). Moving the right
+        // card must no longer promote this entire fragmented presence snapshot.
         bool secondCard = LocalRigSampler.TrySampleSecondHeldCard(
             out Vector3 secondCardWorldPos, out Quaternion secondCardWorldRot);
         Vector3 secondCardPos = default;
@@ -1701,10 +1818,6 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
             _anchor.ToAnchor(secondCardWorldPos, secondCardWorldRot,
                              out secondCardPos, out secondCardRot);
         bool secondCardChanged = secondCard != _sentSecondCardValid;
-        bool secondCardMoving = secondCard && _sentSecondCardValid
-            && ((secondCardPos - _lastSentSecondCardPos).sqrMagnitude > 1e-8f
-                || Quaternion.Angle(secondCardRot, _lastSentSecondCardRot) > 0.05f);
-        bool secondCardDue = secondCardMoving && _extrasAccumulator >= fastInterval;
 
         // HELD-CARD GRIP (extension record 34): which of the two held-card pose slots is being held
         // RIGIDLY in the fist rather than billboarded at this player's head. A DISCRETE HUMAN ACT —
@@ -2004,8 +2117,11 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         // latch is written UNCONDITIONALLY inside FillHeldCardRecords, FillHeldCardRecords runs on
         // every packet that goes out, and a true term forces a packet out. So a term that opens the
         // gate is cleared by the very packet it forced, on the same tick.
+        TownItemHeldSource? secondTownItem = LocalRigSampler.SampleHeldTownItem(2);
+        bool secondTownChanged = secondTownItem.HasValue != _lastSentSecondTownItem.HasValue
+            || secondTownItem.HasValue && !secondTownItem.Value.Same(_lastSentSecondTownItem.GetValueOrDefault());
         bool secondMapCard = LocalRigSampler.SampleHeldMapCard(2, out uint secondMapKey, out ushort secondMapSeat, out ushort secondMapCount, out byte secondMapArcSeat);
-        bool heldFaceChanged = faceCode0 != _lastSentFaceCode0 || faceCode1 != _lastSentFaceCode1
+        bool heldFaceChanged = secondTownChanged || faceCode0 != _lastSentFaceCode0 || faceCode1 != _lastSentFaceCode1
             || faceCount0 != _lastSentFaceCount0 || faceCount1 != _lastSentFaceCount1
             || secondFaceActor != _lastSentSecondFaceActor || secondMapKey != _lastSentSecondMapKey
             || secondMapSeat != _lastSentSecondMapSeat || secondMapCount != _lastSentSecondMapCount
@@ -2033,7 +2149,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         if (_extrasAccumulator < interval && !fxPending && !countsChanged && !browseChanged
             && !maskSizeChanged && !boardStyleChanged && !handScaleChanged && !fanPresentationChanged
             && !boardUiChanged && !boardSnapDue && !capPressChanged && !highlightDue
-            && !secondChanged && !secondDue && !secondCardChanged && !secondCardDue
+            && !secondChanged && !secondDue && !secondCardChanged
             && !propChanged && !propDue
             && !cardGripChanged
             && !stretchDue
@@ -2095,6 +2211,11 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         }
 
         extras.HandCardCount = (byte)Mathf.Clamp(handNow, 0, 255);
+        if (RevealGate.ShowMapPhaseHandFronts && CardsDriver.OffScenarioFanActive
+            && CardsDriver.OffScenarioFanCards is { Count: > 0 } mapLoadout
+            && mapLoadout.Count <= NetProtocol.MaxMapLoadoutCount)
+            extras.MapLoadoutCount = (byte)mapLoadout.Count;
+
         extras.HasFanInsertionGap = true;
         extras.FanInsertionGap = fanInsertionGap;
         // …AND THE ORDER THOSE SLABS GO IN (record 44). Written beside the count it permutes, from
@@ -2142,8 +2263,8 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         {
             extras.HasItemFan = true;
             extras.ItemCardCount = (byte)Mathf.Clamp(itemsCount, 0, 255);
-            extras.ItemFanHeld = itemsNow != null && itemsNow.IsHandHeld;
-            extras.ItemFanLeftHand = itemsNow != null && itemsNow.IsHeldByLeftHand;
+            extras.ItemFanHeld = itemsNow != null && (!RevealGate.InScenario || itemsNow.IsHandHeld);
+            extras.ItemFanLeftHand = itemsNow != null && (RevealGate.InScenario ? itemsNow.IsHeldByLeftHand : itemsNow.InspectionHeldByLeftHand);
         }
         // ITEM-USE CLIP (record 26): WHICH position is lying in our own use recess right now.
         //
@@ -3375,6 +3496,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         {
             extras.HasSecondHeldCard = true;
             extras.SecondHeldFaceActorId = secondFaceActor;
+            extras.HeldTownItem = secondTownItem;
             extras.HasHeldMapCard = secondMapCard; extras.HeldMapKey = secondMapKey;
             extras.HeldMapPoolSeat = secondMapSeat; extras.HeldMapPoolCount = secondMapCount; extras.HeldMapArcSeat = secondMapArcSeat;
             extras.SecondHeldCardPose.Position = secondCardPos;
@@ -3467,6 +3589,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         _lastSentFaceCount0 = faceCount0; _lastSentFaceCount1 = faceCount1;
         _lastSentSecondFaceActor = secondFaceActor;
         _lastSentSecondMapArcSeat = secondMapArcSeat;
+        _lastSentSecondTownItem = secondTownItem;
         _lastSentSecondMapKey = secondMapKey; _lastSentSecondMapSeat = secondMapSeat; _lastSentSecondMapCount = secondMapCount;
         FillHeldCardRecords(ref extras, faceCode0, faceCount0, faceCode1, faceCount1,
                             seatCode0, seatCount0, seatCode1, seatCount1, seatReason,
@@ -3777,6 +3900,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         // and every player who has the 3D map switched off is byte-identical to build 221's. Full
         // contracts in RemoteMapRoom / RemoteMapStory and NetProtocol.ExtIdMapRoom /
         // NetProtocol.ExtIdSharedWindow.
+        RemoteTownResidents.Sample(ref extras);
         RemoteMapRoom.Sample(ref extras);
         RemoteMapStory.Sample(ref extras);
     }
@@ -3977,6 +4101,42 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
             case NetProtocol.MsgCardAppearance:
             case NetProtocol.MsgNativeDecisionPrompt:
                 parsed = QueueNativePresentation(senderId, buffer, length);
+                if (parsed) VersionGuard.NotePacket(senderId);
+                break;
+
+            case NetProtocol.MsgTownActivity:
+                parsed = TownActivityCodec.ReadPacket(buffer, length, out TownActivityState activity, out TownFaceState pairedFace);
+                if (parsed) { VersionGuard.NotePacket(senderId); RemoteTownPerformance.Observe(senderId, in activity, in pairedFace, false); }
+                break;
+
+            case NetProtocol.MsgTownMotion:
+                parsed = QueueTownMotion(senderId, buffer, length);
+                if (parsed) VersionGuard.NotePacket(senderId);
+                break;
+
+            case NetProtocol.MsgTownFace:
+                parsed = TownFaceCodec.ReadPacket(buffer, length, out TownFaceState face);
+                if (parsed) { VersionGuard.NotePacket(senderId); RemoteTownPerformance.ObserveLegacyFace(senderId, in face); }
+                break;
+
+            case TownServices.TownServiceCodec.MessageType:
+                parsed = QueueTownService(senderId, buffer, length);
+                if (parsed) VersionGuard.NotePacket(senderId);
+                break;
+
+            case TownServices.TownServiceGrantCodec.MessageType:
+                parsed = TownServices.TownServiceGrantSync.Receive(senderId, buffer, length);
+                if (parsed) VersionGuard.NotePacket(senderId);
+                break;
+
+            case TownServices.TownMerchantControlCodec.MessageType:
+                parsed = TownServices.TownMerchantControlSync.Receive(senderId, buffer, length);
+                if (parsed) VersionGuard.NotePacket(senderId);
+                break;
+
+            case NetProtocol.MsgTownOriginalReceipt:
+                parsed = TownServices.TownServiceMirror.ReceiveOriginalReceipt(senderId, buffer, length)
+                    || TownServices.TownServiceMirror.ReceiveOriginalRequest(senderId, buffer, length);
                 if (parsed) VersionGuard.NotePacket(senderId);
                 break;
 
@@ -4185,6 +4345,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
                     // peer's body. A packet WITHOUT either record forgets that peer's entry, which
                     // is what every player who is not in the 3D map room — and every pre-record
                     // build — transmits, and "forgotten" is exactly "not standing at this table".
+                    RemoteTownResidents.Observe(kv.Key, in p);
                     RemoteMapRoom.Observe(kv.Key, in p);
                     RemoteMapStory.Observe(kv.Key, in p);
                     RemoteVideoPlayback.Observe(kv.Key, in p);
@@ -4405,6 +4566,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         {
             var avatar = new RemoteAvatar(playerId);
             _avatars[playerId] = avatar;
+            TownServices.TownServiceMirror.RequestFullRefresh();
             _createRetryAt.Remove(playerId);
             return avatar;
         }
@@ -4572,6 +4734,13 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
             _anchor.ToWorld(state.HeldCardPose.Position, state.HeldCardPose.Rotation, out Vector3 p, out Quaternion r);
             state.HeldCardPose.Position = p;
             state.HeldCardPose.Rotation = r;
+        }
+        if (state.HasSecondHeldCard)
+        {
+            _anchor.ToWorld(state.SecondHeldCardPose.Position, state.SecondHeldCardPose.Rotation,
+                out Vector3 p, out Quaternion r);
+            state.SecondHeldCardPose.Position = p;
+            state.SecondHeldCardPose.Rotation = r;
         }
     }
 

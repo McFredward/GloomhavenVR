@@ -6,7 +6,7 @@
   <a href="PLAYING.de.md"><img src="img/flag-de.png" width="24" alt="Deutsch">&nbsp;Deutsch</a>
 </p>
 
-[Install guide](../INSTALL.md) · [Controls](#the-controls) · [Round flow](#cards-and-the-control-board)
+[Install guide](install/INSTALL.md) · [Controls](#the-controls) · [Round flow](#cards-and-the-control-board)
 
 ## The controls
 
@@ -57,8 +57,17 @@ The board **follows you by default**; use its **Follow/Fixed** control to change
 **Y + B** to recenter yourself and reset the board beside you. Other players' boards become
 transparent by default while covering the scenario. Existing saved settings remain in effect.
 
+**Wrist board:** enable **VR Options ▸ Board & cards ▸ Wrist-mounted control board** to carry
+the same board on your non-main wrist. **Advanced** provides the hand, offset, angle and size
+settings. Its grab bar and Follow/Fixed control disappear while attached; switching the setting
+off restores your previous placement and Follow/Fixed choice. Other players see the attached board.
+
 The **discard**, **burnt** and **item** piles open as fans. The board also holds **active cards**,
 **Undo**, **Skip**, rest buttons and the decision area.
+
+Scenario rules stay beside the board. Long rules end with **...**; point at the text to
+expand it, or click to keep it open. Click again to unpin it. The personal quest and elements
+move down while the text is expanded, and other players see the same change.
 
 [Watch: cards and control board](../README.md#cards-the-control-board-and-the-table)
 
@@ -72,6 +81,12 @@ Use both hands to grab, move, turn and scale the scenario.
 button rotates 60°. Confirm on the control board. Both sticks stay available for movement;
 holding **B + Y** still recenters you. Change the binding under **Comfort ▸ Hands & aiming ▸
 Area-effect rotation**. Melee area effects face the hex you point at.
+
+**Scenario graphics:** **VR Options ▸ Graphics** provides separate controls for wall
+shading, 3D wall detail, distant detail and idle pose intervals. Lower detail retains
+the 3D board; longer idle intervals make idle body motion less smooth. Set detail to
+100% and the idle interval to 0 to restore normal presentation. PC and Steam Frame
+offer the same controls; fresh Frame settings favour lower detail.
 
 ## Windows
 
@@ -94,6 +109,12 @@ the reward; the player controlling that character confirms for the group.
 Point at a location to show its quest placard. Guildmaster buttons sit on the table rim.
 For the original flat map, enable **World & sound ▸ Campaign map ▸ Original 2D map**.
 
+**Town visits:** with immersive town NPCs enabled, unlocked residents remain at their stands.
+Approach them to interact. Put a cabinet item or one from your item fan in the merchant's hand to
+buy or sell it; give the enchantress an ability card to choose an enhancement; offer the priestess
+your coin purse to donate. To use the original windows, turn off **Immersive town NPCs** under
+**VR Options ▸ World & sound ▸ Campaign map**. This setting is hidden when the original 2D map is on.
+
 ## Environments
 
 <p align="center">
@@ -109,7 +130,7 @@ Rare ambient apparitions can be reduced or disabled under **World & sound ▸ Cr
 
 [Watch: VR multiplayer](../README.md#full-vr-multiplayer)
 
-- VR players need the same mod version; [update together](../INSTALL.md#updating).
+- VR players need the same mod version; [update together](install/INSTALL.md#updating).
   Players without the mod can join on a flat screen.
 - Other players see your hands, mask, held objects and a live copy of your control board.
   In scenarios, remote fans, held cards and placed cards are **covered during selection** and

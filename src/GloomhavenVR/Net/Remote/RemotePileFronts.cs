@@ -331,6 +331,13 @@ internal sealed class RemotePileFronts
             _owner.PlayerId, fronts, System.Math.Max(DrawnSlabs() - fronts, 0),
             $"{content}: {Reason(gate)}");
 
+    private static bool TryMapItems(RemoteAvatar owner, out List<CItem>? items)
+    {
+        items = null;
+        if (RevealGate.InScenario || !RemoteMapRoom.TryGetPeerFanCharacterKey(owner.PlayerId, out uint key)) return false;
+        items = WorldUI.MapRoom.MapRoomHand.ResolveMerchantItems(key);
+        return items != null;
+    }
     /// <summary>How many of this fan's slabs are actually ON SCREEN. It used to be
     /// <c>_arts.Count</c> inline, which was the same number until <c>RemoteItemFan</c> gained a
     /// reason to deactivate one (the chip in the owner's fist, 2026-09-06 report item 5): a slab
@@ -427,7 +434,11 @@ internal sealed class RemotePileFronts
     private void ShowBacksEverywhere()
     {
         for (int i = 0; i < _slabs.Count; i++)
+        {
             SetFrontFace(i, showsBack: true);
+            if (!RevealGate.InScenario && _slabs[i] != null && _slabs[i].GetComponent<MeshRenderer>() is MeshRenderer body)
+                body.enabled = false; // a pending public original never wears a placeholder back
+        }
     }
 
     /// <summary>Hide every face (fan closed / hidden by the remote-board setting) without destroying
@@ -516,7 +527,9 @@ internal sealed class RemotePileFronts
                 RevealGate.CardFaces(content == Content.Items
                                          ? RevealGate.PeerCardPopulation.ItemCard
                                          : RevealGate.PeerCardPopulation.Selectable, actor);
-            if (actor == null)
+            if (content == Content.Items && source == RevealGate.CardFaceSource.MapLoadout
+                && TryMapItems(_owner, out _)) gate = Gate.Open;
+            else if (actor == null)
                 gate = Gate.NoActor;
             else if (source == RevealGate.CardFaceSource.Scenario)
                 gate = Gate.Open;
@@ -719,12 +732,13 @@ internal sealed class RemotePileFronts
             {
                 if (content == Content.Items)
                 {
-                    CItem? item = ItemAppearanceMirror.ItemAt(_owner.PlayerId, NetFigures.StableActorId(actor), i, _arts.Count)
+                    CItem? item = (RevealGate.InScenario
+                        ? ItemAppearanceMirror.ItemAt(_owner.PlayerId, NetFigures.StableActorId(actor), i, _arts.Count) : null)
                         ?? (i < _itemBuf.Count ? _itemBuf[i] : null);
                     if (item != null)
                     {
                         shown = RemoteItemCardSource.ShowFace(art, item);
-                        if (shown) art.SetNativeItemAppearance(_owner.PlayerId, actor, item);
+                        if (shown && RevealGate.InScenario) art.SetNativeItemAppearance(_owner.PlayerId, actor, item);
                     }
                 }
                 else if (i < _abilityBuf.Count)
@@ -822,7 +836,9 @@ internal sealed class RemotePileFronts
             // and the next cadence tick re-resolving its front. The material and the print now
             // follow one condition instead of two.
             if (drawn)
-                SetFrontFace(i, showsBack: !shown);
+                if (!RevealGate.InScenario && content == Content.Items && _slabs[i] != null
+                && _slabs[i].GetComponent<MeshRenderer>() is MeshRenderer body) body.enabled = shown;
+            SetFrontFace(i, showsBack: !shown);
         }
         _frontCount = fronts;
         _resolvedCount = _arts.Count;
@@ -1017,7 +1033,7 @@ internal sealed class RemotePileFronts
     /// Splitting the two is the whole design: the derivable term is made exact so the belt is quiet in
     /// the ordinary case, and the underivable term is made VISIBLE so the belt can catch it.</para>
     /// </summary>
-    private bool Resolve(CPlayerActor actor, Content content)
+    private bool Resolve(CPlayerActor? actor, Content content)
     {
         _abilityBuf.Clear();
         _itemBuf.Clear();
@@ -1025,8 +1041,9 @@ internal sealed class RemotePileFronts
 
         if (content == Content.Items)
         {
-            CInventory? inv = actor.Inventory;
-            List<CItem>? all = inv != null ? inv.AllItems : null;
+            CInventory? inv = actor?.Inventory;
+            List<CItem>? all = !RevealGate.InScenario && TryMapItems(_owner, out List<CItem>? mapItems)
+                ? mapItems : inv != null ? inv.AllItems : null;
             if (all == null)
                 return false;
             // NULLS ARE SKIPPED, AND THAT IS THE ARC'S INDEX SPACE — not a shortcut. A null
@@ -1046,6 +1063,7 @@ internal sealed class RemotePileFronts
             return _itemBuf.Count > 0;
         }
 
+        if (actor == null) return false;
         CardsHandManager manager = CardsHandManager.Instance;
         if (manager == null)
             return false;
@@ -1353,7 +1371,8 @@ internal sealed class RemotePileFronts
         {
             CPlayerActor? actor = RemoteBoardFocus.DisplayedActor(owner, out _);
             CInventory? inv = actor != null ? actor.Inventory : null;
-            List<CItem>? all = inv != null ? inv.AllItems : null;
+            List<CItem>? all = !RevealGate.InScenario && TryMapItems(owner, out List<CItem>? mapItems)
+                ? mapItems : inv != null ? inv.AllItems : null;
             if (all == null)
                 return false;
             rawLength = all.Count;
@@ -1367,7 +1386,7 @@ internal sealed class RemotePileFronts
             {
                 if (all[i] == null)
                     continue;
-                spentInto?.Add(all[i].SlotState == CItem.EItemSlotState.Spent);
+                spentInto?.Add(RevealGate.InScenario && all[i].SlotState == CItem.EItemSlotState.Spent);
                 rawInto?.Add(i);
             }
             return true;

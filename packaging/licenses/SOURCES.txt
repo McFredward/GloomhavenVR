@@ -6,6 +6,12 @@ the pinned source checkouts used by scripts/build-runtimedeps.sh. One redundant
 trailing blank line is removed from the OpenXR LICENSE; its text is unchanged.
 The packaging scripts only convert text encoding and line endings for Windows.
 
+Gloomhaven Bug Fixes 5.0.0 (selected native UI repairs incorporated in GloomhavenVR.dll)
+  Author: fingoldfish (gummyboars)
+  https://www.nexusmods.com/gloomhaven/mods/8?tab=description
+  https://github.com/gummyboars/gloomhaven-bugfixes/tree/941ac18baf22d81aaab96cdc6918ce3f79fb4020
+  LICENSE -> Gloomhaven-Bug-Fixes-MIT.txt (verbatim)
+
 Unity XR Management 4.5.0 (Unity.XR.Management.dll)
   https://github.com/needle-mirror/com.unity.xr.management/tree/4bed75a6b044755dc2854fee33a20119c792fb5e
   LICENSE.md -> Unity.XR.management-4.5.0-LICENSE.txt

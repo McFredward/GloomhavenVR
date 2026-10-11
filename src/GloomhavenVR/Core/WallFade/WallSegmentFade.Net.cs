@@ -66,7 +66,9 @@ internal static partial class WallSegmentFade
     /// synced wall set (null/0 = the peer has no faded walls). Safe before install.</summary>
     internal static void SetPeerFadedWalls(int playerId, uint[]? keys, int count)
     {
-        _driver?.SetPeerFades(playerId, keys, count);
+        // A local all-hidden policy has no use for remote fade decisions. The next normal
+        // packet repopulates them after restoration; existing peers still receive our empty set.
+        if (!PerformanceWallsHidden) _driver?.SetPeerFades(playerId, keys, count);
     }
 
     private sealed partial class FadeDriver
@@ -170,6 +172,9 @@ internal static partial class WallSegmentFade
 
         internal int SampleFadedKeys(uint[] dest)
         {
+            // Performance hiding is visitor-local. Do not broadcast a quality policy or
+            // retain old view-dependent decisions, and do not walk the wall table here.
+            if (PerformanceWallsHidden) return 0;
             _keySampleScratch.Clear();
             foreach (Segment seg in _live.Segments.Values)
             {

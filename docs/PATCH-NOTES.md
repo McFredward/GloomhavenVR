@@ -26,6 +26,87 @@
 > rejected alternatives. `docs/PATCH-INVENTORY.md` lists all of them; `.planning/STATE.md` says
 > where the project stands.
 
+## Build670: exact native item-confirmation observation
+
+WorldUI registers `MapItemConfirmationRequestObserver` on
+`UIItemConfirmationBox.ShowConfirmation`. Its void prefix attaches the exact
+native instance's request event before the original one-shot announcement.
+Replaced instances and map resets detach the old observer and retire the old
+placement provenance. This fixes a new campaign's first merchant confirmation
+staying in the party-display window after the previous singleton was replaced,
+and a first request preceding the regular modal tick.
+
+The original Buy/Sell/General event remains the sole discriminator. Native Show,
+confirmation, cancellation, transaction and fade callbacks run unchanged; the
+existing merchant seat only owns presentation. Immersive ownership takes
+precedence. The tutorial's native exit lesson and pending promise remain in the
+existing guarded close bridge; no purchase or save-state completion is added.
+
+## Build632: native transactions without hidden flat-window visits
+
+Immersive merchant and enhancement visits prepare only their original transaction
+sources. The original shop services, ownership checks, slot callbacks, payments,
+enhancement rules and native confirmation actions remain authoritative. They do
+not require the flat window's entry, map destination or party selection lifecycle.
+The temple similarly retains its original blessing model, callbacks and book
+counters without entering its flat window. Repeated unchanged contexts reuse the
+prepared sources; source leases restore their original hierarchy on exit.
+
+`QuietMerchantBuyRefresh` and `QuietMerchantSellRefresh` scope the native
+inventory refresh flag to the exact immersive inventory. The native multiplayer
+purchase/sale still executes once. `QuietEnhancementBuyRefresh` and
+`QuietEnhancementSellRefresh` refresh original widgets only after a successful
+native proxy action, with its exact card token and owner. They skip an already
+visible original window, which has performed its own refresh. Original owner
+feedback is restored where the invisible-window branch would otherwise omit it.
+`QuietTempleProxyPresentation` preserves the original proxy and updates the exact
+physical book after its successful donation. All five hooks are registered once
+by WorldUI. Their presentation work catches failures and reports once per source;
+none retries a payment, suppresses native exceptions or skips game actions.
+
+Explicitly disabling immersive mode restores the current original flat window
+once. Failed optional preparation uses the bounded native-window escape path;
+ordinary successful visits never open a hidden flat service window. These paths
+are covered by production-bound lifecycle and controller fixtures. Automated
+evidence does not establish a successful headset or paired multiplayer test.
+
+## Build625: native blessing audio at the shared donation clock
+
+The existing `TownServiceNativeAudioSilence` installer scopes
+`UITempleWindow.OnConfirmedBuy` and `ProxyBuyBlessing` through prefix/finalizer
+pairs. While that exact immersive temple callback runs, only its serialized
+`audioItemBless` playback is redirected to the shared presentation clock. The
+native transaction, promise completion and exception are unchanged. Nested
+scopes restore their previous item, including exceptional exits. Flat windows,
+unrelated reward sounds and other purchase feedback run normally.
+
+The shared resident uses the first declared original clip/alias from that native
+item, preloads it, and seeks the common donation age. Peers never independently
+randomize this cue. This is a presentation observer, not a game-state writer;
+native clip audibility and spatial balance still require headset verification.
+
+## Build618: adopted-card geometry and bounded native attribution
+
+Cards registers `FullAbilityCard.UpdateScale` and `UpdatePosition` prefixes.
+The shipped private bodies only assign the flat hand's root scale and position.
+They are skipped only while VR/Cards is active, the adoption registry includes
+the face, and its actual (possibly inactive) ancestor is the same `VRCard` whose
+adopted `FullCard` it is. Registry membership alone is insufficient. Returned,
+yielded, dialog-owned, stale, remote-clone and flat-game faces run the originals.
+`UpdateView` still assigns native `ViewSettings`; hand selection, callbacks,
+highlights and action validity are preserved. This avoids dirtying the canvas
+with geometry that `CardFace.Maintain` immediately replaced in VR.
+
+The existing Debug-only `PerfNativeLoopProbe` additionally observes original
+message/hand/init/card construction substeps. `ProcessMessage` uses an observing
+prefix/finalizer to charge the original message enum, including failure, to a
+fixed main-thread ledger. It returns the original exception unchanged and never
+changes dispatch, queue order, budgets, state, requests or continuation. Its
+inclusive costs are not additive; fixed counts share the bounded SPIKE emitter,
+not a new per-frame log. Background queue publication is not charged to the
+main-thread frame. These probes do not prove the entire 207 ms native callback
+was eliminated.
+
 ## Effect / gate prose for the Phase-5 patch set
 
 Audited 2026-07 on `feat/integration`, and re-verified 17/17 accurate since. This

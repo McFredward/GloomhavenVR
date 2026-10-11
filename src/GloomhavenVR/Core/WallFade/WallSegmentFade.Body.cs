@@ -107,7 +107,7 @@ internal static partial class WallSegmentFade
         /// currently hiding is re-recognized (and its authored snapshot preserved) instead of
         /// skipped as "game-disabled".
         /// </summary>
-        private void CollectPlainWallBody(Segment seg, MeshRenderer[] all)
+        private void CollectPlainWallBody(Segment seg, List<MeshRenderer> all)
         {
             seg.PrevBody.Clear();
             seg.PrevBody.AddRange(seg.Body);
@@ -126,7 +126,7 @@ internal static partial class WallSegmentFade
                 if (!_mountedTouched.TryGetValue(r, out MountedProp? prop))
                     prop = ClassifyProp(r);
                 seg.Body.Add(prop);
-                Bounds b = r.bounds;
+                Bounds b = WallCommitGeometryReads.Read(r);
                 if (!seg.HasBounds)
                 {
                     seg.Bounds = b;
@@ -193,6 +193,11 @@ internal static partial class WallSegmentFade
                     lost = true;
                     continue;
                 }
+                // Purely decorative budget masks own visibility, not the native room/occluder
+                // facts. Keep membership and restoration; avoid union and material writes until
+                // this renderer is visible again. The ordinary per-frame loop resumes immediately.
+                if (ScenarioSceneryBudget.IsOwnedHidden(p.Renderer))
+                    continue;
                 if (want == 2)
                 {
                     // MODBUILD 261 — THE CHANNEL IS DECIDED WHEN THE PIECE IS ADOPTED, NOT WHEN

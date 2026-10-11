@@ -60,8 +60,16 @@ public class Collider : Component {}
 public enum PrimitiveType { Sphere }
 }
 namespace UnityEngine.Rendering { public enum ShadowCastingMode { Off } }
-namespace UnityEngine.XR { public enum XRNode { LeftHand, RightHand } public struct InputDevice { public bool isValid=>true; public string name=>"Oculus Touch Controller OpenXR"; } public static class InputDevices { public static InputDevice GetDeviceAtXRNode(XRNode node)=>new(); } }
+namespace UnityEngine.XR {
+public enum XRNode { LeftHand, RightHand, Head }
+public struct InputDevice(string deviceName) { public bool isValid=>true; public string name=>deviceName; }
+public static class InputDevices {
+    public static string ControllerName="Oculus Touch Controller OpenXR", HmdName="Quest 3";
+    public static InputDevice GetDeviceAtXRNode(XRNode node)=>new(node==XRNode.Head?HmdName:ControllerName);
+}
+}
 namespace GloomhavenVR.Core {
+internal static class VRSession { public static string? RuntimeName="VDXR"; }
 internal static class VRLog { public static void Note(string tag,string text) {} public static void Warn(string tag,string text) {} }
 internal static class VRLayers { public static void Apply(GameObject go) { go.layer=31; foreach(var t in go.transform) Apply(t.gameObject); } }
 }
@@ -103,6 +111,6 @@ internal static class ComfortSettings {
 }
 internal static class LocalTurnControl { public static Hands.HandSide Resolve(Hands.HandSide side)=>side; }
 }
-namespace GloomhavenVR.Cards { internal sealed class VRCard {} internal static class ItemsPile { internal sealed class ItemChip {} } internal static class HeldCardGrip { public static bool Enabled=true; public static bool InHand(Hands.HandSide hand)=>false; } internal static class CardsConfig { public static Rig.Setting<float> BoardMinWidthMeters=new(.18f),BoardMaxWidthMeters=new(1.4f); } }
+namespace GloomhavenVR.Cards { internal sealed class VRCard {} internal static class ItemsPile { internal sealed class ItemChip {} } internal static class HeldCardGrip { public static bool Enabled=true; public static bool InHand(Hands.HandSide hand)=>false; } internal static class CardsConfig { public static Rig.Setting<bool> WristBoardEnabled=new(false); public static Rig.Setting<float> BoardMinWidthMeters=new(.18f),BoardMaxWidthMeters=new(1.4f); } }
 namespace GloomhavenVR.Board { internal static class BoardConfig { public static Rig.Setting<bool> TouchTilesWithFingertip=new(true); } }
 namespace GloomhavenVR.Compat { internal static class ControlsProgress { internal static float Accumulated=>0; internal static void Notify(ControlAction action,float amount=1) {} } }

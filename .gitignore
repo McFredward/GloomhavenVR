@@ -1,6 +1,6 @@
 # Game files & decompiled sources — never committed
 ressources/
-decompiled/
+decompiled
 *.dll
 
 # ...EXCEPT the stripped reference assemblies. These are metadata-only stubs
@@ -42,6 +42,9 @@ dist/
 
 # local debug drops (never push)
 .planning/debug/
+
+# Private Quest conversion output: owned game assets, APKs and local signing/profile data.
+.planning/quest3-local/
 
 # harness worktrees/session data. The GUARD is the exception and is tracked on purpose:
 # a safety hook that only exists in one checkout protects one checkout. settings.local.json

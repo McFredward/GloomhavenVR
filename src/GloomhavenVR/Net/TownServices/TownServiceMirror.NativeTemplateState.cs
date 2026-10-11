@@ -1,0 +1,513 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Security.Cryptography;
+using System.Text;
+using UnityEngine;
+using GloomhavenVR.Core;
+
+namespace GloomhavenVR.Net.TownServices;
+
+internal static partial class TownServiceMirror
+{
+    private sealed class NativeTemplateBasis
+    {
+        internal GameObject Template = null!;
+        internal uint Generation, Structure;
+        internal ulong Key;
+        internal uint[] Coverage = Array.Empty<uint>(), CoverageScratch = Array.Empty<uint>();
+        internal readonly Dictionary<uint, int> Positions = new();
+        internal TownServiceNode[] Nodes = Array.Empty<TownServiceNode>();
+        internal TownServiceBinding Binding = null!;
+    }
+    private static readonly Dictionary<string, NativeTemplateBasis> NativeTemplateBases = new(StringComparer.Ordinal);
+    internal static uint NativeTemplatePreparationRevision { get; private set; }
+    private sealed class NativeTemplateRepair
+    {
+        internal float After;
+        internal TownServiceFrame? Original;
+        internal bool Requested;
+    }
+    private sealed class MageValidatedOriginal
+    {
+        internal TownServiceFrame Received = null!;
+        internal GameObject Template = null!;
+        internal uint Generation;
+    }
+    private static readonly Dictionary<long, MageValidatedOriginal> MageValidatedOriginals = new();
+    private sealed class MageAdmissionTrace
+    {
+        internal uint Session;
+        internal ushort[] Modules = Array.Empty<ushort>();
+        internal float Started, CensusStarted, ReportAt;
+        internal int Reports;
+        internal bool Ready, Displayed, DelayReported;
+    }
+    private static readonly Dictionary<int, MageAdmissionTrace> MageAdmissionTraces = new();
+
+    private static void TraceMageAdmissionReset(int peer = -1)
+    {
+        if (peer < 0) MageAdmissionTraces.Clear();
+        else MageAdmissionTraces.Remove(peer);
+    }
+
+    private static void TraceMageAdmission(int peer, TownServiceSessionInfo session,
+        Dictionary<ushort, TownServiceFrame> pending, string? blocker, ushort module = 0,
+        string address = "")
+    {
+        // Debug traces describe bounded first-picture progress. Ordinary users get
+        // only one significant delay report per exact transaction, with the
+        // missing dependency needed to investigate a hardware bug report.
+        if (!session.TransactionActive) { TraceMageAdmissionReset(peer); return; }
+        ushort[] required = session.RequiredVisibleModules ?? session.Modules;
+        bool sameSession = MageAdmissionTraces.TryGetValue(peer, out MageAdmissionTrace? trace)
+            && trace.Session == session.Session;
+        bool same = sameSession && trace!.Modules.Length == required.Length;
+        for (int i = 0; same && i < required.Length; i++)
+            same = trace!.Modules[i] == required[i];
+        if (!sameSession)
+        {
+            if (MageAdmissionTraces.Count >= 24) TraceMageAdmissionReset();
+            trace = new MageAdmissionTrace { Session = session.Session,
+                Modules = (ushort[])required.Clone(), Started = Time.unscaledTime, CensusStarted = Time.unscaledTime };
+            MageAdmissionTraces[peer] = trace;
+        }
+        else if (!same)
+        {
+            // Native hover/scroll changes may revise required membership before
+            // the first complete picture. Retain the transaction's first arrival
+            // clock; a new census is not a new first picture or new log budget.
+            trace!.Modules = (ushort[])required.Clone(); trace.CensusStarted = Time.unscaledTime;
+            trace.Ready = false; trace.Displayed = false;
+        }
+        float now = Time.unscaledTime;
+        if (blocker == null)
+        {
+            if (!trace!.Ready && VRLog.WantsDebug)
+                VRLog.Info("TownServices", "Native enhancement picture admitted: peer=" + peer
+                    + " session=" + session.Session + " required=" + required.Length + " prepared=" + session.Modules.Length
+                    + " age=" + (now - trace.Started).ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
+                    + "s censusAge=" + (now - trace.CensusStarted).ToString("F3", System.Globalization.CultureInfo.InvariantCulture) + "s.");
+            trace!.Ready = true; return;
+        }
+        bool debug = VRLog.WantsDebug;
+        if (!debug && (trace!.DelayReported || now - trace.CensusStarted < 1f)) return;
+        if (debug && (now < trace!.ReportAt || trace.Reports >= 8)) return;
+        trace!.ReportAt = now + 1f; trace.Reports++;
+        if (!debug) trace.DelayReported = true;
+        int received = 0;
+        foreach (ushort id in required)
+            if (pending.TryGetValue(id, out TownServiceFrame? frame)
+                && frame.Session == session.Session && frame.Service == 3) received++;
+        pending.TryGetValue(module, out TownServiceFrame? blocked);
+        TownServiceFrame? available = null;
+        if (ReceivedBaselines.TryGetValue(peer, out var originals)) originals.TryGetValue(module, out available);
+        string message = "Native enhancement picture waiting: peer=" + peer
+            + " session=" + session.Session + " required=" + required.Length + " prepared=" + session.Modules.Length
+            + " received=" + received + " blocker=" + blocker + " module=" + module
+            + " address=" + address + " sequence=" + (blocked?.Sequence ?? 0)
+            + " needsBase=" + (blocked?.BaseSequence ?? 0) + " hasBase=" + (available?.Sequence ?? 0) + " age="
+            + (now - trace.Started).ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
+            + "s censusAge=" + (now - trace.CensusStarted).ToString("F3", System.Globalization.CultureInfo.InvariantCulture) + "s.";
+        if (debug) VRLog.Info("TownServices", message);
+        else VRLog.Note("TownServices", message);
+    }
+
+    private static void TraceMageDisplayed(int peer, TownServiceSessionInfo session,
+        Dictionary<ushort, RemoteModule> standing)
+    {
+        // Admission alone predates clone construction. Confirm the actual original
+        // roots after validation/apply/mount/activation, so the next paired hardware
+        // log can distinguish packet delivery from a missing Unity picture.
+        if (!VRLog.WantsDebug || !MageAdmissionTraces.TryGetValue(peer, out MageAdmissionTrace? trace)
+            || !trace.Ready || trace.Displayed || trace.Session != session.Session) return;
+        int ink = 0;
+        foreach (ushort id in trace.Modules)
+        {
+            if (!standing.TryGetValue(id, out RemoteModule? module) || !module.Alive
+                || module.LastFrame == null || module.LastFrame.Session != session.Session
+                || !module.Host.activeInHierarchy || !module.Binding.Root.gameObject.activeInHierarchy) return;
+            if (module.Binding.HasVisibleOutput()) ink++;
+        }
+        trace.Displayed = true;
+        VRLog.Info("TownServices", "Native enhancement picture displayed: peer=" + peer
+            + " session=" + session.Session + " required=" + trace.Modules.Length + " painted=" + ink
+            + " age=" + (Time.unscaledTime - trace.Started).ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
+            + "s censusAge=" + (Time.unscaledTime - trace.CensusStarted).ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
+            + "s; exact original clones validated, applied, mounted and active.");
+    }
+
+    private static readonly UTF8Encoding NativeTemplateUtf8 = new(false, true);
+    private readonly struct UnpreparedKey : IEquatable<UnpreparedKey>
+    {
+        internal readonly int Peer;
+        internal readonly byte Lane;
+        internal readonly ushort Module;
+        internal UnpreparedKey(int peer, TownServiceFrame frame)
+        { Peer = peer; Lane = frame.VisitorStock ? (byte)2 : frame.PublicCatalog ? (byte)1 : (byte)0; Module = frame.Module; }
+        public bool Equals(UnpreparedKey other) => Peer == other.Peer && Lane == other.Lane && Module == other.Module;
+        public override bool Equals(object? other) => other is UnpreparedKey key && Equals(key);
+        public override int GetHashCode() => unchecked((Peer * 397 ^ Lane) * 397 ^ Module);
+    }
+    private sealed class UnpreparedNativeTemplate
+    {
+        internal TownServiceFrame Frame = null!;
+        internal float Received, RetryAt;
+    }
+    private static readonly Dictionary<UnpreparedKey, UnpreparedNativeTemplate> UnpreparedNativeTemplates = new();
+    private static readonly Queue<UnpreparedKey> UnpreparedNativeOrder = new();
+
+    private static void ForgetUnpreparedNativePeer(int peer)
+    {
+        // Disconnect ends this peer's immutable admission lifetime. A still-cold
+        // original must never recreate pending state after RemovePeer returns.
+        TraceMageAdmissionReset(peer);
+        int remaining = UnpreparedNativeOrder.Count;
+        while (remaining-- > 0)
+        {
+            UnpreparedKey key = UnpreparedNativeOrder.Dequeue();
+            if (key.Peer == peer) UnpreparedNativeTemplates.Remove(key);
+            else UnpreparedNativeOrder.Enqueue(key);
+        }
+    }
+
+    /// <summary>Retain the newest immutable metadata while the real original bank
+    /// or an Addressables dependency warms. A transient first reception must not
+    /// discard the offer and wait for the sender's ten-second full repair.</summary>
+    private static bool RetainUnpreparedNativeTemplate(int peer, TownServiceFrame frame)
+    {
+        if (peer <= 0 || frame.NativeTemplateBasisKey == 0) return false;
+        int mappedPeer = peer;
+        if (frame.VisitorStock && !TryStockPeerKey(peer, out mappedPeer)) return false;
+        if (frame.PublicCatalog) mappedPeer = -mappedPeer;
+        // Expansion precedes census admission in ReceiveParsed. A late refused
+        // old-session original must not replace the current request/repair bank.
+        // A genuinely newer source arriving before its census remains eligible.
+        if (Sessions.TryGetValue(mappedPeer, out TownServiceSessionInfo? session)
+            && session.Sequence >= frame.Sequence && (!session.Active || session.Service != frame.Service
+                || session.Session != frame.Session || Array.BinarySearch(session.Modules, frame.Module) < 0)) return true;
+        var key = new UnpreparedKey(peer, frame);
+        UnpreparedNativeTemplates.TryGetValue(key, out UnpreparedNativeTemplate? previous);
+        if (previous != null && previous.Frame.Sequence >= frame.Sequence) return true;
+        RecordOriginalRequest(peer, frame);
+        if (previous != null)
+        {
+            previous.Frame = frame; previous.Received = Time.unscaledTime; previous.RetryAt = 0f; return true;
+        }
+        if (UnpreparedNativeTemplates.Count >= TownServiceFrame.MaxModules) return false;
+        UnpreparedNativeTemplates.Add(key, new UnpreparedNativeTemplate { Frame = frame, Received = Time.unscaledTime });
+        UnpreparedNativeOrder.Enqueue(key); return true;
+    }
+
+    private static void RetryUnpreparedNativeTemplates()
+    {
+        float now = Time.unscaledTime; int visits = Math.Min(8, UnpreparedNativeOrder.Count);
+        long started = System.Diagnostics.Stopwatch.GetTimestamp();
+        while (visits-- > 0 && UnpreparedNativeOrder.Count != 0)
+        {
+            UnpreparedKey key = UnpreparedNativeOrder.Dequeue();
+            if (!UnpreparedNativeTemplates.TryGetValue(key, out UnpreparedNativeTemplate? deferred)) continue;
+            TownServiceFrame received = deferred.Frame;
+            int mappedPeer = key.Peer;
+            bool mapped = received.VisitorStock ? TryStockPeerKey(mappedPeer, out mappedPeer) : true;
+            if (received.PublicCatalog) mappedPeer = -mappedPeer;
+            bool retired = !mapped || now - deferred.Received > NetProtocol.StaleTimeoutSeconds;
+            if (!retired && Pending.TryGetValue(mappedPeer, out var current)
+                && current.TryGetValue(received.Module, out TownServiceFrame? newer)
+                && newer.Sequence >= received.Sequence) retired = true;
+            if (!retired && Sessions.TryGetValue(mappedPeer, out TownServiceSessionInfo? session)
+                && session.Sequence >= received.Sequence && (!session.Active
+                    || session.Session != received.Session || session.Service != received.Service
+                    || Array.BinarySearch(session.Modules, received.Module) < 0)) retired = true;
+            if (retired) { UnpreparedNativeTemplates.Remove(key); continue; }
+            bool attempt = now >= deferred.RetryAt;
+            bool ready = attempt && TryExpandNativeTemplateState(received, out _);
+            if (ready)
+            {
+                UnpreparedNativeTemplates.Remove(key);
+                // Reuse normal admission so ordering, lane remapping and genuine
+                // asset/topology validation stay identical to a warm reception.
+                ReceiveParsed(key.Peer, received);
+            }
+            else
+            { if (attempt) deferred.RetryAt = now + .05f; UnpreparedNativeOrder.Enqueue(key); }
+            if ((System.Diagnostics.Stopwatch.GetTimestamp() - started)
+                / (double)System.Diagnostics.Stopwatch.Frequency >= .002) break;
+        }
+    }
+
+    /// <summary>Build the native basis once for this actual frozen prefab/asset lifetime.
+    /// Only original rendering output is read; no native controller is enabled.</summary>
+    private static NativeTemplateBasis? NativeBasis(TownServiceFrame frame)
+    {
+        string key = TemplateKey(frame.Service, frame.Template, frame.TemplateAddress);
+        if (!Templates.TryGetValue(key, out GameObject? template) || template == null)
+        {
+            if (!(ResolveTemplate?.Invoke(frame.Service, frame.Template, frame.TemplateAddress) ?? false)
+                || !Templates.TryGetValue(key, out template) || template == null) return null;
+        }
+        if (NativeTemplateBases.TryGetValue(key, out NativeTemplateBasis? cached)
+            && ReferenceEquals(cached.Template, template) && cached.Generation == Assets.Generation) return cached;
+        // A cache key names an actual original lifetime, never a viewer's character,
+        // dial or last network image. Dead frozen originals are harmless to reclaim.
+        if (NativeTemplateBases.Count >= TownServiceFrame.MaxModules)
+        {
+            var retired = new List<string>();
+            foreach (var pair in NativeTemplateBases)
+                if (pair.Value.Template == null || pair.Value.Generation != Assets.Generation) retired.Add(pair.Key);
+            foreach (string old in retired) { NativeTemplateBases[old].Binding.Dispose(); NativeTemplateBases.Remove(old); }
+            if (NativeTemplateBases.Count >= TownServiceFrame.MaxModules) return null;
+        }
+        if (cached != null) cached.Binding.Dispose();
+        var binding = new TownServiceBinding(template.transform);
+        var basis = new NativeTemplateBasis { Template = template, Generation = Assets.Generation,
+            Structure = binding.Structure, Nodes = binding.Read(Assets, includeInactiveGraphics: true), Binding = binding };
+        basis.CoverageScratch = new uint[basis.Nodes.Length];
+        for (int i = 0; i < basis.Nodes.Length; i++) basis.Positions.Add(basis.Nodes[i].Binding, i);
+        basis.Key = NativeBasisKey(basis);
+        NativeTemplateBases[key] = basis;
+        return basis;
+    }
+
+    /// <summary>Warm only the already registered inactive original during loading.
+    /// A first offer must not construct its shader/property basis on the render frame.</summary>
+    internal static void PrepareNativeTemplateBasis(byte service, string address)
+    {
+        NativeBasis(new TownServiceFrame { Service = service, Template = 1, TemplateAddress = address });
+    }
+
+    // Text/content/font selection always comes from the owner. An unchanged
+    // original text material can use its exactly validated native basis, just
+    // like an Image material; any changed shader/property/texture is transmitted.
+    // A different observer default changes the basis key and waits for the full
+    // retained original. It can never silently substitute its local material.
+    private static bool NativeTextProperty(ushort key) => key is TownServiceProperty.TmpText
+        or TownServiceProperty.LegacyText;
+    private static bool OwnerProperty(int index, ushort key) => NativeTextProperty(key)
+        || index == 0 && !TownServiceFastNumbers.IsMaterial(key);
+
+    private static bool NativeModelGeometry(TownServiceFrame frame, ushort property) =>
+        property == TownServiceProperty.Transform && (frame.TemplateAddress.StartsWith("face.", StringComparison.Ordinal)
+            || frame.TemplateAddress.StartsWith("card.", StringComparison.Ordinal));
+
+    // Native layout, active states, masks, sprite selection and materials can
+    // differ after local UI initialization. Every changed owner property is sent;
+    // every omitted property participates in this exact native basis hash. No
+    // observer default can be used merely because its template address matches.
+    // Explicit owner output replaces the verified basis before asset validation.
+    private static ulong NativeBasisKey(NativeTemplateBasis basis, TownServiceNode[] overrides)
+    {
+        uint[] coverage = basis.CoverageScratch;
+        Array.Clear(coverage, 0, coverage.Length);
+        foreach (TownServiceNode node in overrides)
+        {
+            if (!basis.Positions.TryGetValue(node.Binding, out int index))
+                throw new InvalidDataException("Original town metadata names an absent native binding.");
+            foreach (ushort key in node.Values.Keys) coverage[index] |= 1u << key;
+        }
+        bool same = basis.Coverage.Length == coverage.Length;
+        for (int i = 0; same && i < coverage.Length; i++)
+            if (basis.Coverage[i] != coverage[i]) same = false;
+        if (same) return basis.Key;
+        basis.Coverage = (uint[])coverage.Clone(); basis.Key = NativeBasisKey(basis); return basis.Key;
+    }
+
+    private static ulong NativeBasisKey(NativeTemplateBasis basis)
+    {
+        // Owner text, font and style always accompany the patch; localized text
+        // defaults therefore do not participate in this key. Every other omitted
+        // value, including unchanged text/image materials, is hashed byte exactly.
+        using var bytes = new MemoryStream();
+        using (var writer = new BinaryWriter(bytes, NativeTemplateUtf8, true))
+        {
+            writer.Write((byte)1); writer.Write(basis.Structure); writer.Write((ushort)basis.Nodes.Length);
+            for (int index = 0; index < basis.Nodes.Length; index++)
+            {
+                TownServiceNode node = basis.Nodes[index]; writer.Write(node.Binding);
+                for (ushort key = 1; key <= TownServiceProperty.Last; key++)
+                {
+                    if (!node.Values.TryGetValue(key, out TownServiceValue? value)) continue;
+                    writer.Write(key);
+                    if (OwnerProperty(index, key) || basis.Coverage.Length != 0
+                        && (basis.Coverage[index] & (1u << key)) != 0) continue;
+                    writer.Write((ushort)value.Numbers.Length);
+                    foreach (float number in value.Numbers) writer.Write(number == 0f ? 0f : number);
+                    writer.Write((byte)value.Text.Length);
+                    foreach (string text in value.Text) writer.Write(text);
+                }
+                writer.Write((ushort)0);
+            }
+        }
+        using var sha = SHA256.Create(); byte[] digest = sha.ComputeHash(bytes.ToArray());
+        ulong result = 0; for (int i = 0; i < 8; i++) result |= (ulong)digest[i] << (8 * i);
+        return result == 0 ? 1UL : result;
+    }
+
+    /// <summary>Transmit owner headers and actual differences from the original prefab.
+    /// Asset keys remain metadata; image pixels have never been transmitted here.</summary>
+    internal static bool TryWriteNativeTemplateState(TownServiceFrame complete, out byte[] packet)
+    {
+        packet = Array.Empty<byte>();
+        if ((complete.Service != 3 && !(complete.Service == 1 && (complete.PublicCatalog
+            || complete.TemplateAddress.StartsWith("item.confirm.part.", StringComparison.Ordinal)))) || complete.VisitorStock
+            || complete.Module >= TownServiceFrame.VoiceModule || complete.BaseSequence != 0
+            || complete.NativeTemplateBasisKey != 0 || complete.Nodes.Length == 0
+            || complete.CatalogBank != null || complete.Rack != null) return false;
+        // A compact original is accepted only against the exact frozen native
+        // structure/material basis below. Real mage publications retain their
+        // full original until that exact baseline has been acknowledged by all
+        // compatible observers. A cold or different basis gets that full source
+        // promptly, rather than Build625's ten-second periodic repair.
+        if (complete.Service == 1 && !complete.PublicCatalog && !complete.VisitorStock
+            && complete.TemplateAddress.StartsWith("item.confirm.part.", StringComparison.Ordinal)
+            && Local.ContainsKey(complete.Module)) return false;
+        try
+        {
+            NativeTemplateBasis? basis = NativeBasis(complete);
+            if (basis == null || basis.Structure != complete.Structure || basis.Nodes.Length != complete.Nodes.Length) return false;
+            for (int i = 0; i < complete.Nodes.Length; i++)
+            {
+                TownServiceNode before = basis.Nodes[i], current = complete.Nodes[i];
+                if (before.Binding != current.Binding || before.Values.Count != current.Values.Count) return false;
+                foreach (ushort key in before.Values.Keys) if (!current.Values.ContainsKey(key)) return false;
+            }
+            // An unchanged full original remains a staggered repair for an observer
+            // whose real game template differs. It does not sit ahead of the first
+            // immediately reconstructable native state in the urgent artwork lane.
+            if (complete.Service != 3 && Local.TryGetValue(complete.Module, out LocalModule? source))
+            {
+                NativeTemplateRepair repair = source.NativeRepair ??= new NativeTemplateRepair
+                    { After = Time.unscaledTime + 10f + source.Id % 11 * .09f };
+                if (Time.unscaledTime >= repair.After)
+                { repair.After = Time.unscaledTime + 10f + source.Id % 11 * .09f; return false; }
+            }
+            var patch = new List<TownServiceNode>();
+            for (int i = 0; i < complete.Nodes.Length; i++)
+            {
+                TownServiceNode current = complete.Nodes[i], before = basis.Nodes[i];
+                TownServiceNode? changed = null;
+                foreach (var property in current.Values)
+                    // Native card model generation lays out its Row Containers
+                    // at runtime. Even unchanged local numeric defaults are
+                    // owner output, not an observer's separately laid-out default.
+                    // Omitted original materials/sprites remain exactly hashed.
+                    if (OwnerProperty(i, property.Key) || NativeModelGeometry(complete, property.Key)
+                        || !property.Value.Same(before.Values[property.Key]))
+                    { changed ??= new TownServiceNode { Binding = current.Binding }; changed.Values.Add(property.Key, property.Value); }
+                if (changed != null) patch.Add(changed);
+            }
+            // The historical TLV78 reader requires one node for a visible complete
+            // module. An empty property list is a legitimate unchanged native root.
+            if (patch.Count == 0) patch.Add(new TownServiceNode { Binding = complete.Nodes[0].Binding });
+            TownServiceFrame sparse = TownServiceDelta.Retain(complete);
+            sparse.Nodes = patch.ToArray();
+            sparse.NativeTemplateBasisKey = NativeBasisKey(basis, sparse.Nodes);
+            byte[] encoded = TownServiceCodec.Write(sparse);
+            // Serialization of the full original is deliberately avoided on the
+            // compact path: native materials repeat many long asset descriptors.
+            packet = encoded;
+            return true;
+        }
+        catch (Exception error) { Report("native template metadata capture", error); return false; }
+    }
+
+    internal static bool TryExpandNativeTemplateState(TownServiceFrame received, out TownServiceFrame complete)
+    {
+        complete = received;
+        if (received.NativeTemplateBasisKey == 0) return true;
+        try
+        {
+            NativeTemplateBasis? basis = NativeBasis(received);
+            if (basis == null || basis.Structure != received.Structure
+                || NativeBasisKey(basis, received.Nodes) != received.NativeTemplateBasisKey)
+                throw new InvalidDataException("Original town metadata requires its exact frozen native template: "
+                    + received.TemplateAddress + ", structure=" + received.Structure.ToString("X8")
+                    + ", owner basis=" + received.NativeTemplateBasisKey.ToString("X16")
+                    + ", observer basis=" + (basis?.Key.ToString("X16") ?? "unavailable") + ".");
+            var changes = new Dictionary<uint, TownServiceNode>();
+            foreach (TownServiceNode node in received.Nodes)
+                if (changes.ContainsKey(node.Binding)) return false;
+                else changes.Add(node.Binding, node);
+            TownServiceFrame expanded = TownServiceDelta.Retain(received);
+            expanded.NativeTemplateBasisKey = 0; expanded.Nodes = new TownServiceNode[basis.Nodes.Length];
+            for (int i = 0; i < basis.Nodes.Length; i++)
+            {
+                TownServiceNode before = basis.Nodes[i];
+                var node = new TownServiceNode { Binding = before.Binding };
+                foreach (var property in before.Values) node.Values.Add(property.Key, property.Value);
+                if (changes.TryGetValue(before.Binding, out TownServiceNode? changed))
+                {
+                    foreach (var property in changed.Values)
+                    {
+                        if (!node.Values.ContainsKey(property.Key)) return false;
+                        node.Values[property.Key] = property.Value;
+                    }
+                    changes.Remove(before.Binding);
+                }
+                // A localized observer must never substitute its default text/font
+                // for an omitted owner property. Such a sparse packet is incomplete.
+                foreach (ushort key in before.Values.Keys)
+                    if (OwnerProperty(i, key) && (changed == null || !changed.Values.ContainsKey(key))) return false;
+                expanded.Nodes[i] = node;
+            }
+            if (changes.Count != 0) return false;
+            TownServiceCodec.Validate(expanded); complete = expanded; return true;
+        }
+        catch (Exception error) { Report("native template metadata playback", error); return false; }
+    }
+
+    /// <summary>Admit one complete original enhancement picture. New rows, the ring
+    /// and card cannot become separate incremental pictures while dependencies arrive.</summary>
+    private static bool MagePictureReady(int peer, TownServiceSessionInfo session,
+        Dictionary<ushort, TownServiceFrame> pending)
+    {
+        if (peer <= 0 || session.Service != 3 || session.Modules.Length == 0) return true;
+        foreach (ushort id in session.RequiredVisibleModules ?? session.Modules)
+        {
+            if (!pending.TryGetValue(id, out TownServiceFrame? received)
+                || received.Session != session.Session || received.Service != 3)
+            { TraceMageAdmission(peer, session, pending, "module-not-received", id); return false; }
+            // Delta headers carry the current owner's visibility independently of
+            // their original dependency. A hidden prepared inventory or tooltip
+            // cannot delay the complete *visible* card/options picture.
+            if (session.RequiredVisibleModules == null && (!received.Visible || received.ParentAlpha <= 0f)) continue;
+            TownServiceFrame? baseline = null;
+            if (ReceivedBaselines.TryGetValue(peer, out var baselines)) baselines.TryGetValue(id, out baseline);
+            TownServiceFrame? frame = TownServiceDelta.Expand(baseline, received);
+            if (frame == null || frame.NativeTemplateBasisKey != 0)
+            { TraceMageAdmission(peer, session, pending, "original-baseline", id, received.TemplateAddress); return false; }
+            if (!frame.Visible || frame.ParentAlpha <= 0f) continue;
+            try
+            {
+                NativeTemplateBasis? basis = NativeBasis(frame);
+                if (basis == null || basis.Structure != frame.Structure)
+                { TraceMageAdmission(peer, session, pending, "native-template", id, frame.TemplateAddress); return false; }
+                long key = ((long)peer << 16) | id;
+                if (MageValidatedOriginals.TryGetValue(key, out var validated)
+                    && ReferenceEquals(validated.Received, received)
+                    && ReferenceEquals(validated.Template, basis.Template)
+                    && validated.Generation == Assets.Generation) continue;
+                // Validate a new immutable native revision once, never build or
+                // traverse a new prefab binding on every rendering frame.
+                basis.Binding.Validate(frame, Assets);
+                if (MageValidatedOriginals.Count >= 8 * TownServiceFrame.MaxModules
+                    && !MageValidatedOriginals.ContainsKey(key)) MageValidatedOriginals.Clear();
+                MageValidatedOriginals[key] = new MageValidatedOriginal { Received = received,
+                    Template = basis.Template, Generation = Assets.Generation };
+            }
+            catch (Exception error)
+            { TraceMageAdmission(peer, session, pending, error.Message, id, frame.TemplateAddress);
+              Report("complete native enhancement picture", error); return false; }
+        }
+        TraceMageAdmission(peer, session, pending, null);
+        return true;
+    }
+
+    private static void ResetNativeTemplateState()
+    {
+        unchecked { NativeTemplatePreparationRevision++; }
+        foreach (NativeTemplateBasis basis in NativeTemplateBases.Values) basis.Binding.Dispose();
+        NativeTemplateBases.Clear(); MageValidatedOriginals.Clear(); TraceMageAdmissionReset();
+        UnpreparedNativeTemplates.Clear(); UnpreparedNativeOrder.Clear();
+    }
+}

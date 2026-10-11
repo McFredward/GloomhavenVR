@@ -23,3 +23,21 @@ internal static class FullAbilityCard_ShowCard_ArtGuard
 {
     private static bool Prefix(FullAbilityCard __instance) => !CardArtGuard.SuppressShowCard(__instance);
 }
+
+[HarmonyPatch(typeof(FullAbilityCard), "OnEnable")]
+internal static class FullAbilityCard_OnEnable_CensusLifetime
+{
+    private static void Postfix(FullAbilityCard __instance) => CardHalfTone.RegisterCensusFace(__instance);
+}
+
+[HarmonyPatch(typeof(FullAbilityCard), nameof(FullAbilityCard.Init))]
+internal static class FullAbilityCard_Init_CensusLifetime
+{
+    private static void Postfix(FullAbilityCard __instance) => CardHalfTone.RegisterCensusFace(__instance);
+}
+
+[HarmonyPatch(typeof(FullAbilityCard), "OnDestroy")]
+internal static class FullAbilityCard_OnDestroy_CensusLifetime
+{
+    private static void Prefix(FullAbilityCard __instance) => CardHalfTone.ForgetCensusFace(__instance);
+}

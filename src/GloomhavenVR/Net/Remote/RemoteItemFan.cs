@@ -271,7 +271,8 @@ internal sealed class RemoteItemFan
 
     /// <summary>True iff arc slab <paramref name="i"/> is the chip the owner has in a fist, and so
     /// is not at an arc position on their machine either.</summary>
-    private bool IsHeldOut(int i) => i >= 0 && (i == _heldArcA || i == _heldArcB);
+    private bool IsHeldOut(int i) => i >= 0 && (i == _heldArcA || i == _heldArcB
+        || !RevealGate.InScenario && i == _owner.ItemUseClipIndex);
 
     /// <summary>Forget which slabs were taken out of the arc. Called wherever the SLAB SET itself
     /// is replaced or torn down: these are positions in <see cref="_cards"/>, so carrying them
@@ -399,7 +400,8 @@ internal sealed class RemoteItemFan
     /// at and glide it home — see <see cref="SyncHeldSeats"/>'s release note.</summary>
     private void BeginReturnFromFist(int i, int poseSlot)
     {
-        if (i < 0 || i >= _cards.Count || _root == null)
+        if (i < 0 || i >= _cards.Count || _root == null
+            || !RevealGate.InScenario && i == _owner.ItemUseClipIndex)
             return;
         GameObject card = _cards[i];
         if (card == null)
@@ -645,7 +647,7 @@ internal sealed class RemoteItemFan
     public void Tick(float dt)
     {
         dt = Mathf.Max(dt, 0f);
-        if (_title != null) _title.gameObject.SetActive(_owner.ItemCardCount > 0);
+        if (_title != null) _title.gameObject.SetActive(RevealGate.InScenario && _owner.ItemCardCount > 0);
 
         // The owner's own animation dials (record 28) BEFORE anything reads them — including the
         // collapse below, which must run on the owner's close timing even though the fan is already
@@ -677,7 +679,7 @@ internal sealed class RemoteItemFan
             return;
         }
 
-        int count = Mathf.Clamp(_owner.ItemCardCount, 0, MaxCards);
+        int count = Mathf.Clamp(_owner.ItemCardCount, 0, RevealGate.InScenario ? MaxCards : byte.MaxValue);
         if (count == 0)
         {
             // The fold-in has already run and a card stayed behind in the recess: there is nothing
@@ -768,8 +770,19 @@ internal sealed class RemoteItemFan
         }
         else
         {
-            float k = 1f - Mathf.Exp(-Smoothing * Mathf.Max(dt, 0f));
-            t.SetPositionAndRotation(Vector3.Lerp(t.position, target, k), Quaternion.Slerp(t.rotation, rot, k));
+            if (!RevealGate.InScenario)
+            {
+                RemoteBoardTuning tuning = _owner.BoardTuning;
+                if (tuning.FanFollowSmoothing <= 0f) t.position = target;
+                else if ((t.position - target).magnitude > tuning.FanFollowDeadzone * rootScale)
+                    t.position = Vector3.Lerp(t.position, target, 1f - Mathf.Exp(-tuning.FanFollowSmoothing * dt));
+                t.rotation = rot; // the local inspection fan billboards its root without rotation lag
+            }
+            else
+            {
+                float k = 1f - Mathf.Exp(-Smoothing * Mathf.Max(dt, 0f));
+                t.SetPositionAndRotation(Vector3.Lerp(t.position, target, k), Quaternion.Slerp(t.rotation, rot, k));
+            }
         }
 
         // THE CARD IN THE RECESS (extension record 26) — resolved BEFORE the layout, because the
@@ -827,7 +840,8 @@ internal sealed class RemoteItemFan
             Transform? holder = _owner.ItemFanLeftHand ? _owner.LeftHandHolder : _owner.RightHandHolder;
             if (holder == null || !holder.gameObject.activeInHierarchy)
                 return false;
-            pos = holder.position + holder.up * (HandPalmOffset * scale);
+            pos = RevealGate.InScenario ? holder.position + holder.up * (HandPalmOffset * scale)
+                : RemoteHandFan.FanAnchorPoint(_owner, holder);
         }
         else
         {
@@ -1159,6 +1173,9 @@ internal sealed class RemoteItemFan
     /// </summary>
     private void ResolveClip()
     {
+        // In map inspection record26 withdraws a real merchant-palm card. That card
+        // is already drawn by its original town presenter, never by a scenario recess.
+        if (!RevealGate.InScenario) return;
         Transform? recess = _owner.ItemUseRecess;
         bool recessUsable = recess != null && recess.gameObject.activeInHierarchy;
 
@@ -1491,7 +1508,7 @@ internal sealed class RemoteItemFan
         if (_root == null)
             return;
         _emergeSeedLocal = Vector3.zero;
-        if (TryItemStackWorld(out Vector3 stackWorld))
+        if (RevealGate.InScenario && TryItemStackWorld(out Vector3 stackWorld))
             _emergeSeedLocal = _root.transform.InverseTransformPoint(stackWorld);
         for (int i = 0; i < _cards.Count; i++)
         {
@@ -1537,20 +1554,23 @@ internal sealed class RemoteItemFan
     /// ships it. No rebuild is ever needed: none of these changes the slab GEOMETRY, only the curve
     /// the slabs travel on, and that is recomputed every frame anyway.
     /// </summary>
+    private bool _mapInspectionTuning;
     private void SyncTuning()
     {
-        if (_tuningRevision == _owner.BoardTuningRevision)
+        bool mapInspection = !RevealGate.InScenario;
+        if (_tuningRevision == _owner.BoardTuningRevision && _mapInspectionTuning == mapInspection)
             return;
         _tuningRevision = _owner.BoardTuningRevision;
+        _mapInspectionTuning = mapInspection;
         RemoteBoardTuning t = _owner.BoardTuning;
         _openSeconds = Mathf.Max(0.01f, t.ItemFanOpenDuration);
-        _openStagger = Mathf.Max(0f, t.ItemFanOpenStagger);
+        _openStagger = mapInspection ? 0f : Mathf.Max(0f, t.ItemFanOpenStagger);
         _openArc = Mathf.Max(0f, t.ItemFanOpenArc);
         _openSpinDegrees = t.ItemFanOpenSpinDegrees;
         _seedScale = Mathf.Clamp(t.ItemFanSeedScale, 0.02f, 1f);
         _settleOvershoot = Mathf.Clamp(t.ItemFanSettleOvershoot, 0f, 3f);
         _closeSeconds = Mathf.Max(0.01f, t.ItemFanCloseDuration);
-        _closeStagger = Mathf.Max(0f, t.ItemFanCloseStagger);
+        _closeStagger = mapInspection ? 0f : Mathf.Max(0f, t.ItemFanCloseStagger);
         // THE ITEM CUE BEAT FOLLOWS THE OWNER on both item surfaces (ruling recorded at
         // NetProtocol.cs:647). Re-seeded into every LIVE frame below rather than only latched,
         // because this class deliberately does not rebuild for an animation dial — and without the
@@ -1606,7 +1626,8 @@ internal sealed class RemoteItemFan
     {
         if (_root == null || !_root.activeSelf || _cards.Count == 0)
             return false;
-        if (!TryItemStackWorld(out Vector3 stackWorld))
+        Vector3 stackWorld = _root.transform.position;
+        if (RevealGate.InScenario && !TryItemStackWorld(out stackWorld))
             return false;
 
         // …UNLESS THE CARD IS STILL IN THE RECESS (2026-08-09, see _clipDetached). The owner's fan

@@ -9,4 +9,7 @@
 # commit already runs.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ "${1:-check}" == check ]]; then
+    python3 -m unittest discover -s "$ROOT/tests" -p test_patch_inventory_literals.py
+fi
 exec python3 "$ROOT/scripts/patch-inventory.py" "${1:-check}"

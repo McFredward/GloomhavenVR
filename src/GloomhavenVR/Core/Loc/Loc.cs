@@ -196,6 +196,18 @@ internal static partial class Loc
 
     private static Dictionary<string, Dictionary<string, string>> Build() => new(64)
     {
+        ["town_merchant_buy"] = Pair("Buy", "Kaufen"),
+        ["town_merchant_sell"] = Pair("Sell", "Verkaufen"),
+        ["town_merchant_retry"] = Pair("Trade unavailable.\nTry again.", "Handel nicht verfügbar.\nErneut versuchen."),
+        ["town_merchant_stock"] = Pair("Shop stock", "Warenbestand"),
+        ["town_merchant_inventory"] = Pair("Owned items", "Eigene Gegenstände"),
+        ["town_offering"] = Pair("Place the purse in the bowl to donate", "Geldbeutel zum Spenden in die Schale legen"),
+        ["town_inscribe"] = Pair("Place a rune here", "Rune hier ablegen"),
+        ["town_enchant_card"] = Pair("Place a card here", "Karte hier ablegen"),
+        ["town_enchant_seal"] = Pair("Seal the purchase", "Kauf besiegeln"),
+        ["town_enchant_remove"] = Pair("Remove an enhancement", "Verbesserung entfernen"),
+        ["town_sample_hint"] = Pair("Place a sample here to select it.\nConfirm in the prompt.",
+            "Lege eine Vorschau hier ab, um sie auszuwählen.\nBestätige anschließend im Dialog."),
         // ---- the controls lesson (Compat/Tutorial/Controls) ----
         // Each taught control is a {id}_t title and a {id}_b body. The wording names the KEY
         // in words as well as lighting it, because two of the shipped controller models cannot
@@ -225,6 +237,17 @@ internal static partial class Loc
         ["cheat_win_hint"] = Pair(
             "Triggers the game's normal victory, results and quest rewards. This counts as a real win and changes the savegame. Press twice within 8 seconds. Single-player only.",
             "Startet den normalen Sieg-Ablauf mit Ergebnissen und Questbelohnungen. Das zählt als echter Sieg und verändert den Spielstand. Innerhalb von 8 Sekunden zweimal drücken. Nur Einzelspieler."),
+        ["cheat_gold"] = Pair("Give selected character 100 gold", "Ausgewähltem Character 100 Gold geben"),
+        ["cheat_gold_hint"] = Pair(
+            "Adds 100 gold to the selected character using the game's rules and saves the result. In shared-gold mode it credits the party purse. Each press adds another 100. Map and single-player only.",
+            "Gibt dem ausgewählten Character über die Spielregeln 100 Gold und speichert das Ergebnis. Bei gemeinsamem Gold wird die Gruppenkasse gefüllt. Jeder Druck gibt weitere 100. Nur auf der Karte im Einzelspieler."),
+        ["cheat_gold_online"] = Pair("Give gold — BLOCKED (multiplayer)", "Gold geben — GESPERRT (Mehrspieler)"),
+        ["cheat_gold_no_map"] = Pair("Give gold — open the campaign map first", "Gold geben — erst die Kampagnenkarte öffnen"),
+        ["cheat_gold_no_character"] = Pair("Give gold — select one of your characters", "Gold geben — einen eigenen Character auswählen"),
+        ["cheat_gold_no_save"] = Pair("Give gold — savegame is still loading", "Gold geben — Spielstand wird noch geladen"),
+        ["cheat_gold_party"] = Pair("party purse", "Gruppenkasse"),
+        ["cheat_gold_done"] = Pair("+100 gold to {0} (now {1}) — press again to add more",
+            "+100 Gold für {0} (jetzt {1}) — erneut drücken für mehr"),
         ["ctl_next"] = Pair("NEXT", "WEITER"),
         ["ctl_skip"] = Pair("SKIP", "ÜBERSPRINGEN"),
         // ---- the multiplayer quest card ----
@@ -845,7 +868,7 @@ internal static partial class Loc
         // the "Umgebung & Ton" tab below; what is left really is only the picture, so the label says
         // so. The KEY stays "cat_graphics" — a text-only rename, exactly like cat_debug →
         // "Erweitert" — so nothing that references the tab has to move.
-        ["cat_graphics"] = Pair("Picture", "Bild"),
+        ["cat_graphics"] = Pair("Graphics", "Grafik"),
         // THE NEW TAB (same audit, same question). Two lines, broken at the "&" for the same reason
         // cat_boardcards and cat_avatar_mp are: the 210 px sub-tab column fits its captions by
         // shrinking, and a long single line shrinks to the floor. "Umgebung &" / "Ton" reads as one
@@ -915,6 +938,9 @@ internal static partial class Loc
         // are gone with their dials, because the pair clamped a factor that is 1.0 at the shipped
         // zoom and therefore did nothing a player could see (ActorBars.ZoomFollowMin has the proof).
         ["vr_o_barsize"] = Pair("Health bars: size", "Lebensbalken: Größe"),
+        ["vr_o_immersivetown"] = Pair("Immersive town NPCs", "Immersive Stadt-NPCs"),
+        ["vr_o_townspeech"] = Pair("NPC speech", "NPC-Sprachausgabe"),
+        ["vr_o_townsfx"] = Pair("NPC sound effects", "NPC-Soundeffekte"),
         ["vr_o_dialogs"] = Pair("Dialogs in VR", "Dialoge in VR"),
         ["vr_o_decisiondock"] = Pair("Decision dock", "Entscheidungsleiste"),
         // The board family on the "Objekt: Wirkung" colon pattern (2026-08 naming pass, audit
@@ -926,6 +952,12 @@ internal static partial class Loc
         // that ARE dials, and the player pressing it has just lost their board.
         ["vr_o_boardrecall"] = Pair("Board: bring it back to me", "Brett: zu mir zurückholen"),
         ["vr_o_trayscale"] = Pair("Board: size", "Brett: Größe"),
+        ["vr_o_wristboard"] = Pair("Wrist-mounted control board", "Steuerbrett am Handgelenk"),
+        ["vr_o_wristoffset"] = Pair("Wrist position (m)", "Position am Handgelenk (m)"),
+        ["vr_o_wristangles"] = Pair("Wrist rotation (°)", "Rotation am Handgelenk (°)"),
+        ["wristboard_nonmain"] = Pair("Non-main hand", "Nebenhand"),
+        ["wristboard_left"] = Pair("Left", "Links"),
+        ["wristboard_right"] = Pair("Right", "Rechts"),
         ["vr_o_trayfollow"] = Pair("Board: follows you", "Brett: folgt dir"),
         // Item 12: the control-board movement scheme row + its three dropdown choices. The
         // choice labels are what the preset row shows INSTEAD of the raw enum members
@@ -977,6 +1009,9 @@ internal static partial class Loc
         ["vr_o_keepplace"] = Pair("Keep place on re-don", "Platz nach Absetzen behalten"),
         ["h_vr_o_keepplace"] = Pair("Taking the headset off and putting it back on keeps you where you were at the table.", "Headset absetzen und wieder aufsetzen lässt dich am Tisch stehen, wo du warst."),
         // Komfort ▸ Sichtbarkeit
+        ["wall_visibility_regular"] = Pair("Regular", "Normal"),
+        ["wall_visibility_hidden"] = Pair("Hide all", "Alle ausblenden"),
+        ["wall_visibility_auto"] = Pair("Automatic", "Automatisch"),
         ["vr_o_stackedfade"] = Pair("Fade fort superstructures", "Festungs-Aufbauten ausblenden"),
         ["h_vr_o_stackedfade"] = Pair("Upper storeys and battlements fade with the walls below them.", "Obergeschosse und Zinnen verschwinden mit den Wänden darunter."),
         ["vr_o_walkin"] = Pair("All walls solid when inside", "Im Spielfeld: alle Wände massiv"),
@@ -986,7 +1021,7 @@ internal static partial class Loc
         ["vr_o_curlassist"] = Pair("Full curl at grip value", "Vollgriff ab Griffwert"),
         ["h_vr_o_curlassist"] = Pair("Lower it and a partial squeeze of the grip already counts as a full fist — for hands that cannot press all the way.", "Niedriger stellen, und ein halber Druck auf die GRIP-Taste zählt schon als volle Faust — für Hände, die nicht ganz durchdrücken können."),
         // Grafik ▸ Darstellung
-        ["vr_o_eyeres"] = Pair("Resolution per eye", "Auflösung pro Auge"),
+        ["vr_o_eyeres"] = Pair("Requested resolution per eye", "Gewünschte Auflösung pro Auge"),
         ["h_vr_o_eyeres"] = Pair("The main sharpness-vs-frames dial: above 1 is sharper and dearer, below 1 cheaper and softer.", "Der Haupt-Regler Schärfe gegen Bildrate: über 1 schärfer und teurer, unter 1 günstiger und weicher."),
         ["vr_o_msaa"] = Pair("MSAA level", "MSAA-Stufe"),
         ["h_vr_o_msaa"] = Pair("Smooths jagged edges. Higher looks calmer and costs GPU time.", "Glättet Treppenkanten. Höher wirkt ruhiger und kostet GPU-Zeit."),
@@ -1196,8 +1231,9 @@ internal static partial class Loc
         ["vr_o_loading"] = Pair("Loading indicator", "Ladeanzeige"),
         ["h_vr_o_loading"] = Pair("A spinner in the headset while the game loads.", "Eine Ladeanzeige im Headset, während das Spiel lädt."),
         // Tafeln ▸ Lebensbalken
-        ["vr_o_barsoccluded"] = Pair("Health bars behind walls", "Lebensbalken hinter Wänden"),
-        ["h_vr_o_barsoccluded"] = Pair("Bars stay visible even when a wall stands between you and the figure.", "Balken bleiben sichtbar, auch wenn eine Wand zwischen dir und der Figur steht."),
+        ["vr_o_barfollowfigure"] = Pair("Scale bars with figures", "Balken mit Figuren skalieren"),
+        ["vr_o_barsoccluded"] = Pair("Hide bars behind walls", "Balken hinter Wänden verbergen"),
+        ["h_vr_o_barsoccluded"] = Pair("On: walls hide bars. Off: bars remain visible through walls.", "An: Wände verdecken Balken. Aus: Balken bleiben durch Wände sichtbar."),
         // Tafeln ▸ 2D-Schirm
         ["vr_o_showintro"] = Pair("Show intro in VR", "Intro in VR zeigen"),
         ["h_vr_o_showintro"] = Pair("Play the game's intro on the floating screen instead of skipping it.", "Das Intro des Spiels auf dem schwebenden Schirm zeigen statt es zu überspringen."),
@@ -1251,7 +1287,10 @@ internal static partial class Loc
         ["h_vr_o_circle"] = Pair("On joining, seats you at the spot furthest from every player already at the table, facing the board.", "Setzt dich beim Beitreten an die Stelle mit dem größten Abstand zu allen schon anwesenden Spielern, mit Blick zum Brett."),
         ["h_vr_o_gfxjobs"] = Pair("Spreads drawing over several CPU threads. The single biggest performance gain.", "Verteilt das Zeichnen auf mehrere CPU-Threads. Der größte Leistungsgewinn."),
         ["h_vr_o_autorestart"] = Pair("Restarts the game by itself the one time the setting above needs it.", "Startet das Spiel einmal selbst neu, wenn die Einstellung darüber es braucht."),
-        ["h_mixed_reality"] = Pair("Clears the sky to one colour so your room can show through it.", "Färbt den Himmel einfarbig, damit dein Zimmer durchscheinen kann."),
+        ["mr_frame_available"] = Pair("Show your surroundings through Steam Frame passthrough while keeping the game and windows visible.", "Zeigt deine Umgebung durch Steam Frame Passthrough. Spiel und Fenster bleiben sichtbar."),
+        ["mr_frame_checking"] = Pair("Checking Steam Frame passthrough support. Mixed Reality becomes available once the VR runtime is ready.", "Steam Frame Passthrough wird geprüft. Mixed Reality ist verfügbar, sobald die VR-Laufzeit bereit ist."),
+        ["mr_frame_update_required"] = Pair("Mixed Reality requires passthrough support from Proton and SteamVR. Update SteamVR and the Proton version selected for Gloomhaven, then restart the game.", "Mixed Reality benötigt Passthrough-Unterstützung von Proton und SteamVR. Aktualisiere SteamVR und die für Gloomhaven gewählte Proton-Version und starte das Spiel neu."),
+        ["h_mixed_reality"] = Pair("Show your surroundings around the game. Steam Frame uses native passthrough when supported; PC streaming needs compatible chroma-key software.", "Zeigt deine Umgebung um das Spiel herum. Steam Frame nutzt unterstütztes natives Passthrough; PC-Streaming benötigt kompatible Chroma-Key-Software."),
         ["h_key_color"] = Pair("The colour your headset replaces with the room. Black keeps it simply dark.", "Die Farbe, die dein Headset durch das Zimmer ersetzt. Schwarz lässt es einfach dunkel."),
         ["h_show_combat_log"] = Pair(
             "Whether the floating log panel is up when a scenario begins. You can summon it "
@@ -1261,6 +1300,17 @@ internal static partial class Loc
         // The hint now carries what the two removed bound-dials used to claim to configure: the
         // bars follow the table zoom only inside a fixed band, so this one number is the whole size.
         ["h_vr_o_barsize"] = Pair("How large the bars are in front of your eyes. 1.0 is the size they have always had, and it holds however far you zoom the table.", "Wie groß die Balken vor deinen Augen sind. 1.0 ist die Größe, die sie immer hatten — und sie bleibt es, wie weit du den Tisch auch zoomst."),
+        ["h_vr_o_immersivetown"] = Pair(
+            "On shows physical residents in the 3D map room. Off restores the original service windows. "
+            + "Applies immediately; other players retain their chosen presentation.",
+            "An zeigt die NPCs in der 3D-Kartenumgebung. Aus stellt die bisherigen Fenster wieder her. "
+            + "Gilt sofort; andere Spieler behalten ihre gewählte Darstellung."),
+        ["h_vr_o_townspeech"] = Pair(
+            "English resident speech. This affects only what you hear; shared lines and facial animation stay synchronized.",
+            "Englische Sprachausgabe der NPCs. Das betrifft nur deinen Ton; Satz und Gesichtsanimation bleiben synchron."),
+        ["h_vr_o_townsfx"] = Pair(
+            "Physical sounds from residents and their furniture. Ordinary game, card and interface sounds remain enabled.",
+            "Physische Geräusche der NPCs und ihrer Stände. Normale Spiel-, Karten- und Menügeräusche bleiben aktiv."),
         ["h_vr_o_dialogs"] = Pair("Show the game's dialogs as panels in front of you.", "Zeigt die Dialoge des Spiels als Tafeln vor dir."),
         ["h_vr_o_decisiondock"] = Pair("A bar within reach for choices you have to make.", "Eine Leiste in Reichweite für Entscheidungen."),
         ["h_control_board"] = Pair("Which control board model sits in front of you.", "Welches Kontrollbrett-Modell vor dir steht."),
@@ -1725,10 +1775,10 @@ internal static partial class Loc
             + "gemerkte Position und Größe."),
         ["vr_pt_bars"] = Pair("Health bars", "Lebensbalken"),
         ["h_vr_pt_bars"] = Pair(
-            "The bars above figures: on/off, size and its zoom clamp, distance behaviour, "
-            + "visibility behind walls.",
-            "Die Balken über den Figuren: an/aus, Größe samt Zoom-Klammer, "
-            + "Abstands-Verhalten, Sichtbarkeit hinter Wänden."),
+            "The bars above figures: size, whether they follow figure zoom, head-distance "
+            + "behavior, and visibility behind walls.",
+            "Die Balken über den Figuren: Größe, Mitwachsen beim Figurenzoom, "
+            + "Abstandsverhalten und Sichtbarkeit hinter Wänden."),
         ["vr_pt_screen"] = Pair("2D screen & 3D depth", "2D-Schirm & 3D-Tiefe"),
         ["h_vr_pt_screen"] = Pair(
             "The floating 2D screen the menus live on: its basics, the stereo-depth "
@@ -2047,6 +2097,18 @@ internal static partial class Loc
         ["upd_downloading"] = Pair("Downloading … {0} of {1} MB", "Lädt herunter … {0} von {1} MB"),
         ["upd_verifying"] = Pair("Checking the archive …", "Archiv wird geprüft …"),
         ["upd_extracting"] = Pair("Unpacking …", "Wird entpackt …"),
+        // Build619: four explicit one-shot graphics actions, never an automatic profile latch.
+        ["sec_graphics_profiles"] = Pair("Graphics profiles", "Grafikprofile"),
+        ["vr_o_simpleenvironment"] = Pair("Simpler environment shading", "Einfachere Umgebungsschattierung"),
+        ["sec_graphics_details"] = Pair("Scene details", "Szenendetails"),
+        ["graphics_standalone"] = Pair("Standalone", "Standalone"),
+        ["graphics_performance"] = Pair("Performance PC", "Leistungsorientiert"),
+        ["graphics_balanced"] = Pair("Balanced PC", "Ausgewogen"),
+        ["graphics_highend"] = Pair("High-End PC", "High-End PC"),
+        ["graphics_profile_note"] = Pair(
+            "Applies VR and game graphics settings. Individual controls remain adjustable; scenario geometry changes at the next load.",
+            "Ändert VR- und Spielgrafik. Einzelne Werte bleiben anpassbar; Szenariogeometrie ändert sich beim nächsten Laden."),
+
         ["upd_restarting"] = Pair("Restarting the game …", "Spiel wird neu gestartet …"),
 
         // {0} the term that failed

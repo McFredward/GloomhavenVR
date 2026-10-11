@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using GloomhavenVR.Rig;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.XR;
@@ -63,6 +64,7 @@ internal static class OpenXRBootstrap
         {
             // e.g. ScriptEngine hot reload without a clean shutdown — reuse the session.
             VRLog.Warn("Core", "An XRDisplaySubsystem already exists — reusing the existing XR session.");
+            RenderQuality.AdoptRunningSession();
             VRSession.IsRunning = true;
             return true;
         }
@@ -267,10 +269,12 @@ internal static class OpenXRBootstrap
         var oculusTouch = ScriptableObject.CreateInstance<OculusTouchControllerProfile>();
         var valveIndex = ScriptableObject.CreateInstance<ValveIndexControllerProfile>();
         var khrSimple = ScriptableObject.CreateInstance<KHRSimpleControllerProfile>();
+        var environmentBlendProbe = ScriptableObject.CreateInstance<OpenXrEnvironmentBlendFeature>();
         oculusTouch.enabled = true;
         valveIndex.enabled = true;
         khrSimple.enabled = true;
-        _features = [oculusTouch, valveIndex, khrSimple];
+        environmentBlendProbe.enabled = true;
+        _features = [oculusTouch, valveIndex, khrSimple, environmentBlendProbe];
         OpenXRSettings.Instance.features = _features;
 
         // Stereo render mode. MultiPass is the only mode that renders correctly on this game —
@@ -322,12 +326,28 @@ internal static class OpenXRBootstrap
                 // mismatch, ...) went to Player.log; persist the diagnostics report so
                 // testers don't have to reproduce with debug logging on.
                 OpenXRDiagnostics.AppendReportToFile($"FAILED (loader Initialize) — candidate: {candidate}");
+                VRLog.Error("Core", "OpenXR loader initialization failed before VR render-quality setup. " +
+                                    "No mod eye-allocation, viewport or MSAA startup setter ran. " +
+                                    "If Player.log reports XR_ERROR_RUNTIME_UNAVAILABLE, the native OpenXR " +
+                                    "runtime could not be loaded/discovered; that result alone does not " +
+                                    "identify a bad graphics setting or a missing headset. " +
+                                    "On Steam Frame retain the Proton/SteamVR loader log together with " +
+                                    "LogOutput.log, Player.log and openxr-diagnostics.log.");
                 return false;
             }
 
             // Start → XRManagerSettings.StartSubsystems → OpenXRLoader.Start. NOTE: the
             // display subsystem may not be 'running' yet — StartInternal() defers until the
             // runtime reports XrReady (delivered via the onBeforeRender message pump).
+            // Build631 Frame fails at xrEnumerateInstanceExtensionProperties/xrCreateInstance
+            // with XR_ERROR_RUNTIME_UNAVAILABLE. Build630 newly touched legacy XR render
+            // settings before selecting/initializing the runtime. Restore the previous native
+            // initialization boundary: only the successfully initialized, stopped provider may
+            // receive startup quality writes. The capture locates the failure; it does not prove
+            // that those early writes caused the native loader failure.
+            RenderQuality.PrepareSession();
+            RenderQuality.PrepareDisplays(); // new display allocation/MSAA before its first start
+            VRLog.Info("Core", "VR startup quality applied to the initialized provider; starting XR subsystems.");
             _generalSettings.Start();        // publicized private
             VRLog.Debug("Core", "  phase 3/4: Start (StartSubsystems) returned.");
 
@@ -457,6 +477,7 @@ internal static class OpenXRBootstrap
         VRSession.RuntimeName = null;
 
         StopAndDeinitQuiet();
+        RenderQuality.EndSession(); // never reset a live swapchain from the per-frame rig path
 
         foreach (OpenXRFeature feature in _features)
             UnityEngine.Object.Destroy(feature);

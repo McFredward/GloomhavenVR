@@ -32,7 +32,7 @@ old,new={
 }[sys.argv[2]]
 assert old in s;p.write_text(s.replace(old,new).replace('if (false)', 'if (bool.Parse("false"))').replace('if (true ||', 'if (bool.Parse("true") ||'))
 PY
-    if dotnet run --project "$work_dir/GloomhavenVR.BurnLayoutTests.csproj" --configuration Release > "$work_dir/negative.log" 2>&1; then cat "$work_dir/negative.log"; exit 1; fi
+    if dotnet run --project "$work_dir/GloomhavenVR.BurnLayoutTests.csproj" --configuration Release --no-restore > "$work_dir/negative.log" 2>&1; then cat "$work_dir/negative.log"; exit 1; fi
     case "$mutation" in
         completed-is-historical) expected='Initial historical seeding must not suppress a first round or active burn handover';;
         missed-completed-recovery) expected='Real recovery must also clear completed round or active flight claims';;

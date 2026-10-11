@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- The unchanged net472 translation resolver uses explicit nonnullable TryGetValue outputs.
+         net8 adds MaybeNullWhen(false) annotations absent from its production framework. -->
+    <NoWarn>$(NoWarn);CS8600</NoWarn>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(ProductionDir)/Loc.PlayerHelp.cs" />
+    <Compile Include="$(ProductionDir)/Loc.ConfigDescriptions.cs" />
+    <Compile Include="$(ProductionDir)/Loc.ConfigDescriptions.German.cs" />
+    <Compile Include="$(FixtureDir)/Program.cs" />
+  </ItemGroup>
+</Project>

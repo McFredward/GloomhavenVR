@@ -11,6 +11,7 @@ internal sealed class RemoteBoardPoseState
 {
     private bool _rigOwnsPose;
     internal bool HasBoard { get; private set; }
+    internal bool WristBoard { get; private set; }
     internal RigPose Pose { get; private set; } = new() { Rotation = Quaternion.identity };
     internal float Scale { get; private set; } = 1f;
 
@@ -18,6 +19,7 @@ internal sealed class RemoteBoardPoseState
     {
         if (!state.HasBoardPose) return;
         _rigOwnsPose = true;
+        WristBoard = state.WristBoard;
         Set(state.HasBoard, state.BoardPose, state.BoardScale);
     }
 

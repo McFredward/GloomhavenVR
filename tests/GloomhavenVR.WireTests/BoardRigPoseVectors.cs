@@ -77,14 +77,56 @@ internal static class BoardRigPoseVectors
         t.True(AvatarSerializer.TryRead(bytes, length, out read) && read.HasBoardPose && !read.HasBoard,
             "despawn is distinct from a legacy packet");
 
+        t.Case("board wrist attachment: additive owner flags share the existing pose clock");
+        state.HasBoard = true;
+        int ordinaryLength = AvatarSerializer.Write(in state, bytes);
+        var ordinary = new byte[ordinaryLength]; Array.Copy(bytes, ordinary, ordinaryLength);
+        state.WristBoard = true;
+        length = AvatarSerializer.Write(in state, bytes);
+        var wristExpected = new byte[ordinaryLength + 3]; Array.Copy(ordinary, wristExpected, ordinaryLength);
+        wristExpected[ordinaryLength] = 100; wristExpected[ordinaryLength + 1] = 1; wristExpected[ordinaryLength + 2] = 1;
+        t.Wire(wristExpected, bytes, length, "record100 adds only exact 64 01 01 after the untouched original rig/board prefix");
+        t.True(AvatarSerializer.TryRead(bytes, length, out read) && read.WristBoard && read.HasBoard,
+            "wrist visibility and the same sampled original board pose arrive atomically");
+        for (int n = ordinaryLength + 1; n < length; n++)
+            t.True(!AvatarSerializer.TryRead(bytes, n, out _), "known wrist record truncation rejects " + n);
+        foreach (byte bad in new byte[] { 0, 2, 255 })
+        {
+            var broken = (byte[])bytes.Clone(); broken[ordinaryLength + 1] = bad;
+            t.True(!AvatarSerializer.TryRead(broken, length, out _), "wrist grammar rejects invalid payload length " + bad);
+        }
+        foreach (byte bad in new byte[] { 2, 255 })
+        {
+            var broken = (byte[])bytes.Clone(); broken[ordinaryLength + 2] = bad;
+            t.True(!AvatarSerializer.TryRead(broken, length, out _), "wrist grammar rejects invalid flag " + bad);
+        }
+        bytes[ordinaryLength + 2] = 0;
+        t.True(AvatarSerializer.TryRead(bytes, length, out read) && !read.WristBoard,
+            "explicit ordinary flag is accepted without inventing a wrist attachment");
+        var doubled = new byte[length + 3]; Array.Copy(bytes, doubled, length);
+        doubled[length] = 100; doubled[length + 1] = 1; doubled[length + 2] = 1;
+        t.True(!AvatarSerializer.TryRead(doubled, doubled.Length, out _), "conflicting duplicate wrist records reject");
+        var missingBoard = new byte[prefixLength + 3]; Array.Copy(prefix, missingBoard, prefixLength);
+        missingBoard[prefixLength] = 100; missingBoard[prefixLength + 1] = 1; missingBoard[prefixLength + 2] = 1;
+        t.True(!AvatarSerializer.TryRead(missingBoard, missingBoard.Length, out _), "wrist state cannot precede a missing atomic board statement");
+        state.WristBoard = false;
+        length = AvatarSerializer.Write(in state, bytes);
+        t.Wire(ordinary, bytes, length, "switching wrist mode off restores the exact pre-wrist packet");
+        t.True(AvatarSerializer.TryRead(bytes, length, out read) && !read.WristBoard,
+            "optional absence clears the earlier owner's wrist state");
+
         t.Case("board rig pose: delayed extras cannot rewind or revive modern motion");
         var target = new RemoteBoardPoseState();
         var extras = new PresenceState { HasBoard = true, Board = Pose(2, 0, 0), BoardScale = 1 };
         target.AcceptPresence(in extras);
         t.True(target.HasBoard && target.Pose.Position.x == 2, "legacy/join fallback remains available");
         state.HasBoard = true; state.BoardPose = Pose(4, 0, 0); state.BoardScale = 3;
+        state.WristBoard = true;
         target.AcceptRig(in state);
         target.AcceptPresence(in extras);
+        t.True(target.WristBoard, "slow fragmented presence cannot unhide fast owner wrist controls");
+        state.WristBoard = false; target.AcceptRig(in state);
+        t.True(!target.WristBoard, "the next owner ordinary rig sample restores controls without viewer settings");
         t.True(target.HasBoard && target.Pose.Position.x == 4 && target.Scale == 3,
             "earlier fragmented presence cannot replace the head-aligned pose or scale");
         state.HasBoard = false;

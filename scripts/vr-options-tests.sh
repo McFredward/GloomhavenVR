@@ -37,7 +37,7 @@ s += '\n' + catch[start:end] + '\n'
 s += '\nprivate static bool PassEarlySuppression(UIWindow window, bool hoverCard) {\n' + early + '\nreturn true;\n}\n}\n'
 s += 'internal static partial class MenuWindowFamily {\n' + method(family, 'internal static bool IsModOwned(UIWindow? window)') + '\n}\n'
 s += 'internal static partial class VRMenuEntry {\n'
-for signature in ['internal static void Tick()', 'internal static void LateTick()', 'private static void TickPauseMenu()', 'private static void TickMainMenu()', 'private static void MaintainRowAvailability(UIMainMenuOption? row)', 'private static void BindRow(UIMainMenuOption row, bool mainMenu)', 'private static void ClearRow(UIMainMenuOption? row)', 'private static void TickRowLatch(bool open)', 'private static void ClearRivals()']:
+for signature in ['private static void OnMainSceneLoaded(Scene scene, LoadSceneMode mode)', 'internal static void Tick()', 'internal static void LateTick()', 'private static void TickPauseMenu()', 'private static void TickMainMenu()', 'private static void MaintainRowAvailability(UIMainMenuOption? row)', 'private static void BindRow(UIMainMenuOption row, bool mainMenu)', 'private static void ClearRow(UIMainMenuOption? row)', 'private static void TickRowLatch(bool open)', 'private static void ClearRivals()']:
     s += method(row, signature) + '\n'
 s += '}\ninternal static partial class VROptionsTab {\n'
 for signature in ['private static bool InjectionRetryReady(UIOptionsWindow host)', 'private static void Degrade(UIOptionsWindow host, string reason)', 'private static void NotifyHidden(UISubmenuGOWindow source)']:
@@ -84,7 +84,7 @@ else:
     s=s.replace(a,b,1)
 (out / 'Options.mutant').write_text(s)
 PY
-    if dotnet run --project "$project" --configuration Release --property:OptionsSource="$test_dir/Options.mutant" > "$test_dir/mutant.log" 2>&1; then
+    if dotnet run --project "$project" --configuration Release --no-restore --property:OptionsSource="$test_dir/Options.mutant" > "$test_dir/mutant.log" 2>&1; then
         cat "$test_dir/mutant.log"
         echo "FAIL: $mutation escaped VR options regression tests." >&2
         exit 1

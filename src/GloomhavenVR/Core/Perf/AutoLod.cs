@@ -9,6 +9,11 @@ using UnityEngine.SceneManagement;
 namespace GloomhavenVR.Core;
 
 /// <summary>
+/// Build 644 policy: disabling proven inert updates is universal. Discovery uses the internal
+/// 15-second cadence; the initial scene delay remains 8 seconds. The LOD bias and census are
+/// independent quality/diagnostic choices. Historical switch descriptions below explain the
+/// original implementation, not current player controls. Admission and restoration are unchanged.
+///
 /// THE 2,560 <c>AutomaticLOD</c> BEHAVIOURS ON UNITY'S UPDATE LIST — what they cost, what they
 /// decide, and what actually picks the level of detail this game renders at.
 ///
@@ -193,6 +198,7 @@ internal static class AutoLod
     {
         int restored = RestoreDisabled();
         bool bias = ReleaseLodBias();
+        FigureSkinningBudget.Restore();
         if (restored > 0 || bias)
             VRLog.Info(Scope, $"[Optimize] AutomaticLOD teardown — re-enabled {restored} behaviour(s)"
                               + (bias ? $" and put QualitySettings.lodBias back to {_lodBiasOriginal:F2}" : "")
@@ -214,6 +220,7 @@ internal static class AutoLod
     /// </summary>
     private static void Tick()
     {
+        FigureSkinningBudget.Tick();
         // A dial flipped back to off must undo itself immediately, not at the next sweep.
         if (Disabled.Count > 0 && !IdleSkipActive)
         {
@@ -1192,6 +1199,7 @@ internal static class AutoLod
                 {
                     RestoreDisabled();
                     ReleaseLodBias();
+                    FigureSkinningBudget.Restore();
                 }
                 catch (Exception)
                 {

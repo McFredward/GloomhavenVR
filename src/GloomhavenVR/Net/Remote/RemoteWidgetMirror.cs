@@ -293,7 +293,7 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
         LayoutOwner layoutOwner = LayoutOwner.Source,
         System.Func<Transform, bool>? externallyShownBranch = null, bool contentOutsideFrame = false,
         System.Func<Transform, bool>? excludedFromFitBranch = null,
-        System.Func<Transform, Transform?>? backingContentRoot = null)
+        System.Func<Transform, Transform?>? backingContentRoot = null, bool mrBacking = true)
     {
         _contentOutsideFrame = contentOutsideFrame;
         _backingContentRoot = backingContentRoot;
@@ -311,7 +311,7 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
         // MR readability: claim the converted-panel treatment the owner's own copy of this panel
         // gets for free (see the class doc's MIXED REALITY block). Registration is MR-agnostic and
         // costs one list entry — no plate exists until MR is actually on.
-        WorldUI.MrBacking.Surface(this);
+        if (mrBacking) WorldUI.MrBacking.Surface(this);
     }
 
     private Vector2 _ownerFramePixels, _ownerParentPixels;
@@ -360,13 +360,14 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
     private void SampleMrBacking()
     {
         if (!WorldUI.MrBacking.WantOpaque || _host == null || _pivot == null || _cloneRect == null
-            || !_host.activeInHierarchy || !WorldUI.MrBackingLayout.ReadyForSample(_fitApplied, _mrFrame)
+            || !_host.activeInHierarchy || !WorldUI.MrBackingLayout.ReadyForSample(_fitApplied, _rulesVisualRoot != null ? ((RectTransform)_host.transform).rect : _mrFrame)
             || Time.frameCount < _mrNextSampleFrame)
             return;
         _mrSampleFrame = Time.frameCount;
         _mrNextSampleFrame = Time.frameCount + WorldUI.MrBackingLayout.SampleStrideFrames;
-        _mrInkPanel.Target = _cloneRect;
-        _mrInkPanel.HostRect = _pivot;
+        _mrInkPanel.Target = _rulesVisualRoot != null ? _rulesVisualRoot : _cloneRect;
+        _mrInkPanel.HostRect = _rulesVisualRoot != null ? (RectTransform)_host.transform : _pivot;
+        Rect frame = _rulesVisualRoot != null ? ((RectTransform)_host.transform).rect : _mrFrame;
         Transform? contentRoot = null;
         if (_backingContentRoot != null)
         {
@@ -388,21 +389,21 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
                 return;
             }
         }
-        _mrVisibility.Root = contentRoot ?? _cloneRect;
+        _mrVisibility.Root = _rulesVisualRoot != null ? _rulesVisualRoot : contentRoot ?? _cloneRect;
         _mrBoundsVisible = WorldUI.PanelInkBounds.TryMeasure(_mrInkPanel,
-            out WorldUI.PanelInkBounds.Ink ink, frameOverride: _mrFrame, excludedRoots: _mrExcluded,
+            out WorldUI.PanelInkBounds.Ink ink, frameOverride: frame, excludedRoots: _mrExcluded,
             contentRoot: contentRoot, visibleWitnesses: _mrVisibility.Witnesses, backingGeometry: true) && ink.Valid;
         if (!_mrBoundsVisible)
         {
             _mrBounds = default;
             return;
         }
-        Rect bounds = WorldUI.MrBackingLayout.WindowRect(_mrFrame, ink.Rect,
+        Rect bounds = WorldUI.MrBackingLayout.WindowRect(frame, ink.Rect,
             ink.Plates > 0, ink.PlateBottom, fitScoped: true);
         // Ink is measured in the native-layout pivot's px. The MR plate is parented one level
         // above it, so carry the same measured centre into host coordinates without re-fitting UI.
         Vector3 center = _host.transform.InverseTransformPoint(
-            _pivot.TransformPoint(new Vector3(bounds.center.x, bounds.center.y, 0f)));
+            _mrInkPanel.HostRect.TransformPoint(new Vector3(bounds.center.x, bounds.center.y, 0f)));
         _mrBounds = new Rect(new Vector2(center.x, center.y) - bounds.size * 0.5f, bounds.size);
     }
 
@@ -1396,6 +1397,7 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
 
     private void DestroyClone()
     {
+        _rulesPresentation = false; _rulesVisualRoot = null; _rulesLayouts.Clear(); // a new clone must earn its initial fit again
         RebuildStamp++; // even a teardown without a rebuild invalidates every CloneOf result
         if (_clone != null)
         {
@@ -1604,6 +1606,7 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
     /// </summary>
     private void Sync()
     {
+        using var nativeReadWork = NativeMirrorReadWork.Begin();
         Pair[] pairs = _pairs;
         int n = pairs.Length;
         // Hoisted: one enum compare per Sync rather than one per node, and it states the invariant
@@ -1643,8 +1646,50 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
     /// down only when the content would overflow this dock's budget, and the panel grows from the
     /// mount origin along <see cref="_grow"/>.
     /// </summary>
+    private bool _rulesPresentation;
+    private RectTransform? _rulesVisualRoot;
+    internal void SetRulesVisualRoot(RectTransform? root) { _rulesVisualRoot = root; _mrNextSampleFrame = 0; }
+    /// <summary>Commit a fully validated owner frame, including the first collapsed frame whose
+    /// native content is deliberately transparent. Viewer layout cannot establish that fit.</summary>
+    internal void CommitRulesFrame()
+    {
+        RectTransform? host = RulesHost;
+        if (!_rulesPresentation || host == null || _cloneRect == null) return;
+        _backingSizePx = host.rect.size; _mrFrame = host.rect;
+        FittedSize = host.rect.size * host.localScale.x;
+        _measurePath = "owner native rules presentation"; _fitApplied = true; _withhold = null;
+        State = Fidelity.MirroredWidget; Reason = string.Empty;
+    }
+    private Vector3 _ownerOffset;
+    internal RectTransform? RulesHost => _host != null ? _host.transform as RectTransform : null;
+    internal RectTransform? RulesContent => _cloneRect;
+    private readonly List<Behaviour> _rulesLayouts = new();
+    internal void SetRulesPresentation(bool enabled)
+    {
+        if (_rulesPresentation == enabled) return;
+        _rulesPresentation = enabled;
+        if (enabled && _clone != null)
+        {
+            // Owner geometry has exactly one author, including the canvas rebuild after LateUpdate.
+            foreach (LayoutGroup group in _clone.GetComponentsInChildren<LayoutGroup>(true))
+                if (group.enabled) { _rulesLayouts.Add(group); group.enabled = false; }
+            foreach (ContentSizeFitter fitter in _clone.GetComponentsInChildren<ContentSizeFitter>(true))
+                if (fitter.enabled) { _rulesLayouts.Add(fitter); fitter.enabled = false; }
+        }
+        else
+        {
+            foreach (Behaviour layout in _rulesLayouts) if (layout != null) layout.enabled = true;
+            _rulesLayouts.Clear();
+        }
+    }
+    internal void SetOwnerOffset(Vector3 offset)
+    {
+        if (_host != null) _host.transform.localPosition += offset - _ownerOffset;
+        _ownerOffset = offset;
+    }
     private void Fit()
     {
+        if (_rulesPresentation) return;
         if (_host == null || _pivot == null || _cloneRect == null || _source == null)
             return;
 
@@ -1667,7 +1712,7 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
             MinDensityScale, MaxDensityScale);
         float metersPerPx = fit / density;
 
-        _host.transform.localPosition = new Vector3(
+        _host.transform.localPosition = _ownerOffset + new Vector3(
             _grow.x * w * metersPerPx * 0.5f,
             _grow.y * h * metersPerPx * 0.5f,
             0f);
@@ -2481,28 +2526,71 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
             if (!on)
                 return false; // an invisible branch's interior does not need driving
 
+            // Reuse only a nonvirtual native or field getter immediately before its own
+            // write. Read order remains target then source, and no earlier setter/callback is
+            // crossed. Off retains the original second read for A/B comparison. Resolve the
+            // mode once per Apply; the next node observes any live config change.
+            // Virtual Graphic/TMP/Text getters stay live on both paths: subclasses can execute
+            // user code. No observation survives this comparison or is shared between peers.
+            bool reuseNativeReads = PerfConfig.SharedUiWindowReadsOn;
+            NativeMirrorReadWork.Node(reuseNativeReads);
             if (driveRects)
             {
                 if (_srcRect != null && _dstRect != null)
                 {
-                    if (_dstRect.anchorMin != _srcRect.anchorMin) _dstRect.anchorMin = _srcRect.anchorMin;
-                    if (_dstRect.anchorMax != _srcRect.anchorMax) _dstRect.anchorMax = _srcRect.anchorMax;
-                    if (_dstRect.pivot != _srcRect.pivot) _dstRect.pivot = _srcRect.pivot;
-                    if (_dstRect.sizeDelta != _srcRect.sizeDelta) _dstRect.sizeDelta = _srcRect.sizeDelta;
-                    if (_dstRect.anchoredPosition3D != _srcRect.anchoredPosition3D)
-                        _dstRect.anchoredPosition3D = _srcRect.anchoredPosition3D;
+                    Vector2 targetAnchorMin = _dstRect.anchorMin;
+                    Vector2 sourceAnchorMin = _srcRect.anchorMin;
+                    if (PerfMonitor.StepsActive && VRLog.WantsDebug) NativeMirrorReadWork.Observe(targetAnchorMin != sourceAnchorMin, reuseNativeReads);
+                    if (targetAnchorMin != sourceAnchorMin)
+                        _dstRect.anchorMin = reuseNativeReads ? sourceAnchorMin : _srcRect.anchorMin;
+                    Vector2 targetAnchorMax = _dstRect.anchorMax;
+                    Vector2 sourceAnchorMax = _srcRect.anchorMax;
+                    if (PerfMonitor.StepsActive && VRLog.WantsDebug) NativeMirrorReadWork.Observe(targetAnchorMax != sourceAnchorMax, reuseNativeReads);
+                    if (targetAnchorMax != sourceAnchorMax)
+                        _dstRect.anchorMax = reuseNativeReads ? sourceAnchorMax : _srcRect.anchorMax;
+                    Vector2 targetPivot = _dstRect.pivot;
+                    Vector2 sourcePivot = _srcRect.pivot;
+                    if (PerfMonitor.StepsActive && VRLog.WantsDebug) NativeMirrorReadWork.Observe(targetPivot != sourcePivot, reuseNativeReads);
+                    if (targetPivot != sourcePivot)
+                        _dstRect.pivot = reuseNativeReads ? sourcePivot : _srcRect.pivot;
+                    Vector2 targetSizeDelta = _dstRect.sizeDelta;
+                    Vector2 sourceSizeDelta = _srcRect.sizeDelta;
+                    if (PerfMonitor.StepsActive && VRLog.WantsDebug) NativeMirrorReadWork.Observe(targetSizeDelta != sourceSizeDelta, reuseNativeReads);
+                    if (targetSizeDelta != sourceSizeDelta)
+                        _dstRect.sizeDelta = reuseNativeReads ? sourceSizeDelta : _srcRect.sizeDelta;
+                    Vector3 targetPosition = _dstRect.anchoredPosition3D;
+                    Vector3 sourcePosition = _srcRect.anchoredPosition3D;
+                    if (PerfMonitor.StepsActive && VRLog.WantsDebug) NativeMirrorReadWork.Observe(targetPosition != sourcePosition, reuseNativeReads);
+                    if (targetPosition != sourcePosition)
+                        _dstRect.anchoredPosition3D = reuseNativeReads ? sourcePosition : _srcRect.anchoredPosition3D;
                 }
-                else if (_dstRect == null && Dst.localPosition != Src.localPosition)
+                else if (_dstRect == null)
                 {
-                    Dst.localPosition = Src.localPosition;
+                    Vector3 targetPosition = Dst.localPosition;
+                    Vector3 sourcePosition = Src.localPosition;
+                    if (PerfMonitor.StepsActive && VRLog.WantsDebug) NativeMirrorReadWork.Observe(targetPosition != sourcePosition, reuseNativeReads);
+                    if (targetPosition != sourcePosition)
+                        Dst.localPosition = reuseNativeReads ? sourcePosition : Src.localPosition;
                 }
             }
-            if (Dst.localRotation != Src.localRotation) Dst.localRotation = Src.localRotation;
-            if (Dst.localScale != Src.localScale) Dst.localScale = Src.localScale;
+            Quaternion targetRotation = Dst.localRotation;
+            Quaternion sourceRotation = Src.localRotation;
+            if (PerfMonitor.StepsActive && VRLog.WantsDebug) NativeMirrorReadWork.Observe(targetRotation != sourceRotation, reuseNativeReads);
+            if (targetRotation != sourceRotation)
+                Dst.localRotation = reuseNativeReads ? sourceRotation : Src.localRotation;
+            Vector3 targetScale = Dst.localScale;
+            Vector3 sourceScale = Src.localScale;
+            if (PerfMonitor.StepsActive && VRLog.WantsDebug) NativeMirrorReadWork.Observe(targetScale != sourceScale, reuseNativeReads);
+            if (targetScale != sourceScale)
+                Dst.localScale = reuseNativeReads ? sourceScale : Src.localScale;
 
             if (_srcGraphic != null && _dstGraphic != null)
             {
-                if (_dstGraphic.enabled != _srcGraphic.enabled) _dstGraphic.enabled = _srcGraphic.enabled;
+                bool targetEnabled = _dstGraphic.enabled;
+                bool sourceEnabled = _srcGraphic.enabled;
+                if (PerfMonitor.StepsActive && VRLog.WantsDebug) NativeMirrorReadWork.Observe(targetEnabled != sourceEnabled, reuseNativeReads);
+                if (targetEnabled != sourceEnabled)
+                    _dstGraphic.enabled = reuseNativeReads ? sourceEnabled : _srcGraphic.enabled;
                 if (_dstGraphic.color != _srcGraphic.color) _dstGraphic.color = _srcGraphic.color;
                 Color rendered = _srcGraphic.canvasRenderer.GetColor();
                 if (_dstGraphic.canvasRenderer.GetColor() != rendered) _dstGraphic.canvasRenderer.SetColor(rendered);
@@ -2529,17 +2617,34 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
 
             if (_srcImage != null && _dstImage != null)
             {
-                if (!ReferenceEquals(_dstImage.sprite, _srcImage.sprite)) _dstImage.sprite = _srcImage.sprite;
+                Sprite? targetSprite = _dstImage.sprite;
+                Sprite? sourceSprite = _srcImage.sprite;
+                if (PerfMonitor.StepsActive && VRLog.WantsDebug) NativeMirrorReadWork.Observe(!ReferenceEquals(targetSprite, sourceSprite), reuseNativeReads);
+                if (!ReferenceEquals(targetSprite, sourceSprite))
+                    _dstImage.sprite = reuseNativeReads ? sourceSprite : _srcImage.sprite;
                 // UIHighlightTransition/UIButtonExtended_Target write overrideSprite during
                 // SpriteSwap. The underlying sprite alone never reflects that original state.
-                Sprite? sourceOverride = _srcImage.overrideSprite != _srcImage.sprite ? _srcImage.overrideSprite : null;
+                Sprite? currentOverride = _srcImage.overrideSprite;
+                bool explicitOverride = currentOverride != _srcImage.sprite;
+                if (PerfMonitor.StepsActive && VRLog.WantsDebug) NativeMirrorReadWork.Observe(explicitOverride, reuseNativeReads);
+                if (PerfMonitor.StepsActive && VRLog.WantsDebug) NativeMirrorReadWork.Observe(false, reuseNativeReads); // Original sprite comparison.
+                Sprite? sourceOverride = explicitOverride
+                    ? (reuseNativeReads ? currentOverride : _srcImage.overrideSprite) : null;
                 Sprite? destinationOverride = _dstImage.overrideSprite != _dstImage.sprite ? _dstImage.overrideSprite : null;
                 if (!ReferenceEquals(destinationOverride, sourceOverride))
                     _dstImage.overrideSprite = sourceOverride;
-                if (_dstImage.type != _srcImage.type) _dstImage.type = _srcImage.type;
+                Image.Type targetImageType = _dstImage.type;
+                Image.Type sourceImageType = _srcImage.type;
+                if (PerfMonitor.StepsActive && VRLog.WantsDebug) NativeMirrorReadWork.Observe(targetImageType != sourceImageType, reuseNativeReads);
+                if (targetImageType != sourceImageType)
+                    _dstImage.type = reuseNativeReads ? sourceImageType : _srcImage.type;
                 // The fill amount IS the progress bar and the cooldown sweep — the one number whose
                 // omission would leave a mirrored panel looking right and reading wrong.
-                if (_dstImage.fillAmount != _srcImage.fillAmount) _dstImage.fillAmount = _srcImage.fillAmount;
+                float targetFill = _dstImage.fillAmount;
+                float sourceFill = _srcImage.fillAmount;
+                if (PerfMonitor.StepsActive && VRLog.WantsDebug) NativeMirrorReadWork.Observe(targetFill != sourceFill, reuseNativeReads);
+                if (targetFill != sourceFill)
+                    _dstImage.fillAmount = reuseNativeReads ? sourceFill : _srcImage.fillAmount;
                 CopyMaterial(_srcImage, _dstImage);
             }
             else if (_srcRaw != null && _dstRaw != null)
@@ -2547,13 +2652,27 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
                 // The character PORTRAIT: CharacterPortraitsProvider assigns this texture at runtime
                 // out of the misc_characterportraits bundle. Copying the reference is the whole
                 // reason a mirrored initiative entry shows the real face.
-                if (!ReferenceEquals(_dstRaw.texture, _srcRaw.texture)) _dstRaw.texture = _srcRaw.texture;
-                if (_dstRaw.uvRect != _srcRaw.uvRect) _dstRaw.uvRect = _srcRaw.uvRect;
+                Texture? targetTexture = _dstRaw.texture;
+                Texture? sourceTexture = _srcRaw.texture;
+                if (PerfMonitor.StepsActive && VRLog.WantsDebug) NativeMirrorReadWork.Observe(!ReferenceEquals(targetTexture, sourceTexture), reuseNativeReads);
+                if (!ReferenceEquals(targetTexture, sourceTexture))
+                    _dstRaw.texture = reuseNativeReads ? sourceTexture : _srcRaw.texture;
+                Rect targetUvRect = _dstRaw.uvRect;
+                Rect sourceUvRect = _srcRaw.uvRect;
+                if (PerfMonitor.StepsActive && VRLog.WantsDebug) NativeMirrorReadWork.Observe(targetUvRect != sourceUvRect, reuseNativeReads);
+                if (targetUvRect != sourceUvRect)
+                    _dstRaw.uvRect = reuseNativeReads ? sourceUvRect : _srcRaw.uvRect;
                 CopyMaterial(_srcRaw, _dstRaw);
             }
 
-            if (_srcGroup != null && _dstGroup != null && _dstGroup.alpha != _srcGroup.alpha)
-                _dstGroup.alpha = _srcGroup.alpha;
+            if (_srcGroup != null && _dstGroup != null)
+            {
+                float targetAlpha = _dstGroup.alpha;
+                float sourceAlpha = _srcGroup.alpha;
+                if (PerfMonitor.StepsActive && VRLog.WantsDebug) NativeMirrorReadWork.Observe(targetAlpha != sourceAlpha, reuseNativeReads);
+                if (targetAlpha != sourceAlpha)
+                    _dstGroup.alpha = reuseNativeReads ? sourceAlpha : _srcGroup.alpha;
+            }
 
             return true;
         }

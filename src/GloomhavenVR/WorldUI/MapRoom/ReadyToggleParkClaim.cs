@@ -61,7 +61,7 @@ internal static class ReadyToggleParkClaim
     /// not been re-asserted inside <see cref="ClaimLifetimeSeconds"/> — see the class doc for why
     /// the lapse is the safe direction.
     /// </summary>
-    internal static bool Claimed => Time.unscaledTime < _claimedUntil;
+    internal static bool Claimed => _claimedObject != null && Time.unscaledTime < _claimedUntil;
 
     /// <summary>The parker's own words for what it did, for the log line the reader prints when it
     /// refuses a float. Never empty.</summary>

@@ -160,10 +160,10 @@ internal sealed class OptionsToggle
         if (!VRSession.IsRunning && !Plugin.DevMode.Value)
             return;
 
-        // THE LEFT RIM (ModBuild 423): the settle pump for the whole-scene eye census, placed ABOVE
-        // the ResolveMenu early return because a settled read must still happen after a tap chain
-        // that ended with the pause menu gone. Two float compares and a return when nothing is
-        // armed; the sweep itself only ever runs on a tap edge or a due settle, never per frame.
+        // THE LEFT RIM (ModBuild 423): the Debug-only settle pump for the whole-scene eye census,
+        // placed ABOVE the ResolveMenu early return because a settled read must still happen after
+        // a tap chain that ended with the pause menu gone. Ordinary logging disarms the census;
+        // the sweep itself only ever runs on a tap edge or a due settle, never per frame.
         EyeReachCensus.Tick();
 
         // WHICH MENU. Resolve the ESC menu that belongs to the CURRENT context rather than
@@ -232,9 +232,9 @@ internal sealed class OptionsToggle
         if (!NonDominantHold.ShortTapThisFrame)
             return;
 
-        // THE LEFT RIM (ModBuild 423). Every short-tap edge is reported to the eye census BEFORE the
-        // spent-press guard below, because a spent press is still a press the player made, and the
-        // reproducer — "Wenn man schnell hintereinander die Optionstaste drückt" — is a statement
+        // THE LEFT RIM (ModBuild 423). Every short-tap edge reaches the Debug-only eye census BEFORE
+        // the spent-press guard below, because a spent press is still a press the player made, and
+        // the reproducer — "Wenn man schnell hintereinander die Optionstaste drückt" — is a statement
         // about his thumb, not about which taps this class chose to act on. The census decides for
         // itself whether this tap fires a run; it is capped per session and never sweeps per frame.
         EyeReachCensus.NoteOptionsTap();

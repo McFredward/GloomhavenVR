@@ -164,39 +164,6 @@ internal static partial class Loc
                 + "statt innen auf null zu prüfen, und die SPLIT-Zeile druckt dann wie bisher den kombinierten "
                 + "Wert pro Kamera.",
             // ---- [Optimize] ----
-            ["Optimize/CacheTickDelegates"] =
-                "Hält die an TickGuard.Run übergebenen Action-Delegaten im Cache, statt sie jeden Frame neu "
-                + "aus einer Instanz-Methodengruppe zu erzeugen. Reine Arbeitsersparnis — identisches "
-                + "Verhalten, nur ohne ~7 Delegat-Allokationen pro Frame, die den gen0-Collector füttern, der "
-                + "die Ruckler bei Kopfdrehungen verursacht. AUS stellt die alte Allokation pro Frame wieder "
-                + "her (nur für A/B).",
-            ["Optimize/MapIconCache"] =
-                "Cacht den Icon-Scan der Kampagnenkarte. Das Icon-Zeichnen läuft aus Camera.onPreCull — "
-                + "einmal PRO RENDERNDER KAMERA PRO FRAME, die Stereo-Leinwand hat zwei oder drei — und "
-                + "wiederholte bisher jedes Mal ein szenenweites FindObjectOfType, zwei allokierende "
-                + "Komponentendurchläufe sowie je Decal ein GetComponent, einen frischen MaterialPropertyBlock "
-                + "und einen langen Diagnosetext. Die MENGE der Decals ändert sich nur mit dem Kartenzustand, "
-                + "wird also nur im Intervall gescannt; jede Icon-Pose wird weiter live pro Frame gelesen — "
-                + "Schieben und Zoomen sind pixelidentisch. AUS stellt den Scan pro Frame wieder her (A/B).",
-            ["Optimize/FigureScanCache"] =
-                "Überspringt Komponentendurchläufe pro Frame, die der Figuren-Greiftreiber nicht braucht: "
-                + "eine bereits übernommene Figur wird nicht mehr in jedem Frame per GetComponentInChildren neu "
-                + "aufgelöst, und der Ring-Unterdrücker nimmt seinen \"nichts wird gehalten\"-Ausstieg, BEVOR "
-                + "er die Enumeratoren allokiert, die er durchlaufen hätte. Verhaltensgleiche Arbeitsersparnis; "
-                + "AUS stellt die bedingungslosen Durchläufe wieder her.",
-            ["Optimize/LeanLogStrings"] =
-                "BAUT keine Diagnosetexte, die das Log anschließend wegwirft. Mehrere Diagnosen werden erst "
-                + "im Aufgerufenen gedrosselt oder auf Änderung gefiltert, sodass die interpolierte Meldung "
-                + "(plus der Zugriff auf UnityEngine.Object.name, der bei jedem Lesen einen frischen String "
-                + "allokiert) in jedem Frame bezahlt wurde, während nur eine von hunderten Zeilen ausgegeben "
-                + "wurde. Die Filter sitzen jetzt vor der String-Arbeit statt dahinter. Die Log-Ausgabe ist so "
-                + "oder so identisch.",
-            ["Optimize/TooltipScanGate"] =
-                "Koppelt die Arbeit des Welt-Tooltip-Subsystems pro Frame daran, ob überhaupt ein Tooltip "
-                + "angezeigt wird: bisher lief der vollständige Durchlauf des Canvas-Teilbaums vor dieser "
-                + "Prüfung, und die Ersatzsuche nach dem CanvasManager des Spiels wiederholte in jedem Frame "
-                + "ein szenenweites FindObjectOfType, solange sie erfolglos blieb. Identische Tooltips, weit "
-                + "weniger Scans.",
             ["Optimize/FanRelayoutMinInterval"] =
                 "Mindestabstand in Sekunden zwischen zwei BLICKGESTEUERTEN Neuaufbauten des offenen "
                 + "Kartenfächers. 0 = Neuaufbau in jedem Frame, in dem der Blick-Filter auslöst — heutiges "
@@ -221,8 +188,138 @@ internal static partial class Loc
                 + "begrenzt. 0 = jeden Frame, heutiges Verhalten; die gemessenen Kosten dieses Durchlaufs "
                 + "steigen mit der Zahl der Figuren in der Runde. Der Durchlauf ist IDEMPOTENT und leitet "
                 + "jedes Ziel erneut aus dem gespeicherten Original-z ab, deshalb kann ein Takt von z. B. "
-                + "0.05 (20 Hz) nicht ändern, wo ein Porträt landet — er verzögert höchstens um dieses "
-                + "Intervall, wann ein NEU eingereihtes Porträt zum ersten Mal flachgelegt wird.",
+                + "0.05 (20 Hz) nicht ändern, wo ein Porträt landet. Änderungen der Hierarchie, "
+                + "Aktivierung oder Tiefengrenze umgehen das Intervall: neue Porträts werden sofort "
+                + "flachgelegt. Unveränderte Unterbäume werden zwischengespeichert.",
+            ["Optimize/ScenarioSceneryDensityPercent"] =
+                "Anteil des dekorativen Grases im Szenario, unabhängig von Bäumen, Büschen und "
+                + "anderer Dekoration. 100% erhält alles geeignete Gras, 0% entfernt geeignetes "
+                + "Gras aus der Darstellung. Figuren, Spielhindernisse, Böden, tragende Wände, Türen, "
+                + "Karten und UI bleiben unverändert. Wirkt sofort; gespeicherte Einstellungen bleiben "
+                + "auf PC-VR und Frame erhalten.",
+            ["Optimize/ScenarioDecorationDensityPercent"] =
+                "Anteil der dekorativen Szenariodetails: verstreute Steine, Kristalle und generierte "
+                + "Ausschmückung. 0% entfernt geeignete Dekoration für eine sparsame Darstellung; "
+                + "100% stellt die ursprünglichen Details wieder her. Gras sowie Bäume und Büsche "
+                + "haben eigene Regler. Figuren, Spielhindernisse, Böden, tragende Wände, Türen, Karten "
+                + "und UI bleiben unverändert. Spielkollisionen und aufgedeckte Bereiche werden nicht "
+                + "verändert. Wirkt sofort auf PC und Frame. Steam Frame standalone beginnt mit 0%, "
+                + "PC mit 100%; gespeicherte Einstellungen bleiben erhalten.",
+            ["Optimize/ScenarioVegetationDensityPercent"] =
+                "Anteil der dekorativen Bäume, Büsche, Ranken und Blätter im Szenario. 0% entfernt "
+                + "Vegetation einschließlich Baumstämmen, 100% stellt sie wieder her. Unsichtbare Bäume "
+                + "behalten keine eigenen Zeigeflächen. Gras und andere Dekoration haben "
+                + "eigene Regler. Tragende Wände, Böden, Spielhindernisse, Türen, Figuren, Licht und UI "
+                + "bleiben erhalten. Wirkt sofort; neue Frame-Profile beginnen mit 0%, PC mit 100%; "
+                + "gespeicherte Werte bleiben erhalten.",
+            ["Optimize/ActorBarPoseCheckIntervalSeconds"] =
+                "Sekunden zwischen Knochenpositionsprüfungen der Lebensbalken bei unverändert ruhenden "
+                + "Figuren. Vorbereitete Animationsgrenzen erhalten die originale Höhe des Ruhezyklus. "
+                + "0 prüft jeden Frame. Figur-/Zustandswechsel, einzelne Aktionen und Lebensänderungen "
+                + "bleiben sofort wirksam. Neue Frame-Profile 0,1 s, PC 0; wirkt sofort.",
+            ["Optimize/OffscreenIdleAnimation"] =
+                "Reduziert bei geprüften Szenariofiguren außerhalb des Blickfelds die Berechnung der "
+                + "Ruhepose. Die native Animationszeit läuft weiter. Aktionen, Übergänge, gehaltene "
+                + "Figuren, unbekannte Rigs und Clips mit Ereignissen werden vollständig berechnet. "
+                + "Sichtbare Figuren und gemeinsam synchronisierte Map-NPCs bleiben unverändert.",
+            ["Optimize/ScenarioStructuralBatching"] =
+                "Bündelt geprüftes statisches Mauerwerk und Zierelemente innerhalb kleiner nativer "
+                + "Kachel-/Raumgrenzen. Benötigt die vereinfachten Umgebungsshader. Kollisionen und "
+                + "Spielobjekte bleiben erhalten. Dynamische Wand-Durchsicht sowie Änderungen von "
+                + "Material oder Sichtbarkeit stellen zuerst die ursprünglichen Renderer wieder her. "
+                + "Türen, Figuren, Wasser, UI und unbekannte Flächen werden ausgeschlossen.",
+            ["Optimize/ScenarioStructuralInstancing"] =
+                "Bündelt geeignete wiederholte Szenariogeometrie mit nativen GPU-Instanzen. "
+                + "Objekte, Kollisionen, Sichtbarkeit und Interaktion bleiben unabhängig. Nicht "
+                + "unterstützte Shader und dynamische Renderer behalten ihren ursprünglichen Pfad. "
+                + "Beim Ausschalten wird der ursprüngliche Zustand wiederhergestellt.",
+            ["Perf/SceneProfileBudgetMilliseconds"] =
+                "Weiches Arbeitsbudget pro Frame für die schrittweise Debug-Szenen-Inventur in "
+                + "Millisekunden. Ein unteilbarer Unity-Aufruf kann länger dauern; tatsächliche "
+                + "Spitzen werden protokolliert. FRAME, STEPS, SPLIT und Spielabläufe bleiben gleich.",
+            ["Perf/SceneProfileObjectsPerFrame"] =
+                "Maximale Arbeitsschritte pro Frame für die schrittweise Debug-Szenen-Inventur. "
+                + "Betrifft nur Diagnosen, nicht Rendering oder Eingaben.",
+            ["Optimize/UiMaintenanceIntervalSeconds"] =
+                "Sekunden zwischen Wartungsschritten unveränderter VR-Fenster. 0 aktualisiert jeden Frame. "
+                + "Erstellen, Aufdecken, Greifen und Spiel-Callbacks bleiben sofort wirksam. "
+                + "Neue Frame-Profile 0,15 s, PC 0; wirkt sofort.",
+            ["Optimize/FigureDistanceLod"] =
+                "Verringert die Körperdetails von Szenariofiguren mit dem Betrachtungsabstand. Immersive Map-NPCs behalten ihre Original-Meshes. "
+                + "Nahe und hochgehobene Figuren behalten die gewählte Detailgrenze; entfernte Figuren "
+                + "werden stärker vereinfacht. Material, Knochen, Animation und Spielregeln bleiben erhalten. "
+                + "Wirkt sofort; neue Frame-Profile Ein, PC Aus; gespeicherte Werte bleiben.",
+            ["Optimize/TownNpcDetailPercent"] =
+                "STILLGELEGT — ohne Wirkung. Erhält nur den gespeicherten Konfigurationsschlüssel. "
+                + "Immersive NPCs behalten immer ihre vollständigen Original-Meshes. Die fehlerhaften "
+                + "vereinfachten Varianten und der NPC-Detailregler wurden in Build616 entfernt.",
+            ["Optimize/SkinningBoneLimit"] =
+                "Maximale Knocheneinflüsse pro Vertex bei Szenariofiguren und immersiven NPC-Körpern. "
+                + "0 erhält die Spielqualität; 1, 2 oder 4 begrenzen den Skinning-Aufwand. Niedrige Werte "
+                + "können Gelenke vereinfachen. Knochen, Animation und Spielregeln bleiben unverändert. "
+                + "Wirkt sofort; neue Frame-Profile 2, PC 0. Bei 0 oder VR-Ende kehrt die Spielqualität zurück.",
+            ["Optimize/ScenarioPlayerFigureDetailPercent"] =
+                "Mesh-Details der Spielfiguren im Szenario. 100% erhält die ursprüngliche automatische "
+                + "Detailwahl; kleinere Werte nutzen vorhandene gröbere Original-Meshes und vorbereitete "
+                + "vereinfachte Körper-Meshes. 0% nutzt die stärkste verfügbare Vereinfachung. Entfernungsausblendung, Animation "
+                + "und Spielregeln bleiben erhalten. Die gewählte Detailstufe gilt auch für lokal und remote "
+                + "hochgehobene Figuren. Wirkt sofort; neue Frame-Profile 0%, PC 100%; gespeicherte Werte bleiben.",
+            ["Optimize/ScenarioEnemyFigureDetailPercent"] =
+                "Mesh-Details der Gegnerfiguren im Szenario. 100% erhält die ursprüngliche automatische "
+                + "Detailwahl; kleinere Werte nutzen vorhandene gröbere Original-Meshes und vorbereitete "
+                + "vereinfachte Körper-Meshes. 0% nutzt die stärkste verfügbare Vereinfachung. Entfernungsausblendung, Animation "
+                + "und Spielregeln bleiben erhalten. Die gewählte Detailstufe gilt auch für lokal und remote "
+                + "hochgehobene Figuren. Wirkt sofort; neue Frame-Profile 0%, PC 100%; gespeicherte Werte bleiben.",
+            ["Optimize/ScenarioFigureEffectsDensityPercent"] =
+                "Dekorative Effekte der Originalfiguren: Helden, Beschwörungen, normale/Elite-Gegner und Bosse. "
+                + "0% entfernt nachgewiesene dekorative Partikel, Spuren und zusätzliche Leuchtflächen; "
+                + "100% stellt das Original wieder her. Körper, Angriffe, Heilung, Zustandsanzeigen und "
+                + "Lichtquellen bleiben erhalten. Auch für gehaltene Figuren; live anpassbar.",
+
+            ["Optimize/ScenarioStaticBatching"] =
+                "Fasst geeignete statische Bodenflächen in kleinen Zeichen-Gruppen zusammen. "
+                + "Originalkollisionen, Zeigen, Raumsichtbarkeit und Spielabläufe bleiben erhalten. "
+                + "Animierte, gehaltene und durch Einzeleffekte veränderte Flächen bleiben original. "
+                + "Aus stellt die ursprünglichen Renderer wieder her. Neue Frame-Profile Ein, PC Aus; "
+                + "gespeicherte Werte bleiben erhalten.",
+            ["Optimize/ScenarioSimpleEnvironmentShading"] =
+                "Vereinfachte Beleuchtung geeigneter statischer Bodenflächen. Originalfarbtextur, "
+                + "Färbung und Geometrie bleiben; Normalen-, Metall-, feine Oberflächendetails und empfangene Echtzeitschatten entfallen. "
+                + "Wandauflösung, Wasser, Pflanzen, Figuren, Gegenstände und UI behalten ihre Shader. "
+                + "Gilt bei Umgebungsmaterialien 0. Wirkt sofort; neue Frame-Profile Ein, PC Aus; gespeicherte Werte bleiben erhalten.",
+            ["Optimize/ScenarioExplicitEnvironmentInstancing"] = "Zeichnet geeignete wiederholte statische Umgebung gemeinsam. Alle aufgedeckten Räume und ihre Interaktionen bleiben verfügbar; Aus stellt einzelne Zeichenvorgänge wieder her.",
+            ["Optimize/ScenarioCheapWallShading"] = "Nutzt sparsamere Wandschattierung. Feine Beleuchtung und Oberflächendetails nehmen ab; Originaltexturen und animierte Wandausblendung bleiben. Böden behalten ihre Originalschattierung. Gilt bei Umgebungsmaterialien 0.",
+            ["Optimize/WallVisibilityModeCount"] = "Wandsichtbarkeit: 0 nutzt die normalen Durchsichtigkeits-Einstellungen, 1 blendet alle Wände sofort aus, 2 ist automatisch. Automatisch blendet Wände bei anhaltend niedriger Bildrate im geladenen Szenario bis zu dessen Ende aus; Normal stellt sie früher wieder her. Eine Änderung der Schwelle im automatischen Modus stellt die Wände wieder her und startet eine neue Messung. Ausgeblendete Wände haben Vorrang vor blickabhängiger Ausblendung und der Einstellung innerhalb des Spielfelds. Türrahmen und Torbögen bleiben sichtbar. Wirkt sofort; automatisch ist auf allen Plattformen voreingestellt.",
+            ["Optimize/WallAutoHideBelowFpsCount"] = "Bildraten-Schwelle für die automatische Wandausblendung in Bildern pro Sekunde. Bleibt die Bildrate im geladenen Szenario länger darunter, verschwinden die Wände bis zum Szenarioende. Ladepausen lösen es nicht aus. Höhere Werte bevorzugen früher mehr Leistung. Eine Änderung im automatischen Modus blendet die Wände wieder ein und startet eine neue Messung; ein unveränderter wirksamer Wert behält den aktuellen Zustand. Gilt nur im automatischen Wandmodus; Türrahmen und Torbögen bleiben sichtbar.",
+            ["Optimize/ScenarioRoomArchitecture"] = "INAKTIV — erhält ausschließlich deine gespeicherte Konfiguration. Die erweiterte Raumarchitektur-Darstellung aus647 wurde wegen einer Steam-Frame-Leistungsverschlechterung zurückgenommen. Dieser Wert hat derzeit keine Wirkung.",
+            ["Optimize/ScenarioRoomFloorDetailPercent"] = "INAKTIV — erhält ausschließlich deine gespeicherte Konfiguration. Die erweiterte Raumarchitektur-Darstellung aus647 wurde wegen einer Steam-Frame-Leistungsverschlechterung zurückgenommen. Dieser Wert hat derzeit keine Wirkung.",
+            ["Optimize/ScenarioRoomArchitectureDensityPercent"] = "INAKTIV — erhält ausschließlich deine gespeicherte Konfiguration. Die erweiterte Raumarchitektur-Darstellung aus647 wurde wegen einer Steam-Frame-Leistungsverschlechterung zurückgenommen. Dieser Wert hat derzeit keine Wirkung.",
+            ["Optimize/ScenarioRoomFloorCameraSourceLimitCount"] = "INAKTIV — erhält ausschließlich deine gespeicherte Konfiguration. Die erweiterte Raumarchitektur-Darstellung aus647 wurde wegen einer Steam-Frame-Leistungsverschlechterung zurückgenommen. Dieser Wert hat derzeit keine Wirkung.",
+            ["Optimize/ScenarioRoomFloorBatching"] = "INAKTIV — erhält ausschließlich deine gespeicherte Konfiguration. Die erweiterte Raumarchitektur-Darstellung aus647 wurde wegen einer Steam-Frame-Leistungsverschlechterung zurückgenommen. Dieser Wert hat derzeit keine Wirkung.",
+            ["Optimize/ScenarioTerrainSubstitution"] = "Vorbereitete 3D-Ersatzflächen für geeignete Wände und Säulen. Aus stellt Originalgeometrie wieder her und beendet die Ersatzvorbereitung; der unabhängige Umgebungsmaterial-Modus bleibt wirksam. Spart Vorbereitungsarbeit auf der CPU, kann aber mehr Geometriearbeit auf der GPU verursachen. In derselben geladenen Ansicht vergleichen. Detailwerte und einfachere Wandschattierung bleiben für Ein gespeichert. Wirkt sofort auf allen Plattformen; kein Raum wird ausgeblendet.",
+            ["Optimize/WorldMaterialQualityModeCount"] = "Materialschattierung geeigneter statischer Umgebung im gesamten Spiel und den DLCs: 0 Original, 1 einfache Beleuchtung, 2 einfache texturierte Farbe. Feines Relief, Glanz und Oberflächenbeleuchtung nehmen ab; originale 3D-Geometrie, Farbtexturen und animierte Sichtbarkeit bleiben. Andere Materialien behalten ihre Originaldarstellung. Bei 0 gelten die bisherigen Boden-/Wandschattierungsoptionen; 1/2 haben Vorrang. Wirkt sofort auf PC und Frame; neue Frame- und Standalone-Profile nutzen 2.",
+            ["Optimize/WorldMaterialAmbientPercent"] = "Umgebungslicht für Materialmodus 2: 100 nutzt das ursprüngliche Umgebungslicht der Szene und erhält ihre Atmosphäre; 0 zeigt rohe Texturfarben. Zwischenwerte mischen beides. Feine Oberflächenbeleuchtung bleibt abgeschaltet. Wirkt sofort auf allen Plattformen; Modi 0/1 bleiben unverändert.",
+            ["Optimize/ScenarioTerrainDetailPercent"] = "100% erhält geeignete Originalwände und Säulen; kleinere Werte wählen vorbereitete gröbere 3D-Meshes. Nahe Säulen behalten auch bei 0% ihre Originalgeometrie. Voreingestellt bestimmt jede Säule ihren Nahradius anhand der eigenen Originalgröße und Kameradistanz nach derselben Distanzregel wie Figuren. Böden, Türen, Figuren und Spielkollisionen bleiben.",
+            ["Optimize/ScenarioDistantTerrainDetailPercent"] = "Zusätzliche Detailgrenze für geeignete Wände und Säulen ab dem gewählten Betrachtungsabstand. Alle aufgedeckten spielrelevanten Inhalte bleiben dargestellt.",
+            ["Optimize/ScenarioTerrainDistanceMeters"] = "Betrachtungsabstand in VR für die Ferndetailgrenze der Wände. Bestimmt auch den Säulen-Nahradius, wenn das Säulen-Distanz-LOD aus ist. Ein nutzt stattdessen die eigene Originalgröße jeder Säule und dieselbe Distanzregel wie Figuren. Gemessen radial ab der Säulenoberfläche, unabhängig von der Blickrichtung. Größere manuelle Radien erhalten mehr Originalgeometrie. Änderungen wirken sofort.",
+            ["Optimize/ScenarioTerrainPillarDistanceLod"] = "Jede Säule bestimmt ihren Detailgrad unabhängig aus ihrem Abstand zur VR-Kamera und ihrer eigenen Originalgröße, nach denselben größenabhängigen Umschaltregeln wie Figuren. Vorhandene Figuren und deren Einstellungen steuern die Säule nicht. Nahe Säulen bleiben auch bei 0% original. Aus nutzt den gespeicherten manuellen Meterradius. Radial und blickunabhängig mit Umschaltpuffer; wirkt sofort auf allen Plattformen. Mehr Originalgeometrie im Nahbereich kann mehr GPU-Leistung kosten.",
+            ["Optimize/ScenarioTerrainCameraSourceLimitCount"] = "Begrenzt die Zahl vereinfachter 3D-Wand- und Säulenflächen pro Auge. 0 ist unbegrenzt; kleinere positive Werte sparen CPU-Arbeit für die Ersatzdarstellung. Übrige Flächen behalten ihre originale 3D-Geometrie und Schattierung, was mehr Renderleistung kosten kann. Kein Raum wird ausgeblendet. Wirkt sofort; neue Frame- und Standalone-Profile nutzen 64.",
+            ["Optimize/ScenarioEnvironmentEffectsDensityPercent"] =
+                "Anteil dekorativer Szenario-Umgebungseffekte, etwa Motten, Kerzen- und Fackelpartikel. "
+                + "0% pausiert geeignete Dauereffekte, 100% stellt sie wieder her. Lichtquellen, Angriffe, "
+                + "Zustandsanzeigen und Spielabläufe bleiben erhalten. Wirkt sofort auf PC und Frame. "
+                + "Neue Frame-Profile 0%, PC 100%; gespeicherte Werte bleiben erhalten.",
+            ["Optimize/ScenarioFigureClothSimulation"] =
+                "Simuliert Kleidung an Szenariofiguren. Aus erhält die animierte Figur, stoppt aber "
+                + "zusätzliche Stoffphysik auch an lokal und remote hochgehobenen Figuren. Handkollision und "
+                + "Neuberechnung beim Skalieren pausieren bei Aus. Ein stellt die ursprüngliche aktive "
+                + "Stoffsimulation wieder her. NPCs, Tischdecken, Karten und Spielkollisionen bleiben "
+                + "unverändert. Wirkt sofort; neue Frame-Profile Aus, PC Ein; gespeicherte Werte bleiben.",
+            ["Optimize/ReduceScenarioGenerationDetail"] =
+                "Nutzt die sparsamere prozedurale Geometrie des Spiels ab dem nächsten Szenarioladen. "
+                + "Untergrundsichtbarkeit und andere questabhängige Originalwerte bleiben erhalten. "
+                + "Ein laufendes Szenario wird beim Umschalten nicht neu erzeugt. Aus nutzt beim nächsten "
+                + "Laden wieder die Originalqualität. Neue Frame-Profile Ein, PC Aus; gespeicherte Werte bleiben.",
             ["Optimize/QuietDiagnostics"] =
                 "Unterdrückt die hochfrequenten DIAGNOSE-Logzeilen einzelner Subsysteme (den "
                 + "\"diag:\"-Durchlauf der Wandüberblendung, den \"Fan depth-curve:\"-Rekorder des "
@@ -717,24 +814,6 @@ internal static partial class Loc
                 + "dev.gloomhavenvr.perf.cfg; steht das ebenfalls auf 0, gelten die "
                 + "ausgelieferten 0,05 s. Jeder Wert über 0 hat hier Vorrang. Live änderbar; "
                 + "begrenzt auf 0.00-0.25.",
-            ["WallFade/WalkInSuspendSampling"] =
-                "Solange du IM Spielfeld stehst (siehe 'Im Spielfeld: alle Wände massiv'), gar "
-                + "nicht mehr messen, statt zu messen und das Ergebnis wegzuwerfen. In diesem "
-                + "Modus wird jede Wand ohnehin per Anweisung massiv gehalten — die "
-                + "Verdeckungsprüfung, die Ausblende-Entscheidung und der regelmäßige Neuaufbau "
-                + "der Wandtabelle berechnen also ein Urteil, das die nächste Programmzeile "
-                + "sofort überstimmt. Dieser Schalter hört einfach auf, dafür zu bezahlen: "
-                + "geschenkte Bildzeit, solange du unten zwischen den Wänden bist. ES GEHT DABEI "
-                + "NICHTS KAPUTT: Ein bereits laufender Neuaufbau darf zu Ende laufen statt "
-                + "mittendrin abgebrochen zu werden, ein Raum, den das Spiel währenddessen "
-                + "aufdeckt, löst weiterhin sofort einen aus, und sobald du heraustrittst oder "
-                + "herauszoomst, nimmt das allernächste Einzelbild sowohl das Messen als auch "
-                + "den Neuaufbau wieder auf — es wird keine ausgesetzte Taktung abgewartet. Der "
-                + "Mehrspieler-Betrieb ist nicht betroffen: Was deine Mitspieler sehen, "
-                + "entscheidet sich auf IHREN Rechnern, und eine Ausblendung, die du vor dem "
-                + "Hineingehen hattest, wird weiterhin gesendet. AUS = weiter messen, während "
-                + "der Modus hält, also das Verhalten von ModBuild 277. Live änderbar (greift im "
-                + "nächsten Einzelbild).",
             ["WallFade/SignatureCulpritCensus"] =
                 "DIAGNOSE, keine Verhaltensänderung. Wenn der Mod beschließt, seine Wandtabelle neu "
                 + "aufzubauen, weil 'sich die Szene geändert hat', dann protokollieren, WELCHE "
@@ -750,6 +829,13 @@ internal static partial class Loc
                 + "der ohnehin neu aufbaut, höchstens alle paar Sekunden, und meldet seine "
                 + "eigenen Kosten als Schritt 'WallFade.SigDiag' — es kann also nie zu einer "
                 + "ungemessenen Dauerlast werden. Live änderbar.",
+            ["WallFade/DeepSceneCensus"] =
+                "Nur Diagnose: Durchsucht alle Meshes und generierten Kartenkacheln, um "
+                + "Bodenspalten, Kachelkinder und den Apparance-Blickpunkt bei Änderungen "
+                + "der Wandtabelle zu protokollieren. Standardmäßig aus, da dieser "
+                + "Szenendurchlauf nach dem Laden einen messbaren Hänger verursachte. "
+                + "Die normalen Wandmeldungen und die Ausblendung bleiben aktiv. Zum Untersuchen "
+                + "fehlender Geometrie einschalten; live änderbar.",
             // ModBuild 281 (PERF B Schritt 3) — die Churn-Messung vor dem Slicing.
             ["WallFade/CommitTableGate"] =
                 "DIAGNOSE, keine Verhaltensänderung — es liest die Wandtabelle und schreibt "
@@ -1108,7 +1194,11 @@ internal static partial class Loc
                 + "Pixelzahl steht in der Zeile [Rig] EYE-TARGET DIAG. Über 1 ist der einzige Regler gegen "
                 + "SHADER-/TEXTUR-Flimmern (Glanzfunkeln, Subpixel-Details), an das MSAA als "
                 + "Geometriekanten-Glättung nicht herankommt; unter 1 werden Texturdetails weicher, bevor "
-                + "Kanten weicher werden. Wirkt sofort. "
+                + "Kanten weicher werden. Änderungen im Spiel werden gesammelt und skalieren den "
+                + "Augen-Viewport, ohne XR-Texturen neu anzulegen. Beim VR-Start wird die gespeicherte "
+                + "Auflösung reserviert. Ein höherer Wunschwert bleibt "
+                + "bis zum nächsten VR-Neustart auf diese Kapazität begrenzt. Deferred Rendering "
+                + "und Runtimes ohne Viewport-Skalierung können dies im Spiel nicht anwenden. "
                 + "WAS ER NICHT KAUFEN KANN — gemessen, nicht vermutet (Hardware-Log ModBuild 226, "
                 + "die ZOOM-Achse der [Perf]-SPLIT-Zeile): Bei UNVERÄNDERTER Auflösung und "
                 + "MSAA-Stufe lief dieselbe Sitzung mit 23 sichtbaren Objekten bei 10,97 ms pro "
@@ -2346,6 +2436,21 @@ internal static partial class Loc
                 + "ANFANG eines Szenarios, kein Hauptschalter: unabhängig davon holt die Zeile "
                 + "\"Kampflog jetzt einblenden\" die Tafel jederzeit hervor, und das X oben rechts an "
                 + "der Tafel schließt sie wieder. Aus = sie ist einfach nicht da, bis du sie holst.",
+            ["WorldUI/ImmersiveTownServices"] =
+                "Händler, Tempel und Verzauberin erscheinen als immersive Bewohner der 3D-Kartenumgebung. "
+                + "Nähere dich ihren Ständen und interagiere mit physischen Angeboten. Neue PC-Profile "
+                + "aktivieren sie; neue Steam-Frame-Standalone-Profile nutzen die bisherigen Fenster. "
+                + "Gespeicherte Einstellungen bleiben erhalten. Aus stellt die bisherigen Fenster und ihre Bedienung "
+                + "wieder her, auch bei einem bereits geöffneten Besuch. Andere Spieler behalten ihre "
+                + "gewählte Darstellung.",
+            ["WorldUI/ImmersiveTownSpeech"] =
+                "Spielt die englische Sprachausgabe von Händler, Priesterin und Verzauberin. "
+                + "Das ändert nur, was du hörst: Im Multiplayer bleiben Satz und Gesichtsanimation synchron. "
+                + "Beim Ausschalten verstummt die Sprachausgabe sofort.",
+            ["WorldUI/ImmersiveTownSoundEffects"] =
+                "Spielt physische Geräusche der immersiven NPCs und ihrer Stände, etwa Münzen, Magie und "
+                + "den Händlerschrank. Das ändert nur, was du hörst, und schaltet normale Spiel-, Karten- "
+                + "oder Menügeräusche nicht aus.",
             ["WorldUI/Dialogs"] = "Bestätigungsdialoge als Welt-Modale vor dem HMD (Ja/Nein antippen).",
             ["WorldUI/DecisionDock"] =
                 "Entscheidungs-/Bestätigungsabfragen im Szenario (die Verbrennen-Wahl beim Schadennehmen, der "
@@ -2376,8 +2481,8 @@ internal static partial class Loc
                 + "dich vorbeugst oder zurücktrittst (Test #14: die alte Abstandskompensation ließ die Balken "
                 + "beim Zurücktreten auf bis zu 2.5x anwachsen, was als \"Wachsen\" der Balken wahrgenommen "
                 + "wurde). Aus = altes Verhalten: die Balken wachsen sanft mit dem Kopfabstand, um lesbar zu "
-                + "bleiben — begrenzt durch dasselbe feste Band 0.7-1.5 wie der Tischzoom. Über den ZOOM "
-                + "sagt dieser Schalter nichts; dafür ist BarSizeScale da.",
+                + "bleiben. Das Verhalten beim Tischzoom hat den eigenen Schalter 'Balken mit Figuren "
+                + "skalieren'; die Referenzgröße stellst du über 'Lebensbalken: Größe' ein.",
             ["WorldUI/BarSizeScale"] =
                 "GRÖSSE der LP-/Effekt-Balken über den Miniaturen, als Faktor der Größe, die sie seit jeher "
                 + "haben. Die Einheit hinter dem Faktor sind ECHTE MILLIMETER AM AUGE: 1.0 = CanvasScaleMm x "
@@ -2387,10 +2492,16 @@ internal static partial class Loc
                 + "Welteinheiten sähe auf jeder Zoomstufe anders groß aus. Der Faktor 1.0 ist genau die Größe "
                 + "von vor diesem Regler (beim ausgelieferten Tischzoom); der AUSGELIEFERTE Standard ist "
                 + "nicht 1.0 — er stammt aus einer eingestellten cfg und steht unter diesem Text. "
-                + "Die eingestellte Größe HÄLT auch beim Zoomen: die Balken folgen dem Tischzoom "
-                + "nur innerhalb eines festen Bandes von 0.7-1.5 um deine Größe herum, können also weder "
-                + "wegschrumpfen noch das Brett verschlucken. Live: schon das nächste Bild wird in der neuen "
-                + "Größe gezeichnet. Bereich 0.25-3.",
+                + "Bei der Standardoption 'Balken mit Figuren skalieren' bleibt diese Größe relativ zur "
+                + "Figur durch den gesamten Tischzoom erhalten. Ist sie aus, gilt wieder die frühere "
+                + "Begrenzung auf das 0.7- bis 1.5-Fache der sichtbaren Referenzgröße. Live: schon das "
+                + "nächste Bild wird in der neuen Größe gezeichnet. Bereich 0.25-3.",
+            ["WorldUI/BarFollowFigureScale"] =
+                "Skaliert LP-/Effekt-Balken über den Figuren durch den gesamten Tischzoom im gleichen "
+                + "Verhältnis wie ihre Miniaturen. Aus stellt das frühere Verhalten wieder her: Die "
+                + "Balken folgen dem Zoom nur innerhalb einer Begrenzung auf das 0.7- bis 1.5-Fache "
+                + "ihrer sichtbaren Referenzgröße. 'Lebensbalken: Größe' bestimmt weiterhin die Größe "
+                + "beim Referenzzoom. Wirkt sofort.",
             // "WorldUI/BarZoomMinScale" und "WorldUI/BarZoomMaxScale" standen hier. ENTFERNT mit
             // ihren Reglern (Nutzer-Entscheidung 2026-08-13, siehe ActorBars.ZoomFollowMin).
             ["WorldUI/WristHud"] =
@@ -2468,6 +2579,22 @@ internal static partial class Loc
             // sentence that decides whether the player switches this on ("das Fenster wird nur mit
             // halber Auflösung gezeichnet") comes first, the price stands in the text and not in a
             // footnote, and the last sentence says what OFF is — because OFF is the default.
+            ["WorldUI/WindowMaterialise"] =
+                "Fenster erscheinen mit einer Materialisierungsanimation und lösen sich beim Schließen "
+                + "in Staub auf. Aus = Fenster erscheinen und verschwinden sofort, ohne diesen Effekt. "
+                + "Ausschalten beendet auch bereits laufende Effekte sofort. Fenster, ihre Bedienung "
+                + "und Greifbalken bleiben verfügbar. Karten- und NPC-Animationen bleiben unverändert. "
+                + "Auf Steam Frame Standalone ist der Effekt für neue Einstellungen ausgeschaltet.",
+            ["WorldUI/WindowMaterialiseAppearSeconds"] =
+                "Dauer der Fenster-Materialisierung in Sekunden. Bereich 0,05–2. "
+                + "Hat bei ausgeschalteter Fenster-Materialisierung keine Wirkung.",
+            ["WorldUI/WindowMaterialiseVanishSeconds"] =
+                "Dauer der Auflösung eines geschlossenen Fensters in Sekunden. Bereich 0,05–2. "
+                + "Hat bei ausgeschalteter Fenster-Materialisierung keine Wirkung.",
+            ["WorldUI/WindowMaterialiseIntensity"] =
+                "Größe des Staubs bei der Fenster-Materialisierung. 0 zeigt die Ein- und "
+                + "Ausblendung ohne Staub, 1 ist die normale Größe, 2 verdoppelt sie. "
+                + "Hat bei ausgeschalteter Fenster-Materialisierung keine Wirkung.",
             ["WorldUI/PanelSupersample"] =
                 "Zeichnet die schwebenden Fenster (Menüs, Story-, Questlog-, Händler- und "
                 + "Charakterfenster) scharf. Bisher landet so ein Fenster mit etwa der HALBEN Auflösung im "
@@ -2596,10 +2723,10 @@ internal static partial class Loc
                 + "ist. Zum Verschieben das Fenster greifen: diese Bewegung ist synchronisiert und "
                 + "ist der Weg, auf dem eine Gruppe die Höhe ändert. Bereich 0.3-1.5.",
             ["WorldUI/DesktopMirrorLeftEye"] =
-                "Der flache Monitor spiegelt NUR das LINKE Auge des HMD: setzt XRSettings.gameViewRenderMode "
-                + "fest auf LeftEye und überspringt den Composite-Blit des 2D-Menüs auf dem Desktop, sodass der "
-                + "Desktop in jedem Zustand ein sauberes Einzelaugen-Spiegelbild zeigt. Aus = altes Verhalten "
-                + "(2D-Menü-Composite in Menüs, sonst unkontrollierter XR-Standardspiegel).",
+                "Ein zeigt das linke VR-Auge auf dem flachen Bildschirm; Aus hält diesen Bildschirm "
+                + "schwarz. Ungenutzte native Flat-Kamera- und UI-Ausgaben werden in VR unabhängig von "
+                + "diesem Schalter unterdrückt. Die Inhalte der VR-Fenster bleiben erhalten. "
+                + "Neue Steam-Frame-Standalone-Profile beginnen mit Aus, PC mit Ein; gespeicherte Werte bleiben.",
             // [WorldUI] WristHud{Pitch..OffsetZ} had translations here until 2026-08-09. They are
             // retired ("LEGACY — no effect", WorldUIConfig.Bind) and a retired entry never reaches
             // the UI, so a translation for one is a promise the menu cannot keep. The live pose
@@ -3379,10 +3506,10 @@ internal static partial class Loc
             // ---- [WorldUI] ----
             ["WorldUI/BarsOccluded"] =
                 "Die LP-/Effektleisten der Figuren werden gegen die Welt tiefengetestet: Wände verdecken sie "
-                + "wie jedes andere Weltobjekt, statt dass die Leiste hindurchscheint. Optikerhaltend — die "
+                + "wie jedes andere Weltobjekt, statt dass die Leiste hindurchscheint. Die "
                 + "Leisten bleiben aktiv und zur Kamera ausgerichtet, sie werden lediglich Pixel für Pixel dort "
-                + "ausgeblendet, wo eine Wand davor steht. Ausschalten für die originalen, stets obenauf "
-                + "gezeichneten Leisten.",
+                + "ausgeblendet, wo eine Wand davor steht. Aus zeigt die Leisten ausdrücklich durch Wände "
+                + "hindurch; die Umstellung wirkt sofort.",
             // [WorldUI] BarsDepthStamp is gone with its binding (see ActorBars.BindConfig): the
             // bars take part in the panel-vs-panel compose again, unconditionally, per the user
             // ruling that perspective must be respected everywhere.

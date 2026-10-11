@@ -671,6 +671,15 @@ internal sealed partial class CardsDriver
         }
     }
 
+    /// <summary>The merchant wrist fan uses the same physical-contact slab as the ordinary
+    /// fan. Its producer calls only for the opposite hand, never the palm carrying the fan.</summary>
+    internal static void StandDownForItemFanContact(VRHand? hand, IReadOnlyList<ItemsPile.ItemChip> chips)
+    {
+        if (hand == null || !hand.HasPose || hand.Grabber.Held != null) return;
+        if (TryContactInChips(hand, chips, null, out ItemsPile.ItemChip? chip, out ContactGeometry geometry))
+            hand.Ray.StandDownForCardContact("merchant owned-item fan", chip!, geometry.ToLog());
+    }
+
     /// <summary>
     /// The ONE card/chip <paramref name="hand"/> is physically TOUCHING right now, or null. Each
     /// pool contributes its own single-winner election as the FIRST candidate (see
@@ -2071,7 +2080,8 @@ internal sealed partial class CardsDriver
         // shape UpdateBoardFanHandTrigger already needed for the HAND (`ItemsBrowseOpen ||
         // ItemCardInRecess`), and for the same reason; the pick itself is served by
         // ItemsPile.TryLaserRaycast, which now scans that survivor.
-        bool itemsReachable = _piles.ItemsBrowseOpen || _piles.ItemCardInRecess;
+        ItemsPile? inspection = ItemsPile.InspectionCurrent;
+        bool itemsReachable = inspection != null || _piles.ItemsBrowseOpen || _piles.ItemCardInRecess;
         // _boardHover / _trayCardHover left the guard for the same reason they left
         // UpdateBrowseLaser's: the item fan also floats ABOVE the board, so "the board hovered
         // something" was never evidence that the board is in FRONT. Arbitrated by distance below.
@@ -2088,8 +2098,10 @@ internal sealed partial class CardsDriver
         // allowNearMiss: the interaction path gets the angular near-miss rescue (a chip on a
         // shrunken board subtends less than the controller's own aim jitter — see
         // FanSweep.LaserMinHalfAngleDegrees). The fan OCCLUDER keeps the exact rect.
-        bool rayHit = _piles.TryRaycastItemChips(pick.Origin, pick.Direction, _itemChipHover,
-            out ItemsPile.ItemChip? chip, out Vector3 point, out float dist, allowNearMiss: true);
+        ItemsPile.ItemChip? chip; Vector3 point; float dist;
+        bool rayHit = inspection != null
+            ? inspection.TryLaserRaycast(pick.Origin, pick.Direction, _itemChipHover, out chip, out point, out dist, allowNearMiss: true)
+            : _piles.TryRaycastItemChips(pick.Origin, pick.Direction, _itemChipHover, out chip, out point, out dist, allowNearMiss: true);
         bool uiInFront = rayHit && dom.RayUgui.HasHit && dom.RayUgui.HitDistance < dist;
         bool boardInFront = rayHit && !uiInFront && !TryTakeFrameFromBoardHover(dist);
         // See UpdateBrowseLaser: after the steal, a board hover that is STILL set owns the frame.
@@ -2146,7 +2158,7 @@ internal sealed partial class CardsDriver
             // trigger reach ForeignInteraction there would make every stray board pull a foreign
             // interaction against a fan that is not up. The dismiss is a property of the OPEN arc,
             // so it is gated on the open arc.
-            if (dom.TriggerDown && !_modalInputBlocked && _piles.ItemsBrowseOpen)
+            if (dom.TriggerDown && !_modalInputBlocked && inspection == null && _piles.ItemsBrowseOpen)
                 ForeignInteraction("click-away (trigger off the item fan)");
             return;
         }
@@ -2158,7 +2170,7 @@ internal sealed partial class CardsDriver
         // taken chip (beam) could disagree. Yielding here is the item-fan edition of the ability
         // fan's UpdateFanHoverSplit ownership rule. Same chip = no conflict: the beam clamp is
         // the honest one, so the laser keeps it.
-        ItemsPile.ItemChip? handOwned = _piles.HandOwnedItemChip(dom);
+        ItemsPile.ItemChip? handOwned = inspection != null ? inspection.HandOwnedChip(dom) : _piles.HandOwnedItemChip(dom);
         if (handOwned != null && !ReferenceEquals(handOwned, chip))
         {
             LogItemFanLaser(dom, $"not delivered — the HAND owns the fan ('{handOwned.name}' is " +

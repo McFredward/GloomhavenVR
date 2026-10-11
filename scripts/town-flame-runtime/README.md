@@ -1,0 +1,30 @@
+# Remote native flame playback check
+
+Run `python3 scripts/check-town-flame.py`.
+
+This compiles the production asset registry, material pool, binding, retained frame
+representation and flame clock into genuine Unity 2021.3.5. Only the receive-time
+clock is injected. Rendering uses the actual `TownFlame.shader` with a diagnostic
+eight-frame colour atlas so skipped or incorrect intermediate frames are measurable.
+It does not claim that the diagnostic atlas is original game artwork or verify a
+headset's stereo appearance.
+
+The check covers independent per-renderer clock epochs sharing one immutable
+material, all other material fields, 1,000 clock updates without material replacement,
+10,000 steady ticks without managed allocation, coalesced delayed samples, old samples,
+session reset, shader replacement and property-block restoration. Intermediate owner
+and observer pixels must match exactly. Six compiled negative controls break the
+relevant production paths and must fail their named assertions.
+
+The clock adapter is restricted to the owned `GloomhavenVR/TownFlame` shader's verified
+rate-one `_TownAnimationTime`; it does not predict arbitrary native shader properties.
+The existing multiplayer frame/session guards continue to reject stale sessions before
+binding. Indexed property blocks keep clock output out of pooled immutable materials.
+
+A translated thirteen-quad constellation also exercises the actual billboard branch
+with one shared material. The unbillboarded physical reference and production
+billboard must cover comparable visible area. A separately compiled source-negative
+shader removes only `DisableBatching`: Unity then pretransforms the shared vertices,
+loses their individual object origins and collapses them outside the translated view.
+The original failure must reproduce as zero visible pixels, not just a missing source
+string. This protects the same billboard path used by original candle/glow artwork.

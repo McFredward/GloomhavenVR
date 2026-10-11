@@ -1,0 +1,296 @@
+using System;
+using GloomhavenVR.Core;
+using GloomhavenVR.Net;
+using UnityEngine;
+
+namespace GloomhavenVR.WorldUI;
+
+/// <summary>Quiet native foley at the resident, using the shared head listener and
+/// the game's current master/effects levels. Never invokes native purchase sounds.</summary>
+internal sealed class TownServiceActivityAudio : IDisposable
+{
+    private static readonly int SoundCount = Enum.GetValues(typeof(TownActivitySound)).Length;
+    // Resident service ids are 1..3; slot zero is intentionally unused.
+    private const int ResidentSlotCount = 4;
+    private readonly Transform _root;
+    private readonly byte _service;
+    private readonly string _claim;
+    private readonly TownServiceActivitySoundClock _clock = new();
+    private readonly AudioSource?[] _voices = new AudioSource?[2];
+    private readonly float[] _ends = new float[2], _gains = new float[2];
+    private readonly AudioClip?[] _clips = new AudioClip?[SoundCount];
+    private readonly float[] _resolveAt = new float[SoundCount];
+    private int _voice;
+    private float _voiceScale;
+    private TownActivitySoundState _event;
+    private bool _eventPending;
+    private int _eventAuthor;
+    private uint _eventEpoch, _observedGeneration;
+    internal TownActivitySoundState Published => _event;
+    private uint _blessingEpoch, _blessingGeneration;
+    private bool _blessingPending;
+    private AudioClip? _blessingClip;
+    private float _nextBlessingResolve;
+    // The native controller's configured item is read without invoking its gameplay callback.
+    // Its original ordered clip/alias bank is identical on every peer; observers never roll.
+    internal static Func<string>? NativeBlessingName = null;
+    internal const string DefaultBlessingItem = "PlaySound_UIReceivedItem";
+    private bool _failed;
+    private static AudioClip? _coinClink;
+    private static float _nextCoinResolve;
+    private static readonly bool[] Reported = new bool[ResidentSlotCount], MissingReported = new bool[SoundCount];
+    private static readonly int[] TraceLines = new int[ResidentSlotCount];
+    private const int TraceLineBudgetPerResident = 8;
+
+    internal TownServiceActivityAudio(Transform root, byte service)
+    { _root = root; _service = service; _claim = "TownResidentAudio." + service; }
+
+    /// <summary>A committed shared blessing has an explicit clock, unlike an
+    /// incidental hand contact. Seek its bounded soft magical cue on late receive
+    /// or clip readiness; a repeated revision cannot restart it.</summary>
+    internal void SampleBlessing(uint epoch, uint generation, float age, bool interactive)
+    {
+        if (_service != 2 || _failed) return;
+        try { SampleBlessingCore(epoch, generation, age, interactive); }
+        catch (Exception error)
+        {
+            _failed = true; Stop();
+            if (!Reported[_service])
+            {
+                Reported[_service] = true;
+                VRLog.Warn("TownServices", "NPC activity audio disabled for service " + _service + ": " + error);
+            }
+        }
+    }
+
+    private void SampleBlessingCore(uint epoch, uint generation, float age, bool interactive)
+    {
+        if (_service != 2 || _failed) return;
+        if (_blessingEpoch != epoch || _blessingGeneration != generation)
+        {
+            if (_voices[0] != null) _voices[0]!.Stop();
+            _blessingEpoch = epoch; _blessingGeneration = generation;
+            _blessingPending = generation != 0;
+        }
+        if (!interactive || generation == 0 || age < 0f || (float.IsNaN(age) || float.IsInfinity(age))
+            || age >= 4f || !WorldUIConfig.ImmersiveTownSoundEffects.Value)
+        {
+            _blessingPending = false;
+            if (_voices[0] != null) _voices[0]!.Stop();
+            return;
+        }
+        if (!_blessingPending) return;
+        PrepareBlessingClip();
+        AudioClip? clip = _blessingClip;
+        if (clip == null || clip.loadState != AudioDataLoadState.Loaded || !HeadEar.Claim(_claim)) return;
+        _blessingPending = false;
+        if (age >= clip.length) return;
+        AudioSource source = _voices[0] ?? Create(0);
+        source.Stop(); source.clip = clip;
+        source.transform.position = _root.TransformPoint(TownServiceRitualLayout.Origin + TownServiceTempleBowl.Center);
+        source.time = Mathf.Clamp(age, 0f, Mathf.Max(0f, clip.length - .001f));
+        source.pitch = 1f;
+        _gains[0] = .35f;
+        _ends[0] = Time.unscaledTime + Mathf.Min(4f, clip.length) - age;
+        GlobalData? global = SaveData.Instance?.Global;
+        float master = global == null ? 1f : Mathf.Clamp01(global.MasterVolume / 100f) * Mathf.Clamp01(global.SFXVolume / 100f);
+        source.volume = master * _gains[0];
+        source.Play();
+    }
+
+    private void PrepareBlessingClip()
+    {
+        if (_service != 2 || _blessingClip != null || Time.unscaledTime < _nextBlessingResolve) return;
+        _nextBlessingResolve = Time.unscaledTime + .10f;
+        _blessingClip = ResolveNativeBlessing(NativeBlessingName?.Invoke() ?? DefaultBlessingItem, 0);
+        if (_blessingClip != null && _blessingClip.loadState == AudioDataLoadState.Unloaded)
+            _blessingClip.LoadAudioData();
+    }
+
+    private static AudioClip? ResolveNativeBlessing(string name, int depth)
+    {
+        if (depth >= 4 || string.IsNullOrEmpty(name) || !AudioController.IsValidAudioID(name)) return null;
+        var item = AudioController.GetAudioItem(name);
+        if (item?.subItems == null) return null;
+        foreach (var take in item.subItems)
+        {
+            // Select the first declared original, even while unloaded. Selecting the
+            // first READY clip instead would make two peers play different takes.
+            if (take.Clip != null) return take.Clip;
+            if (!string.IsNullOrEmpty(take.ItemModeAudioID))
+                return ResolveNativeBlessing(take.ItemModeAudioID, depth + 1);
+        }
+        return null;
+    }
+
+    internal void Tick(int author, uint epoch, float workClock, float elapsed, bool visible,
+        in TownActivityVisual shown, bool authorPerformance = true,
+        float performanceClock = float.NaN, TownActivitySoundState remote = default)
+    {
+        if (_failed) return;
+        try
+        {
+            // Prepare the exact original while the stand is ready, before a visitor
+            // pays. Donation must not wait for a cold first audio decode.
+            if (visible && WorldUIConfig.ImmersiveTownSoundEffects.Value) PrepareBlessingClip();
+            float sharedClock = float.IsNaN(performanceClock) ? workClock : performanceClock;
+            bool newLifetime = _eventAuthor != author || _eventEpoch != epoch;
+            if (newLifetime)
+            {
+                _eventAuthor = author; _eventEpoch = epoch; _event = default;
+                _observedGeneration = 0; _eventPending = false;
+            }
+            TownActivitySound sound = authorPerformance
+                ? _clock.Sample(_service, author, epoch, workClock, elapsed, visible, in shown)
+                : TownActivitySound.None;
+            if (authorPerformance && sound != TownActivitySound.None)
+            {
+                if (_event.Generation != uint.MaxValue) _event.Generation++;
+                _event.Cue = (byte)sound; _event.StartedClock = sharedClock;
+            }
+            else if (!authorPerformance) _event = remote;
+            if (_event.Generation != _observedGeneration)
+            { _observedGeneration = _event.Generation; _eventPending = _event.Generation != 0; }
+            sound = (TownActivitySound)_event.Cue;
+            // The activity clock still advances while locally muted. Its author-owned
+            // phase is shared presentation state; a listener preference may silence the
+            // result, but must never make this peer choose a different later sound edge.
+            if (!WorldUIConfig.ImmersiveTownSoundEffects.Value) { _eventPending = false; Stop(); return; }
+            if (!visible) { _eventPending = false; Stop(); return; }
+            if (!HeadEar.Claim(_claim)) { _clock.Reset(); Stop(); return; }
+            float now = Time.unscaledTime;
+            // Resident coordinates are authored in perceived metres, while Unity's
+            // AudioSource distances are world units. The map in the build 558 log
+            // was 198.12 world units per metre: a fixed 4.5-unit cutoff silenced
+            // every contact before it reached a visitor standing beside the counter.
+            float scale = Mathf.Max(.01f, _root.lossyScale.x);
+            if (scale != _voiceScale)
+            {
+                _voiceScale = scale;
+                foreach (AudioSource? existing in _voices)
+                    if (existing != null) SetHearingRange(existing, scale);
+            }
+            GlobalData? global = SaveData.Instance?.Global;
+            float master = global == null ? 1f : Mathf.Clamp01(global.MasterVolume / 100f) * Mathf.Clamp01(global.SFXVolume / 100f);
+            for (int i = 0; i < _voices.Length; i++)
+            {
+                AudioSource? source = _voices[i];
+                if (source == null) continue;
+                if (now >= _ends[i] && source.isPlaying) source.Stop();
+                source.volume = master * _gains[i] * Mathf.Clamp01((_ends[i] - now) / .08f);
+            }
+            if (!_eventPending || sound == TownActivitySound.None || master <= 0f) return;
+            float duration = TownServiceActivitySoundClock.IsSpell(sound) ? 1.3f
+                : sound == TownActivitySound.Coin ? .45f : .65f;
+            float eventAge = Mathf.Max(0f, sharedClock - _event.StartedClock);
+            if (eventAge >= duration) { _eventPending = false; return; }
+            AudioClip? clip = Resolve(sound, now);
+            if (clip == null) return;
+            if (eventAge >= clip.length) { _eventPending = false; return; }
+            _eventPending = false;
+            if (VRLog.WantsDebug && TraceLines[_service] < TraceLineBudgetPerResident)
+            {
+                TraceLines[_service]++;
+                VRLog.Info("TownServices", "NPC FOLEY played service=" + _service + " event=" + sound
+                    + " clip='" + clip.name + "' source=TownServiceActivitySoundClock ("
+                    + TraceLines[_service] + "/" + TraceLineBudgetPerResident + ").");
+            }
+            int slot = _voice++ % _voices.Length;
+            AudioSource voice = _voices[slot] ?? Create(slot);
+            voice.Stop(); voice.clip = clip;
+            // Delayed packets and clip readiness seek the author's contact time.
+            // Observers never choose their own edge or replay a loaded cue at zero.
+            voice.time = Mathf.Clamp(eventAge, 0f, Mathf.Max(0f, clip.length - .001f));
+            voice.transform.position = _root.TransformPoint(sound == TownActivitySound.Coin ? shown.Left : shown.Right);
+            voice.pitch = 1f;
+            // The previous foley gain was multiplied by the game's two volume sliders
+            // and then attenuated again at the visitor's normal standing distance.
+            // These remain quieter than native transactions but are audible nearby.
+            _gains[slot] = sound == TownActivitySound.Coin ? .065f : .075f;
+            voice.volume = master * _gains[slot];
+            // Native effects can contain long gameplay tails. Foley uses a bounded
+            // excerpt with a short end fade; the original shared clip is untouched.
+            _ends[slot] = now + Mathf.Min(duration, clip.length) - eventAge;
+            voice.Play();
+        }
+        catch (Exception error)
+        {
+            _failed = true; Stop();
+            if (!Reported[_service])
+            { Reported[_service] = true; VRLog.Warn("TownServices", "NPC activity audio disabled for service " + _service + ": " + error); }
+        }
+    }
+
+    private AudioSource Create(int slot)
+    {
+        var obj = new GameObject("Town.ActivitySound." + slot);
+        obj.transform.SetParent(_root, false);
+        AudioSource source = obj.AddComponent<AudioSource>();
+        source.playOnAwake = false; source.loop = false; source.spatialBlend = 1f;
+        source.rolloffMode = AudioRolloffMode.Linear;
+        SetHearingRange(source, Mathf.Max(.01f, _root.lossyScale.x));
+        source.dopplerLevel = 0f; source.priority = 110;
+        _voices[slot] = source; return source;
+    }
+
+    private static void SetHearingRange(AudioSource source, float worldUnitsPerMetre)
+    {
+        // Keep one long, linear falloff across the room. A short maxDistance
+        // behaves like an audible on/off boundary when a tracked head crosses it
+        // between frames, especially at the map's large world-unit scale.
+        source.minDistance = .4f * worldUnitsPerMetre;
+        source.maxDistance = 7f * worldUnitsPerMetre;
+    }
+
+    private AudioClip? Resolve(TownActivitySound sound, float now)
+    {
+        // A physically recorded-style short coin contact is bundled offline and
+        // spatialized at the visible hand. The old procedural pair of high-pitched
+        // oscillators sounded like an electronic chime even at reduced gain.
+        if (sound == TownActivitySound.Coin)
+        {
+            if (_coinClink == null && now >= _nextCoinResolve)
+            {
+                // An authored contact is pending for at most .45 seconds. A
+                // ten-second retry would consume it before its assets became ready.
+                _nextCoinResolve = now + .10f;
+                _coinClink = TownServiceAssets.Audio("coin-soft");
+                if (_coinClink != null && _coinClink.loadState == AudioDataLoadState.Unloaded)
+                    _coinClink.LoadAudioData();
+            }
+            return _coinClink != null && _coinClink.loadState == AudioDataLoadState.Loaded
+                ? _coinClink : null;
+        }
+        int index = (int)sound;
+        if (_clips[index] != null)
+            return _clips[index]!.loadState == AudioDataLoadState.Loaded ? _clips[index] : null;
+        if (now < _resolveAt[index]) return null;
+        _resolveAt[index] = now + .10f;
+        if (!TownServiceActivitySoundClock.IsSpell(sound)) return null;
+        // A gameplay augment/UI cue was conspicuous at the resident and repeated the
+        // same timbre for every experiment. These five original, short close-fidelity
+        // performances are quieter and follow the shared clock-selected spell take.
+        string name = "spell-soft-" + (index - (int)TownActivitySound.Spell1 + 1);
+        _clips[index] = TownServiceAssets.Audio(name);
+        AudioClip? spell = _clips[index];
+        if (spell != null && spell.loadState == AudioDataLoadState.Unloaded)
+            spell.LoadAudioData();
+        if (spell == null && !MissingReported[index])
+        {
+            MissingReported[index] = true;
+            VRLog.Warn("TownServices", "NPC spell activity sound unavailable: " + name);
+        }
+        return spell != null && spell.loadState == AudioDataLoadState.Loaded ? spell : null;
+    }
+
+    private void Stop()
+    {
+        foreach (AudioSource? voice in _voices) if (voice != null) voice.Stop();
+        HeadEar.Release(_claim);
+    }
+    public void Dispose()
+    {
+        Stop(); _clock.Reset();
+        foreach (AudioSource? voice in _voices) if (voice != null) UnityEngine.Object.Destroy(voice.gameObject);
+    }
+}

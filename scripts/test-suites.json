@@ -1,0 +1,2720 @@
+{
+  "schema_version": 1,
+  "suites": [
+    {
+      "id": "card-bindings",
+      "command": [
+        "bash",
+        "scripts/card-bindings-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 78
+    },
+    {
+      "id": "native-playback",
+      "command": [
+        "bash",
+        "scripts/native-playback-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 42
+    },
+    {
+      "id": "native-video",
+      "command": [
+        "bash",
+        "scripts/native-video-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 82
+    },
+    {
+      "id": "reward-showcase",
+      "command": [
+        "bash",
+        "scripts/reward-showcase-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 127
+    },
+    {
+      "id": "modal-close",
+      "command": [
+        "bash",
+        "scripts/modal-close-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 56
+    },
+    {
+      "id": "story-completion",
+      "command": [
+        "bash",
+        "scripts/story-completion-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 90
+    },
+    {
+      "id": "map-story-lifecycle",
+      "command": [
+        "bash",
+        "scripts/map-story-lifecycle-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 60
+    },
+    {
+      "id": "message-continuation",
+      "command": [
+        "bash",
+        "scripts/message-continuation-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 70
+    },
+    {
+      "id": "announcement",
+      "command": [
+        "bash",
+        "scripts/announcement-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 60
+    },
+    {
+      "id": "dialog-surface",
+      "command": [
+        "bash",
+        "scripts/dialog-surface-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 45
+    },
+    {
+      "id": "scenario-win-cheat",
+      "command": [
+        "bash",
+        "scripts/scenario-win-cheat-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 30
+    },
+    {
+      "id": "vr-options",
+      "command": [
+        "bash",
+        "scripts/vr-options-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 112
+    },
+    {
+      "id": "vr-options-close",
+      "command": [
+        "bash",
+        "scripts/vr-options-close-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 58
+    },
+    {
+      "id": "town-service-options",
+      "command": [
+        "bash",
+        "scripts/town-service-options-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 92
+    },
+    {
+      "id": "town-service-setting",
+      "command": [
+        "python3",
+        "scripts/check-town-service-setting.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 12
+    },
+    {
+      "id": "town-service-lighting",
+      "command": [
+        "python3",
+        "scripts/check-town-service-lighting.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 15
+    },
+    {
+      "id": "town-service-warmup",
+      "command": [
+        "bash",
+        "scripts/check-town-service-warmup.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 5
+    },
+    {
+      "id": "town-activity",
+      "command": [
+        "python3",
+        "scripts/check-town-activity.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 80
+    },
+    {
+      "id": "town-cloth",
+      "command": [
+        "python3",
+        "scripts/check-town-cloth.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 55
+    },
+    {
+      "id": "town-voice",
+      "command": [
+        "python3",
+        "scripts/check-town-voice.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
+    },
+    {
+      "id": "town-native-audio",
+      "command": [
+        "python3",
+        "scripts/check-town-native-audio.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 3
+    },
+    {
+      "id": "town-activity-portable",
+      "command": [
+        "python3",
+        "scripts/check-town-activity.py",
+        "--portable"
+      ],
+      "groups": [
+        "ci"
+      ],
+      "weight": 15
+    },
+    {
+      "id": "town-face",
+      "command": [
+        "python3",
+        "scripts/check-town-face.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 80
+    },
+    {
+      "id": "town-donation-replay",
+      "command": [
+        "python3",
+        "scripts/check-town-donation-replay.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
+    },
+    {
+      "id": "town-native-peer",
+      "command": [
+        "python3",
+        "scripts/check-town-native-peer.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 65
+    },
+    {
+      "id": "town-residents",
+      "command": [
+        "python3",
+        "scripts/check-town-residents.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 20
+    },
+    {
+      "id": "reward-pose",
+      "command": [
+        "bash",
+        "scripts/reward-pose-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 44
+    },
+    {
+      "id": "conversion-rollback",
+      "command": [
+        "bash",
+        "scripts/conversion-rollback-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 68
+    },
+    {
+      "id": "panel-material",
+      "command": [
+        "bash",
+        "scripts/panel-material-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 62
+    },
+    {
+      "id": "panel-ink",
+      "command": [
+        "bash",
+        "scripts/panel-ink-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 198
+    },
+    {
+      "id": "video-playback",
+      "command": [
+        "bash",
+        "scripts/video-playback-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 48
+    },
+    {
+      "id": "hint",
+      "command": [
+        "bash",
+        "scripts/hint-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 81
+    },
+    {
+      "id": "quest-hint",
+      "command": [
+        "bash",
+        "scripts/quest-hint-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 34
+    },
+    {
+      "id": "tutorial-scope",
+      "command": [
+        "bash",
+        "scripts/tutorial-scope-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 64
+    },
+    {
+      "id": "tutorial-controller",
+      "command": [
+        "bash",
+        "scripts/tutorial-controller-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 53
+    },
+    {
+      "id": "retry-start",
+      "command": [
+        "bash",
+        "scripts/retry-start-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 75
+    },
+    {
+      "id": "window-reflow",
+      "command": [
+        "bash",
+        "scripts/window-reflow-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 73
+    },
+    {
+      "id": "shared-window-reflow",
+      "command": [
+        "bash",
+        "scripts/shared-window-reflow-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 38
+    },
+    {
+      "id": "board-refresh",
+      "command": [
+        "bash",
+        "scripts/board-refresh-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 47
+    },
+    {
+      "id": "card-loss-modal",
+      "command": [
+        "bash",
+        "scripts/card-loss-modal-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 76
+    },
+    {
+      "id": "map-flow",
+      "command": [
+        "bash",
+        "scripts/map-flow-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 94
+    },
+    {
+      "id": "map-quest-selection-runtime",
+      "command": [
+        "bash",
+        "scripts/check-map-quest-selection-runtime.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 50
+    },
+    {
+      "id": "map-quest-ready-runtime",
+      "command": [
+        "bash",
+        "scripts/check-map-quest-ready-runtime.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 45
+    },
+    {
+      "id": "quest-window",
+      "command": [
+        "bash",
+        "scripts/quest-window-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 36
+    },
+    {
+      "id": "map-retirement",
+      "command": [
+        "bash",
+        "scripts/map-retirement-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 42
+    },
+    {
+      "id": "map-button",
+      "command": [
+        "bash",
+        "scripts/map-button-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 39
+    },
+    {
+      "id": "round-card",
+      "command": [
+        "bash",
+        "scripts/round-card-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 39
+    },
+    {
+      "id": "burn-layout",
+      "command": [
+        "bash",
+        "scripts/burn-layout-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 56
+    },
+    {
+      "id": "burn-replay",
+      "command": [
+        "bash",
+        "scripts/burn-replay-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 159
+    },
+    {
+      "id": "pick-tray",
+      "command": [
+        "bash",
+        "scripts/pick-tray-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 37
+    },
+    {
+      "id": "mr-backing",
+      "command": [
+        "bash",
+        "scripts/mr-backing-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 153
+    },
+    {
+      "id": "mr-backing-materialise",
+      "command": [
+        "bash",
+        "scripts/mr-backing-materialise-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 50
+    },
+    {
+      "id": "mr-backing-animation",
+      "command": [
+        "bash",
+        "scripts/mr-backing-animation-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 56
+    },
+    {
+      "id": "card-scene-lifetime",
+      "command": [
+        "bash",
+        "scripts/card-scene-lifetime-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 67
+    },
+    {
+      "id": "card-pool-lifetime",
+      "command": [
+        "bash",
+        "scripts/card-pool-lifetime-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 46
+    },
+    {
+      "id": "burn-material-ownership",
+      "command": [
+        "bash",
+        "scripts/burn-material-ownership-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 29
+    },
+    {
+      "id": "permanent-quest-log",
+      "command": [
+        "bash",
+        "scripts/permanent-quest-log-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 73
+    },
+    {
+      "id": "guildmaster-table",
+      "command": [
+        "bash",
+        "scripts/guildmaster-table-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 53
+    },
+    {
+      "id": "mr-scenario",
+      "command": [
+        "bash",
+        "scripts/mr-scenario-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 92
+    },
+    {
+      "id": "guildmaster-room",
+      "command": [
+        "bash",
+        "scripts/guildmaster-room-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 84
+    },
+    {
+      "id": "map-icon-picking",
+      "command": [
+        "bash",
+        "scripts/map-icon-picking-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 67
+    },
+    {
+      "id": "remote-burn-sequencing",
+      "command": [
+        "bash",
+        "scripts/remote-burn-sequencing-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 71
+    },
+    {
+      "id": "burn-completion",
+      "command": [
+        "bash",
+        "scripts/burn-completion-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 97
+    },
+    {
+      "id": "item-burn",
+      "command": [
+        "bash",
+        "scripts/item-burn-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 76
+    },
+    {
+      "id": "item-appearance",
+      "command": [
+        "bash",
+        "scripts/item-appearance-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 54
+    },
+    {
+      "id": "flight-timing",
+      "command": [
+        "bash",
+        "scripts/flight-timing-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 62
+    },
+    {
+      "id": "figure-hold",
+      "command": [
+        "bash",
+        "scripts/figure-hold-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 68
+    },
+    {
+      "id": "presentation-send",
+      "command": [
+        "bash",
+        "scripts/presentation-send-tests.sh"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 75
+    },
+    {
+      "id": "self-update-dialog",
+      "command": [
+        "bash",
+        "scripts/self-update-dialog-tests.sh"
+      ],
+      "groups": [
+        "ci"
+      ],
+      "weight": 35
+    },
+    {
+      "id": "banner-pose",
+      "command": [
+        "bash",
+        "scripts/banner-pose-tests.sh"
+      ],
+      "groups": [
+        "ci"
+      ],
+      "weight": 64
+    },
+    {
+      "id": "quest-seat",
+      "command": [
+        "bash",
+        "scripts/quest-seat-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 36
+    },
+    {
+      "id": "patch-inventory",
+      "command": [
+        "bash",
+        "scripts/patch-inventory.sh",
+        "check"
+      ],
+      "groups": [
+        "source"
+      ]
+    },
+    {
+      "id": "frame-order",
+      "command": [
+        "bash",
+        "scripts/check-frame-order.sh"
+      ],
+      "groups": [
+        "source"
+      ]
+    },
+    {
+      "id": "mirrors",
+      "command": [
+        "bash",
+        "scripts/check-mirrors.sh"
+      ],
+      "groups": [
+        "source"
+      ]
+    },
+    {
+      "id": "partial-order",
+      "command": [
+        "python3",
+        "scripts/check-partial-order.py"
+      ],
+      "groups": [
+        "source"
+      ]
+    },
+    {
+      "id": "instrument-writes",
+      "command": [
+        "python3",
+        "scripts/check-instrument-writes.py"
+      ],
+      "groups": [
+        "source"
+      ]
+    },
+    {
+      "id": "remote-defaults",
+      "command": [
+        "python3",
+        "scripts/check-remote-defaults.py"
+      ],
+      "groups": [
+        "source"
+      ]
+    },
+    {
+      "id": "wire-coverage",
+      "command": [
+        "python3",
+        "scripts/check-wire-coverage.py"
+      ],
+      "groups": [
+        "source"
+      ]
+    },
+    {
+      "id": "tune-fields",
+      "command": [
+        "python3",
+        "scripts/check-tune-fields.py"
+      ],
+      "groups": [
+        "source"
+      ]
+    },
+    {
+      "id": "desync-surface",
+      "command": [
+        "python3",
+        "scripts/check-desync-surface.py"
+      ],
+      "groups": [
+        "source"
+      ]
+    },
+    {
+      "id": "desync-surface-parser",
+      "command": [
+        "python3",
+        "tests/test_desync_surface.py"
+      ],
+      "groups": [
+        "local",
+        "ci",
+        "source"
+      ]
+    },
+    {
+      "id": "hw-verify",
+      "command": [
+        "python3",
+        "scripts/check-hw-verify.py"
+      ],
+      "groups": [
+        "source"
+      ]
+    },
+    {
+      "id": "options-coverage",
+      "command": [
+        "python3",
+        "scripts/check-options-coverage.py"
+      ],
+      "groups": [
+        "source"
+      ]
+    },
+    {
+      "id": "card-identity-mask",
+      "command": [
+        "python3",
+        "scripts/check-card-identity-mask.py"
+      ],
+      "groups": [
+        "source"
+      ]
+    },
+    {
+      "id": "mirror-dials",
+      "command": [
+        "python3",
+        "scripts/check-mirror-dials.py"
+      ],
+      "groups": [
+        "source"
+      ]
+    },
+    {
+      "id": "enum-arrays",
+      "command": [
+        "python3",
+        "scripts/check-enum-arrays.py"
+      ],
+      "groups": [
+        "source"
+      ]
+    },
+    {
+      "id": "town-ritual-transactions",
+      "command": [
+        "python3",
+        "scripts/check-town-ritual-transactions.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
+    },
+    {
+      "id": "town-service-catalog",
+      "command": [
+        "python3",
+        "scripts/check-town-service-catalog.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 80
+    },
+    {
+      "id": "town-native-veil",
+      "command": [
+        "bash",
+        "scripts/town-native-veil-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 3
+    },
+    {
+      "id": "town-service-interaction",
+      "command": [
+        "python3",
+        "scripts/check-town-service-interaction.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 100
+    },
+    {
+      "id": "town-offered-orientation",
+      "command": [
+        "python3",
+        "scripts/check-town-service-mirror.py",
+        "--suite",
+        "offered-orientation"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 70
+    },
+    {
+      "id": "town-native-bank-lifecycle",
+      "command": [
+        "python3",
+        "scripts/check-town-service-mirror.py",
+        "--suite",
+        "asset-identity"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 75
+    },
+    {
+      "id": "town-service-mirror",
+      "command": [
+        "python3",
+        "scripts/check-town-service-mirror.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 100
+    },
+    {
+      "id": "town-catalog-warm",
+      "command": [
+        "python3",
+        "scripts/check-town-catalog-warm.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 95
+    },
+    {
+      "id": "town-publisher622",
+      "command": [
+        "python3",
+        "scripts/check-town-publisher622.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 95
+    },
+    {
+      "id": "town-final-capture",
+      "command": [
+        "python3",
+        "scripts/check-town-final-capture.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 65
+    },
+    {
+      "id": "town-service-workspace",
+      "command": [
+        "python3",
+        "scripts/check-town-service-workspace.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 65
+    },
+    {
+      "id": "town-service-decor",
+      "command": [
+        "python3",
+        "scripts/check-town-decor.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
+    },
+    {
+      "id": "town-flame",
+      "command": [
+        "python3",
+        "scripts/check-town-flame.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
+    },
+    {
+      "id": "town-ritual-layout",
+      "command": [
+        "python3",
+        "scripts/check-town-ritual-layout.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
+    },
+    {
+      "id": "aoe-control",
+      "command": [
+        "python3",
+        "tests/GloomhavenVR.AoeControlTests/run.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 50
+    },
+    {
+      "id": "map-tooltip-transport",
+      "command": [
+        "python3",
+        "tests/GloomhavenVR.MapTooltipTransportTests/run.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 50
+    },
+    {
+      "id": "map-tooltip",
+      "command": [
+        "python3",
+        "tests/GloomhavenVR.MapTooltipTests/run.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 50
+    },
+    {
+      "id": "city-event-button",
+      "command": [
+        "python3",
+        "tests/GloomhavenVR.CityEventButtonTests/run.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 50
+    },
+    {
+      "id": "town-enhancement-handoff",
+      "command": [
+        "python3",
+        "scripts/check-town-enhancement-handoff.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 80
+    },
+    {
+      "id": "town-facial-landmarks",
+      "command": [
+        "python3",
+        "scripts/check-town-facial-landmarks.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 5
+    },
+    {
+      "id": "town-service-clearance",
+      "command": [
+        "python3",
+        "scripts/check-town-service-clearance.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 80
+    },
+    {
+      "id": "town-merchant-handoff",
+      "command": [
+        "python3",
+        "scripts/check-town-merchant-handoff.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 80
+    },
+    {
+      "id": "town-public-catalog",
+      "command": [
+        "python3",
+        "scripts/check-town-service-mirror.py",
+        "--suite",
+        "public-catalog"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 90
+    },
+    {
+      "id": "town-item-transfer",
+      "command": [
+        "python3",
+        "scripts/check-town-service-mirror.py",
+        "--suite",
+        "item-transfer"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 90
+    },
+    {
+      "id": "town-card-slots",
+      "command": [
+        "python3",
+        "scripts/check-town-card-slots.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 20
+    },
+    {
+      "id": "wall-read-facts",
+      "command": [
+        "bash",
+        "scripts/wall-read-facts-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 14
+    },
+    {
+      "id": "light-stabiliser-writes",
+      "command": [
+        "python3",
+        "scripts/check-light-stabiliser-writes.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 6
+    },
+    {
+      "id": "scene-profile-gate",
+      "command": [
+        "python3",
+        "scripts/scene-profile-gate-tests.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 6
+    },
+    {
+      "id": "scenario-scenery-budget",
+      "command": [
+        "python3",
+        "scripts/check-scenario-scenery-budget.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 8
+    },
+    {
+      "id": "scenario-scenery-runtime",
+      "command": [
+        "python3",
+        "scripts/check-scenario-scenery-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 15
+    },
+    {
+      "id": "scenario-figure-detail-budget",
+      "command": [
+        "python3",
+        "scripts/check-scenario-figure-detail-budget.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 1
+    },
+    {
+      "id": "scenario-figure-detail-runtime",
+      "command": [
+        "python3",
+        "scripts/check-scenario-figure-detail-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 14
+    },
+    {
+      "id": "scenario-generation-runtime",
+      "command": [
+        "python3",
+        "scripts/check-scenario-generation-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 12
+    },
+    {
+      "id": "frame-perf-report",
+      "command": [
+        "python3",
+        "scripts/test-frame-perf-report.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 1
+    },
+    {
+      "id": "perf-figure-measurement",
+      "command": [
+        "bash",
+        "scripts/perf-figure-measurement-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 1
+    },
+    {
+      "id": "town-public-item-fronts",
+      "command": [
+        "python3",
+        "scripts/check-town-public-item-fronts.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 15
+    },
+    {
+      "id": "town-visitor-motion",
+      "command": [
+        "python3",
+        "scripts/check-town-visitor-motion.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 12
+    },
+    {
+      "id": "town-depth-order",
+      "command": [
+        "python3",
+        "scripts/check-town-depth-order.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 12
+    },
+    {
+      "id": "town-visitor-stock",
+      "command": [
+        "python3",
+        "scripts/check-town-visitor-stock.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 15
+    },
+    {
+      "id": "town-merchant-badge",
+      "command": [
+        "python3",
+        "scripts/check-town-merchant-badge.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 12
+    },
+    {
+      "id": "figure-cloth-off-runtime",
+      "command": [
+        "python3",
+        "scripts/check-figure-cloth-off-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 12
+    },
+    {
+      "id": "card-diagnostic-runtime",
+      "command": [
+        "python3",
+        "scripts/check-card-diagnostic-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 90
+    },
+    {
+      "id": "perf-census-runtime",
+      "command": [
+        "python3",
+        "scripts/check-perf-census-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 50
+    },
+    {
+      "id": "native-card-layout",
+      "command": [
+        "python3",
+        "scripts/check-native-card-layout-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 75
+    },
+    {
+      "id": "ui-inventory-runtime",
+      "command": [
+        "python3",
+        "scripts/check-ui-inventory-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 40
+    },
+    {
+      "id": "native-actor-audit-runtime",
+      "command": [
+        "python3",
+        "scripts/check-native-actor-audit-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 60
+    },
+    {
+      "id": "structural-instancing-runtime",
+      "command": [
+        "python3",
+        "scripts/check-structural-instancing.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 40
+    },
+    {
+      "id": "actor-bar-pose-runtime",
+      "command": [
+        "python3",
+        "scripts/check-actor-bar-pose-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 90
+    },
+    {
+      "id": "board-rules-runtime",
+      "command": [
+        "python3",
+        "scripts/check-board-rules-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 90
+    },
+    {
+      "id": "figure-overlay-runtime",
+      "command": [
+        "python3",
+        "scripts/check-figure-overlay-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 90
+    },
+    {
+      "id": "desktop-render-runtime",
+      "command": [
+        "python3",
+        "scripts/check-desktop-render-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 60
+    },
+    {
+      "id": "environment-budget-runtime",
+      "command": [
+        "python3",
+        "scripts/check-environment-budget-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 60
+    },
+    {
+      "id": "figure-mesh-runtime",
+      "command": [
+        "python3",
+        "scripts/check-figure-mesh-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 80
+    },
+    {
+      "id": "figure-mesh-bank-packaging",
+      "command": [
+        "python3",
+        "tests/test_figure_mesh_bank.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 1
+    },
+    {
+      "id": "quest-builder",
+      "command": [
+        "python3",
+        "scripts/quest-python-tests.py",
+        "builder"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 1
+    },
+    {
+      "id": "quest-recovery",
+      "command": [
+        "python3",
+        "scripts/quest-python-tests.py",
+        "recovery"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 1
+    },
+    {
+      "id": "quest-native",
+      "command": [
+        "python3",
+        "scripts/quest-native-tests.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 2
+    },
+    {
+      "id": "quest-weaver",
+      "command": [
+        "bash",
+        "scripts/quest-weaver-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 2
+    },
+    {
+      "id": "town-grant-lifecycle",
+      "command": [
+        "python3",
+        "scripts/check-town-grant-lifecycle.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 2
+    },
+    {
+      "id": "figure-distance-runtime",
+      "command": [
+        "python3",
+        "scripts/check-figure-distance-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 80
+    },
+    {
+      "id": "town-palm-render",
+      "command": [
+        "python3",
+        "scripts/check-town-palm-render.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
+    },
+    {
+      "id": "scenario-card-preparation",
+      "command": [
+        "python3",
+        "scripts/check-scenario-card-preparation.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 90
+    },
+    {
+      "id": "card-mip",
+      "command": [
+        "python3",
+        "scripts/check-card-mip.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 5
+    },
+    {
+      "id": "wall-maintenance-trace",
+      "command": [
+        "python3",
+        "scripts/check-wall-maintenance-trace.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 4
+    },
+    {
+      "id": "graphics-profiles",
+      "command": [
+        "python3",
+        "scripts/check-graphics-profiles.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 5
+    },
+    {
+      "id": "actor-bar-depth-runtime",
+      "command": [
+        "python3",
+        "scripts/check-actor-bar-depth-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 90
+    },
+    {
+      "id": "player-settings-help",
+      "command": [
+        "python3",
+        "scripts/check-player-settings-help.py",
+        "--self-test"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 5
+    },
+    {
+      "id": "options-notes-runtime",
+      "command": [
+        "python3",
+        "scripts/check-options-notes-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 60
+    },
+    {
+      "id": "arch-mounted-runtime",
+      "command": [
+        "python3",
+        "scripts/check-arch-mounted-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 5
+    },
+    {
+      "id": "wrist-board-runtime",
+      "command": [
+        "python3",
+        "scripts/check-wrist-board-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 20
+    },
+    {
+      "id": "town-window-map-switch",
+      "command": [
+        "bash",
+        "scripts/town-window-map-switch-tests.sh"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 5
+    },
+    {
+      "id": "town-temple-tooltip",
+      "command": [
+        "python3",
+        "scripts/check-town-temple-tooltip.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 95
+    },
+    {
+      "id": "town-merchant-control",
+      "command": [
+        "python3",
+        "scripts/check-town-merchant-control.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 50
+    },
+    {
+      "id": "town-native-state623",
+      "command": [
+        "python3",
+        "scripts/check-town-native-state623.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 2
+    },
+    {
+      "id": "town-onboarding",
+      "command": [
+        "bash",
+        "scripts/town-onboarding-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 20
+    },
+    {
+      "id": "merchant-tutorial-text",
+      "command": [
+        "bash",
+        "scripts/merchant-tutorial-text-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 12
+    },
+    {
+      "id": "town-window-close",
+      "command": [
+        "bash",
+        "scripts/town-window-close-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 7
+    },
+    {
+      "id": "shared-ui-window-runtime",
+      "command": [
+        "python3",
+        "scripts/check-shared-ui-window-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 40
+    },
+    {
+      "id": "environment-bank-assets",
+      "command": [
+        "python3",
+        "scripts/check-environment-bank.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 25
+    },
+    {
+      "id": "terrain-budget-runtime",
+      "command": [
+        "python3",
+        "scripts/check-terrain-budget-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 100
+    },
+    {
+      "id": "remote-mirror-read-runtime",
+      "command": [
+        "python3",
+        "scripts/check-remote-mirror-read-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 40
+    },
+    {
+      "id": "render-quality-runtime",
+      "command": [
+        "python3",
+        "scripts/check-render-quality-runtime.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 35
+    },
+    {
+      "id": "town-first-picture632",
+      "command": [
+        "python3",
+        "scripts/check-town-first-picture632.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 90
+    },
+    {
+      "id": "town-quiet-controller",
+      "command": [
+        "python3",
+        "scripts/check-town-quiet-controller.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 75
+    },
+    {
+      "id": "material-catalog",
+      "command": [
+        "python3",
+        "scripts/check-material-catalog.py"
+      ],
+      "groups": [
+        "source",
+        "local",
+        "ci"
+      ],
+      "weight": 2
+    },
+    {
+      "id": "world-material-shader",
+      "command": [
+        "python3",
+        "scripts/check-world-material-shader.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 90
+    },
+    {
+      "id": "world-material-runtime",
+      "command": [
+        "python3",
+        "scripts/check-world-material-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 75
+    },
+    {
+      "id": "remote-second-card638-runtime",
+      "command": [
+        "python3",
+        "scripts/check-remote-second-card638-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 25
+    },
+    {
+      "id": "town-original-delivery638",
+      "command": [
+        "python3",
+        "scripts/check-town-original-delivery638.py",
+        "--controls"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 15
+    },
+    {
+      "id": "npc-first-picture638-dependency",
+      "command": [
+        "python3",
+        "scripts/npc-first-picture638-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 50
+    },
+    {
+      "id": "npc-first-picture638-template",
+      "command": [
+        "python3",
+        "scripts/npc-first-picture638-runtime/run.py",
+        "--case",
+        "template"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 50
+    },
+    {
+      "id": "npc-first-picture638-lifecycle",
+      "command": [
+        "python3",
+        "scripts/npc-first-picture638-runtime/run.py",
+        "--case",
+        "lifecycle"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 30
+    },
+    {
+      "id": "npc639-original-receipts",
+      "command": [
+        "python3",
+        "scripts/check-npc639-original-receipts.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 15
+    },
+    {
+      "id": "npc639-native-packed-assets",
+      "command": [
+        "python3",
+        "scripts/check-npc639-assets.py",
+        "--controls"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 60
+    },
+    {
+      "id": "npc639-map-seat",
+      "command": [
+        "python3",
+        "scripts/check-npc639-visit-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
+    },
+    {
+      "id": "npc639-temple-wrist",
+      "command": [
+        "python3",
+        "scripts/check-npc639-purse-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 40
+    },
+    {
+      "id": "npc639-mage-first-render",
+      "command": [
+        "python3",
+        "scripts/npc-first-picture639-runtime/run.py",
+        "--service",
+        "mage"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 60
+    },
+    {
+      "id": "npc639-merchant-first-render",
+      "command": [
+        "python3",
+        "scripts/npc-first-picture639-runtime/run.py",
+        "--service",
+        "merchant"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 50
+    },
+    {
+      "id": "npc639-mage-unacknowledged-reoffer",
+      "command": [
+        "python3",
+        "scripts/npc-first-picture639-runtime/run.py",
+        "--without-receipts"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 60
+    },
+    {
+      "id": "npc639-mage-inflight-replacement",
+      "command": [
+        "python3",
+        "scripts/npc-first-picture639-runtime/run.py",
+        "--prior-inflight"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 60
+    },
+    {
+      "id": "npc639-mage-loading-control",
+      "command": [
+        "python3",
+        "scripts/npc-first-picture639-runtime/run.py",
+        "--cold-observer",
+        "--expect-incomplete"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 60
+    },
+    {
+      "id": "npc639-mage-opening-control",
+      "command": [
+        "python3",
+        "scripts/npc-first-picture639-runtime/run.py",
+        "--without-opening-reservation",
+        "--expect-incomplete"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 60
+    },
+    {
+      "id": "town-hover645",
+      "command": [
+        "python3",
+        "scripts/check-town-hover645.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 45
+    },
+    {
+      "id": "native-ring645",
+      "command": [
+        "python3",
+        "scripts/npc-ring645-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 60
+    },
+    {
+      "id": "npc646-merchant-caption",
+      "command": [
+        "python3",
+        "scripts/merchant-caption646-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 45
+    },
+    {
+      "id": "npc646-mage-replacement",
+      "command": [
+        "python3",
+        "scripts/npc-admission646-runtime/run.py",
+        "--prior-inflight",
+        "--pre-offer-growth",
+        "--required35"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 60
+    },
+    {
+      "id": "npc646-mage-census",
+      "command": [
+        "python3",
+        "scripts/npc-admission646-runtime/run.py",
+        "--census-only"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 45
+    },
+    {
+      "id": "npc646-card-returns",
+      "command": [
+        "python3",
+        "scripts/npc-return646-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 40
+    },
+    {
+      "id": "native-bugfix-items",
+      "command": [
+        "python3",
+        "scripts/native-bugfix-items-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 30
+    },
+    {
+      "id": "native-bugfix-cards",
+      "command": [
+        "python3",
+        "scripts/native-bugfix-cards-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 40
+    },
+    {
+      "id": "native-bugfix-map-audit",
+      "command": [
+        "python3",
+        "scripts/check-native-bugfix-map-audit.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 10
+    },
+    {
+      "id": "wall-performance-runtime",
+      "command": [
+        "python3",
+        "scripts/check-wall-performance-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 75
+    },
+    {
+      "id": "wall-options",
+      "command": [
+        "python3",
+        "scripts/check-wall-options.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 14
+    },
+    {
+      "id": "openxr-blend-probe",
+      "command": [
+        "bash",
+        "scripts/openxr-blend-probe-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 4
+    },
+    {
+      "id": "frame-mr-presentation",
+      "command": [
+        "python3",
+        "scripts/frame-mr-presentation-tests.py",
+        "--all"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
+    },
+    {
+      "id": "frame-mr-options",
+      "command": [
+        "python3",
+        "scripts/check-frame-mr-options-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
+    },
+    {
+      "id": "npc655-card-returns",
+      "command": [
+        "python3",
+        "scripts/npc-return655-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 55
+    },
+    {
+      "id": "npc655-live-mage-census",
+      "command": [
+        "python3",
+        "scripts/npc-admission646-runtime/run.py",
+        "--live-hover-census",
+        "--withdraw-hover",
+        "--prior-inflight",
+        "--pre-offer-growth"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 55
+    },
+    {
+      "id": "locomotion-clock-runtime",
+      "command": [
+        "python3",
+        "scripts/check-locomotion-clock-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 15
+    },
+    {
+      "id": "npc655-native-hover-paint",
+      "command": [
+        "python3",
+        "scripts/npc-admission646-runtime/run.py",
+        "--paint-only"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
+    },
+    {
+      "id": "flat-confirmation-lifecycle",
+      "command": [
+        "python3",
+        "scripts/check-flat-confirmation657-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
+    },
+    {
+      "id": "seated-subtree-input",
+      "command": [
+        "python3",
+        "scripts/check-seated-subtree-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
+    },
+    {
+      "id": "npc658-card-returns",
+      "command": [
+        "python3",
+        "scripts/npc658-flight-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 55
+    },
+    {
+      "id": "npc658-full-card-first-picture",
+      "command": [
+        "python3",
+        "scripts/npc658-latency-runtime/run.py",
+        "--latency658-native",
+        "--live-hover-census",
+        "--required35"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 55
+    },
+    {
+      "id": "npc658-native-overlay-paint",
+      "command": [
+        "python3",
+        "scripts/npc658-overlay-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
+    },
+    {
+      "id": "npc658-native-overlay-old-control",
+      "command": [
+        "python3",
+        "scripts/npc658-overlay-runtime/run.py",
+        "--old-depth-source",
+        "--expect-incomplete"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
+    },
+    {
+      "id": "npc658-full-card-old-control",
+      "command": [
+        "python3",
+        "scripts/npc658-latency-runtime/run.py",
+        "--latency658-native",
+        "--latency658-old",
+        "--live-hover-census",
+        "--required35",
+        "--expect-incomplete"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 55
+    },
+    {
+      "id": "npc658-unprepared-picture-limit",
+      "command": [
+        "python3",
+        "scripts/npc658-latency-runtime/run.py",
+        "--latency658-startup",
+        "--live-hover-census",
+        "--required35",
+        "--expect-incomplete"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 55
+    },
+    {
+      "id": "npc658-different-basis-recovery",
+      "command": [
+        "python3",
+        "scripts/npc658-latency-runtime/run.py",
+        "--latency658-native",
+        "--latency658-mismatch",
+        "--live-hover-census",
+        "--required35",
+        "--expect-incomplete"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 55
+    },
+    {
+      "id": "npc660-native-material-identity",
+      "command": [
+        "python3",
+        "scripts/npc660-assets-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
+    },
+    {
+      "id": "npc660-owner-ability-body",
+      "command": [
+        "python3",
+        "scripts/npc660-delivery-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 40
+    },
+    {
+      "id": "npc660-layout-lifetime",
+      "command": [
+        "python3",
+        "scripts/npc660-lifecycle-runtime/run-motion.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 35
+    },
+    {
+      "id": "npc660-native-return-completion",
+      "command": [
+        "python3",
+        "scripts/npc660-return-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 55
+    },
+    {
+      "id": "npc660-native-panel-replacement",
+      "command": [
+        "python3",
+        "scripts/npc660-lifecycle-runtime/run-topology.py",
+        "--controls"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 40
+    },
+    {
+      "id": "npc661-offered-physical-geometry",
+      "command": [
+        "python3",
+        "scripts/npc661-geometry-runtime/run.py",
+        "--controls"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 45
+    },
+    {
+      "id": "npc661-merchant-return-front",
+      "command": [
+        "python3",
+        "scripts/npc661-merchant-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 50
+    },
+    {
+      "id": "npc661-requested-original-recovery",
+      "command": [
+        "python3",
+        "scripts/npc661-latency/run.py",
+        "--request-only",
+        "--expire-request-budget"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 60
+    },
+    {
+      "id": "npc661-return-root-packing",
+      "command": [
+        "python3",
+        "scripts/npc661-return-packing/run.py",
+        "--source-root",
+        "."
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 50
+    },
+    {
+      "id": "npc665-offered-yaw",
+      "command": [
+        "python3",
+        "scripts/npc665-yaw-runtime/run.py",
+        "--controls"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 45
+    },
+    {
+      "id": "npc665-native-summon-overlay",
+      "command": [
+        "python3",
+        "scripts/npc665-overlay-runtime/run.py",
+        "--source-root",
+        ".",
+        "--controls"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 45
+    },
+    {
+      "id": "npc665-offered-return-identity",
+      "command": [
+        "python3",
+        "scripts/npc665-return-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 55
+    },
+    {
+      "id": "npc666-native-summon-selection",
+      "command": [
+        "python3",
+        "scripts/npc666-overlay-runtime/run.py",
+        "--controls"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 55
+    },
+    {
+      "id": "npc666-native-offered-ring",
+      "command": [
+        "python3",
+        "scripts/npc666-ring-runtime/run.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 55
+    },
+    {
+      "id": "npc666-native-offered-hover",
+      "command": [
+        "python3",
+        "scripts/npc666-hover-runtime/run.py",
+        "--controls"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 55
+    },
+    {
+      "id": "map-navigation",
+      "command": [
+        "bash",
+        "scripts/map-navigation-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 15
+    },
+    {
+      "id": "town-presentation-election",
+      "command": [
+        "python3",
+        "scripts/check-town-presentation-election.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 2
+    },
+    {
+      "id": "self-update-archive",
+      "command": [
+        "bash",
+        "scripts/self-update-archive-tests.sh"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 3
+    }
+  ]
+}

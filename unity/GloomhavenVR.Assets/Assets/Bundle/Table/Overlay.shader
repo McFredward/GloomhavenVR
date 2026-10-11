@@ -38,6 +38,11 @@ Shader "GloomhavenVR/Overlay"
     Properties
     {
         _MainTex ("Texture", 2D) = "white" {}
+        // Neutral by default for all existing cards/widgets. Figure overlays opt in per
+        // submesh, retaining the original diffuse-alpha silhouette and its separate UVs.
+        _AlphaMaskTex ("Native Alpha Mask", 2D) = "white" {}
+        _UseAlphaMask ("Use Native Alpha Mask", Float) = 0
+        _AlphaMaskCutoff ("Native Alpha Cutoff", Float) = 0.5
         _Color ("Tint", Color) = (1,1,1,1)
         [Enum(UnityEngine.Rendering.CompareFunction)] _ZTest ("ZTest", Float) = 4 // LEqual
         [Enum(UnityEngine.Rendering.CullMode)] _Cull ("Cull", Float) = 0          // Off (two-sided)
@@ -64,9 +69,11 @@ Shader "GloomhavenVR/Overlay"
             #include "UnityCG.cginc"
 
             struct appdata { float4 vertex : POSITION; float2 uv : TEXCOORD0; float4 color : COLOR; };
-            struct v2f { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; fixed4 color : COLOR; };
+            struct v2f { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; fixed4 color : COLOR; float2 maskUV : TEXCOORD1; };
 
             sampler2D _MainTex; float4 _MainTex_ST;
+            sampler2D _AlphaMaskTex; float4 _AlphaMaskTex_ST;
+            float _UseAlphaMask, _AlphaMaskCutoff;
             fixed4 _Color;
             fixed _VertexColor;
 
@@ -75,6 +82,7 @@ Shader "GloomhavenVR/Overlay"
                 v2f o;
                 o.pos = UnityObjectToClipPos(v.vertex);
                 o.uv  = TRANSFORM_TEX(v.uv, _MainTex);
+                o.maskUV = TRANSFORM_TEX(v.uv, _AlphaMaskTex);
                 o.color = v.color;
                 return o;
             }
@@ -84,7 +92,16 @@ Shader "GloomhavenVR/Overlay"
                 // _VertexColor = 0 -> the SOURCE mesh's authored vertex colours cannot dim or
                 // erase an overlay that was never authored for this mesh. 1 -> historic behaviour.
                 fixed4 vc = lerp(fixed4(1,1,1,1), i.color, _VertexColor);
-                return tex2D(_MainTex, i.uv) * _Color * vc;
+                fixed4 result = tex2D(_MainTex, i.uv) * _Color * vc;
+                if (_UseAlphaMask > 0.5)
+                {
+                    fixed mask = tex2D(_AlphaMaskTex, i.maskUV).a;
+                    // Even a native cutoff of zero must reject fully transparent texels in
+                    // the colour-free depth twin. One/One blending also needs masked RGB.
+                    clip(mask - max(_AlphaMaskCutoff, 0.0001));
+                    result *= mask;
+                }
+                return result;
             }
             ENDCG
         }

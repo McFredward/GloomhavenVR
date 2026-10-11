@@ -416,9 +416,9 @@ internal static partial class ModalFallback
 
     /// <summary>
     /// The same lookup, keyed by <see cref="UIWindowID"/> — for the windows whose identity IS their
-    /// id because no singleton exposes them (the quest popup). First match wins; the id is unique
-    /// among floated windows in practice, and a second one would be a different window with the
-    /// same authored id, which nothing in this project can tell apart anyway.
+    /// id. First match wins. IDs do not distinguish the native selected and multiplayer-hover
+    /// quest popups; quest confirmation uses the manager's exact window through
+    /// <see cref="TryGetGrabFor"/> instead.
     /// </summary>
     internal static bool TryGetGrabById(UIWindowID id, out GrabbableModal? grab)
     {

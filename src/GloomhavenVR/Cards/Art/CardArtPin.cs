@@ -28,14 +28,15 @@ namespace GloomhavenVR.Cards;
 /// and which he has not seen yet, and it could never have fixed this one.</para>
 ///
 /// <para>AND THE MAP-ROOM FAN CANNOT BE FIXED THE 243 WAY, EITHER. Its front is not an adopted
-/// widget but an <c>Object.Instantiate</c> CLONE built by <c>Net.RemoteCardArt.ShowFront</c>, and a
+/// widget but an <c>Object.Instantiate</c> CLONE built by <c>Net.RemoteCardArt</c>, and a
 /// clone carries a FRESH <c>ImageLoadingContext</c>. That class's one fast path is
 /// <c>_lastState == FinishedSuccessfully</c> ON THE SAME CONTEXT (ImageLoadingContext.cs:24-29), so
-/// a clone can never inherit another widget's warmth. Worse, the clone is not even BUILT until the
-/// fan opens: <c>MapRoomHand.PrintPendingFaces</c> requires <c>activeInHierarchy</c>, and its own
-/// comment records why that deferral is a correctness point (the cloned widget's <c>OnEnable</c>
-/// must run before <c>FitClone</c> writes the final pose). Warming the widget is therefore the
-/// wrong lever for this fan. The only lever left is the one underneath every context: the asset.</para>
+/// a clone can never inherit another widget's warmth. At ModBuild 244 the clone was also built
+/// only when the fan opened. The later map-hand CPU prewarm builds that same future clone under an
+/// inactive host across several frames, but its <c>OnEnable</c> and final <c>FitClone</c> still run
+/// only after the slab enters the active hierarchy. Warming a different widget remains the wrong
+/// lever for asynchronous artwork; this asset pin supplies the class sprites underneath every
+/// fresh context. It does not duplicate a card texture or a rendered face.</para>
 ///
 /// <para>WHAT THIS DOES, AND WHY IT IS SMALL. Every sprite behind the grey slab is a CLASS asset,
 /// not a card asset — <c>FullAbilityCard.ShowCard</c> loads <c>_skin.TitleSprite</c> (twice: header
@@ -51,21 +52,24 @@ namespace GloomhavenVR.Cards;
 ///
 /// <para>THE COST, MEASURED FROM THE GAME'S OWN ASSETS RATHER THAN ESTIMATED: on this party the
 /// three keys are <c>AC_&lt;Class&gt;_Background</c> 1254x1916 and two 1085x651 halves, i.e. about
-/// 4 MB compressed per class. The map-room fan shows ONE character at a time and a scenario hand is
-/// one class, so the resident set is three keys, not three per card and not three per party
-/// member. Nothing is copied, nothing is cached here, and the handles are released on the edges
-/// below — the pin is a REFERENCE on an asset the game was going to load anyway, held a few seconds
-/// earlier and a few seconds longer.</para>
+/// 4 MB compressed per class. One local hand needs three keys; a multiplayer map
+/// can pin one such set per distinct displayed class because remote map fans pin
+/// their public class before opening. The set is bounded by party classes rather
+/// than by card count or frames. Nothing is copied; the handles below are
+/// REFERENCES on assets the game will load, held a few seconds earlier and longer.</para>
 ///
-/// <para>WHAT IS DELIBERATELY NOT PINNED: the HIGHLIGHT / SELECTED / DISABLED state sprites that
+/// <para>WHAT THE ORDINARY FIRST-FAN PIN DOES NOT LOAD: the HIGHLIGHT / SELECTED / DISABLED state sprites that
 /// <c>SetSkin(selected: true)</c> swaps in. They are the same size again, four per half, and none of
 /// them is on screen when the fan opens — the defect is the card's FIRST drawn frame. Pinning them
 /// would triple the resident set to remove a hitch nobody has reported on a hover. If a state swap
-/// ever reads grey, this is the line to change and the reason it was not.</para>
+/// ever reads grey, this is the line to change and the reason it was not. ScenarioCardPreparation
+/// now additionally prepares those original states during the loading gate: the Build616 capture
+/// identifies a 172ms later class switch, beyond the original first-drawn-frame defect.</para>
 ///
 /// <para>MULTIPLAYER: nothing here goes near the wire, and no game state is written. It asks
 /// Addressables for an asset by GUID and releases it again; the game's own loaders, contexts and
-/// reference counts are untouched, and card identity still never leaves this machine.</para>
+/// reference counts are untouched, and card identity still never leaves this machine. Remote
+/// fan callers must still pass RevealGate's map-phase public-front predicate before pinning.</para>
 /// </summary>
 internal static class CardArtPin
 {
@@ -179,9 +183,9 @@ internal static class CardArtPin
                           + "back to the game's own reference counting; nothing here held a copy.");
     }
 
-    private static void PinReference(ReferenceToSprite? reference)
+    internal static void PinReference(ReferenceToSprite? reference)
     {
-        if (reference == null)
+        if (s_disabled || reference == null)
             return;
         // A skin field can carry a plain Sprite instead of an addressable (ReferenceToSprite's
         // SetSpriteInsteadAddressable path, which the long-rest card uses). Already in memory by
@@ -207,6 +211,20 @@ internal static class CardArtPin
         }
         Held[guid] = handle;
         s_pinned++;
+    }
+
+    /// <summary>Observe only our own GUID handle or the native direct-sprite field. Never
+    /// call ReferenceToSprite.GetAsyncSprite: that mutates the game's loading request.</summary>
+    internal static Sprite? PreparedSprite(ReferenceToSprite reference, out bool pending)
+    {
+        pending = false;
+        if (reference.InitializedWithSpecialSprite) return reference.SpecialSprite;
+        AssetReferenceSprite assetRef = reference.SpriteReference;
+        if (assetRef == null || string.IsNullOrEmpty(assetRef.AssetGUID)
+            || !Held.TryGetValue(assetRef.AssetGUID, out AsyncOperationHandle<Sprite> handle)
+            || !handle.IsValid()) return null;
+        pending = !handle.IsDone;
+        return handle.IsDone && handle.Status == AsyncOperationStatus.Succeeded ? handle.Result : null;
     }
 
     private static void Disable(string doing, System.Exception ex)

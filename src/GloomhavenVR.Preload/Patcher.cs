@@ -82,6 +82,12 @@ public static class Patcher
     {
         try
         {
+            if (!FrameLaunchOptIn.AllowsCurrentLaunch(Paths.BepInExRootPath))
+            {
+                Log.LogInfo("Steam Frame flat launch: VR starter argument absent; skipping XR assets and graphics changes.");
+                return;
+            }
+
             if (!IsVREnabledInConfig())
             {
                 Log.LogInfo("[General] Enabled = false in dev.gloomhavenvr.cfg — skipping OpenXR runtime asset install (game stays vanilla).");
@@ -497,6 +503,16 @@ public static class Patcher
 
         try
         {
+            // A steam://rungameid relaunch starts the ORIGINAL Gloomhaven library entry. That
+            // entry intentionally has no VR opt-in argument or Wine DLL override on Steam Frame.
+            // Re-entering it after this process exits would silently land the player in flat mode.
+            if (FrameLaunchOptIn.MarkerExists(Paths.BepInExRootPath))
+            {
+                Log.LogWarning($"Graphics jobs: Steam Frame VR starter must be launched manually "
+                               + $"after this first configuration change. {manual}");
+                return;
+            }
+
             if (!ReadConfigFlag("Core", "AutoRestartForGraphicsJobs", defaultValue: true))
             {
                 Log.LogWarning($"Graphics jobs: {manual} (Restarting for you is switched off in "

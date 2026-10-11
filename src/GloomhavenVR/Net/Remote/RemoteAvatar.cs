@@ -212,12 +212,10 @@ internal sealed class RemoteAvatar
     private Transform? _heldCardHolder;
     private bool _heldCardBillboardLogged; // one-line confirm the receiver-side billboard fired
 
-    // SECOND held-card slab (extras extension record NetProtocol.ExtIdSecondHeldCard): the card
-    // in the sender's OTHER hand while both hands hold one. The SAME machinery as the first slab
-    // — same lazy build, same easing, same head billboard — driven from the extras stream instead
-    // of the rig packet's FlagHeldCard block. Record absent ⇒ slab hidden; peer stale/left ⇒ the
-    // whole root (both slabs) is destroyed; no state survives a scenario load because the avatar
-    // itself does not.
+    // SECOND held-card slab: same lazy build, easing, size and billboard as slot1.
+    // Atomic rig record111 supplies pose/source/grip with the tracked wrists. Legacy
+    // record10 is accepted only before that authority is established. Explicit rig
+    // absence hides the slab; stale peer/scene cleanup destroys the entire proxy.
     private Transform? _secondCardHolder;
     private bool _hasSecondHeldCard;
 
@@ -227,6 +225,8 @@ internal sealed class RemoteAvatar
     private byte _heldCardGripMask;
     private bool _loggedHeldCardRigid;
     private RigPose _secondHeldCardPose;
+    private bool _hasAtomicSecondHeldCardState;
+    private bool _atomicPrimaryHeld, _atomicPrimaryLeft;
 
     /// <summary>Seconds since the last accepted packet (staleness bookkeeping).</summary>
     public float TimeSinceUpdate { get; private set; }
@@ -294,6 +294,27 @@ internal sealed class RemoteAvatar
             : null;
         Transform? palm = rig != null ? rig.PalmCenter : null;
         return palm != null ? palm : null; // Unity-null collapse: a destroyed anchor reads as null
+    }
+
+    /// <summary>The same prefab's actual wrist and index tip used by the
+    /// owner's town-cloth collider. Hand styles place the wrist at different
+    /// distances from the palm, so a fixed palm-forward guess is not 1:1.
+    /// Both lookups are direct rig references, including after a style rebuild;
+    /// no hierarchy search or extra wire data is needed per frame.</summary>
+    public Transform? WristAnchorFor(Transform holder)
+    {
+        HandRig? rig = ReferenceEquals(holder, _leftHolder) ? _leftRig
+            : ReferenceEquals(holder, _rightHolder) ? _rightRig : null;
+        Transform? wrist = rig != null ? rig.Wrist : null;
+        return wrist != null ? wrist : null;
+    }
+
+    public Transform? IndexTipAnchorFor(Transform holder)
+    {
+        HandRig? rig = ReferenceEquals(holder, _leftHolder) ? _leftRig
+            : ReferenceEquals(holder, _rightHolder) ? _rightRig : null;
+        Transform? tip = rig != null ? rig.IndexTip : null;
+        return tip != null ? tip : null;
     }
 
     /// <summary>Stable per-player tint (matches the head/hand tint).</summary>
@@ -366,6 +387,11 @@ internal sealed class RemoteAvatar
     /// "names nothing". Never a card identity.</summary>
     private byte _heldFaceCode;
     private int _heldFaceActorId, _secondHeldFaceActorId;
+    private TownItemHeldSource? _heldTownItem, _secondHeldTownItem;
+    internal TownItemHeldSource? HeldTownItemSource(int slot) => slot == 1 ? _heldTownItem : slot == 2 ? _secondHeldTownItem : null;
+    internal bool HoldsTownStock(int itemId) => !RevealGate.InScenario
+        && (_target.HasHeldCard && _heldTownItem.HasValue && _heldTownItem.Value.Kind == TownItemHeldSource.Stock && _heldTownItem.Value.ItemId == itemId
+            || _hasSecondHeldCard && _secondHeldTownItem.HasValue && _secondHeldTownItem.Value.Kind == TownItemHeldSource.Stock && _secondHeldTownItem.Value.ItemId == itemId);
     private uint _heldMapKey, _secondHeldMapKey;
     private byte _heldMapArcSeat, _secondHeldMapArcSeat;
     internal byte HeldFaceMapArcSeat(int slot) => slot == 1 ? _heldMapArcSeat : _secondHeldMapArcSeat;
@@ -408,6 +434,7 @@ internal sealed class RemoteAvatar
 
     /// <summary>How many entries of <see cref="FanArcOrder"/> are valid. 0 when none.</summary>
     internal int FanArcOrderCount { get; private set; }
+    internal int MapLoadoutCount { get; private set; }
 
     /// <summary>Owner's insertion marker/gap in this same count/order snapshot; -1 inactive.</summary>
     internal int FanInsertionGap { get; private set; } = -1;
@@ -676,6 +703,19 @@ internal sealed class RemoteAvatar
     {
         rawSeat = -1;
         listLength = 0;
+        TownItemHeldSource? town = HeldTownItemSource(poseSlot);
+        if (!RevealGate.InScenario && town.HasValue)
+        {
+            TownItemHeldSource source = town.Value;
+            // The held source survives fan focus changes. A different active fan must not
+            // withdraw this seat, but the immutable held face itself remains addressable.
+            if (source.Kind != TownItemHeldSource.Owned || !RemoteMapRoom.TryGetPeerFanCharacterKey(PlayerId, out uint key)
+                || key != source.CharacterKey) return false;
+            var items = WorldUI.MapRoom.MapRoomHand.ResolveMerchantItems(source.CharacterKey);
+            if (items == null || items.Count != source.Count || source.Seat >= items.Count
+                || items[source.Seat] == null || items[source.Seat].ID != source.ItemId) return false;
+            rawSeat = source.Seat; listLength = source.Count; return true;
+        }
         byte code = poseSlot == 1 ? _heldFaceCode : poseSlot == 2 ? _secondHeldFaceCode : (byte)0;
         if (!HeldSlotMatchesBoard(poseSlot) || !NetProtocol.HeldFaceNamesCard(code)
             || NetProtocol.HeldFaceList(code) != NetProtocol.HeldFaceListItems)
@@ -1334,6 +1374,7 @@ internal sealed class RemoteAvatar
     /// is deliberate: FOLLOW is the un-accented default look every previous build already drew.
     /// </summary>
     public bool TrayPinned { get; private set; }
+    public bool WristBoard => _boardPose.WristBoard;
 
     /// <summary>Index of the card the sender is SINGLING OUT in their hand fan, or -1. A position,
     /// never an identity (extension record 6); -1 both when nothing is lifted and when the sender
@@ -1576,11 +1617,13 @@ internal sealed class RemoteAvatar
     public void SetTarget(in AvatarState state)
     {
         _target = state;
+        AcceptSecondHeldCardRig(in state);
         _boardPose.AcceptRig(in state);
+        _heldTownItem = state.HasHeldCard ? state.HeldTownItem : null;
         _heldMapKey = state.HasHeldCard && state.HasHeldMapCard ? state.HeldMapKey : 0;
         _heldMapArcSeat = state.HeldMapArcSeat;
         _heldMapPoolSeat = state.HeldMapPoolSeat; _heldMapPoolCount = state.HeldMapPoolCount;
-        _heldFaceAddressReady = state.HasHeldCard && (state.HasHeldCardFace || state.HasHeldMapCard);
+        _heldFaceAddressReady = state.HasHeldCard && (state.HasHeldCardFace || state.HasHeldMapCard || state.HeldTownItem.HasValue);
         _heldFaceActorId = _heldFaceAddressReady ? state.HeldFaceActorId : 0;
         _heldFaceCode = _heldFaceAddressReady ? state.HeldFaceCode : (byte)0;
         _heldFaceCount = _heldFaceAddressReady ? state.HeldFaceCount : (byte)0;
@@ -1631,6 +1674,49 @@ internal sealed class RemoteAvatar
         }
     }
 
+    private void AcceptSecondHeldCardRig(in AvatarState state)
+    {
+        if (!state.HasSecondHeldCardState) return;
+        // Left-first slot assignment can change when the other hand grabs/releases.
+        // That is a different physical card, not motion across the space between wrists.
+        if (_hasAtomicSecondHeldCardState && _atomicPrimaryHeld && state.HasHeldCard
+            && _atomicPrimaryLeft != state.PrimaryHeldCardLeft && _heldCardHolder != null)
+            _heldCardHolder.gameObject.SetActive(false);
+        _atomicPrimaryHeld = state.HasHeldCard;
+        _atomicPrimaryLeft = state.PrimaryHeldCardLeft;
+        _hasAtomicSecondHeldCardState = true;
+        _hasSecondHeldCard = state.HasSecondHeldCard;
+        _heldCardGripMask = state.HeldCardGripMask;
+        _secondHeldCardPose = state.SecondHeldCardPose;
+        _secondHeldTownItem = state.HasSecondHeldCard ? state.SecondHeldTownItem : null;
+        _secondHeldFaceAddressReady = state.HasSecondHeldCard && (state.HasSecondHeldCardFace
+            || state.HasSecondHeldMapCard || state.SecondHeldTownItem.HasValue);
+        _secondHeldFaceActorId = state.SecondHeldFaceActorId;
+        _secondHeldMapKey = state.HasSecondHeldCard && state.HasSecondHeldMapCard ? state.SecondHeldMapKey : 0;
+        _secondHeldMapArcSeat = state.SecondHeldMapArcSeat;
+        _secondHeldMapPoolSeat = state.SecondHeldMapPoolSeat;
+        _secondHeldMapPoolCount = state.SecondHeldMapPoolCount;
+        _secondHeldFaceCode = state.HasSecondHeldCardFace ? state.SecondHeldFaceCode : (byte)0;
+        _secondHeldFaceCount = state.HasSecondHeldCardFace ? state.SecondHeldFaceCount : (byte)0;
+    }
+
+    private void AcceptSecondHeldCardExtras(in PresenceState p)
+    {
+        if (_hasAtomicSecondHeldCardState) return;
+        _hasSecondHeldCard = p.HasSecondHeldCard;
+        _heldCardGripMask = p.HasHeldCardGrip ? p.HeldCardGripMask : (byte)0;
+        if (p.HasSecondHeldCard) _secondHeldCardPose = p.SecondHeldCardPose;
+        _secondHeldTownItem = p.HasSecondHeldCard ? p.HeldTownItem : null;
+        _secondHeldFaceAddressReady = p.HasSecondHeldCard && (p.HasHeldCardFace || p.HasHeldMapCard || p.HeldTownItem.HasValue);
+        _secondHeldFaceActorId = p.SecondHeldFaceActorId;
+        _secondHeldMapKey = p.HasSecondHeldCard && p.HasHeldMapCard ? p.HeldMapKey : 0;
+        _secondHeldMapArcSeat = p.HeldMapArcSeat;
+        _secondHeldMapPoolSeat = p.HeldMapPoolSeat;
+        _secondHeldMapPoolCount = p.HeldMapPoolCount;
+        _secondHeldFaceCode = p.HasHeldCardFace ? p.SecondHeldFaceCode : (byte)0;
+        _secondHeldFaceCount = p.HasHeldCardFace ? p.SecondHeldFaceCount : (byte)0;
+    }
+
     /// <summary>Accept a freshly-decoded EXTRAS packet (board pose + hand count + dominant hand).
     /// Poses are already in world frame (converted by the driver).</summary>
     public void SetExtras(in PresenceState p)
@@ -1644,6 +1730,7 @@ internal sealed class RemoteAvatar
         // exactly like every other optional record here: a sender that omits it leaves the previous
         // answer standing for one packet at most, because the count above moves with it and the
         // consumer re-belts the pair every frame.
+        MapLoadoutCount = p.MapLoadoutCount;
         FanArcOrder = p.HasFanArcOrder ? p.FanArcOrder : null;
         FanArcOrderCount = p.HasFanArcOrder ? p.FanArcOrderCount : 0;
         FanInsertionGap = p.HasFanInsertionGap ? p.FanInsertionGap : -1;
@@ -1666,20 +1753,9 @@ internal sealed class RemoteAvatar
             SecondHeldFigureActorId = 0;
         }
 
-        // SECOND HELD CARD (extension record 10): the card in the sender's other hand while both
-        // hold one, rendered by the same slab machinery the rig packet's held card uses
-        // (UpdateCardSlab in Tick). Absent ⇒ at most one card held — which is also exactly what a
-        // peer predating the record (or on build 49's documented compromise) sends — so a plain
-        // reset is right in both cases: the slab hides, and the FIRST card's slab (rig packet) is
-        // untouched.
-        _hasSecondHeldCard = p.HasSecondHeldCard;
-        // Record 34, and the absence of it is meaningful: a packet without the record says both
-        // held cards billboard. Written unconditionally from the parsed state for that reason -
-        // latching the last non-zero mask would leave a card frozen mid-turn after its owner let
-        // the grip go.
-        _heldCardGripMask = p.HasHeldCardGrip ? p.HeldCardGripMask : (byte)0;
-        if (p.HasSecondHeldCard)
-            _secondHeldCardPose = p.SecondHeldCardPose;
+        // Legacy slot2 remains available until this peer sends its compact atomic
+        // rig state. Later fragmented presence cannot rewind either held card.
+        AcceptSecondHeldCardExtras(in p);
 
         // Head-mask SIZE: the sender's own multiplier rides the wire (trailing-block byte A bit 4),
         // so their mask is the same size on every client — the project's standing MP rule that what
@@ -1823,20 +1899,6 @@ internal sealed class RemoteAvatar
         // WITHOUT the record says "nothing is playable here", and latching the last non-zero mask
         // would leave a mirrored arc pulsing for a board whose turn has ended.
         ItemUsableMask = p.HasItemUsable ? p.ItemUsableMask : (ushort)0;
-
-        // HELD-CARD FACE (extension record 36): which card each held-card POSE SLOT is showing, as
-        // a source-list id plus a POSITION in a list this client already holds. Written
-        // unconditionally for the same reason as the grip mask beside it: the ABSENCE of the record
-        // is the statement "these slabs name nothing", and a latched code would keep a front on a
-        // card its owner has already put down.
-        // Slot 1 belongs to the rig pose; slower extras must never overwrite its address.
-        _secondHeldFaceAddressReady = p.HasSecondHeldCard && (p.HasHeldCardFace || p.HasHeldMapCard);
-        _secondHeldFaceActorId = p.SecondHeldFaceActorId;
-        _secondHeldMapKey = p.HasSecondHeldCard && p.HasHeldMapCard ? p.HeldMapKey : 0;
-        _secondHeldMapArcSeat = p.HeldMapArcSeat;
-        _secondHeldMapPoolSeat = p.HeldMapPoolSeat; _secondHeldMapPoolCount = p.HeldMapPoolCount;
-        _secondHeldFaceCode = p.HasHeldCardFace ? p.SecondHeldFaceCode : (byte)0;
-        _secondHeldFaceCount = p.HasHeldCardFace ? p.SecondHeldFaceCount : (byte)0;
 
         // SHORT-REST SACRIFICE SEAT (extension record 39): which round recess holds the sender's
         // sacrifice and where that card sits in their discard arc. Written unconditionally for the
@@ -2532,10 +2594,9 @@ internal sealed class RemoteAvatar
             UpdateHeldCard(k);
         }
 
-        // SECOND held-card slab (extras extension record 10): driven off the EXTRAS stream, so it
-        // ticks OUTSIDE the rig-target guard — the record can legitimately arrive before the first
-        // rig packet, and the slab must not wait for one. Same machinery as the first slab; the
-        // head billboard inside simply keeps the transmitted rotation until a synced head exists.
+        // Slot2 shares the rig clock with slot1. Tick outside the target guard only
+        // for legacy record10, which may arrive before a peer's first rig packet.
+        // Both cards keep the same existing size, easing, face and billboard path.
         UpdateCardSlab(ref _secondCardHolder, "HeldCard2",
                        _hasSecondHeldCard, in _secondHeldCardPose, k,
                        HeldCardSizing.OwnerHeldCard,
@@ -2702,9 +2763,8 @@ internal sealed class RemoteAvatar
     /// One card-slab's whole per-frame life: lazy build on first use, ease toward the transmitted
     /// pose, hide while nothing is held, and re-derive the billboard. Parameterized over the
     /// holder/mesh pair so the FIRST held card (rig packet <see cref="NetProtocol.FlagHeldCard"/>)
-    /// and the SECOND one (extras extension record
-    /// <see cref="NetProtocol.ExtIdSecondHeldCard"/> — the card in the sender's other hand while
-    /// both hold one) share every line of this machinery instead of duplicating it. NOTE the
+    /// and the SECOND one (atomic rig record111, with extras record10 as a legacy fallback)
+    /// share every line of this machinery instead of duplicating it. NOTE the
     /// placement contract this shape encodes, which is also why record 10 needs no hand byte: the
     /// slab is rendered at the ABSOLUTE transmitted pose under the avatar root — it is never
     /// parented to a hand holder, and no hand transform is consulted anywhere below.

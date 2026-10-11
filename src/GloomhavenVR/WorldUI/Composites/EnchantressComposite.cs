@@ -342,6 +342,12 @@ internal static class EnchantressComposite
         // re-armed terms should eventually be merged.
         CharacterUiOperability.Tick();
 
+        if (TownServicePresentation.UsesImmersiveEnhancement)
+        {
+            Release("the immersive resident owns the original card chooser");
+            Wait(string.Empty);
+            return;
+        }
         UIWindow? shop = ShopWindow();
 
         // ---- the four preconditions, in the order in which they can first be false -------------

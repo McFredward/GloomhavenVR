@@ -64,6 +64,7 @@ internal sealed class CardArtWatch
     /// <summary>The sprite each watched Image carried at the last <see cref="Poll"/>. Parallel to
     /// <see cref="_images"/>.</summary>
     private Sprite?[]? _sprites;
+    private Sprite?[]? _overrides;
 
     /// <summary>Running VRAM total at the last logged line — see <see cref="LogStepBytes"/>.</summary>
     private static long s_lastBudgetLoggedBytes = -1;
@@ -84,6 +85,7 @@ internal sealed class CardArtWatch
     {
         _images = null;
         _sprites = null;
+        _overrides = null;
         if (root == null)
             return;
         try
@@ -92,10 +94,15 @@ internal sealed class CardArtWatch
             // and the game toggles face sub-widgets (enhancement slots, XP orbs) at will.
             Image[] images = root.GetComponentsInChildren<Image>(includeInactive: true);
             var sprites = new Sprite?[images.Length];
+            var overrides = new Sprite?[images.Length];
             for (int i = 0; i < images.Length; i++)
+            {
                 sprites[i] = images[i] != null ? images[i].sprite : null;
+                overrides[i] = images[i] != null ? images[i].overrideSprite : null;
+            }
             _images = images;
             _sprites = sprites;
+            _overrides = overrides;
         }
         catch (System.Exception ex)
         {
@@ -109,6 +116,7 @@ internal sealed class CardArtWatch
     {
         _images = null;
         _sprites = null;
+        _overrides = null;
     }
 
     /// <summary>
@@ -123,7 +131,9 @@ internal sealed class CardArtWatch
             return 0;
         Image[]? images = _images;
         Sprite?[]? seen = _sprites;
-        if (images == null || seen == null || images.Length != seen.Length)
+        Sprite?[]? overrides = _overrides;
+        if (images == null || seen == null || overrides == null || images.Length != seen.Length
+            || images.Length != overrides.Length)
             return 0;
 
         long before = CardFaceMipBake.BakedVramBytes;
@@ -136,20 +146,13 @@ internal sealed class CardArtWatch
                 if (img == null)
                     continue;
                 Sprite? now = img.sprite;
-                if (ReferenceEquals(now, seen[i]))
+                if (ReferenceEquals(now, seen[i]) && ReferenceEquals(img.overrideSprite, overrides[i]))
                     continue; // unchanged — the overwhelmingly common case, one compare
-                if (now != null && !CardFaceMipBake.IsBakedSprite(now))
-                {
-                    Sprite? replacement = CardFaceMipBake.ReplacementFor(now);
-                    if (replacement != null)
-                    {
-                        img.sprite = replacement;
-                        swapped++;
-                    }
-                }
+                swapped += CardFaceMipBake.ApplyTo(img);
                 // Snapshot what the Image ACTUALLY carries now — our replacement, or the original
                 // when the bake refused this sprite. Either way it is asked about exactly once.
                 seen[i] = img.sprite;
+                overrides[i] = img.overrideSprite;
             }
         }
         catch (System.Exception ex)

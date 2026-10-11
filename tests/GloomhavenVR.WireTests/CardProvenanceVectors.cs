@@ -85,8 +85,8 @@ internal static class CardProvenanceVectors
         t.True(avatar.Contains("HeldSlotMatchesBoard(1) && NetProtocol.HeldFaceNamesCard")
             && avatar.Contains("HeldSlotMatchesBoard(2) && NetProtocol.HeldFaceNamesCard"),
             "old-character hold cannot hide new-character arc seats");
-        t.True(avatar.Contains("state.HasHeldCard && (state.HasHeldCardFace || state.HasHeldMapCard)")
-            && avatar.Contains("p.HasSecondHeldCard && (p.HasHeldCardFace || p.HasHeldMapCard)"),
+        t.True(avatar.Contains("state.HasHeldCard && (state.HasHeldCardFace || state.HasHeldMapCard || state.HeldTownItem.HasValue)")
+            && avatar.Contains("p.HasSecondHeldCard && (p.HasHeldCardFace || p.HasHeldMapCard || p.HeldTownItem.HasValue)"),
             "both consumers admit map-only provenance after a held card leaves the loadout");
         string driver = File.ReadAllText(Path.Combine(root, "src/GloomhavenVR/Net/Avatar/NetAvatarDriver.CardAppearance.cs"));
         t.True(driver.Contains("if (!changed) _appearanceSnapshot = new CardAppearanceSnapshot(now, states);"),

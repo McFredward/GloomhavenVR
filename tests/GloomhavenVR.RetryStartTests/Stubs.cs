@@ -89,6 +89,18 @@ namespace GloomhavenVR.Cards
         internal PlayTray() { Bind(); }
         internal void Bind() { _retryScenarioOwner = Choreographer.s_Choreographer; _anchorParent = Rig.VRRigDriver.RigRoot; }
         private bool _placed = true, _everPlaced = true;
+        // External boundary only: the complete production wrist placement is exercised by
+        // wrist-board-runtime in Unity. This retry fixture observes delegation and ownership;
+        // it deliberately does not synthesize or claim to prove a tracked wrist pose.
+        internal bool WristRequested;
+        internal bool WristControlsHidden;
+        private bool WantsWrist => WristRequested;
+        internal int WristBoundaryTicks;
+        private bool TickWristAnchor()
+        {
+            WristBoundaryTicks++;
+            return WantsWrist || WristControlsHidden;
+        }
         private sealed class Handle { internal bool IsGrabbed = false; }
         private Handle? _handle = new();
         private string? _pinHousekeepingMove;

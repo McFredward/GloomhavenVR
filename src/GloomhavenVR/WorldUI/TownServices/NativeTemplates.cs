@@ -1,0 +1,519 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using AsmodeeNet.Foundation;
+using GloomhavenVR.Net;
+using GloomhavenVR.Net.TownServices;
+using ScenarioRuleLibrary;
+using TMPro;
+using UnityEngine;
+using UnityEngine.UI;
+using Object = UnityEngine.Object;
+
+namespace GloomhavenVR.WorldUI;
+
+/// <summary>Canonical original prefab provenance for town widgets. The bank owns only inactive,
+/// neutralized copies; a visitor's gameplay window is never opened to build another visitor's UI.</summary>
+internal static partial class NativeTemplates
+{
+    internal sealed class Part
+    {
+        internal string Path = string.Empty;
+        internal Transform Original = null!;
+        internal readonly HashSet<Transform> Excluded = new();
+        internal Transform? NativeRingRoot;
+        internal float? NativeRingRate;
+    }
+    private sealed class Entry
+    {
+        internal Transform Original = null!;
+        internal GameObject Copy = null!;
+        internal readonly List<Part> Parts = new();
+    }
+    private static readonly Dictionary<string, Entry> Entries = new(StringComparer.Ordinal);
+    private static readonly Dictionary<Transform, string> Roots = new();
+    private static GameObject? _bank;
+    private static UIGuildmasterHUD? _hud;
+    private static bool _ready;
+    private static uint _assetGeneration;
+    private static TownServiceTray? _tray;
+    private static GameObject? _catalogNavigation, _cardBody, _mapBacking;
+    private static readonly List<GameObject> PhysicalTemplates = new();
+    internal static UITooltip? Tooltip { get; private set; }
+    internal static bool Ready => _ready && _hud != null && _bank != null;
+
+    internal static bool Initialize()
+    {
+        UIGuildmasterHUD? hud = Singleton<UIGuildmasterHUD>.Instance;
+        if (hud == null) return false;
+        if (_ready && _hud == hud && _bank != null)
+        {
+            // Network teardown may clear descriptors while the original native template bank
+            // survives. Restore immutable identities before another capture/preload can run.
+            if (_assetGeneration != TownServiceMirror.Assets.Generation)
+            { BindOriginalBackdrops(); TownServiceMirror.Assets.PreparePackedSprites(); TownServiceMirror.Assets.Scan(); }
+            PrepareEnhancementOriginals();
+            return true;
+        }
+        // Failed first preparation leaves immutable slot aliases even if native mode art
+        // changes before the retry. Build668 then rejected the banner Icon forever; its
+        // preceding empty-message failure is not identified by the supplied logs.
+        // A different HUD also retires public catalogs, publisher sources and mirror templates.
+        // The unchanged-ready fast path above never resets either lifetime.
+        if (_bank != null || _hud != null) TownServiceSync.Shutdown(resetDiagnostics: false);
+        Shutdown();
+        try { return InitializeBank(hud); }
+        catch
+        {
+            // Initialization is atomic: no partial bank or original registry may survive
+            // to poison the next native retry. Preserve the actual failure for reporting;
+            // strict different-original slot conflicts remain failures within each bank.
+            TownServiceSync.Shutdown(resetDiagnostics: false); throw;
+        }
+    }
+
+    private static bool InitializeBank(UIGuildmasterHUD hud)
+    {
+        _hud = hud;
+        _bank = new GameObject("GVR original town widget provenance"); _bank.SetActive(false);
+        Object.DontDestroyOnLoad(_bank);
+        Add("merchant", hud.shopWindow);
+        Add("merchant.inventory", hud.shopWindow.ItemInventory);
+        Add("merchant.row", hud.shopWindow.ItemInventory.slotPrefab);
+        Add("merchant.heldstock.row", hud.shopWindow.ItemInventory.slotPrefab);
+        Add("merchant.tooltip", hud.shopWindow.ItemInventory.itemTooltip);
+        UIShopItemInventory merchant = hud.shopWindow.ItemInventory;
+        Add("merchant.buy", merchant.buyTab);
+        Add("merchant.sell", merchant.sellTab);
+        Add("merchant.filter.all", merchant.allFilter);
+        Add("merchant.filter.owned", merchant._ownedFilter);
+        Add("merchant.filter.head", merchant.headFilter);
+        Add("merchant.filter.body", merchant.bodyFilter);
+        Add("merchant.filter.hands", merchant.handsFilter);
+        Add("merchant.filter.legs", merchant.legsFilter);
+        Add("merchant.filter.small", merchant.smallItemsFilter);
+        Add("merchant.exit", hud.shopWindow.exitShopButton);
+        TMP_Text? physicalFont = merchant.GetComponentInChildren<TMP_Text>(true);
+        Add("merchant.return", TownServiceMerchantCounter.Template);
+        AddPhysical("merchant.zone", TownServiceMerchantZone.CreateTemplate(physicalFont));
+        AddPhysical("merchant.offering", TownServiceMerchantZone.CreateTemplate(physicalFont));
+        AddPhysical("merchant.crank", TownServiceMerchantDrawer.CreateTemplate(physicalFont));
+        AddPhysical("merchant.cardmount", new GameObject("PhysicalCardMount"));
+        AddPhysical("merchant.cardface", TownServiceCardFace.CreateTemplate(physicalFont,
+            GLOOM.LocalizationManager.GetTranslation("GUI_ITEM_SOLDOUT")));
+        AddPhysical("merchant.heldstock", new GameObject("PhysicalCardMount"));
+        AddPhysical("merchant.rack", TownServiceMerchantDrawer.CreateHousingTemplate());
+        for (int category = 0; category < 6; category++)
+            AddPhysical("merchant.category." + category, TownServiceCatalogCategory.CreateTemplate(category));
+        Add("merchant.counter", TownServiceWorkspace.FurnitureTemplate(1));
+        Add("temple.counter", TownServiceWorkspace.FurnitureTemplate(2));
+        Add("enchant.counter", TownServiceWorkspace.FurnitureTemplate(3));
+        _cardBody = TownServiceCardBody.Create(_bank.transform);
+        Add("merchant.cardbody", _cardBody.transform);
+        Add("merchant.heldstock.body", _cardBody.transform);
+        Add("map.cardbody", OriginalMapBacking());
+        Add("temple", hud.templeWindow);
+        Add("temple.inventory", hud.templeWindow.Shop);
+        Add("temple.row", hud.templeWindow.Shop.slotPrefab);
+        Add("temple.tooltip", hud.templeWindow.Shop.tooltip);
+        Add("temple.level", hud.templeWindow.devotionLevel);
+        Add("temple.gold", hud.templeWindow.totalDonatedGold.text);
+        if (hud.templeWindow.devotionProgress.AmountTexts.Count > 0)
+            Add("temple.progress", hud.templeWindow.devotionProgress.AmountTexts[0]);
+        Add("temple.description", hud.templeWindow.helpBox.tipText);
+        Add("enchant", hud.enhancementWindow);
+        Add("enchant.inventory", hud.enhancementWindow.enhancementShop);
+        Add("enchant.row", hud.enhancementWindow.enhancementShop.slotPrefab);
+        Add("enchant.tooltip", hud.enhancementWindow.enhancementShop.tooltip);
+        Add("enchant.holder", hud.enhancementWindow.cardHolder);
+        Add("enchant.buy", hud.enhancementWindow.buyButton);
+        Add("enchant.sell", hud.enhancementWindow.sellButton);
+        Add("enchant.cards", hud.enhancementWindow.CardsDisplay);
+        Add("enchant.capacity", hud.enhancementWindow.CardsDisplay.enhancementPointsText.transform.parent);
+        Add("enchant.information", hud.enhancementWindow.cardInformationText);
+        Add("enchant.scroll", hud.enhancementWindow.CardsDisplay.abilityCardsPanel);
+        Add("enchant.cardrow", hud.enhancementWindow.CardsDisplay.slotPrefab);
+        if (hud.enhancementWindow.CardsDisplay.slotPrefab.enhancementPoints.Count > 0)
+            Add("enchant.point", hud.enhancementWindow.CardsDisplay.slotPrefab.enhancementPoints[0]);
+        if (hud.enhancementWindow.highlightAbilityPool.Count > 0)
+            Add("enchant.highlight", hud.enhancementWindow.highlightAbilityPool[0]);
+        Add("banner", hud.banner);
+        Add("item.confirm", Singleton<UIItemConfirmationBox>.Instance);
+        Add("enhance.confirm", Singleton<UIEnhancementConfirmationBox>.Instance);
+        UIItemConfirmationBox? itemConfirm = Singleton<UIItemConfirmationBox>.Instance;
+        if (itemConfirm != null) AddConfirmationParts("item.confirm", itemConfirm.titleText,
+            itemConfirm.informationText, itemConfirm.confirmButton, itemConfirm.cancelButton);
+        UIEnhancementConfirmationBox? enhancementConfirm = Singleton<UIEnhancementConfirmationBox>.Instance;
+        if (enhancementConfirm != null) AddConfirmationParts("enhance.confirm", enhancementConfirm.titleText,
+            enhancementConfirm.informationText, enhancementConfirm.confirmButton, enhancementConfirm.cancelButton,
+            enhancementConfirm.enhancementIcon, enhancementConfirm.enhancementName);
+        CanvasManager? canvases = Object.FindObjectOfType<CanvasManager>();
+        if (canvases != null && canvases.tooltipCanvas != null) Tooltip = canvases.tooltipCanvas.GetComponentInChildren<UITooltip>(true);
+        _tray = TownServiceTray.CreateTemplate(hud.shopWindow.GetComponentInChildren<TMP_Text>(true));
+        Add("tray", _tray.Root);
+        // Discover the complete immutable canonical hierarchy only after all logical roots are
+        // known, so sections and pooled rows cannot accidentally be duplicated in their parent.
+        BindOriginalBackdrops();
+        // Prepare dormant original atlas members while the native bank loads.
+        // Resources' Sprite census alone does not materialize packed Poison/Disarm.
+        // Deferring their original descriptors until a remote offer both blocked
+        // Build638's entire picture and moved this finite work onto the first draw.
+        TownServiceMirror.Assets.PreparePackedSprites(); TownServiceMirror.Assets.Scan();
+        foreach (var entry in Entries) Freeze(entry.Key, entry.Value);
+        TownServiceMirror.ResolveTemplate = Resolve;
+        TownServiceMirror.PrepareInertGeometry = PrepareInertGeometry;
+        TownServiceMirror.FinishInertPresentation = TownServiceBookInk.ApplyRemote; _ready = true;
+        PrepareEnhancementOriginals();
+        return true;
+    }
+
+    private static void Add(string key, Component? source)
+    {
+        if (source == null) return;
+        Entries.Add(key, new Entry { Original = source.transform }); Roots[source.transform] = key;
+    }
+    private static void AddConfirmationParts(string prefix, params Component[] parts)
+    {
+        for (int i = 0; i < parts.Length; i++) Add(prefix + ".part." + i, parts[i]);
+    }
+    private static void AddPhysical(string key, GameObject source)
+    {
+        source.transform.SetParent(_bank!.transform, false);
+        PhysicalTemplates.Add(source); Add(key, source.transform);
+    }
+    internal static Transform? Original(string key) => Entries.TryGetValue(key, out Entry? entry) && entry.Original != null ? entry.Original : null;
+    private static void BindOriginalBackdrops()
+    {
+        // Catalogue sprite identities precede mutable/pool-dependent template slots,
+        // including network registry resets while the native bank survives.
+        if (UIInfoTools.Instance != null)
+            TownServiceTemplateAssets.RegisterSpriteCatalog(TownServiceMirror.Assets, UIInfoTools.Instance);
+        TownServiceBackdropAssets.Register(TownServiceMirror.Assets, Original);
+        TownServiceTemplateAssets.Register(TownServiceMirror.Assets, FrozenOriginal);
+        // Lazy cards can be borrowed after the immutable static bank was built.
+        // Their pooled original references may now belong to a different visit;
+        // retained neutralized copies are the stable reset-time provenance.
+        var keys = new List<string>(Entries.Keys); keys.Sort(StringComparer.Ordinal);
+        foreach (string key in keys)
+        {
+            Transform? source = FrozenOriginal(key);
+            if (source != null) TownServiceTemplateAssets.Register(TownServiceMirror.Assets, key, source);
+        }
+        _assetGeneration = TownServiceMirror.Assets.Generation;
+    }
+    private static Transform? FrozenOriginal(string key) => Entries.TryGetValue(key, out Entry? entry)
+        ? entry.Copy != null ? entry.Copy.transform : entry.Original : null;
+    internal static bool IsBoundary(Transform node) => Roots.ContainsKey(node) || IsDynamic(node)
+        || TownServiceMerchantDrawer.IsContentRoot(node) || TownServiceCatalog.IsCardMountChild(node);
+    internal static bool IsDynamic(Transform node) => node.GetComponent<UIShopItemSlot>() != null
+        || node.GetComponent<UITempleShopSlot>() != null || node.GetComponent<UINewEnhancementShopSlot>() != null
+        || node.GetComponent<UIEnhanceCardSlot>() != null || node.GetComponent<UIEnhanceCardPoint>() != null
+        || node.GetComponent<UIEnhancementButtonHighlight>() != null || node.GetComponent<AbilityCardUI>() != null
+        || node.GetComponent<ItemCardUI>() != null;
+
+    private static void Freeze(string key, Entry entry)
+    {
+        if (_bank == null || entry.Original == null) throw new InvalidOperationException("Original town template is unavailable: " + key);
+        TownServiceNativeAssets.PrepareRoot(entry.Original);
+        TownServiceTemplateAssets.Register(TownServiceMirror.Assets, key, entry.Original);
+        entry.Copy = Object.Instantiate(entry.Original.gameObject, _bank.transform, false);
+        Prune(entry.Original, entry.Copy.transform);
+        // Keep immutable authored timing before the bank strips native callbacks.
+        // Retained frozen parts can register it again after network teardown.
+        Transform? aura = null; float rate = 0f;
+        bool ring = key == "enchant.holder" && TownServiceMirror.ReadNativeRingRate(entry.Copy.transform, out aura, out rate);
+        TownServiceNeutralize.Apply(entry.Copy);
+        TownServiceCardBody.RebindClone(key == "merchant.heldstock.body" ? "merchant.cardbody" : key, entry.Copy);
+        TownServiceAbilityBody.RebindClone(key, entry.Copy);
+        entry.Copy.SetActive(false);
+        Partition(entry.Copy.transform, string.Empty, entry.Parts);
+        if (ring && aura != null) foreach (Part part in entry.Parts)
+        {
+            bool ownsAura = aura == part.Original || aura.IsChildOf(part.Original);
+            foreach (Transform excluded in part.Excluded)
+                if (aura == excluded || aura.IsChildOf(excluded)) ownsAura = false;
+            // The shipped Aura is a non-Graphic five-node original subtree;
+            // one partition owns its isotropic mount plus all three drawings.
+            if (ownsAura)
+            { part.NativeRingRoot = aura; part.NativeRingRate = rate; }
+        }
+    }
+    private static void Prune(Transform source, Transform copy)
+    {
+        for (int i = source.childCount - 1; i >= 0; i--)
+        {
+            Transform child = source.GetChild(i), duplicate = copy.GetChild(i);
+            if (IsBoundary(child) || TownServiceBinding.GeneratedTextMesh(child))
+                Object.DestroyImmediate(duplicate.gameObject);
+            else Prune(child, duplicate);
+        }
+    }
+    private static int Count(Transform root)
+    { int count = 1; for (int i = 0; i < root.childCount; i++) count += Count(root.GetChild(i)); return count; }
+    private static void Partition(Transform root, string path, List<Part> parts)
+    {
+        var part = new Part { Path = path, Original = root }; parts.Add(part);
+        int remaining = Count(root);
+        // Partition identity is structural and identical across localized peers.
+        // Actual caption bytes/font warm-up must never choose different subtrees.
+        for (int i = root.childCount - 1; i >= 0 && remaining > 32; i--)
+        {
+            Transform child = root.GetChild(i); part.Excluded.Add(child); remaining -= Count(child);
+            Partition(child, Append(path, child), parts);
+        }
+        if (!FitsOriginalPacket(part))
+            throw new InvalidDataException("An original town widget partition exceeds the bounded presentation packet.");
+    }
+    private static bool FitsOriginalPacket(Part part)
+    {
+        using var binding = new TownServiceBinding(part.Original, part.Excluded.Contains);
+        var frame = new TownServiceFrame { Service = 3, Session = 1, Sequence = 1,
+            Module = 1, Template = 1, Structure = binding.Structure, Visible = true,
+            Nodes = binding.Read(TownServiceMirror.Assets, includeInactiveGraphics: true),
+            Pose = new[] { 0f, 0f, 0f, 0f, 0f, 0f, 1f, 1f, 1f, 1f } };
+        try
+        {
+            // Verify complete original shader/text/texture descriptors after the
+            // deterministic split. This safety check never alters partition identity.
+            // Leave room for live owner text and converted canvas headers.
+            return TownServiceCodec.Write(frame).Length <= 48000;
+        }
+        catch (InvalidDataException error) when (error.Message == "Town-service module exceeds the bounded snapshot size.")
+        { return false; }
+    }
+    internal static string Append(string path, Transform child)
+    {
+        int occurrence = 0;
+        for (int i = 0; i < child.GetSiblingIndex(); i++) if (child.parent.GetChild(i).name == child.name) occurrence++;
+        string token = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(child.name)) + ":" + occurrence;
+        return path.Length == 0 ? token : path + "/" + token;
+    }
+    internal static Transform? At(Transform root, string path)
+    {
+        if (path.Length == 0) return root;
+        foreach (string token in path.Split('/'))
+        {
+            int colon = token.LastIndexOf(':'); if (colon < 0) return null;
+            string name = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(token.Substring(0, colon)));
+            int occurrence = int.Parse(token.Substring(colon + 1), CultureInfo.InvariantCulture);
+            Transform? found = null;
+            for (int i = 0; i < root.childCount; i++)
+                if (root.GetChild(i).name == name && occurrence-- == 0) { found = root.GetChild(i); break; }
+            if (found == null) return null; root = found;
+        }
+        return root;
+    }
+    internal static IReadOnlyList<Part> Parts(string key)
+    {
+        EnsureNativeProp(key);
+        EnsureCard(key); EnsureTempleTooltip(key); EnsureTooltip(key);
+        if (!Entries.TryGetValue(key, out Entry? entry)) throw new InvalidDataException("Missing original town widget: " + key);
+        return entry.Parts;
+    }
+    internal static void PreparePhysicalPurses()
+    {
+        if (_bank == null || TownServiceDecor.MoneyBagTemplate == null) return;
+        // Fixed original props are ready before wrist reveal. Do not defer their
+        // geometry/material dependencies to the visitor's first private manifest.
+        EnsureNativeProp("ritual.purse");
+        EnsureNativeProp("ritual.purse.held");
+    }
+
+    private static void PrepareInertGeometry(string key, GameObject clone)
+    {
+        TownServiceCardBody.RebindClone(key == "merchant.heldstock.body|" || key == "merchant.heldstock.body"
+            ? "merchant.cardbody" : key, clone);
+        TownServiceInspectionBody.RebindClone(key, clone);
+        TownServiceAbilityBody.RebindClone(key, clone);
+        TownServiceWorkspacePractical.RebindClone(key, clone);
+    }
+    private static Transform? OriginalMapBacking()
+    {
+        GameObject? owned = GloomhavenVR.Cards.CardsDriver.CardBackingPrefab;
+        if (owned != null) return owned.transform;
+        // A newly joined observer may not own a character/ability-card driver.
+        // The original shared backing asset is still resident in the normal mod
+        // bundle; absence of CardsDriver is not absence of that original geometry.
+        if (_mapBacking == null)
+            _mapBacking = WorldUIAssets.TryLoadPrefab("Assets/Bundle/Table/CardBacking.prefab");
+        return _mapBacking != null ? _mapBacking.transform : null;
+    }
+    private static void EnsureNativeProp(string key)
+    {
+        Transform? source;
+        if (key.StartsWith("inspectionbody.", StringComparison.Ordinal)
+            || key.StartsWith("map.cardbody.", StringComparison.Ordinal))
+        {
+            if (Entries.ContainsKey(key)) return;
+            if (_bank == null) throw new InvalidDataException("Original item inspection bank is not ready.");
+            GameObject body = key.StartsWith("map.cardbody.", StringComparison.Ordinal)
+                ? TownServiceAbilityBody.Create(key, _bank.transform)
+                : TownServiceInspectionBody.Create(key, _bank.transform);
+            var bodyEntry = new Entry { Original = body.transform };
+            try
+            {
+                // Startup AddPhysical is frozen by Initialize's final pass. Lazy inspection
+                // geometry is requested after that pass and must partition/register now.
+                Freeze(key, bodyEntry); Entries.Add(key, bodyEntry);
+                Roots[body.transform] = key; PhysicalTemplates.Add(body); return;
+            }
+            catch
+            {
+                if (bodyEntry.Copy != null) Object.Destroy(bodyEntry.Copy);
+                Object.Destroy(body); throw;
+            }
+        }
+        if (key == "ritual.coin") source = TownServiceDecor.CoinTemplate;
+        else if (key == "ritual.purse" || key == "ritual.purse.held")
+            source = TownServiceDecor.MoneyBagTemplate;
+        else if (key == "map.cardbody") source = OriginalMapBacking();
+        else if (key.StartsWith("decor.", StringComparison.Ordinal))
+        {
+            string[] parts = key.Split('.');
+            if (parts.Length != 3 || !byte.TryParse(parts[1], out byte service) || service < 1 || service > 3
+                || !int.TryParse(parts[2], out int index) || index < 0 || index >= TownServiceDecor.StaticPropCount(service)
+                || !TownServiceDecor.TryStaticProp(service, index, out source, out string actual) || actual != key)
+                throw new InvalidDataException("Original stand decoration is still loading.");
+        }
+        else return;
+        if (source == null) throw new InvalidDataException("Original physical prop is still loading.");
+        if (Entries.TryGetValue(key, out Entry? previous) && previous.Original == source) return;
+        if (previous != null)
+        { Roots.Remove(previous.Original); Object.Destroy(previous.Copy); Entries.Remove(key); }
+        var entry = new Entry { Original = source };
+        Freeze(key, entry); Entries.Add(key, entry); Roots[source] = key;
+    }
+    internal static bool Resolve(byte service, ushort template, string address)
+    {
+        int split = address.IndexOf('|'); if (split < 1) return false;
+        string key = address.Substring(0, split), path = address.Substring(split + 1);
+        foreach (Part part in Parts(key))
+            if (part.Path == path)
+            { TownServiceMirror.RegisterTemplate(service, template, part.Original, part.Excluded.Contains, address,
+                part.NativeRingRoot, part.NativeRingRate); return true; }
+        return false;
+    }
+    internal static string CardKey(AbilityCardUI card) => "card." + card.CardID.ToString(CultureInfo.InvariantCulture);
+    private static void EnsureCard(string key)
+    {
+        bool item = key.StartsWith("item.", StringComparison.Ordinal) && key != "item.confirm";
+        bool face = key.StartsWith("face.", StringComparison.Ordinal);
+        if (Entries.ContainsKey(key) || !item && !face && !key.StartsWith("card.", StringComparison.Ordinal)) return;
+        if (!int.TryParse(key.Substring(5), NumberStyles.None, CultureInfo.InvariantCulture, out int id) || id <= 0 || ObjectPool.instance == null)
+            throw new InvalidDataException("Invalid original ability-card template identity.");
+        CAbilityCard? model = item ? null : CharacterClassManager.AllAbilityCards.Find(card => card.ID == id);
+        if (!item && model == null) throw new InvalidDataException("Original ability-card model is unavailable: " + id);
+        // Validate before entering the native pool: its missing-item path itself raises an
+        // error modal. Presentation provenance must never invoke that game continuation.
+        if (item && TownServiceNativeAssets.FindItemData(id) == null)
+            throw new InvalidDataException("Original item-card model is unavailable: " + id);
+        var holder = new GameObject("GVR inactive original service card borrow"); holder.SetActive(false);
+        holder.transform.SetParent(ObjectPool.instance.transform, false);
+        GameObject? borrowed = null;
+        ItemCardUI? borrowedItem = null;
+        CItem? previousItem = null;
+        try
+        {
+            borrowed = ObjectPool.SpawnCard(id, item ? ObjectPool.ECardType.Item : ObjectPool.ECardType.Ability, holder.transform,
+                resetLocalScale: true, resetToMiddle: true, resetLocalRotation: false, activate: false);
+            if (borrowed == null) throw new InvalidDataException("Original card borrow is unavailable: " + key);
+            if (item)
+            {
+                borrowedItem = borrowed.GetComponent<ItemCardUI>();
+                if (borrowedItem == null) throw new InvalidDataException("Original item-card widget is unavailable: " + id);
+                previousItem = borrowedItem.item;
+                // Instantiate does not preserve the native model reference reliably. Replant
+                // the validated identity on this inactive borrow only; never Show/UpdateState,
+                // never activate a gameplay controller, and never retain a pooled actor model.
+                borrowedItem.item = new CItem(id);
+            }
+            if (!item) borrowed.GetComponent<AbilityCardUI>().Init(model!, disableEventDetection: true);
+            TownServiceNativeAssets.PrepareCard(item ? null : model, item ? borrowed.GetComponent<ItemCardUI>() : null);
+            // Map hand cards expose the original FullAbilityCard subtree, without a running
+            // AbilityCardUI wrapper. Keep the template at that same subtree boundary.
+            var original = face ? borrowed.GetComponent<AbilityCardUI>().fullAbilityCard.transform : borrowed.transform;
+            var entry = new Entry { Original = original }; Freeze(key, entry); Entries.Add(key, entry);
+        }
+        finally
+        {
+            if (borrowedItem != null) borrowedItem.item = previousItem;
+            if (borrowed != null)
+            { if (item) RemoteItemCardSource.ReturnBorrowed(id, borrowed); else ObjectPool.RecycleCard(id, ObjectPool.ECardType.Ability, borrowed); }
+            Object.Destroy(holder);
+        }
+    }
+    internal static string TooltipKey(UITooltip tooltip)
+    {
+        var shape = new System.Text.StringBuilder("tooltip.");
+        if (tooltip.m_LinesTemplate == null) return shape.ToString();
+        foreach (UITooltipLines.Line line in tooltip.m_LinesTemplate.lineList)
+        {
+            if (shape.Length > 512) throw new InvalidDataException("Native tooltip exceeds the shape budget.");
+            shape.Append((int)line.style).Append(',').Append(string.IsNullOrEmpty(line.left) ? 0 : 1)
+                .Append(',').Append(string.IsNullOrEmpty(line.right) ? 0 : 1).Append(',')
+                .Append(line is UITooltipLines.ImageLine images ? images.attributes.Length : -1).Append(';');
+        }
+        return shape.ToString();
+    }
+    private static void EnsureTooltip(string key)
+    {
+        if (Entries.ContainsKey(key) || !key.StartsWith("tooltip.", StringComparison.Ordinal)) return;
+        if (Tooltip == null || _bank == null || key.Length > 520) throw new InvalidDataException("Original tooltip source is unavailable.");
+        GameObject construction = Object.Instantiate(Tooltip.gameObject, _bank.transform, false);
+        try
+        {
+            UITooltip native = construction.GetComponent<UITooltip>();
+            for (int i = construction.transform.childCount - 1; i >= 0; i--)
+            {
+                Transform child = construction.transform.GetChild(i); LayoutElement? layout = child.GetComponent<LayoutElement>();
+                if (layout == null || !layout.ignoreLayout) Object.DestroyImmediate(child.gameObject);
+            }
+            native.m_LinesTemplate = new UITooltipLines();
+            foreach (string line in key.Substring(8).Split(';'))
+            {
+                if (line.Length == 0) continue;
+                string[] values = line.Split(','); if (values.Length != 4) throw new InvalidDataException("Invalid native tooltip shape.");
+                int style = int.Parse(values[0], CultureInfo.InvariantCulture), images = int.Parse(values[3], CultureInfo.InvariantCulture);
+                if (style < 0 || style > 3 || images < -1 || images > 64) throw new InvalidDataException("Unsupported native tooltip shape.");
+                string left = values[1] == "1" ? "_" : string.Empty, right = values[2] == "1" ? "_" : string.Empty;
+                UITooltipLines.Line descriptor = images >= 0
+                    ? new UITooltipLines.ImageLine(left, new int[images], new Sprite[images], true, new RectOffset(), (UITooltipLines.LineStyle)style)
+                    : new UITooltipLines.Line(left, right, true, new RectOffset(), (UITooltipLines.LineStyle)style, null!);
+                native.m_LinesTemplate.lineList.Add(descriptor);
+            }
+            native.EvaluateAndCreateTooltipLines();
+            var entry = new Entry { Original = construction.transform }; Freeze(key, entry); Entries.Add(key, entry);
+        }
+        finally { Object.Destroy(construction); }
+    }
+    internal static void InvalidateResident(byte service)
+    {
+        string prefix = "decor." + service + ".";
+        var removed = new List<string>();
+        foreach (string key in Entries.Keys)
+            if (key.StartsWith(prefix, StringComparison.Ordinal) || service == 2
+                && (key == "ritual.coin" || key == "ritual.purse" || key == "ritual.purse.held")) removed.Add(key);
+        foreach (string key in removed)
+        {
+            Entry entry = Entries[key]; Roots.Remove(entry.Original);
+            if (entry.Copy != null) Object.Destroy(entry.Copy); Entries.Remove(key);
+            TownServiceMirror.ForgetTemplates(service, key + "|");
+        }
+    }
+
+    internal static void Shutdown()
+    {
+        TownServiceMirror.ResolveTemplate = null;
+        TownServiceMirror.PrepareInertGeometry = null;
+        TownServiceMirror.FinishInertPresentation = null;
+        if (_cardBody != null) TownServiceCardBody.Dispose(_cardBody);
+        Entries.Clear(); Roots.Clear(); _hud = null; _ready = false;
+        _tray?.Dispose(); _tray = null; Tooltip = null;
+        if (_catalogNavigation != null) Object.Destroy(_catalogNavigation);
+        _catalogNavigation = null; _cardBody = null;
+        ResetEnhancementPreparation(); _mapBacking = null;
+        PhysicalTemplates.Clear(); // Their common inactive bank owns destruction.
+        if (_bank != null) Object.Destroy(_bank); _bank = null;
+    }
+}

@@ -402,6 +402,11 @@ internal static partial class WallSegmentFade
                     lost = true;
                     continue;
                 }
+                // Purely decorative budget masks own visibility, not the native room/occluder
+                // facts. Keep membership and restoration; avoid union and material writes until
+                // this renderer is visible again. The ordinary per-frame loop resumes immediately.
+                if (ScenarioSceneryBudget.IsOwnedHidden(p.Renderer))
+                    continue;
                 if (want == 2)
                 {
                     // Fresh arrival during the held state: park the material/particle
@@ -544,9 +549,9 @@ internal static partial class WallSegmentFade
             // the fade edge would leave regenerated pieces standing inside a faded wall for up
             // to two seconds — a look change, which this round forbids.
             using var _fastScope = PerfMonitor.Scope("WallFade.FastReclaim");
-            // ModBuild 393: this sweep runs between rescans, while Apparance regenerates subtrees,
-            // so it rebuilds the map rather than trusting the one the last rescan left behind.
-            EnsureWallHomes();
+            bool sharedReads = PerfConfig.SharedEnvironmentMaterialReadsOn;
+            if (!sharedReads)
+                EnsureWallHomes(); // comparison path: original unfiltered home-map walk
             _fastSegScratch.Clear();
             foreach (Segment seg in _live.Segments.Values)
             {
@@ -557,6 +562,14 @@ internal static partial class WallSegmentFade
             }
             if (_fastSegScratch.Count == 0)
                 return;
+
+            // The Frame638 loaded-room captures price this sweep at 1.58/1.21 ms per
+            // game frame. A sweep with no faded, eligible segment cannot consult a home,
+            // so do not rebuild the complete live home map for that empty case. When there
+            // are candidates, retain the fresh rebuild: native regeneration and changes to
+            // the committed table must not acquire a cross-frame ancestry cache.
+            if (sharedReads)
+                EnsureWallHomes();
 
             // ROUND-12 CHURN FIX (the tripwire's 20 WARNs: gate embedding pieces cycled
             // 'stacked-fast → released → stacked-fast …'): those pieces are ANOTHER WALL's
@@ -642,19 +655,24 @@ internal static partial class WallSegmentFade
             int claimed = 0;
             foreach (MeshRenderer r in all)
             {
-                if (r == null || !r.enabled)
+                if (r == null || !r.enabled || ScenarioSceneryBudget.IsOwnedHidden(r))
                     continue;
-                Bounds b = r.bounds;
+                // Membership is already rebuilt for THIS sweep, and neither predicate
+                // below can adopt these renderers. Reject them before the native bounds
+                // read, rather than measuring hundreds of already-owned wall/body pieces
+                // four times a second. This is only a guard reordering: unowned/new pieces
+                // still read fresh enabled/bounds/ancestry and retain the same election.
+                if (sharedReads && (_mountedTouched.ContainsKey(r) || _fastOwnedScratch.Contains(r)))
+                    continue;
+                Bounds b = WallCommitGeometryReads.Read(r);
                 if (b.max.x < unionMinX || b.min.x > unionMaxX
                     || b.max.z < unionMinZ || b.min.z > unionMaxZ
                     || b.min.y < bandFloor || b.min.y > bandCeil)
                     continue; // outside every faded segment's reach — see the prefilter note
                 if (IsModObject(r))
                     continue;
-                if (_mountedTouched.ContainsKey(r))
-                    continue; // already ours (hidden or ramped)
-                if (_fastOwnedScratch.Contains(r))
-                    continue; // another segment's renderer/attachment — never fast-claimed
+                if (!sharedReads && (_mountedTouched.ContainsKey(r) || _fastOwnedScratch.Contains(r)))
+                    continue; // comparison path: original order after bounds/mod ownership
                 if (IsArchProtected(b, r.name))
                     continue; // the doorway's arch stays solid (user ruling 2026-08-07)
                 if (IsWaterProtected(b))
@@ -1137,7 +1155,7 @@ internal static partial class WallSegmentFade
                         if (seg.HasBounds)
                         {
                             Bounds ext = seg.Bounds;
-                            ext.Encapsulate(p.Renderer.bounds);
+                            ext.Encapsulate(WallCommitGeometryReads.Read(p.Renderer));
                             seg.Bounds = ClampExtensionToFace(seg, ext); // Y grows, XZ face-clamped
                         }
                     }
@@ -1274,7 +1292,7 @@ internal static partial class WallSegmentFade
                         _figureGuardNames.Add(r.name);
                     continue;
                 }
-                if (r.bounds.min.y < bar)
+                if (WallCommitGeometryReads.Read(r).min.y < bar)
                     continue; // touches the ground band — not a stacked story (LIVE bounds)
                 if (_stackedOwned.Contains(r))
                     continue; // sticky-owned this rescan
@@ -1364,7 +1382,7 @@ internal static partial class WallSegmentFade
                 {
                     if (c == null || _stackedOwned.Contains(c) || _stackDead.Contains(c))
                         continue;
-                    Bounds b = c.bounds;
+                    Bounds b = WallCommitGeometryReads.Read(c);
                     // ARCH PROTECTION (user ruling 2026-08-07): the rectangular arch around
                     // a door is the doorway ruling's permanently-solid remainder. The reject
                     // prints the XZ containment fraction (round 10) so a hardware log can
@@ -1697,7 +1715,7 @@ internal static partial class WallSegmentFade
             {
                 if (c == null || _stackedOwned.Contains(c) || _stackDead.Contains(c))
                     continue;
-                Bounds b = c.bounds;
+                Bounds b = WallCommitGeometryReads.Read(c);
                 if (IsArchProtected(b, c.name))
                     continue; // arch stays solid (already rejected+logged by the adoption pass)
                 if (IsWaterProtected(b))
@@ -1764,7 +1782,7 @@ internal static partial class WallSegmentFade
                             continue;
                         if (listed++ >= 8) { sb.Append("; …"); break; }
                         if (sb.Length > 0) sb.Append("; ");
-                        Bounds cb = r.bounds;
+                        Bounds cb = WallCommitGeometryReads.Read(r);
                         string an = cp.A.Anchor != null ? cp.A.Anchor.name : "<dead>";
                         string bn = cp.B == null ? "-"
                             : cp.B.Anchor != null ? cp.B.Anchor.name : "<dead>";
@@ -1853,7 +1871,7 @@ internal static partial class WallSegmentFade
             {
                 if (c == null || _stackedOwned.Contains(c) || _stackDead.Contains(c))
                     continue;
-                Bounds b = c.bounds;
+                Bounds b = WallCommitGeometryReads.Read(c);
                 Segment? near = null;              // nearest ELIGIBLE wall — the one adoption tried
                 float nearGap = float.PositiveInfinity;
                 Segment? nearAny = null;           // nearest wall of any kind (diag anchor)
@@ -1914,7 +1932,7 @@ internal static partial class WallSegmentFade
             _censusStackedRejected++;
             if (_stackRejects.Count < StackRejectCap)
             {
-                Bounds b = c.bounds;
+                Bounds b = WallCommitGeometryReads.Read(c);
                 // Full y-band on every reject (round 2): the piece TOPS are what decide
                 // whether the trigger geometry can ever work — they must be readable from
                 // the log without another blind hardware round.

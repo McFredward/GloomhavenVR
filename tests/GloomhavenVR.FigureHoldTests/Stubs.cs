@@ -204,6 +204,12 @@ namespace HarmonyLib
 }
 namespace GloomhavenVR.Board.FigureGrab
 {
+    // The real Unity overlay fixture owns pooled visual lifetime/current-pose tests.
+    // This release-decision fixture exercises the unprepared immediate fallback.
+    internal static class FigureInteractionPreparation
+    {
+        internal static bool Return(ActorBehaviour actor, GameObject ghost) => false;
+    }
     public static class HeldFigures
     {
         public static readonly HashSet<ActorBehaviour> Actors = new();

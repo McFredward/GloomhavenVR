@@ -227,9 +227,9 @@ internal sealed class RemoteObjectivesPanel
         // MissionObjectiveContainer this panel already mirrors, filled in the same call
         // (UIManager.InitScenario). So the peers' copy is a live CLONE of the owner's own rules
         // panel, at the owner's column, in the game's own localised prose, for the same reasons and
-        // through the same machinery. Nothing is redrawn, nothing is translated by the mod, and no
-        // wire field exists or is needed: ScenarioModifiers are scenario-global model state that
-        // every client builds this container from for itself (CLASSIFICATION: GLOBAL).
+        // through the same machinery. Build610 record96 overrides the original clone with the
+        // owner's exact native prose, style, hover, folding, scrolling and intermediate geometry.
+        // Missing96 keeps the legacy native model/source path; no gameplay callbacks are cloned.
         //
         // GROW (-1,-1) rather than the objectives' (-1,0): the mount point is this section's
         // TOP-RIGHT CORNER, so its seat needs only the panel ABOVE it and never its own height —
@@ -271,15 +271,19 @@ internal sealed class RemoteObjectivesPanel
 
     /// <summary>Per-FRAME: keep the mirrored container in step with the original, so a progress bar
     /// filling or a row ticking off plays out at the source's own rate. No-op on the fallback.</summary>
+    private readonly RemoteBoardRulesPlayer _nativeRules = new();
+    internal void SetNativeState(NativeBoardState? state, List<NativeBoardState> history, NativeBoardPresentationClock clock) => _nativeRules.SetState(state, history, clock);
     public void TickLive()
     {
         _mirror.TickLive();
         _rulesMirror.TickLive();
+        _nativeRules.Apply(_rulesMirror, _rulesRoot);
     }
 
     public void Destroy()
     {
         _mirror.Destroy();
+        _nativeRules.Dispose();
         _rulesMirror.Destroy();
     }
 
@@ -333,13 +337,10 @@ internal sealed class RemoteObjectivesPanel
     /// Mirror the peer-visible SPECIAL RULES — the game's own
     /// <c>UIManager.ScenarioModifierContainer</c> — under the objectives.
     ///
-    /// <para><b>MIRROR OR NOTHING, deliberately, and it is the 1:1 answer rather than a gap in the
-    /// work.</b> The objectives above keep a mod-drawn fallback because their previous mod-drawn
-    /// version was already shipped and rejected in that shape, so it survives as the ladder's last
-    /// rung. The rules have no such history and must not acquire one: the LOCAL board
-    /// (<c>ScenarioRulesSurface</c>) converts the real widget or draws nothing at all, so a peer
-    /// board that fell back to mod-drawn rows would be showing team-mates a picture the owner
-    /// himself never sees. Absent on both sides beats different on each.</para>
+    /// <para>Both objectives and rules use original native widgets only. Owner record96 supplies
+    /// the rules' current text, style and foldout geometry; absent96 retains the original legacy
+    /// clone path. Missing artwork or clone failures are rendering defects, never permission to
+    /// substitute rebuilt text or omit a visible owner widget.</para>
     /// </summary>
     private void RefreshRules()
     {
@@ -351,7 +352,7 @@ internal sealed class RemoteObjectivesPanel
         }
         catch { container = null; }
 
-        int rows = CountRuleRows(container);
+        int rows = CountRuleRows(container, _nativeRules.UsesOwnerState);
 
         // Seat BEFORE the fit: the mirror measures itself against its mount, so the mount has to be
         // where this section belongs by the time Refresh runs, or the first fitted frame lands on
@@ -425,7 +426,7 @@ internal sealed class RemoteObjectivesPanel
     /// <c>string.Empty</c> for 15 of the 18 modifier types. Counting the model would therefore
     /// report rules the game deliberately shows nobody.</para>
     /// </summary>
-    private static int CountRuleRows(ScenarioModifierContainer? container)
+    private static int CountRuleRows(ScenarioModifierContainer? container, bool ownerAuthored = false)
     {
         try
         {
@@ -433,8 +434,8 @@ internal sealed class RemoteObjectivesPanel
                 return 0;
             int n = 0;
             foreach (ScenarioModifierUI row in
-                     container.GetComponentsInChildren<ScenarioModifierUI>(includeInactive: false))
-                if (row != null && row.gameObject.activeInHierarchy)
+                     container.GetComponentsInChildren<ScenarioModifierUI>(includeInactive: ownerAuthored))
+                if (row != null && (ownerAuthored || row.gameObject.activeInHierarchy))
                     n++;
             return n;
         }
@@ -457,8 +458,9 @@ internal sealed class RemoteObjectivesPanel
             $"tall (objectives source={Source}). SOURCE ANSWERED: the game's own " +
             "UIManager.ScenarioModifierContainer, cloned — the same widget the owner's own board " +
             "docks, so the sentences are the game's localised prose and the mod supplies no text " +
-            "in any language. ZERO WIRE: ScenarioModifiers are scenario-global model state that " +
-            "every client already holds, so there is nothing here for a peer to send. READ IT LIKE " +
+            "in any language. OWNER PRESENTATION: record96 applies the owner's original text/style, " +
+            "foldout geometry, scroll and hover; missing96 keeps the legacy native clone " +
+            "(ZERO WIRE for rule content). READ IT LIKE " +
             "THIS, and the two zeroes are DIFFERENT. WORKING: rows>0 with source=MirroredWidget on " +
             "a scenario that has special rules, and the drop above equals half the objectives " +
             "height plus 12 mm to the millimetre — that is this section sitting ON the objectives' " +
@@ -501,6 +503,9 @@ internal sealed class RemoteObjectivesPanel
         int styled = 0;
         foreach (TMP_Text t in _root.GetComponentsInChildren<TMP_Text>(includeInactive: true))
         {
+            // Owner-authored rules retain original materials, including their owned header.
+            // Missing96 keeps the preexisting legacy objectives relief path.
+            if (_nativeRules.UsesOwnerState && _rulesRoot != null && t.transform.IsChildOf(_rulesRoot)) continue;
             if (WorldUI.NativeButtonSkin.HasWorldReadableRelief(t))
                 continue;
             WorldUI.NativeButtonSkin.StyleWorldReadableLabel(t);

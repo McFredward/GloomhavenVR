@@ -21,29 +21,19 @@ namespace GloomhavenVR.Core;
 /// point of the pass is that the NEXT hardware log already carries the numbers; the measurement
 /// is built to cost a couple of microseconds per frame (see PerfMonitor's cost note) and
 /// <see cref="Enabled"/> = false makes it a hard no-op down to a single bool test per frame.</item>
-/// <item><b>[Optimize]</b> — BEHAVIOUR. Each entry switches exactly ONE optimization, and each
-/// one's DEFAULT is chosen so that nothing the player can see changes silently: pure
-/// work-removal (idempotence gates, cached delegates, change-gating) defaults ON because it is
-/// invisible by construction, while anything that trades quality or freshness for frames
-/// defaults to TODAY'S behaviour and has to be switched on deliberately.</item>
+/// <item><b>[Optimize]</b> — QUALITY AND FRESHNESS. Entries select genuine geometry,
+/// effects, lighting or update-frequency trades. PC defaults preserve ordinary
+/// presentation; fresh Steam Frame profiles seed explicit standalone compromises.
+/// Pure work removal is always active and has no player configuration.</item>
 /// </list>
 ///
-/// <para>NOT IN THE VR SETTINGS ANY MORE (2026-07, user: the performance pane was "super
-/// verwirrend für den User"): every [Perf] entry and every pure work-removal [Optimize] entry is
-/// CONFIG-FILE ONLY now. A settings row asks the player to make a decision, and these offer no
-/// decision to make — the measurement changes nothing visible, and the work-removal switches are
-/// invisible by construction (that is exactly why they default ON). They are A/B harnesses for
-/// this debug phase, so they live here, described here, and nowhere else. The local interval
-/// levers below (<see cref="FanRelayoutMinInterval"/> and <see cref="WallFadeEvalInterval"/>)
-/// trade freshness for work, so they kept a UI row — but
-/// in the Debug pane (<c>SettingsPanel.BuildTimingCategory</c>), not the user-facing category,
-/// because the measurement says the CPU is ~2.5% of frame time and pointing a stuttering player
-/// at a CPU lever would aim them at the wrong problem. The user-facing performance rows are the
-/// GPU quality trade only (<c>SettingsPanel.BuildPerformanceCategory</c> → Rig.RenderQuality).
+/// <para>The maintainer's2026-10-08 policy retires historical technical A/B
+/// switches for pure work removal. Reference paths remain in developer test
+/// fixtures; diagnostics remain configurable separately from rendering quality.
 /// RemoteContentInterval is retained as an INERT compatibility key: observer-side delay is not
 /// an approved exception to the owner's board presentation.</para>
 /// </summary>
-internal static class PerfConfig
+internal static partial class PerfConfig
 {
     private static ConfigFile? _file;
 
@@ -87,6 +77,8 @@ internal static class PerfConfig
 
     /// <summary>Break the renderer census down by root/layer/type/material and dump the render state.</summary>
     internal static ConfigEntry<bool> SceneProfile = null!;
+    internal static ConfigEntry<float> SceneProfileBudgetMilliseconds = null!;
+    internal static ConfigEntry<int> SceneProfileObjectsPerFrame = null!;
 
     /// <summary>Split each camera's render-loop figure into culling and submission halves.</summary>
     internal static ConfigEntry<bool> CullSubmitSplit = null!;
@@ -99,20 +91,10 @@ internal static class PerfConfig
 
     // ---- [Optimize] behaviour ---------------------------------------------------------------
 
-    /// <summary>Cache the per-frame TickGuard delegates instead of re-allocating them every frame.</summary>
-    internal static ConfigEntry<bool> CacheTickDelegates = null!;
 
-    /// <summary>Cache the campaign-map icon scan (choreographer, decals, renderers, property blocks).</summary>
-    internal static ConfigEntry<bool> MapIconCache = null!;
 
-    /// <summary>Skip the per-frame component walks for figures that are already adopted / nothing held.</summary>
-    internal static ConfigEntry<bool> FigureScanCache = null!;
 
-    /// <summary>Do not build diagnostic strings for log lines that are throttled or change-gated away.</summary>
-    internal static ConfigEntry<bool> LeanLogStrings = null!;
 
-    /// <summary>Gate the per-frame tooltip canvas walk behind "is a tooltip actually shown".</summary>
-    internal static ConfigEntry<bool> TooltipScanGate = null!;
 
     /// <summary>Minimum seconds between two gaze-driven card-fan re-layouts (0 = every frame, today's behaviour).</summary>
     internal static ConfigEntry<float> FanRelayoutMinInterval = null!;
@@ -138,35 +120,56 @@ internal static class PerfConfig
     /// <summary>Seed the scenario head mask from the game's ScenarioCamera instead of the blanket anchor mask.</summary>
     internal static ConfigEntry<bool> HeadMaskFromScenarioCamera = null!;
 
-    /// <summary>Take the AutomaticLOD behaviours whose Update provably returns on line one off Unity's Update list.</summary>
-    internal static ConfigEntry<bool> AutomaticLodIdleSkip = null!;
-
-    /// <summary>Seconds between AutomaticLOD sweeps (catches instances born with a newly revealed room).</summary>
-    internal static ConfigEntry<float> AutomaticLodSweepSeconds = null!;
 
     /// <summary>Override <see cref="QualitySettings.lodBias"/> in VR (0 = leave the quality level's own value).</summary>
     internal static ConfigEntry<float> LodBias = null!;
 
+    /// <summary>Percentage of generated decorative grass retained, independently of other detail.</summary>
+    internal static ConfigEntry<int> ScenarioSceneryDensityPercent = null!;
+
+    /// <summary>Percentage of generated scenario decoration retained; 100 preserves all.</summary>
+    internal static ConfigEntry<int> ScenarioDecorationDensityPercent = null!;
+
+    internal static ConfigEntry<int> ScenarioVegetationDensityPercent = null!;
+    internal static ConfigEntry<float> ActorBarPoseCheckIntervalSeconds = null!;
+    internal static ConfigEntry<float> UiMaintenanceIntervalSeconds = null!;
+    internal static ConfigEntry<bool> OffscreenIdleAnimation = null!;
+    internal static ConfigEntry<bool> ScenarioStructuralInstancing = null!;
+    internal static ConfigEntry<bool> ScenarioStructuralBatching = null!;
+    internal static ConfigEntry<bool> FigureDistanceLod = null!;
+    internal static ConfigEntry<int> TownNpcDetailPercent = null!;
+    internal static ConfigEntry<int> SkinningBoneLimit = null!;
+    internal static ConfigEntry<int> ScenarioPlayerFigureDetailPercent = null!;
+    internal static ConfigEntry<int> ScenarioEnemyFigureDetailPercent = null!;
+    internal static ConfigEntry<int> ScenarioFigureEffectsDensityPercent = null!;
+    internal static ConfigEntry<bool> ScenarioFigureClothSimulation = null!;
+    internal static ConfigEntry<bool> ReduceScenarioGenerationDetail = null!;
+    internal static ConfigEntry<bool> ScenarioStaticBatching = null!;
+    internal static ConfigEntry<bool> ScenarioSimpleEnvironmentShading = null!;
+    internal static ConfigEntry<int> ScenarioEnvironmentEffectsDensityPercent = null!;
+
+
     // ---- safe accessors ---------------------------------------------------------------------
     // Optimization sites live in per-frame code that can run BEFORE (or entirely without) a
     // successful Bind — a module whose Init threw, a hot-reload mid-frame, the flat-screen path.
-    // Each accessor therefore answers with the entry's DEFAULT while unbound, so an unbound config
-    // can never silently change behaviour in either direction.
+    // Quality tradeoffs retain their defaults while unbound. Build619 makes pure work-removal
+    // optimizations unconditional (maintainer graphics audit). Build644 removes their
+    // obsolete bindings under the maintainer's explicit2026-10-08 policy.
 
-    /// <summary>[Optimize] CacheTickDelegates, defaulting to on while unbound.</summary>
-    internal static bool CacheDelegates => CacheTickDelegates == null || CacheTickDelegates.Value;
+    /// <summary>Always active; pure work removal has no player setting.</summary>
+    internal static bool CacheDelegates => true;
 
-    /// <summary>[Optimize] MapIconCache, defaulting to on while unbound.</summary>
-    internal static bool MapIconCacheOn => MapIconCache == null || MapIconCache.Value;
+    /// <summary>Always active; pure work removal has no player setting.</summary>
+    internal static bool MapIconCacheOn => true;
 
-    /// <summary>[Optimize] FigureScanCache, defaulting to on while unbound.</summary>
-    internal static bool FigureScanCacheOn => FigureScanCache == null || FigureScanCache.Value;
+    /// <summary>Always active; pure work removal has no player setting.</summary>
+    internal static bool FigureScanCacheOn => true;
 
-    /// <summary>[Optimize] LeanLogStrings, defaulting to on while unbound.</summary>
-    internal static bool LeanStrings => LeanLogStrings == null || LeanLogStrings.Value;
+    /// <summary>Always active; pure work removal has no player setting.</summary>
+    internal static bool LeanStrings => true;
 
-    /// <summary>[Optimize] TooltipScanGate, defaulting to on while unbound.</summary>
-    internal static bool TooltipGateOn => TooltipScanGate == null || TooltipScanGate.Value;
+    /// <summary>Always active; pure work removal has no player setting.</summary>
+    internal static bool TooltipGateOn => true;
 
     /// <summary>[Optimize] FanRelayoutMinInterval, defaulting to 0 (every frame) while unbound.</summary>
     internal static float FanRelayoutInterval =>
@@ -205,9 +208,8 @@ internal static class PerfConfig
     /// <summary>[Perf] LodCensus, defaulting to on while unbound.</summary>
     internal static bool LodCensusOn => LodCensus == null || LodCensus.Value;
 
-    /// <summary>[Optimize] AutomaticLodIdleSkip, defaulting to on while unbound.</summary>
-    internal static bool AutomaticLodIdleSkipOn =>
-        AutomaticLodIdleSkip == null || AutomaticLodIdleSkip.Value;
+    /// <summary>Always active; pure work removal has no player setting.</summary>
+    internal static bool AutomaticLodIdleSkipOn => true;
 
     /// <summary>[Perf] SummaryIntervalSeconds, clamped — the cadence of the FRAME/STEPS/SPLIT/GFX
     /// block. Promoted out of PerfMonitor on 2026-09-05: it was a bare Mathf.Clamp at the one place
@@ -218,15 +220,71 @@ internal static class PerfConfig
             ? Defaults.SummaryIntervalSeconds
             : Mathf.Clamp(SummaryIntervalSeconds.Value, 5f, 600f);
 
-    /// <summary>[Optimize] AutomaticLodSweepSeconds, clamped to a cadence that cannot become the cost.</summary>
-    internal static float LodSweepSeconds =>
-        AutomaticLodSweepSeconds == null
-            ? Defaults.AutomaticLodSweepSeconds
-            : Mathf.Clamp(AutomaticLodSweepSeconds.Value, 2f, 300f);
+    /// <summary>Internal discovery cadence for inert native updates; rendered detail is unchanged.</summary>
+    internal static float LodSweepSeconds => 15f;
 
     /// <summary>[Optimize] LodBias, 0 = leave QualitySettings.lodBias alone (today's behaviour).</summary>
     internal static float LodBiasOverride =>
         LodBias == null ? 0f : Mathf.Clamp(LodBias.Value, 0f, 8f);
+
+    internal static int ScenarioSceneryDensityPercentValue =>
+        ScenarioSceneryDensityPercent == null
+            ? Defaults.ScenarioSceneryDensityPercent
+            : Mathf.Clamp(ScenarioSceneryDensityPercent.Value, 0, 100);
+
+    internal static int ScenarioDecorationDensityPercentValue =>
+        ScenarioDecorationDensityPercent == null
+            ? Defaults.ScenarioDecorationDensityPercent
+            : Mathf.Clamp(ScenarioDecorationDensityPercent.Value, 0, 100);
+
+    internal static int ScenarioVegetationDensityPercentValue =>
+        ScenarioVegetationDensityPercent == null ? Defaults.ScenarioVegetationDensityPercent
+            : Mathf.Clamp(ScenarioVegetationDensityPercent.Value, 0, 100);
+
+    internal static float ActorBarPoseCheckInterval => ActorBarPoseCheckIntervalSeconds == null
+        ? 0f : Mathf.Clamp(ActorBarPoseCheckIntervalSeconds.Value, 0f, .2f);
+    internal static bool UnusedCamerasSuspended => true;
+    internal static float UiMaintenanceInterval => UiMaintenanceIntervalSeconds == null
+        ? 0f : Mathf.Clamp(UiMaintenanceIntervalSeconds.Value, 0f, .2f);
+    internal static bool OffscreenIdleAnimationOn => OffscreenIdleAnimation != null && OffscreenIdleAnimation.Value;
+    internal static bool StructuralBatchingOn => ScenarioStructuralBatching != null && ScenarioStructuralBatching.Value;
+    internal static bool StructuralInstancingOn => ScenarioStructuralInstancing != null && ScenarioStructuralInstancing.Value;
+    internal static bool FigureDistanceLodEnabled => FigureDistanceLod == null
+        ? Defaults.FigureDistanceLod : FigureDistanceLod.Value;
+    internal static int MaximumSkinningBones => SkinningBoneLimit == null
+        ? Defaults.SkinningBoneLimit : SkinningBoneLimit.Value is 1 or 2 or 4 ? SkinningBoneLimit.Value : 0;
+
+    internal static int PlayerFigureDetailPercent =>
+        ScenarioPlayerFigureDetailPercent == null ? Defaults.ScenarioPlayerFigureDetailPercent
+            : Mathf.Clamp(ScenarioPlayerFigureDetailPercent.Value, 0, 100);
+
+    internal static int EnemyFigureDetailPercent =>
+        ScenarioEnemyFigureDetailPercent == null ? Defaults.ScenarioEnemyFigureDetailPercent
+            : Mathf.Clamp(ScenarioEnemyFigureDetailPercent.Value, 0, 100);
+
+    internal static int FigureEffectsDensityPercent =>
+        ScenarioFigureEffectsDensityPercent == null ? Defaults.ScenarioFigureEffectsDensityPercent
+            : Mathf.Clamp(ScenarioFigureEffectsDensityPercent.Value, 0, 100);
+
+    internal static bool FigureClothSimulationEnabled =>
+        ScenarioFigureClothSimulation == null ? Defaults.ScenarioFigureClothSimulation
+            : ScenarioFigureClothSimulation.Value;
+
+    internal static bool StaticScenarioBatchesOn => ScenarioStaticBatching != null
+        ? ScenarioStaticBatching.Value : Defaults.ScenarioStaticBatching;
+    internal static bool SimpleEnvironmentShadingOn => ScenarioSimpleEnvironmentShading != null
+        ? ScenarioSimpleEnvironmentShading.Value : Defaults.ScenarioSimpleEnvironmentShading;
+    internal static int EnvironmentEffectsDensityPercent => ScenarioEnvironmentEffectsDensityPercent != null
+        ? Mathf.Clamp(ScenarioEnvironmentEffectsDensityPercent.Value, 0, 100)
+        : Defaults.ScenarioEnvironmentEffectsDensityPercent;
+
+    internal static bool ReducedScenarioGenerationOn =>
+        ReduceScenarioGenerationDetail == null ? Defaults.ReduceScenarioGenerationDetail
+            : ReduceScenarioGenerationDetail.Value;
+
+    internal static bool SharedWallReadCacheOn => true;
+
+    internal static bool LightStabiliserWorkCacheOn => true;
 
     // ---- [Optimize] HeadCullingMaskDrop: parsed once per distinct string, not per frame --------
     // The entry is human-written text ("Water, 14, TransparentFX") and it is read from the rig's
@@ -320,6 +378,152 @@ internal static class PerfConfig
         if (_file != null)
             return;
         _file = ModuleConfig.Create("perf");
+        BindFrameRendering(_file);
+
+        // Maintainer ruling 2026-10-01: explicit reversible scenery compromises are needed
+        // for Frame standalone large scenarios. BepInEx retains existing saved values;
+        // desktop and streamed PC VR keep the full-density default. This is not a board,
+        // card or shared-widget setting and never changes native game/reveal state.
+        ScenarioSceneryDensityPercent = _file.Bind("Optimize", "ScenarioSceneryDensityPercent",
+            FrameDefaults.Active ? FrameDefaults.ScenarioSceneryDensityPercent : Defaults.ScenarioSceneryDensityPercent,
+            new ConfigDescription(
+                "Decorative scenario grass retained, independently of trees/bushes and other "
+                + "decoration. 100% preserves eligible grass, 0% removes its rendering. "
+                + "Figures, gameplay obstacles, floors, structural walls, doors, cards and UI remain "
+                + "unchanged. Takes effect live; saved settings are retained on PC VR and Frame.",
+                new AcceptableValueRange<int>(0, 100)));
+        ScenarioDecorationDensityPercent = _file.Bind("Optimize", "ScenarioDecorationDensityPercent",
+            FrameDefaults.Active ? FrameDefaults.ScenarioDecorationDensityPercent : Defaults.ScenarioDecorationDensityPercent,
+            new ConfigDescription(
+                "Decorative scenario detail retained: generated stone scatter, crystals and other "
+                + "dressing. 0% removes eligible decoration for a sparse scene; 100% restores original "
+                + "detail. Grass and trees/bushes have independent controls. Figures, gameplay obstacles, floors, "
+                + "structural walls, doors, cards and UI remain unchanged. Native colliders and reveal "
+                + "state are not changed. Works live on PC and Frame. Fresh standalone Frame defaults "
+                + "to 0%, PC to 100%; saved choices are retained.",
+                new AcceptableValueRange<int>(0, 100)));
+
+        ScenarioVegetationDensityPercent = _file.Bind("Optimize", "ScenarioVegetationDensityPercent",
+            FrameDefaults.Active ? FrameDefaults.ScenarioVegetationDensityPercent : Defaults.ScenarioVegetationDensityPercent,
+            new ConfigDescription(
+                "Decorative scenario trees, bushes, vines and leaves retained, including original tree "
+                + "trunks. 0% removes vegetation, 100% restores it. Grass and other decoration have "
+                + "separate controls. Picking surfaces belonging only to hidden trees disappear with them. "
+                + "Solid wall/floor cores, native obstacles, doors, actors, lights and UI are retained. "
+                + "Works live; fresh standalone Frame defaults to 0%, PC to 100%; saved choices stay.",
+                new AcceptableValueRange<int>(0, 100)));
+        ActorBarPoseCheckIntervalSeconds = _file.Bind("Optimize", "ActorBarPoseCheckIntervalSeconds",
+            FrameDefaults.Active ? FrameDefaults.ActorBarPoseCheckIntervalSeconds : Defaults.ActorBarPoseCheckIntervalSeconds,
+            new ConfigDescription("Seconds between bone-position checks for health bars over steady idle "
+            + "figures. Prepared animation bounds retain the original idle-cycle height. 0 checks every "
+            + "frame. Actor/state changes, non-looping actions and native health callbacks remain immediate. "
+            + "Fresh Frame 0.1 s, PC 0; works live.", new AcceptableValueRange<float>(0f, .2f)));
+        OffscreenIdleAnimation = _file.Bind("Optimize", "OffscreenIdleAnimation",
+            FrameDefaults.Active ? FrameDefaults.OffscreenIdleAnimation : Defaults.OffscreenIdleAnimation,
+            "For audited native scenario figures only, skip offscreen idle bone-transform evaluation "
+            + "while native animation time continues. Actions, transitions, held figures, unknown rigs "
+            + "and eventful clips retain their original evaluation. Original culling restores on Off. "
+            + "Shared map NPC clocks and visible figures are unchanged.");
+        ScenarioStructuralBatching = _file.Bind("Optimize", "ScenarioStructuralBatching",
+            FrameDefaults.Active ? FrameDefaults.ScenarioStructuralBatching : Defaults.ScenarioStructuralBatching,
+            "Combine audited static masonry/trim within small native tile/cell boundaries. Requires "
+            + "ScenarioSimpleEnvironmentShading. Keeps colliders and gameplay objects; restores native "
+            + "renderers before dynamic wall fade or material/visibility changes. Unknown surfaces, "
+            + "doors, characters, water and UI remain native. Reversible quality compromise.");
+        ScenarioStructuralInstancing = _file.Bind("Optimize", "ScenarioStructuralInstancing",
+            FrameDefaults.Active ? FrameDefaults.ScenarioStructuralInstancing : Defaults.ScenarioStructuralInstancing,
+            "Enable supported native GPU instancing for repeated eligible static scenario geometry. "
+            + "Original objects, colliders, visibility and interaction remain independent. Unsupported "
+            + "shaders and dynamic/unsafe renderers keep their original path. Reversible live option.");
+        UiMaintenanceIntervalSeconds = _file.Bind("Optimize", "UiMaintenanceIntervalSeconds",
+            FrameDefaults.Active ? FrameDefaults.UiMaintenanceIntervalSeconds : Defaults.UiMaintenanceIntervalSeconds,
+            new ConfigDescription("Seconds between maintenance passes for unchanged converted panels. "
+            + "0 updates every frame. Creation, reveal, grabs and native callbacks remain immediate. "
+            + "Fresh Frame 0.15 s, PC 0; works live.", new AcceptableValueRange<float>(0f, .2f)));
+        FigureDistanceLod = _file.Bind("Optimize", "FigureDistanceLod",
+            FrameDefaults.Active ? FrameDefaults.FigureDistanceLod : Defaults.FigureDistanceLod,
+            "Reduce scenario figure body mesh detail with viewing distance. Immersive map NPCs retain their original meshes. "
+            + "Near figures retain the selected mesh-detail cap; distant figures use stronger prepared "
+            + "simplification. Materials, bones, animation and gameplay stay original. Held figures keep "
+            + "their selected near detail. Works live; fresh Frame On, PC Off; saved choices stay.");
+        TownNpcDetailPercent = _file.Bind("Optimize", "TownNpcDetailPercent",
+            Defaults.TownNpcDetailPercent,
+            new ConfigDescription("DEPRECATED — INERT. Kept only to preserve the saved configuration key. "
+            + "Immersive NPCs always retain their exact original full-detail meshes; their broken "
+            + "simplified variants and the NPC detail control were removed in Build616.",
+                new AcceptableValueRange<int>(0, 100)));
+        SkinningBoneLimit = _file.Bind("Optimize", "SkinningBoneLimit",
+            FrameDefaults.Active ? FrameDefaults.SkinningBoneLimit : Defaults.SkinningBoneLimit,
+            new ConfigDescription("Maximum rendered bone influences per vertex on scenario figures and "
+            + "immersive NPC bodies. 0 preserves native quality; 1, 2 or 4 caps skinning work. Lower values "
+            + "can simplify joint deformation. Bones, animation and gameplay remain unchanged. "
+            + "Works live; fresh Frame 2, PC 0; original quality returns when cleared or VR stops.",
+                new AcceptableValueList<int>(0, 1, 2, 4)));
+        ScenarioPlayerFigureDetailPercent = _file.Bind("Optimize", "ScenarioPlayerFigureDetailPercent",
+            FrameDefaults.Active ? FrameDefaults.ScenarioPlayerFigureDetailPercent : Defaults.ScenarioPlayerFigureDetailPercent,
+            new ConfigDescription(
+                "Mesh detail of scenario player characters. 100% keeps automatic original detail; "
+                + "lower values use coarser original meshes and prepared simplified body meshes. 0% uses the "
+                + "strongest available simplification. Distance culling, animation, silhouette and gameplay "
+                + "are retained. The selected detail also applies to figures held locally or by another player. "
+                + "Works live; fresh Frame defaults to 0%, PC to 100%; saved choices stay.",
+                new AcceptableValueRange<int>(0, 100)));
+        ScenarioEnemyFigureDetailPercent = _file.Bind("Optimize", "ScenarioEnemyFigureDetailPercent",
+            FrameDefaults.Active ? FrameDefaults.ScenarioEnemyFigureDetailPercent : Defaults.ScenarioEnemyFigureDetailPercent,
+            new ConfigDescription(
+                "Mesh detail of scenario monsters. 100% keeps automatic original detail; lower "
+                + "values use coarser original meshes and prepared simplified body meshes. 0% uses the "
+                + "strongest available simplification. Distance culling, animation and gameplay are retained. "
+                + "The selected detail also applies to figures held locally or by another player. Works live; "
+                + "fresh Frame defaults to 0%, PC to 100%; saved choices stay.",
+                new AcceptableValueRange<int>(0, 100)));
+        ScenarioFigureEffectsDensityPercent = _file.Bind("Optimize", "ScenarioFigureEffectsDensityPercent",
+            FrameDefaults.Active ? FrameDefaults.ScenarioFigureEffectsDensityPercent : Defaults.ScenarioFigureEffectsDensityPercent,
+            new ConfigDescription(
+                "Decorative resident effects on original heroes, summons, normal/elite monsters and bosses: "
+                + "identified particles, trails and supplementary glow planes. "
+                + "0% removes eligible ambient effects, 100% restores their original presentation. "
+                + "Body meshes, attacks, healing and gameplay indicators remain unchanged. Works live, "
+                + "including held figures; fresh standalone Frame defaults to 0%, PC to 100%. "
+                + "Saved choices are retained.",
+                new AcceptableValueRange<int>(0, 100)));
+        ScenarioStaticBatching = _file.Bind("Optimize", "ScenarioStaticBatching",
+            FrameDefaults.Active ? FrameDefaults.ScenarioStaticBatching : Defaults.ScenarioStaticBatching,
+            "Combines compatible static floor surfaces into small render chunks. Original collision, "
+            + "picking, room visibility and native callbacks stay intact. Animated, held and per-renderer "
+            + "effect surfaces remain original. On reduces render submissions; Off restores original "
+            + "renderers. Works on PC and Frame. Fresh Frame defaults On, PC Off; saved choices are retained.");
+
+        ScenarioSimpleEnvironmentShading = _file.Bind("Optimize", "ScenarioSimpleEnvironmentShading",
+            FrameDefaults.Active ? FrameDefaults.ScenarioSimpleEnvironmentShading : Defaults.ScenarioSimpleEnvironmentShading,
+            "Simpler shading for compatible static floor surfaces: retains original color textures, "
+            + "tint and geometry but omits normal, metallic, fine surface detail and received realtime shadows. Wall dissolution, "
+            + "water, foliage, figures, items and UI retain their original shaders. Works live on PC and "
+            + "Frame. Used when WorldMaterialQualityModeCount is 0. Fresh Frame defaults On, PC Off; saved choices are retained.");
+
+        ScenarioEnvironmentEffectsDensityPercent = _file.Bind("Optimize", "ScenarioEnvironmentEffectsDensityPercent",
+            FrameDefaults.Active ? FrameDefaults.ScenarioEnvironmentEffectsDensityPercent : Defaults.ScenarioEnvironmentEffectsDensityPercent,
+            new ConfigDescription("Decorative scenario environment effects retained, such as original "
+            + "moths, candle flames and torch particles. 0% pauses eligible ambience; 100% restores it. "
+            + "Lights, native combat effects, condition cues and gameplay continuation stay intact. "
+            + "Works live on PC and Frame. Fresh Frame defaults 0%, PC 100%; saved choices are retained.",
+                new AcceptableValueRange<int>(0, 100)));
+
+        ScenarioFigureClothSimulation = _file.Bind("Optimize", "ScenarioFigureClothSimulation",
+            FrameDefaults.Active ? FrameDefaults.ScenarioFigureClothSimulation : Defaults.ScenarioFigureClothSimulation,
+            "Simulate cloth on scenario figures. OFF retains the animated figure but stops secondary "
+            + "cloth physics, including on locally or remotely held figures. Hand collision and cloth "
+            + "rescale cooking are suspended while OFF; ON restores original enabled cloth. "
+            + "NPCs, tabletop cloth, cards and gameplay colliders are untouched. Works live; fresh "
+            + "Frame defaults to OFF, PC to ON; saved choices stay.");
+        ReduceScenarioGenerationDetail = _file.Bind("Optimize", "ReduceScenarioGenerationDetail",
+            FrameDefaults.Active ? FrameDefaults.ReduceScenarioGenerationDetail : Defaults.ReduceScenarioGenerationDetail,
+            "Use the game's reduced procedural geometry quality at the next scenario load. "
+            + "Underground visibility and per-quest native settings are retained; floors, walls, "
+            + "room reveals and gameplay are not deliberately removed. Live changes do not rebuild "
+            + "the current scenario. OFF restores original generation at the next load. Fresh Frame "
+            + "defaults to ON, PC to OFF; saved choices stay.");
+
 
         // ---- [Perf] -------------------------------------------------------------------------
         Enabled = _file.Bind("Perf", "Enabled", Defaults.Perf_Enabled,
@@ -428,13 +632,28 @@ internal static class PerfConfig
             + "to the head camera (work that appears in no other number here and that this game "
             + "uses for a full occlusion re-draw of every revealed room), and the head camera's "
             + "path / depth-texture / culling mask. Sampled ONCE PER WINDOW: the walk allocates and "
-            + "would be a stutter of its own at frame rate. IT TIMES ITSELF and prints the figure "
-            + "on the SIM and SCENE lines; if that figure is above a few milliseconds it skips the "
-            + "next few windows so its amortised cost stays under budget, and says so. Never runs "
+            + "is spread across frames within the configurable scene-profile budget. IT TIMES ITSELF: actual slices "
+            + "and capture span are reported; an indivisible engine call can still exceed the soft "
+            + "budget. Live scene changes cancel the unfinished inventory. Never runs "
             + "in the pre-menu scenes (Bootstrap/Intro): there are five renderers there, and a "
             + "fault in a walk that runs before the settings pane exists cannot be switched off "
             + "from inside the headset.");
 
+        SceneProfileBudgetMilliseconds = _file.Bind("Perf", "SceneProfileBudgetMilliseconds",
+            Defaults.SceneProfileBudgetMilliseconds, new ConfigDescription(
+                "Soft per-frame work budget for incremental Debug scene inventories in milliseconds. "
+                + "An indivisible Unity call can exceed it; actual worst slices are reported. "
+                + "Does not alter FRAME, STEPS, SPLIT or gameplay.", new AcceptableValueRange<float>(.1f, 4f)));
+        SceneProfileObjectsPerFrame = _file.Bind("Perf", "SceneProfileObjectsPerFrame",
+            Defaults.SceneProfileObjectsPerFrame, new ConfigDescription(
+                "Maximum work items per frame for incremental Debug scene inventories. "
+                + "Only diagnostics are scheduled; no render or input cadence changes.",
+                new AcceptableValueRange<int>(8, 512)));
+        void RefreshSceneProfileBudget() => PerfSceneProfile.ConfigureBudget(
+            SceneProfileBudgetMilliseconds.Value, SceneProfileObjectsPerFrame.Value);
+        RefreshSceneProfileBudget();
+        SceneProfileBudgetMilliseconds.SettingChanged += (_, _) => RefreshSceneProfileBudget();
+        SceneProfileObjectsPerFrame.SettingChanged += (_, _) => RefreshSceneProfileBudget();
         // DEFAULT ON since ModBuild 227. It is pure measurement — it changes no pixel — and the
         // question it settles is now live: with all rooms open the head camera spends 6–9 ms per
         // frame over two eye passes on a scene of 8,600 renderers that it culls against a BLANKET
@@ -531,36 +750,6 @@ internal static class PerfConfig
         }
 
         // ---- [Optimize] ----------------------------------------------------------------------
-        CacheTickDelegates = _file.Bind("Optimize", "CacheTickDelegates", Defaults.CacheTickDelegates,
-            "Cache the Action delegates handed to TickGuard.Run instead of re-creating them from an "
-            + "instance method group every frame. Pure work removal — identical behaviour, just "
-            + "without ~7 delegate allocations per frame feeding the gen0 collector that causes "
-            + "head-turn hitches. OFF restores the old per-frame allocation (A/B only).");
-        MapIconCache = _file.Bind("Optimize", "MapIconCache", Defaults.MapIconCache,
-            "Cache the campaign-map icon scan. The map-icon draw runs from Camera.onPreCull — once "
-            + "PER RENDERING CAMERA PER FRAME, and the stereo flat screen has two or three — and it "
-            + "used to redo a full-scene FindObjectOfType, two allocating component walks, a "
-            + "GetComponent per decal, a fresh MaterialPropertyBlock per decal and a long diagnostic "
-            + "string per decal every single time. The decal SET only changes with the map state, so "
-            + "it is scanned on an interval while every icon's pose is still read live each frame — "
-            + "panning and zooming are pixel-identical. OFF restores the per-frame scan (A/B).");
-        FigureScanCache = _file.Bind("Optimize", "FigureScanCache", Defaults.FigureScanCache,
-            "Skip per-frame component walks the figure-grab driver does not need: an already-adopted "
-            + "figure is no longer re-resolved through GetComponentInChildren every frame, and the "
-            + "ring suppressor takes its 'nothing is held' early-out BEFORE it allocates the "
-            + "enumerators it would have iterated. Behaviour-identical work removal; OFF restores "
-            + "the unconditional walks.");
-        LeanLogStrings = _file.Bind("Optimize", "LeanLogStrings", Defaults.LeanLogStrings,
-            "Do not BUILD diagnostic strings that the log then throws away. Several diagnostics are "
-            + "throttled or change-gated inside the callee, so the interpolated message (plus the "
-            + "UnityEngine.Object.name access, which allocates a fresh string every read) was paid "
-            + "for on every frame while only one line in hundreds was printed. The gates now sit in "
-            + "front of the string work instead of behind it. Identical log output either way.");
-        TooltipScanGate = _file.Bind("Optimize", "TooltipScanGate", Defaults.TooltipScanGate,
-            "Gate the world-tooltip subsystem's per-frame work on whether a tooltip is actually "
-            + "shown: the full canvas subtree walk used to run before that check, and the fallback "
-            + "search for the game's CanvasManager retried a full-scene FindObjectOfType every frame "
-            + "for as long as it stayed unresolved. Identical tooltips, far fewer scans.");
         FanRelayoutMinInterval = _file.Bind("Optimize", "FanRelayoutMinInterval", Defaults.FanRelayoutMinInterval, new ConfigDescription(
             "Minimum seconds between two GAZE-driven re-layouts of the open card fan. 0 = re-lay out "
             + "on every frame the gaze gate trips, which is today's behaviour and what a fast head "
@@ -586,15 +775,15 @@ internal static class PerfConfig
             + "there carries the derivation of how high the number may safely go (the binding "
             + "constraint is the 0.20 s dwell before a wall may go transparent).",
             new AcceptableValueRange<float>(0f, 0.25f)));
-        InitiativeDepthEvalInterval = _file.Bind("Optimize", "InitiativeDepthEvalInterval", Defaults.InitiativeDepthEvalInterval, new ConfigDescription(
+        InitiativeDepthEvalInterval = _file.Bind("Optimize", "InitiativeDepthEvalInterval", FrameDefaults.Active ? FrameDefaults.InitiativeDepthEvalInterval : Defaults.InitiativeDepthEvalInterval, new ConfigDescription(
             "Minimum seconds between two DEPTH NORMALISATIONS of the docked initiative row — the "
             + "pass that walks every active portrait's subtree and clamps the row's authored "
             + "front-to-back spread to [WorldUI] InitiativeDepthMaxSpreadPx. 0 = every frame, "
             + "today's behaviour, and the measured cost of that walk rises with the number of "
             + "figures in the round. The pass is IDEMPOTENT and re-derives every target from the "
             + "recorded authored z, so running it at e.g. 0.05 (20 Hz) cannot change where a "
-            + "portrait ends up — it only delays by at most that interval when a NEWLY pooled "
-            + "portrait is first flattened.",
+            + "portrait ends up. Hierarchy/activation changes and cap changes bypass the interval "
+            + "so a newly pooled portrait is flattened immediately. Stable descendants are cached.",
             new AcceptableValueRange<float>(0f, 0.25f)));
         QuietDiagnostics = _file.Bind("Optimize", "QuietDiagnostics", Defaults.QuietDiagnostics,
             "Suppress the high-cadence per-subsystem DIAGNOSTIC log lines (the wall-fade 'diag:' "
@@ -660,29 +849,6 @@ internal static class PerfConfig
         // actually picks the level is a separate component and is untouched, no mesh is swapped, and
         // OnWillRenderObject's only product (m_renderCamera) is read nowhere but the Update that
         // returns before it.
-        AutomaticLodIdleSkip = _file.Bind("Optimize", "AutomaticLodIdleSkip", Defaults.AutomaticLodIdleSkip,
-            "ON by default, VR only. Take the game's AutomaticLOD behaviours off Unity's per-frame "
-            + "Update list when — and only when — the sweep has just read their own LODSwitchMode as "
-            + "UnityLODGroup, which is the exact condition under which AutomaticLOD.Update returns on "
-            + "its first statement. On the 2026-08-22 hardware log that is 2560 of the 2986 entries "
-            + "on that list, i.e. 86% of everything Unity calls every frame, each paying a Mono "
-            + "dispatch plus two UnityEngine.Object alive-checks in order to decide to do nothing. "
-            + "Level of detail is unaffected: it is chosen by the 1277 LODGroup components, which "
-            + "this does not touch. Every instance it disables is recorded and switched back on at "
-            + "teardown, on hot-reload, and the moment this entry is set to false. The measurement is "
-            + "the [Perf] SIM line's Update count in the next window — if it does not fall by the "
-            + "number the [Perf] LOD line says was disabled, this did not do what it claims and "
-            + "should be switched off. OFF restores today's behaviour exactly.");
-        AutomaticLodSweepSeconds = _file.Bind("Optimize", "AutomaticLodSweepSeconds", Defaults.AutomaticLodSweepSeconds, new ConfigDescription(
-            "Seconds between AutomaticLOD sweeps. A sweep is one typed FindObjectsOfType, which the "
-            + "[Perf] LOD line TIMES and prints; it exists because revealing a room instantiates new "
-            + "instances that were not there when the last sweep ran, and this is the interval within "
-            + "which those get taken off the Update list too. Lower = newly revealed rooms are caught "
-            + "sooner at the price of more scans; the scan is a single-digit-millisecond one-frame "
-            + "cost, so at the shipped cadence its amortised share is far under a tenth of a percent "
-            + "of a frame. A Harmony postfix on AutomaticLOD.Awake would make this free and is the "
-            + "upgrade if the printed scan cost ever reads as a visible hitch.",
-            new AcceptableValueRange<float>(2f, 300f)));
 
         // DEFAULT 0 = CHANGE NOTHING, deliberately, and that is not timidity: the correction factor
         // is arithmetic on two field-of-view numbers that nothing in this project has ever measured,
@@ -704,5 +870,15 @@ internal static class PerfConfig
             + "moment this goes back to 0. NOT the fix if that line reports masterTextureLimit above "
             + "0 — a discarded mip level is a different mechanism and LOD cannot blur a texture.",
             new AcceptableValueRange<float>(0f, 8f)));
+        // Frame628's short wall/batching edits were averaged into shared windows,
+        // so successful admission was visible but individual FPS effects were not.
+        // Debug hardware audits close the measurement on actual Optimize writes;
+        // no steady polling/formatting or normal player trace is introduced.
+        _file.SettingChanged += (_, args) =>
+        {
+            if (!VRLog.WantsDebug || args.ChangedSetting.Definition.Section != "Optimize") return;
+            PerfMonitor.MarkChange("[Optimize] " + args.ChangedSetting.Definition.Key
+                + "=" + args.ChangedSetting.BoxedValue);
+        };
     }
 }

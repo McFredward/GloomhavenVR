@@ -50,6 +50,12 @@ internal static class UiScrollFocus
     /// </summary>
     private const float ScrollHoldSeconds = 0.25f;
 
+    // Physical scroll surfaces have no uGUI pointer driver. Poll their current geometry
+    // before locomotion consumes the stick, so the first hover cannot depend on Unity's
+    // unrelated MonoBehaviour update order. The producer owns registration and teardown;
+    // this callback only stamps hover, never changes pages or native game state.
+    internal static System.Action<VRHand>? PhysicalHoverProbe;
+
     /// <summary>
     /// How stale a hover stamp may be and still count. One frame, and only to absorb the
     /// undefined tick order between the hand drivers and the flight component — not a hold.
@@ -128,6 +134,7 @@ internal static class UiScrollFocus
     {
         if (hand == null)
             return false;
+        PhysicalHoverProbe?.Invoke(hand);
         int i = (int)hand.Side;
         int stamp = HoverFrame[i];
         if (stamp != NeverStamped && Time.frameCount - stamp <= HoverFrameSlack)

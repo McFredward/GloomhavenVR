@@ -10,6 +10,26 @@ internal static class Program
         string repoRoot = args.Length > 0 ? args[0] : FindRepoRoot();
 
         var t = new Harness();
+        if (args.Length > 1 && args[1] == "second-held-card638")
+        { SecondHeldCardAtomicVectors.Run(t); return t.Report(); }
+        if (args.Length > 1 && args[1] == "town-original-delivery638")
+        { TownOriginalDelivery638Vectors.Run(t); return t.Report(); }
+        if (args.Length > 1 && args[1] == "town-card-return-cohort658")
+        { TownCardReturnCohortVectors.Run(t); return t.Report(); }
+        if (args.Length > 1 && args[1] == "town-return-origin665")
+        { TownReturnOrigin665Vectors.Run(t); return t.Report(); }
+        if (args.Length > 1 && args[1] == "town-offered-hover666")
+        { TownOfferedHover666Vectors.Run(t); return t.Report(); }
+        if (args.Length > 1 && args[1] == "town-first-picture632")
+        { TownServiceTransportVectors.Run(t); return t.Report(); }
+        if (args.Length > 1 && args[1] == "town-visible-census")
+        { TownVisibleCensusVectors.Run(t); return t.Report(); }
+        if (args.Length > 1 && args[1] == "town-catalog-warm")
+        { TownCatalogWarmVectors.Run(t); return t.Report(); }
+        if (args.Length > 1 && args[1] == "town-catalog-bank")
+        { TownCatalogBankVectors.Run(t); if (args.Length > 2) TownCatalogBankVectors.RunNativeCapture(t, args[2]); return t.Report(); }
+        if (args.Length > 1 && args[1] == "town-item-held")
+        { TownItemHeldVectors.Run(t); HeldFaceAtomicVectors.Run(t); ExtrasFragmentVectors.Run(t); TownResidentsVectors.Run(t); TownFaceVectors.Run(t); TownActivityVectors.Run(t); SharedWindowMotionVectors.Run(t); return t.Report(); }
         try
         {
             // Pin the two shimmed constants against the real declarations FIRST — every clamp
@@ -28,6 +48,11 @@ internal static class Program
             CardFxVisibilityVectors.Run(t);
             DamageDecisionPreviewVectors.Run(t);
             HeldFaceAtomicVectors.Run(t);
+            TownItemHeldVectors.Run(t);
+            SecondHeldCardAtomicVectors.Run(t);
+            TownOriginalDelivery638Vectors.Run(t);
+            TownOriginalReceipt639Vectors.Run(t);
+            TownOriginalRequest661Vectors.Run(t);
             CardFaceLifecycleVectors.Run(t, repoRoot);
             CardProvenanceVectors.Run(t, repoRoot);
             CardAppearanceVectors.Run(t, repoRoot);
@@ -39,6 +64,18 @@ internal static class Program
             NativeDecisionPromptVectors.Run(t);
             MapButtonTooltipVectors.Run(t);
             PresentationCompressionVectors.Run(t);
+            TownServiceTransportVectors.Run(t);
+            TownVisibleCensusVectors.Run(t);
+            TownCatalogBankVectors.Run(t);
+            TownCatalogWarmVectors.Run(t);
+            TownVisitorStockTransportVectors.Run(t);
+            TownMotionVectors.Run(t);
+            TownCardReturnCohortVectors.Run(t);
+            TownReturnOrigin665Vectors.Run(t);
+            TownOfferedHover666Vectors.Run(t);
+            TownResidentsVectors.Run(t);
+            TownFaceVectors.Run(t);
+            TownActivityVectors.Run(t);
             DecisionAttributionVectors.Run(t);
             CardFlightHistoryVectors.Run(t);
         CardBurnCompletionVectors.Run(t);
@@ -54,7 +91,9 @@ internal static class Program
             MapSyncVectors.Run(t);
             SharedWindowMotionVectors.Run(t);
             MapContinuationVectors.Run(t);
+            MapLoadoutCountVectors.Run(t);
             RelaunchVectors.Run(t);
+            FrameLaunchVectors.Run(t);
             ConfigStepVectors.Run(t, repoRoot);
             ScrollTurnGateVectors.Run(t);
             LiftWedgeVectors.Run(t);
@@ -123,6 +162,7 @@ internal static class Program
             PresentationSaturationVectors.Run(t);
             NativeUseBarVectors.Run(t);
             NativeBoardVectors.Run(t);
+            NativeBoardRulesVectors.Run(t);
             BoardNativeParityVectors.Run(t, repoRoot);
             CardPresentationVectors.Run(t);
             FanExchangeVectors.Run(t);

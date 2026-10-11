@@ -86,7 +86,7 @@ namespace GloomhavenVR.Core;
 /// multiplayer-safe and trivially reversible (<see cref="Shutdown"/> destroys the host and drops
 /// the records).</para>
 /// </summary>
-internal static class PerfMonitor
+internal static partial class PerfMonitor
 {
     private const string Scope0 = "Perf";
 
@@ -313,36 +313,6 @@ internal static class PerfMonitor
     //  Work counters ("how much work", not "how long it took")
     // ==========================================================================================
 
-    /// <summary>
-    /// One named counter's window accumulator. A CLASS for the same reason <see cref="Step"/> is:
-    /// the hot path mutates it in place after a single dictionary lookup, with no copy-back.
-    /// </summary>
-    private sealed class Tally
-    {
-        public Tally(string name) => Name = name;
-        public readonly string Name;
-        public long WindowTotal;
-        public long WindowWorstFrame;
-
-        /// <summary>Print this counter even in a window where it totalled ZERO — see
-        /// <see cref="PerfMonitor.Register"/>. Off by default so the line does not fill with rows
-        /// for subsystems that are simply not standing this session.</summary>
-        public bool PrintZero;
-
-        private long _frame;
-
-        public void Add(long amount)
-        {
-            WindowTotal += amount;
-            _frame += amount;
-            if (_frame > WindowWorstFrame)
-                WindowWorstFrame = _frame;
-        }
-
-        public void RollFrame() => _frame = 0L;
-        public void ResetWindow() { WindowTotal = 0L; WindowWorstFrame = 0L; _frame = 0L; }
-    }
-
     private static readonly Dictionary<string, Tally> Counters = new(16);
     private static readonly List<Tally> CounterOrder = new(16);
 
@@ -392,6 +362,15 @@ internal static class PerfMonitor
         Intern(name).PrintZero = true;
     }
 
+    /// <summary>Diagnostic work rows remain visible at zero in Debug without adding
+    /// detailed measurements to normal player logs. Existing lifecycle/anomaly rows remain.</summary>
+    internal static void RegisterDebug(string name)
+    {
+        Tally tally = Intern(name);
+        tally.PrintZero = true;
+        tally.DebugOnly = true;
+    }
+
     private static Tally Intern(string name)
     {
         if (!Counters.TryGetValue(name, out Tally tally))
@@ -418,6 +397,23 @@ internal static class PerfMonitor
         if (_host != null)
             return;
         _host = root.AddComponent<PerfHost>();
+        // Explicit zeros distinguish an enabled but unproductive optional lane from
+        // missing diagnostics in the maintainer's loaded-scenario Debug comparison.
+        RegisterDebug("Environment.ChunkSources");
+        RegisterDebug("Environment.ChunkGroups");
+        RegisterDebug("Environment.InstanceSources");
+        RegisterDebug("Environment.InstanceGroups");
+        RegisterDebug("Environment.LightingFallback");
+        RegisterDebug("Environment.CameraPathFallback");
+        RegisterDebug("Mirror.NativeSourceReads");
+        RegisterDebug("Mirror.NativeSourceReadsReused");
+        RegisterDebug("Mirror.ReadReuseOnNodes");
+        RegisterDebug("Mirror.ReadReuseOffNodes");
+        RegisterDebug("UI.WindowRegistrySharedScans");
+        RegisterDebug("UI.WindowRegistrySharedMembers");
+        RegisterDebug("UI.WindowRegistryIndependentScans");
+        RegisterDebug("UI.WindowRegistryIndependentMembers");
+        RegisterDebug("UI.WindowRegistryReusePanels");
         PerfFrameSplit.Install(root);
         ResetWindow(Time.unscaledTime);
     }
@@ -433,33 +429,50 @@ internal static class PerfMonitor
     /// (a double-click on a cycle button must not emit a line built from twelve frames); either
     /// way the accumulators are reset, so no window ever spans a change.</para>
     /// </summary>
-    internal static void MarkChange(string what)
+    internal static void MarkChange(string what, bool invalidateSceneCensus = true)
     {
         PerfConfig.Bind();
         if (_host == null || !PerfConfig.Enabled.Value)
             return;
+        // Frame 615's adaptive refresh marks repeatedly retired a slow, sliced scene
+        // inventory before completion. Refresh alone changes the pacing window, not
+        // scene membership or its graphics settings. Actual quality/configuration
+        // changes still cancel, as do Tick's native load/scene/debug lifecycle guards.
+        if (invalidateSceneCensus)
+            PerfSceneProfile.Cancel();
         float now = Time.unscaledTime;
         float elapsed = now - _windowStart;
         VRLog.Info(Scope0, $"MARK: {what} — closing the measurement window here ({elapsed:F1}s, "
                            + $"{_frameCount} frame(s) in it). Everything below the next FRAME/SPLIT line "
-                           + "describes ONLY the new state; nothing straddles the change.");
-        if (_frameCount >= MinMarkFrames)
+                           + "describes ONLY the new state; nothing straddles the change. "
+                           + (!invalidateSceneCensus
+                               ? "The separate incremental census retains its explicit capture span."
+                               : ""));
+        // The all-rooms Frame628 capture changes reported rate every 5--10s
+        // while producing fewer than 120 frames. Dropping each old window hid
+        // precisely the slow state under investigation. Keep long sparse windows
+        // with their actual sample count; quick repeated slider edits stay quiet.
+        if (_frameCount >= MinMarkFrames || (elapsed >= 5f && _frameCount >= 2))
             LogSummary(elapsed);
         ResetWindow(now);
     }
 
-    /// <summary>Frames a window must hold before <see cref="MarkChange"/> bothers to summarise it.</summary>
+    /// <summary>Short-window sample threshold; windows lasting five seconds also retain sparse slow-frame evidence.</summary>
     private const int MinMarkFrames = 120;
 
     /// <summary>Drop the host and every record (hot-reload teardown; never throws).</summary>
     internal static void Shutdown()
     {
         StepsActive = false;
+        PerfSceneProfile.Cancel();
+        FigureMeasurement.Clear();
+        _figureChangeLoggedAt = float.NegativeInfinity;
         if (_host != null)
         {
             UnityEngine.Object.Destroy(_host);
             _host = null;
         }
+        PerfSpikeDetails.Shutdown();
         PerfFrameSplit.Shutdown();
         Steps.Clear();
         StepOrder.Clear();
@@ -482,6 +495,7 @@ internal static class PerfMonitor
     {
         PerfConfig.Bind();
         bool on = PerfConfig.Enabled.Value;
+        PerfSpikeDetails.RollFrame(on && PerfConfig.FrameSplit.Value && VRLog.WantsDebug);
         // Written for NEXT frame's steps; the value that was live during frame N-1 is the one whose
         // measurements we are closing out right now, which is exactly what we want.
         StepsActive = on && PerfConfig.Attribution.Value;
@@ -514,6 +528,7 @@ internal static class PerfMonitor
         // The very first sampled frame carries the whole load/init hitch and would poison every
         // percentile for the first window; skip it rather than explain it in every log.
         bool splitOn = PerfConfig.FrameSplit.Value;
+        if (ObserveFigureMeasurement(now, splitOn)) return;
         if (!_firstSampleDone)
         {
             _firstSampleDone = true;
@@ -700,7 +715,7 @@ internal static class PerfMonitor
         // window was actually measured under — a summary stamped with the new rate would be a lie
         // about its own frames.
         if (changed)
-            MarkChange($"display rate {previous:F1}Hz → {hz:F1}Hz");
+            MarkChange($"display rate {previous:F1}Hz → {hz:F1}Hz", invalidateSceneCensus: false);
         _refreshHz = hz;
         _refreshSource = source;
         _budgetSeconds = 1f / hz;
@@ -709,14 +724,12 @@ internal static class PerfMonitor
             VRLog.Info(Scope0, $"DISPLAY presentation rate changed {previous:F1}Hz → {hz:F1}Hz "
                                + $"(budget {1000f / previous:F2}ms → {1000f / hz:F2}ms, source {source}). "
                                + (hz < previous
-                                   ? "A LOWER rate means the runtime is now REPROJECTING: the app is paced "
-                                     + "to the reduced interval, so frame time and the runtime's GPU figure "
-                                     + "both pin to it regardless of how much work we actually do. Timings "
-                                     + "across this boundary cannot be compared, and a quality setting "
-                                     + "changed below a rate lock will look like it does nothing even when "
-                                     + "it does."
-                                   : "A HIGHER rate means the runtime released the reprojection lock — "
-                                     + "measurements from here on reflect real work again."));
+                                   ? "A LOWER reported rate changes this measurement budget. It can reflect runtime "
+                                     + "pacing or refresh policy; this counter alone does not prove reprojection, "
+                                     + "GPU headroom or compositor cost. Compare matched settings/view windows "
+                                     + "and the measured main-thread spans before assigning a cause."
+                                   : "A HIGHER reported rate changes this measurement budget; it alone does not "
+                                     + "prove that reprojection stopped or that timings now exclude runtime waits."));
         }
     }
 
@@ -810,16 +823,16 @@ internal static class PerfMonitor
                 sb.Append((_gpuSum / _gpuSamples).ToString("F2")).Append(" max ")
                   .Append(_gpuMax.ToString("F2")).Append("ms over ").Append(_gpuSamples)
                   .Append(" frame(s)");
-                // The figure is only worth reading when it is BELOW the interval. At or above it,
-                // it is indistinguishable from the runtime reporting the interval or a wait, and
-                // treating it as GPU busy time is how a whole test round gets spent on the wrong
+                // This runtime figure is not independently calibrated GPU busy time, even below
+                // the interval. At or above it, an interval/wait reading is especially plausible;
+                // treating either case as proven headroom is how a round gets spent on the wrong
                 // hypothesis (2026-07: an 11x pixel-budget cut "moved GPU time 7%" — it did not
                 // move anything, the counter was pinned to a 45 Hz lock the entire time).
                 double gpuMean = _gpuSum / _gpuSamples;
                 sb.Append(gpuMean >= mean * 0.9f
                     ? " [AT the frame interval — NOT usable as GPU busy time; the runtime is "
                       + "reporting the interval or a wait]"
-                    : " [below the frame interval — the GPU has headroom, so the wall is elsewhere; "
+                    : " [below the frame interval — this runtime figure alone does not establish GPU headroom; "
                       + "see the SPLIT line]");
             }
             else
@@ -828,10 +841,33 @@ internal static class PerfMonitor
             }
         }
 
+        AppendFigureMeasurement(sb);
         VRLog.Info(Scope0, sb.ToString());
         LogSteps(windowSeconds);
         LogCounters(windowSeconds);
         LogSplit(windowSeconds, mean);
+        // These are end-of-window settings, not an isolated experiment or a renderer
+        // census. Existing figure-window revisions still cover the four original dials.
+        // Build612 omitted the new quality controls entirely, so a hardware slider change
+        // could not be distinguished from an unchanged/non-applicable map-only setting.
+        if (VRLog.WantsDebug)
+            VRLog.Info(Scope0, $"QUALITY-CONTROLS end-of-window snapshot: "
+                + $"distanceLOD={PerfConfig.FigureDistanceLodEnabled} npcBody=original100% "
+                + $"boneLimit={PerfConfig.MaximumSkinningBones} "
+                + $"idleBarInterval={PerfConfig.ActorBarPoseCheckInterval:F3}s "
+                + $"panelInterval={PerfConfig.UiMaintenanceInterval:F3}s "
+                + $"terrainNear={PerfConfig.TerrainDetailPercent}% terrainFar={PerfConfig.DistantTerrainDetailPercent}% "
+                + $"terrainDistance={PerfConfig.TerrainDistanceMeters:F2}m cheapWalls={PerfConfig.CheapWallShadingOn} "
+                + $"pillarDistanceLOD={PerfConfig.PillarDistanceLodEnabled} "
+                + $"terrainSubstitution={PerfConfig.TerrainSubstitutionOn} "
+                + $"terrainCameraSourceLimit={PerfConfig.TerrainCameraSourceLimit} "
+                + $"worldMaterialMode={PerfConfig.WorldMaterialQualityMode} "
+                + $"worldMaterialAmbient={PerfConfig.WorldMaterialAmbientWeight * 100f:F0}% "
+                + $"meshBank={PerfConfig.EnvironmentMeshBankOn} chunks={PerfConfig.StaticScenarioBatchesOn} "
+                + $"explicitInstances={PerfConfig.EnvironmentDrawInstancingOn} simpleEnvironment={PerfConfig.SimpleEnvironmentShadingOn} "
+                + $"sharedMaterials={PerfConfig.SharedEnvironmentMaterialReadsOn} sharedUI={PerfConfig.SharedUiWindowReadsOn} "
+                + $"nativeCloth={PerfConfig.FigureClothSimulationEnabled} figureFX={PerfConfig.FigureEffectsDensityPercent}% "
+                + $"environmentFX={PerfConfig.EnvironmentEffectsDensityPercent}%; not a latched A/B boundary.");
         LogSceneProfile();
     }
 
@@ -845,10 +881,18 @@ internal static class PerfMonitor
             return;
         StringBuilder sb = Sb;
         sb.Length = 0;
-        PerfFrameSplit.AppendSplit(sb, windowSeconds, frameMeanMs);
+        bool includeNativeCapture = !_figureBoundarySummary || PerfFrameSplit.NativeProbeComplete;
+        PerfFrameSplit.AppendSplit(sb, windowSeconds, frameMeanMs, includeNativeCapture);
         if (PerfConfig.SceneCensus.Value)
-            PerfFrameSplit.AppendSceneCensus(sb);
+        {
+            if (_sceneProfileFaulted)
+                sb.Append(" | scene census n/a (diagnostic fault; disabled for this session)");
+            else
+                PerfFrameSplit.AppendSceneCensus(sb);
+        }
         VRLog.Info(Scope0, sb.ToString());
+        if (includeNativeCapture)
+            PerfNativeLoopProbe.LogSummary(PerfFrameSplit.NativeProbeCapturedFrames);
     }
 
     /// <summary>
@@ -869,7 +913,7 @@ internal static class PerfMonitor
         // SceneProfileOn, not SceneProfile.Value: this runs from the window close, which can fire
         // before Bind on a partially-initialised session, and an NRE here escapes into the host's
         // catch and takes the whole instrumentation down with it.
-        if (_sceneProfileFaulted || !PerfConfig.SceneProfileOn || PerfSceneProfile.IsPreMenuScene())
+        if (_sceneProfileFaulted || !VRLog.WantsDebug || !PerfConfig.SceneProfileOn || PerfSceneProfile.IsPreMenuScene())
             return;
         // Latched guard of its own rather than relying on the host's: the host's catch disables
         // the WHOLE instrumentation for the session, and a walk over ~1700 foreign renderers is
@@ -881,15 +925,28 @@ internal static class PerfMonitor
             sb.Length = 0;
             PerfSceneProfile.AppendSceneLine(sb);
             VRLog.Info(Scope0, sb.ToString());
-            sb.Length = 0;
-            PerfSceneProfile.AppendGfxLine(sb);
-            VRLog.Info(Scope0, sb.ToString());
         }
         catch (Exception e)
         {
+            PerfSceneProfile.Cancel();
             _sceneProfileFaulted = true;
             VRLog.Error(Scope0, $"Scene profile threw and DISABLED ITSELF for this session "
                                 + $"(the rest of the [Perf] lines are unaffected): {e}");
+        }
+    }
+
+    // This is exclusively an instrument pump. Its fault latch cannot govern a
+    // non-diagnostic update or native gameplay continuation.
+    private static void CensusTick(UnityEngine.SceneManagement.Scene persistentScene)
+    {
+        if (_sceneProfileFaulted) return;
+        try { PerfSceneProfile.Tick(persistentScene); }
+        catch (Exception e)
+        {
+            PerfSceneProfile.Cancel();
+            _sceneProfileFaulted = true;
+            VRLog.Error(Scope0, $"Scene profile threw and DISABLED ITSELF for this session "
+                + $"(the rest of the [Perf] lines are unaffected): {e}");
         }
     }
 
@@ -1039,9 +1096,13 @@ internal static class PerfMonitor
         if (!PerfConfig.Attribution.Value || CounterOrder.Count == 0)
             return;
 
+        bool debug = VRLog.WantsDebug;
         bool any = false;
         for (int i = 0; i < CounterOrder.Count && !any; i++)
-            any = CounterOrder[i].WindowTotal > 0L || CounterOrder[i].PrintZero;
+        {
+            Tally tally = CounterOrder[i];
+            any = (!tally.DebugOnly || debug) && (tally.WindowTotal > 0L || tally.PrintZero);
+        }
         if (!any)
             return;
 
@@ -1053,7 +1114,7 @@ internal static class PerfMonitor
         for (int i = 0; i < CounterOrder.Count; i++)
         {
             Tally t = CounterOrder[i];
-            if (t.WindowTotal <= 0L && !t.PrintZero)
+            if ((t.DebugOnly && !debug) || (t.WindowTotal <= 0L && !t.PrintZero))
                 continue;
             sb.Append(first ? string.Empty : " | ").Append(t.Name).Append(' ')
               .Append((t.WindowTotal / Mathf.Max(0.001f, windowSeconds)).ToString("F0"))
@@ -1068,9 +1129,8 @@ internal static class PerfMonitor
 
     /// <summary>
     /// One line per over-budget frame — the judder itself, not its average. Names the worst mod
-    /// steps IN THAT FRAME, and states plainly when the mod is not the culprit: a spike with a
-    /// near-zero mod total is a game/GPU/compositor spike and no amount of mod optimization will
-    /// move it, which is exactly the conclusion worth reading off a log rather than guessing at.
+    /// steps IN THAT FRAME. Named scopes do not cover all mod/native/engine work; an unmeasured
+    /// remainder cannot by itself assign the hitch to a GPU, the game or the compositor.
     /// </summary>
     private static void LogSpike(float dtSeconds, double modSeconds, float thresholdSeconds)
     {
@@ -1105,11 +1165,12 @@ internal static class PerfMonitor
                       .Append((Ranked[i].SpikeSeconds * 1000d).ToString("F2")).Append("ms");
                 }
             }
-            // 25 % is a deliberately generous bar: below it the mod cannot be the story even if
-            // every one of its steps were free.
+            // Retain the historical grep token, but bound its interpretation explicitly:
+            // this verdict covers named scopes, not all work performed by the mod/game.
             if (modSeconds < dtSeconds * 0.25f)
                 sb.Append(" | VERDICT: NOT the mod — the mod accounts for under a quarter of this "
-                          + "frame, so the stall is game/GPU/compositor side");
+                          + "frame, so the stall is game/GPU/compositor side"
+                          + " (named scopes only; uninstrumented work remains unassigned)");
         }
         else
         {
@@ -1119,6 +1180,7 @@ internal static class PerfMonitor
         if (PerfConfig.Allocations.Value)
             sb.Append(" | heap ").Append((GC.GetTotalMemory(false) / 1048576d).ToString("F1")).Append("MB");
 
+        PerfSpikeDetails.Append(sb);
         VRLog.Info(Scope0, sb.ToString());
     }
 
@@ -1154,10 +1216,12 @@ internal static class PerfMonitor
             try
             {
                 Sample();
+                CensusTick(gameObject.scene);
             }
             catch (Exception e)
             {
                 _faulted = true;
+                PerfSceneProfile.Cancel();
                 StepsActive = false;
                 VRLog.Error(Scope0, "Instrumentation threw and DISABLED ITSELF (measuring must never "
                                     + $"break the frame): {e}");

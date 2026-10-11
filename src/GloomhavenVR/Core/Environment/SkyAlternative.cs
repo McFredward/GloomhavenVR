@@ -693,7 +693,7 @@ internal static class SkyAlternative
         if (_bound)
             return;
         _bound = true;
-        Style = file.Bind("Sky", "Style", Defaults.SkyStyle,
+        Style = file.Bind("Sky", "Style", FrameDefaults.Active ? (SkyStyle)FrameDefaults.SkyStyleCode : Defaults.SkyStyle,
             "Which surroundings you play in (user rulings 2026-08-12/13: the environment " +
             "renders ONLY inside a scenario, like the game's own default surroundings — " +
             "never in the menu; it is built from the mod's OWN bundle content, styled to " +

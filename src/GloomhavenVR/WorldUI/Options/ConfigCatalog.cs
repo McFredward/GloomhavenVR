@@ -402,7 +402,7 @@ internal static class ConfigCatalog
     /// map-capture knobs ([WorldUI] Map*) carry that prefix instead of "LEGACY — no effect"
     /// and were sitting in Menüs &amp; Tafeln as twenty dead rows.</para>
     /// </summary>
-    private static readonly string[] RetiredMarkers = { "LEGACY — no effect", "RESERVED —", "DEPRECATED —" };
+    private static readonly string[] RetiredMarkers = { "LEGACY — no effect", "RESERVED —", "DEPRECATED —", "INERT —" };
 
     /// <summary>Entries left out of the catalog because they are marked retired.</summary>
     internal static int RetiredEntries { get; private set; }
@@ -897,6 +897,41 @@ internal static class ConfigCatalog
     /// </summary>
     private static ConfigTopic TopicOf(string module, string section, string key)
     {
+        // Graphics tuning belongs with its visible tradeoffs in Advanced, not the diagnostic
+        // counters. Pure work removal is retired by its INERT description before TopicOf runs.
+        if (section == "Optimize" && (key == "FigureDistanceLod" || key == "SkinningBoneLimit"
+            || key == "UiMaintenanceIntervalSeconds" || key == "ActorBarPoseCheckIntervalSeconds"
+            || key == "InitiativeDepthEvalInterval" || key == "LodBias"))
+            return ConfigTopic.Visual;
+        // This is a visible quality trade, unlike the perf module's diagnostic switches.
+        if (section == "Optimize" && (key == "ScenarioSceneryDensityPercent"
+                                     || key == "ScenarioDecorationDensityPercent"
+                                     || key == "ScenarioVegetationDensityPercent"
+                                     || key == "ScenarioPlayerFigureDetailPercent"
+                                     || key == "ScenarioEnemyFigureDetailPercent"
+                                     || key == "ScenarioFigureEffectsDensityPercent"
+                                     || key == "ScenarioEnvironmentEffectsDensityPercent"
+                                     || key == "ScenarioStaticBatching"
+                                     || key == "OffscreenIdleAnimation"
+                                     || key == "ScenarioStructuralInstancing"
+                                     || key == "ScenarioStructuralBatching"
+                                     || key == "ScenarioSimpleEnvironmentShading"
+                                     || key == "ScenarioExplicitEnvironmentInstancing"
+                                     || key == "ScenarioCheapWallShading"
+                                     || key == "ScenarioTerrainSubstitution"
+                                     || key == "WorldMaterialQualityModeCount"
+                                     || key == "WorldMaterialAmbientPercent"
+                                     || key == "ScenarioTerrainDetailPercent"
+                                     || key == "ScenarioDistantTerrainDetailPercent"
+                                     || key == "ScenarioTerrainDistanceMeters"
+                                     || key == "ScenarioTerrainPillarDistanceLod"
+                                     || key == "ScenarioTerrainCameraSourceLimitCount"
+                                     || key == "WallVisibilityModeCount"
+                                     || key == "WallAutoHideBelowFpsCount"
+                                     || key == "ScenarioFigureClothSimulation"
+                                     || key == "ReduceScenarioGenerationDetail"))
+            return ConfigTopic.Visual;
+
         // Per-board geometry, whatever module it comes from: keys carry the board name as a
         // suffix ("BoardScale_Steel"), so this stays true for boards added later.
         if (HasBoardSuffix(key))
@@ -1533,7 +1568,7 @@ internal static class ConfigCatalog
                 case ConfigKind.Bool:
                     return v is bool b && b ? Loc.Mod("vr_on") : Loc.Mod("vr_off");
                 case ConfigKind.Choice:
-                    return v?.ToString() ?? "-";
+                    return ChoiceText(item, v);
                 case ConfigKind.Number:
                     return Num(Convert.ToDouble(v, CultureInfo.InvariantCulture), item.Integral,
                                item.BaseStep);
@@ -1548,6 +1583,21 @@ internal static class ConfigCatalog
         {
             return "?";
         }
+    }
+
+    /// <summary>Localize named integer choices without changing their stored values.</summary>
+    internal static string ChoiceText(ConfigItem item, object? value)
+    {
+        if (item.Section == "Optimize" && item.Key == "WallVisibilityModeCount" && value is int mode)
+        {
+            switch (mode)
+            {
+                case 0: return Loc.Mod("wall_visibility_regular");
+                case 1: return Loc.Mod("wall_visibility_hidden");
+                case 2: return Loc.Mod("wall_visibility_auto");
+            }
+        }
+        return value?.ToString() ?? "-";
     }
 
     /// <summary>
@@ -1581,7 +1631,7 @@ internal static class ConfigCatalog
         return v.ToString("0." + new string('#', decimals), CultureInfo.InvariantCulture);
     }
 
-    private static double Component(object? boxed, int c) => boxed switch
+    internal static double Component(object? boxed, int c) => boxed switch
     {
         Vector2 v2 => c == 0 ? v2.x : v2.y,
         Vector3 v3 => c == 0 ? v3.x : c == 1 ? v3.y : v3.z,
@@ -1669,7 +1719,7 @@ internal static class ConfigCatalog
         }
     }
 
-    private static object? WithComponent(object? boxed, int c, float v)
+    internal static object? WithComponent(object? boxed, int c, float v)
     {
         switch (boxed)
         {
@@ -1727,7 +1777,8 @@ internal static class ConfigCatalog
     /// </summary>
     internal static string Hint(ConfigItem item)
     {
-        string? desc = Loc.ConfigDescription(item.Section, item.Key)
+        string? desc = Loc.ConfigHelpForPlayers(item.Section, item.Key)
+                       ?? Loc.ConfigDescription(item.Section, item.Key)
                        ?? item.Entry.Description?.Description;
         return string.IsNullOrEmpty(desc) ? string.Empty : Clip(Collapse(desc!), MaxDescriptionChars);
     }
@@ -1751,13 +1802,14 @@ internal static class ConfigCatalog
         sb.Append('[').Append(item.Section).Append("] ").Append(item.Key).Append('\n');
         sb.Append(FileNameOf(item)).Append('\n');
 
-        string? desc = Loc.ConfigDescription(item.Section, item.Key)
+        string? desc = Loc.ConfigHelpForPlayers(item.Section, item.Key)
+                       ?? Loc.ConfigDescription(item.Section, item.Key)
                        ?? item.Entry.Description?.Description;
         if (!string.IsNullOrEmpty(desc))
             sb.Append('\n').Append(Clip(Collapse(desc!), MaxDescriptionChars)).Append('\n');
 
         sb.Append('\n').Append(Loc.Mod("cfg_default")).Append(": ")
-          .Append(Clip(item.Entry.DefaultValue?.ToString() ?? "-", 40));
+          .Append(Clip(ChoiceText(item, item.Entry.DefaultValue), 40));
         if (item.HasRange)
         {
             sb.Append("   ").Append(Loc.Mod("cfg_range")).Append(": ")

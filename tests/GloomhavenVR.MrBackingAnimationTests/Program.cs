@@ -148,6 +148,7 @@ internal static class Program
         runner.Finish("completed",true);Check(done==1,"draw failure preserves close continuation");
         MrBacking.ResetTest();PanelInkBounds.Throw=true;done=0;p=Start(false,out runner,()=>done++);
         runner.Finish("completed",true);Check(done==1,"measurement failure preserves close continuation");
+        WindowSwitchTests.Run(Check);
         Console.WriteLine($"MR backing animation: {_assertions} runtime assertions passed.");
     }
 }

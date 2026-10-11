@@ -55,10 +55,10 @@ namespace UnityEngine
         public static float Clamp01(float x)=>Math.Clamp(x,0,1);public static float Lerp(float a,float b,float t)=>a+(b-a)*Clamp01(t);
     }
 }
-namespace GloomhavenVR { internal static class Defaults { public const float GrabBarTweenMs=150f; } }
+namespace GloomhavenVR { internal static class Defaults { public const float GrabBarTweenMs=150f; public const bool WindowMaterialise=true; public const float WindowMaterialiseAppearSeconds=.35f,WindowMaterialiseVanishSeconds=.9f,WindowMaterialiseIntensity=1; } }
 namespace GloomhavenVR.Core
 {
-    internal static class VRLog { public static bool Throw; public static int Warnings; public static void Warn(string scope,string message) { Warnings++;if(Throw)throw new InvalidOperationException("logger unavailable"); } }
+    internal static class VRLog { public static bool Throw; public static int Warnings; public static void Info(string scope,string message){}public static void Error(string scope,string message){}public static void Note(string scope,string message){}public static void Warn(string scope,string message) { Warnings++;if(Throw)throw new InvalidOperationException("logger unavailable"); } }
 }
 namespace GloomhavenVR.WorldUI
 {
@@ -68,6 +68,7 @@ namespace GloomhavenVR.WorldUI
         public bool MrBackingSuppressed,RenderHidden,OwnerRenderHidden;
         public RectTransform? HostRect=new();public GameObject? HostGo=new();public Transform? FitContentRoot;
         public Transform Target=new();
+        public bool IsAlive=true;public bool InputDetached;
     }
     internal static class MixedReality { public static bool BackingsWanted=true; }
     internal sealed class MrBackingVisibility { public Transform? Root;public readonly List<CanvasRenderer> Witnesses=new(); }
@@ -145,10 +146,10 @@ namespace GloomhavenVR.WorldUI
         internal static bool Visible(ConvertedPanel p)=>Plate(p)?.gameObject.activeInHierarchy??false;
     }
     internal sealed class VisibilityHold { public bool Released;public void Assert(){}public void Release(string reason){Released=true;} }
-    internal static class WindowMaterialise
+    internal static partial class WindowMaterialise
     {
         internal sealed class DebrisCloud { public Object? MeshFront,MeshBehind;public Renderer? Front,Behind; }
-        public static float Intensity=1;public static void Unregister(WindowMaterialiseRunner r){}public static void ReleaseMesh(Object? m){}
+        public static float Intensity=1;public static void Unregister(WindowMaterialiseRunner r)=>Live.Remove(r);public static void ReleaseMesh(Object? m){ if(m!=null)ReleasedMeshes++; }
     }
     internal sealed partial class WindowMaterialiseRunner
     {

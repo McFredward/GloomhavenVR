@@ -9,7 +9,9 @@ transport = (net / 'FfsNetTransport.cs').read_text()
 def send_binding(source):
     start = source.index('    public void Send(')
     queued = source.index('_extrasQueue.Enqueue(payload, length, identity: presentationIdentity);', start)
-    guard = source[source.index('if (type == NetProtocol.MsgExtras', start):queued]
+    # The shared presentation guard may begin with another registered message
+    # (e.g. original receipts). Bind its current conditional, not a fixed leader.
+    guard = source[source.index('if (type == NetProtocol.', start):queued]
     assert 'type == NetProtocol.MsgItemAppearance' in guard, 'Native item packets must use the bounded presentation scheduler'
     assert queued < source.index('SendToken(bytes);', start), 'Item snapshots must not bypass fragmentation'
 

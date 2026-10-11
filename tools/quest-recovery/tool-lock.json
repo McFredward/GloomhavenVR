@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "tool": "AssetRipper",
+  "version": "2.0.0",
+  "repository": "https://github.com/AssetRipper/AssetRipper",
+  "source_revision": "1ac666f",
+  "artifacts": {
+    "linux-x64": {
+      "filename": "AssetRipper_linux_x64.tar.xz",
+      "sha256": "6f5d4352d36795b944243eb3ec790ec37dbca6d6756e52605bc8616e042d384e",
+      "executable": "AssetRipper.GUI.Free"
+    },
+    "windows-x64": {
+      "filename": "AssetRipper_win_x64.zip",
+      "sha256": "9a7ef0e7c5c3ea5b90b4e6d855e2d98d5f7ec8c3f9e26fccbc194c6a7b01baf7",
+      "executable": "AssetRipper.GUI.Free.exe"
+    }
+  },
+  "settings": {
+    "ScriptExportMode": "DllExportWithoutRenaming",
+    "StreamingAssetsMode": "Ignore",
+    "ShaderExportMode": "Dummy",
+    "ScriptContentLevel": "Level2",
+    "DefaultVersion": "2021.3.5f1",
+    "TargetVersion": "2021.3.5f1",
+    "EnableStaticMeshSeparation": "on"
+  }
+}

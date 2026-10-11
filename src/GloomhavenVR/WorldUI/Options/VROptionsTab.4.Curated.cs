@@ -219,7 +219,7 @@ internal static partial class VROptionsTab
     /// <i>"b) In den Nicht-Erweitert Kategorien sind wieder viel zu viele detaillierte
     /// Einstellungen gelandet. Sowas wie Offsets etc. gehört da nicht hin - Denke immer daran das
     /// die einfachen Spieler die Zielgruppe sind. 'Power-User' können dann in 'Erweitert' gehen."</i>
-    /// and <i>"d) Entferne die Graphik-Profile wieder in den VR-Einstellungen, die mag ich
+    /// and the historical profile removal, <i>"d) Entferne die Graphik-Profile wieder in den VR-Einstellungen, die mag ich
     /// nicht."</i> The word "wieder" is the finding: this list drifts back the same way every time,
     /// by a row being curated at the moment somebody asks about the thing it tunes.</para>
     /// <list type="bullet">
@@ -460,164 +460,56 @@ internal static partial class VROptionsTab
             {
                 new()
                 {
+                    LocKey = "sec_graphics_profiles",
+                    Entries = new CuratedEntry[]
+                    {
+                        CuratedEntry.Press("graphics_standalone", () => GraphicsProfileActions.Apply(0)),
+                        CuratedEntry.Press("graphics_performance", () => GraphicsProfileActions.Apply(1)),
+                        CuratedEntry.Press("graphics_balanced", () => GraphicsProfileActions.Apply(2)),
+                        CuratedEntry.Press("graphics_highend", () => GraphicsProfileActions.Apply(3)),
+                    },
+                },
+                new()
+                {
                     LocKey = "sec_presentation",
                     Entries = new CuratedEntry[]
                     {
-                        // "Grafik-Voreinstellung" ([RenderQuality] QualityPreset) STOOD HERE, FIRST,
-                        // from 2026-08-23 to 2026-09-05 — Qualität / Ausgewogen / Leistung /
-                        // Schwache Hardware / Eigene, as a localized dropdown, writing MSAA, eye
-                        // resolution and the per-pixel light cap in one press.
-                        //
-                        // THE WHOLE OFFERING IS RETIRED, by user ruling (2026-09-05, verbatim):
-                        // "Entferne die Graphik-Profile wieder in den VR-Einstellungen, die mag ich
-                        // nicht." THIS IS THE ONE DEMOTION IN THIS FILE THAT IS NOT ALSO A DOOR ONE
-                        // LEVEL DEEPER: deleting the row alone would have left the dropdown on
-                        // Erweitert ▸ Bild & Darstellung, which does not satisfy "entferne". So the
-                        // ENTRY left the catalog too, by the marker ConfigCatalog.IsRetired reads —
-                        // its bound description opens "LEGACY — no effect" now (Rig/RenderQuality.cs)
-                        // — and every apply path went with it, so nothing can write the three dials
-                        // below except the player.
-                        //
-                        // THE THREE DIALS ARE UNCHANGED AND ARE THE AUTHORITY, which is the half of
-                        // this that matters: no shipped value moved, Defaults.PixelLightCount stays
-                        // 0, and the preset's own key stays bound at its old default so an existing
-                        // dev.gloomhavenvr.rig.cfg is not rewritten. Do not re-create the row.
-                        // The two dials every headset owner looks for first (audit 03: the
-                        // Grafik tab had NO render-quality row at all since the old panel's
-                        // preset cycle lost its caller) — plus the two pure quality raises.
-                        //
-                        // THE RESOLUTION ROW IS REACHABLE AND WAS ALL ALONG — checked against the
-                        // ModBuild 226 log rather than assumed, because the report above reads like
-                        // a missing row and is not one. It has sat on this page, second from the
-                        // top of the mod's most prominent settings tab, since the 2026-08 overhaul.
-                        // What his session shows is that the row never MOVED: [RenderQuality]
-                        // EyeResolutionScale read 1.00 in all thirty EYE-TARGET DIAG blocks and the
-                        // log carries zero "Eye render resolution scale asserted" lines. Whatever
-                        // resolution he changed was upstream of the mod (the game's own options
-                        // page, or Virtual Desktop's slider), and until this build the log had no
-                        // sentence that could tell him so. It has one now, on every rig build.
                         new("RenderQuality", "EyeResolutionScale", "vr_o_eyeres"),
                         new("RenderQuality", "MsaaLevel", "vr_o_msaa"),
                         new("RenderQuality", "ForceAnisotropic", "vr_o_aniso"),
-                        // [RenderQuality] PixelLightCount STOOD HERE under ruling 19 ("the
-                        // pixel-light cap is a visible look-vs-frames trade the game itself never
-                        // exposes in VR"). IT IS OFF THE CURATED PAGE SINCE 2026-08-23, by a newer
-                        // ruling from the same player, verbatim: "Die Pixellichter option ist zu
-                        // gefährlich für normale Nutzer, sie sollte in Erweitert verschwinden und
-                        // per default auch in allen Graphik-Voreinstellungen auf 0 geschaltet sein."
-                        // Both halves shipped together: Defaults.PixelLightCount is 0 now and all
-                        // four entries of RenderQuality.Presets carried 0, so the everyday player
-                        // already HAS the cheap setting and never has to find this row — while
-                        // raising it, which is the dangerous direction, costs one navigation level.
-                        // THE SECOND HALF IS NOW SATISFIED BY THERE BEING NO PRESETS AT ALL (user
-                        // ruling 2026-09-05, the tombstone at the top of this section): the preset
-                        // table is deleted, so nothing but the player can hand out a pixel light.
-                        // THE FIRST HALF IS UNTOUCHED AND MUST STAY SO — Defaults.PixelLightCount
-                        // is still 0 and that is what the shipped install runs.
-                        //
-                        // NOTHING IS LOST AND NOTHING HAD TO MOVE, and unlike the notes below this
-                        // was VERIFIED rather than trusted: ConfigCatalog enumerates every BOUND
-                        // entry of every module file (Rebuild → Describe) and filters on exactly two
-                        // things, IsRetired (a description prefix marker this entry does not carry)
-                        // and the NotOffered table (which holds no RenderQuality key). The module is
-                        // "rig" — [RenderQuality] rides dev.gloomhavenvr.rig.cfg — so TopicOf sends
-                        // it to ConfigTopic.Visual, i.e. Erweitert ▸ "Bild & Darstellung", under the
-                        // "cfg_sec_renderquality" heading its six siblings already produce (well
-                        // past ConfigCatalog.MinClusterSize, so it is a heading of its own and not
-                        // the "Allgemein" collector). Its stepper is unchanged: ConfigSteps keeps
-                        // ["RenderQuality/PixelLightCount"] = 1d, a light at a time.
-                        // FOUR ROWS, ONE FAMILY, AND THAT IS THE WHOLE SECTION NOW. Everything
-                        // below this line used to be in it; see the tab header for where each part
-                        // went and why.
-                        //
-                        // "Post-Processing aus" ([Compat] DisablePostProcessing) and
-                        // "Volumennebel aus" ([Compat] DisableVolumetricFog) stood here. They are
-                        // OFF THE CURATED PAGE since the 2026-08-22 settings audit, by the user's
-                        // ruling on its open question 4. Both are START-UP-ONLY, so flipping one
-                        // appears to do nothing — which reads as a broken row on the most
-                        // prominent page in the menu — and both sit on the stereo-hazard side of a
-                        // trade a player has no way to see (PPv2 is unverified under stereo
-                        // rendering; the fog is a known stereo hazard). NOTHING IS LOST AND
-                        // NOTHING HAD TO MOVE: Erweitert is the catalog's own index, so both are
-                        // on Erweitert ▸ "Bild & Darstellung" the moment this list stops naming
-                        // them. Same shape as the [MapRoom] size dials below.
-                        //
-                        // THE WHOLE WORLD BLOCK MOVED ONE TAB DOWN (audit question (c)):
-                        // [Compat] WallFade, [Sky] Style, the campaign-map switch ([Rig]
-                        // Vanilla2DMap since ModBuild 230, Experimental3DMap before it), [WorldUI]
-                        // MapRoomHand, [Elements] ×2, [Haunt] ×2 and [EnvSound] ×2 are the
-                        // "Umgebung & Ton" tab now, under headings that name what they are. They
-                        // are the same ConfigEntries and the same order; only the page changed.
-                        // THE MAP ROOM'S FIVE SIZE DIALS USED TO SIT HERE — [MapRoom] IconScale /
-                        // CityIconScale / GloomhavenIconScale / PartyMarkerScale / PathWidthScale,
-                        // promoted onto this page at ModBuild 193 and 194 so the "separat
-                        // justieren" report could compare them side by side.
-                        //
-                        // THEY ARE GONE FROM THE CURATED PAGE AGAIN (user ruling, hardware:
-                        // "Symbolgrößen gehören ins ERWEITERT Menü!"). Nothing is lost by it and
-                        // nothing had to move: Erweitert is the catalog's own index, so every one of
-                        // the five is on Erweitert ▸ "Bild & Darstellung" the moment this list stops
-                        // naming them — and now that [MapRoom] contributes FIVE entries it clears
-                        // ConfigCatalog.MinClusterSize and gets its own heading there instead of
-                        // being swept into the "Allgemein" collector, which is what made a curated
-                        // row the rescue back at 193. The five stay adjacent, in the same reading
-                        // order, one navigation level deeper.
-                        //
-                        // They still fold under the campaign-map switch wherever they are shown
-                        // ([Rig] Vanilla2DMap == Off since ModBuild 230; VROptionsTab.8
-                        // .Dependencies, DependentSections claims the whole [MapRoom] section), so
-                        // on a flat-map install they are off screen exactly as before — note that
-                        // "a flat-map install" is now the OPT-OUT rather than the default, so these
-                        // five are on screen for most players where before they were hidden.
-                        //
-                        // DO NOT RE-PROMOTE without a fresh ruling: this is the second placement of
-                        // the same family, and the user named the destination himself.
-                        //
-                        // THE TRAVEL-CONFIRM BUTTON'S TWO PLACEMENT DIALS (ModBuild 194) STOOD
-                        // HERE AND ARE GONE FROM THE CURATED PAGE — because that is where he asked
-                        // for them, and this page was never it. His words, both halves: "Geb mir
-                        // dann IM DEBUG MENU die offsets um ihm zu verschieben - ich stell es
-                        // selber ein." The 194 build put them on the most prominent curated page
-                        // in the mod instead; that is the same misplacement the "Symbolgrößen
-                        // gehören ins ERWEITERT Menü!" ruling corrected two entries above, on the
-                        // same feature, in the same build.
-                        //
-                        // WHAT IS UNTOUCHED, and must stay untouched: both DEFAULTS are 0 and both
-                        // RANGES are unchanged. Three solved placements were rejected in a row
-                        // (191/192/193), the mod ships the ModBuild 190 pose — which 0/0
-                        // reproduces exactly — and he does the moving. Only the LOCATION of the
-                        // rows was ever on the table.
-                        //
-                        // AND THEY ARE NOT LOST: Erweitert ▸ Menüs & Tafeln lists both by hand
-                        // under a "Karte 3D" heading beside [WorldUI] MapRoomHand
-                        // (VROptionsTab.7.TopicTrees.cs), and they keep their ◀/▶ stepper —
-                        // PrefersStepper below is unchanged, per his other ruling on these two
-                        // ("nicht Schieberegler, sondern die Pfeile").
-                        //
-                        // ELEMENT MOOD, HAUNT AND ENV SOUND stood here too and are the new
-                        // "Umgebung & Ton" tab's Umgebung / Grusel / Ton sections. The reason is
-                        // question (c) and it is the sharpest single finding of the whole audit:
-                        // the mod's ENTIRE audio surface was filed under "Grafik".
-                        //
-                        // THE ROOM TONE ROWS ARE GONE ALTOGETHER, and this note is here so nobody
-                        // re-adds them from the ModBuild 154 request. "EnvSound/AmbienceBed" and
-                        // "EnvSound/AmbienceBedGain" sat here from 154 to 222 and were deleted at
-                        // ModBuild 223 with the two continuous room tones they switched and scaled
-                        // — user, 2026-08-22: "Im Keller hören sich die Geräusche an wie Rauschen
-                        // bei nem Fernseher" and "Statt generrell durchgehende sounds zu machen
-                        // lieber die Tierrufe". The ruling and the measurements are in
-                        // Core/EnvSound.cs's THE ROOM TONES, DELETED.
-                        // "Forward-Rendering" ([Rig] ForwardRendering) stood here — the single
-                        // most dangerous row the 2026-08-22 settings audit found, because it was
-                        // CURATED. Its off state reinstated the documented see-through-walls
-                        // defect the forward path exists to fix AND silently killed the MSAA row
-                        // above it, at the next start, from a page that looks like quality
-                        // sliders. The user's ruling on the audit's open question 4 was to delete
-                        // it outright: it is a constant now (Plugin.ForwardRendering), so this is
-                        // not a row that moved to Erweitert — there is no key left to show.
-                        // "Hauptmenü in VR" ([Rig] MenuRig) is GONE with its dial (user ruling
-                        // 2026-08-13): off built no rig at all outside a scenario — the main
-                        // menu had nothing to hang on. Unconditional now.
+                        new("Optimize", "ScenarioSimpleEnvironmentShading", "vr_o_simpleenvironment"),
+                    },
+                },
+                new()
+                {
+                    LocKey = "sec_graphics_details",
+                    Entries = new CuratedEntry[]
+                    {
+                        // Build654: the maintainer places instant wall removal under Graphics
+                        // because it trades scenery for performance. Keep its Auto threshold
+                        // beside the policy; the ordinary view-dependent fade stays in Comfort.
+                        new("Optimize", "WallVisibilityModeCount", ""),
+                        new("Optimize", "WallAutoHideBelowFpsCount", ""),
+                        new("Optimize", "ScenarioExplicitEnvironmentInstancing", ""),
+                        new("Optimize", "ScenarioCheapWallShading", ""),
+                        new("Optimize", "ScenarioTerrainSubstitution", ""),
+                        new("Optimize", "WorldMaterialQualityModeCount", ""),
+                        new("Optimize", "WorldMaterialAmbientPercent", ""),
+                        new("Optimize", "ScenarioTerrainDetailPercent", ""),
+                        new("Optimize", "ScenarioDistantTerrainDetailPercent", ""),
+                        new("Optimize", "ScenarioTerrainDistanceMeters", ""),
+                        new("Optimize", "ScenarioTerrainPillarDistanceLod", ""),
+                        new("Optimize", "ScenarioTerrainCameraSourceLimitCount", ""),
+                        new("Optimize", "ScenarioDecorationDensityPercent", ""),
+                        new("Optimize", "ScenarioSceneryDensityPercent", ""),
+                        new("Optimize", "ScenarioVegetationDensityPercent", ""),
+                        new("Optimize", "ScenarioPlayerFigureDetailPercent", ""),
+                        new("Optimize", "ScenarioEnemyFigureDetailPercent", ""),
+                        new("Optimize", "FigureDistanceLod", ""),
+                        new("Optimize", "ScenarioFigureEffectsDensityPercent", ""),
+                        new("Optimize", "ScenarioEnvironmentEffectsDensityPercent", ""),
+                        new("Optimize", "ScenarioFigureClothSimulation", ""),
+                        new("Optimize", "ReduceScenarioGenerationDetail", ""),
                     },
                 },
                 new()
@@ -645,6 +537,9 @@ internal static partial class VROptionsTab
                         // and both are already localized, so a hand-written caption here would
                         // only be a second place to keep the same words in step.
                         new("WorldUI", "PanelSupersample", ""),
+                        // Build607: the existing dust switch was only in the raw advanced
+                        // catalog. Show its localized bool beside the other window choices.
+                        new("WorldUI", "WindowMaterialise", ""),
                         // AND THE SIZE. [WorldUI] WindowLegibility is the other way to spend
                         // headset pixels on a window, and the two belong on one screen.
                         new("WorldUI", "WindowLegibility", ""),
@@ -925,6 +820,12 @@ internal static partial class VROptionsTab
                         // "h_vr_o_2dmap" for the sentence that explains it, exactly like
                         // vr_o_sky / h_vr_o_sky two headings up.
                         new("Rig", "Vanilla2DMap", "vr_o_2dmap"),
+                        // Town residents only exist in the 3D map room. Keep their
+                        // persisted bool beside the map choice, using the normal
+                        // on/off switch and the same dependency fold as map controls.
+                        new("WorldUI", "ImmersiveTownServices", "vr_o_immersivetown"),
+                        new("WorldUI", "ImmersiveTownSpeech", "vr_o_townspeech"),
+                        new("WorldUI", "ImmersiveTownSoundEffects", "vr_o_townsfx"),
                         // The map room's card hand, DIRECTLY under the switch that decides whether
                         // there is a room. It folds under Vanilla2DMap == Off
                         // (VROptionsTab.8.Dependencies.cs), so it is only ever on screen while
@@ -933,29 +834,6 @@ internal static partial class VROptionsTab
                         // the box. Empty caption key: the localized name and the German description
                         // carry the row.
                         new("WorldUI", "MapRoomHand", ""),
-                        // THE MOUSEOVER ANIMATION ON A MAP SYMBOL (user, 2026-09-03: "Bitte
-                        // deaktiviere die animationen für das mouseover im Kartenraum wenn ich
-                        // über ein Kartensymbol hovere - an der Stelle möchte ich es nicht.").
-                        //
-                        // FILED BY WHAT THE PLAYER LOOKS AT, which is the map room — the same
-                        // heading as the switch that decides there IS a map room and as the room's
-                        // card hand, one row up. Filing it by its owning file would have put it
-                        // under a hover/pointer heading, where nobody tuning the 3D map would
-                        // look; that is the ModBuild 340 defect ("Weiterhin finde ich den offset
-                        // für die healthbar nicht") in its general form.
-                        //
-                        // IT IS NOT A SIZE DIAL, so the standing ruling that sent the five
-                        // [MapRoom] size dials to Erweitert ("Symbolgrößen gehören ins ERWEITERT
-                        // Menü!", ModBuild 196) does not reach it and is not being re-litigated:
-                        // this is a yes/no about whether a thing MOVES, the same kind of row as
-                        // the two above it. It folds under Vanilla2DMap == Off with the rest of
-                        // its section (VROptionsTab.8.Dependencies' [MapRoom] section rule), so it
-                        // is only ever on screen while there is a map room for it to act in.
-                        //
-                        // Empty caption key: the localized display name ("Karte 3D: Symbol-
-                        // Animation") and the German description carry the row, exactly like
-                        // MapRoomHand above.
-                        new("MapRoom", "HoverAnimation", ""),
                         // NOT HERE, and neither is on this page by accident:
                         //   * the five [MapRoom] SIZE dials — "Symbolgrößen gehören ins ERWEITERT
                         //     Menü!" (user ruling, hardware, ModBuild 196). They are Erweitert ▸
@@ -1013,6 +891,9 @@ internal static partial class VROptionsTab
                         CuratedEntry.Press("vr_o_boardrecall", Cards.CardsDriver.RequestBoardRecall),
                         new("Cards", "Board", "control_board"),
                         new("Cards", "TrayScale", "vr_o_trayscale"),
+                        new("Cards", "WristBoardEnabled", "vr_o_wristboard"),
+                        new("Cards", "WristBoardOffsetMeters", "vr_o_wristoffset"),
+                        new("Cards", "WristBoardAnglesDegrees", "vr_o_wristangles"),
                         new("Cards", "TrayFollow", "vr_o_trayfollow"),
                         // "Finger-Druck: Zusatz-Hitbox …(px)" ([Cards] PokePadPixels, ModBuild 403)
                         // STOOD HERE and is GONE from the curated page — 2026-09-05 ruling (b),
@@ -1179,9 +1060,8 @@ internal static partial class VROptionsTab
                         // 2026-08-13 ("Mindest und Maximalgröße der Lebensbalken haben keinen
                         // sehbaren einfluss … ziemlich unintuitiv"): they bounded the table-zoom
                         // FOLLOW factor, which is 1.0 at the shipped zoom, so neither row could
-                        // move a pixel where the player stands. The clamp itself is kept — as the
-                        // constants ActorBars.ZoomFollowMin/Max — so the size below still holds at
-                        // every zoom, which is what the original request actually asked for.
+                        // move a pixel where the player stands. Their former clamp survives behind
+                        // BarFollowFigureScale=Off; the default now follows figures at every zoom.
                         new("WorldUI", "BarSizeScale", "vr_o_barsize"),
                         // THE ROW HE COULD NOT FIND. Directly under the size, because "zu groß"
                         // and "zu hoch" are the same complaint arriving in two words.
@@ -1222,6 +1102,7 @@ internal static partial class VROptionsTab
                         // the argument this section was created with. Directly visible (bars stop
                         // shrinking with distance), harmless when wrong, one toggle back.
                         new("WorldUI", "BarFixedSize", ""),
+                        new("WorldUI", "BarFollowFigureScale", "vr_o_barfollowfigure"),
                         new("WorldUI", "BarsOccluded", "vr_o_barsoccluded"),
                     },
                 },
@@ -1552,6 +1433,8 @@ internal static partial class VROptionsTab
          && string.Equals(item.Key, "KeyColor", StringComparison.Ordinal))
         || (string.Equals(item.Section, "Cards", StringComparison.Ordinal)
             && string.Equals(item.Key, "BoardMoveMode", StringComparison.Ordinal))
+        || (string.Equals(item.Section, "Cards", StringComparison.Ordinal)
+            && string.Equals(item.Key, "WristBoardHand", StringComparison.Ordinal))
         || (string.Equals(item.Section, "Net", StringComparison.Ordinal)
             && string.Equals(item.Key, "MaskId", StringComparison.Ordinal))
         || (string.Equals(item.Section, "Sky", StringComparison.Ordinal)
@@ -1625,6 +1508,14 @@ internal static partial class VROptionsTab
         // the enum as the index map).
         if (string.Equals(item.Section, "Cards", StringComparison.Ordinal))
         {
+            if (string.Equals(item.Key, "WristBoardHand", StringComparison.Ordinal))
+            {
+                string[] hands = { Loc.Mod("wristboard_nonmain"), Loc.Mod("wristboard_left"), Loc.Mod("wristboard_right") };
+                BuildPresetRow(parent, item, caption, hintKey, hands,
+                    (int)Cards.CardsConfig.WristBoardHand.Value,
+                    index => Cards.CardsConfig.WristBoardHand.Value = (Cards.WristBoardHand)index);
+                return true;
+            }
             string[] modeNames =
             {
                 Loc.Mod("boardmove_free"),

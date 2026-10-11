@@ -614,6 +614,25 @@ NAME_DIFFERS_ON_PURPOSE = {
 # joining a curated family with no row and no line here. Added by hand rather than by --bless, so
 # that every addition had to be argued instead of blessed in a batch.
 KNOWN_ORPHANS = {
+    # Build652: the new everyday wall-policy keys share only the "Wall" prefix with
+    # this pre-existing expert sampling cadence. Its regular-fade alias remains
+    # [WallFade] EvalIntervalSeconds; the legacy fallback stays reachable in Advanced.
+    # Do not promote a second expert cadence beside the user-requested wall policy.
+    ("Optimize", "WallFadeEvalInterval"),
+    # Build648, maintainer-requested647 rollback: these bindings retain saved values
+    # only. Their renderer and curated controls are withdrawn; EN/DE help says INERT.
+    # No preset or render consumer reads them. Do not advertise inert storage as quality.
+    ("Optimize", "ScenarioRoomArchitecture"),
+    ("Optimize", "ScenarioRoomFloorDetailPercent"),
+    ("Optimize", "ScenarioRoomArchitectureDensityPercent"),
+    ("Optimize", "ScenarioRoomFloorBatching"),
+    ("Optimize", "ScenarioRoomFloorCameraSourceLimitCount"),
+    # Build619 graphics audit: cache work is unconditional and its persisted key INERT;
+    # batching/instancing are technical memory/render choices, offered only in Advanced.
+    ("Optimize", "FigureScanCache"),
+    ("Optimize", "ScenarioStaticBatching"),
+    ("Optimize", "ScenarioStructuralBatching"),
+    ("Optimize", "ScenarioStructuralInstancing"),
     ("Board", "TouchRange"),
     # 2026-09-05 - THREE DEMOTIONS THE USER RULED ON DIRECTLY, each a sibling of a family
     # whose everyday member stays curated. Asked whether "offsets etc. gehoeren da nicht hin"
@@ -752,7 +771,8 @@ KNOWN_ORPHANS = {
     ("WorldUI", "PokePressDepthMm"),
     ("WorldUI", "ScreenDepthStrength"),
     ("WorldUI", "ScreenParallaxScale"),
-    ("WorldUI", "WindowMaterialise"),
+    # Build607 curates and localizes the master toggle. Its technical durations and
+    # dust-size calibration deliberately stay one level deeper, folded under the master.
     ("WorldUI", "WindowMaterialiseAppearSeconds"),
     ("WorldUI", "WindowMaterialiseIntensity"),
     ("WorldUI", "WindowMaterialiseVanishSeconds"),
@@ -928,6 +948,22 @@ def main():
             f"member names, but it now has a localizing row (or is no longer offered). Delete the "
             f"line — the list may only shrink, and a stale entry hides the next real one.")
 
+    # The 2026-10-09/10 requests expose position and rotation sliders directly
+    # below the ordinary wrist switch. Advanced retains hand/offset/angle/size tuning.
+    # This finite exception is separate from the frozen unreviewed orphan backlog:
+    # require each real Advanced BoardRef and keep the ordinary toggle in its topic.
+    wrist_advanced = {("Cards", key) for key in (
+        "WristBoardHand", "WristBoardOffsetMeters", "WristBoardAnglesDegrees", "WristBoardScale")}
+    with open(os.path.join(OPTIONS, "VROptionsTab.7.TopicTrees.cs"), encoding="utf-8") as fh:
+        advanced_board = strip_comments(fh.read())
+    for section, key in wrist_advanced:
+        if f'new BoardRef("{section}", "{key}", perBoard: false)' not in advanced_board:
+            failures.append(f"Requested Advanced wrist-board tuning is not reachable: [{section}] {key}")
+    ordinary_wrist = {(s, k) for _c, _ck, _s2, _sk, s, k, _cap in curated}
+    for key in ("WristBoardEnabled", "WristBoardOffsetMeters", "WristBoardAnglesDegrees"):
+        if ("Cards", key) not in ordinary_wrist:
+            failures.append(f"Requested ordinary wrist-board tuning is not reachable: [Cards] {key}")
+
     # ---- 4. a split family -------------------------------------------------------------------
     curated_pairs = {(s, k) for _c, _ck, _s2, _sk, s, k, _cap in curated}
     families = {}
@@ -937,7 +973,7 @@ def main():
     for (section, word), members in sorted(families.items()):
         siblings = {k for (s, k) in keys if s == section and leading_word(k) == word}
         for sibling in sorted(siblings - members):
-            if (section, sibling) in KNOWN_ORPHANS:
+            if (section, sibling) in KNOWN_ORPHANS or (section, sibling) in wrist_advanced:
                 continue
             orphans.append((section, word, sibling))
     if "--bless" in sys.argv:

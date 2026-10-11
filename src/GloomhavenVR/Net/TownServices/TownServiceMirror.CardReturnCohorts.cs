@@ -1,0 +1,346 @@
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+
+namespace GloomhavenVR.Net.TownServices;
+
+internal static partial class TownServiceMirror
+{
+    private sealed class ReturnCohortAssembly
+    {
+        internal TownServiceMotionEntry Header = null!;
+        internal CardReturnClock Clock = null!;
+        internal TownServiceReturnPart?[] Parts = null!;
+        internal TownServiceMotionEntry?[] Roots = null!;
+        internal ulong[] Sequences = null!;
+        internal ulong Sequence;
+        internal float ReceivedAt, Offset;
+        internal bool Activated, HasPrior;
+        // Receive drains several datagrams before a render tick. Keep at most
+        // one complete physical instant if a newer partial replaces it before
+        // activation; never splice its parts or canvas recipes into the latest.
+        internal ReturnCohortAssembly? CompletePrior;
+    }
+    private static readonly List<TownServiceMotionKey> DeadReturnCohorts = new();
+    private sealed class ReturnPicture
+    {
+        internal Vector3 HostPosition, HostScale, RootPosition, RootScale;
+        internal Quaternion HostRotation, RootRotation;
+        internal bool Visible;
+        internal float Alpha;
+        internal readonly int Owner;
+        internal readonly TownServiceFrame Identity;
+        internal ReturnPicture? Authored;
+        internal ReturnPicture(int owner, RemoteModule module)
+        {
+            Owner = owner; Identity = module.LastFrame!;
+            Transform host = module.Host.transform, root = module.Binding.Root;
+            HostPosition = host.position; HostRotation = host.rotation; HostScale = host.lossyScale;
+            RootPosition = root.position; RootRotation = root.rotation; RootScale = root.lossyScale;
+            Visible = module.LastFrame != null && module.Host.activeSelf;
+            Alpha = module.Host.GetComponent<CanvasGroup>().alpha;
+        }
+        internal void Restore(RemoteModule module)
+        {
+            RestorePose(module.Host.transform, HostPosition, HostRotation, HostScale);
+            RestorePose(module.Binding.Root, RootPosition, RootRotation, RootScale);
+            module.Host.GetComponent<CanvasGroup>().alpha = Alpha;
+            module.Host.SetActive(Visible);
+        }
+        private static void RestorePose(Transform root, Vector3 position, Quaternion rotation, Vector3 scale)
+        {
+            Vector3 parent = root.parent != null ? root.parent.lossyScale : Vector3.one;
+            if (!ValidMotionScale(parent)) return;
+            root.SetPositionAndRotation(position, rotation); root.localScale = DivideMotionScale(scale, parent);
+        }
+    }
+    private static readonly Dictionary<RemoteModule, ReturnPicture> ReturnPictures = new();
+    private static readonly List<RemoteModule> DeadReturnPictures = new();
+
+    private static bool SameReturnMembers(TownServiceMotionEntry first, TownServiceMotionEntry second)
+    {
+        if (first.Lane != second.Lane || first.Service != second.Service || first.Session != second.Session
+            || first.PublicClaim != second.PublicClaim || first.Hand != second.Hand || first.Revision != second.Revision
+            || first.ReturnMembers.Length != second.ReturnMembers.Length) return false;
+        for (int i = 0; i < first.ReturnMembers.Length; i++)
+            if (first.ReturnMembers[i] != second.ReturnMembers[i] || first.ReturnStructures[i] != second.ReturnStructures[i]) return false;
+        return true;
+    }
+    private static void ReceiveReturnCohort(int owner, PeerMotion peer, TownServiceMotionPacket packet, TownServiceMotionEntry entry)
+    {
+        if (entry.ReturnSampleTime > packet.SampleTime) return;
+        foreach (ushort member in entry.ReturnMembers)
+            if (peer.Slots.TryGetValue(new TownServiceMotionKey(1, entry.Lane, member, 0, 0, 0), out MotionSlot? current)
+                && current.Entry.Session == entry.Session && current.Entry.Service == entry.Service
+                && current.Entry.PublicClaim == entry.PublicClaim && current.SampleTime >= entry.ReturnSampleTime
+                && current.ReceivedSequence >= packet.Sequence) return;
+
+        float now = Time.unscaledTime;
+        if (!peer.ReturnCohorts.TryGetValue(entry.Key, out ReturnCohortAssembly? assembly)
+            || entry.ReturnSampleTime > assembly.Header.ReturnSampleTime)
+        {
+            if (assembly == null && peer.ReturnCohorts.Count >= TownServiceFrame.MaxModules) return;
+            bool retained = assembly != null && SameReturnMembers(assembly.Header, entry);
+            ReturnCohortAssembly? completePrior = retained
+                ? !assembly!.Activated && CompleteReturnPayload(assembly) ? assembly : assembly.CompletePrior
+                : null;
+            if (completePrior != null) completePrior.CompletePrior = null;
+            assembly = new ReturnCohortAssembly { Header = entry,
+                Parts = new TownServiceReturnPart?[entry.ReturnMembers.Length], Roots = new TownServiceMotionEntry?[entry.ReturnMembers.Length], Sequences = new ulong[entry.ReturnMembers.Length],
+                ReceivedAt = now, Offset = retained ? assembly!.Offset : ReturnOffset(peer, entry.ReturnSampleTime, now),
+                HasPrior = retained && (assembly!.Activated || assembly.HasPrior), CompletePrior = completePrior };
+            CardReturnClock? priorClock = retained ? peer.ReturnCohorts[entry.Key].Clock : null;
+            assembly.Clock = priorClock ?? new CardReturnClock(entry, entry.ReturnSampleTime, assembly.Offset, now);
+            if (priorClock != null) priorClock.Observe(entry, entry.ReturnSampleTime, now);
+            peer.ReturnCohorts[entry.Key] = assembly;
+        }
+        else if (entry.ReturnSampleTime < assembly.Header.ReturnSampleTime || !SameReturnMembers(assembly.Header, entry)
+            || !SameNumbers(assembly.Header.Numbers, entry.Numbers)) return;
+        foreach (TownServiceReturnPart part in entry.ReturnParts)
+        {
+            if (packet.Sequence <= assembly.Sequences[part.Index]) continue;
+            assembly.Parts[part.Index] = part; assembly.Sequences[part.Index] = packet.Sequence;
+        }
+        assembly.Sequence = Math.Max(assembly.Sequence, packet.Sequence);
+        // Originals can be cold while the complete clock arrives. Save their
+        // previous picture before incoming headers or numeric roots can move them.
+        if (!assembly.HasPrior && TryReturnModules(owner, entry, out Dictionary<ushort, RemoteModule>? modules, out bool obsolete) && !obsolete)
+            foreach (ushort member in entry.ReturnMembers)
+                if (modules!.TryGetValue(member, out RemoteModule? module) && module.Alive)
+                    HoldReturnPicture(owner, module);
+    }
+    // A root adjacent to its exact subset is part of that frozen physical
+    // instant. Stage it until all print/body members and their canvas recipes
+    // arrive; it cannot cancel the same return or expose one incomplete face.
+    private static bool StageReturnRoot(PeerMotion peer, TownServiceMotionPacket packet, TownServiceMotionEntry root)
+    {
+        if (root.Kind != 1) return false;
+        foreach (ReturnCohortAssembly assembly in peer.ReturnCohorts.Values)
+        {
+            TownServiceMotionEntry header = assembly.Header;
+            if (assembly.Activated || root.Lane != header.Lane
+                || root.Service != header.Service || root.Session != header.Session || root.PublicClaim != header.PublicClaim
+                || root.Hand != header.Hand) continue;
+            int index = Array.BinarySearch(header.ReturnMembers, root.Module);
+            if (index < 0 || root.Structure != header.ReturnStructures[index]
+                || assembly.Parts[index] == null || assembly.Sequences[index] != packet.Sequence
+                || root.Visible != assembly.Parts[index]!.Visible || root.ParentAlpha != assembly.Parts[index]!.ParentAlpha) continue;
+            assembly.Roots[index] = root; return true;
+        }
+        return false;
+    }
+    // Ordinary native roots are published only after this source sampler ends
+    // (including regrab/hide). Their newer exact receipt cancels the physical
+    // cohort, so partial loss or an older flight never owns a held original.
+    private static void CancelReturnCohorts(int owner, PeerMotion peer, TownServiceMotionPacket packet, TownServiceMotionEntry root)
+    {
+        if (root.Kind != 1) return;
+        DeadReturnCohorts.Clear();
+        foreach (var pair in peer.ReturnCohorts)
+        {
+            TownServiceMotionEntry header = pair.Value.Header;
+            if (root.Lane != header.Lane || root.Service != header.Service || root.Session != header.Session
+                || root.PublicClaim != header.PublicClaim || packet.Sequence <= pair.Value.Sequence
+                || packet.SampleTime < header.ReturnSampleTime) continue;
+            int index = Array.BinarySearch(header.ReturnMembers, root.Module);
+            if (index < 0 || header.ReturnStructures[index] != root.Structure) continue;
+            if (KeepPendingOriginTerminal(owner, pair.Value, root, index)) continue;
+            for (int i = 0; i < header.ReturnMembers.Length; i++)
+                peer.Slots.Remove(new TownServiceMotionKey(8, header.Lane, header.ReturnMembers[i], 0, 0, 0));
+            foreach (var picture in ReturnPictures)
+                if (picture.Value.Owner == owner && picture.Key.LastFrame != null
+                    && picture.Key.LastFrame.Session == header.Session && picture.Key.LastFrame.Service == header.Service
+                    && picture.Key.LastFrame.PublicClaim == header.PublicClaim
+                    && Array.BinarySearch(header.ReturnMembers, picture.Key.LastFrame.Module) >= 0) DeadReturnPictures.Add(picture.Key);
+            DeadReturnCohorts.Add(pair.Key);
+        }
+        foreach (RemoteModule module in DeadReturnPictures) ReturnPictures.Remove(module);
+        DeadReturnPictures.Clear();
+        foreach (TownServiceMotionKey key in DeadReturnCohorts) peer.ReturnCohorts.Remove(key);
+    }
+    private static bool KeepPendingOriginTerminal(int owner, ReturnCohortAssembly assembly,
+        TownServiceMotionEntry root, int index)
+    {
+        TownServiceMotionEntry header = assembly.Header;
+        if (assembly.Activated || header.Lane != 2 || header.Service != 1
+            || !CardReturnClock.IsTerminal(header) || !CompleteReturnPayload(assembly)
+            || !ReturnOriginals.TryGetValue(owner, out var originals)
+            || !TryStockPeerKey(owner, out int stock) || !Sessions.TryGetValue(stock, out var session)
+            || !session.Active || session.Service != header.Service || session.Session != header.Session
+            || session.PublicClaim != header.PublicClaim || Array.BinarySearch(session.Modules, root.Module) < 0) return false;
+        TownServiceMotionEntry frozen = assembly.Roots[index]!;
+        if (root.Hand != frozen.Hand || root.Visible != frozen.Visible || root.ParentModule != frozen.ParentModule
+            || root.Binding != frozen.Binding || root.ParentAlpha != frozen.ParentAlpha || !SameNumbers(root.Pose, frozen.Pose)) return false;
+        if (root.HasCanvasUpdate && (root.HasCanvasFrame != frozen.HasCanvasFrame
+            || root.CanvasOnHand != frozen.CanvasOnHand || root.CanvasSortingOrder != frozen.CanvasSortingOrder
+            || root.CanvasSortingLayer != frozen.CanvasSortingLayer || !SameNumbers(root.CanvasPose, frozen.CanvasPose)
+            || !SameNumbers(root.CanvasRect, frozen.CanvasRect) || !SameNumbers(root.CanvasSettings, frozen.CanvasSettings))) return false;
+        foreach (ReturnOriginal original in originals.Values)
+            if (!original.Transferred && original.Module.Alive && original.Origin.FlightRevision == header.Revision
+                && original.Module.LastFrame != null && original.Origin.Matches(original.Module.LastFrame)
+                && TownCardReturnOrigin.Same(original.Origin, original.Module.LastFrame.ReturnOrigin)
+                && original.Module.Binding.Structure == root.Structure) return true;
+        return false;
+    }
+
+    private static bool TryReturnModules(int owner, TownServiceMotionEntry entry,
+        out Dictionary<ushort, RemoteModule>? modules, out bool obsolete)
+    {
+        int key = owner; obsolete = false; modules = null;
+        if (entry.Lane == 2 && !TryStockPeerKey(owner, out key)) return false;
+        if (!Sessions.TryGetValue(key, out TownServiceSessionInfo? session)) return false;
+        if (!session.Active || session.Session != entry.Session || session.Service != entry.Service
+            || session.PublicClaim != entry.PublicClaim) { obsolete = session.SampleTime > entry.ReturnSampleTime; return false; }
+        foreach (ushort member in entry.ReturnMembers)
+            if (Array.BinarySearch(session.Modules, member) < 0) { obsolete = session.SampleTime > entry.ReturnSampleTime; return false; }
+        return Remote.TryGetValue(key, out modules);
+    }
+    private static void ActivateReturnCohorts(float now)
+    {
+        foreach (var peer in MotionPeers)
+        {
+            DeadReturnCohorts.Clear();
+            foreach (var pair in peer.Value.ReturnCohorts)
+            {
+                ReturnCohortAssembly assembly = pair.Value; TownServiceMotionEntry header = assembly.Header;
+                assembly.Clock.Current(now, out float sourceAge);
+                if (now - assembly.ReceivedAt > NetProtocol.StaleTimeoutSeconds
+                    || (assembly.Activated || !CardReturnClock.IsTerminal(header)) && sourceAge > header.Numbers[1] + .25f)
+                { DeadReturnCohorts.Add(pair.Key); continue; }
+                bool found = TryReturnModules(peer.Key, header, out var modules, out bool obsolete);
+                if (obsolete) { DeadReturnCohorts.Add(pair.Key); continue; }
+                if (assembly.Activated || !found) continue;
+                if (TryActivateReturnCohort(peer.Key, assembly, modules!))
+                { assembly.CompletePrior = null; continue; }
+                ReturnCohortAssembly? prior = assembly.CompletePrior;
+                if (prior == null) continue;
+                TownServiceMotionEntry phase = prior.Clock.Current(now, out float priorAge);
+                if (phase.Numbers[2] == 1f && prior.Header.Numbers[2] == 1f)
+                    priorAge += prior.Header.Numbers[1] - phase.Numbers[1];
+                if (now - prior.ReceivedAt > NetProtocol.StaleTimeoutSeconds
+                    || !CardReturnClock.IsTerminal(prior.Header) && priorAge > prior.Header.Numbers[1] + .25f)
+                { assembly.CompletePrior = null; continue; }
+                if (TryActivateReturnCohort(peer.Key, prior, modules!))
+                { assembly.HasPrior = true; assembly.CompletePrior = null; }
+            }
+            foreach (TownServiceMotionKey key in DeadReturnCohorts) peer.Value.ReturnCohorts.Remove(key);
+        }
+    }
+    private static bool CompleteReturnPayload(ReturnCohortAssembly assembly)
+    {
+        for (int i = 0; i < assembly.Parts.Length; i++)
+            if (assembly.Parts[i] == null || assembly.Roots[i] == null) return false;
+        return true;
+    }
+    private static bool TryActivateReturnCohort(int owner, ReturnCohortAssembly assembly,
+        Dictionary<ushort, RemoteModule> modules)
+    {
+        TownServiceMotionEntry header = assembly.Header;
+        if (!CompleteReturnPayload(assembly)) return false;
+        // A faster later transport can finish a terminal snapshot before its
+        // retained source-to-observer instant. Keep the prior physical picture,
+        // including its canvas recipe, until the whole receipt is due together.
+        assembly.Clock.Current(Time.unscaledTime, out _);
+        if (assembly.Clock.CurrentSampleTime < header.ReturnSampleTime) return false;
+        for (int i = 0; i < header.ReturnMembers.Length; i++)
+            if (!modules.TryGetValue(header.ReturnMembers[i], out RemoteModule? module)
+                || !module.Alive || module.LastFrame == null || module.LastFrame.Structure != header.ReturnStructures[i]
+                || module.LastFrame.Session != header.Session || module.LastFrame.Service != header.Service
+                || module.LastFrame.PublicClaim != header.PublicClaim || module.LastFrame.Module != header.ReturnMembers[i]
+                || (module.LastFrame.VisitorStock ? 2 : module.LastFrame.PublicCatalog ? 1 : 0) != header.Lane) return false;
+        if (!AdoptReturnOriginals(owner, header, modules)) return false;
+        var packet = new TownServiceMotionPacket { Sequence = assembly.Sequence, SampleTime = header.ReturnSampleTime };
+        if (CardReturnClock.IsTerminal(header)) assembly.Clock.ActivateTerminal(Time.unscaledTime);
+        for (int i = 0; i < header.ReturnMembers.Length; i++)
+        {
+            TownServiceReturnPart part = assembly.Parts[i]!;
+            var clock = new TownServiceMotionEntry { Kind = 8, Lane = header.Lane, Service = header.Service,
+                Session = header.Session, PublicClaim = header.PublicClaim, Module = header.ReturnMembers[i],
+                Structure = header.ReturnStructures[i], Hand = header.Hand, Revision = header.Revision,
+                Numbers = new float[38], HasReturnVisibility = true, Visible = part.Visible,
+                ParentAlpha = part.ParentAlpha, CohortOffset = assembly.Offset };
+            Array.Copy(header.Numbers, clock.Numbers, 28); Array.Copy(part.Child, 0, clock.Numbers, 28, 10);
+            assembly.Roots[i]!.HasReturnVisibility = true;
+            packet.Entries.Add(assembly.Roots[i]!); packet.Entries.Add(clock);
+            ReturnPictures.Remove(modules[header.ReturnMembers[i]]);
+        }
+        assembly.Activated = true; ReceiveMotion(owner, packet);
+        return true;
+    }
+    private static bool PendingReturnModule(int owner, RemoteModule module)
+    {
+        if (!MotionPeers.TryGetValue(owner, out PeerMotion? peer) || module.LastFrame == null) return false;
+        foreach (ReturnCohortAssembly assembly in peer.ReturnCohorts.Values)
+            if (!assembly.Activated && !assembly.HasPrior
+                && assembly.Header.Lane == (module.LastFrame.VisitorStock ? 2 : module.LastFrame.PublicCatalog ? 1 : 0)
+                && assembly.Header.Session == module.LastFrame.Session
+                && assembly.Header.Service == module.LastFrame.Service && assembly.Header.PublicClaim == module.LastFrame.PublicClaim)
+            {
+                int index = Array.BinarySearch(assembly.Header.ReturnMembers, module.LastFrame.Module);
+                if (index >= 0 && assembly.Header.ReturnStructures[index] == module.LastFrame.Structure) return true;
+            }
+        return false;
+    }
+    private static bool StagedReturnLayout(int owner, RemoteModule module, float sourceTime, float now)
+    {
+        if (!MotionPeers.TryGetValue(owner, out PeerMotion? peer) || module.LastFrame == null) return false;
+        foreach (ReturnCohortAssembly assembly in peer.ReturnCohorts.Values)
+            if (sourceTime >= assembly.Header.ReturnSampleTime
+                && assembly.Header.Lane == (module.LastFrame.VisitorStock ? 2 : module.LastFrame.PublicCatalog ? 1 : 0)
+                && assembly.Header.Session == module.LastFrame.Session
+                && assembly.Header.Service == module.LastFrame.Service && assembly.Header.PublicClaim == module.LastFrame.PublicClaim)
+            {
+                int index = Array.BinarySearch(assembly.Header.ReturnMembers, module.LastFrame.Module);
+                if (index < 0 || assembly.Header.ReturnStructures[index] != module.LastFrame.Structure) continue;
+                if (!assembly.Activated) return assembly.HasPrior;
+                assembly.Clock.Current(now, out _);
+                if (assembly.Clock.CurrentSampleTime < assembly.Header.ReturnSampleTime) return true;
+            }
+        return false;
+    }
+    private static void HoldReturnPicture(int owner, RemoteModule module)
+    { if (!ReturnPictures.ContainsKey(module)) ReturnPictures.Add(module, new ReturnPicture(owner, module)); }
+
+    // Only an exact received native return cohort can stage original headers.
+    // A hidden/revealed stock card without that receipt follows ordinary rendering.
+    private static bool HoldIncomingReturnPicture(int key, RemoteModule module, TownServiceFrame frame)
+    {
+        int owner = RealPeer(key);
+        bool same = module.LastFrame != null && frame.Session == module.LastFrame.Session
+            && frame.Service == module.LastFrame.Service && frame.Structure == module.LastFrame.Structure
+            && frame.PublicClaim == module.LastFrame.PublicClaim && frame.Visible;
+        if (!same) { ReturnPictures.Remove(module); return false; }
+        bool pending = PendingReturnModule(owner, module);
+        if (pending) HoldReturnPicture(owner, module);
+        return pending;
+    }
+    private static void RestoreIncomingReturnPicture(RemoteModule module, bool held)
+    {
+        if (!held || !ReturnPictures.TryGetValue(module, out ReturnPicture? picture)) return;
+        picture.Authored = new ReturnPicture(picture.Owner, module);
+        picture.Restore(module);
+    }
+    private static void RestorePendingReturnPictures()
+    {
+        DeadReturnPictures.Clear();
+        foreach (var pair in ReturnPictures)
+        {
+            RemoteModule module = pair.Key; ReturnPicture picture = pair.Value;
+            TownServiceFrame? frame = module.LastFrame;
+            if (!module.Alive || frame == null || frame.Session != picture.Identity.Session
+                || frame.Service != picture.Identity.Service || frame.Structure != picture.Identity.Structure
+                || frame.PublicClaim != picture.Identity.PublicClaim || !frame.Visible)
+            { DeadReturnPictures.Add(module); continue; }
+            if (PendingReturnModule(picture.Owner, module)) picture.Restore(module);
+            else
+            {
+                // Expiry/loss releases the latest authored native picture, rather
+                // than leaving a staged hidden root permanently parked.
+                picture.Authored?.Restore(module); DeadReturnPictures.Add(module);
+            }
+        }
+        foreach (RemoteModule module in DeadReturnPictures) ReturnPictures.Remove(module);
+    }
+    private static void ResetReturnCohorts()
+    { ReturnPictures.Clear(); DeadReturnPictures.Clear(); DeadReturnCohorts.Clear(); }
+}

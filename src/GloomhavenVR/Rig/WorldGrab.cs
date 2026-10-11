@@ -284,7 +284,10 @@ internal sealed class WorldGrab : MonoBehaviour
             _dragLive = true;
         }
 
-        float k = 1f - Mathf.Exp(-PositionSmoothing * Time.deltaTime);
+        // Comfort motion follows the tracking clock, just like Flight and the recenter
+        // chord. A paused/slow Unity game clock must not leave a clicked world-grab
+        // owning the flight stick while its own displacement is zero.
+        float k = 1f - Mathf.Exp(-PositionSmoothing * Time.unscaledDeltaTime);
         Vector3 applied = delta * k;
         // Grab-motion-masked tilt re-aim (round 7): report the APPLIED world slide this
         // frame in real meters (world units / rig scale) so the tilt may consume view
@@ -329,7 +332,7 @@ internal sealed class WorldGrab : MonoBehaviour
         Vector3 mid = (tL + tR) * 0.5f;
 
         float baseScale = RigTarget.BaseScale;
-        float k = 1f - Mathf.Exp(-RotateScaleSmoothing * Time.deltaTime);
+        float k = 1f - Mathf.Exp(-RotateScaleSmoothing * Time.unscaledDeltaTime);
 
         // Pinch scale: spreading the hands stretches the world larger, i.e. FEWER world
         // units per real meter → rig scale shrinks by d0/d.

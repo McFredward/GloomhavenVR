@@ -156,6 +156,30 @@ internal static class Program
         Check(closed == 1, "current close callback fires exactly once");
         VRMenuEntry.Throw = MenuRowSeat.Throw = false;
         VRMenuEntry.ResetDiscovery();
+        UnityEngine.Object.Found = null;
+        Singleton<ESCMenu>.Instance = new ESCMenu();
+        VROptionsTab.CanOpen = true;
+        int beforeMenuSearches = UnityEngine.Object.Finds;
+        for (int second = 0; second < 20; second++)
+        {
+            Time.unscaledTime += 1f;
+            VRMenuEntry.Discover();
+        }
+        Check(UnityEngine.Object.Finds == beforeMenuSearches + 12,
+            "main-menu discovery stops after its bounded pre-menu budget");
+        UnityEngine.Object.Found = new UIMainOptionsMenu();
+        UnityEngine.SceneManagement.SceneManager.LoadAdditive("NewAdventureMap");
+        Time.unscaledTime += 1f;
+        VRMenuEntry.Discover();
+        Check(UnityEngine.Object.Finds == beforeMenuSearches + 12,
+            "unrelated additive scene cannot restart main-menu searches");
+        UnityEngine.SceneManagement.SceneManager.LoadAdditive("MainMenu");
+        Time.unscaledTime += 1f;
+        VRMenuEntry.Discover();
+        Check(VRMenuEntry.HasRows && UnityEngine.Object.Finds == beforeMenuSearches + 13,
+            "late additive MainMenu load re-arms one bounded discovery window");
+
+        VRMenuEntry.ResetDiscovery();
         UnityEngine.Object.Found = new UIMainOptionsMenu();
         Singleton<ESCMenu>.Instance = new ESCMenu();
         VROptionsTab.CanOpen = false;

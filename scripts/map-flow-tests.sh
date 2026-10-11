@@ -14,6 +14,7 @@ gate_source="${3:-$repo_root/src/GloomhavenVR/WorldUI/MapRoom/MapInputGate.cs}"
 interactor_source="${4:-$repo_root/src/GloomhavenVR/WorldUI/MapRoom/MapLocationInteractor.cs}"
 travel_source="${5:-$repo_root/src/GloomhavenVR/WorldUI/MapRoom/MapTravelConfirm.cs}"
 modal_source="$repo_root/src/GloomhavenVR/WorldUI/Modal/ModalFallback.10.CatchAll.cs"
+selection_source="$repo_root/src/GloomhavenVR/WorldUI/MapRoom/MapSelectionTransition.cs"
 # Pin the committed native continuation fixture whenever read-only game source is present.
 # Worktrees share the main checkout's reference tree; CI can execute the committed fixture.
 python3 - "$repo_root" <<'NATIVE'
@@ -34,7 +35,8 @@ NATIVE
 dotnet run --project "$project" --configuration Release \
     --property:LoadoutSource="$loadout_source" --property:StorySource="$story_source" \
     --property:MapGateSource="$gate_source" --property:InteractorSource="$interactor_source" \
-    --property:TravelSource="$travel_source" --property:ModalSource="$modal_source"
+    --property:TravelSource="$travel_source" --property:ModalSource="$modal_source" \
+    --property:SelectionSource="$selection_source"
 mutation_dir="$(mktemp -d)"
 trap 'rm -rf "$mutation_dir"' EXIT
 cp "$repo_root/tests/GloomhavenVR.MapFlowTests/"*.cs "$mutation_dir/"
@@ -70,7 +72,8 @@ if [[ "$mutation" == missing-dispatch-admission ]]; then
 elif dotnet run --project "$mutation_dir/GloomhavenVR.MapFlowTests.csproj" --configuration Release \
     --property:LoadoutSource="$mutation_dir/Loadout.fixture" --property:StorySource="$mutation_dir/Story.fixture" \
     --property:MapGateSource="$mutation_dir/Gate.fixture" --property:InteractorSource="$mutation_dir/Interactor.fixture" \
-    --property:TravelSource="$mutation_dir/Travel.fixture" --property:ModalSource="$modal_source" > "$mutation_dir/mutant.log" 2>&1; then
+    --property:TravelSource="$mutation_dir/Travel.fixture" --property:ModalSource="$modal_source" \
+    --property:SelectionSource="$selection_source" > "$mutation_dir/mutant.log" 2>&1; then
     cat "$mutation_dir/mutant.log"
     echo "FAIL: $mutation escaped the map-flow regression test." >&2
     exit 1
@@ -92,3 +95,27 @@ if ! grep -Fq "$expected" "$mutation_dir/mutant.log"; then
 fi
 echo "Map flow negative control: $mutation failed as expected."
 done
+python3 - "$selection_source" "$mutation_dir/Selection.fixture" <<'MUTATION'
+from pathlib import Path
+import sys
+source = Path(sys.argv[1]).read_text()
+needle = '_mapOptionsDepth == 0 || !MapRoomDriver.Active'
+assert source.count(needle) == 1, 'Production selection-scope mutation seam changed'
+Path(sys.argv[2]).write_text(source.replace(needle, 'false || !MapRoomDriver.Active'))
+MUTATION
+if dotnet run --project "$project" --configuration Release \
+    --property:LoadoutSource="$loadout_source" --property:StorySource="$story_source" \
+    --property:MapGateSource="$gate_source" --property:InteractorSource="$interactor_source" \
+    --property:TravelSource="$travel_source" --property:ModalSource="$modal_source" \
+    --property:SelectionSource="$mutation_dir/Selection.fixture" > "$mutation_dir/mutant.log" 2>&1; then
+    cat "$mutation_dir/mutant.log"
+    echo 'FAIL: selection-scope negative control passed unexpectedly.' >&2
+    exit 1
+fi
+expected='Unhandled exception. System.InvalidOperationException: A normal user portrait click after the transition can still change selection'
+if ! grep -Fq "$expected" "$mutation_dir/mutant.log"; then
+    cat "$mutation_dir/mutant.log"
+    echo 'FAIL: selection-scope negative control did not reach the injected defect.' >&2
+    exit 1
+fi
+echo 'Map flow negative control: selection scope leak failed as expected.'

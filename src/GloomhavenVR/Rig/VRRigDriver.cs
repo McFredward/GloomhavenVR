@@ -549,7 +549,7 @@ internal sealed partial class VRRigDriver : MonoBehaviour
             // which reads the camera state the earlier steps wrote. It writes only
             // depthTextureMode, which no later step reads.
             ("Rig.DepthPrepass", TickDepthTextureMode),
-            ("Rig.RenderQuality", RenderQuality.Tick),
+            ("Rig.RenderQuality", RenderQuality.TickFromUpdate),
             ("Rig.CameraPolicy", () => TickCameraPolicy(_tickSceneLoaded)),
             ("Rig.MixedReality", MixedReality.Tick),
         };
@@ -603,6 +603,9 @@ internal sealed partial class VRRigDriver : MonoBehaviour
             // this frame, and the guard's whole job is to compare THIS frame's final head pose
             // against the last one — see VRRigDriver.OriginGuard.cs.
             Core.TickGuard.Run("Rig.OriginGuard", TickOriginGuard);
+            // Read the previous frame's native rendering counters after rig kind resolution.
+            // This is Debug-only and does not join the render-state tail step order.
+            HeadRenderCounters.Tick(_kind == RigKind.Scenario);
         }
         finally
         {
@@ -680,7 +683,8 @@ internal sealed partial class VRRigDriver : MonoBehaviour
                 teardownReason = "rig root destroyed externally";
             else if (_anchor == null)
                 teardownReason = "anchor camera destroyed";
-            else if (!_anchor.isActiveAndEnabled && (_kind == RigKind.Menu || _kind == RigKind.Map))
+            else if (!_anchor.isActiveAndEnabled && (!_anchor.gameObject.activeInHierarchy || !NativeCameraRenderBudget.Owns(_anchor))
+                && (_kind == RigKind.Menu || _kind == RigKind.Map))
                 teardownReason = $"anchor camera '{_anchor.name}' disabled/deactivated";
             else if (sceneRecheck && _kind == RigKind.Menu)
             {
@@ -791,6 +795,7 @@ internal sealed partial class VRRigDriver : MonoBehaviour
 
     private void OnDestroy()
     {
+        HeadRenderCounters.Stop();
         VREvents.SceneLoaded -= OnSceneLoaded;
         TearDownRig("rig driver destroyed (shutdown/hot reload)");
         // Belt and braces: TearDownRig already stood the map room down if a map rig existed, but
@@ -971,7 +976,7 @@ internal sealed partial class VRRigDriver : MonoBehaviour
     /// </summary>
     private static Camera? ResolveMenuCamera()
     {
-        Camera? cam = Camera.main;
+        Camera? cam = NativeCameraRenderBudget.Main;
         if (cam != null)
             return cam;
 

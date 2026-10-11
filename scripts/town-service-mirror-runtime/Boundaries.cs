@@ -1,0 +1,166 @@
+using System.Linq;
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+
+// Only external adapters are fixtures. Capture, assets, materials, codec, deltas, playback,
+// clone-neutralization and all Unity UI/rendering operations compile from production sources.
+namespace GloomhavenVR.Core
+{
+    internal static class VRLog
+    {
+        internal static readonly List<string> Messages = new();
+        internal static bool WantsDebug => false;
+        internal static void Debug(string channel, string message) { }
+        internal static void Info(string channel, string message) { }
+        internal static void Note(string channel, string message) => Messages.Add(channel + ": " + message);
+        internal static void Warn(string channel, string message) => Messages.Add(channel + ": " + message);
+        internal static void Error(string channel, string message) => Messages.Add(channel + ": " + message);
+    }
+}
+namespace GloomhavenVR.Rig
+{ internal static class VRRigDriver { internal static Camera? HeadCamera; } }
+namespace GloomhavenVR.Cards
+{ internal static class CardFaceMipBake { internal static Sprite OriginalFor(Sprite sprite) => sprite; internal static Sprite? PresentationFor(Sprite? sprite) => sprite; } }
+namespace GloomhavenVR.WorldUI
+{
+    internal static class PanelMipBake { internal static Texture OriginalFor(Texture texture) => texture; }
+    internal enum TownVoiceReaction : byte
+    { MerchantOffer, MerchantBuy, MerchantSell, PriestessDonate, EnchantressEnhance, PriestessUnavailable,
+      EnchantressOffer, EnchantressInspect, MerchantUnaffordable, MerchantSoldOut }
+    internal static class TownServiceVoice
+    {
+        internal static Action<byte, TownVoiceReaction>? RelayRequest;
+        internal static Func<TownVoiceReaction, bool>? StockRelayRequest;
+        internal static bool IsStockReaction(TownVoiceReaction reaction) => reaction is TownVoiceReaction.MerchantOffer
+            or TownVoiceReaction.MerchantUnaffordable or TownVoiceReaction.MerchantSoldOut;
+        internal static readonly List<(TownVoiceReaction Reaction, int Peer, uint Session, uint Sequence, float Age)> StockAccepted = new();
+        internal static bool AcceptRelayedStockReaction(TownVoiceReaction reaction,
+            int peer, uint session, uint sequence, float age)
+        {
+            if (!TownServicePopulation.IsFaceAuthor || !IsStockReaction(reaction) || age < 0f || age > 3f) return false;
+            StockAccepted.Add((reaction, peer, session, sequence, age)); return true;
+        }
+        internal static readonly List<(byte Service, TownVoiceReaction Reaction, int Peer, uint Session, uint Sequence, float Age)> Accepted = new();
+        internal static bool AcceptRelayedReaction(byte service, TownVoiceReaction reaction,
+            int peer, uint session, uint sequence, float age)
+        {
+            if (!TownServicePopulation.IsFaceAuthor || age < 0f || age > 3f) return false;
+            Accepted.Add((service, reaction, peer, session, sequence, age)); return true;
+        }
+    }
+    internal static class TownServicePopulation { internal static bool IsFaceAuthor = true; }
+    internal static class TownServiceSharedCue
+    {
+        internal static readonly Dictionary<int, bool> MerchantReady = new();
+        internal static readonly Dictionary<int, uint> MageSessions = new();
+        internal static readonly Dictionary<int, bool> MageReady = new();
+        internal static bool HasReadyMerchantVisitor => MerchantReady.ContainsValue(true);
+        internal static void ObserveMerchantVisitor(int peer, uint session, bool ready) => MerchantReady[peer] = ready;
+        internal static bool HasReadyVisitor(byte service) => service == 3 && MageReady.ContainsValue(true);
+        internal static bool LocalReady, PublishedReady;
+        internal static float LocalStrength, PublishedStrength;
+        internal static int PublishedGuideOwner;
+        internal static int GuideOwner => PublishedGuideOwner;
+        internal static void PaintRemote(UnityEngine.CanvasGroup? gate, Transform? zone) { }
+        internal static void ObserveVisitor(int peer, uint session, bool ready, float strength)
+        { MageSessions[peer] = session; MageReady[peer] = ready; }
+        internal static void ObserveShared(int peer, bool ready, float strength, int guideOwner) { }
+        internal static void Forget(int peer) { MerchantReady.Remove(peer); MageSessions.Remove(peer); MageReady.Remove(peer); }
+        internal static void Reset()
+        { MerchantReady.Clear(); MageSessions.Clear(); MageReady.Clear(); LocalReady = PublishedReady = false; LocalStrength = PublishedStrength = 0f; }
+    }
+
+    // The converted-window distance ladder has its own production harness. Here
+    // only its registration boundary is inert; remote construction remains real.
+    internal static class TownServiceDepthOrder
+    {
+        internal static readonly HashSet<Transform> Bound = new();
+        internal static void Bind(Transform root) => Bound.Add(root);
+        internal static void Refresh(Transform root) { }
+        // Offered paint ordering is exercised by npc658-overlay-runtime with the
+        // real helper/ladder. Unrelated transport suites keep this API boundary.
+        internal static void BindOffered(Transform root, Transform print) { }
+        internal static void UnbindOffered(Transform root) { }
+        internal static void ClearOffered() { }
+    }
+
+}
+namespace GloomhavenVR.Net
+{
+    internal static class NetProtocol
+    {
+        internal const uint Magic = 0x47565231u;
+        internal const byte Version = 3;
+        internal const byte ExtIdTownWorkspaceCloth = 90;
+        internal const byte ExtIdTownCatalogBank = 102;
+        internal const byte ExtIdTownCatalogHeaders = 103;
+        internal const byte ExtIdTownNativeTemplateState = 105;
+        internal const byte ExtIdTownVisibleCensus = 108;
+        internal const byte ExtIdTownOriginalValuePool = 110;
+        internal const byte ExtIdTownInteraction = 91;
+        internal const byte ExtIdTownTransaction = 92;
+        internal const byte ExtIdTownCatalogLayout = 94, ExtIdTownVisitorStock = 95, ExtIdTownDonationClock = 93;
+        internal const float StaleTimeoutSeconds = 3f;
+    }
+    internal sealed partial class NetAvatarDriver
+    {
+        internal static readonly HashSet<int> HeldStockIds = new();
+        internal static bool IsTownStockHeld(int itemId) => HeldStockIds.Contains(itemId) || PeerHeldStock.Values.Contains(itemId);
+        internal static readonly Dictionary<int, int> PeerHeldStock = new();
+        internal static bool TryGetTownHeldStock(int peer, int wanted, out int itemId)
+        { itemId = PeerHeldStock.TryGetValue(peer, out int held) && (wanted == 0 || wanted == held) ? held : 0; return itemId != 0; }
+        internal static readonly Dictionary<int, Transform[]> MotionHandFrames = new();
+        internal static bool TryGetTownMotionHand(int player, byte side, out Transform? root)
+        { root = null; if (side > 1 || !MotionHandFrames.TryGetValue(player, out Transform[]? hands)) return false;
+          root = hands[side]; return root != null && root.gameObject.activeInHierarchy; }
+    }
+    internal struct TownClothRunnerState { internal Vector2 Left, Right, LeftVelocity, RightVelocity; }
+    internal static class TownResidentsCodec
+    {
+        internal static void WriteCloth(byte[] buffer, ref int at, in TownClothRunnerState runner)
+        {
+            static byte Position(float value) => unchecked((byte)(sbyte)Mathf.RoundToInt(Mathf.Clamp(value, -.1f, .1f) * 1000f));
+            static byte Velocity(float value) => unchecked((byte)(sbyte)Mathf.RoundToInt(Mathf.Clamp(value, -.25f, .25f) * 500f));
+            buffer[at++] = Position(runner.Left.x); buffer[at++] = Position(runner.Left.y);
+            buffer[at++] = Position(runner.Right.x); buffer[at++] = Position(runner.Right.y);
+            buffer[at++] = Velocity(runner.LeftVelocity.x); buffer[at++] = Velocity(runner.LeftVelocity.y);
+            buffer[at++] = Velocity(runner.RightVelocity.x); buffer[at++] = Velocity(runner.RightVelocity.y);
+        }
+        internal static TownClothRunnerState ReadCloth(byte[] buffer, ref int at)
+        {
+            static float Position(byte value) => unchecked((sbyte)value) * .001f;
+            static float Velocity(byte value) => unchecked((sbyte)value) * .002f;
+            return new TownClothRunnerState {
+                Left = new Vector2(Position(buffer[at++]), Position(buffer[at++])),
+                Right = new Vector2(Position(buffer[at++]), Position(buffer[at++])),
+                LeftVelocity = new Vector2(Velocity(buffer[at++]), Velocity(buffer[at++])),
+                RightVelocity = new Vector2(Velocity(buffer[at++]), Velocity(buffer[at++])) };
+        }
+    }
+}
+namespace GloomhavenVR.Net.TownServices
+{
+    // Network grants are exercised by TownGrantCases. This Unity fixture isolates
+    // original-widget publication and playback with no Bolt transport attached.
+    internal static partial class TownServiceGrantSync
+    {
+        internal static int GrantedOwner(byte service) => 0;
+        internal static readonly HashSet<(byte Service, uint Session)> Offers = new();
+        internal static void SetOffer(byte service, uint session, bool active)
+        { if (active) Offers.Add((service, session)); else Offers.Remove((service, session)); }
+        internal static bool MayCommit(byte service, uint session) => true;
+        internal static bool Unavailable(byte service, uint session) => false;
+        internal static bool Denied(byte service, uint session) => false;
+        internal static void ForgetPeer(int player) { }
+        internal static void Reset() { }
+    }
+}
+namespace GloomhavenVR.Core
+{
+    internal static class VRLayers
+    {
+        internal static void Apply(GameObject root)
+        { foreach (Transform node in root.GetComponentsInChildren<Transform>(true)) node.gameObject.layer = 9; }
+    }
+}

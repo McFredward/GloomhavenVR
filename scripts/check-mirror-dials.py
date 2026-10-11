@@ -166,7 +166,9 @@ def census() -> tuple[dict[str, str], dict[str, tuple[str, list[str]]]]:
     wrappers: dict[str, tuple[str, list[str]]] = {}
     for path, code in bodies:
         for match in WRAP.finditer(code):
-            reads = [d for d in dials if re.search(r"\b" + d + r"\.Value\b", match.group("body"))]
+            # Nullable entries in partial config classes use ?.Value. Missing that form
+            # would silently exempt exact-read controls such as SharedUiWindowReadsOn.
+            reads = [d for d in dials if re.search(r"\b" + re.escape(d) + r"\s*(?:\?\.|\.)\s*Value\b", match.group("body"))]
             if not reads:
                 continue
             owner = enclosing_type(code, match.start())

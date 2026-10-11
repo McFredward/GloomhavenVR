@@ -1,8 +1,25 @@
-# Prebuilt asset bundle
+# Prebuilt asset bundles
 
 `gloomhavenvr.bundle` — the mod's AssetBundle, committed so a clone can ship the
 real 3D visuals without a Unity install. Built for **StandaloneWindows64**,
 Unity **2021.3.5f1**, TypeTrees ON.
+
+`ghvr-town.bundle` contains the three town NPCs, body and facial rigs,
+separate articulated eyes, animation, station furniture, work tray and their shaders.
+`ghvr-town-voices.bundle` contains their voice clips and speech curves. All three
+archives ship beside the plugin DLL.
+Keeping town art separate avoids the GitHub file-size ceiling and leaves the reviewed
+existing board/hand/environment bank unchanged. Its name deliberately does not contain
+`gloomhavenvr`: historical main-bank discovery uses that substring.
+
+`ghvr-figure-meshes-index.json` and `ghvr-figure-meshes-<tier>-<part>.bundle`
+contain offline simplified original actor meshes. Each body keeps original material slots,
+UV/skin attributes and bindposes; native cloth meshes are excluded. Three tiers are
+selected by the existing figure sliders. Runtime opens only parts needed by current actors
+below 100%; originals and borrowed ghost meshes retain exact ownership. See
+`tools/figure-mesh/README.md` for reproducible generation and native-source fingerprints.
+Both packagers require the complete indexed set. `scripts/check-figure-mesh-bank.py`
+checks unique identities, exact part membership and game-compatible archive headers.
 
 > **Build it with `/home/claw/unity-2021.3.5`, NOT `/home/claw/unity-2021.3`.**
 > The second one is 2021.3.45f1 and its bundles do not load in the game at all.
@@ -50,3 +67,12 @@ it regenerates the hand prefabs (whose baked `m_AABB` is otherwise stale) and th
 the bundle itself.
 The board prefab/material are assembled from the FBX by
 `Assets/Editor/BuildBoard.cs` (`-executeMethod GloomhavenVR.BoardBuilder.Build`).
+
+Pack the already-authored town sources with `scripts/build-bundles.sh town`, then promote
+both `Build/TownServices/ghvr-town.bundle` and `ghvr-town-voices.bundle` here. This does not regenerate meshes or alter the main
+bank. Use the same exact Unity editor; on a headless Linux host wrap the command with
+`xvfb-run -a` so shader/import workers have a display. Full art reproduction and validation:
+[town runtime assets](../.planning/research/TOWN-SERVICES-RUNTIME-ASSETS.md).
+The articulated face revision and its source-bound runtime checks are recorded in
+[build 543](../.planning/research/TOWN-SERVICES-543.md). The matching town bundle is
+required; updating only the DLL cannot add the eye geometry or facial blend shapes.
