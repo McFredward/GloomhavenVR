@@ -142,7 +142,7 @@ class ApkUpdateTests(unittest.TestCase):
     def test_serialized_class_changes_are_actionable_full_build_errors(self):
         update._required_types([self.row], [dict(self.row), {**self.row, "class": "NewModWidget"}])
         for changed in ([{**self.row, "propertiesHash": "2" * 32}], [], [{**self.row, "executionOrder": 1}]):
-            with self.assertRaisesRegex(storage.BuildError, "full build"): update._required_types([self.row], changed)
+            with self.assertRaisesRegex(update.RebuildRequired, "full build"): update._required_types([self.row], changed)
 
     def test_real_compiler_shaped_receipt_closes_pair_sidecars_and_profile_boundary(self):
         compiled = self.root / "code.apk"
@@ -159,6 +159,22 @@ class ApkUpdateTests(unittest.TestCase):
             with self.assertRaisesRegex(storage.BuildError, "closed compiler receipt"): update.collect_code_update(self.base, compiled, broken, package_abi="b" * 64)
         qualified["replacements"][update.METADATA] += b"late changed bytes"
         with self.assertRaisesRegex(storage.BuildError, "changed before"): self.publish(qualified["replacements"], code_evidence=qualified)
+
+    def test_corrupt_pair_cannot_turn_a_script_mismatch_into_a_rebuild(self):
+        compiled = self.root / "corrupt-code.apk"
+        values = dict(self.values); self.write_zip(compiled, values)
+        receipt = {"schema": 1, "scope": "quest-code-update-v1", "abi": "arm64-v8a", "buildResult": "Succeeded", "originalAssetsImported": False,
+                   "unityVersion": "2021.3.5f1", "packageAbi": "b" * 64,
+                   "files": [{"path": n, "size": len(values[n]), "sha256": hashlib.sha256(values[n]).hexdigest()} for n in (update.LIBRARY, update.METADATA)]}
+        receipt["files"][0]["sha256"] = "0" * 64
+        with patch.object(update, "script_roster", side_effect=AssertionError("Bad pair must stop before script migration")):
+            with self.assertRaises(storage.BuildError) as failure:
+                update.collect_code_update(self.base, compiled, receipt, package_abi="b" * 64)
+        self.assertNotIsInstance(failure.exception, update.RebuildRequired)
+        receipt["files"][0]["sha256"] = hashlib.sha256(values[update.LIBRARY]).hexdigest()
+        with patch.object(update, "script_roster", return_value={"unityVersion": "2021.3.5f1", "scriptTypes": []}):
+            with self.assertRaises(update.RebuildRequired):
+                update.collect_code_update(self.base, compiled, receipt, package_abi="b" * 64)
 
     def test_code_project_retains_owned_library_and_closed_staging_between_retries(self):
         repo, project = self.root / "source", self.root / "code-project"
@@ -190,7 +206,7 @@ class ApkUpdateTests(unittest.TestCase):
         self.assertFalse(changed["reused"])
         self.assertEqual(library.read_bytes(), b"expensive retained compile state")
         self.assertEqual(plugin.read_bytes(), (self.game / "Managed/GH.Runtime.dll").read_bytes())
-        with self.assertRaisesRegex(storage.BuildError, "package/template ABI changed"):
+        with self.assertRaisesRegex(update.RebuildRequired, "package/template ABI changed"):
             update.stage_code_project(repo, project, self.base, self.game / "Managed",
                 **{**arguments, "code_key": "e" * 64, "package_abi": "f" * 64, "retain_compatible_library": True})
 

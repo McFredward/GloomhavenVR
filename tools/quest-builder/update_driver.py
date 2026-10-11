@@ -66,13 +66,21 @@ def inspect(builder, args, repo, output, data=None):
     if mode == "update-mod":
         files, commit, dirty = builder.source_inventory(repo)
         current_mod = current.get("mod", original["mod"])
-        if _native_rows(files) != _native_rows(current_mod["files"]):
-            raise builder.BuildError("Native Quest programs or their interop sources changed. This APK update retains those programs; select a full Quest build to compile the changed native runtime.")
         inputs["mod"] = {"files": files, "key": builder.value_hash({"files": files}),
                          "commit": commit, "dirty": dirty, "modBuild": builder.mod_build(repo)}
+        reasons = rebuild_reasons(files, current_mod["files"])
+        capsule = base.get("capsule")
+        if capsule is None:
+            reasons.append("The older APK has no signed compact compiler/package compatibility capsule.")
+        elif capsule["packageAbi"] != package_fingerprint(builder, repo, inputs):
+            reasons.append("The selected Unity package/template ABI changed.")
+    else:
+        reasons = []
     plan = {"schema": 1, "mode": mode, "baseApk": str(Path(args.base_apk).resolve()),
             "baseApkSha256": builder.digest(Path(args.base_apk)), "gameInputKey": base["inputKey"],
             "ownedGame": proof, "inputs": inputs,
+            "updateStrategy": "cached-full-build" if reasons else "compact-code" if mode == "update-mod" else "profile-only",
+            "rebuildReasons": reasons, "requiresUnity": mode == "update-mod",
             "updateRecipe": {name: builder.digest(Path(repo) / "tools/quest-builder" / name) for name in
                 ("update_driver.py", "apk_update.py", "apk_manifest.py", "builder.py", "storage.py", "profile.py", "dlcs.py")}}
     plan["updateKey"] = builder.value_hash({name: value for name, value in plan.items() if name != "baseApk"})
@@ -239,14 +247,16 @@ def _game_subset(builder, inputs, data, game, *, art_changed):
 
 
 def _art_rows(files):
-    return [row for row in files if row["path"].startswith("unity/GloomhavenVR.Assets/")
-            or row["path"] in ("tools/environment-mesh/export-native.py", "scripts/generate-environment-meshes.py")]
+    producers = {"scripts/generate-environment-meshes.py", "tools/quest-builder/environment_bank.py", "tools/quest-builder/mod_assets.py"}
+    return sorted((row for row in files if row["path"].startswith(("unity/GloomhavenVR.Assets/", "tools/environment-mesh/"))
+                   and not row["path"].endswith(".md") or row["path"] in producers), key=lambda row: row["path"])
 
 
 def _native_rows(files):
     """A code-only update cannot silently retain changed non-IL2CPP programs."""
     interop = {"QuestGameNetwork.cs", "QuestContentHash.cs", "QuestPassthroughFeature.cs", "QuestGameProcedural.cs"}
     producers = {"tools/quest-builder/native_plugins.py", "tools/quest-builder/campaign_native.py",
+                 "scripts/build-quest-native.py",
                  "unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestNativePluginContract.cs"}
     prefixes = ("tools/quest-native/", "tools/quest-network/", "tools/quest-procedural-runtime/")
     def selected(name):
@@ -254,6 +264,83 @@ def _native_rows(files):
         if name.startswith("unity/GloomhavenVR.Quest/Assets/Quest/Runtime/") and Path(name).name in interop: return True
         return name.startswith(prefixes) and not (name.endswith((".md", ".meta")) or "/tests/" in name)
     return sorted((row for row in files if selected(row["path"])), key=lambda row: row["path"])
+
+
+def _payload_rows(files):
+    """Sources whose output is not replaced by the compact code/art writer.
+
+    All Runtime C# files are compiled by stage_code_project; the static weaver
+    and authored VR bank producer also run again when required. Original
+    serialized scenes, shaders, recovered media and native programs do not.
+    Their producer/template changes therefore need the ordinary preparation
+    path, which retains independently compatible conversion checkpoints.
+    Host-only progress, installer and diagnostics edits do not invalidate game
+    payloads. A missing producer in an older manifest is a real mismatch too.
+    """
+    producers = {"builder.py", "startup.py", "campaign.py", "audio.py", "media.py", "shaders.py", "sprites.py",
+                 "ui_assets.py", "ui_blur.py", "full_assets.py", "full_audio.py", "full_shaders.py", "full_sprites.py",
+                 "full_texture2d.py", "full_textures.py", "campaign_compute.py", "campaign_shaders.py",
+                 "campaign_native_shaders.py", "stereo_eye_repair.py", "script_order.py", "installation_manifest.py",
+                 "native_content_pack.py", "preparation_repair.py", "import_workspace.py"}
+    def selected(name):
+        if name.startswith("unity/GloomhavenVR.Quest/"):
+            # Runtime .meta and asmdef changes can change retained script GUIDs
+            # or assembly identities, even when the C# bodies are unchanged.
+            if name.startswith("unity/GloomhavenVR.Quest/Assets/Quest/Runtime/") and name.endswith(".cs"):
+                return False
+            if name == "unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCodeUpdateBuild.cs":
+                return False
+            return not name.endswith(".md")
+        if name.startswith("tools/quest-builder/") and Path(name).name in producers:
+            return True
+        if name == "src/GloomhavenVR/Assets/GloomhavenVR_logo.png": return True
+        return name.startswith(("tools/quest-recovery/", "tools/quest-shaders/", "tools/quest-compute/",
+                                "libs/RuntimeDeps/", "libs/Natives/", "prebuilt/")) and not name.endswith(".md") and "/tests/" not in name
+    return sorted((row for row in files if selected(row["path"])), key=lambda row: row["path"])
+
+
+def rebuild_reasons(current_files, previous_files):
+    """Classify real unsupported payload changes without reading game banks."""
+    reasons = []
+    for name, selected in (("Native Quest programs or interop sources", _native_rows),
+                           ("Quest scenes, shaders, package settings or game-asset producers", _payload_rows)):
+        current = {row["path"]: row for row in selected(current_files)}
+        previous = {row["path"]: row for row in selected(previous_files)}
+        changed = sorted(path for path in current.keys() | previous.keys() if current.get(path) != previous.get(path))
+        if changed:
+            shown = ", ".join(changed[:4])
+            suffix = " (+" + str(len(changed) - 4) + " more)" if len(changed) > 4 else ""
+            reasons.append(name + " changed: " + shown + suffix)
+    return reasons
+
+
+def _compact_player_command(builder, argv, launch_log, unity_log, env):
+    """Recognize only the current compiler's explicit serialized migration.
+
+    Unity can reject a removed old script before writing a native-pair receipt.
+    That one producer exception requests preparation; a stale log, ordinary
+    shader/compiler failure or unrelated exception never authorizes a rebuild.
+    """
+    unity_log = Path(unity_log)
+    def stamp():
+        if not unity_log.exists(): return None
+        value = unity_log.lstat()
+        if not stat.S_ISREG(value.st_mode) or value.st_nlink != 1 or getattr(value, "st_file_attributes", 0) & 0x400:
+            raise builder.BuildError("Compact compiler log is not a regular owned file.")
+        return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns
+    before = stamp()
+    try:
+        return builder.command(argv, launch_log, env=env)
+    except builder.BuildError as exc:
+        after = stamp()
+        if after is not None and after != before:
+            with unity_log.open("rb") as stream:
+                stream.seek(max(0, after[2] - 65536))
+                text = stream.read(65536).decode("utf-8", errors="replace")
+            migration = re.search(r"(?:^|\n)(?:InvalidDataException: )?(Retained original serialized script is missing: [^\r\n]{1,512}; a full build is required\.)\r?(?:\n|$)", text)
+            if migration and stamp() == after:
+                raise _core(builder).RebuildRequired(migration[1]) from exc
+        raise
 
 
 def _compile_code(builder, args, inputs, output, source, game, project, base, tools, root):
@@ -294,9 +381,10 @@ def _compile_code(builder, args, inputs, output, source, game, project, base, to
     env = builder.host_resources.unity_native_environment(tools["editor"], launcher, policy["jobs"], dotnet, env)
     _bind_code_packages(builder, args, output, source, game, project, tools, env, root.name)
     def compile_player():
-        builder.command(builder.unity_launcher(tools["editor"]) + ["-quit", "-projectPath", str(project),
+        _compact_player_command(builder, builder.unity_launcher(tools["editor"]) + ["-quit", "-projectPath", str(project),
                         "-buildTarget", "Android", "-executeMethod", "GloomhavenVR.Quest.Editor.QuestCodeUpdateBuild.Build",
-                        "-logFile", str(output / "logs/update-code-unity.log")], output / "logs/update-code-launch.log", env=env)
+                        "-logFile", str(output / "logs/update-code-unity.log")], output / "logs/update-code-launch.log",
+                        output / "logs/update-code-unity.log", env)
         core.collect_code_update(base, compiled, compiled_receipt, package_abi=package_abi)
         return [compiled, compiled_receipt], {"nativePairQualified": True}
     builder.Stages(output).run("update-code", root.name, compile_player)
@@ -416,6 +504,8 @@ def run(builder, args, repo, output):
     apk = root / "GloomhavenVR-Quest.apk"
     tools = signing_tools(builder, args, output)
     sign, verify = _signers(builder, tools, output, getattr(args, "signing_root", None), base_apk=base_apk)
+    if plan["updateStrategy"] == "cached-full-build":
+        return _rebuild(builder, args, plan, repo, output)
 
     def produce():
         replacements = {}
@@ -484,8 +574,30 @@ def run(builder, args, repo, output):
         builder.build_progress.operation("update-verify", complete=True, detail="Signed update published; original game content is retained.")
         return [apk, report], details
 
-    receipt = builder.Stages(output).run("build", update_key, produce)
+    try:
+        receipt = builder.Stages(output).run("build", update_key, produce)
+    except core.RebuildRequired as exc:
+        # A valid compiled registry can prove a serialized migration is
+        # necessary. This is not a completed update stage; keep its independent
+        # compiler receipts and route only typed compatibility to preparation.
+        return _rebuild(builder, args, plan, repo, output, reason=str(exc))
     builder.write_json(output / "latest-build.json", {"schema": 1, "apk": apk.relative_to(output).as_posix(),
                        "receipt": "receipts/build/" + update_key + ".json", "details": receipt["details"]})
     print("update: " + str(apk), flush=True)
     return apk
+
+
+def _rebuild(builder, args, plan, repo, output, *, reason=None):
+    selected = copy.deepcopy(plan)
+    selected["updateStrategy"] = "cached-full-build"
+    selected["requiresUnity"] = True
+    if reason and reason not in selected["rebuildReasons"]:
+        selected["rebuildReasons"].append(reason)
+    root = output / "updates" / selected["updateKey"]
+    builder.write_json(root / "plan.json", selected)
+    builder.build_progress.event("update-rebuild-required", detail="; ".join(selected["rebuildReasons"]),
+                                 operation="update-code", status="running")
+    callback = getattr(builder, "rebuild_update", None)
+    if not callable(callback):
+        raise builder.BuildError("The selected APK requires current Quest asset/native patches; this Builder lacks the cache-aware migration path. Keep the workspace and use the current Builder.")
+    return callback(args, selected, repo, output)

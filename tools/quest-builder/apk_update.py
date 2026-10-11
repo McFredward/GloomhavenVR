@@ -42,6 +42,15 @@ _UINT32_SENTINEL = 0xffffffff
 _MAX_ZIP_DIRECTORY = 64 * 1024 * 1024
 
 
+class RebuildRequired(BuildError):
+    """A valid old player needs asset migration, not a code-only replacement.
+
+    The update driver may hand this exact compatibility outcome to the regular
+    cache-aware builder. Invalid ownership, signing evidence and incomplete
+    compiler outputs deliberately remain ordinary BuildError instances.
+    """
+
+
 def _base_stamp(path):
     s = Path(path).stat()
     return str(Path(path).absolute()), s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns
@@ -259,7 +268,7 @@ def stage_code_project(repo, project, base, managed_dir, *, profile, version_cod
     metadata = inspect_base(base)
     capsule = metadata["capsule"] or make_capsule(base, package_abi=package_abi)
     if capsule["packageAbi"] != package_abi:
-        raise BuildError("Quest package/template ABI changed; create a full build.")
+        raise RebuildRequired("Quest package/template ABI changed; create a full build.")
     template = repo / "unity/GloomhavenVR.Quest"
     producer_files = [*sorted((template / "Assets/Quest/Runtime").glob("*.cs")),
                       template / "Assets/Quest/Editor/QuestCodeUpdateBuild.cs", repo / "src/GloomhavenVR/Core/Loc/QuestText.cs"]
@@ -376,7 +385,7 @@ def _required_types(old, new):
     for row in old:
         key = row["assembly"], row["namespace"], row["class"]
         if current.get(key) != row:
-            raise BuildError("The mod update changes or removes a serialized script: " + ":".join(key) + "; create a full build to migrate its assets.")
+            raise RebuildRequired("The mod update changes or removes a serialized script: " + ":".join(key) + "; create a full build to migrate its assets.")
 
 
 def _callbacks(value):
@@ -398,12 +407,26 @@ def collect_code_update(base, compiled_apk, compiled_receipt, *, package_abi):
             or receipt.get("unityVersion") != capsule["unityVersion"] or receipt.get("packageAbi") != package_abi
             or package_abi != capsule["packageAbi"] or receipt.get("abi") != "arm64-v8a"):
         raise BuildError("The compact Unity code build is incompatible or incomplete.")
+    # Qualification must precede an asset-migration verdict. An unrelated or
+    # corrupted native pair must not consume the user's retained full project
+    # merely because its script/metadata registry differs from the old player.
+    pair = {}
+    with zipfile.ZipFile(compiled_apk) as compiled:
+        entries = _entries(compiled)
+        for name in (LIBRARY, METADATA):
+            rows = [row for row in receipt.get("files", []) if isinstance(row, dict) and row.get("path") == name]
+            if name not in entries or len(rows) != 1:
+                raise BuildError("Compact native output lacks one closed compiler receipt: " + name)
+            actual = compiled.read(name)
+            if rows[0].get("size") != len(actual) or rows[0].get("sha256") != hashlib.sha256(actual).hexdigest():
+                raise BuildError("Compact native output differs from its closed compiler receipt: " + name)
+            pair[name] = actual
     registry = script_roster(compiled_apk)
     if registry["unityVersion"] != capsule["unityVersion"]: raise BuildError("Code update Unity version changed.")
     _required_types(capsule["scriptTypes"], registry["scriptTypes"])
-    replacements = {}
+    replacements = dict(pair)
     with zipfile.ZipFile(base) as original, zipfile.ZipFile(compiled_apk) as compiled:
-        if _native(compiled) != capsule["metadataVersion"]: raise BuildError("IL2CPP metadata ABI changed; use a full build.")
+        if _native(compiled) != capsule["metadataVersion"]: raise RebuildRequired("IL2CPP metadata ABI changed; use a full build.")
         old_assemblies, new_assemblies = _json(original, ASSEMBLIES), _json(compiled, ASSEMBLIES)
         def assembly_map(value):
             names, types = value.get("names"), value.get("types")
@@ -412,7 +435,7 @@ def collect_code_update(base, compiled_apk, compiled_receipt, *, package_abi):
             return dict(zip(names, types))
         old_map, new_map = assembly_map(old_assemblies), assembly_map(new_assemblies)
         if any(new_map.get(name) != kind for name, kind in old_map.items()):
-            raise BuildError("Code build removed or reclassified an original player assembly; use a full build.")
+            raise RebuildRequired("Code build removed or reclassified an original player assembly; use a full build.")
         callbacks = _callbacks(_json(compiled, INITIALIZERS))
         for row in _callbacks(_json(original, INITIALIZERS)):
             if row[0] not in ("GloomhavenVR", "QuestGame.Campaign", "Assembly-CSharp") and row not in callbacks:
@@ -422,16 +445,10 @@ def collect_code_update(base, compiled_apk, compiled_receipt, *, package_abi):
         entries = _entries(compiled)
         previous_resources = {n for n in _entries(original) if n.startswith(MANAGED_RESOURCES) and n.endswith("-resources.dat")}
         if not previous_resources.issubset(entries):
-            raise BuildError("Code build removed original managed resource sidecars; create a full build.")
+            raise RebuildRequired("Code build removed original managed resource sidecars; create a full build.")
         names = [LIBRARY, METADATA, INITIALIZERS, ASSEMBLIES] + sorted(n for n in entries if n.startswith(MANAGED_RESOURCES) and n.endswith("-resources.dat"))
         for name in names:
-            replacements[name] = compiled.read(name)
-        for name in (LIBRARY, METADATA):
-            rows = receipt.get("files", [])
-            row = next((r for r in rows if isinstance(r, dict) and r.get("path") == name), None)
-            actual = replacements[name]
-            if not isinstance(row, dict) or row.get("size") != len(actual) or row.get("sha256") != hashlib.sha256(actual).hexdigest():
-                raise BuildError("Compact native output differs from its closed compiler receipt: " + name)
+            if name not in replacements: replacements[name] = compiled.read(name)
     # The original registry is the authority for retained game data. New mod
     # types need no original serialized references; old types must stay exact.
     capsule = {**capsule, "dynamicProfile": True}
