@@ -1,5 +1,21 @@
 # State — where the project stands
 
+**Quest Android storage namespace recovery, 2026-10-11 (Builder; new builds Runtime671).**
+
+Capture120937 identifies the delivered670 Builder and retained665 APK with all
+six build stages closed. Installation fails before uninstall or data transfer:
+shell cannot read three mutable files and app UID access cannot traverse its
+external-storage root. Repair adds a proved direct alias and, only when needed,
+the installed app's guarded paused-process storage view. Unknown files remain
+preserved, completed archives retained and restoration uses the new app UID.
+Transient debugger selection and interrupted process cleanup are covered. Fresh
+343 affected host cases and seven independent Linux filesystem/process controls
+pass; the composed published dev671 source compiles with0 warnings/errors.
+Earlier unchanged UI/game evidence is inherited. Actual Meta namespace access
+and successful hardware migration remain unverified; no Unity import, Shader
+matrix or fresh APK export is performed. Exact contracts and delivery scope:
+[QUEST-INSTALLATION-ACCESS-112552-20261011.md](QUEST-INSTALLATION-ACCESS-112552-20261011.md).
+
 **Build671 approved 1.1.0 release source, 2026-10-11.**
 
 The maintainer approved publication. Bilingual highlights prominently describe

@@ -74,6 +74,23 @@ This follow-up's exact source contracts, independent controls and delivery
 checks live in `B670-install-recovery-120937-20261011`. Actual Quest namespace
 access and successful migration remain hardware outcomes, not host-test claims.
 
+Fresh integrated validation covers262 installer host cases (24 optional
+environment cases skipped),54 release/support cases and27 installation/progress
+Wizard cases:343 passes. Seven independent real Linux namespace, process-stop,
+positive-list tar and old/new UID controls qualify the underlying filesystem
+strategy. Android package operations, ADB responses and Meta permissions remain
+simulated in the transaction fixtures. Prior146 affected Wizard cases and66
+actual Chrome/backend UI cases are inherited only where their source is unchanged.
+
+The follow-up also integrates newly published dev671
+`7fe3cabf86cee55d4b8ae96c768de53dc9fc3d89`. Its production difference from670
+is the existing handshake's build constant. The composed Quest source compiles
+strict Release with0 warnings and0 errors. Installation retry still uses the
+finished665 APK; it does not export a new Player or repeat its six closed stages.
+The delivered ZIP is checked against18 actual earlier releases with360 changed
+input controls, then launched twice through its extracted Linux launcher with a
+retained session. These are host delivery checks, not a full Linux game build.
+
 ## Repair boundaries
 
 This is still an installation-only signing migration. Healthy updates signed
