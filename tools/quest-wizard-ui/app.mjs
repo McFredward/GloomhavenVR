@@ -12,6 +12,7 @@ let page=-1,selected=null,discovery=null,state=null,busy=false,after=0,log=[],lo
 let storageInfo=null,storageBusy=false,storagePollTimer=null,storageCompletedShown=false;
 let deviceInfo=null,deviceBusy=false,devicePollTimer=null,deviceDownloading=false;
 let qualification=null,resumeFailed=null,restoredSession=null,sessionGeneration=0;
+let automaticBaseApk='';
 let eventsUnavailable=false,stageLogUnavailable=false,lastFailureFocus='',eventsRequest=null,stageLogRequest=null;
 let buildFocus=false;const buildGroupChoices=new Map();
 let publisherArtwork=[],ownedArtwork=[],artworkSource='';
@@ -687,7 +688,7 @@ async function loadArtwork(artwork,{publisher=false}={}) {
 }
 function restoreChoices(choices) {
   if(!choices)return;
-  $('build-mode').value=choices.mode??'build';$('base-apk').value=choices.baseApk??'';
+  $('build-mode').value=choices.mode??'build';$('base-apk').value=choices.baseApk??'';automaticBaseApk='';
   $('signing-root').value=choices.signingRoot??'';
   $('game-root').value=choices.gameRoot??'';$('provider').value=choices.provider??'steam';$('unity-editor').value=choices.unityEditor??'';
   $('profile-name').value=choices.profile?.displayName??choices.profileName??'';$('profile-id').value=choices.profile?.providerId??'';
@@ -824,13 +825,17 @@ $('storage-dismiss').addEventListener('click',()=>{if(storageActive())return;sto
 $('primary').addEventListener('click',primary);$('back').addEventListener('click',()=>{page=0;clearError();updateView();});
 function beginBuild(mode='build'){
   if(busy||isActive(state)||storageActive()||deviceActive())return;
-  const previousApk=state?.result?.apk??$('base-apk').value;
+  // A typed/browsed or restored selection is the user's explicit override.
+  // Otherwise use a just-completed result, then the owner's discovered APK.
+  // Starting a workflow never resumes/builds that artifact by itself.
+  const currentApk=$('base-apk').value,explicitApk=currentApk&&currentApk!==automaticBaseApk?currentApk:'';
+  const previousApk=explicitApk||state?.result?.apk||state?.stages?.find(row=>row.id==='build')?.details?.apk||discovery?.defaultApk?.path||currentApk||'';
   // This is an explicit opt-out. Removing a UI selection never deletes the
   // backend session, completed receipts or owner recovery/download workspace.
   clearTimeout(pollTimer);sessionGeneration++;stopOptionalReads();state=null;resumeFailed=null;restoredSession=null;qualification=null;page=0;after=0;log=[];
   restoreChoices({install:true});resetArtwork();clearLoadedLog();clearError();renderGames();
   $('build-mode').value=mode;
-  if(mode!=='build'&&previousApk)$('base-apk').value=previousApk;
+  if(mode!=='build'&&previousApk){$('base-apk').value=previousApk;automaticBaseApk=explicitApk?'':previousApk;}
   if(mode==='update-profile')document.querySelector('#game-page .advanced').open=true;
   if(discovery?.games?.length===1)selectGame(discovery.games[0]);
   updateView();$('game-root').focus();

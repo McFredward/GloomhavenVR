@@ -8,11 +8,12 @@ from pathlib import Path
 import platform
 import re
 import shutil
+import stat
 import sys
 import subprocess
 import threading
 
-from state import WizardError, read_json, value_hash
+from state import WizardError, ordinary, read_json, value_hash
 import host_paths
 
 
@@ -169,6 +170,68 @@ def recent_sessions(store):
     return visible, latest
 
 
+def default_apk(store):
+    """Suggest one completed owned APK without opening any payload bytes.
+
+    Discovery is only a form default. Update preflight still qualifies the APK
+    and the selected owned game before starting work. A completed build pointer
+    takes precedence; a stale pointer can fall back to the completed update's
+    fixed output, never its in-progress plan or an arbitrary directory scan.
+    """
+    root = store.root / "build"
+
+    def metadata(path, limit=2 * 1048576):
+        path = ordinary(path)
+        if not stat.S_ISREG(path.lstat().st_mode): raise ValueError("APK metadata is not a regular file.")
+        return read_json(path, limit=limit)
+
+    def completed(apk_name, receipt_name, source, details=None):
+        if (not isinstance(apk_name, str) or not re.fullmatch(r"(?:builds|updates)/[0-9a-f]{64}/[A-Za-z0-9._-]+\.apk", apk_name)
+                or not isinstance(receipt_name, str) or not re.fullmatch(r"receipts/build/[0-9a-f]{64}\.json", receipt_name)
+                or Path(apk_name).parent.name != Path(receipt_name).stem):
+            return None
+        receipt = metadata(root / receipt_name)
+        actual = receipt.get("details")
+        if (receipt.get("stage") != "build" or receipt.get("key") != Path(receipt_name).stem
+                or not isinstance(actual, dict) or actual.get("isDiagnostic") is not False
+                or actual.get("package") != "dev.gloomhavenvr.quest"
+                or not re.fullmatch(r"[0-9a-f]{64}", str(actual.get("inputKey", "")))
+                or not re.fullmatch(r"[0-9a-f]{64}", str(actual.get("apkSha256", "")))
+                or (details is not None and details != actual)):
+            return None
+        outputs = receipt.get("outputs")
+        if not isinstance(outputs, list): return None
+        matches = [row for row in outputs if isinstance(row, dict) and row.get("path") == apk_name]
+        if len(matches) != 1: return None
+        row = matches[0]
+        if (type(row.get("size")) is not int or row["size"] <= 0
+                or row.get("sha256") != actual["apkSha256"]):
+            return None
+        path = ordinary(root / apk_name)
+        info = path.lstat()
+        if (not stat.S_ISREG(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400
+                or info.st_size != row["size"]):
+            return None
+        return {"path": str(path), "modBuild": actual.get("modBuild"), "source": source}
+
+    try:
+        latest = metadata(root / "latest-build.json", limit=65536)
+        details = latest.get("details")
+        if isinstance(details, dict):
+            selected = completed(latest.get("apk"), latest.get("receipt"), "latest-build", details)
+            if selected is not None: return selected
+    except (OSError, ValueError, WizardError): pass
+    try:
+        latest = metadata(root / "latest-update-input.json", limit=65536)
+        plan = latest.get("plan")
+        if isinstance(plan, str) and re.fullmatch(r"updates/[0-9a-f]{64}/plan\.json", plan):
+            key = Path(plan).parent.name
+            return completed("updates/" + key + "/GloomhavenVR-Quest.apk",
+                             "receipts/build/" + key + ".json", "completed-update")
+    except (OSError, ValueError, WizardError): pass
+    return None
+
+
 def discover(repo, store):
     helper = builder(repo); games = []; candidates = []
     steam = helper.discover_steam_root()
@@ -221,6 +284,6 @@ def discover(repo, store):
     editors, hubs = unity_paths(store.root)
     recent, latest = recent_sessions(store)
     return {"schema": 1, "event": "discovery", "modSource": mod_source(repo), "games": games, "unityEditors": editors, "unityHubs": hubs,
-            "recentSessions": recent, "latestSession": latest,
+            "recentSessions": recent, "latestSession": latest, "defaultApk": default_apk(store),
             "host": {"system": platform.system(), "machine": platform.machine()},
             "capabilities": {"browse": host_paths.browse_available(), "artwork": False, "logs": True, "support": True, "spaceEstimate": True, "capture": False, "cleanCache": False}}

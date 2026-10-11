@@ -67,3 +67,79 @@ for(const mode of ['update-profile','update-mod'])test('native browser: '+mode+'
     try{await client?.close();}finally{await new Promise(resolve=>server.close(resolve));}
   }
  });
+
+async function ownedApkFixture() {
+  const requests=[],session='a'.repeat(32),defaultApk='C:\\Users\\Fixture\\.ghvrq\\build\\updates\\'+'b'.repeat(64)+'\\GloomhavenVR-Quest.apk';
+  const customApk='D:\\Custom game backups\\Explicit Quest.apk';
+  const updatedApk='C:\\Users\\Fixture\\.ghvrq\\build\\updates\\'+'c'.repeat(64)+'\\GloomhavenVR-Quest.apk';
+  const retained={session,status:'cancelled',choices:{gameRoot:'C:\\Owned game',provider:'gog',mode:'update-profile',baseApk:customApk,install:true},needsActions:[],
+    stages:['tools','source','unity','profile','inspect','build','install'].map(id=>({id,status:'pending'})),
+    progress:{phase:'build',completed:0,total:7},result:{apk:'C:\\Older result\\Quest.apk'}};
+  const server=createServer(async(request,response)=>{
+    try {
+      const path=new URL(request.url,'http://localhost').pathname;
+      if(path.startsWith('/api/')) {
+        assert.equal(request.headers['x-quest-token'],'owned-apk-fixture');requests.push(path);
+        let raw='';for await(const chunk of request)raw+=chunk;const body=raw?JSON.parse(raw):undefined;
+        let value;
+        if(path==='/api/discover')value={schema:1,event:'discovery',latestSession:session,defaultApk:{path:defaultApk,modBuild:671,source:'latest-build'},
+          games:[{id:'owned',gameRoot:'C:\\Owned game',provider:'gog'}],unityEditors:[],capabilities:{browse:false,logs:false,support:false}};
+        else if(path==='/api/gallery')value={schema:1,event:'gallery',artwork:[]};
+        else if(path==='/api/storage')value={schema:1,event:'storage',workspaceRoot:'C:\\Users\\Fixture\\.ghvrq',state:{status:'idle'},inventory:{status:'idle'}};
+        else if(path==='/api/status')value={schema:1,event:'status',session,state:retained};
+        else if(path==='/api/events')value={schema:1,event:'events',events:[],lastEvent:0};
+        else if(path==='/api/plan'){retained.choices=body.choices;retained.status='ready';value={schema:1,event:'planned',session,state:retained};}
+        else if(path==='/api/run'){assert.equal(body.session,session);retained.status='complete';retained.result={apk:updatedApk};retained.stages.forEach(row=>row.status='complete');retained.progress={completed:7,total:7};value={schema:1,event:'started',session};}
+        else throw Error('Unexpected API operation: '+path);
+        response.writeHead(200,{'Content-Type':'application/json'});response.end(JSON.stringify(value));return;
+      }
+      const filename=resolve(root,'.'+(path==='/'?'/index.html':path));
+      if(!filename.startsWith(root)||!mime[extname(filename)])throw Error('Not static');
+      response.writeHead(200,{'Content-Type':mime[extname(filename)]});response.end(await readFile(filename));
+    }catch(error){response.writeHead(500,{'Content-Type':'application/json'});response.end(JSON.stringify({schema:1,event:'error',message:String(error)}));}
+  });
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  return {url:'http://127.0.0.1:'+server.address().port+'/#owned-apk-fixture',requests,defaultApk,customApk,updatedApk,close:()=>new Promise(resolve=>server.close(resolve))};
+}
+
+test('home APK updates preselect the owned completed APK and preserve an explicit or restored custom path',
+ {skip:!existsSync(chrome),timeout:30000},async()=>{
+  const server=await ownedApkFixture();let client;
+  try {
+    client=await browser();await client.command('Page.navigate',{url:server.url});await client.chooseHome('mod');
+    assert.equal(await client.evaluate("document.getElementById('base-apk').value"),server.defaultApk);
+    assert.equal(await client.evaluate("document.getElementById('build-mode').value"),'update-mod');
+    assert.equal(server.requests.some(path=>['/api/status','/api/run','/api/plan'].includes(path)),false,'form defaults do not resume or build');
+    await client.evaluate("document.getElementById('base-apk').value="+JSON.stringify(server.customApk)+";document.getElementById('base-apk').dispatchEvent(new Event('input'));document.getElementById('home').click()");
+    await client.chooseHome('profile');
+    assert.equal(await client.evaluate("document.getElementById('base-apk').value"),server.customApk,'typed path takes priority over the discovered default');
+    await client.evaluate("document.getElementById('base-apk').value='';document.getElementById('home').click()");await client.chooseHome('mod');
+    assert.equal(await client.evaluate("document.getElementById('base-apk').value"),server.defaultApk,'clearing an override restores the default');
+    await client.evaluate("document.getElementById('home').click()");await client.chooseHome('resume');
+    await client.wait("!document.getElementById('progress-page').hidden");
+    await client.evaluate("document.getElementById('home').click()");await client.chooseHome('mod');
+    assert.equal(await client.evaluate("document.getElementById('base-apk').value"),server.customApk,'restored custom choices take priority over an older completed result');
+    await client.evaluate("document.getElementById('home').click()");await client.chooseHome('build');
+    assert.equal(await client.evaluate("document.getElementById('base-apk').value"),'','a new full build has no base APK');
+    assert.equal(server.requests.some(path=>['/api/run','/api/plan'].includes(path)),false);
+    assert.equal(client.events.filter(row=>row.method==='Runtime.exceptionThrown').length,0);
+  }finally{try{await client?.close();}finally{await server.close();}}
+ });
+
+test('a just-completed APK update replaces the previous automatic default for the next update',
+ {skip:!existsSync(chrome),timeout:30000},async()=>{
+  const server=await ownedApkFixture();let client;
+  try {
+    client=await browser();await client.command('Page.navigate',{url:server.url});await client.chooseHome('profile');
+    assert.equal(await client.evaluate("document.getElementById('base-apk').value"),server.defaultApk);
+    await client.evaluate("document.getElementById('profile-name').value='New profile';document.getElementById('primary').click()");
+    await client.wait("!document.getElementById('setup-page').hidden");
+    await client.evaluate("document.getElementById('primary').click()");
+    await client.wait("!document.getElementById('result-card').hidden");
+    await client.evaluate("document.getElementById('home').click()");await client.chooseHome('mod');
+    assert.equal(await client.evaluate("document.getElementById('base-apk').value"),server.updatedApk,'do not reuse the old automatic base after a completed update');
+    assert.equal(server.requests.filter(path=>path==='/api/plan').length,1);
+    assert.equal(server.requests.filter(path=>path==='/api/run').length,1);
+    assert.equal(client.events.filter(row=>row.method==='Runtime.exceptionThrown').length,0);
+  }finally{try{await client?.close();}finally{await server.close();}}
+ });
