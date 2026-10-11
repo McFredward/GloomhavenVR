@@ -1,5 +1,22 @@
 # State — where the project stands
 
+**Quest Windows binary installation recovery, 2026-10-11 (Builder; new builds Runtime671).**
+
+Capture141941 identifies the delivered671 source and completed665 APK, with all
+six preceding stages closed. Save-priority access works, but the next private
+archive differs from its required census. The retained tar sizes are not aligned
+to 512 bytes. ADB primary source and actual Windows CRT/Android12 Toybox controls
+explain text-mode LF expansion and binary-stdin truncation; the official 32-bit
+Windows ADB client cannot run in this 64-bit-only Wine environment. The repair
+uses binary exec-out/exec-in, strict complete archive/census qualification and
+an automatic streamed host-PAX fallback for the affected root. Healthy APK/root/
+bank results stay retained. Exhausted safe methods pause installation with a
+specific retry action, preserving current saves/history and the finished build.
+No Unity work or fresh APK export is required; actual Quest migration remains
+unverified. Latest published dev only changes release-highlight menu paths;
+game sources retain the preceding strict Release evidence. Source contracts and
+exact fresh validation: [QUEST-INSTALLATION-ACCESS-112552-20261011.md](QUEST-INSTALLATION-ACCESS-112552-20261011.md).
+
 **Quest save-priority installation recovery, 2026-10-11 (Builder; new builds Runtime671).**
 
 Capture124423 confirms six closed stages and the finished665 APK. The paused-app

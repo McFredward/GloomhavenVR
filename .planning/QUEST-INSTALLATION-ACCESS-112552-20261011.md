@@ -158,6 +158,75 @@ package responses remain simulated. Strict composed Release compiles with
 0 warnings/errors after integrating published dev
 `238dcc5896990df71b6fba03a6d19c71ec2735d3`; no whole-game gate is repeated.
 
+## Follow-up capture141941: Windows binary archive transport
+
+`quest-build-support-20261011T141941Z-e3c44392.zip` identifies source
+`3c8bd0859`/Runtime671 and the same finished665 APK. All six preceding stages
+remain complete; installation attempt7 stops after 43.678 seconds. Save-priority
+access now succeeds: three unreadable non-save entries are omitted, with 855,553
+bytes. The old app has not been removed. The next refusal compares a fresh
+private archive against its complete positive census.
+
+The private root has five required members, but its retained archive inventory
+has only two. The recorded archives have 6,679 and3,076 bytes: respectively
+23 and4 bytes beyond a 512-byte tar boundary. This is evidence of damaged
+framing, not permission to trust the shorter historical inventory.
+
+Pinned Android12 ADB source separates these transport routes. `shell -T`
+disables the remote PTY but does not enable the Windows CRT binary stream mode.
+`exec-out` sets binary stdout; `exec-in` sets binary stdin. The independent
+control builds actual Android12 Toybox and a native 64-bit Windows CRT probe:
+a 9,216-byte tar with 19 LF bytes becomes 9,235 bytes in text stdout mode, and
+Python's tar reader silently returns only seven of eleven required members.
+Text stdin also truncates that archive to 4,656 bytes at Ctrl-Z. Binary streams
+retain every byte. The official pinned 32-bit Windows ADB executable cannot run
+in this environment's 64-bit-only Wine. Therefore the ADB route is source-proven
+and the Windows CRT effect is physically reproduced, while the actual Windows
+ADB client and Quest firmware remain separate unverified outcomes.
+
+Capture uses binary `exec-out` with bounded positive-list tar chunks, then
+combines verified members into a host PAX archive. Require complete 512-byte
+framing, valid headers/trailer and the entire typed census with exact file sizes.
+If native tar capture fails, automatically stream the affected root's individual
+files into host PAX; compare source hashes before and after transfer, local
+streamed hashes and exact byte counts. Do not buffer whole save files. Preserve
+all save/history/import trees and terminal links, and reject incomplete access.
+Restoration uses binary `exec-in`, the replacement app UID and independent
+post-extraction inventory/hash verification. Exec transport has no shell-v2
+remote exit status, so a local zero exit is never proof of successful restoration.
+
+Only the affected snapshot is repaired. Keep successful original APK/root/bank
+results and unique earlier archives until a replacement has been verified.
+If both safe transfer strategies remain unavailable, the Wizard retains the
+finished build and pauses installation with the actual bounded repair reason,
+an installation retry and an option to finish without installing. No save reset
+or repeated Unity work is proposed. The support summary exposes only known
+transport/root/reason enums, planned/observed counts, bytes and framing remainder;
+it never opens tar bodies or exports member names, app bytes or raw journals.
+
+Exact fresh checks, primary-source hashes, independent Windows CRT/Toybox and
+integrated recovery controls are retained in
+`B671-install-recovery-141941-20261011`. Installation-only retry keeps the
+finished665 Player. The latest published dev change integrated this round only
+corrects release-highlight menu paths; game sources remain unchanged from the
+preceding strict 0-warning/0-error Release. No new Unity import, Shader matrix,
+APK export or complete local game gate is claimed.
+
+Fresh validation passes 284 installer host cases (24 existing optional Windows
+checks skipped), 114 Wizard cases, 60 release/support cases and 13 installation
+UI cases: 471 passing cases. The primary integrator also reruns all 93 affected
+signing-recovery cases against the composed source; these are a subset of the
+installer suite, not additional distinct tests. The final root UI run includes
+actual Chrome/backend witnesses and labels attempts accurately when one of two
+safe transport strategies is retried. Eighteen independent controls cover five
+actual Windows CRT/Toybox cases, four actual Linux ADB protocol cases and nine
+physical filesystem/production recovery cases. They preserve 184 opaque files,
+all six native save channels/history/import roots, unusual positive-list names,
+healthy snapshots and exact new-UID restoration. A source-changing audit replay
+is retained as superseded; only the stable final source-bound replay qualifies
+the delivery. The actual official Windows ADB client and successful Quest
+installation still require the maintainer's hardware test.
+
 ## Repair boundaries
 
 This is still an installation-only signing migration. Healthy updates signed
@@ -218,6 +287,11 @@ successful migration still require a hardware test.
 
 ## Platform contracts
 
+- [Pinned Android12 ADB stream routing](https://android.googlesource.com/platform/packages/modules/adb/+/refs/tags/android-12.0.0_r1/client/commandline.cpp)
+  separates RemoteShell from binary `exec-in`/`exec-out` and their Windows
+  `_setmode` prologue. Current ADB source is also retained by hash in the audit;
+  source routing and physical Windows CRT controls do not claim a Quest daemon
+  or actual official Windows ADB end-to-end test.
 - [Android app signing](https://developer.android.com/studio/publish/app-signing)
   explains the signing identity required by ordinary APK updates.
 - [Android app-specific files](https://developer.android.com/training/data-storage/app-specific)
