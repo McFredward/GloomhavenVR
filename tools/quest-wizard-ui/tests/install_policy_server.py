@@ -5,11 +5,13 @@ import hashlib
 import json
 from pathlib import Path
 import sys
+import time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("repo", type=Path)
 parser.add_argument("root", type=Path)
 parser.add_argument("--protected", action="store_true")
+parser.add_argument("--repair-wait", choices=("backup-census-mismatch", "backup-transfer-unavailable"))
 parser.add_argument("--child-policy", choices=("all", "saves"))
 args = parser.parse_args()
 sys.path.insert(0, str(args.repo / "tools/quest-wizard"))
@@ -26,6 +28,18 @@ backup = store.root / "device/retained-save-history.tar"
 
 if args.child_policy:
     policy = args.child_policy
+    if args.repair_wait:
+        for attempt in range(1, 4):
+            print("GHVRQ_PROGRESS " + json.dumps({"schema": 1, "phase": "install-recovery-repair",
+                  "operation": "apk", "done": attempt, "total": 3, "unit": "attempts", "status": "progress",
+                  "detail": "[repair-root:private] Trying the affected backup transfer"}), flush=True)
+            if attempt == 1 and (args.root / "repair-hold").exists():
+                (args.root / "repair-active").write_text("actual supervised child is waiting")
+                while not (args.root / "repair-continue").exists(): time.sleep(.02)
+        print("GHVRQ_ACTION " + json.dumps({"schema": 1, "kind": "signing-repair-wait", "reason": args.repair_wait,
+              "saveDataProtected": True, "attempts": 3, "totalAttempts": 3, "root": "private"}), flush=True)
+        print("Quest installation stopped: Signing migration could not safely continue: The captured archive does not match its complete mutable app-data census. Original recovery data is retained at " + str(backup.parent) + ". Retry with the same APK and headset.", flush=True)
+        raise SystemExit(1)
     if args.protected or policy == "all":
         reason = "save-data-inaccessible" if args.protected else "non-save-inaccessible"
         print("GHVRQ_ACTION " + json.dumps({"schema": 1, "kind": "signing-data-policy", "reason": reason,
@@ -55,7 +69,8 @@ class InstallationSupervisor(Supervisor):
             raise WizardError("fixture_earlier_work", "Earlier build work must not execute in an installation-only fixture.")
         policy = argv[argv.index("--recovery-data-policy") + 1]
         command = [sys.executable, "-I", "-B", str(Path(__file__).resolve()), str(args.repo), str(args.root),
-                   "--child-policy", policy, *(["--protected"] if args.protected else [])]
+                   "--child-policy", policy, *(["--protected"] if args.protected else []),
+                   *(["--repair-wait", args.repair_wait] if args.repair_wait else [])]
         return super().run(command, log, **options)
 
 
@@ -84,7 +99,7 @@ for row in saved["stages"][:-1]:
     store.publish(session, stage, key, [output], details[stage])
 saved["stages"][-1].update(status="failed", attempts=1)
 saved.update(status="failed", needsActions=[{"code": "child_failed", "stage": "install"}])
-if not args.protected: saved["installationRecoveryPolicy"] = dict(engine.installation_policy(saved), policy="all")
+if not args.protected and not args.repair_wait: saved["installationRecoveryPolicy"] = dict(engine.installation_policy(saved), policy="all")
 store.save(saved)
 initial = engine.run(session)
 assert initial["status"] == "blocked"

@@ -67,7 +67,14 @@ export function installationView(state) {
   const result={...build.details,...state.result},paths={};
   for(const key of ['apk','handoff','outputRoot'])if(typeof result[key]==='string'&&result[key].length<=32768)paths[key]=result[key];
   const view={attention,connectionRequired,canSkip,cause,paths};
-  if(attention&&['quest_signing_recovery_required','quest_signing_data_required'].includes(action?.code))view.recoveryRequired=true;
+  if(attention&&['quest_signing_recovery_required','quest_signing_data_required','quest_signing_repair_wait'].includes(action?.code))view.recoveryRequired=true;
+  if(attention&&action?.code==='quest_signing_repair_wait'&&parameters.saveDataProtected===true&&
+     ['backup-census-mismatch','backup-transfer-unavailable'].includes(parameters.repairReason)&&
+     ['private','device-protected','external'].includes(parameters.repairRoot)&&
+     Number.isSafeInteger(parameters.repairAttempts)&&Number.isSafeInteger(parameters.repairTotalAttempts)&&
+     parameters.repairAttempts>=1&&parameters.repairAttempts===parameters.repairTotalAttempts&&parameters.repairTotalAttempts<=64){
+    view.repairWait={reason:parameters.repairReason,root:parameters.repairRoot,attempts:parameters.repairAttempts,totalAttempts:parameters.repairTotalAttempts};
+  }
   if(attention&&action?.code==='quest_signing_data_required'&&parameters.saveDataProtected===true&&
      ['save-data-inaccessible','non-save-inaccessible'].includes(parameters.recoveryDataReason)){
     view.dataIssue=parameters.recoveryDataReason;
@@ -81,7 +88,7 @@ export function installationView(state) {
   if(view.recoveryRequired&&typeof parameters.backupPath==='string'&&parameters.backupPath.length<=2048&&
      !/[\u0000-\u001f\u007f]/.test(parameters.backupPath))view.backupPath=parameters.backupPath;
   if(isActive(state)&&install.status==='running'&&typeof install.progress?.phase==='string'&&
-     /^(?:install-signature-|install-recovery-(?:backup(?:-work)?|restore|access)$)/.test(install.progress.phase))view.recoveryActive=true;
+     /^(?:install-signature-|install-recovery-(?:backup(?:-work)?|restore|access|repair)$)/.test(install.progress.phase))view.recoveryActive=true;
   return view;
 }
 export function failureView(state) {

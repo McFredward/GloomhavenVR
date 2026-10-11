@@ -65,9 +65,9 @@ test('policy transport permits only a current nonce and save-preserving compromi
 });
 
 const hash=raw=>createHash('sha256').update(raw).digest('hex');
-async function actualServer(protectedSave){
+async function actualServer(protectedSave,repairReason){
   const root=await mkdtemp(join(tmpdir(),'quest-wizard-install-policy-'));
-  const child=spawn(python,['-I','-B',fileURLToPath(new URL('./install_policy_server.py',import.meta.url)),repo,root,...(protectedSave?['--protected']:[])],{stdio:['ignore','pipe','pipe']});
+  const child=spawn(python,['-I','-B',fileURLToPath(new URL('./install_policy_server.py',import.meta.url)),repo,root,...(protectedSave?['--protected']:[]),...(repairReason?['--repair-wait',repairReason]:[])],{stdio:['ignore','pipe','pipe']});
   let output='',errors='';child.stdout.on('data',data=>{output+=data.toString();});child.stderr.on('data',data=>{errors+=data.toString();});
   let client;
   try{
@@ -168,6 +168,57 @@ test('actual Chrome/backend pauses inaccessible save folders without a reset or 
       await client.wait("document.getElementById('progress-count').textContent==='100 %'");
       const finished=await owner.closed();assert.equal(finished.status,'complete');assert.equal(finished.stages[6].details.requested,false);
       assert.equal(finished.installationAction,undefined);
+      assert.equal(client.events.filter(row=>row.method==='Runtime.exceptionThrown').length,0,owner.errors());
+    }finally{await owner.close();}
+  });
+
+test('exhausted backup repairs expose only a retained installation wait, never a save compromise',()=>{
+  const state=fixture();state.needsActions[0].code='quest_signing_repair_wait';
+  state.needsActions[0].parameters={saveDataProtected:true,repairReason:'backup-census-mismatch',repairRoot:'private',repairAttempts:3,repairTotalAttempts:3};
+  const view=installationView(state);
+  assert.deepEqual(view.repairWait,{reason:'backup-census-mismatch',root:'private',attempts:3,totalAttempts:3});
+  assert.equal(view.recoveryRequired,true);assert.equal(view.canSkip,true);assert.equal(view.canUseSaves,undefined);
+  for(const [key,value] of [['repairAttempts',false],['repairAttempts',2],['repairTotalAttempts',65],['repairRoot','foreign'],['repairReason','unknown'],['saveDataProtected',false]]){
+    const changed=structuredClone(state);changed.needsActions[0].parameters[key]=value;
+    assert.equal(installationView(changed).repairWait,undefined,key);
+  }
+  for(const language of ['de','en'])for(const key of ['installationRepairWaitTitle','installationRepairWaitCopy','installationRepairWaitNext',
+    'installationRepairReason_backup-census-mismatch','installationRepairReason_backup-transfer-unavailable','phase_install-recovery-repair','counterRepairAttempts','installationRepairRoot']){
+    assert.notEqual(translate(language,key),key);
+    assert.deepEqual([...strings.de[key].matchAll(/\{([^}]+)\}/g)].map(row=>row[1]), [...strings.en[key].matchAll(/\{([^}]+)\}/g)].map(row=>row[1]));
+  }
+});
+
+test('actual Chrome/backend shows automatic root repair counts and preserves completed APK/save history while waiting',
+  {skip:!existsSync(chrome),timeout:30000},async()=>{
+    const owner=await actualServer(false,'backup-census-mismatch'),{client,api,event}=owner;
+    try{
+      assert.equal(await client.evaluate("document.getElementById('progress-title').textContent"),'Installation wartet: Datensicherung fortsetzen.');
+      assert.match(await client.evaluate("document.getElementById('action-needed-copy').textContent"),/App-Daten.*automatisch versucht.*gespeicherte Spielstände.*fertige Sicherungen/s);
+      assert.equal(await client.evaluate("document.getElementById('failure-next').hidden"),true);
+      assert.equal(await client.evaluate("document.getElementById('failure-cause').hidden"),true);
+      assert.equal(await client.evaluate("document.getElementById('install-keep-saves').hidden"),true);
+      assert.equal((await owner.closed()).needsActions[0].code,'quest_signing_repair_wait');
+      assert.equal(await client.evaluate("document.getElementById('substep-progress').hidden"),true,'exhausted methods must not show a successful100% repair');
+      await client.picture('install-backup-repair-retained-wait-de');
+      await writeFile(join(owner.root,'repair-hold'),'hold only the supervised transfer fixture');
+      await client.evaluate("document.getElementById('failure-retry').click()");
+      await client.wait("document.getElementById('substep-label').textContent.includes('Betroffene Datensicherung automatisch reparieren')&&!document.getElementById('cancel').hidden");
+      assert.match(await client.evaluate("document.getElementById('progress-detail').textContent"),/1 \/ 3 sichere Übertragungswege.*interne App-Daten/s);
+      assert.equal(await client.evaluate("document.getElementById('action-needed').hidden"),true);
+      assert.equal(await client.evaluate("document.querySelectorAll('#stage-list li.complete').length"),6);
+      assert.equal(await client.evaluate("document.getElementById('progress-title').textContent"),'APK fertig. Installation wird automatisch angepasst.');
+      await client.picture('install-backup-repair-current-root-progress-de');
+      await writeFile(join(owner.root,'repair-continue'),'resume the owned transfer fixture');
+      await client.wait("document.getElementById('progress-title').textContent==='Installation wartet: Datensicherung fortsetzen.'&&!document.getElementById('install-skip').disabled");
+      const paused=await owner.closed();assert.equal(paused.status,'blocked');assert.equal(paused.stages[6].status,'blocked');
+      assert.equal(paused.installationRecoveryPolicy.policy,'saves');assert.equal(paused.installationAction,undefined);
+      assert.equal(paused.needsActions[0].parameters.repairAttempts,3);
+      const log=await api.log(event.session,'install');assert.match(log.text,/GHVRQ_ACTION.*signing-repair-wait.*backup-census-mismatch/);
+      assert.match(log.text,/captured archive.*complete mutable app-data census/);
+      await client.evaluate("document.getElementById('install-skip').click()");
+      await client.wait("document.getElementById('progress-count').textContent==='100 %'");
+      assert.equal((await owner.closed()).stages[6].details.requested,false);
       assert.equal(client.events.filter(row=>row.method==='Runtime.exceptionThrown').length,0,owner.errors());
     }finally{await owner.close();}
   });

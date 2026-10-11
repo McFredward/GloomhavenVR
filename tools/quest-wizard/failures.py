@@ -224,6 +224,21 @@ def installation_failure(text, parameters):
         if declared and len(declared[-1]) <= 2048:
             try:
                 value = json.loads(declared[-1])
+                repair_fields = {"schema", "kind", "reason", "saveDataProtected", "attempts", "totalAttempts", "root"}
+                if (isinstance(value, dict) and set(value) == repair_fields
+                        and type(value["schema"]) is int and value["schema"] == 1
+                        and value["kind"] == "signing-repair-wait"
+                        and value["reason"] in ("backup-census-mismatch", "backup-transfer-unavailable")
+                        and value["saveDataProtected"] is True
+                        and value["root"] in ("private", "device-protected", "external")
+                        and type(value["attempts"]) is int and type(value["totalAttempts"]) is int
+                        and 1 <= value["attempts"] == value["totalAttempts"] <= 64):
+                    return WizardError("quest_signing_repair_wait",
+                        "The completed APK and existing saves are retained. Automatic repair tried the available safe backup transfers, but this data backup is not ready. Keep the Quest awake and connected and retry installation, or finish without installing. No save reset is performed.",
+                        "Die fertige APK und vorhandene Spielstände bleiben erhalten. Die automatische Reparatur hat die verfügbaren sicheren Übertragungswege versucht; diese Datensicherung ist noch nicht bereit. Quest eingeschaltet und verbunden lassen und die Installation erneut versuchen oder ohne Installation abschließen. Spielstände werden nicht zurückgesetzt.",
+                        **dict(fields, signingRecovery=True, saveDataProtected=True,
+                               repairReason=value["reason"], repairRoot=value["root"],
+                               repairAttempts=value["attempts"], repairTotalAttempts=value["totalAttempts"]))
                 expected = {"schema", "kind", "reason", "policy", "saveDataProtected"}
                 if (isinstance(value, dict) and set(value) == expected
                         and type(value["schema"]) is int and value["schema"] == 1

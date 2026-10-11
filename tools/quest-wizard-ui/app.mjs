@@ -152,7 +152,7 @@ function counters(value) {
   if(value.unit==='bytes')return t('counterBytes',{done:number(value.done/1048576)+' MiB',total:number(value.total/1048576)+' MiB'});
   if(value.phase?.startsWith('bee-actions:'))return t('counterLocalGraphActions',{done:number(value.done),total:number(value.total)});
   if(value.phase==='unity-player-scenes')return t('counterSceneEntries',{done:number(value.done),total:number(value.total)});
-  const key={files:'counterFiles',bundles:'counterBundles',actions:'counterActions',checks:'counterChecks',dependencies:'counterDependencies',batches:'counterBatches',steps:'counterSteps',checkpoints:'counterSteps',variants:'counterVariants',objects:'counterObjects',assets:'counterImports',assemblies:'counterAssemblies',tasks:'counterSteps',invocations:'counterInvocations',scenes:'counterScenes',sprites:'counterSprites',shaders:'counterShaders'}[value.unit]??'counterUnits';
+  const key={attempts:'counterRepairAttempts',files:'counterFiles',bundles:'counterBundles',actions:'counterActions',checks:'counterChecks',dependencies:'counterDependencies',batches:'counterBatches',steps:'counterSteps',checkpoints:'counterSteps',variants:'counterVariants',objects:'counterObjects',assets:'counterImports',assemblies:'counterAssemblies',tasks:'counterSteps',invocations:'counterInvocations',scenes:'counterScenes',sprites:'counterSprites',shaders:'counterShaders'}[value.unit]??'counterUnits';
   return t(key,{done:number(value.done),total:number(value.total)});
 }
 function workDetail(value) {
@@ -160,6 +160,10 @@ function workDetail(value) {
   if(value?.progressScope==='result-phase')return t('playerFinalizationScope');
   if(value?.progressScope==='phase-continuation')return t('wholePhaseContinuation');
   const raw=typeof value?.detail==='string'?value.detail:'';
+  if(value?.phase==='install-recovery-repair'){
+    const root=raw.match(/^\[repair-root:(private|device-protected|external)\]/)?.[1];
+    return root?t('installationRepairRoot',{root:t('repairRoot_'+root)}):t('installationRepairDetail');
+  }
   const deliveryKey={
     'Finishing the retained Android Player; earlier preparation and Unity work are not repeated.':'deliveryResumeDetail',
     'Retained completed Player proves this earlier operation.':'deliveryRetainedDetail',
@@ -469,6 +473,10 @@ function renderProgress() {
       $('progress-title').textContent=t(saves?'installationSaveWaitTitle':'installationDataChoiceTitle');
       $('progress-copy').textContent=t(saves?'installationSaveWaitCopy':'installationDataChoiceCopy');
       $('action-needed-title').textContent=t(saves?'installationSaveWaitAction':'installationDataChoiceAction');
+    }else if(installation.repairWait){
+      $('progress-title').textContent=t('installationRepairWaitTitle');
+      $('progress-copy').textContent=t('installationRepairWaitCopy');
+      $('action-needed-title').textContent=t('installationRepairWaitAction');
     }
   }else if(installation&&active){
     $('progress-title').textContent=t(installation.recoveryActive?'installationRecoveryRunningTitle':'installationRunningTitle');
@@ -485,7 +493,9 @@ function renderProgress() {
   const sub=stageProgress(progress.active??progress.current);
   const imported=unityImportView(sub);
   const memory=nativeMemoryView(progress.active??progress.current),resourceWait=active&&memory?.waiting===true;
-  const hasSubstep=!done&&sub.phase&&!['pending','starting','complete'].includes(sub.phase);
+  // Exhausted transfer methods are not a successfully repaired backup. Keep
+  // their actual counts in the detail line, without a misleading100% repair bar.
+  const hasSubstep=!done&&!installation?.repairWait&&sub.phase&&!['pending','starting','complete'].includes(sub.phase);
   $('progress-detail').textContent=[progress.retaining?t('retainedProgress'):'',!hasSubstep&&sub.phase?substepLabel(sub):'',imported?importSummary(imported):counters(sub),memory?memorySummary(memory):imported?.detail??workDetail(sub),waiting?t('waitingSince',{seconds:Math.max(0,Math.floor(Date.now()/1000-waiting.since))}):''].filter(Boolean).join(' · ');
   $('progress-completed').hidden=done;
   $('progress-completed').textContent=workSummary(sub);
@@ -516,13 +526,14 @@ function renderProgress() {
   $('action-needed').classList.toggle('failure',Boolean(failure)&&!installation?.connectionRequired);
   $('action-needed').classList.toggle('installation',installIssue);
   $('action-needed').setAttribute('role',failure||installIssue?'alert':'status');
-  const cause=installation?.dataIssue?null:installIssue?installation.cause:failure?.cause;
+  const retainedWait=Boolean(installation?.dataIssue||installation?.repairWait);
+  const cause=retainedWait?null:installIssue?installation.cause:failure?.cause;
   $('failure-cause').hidden=!cause;
   $('failure-cause').textContent=cause?t('failureCause',{cause}):'';
-  $('failure-next').hidden=Boolean(installation?.dataIssue)||!failure&&!installIssue;$('failure-actions').hidden=!failure&&!installIssue;
+  $('failure-next').hidden=retainedWait||!failure&&!installIssue;$('failure-actions').hidden=!failure&&!installIssue;
   $('failure-next').textContent=t(installIssue?installation.connectionRequired?'questConnectionNext':installation.recoveryRequired?'installationRecoveryNext':'installationNext':failure?.blocked?'nativeMemoryNext':'failureNext');
-  if(installation?.dataIssue)$('failure-next').textContent='';
-  if(installation?.backupPath&&!installation.dataIssue)$('failure-next').textContent+=' '+t('installationRecoveryBackup',{path:installation.backupPath});
+  if(retainedWait)$('failure-next').textContent='';
+  if(installation?.backupPath&&!retainedWait)$('failure-next').textContent+=' '+t('installationRecoveryBackup',{path:installation.backupPath});
   $('failure-retry').textContent=t(installation?.dataIssue==='non-save-inaccessible'?'installationRetryAll':installIssue?'installationRetry':'failureRetry');
   const locked=busy||actionBusy||storageActive()||active||!canConnect||Boolean(resumeFailed);
   $('failure-retry').disabled=locked;
@@ -535,6 +546,8 @@ function renderProgress() {
     const phase=action?.parameters?.failureStage;const stageName=phase?t('phase_stage_'+phase):action?.stage?t('stage_'+action.stage):progress.current?t('stage_'+progress.current.id):'';
     $('action-needed-copy').textContent=installation?.dataIssue
       ?t(installation.dataIssue==='save-data-inaccessible'?'installationSaveWaitNext':'installationDataChoiceNext')
+      :installation?.repairWait
+      ?t('installationRepairReason_'+installation.repairWait.reason)+' '+t('installationRepairWaitNext')
       :(stageName?stageName+': ':'')+hint;}
   const failureKey=installIssue?state.session+':install:'+installation.cause:failure?state.session+':'+failure.stage+':'+failure.cause:'';
   if(failureKey&&failureKey!==lastFailureFocus){$('action-needed').focus({preventScroll:true});$('action-needed').scrollIntoView({block:'nearest'});}
