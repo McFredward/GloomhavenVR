@@ -1,5 +1,20 @@
 # State — where the project stands
 
+**Quest Android census boundary repair, 2026-10-11.**
+
+Capture155522 stops before uninstall: Android Toybox evaluates `-mindepth` as an
+expression, so an ungrouped prune/OR chain emits the private root itself. Grouped
+NUL-framed output fixes that source-proven boundary; actual Toybox controls also
+check production ADB decoding. Save-only recovery now prunes the actual
+`files/quest-procedural-state` engine cache, external cache and exact APK-owned
+Unity extraction copies before traversal. Unknown siblings and complete native
+save/history/import roots remain retained. Obsolete archive metadata disproves
+reuse before large local streams are reread. B665 and six completed build stages
+stay reusable; no Unity/game rebuild. Hardware migration remains unverified.
+Fresh239 focused host tests and23 independent Toybox controls pass. Source
+contracts and bounded validation:
+[QUEST-INSTALLATION-CENSUS-155522-20261011.md](QUEST-INSTALLATION-CENSUS-155522-20261011.md).
+
 **Quest small-data installation and Builder homepage tools, 2026-10-11.**
 
 Capture150551 aborted the old FUSE-triggered copy of11.17GB of installed game

@@ -263,6 +263,7 @@ class Recovery:
         self._storage_process = None
         self._source_fingerprint = self._fingerprint(source.apk)
         self._rename_helper = None
+        self._apk_regenerated_files = None
         self.allow_content_reinstall = allow_content_reinstall
 
     def _require_content_reinstall_choice(self):
@@ -285,6 +286,23 @@ class Recovery:
 
     def _lightweight(self):
         return bool(self.journal and self.journal.get("smallDataOnly") is True)
+
+    def _regenerated_apk_files(self):
+        """Select Unity extraction copies from APK metadata without payload reads.
+
+        The retained device census contains 35 MB of IL2CPP metadata/resources
+        also present in the actual APK. The replacement extracts its own copies.
+        Match exact packaged filenames; unknown siblings remain ordinary app data.
+        """
+        if self._apk_regenerated_files is None:
+            prefix = "assets/bin/Data/Managed/"
+            with zipfile.ZipFile(self.source.apk) as archive:
+                names = {item.filename[len(prefix):] for item in archive.infolist()
+                         if not item.is_dir() and item.filename.startswith(prefix)}
+            self._apk_regenerated_files = tuple("files/il2cpp/" + name for name in sorted(names)
+                if name == "Metadata/global-metadata.dat"
+                or re.fullmatch(r"Resources/[^/\r\n\x00]+\.dll-resources\.dat", name))
+        return self._apk_regenerated_files
 
     def _prepare_rename(self):
         if self._rename_helper: return
@@ -693,14 +711,23 @@ class Recovery:
             try:
                 actual_root = self._access_root(root, mode)
                 if not item["internal"]: self._check_external_root(actual_root, mode)
-                pruned = []
+                # Android Toybox treats -mindepth as an expression test. Without
+                # parentheses it guards only the first branch of a prune/-o
+                # chain: capture155522 printed the root itself and stopped the
+                # save-only retry before any uninstall. Group the entire action
+                # and use NUL framing, so Windows shell/log line endings never
+                # create path entries. A foreign or malformed path still fails.
+                pruned = [actual_root + "/" + name for name in ("cache", "code_cache")] if item["internal"] else []
                 if self._lightweight() and item["internal"]:
                     # bridge.c owns these regenerated Wine/Proton directories;
                     # native game saves live under the protected GloomSaves
                     # roots, never inside this engine prefix. Keep its small
                     # diagnostics and any unknown sibling settings.
-                    pruned = [actual_root + "/quest-procedural-state/" + name
-                              for name in ("proton-prefix", "wine-prefix", "cache", "tmp", "home")]
+                    # QuestGameProcedural gets Android Context.filesDir. The
+                    # top-level spelling is retained only for old layouts.
+                    pruned += [actual_root + "/" + prefix + "/" + name
+                               for prefix in ("files/quest-procedural-state", "quest-procedural-state")
+                               for name in ("proton-prefix", "wine-prefix", "cache", "tmp", "home")]
                 if self._lightweight() and not item["internal"]:
                     # Regenerable asset banks never become app data when an old
                     # receipt is absent or unreadable. Prune their payload trees
@@ -708,8 +735,22 @@ class Recovery:
                     # in the typed positive census and are retained normally.
                     pruned = [actual_root + "/" + ("" if parked_bank else bank + "/") + "StreamingAssets"
                               for bank in ([parked_bank] if parked_bank else BANKS)]
-                prune = " ".join("-path " + shlex.quote(path) + " -prune -o" for path in pruned)
-                observed = self._context_shell("find " + shlex.quote(actual_root) + " -mindepth 1 " + prune + " -print", mode).splitlines()
+                    if not parked_bank:
+                        # Android's external cache and exact APK extraction
+                        # copies are regenerated, not savegames/settings. Do not
+                        # prune unknown IL2CPP siblings or other files directories.
+                        pruned += [actual_root + "/cache"]
+                        pruned += [actual_root + "/" + name for name in self._regenerated_apk_files()]
+                # -path applies fnmatch even to a shell-quoted argument. Escape
+                # its metacharacters too, so a packaged resource filename never
+                # excludes a differently named, unknown user file.
+                prune = " ".join("-path " + shlex.quote(re.sub(r"([\\*?\[\]])", r"\\\1", path)) + " -prune -o" for path in pruned)
+                raw = self._context_shell("find " + shlex.quote(actual_root) + r" -mindepth 1 \( " + prune + r" -print0 \)", mode)
+                if raw and not raw.endswith("\x00"):
+                    raise RecoveryError("The app-data census has incomplete NUL framing; its original data was retained.")
+                if len(raw) > 16 * 1024 * 1024:
+                    raise RecoveryError("The app-data census exceeds its bounded size.")
+                observed = raw[:-1].split("\x00") if raw else []
                 names = []
                 for path in observed:
                     if not path.startswith(actual_root + "/"): raise RecoveryError("The app-data census contains an unrepresentable or foreign path.")
@@ -1268,12 +1309,15 @@ class Recovery:
             reusable = False
             if isinstance(old, str) and re.fullmatch(re.escape(item["name"]) + r"-[0-9a-f]{32}\.tar", old):
                 try:
-                    reusable = (ordinary(self.backup / old).is_file() and file_hash(self.backup / old) == item.get("sha256")
-                                and archive_inventory(self.backup / old) == item.get("inventory")
-                                and set(item["inventory"]) == {path[2:] for path in item["capturePaths"] if path != "."}
+                    # A narrowed save-only census already disproves reuse of a
+                    # legacy asset archive. Compare its bounded recorded members
+                    # before hashing/reading a known-obsolete large stream.
+                    reusable = (set(item["inventory"]) == {path[2:] for path in item["capturePaths"] if path != "."}
                                 and all(value["type"] == item["captureEntries"][name]["type"]
                                         and (value["type"] != "file" or value["size"] == item["captureEntries"][name]["size"])
-                                        for name, value in item["inventory"].items()))
+                                        for name, value in item["inventory"].items())
+                                and ordinary(self.backup / old).is_file() and file_hash(self.backup / old) == item.get("sha256")
+                                and archive_inventory(self.backup / old) == item.get("inventory"))
                 except (RecoveryError, OSError, tarfile.TarError):
                     # Keep the unique prior file and its reference until a fresh
                     # verified candidate replaces only this damaged root.
