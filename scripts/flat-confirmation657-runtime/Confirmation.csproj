@@ -4,5 +4,6 @@
     <Compile Include="$(FixtureDir)/*.cs"/><Compile Include="$(ProductionDir)/*.cs"/>
     <Reference Include="$(UnityManaged)/UnityEngine/*.dll"><Private>false</Private></Reference>
     <Reference Include="$(GameManaged)/UnityEngine.UI.dll"><Private>false</Private></Reference>
+    <Reference Include="0Harmony" HintPath="$(HarmonyPath)"><Private>false</Private></Reference>
   </ItemGroup>
 </Project>

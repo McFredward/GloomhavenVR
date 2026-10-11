@@ -612,7 +612,23 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 669;
+    public const ushort ModBuild = 670;
+
+    // ModBuild670 — retain native merchant confirmation placement across savegames.
+    // Supplied669 screenshot shows a first tutorial purchase on its own party-display
+    // panel instead of inside the non-immersive merchant. The static item-seat event
+    // subscription outlived its exact native box and missed the replacement's Buy/Sell
+    // discriminator. Observe the actual ShowConfirmation instance before its event,
+    // replace/detach the exact subscriber on native-box changes, and retire provenance
+    // on reset. A first Show before the seat's initial tick is covered by the same seam.
+    // Only placement ownership is observed; native question, confirm/cancel callbacks,
+    // purchase validation, fades and tutorial promises remain authoritative.
+    // The native BuyItem lesson finishes at shop exit, not on spending gold. Its
+    // existing exact-promise close bridge is exercised through native entry, purchase,
+    // cancellation and map continuation; no saved tutorial state is written directly.
+    // Immersive confirmations retain their owned native surface. See NPC-670-REVIEW.md
+    // for source/runtime evidence and the separate headset verification boundary.
+    // Version3/next-free118; no asset, configuration, input or TLV changes.
 
     // ModBuild669 — immersive merchant with an unmodified native flat host.
     // Paired668 logs identify a VR guest (player2) and a vanilla host. The public

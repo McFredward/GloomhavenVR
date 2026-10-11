@@ -2,6 +2,7 @@ using Action = System.Action;
 using System.Collections.Generic;
 using GloomhavenVR.Core;
 using GloomhavenVR.WorldUI.MapRoom;
+using HarmonyLib;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -91,12 +92,11 @@ internal static class MapDialogSeat
         /// <summary>Set by the game's own event; the merchant/party discriminator. Null until the
         /// game has announced a raise this session.</summary>
         internal BoxConfirmationType? RequestedAs;
-
-        internal bool Subscribed;
     }
 
     private static readonly Seat ItemSeat = new("the item confirmation box (buy / sell / equip)");
     private static readonly Seat EnhancementSeat = new("the enhancement confirmation box (enchantress / temple)");
+    private static UIItemConfirmationBox? _itemBox;
     private static UIWindow? _enhancementWindow;
 
     /// <summary>
@@ -120,6 +120,7 @@ internal static class MapDialogSeat
         UIItemConfirmationBox? box = Singleton<UIItemConfirmationBox>.IsInitialized
             ? Singleton<UIItemConfirmationBox>.Instance
             : null;
+        ObserveItemBox(box);
         if (box == null)
         {
             Release(ItemSeat, "the item confirmation box singleton is gone");
@@ -127,16 +128,14 @@ internal static class MapDialogSeat
             return;
         }
 
-        // Subscribe ONCE to the game's own announcement of who is asking. This is the whole
-        // discriminator and it is the game's, not ours: Buy/Sell come only from UIShopItemInventory,
-        // General only from UIPartyItemInventoryDisplay.
-        if (!ItemSeat.Subscribed)
-        {
-            box.ConfirmationBoxRequested += OnItemConfirmationRequested;
-            ItemSeat.Subscribed = true;
-        }
-
         var window = box.GetComponent<UIWindow>();
+        // The immersive palm/mask owns this exact original, including retirement.
+        // Remember the native request without taking its transform or callbacks.
+        if (window != null && TownServicePresentation.OwnsWindow(window))
+        {
+            Wait(ItemSeat, string.Empty);
+            return;
+        }
         if (window == null || !StillShowing(window))
         {
             Release(ItemSeat, "the item confirmation box is closed and has finished fading out");
@@ -158,6 +157,26 @@ internal static class MapDialogSeat
 
         UIWindow? raiser = GuildmasterDestinations.ModeWindow(EGuildmasterMode.Merchant);
         SeatOn(ItemSeat, window, raiser, "the merchant", EGuildmasterMode.Merchant);
+    }
+
+    /// <summary>
+    /// Build670: a second save can replace this native singleton in the same process. The old
+    /// process-wide Subscribed flag stayed true, so Buy/Sell on the replacement never reached
+    /// the seat and the native New Party Display home floated instead. Hold the exact event
+    /// target, detach it on replacement/reset, and retire its request with its presentation.
+    /// ShowConfirmation also observes its actual instance before the native event: a first
+    /// request can precede the first modal tick, and the native box retains no type to recover.
+    /// Buy/Sell/General are still read exclusively from the game's unchanged announcement.
+    /// </summary>
+    internal static void ObserveItemBox(UIItemConfirmationBox? box)
+    {
+        if (ReferenceEquals(_itemBox, box)) return;
+        if (!ReferenceEquals(_itemBox, null))
+            _itemBox!.ConfirmationBoxRequested -= OnItemConfirmationRequested;
+        Release(ItemSeat, "the native item confirmation instance changed");
+        _itemBox = box;
+        ItemSeat.RequestedAs = null;
+        if (box != null) box.ConfirmationBoxRequested += OnItemConfirmationRequested;
     }
 
     /// <summary>
@@ -665,6 +684,7 @@ internal static class MapDialogSeat
     {
         Release(ItemSeat, "the module was reset");
         Release(EnhancementSeat, "the module was reset");
+        ObserveItemBox(null);
         ObserveEnhancementWindow(null);
         ResetSeat(ItemSeat);
         ResetSeat(EnhancementSeat);
@@ -678,9 +698,26 @@ internal static class MapDialogSeat
         seat.RequestedMode = null;
         seat.Closing = false;
         seat.HomeWindowName = "<unresolved>";
-        // The event subscription is deliberately NOT dropped here: it is taken against the game's
-        // own singleton, which outlives a module reset, and re-subscribing without unsubscribing
-        // would double-fire. Dropping it would need the singleton to still be reachable at teardown,
-        // which is exactly when it is not.
+    }
+}
+
+/// <summary>Attach the exact event target before the game's one-shot request announcement.
+/// This observation neither changes arguments nor replaces the native Show/transaction path.</summary>
+[HarmonyPatch(typeof(UIItemConfirmationBox), nameof(UIItemConfirmationBox.ShowConfirmation))]
+internal static class MapItemConfirmationRequestObserver
+{
+    private static bool _failureReported;
+
+    private static void Prefix(UIItemConfirmationBox __instance)
+    {
+        try { MapDialogSeat.ObserveItemBox(__instance); }
+        catch (System.Exception error)
+        {
+            // Presentation teardown must never interrupt the original native request.
+            if (_failureReported) return;
+            _failureReported = true;
+            VRLog.Alert("WorldUI", $"MAP DIALOG SEAT: observing native item confirmation failed "
+                                   + $"({error.GetType().Name}); the original request continues.");
+        }
     }
 }

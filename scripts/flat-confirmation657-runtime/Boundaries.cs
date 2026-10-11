@@ -12,10 +12,14 @@ public enum EGuildmasterMode { None, Merchant, Temple, Enchantress }
 public enum BoxConfirmationType { Buy, Sell, General }
 public class Singleton<T> where T : class
 { public static T? Instance; public static bool IsInitialized => Instance != null; }
-public class UIItemConfirmationBox : MonoBehaviour
-{ public event Action<BoxConfirmationType>? ConfirmationBoxRequested; public void Raise(BoxConfirmationType kind) => ConfirmationBoxRequested?.Invoke(kind); }
 public static class Probe
-{ public static readonly List<string> Events = new(); }
+{
+ public static readonly List<string> Events = new();
+ public static int ObservationFaults;
+ // Only failure-path variants replace the observation call with this declared
+ // presentation port. The production prefix's try/catch and native Show are unchanged.
+ public static void ThrowObservation(UIItemConfirmationBox _) { ObservationFaults++;throw new InvalidOperationException("fixture observation fault"); }
+}
 public static class InputManager { public static bool GamePadInUse => false; }
 public static class AudioControllerUtils { public static void PlaySound(string _) { } }
 public enum EscapeKeyAction { None, Toggle }
@@ -31,11 +35,24 @@ namespace Script.GUI.SMNavigation.States.CampaignMapStates { public enum Campaig
 namespace GLOOM { public static class LocalizationManager { public static string GetTranslation(string value) => value; } }
 public sealed class SkipFrameKeyActionHandlerBlocker { public void Run() { } }
 public sealed class ControllerInputAreaLocal { public int Enables, Destroys; public void Enable() => Enables++; public void Destroy() => Destroys++; }
-public class ExtendedButton : Button { public string TextLanguageKey = ""; }
+public class ExtendedButton : Button { public string TextLanguageKey = ""; public string? mouseDownAudioItem; }
 public sealed class Label { public string text = ""; }
+public static class StringExtensions { public static bool IsNOTNullOrEmpty(this string text) => !String.IsNullOrEmpty(text); }
+namespace ScenarioRuleLibrary { public sealed class CItem { public string ID = "fixture-original-item"; } }
+// Artwork construction is a declared port; native Show/reset/recycle/callback ordering is bound
+// from the installed game, with actual Unity objects and buttons for its original content.
+public sealed class ItemCardUI : MonoBehaviour
+{ public string CardID = "fixture-original-item"; public ScenarioRuleLibrary.CItem item = null!; public int Reloads; public void ReloadBackground() { Reloads++; } }
+public static class ObjectPool
+{
+ public enum ECardType { Item }
+ public static GameObject SpawnCard(string id,ECardType _,Transform parent,bool resetLocalScale,bool resetToMiddle)
+ { var card=new GameObject(id,typeof(RectTransform),typeof(ItemCardUI));card.transform.SetParent(parent,false);return card; }
+ public static void RecycleCard(string id,ECardType _,GameObject card) => UnityEngine.Object.DestroyImmediate(card);
+}
 namespace GloomhavenVR.Core
 {
- internal static class VRLog { internal static void Note(string _, string text) { } internal static void Info(string _,string text) { } internal static void Alert(string _, string text) { } }
+ internal static class VRLog { internal static readonly List<string> Alerts=new(); internal static void Note(string _, string text) { } internal static void Info(string _,string text) { } internal static void Alert(string _, string text) => Alerts.Add(text); }
 }
 namespace GloomhavenVR.WorldUI.MapRoom
 {

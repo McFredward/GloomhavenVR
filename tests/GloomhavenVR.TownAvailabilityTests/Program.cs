@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using Assets.Script.Misc;
 using GloomhavenVR.WorldUI;
 using MapRuleLibrary.Adventure;
 
@@ -28,15 +29,36 @@ namespace UnityEngine.UI
 }
 namespace Assets.Script.Misc
 {
-    internal interface ICallbackPromise { ICallbackPromise Then(Action onDone); }
+    internal interface ICallbackPromise { ICallbackPromise Then(Action onDone, Action? onCancel = null); }
     internal sealed class CallbackPromise : ICallbackPromise
     {
-        private Action? _done;
-        private bool _resolved;
-        internal bool IsPending => !_resolved;
+        private enum EState { Pending, Resolved, Canceled }
+        private EState state;
+        private Action? onDoneCallback, onCancelCallback;
+        internal bool IsPending => state == EState.Pending;
         internal static CallbackPromise Resolved() { var promise = new CallbackPromise(); promise.Resolve(); return promise; }
-        internal void Resolve() { if (_resolved) return; _resolved = true; _done?.Invoke(); }
-        public ICallbackPromise Then(Action onDone) { if (_resolved) onDone(); else _done += onDone; return this; }
+        internal void Done(Action? callback, Action? onCancelled = null)
+        {
+            if (state == EState.Resolved) { callback?.Invoke(); return; }
+            if (onCancelled != null) Cancelled(onCancelled);
+            Action? previous = onDoneCallback;
+            onDoneCallback = () => { previous?.Invoke(); callback?.Invoke(); };
+        }
+        internal void Cancelled(Action callback)
+        {
+            if (state == EState.Canceled) { callback(); return; }
+            onCancelCallback += callback;
+        }
+        internal void Resolve() { if (state != EState.Pending) return; state = EState.Resolved; onDoneCallback?.Invoke(); }
+        internal void Cancel() { if (state != EState.Pending) return; state = EState.Canceled; onCancelCallback?.Invoke(); }
+        public ICallbackPromise Then(Action onDone, Action? onCancel = null)
+        {
+            var next = new CallbackPromise();
+            next.Done(onDone);
+            if (onCancel != null) next.Cancelled(onCancel);
+            Done(next.Resolve); Cancelled(next.Cancel);
+            return next;
+        }
     }
 }
 namespace MapRuleLibrary.Adventure
@@ -65,6 +87,14 @@ namespace GloomhavenVR.WorldUI.MapRoom
 }
 internal static class Singleton<T> where T : class { internal static T? Instance; }
 internal static class Debug { internal static void LogGUI(string _) { } }
+internal static class InputManager { internal static bool GamePadInUse = false; }
+internal sealed class NativeStepEvent
+{
+    private event Action<EMapFTUEStep>? Listeners;
+    internal void AddListener(Action<EMapFTUEStep> listener) => Listeners += listener;
+    internal void RemoveListener(Action<EMapFTUEStep> listener) => Listeners -= listener;
+    internal void Invoke(EMapFTUEStep step) => Listeners?.Invoke(step);
+}
 internal enum EMapFTUEStep { None, CreatedSecondCharacter, VisitMerchant, BuyItem, InteractWithMap }
 internal interface IMapFTUEStep { EMapFTUEStep Step { get; } Assets.Script.Misc.ICallbackPromise StartStep(); void FinishStep(); }
 internal sealed class UIMapFTUEStep : IMapFTUEStep
@@ -73,8 +103,16 @@ internal sealed class UIMapFTUEStep : IMapFTUEStep
     private Assets.Script.Misc.CallbackPromise? promise;
     private bool IsActive => promise?.IsPending == true;
     private void StopWait() { }
+    private readonly StepConfig config = new();
+    private object? waitCoroutine;
+    private sealed class StepConfig { internal float DelayStart = 0f; }
+    private object StartCoroutine(object routine) => routine;
+    private object WaitStart(float _) => new object();
+    private void Show(Action _) { }
+    private void Hide() { if (!DelayHide) CompleteHide(); }
     internal bool DelayHide;
     internal int FinishRequests;
+    internal bool Pending => promise?.IsPending == true;
     internal Action? OnFinish;
     internal UIMapFTUEStep(EMapFTUEStep step) { Step = step; }
     public EMapFTUEStep Step { get; }
@@ -84,10 +122,23 @@ internal sealed class UIMapFTUEStep : IMapFTUEStep
         bool runOriginal = (bool)(typeof(TownServiceTutorialStepPatch).GetMethod("Prefix",
             BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, args) ?? true);
         if (!runOriginal) return (Assets.Script.Misc.ICallbackPromise)args[1]!;
-        if (promise?.IsPending != true) promise = new Assets.Script.Misc.CallbackPromise();
+        return NativeStartStep();
+    }
+    private Assets.Script.Misc.ICallbackPromise NativeStartStep()
+    {
+        if (IsActive) return promise!;
+        promise = new Assets.Script.Misc.CallbackPromise();
+        StopWait();
+        if (config.DelayStart > 0f) waitCoroutine = StartCoroutine(WaitStart(config.DelayStart));
+        else Show(CompleteHide);
         return promise;
     }
-    public void FinishStep() { FinishRequests++; OnFinish?.Invoke(); if (!DelayHide) CompleteHide(); }
+    public void FinishStep() { FinishRequests++; OnFinish?.Invoke(); NativeFinishStep(); }
+    private void NativeFinishStep()
+    {
+        if (waitCoroutine != null) CompleteHide();
+        else Hide();
+    }
     internal void CompleteHide() { var pending = promise; if (pending?.IsPending != true) return; pending.Resolve(); if (ReferenceEquals(promise, pending)) promise = null; }
 }
 internal sealed partial class UIShopItemWindow
@@ -105,7 +156,22 @@ internal sealed partial class UIShopItemWindow
     internal UIMapFTUEStep Step => ftueStep;
     internal UIShopItemWindow(UIMapFTUEStep step) { ftueStep = step; shopWindow.Hidden = HiddenHook; shopWindow.Shop = this; }
     internal UnityEngine.UI.UIWindow ConvertedWindow => shopWindow;
-    internal void Enter() => Singleton<MapFTUEManager>.Instance!.StartStep(ftueStep);
+    internal bool FadePending => shopWindow.FadePending;
+    internal void DelayShopFade(bool delay) => shopWindow.DelayFade = delay;
+    internal void CompleteShopFade() => shopWindow.FadePending = false;
+    internal void Enter() => FinishEnterShop();
+    internal void BeginFirstIntroduction() => introduction.Show(FinishEnterShop);
+    internal void CompleteIntroduction() => introduction.Hide();
+    private void TryFocus() { }
+    private void FinishEnterShop()
+    {
+        if (InputManager.GamePadInUse)
+        {
+            NewPartyDisplayUI.PartyDisplay.SelectCurrentCharacter();
+            TryFocus();
+        }
+        Singleton<MapFTUEManager>.Instance?.StartStep(ftueStep);
+    }
     internal void TemporaryHide() => shopWindow.Hide();
     internal void Reopen() { shopWindow.IsOpen = true; NativeListenersAttached = true; }
     private void ClearEvents() { Cleanups++; NativeListenersAttached = false; }
@@ -136,11 +202,20 @@ internal sealed partial class UIShopItemWindow
         ClearEvents();
         onExit?.Invoke();
     }
-    private sealed class ShopIntroduction { internal Action? OnHide; internal void Hide() => OnHide?.Invoke(); }
+    // Explicit introduction-process port: native UIIntroduceBase invokes its finish
+    // callback on both Done and Cancel. The runner binds FinishEnterShop itself.
+    private sealed class ShopIntroduction
+    {
+        internal Action? OnHide;
+        private Action? _finished;
+        internal void Show(Action finished) => _finished = finished;
+        internal void Hide() { var finished = _finished; _finished = null; OnHide?.Invoke(); finished?.Invoke(); }
+    }
     private sealed class ShopWindow : UnityEngine.UI.UIWindow
     {
         internal Action? Hidden;
-        internal void Hide() { if (!IsOpen) return; Hidden?.Invoke(); IsOpen = false; }
+        internal bool DelayFade, FadePending;
+        internal void Hide() { if (!IsOpen) return; Hidden?.Invoke(); IsOpen = false; FadePending = DelayFade; }
     }
 }
 internal sealed class NewPartyDisplayUI
@@ -148,35 +223,115 @@ internal sealed class NewPartyDisplayUI
     internal static readonly NewPartyDisplayUI PartyDisplay = new();
     internal bool SelectionEnabled = true;
     internal void DisableSelectionMode() => SelectionEnabled = false;
+    internal void SelectCurrentCharacter() { }
 }
 internal sealed class MapFTUEManager
 {
-    internal static bool IsPlaying;
-    private bool isPlaying => IsPlaying;
-    private readonly HashSet<EMapFTUEStep> _completed = new();
+    // Native IsPlaying reads the live singleton, while completion callbacks use
+    // their captured manager's own isPlaying field. Keep these lifetimes distinct.
+    internal static bool IsPlaying
+    {
+        get => Singleton<MapFTUEManager>.Instance?.isPlaying == true;
+        set { if (Singleton<MapFTUEManager>.Instance is { } manager) manager.isPlaying = value; }
+    }
+    private bool isPlaying;
+    internal void StopPlaying() => isPlaying = false;
+    private readonly List<EMapFTUEStep> stepsCompleted = new();
     // Name matches the game's identity-bearing current step.
     private IMapFTUEStep? currentStep;
     internal readonly List<EMapFTUEStep> Started = new();
     internal bool ThrowCompletionProbe;
-    internal event Action<EMapFTUEStep>? Finished;
-    internal EMapFTUEStep CurrentStep => currentStep?.Step ?? EMapFTUEStep.None;
+    internal readonly NativeStepEvent OnStartedStep = new(), OnFinishedStep = new();
+    internal event Action<EMapFTUEStep> Finished
+    { add => OnFinishedStep.AddListener(value); remove => OnFinishedStep.RemoveListener(value); }
+    internal EMapFTUEStep CurrentStep => !IsPlaying || currentStep == null ? EMapFTUEStep.None : currentStep.Step;
     internal bool HasCompletedStep(EMapFTUEStep step)
-    { if (ThrowCompletionProbe) throw new InvalidOperationException("native completion probe unavailable"); return _completed.Contains(step); }
-    internal void SetComplete(EMapFTUEStep step) => _completed.Add(step);
+    { if (ThrowCompletionProbe) throw new InvalidOperationException("native completion probe unavailable"); return stepsCompleted.Contains(step); }
+    internal void SetComplete(EMapFTUEStep step) => stepsCompleted.Add(step);
     internal void CompleteStep(EMapFTUEStep step)
-    { if (IsPlaying && CurrentStep == step) currentStep?.FinishStep(); }
+    { if (isPlaying && CurrentStep == step) currentStep?.FinishStep(); }
     internal Assets.Script.Misc.ICallbackPromise StartStep(IMapFTUEStep step)
     {
-        if (HasCompletedStep(step.Step)) return Assets.Script.Misc.CallbackPromise.Resolved();
-        Started.Add(step.Step);
-        if (currentStep != null) CompleteStep(currentStep.Step);
-        currentStep = step;
-        var promise = step.StartStep();
-        promise.Then(() => { if (IsPlaying && (currentStep == null || currentStep.Step == step.Step)) { _completed.Add(step.Step); currentStep = null; Finished?.Invoke(step.Step); } });
+        if (isPlaying && !HasCompletedStep(step.Step)) Started.Add(step.Step);
+        var promise = NativeStartStep(step);
         typeof(TownServiceTutorialSequencePatch).GetMethod("Postfix", BindingFlags.Static | BindingFlags.NonPublic)!
             .Invoke(null, new object[] { this, step });
         return promise;
     }
+    private void CheckStartedStep(EMapFTUEStep _) { }
+    private void CheckCompletedStep(EMapFTUEStep _) { }
+    private Assets.Script.Misc.ICallbackPromise NativeStartStep(IMapFTUEStep step)
+    {
+        if (!isPlaying || HasCompletedStep(step.Step)) return Assets.Script.Misc.CallbackPromise.Resolved();
+        if (currentStep != null) CompleteStep(currentStep.Step);
+        currentStep = step;
+        var promise = step.StartStep();
+        CheckStartedStep(step.Step);
+        OnStartedStep.Invoke(step.Step);
+        return promise.Then(() => OnCompleteStep(step.Step));
+    }
+    private void OnCompleteStep(EMapFTUEStep step)
+    {
+        if (isPlaying && (currentStep == null || currentStep.Step == step))
+        {
+            stepsCompleted.Add(step);
+            currentStep = null;
+            CheckCompletedStep(step);
+            OnFinishedStep.Invoke(step);
+        }
+    }
+}
+
+internal sealed class NativeMapNextStepListener
+{
+    private readonly EMapFTUEStep stepToContinue;
+    private readonly UIMapFTUEStep stepToStart;
+    internal NativeMapNextStepListener(EMapFTUEStep previous, UIMapFTUEStep next)
+    {
+        stepToContinue = previous; stepToStart = next;
+        Singleton<MapFTUEManager>.Instance!.OnFinishedStep.AddListener(OnStepCompleted);
+    }
+    private void OnStepCompleted(EMapFTUEStep step)
+    {
+        if (stepToContinue == step)
+        {
+            Singleton<MapFTUEManager>.Instance!.OnFinishedStep.RemoveListener(OnStepCompleted);
+            Singleton<MapFTUEManager>.Instance.StartStep(stepToStart);
+        }
+    }
+}
+
+internal sealed class NativeWorldMapToggleListener
+{
+    private readonly EMapFTUEStep step = EMapFTUEStep.BuyItem;
+    private readonly bool completedOnToggledOn = true;
+    internal bool Attached = true;
+    private void Clear() => Attached = false;
+    internal void Toggle(bool isOn) { if (Attached) OnValueChanged(isOn); }
+    private void OnValueChanged(bool isOn)
+    {
+        if (completedOnToggledOn == isOn) CompleteStep();
+    }
+    private void CompleteStep()
+    {
+        Singleton<MapFTUEManager>.Instance!.CompleteStep(step);
+        Clear();
+    }
+}
+
+// Purchase/confirmation is an explicit boundary port, not a substitute game
+// inventory implementation. Source-bound purchase bodies are hashed and checked
+// separately for the absence of an FTUE completion path.
+internal sealed class PurchaseConfirmationPort
+{
+    private readonly UIShopItemWindow shop;
+    internal int Gold = 30, Items;
+    internal bool Open;
+    internal PurchaseConfirmationPort(UIShopItemWindow original) => shop = original;
+    internal void Show() => Open = true;
+    internal void Confirm() { Gold -= 10; Items++; CloseConfirmation(); }
+    internal void Cancel() => CloseConfirmation();
+    private void CloseConfirmation() { Open = false; _ = shop; }
 }
 
 internal static class Program
@@ -193,8 +348,8 @@ internal static class Program
         WorldUIConfig.ImmersiveTownServices.Value = immersive;
         AdventureState.MapState = new MapState { IsCampaign = campaign,
             HeadquartersState = { MerchantUnlocked = true, TempleUnlocked = true, EnhancerUnlocked = true } };
-        MapFTUEManager.IsPlaying = true;
         Singleton<MapFTUEManager>.Instance = new MapFTUEManager();
+        MapFTUEManager.IsPlaying = true;
         Singleton<MapFTUEManager>.Instance.SetComplete(EMapFTUEStep.CreatedSecondCharacter);
         Singleton<UIShopItemWindow>.Instance = merchantStep
             ? new UIShopItemWindow(new UIMapFTUEStep(EMapFTUEStep.BuyItem)) : null;
@@ -424,6 +579,7 @@ internal static class Program
     private static void Main()
     {
         MerchantCloseCases();
+        PurchaseContinuationCases();
         for (byte service = 1; service <= 3; service++)
         {
             Check(!TownServiceAvailability.FromNativeState(service, false, false, false, false, true, true),
@@ -536,5 +692,142 @@ internal static class Program
         AdventureState.MapState = null;
         Check(!TownServiceAvailability.NativeUnlocked(1), "No station before a savegame is loaded");
         Console.WriteLine($"Town resident availability/onboarding: {_checks} assertions.");
+    }
+
+    private static void PurchaseContinuationCases()
+    {
+        foreach (int exit in new[] { 0, 1, 2 })
+        foreach (bool purchase in new[] { false, true })
+        foreach (bool delayed in new[] { false, true })
+        {
+            Setup(false, true);
+            var manager = Singleton<MapFTUEManager>.Instance!;
+            manager.SetComplete(EMapFTUEStep.VisitMerchant);
+            var shop = Singleton<UIShopItemWindow>.Instance!;
+            var next = new UIMapFTUEStep(EMapFTUEStep.InteractWithMap);
+            _ = new NativeMapNextStepListener(EMapFTUEStep.BuyItem, next);
+            shop.BeginFirstIntroduction();
+            Check(manager.CurrentStep == EMapFTUEStep.None && manager.Started.Count == 0,
+                "cold first-save introduction keeps BuyItem unstarted until the native entry callback");
+            shop.CompleteIntroduction();
+            Check(manager.CurrentStep == EMapFTUEStep.BuyItem && manager.Started.Count == 1,
+                "actual FinishEnterShop starts exactly the serialized native BuyItem step");
+            // Native UIIntroduceProcess.Cancel invokes its callback synchronously;
+            // the shop's visual fade does not defer onHidden or IsOpen. Retain an
+            // additional delayed FTUE boundary stress for the bridge-only exits.
+            shop.Step.DelayHide = delayed && exit != 1;
+            shop.DelayShopFade(delayed);
+            var confirmation = new PurchaseConfirmationPort(shop);
+            confirmation.Show(); confirmation.Cancel();
+            Check(!confirmation.Open && confirmation.Gold == 30 && confirmation.Items == 0
+                && manager.CurrentStep == EMapFTUEStep.BuyItem && shop.Step.FinishRequests == 0,
+                "purchase confirmation cancel preserves the pending native exit lesson");
+            confirmation.Show();
+            if (purchase) confirmation.Confirm();
+            else confirmation.Cancel();
+            Check(!confirmation.Open && manager.CurrentStep == EMapFTUEStep.BuyItem
+                && shop.Step.FinishRequests == 0 && !manager.HasCompletedStep(EMapFTUEStep.BuyItem),
+                "native purchase boundary changes inventory only and never completes the exit lesson");
+            int gold = confirmation.Gold, items = confirmation.Items;
+            bool cleanupBeforeNext = false;
+            manager.OnStartedStep.AddListener(step =>
+            {
+                if (step == EMapFTUEStep.InteractWithMap)
+                    cleanupBeforeNext = !NewPartyDisplayUI.PartyDisplay.SelectionEnabled
+                        && !shop.NativeListenersAttached && shop.Cleanups > 0;
+            });
+            if (exit == 0) shop.Exit();
+            else if (exit == 1)
+            {
+                var toggle = new NativeWorldMapToggleListener();
+                toggle.Toggle(false);
+                Check(shop.Step.FinishRequests == 0 && toggle.Attached,
+                    "native WorldMap listener ignores the opposite toggle value");
+                shop.ExitCallback = () => toggle.Toggle(true);
+                shop.Exit();
+                Check(!toggle.Attached, "native WorldMap listener removes itself after its exact completion event");
+            }
+            else
+            {
+                shop.TemporaryHide();
+                Check(!manager.HasCompletedStep(EMapFTUEStep.BuyItem),
+                    "purchase sibling hiding the borrowed shop cannot consume native continuation");
+                using (GloomhavenVR.WorldUI.MapRoom.TownWindowCloseScope.Enter())
+                {
+                    var close = TownServiceTutorialPatches.CaptureConvertedMerchantClose(shop.ConvertedWindow);
+                    TownServiceTutorialPatches.CompleteConvertedMerchantClose(shop.ConvertedWindow, close);
+                    TownServiceTutorialPatches.CompleteConvertedMerchantClose(shop.ConvertedWindow, close);
+                }
+            }
+            Check(shop.Step.FinishRequests == 1,
+                "each real merchant exit requests one exact native hide after confirm or cancel");
+            Check(!shop.IsOpen && shop.FadePending == delayed,
+                "shop cleanup and native IsOpen transition precede its optional visual fade completion");
+            if (shop.Step.DelayHide)
+            {
+                Check(manager.CurrentStep == EMapFTUEStep.BuyItem && !manager.HasCompletedStep(EMapFTUEStep.BuyItem)
+                    && manager.Started.Count == 1,
+                    "delayed native FTUE hide retains its own completion and map continuation");
+                shop.Step.CompleteHide();
+            }
+            Check(manager.HasCompletedStep(EMapFTUEStep.BuyItem) && manager.CurrentStep == EMapFTUEStep.InteractWithMap
+                && cleanupBeforeNext && manager.Started.Count == 2 && shop.Step.FinishRequests == 1,
+                "actual native completion listener advances InteractWithMap after cleaned merchant exit");
+            shop.CompleteShopFade();
+            Check(!shop.FadePending && manager.CurrentStep == EMapFTUEStep.InteractWithMap,
+                "visual shop fade completion cannot gate or repeat native map continuation");
+            shop.Reopen(); shop.Exit();
+            Check(manager.CurrentStep == EMapFTUEStep.InteractWithMap && manager.Started.Count == 2
+                && confirmation.Gold == gold && confirmation.Items == items && next.FinishRequests == 0,
+                "a repeated shop exit preserves next native map lesson and purchased state");
+        }
+
+        Setup(false, true);
+        var old = Singleton<MapFTUEManager>.Instance!;
+        old.SetComplete(EMapFTUEStep.VisitMerchant);
+        var previousShop = Singleton<UIShopItemWindow>.Instance!;
+        previousShop.Enter(); previousShop.Step.DelayHide = true; previousShop.Exit();
+        old.StopPlaying();
+        Setup(false, true);
+        var current = Singleton<MapFTUEManager>.Instance!;
+        current.SetComplete(EMapFTUEStep.VisitMerchant);
+        var currentShop = Singleton<UIShopItemWindow>.Instance!;
+        currentShop.Enter();
+        previousShop.Step.CompleteHide();
+        Check(!old.HasCompletedStep(EMapFTUEStep.BuyItem) && !current.HasCompletedStep(EMapFTUEStep.BuyItem),
+            "delayed old-save promise after native shutdown cannot complete either manager");
+        MapFTUEManager.IsPlaying = true;
+        currentShop.Exit();
+        Check(current.HasCompletedStep(EMapFTUEStep.BuyItem) && currentShop.Step.FinishRequests == 1,
+            "old closing marker cannot strand the second save's distinct native promise");
+
+        Setup(false, true);
+        current = Singleton<MapFTUEManager>.Instance!;
+        current.SetComplete(EMapFTUEStep.VisitMerchant);
+        currentShop = Singleton<UIShopItemWindow>.Instance!;
+        currentShop.BeginFirstIntroduction(); currentShop.Exit();
+        Check(current.HasCompletedStep(EMapFTUEStep.BuyItem) && current.Started.Count == 1,
+            "native intro cancellation during real Exit starts and completes its exact shop lesson");
+        MapFTUEManager.IsPlaying = false;
+        currentShop.Reopen(); currentShop.Enter();
+        Check(current.Started.Count == 1 && current.CurrentStep == EMapFTUEStep.None,
+            "native inactive multiplayer/completed-FTUE entry cannot restart the merchant lesson");
+
+        Setup(false, true);
+        current = Singleton<MapFTUEManager>.Instance!;
+        current.SetComplete(EMapFTUEStep.VisitMerchant);
+        currentShop = Singleton<UIShopItemWindow>.Instance!;
+        MapFTUEManager.IsPlaying = false;
+        currentShop.Enter();
+        Check(current.Started.Count == 0 && !currentShop.Step.Pending,
+            "native inactive manager refuses an uncompleted merchant step without creating its promise");
+
+        Setup(false, true);
+        current = Singleton<MapFTUEManager>.Instance!;
+        current.SetComplete(EMapFTUEStep.VisitMerchant); current.SetComplete(EMapFTUEStep.BuyItem);
+        currentShop = Singleton<UIShopItemWindow>.Instance!;
+        currentShop.Enter(); currentShop.Exit();
+        Check(current.Started.Count == 0 && !currentShop.Step.Pending && currentShop.Step.FinishRequests == 0,
+            "a completed loaded merchant lesson keeps native entry and close inert");
     }
 }
