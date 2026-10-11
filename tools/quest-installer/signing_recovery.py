@@ -376,6 +376,10 @@ class Recovery:
 
     def _refresh_before_uninstall(self):
         self._device_guard()
+        # Backing up a large installed APK can take minutes. The selected local
+        # replacement must still be the verified file before removing the old app.
+        if file_hash(self.source.apk) != self.source.sha256 or not replacement_is_debuggable(self.source.apk):
+            raise RecoveryError("The selected APK changed during recovery preparation; the installed app was retained.")
         self._check_users()
         self.adb.run("-s", self.address, "shell", "am", "force-stop", PACKAGE)
         installed = self.adb.run("-s", self.address, "shell", "pm", "path", "--user", "0", PACKAGE, check_text=False).splitlines()

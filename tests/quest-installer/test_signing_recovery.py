@@ -229,6 +229,17 @@ class TransactionTests(unittest.TestCase):
         with self.assertRaisesRegex(recovery.RecoveryError, "different headset"): self.engine().recover()
         self.verify_saves(); self.assertFalse(any(call[0] == "uninstall" for call in self.device.calls))
 
+    def test_selected_local_apk_change_after_backup_preserves_old_app(self):
+        engine = self.engine(); original = engine.commit
+        def interrupted(state=None, **fields):
+            original(state, **fields)
+            if state == "uninstalling": raise KeyboardInterrupt()
+        engine.commit = interrupted
+        with self.assertRaises(KeyboardInterrupt): engine.recover(detected=True)
+        apk(self.device.new_apk, content=b"new file replaced during a long backup")
+        with self.assertRaisesRegex(recovery.RecoveryError, "selected APK changed"): self.engine().recover()
+        self.verify_saves(); self.assertFalse(any(call[0] == "uninstall" for call in self.device.calls))
+
     def test_reassigned_wifi_address_before_parking_does_not_move_foreign_banks(self):
         bank, payload = self.bank(); engine = self.engine(); original = engine.commit
         def interrupted(state=None, **fields):
