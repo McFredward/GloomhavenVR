@@ -1,5 +1,16 @@
 # State — where the project stands
 
+**Quest completed APK and guided installation, 2026-10-11 (Builder; new builds Runtime668).**
+
+Capture095538 proves the Windows build, signing and all final gates finish with
+the retained665 Player. Only installation fails because ADB finds no authorized
+Quest. The Wizard now presents a completed APK and ordered headset setup,
+retries installation alone, or explicitly finishes without installing. Already
+authorized Wi-Fi devices are reused when no USB device or explicit selection is
+available. Current ADB command diagnostics join the bounded support export.
+Earlier completed work and the APK's actual665 version remain visible. Evidence:
+[QUEST-INSTALLATION-095538-20261011.md](QUEST-INSTALLATION-095538-20261011.md).
+
 **Quest independent-export Compute ownership, 2026-10-11 (Builder; new builds Runtime668).**
 
 Capture092443 proves Windows alignment/signing and the APK/Shader final gates

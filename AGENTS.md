@@ -44,8 +44,8 @@ allowlist. The builder must include selected current source/art automatically;
 report genuine original/package ABI drift visibly rather than guessing bindings.
 Future settings remain available unless a specific Quest-only exclusion applies.
 
-**Quest cache hygiene, requested by the maintainer on 2026-10-04:** after a
-verified hardware handoff, archive compact diagnostic receipts and prune obsolete
+**Quest cache hygiene, requested on 2026-10-04 and reinforced on 2026-10-11:** after
+each Quest repair/test round, archive compact diagnostic receipts and prune obsolete
 Quest worker checkouts, generated test copies and historical Unity/build caches.
 Keep Git branch refs, active builds/worktrees, latest matching native symbols,
 canonical owned inputs, supplied captures and potentially unique dirty source
