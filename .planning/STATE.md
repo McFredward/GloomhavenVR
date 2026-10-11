@@ -1,5 +1,29 @@
 # State — where the project stands
 
+**Quest APK selection and retained mod-update migration, 2026-10-11.**
+
+Both edit entry points suggest only the last completed workspace APK and retain
+manual choices. Mod updates compile the current captured branch source, runtime
+patches and static weaver. Unsupported scene/shader/native producer changes take
+the ordinary builder path under the existing output lock; independently compatible
+snapshots, conversion owners and Unity Library stay retained. The Wizard exposes
+the actual full-build phases and preserves the measured progress floor. Exact
+reviewed host-only producer aliases avoid repeating original preparation; unknown
+producer edits still invalidate their affected outputs. Selected unchanged APKs
+reuse real byte witnesses; a newly signed update carries its verified hash and
+certificate directly into its closed receipt. Focused tests and archive checks
+are recorded in the current delivery receipt; no runtime source or new game APK
+was built this round. Runtime remains671 and main/v1.1.0 is already included.
+
+The maintainer requested one portable file containing every game asset. Official
+Meta guidance uses an APK plus expansion/required assets. Android14 v2/v3 rejects
+ZIP64 APKs; the host-tested target29/v1 alternative has no Quest installation or
+Unity runtime acceptance. The choice between that legacy APK route and a single
+PC-side ZIP installation package remains pending. No SDK/signature downgrade or
+unapproved package-format switch was implemented. Cross-PC personalization also
+needs an explicit new-owner signing path; ordinary original-key guards remain.
+Developer contracts and sources: [Quest builder](../tools/quest-builder/README.md).
+
 **Quest startup access repair, 2026-10-11.**
 
 Current capture202658 confirms B665 fails before game/mod activation because the
