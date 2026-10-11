@@ -17,6 +17,7 @@ import shlex
 import shutil
 import struct
 import subprocess
+import sys
 import tarfile
 import tempfile
 import threading
@@ -180,6 +181,109 @@ class Recovery:
         self.path = ordinary(self.home / "active.json")
         self.journal = None; self.install_timeout = install_timeout
         self.decode_receipt = decode_receipt
+        self._direct_storage_proved = False
+        self._storage_process = None
+
+    def _process_snapshot(self, pid, *, stopped=False):
+        # starttime distinguishes recycled PIDs; UID/cmdline prevent following
+        # another app's mount namespace. All tasks must be stopped before data
+        # access, including Java's debugger-wait thread.
+        prefix = "/proc/" + str(pid)
+        script = "cat " + prefix + "/stat\ntr '\\000' '\\n' < " + prefix + "/cmdline | sed '/^$/d'\nstat -c %u " + prefix + "\nid -u"
+        if stopped:
+            script += "\nfor task in " + prefix + "/task/*; do state=$(sed -n 's/^State:[[:space:]]*\\([A-Za-z]\\).*/\\1/p' \"$task/status\"); case \"$state\" in T|t) ;; *) exit 53;; esac; done"
+        rows = self._context_shell(script, "app").splitlines()
+        if (len(rows) != 4 or rows[1] != PACKAGE or not rows[2].isdigit() or int(rows[2]) < 10000
+                or rows[2] != rows[3] or not rows[0].startswith(str(pid) + " (") or ") " not in rows[0]):
+            raise RecoveryError("The paused app storage process has a foreign or incomplete identity.")
+        fields = rows[0].rsplit(") ", 1)[1].split()
+        if len(fields) < 20 or not fields[19].isdigit() or (stopped and fields[0] not in ("T", "t")):
+            raise RecoveryError("The app storage process is not completely paused.")
+        return (str(pid), rows[2], fields[19])
+
+    def _process_storage_root(self):
+        if self._storage_process:
+            self._device_guard()
+            if self._process_snapshot(self._storage_process[0], stopped=True) != self._storage_process:
+                raise RecoveryError("The paused storage process changed during recovery.")
+            return "/proc/" + self._storage_process[0] + "/root/storage/emulated/0"
+        self._device_guard()
+        resolved = self.adb.run("-s", self.address, "shell", "cmd", "package", "resolve-activity", "--brief", "--user", "0",
+                                "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER", PACKAGE, check_text=False).strip().splitlines()
+        if not resolved or not re.fullmatch(re.escape(PACKAGE) + r"/[A-Za-z_][A-Za-z0-9_.$]*|" + re.escape(PACKAGE) + r"/\.[A-Za-z_][A-Za-z0-9_.$]*", resolved[-1]):
+            raise RecoveryError("The installed app's launcher cannot open its own storage view.")
+        started_at = self.shell("date +%s").strip()
+        if not started_at.isdigit(): raise RecoveryError("The app storage wait boundary could not be identified.")
+        debug_rows = self.shell("dumpsys activity processes | sed -n '/mDebugApp=/p'").splitlines()
+        debug_args = ["-D"]
+        if debug_rows:
+            debug = re.fullmatch(r"\s*mDebugApp=([A-Za-z0-9_.:]+|null)/orig=([A-Za-z0-9_.:]+|null) mDebugTransient=(true|false) mOrigWaitForDebugger=(true|false)\s*", debug_rows[0])
+            if len(debug_rows) != 1 or len(debug_rows[0]) > 4096 or not debug:
+                raise RecoveryError("The existing Android debug selection cannot be safely preserved.")
+            if debug.group(1) == PACKAGE and debug.group(3) == "true":
+                # A previous start can fail before attachApplication restores
+                # mOrigDebugApp. Repeating -D would overwrite that saved choice.
+                # Reuse its pending selection, then prove a fresh wait marker.
+                debug_args = []
+        # START_FLAG_DEBUG is transient: ActivityManager restores previous debug
+        # settings when binding this process. ActivityThread waits before making
+        # Application or installing providers. Observe that boundary before
+        # pausing; subsequent complete snapshots still verify mutable app data.
+        # Do not clear-debug-app: it would overwrite another developer setting.
+        owned = None
+        try:
+            self.adb.run("-s", self.address, "shell", "am", "start", *debug_args, "--user", "0", "-n", shlex.quote(resolved[-1]), timeout=30)
+            for attempt in range(40):
+                raw = self.adb.run("-s", self.address, "shell", "pidof", PACKAGE, check_text=False).strip()
+                if re.fullmatch(r"[1-9][0-9]{0,9}", raw):
+                    owned = self._process_snapshot(raw)
+                    logs = self.adb.run("-s", self.address, "shell", "logcat", "-d", "-t", "128", "--pid", raw,
+                                        "-v", "epoch", "ActivityThread:I", "*:S", check_text=False)
+                    waiting = any(re.match(r"\s*([0-9]+)\.[0-9]+\s", line) and
+                                  int(re.match(r"\s*([0-9]+)\.[0-9]+\s", line).group(1)) >= int(started_at) and
+                                  "Application " + PACKAGE + " is waiting for the debugger" in line for line in logs.splitlines())
+                    if waiting:
+                        if self._process_snapshot(raw) != owned: raise RecoveryError("The waiting app process changed before pausing.")
+                        self._device_guard()
+                        self.adb.run("-s", self.address, "shell", "run-as", PACKAGE, "kill", "-STOP", raw, check_text=False)
+                        for pause_attempt in range(20):
+                            try: paused = self._process_snapshot(raw, stopped=True)
+                            except RuntimeError:
+                                time.sleep(0.05); continue
+                            if paused != owned: raise RecoveryError("The waiting app process changed while pausing.")
+                            self._storage_process = paused
+                            progress("access", 1, 1, "Using the paused app's own Android storage namespace", local=True)
+                            return "/proc/" + raw + "/root/storage/emulated/0"
+                        raise RecoveryError("The app storage process did not completely pause.")
+                progress("access", attempt + 1, 40, "Opening the app's own storage view before gameplay starts", local=True)
+                time.sleep(0.25)
+            raise RecoveryError("The app did not prove its debugger-wait storage boundary in time.")
+        except BaseException:
+            try:
+                self._device_guard()
+                if owned:
+                    if self._process_snapshot(owned[0]) == owned:
+                        self.adb.run("-s", self.address, "shell", "am", "force-stop", PACKAGE, check_text=False)
+                else:
+                    # The start request can reach Android even when ADB times
+                    # out before returning a PID. The target was force-stopped
+                    # before this scoped request; terminate only that package.
+                    self.adb.run("-s", self.address, "shell", "am", "force-stop", PACKAGE, check_text=False)
+            except RuntimeError as cleanup:
+                print("Signing recovery storage cleanup could not be confirmed: " + str(cleanup)[:1024], flush=True)
+            raise
+
+    def _close_storage_process(self):
+        owned = self._storage_process
+        if not owned: return
+        self._storage_process = None
+        self._device_guard()
+        # Stop only the process we started. A changed/reused PID is not a reason
+        # to force-stop a newly launched app or any foreign process.
+        try: current = self._process_snapshot(owned[0])
+        except RuntimeError: return
+        if current != owned: raise RecoveryError("The paused storage process changed before scoped cleanup.")
+        self.adb.run("-s", self.address, "shell", "am", "force-stop", PACKAGE, check_text=False)
 
     def shell(self, script, *, timeout=60):
         return self.adb.run("-s", self.address, "shell", "-T", "sh", "-s",
@@ -270,10 +374,11 @@ class Recovery:
         progress(phase, local.stat().st_size, total, "Retained app-data transfer finished", unit="bytes", local=True)
 
     def _tar_args(self, root, *, internal=False, restore=False, access_mode=None, explicit=False):
-        command = ["shell", "-T"] + (["run-as", PACKAGE] if internal or access_mode == "app" else [])
+        actual_root = self._access_root(root, access_mode)
+        command = ["shell", "-T"] + (["run-as", PACKAGE] if internal or access_mode in ("app", "app-direct", "app-process") else [])
         # Android toybox tar otherwise attempts to restore the old app UID.
         # -o keeps ownership with the new run-as UID after package replacement.
-        command += ["tar", "-C", root, "-xof" if restore else "-cf", "-"]
+        command += ["tar", "-C", actual_root, "-xof" if restore else "-cf", "-"]
         if explicit and not restore: return command + ["--no-recursion", "-T", "-"]
         if not restore:
             if internal:
@@ -294,15 +399,46 @@ class Recovery:
             owned = self.adb.run("-s", self.address, "shell", "pm", "list", "packages", "-u", "--user", identifier, PACKAGE, check_text=False)
             if "package:" + PACKAGE in owned: raise RecoveryError("The app also belongs to another Android profile; signing recovery will not remove that profile's app.")
 
+    def _access_root(self, root, mode):
+        if mode not in ("app-direct", "app-process"): return root
+        if not (root == EXTERNAL or root.startswith(EXTERNAL + "/") or root == self.park or root.startswith(self.park + "/")):
+            raise RecoveryError("The direct storage view is outside this app's recovery roots.")
+        if mode == "app-process": return self._process_storage_root() + root[len("/sdcard"):]
+        if not self._direct_storage_proved:
+            self._device_guard()
+            # /sdcard can traverse /mnt/user/0, whose shell-owned parent is not
+            # accessible after run-as changes UID. The direct emulated view
+            # avoids that alias without changing any permissions. Prove both
+            # views designate the same directory before using it for app data.
+            identities = self.shell("stat -L -c '%d:%i' /sdcard /storage/emulated/0").splitlines()
+            if len(identities) != 2 or identities[0] != identities[1] or not re.fullmatch(r"[0-9]+:[0-9]+", identities[0]):
+                raise RecoveryError("The direct external storage view does not match the primary Quest storage.")
+            self._direct_storage_proved = True
+        return "/storage/emulated/0" + root[len("/sdcard"):]
+
     def _context_shell(self, script, mode):
-        if mode == "app":
+        if mode in ("app", "app-direct", "app-process"):
+            if mode == "app-process": self._process_storage_root()
             return self.adb.run("-s", self.address, "shell", "-T", "run-as", PACKAGE, "sh", "-s",
                                 input_text="set -eu\n" + script + "\n", check_text=False, timeout=120)
         return self.shell(script, timeout=120)
 
+    def _check_external_root(self, root, mode):
+        # The proc root is intentionally the kernel namespace bridge; every
+        # storage component below it must be an ordinary directory. Absolute
+        # symlinks would otherwise escape back into run-as's original namespace.
+        boundary = "/sdcard" if root.startswith("/sdcard/") else "/storage"
+        if root.startswith("/proc/"): boundary = root.split("/root/", 1)[0] + "/root"
+        checked = []
+        for parent in (PurePosixPath(root), *PurePosixPath(root).parents):
+            value = str(parent)
+            if value == boundary: break
+            checked.append("test ! -L " + shlex.quote(value))
+        self._context_shell("test -d " + shlex.quote(root) + "\n" + "\n".join(checked), mode)
+
     def _capture_census(self, item, *, parked_bank=None):
         """Prove readable typed members before streaming any payload bytes."""
-        root = item["root"]; modes = ("app",) if item["internal"] else ("shell", "app")
+        root = item["root"]; modes = ("app",) if item["internal"] else ("shell", "app", "app-direct", "app-process")
         ignored = set(); directories = set()
         if not item["internal"]:
             for bank in ([parked_bank] if parked_bank else self.journal.get("banks", [])):
@@ -312,14 +448,16 @@ class Recovery:
                     ignored.add(prefix + path)
                     directories.update(prefix + str(parent) for parent in PurePosixPath(path).parents if str(parent) != ".")
                 ignored.update(prefix + ".quest-installation.receipt" + suffix for suffix in ("", ".previous", ".pending"))
-        last_error = None
+        errors = []
         for mode in modes:
             try:
-                observed = self._context_shell("find " + shlex.quote(root) + " -mindepth 1 -print", mode).splitlines()
+                actual_root = self._access_root(root, mode)
+                if not item["internal"]: self._check_external_root(actual_root, mode)
+                observed = self._context_shell("find " + shlex.quote(actual_root) + " -mindepth 1 -print", mode).splitlines()
                 names = []
                 for path in observed:
-                    if not path.startswith(root + "/"): raise RecoveryError("The app-data census contains an unrepresentable or foreign path.")
-                    name = path[len(root) + 1:]
+                    if not path.startswith(actual_root + "/"): raise RecoveryError("The app-data census contains an unrepresentable or foreign path.")
+                    name = path[len(actual_root) + 1:]
                     if (len(name) > 4096 or any(char in name for char in "\x00\r\n") or any(part in ("", ".", "..") for part in name.split("/"))):
                         raise RecoveryError("The app-data census contains an unsafe filename.")
                     if item["internal"] and (name.split("/", 1)[0] in ("cache", "code_cache") or
@@ -331,7 +469,7 @@ class Recovery:
                 for offset in range(0, len(names), 64):
                     batch = names[offset:offset + 64]; lines = []
                     for index, name in enumerate(batch):
-                        path = shlex.quote(root + "/" + name)
+                        path = shlex.quote(actual_root + "/" + name)
                         lines.append("metadata=$(stat -c '%f:%s' " + path + "); "
                                      + "if test -L " + path + "; then kind=L; elif test -d " + path + "; then kind=D; "
                                      + "elif test -f " + path + "; then if head -c 1 " + path + " >/dev/null 2>&1; then kind=F; else kind=U; fi; else kind=S; fi; "
@@ -354,14 +492,15 @@ class Recovery:
                           "captureFiles": len(rows) + 1, "captureBytes": sum(value["size"] for value in rows.values() if value["type"] == "file")}
                 item.update(result); return rows
             except RuntimeError as error:
-                last_error = error
+                errors.append(mode + ": " + str(error)[:1200])
                 self._device_guard()
-        raise RecoveryError("Automatic app-data access repair exhausted shell and app identities: " + str(last_error) + "; the installed app was retained.")
+        raise RecoveryError("Automatic app-data access repair exhausted shell and app identities: " + "; ".join(errors) + "; the installed app was retained.")
 
     def _capture_root(self, item, local, *, work=None, fresh=False, parked_bank=None):
         if fresh or "capturePaths" not in item: self._capture_census(item, parked_bank=parked_bank)
         self._transfer(self._tar_args(item["root"], internal=item["internal"], access_mode=item.get("accessMode"), explicit=True),
                        local, paths=item["capturePaths"], work=work)
+        if item.get("accessMode") == "app-process": self._process_storage_root()
         inventory = archive_inventory(local)
         expected = {name[2:] for name in item["capturePaths"] if name != "."}
         if set(inventory) != expected: raise RecoveryError("The captured archive does not match its complete mutable app-data census.")
@@ -399,6 +538,8 @@ class Recovery:
 
     def _safe_restore_archive(self, origin, destination, item):
         ordinary(destination)
+        actual_root = self._access_root(item["root"], item.get("accessMode"))
+        if not item["internal"]: self._check_external_root(actual_root, item.get("accessMode", "shell"))
         if destination.exists() and (not destination.is_file() or destination.stat().st_nlink != 1): raise RecoveryError("Unsafe restoration archive.")
         # Previously restored terminal links remain legal, but no data write may
         # traverse any existing link. Validate each original non-link path and
@@ -407,23 +548,21 @@ class Recovery:
         for name, value in item["inventory"].items():
             parents = [str(parent) for parent in PurePosixPath(name).parents if str(parent) != "."]
             if value["type"] != "symlink": parents.append(name)
-            checked.update(item["root"] + "/" + parent for parent in parents)
+            checked.update(actual_root + "/" + parent for parent in parents)
         paths = sorted(checked)
         for offset in range(0, len(paths), 128):
             script = "set -eu\n" + "\n".join("test ! -L " + shlex.quote(path) for path in paths[offset:offset + 128]) + "\n"
-            args = ["-s", self.address, "shell", "-T"] + (["run-as", PACKAGE] if item["internal"] or item.get("accessMode") == "app" else []) + ["sh", "-s"]
-            self.adb.run(*args, input_text=script, check_text=False)
+            self._context_shell(script, "app" if item["internal"] else item.get("accessMode", "shell"))
         # Android toybox tar refuses existing links instead of overwriting them.
         # Remove only original terminal links after verifying their exact target.
-        links_to_remove = [(item["root"] + "/" + name, value["target"]) for name, value in item["inventory"].items() if value["type"] == "symlink"]
+        links_to_remove = [(actual_root + "/" + name, value["target"]) for name, value in item["inventory"].items() if value["type"] == "symlink"]
         for offset in range(0, len(links_to_remove), 64):
             lines = []
             for path, target in links_to_remove[offset:offset + 64]:
                 quoted = shlex.quote(path)
                 lines.append("if test -L " + quoted + "; then test \"$(readlink " + quoted + ")\" = " + shlex.quote(target)
                              + "; rm " + quoted + "; else test ! -e " + quoted + "; fi")
-            args = ["-s", self.address, "shell", "-T"] + (["run-as", PACKAGE] if item["internal"] or item.get("accessMode") == "app" else []) + ["sh", "-s"]
-            self.adb.run(*args, input_text="set -eu\n" + "\n".join(lines) + "\n", check_text=False)
+            self._context_shell("\n".join(lines), "app" if item["internal"] else item.get("accessMode", "shell"))
         links = []
         with tarfile.open(origin, "r:") as source, tarfile.open(destination, "w:") as output:
             for member in source:
@@ -480,6 +619,7 @@ class Recovery:
             self.shell("if test -f " + shlex.quote(origin) + " && ! test -L " + shlex.quote(origin) + "; then cp -p " + shlex.quote(origin) + " " + shlex.quote(destination) + "; fi")
 
     def _refresh_before_uninstall(self):
+        self._close_storage_process()
         self._device_guard()
         # Backing up a large installed APK can take minutes. The selected local
         # replacement must still be the verified file before removing the old app.
@@ -510,6 +650,7 @@ class Recovery:
     def _verify_prepared_snapshot(self):
         """Verify mutable data at its actual location after content parking."""
         self._device_guard()
+        self._close_storage_process()
         self.adb.run("-s", self.address, "shell", "am", "force-stop", PACKAGE)
         self._installed_apk_guard(self.journal["originalApk"]["sha256"])
         for item in self.journal["roots"]:
@@ -674,7 +815,8 @@ class Recovery:
                     or not re.fullmatch(r"[0-9a-f]{64}", str(item.get("sha256")))):
                 raise RecoveryError("Invalid retained app-data archive identity.")
             seen.add(name); local = ordinary(self.backup / item["archive"])
-            if "accessMode" in item and item["accessMode"] not in ("app", "shell"): raise RecoveryError("Invalid retained app-data access identity.")
+            if "accessMode" in item and item["accessMode"] not in ("app", "app-direct", "app-process", "shell"): raise RecoveryError("Invalid retained app-data access identity.")
+            if item.get("accessMode") in ("app-direct", "app-process") and item["internal"]: raise RecoveryError("Private app data cannot use the external storage view.")
             if item.get("accessMode") == "shell" and item["internal"]: raise RecoveryError("Private app data cannot be restored through shell ownership.")
             if "capturePaths" in item:
                 paths = item["capturePaths"]
@@ -761,6 +903,7 @@ class Recovery:
 
     def _restore(self, *, expected_apk=None):
         self._installed_apk_guard(expected_apk or self.source.sha256)
+        self._close_storage_process()
         self.adb.run("-s", self.address, "shell", "am", "force-stop", PACKAGE)
         private = self.adb.run("-s", self.address, "shell", "run-as", PACKAGE, "pwd", check_text=False).strip()
         if private not in ("/data/user/0/" + PACKAGE, "/data/data/" + PACKAGE): raise RecoveryError("The installed replacement does not permit run-as restoration; all original backups remain retained.")
@@ -771,12 +914,13 @@ class Recovery:
             local = self.backup / item["archive"]
             if item["internal"]:
                 self.adb.run("-s", self.address, "shell", "run-as", PACKAGE, "mkdir", "-p", item["root"], check_text=False)
-            else: self.shell("mkdir -p " + shlex.quote(item["root"]))
+            else: self._context_shell("mkdir -p " + shlex.quote(self._access_root(item["root"], item.get("accessMode"))), item.get("accessMode", "shell"))
             self.commit(restoringArchive=item["archive"])
             restore = self.backup / (item["name"] + ".restore.tar")
             self._safe_restore_archive(local, restore, item)
             try:
                 self._transfer(self._tar_args(item["root"], internal=item["internal"], restore=True, access_mode=item.get("accessMode")), restore, restore=True, phase="restore", total=restore.stat().st_size)
+                if item.get("accessMode") == "app-process": self._process_storage_root()
             finally: restore.unlink(missing_ok=True)
             progress("restore", index + 1, len(self.journal["roots"]), "Restored " + item["name"] + " app data", unit="files", local=True)
         self.commit(restoringArchive=None)
@@ -840,6 +984,7 @@ class Recovery:
                     scratch = max((self.backup / item["archive"]).stat().st_size for item in self.journal["roots"]) + 64 * 1024 * 1024
                     if shutil.disk_usage(self.backup).free < scratch:
                         raise RecoveryError("Insufficient PC storage for restoration scratch; the installed app was retained.")
+                    self._close_storage_process()
                     self.adb.run("-s", self.address, "uninstall", PACKAGE, timeout=120, positive=r"^Success\s*$")
                 self.commit("removed")
             if self.journal["state"] in ("removed", "installing"):
@@ -856,18 +1001,26 @@ class Recovery:
                         self.commit("rolling-back")
                         self.adb.run("-s", self.address, "install", self.backup / "original.apk", timeout=self.install_timeout, positive=r"^Success\s*$")
                         self.commit("rollback-restoring")
-                        self._restore(expected_apk=self.journal["originalApk"]["sha256"]); self.commit("backed-up", rolledBack=True)
+                        self._restore(expected_apk=self.journal["originalApk"]["sha256"])
+                        self._close_storage_process(); self.commit("backed-up", rolledBack=True)
                     raise
                 self.commit("restoring")
                 progress("replace", 4, 7, "Replacement APK installed; restoring retained data before launch")
             if self.journal["state"] == "restoring":
-                self._restore(); self.commit("verified")
+                self._restore(); self._close_storage_process(); self.commit("verified")
+            elif pending and self.journal["state"] == "verified":
+                # A host terminated after durable verification may have left
+                # a paused Android process. A verified retry proves the exact
+                # replacement before stopping only this package for launch.
+                self._installed_apk_guard(self.source.sha256)
+                self.adb.run("-s", self.address, "shell", "am", "force-stop", PACKAGE, check_text=False)
             if self.journal["state"] in ("rolling-back", "rollback-restoring"):
                 self._device_guard()
                 if self.journal["state"] == "rolling-back":
                     self.adb.run("-s", self.address, "install", "-r", self.backup / "original.apk", timeout=self.install_timeout, positive=r"^Success\s*$")
                     self.commit("rollback-restoring")
-                self._restore(expected_apk=self.journal["originalApk"]["sha256"]); self.commit("backed-up", rolledBack=True)
+                self._restore(expected_apk=self.journal["originalApk"]["sha256"])
+                self._close_storage_process(); self.commit("backed-up", rolledBack=True)
                 raise RecoveryError("Interrupted rollback has restored the original app and data; retry the selected new APK.")
             return {"schema": 1, "transaction": self.journal["transaction"], "backupPath": str(self.backup),
                     "verified": self.journal["state"] in ("verified", "complete")}
@@ -875,6 +1028,12 @@ class Recovery:
             directory = str(getattr(self, "backup", self.home))
             raise RecoveryError("Signing migration could not safely continue: " + str(error)
                                 + ". Original recovery data is retained at " + directory + ". Retry with the same APK and headset.") from error
+        finally:
+            failed = sys.exc_info()[0] is not None
+            try: self._close_storage_process()
+            except RuntimeError as cleanup:
+                if not failed: raise
+                print("Signing recovery storage cleanup could not be confirmed: " + str(cleanup)[:1024], flush=True)
 
     def complete(self):
         if self.journal and self.journal["state"] == "verified":

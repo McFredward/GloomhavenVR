@@ -61,6 +61,14 @@ class Device:
         self.user = "0"; self.others = False; self.deny_run_as = False
         self.hardware = "QUEST-LOCAL"
         self.shell_unreadable = set(); self.app_unreadable = set()
+        self.app_sdcard_denied = False; self.direct_storage_mismatch = False
+        self.app_direct_denied = False; self.process_enabled = False
+        self.process_started = False; self.process_stopped = False; self.waiting_marker = True
+        self.fail_pause = False; self.process_namespace_denied = False
+        self.fail_process_start = False
+        self.process_pid = "8123"; self.process_uid = "10061"; self.process_ticks = "100"
+        self.debug_current = "null"; self.debug_original = "null"; self.debug_transient = False
+        self.launcher = recovery.PACKAGE + "/com.unity3d.player.UnityPlayerActivity"
         self.tar_modes = []; self.fail_external_backup = False
         self.fail_new_install = False; self.fail_restore = False; self.copied_probe = False
         self.interrupt = None; self.apk = "/data/app/~~local/quest-test/base.apk"
@@ -82,6 +90,8 @@ class Device:
     def path(self, value): return self.root / value.lstrip("/")
 
     def translate(self, text):
+        text = re.sub(r"/proc/[0-9]+/root/storage/emulated/0", "/sdcard", text)
+        text = text.replace("/storage/emulated/0", "/sdcard")
         return re.sub(r"(?<![A-Za-z0-9_./-])/(sdcard|data)(?=/|\s|[\"':]|$)", lambda match: str(self.root / match[1]), text)
 
     def __call__(self, command, **options):
@@ -93,13 +103,30 @@ class Device:
         if action == ["shell", "am", "get-current-user"]: return result(self.user)
         if action == ["shell", "pm", "list", "users"]: return result("Users:\n UserInfo{0:Primary:13}" + ("\n UserInfo{10:Other:10}" if self.others else ""))
         if action[:4] == ["shell", "pm", "list", "packages"]: return result("package:" + recovery.PACKAGE if self.others else "")
-        if action[:3] == ["shell", "am", "force-stop"]: return result()
+        if action[:3] == ["shell", "am", "force-stop"]:
+            self.process_started = self.process_stopped = False; return result()
+        if action[:4] == ["shell", "cmd", "package", "resolve-activity"]:
+            return result(self.launcher if self.process_enabled else "")
+        if action[:3] == ["shell", "am", "start"]:
+            self.process_started = True; self.process_ticks = str(int(self.process_ticks) + 100)
+            if "-D" in action:
+                self.debug_original = self.debug_current; self.debug_current = recovery.PACKAGE; self.debug_transient = True
+            if self.fail_process_start: raise RuntimeError("ADB start reply timed out")
+            if self.debug_transient:
+                self.debug_current = self.debug_original; self.debug_transient = False
+            return result("Starting: Intent")
+        if action[:2] == ["shell", "pidof"]: return result(self.process_pid if self.process_started else "")
+        if action[:2] == ["shell", "logcat"]:
+            return result(("1000.5 1 1 I ActivityThread: Application " + recovery.PACKAGE + " is waiting for the debugger...\n") if self.waiting_marker else "999.5 1 1 I ActivityThread: Application " + recovery.PACKAGE + " is waiting for the debugger...\n")
         if action[:3] == ["shell", "pm", "path"]: return result("package:" + self.apk if self.installed else "")
         app_context = False
         if action[:2] == ["shell", "run-as"]:
             app_context = True
             if self.deny_run_as: return result("run-as: package not debuggable", 1)
             if action[3:] == ["pwd"]: return result(self.private)
+            if action[3:5] == ["kill", "-STOP"]:
+                if action[5] != self.process_pid: raise AssertionError("foreign process pause")
+                self.process_stopped = not self.fail_pause; return result()
             action = action[3:]
         elif action[:2] == ["shell", "-T"]:
             action = action[2:]
@@ -123,13 +150,36 @@ class Device:
             self.path(self.apk).write_bytes(origin.read_bytes()); self.installed = True
             self.path(self.private).mkdir(parents=True, exist_ok=True)
             self.path(recovery.EXTERNAL).mkdir(parents=True, exist_ok=True)
+            self.process_uid = str(int(self.process_uid) + 1); self.process_pid = str(int(self.process_pid) + 1)
             return result("Success")
         else: raise AssertionError("Unexpected ADB command " + repr(action))
+        probe = " ".join(map(str, action)) + " " + options.get("input", b"").decode("utf-8", errors="replace")
+        if "date +%s" in probe: return result(b"1000\n")
+        if "dumpsys activity processes" in probe:
+            if self.debug_current == self.debug_original == "null" and not self.debug_transient: return result(b"")
+            return result(("  mDebugApp=" + self.debug_current + "/orig=" + self.debug_original + " mDebugTransient=" + str(self.debug_transient).lower() + " mOrigWaitForDebugger=false\n").encode())
+        if re.search(r"cat /proc/[0-9]+/stat", probe):
+            if not self.process_started: return result(b"missing process", 1)
+            requested = re.search(r"cat /proc/([0-9]+)/stat", probe).group(1)
+            if requested != self.process_pid: return result(b"foreign process", 1)
+            if "/task/*" in probe and not self.process_stopped: return result(b"not paused", 1)
+            stat = self.process_pid + " (quest process) " + ("T" if self.process_stopped else "S") + " " + " ".join(["0"] * 18) + " " + self.process_ticks
+            return result((stat + "\n" + recovery.PACKAGE + "\n" + self.process_uid + "\n" + self.process_uid + "\n").encode())
+        namespace = re.search(r"/proc/[0-9]+/root/storage/emulated/0", probe)
+        direct_view = "/storage/emulated/0" in probe
+        if app_context and ((namespace and (not self.process_started or not self.process_stopped or self.process_namespace_denied)) or (direct_view and not namespace and self.app_direct_denied)):
+            return result(b"app storage namespace denied", 1)
+        if app_context and self.app_sdcard_denied and not direct_view and (any("/sdcard/" in str(value) for value in action) or b"/sdcard/" in options.get("input", b"")):
+            if "stdout" in options and hasattr(options["stdout"], "write"):
+                options["stderr"].write(b"external alias traversal denied"); return result("", 1)
+            return result("find: '/sdcard/Android/data/" + recovery.PACKAGE + "': Permission denied", 1)
+        if self.direct_storage_mismatch and b"stat -L -c '%d:%i' /sdcard /storage/emulated/0" in options.get("input", b""):
+            return result(b"1:2\n1:3\n")
         if self.fail_restore and action[:1] == ["tar"] and "-xof" in action:
             options["stderr"].write(b"restore denied"); return result("", 1)
         if action[:1] == ["tar"]:
             self.tar_modes.append(("app" if app_context else "shell", tuple(action)))
-            if self.fail_external_backup and recovery.EXTERNAL in action and "-cf" in action:
+            if self.fail_external_backup and any(value.endswith("/Android/data/" + recovery.PACKAGE) for value in action) and "-cf" in action:
                 options["stdout"].write(b"partial failed archive"); options["stderr"].write(b"tar: permission denied"); return result("", 1)
         translated = [self.translate(value) for value in action]
         options = dict(options)
@@ -137,14 +187,15 @@ class Device:
             script = options["input"].decode("utf-8")
             for path in (self.app_unreadable if app_context else self.shell_unreadable):
                 script = script.replace("head -c 1 " + shlex.quote(path) + " >/dev/null 2>&1", "false")
+                script = script.replace("head -c 1 " + shlex.quote(path.replace("/sdcard", "/storage/emulated/0", 1)) + " >/dev/null 2>&1", "false")
             script = self.translate(script)
             if self.copied_probe and "printf atomic" in script: script = script.replace("then printf atomic", "then printf copied")
             options["input"] = script.encode("utf-8")
         ran = subprocess.run(translated, **options)
         if isinstance(ran.stdout, str):
-            ran.stdout = ran.stdout.replace(str(self.root / "sdcard"), "/sdcard").replace(str(self.root / "data"), "/data")
+            ran.stdout = ran.stdout.replace(str(self.root / "sdcard"), namespace.group(0) if namespace else "/storage/emulated/0" if direct_view else "/sdcard").replace(str(self.root / "data"), "/data")
         elif isinstance(ran.stdout, bytes):
-            ran.stdout = ran.stdout.replace(str(self.root / "sdcard").encode(), b"/sdcard").replace(str(self.root / "data").encode(), b"/data")
+            ran.stdout = ran.stdout.replace(str(self.root / "sdcard").encode(), namespace.group(0).encode() if namespace else b"/storage/emulated/0" if direct_view else b"/sdcard").replace(str(self.root / "data").encode(), b"/data")
         return ran
 
 
@@ -488,6 +539,222 @@ class TransactionTests(unittest.TestCase):
         engine = self.engine(); self.assertTrue(engine.recover(detected=True)["verified"])
         self.assertEqual(next(row for row in engine.journal["roots"] if row["name"] == "external")["accessMode"], "app")
         self.verify_saves()
+
+    def test_shell_unreadable_files_and_run_as_sdcard_traversal_denial_use_proven_direct_view(self):
+        self.bank(); self.device.app_sdcard_denied = True
+        paths = ["files/tombstone_00", "files/tombstone_01", "files/tombstone_02", "files/GloomSaves/Campaign/unknown-future.save"]
+        for index, name in enumerate(paths):
+            path = recovery.EXTERNAL + "/" + name
+            self.device.path(path).write_bytes(b"opaque original " + bytes([index]) if index != 2 else b"")
+            self.device.path(path).chmod(0o600); self.device.shell_unreadable.add(path)
+        engine = self.engine(); self.assertTrue(engine.recover(detected=True)["verified"])
+        external = next(row for row in engine.journal["roots"] if row["name"] == "external")
+        self.assertEqual(external["accessMode"], "app-direct")
+        self.assertTrue(all(name in external["inventory"] for name in paths))
+        self.assertNotIn("files/quest-owned-game/StreamingAssets/game.bundle", external["inventory"])
+        self.assertTrue(all(self.device.path(recovery.EXTERNAL + "/" + name).read_bytes() == (b"opaque original " + bytes([index]) if index != 2 else b"") for index, name in enumerate(paths)))
+        self.assertTrue(any("/storage/emulated/0/Android/data/" + recovery.PACKAGE in args for mode, args in self.device.tar_modes if mode == "app"))
+        self.verify_saves(); engine.complete()
+        self.assertNotIn("chmod", str(self.device.calls)); self.assertNotIn("chown", str(self.device.calls))
+        self.assertFalse(any(call[:3] == ("shell", "am", "start") for call in self.device.calls))
+
+    def process_namespace_repair(self):
+        self.device.app_sdcard_denied = self.device.app_direct_denied = self.device.process_enabled = True
+        path = recovery.EXTERNAL + "/files/opaque-player-progress.bin"
+        self.device.path(path).write_bytes(b"opaque player progress\x00")
+        self.device.shell_unreadable.add(path)
+        return path
+
+    def test_own_paused_process_namespace_retains_every_byte_and_restores_using_new_app_uid(self):
+        self.bank(); path = self.process_namespace_repair()
+        initial_uid = self.device.process_uid; engine = self.engine()
+        self.assertTrue(engine.recover(detected=True)["verified"])
+        external = next(row for row in engine.journal["roots"] if row["name"] == "external")
+        self.assertEqual(external["accessMode"], "app-process")
+        self.assertIn("files/opaque-player-progress.bin", external["inventory"])
+        self.assertEqual(self.device.path(path).read_bytes(), b"opaque player progress\x00")
+        self.assertNotEqual(self.device.process_uid, initial_uid); self.verify_saves()
+        namespace_tars = [(mode, args) for mode, args in self.device.tar_modes if any("/proc/" in item for item in args)]
+        self.assertTrue(namespace_tars); self.assertTrue(all(mode == "app" for mode, _ in namespace_tars))
+        self.assertTrue(any("-xof" in args for _, args in namespace_tars))
+        self.assertFalse(self.device.process_started); self.assertFalse(self.device.process_stopped)
+        self.assertIsNone(engine._storage_process)
+        self.assertFalse(any("clear-debug-app" in call or "set-debug-app" in call or "chmod" in call or "chown" in call for call in self.device.calls))
+        self.assertFalse(any("-W" in call for call in self.device.calls))
+        state = json.loads(engine.path.read_text()); self.assertNotIn("processPid", str(state)); self.assertNotIn("/proc/", str(state))
+
+    def test_proc_namespace_denial_preserves_every_access_cause_and_original_app(self):
+        self.process_namespace_repair(); self.device.process_namespace_denied = True
+        with self.assertRaisesRegex(recovery.RecoveryError, "access repair exhausted") as failure: self.engine().recover(detected=True)
+        text = str(failure.exception)
+        for reason in ("opaque-player-progress.bin", "Permission denied", "app storage namespace denied", "app-process"):
+            self.assertIn(reason, text)
+        self.assertFalse(self.device.process_started); self.assertFalse(self.device.tar_modes)
+        self.assertFalse(any(call[0] == "uninstall" for call in self.device.calls)); self.verify_saves()
+
+    def test_stale_debugger_wait_marker_never_authorizes_pausing_or_data_transfer(self):
+        self.process_namespace_repair(); self.device.waiting_marker = False
+        with mock.patch.object(recovery.time, "sleep"), self.assertRaisesRegex(recovery.RecoveryError, "debugger-wait storage boundary"):
+            self.engine().recover(detected=True)
+        self.assertFalse(any("-STOP" in call for call in self.device.calls)); self.assertFalse(self.device.tar_modes)
+        self.assertFalse(self.device.process_started); self.assertFalse(any(call[0] == "uninstall" for call in self.device.calls)); self.verify_saves()
+
+    def test_not_all_threads_paused_never_authorizes_namespace_data_transfer(self):
+        self.process_namespace_repair(); self.device.fail_pause = True
+        with mock.patch.object(recovery.time, "sleep"), self.assertRaisesRegex(recovery.RecoveryError, "did not completely pause"):
+            self.engine().recover(detected=True)
+        self.assertFalse(self.device.process_started); self.assertFalse(self.device.tar_modes)
+        self.assertFalse(any(call[0] == "uninstall" for call in self.device.calls)); self.verify_saves()
+
+    def test_changed_process_starttime_rejected_before_tar_or_foreign_process_cleanup(self):
+        self.process_namespace_repair(); engine = self.engine(); original = engine._capture_census
+        def changed(item, **kwargs):
+            result = original(item, **kwargs)
+            if item["name"] == "external": self.device.process_ticks = str(int(self.device.process_ticks) + 1)
+            return result
+        engine._capture_census = changed
+        with self.assertRaisesRegex(recovery.RecoveryError, "process changed"):
+            engine.recover(detected=True)
+        self.assertFalse(any(call[0] == "uninstall" for call in self.device.calls)); self.verify_saves()
+        # The virtual replacement process is deliberately not ours to stop.
+        self.assertTrue(self.device.process_started)
+
+    def test_process_namespace_retry_after_removal_opens_fresh_process_for_replacement(self):
+        path = self.process_namespace_repair(); engine = self.engine(); commit = engine.commit
+        def interrupted(state=None, **fields):
+            commit(state, **fields)
+            if state == "removed": raise KeyboardInterrupt()
+        engine.commit = interrupted
+        with self.assertRaises(KeyboardInterrupt): engine.recover(detected=True)
+        self.assertFalse(self.device.process_started); self.assertFalse(self.device.installed)
+        resumed = self.engine(); self.assertTrue(resumed.recover()["verified"])
+        self.assertEqual(self.device.path(path).read_bytes(), b"opaque player progress\x00"); self.verify_saves()
+        self.assertFalse(self.device.process_started); self.assertEqual(sum(call[0] == "uninstall" for call in self.device.calls), 1)
+
+    def test_process_namespace_backup_failure_stops_owned_process_and_keeps_verified_roots(self):
+        self.process_namespace_repair(); self.device.fail_external_backup = True
+        engine = self.engine()
+        with self.assertRaisesRegex(recovery.RecoveryError, "permission denied"): engine.recover(detected=True)
+        self.assertFalse(self.device.process_started); self.assertFalse(any(call[0] == "uninstall" for call in self.device.calls))
+        self.assertTrue((engine.backup / "original.apk").is_file())
+        self.assertTrue(next(row for row in engine.journal["roots"] if row["name"] == "private").get("archive")); self.verify_saves()
+
+    def test_process_start_timeout_stops_only_scoped_app_even_before_pid_reply(self):
+        self.process_namespace_repair(); self.device.fail_process_start = True
+        with self.assertRaisesRegex(recovery.RecoveryError, "ADB start reply timed out"):
+            self.engine().recover(detected=True)
+        self.assertFalse(self.device.process_started); self.assertFalse(self.device.tar_modes)
+        self.assertFalse(any(call[0] == "uninstall" for call in self.device.calls)); self.verify_saves()
+
+    def test_start_timeout_retry_preserves_prior_debug_choice_without_duplicate_transient_flag(self):
+        self.process_namespace_repair(); self.device.debug_current = "another.debug.app"; self.device.fail_process_start = True
+        with self.assertRaisesRegex(recovery.RecoveryError, "ADB start reply timed out"):
+            self.engine().recover(detected=True)
+        self.assertEqual(self.device.debug_current, recovery.PACKAGE)
+        self.assertEqual(self.device.debug_original, "another.debug.app"); self.assertTrue(self.device.debug_transient)
+        self.device.fail_process_start = False; before = len(self.device.calls)
+        self.assertTrue(self.engine().recover()["verified"]); self.verify_saves()
+        started = [call for call in self.device.calls[before:] if call[:3] == ("shell", "am", "start")]
+        self.assertTrue(started); self.assertNotIn("-D", started[0])
+        self.assertEqual(self.device.debug_current, "another.debug.app"); self.assertFalse(self.device.debug_transient)
+        self.assertFalse(any("clear-debug-app" in call or "set-debug-app" in call for call in self.device.calls))
+
+    def test_nested_launcher_survives_adb_remote_shell_dollar_expansion(self):
+        self.process_namespace_repair(); self.device.launcher += "$Nested"
+        self.assertTrue(self.engine().recover(detected=True)["verified"])
+        started = next(call for call in self.device.calls if call[:3] == ("shell", "am", "start"))
+        component = started[started.index("-n") + 1]
+        remote = subprocess.run(["sh", "-c", "set -- " + component + "; printf '%s' \"$1\""],
+                                env={**os.environ, "Nested": "wrong-expansion"}, check=True, capture_output=True, text=True)
+        self.assertEqual(remote.stdout, self.device.launcher); self.verify_saves()
+
+    def test_process_namespace_reuse_checks_hardware_before_foreign_endpoint_commands(self):
+        self.process_namespace_repair(); engine = self.engine(); original = engine._capture_census
+        before = []
+        def changed(item, **kwargs):
+            result = original(item, **kwargs)
+            if item["name"] == "external":
+                before.append(len(self.device.calls)); self.device.hardware = "ANOTHER-HEADSET"
+            return result
+        engine._capture_census = changed
+        with self.assertRaisesRegex(recovery.RecoveryError, "headset|identity"):
+            engine.recover(detected=True)
+        commands = self.device.calls[before[0]:]
+        self.assertFalse(any("/proc/" in str(call) or "-STOP" in call or call[:3] == ("shell", "am", "force-stop") for call in commands))
+        self.assertFalse(any(call[0] == "uninstall" for call in self.device.calls)); self.verify_saves()
+
+    def test_process_snapshot_rejects_non_app_uid_and_wrong_proc_pid(self):
+        self.device.process_started = True; engine = self.engine()
+        for uid in ("0", "2000", "9999"):
+            with self.subTest(uid=uid):
+                self.device.process_uid = uid
+                with self.assertRaisesRegex(recovery.RecoveryError, "foreign or incomplete"):
+                    engine._process_snapshot(self.device.process_pid)
+        self.device.process_uid = "10061"; original = engine._context_shell
+        def wrong_pid(script, mode): return original(script, mode).replace(self.device.process_pid + " (", "9999 (", 1)
+        engine._context_shell = wrong_pid
+        with self.assertRaisesRegex(recovery.RecoveryError, "foreign or incomplete"):
+            engine._process_snapshot(self.device.process_pid)
+
+    def test_verified_resume_stops_orphan_paused_process_without_restore_or_removal(self):
+        self.process_namespace_repair(); engine = self.engine(); self.assertTrue(engine.recover(detected=True)["verified"])
+        self.device.process_started = self.device.process_stopped = True
+        before = len(self.device.calls); self.assertTrue(self.engine().recover()["verified"])
+        calls = self.device.calls[before:]
+        self.assertFalse(self.device.process_started); self.assertFalse(self.device.process_stopped)
+        self.assertTrue(any(call[:3] == ("shell", "am", "force-stop") for call in calls))
+        self.assertFalse(any(call[0] in ("uninstall", "install") or "tar" in call for call in calls)); self.verify_saves()
+
+    def test_successful_verification_is_committed_after_process_cleanup(self):
+        self.process_namespace_repair(); engine = self.engine(); commit = engine.commit
+        def observed(state=None, **fields):
+            if state == "verified":
+                self.assertFalse(self.device.process_started); self.assertIsNone(engine._storage_process)
+            commit(state, **fields)
+        engine.commit = observed; self.assertTrue(engine.recover(detected=True)["verified"]); self.verify_saves()
+
+    def test_restore_namespace_is_resolved_once_per_archive_not_per_member(self):
+        self.process_namespace_repair()
+        for number in range(260):
+            self.device.path(recovery.EXTERNAL + "/files/setting-" + str(number)).write_bytes(b"future setting")
+        engine = self.engine(); self.assertTrue(engine.recover(detected=True)["verified"])
+        item = next(row for row in engine.journal["roots"] if row["name"] == "external")
+        candidate = engine.backup / "bounded-restore.tar"
+        try:
+            with mock.patch.object(engine, "_access_root", wraps=engine._access_root) as resolved:
+                engine._safe_restore_archive(engine.backup / item["archive"], candidate, item)
+            self.assertEqual(resolved.call_count, 1)
+            self.assertEqual(recovery.archive_inventory(candidate), item["inventory"])
+        finally:
+            engine._close_storage_process(); candidate.unlink(missing_ok=True)
+
+    def test_different_direct_storage_directory_is_never_used_for_backup_or_removal(self):
+        path = recovery.EXTERNAL + "/files/native-save.bin"; self.device.path(path).write_bytes(b"keep")
+        self.device.shell_unreadable.add(path); self.device.app_sdcard_denied = True; self.device.direct_storage_mismatch = True
+        with self.assertRaisesRegex(recovery.RecoveryError, "direct external storage view does not match") as failure:
+            self.engine().recover(detected=True)
+        self.assertIn("native-save.bin", str(failure.exception)); self.assertIn("Permission denied", str(failure.exception))
+        self.assertFalse(self.device.tar_modes); self.assertFalse(any(call[0] == "uninstall" for call in self.device.calls)); self.verify_saves()
+
+    def test_direct_view_repair_resumes_after_removal_with_fresh_view_and_retained_backups(self):
+        path = recovery.EXTERNAL + "/files/private-opaque.bin"; self.device.path(path).write_bytes(b"retained")
+        self.device.shell_unreadable.add(path); self.device.app_sdcard_denied = True
+        engine = self.engine(); commit = engine.commit
+        def interrupted(state=None, **fields):
+            commit(state, **fields)
+            if state == "removed": raise KeyboardInterrupt()
+        engine.commit = interrupted
+        with self.assertRaises(KeyboardInterrupt): engine.recover(detected=True)
+        self.assertFalse(self.device.installed)
+        resumed = self.engine(); self.assertTrue(resumed.recover()["verified"])
+        self.assertEqual(self.device.path(path).read_bytes(), b"retained"); self.verify_saves()
+        self.assertEqual(sum(call[0] == "uninstall" for call in self.device.calls), 1)
+
+    def test_direct_storage_cannot_select_a_foreign_root(self):
+        engine = self.engine(); engine.park = "/sdcard/Download/.ghvr-quest-recovery/QUEST-LOCAL/local"
+        for root in ("/sdcard/Android/data/another.app", recovery.EXTERNAL + "-other", engine.park + "-other"):
+            with self.subTest(root=root), self.assertRaisesRegex(recovery.RecoveryError, "outside this app"):
+                engine._access_root(root, "app-direct")
 
     def test_both_identities_denied_refuses_before_payload_backup_or_uninstall(self):
         path = recovery.EXTERNAL + "/files/tombstone_00"; self.device.path(path).write_bytes(b"must preserve")
