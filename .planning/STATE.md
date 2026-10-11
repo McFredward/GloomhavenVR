@@ -16,7 +16,10 @@ interaction plus nine controls, all16 source suites, direct300510 golden vectors
 strict Debug/Release zero errors/warnings, documentation/bundles and unchanged
 666/235/4795 surfaces. Only a failed new updater control binding was repaired
 and rerun; passing unchanged scopes were not repeated. No new complete215-suite
-umbrella pass is claimed. Native map-flow2012/nine and grant49/two worker
+umbrella pass is claimed. Retained NPC666 coverage is composed212 (208 initial
+passes and four fixture-binding repairs passing their focused reruns); together
+with the three new scopes the composed inventory is215. Native map-flow2012/nine
+and grant49/two worker
 receipts remain inherited for their unchanged paths. The final review and exact
 integration evidence are in [RELEASE110-REVIEW.md](RELEASE110-REVIEW.md).
 A real Frame updater restart and paired/four-player hardware outcomes remain

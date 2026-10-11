@@ -122,9 +122,23 @@ their apphost without `DOTNET_ROOT`; the built executable was then run with the
 installed runtime and completed every assertion. Neither setup failure is
 presented as a production bug.
 
+The retained NPC 666 integration supplies composed coverage of its **212**
+local suites: the initial complete attempt records **208 passes and four
+fixture-binding failures**. The two handoff bindings pass in
+`npc666/repair-handoffs/results.json`; the historical native-paint and physical-
+geometry scopes pass in `npc666/repair-historical/results.json`. Those repairs
+bind real native fields/named constants and explicitly fail if newer lifecycle
+routes enter an older control; they do not weaken the original assertions.
+The current compiled production source is unchanged by these fixture repairs.
+The initial complete result remains at
+`test-runs/20261011-013017-847b99bd/results.json` in the NPC 666 integration's
+retained debug evidence. The three newly added review regression scopes bring
+the composed local inventory to **215**, without claiming a fresh single-run
+215-suite umbrella pass. The earlier final-capture/loading/visibility and NPC
+ring/summon/hover proofs remain inherited where their source is unchanged.
+
 Previously passing checks for unchanged areas are inherited explicitly. A
-focused pass is not described as a new complete-gate pass. The parallel NPC 666
-gate and final merge receipts will be linked after its integration handoff.
+focused pass is not described as a new complete-gate pass.
 No actual Steam Frame update restart, four-player game, or complete campaign was
 run during this source review. In particular, the retained Proton child process
 and real Steam playtime/achievement behavior after an updater restart need a
