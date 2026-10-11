@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Run native merchant close/onboarding with portable explicit ports and causal controls.
 
-When read-only game decompilation is present, bind its actual Exit, OnHidden,
-CompleteStep and OnFinishedStep bodies as well. CI retains the documented native
+When read-only game decompilation is present, bind its actual shop entry/exit,
+FTUE start/finish, promise dispatch and map-listener bodies. Inventory/confirmation,
+introduction presentation and Unity events remain explicit ports; purchase source
+is separately checked for the absence of tutorial completion. CI retains native
 boundary bodies; no Unity/game installation is required for the portable proof.
 """
 import argparse
@@ -37,6 +39,13 @@ def replace_one(text, before, after):
     return text.replace(before, after, 1)
 
 
+def replace_method(text, signature, body):
+    start = text.index(signature)
+    opening = text.index('{', start)
+    original = method_body(text, signature)
+    return text[:opening] + body + text[opening + len(original):]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source-root', type=Path, default=ROOT)
@@ -51,6 +60,7 @@ def main():
         'src/GloomhavenVR/WorldUI/TownServices/TownServicePopulation.cs',
         'tests/GloomhavenVR.TownAvailabilityTests/GloomhavenVR.TownAvailabilityTests.csproj')}
     native_bindings = {}
+    native_contracts = {}
     native_root = source / 'decompiled/GH.Runtime'
     if not native_root.is_dir() and (ROOT / 'ressources').is_symlink():
         native_root = (ROOT / 'ressources').resolve().parent / 'decompiled/GH.Runtime'
@@ -58,18 +68,40 @@ def main():
         for native_file, native_signature, port_signature in (
             ('UIShopItemWindow.cs', 'public void Exit()', 'private void NativeExit()'),
             ('UIShopItemWindow.cs', 'private void OnHidden()', 'private void OnHidden()'),
+            ('UIShopItemWindow.cs', 'private void FinishEnterShop()', 'private void FinishEnterShop()'),
             ('MapFTUEManager.cs', 'public void CompleteStep(EMapFTUEStep step)', 'internal void CompleteStep(EMapFTUEStep step)'),
-            ('UIMapFTUEStep.cs', 'protected virtual void OnFinishedStep()', 'internal void CompleteHide()')):
+            ('MapFTUEManager.cs', 'public ICallbackPromise StartStep(IMapFTUEStep step)', 'private Assets.Script.Misc.ICallbackPromise NativeStartStep(IMapFTUEStep step)'),
+            ('MapFTUEManager.cs', 'private void OnCompleteStep(EMapFTUEStep step)', 'private void OnCompleteStep(EMapFTUEStep step)'),
+            ('UIMapFTUEStep.cs', 'public virtual ICallbackPromise StartStep()', 'private Assets.Script.Misc.ICallbackPromise NativeStartStep()'),
+            ('UIMapFTUEStep.cs', 'public virtual void FinishStep()', 'private void NativeFinishStep()'),
+            ('UIMapFTUEStep.cs', 'protected virtual void OnFinishedStep()', 'internal void CompleteHide()'),
+            ('UIMapFTUEStepStartListener.cs', 'private void OnStepCompleted(EMapFTUEStep step)', 'private void OnStepCompleted(EMapFTUEStep step)'),
+            ('UIMapFTUECompleteStepToggleListener.cs', 'private void OnValueChanged(bool isOn)', 'private void OnValueChanged(bool isOn)'),
+            ('UIMapFTUECompleteStepListener.cs', 'public void CompleteStep()', 'private void CompleteStep()'),
+            ('Assets.Script.Misc/CallbackPromise.cs', 'public void Done(Action callback, Action onCancelled = null)', 'internal void Done(Action? callback, Action? onCancelled = null)'),
+            ('Assets.Script.Misc/CallbackPromise.cs', 'public void Cancelled(Action callback)', 'internal void Cancelled(Action callback)'),
+            ('Assets.Script.Misc/CallbackPromise.cs', 'public ICallbackPromise Then(Action onDone, Action onCancel = null)', 'public ICallbackPromise Then(Action onDone, Action? onCancel = null)'),
+            ('Assets.Script.Misc/CallbackPromise.cs', 'public void Resolve()', 'internal void Resolve()'),
+            ('Assets.Script.Misc/CallbackPromise.cs', 'public void Cancel()', 'internal void Cancel()'),
+            ('Assets.Script.Misc/CallbackPromise.cs', 'public static CallbackPromise Resolved()', 'internal static CallbackPromise Resolved()')):
             body = method_body((native_root / native_file).read_text(), native_signature)
-            original = method_body(files[PROGRAM], port_signature)
             # These read-only native methods predate nullable reference annotations.
             # Suppress annotation warnings only inside that bound method body.
-            bound_body = '{\n#nullable disable warnings\n' + body[1:-1] + '\n#nullable restore warnings\n}'
-            files[PROGRAM] = files[PROGRAM].replace(original, bound_body, 1)
+            # The explicit FTUE hide port uses CompleteHide for OnFinishedStep.
+            bound_body = '{\n#nullable disable warnings\n' + body[1:-1].replace('OnFinishedStep()', 'CompleteHide()').replace('Show(OnFinishedStep)', 'Show(CompleteHide)') + '\n#nullable restore warnings\n}'
+            files[PROGRAM] = replace_method(files[PROGRAM], port_signature, bound_body)
             native_bindings[native_file + ':' + native_signature] = hashlib.sha256(body.encode()).hexdigest()
+        for signature in (
+            'private void OnSelectedItemBuy(MerchantItemDecorator slot)',
+            'private void BuyItem(MerchantItemDecorator itemUI, CMapCharacter targetCharacter = null, uint targetItemNetworkID = 0u, bool equip = true)'):
+            body = method_body((native_root / 'UIShopItemInventory.cs').read_text(), signature)
+            if 'MapFTUE' in body or 'CompleteStep(' in body or 'FinishStep(' in body:
+                raise SystemExit('Native purchase tutorial contract changed: ' + signature)
+            native_contracts['UIShopItemInventory.cs:' + signature] = hashlib.sha256(body.encode()).hexdigest()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix='run-', dir=args.output_dir.resolve()))
     (run / 'sources.json').write_text(json.dumps({'root': str(source), 'native': native_bindings,
+        'native_purchase_contracts': native_contracts,
         'sha256': {path: hashlib.sha256(text.encode()).hexdigest() for path, text in files.items()}}, indent=2) + '\n')
     cases = [('production', '', '', '')]
     if not args.no_negative_controls:
@@ -110,14 +142,31 @@ def main():
              'if (!Active(manager) || OriginalBuyStep() == null) { _pendingManager = null; _pendingStep = EMapFTUEStep.None; _pendingPromise = null; return; }',
              'option off/on cannot finish the same delayed BuyItem promise more than once'),
         ]
+        cases += [
+            ('missing-native-entry', 'internal void Enter() => FinishEnterShop();', 'internal void Enter() { }',
+             'native shop starts its original pending BuyItem promise', PROGRAM),
+            ('confirmation-closes-shop', 'private void CloseConfirmation() { Open = false; _ = shop; }',
+             'private void CloseConfirmation() { Open = false; shop.Exit(); }',
+             'purchase confirmation cancel preserves the pending native exit lesson', PROGRAM),
+            ('purchase-completes-tutorial', 'internal void Confirm() { Gold -= 10; Items++; CloseConfirmation(); }',
+             'internal void Confirm() { Gold -= 10; Items++; CloseConfirmation(); Singleton<MapFTUEManager>.Instance!.CompleteStep(EMapFTUEStep.BuyItem); }',
+             'native purchase boundary changes inventory only and never completes the exit lesson', PROGRAM),
+            ('missing-next-native-map-step', 'Singleton<MapFTUEManager>.Instance.StartStep(stepToStart);', '{}',
+             'actual native completion listener advances InteractWithMap after cleaned merchant exit', PROGRAM),
+            ('inactive-native-entry', 'if (!isPlaying || HasCompletedStep(step.Step))',
+             'if (HasCompletedStep(step.Step))',
+             'native inactive manager refuses an uncompleted merchant step without creating its promise', PROGRAM),
+        ]
     dotnet = shutil.which('dotnet') or str(Path.home() / '.dotnet/dotnet')
     report = []
-    for name, before, after, expected in cases:
+    for item in cases:
+        name, before, after, expected = item[:4]
+        mutation_path = item[4] if len(item) == 5 else TUTORIAL
         case = run / name
         for path, text in files.items():
             target = case / path
             target.parent.mkdir(parents=True, exist_ok=True)
-            if path == TUTORIAL and before: text = replace_one(text, before, after)
+            if path == mutation_path and before: text = replace_one(text, before, after)
             target.write_text(text)
         project = case / 'tests/GloomhavenVR.TownAvailabilityTests/GloomhavenVR.TownAvailabilityTests.csproj'
         completed = subprocess.run([dotnet, 'run', '--project', str(project), '-c', 'Release'],
@@ -133,7 +182,7 @@ def main():
             raise SystemExit('FAIL ' + name + '\n' + output + '\nEvidence: ' + str(run))
         print('PASS ' + name + ': ' + (expected or output.strip()), flush=True)
     (run / 'results.json').write_text(json.dumps(report, indent=2) + '\n')
-    print(f'PASS {len(cases)} native onboarding production/control variants; {len(native_bindings)} source-bound native methods; evidence: {run}')
+    print(f'PASS {len(cases)} native onboarding production/control variants; {len(native_bindings)} source-bound native methods; {len(native_contracts)} checked native purchase boundaries; evidence: {run}')
 
 
 if __name__ == '__main__':
