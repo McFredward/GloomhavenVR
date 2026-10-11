@@ -25,6 +25,8 @@ it away, and leaves this file as the one place the player's sentences come from.
 
 The reader is somebody deciding whether to download an update. Write what **changed for them**:
 
+- Write release text in English only, as requested by the maintainer on 2026-10-11.
+  Keep the English/German player guides and product localization unchanged.
 - Say what they will notice, not what was changed to make them notice it. "The cards in your hand
   now update the moment you enhance one" — not "peer hand-fan sticker refresh".
 - Lead with the fixes for things they complained about. Those are what the update is for.

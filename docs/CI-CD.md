@@ -122,7 +122,7 @@ saved tuning wholesale.
 
 Set the intended version on `dev` before release. `scripts/bump-version.sh` without
 arguments only prints it; `--major`, `--minor` and `--patch` change it. Prepare the
-bilingual player summary in `packaging/release-highlights/<version>.md`, commit and
+English-only player summary in `packaging/release-highlights/<version>.md`, commit and
 push the candidate to `dev`, and review its CI result and local gates.
 
 Open a pull request from `dev` to `main`, review its checks and merge it using

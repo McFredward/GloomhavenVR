@@ -50,6 +50,9 @@ to Codex and record the user's instructions of 2026-09-08.
 - Keep player documentation and release highlights focused on installation from release archives,
   controls and visible changes. Installer scripts, CI/build details and pending hardware tests
   belong in developer documentation or `.planning/`, not in player instructions.
+- Release text and `packaging/release-highlights/<version>.md` are English-only,
+  as requested by the maintainer on 2026-10-11. This exception does not change
+  the English/German player guides or product localization.
 - The maintainer always tests at Debug. Ordinary players use the normal log level, which
   must remain useful for bug reports: retain build/version, important lifecycle and flow
   context, failures, and bounded reports of significant anomalies. Deduplicate or rate-limit
