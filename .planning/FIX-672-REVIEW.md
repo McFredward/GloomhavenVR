@@ -136,8 +136,10 @@ the final source-bound case and production bank are unchanged. See the archived
 Fresh source-changing dev CI38275346337 passed all source/build and four runtime
 shards for exact commit `d6f26b4e0a4d51d711fda27748414e4811d3b4d7`, without reuse.
 See [FIX-672-CI.md](FIX-672-CI.md) for the98-suite hosted inventory, immutable run
-link, retained evidence and completed cleanup. The subsequent internal Markdown
-record inherits that passing source through the established docs-only policy.
+link, retained evidence and completed cleanup. Subsequent internal Markdown
+records leave the tested implementation unchanged. These review paths are outside
+the CI documentation-reuse whitelist, so their final hosted run validates fully
+again; its result is retained under `.planning/debug/dev672/`.
 
 Actual Frame installation and headset foreground/stereo pictures still require
 hardware verification. Automated source and native-render fixtures do not prove

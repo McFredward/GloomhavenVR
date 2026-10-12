@@ -26,8 +26,11 @@ worktrees, game references and hardware inputs were not touched. The final root
 build-cache receipt removes128159171 bytes with no skipped paths. Current Debug
 deliverables, the published1.1.0 archive and original evidence remain available.
 
-The follow-up commit adds only this CI record and updates internal Markdown
-state/review. Its source code, assets, installer and test contracts inherit the
-successful exact-source full run above through the existing docs-only CI policy.
+The follow-up commits add only this CI record and update internal Markdown
+state/review. Their source code, assets, installer and test contracts are unchanged
+from the successful exact-source full run above. These new `.planning/` review
+paths are outside the approved documentation-reuse whitelist, so the hosted
+pipeline runs full validation again. No CI policy is weakened for this repair;
+the final run/status is retained under `dev672/` after completion.
 Actual Frame installation and HMD stereo/presentation remain separate hardware
 verification; Wine/GL/D3D and hosted green checks do not establish a headset image.
