@@ -60,6 +60,9 @@ class UpdateDriverTests(unittest.TestCase):
             write_json=storage.write_json, Stages=storage.Stages, PACKAGE="dev.gloomhavenvr.quest",
             ORIGINAL_UGUI_SHA256="3" * 64, UGUI_LAYOUT_SOURCE_SHA256="4" * 64,
             build_progress=SimpleNamespace(operation=Mock(), event=Mock()))
+        signing = patch.object(driver, "select_signing", return_value={"schema": 1, "requestedMode": "auto",
+            "mode": "original", "sourceCertificateSha256": "a" * 64, "certificateSha256": "a" * 64})
+        signing.start(); self.addCleanup(signing.stop)
         self.args = SimpleNamespace(command="update-profile", update_kind="update-profile", game_root=str(self.game),
                                     base_apk=str(self.apk), signing_root=None)
 
@@ -96,6 +99,14 @@ class UpdateDriverTests(unittest.TestCase):
         with patch.object(apk_input_cache, "digest_apk", side_effect=AssertionError("Ownership qualification must precede cache reuse")):
             with self.assertRaisesRegex(storage.BuildError, "does not match this APK's original assembly"):
                 driver.inspect(self.builder, self.args, ROOT, self.output)
+
+    def test_imported_apk_uses_its_actual_closed_byte_proof_without_a_second_read(self):
+        actual = storage.digest(self.apk)
+        self.builder.portable_packages = SimpleNamespace(imported_apk_digest=Mock(return_value=actual))
+        with patch.object(apk_input_cache, "digest_apk", side_effect=AssertionError("Portable importer already qualified these exact APK bytes")):
+            plan = driver.inspect(self.builder, self.args, ROOT, self.output)
+        self.assertEqual(plan["baseApkSha256"], actual)
+        self.builder.portable_packages.imported_apk_digest.assert_called_once_with(self.apk, self.output)
 
     def test_dlc_cannot_expand_past_original_converted_content(self):
         self.ownership["installedAppIds"].append(1958560)

@@ -22,16 +22,23 @@ def _core(builder):
     return builder.apk_updates
 
 
-def preflight(builder, game_root, base_apk, mode=None):
+def preflight(builder, game_root, base_apk, mode=None, *, output=None, progress=None, cancel=None):
     """Always read the selected owned installation before downloads/build reuse."""
     if not base_apk:
         raise builder.BuildError("Select --base-apk and the matching locally owned PC installation.")
-    apk = Path(base_apk).expanduser().resolve()
-    if not apk.is_file() or apk.suffix.lower() != ".apk":
-        raise builder.BuildError("The selected base APK is missing or has the wrong extension.")
     data = builder.game_data(Path(game_root))
+    apk = Path(base_apk).expanduser().resolve()
+    source_package = str(apk) if apk.suffix.lower() == ".zip" else None
+    if source_package:
+        if output is None:
+            raise builder.BuildError("Opening a portable Quest ZIP requires the Builder workspace.")
+        apk = builder.portable_packages.import_apk(apk, output, progress=progress, cancel=cancel)
+    if not apk.is_file() or apk.suffix.lower() != ".apk":
+        raise builder.BuildError("Select an existing Quest APK or exported Quest ZIP.")
     core = _core(builder)
     base = core.inspect_base(apk)
+    base["resolvedApk"] = str(apk)
+    base["sourcePackage"] = source_package
     if mode == "update-profile" and not base["dynamicProfile"]:
         raise builder.BuildError("This older APK needs one mod/code update before a profile can be edited without Unity. Select 'Update mod' first.")
     proof = core.preflight_owned_game(apk, data)
@@ -42,7 +49,11 @@ def inspect(builder, args, repo, output, data=None):
     mode = args.update_kind if args.command == "inspect-update" else args.command
     operation = "game-inputs" if args.command == "inspect-update" else "update-owned-game"
     builder.build_progress.operation(operation, detail="Checking the selected locally owned PC installation.")
-    base, data, proof = preflight(builder, args.game_root, args.base_apk, mode)
+    def import_progress(value):
+        builder.build_progress.event("portable-import", value.get("completed"), value.get("total"),
+                                     "bytes", value.get("detail"), operation=operation)
+    base, data, proof = preflight(builder, args.game_root, args.base_apk, mode, output=output, progress=import_progress)
+    base_apk = Path(base["resolvedApk"])
     profile, logo = builder.selected_profile(args)
     if profile is None:
         raise builder.BuildError("An update requires a selected local account profile.")
@@ -79,14 +90,26 @@ def inspect(builder, args, repo, output, data=None):
             reasons.append("The selected Unity package/template ABI changed.")
     else:
         reasons = []
-    plan = {"schema": 1, "mode": mode, "baseApk": str(Path(args.base_apk).resolve()),
-            "baseApkSha256": builder.apk_input_hashes.digest_apk(Path(args.base_apk), output), "gameInputKey": base["inputKey"],
+    # Owned game and DLC qualification above must precede any local key creation.
+    source_stamp = _core(builder)._base_stamp(base_apk)
+    source_change_stamp = _selection_stamp(builder, [base_apk])
+    identity = select_signing(builder, args, output, base_apk)
+    imported_digest = getattr(getattr(builder, "portable_packages", None), "imported_apk_digest", None)
+    base_sha256 = imported_digest(base_apk, output) if callable(imported_digest) else None
+    if base_sha256 is None:
+        base_sha256 = builder.apk_input_hashes.digest_apk(base_apk, output)
+    if (_core(builder)._base_stamp(base_apk) != source_stamp
+            or source_change_stamp != _selection_stamp(builder, [base_apk])):
+        raise builder.BuildError("The selected source APK changed while qualifying ownership/signature; keep it closed and retry.")
+    plan = {"schema": 1, "mode": mode, "baseApk": str(base_apk),
+            "baseApkSha256": base_sha256, "gameInputKey": base["inputKey"],
+            "signing": identity, "sourcePackage": base.get("sourcePackage"),
             "ownedGame": proof, "inputs": inputs,
             "updateStrategy": "cached-full-build" if reasons else "compact-code" if mode == "update-mod" else "profile-only",
             "rebuildReasons": reasons, "requiresUnity": mode == "update-mod",
             "updateRecipe": {name: builder.digest(Path(repo) / "tools/quest-builder" / name) for name in
                 ("update_driver.py", "apk_update.py", "apk_manifest.py", "builder.py", "storage.py", "profile.py", "dlcs.py")}}
-    plan["updateKey"] = builder.value_hash({name: value for name, value in plan.items() if name != "baseApk"})
+    plan["updateKey"] = builder.value_hash({name: value for name, value in plan.items() if name not in ("baseApk", "sourcePackage")})
     root = output / "updates" / plan["updateKey"]
     builder.write_json(root / "plan.json", plan)
     builder.write_json(output / "latest-update-input.json", {"schema": 1, "plan": (root / "plan.json").relative_to(output).as_posix()})
@@ -177,34 +200,125 @@ def _certificate_output(builder, output, certificate):
     builder.write_json(path, {"sha256": certificate})
 
 
-def _signers(builder, tools, output, signing_root=None, *, base_apk=None):
-    if signing_root:
-        original = builder._ordinary_owned(Path(signing_root).resolve())
-        destination = output / "signing"; destination.mkdir(parents=True, exist_ok=True)
-        for name in ("quest.keystore", "local-key.json"):
-            source = builder._ordinary_owned(original / name)
-            target = builder._ordinary_owned(destination / name)
-            if not source.is_file(): raise builder.BuildError("The selected signing folder lacks " + name)
-            if target.is_file() and builder.digest(target) != builder.digest(source):
-                raise builder.BuildError("This workspace already has a different signing key. Use a separate update workspace; no key was overwritten.")
-            if not target.exists(): shutil.copyfile(source, target)
-    if base_apk is not None and not all((output / "signing" / name).is_file() for name in ("quest.keystore", "local-key.json")):
+def _copy_signing_root(builder, output, signing_root):
+    if not signing_root: return
+    original = builder._ordinary_owned(Path(signing_root).resolve())
+    destination = output / "signing"; destination.mkdir(parents=True, exist_ok=True)
+    for name in ("quest.keystore", "local-key.json"):
+        source = builder._ordinary_owned(original / name)
+        target = builder._ordinary_owned(destination / name)
+        if not source.is_file(): raise builder.BuildError("The selected signing folder lacks " + name)
+        if target.is_file() and builder.digest(target) != builder.digest(source):
+            raise builder.BuildError("This workspace already has a different signing key. Use a separate update workspace; no key was overwritten.")
+        if not target.exists(): shutil.copyfile(source, target)
+
+
+def _source_certificate(builder, tools, output, base_apk):
+    before = _core(builder)._base_stamp(base_apk)
+    change_before = _selection_stamp(builder, [base_apk])
+    result = _signing_command(builder, [tools["java"], "-jar", tools["apksigner"], "verify", "--print-certs", str(base_apk)],
+                              output / "logs/update-base-signature.log")
+    matches = re.findall(r"certificate SHA-256 digest:\s*([0-9a-fA-F]{64})", result)
+    if (_core(builder)._base_stamp(base_apk) != before
+            or change_before != _selection_stamp(builder, [base_apk]) or len(matches) != 1):
+        raise builder.BuildError("The selected source APK has no single verified signing certificate; no local signing key was created.")
+    return matches[0].lower()
+
+
+def _key_certificate(builder, tools, output, key, private, environment):
+    result = _signing_command(builder, [tools["keytool"], "-J-Duser.language=en", "-J-Duser.country=US",
+        "-list", "-v", "-keystore", str(key), "-alias", private["alias"],
+        "-storepass:env", "GHVR_QUEST_SIGNING_PASSWORD"], output / "logs/update-key-certificate.log",
+        env=environment, password=private["password"])
+    match = re.search(r"SHA256:\s*([0-9a-fA-F:]{64,95})", result)
+    certificate = match[1].replace(":", "").lower() if match else ""
+    if not re.fullmatch(r"[0-9a-f]{64}", certificate):
+        raise builder.BuildError("The selected local signing key has no verified certificate.")
+    return certificate
+
+
+def _selection_stamp(builder, paths):
+    """Reliable native file-change identities; unknown hosts simply reverify."""
+    metadata = getattr(getattr(builder, "apk_input_hashes", None), "storage", None)
+    if metadata is None: return None
+    selected = []
+    for raw in paths:
+        path = Path(raw).absolute()
+        try:
+            value = path.lstat()
+            if not stat.S_ISREG(value.st_mode) or value.st_nlink != 1 or getattr(value, "st_file_attributes", 0) & 0x400:
+                return None
+            stamp = metadata._file_witness_stamp(path, value)
+            if stamp is None: return None
+            selected.append((str(path), stamp))
+        except OSError:
+            return None
+    return tuple(selected)
+
+
+def _selection_paths(output, base_apk, tools):
+    return [base_apk, output / "signing/quest.keystore", output / "signing/local-key.json",
+            *(tools[name] for name in ("java", "keytool", "apksigner", "zipalign"))]
+
+
+def select_signing(builder, args, output, base_apk):
+    """Qualify recipient identity before deriving any reusable update receipt."""
+    identity = {}
+    tools = signing_tools(builder, args, output)
+    callbacks = _signers(builder, tools, output, getattr(args, "signing_root", None), base_apk=base_apk,
+                         signing_mode=getattr(args, "signing_mode", "auto"), identity_out=identity)
+    # Keep native proof only in this invocation's args. Nothing here is persisted
+    # or accepted from plan JSON; a new process always verifies natively again.
+    # Genuine NTFS/ReFS ChangeTime closes the Windows restored-mtime gap.
+    args._quest_qualified_signers = {"identity": copy.deepcopy(identity), "tools": copy.deepcopy(tools),
+        "baseApk": str(base_apk), "output": str(output), "callbacks": callbacks,
+        "signingRoot": getattr(args, "signing_root", None),
+        "stamp": _selection_stamp(builder, _selection_paths(output, base_apk, tools))}
+    return identity
+
+
+def _run_signers(builder, args, output, base_apk, tools, identity):
+    proof = getattr(args, "_quest_qualified_signers", None)
+    if (isinstance(proof, dict) and proof.get("stamp") is not None
+            and proof.get("identity") == identity and proof.get("tools") == tools
+            and identity.get("requestedMode") == getattr(args, "signing_mode", "auto")
+            and proof.get("signingRoot") == getattr(args, "signing_root", None)
+            and proof.get("baseApk") == str(base_apk) and proof.get("output") == str(output)
+            and proof["stamp"] == _selection_stamp(builder, _selection_paths(output, base_apk, tools))):
+        return proof["callbacks"]
+    return _signers(builder, tools, output, getattr(args, "signing_root", None), base_apk=base_apk,
+                    signing_mode=getattr(args, "signing_mode", "auto"), expected_identity=identity)
+
+
+def _signers(builder, tools, output, signing_root=None, *, base_apk=None,
+             signing_mode="original", identity_out=None, expected_identity=None):
+    if signing_mode not in ("auto", "original", "new-owner"):
+        raise builder.BuildError("Select an automatic, original-key or new-owner signing mode.")
+    # The default low-level API remains strict for ordinary update/capability
+    # callers. Only an explicit portable/personalization caller enables auto or
+    # new-owner. Verify the source before creating/copying recipient secrets.
+    if signing_mode == "original" and base_apk is not None and not signing_root and not all(
+            (output / "signing" / name).is_file() for name in ("quest.keystore", "local-key.json")):
         raise builder.BuildError("Updating an installed APK requires its original signing folder (quest.keystore and local-key.json). Select that folder or keep the original Builder workspace. An APK alone does not contain its private signing key.")
     tools = normalized_signing_tools(builder, tools)
+    source_certificate = _source_certificate(builder, tools, output, base_apk) if base_apk is not None else None
+    _copy_signing_root(builder, output, signing_root)
     key, private = builder.signing(output, tools)
     environment = dict(os.environ)
     environment["GHVR_QUEST_SIGNING_PASSWORD"] = private["password"]
+    selected_certificate = None
     if base_apk is not None:
-        original_certificate = builder.command([tools["java"], "-jar", tools["apksigner"], "verify", "--print-certs", str(base_apk)],
-                                               output / "logs/update-base-signature.log")
-        original = re.search(r"certificate SHA-256 digest:\s*([0-9a-fA-F]{64})", original_certificate)
-        selected_certificate = builder.command([tools["keytool"], "-J-Duser.language=en", "-J-Duser.country=US",
-            "-list", "-v", "-keystore", str(key), "-alias", private["alias"],
-            "-storepass:env", "GHVR_QUEST_SIGNING_PASSWORD"], output / "logs/update-key-certificate.log", env=environment)
-        selected = re.search(r"SHA256:\s*([0-9a-fA-F:]{64,95})", selected_certificate)
-        if not original or not selected or original[1].lower() != selected[1].replace(":", "").lower():
+        selected_certificate = _key_certificate(builder, tools, output, key, private, environment)
+        if signing_mode == "original" and source_certificate != selected_certificate:
             raise builder.BuildError("The selected signing key does not belong to this APK. Restore its original signing folder; no compile, APK update or uninstall was performed.")
-        _certificate_output(builder, output, original[1].lower())
+        identity = {"schema": 1, "requestedMode": signing_mode,
+                    "mode": "original" if source_certificate == selected_certificate else "new-owner",
+                    "sourceCertificateSha256": source_certificate,
+                    "certificateSha256": selected_certificate}
+        if expected_identity is not None and identity != expected_identity:
+            raise builder.BuildError("The source APK or selected local signing identity changed after update qualification. No cached output or uninstall was used.")
+        _certificate_output(builder, output, selected_certificate)
+        if identity_out is not None: identity_out.update(identity)
 
     def sign(apk):
         apk = Path(apk)
@@ -235,6 +349,8 @@ def _signers(builder, tools, output, signing_root=None, *, base_apk=None):
         # Accept that rule on verification; freshly repacked files use 16-KiB.
         _core(builder).check_alignment(apk, shared_library_alignment=4096)
         certificate = match[1].lower()
+        if selected_certificate is not None and certificate != selected_certificate:
+            raise builder.BuildError("Updated APK was signed by a different key than the qualified recipient identity.")
         _certificate_output(builder, output, certificate)
         return {"certificateSha256": certificate}
 
@@ -548,7 +664,7 @@ def run(builder, args, repo, output):
     root = output / "updates" / update_key
     apk = root / "GloomhavenVR-Quest.apk"
     tools = signing_tools(builder, args, output)
-    sign, verify = _signers(builder, tools, output, getattr(args, "signing_root", None), base_apk=base_apk)
+    sign, verify = _run_signers(builder, args, output, base_apk, tools, plan["signing"])
     if plan["updateStrategy"] == "cached-full-build":
         return _rebuild(builder, args, plan, repo, output)
 
@@ -598,7 +714,8 @@ def run(builder, args, repo, output):
         update = {"schema": 1, "updateKey": update_key, "mode": args.command,
                   "gameInputKey": base["inputKey"], "baseApkSha256": plan["baseApkSha256"],
                   "modBuild": inputs["mod"]["modBuild"], "profile": inputs["profile"],
-                  "mod": inputs["mod"], "ownedGame": plan["ownedGame"]}
+                  "mod": inputs["mod"], "ownedGame": plan["ownedGame"], "signing": plan["signing"],
+                  "sourceCertificateSha256": plan["signing"]["sourceCertificateSha256"]}
         replacements.update(core.patch_resource_json(base_apk, {
             "quest-build": {"schema": 1, "inputKey": base["inputKey"], "modBuild": inputs["mod"]["modBuild"]},
             "quest-profile": inputs["profile"]}, replacements=replacements))
@@ -616,6 +733,8 @@ def run(builder, args, repo, output):
                    "modBuild": inputs["mod"]["modBuild"], "isDiagnostic": False,
                    "isDummy": bool(inputs["profile"].get("isDummy")), "apkSha256": output_hash,
                    "contentFiles": [], "retainedGameContent": True, "updateResult": result,
+                   "signing": plan["signing"], "sourceCertificateSha256": plan["signing"]["sourceCertificateSha256"],
+                   "sourcePackage": plan.get("sourcePackage"), "baseApk": plan["baseApk"],
                    **({"certificateSha256": result["certificateSha256"]} if "certificateSha256" in result else {})}
         builder.write_json(report, {"schema": 1, "buildResult": "Succeeded", "scope": "APK update", **details})
         builder.build_progress.operation("update-verify", complete=True, detail="Signed update published; original game content is retained.")
