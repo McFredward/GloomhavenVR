@@ -29,6 +29,9 @@ are explained. Surfaces666/236/4795 and Version3/next-free118 remain unchanged.
 This is focused validation with inherited unchanged coverage, not a new complete
 runtime gate or another release. See [FIX-672-REVIEW.md](FIX-672-REVIEW.md) for final
 D3D/CI receipts and the separate actual Frame/headset verification boundary.
+Fresh full source-changing dev CI38275346337 passes all four runtime shards and
+source/build for exactd6f26b4e0 (98-suite inventory). See
+[FIX-672-CI.md](FIX-672-CI.md); the follow-up internal Markdown record inherits it.
 
 Owned processes are reaped and caches cleaned after runs. Sources, original
 inputs, failed controls, captures, manifests and current deliverables are retained.

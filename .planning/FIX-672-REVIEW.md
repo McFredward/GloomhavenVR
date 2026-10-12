@@ -133,8 +133,11 @@ caused two earlier infrastructure attempts to fail before product coverage;
 the final source-bound case and production bank are unchanged. See the archived
 `health-d3d/run-o680amk2/product-receipt.json` and native PNG/result evidence.
 
-Fresh source-changing dev CI will run after push. Its exact source/status is
-recorded separately; this local focused evidence does not claim a hosted CI pass.
+Fresh source-changing dev CI38275346337 passed all source/build and four runtime
+shards for exact commit `d6f26b4e0a4d51d711fda27748414e4811d3b4d7`, without reuse.
+See [FIX-672-CI.md](FIX-672-CI.md) for the98-suite hosted inventory, immutable run
+link, retained evidence and completed cleanup. The subsequent internal Markdown
+record inherits that passing source through the established docs-only policy.
 
 Actual Frame installation and headset foreground/stereo pictures still require
 hardware verification. Automated source and native-render fixtures do not prove
