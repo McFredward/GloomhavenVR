@@ -75,6 +75,7 @@ async function fixture({single=false,running=false,holdRuns=false,failSupport=fa
   });
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   return {url:'http://127.0.0.1:'+server.address().port+'/#run-overview-token',requests,
+    completeExternally:session=>{runs=runs.map(item=>item.session===session?{...item,status:'complete',updated:item.updated+60}:item);},
     held:()=>Boolean(heldRuns),release:()=>{heldRuns?.();heldRuns=null;},close:()=>{heldRuns?.();return new Promise(resolve=>server.close(resolve));}};
 }
 async function launch(server){const client=await browser();try{
@@ -191,5 +192,19 @@ test('a delayed metadata response cannot restore a deleted main row',
     await client.evaluate("document.getElementById('storage-run-plan').click()");await client.wait("!document.getElementById('storage-confirmation').hidden");
     await client.evaluate("document.getElementById('storage-clean').click()");await client.wait("document.getElementById('storage-status').textContent.includes('Run gelöscht')");server.release();await delay(250);
     await client.evaluate("document.getElementById('home').click()");await client.wait("document.getElementById('home-runs').hidden");assert.equal(await client.evaluate("document.querySelectorAll('#home-runs-list .run-row').length"),0);
+  }finally{try{await client?.close();}finally{await server.close();}}
+ });
+
+test('newer completed run metadata supersedes an older blocked detail view and removes resume/delete actions',
+ {skip:!existsSync(chrome),timeout:30000},async()=>{
+  const server=await fixture({single:true});let client;try{
+    client=await launch(server);await client.chooseHome('resume');await client.wait("!document.getElementById('progress-page').hidden");
+    await client.evaluate("document.getElementById('home').click()");server.completeExternally(ids.blocked);
+    await client.wait("!document.getElementById('home-runs-refresh').disabled");await client.evaluate("document.getElementById('home-runs-refresh').click()");
+    await client.wait(`Boolean(document.querySelector(${JSON.stringify(select(ids.blocked,'result'))}))`);
+    assert.equal(await client.evaluate(`Boolean(document.querySelector(${JSON.stringify(select(ids.blocked,'resume'))}))`),false);
+    assert.equal(await client.evaluate(`Boolean(document.querySelector(${JSON.stringify(select(ids.blocked,'delete'))}))`),false);
+    assert.equal(await client.evaluate("document.getElementById('storage-run').options.length"),0,'old loaded state cannot supply a deletable storage selector either');
+    assert.equal(server.requests.filter(item=>item.path==='/api/run'||item.path==='/api/storage/plan').length,0);
   }finally{try{await client?.close();}finally{await server.close();}}
  });

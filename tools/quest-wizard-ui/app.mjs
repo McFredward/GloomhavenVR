@@ -88,7 +88,14 @@ function normalRuns(){
   const rows=state?.session&&!saved.some(row=>row?.session===state.session)?[state,...saved]:saved;
   const seen=new Set();
   return rows.filter(row=>sessionId(row?.session)&&!row.retired&&!removedRuns.has(row.session)&&!seen.has(row.session)&&seen.add(row.session))
-    .map(row=>state?.session===row.session?{...row,status:state.status,mode:state.choices?.mode??row.mode}:row)
+    .map(row=>{
+      if(state?.session!==row.session)return row;
+      // Fresh shared metadata may describe a run completed/resumed by another
+      // console. An older opened detail view must not revive its old actions.
+      const savedAt=Number(row.updated??row.created),loadedAt=Number(state.updated??state.created);
+      const newer=!Number.isFinite(savedAt)||Number.isFinite(loadedAt)&&loadedAt>=savedAt;
+      return newer?{...row,status:state.status,mode:state.choices?.mode??row.mode}:row;
+    })
     .sort((left,right)=>(Number(right.updated??right.created)||0)-(Number(left.updated??left.created)||0)||(right.session===discovery?.latestSession?1:0)-(left.session===discovery?.latestSession?1:0));
 }
 function retiredRuns(){
