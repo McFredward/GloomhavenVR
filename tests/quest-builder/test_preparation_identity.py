@@ -27,6 +27,43 @@ class BuilderProducerIdentityTests(unittest.TestCase):
     def setUp(self):
         self.original = (ROOT / identity.BUILDER).read_bytes()
 
+    def preceding_portable_source(self):
+        """Remove only the reviewed late CLI/module additions from this tree."""
+        tree = ast.parse(self.original.decode())
+        tree.body = [node for node in tree.body if not (isinstance(node, ast.FunctionDef) and node.name == "export_portable")
+                     and not (isinstance(node, ast.Assign) and any(isinstance(target, ast.Name)
+                              and target.id == "portable_packages" for target in node.targets))]
+        for function in tree.body:
+            if not isinstance(function, ast.FunctionDef) or function.name != "parser": continue
+            retained = []
+            for node in function.body:
+                call = node.value if isinstance(node, ast.Expr) else None
+                if isinstance(call, ast.Call) and call.args and isinstance(call.args[0], ast.Constant):
+                    flag = call.args[0].value
+                    if flag in ("--export-path", "--signing-mode"): continue
+                    for keyword in call.keywords:
+                        if flag == "command" and keyword.arg == "choices":
+                            keyword.value.elts = [item for item in keyword.value.elts if item.value != "export"]
+                        if flag == "--base-apk" and keyword.arg == "help":
+                            keyword.value.value = "Existing locally built Quest APK; updates always require the matching owned PC game."
+                retained.append(node)
+            function.body = retained
+        class RemoveExport(ast.NodeTransformer):
+            def visit_If(self, node):
+                self.generic_visit(node)
+                if (isinstance(node.test, ast.Compare) and ast.unparse(node.test.left) == "args.command"
+                        and len(node.test.comparators) == 1 and isinstance(node.test.comparators[0], ast.Constant)
+                        and node.test.comparators[0].value == "export"):
+                    return node.orelse
+                return node
+        return ast.unparse(RemoveExport().visit(tree)).encode()
+
+    def test_exact_portable_cli_and_cached_input_selection_retain_preceding_assets(self):
+        previous = self.preceding_portable_source()
+        for prefix in (False, True):
+            self.assertEqual(identity.builder_producer_digest(previous, original_prefix=prefix),
+                             identity.builder_producer_digest(self.original, original_prefix=prefix))
+
     def test_only_explicit_journal_coordination_is_removed_from_complete_builder_ast(self):
         # A preceding Builder has precisely the same producer bodies, without
         # the new module load/rebind/constructor argument. Source comments and
@@ -69,7 +106,7 @@ class BuilderProducerIdentityTests(unittest.TestCase):
         # Reconstruct the preceding producer AST without changing any art writer,
         # original converter or input. Only the new host callback/key descriptor
         # is absent. Unknown earlier consumers still invalidate this identity.
-        tree = ast.parse(self.original.decode())
+        tree = ast.parse(self.preceding_portable_source().decode())
         tree.body = [node for node in tree.body if not isinstance(node, ast.FunctionDef)
                      or node.name not in ("rebuild_update", "mod_bank_recipe")]
         tree.body = [node for node in tree.body if not (isinstance(node, ast.Assign)

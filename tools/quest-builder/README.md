@@ -7,9 +7,10 @@ The wireless installer has its own independent Python/ADB provisioning. Original
 sources, private profiles, signing material and APKs remain local. This directory
 contains no original game payload.
 
-Both APK editing modes suggest the last completed APK in the selected `.ghvrq`
-workspace. A typed or browsed path remains authoritative; cancelled/incomplete
-outputs are not suggested. Mod updates select the source included in the current
+Both editing modes accept an APK or the portable Quest installation ZIP and
+suggest the last completed APK in the selected `.ghvrq` workspace. A typed or
+browsed path remains authoritative; cancelled/incomplete outputs are not
+suggested. Mod updates select the source included in the current
 Builder archive, including its Quest runtime/weaver patches, rather than the mod
 DLL in the owner's PC game folder. Profile-only edits retain the installed mod.
 
@@ -19,7 +20,7 @@ asset recipes switch to the ordinary cached build in the same workspace. The
 Wizard reports that migration and its actual remaining phases. Independently
 compatible recovery, preparation and Unity imports stay owned; unknown producer
 changes never authorize reuse of obsolete generated content. Original PC inputs,
-current profile/DLC selection and the original signing key are still qualified.
+current profile/DLC selection and the source APK signature are still qualified.
 
 Large-content packaging has a separate Android constraint. Meta recommends an
 APK plus required expansion/asset files, installed together by its distribution
@@ -35,14 +36,40 @@ rejects ZIP64 archives, and target SDK 30 requires at least a v2 signature.
 Host controls qualify the older target-SDK-29/v1 ZIP64 alternative, but no Quest
 installation or Unity archive-offset runtime result proves it. The current
 Builder therefore does not silently downgrade Android targeting/signatures.
-A portable PC-side ZIP can instead contain the normal signed APK and all game
-data while remaining one transport file. That delivery-format change is pending
-the maintainer's choice; the existing APK-plus-content format remains current.
-Sharing an APK between build PCs also requires an explicit new-owner signing
-path; the original private key must stay local. Ordinary updates continue to
-require that key. Existing signature-replacement recovery preserves mutable
-saves/settings before uninstalling; a failed save backup must never authorize
-data loss.
+The maintainer approved one portable PC-side ZIP containing the normal signed
+APK, its complete content bank and a small transport manifest. The Wizard's
+Export action copies those existing bytes once with measured progress; it does
+not run Unity, rebuild assets or recompress the game bank. Outer ZIP64 is allowed
+without changing Android targeting or the APK signature format. Export requires
+enough free space for the resulting transport file and publishes it atomically;
+cancelled work preserves the previous completed output.
+
+Updates and name edits accept that ZIP directly. Import copies and qualifies
+only the APK, retaining the bank inside the source ZIP. Installation reads needed
+game files directly from the nested bank. Signed per-file inventories qualify
+delivered bytes; warm installation does not rescan the complete bank. Closed
+update receipts retain the original bank locator after optional cache cleanup.
+Keep the source ZIP or matching complete `.ghvrq` output until another complete
+package has been exported. An APK alone does not contain the external game bank.
+
+Before either editing mode, the Builder requires the matching locally installed
+PC game and qualifies its version and DLC selection. Auto signing retains a
+matching local key or signs imported APKs with this PC's own local key. Explicit
+`--signing-mode original` requires the previous key; `new-owner` selects the
+receiver's key. Private signing keys never enter the transport ZIP. Name-only
+editing preserves the existing profile ID; an ordinary build uses the locally
+selected PC account. Existing signature-replacement recovery preserves mutable
+saves/settings before uninstalling; a failed save backup does not authorize
+data loss. A shared ZIP is portable content, not an ownership credential.
+
+The CLI can export the last completed workspace build or a selected APK/ZIP:
+
+```sh
+python3 scripts/build-quest.py export --output-root /path/to/private/quest-output \
+  --export-path /path/to/GloomhavenVR-Quest.zip
+python3 scripts/build-quest.py export --output-root /path/to/private/quest-output \
+  --base-apk /path/to/completed.apk --export-path /path/to/GloomhavenVR-Quest.zip
+```
 
 Use `inspect` before conversion:
 
@@ -192,9 +219,10 @@ reconnect over Wi-Fi and install this output's
 latest verified APK. See the [wireless setup and options](../../.planning/QUEST3-WIRELESS-INSTALL.md).
 The portable core is `scripts/install-quest-wireless.py`.
 
-Installation uses `adb install -r`, never automatic uninstall. Keep the output's
-`signing/quest.keystore` and private `signing/local-key.json` for updates; replacing
-the key prevents data-preserving APK updates. These files are never included in
+Installation first uses `adb install -r`. A genuine signing conflict uses the
+existing save/settings recovery before replacement, retaining owned game content
+where Android permits it. Keep the output's `signing/quest.keystore` and private
+`signing/local-key.json` to avoid unnecessary signing migration. These files are never included in
 the APK, source snapshot, reports or command arguments. On Unix their permissions
 are restricted to the local user. Android SDK/NDK/JDK overrides are available as
 `--android-sdk`, `--android-ndk` and `--jdk`; they must match the selected Unity

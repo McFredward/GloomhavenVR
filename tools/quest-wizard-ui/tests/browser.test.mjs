@@ -56,7 +56,7 @@ test('native browser: bilingual setup, consent, cancellation, choice edits and r
     assert.equal(await evaluate("document.getElementById('profile-summary').textContent"),'Wird beim Einrichten geprüft');
     assert.equal(await evaluate('document.documentElement.scrollWidth<=window.innerWidth'),true);
     await picture('game-de-1366');
-    for(const selector of ['.game-option','[data-language=en]','.advanced summary','#primary']) {
+    for(const selector of ['.game-option','[data-language=en]','#game-page > .advanced > summary','#primary']) {
       await evaluate(`document.querySelector(${JSON.stringify(selector)}).focus()`);
       assert.equal(await evaluate(`document.activeElement===document.querySelector(${JSON.stringify(selector)})`),true,'keyboard focus '+selector);
     }

@@ -70,6 +70,7 @@ native_admission = _local_helper("native_admission")
 _release = _local_helper("release") if Path(__file__).with_name("release.py").is_file() else None
 apk_updates = _local_helper("apk_update")
 apk_input_hashes = _local_helper("apk_input_cache")
+portable_packages = _local_helper("portable_package")
 
 
 def _module_context():
@@ -1978,12 +1979,15 @@ def report(output: Path) -> None:
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description="Build a locally owned Gloomhaven copy for Quest; no store/cloud services.")
-    result.add_argument("command", choices=("inspect", "prepare", "build", "finish-build", "install", "report", "package", "inspect-update", "update-mod", "update-profile"))
+    result.add_argument("command", choices=("inspect", "prepare", "build", "finish-build", "install", "report", "package", "export", "inspect-update", "update-mod", "update-profile"))
     result.add_argument("--delivery-input-key", help="Exact retained Player input identity; finish-build never starts a new compilation.")
-    result.add_argument("--base-apk", type=Path, help="Existing locally built Quest APK; updates always require the matching owned PC game.")
+    result.add_argument("--base-apk", type=Path, help="Existing Quest APK or portable ZIP; updates always require the matching owned PC game.")
+    result.add_argument("--export-path", type=Path, help="Destination for one portable APK-plus-content ZIP; no Unity compilation.")
     result.add_argument("--update-kind", choices=("update-mod", "update-profile"), default="update-mod")
     result.add_argument("--apk-tools-json", type=Path, help="Wizard-owned Android signing tool paths for profile-only updates.")
     result.add_argument("--signing-root", type=Path, help="Original local signing folder, required for save-preserving updates signed with that key.")
+    result.add_argument("--signing-mode", choices=("auto", "original", "new-owner"), default="auto",
+                        help="Retain a matching local key or personalize imported APKs with this PC's own key; original requires the previous key.")
     result.add_argument("--repo-root", type=Path, default=REPO)
     result.add_argument("--game-root", type=Path)
     result.add_argument("--output-root", type=Path)
@@ -2055,6 +2059,22 @@ def rebuild_update(args, plan: dict, repo: Path, output: Path) -> Path:
     return apk
 
 
+def export_portable(args, output: Path):
+    """Export finished bytes only; no project preparation or Unity command."""
+    selected = args.base_apk
+    package = selected if selected and selected.suffix.lower() == ".zip" else None
+    if package:
+        selected = portable_packages.import_apk(package, output, progress=lambda value:
+            build_progress.event(value["phase"], value["completed"], value["total"], "bytes", value["detail"]))
+    elif selected is None:
+        selected, _ = verified_latest_build(output)
+    destination = args.export_path or output.parent / "exports" / "GloomhavenVR-Quest.zip"
+    receipt = portable_packages.export_package(selected, destination, output, source_package=package,
+        progress=lambda value: build_progress.event(value["phase"], value["completed"], value["total"], "bytes", value["detail"]))
+    print("export: " + receipt["path"], flush=True)
+    return receipt
+
+
 def main(argv: list[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     args = parser().parse_args(arguments)
@@ -2116,6 +2136,8 @@ def main(argv: list[str] | None = None) -> int:
                     apk, details = verified_latest_build(output)
                     archive = handoff.package(repo, output, apk, details, args.hardware_dir or repo / ".planning/debug/quest3")
                     print("package: " + str(archive), flush=True)
+                elif args.command == "export":
+                    export_portable(args, output)
                 elif args.command == "finish-build":
                     finish_completed_build(args, output)
                 elif args.command in ("inspect-update", "update-mod", "update-profile"):

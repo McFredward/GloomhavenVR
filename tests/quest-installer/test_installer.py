@@ -804,6 +804,10 @@ assert module.native_plugins.BuildError is module.BuildError
 assert module.native_plugins.digest is module.digest
 assert module.apk_input_hashes.storage.BuildError is module.BuildError
 assert module.apk_input_hashes.storage.digest is module.digest
+assert module.portable_packages.storage.BuildError is module.BuildError
+assert module.portable_packages.storage.digest is module.digest
+assert callable(module.portable_packages.import_apk)
+assert callable(module.portable_packages.export_package)
 capacity = module._local_helper("update_capacity").qualification_module(module._module_context())
 assert capacity.ordinary is module._ordinary_owned
 assert capacity.atomic_json is module.write_json

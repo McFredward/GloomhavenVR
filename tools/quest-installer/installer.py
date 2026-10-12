@@ -169,6 +169,8 @@ class ContentFile:
     archive: str
     sha256: str
     size: int
+    package: Path | None = None
+    member: str | None = None
 
 
 @dataclass(frozen=True)
@@ -219,7 +221,26 @@ def apk_identity(apk):
                 "isDiagnostic": value.get("target") != "game"}
 
 
-def apk_content(apk, identity):
+def portable_packages():
+    """Capture canonical helpers through the existing isolated Builder loader."""
+    helper = getattr(builder_module(), "portable_packages", None)
+    if helper is None:
+        raise InstallError("This Builder does not include its portable package reader; use the current complete Builder archive.")
+    return helper
+
+
+def content_available(bank):
+    return (bank.package or bank.path).is_file()
+
+
+def content_stream(bank):
+    if bank.package:
+        return portable_packages().open_content({"path": bank.package, "member": bank.member,
+            "size": bank.size, "sha256": bank.sha256, "archive": bank.archive})
+    return bank.path.open("rb")
+
+
+def apk_content(apk, identity, *, package=None, output=None):
     """Only the selected APK may declare its adjacent owned-content bank."""
     with zipfile.ZipFile(apk) as archive:
         name = "assets/Quest/content-delivery.json"
@@ -240,15 +261,40 @@ def apk_content(apk, identity):
                 or type(row.get("size")) is not int or row["size"] < 22):
             raise InstallError("Campaign delivery has an invalid content bank.")
         path = apk.parent / row["file"]
+        if package is not None or (output is not None and not path.is_file()):
+            # Portable packages retain the complete bank as a STORED outer
+            # member. Read it only if the installed per-file receipt needs
+            # repair; never extract or hash an 11-GB duplicate at selection.
+            try:
+                found = portable_packages().content_source(apk, output or apk.parent,
+                                                           source_package=package)
+            except (RuntimeError, OSError, ValueError) as error:
+                if package is not None: raise InstallError(str(error)) from error
+            else:
+                if (found["size"], found["sha256"], found["archive"]) != (row["size"], row["sha256"], row["archive"]):
+                    raise InstallError("Portable game bank differs from the signed APK delivery contract.")
+                if found.get("member"):
+                    outer = Path(found["path"])
+                    result.append(ContentFile(outer, row["archive"], row["sha256"], row["size"], outer, found["member"]))
+                    continue
+                path = Path(found["path"])
         if not path.exists() and identity.get("retainedGameContent"):
             # The signed inventory still requires the complete installed game.
             # Device qualification happens before replacing the APK.
             result.append(ContentFile(path, row["archive"], row["sha256"], row["size"]))
             continue
-        if (not path.is_file() or path.is_symlink() or path.resolve().parent != apk.parent.resolve()
-                or path.stat().st_size != row["size"] or digest(path) != row["sha256"]):
+        if (not path.is_file() or path.is_symlink() or (output is None and path.resolve().parent != apk.parent.resolve())
+                or path.stat().st_size != row["size"]):
             raise InstallError("The complete Campaign bank is missing or differs from this APK: " + str(path))
-        result.append(ContentFile(path, row["archive"], row["sha256"], row["size"]))
+        bank = ContentFile(path, row["archive"], row["sha256"], row["size"])
+        # The signed per-file inventory qualifies bytes during actual delivery.
+        # Scanning the whole bank first duplicates that work and delays warm
+        # installations even when no game files need to be transferred.
+        proof = Source("apk", apk, apk, "", "", False, False,
+                       identity.get("modBuild"), identity["inputKey"], (bank,))
+        if installation_manifest(proof) is None and digest(path) != row["sha256"]:
+            raise InstallError("The complete Campaign bank differs from this APK: " + str(path))
+        result.append(bank)
     return tuple(result)
 
 
@@ -256,10 +302,33 @@ def resolve_source(kind, path, check_zip=True):
     path = Path(path).expanduser().resolve()
     details = {}
     manifest = None
-    if kind == "output-root":
+    package = None
+    output = None
+    imported_hash = None
+    package_stamp = None
+    if kind in ("apk", "package") and path.suffix.lower() == ".zip":
+        kind = "package"
+    if kind == "package":
+        package = path
+        output = (_INPUT_CACHE_PATH.parent if _INPUT_CACHE_PATH else REPO / ".planning/debug/quest3") / "portable"
+        helper = portable_packages()
+        try:
+            descriptor = helper.inspect(package)
+            package_stamp = _digest_witness(package)
+            evidence = hashlib.sha256(json.dumps({"manifest": descriptor, "stamp": package_stamp}, sort_keys=True).encode()).hexdigest()
+            apk = helper.import_apk(package, output, progress=lambda value:
+                print("GHVRQ_PROGRESS " + json.dumps({"schema": 1, "operation": "qualify",
+                    "phase": value["phase"], "done": value["completed"], "total": value["total"],
+                    "unit": "bytes", "detail": value["detail"]}), flush=True))
+            imported_hash = helper.imported_apk_digest(apk, output)
+        except (RuntimeError, ValueError, OSError) as error:
+            raise InstallError("Portable Quest package could not be opened: " + str(error)) from error
+        details = {"package": PACKAGE, "apkSha256": descriptor["apk"]["sha256"]}
+    elif kind == "output-root":
         manifest = path / "latest-build.json"
         evidence = digest(manifest)
         helper = builder_module()
+        output = path
         # This loader's private module cannot affect a running Builder. Its
         # explicit APK digest shares the same witnessed installer read/cache.
         helper.digest = digest
@@ -291,7 +360,7 @@ def resolve_source(kind, path, check_zip=True):
         raise InstallError("A local .apk file is required: " + str(apk))
     if kind != "apk" and details.get("package") != PACKAGE:
         raise InstallError("The selected build package is not " + PACKAGE)
-    actual = digest(apk)
+    actual = imported_hash or digest(apk)
     if kind != "apk" and (not re.fullmatch(r"[0-9a-f]{64}", str(details.get("apkSha256", "")))
                               or actual != details["apkSha256"]):
         raise InstallError("APK SHA-256 differs from its build evidence; restore or rebuild it.")
@@ -304,11 +373,11 @@ def resolve_source(kind, path, check_zip=True):
             # no new evidence. A manually selected APK needs one CRC success,
             # cached separately from its digest (which precedes CRC checking).
             zip_cache = _INPUT_CACHE_PATH.with_name("qualified-apks.json") if _INPUT_CACHE_PATH else None
-            stamp = _digest_witness(apk)
-            qualified = kind != "apk" or (zip_cache and input_cache_module().lookup(zip_cache, apk, stamp) == actual)
+            apk_stamp = _digest_witness(apk)
+            qualified = kind != "apk" or (zip_cache and input_cache_module().lookup(zip_cache, apk, apk_stamp) == actual)
             if "AndroidManifest.xml" not in archive.namelist() or (not qualified and archive.testzip()):
                 raise InstallError("The APK ZIP payload is incomplete or corrupt.")
-            if zip_cache: input_cache_module().remember(zip_cache, apk, stamp, actual)
+            if zip_cache: input_cache_module().remember(zip_cache, apk, apk_stamp, actual)
     identity = apk_identity(apk)
     report = details.get("buildReport", {})
     expected_key = details.get("inputKey") or report.get("inputKey")
@@ -316,17 +385,21 @@ def resolve_source(kind, path, check_zip=True):
     if identity and ((expected_key and identity["inputKey"] != expected_key)
                      or (expected_build and identity["modBuild"] != expected_build)):
         raise InstallError("The APK embedded build differs from its handoff evidence.")
+    if package is not None and _digest_witness(package) != package_stamp:
+        raise InstallError("The selected portable package changed during APK qualification; retry.")
     return Source(kind, path, apk, actual, evidence,
                   bool(details.get("isDiagnostic", identity.get("isDiagnostic", False))), bool(details.get("isDummy", identity.get("isDummy"))),
-                  identity.get("modBuild"), identity.get("inputKey"), apk_content(apk, identity))
+                  identity.get("modBuild"), identity.get("inputKey"), apk_content(apk, identity, package=package, output=output))
 
 
 def select_source(args, config):
-    for kind in ("output-root", "handoff", "apk"):
-        explicit = getattr(args, kind.replace("-", "_"))
+    for kind in ("output-root", "handoff", "apk", "package"):
+        explicit = getattr(args, kind.replace("-", "_"), None)
         if explicit:
             return resolve_source(kind, explicit)
     remembered = config.get("source")
+    if isinstance(remembered, dict) and remembered.get("kind") == "package":
+        return resolve_source("package", remembered["path"])
     candidates = []
     output = REPO / ".planning/quest3-local"
     if (output / "latest-build.json").is_file():
@@ -1282,13 +1355,15 @@ def install_file_content(adb, address, source, repair=False, *, hardware=None):
                 completed_bytes += sum(row["size"] for row in manifest[kind]["files"])
                 _content_progress(completed_bytes, total_bytes, "Reusing completed game content")
                 continue
-            with zipfile.ZipFile(path) as archive:
+            stream = content_stream(source.content[0]) if kind == "game" else path.open("rb")
+            with stream as body, zipfile.ZipFile(body) as archive:
                 result = _install_content_tree(adb, address, source, manifest[kind], archive, root, temporary, repair,
                                                progress_scope=(completed_bytes, total_bytes), observed_receipt=committed)
             result.update(access.qualify(root, manifest[kind], _RECEIPT))
             completed_bytes += sum(row["size"] for row in manifest[kind]["files"])
             records.append({"archive": manifest[kind]["archive"], "sha256": manifest[kind]["archiveSha256"],
-                            "size": path.stat().st_size, "remote": root, "fileBacked": True, **result})
+                            "size": source.content[0].size if kind == "game" else path.stat().st_size,
+                            "remote": root, "fileBacked": True, **result})
     _content_progress(completed_bytes, total_bytes, "Complete game content installed and verified", complete=True)
     return records
 
@@ -1310,6 +1385,8 @@ def install_content(adb, address, source, previous=None, repair=False, *, hardwa
     prepared = install_file_content(adb, address, source, repair=repair, hardware=hardware)
     if prepared is not None:
         return prepared
+    if any(bank.package for bank in source.content):
+        raise InstallError("Portable installation requires the APK's complete file-backed installation inventory. Update this older APK with the current Builder before exporting it.")
     if not source.content:
         return []
     # Only this installed game's private external directory is touched.
@@ -1469,6 +1546,7 @@ def parser():
     source.add_argument("--output-root", type=Path)
     source.add_argument("--handoff", type=Path)
     source.add_argument("--apk", type=Path)
+    source.add_argument("--package", type=Path, help="Single portable ZIP containing the APK and complete game content.")
     result.add_argument("--config", type=Path, default=REPO / ".planning/debug/quest3/wireless-install.json")
     result.add_argument("--adb", type=Path)
     result.add_argument("--host")
@@ -1510,7 +1588,7 @@ def main(argv=None, runner=None):
         print("SHA-256: " + source.sha256 + (" (DIAGNOSTIC)" if source.diagnostic else "")
               + (" (DUMMY IDENTITY)" if source.dummy else ""))
         if source.content:
-            missing_bank = any(not bank.path.is_file() for bank in source.content)
+            missing_bank = any(not content_available(bank) for bank in source.content)
             print("Access-only repair: no APK installation or game-bank transfer." if args.repair_app_access
                   else "Retaining the complete game content already installed on this Quest." if missing_bank
                   else "Complete owned Campaign bank: " + str(sum(bank.size for bank in source.content)) + " bytes; installed automatically with the APK.")
@@ -1558,7 +1636,7 @@ def main(argv=None, runner=None):
         adb.connection_operation = "apk"
         migration = connected_recovery(adb, address, recovery)
         if migration is None:
-            if any(not bank.path.is_file() for bank in source.content):
+            if any(not content_available(bank) for bank in source.content):
                 with tempfile.TemporaryDirectory(prefix="ghvr-quest-retained-") as temporary:
                     require_installed_game(adb, address, source, Path(temporary), repair=args.repair_content)
             try:

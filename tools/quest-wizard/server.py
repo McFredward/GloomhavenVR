@@ -339,7 +339,7 @@ class LocalServer(ThreadingHTTPServer):
                                                   error={"code": code, "message": message})
                     try: adapter.log_event("export_cancelled" if self.package_stop.is_set() else "export_failed",
                                           code=code, message=message)
-                    except OSError: pass
+                    except (OSError, WizardError): pass
                     try: self.request_failure(error)
                     except (OSError, ImportError, RuntimeError, ValueError): pass
             self.package_job = threading.Thread(target=work, name="quest-package-export", daemon=False)

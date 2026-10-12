@@ -81,7 +81,7 @@ class ImportMutationProfileTests(unittest.TestCase):
             self.assertIn(extra, recovery_resume.preparation_source_rows([*profile.values(), extra]))
 
     def test_latest_delivery_profile_matches_exact_current_consumer_bytes(self):
-        for current, _ in preparation_identity.MOD_UPDATE_DELIVERY_ROWS.values():
+        for current, _ in {**preparation_identity.MOD_UPDATE_DELIVERY_ROWS, **preparation_identity.PORTABLE_DELIVERY_ROWS}.values():
             raw = (ROOT / current["path"]).read_bytes()
             self.assertEqual(current, {"path": current["path"], "size": len(raw),
                 "sha256": hashlib.sha256(raw).hexdigest()})
@@ -110,8 +110,8 @@ class ImportMutationProfileTests(unittest.TestCase):
         from unittest.mock import patch
         raw = (ROOT / "tools/quest-builder/builder.py").read_bytes()
         for prefix in (False, True):
-            observed, previous = preparation_identity.BUILDER_MOD_UPDATE_AST[prefix]
-            with patch.dict(preparation_identity.BUILDER_MOD_UPDATE_AST,
+            observed, previous = preparation_identity.BUILDER_PORTABLE_AST[prefix]
+            with patch.dict(preparation_identity.BUILDER_PORTABLE_AST,
                             {prefix: ("f" * 64, previous)}):
                 self.assertEqual(preparation_identity.builder_producer_digest(raw, original_prefix=prefix), observed)
             self.assertEqual(preparation_identity.builder_producer_digest(raw, original_prefix=prefix), previous)

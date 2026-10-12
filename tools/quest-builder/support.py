@@ -500,6 +500,12 @@ def export_support(state_root, session, destination=None):
     if release: meta['release'] = {key: release[key] for key in ('sourceCommit', 'modBuild', 'schema') if key in release}
     qualification = read_object(root / 'qualification.json')
     if qualification: meta['qualification'] = safe_json(qualification, replacements)
+    exported = read_object(root / 'packages/latest-export.json')
+    if isinstance(exported, dict):
+        result = exported.get('result', {})
+        if isinstance(result, dict):
+            meta['portableExport'] = {key: safe_json(result[key], replacements)
+                                      for key in ('schema', 'package', 'path', 'size', 'sha256') if key in result}
     build_root = ordinary(root / 'build')
     signing_diagnostic = {}
     signing = signing_recovery_stats(root, session_root, state, diagnostic=signing_diagnostic)
@@ -525,7 +531,8 @@ def export_support(state_root, session, destination=None):
     network_report = ordinary(session_root / 'network-preflight.json')
     if network_report.is_file():
         candidates.append((network_report.stat().st_mtime_ns, 'wizard/network-preflight.json', network_report, True))
-    for name in ('wizard-requests.log', 'wizard-requests.previous.log', 'storage-cleanup.log', 'storage-cleanup.previous.log'):
+    for name in ('wizard-requests.log', 'wizard-requests.previous.log', 'storage-cleanup.log', 'storage-cleanup.previous.log',
+                 'package-export.jsonl', 'package-export.previous.jsonl'):
         path = ordinary(root / 'logs' / name)
         if path.is_file(): candidates.append((path.stat().st_mtime_ns, 'wizard/' + name, path, False))
     for log_root, prefix, accept in ((session_root / 'logs', 'wizard', lambda name: bool(WIZARD_LOG.fullmatch(name))),

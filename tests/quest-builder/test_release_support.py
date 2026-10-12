@@ -193,6 +193,28 @@ class SupportTests(unittest.TestCase):
         log = self.directory / 'logs/install.log'
         log.write_text('Quest installation stopped: No authorized USB Quest\nADB log: ' + str(path) + '\n')
         return name, path, log
+
+    def test_portable_export_diagnostics_include_only_bounded_receipt_and_allowlisted_logs(self):
+        write_json(self.root / 'packages/latest-export.json', {'result': {
+            'schema': 1, 'package': 'dev.gloomhavenvr.quest', 'path': 'C:\\PrivateOwnedGame\\shared.zip',
+            'size': 123456, 'sha256': 'a' * 64, 'displayName': 'SecretName',
+            'signingKey': 'PRIVATE KEY MUST NOT SHIP', 'inventory': ['PRIVATE ORIGINAL ASSET']}})
+        logs = self.root / 'logs'; logs.mkdir()
+        (logs / 'package-export.jsonl').write_text('export_failed C:\\PrivateOwnedGame\\shared.zip\nAuthorization: Bearer PRIVATE\n')
+        (logs / 'package-export.previous.jsonl').write_text('export_started\n')
+        (logs / 'unrelated-export.log').write_text('UNRELATED LOG MUST NOT SHIP')
+        (self.root / 'packages/shared.zip').write_bytes(b'GAME BYTES MUST NOT SHIP')
+        (self.root / 'packages/private.keystore').write_bytes(b'PRIVATE KEY MUST NOT SHIP')
+        _, files = self.export()
+        receipt = json.loads(files['diagnostic.json'])['portableExport']
+        self.assertEqual(receipt['size'], 123456)
+        self.assertEqual(receipt['sha256'], 'a' * 64)
+        self.assertIn('<owned-game>', receipt['path'])
+        self.assertIn('wizard/package-export.jsonl', files)
+        self.assertIn('wizard/package-export.previous.jsonl', files)
+        text = '\n'.join(files.values())
+        for secret in ('PrivateOwnedGame', 'SecretName', 'PRIVATE', 'GAME BYTES', 'UNRELATED LOG'):
+            self.assertNotIn(secret, text)
     def test_support_exports_exact_current_adb_log_with_existing_redaction(self):
         name, path, log = self.install_log()
         before = path.read_bytes()

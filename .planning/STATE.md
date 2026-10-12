@@ -1,5 +1,26 @@
 # State — where the project stands
 
+**Quest portable installation ZIP and recipient updates, 2026-10-12.**
+
+The maintainer approved a single PC-side ZIP instead of a legacy oversized APK.
+Export in the Wizard and CLI includes the existing signed APK, complete game
+bank and transport manifest; no Unity compilation, recompression or signing keys.
+Both edit modes accept ZIP/APK inputs and suggest the completed `.ghvrq` APK.
+Matching owned PC inputs remain required. Auto signing uses a matching local key
+or the receiving PC's own key; name-only editing preserves the profile ID.
+
+APK import is resumable and copies only APK bytes. The nested STORED bank has a
+bounded seekable reader, so installation and re-export require no materialized
+11-GB duplicate. Closed update receipts retain bank locators through cache cleanup.
+Warm per-file delivery skips complete bank hashing; cold/targeted repair checks
+the actual required files against the signed installation inventory. Export has
+measured aggregate progress, cancellation, free-space qualification and atomic
+publication. Diagnostics retain bounded export logs and redacted summary metadata.
+Focused checks and actual extracted Linux launcher evidence are recorded in the
+new handoff validation. Runtime remains671; no new full game APK is built locally.
+Windows end-to-end and physical Quest acceptance remain unverified. See
+[Quest builder](../tools/quest-builder/README.md).
+
 **Quest APK selection and retained mod-update migration, 2026-10-11.**
 
 Both edit entry points suggest only the last completed workspace APK and retain
@@ -18,10 +39,10 @@ was built this round. Runtime remains671 and main/v1.1.0 is already included.
 The maintainer requested one portable file containing every game asset. Official
 Meta guidance uses an APK plus expansion/required assets. Android14 v2/v3 rejects
 ZIP64 APKs; the host-tested target29/v1 alternative has no Quest installation or
-Unity runtime acceptance. The choice between that legacy APK route and a single
-PC-side ZIP installation package remains pending. No SDK/signature downgrade or
-unapproved package-format switch was implemented. Cross-PC personalization also
-needs an explicit new-owner signing path; ordinary original-key guards remain.
+Unity runtime acceptance. The subsequent 2026-10-12 choice approves the single
+PC-side ZIP installation package described above. No SDK/signature downgrade is
+implemented. Explicit recipient signing now supports cross-PC personalization;
+strict original-key mode remains available.
 Developer contracts and sources: [Quest builder](../tools/quest-builder/README.md).
 
 **Quest startup access repair, 2026-10-11.**

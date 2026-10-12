@@ -63,6 +63,7 @@ REQUIRED = set(PUBLIC_PACKAGES) | {'Quest-Builder.cmd', 'QUEST-BUILDER-START.txt
             'tools/quest-wizard/wizard.py', 'tools/quest-wizard-ui/index.html', 'tools/quest-installer/bootstrap.ps1',
             'tools/quest-installer/installer.py', 'tools/quest-installer/signing_recovery.py',
             'tools/quest-installer/content_access.py',
+            'tools/quest-builder/portable_package.py', 'tools/quest-wizard/package_tools.py',
             'tools/quest-installer/native_rename.py', 'tools/quest-wizard/device_tools.py',
             'tools/quest-builder/builder.py', 'tools/quest-builder/release.py',
             'tools/quest-builder/preparation_metadata.py', 'tools/quest-builder/editor_overlay.py',

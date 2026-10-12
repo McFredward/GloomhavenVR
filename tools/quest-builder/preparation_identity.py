@@ -107,7 +107,7 @@ def _memory_row(row):
 PREFIX_DELIVERY_HELPERS = {"tools/quest-builder/release.py", "tools/quest-builder/support.py",
                            "tools/quest-builder/README.md", "Quest-Builder.cmd", "Quest-Builder.sh",
                            "QUEST-BUILDER-START.txt", "tools/quest-builder/update_capacity.py",
-                           "tools/quest-builder/apk_input_cache.py"}
+                           "tools/quest-builder/apk_input_cache.py", "tools/quest-builder/portable_package.py"}
 # The captured Windows TLS failure precedes the first completed native-runtime
 # transaction. Its Opus downloader cannot produce any earlier original assets.
 # Once that transaction closes, this source again qualifies the native outputs.
@@ -402,6 +402,22 @@ MOD_UPDATE_DELIVERY_ROWS = {
         ZIP32_DELIVERY_ROWS["tools/quest-builder/apk_update.py"][0]),
 }
 
+# Portable export, source selection and recipient signing run after preparation.
+# These exact orchestration trees do not change any retained asset writer;
+# unknown earlier calls/import consumers still produce another identity.
+BUILDER_PORTABLE_AST = {
+    False: ("f80bd4b4261a4e30f5671b0fd1e260f0fbc81680a60eef36a5b68493cad586f9",
+            "6905242806bb695c86e84be373112f21804c425afa710398cb40b665f4d608d1"),
+    True: ("566b05ba1e939ae229d751f78cd810e53c2c8ef4891b63bbe78e1eafab0cdd30",
+           "cc09e2c539f383d447f494d386bd5fa6dd8df9989a964543d98c33f4bea6385f"),
+}
+PORTABLE_DELIVERY_ROWS = {
+    "tools/quest-builder/update_driver.py": (
+        {"path": "tools/quest-builder/update_driver.py", "size": 52109,
+         "sha256": "fc9e2f733dc1662cf29b9281f40eda4e9e13045caf0a6916fdd351fdf5d64f7f"},
+        MOD_UPDATE_DELIVERY_ROWS["tools/quest-builder/update_driver.py"][0]),
+}
+
 
 def builder_producer_digest(raw, *, original_prefix=False):
     """Qualify complete Builder code, or consumed original-prefix orchestration.
@@ -453,6 +469,8 @@ def builder_producer_digest(raw, *, original_prefix=False):
             if isinstance(node, ast.ImportFrom) and node.module == "storage":
                 node.names = [name for name in node.names if not (name.name == "persistent_inventory" and name.asname is None)]
     result = hashlib.sha256(ast.dump(tree, include_attributes=False).encode("utf-8")).hexdigest()
+    observed, preceding = BUILDER_PORTABLE_AST[bool(original_prefix)]
+    if result == observed: result = preceding
     observed, preceding = BUILDER_MOD_UPDATE_AST[bool(original_prefix)]
     if result == observed: result = preceding
     observed, preceding = BUILDER_DELIVERY_AST[bool(original_prefix)]
@@ -539,7 +557,7 @@ def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=Fal
             if row in (PLAYER_DELIVERY_ROW, FINAL_DELIVERY_ROW): continue
             if row == COMPUTE_OWNER_DELIVERY_ROW:
                 row = LATE_DELIVERY_ROWS[row['path']][1]
-            for aliases in (MOD_UPDATE_DELIVERY_ROWS, ZIP32_DELIVERY_ROWS, ZIP32_DELIVERY_PREVIOUS_ROWS):
+            for aliases in (PORTABLE_DELIVERY_ROWS, MOD_UPDATE_DELIVERY_ROWS, ZIP32_DELIVERY_ROWS, ZIP32_DELIVERY_PREVIOUS_ROWS):
                 current, preceding = aliases.get(row["path"], (None, row))
                 if row == current: row = preceding
             current, preceding = LATE_DELIVERY_ROWS.get(row["path"], (None, row))
