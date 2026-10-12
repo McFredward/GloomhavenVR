@@ -403,7 +403,12 @@ class Store:
             raise WizardError("invalid_progress", "Invalid progress event status.")
         with self._lock:
             state = self._state(session); row = self._row(state, stage)
-            if phase == "update-rebuild-required":
+            if phase == "update-compact-qualified":
+                if stage != 'build' or row.get('workMode') != 'update-mod':
+                    raise WizardError('invalid_progress', 'A compact update route belongs to the Mod update build.')
+                stage_plan.compact_update(row)
+                operation, status = None, 'progress'
+            elif phase == "update-rebuild-required":
                 if stage != "build" or row.get("workMode") != "update-mod":
                     raise WizardError("invalid_progress", "An asset migration belongs to the Mod update build.")
                 stage_plan.migrate_update(row, [detail] if detail else [])

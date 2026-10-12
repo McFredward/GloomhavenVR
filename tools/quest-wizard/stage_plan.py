@@ -283,6 +283,25 @@ def migrate_update(row, reasons=()):
     return True
 
 
+def compact_update(row):
+    """A newly qualified compact route replaces an old fallback's display plan.
+
+    The retained recovery owners remain on disk, but are no longer tasks of this
+    update. Keep the visible progress floor, never translate their completion
+    into claims about a new native-code update. Only its actual events close the
+    new compact operations.
+    """
+    if row.get('id') != 'build' or row.get('workMode') != 'update-mod' or row.get('updateStrategy') != 'cached-full-build': return False
+    previous = initialize(row); floor = previous['percent']
+    row['updateStrategy'] = 'compact-code'
+    row['progressPlan'] = {'version': 2, 'workRevision': WORK_REVISION, 'workflow': 'update-mod',
+        'current': None, 'completed': [], 'fractions': {}, 'percent': floor,
+        'progressScale': {'origin': 0., 'floor': floor}}
+    if 'attemptBoundary' in previous: row['progressPlan']['attemptBoundary'] = previous['attemptBoundary']
+    initialize(row)
+    return True
+
+
 def planned_operations(row):
     if workflow(row) == "update-profile":
         profile_plans = {

@@ -22,7 +22,8 @@ MAX_FILES = 64
 # generic metadata allowance; only identities/counts enter the support package.
 MAX_PREPARATION_JOURNAL_BYTES = 64 * 1048576
 SAFE_DETAIL_KEYS = {'schema', 'inputKey', 'gameKey', 'sourceHash', 'commit', 'modBuild', 'apkSha256',
-                    'requested', 'hardwareVerified', 'status', 'version', 'backend', 'proceduralBackend', 'outcome'}
+                    'requested', 'hardwareVerified', 'status', 'version', 'backend', 'proceduralBackend', 'outcome',
+                    'updateStrategy', 'requiresUnity', 'rebuildReasons'}
 SAFE_EVENT_KEYS = {'phase', 'done', 'total', 'unit', 'percent', 'detail', 'updatedAt', 'executable',
                    'exitCode', 'durationSeconds', 'log', 'logs', 'cause', 'builderError', 'failureStage',
                    'error', 'message', 'traceback', 'outputCount', 'controlledStop', 'tool', 'version',
@@ -128,6 +129,88 @@ def read_object(path, limit=4 * 1048576):
     with path.open('rb') as stream: raw = stream.read(limit + 1)
     if len(raw) > limit: raise BuildError('Diagnostic metadata grew beyond its read limit.')
     return json.loads(raw.decode('utf-8'))
+
+
+def update_route_stats(build_root, state, replacements=()):
+    """Explain the selected update without exporting either source inventory.
+
+    Capture114856 really reconverts assets, but lacks the old/new game identities
+    needed to separate a compatibility false positive from changed PC inputs.
+    Consult bounded, already-qualified manifests only; never rehash a game/APK.
+    A newer unrelated inspect pointer cannot claim to describe this update.
+    """
+    if state.get('choices', {}).get('mode') not in ('update-mod', 'update-profile'): return None
+    try:
+        pointer = read_object(build_root / 'latest-update-input.json', limit=65536)
+        relative = pointer.get('plan') if isinstance(pointer, dict) else None
+        if not isinstance(relative, str) or not re.fullmatch(r'updates/[0-9a-f]{64}/plan\.json', relative): return None
+        value = read_object(build_root / relative, limit=16 * 1048576)
+        inspected = state.get('completed', {}).get('inspect', {}).get('details', {})
+        if (not isinstance(value, dict) or value.get('schema') != 1
+                or value.get('updateKey') != relative.split('/')[1]
+                or value.get('mode') != state['choices']['mode']
+                or value.get('gameInputKey') != inspected.get('inputKey')
+                or value.get('baseApkSha256') != inspected.get('baseApkSha256')): return None
+        result = {key: safe_json(value[key], replacements) for key in
+                  ('mode', 'updateKey', 'gameInputKey', 'baseApkSha256', 'updateStrategy',
+                   'requiresUnity', 'codeChanged', 'artChanged', 'rebuildReasons') if key in value}
+        result['hardwareVerified'] = False
+        original = value.get('inputs', {}).get('game', {})
+        result['retainedGameKey'] = original.get('key')
+        if value.get('updateStrategy') == 'cached-full-build':
+            latest = read_object(build_root / 'latest-input.json', limit=65536)
+            manifest = latest.get('manifest') if isinstance(latest, dict) else None
+            if isinstance(manifest, str) and re.fullmatch(r'manifests/[0-9a-f]{64}\.json', manifest):
+                current = read_object(build_root / manifest, limit=16 * 1048576)
+                selected = value.get('inputs', {})
+                if (isinstance(current, dict) and current.get('inputKey') == Path(manifest).stem
+                        and current.get('target') == 'game'
+                        and current.get('mod', {}).get('key') == selected.get('mod', {}).get('key')
+                        and current.get('profileKey') == selected.get('profileKey')):
+                    def records(game):
+                        rows = game.get('files')
+                        if not isinstance(rows, list) or len(rows) > 100000: raise ValueError('unbounded inventory')
+                        result = {}
+                        for row in rows:
+                            if not isinstance(row, dict) or not isinstance(row.get('path'), str): raise ValueError('invalid inventory')
+                            if row['path'] in result: raise ValueError('duplicate inventory path')
+                            result[row['path']] = (row.get('size'), row.get('sha256'))
+                        return result
+                    before, after = records(original), records(current.get('game', {}))
+                    added, removed = sorted(after.keys() - before.keys()), sorted(before.keys() - after.keys())
+                    changed = sorted(name for name in before.keys() & after.keys() if before[name] != after[name])
+                    result['observedGameDelta'] = {'currentGameKey': current.get('game', {}).get('key'),
+                        'addedCount': len(added), 'removedCount': len(removed), 'changedCount': len(changed),
+                        'paths': safe_json((added + removed + changed)[:12], replacements), 'contentVerified': False}
+        return result
+    except (BuildError, OSError, ValueError, TypeError, AttributeError): return None
+
+
+def device_tool_evidence(root, replacements):
+    """Retain the current utility task, never enumerate captures or game data."""
+    try:
+        folder = ordinary(root / 'device')
+        value = read_object(folder / 'device-tools-state.json', limit=128 * 1024)
+        if not isinstance(value, dict) or value.get('status') not in ('idle', 'running', 'connecting', 'connected', 'capturing', 'complete', 'waiting', 'failed', 'cancelled'): return None, []
+        for serial in [value.get('serial'), value.get('hardwareSerial'),
+                       *(row.get('serial') for row in value.get('devices', [])[:32] if isinstance(row, dict))]:
+            if isinstance(serial, str) and 3 <= len(serial) <= 256: replacements.append((serial, '<quest>'))
+        summary = {key: safe_json(value[key], replacements) for key in
+                   ('status', 'operation', 'updatedAt', 'elapsedSeconds', 'message', 'progress', 'activity') if key in value}
+        summary['hardwareVerified'] = False
+        candidates = []
+        log = value.get('log')
+        if isinstance(log, str):
+            name = log.replace('\\', '/').rsplit('/', 1)[-1]
+            if re.fullmatch(r'device-tools-[0-9a-f]{32}\.log', name):
+                path = ordinary(folder / name)
+                normalize = lambda item: os.path.normcase(str(item).replace('\\', '/'))
+                if normalize(path) == normalize(log) and path.is_file():
+                    candidates.append(('device/' + name, path, False))
+        progress = ordinary(folder / 'device-tools-progress.jsonl')
+        if progress.is_file(): candidates.append(('device/device-tools-progress.jsonl', progress, True))
+        return summary, candidates
+    except (BuildError, OSError, ValueError, TypeError, AttributeError): return None, []
 
 
 def signing_recovery_stats(root, session_root, state, *, diagnostic=None):
@@ -470,6 +553,7 @@ def export_support(state_root, session, destination=None):
     if not isinstance(state, dict) or state.get('session') != session: raise BuildError('Missing diagnostic session.')
     choices = state.get('choices', {})
     replacements = [(str(root), '<workspace>'), (str(Path.home()), '<user-home>')]
+    device_summary, device_logs = device_tool_evidence(root, replacements)
     for key, label in (('gameRoot', '<owned-game>'), ('sourceRoot', '<source>'), ('steamRoot', '<store>')):
         if isinstance(choices.get(key), str): replacements.append((choices[key], label))
     # These inputs are consulted solely to redact values, never archived.
@@ -491,6 +575,7 @@ def export_support(state_root, session, destination=None):
                        for event in state.get('events', [])[-128:]],
             'limits': {'fileBytes': MAX_FILE_BYTES, 'totalBytes': MAX_TOTAL_BYTES, 'files': MAX_FILES},
             'files': [], 'omitted': [], 'hardwareVerified': False}
+    if device_summary: meta['deviceTools'] = device_summary
     repo = Path(__file__).resolve().parents[2]
     protocol = ordinary(repo / 'src/GloomhavenVR/Net/NetProtocol.cs')
     if protocol.is_file() and protocol.stat().st_size <= 1048576:
@@ -507,6 +592,8 @@ def export_support(state_root, session, destination=None):
             meta['portableExport'] = {key: safe_json(result[key], replacements)
                                       for key in ('schema', 'package', 'path', 'size', 'sha256') if key in result}
     build_root = ordinary(root / 'build')
+    route = update_route_stats(build_root, state, replacements)
+    if route: meta['updateRoute'] = route
     signing_diagnostic = {}
     signing = signing_recovery_stats(root, session_root, state, diagnostic=signing_diagnostic)
     if signing: meta['signingRecovery'] = signing
@@ -553,6 +640,8 @@ def export_support(state_root, session, destination=None):
         candidates.append((path.stat().st_mtime_ns, name, path, name.endswith('.json')))
     for name, path in installation_logs(root, session_root, state):
         candidates.append((path.stat().st_mtime_ns, name, path, False))
+    for name, path, structured in device_logs:
+        candidates.append((path.stat().st_mtime_ns, name, path, structured))
     # The actual failed child comes before historic Unity logs even if those
     # were copied/touched later. Keep resource and current Wizard context next,
     # then the bounded host-delivery command set. The existing byte/file caps

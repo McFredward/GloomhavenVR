@@ -33,6 +33,53 @@ compatible recovery, preparation and Unity imports stay owned; unknown producer
 changes never authorize reuse of obsolete generated content. Original PC inputs,
 current profile/DLC selection and the source APK signature are still qualified.
 
+The 2026-10-12 support capture114856 proves a false full migration from B665 to
+B671: the raw original export alone took 6,531.928 seconds (about109 minutes),
+followed by copies of189,701 recovered and191,488 prepared files. The changed
+Builder orchestration and compute/shader checks were reviewed observer/audit
+changes. Older signed compatibility capsules did not carry the newer producer
+AST field, although their signed source inventories already identify every file.
+Finite reviewed historical source hashes now supply that missing comparison;
+unknown producer/ABI/native changes still request the actual required migration.
+
+Update compilation follows consumed runtime/compiler and authored-art inputs,
+rather than every Wizard/installer source file. A host-only update retains the
+compiled native code and metadata and prepares signing tools without installing,
+licensing or launching Unity. A code change still requires a matched IL2CPP
+code/metadata pair. Its private compiler project retains Unity/Bee work across
+updates; its first compilation has no measured Windows duration in this repair.
+Code-only updates capture a separately owned small source subset, omitting unused
+prebuilt converters, procedural-runtime archives and unchanged authored banks.
+The signed update still records the complete actual mod source identity.
+
+| Phase | Required work and reuse policy |
+| --- | --- |
+| Host tools | Reuse closed Windows Git/.NET receipts across sessions with actual accepted-file witnesses; unchanged archives are not rehashed/extracted. Legacy ownership is seeded after a closed tool stage. Linux system Git keeps its ordinary qualification. |
+| Owned PC inputs and source | Retain exact inventories/snapshots; changed files receive targeted byte checks. Owned game/DLC qualification remains mandatory for every edit. |
+| Original export and recovery | Needed for changed real original/producer inputs or missing results. Compact updates perform none of this work. Bound completed raw batches and prepared owners remain reusable. |
+| Textures, audio, shaders and banks | Retain closed phases and repair changed/damaged outputs. The optional exhaustive shader audit remains off by default. Mutable Unity projects do not share hardlinks with recovery sources. |
+| Preparation restart | Do not rewrite an unchanged large journal. Closed backup-writer witnesses avoid an extra full backup read before interrupted rollback; modified or unsupported witnesses still qualify actual backup bytes. |
+| Unity and native compilation | Run only for changed code/art or real payload migration. Retain the stable compiler cache and existing resource-aware job admission. Never substitute an unmatched native binary/metadata pair. |
+| APK publication and signing | Rewrite the APK once with the selected replacements and qualify its signature. Retain the existing complete external content-bank locator; do not copy/reconvert that bank for a compact update. |
+| Connection and runtime captures | Count actual capture observations and show command activity/elapsed time. Known download/log/archive sizes receive measured byte progress; installed-APK hashes remain necessary for exact build attribution. |
+
+The capture contains an old completed project and a new generated project with a
+different full PC inventory key. It therefore proves additional generated trees,
+not their exact allocated Windows disk usage or a complete duplication of every
+file. Support now includes the selected route and bounded old/new inventory
+differences when the matching fallback manifests exist. After the run has stopped,
+use the storage-management preview to remove regenerable projects/recovery/Library
+caches while preserving the completed APK, required game bank or exported ZIP,
+signing identity and saves. Removing conversion/import caches saves space but
+makes a future genuine full rebuild slower; compact code/profile updates can use
+their retained finished payload without those original conversion caches.
+
+When renewed qualification permits a compact update, the progress overview drops
+an earlier false fallback's full-build task list while preserving the visible
+overall progress floor. Only current update events close its new operations.
+Device support evidence adds only the explicitly current utility log, bounded
+activity history and a redacted summary; no APK, game assets or saves are exported.
+
 Large-content packaging has a separate Android constraint. Meta recommends an
 APK plus required expansion/asset files, installed together by its distribution
 service. Its store packaging rule limits the APK to less than 1 GB and additional

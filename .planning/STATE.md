@@ -1,5 +1,31 @@
 # State — where the project stands
 
+**Quest compact-update qualification and measured device progress, 2026-10-12.**
+
+Capture114856 proves B665->B671 takes a false full migration: audit/observer-only
+changes are treated as generated-payload changes and old signed capsules lack the
+newer normalized producer field. Finite exact historical source comparisons now
+retain the original payload; unknown producer/native/ABI changes still migrate.
+The raw export alone took109 minutes. Code-only updates freeze only consumed
+compiler sources and retain a stable Unity/Bee project; unchanged code/art skip
+Unity and original snapshots. A corrected compact retry replaces the previous
+fallback's task list while retaining the visible progress floor.
+
+Warm preparation no longer rewrites its large closed journal. Interrupted undo
+uses accepted closed-copy file witnesses before restoration; missing/changed or
+unsupported proofs retain actual byte qualification. Windows compiler tools can
+reuse closed pinned receipts across sessions without repeated archive extraction.
+The report proves two generated projects with different complete PC inventories,
+not their exact physical disk duplication. Bounded update-route/inventory-delta
+diagnostics and current device-task evidence are now exported without payloads.
+
+Device connect/capture shows actual task counts, current ADB activity and elapsed
+time; known transfers use measured bytes. All29 current capture targets close
+once, including unavailable-log observations. Installed APK attribution remains
+exact. Focused host/browser and extracted delivery evidence are recorded in the
+handoff validation. No local full game APK, new runtime source or physical Quest
+acceptance this round. Runtime remains671; current main/v1.1.0 is included.
+
 **Quest focused Wizard views and actual workspace defaults, 2026-10-12.**
 
 The maintainer found export/device panels on unrelated setup pages and a forced

@@ -76,6 +76,20 @@ class UpdateMigrationTests(unittest.TestCase):
         self.assertGreater(value["stagePercent"], before)
         self.assertEqual(value["stageOperation"], "recovery")
 
+    def test_corrected_compatibility_replaces_old_fallback_without_resetting_total_bar(self):
+        self.migrate()
+        self.store.operation(self.session, 'build', 'recovery', complete=True)
+        self.store.operation(self.session, 'build', 'textures', complete=True)
+        before = self.row()['progress']['stagePercent']
+        value = self.feed(phase='update-compact-qualified', status='progress')
+        self.assertEqual(value['stagePercent'], before)
+        self.assertEqual(stage_plan.workflow(self.row()), 'update-mod')
+        self.assertEqual(value['stageTotal'], len(stage_plan.UPDATE_PLANS['update-mod']))
+        self.assertEqual(value['buildOverview']['done'], 0)
+        self.store.operation(self.session, 'build', 'update-owned-game', complete=True)
+        self.assertGreater(self.row()['progress']['stagePercent'], before)
+        self.assertNotIn('recovery', self.row()['progressPlan']['completed'])
+
     def test_duplicate_notice_and_retry_keep_only_current_full_live_phase(self):
         self.migrate()
         self.store.operation(self.session, "build", "textures")

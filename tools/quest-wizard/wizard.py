@@ -111,7 +111,8 @@ class Engine:
             manifest = ordinary(selected / "quest-builder-release.json")
             if manifest.is_file() and not (selected / ".git").exists(): release_identity = digest(manifest)
         base_identity = None
-        if stage == "inspect" and state["choices"].get("mode", "build") != "build":
+        if ((stage == "inspect" and state["choices"].get("mode", "build") != "build")
+                or (stage == "unity" and state["choices"].get("mode") == "update-mod")):
             module = discovery.builder(self.repo)
             apk = ordinary(state["choices"]["baseApk"])
             # A user may replace an APK at the same selected path. File path
@@ -127,7 +128,9 @@ class Engine:
             pins["host"] = "linux-x64"
         return value_hash({**({"releaseIdentity": release_identity} if release_identity else {}), "choices": {name: state["choices"].get(name) for name in names}, "stage": stage, "pins": value_hash(pins),
                            **({"baseApkSha256": base_identity} if base_identity else {}),
-                           **({"prerequisitePolicy": 2} if stage == "unity" else {}), "dependencies": {name: state.get("completed", {}).get(name, {}).get("key") for name in before}})
+                           **({"prerequisitePolicy": 2} if stage == "unity" else {}),
+                           **({"updatePrerequisitePolicy": 1} if stage == "unity" and state["choices"].get("mode") == "update-mod" else {}),
+                           "dependencies": {name: state.get("completed", {}).get(name, {}).get("key") for name in before}})
 
     def selected_apk(self, state, module):
         """Retain the chosen package path while resolving only its cached APK."""
@@ -236,6 +239,7 @@ class Engine:
                     self.store.clear_waiting(session, stage)
                     self.store.progress(session, stage, "complete", 1, 1, "stages", "Verified stage outputs reused.")
                     state.setdefault("completed", {})[stage] = {"key": prior["key"], "details": prior["details"]}
+                    if stage == 'tools': self.record_tool_owner(state, key)
                     self.emit(self.store.event(state, "stage_reused", stage, durationSeconds=row["durationSeconds"], outputCount=len(prior["outputs"]))); continue
                 row.update(status="running", attempts=row["attempts"] + 1, startedAt=time.time())
                 if hasattr(supervisor, "set_stage"): supervisor.set_stage(stage)
@@ -246,6 +250,11 @@ class Engine:
                                 "inspect": "Reading owned game files and the selected mod source manifest.",
                                 "build": "Preparing complete game assets, compiling the current mod and Android player.",
                                 "install": "Connecting to the Quest and installing the verified APK and content."}
+                if state["choices"].get("mode") == "update-mod":
+                    descriptions["unity"] = "Checking whether this update needs compilation or only signing tools."
+                    descriptions["build"] = "Updating the selected APK; retaining compatible game content and compiled code."
+                elif state["choices"].get("mode") == "update-profile":
+                    descriptions["build"] = "Replacing the selected player profile and signing the existing APK."
                 self.store.progress(session, stage, "starting", detail=("Finishing the retained Android Player; earlier preparation and Unity work are not repeated."
                                                                          if stage == "build" and delivery_resume else descriptions[stage]))
                 self.emit(self.store.event(state, "stage_started", stage))
@@ -267,6 +276,7 @@ class Engine:
                 self.store.check_cancel(session)
                 receipt = self.store.publish(session, stage, key, paths, details)
                 state.setdefault("completed", {})[stage] = {"key": receipt["key"], "details": details}
+                if stage == 'tools': self.record_tool_owner(state, key)
                 row.update(status="complete", details=details, durationSeconds=round(time.monotonic() - started, 3))
                 self.store.clear_waiting(session, stage)
                 self.store.progress(session, stage, "complete", 1, 1, "stages", "Stage outputs verified.")
@@ -503,6 +513,11 @@ class Engine:
     def details(self, state, stage): return state["completed"][stage]["details"]
     def log(self, state, stage): return self.store.session_dir(state["session"]) / "logs" / (stage + ".log")
 
+    def record_tool_owner(self, state, key):
+        if self.actions or state['choices'].get('mode', 'build') == 'update-profile': return
+        import tool_reuse
+        tool_reuse.record(self.store, state['session'], key, tool_reuse.recipe('compiler'))
+
     def check_downloads(self, state):
         import network_preflight
         pending = {stage for stage in STAGES if state.get("completed", {}).get(stage, {}).get("key") != self.key(state, stage)}
@@ -577,6 +592,14 @@ class Engine:
                               'Vor dem Linux-Build die gekauften DLCs in der Auswahl angeben. Eine leere Auswahl bedeutet nur das Basisspiel.')
         if state["choices"].get("mode") == "update-profile":
             return provision.profile_tools(self.store, state["session"], supervisor)
+        import tool_reuse
+        retained = tool_reuse.lookup(self.store, tool_reuse.recipe('compiler'))
+        if retained:
+            for name in ('git', 'dotnet8', 'dotnet10'):
+                self.store.operation(state['session'], 'tools', 'verify-' + name, complete=True,
+                                     detail='Closed pinned ' + name + ' files retained; no download or extraction.')
+            self.emit(self.store.event(state, 'compiler_tools_reused', 'tools', outputCount=len(retained[0])))
+            return retained
         return provision.tools(self.store, state["session"], supervisor)
     def stage_source(self, state, supervisor):
         if state["choices"].get("mode") == "update-profile":
@@ -592,6 +615,26 @@ class Engine:
             marker = self.store.session_dir(state["session"]) / "profile-no-unity.json"
             atomic_json(marker, {"schema": 1, "required": False, "reason": "Signed offline profile is updated without Unity."})
             return [marker], {"required": False}
+        if state["choices"].get("mode") == "update-mod":
+            root = Path(self.details(state, "source")["sourceRoot"])
+            module = discovery.builder(root)
+            updates = module._local_helper("update_driver")
+            self.store.operation(state["session"], "unity", "prerequisites",
+                                 detail="Comparing changed mod inputs before preparing the compiler.")
+            base = module.apk_updates.inspect_base(self.selected_apk(state, module))
+            files, _, _ = module.source_inventory(root)
+            requirements = updates.update_requirements(module, root, base, files, module.mod_build(root))
+            # This comparison admits only provisioning, never APK editing. The
+            # normal inspect step independently qualifies ownership/signatures
+            # and the actual current source before any output is published.
+            if not requirements["requiresUnity"]:
+                paths, _ = provision.profile_tools(self.store, state["session"], supervisor, stage="unity")
+                marker = self.store.session_dir(state["session"]) / "update-no-unity.json"
+                atomic_json(marker, {"schema": 1, "required": False, "sourceKey": value_hash({"files": files}),
+                                     "reason": "Runtime code, mod artwork and serialized game producers are unchanged."})
+                self.store.operation(state["session"], "unity", "prerequisites", complete=True,
+                                     detail="Existing compiled code and game contents retained; signing tools prepared.")
+                return [marker, *paths], {"required": False, "apkToolsPath": str(self.store.session_dir(state["session"]) / "apk-tools.json")}
         from unity_setup import prepare
         return prepare(self.store, state, supervisor)
 
@@ -643,7 +686,7 @@ class Engine:
                 "--game-root", state["choices"]["gameRoot"], "--repo-root", str(root), "--target", "game",
                 "--output-root", str(self.store.root / "build"),
                 "--profile-json", profile["profilePath"], "--steam-logo", profile["steamLogo"]]
-        if mode == "update-profile":
+        if mode == "update-profile" or self.details(state, "unity").get("required") is False:
             argv += ["--apk-tools-json", str(self.store.session_dir(state["session"]) / "apk-tools.json")]
         else:
             argv += ["--dotnet", tool["dotnet8"], "--recovery-dotnet", tool["dotnet10"],
@@ -678,11 +721,16 @@ class Engine:
             requires_unity = plan.get("requiresUnity", mode == "update-mod")
             reasons = plan.get("rebuildReasons", [])
             if (plan.get("mode", mode) != mode or strategy not in ("profile-only", "compact-code", "cached-full-build")
-                    or type(requires_unity) is not bool or requires_unity != (mode == "update-mod")
+                    or type(requires_unity) is not bool
+                    or (mode == "update-profile" and requires_unity)
+                    or (strategy == "cached-full-build" and not requires_unity)
                     or (mode == "update-profile") != (strategy == "profile-only")
                     or not isinstance(reasons, list) or len(reasons) > 16
                     or any(not isinstance(item, str) or len(item) > 4096 for item in reasons)):
                 raise WizardError("update_input", "Update compatibility strategy is invalid.")
+            if requires_unity and not self.details(state, "unity").get("unityEditor"):
+                raise WizardError("update_unity_required", "The current inputs now require Unity. Retry to prepare the compiler; retained game contents are preserved.",
+                                  "Die aktuellen Eingaben benötigen jetzt Unity. Erneut versuchen, um den Compiler vorzubereiten; vorhandene Spielinhalte bleiben erhalten.")
             return [pointer, path], {"inputKey": plan["gameInputKey"], "gameKey": plan["inputs"]["game"]["key"],
                                     "baseApkSha256": plan["baseApkSha256"], "modBuild": plan["inputs"]["mod"]["modBuild"],
                                     "updateStrategy": strategy, "requiresUnity": requires_unity, "rebuildReasons": reasons}
@@ -715,6 +763,9 @@ class Engine:
     def stage_build(self, state, supervisor):
         root = self.store.root / "build"
         inspected = self.details(state, "inspect")
+        if state["choices"].get("mode") == "update-mod" and inspected.get("updateStrategy") == "compact-code":
+            self.store.progress(state["session"], "build", "update-compact-qualified",
+                                detail="Existing game content retained; this run uses only the compact APK update operations.", status="progress")
         if state["choices"].get("mode") == "update-mod" and inspected.get("updateStrategy") == "cached-full-build":
             unity = self.details(state, "unity")
             if not inspected.get("requiresUnity") or not unity.get("unityEditor"):

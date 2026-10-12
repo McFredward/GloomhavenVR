@@ -68,6 +68,30 @@ visible and blocks accidental fresh planning until retry or an explicit new sele
 
 ## Resume and prerequisites
 
+For mod updates, shared requirements classification runs on the actual captured
+source before Unity provisioning. Observer-only changes use the pinned signing
+tools without an Editor or licence probe; final inspect independently qualifies
+owned PC/DLC/signature boundaries and the current source. Changed code/art still
+requires the compiler. Replacing an APK at the same path invalidates that earlier
+prerequisite decision. Corrected compact routes retire an old fallback overview,
+retaining the visible progress floor without claiming its old game-conversion
+steps completed any current native-code task.
+
+Closed pinned Windows Git/.NET tool receipts can cross session boundaries using
+the existing strong file witnesses, so a fresh update need not recheck/extract the
+same large archives. Changed/missing files return to ordinary pinned provisioning.
+The Linux system Git path remains separately qualified. The new shared pointer
+is published only after a real tool receipt is closed, including a resumed owner.
+
+Device tools have their own operation bar and actual task counter. Long ADB
+queries display a named current command and elapsed time; known downloads/log
+transfers/capture-archive writes display measured byte progress too. Duration is
+never translated into a completion percentage. Current fixed state and bounded
+activity history allow a support export during a blocked command. Installed APK
+hashes are preserved because the build banner alone previously misattributed a
+hardware capture. Cancellation reaps owned commands and removes incomplete
+capture archives while keeping completed evidence.
+
 Completed steps are reused only after their output size and SHA256 match the
 saved receipt and their input/dependency key matches. Installation failures can
 retry independently of an already verified APK. A changed profile does not

@@ -228,15 +228,15 @@ def _tool_outputs(root):
     return sorted(path for path in root.rglob('*') if path.is_file() and not path.is_symlink())
 
 
-def _provision_tool(name, store, session):
+def _provision_tool(name, store, session, *, stage='tools'):
     spec = spec_for(name); platform_name = host_key()
     suffix = '.tar.gz' if spec.get('archive') == 'tar.gz' else '.zip'
     archive = download(spec, store.root / 'tools/downloads' / (name + '-' + spec['version'] + ('-linux-x64' if platform_name == 'linux-x64' else '') + suffix),
                        lambda: store.check_cancel(session),
-                       lambda done, total: store.progress(session, 'tools', 'tool-download-' + name, done, total, 'bytes'))
+                       lambda done, total: store.progress(session, stage, 'tool-download-' + name, done, total, 'bytes'))
     root = store.root / 'tools' / (name + '-' + spec['version'] + ('-linux-x64' if platform_name == 'linux-x64' else ''))
     executable = extract_owned(archive, root, spec, lambda: store.check_cancel(session),
-                               lambda done, total: store.progress(session, 'tools', 'tool-extract-' + name, done, total, 'files'))
+                               lambda done, total: store.progress(session, stage, 'tool-extract-' + name, done, total, 'files'))
     return executable, _tool_outputs(root)
 
 def tools(store, session, supervisor):
@@ -273,12 +273,17 @@ def tools(store, session, supervisor):
     return [path, *outputs], found
 
 
-def profile_tools(store, session, supervisor):
+def profile_tools(store, session, supervisor, *, stage='tools'):
     """Provision only Android signing tools; a profile edit needs no Unity licence."""
     host = host_key(); found, outputs = {}, []
     for name in ('apkJdk', 'apkBuildTools'):
-        executable, extracted = _provision_tool(name, store, session)
-        store.operation(session, 'tools', 'verify-' + name, detail='Pinned signing tool files extracted and qualified.', complete=True)
+        executable, extracted = (_provision_tool(name, store, session) if stage == 'tools'
+                                  else _provision_tool(name, store, session, stage=stage))
+        if stage == 'tools':
+            store.operation(session, stage, 'verify-' + name, detail='Pinned signing tool files extracted and qualified.', complete=True)
+        else:
+            store.progress(session, stage, 'tool-verify-' + name, 1, 1, 'tools',
+                           'Pinned signing tool files extracted and qualified.')
         found[name] = str(executable); outputs.extend(extracted)
     java, aapt = Path(found['apkJdk']), Path(found['apkBuildTools'])
     suffix = '.exe' if host == 'windows-x64' else ''
