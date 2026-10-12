@@ -40,13 +40,13 @@ class StorageHttpTests(unittest.TestCase):
         self.patch.stop()
         self.temp.cleanup()
 
-    def plan_action(self, root, mode, progress):
+    def plan_action(self, root, mode, progress, cancel=None):
         self.entered.set()
         progress({"phase": "scan", "done": 3, "total": None, "detail": "Owned folder metadata"})
         self.release.wait(5)
         return {**self.plan, "mode": mode}
 
-    def delete_action(self, root, selected, progress):
+    def delete_action(self, root, selected, progress, cancel=None):
         self.assertEqual(selected, self.plan)
         progress({"phase": "delete", "done": 2, "total": 2})
         return {"freedBytes": 10, "deletedFiles": 2, "invalidatedStages": []}
@@ -127,7 +127,7 @@ class StorageHttpTests(unittest.TestCase):
         self.assertEqual(self.request('/api/storage/plan', {'mode': 'duplicates'})[0], 200)
         value = self.wait_status('preview')
         self.assertTrue(stopped.is_set()); self.assertFalse(self.http.inventory_job.is_alive())
-        self.assertEqual(value['inventory']['status'], 'paused')
+        self.assertEqual(value['inventory']['status'], 'cancelled')
         self.assertTrue(value['canDeleteBuildCache'])
         self.assertEqual(self.request('/api/storage/clean', {'planId': self.plan['id']})[0], 200)
         self.assertEqual(self.wait_status('complete')['state']['result']['deletedFiles'], 2)

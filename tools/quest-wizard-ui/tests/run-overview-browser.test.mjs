@@ -20,7 +20,7 @@ async function fixture({single=false,running=false,holdRuns=false,failSupport=fa
   let runs=[row(ids.blocked,'blocked',50,30,50),...single?[]:[row(ids.cancelled,'cancelled',8,30,8,'update-mod'),row(ids.complete,'complete',12,0,0,'update-profile')],...running?[row(ids.running,'running',3,30,3)]:[]];
   let retired=single?[]:[{...row(ids.retired,'cancelled',7,0,7),retired:true}],current={status:'idle'},operation=0,heldRuns=null;
   const requests=[];
-  const inventory=()=>({status:scanProgress?'scanning':'complete',done:scanProgress?123456:543210,detail:scanProgress?'build/cache/remaining-data':'',totalBytes:130*GiB,files:543210,completedAt:1791800000,exclusiveBytes:80*GiB,sharedBytes:30*GiB,unassignedBytes:20*GiB,
+  const inventory=()=>({status:scanProgress?'scanning':'complete',done:scanProgress?123456:543210,detail:scanProgress?'build/cache/remaining-data':'',totalBytes:130*GiB,files:scanProgress?123456:543210,previousFiles:543210,completedAt:1791800000,exclusiveBytes:80*GiB,sharedBytes:30*GiB,unassignedBytes:20*GiB,
     toolBytes:10*GiB,deliverableBytes:12*GiB,reusableBytes:100*GiB,diagnosticBytes:GiB,categories:[{id:'tools',bytes:10*GiB},{id:'apk-content',bytes:12*GiB},{id:'unity-caches',bytes:80*GiB}],runs,retiredRuns:retired});
   const storage=()=>({schema:1,event:'storage',workspaceRoot:'C:\\Users\\Fixture\\.ghvrq',freeBytes:5*GiB,volume:{totalBytes:1000*GiB,usedBytes:995*GiB,freeBytes:5*GiB},canDeleteBuildCache:true,state:current,inventory:inventory()});
   const server=createServer(async(request,response)=>{

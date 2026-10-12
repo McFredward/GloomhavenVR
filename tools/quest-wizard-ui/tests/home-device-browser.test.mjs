@@ -122,10 +122,13 @@ test('device tools guide wireless setup, expose real capture progress and downlo
   const server=await fixture();let client;
   try{
     client=await browser();await client.command('Page.navigate',{url:server.url});
-    await client.wait("document.getElementById('storage-used')&&document.getElementById('storage-used').textContent.includes('6 GiB')&&!document.getElementById('device-wireless').disabled");
+    await client.wait("!document.getElementById('home-storage').disabled");
+    assert.equal(server.requests.some(row=>row.path==='/api/storage/inventory'),false,'disk measurement is user-requested');
     await client.evaluate("document.querySelector('[data-language=de]').click()");
     assert.equal(await client.evaluate("['package-card','device-card','storage-card'].every(id=>document.getElementById(id).hidden)"),true);
     await client.chooseHome('storage');
+    await client.evaluate("document.getElementById('storage-refresh').click()");
+    await client.wait("document.getElementById('storage-used').textContent.includes('6 GiB')");
     assert.match(await client.evaluate("document.getElementById('storage-categories').textContent"),/Unity-Import.*6 GiB.*Signierschlüssel.*6,5 KiB/);
     assert.equal(await client.evaluate("document.getElementById('storage-plan-cache').hidden"),false,'retained APK permits cache cleanup from home without opening a build');
     await client.evaluate("document.getElementById('home').click()");await client.chooseHome('device');

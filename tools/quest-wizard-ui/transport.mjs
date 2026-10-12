@@ -31,6 +31,10 @@ export class LocalApi {
   packageExport(source,destination) { return this.request('/api/package/export',{source,destination}); }
   packageCancel() { return this.request('/api/package/cancel',{}); }
   storageInventory() { return this.request('/api/storage/inventory',{}); }
+  storageCancel(target,operationId) {
+    if(!['cleanup','inventory'].includes(target)||typeof operationId!=='string'||!/^[a-f0-9]{32}$/.test(operationId))throw {code:'invalidReply'};
+    return this.request('/api/storage/cancel',{target,operationId});
+  }
   deviceStatus() { return this.request('/api/device/status'); }
   deviceConnect(host='',setupWireless=false,serial='') { return this.request('/api/device/connect',{host,setupWireless,serial}); }
   deviceCapture(host='',serial='') { return this.request('/api/device/capture',{host,serial}); }
@@ -75,6 +79,7 @@ export class PreviewApi {
   async packageCancel(){throw {code:'preview'};}
   async storage() {return {schema:1,event:'storage',workspaceRoot:'C:\\Users\\Preview\\.ghvrq',freeBytes:150*1073741824,state:this.storageState??{status:'idle'},inventory:{status:'complete',totalBytes:19*1073741824,categories:[{id:'apk-content',bytes:13*1073741824,files:2},{id:'unity-caches',bytes:6*1073741824,files:24000}]}};}
   async storageInventory(){return this.storage();}
+  async storageCancel(){throw {code:'preview'};}
   async storageRuns(){return {schema:1,event:'runs',runs:[],latestSession:null};}
   async deviceStatus(){return {schema:1,event:'device',state:{status:'idle',devices:[]}};}
   async deviceConnect(){throw {code:'preview'};}

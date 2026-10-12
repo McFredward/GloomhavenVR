@@ -117,12 +117,28 @@ class LocalServer(ThreadingHTTPServer):
         self.mod_source_cache = {}
         self.action_lock = threading.Lock()
         self.storage_lock = threading.Lock()
+        self.storage_log_lock = threading.Lock()
+        self.storage_stop = threading.Event()
         self.storage_job = None
         self.storage_state = {"status": "idle"}
         self.storage_plan = None
         self.inventory_job = None
         self.inventory_state = {"status": "idle"}
         self.inventory_stop = threading.Event()
+        # Startup displays the previous bounded measurement; it never launches
+        # a hidden filesystem walk. The owned Store has already qualified the
+        # workspace marker. This summary is descriptive, never delete authority.
+        try:
+            cached = ordinary(store.root / "logs/storage-analysis.json")
+            if cached.is_file() and cached.stat().st_size <= 2 * 1048576:
+                value = json.loads(cached.read_text(encoding="utf-8"))
+                if (isinstance(value, dict) and value.get("schema") == 1 and value.get("status") == "complete"
+                        and type(value.get("totalBytes")) is int and value["totalBytes"] >= 0
+                        and type(value.get("files")) is int and value["files"] >= 0
+                        and type(value.get("completedAt")) in (int, float)):
+                    self.inventory_state = {**value, "status": "stale", "cached": True}
+        except (OSError, ValueError, WizardError):
+            pass
         self.device_factory = device_factory
         self.device_tools = None
         self.device_job = None
@@ -263,6 +279,13 @@ class LocalServer(ThreadingHTTPServer):
 
     def storage_status(self):
         with self.storage_lock:
+            # A cancellation is acknowledged only after the cooperative worker
+            # has returned and released its own kernel locks. No build, Editor
+            # or device child is stopped by the storage cancel route.
+            for name, job in (("storage_state", self.storage_job), ("inventory_state", self.inventory_job)):
+                current = getattr(self, name)
+                if current.get("status") == "cancelling" and current.get("workerStopped") and not (job and job.is_alive()):
+                    current["status"] = "cancelled"
             value = copy.deepcopy(self.storage_state)
             inventory = copy.deepcopy(self.inventory_state)
         volume = shutil.disk_usage(self.store.root)
@@ -308,26 +331,35 @@ class LocalServer(ThreadingHTTPServer):
             # scan for a duplicate preview must not hide cache reclamation.
             qualify_cache = getattr(cleanup, "has_completed_build", None)
             can_delete_cache = bool(qualify_cache(self.store.root)) if callable(qualify_cache) else False
+            operation_id, started = secrets.token_hex(16), time.time()
             with self.storage_lock:
                 self.inventory_state = {"status": "scanning", "done": 0, "total": None,
-                                        "canDeleteBuildCache": can_delete_cache}
+                                        "canDeleteBuildCache": can_delete_cache, "operationId": operation_id,
+                                        "startedAt": started, "phase": "inventory-starting"}
             self.inventory_stop.clear()
-            def progress(value):
-                with self.storage_lock: self.inventory_state.update(value)
+            progress = self.storage_progress("inventory_state", operation_id, "inventory")
             def work():
                 try:
+                    self.storage_log("started", action="inventory", operationId=operation_id)
                     result = cleanup.inventory(self.store.root, progress=progress, cancel=self.inventory_stop)
                     with self.storage_lock:
-                        self.inventory_state = {**result, "status": "complete", "completedAt": time.time()}
+                        self.inventory_state = {**result, "status": "complete", "completedAt": time.time(),
+                                                "startedAt": started, "operationId": operation_id}
+                    self.storage_log("completed", action="inventory", operationId=operation_id,
+                                     files=result.get("files"), bytes=result.get("totalBytes"))
                 except Cancelled:
                     # This is a read-only estimate, not a build or a failed
                     # cleanup. Reclamation takes priority and can remeasure later.
                     with self.storage_lock:
-                        self.inventory_state = {**self.inventory_state, "status": "paused"}
+                        self.inventory_state.update(status="cancelling", workerStopped=True, endedAt=time.time())
+                        partial = copy.deepcopy(self.inventory_state)
+                    self.storage_log("cancelled", action="inventory", operationId=operation_id, progress=partial)
                 except Exception as error:
                     message = error.message if isinstance(error, WizardError) else {"en": str(error), "de": str(error)}
                     with self.storage_lock:
-                        self.inventory_state = {"status": "failed", "error": {"message": message}}
+                        self.inventory_state.update(status="failed", error={"message": message}, endedAt=time.time())
+                        partial = copy.deepcopy(self.inventory_state)
+                    self.storage_log("failed", action="inventory", operationId=operation_id, progress=partial)
                     try: self.request_failure(error)
                     except (OSError, ImportError, RuntimeError, ValueError): pass
             self.inventory_job = threading.Thread(target=work, name="quest-storage-inventory", daemon=False)
@@ -441,15 +473,50 @@ class LocalServer(ThreadingHTTPServer):
     def storage_log(self, event, **details):
         """Bounded operation summaries survive cache cleanup and support export."""
         try:
-            path = ordinary(self.store.root / "logs/storage-cleanup.log")
-            path.parent.mkdir(parents=True, exist_ok=True)
-            if path.exists() and path.stat().st_size >= 1048576:
-                os.replace(path, path.with_name("storage-cleanup.previous.log"))
-            with path.open("a", encoding="utf-8") as stream:
-                stream.write(json.dumps({"time": datetime.now(timezone.utc).isoformat(), "event": event,
-                                         **details}, ensure_ascii=False) + "\n")
+            with self.storage_log_lock:
+                path = ordinary(self.store.root / "logs/storage-cleanup.log")
+                path.parent.mkdir(parents=True, exist_ok=True)
+                if path.exists() and path.stat().st_size >= 1048576:
+                    os.replace(path, path.with_name("storage-cleanup.previous.log"))
+                with path.open("a", encoding="utf-8") as stream:
+                    stream.write(json.dumps({"time": datetime.now(timezone.utc).isoformat(), "event": event,
+                                             **details}, ensure_ascii=False) + "\n")
         except OSError:
             pass  # A full drive must still permit preview and actual reclamation.
+
+    def storage_progress(self, state_name, operation_id, action):
+        """Live counters stay cheap; bounded phase/interval evidence survives a stop."""
+        last_phase, last_logged = None, 0.0
+        def progress(value):
+            nonlocal last_phase, last_logged
+            now = time.monotonic()
+            with self.storage_lock:
+                current = getattr(self, state_name)
+                current.update(value)
+                partial = {key: current[key] for key in ("phase", "done", "total", "files", "bytes", "folders",
+                           "currentPath", "detail", "elapsedSeconds") if key in current}
+            phase = value.get("phase")
+            if phase != last_phase or now - last_logged >= 2:
+                last_phase, last_logged = phase, now
+                self.storage_log("progress", operationId=operation_id, action=action, **partial)
+        return progress
+
+    def cancel_storage(self, target, operation_id):
+        """Request cancellation of exactly one witnessed local storage worker."""
+        with self.jobs_lock:
+            job = self.storage_job if target == "cleanup" else self.inventory_job
+            state_name = "storage_state" if target == "cleanup" else "inventory_state"
+            with self.storage_lock:
+                current = getattr(self, state_name)
+                if current.get("operationId") != operation_id:
+                    raise WizardError("cleanup_cancel_stale", "This storage operation has changed. Refresh its status before stopping it.",
+                                      "Dieser Speichervorgang hat sich geändert. Vor dem Anhalten den Status aktualisieren.")
+                active = bool(job and job.is_alive())
+                if active: current["status"] = "cancelling"
+            if active:
+                (self.storage_stop if target == "cleanup" else self.inventory_stop).set()
+                self.storage_log("cancel-requested", operationId=operation_id, action=target)
+        return self.storage_status()
 
     def storage_failure(self, error, *, preserve_state=False):
         """Keep admission failures visible too, before a cleanup thread exists."""
@@ -509,12 +576,15 @@ class LocalServer(ThreadingHTTPServer):
                 # and block the very cleanup needed to recover disk capacity.
                 self.inventory_stop.set()
             operation_id = secrets.token_hex(16)
+            self.storage_stop.clear()
             with self.storage_lock:
                 self.storage_state = {"status": "deleting" if deleting else "planning", "phase": "inventory-pausing" if inventory else "starting",
-                                      "done": 0, "total": None, "operationId": operation_id, **({"plan": selected} if selected else {})}
-            def progress(value):
-                with self.storage_lock:
-                    self.storage_state.update(value)
+                                      "done": 0, "total": None, "operationId": operation_id, "startedAt": time.time(),
+                                      "selection": {"mode": selected["mode"] if deleting else mode,
+                                                    "session": selected.get("session") if deleting else session,
+                                                    "removeData": selected.get("removeData", False) if deleting else remove_data},
+                                      **({"plan": selected} if selected else {})}
+            progress = self.storage_progress("storage_state", operation_id, "delete" if deleting else "preview")
             def work():
                 try:
                     self.storage_log("started", mode=selected["mode"] if deleting else mode, operationId=operation_id,
@@ -527,8 +597,9 @@ class LocalServer(ThreadingHTTPServer):
                         # the usual kernel locks still qualify actual deletion.
                         inventory.join()
                         self.storage_log("inventory-paused", mode=selected["mode"] if deleting else mode)
+                    if self.storage_stop.is_set(): raise Cancelled()
                     if deleting:
-                        result = cleanup.execute(self.store.root, selected, progress=progress)
+                        result = cleanup.execute(self.store.root, selected, progress=progress, cancel=self.storage_stop)
                         with self.jobs_lock:
                             for removed in result.get("sessionsRemoved", []):
                                 self.jobs.pop(removed, None)
@@ -537,22 +608,33 @@ class LocalServer(ThreadingHTTPServer):
                         with self.storage_lock:
                             self.storage_plan = None
                             self.storage_state = {"status": "complete", "result": result, "operationId": operation_id}
-                            self.inventory_state = {"status": "idle"}
+                            self.inventory_state.update(status="stale" if self.inventory_state.get("completedAt") else "idle")
                     else:
-                        planned = (cleanup.plan_session(self.store.root, session, remove_data=remove_data, progress=progress)
-                                   if mode == "session" else cleanup.plan(self.store.root, mode, progress=progress))
+                        planned = (cleanup.plan_session(self.store.root, session, remove_data=remove_data, progress=progress, cancel=self.storage_stop)
+                                   if mode == "session" else cleanup.plan(self.store.root, mode, progress=progress, cancel=self.storage_stop))
                         self.storage_log("preview", mode=mode, paths=planned["paths"], bytes=planned["bytes"], files=planned["files"])
                         with self.storage_lock:
                             self.storage_plan = planned
                             self.storage_state = {"status": "preview", "plan": planned, "operationId": operation_id}
+                except Cancelled as error:
+                    with self.storage_lock:
+                        self.storage_plan = None
+                        self.storage_state.update(status="cancelling", workerStopped=True, endedAt=time.time())
+                        if error.parameters.get("result"): self.storage_state["result"] = error.parameters["result"]
+                        partial = copy.deepcopy(self.storage_state)
+                        if partial.get("result", {}).get("deletedFiles"):
+                            self.inventory_state.update(status="stale" if self.inventory_state.get("completedAt") else "idle")
+                    self.storage_log("cancelled", operationId=operation_id, progress=partial)
                 except Exception as error:
                     code = error.code if isinstance(error, WizardError) else "cleanup_failed"
                     message = error.message if isinstance(error, WizardError) else {
                         "en": "Storage cleanup stopped: " + str(error), "de": "Speicherbereinigung angehalten: " + str(error)}
                     with self.storage_lock:
                         self.storage_plan = None
-                        self.storage_state = {"status": "failed", "error": {"code": code, "message": message}, "operationId": operation_id}
-                    self.storage_log("failed", code=code, message=message)
+                        self.storage_state.update(status="failed", endedAt=time.time(), error={"code": code, "message": message,
+                                                  "parameters": error.parameters if isinstance(error, WizardError) else {}})
+                        partial = copy.deepcopy(self.storage_state)
+                    self.storage_log("failed", code=code, message=message, operationId=operation_id, progress=partial)
                     try: self.request_failure(error)
                     except (OSError, ImportError, RuntimeError, ValueError): pass
             self.storage_job = threading.Thread(target=work, name="quest-storage", daemon=False)
@@ -563,6 +645,7 @@ class LocalServer(ThreadingHTTPServer):
         # Closing the console/server cancels owned children before allowing the
         # interpreter to exit. Receipts survive; incomplete work stays uncommitted.
         self.inventory_stop.set()
+        self.storage_stop.set()
         with self.jobs_lock: running = [(session, job) for session, job in self.jobs.items() if job.is_alive()]
         for session, _ in running: self.store.cancel(session)
         for _, job in running: job.join()
@@ -678,7 +761,8 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path == "/api/discover":
                 result = dict(self.server.discover(REPO, self.server.store))
                 result["capabilities"] = {**result.get("capabilities", {}), "deviceTools": True, "storageInventory": True,
-                                          "portablePackages": True, "runRemoval": True, "runOverview": True, "workspaceSupport": True}
+                                          "portablePackages": True, "runRemoval": True, "runOverview": True, "workspaceSupport": True,
+                                          "storageCancel": True}
                 return result
             if parsed.path == '/api/gallery':
                 return {'schema': 1, 'event': 'gallery', 'artwork': self.server.promo.visible() if self.server.promo else []}
@@ -759,6 +843,11 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path == "/api/storage/inventory":
                 if value: raise WizardError("request_body", "Unexpected storage inventory fields.")
                 return self.server.refresh_inventory()
+            if parsed.path == "/api/storage/cancel":
+                if (set(value) != {"target", "operationId"} or value["target"] not in ("cleanup", "inventory")
+                        or not isinstance(value["operationId"], str) or not re.fullmatch(r"[a-f0-9]{32}", value["operationId"])):
+                    raise WizardError("request_body", "Expected the current storage operation identity.")
+                return self.server.cancel_storage(value["target"], value["operationId"])
             if parsed.path == "/api/storage/plan":
                 if value.get("mode") == "session":
                     if (set(value) != {"mode", "session", "removeData"}

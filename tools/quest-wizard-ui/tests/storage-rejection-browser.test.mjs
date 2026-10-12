@@ -89,6 +89,9 @@ for(const options of [{failAt:'plan',status:'blocked'},{failAt:'clean',status:'c
         await client.evaluate("document.getElementById('home').click()");await client.chooseHome('storage');
         await client.evaluate("document.querySelector('[data-language=de]').click()");
         assert.equal(await client.evaluate("document.getElementById('storage-plan-duplicates').disabled"),false,'saved blocked/cancelled work does not lock cleanup');
+        assert.equal(server.requests.filter(row=>row.path==='/api/storage/inventory').length,0,'launch never starts a hidden scan');
+        await client.evaluate("document.getElementById('storage-refresh').click()");
+        await client.wait("document.getElementById('storage-inventory-status').textContent.includes('12.345')");
         assert.match(await client.evaluate("document.getElementById('storage-inventory-status').textContent"),/12.345 Dateien/);
         await client.evaluate("document.getElementById('storage-plan-duplicates').click()");
         if(options.failAt==='clean'){

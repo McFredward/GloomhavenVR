@@ -81,7 +81,7 @@ function showSlide(index) {
   $('gallery-note').textContent=[caption,t(row.altCode??'ownedArtwork')].filter(Boolean).join(' · ');
   clearTimeout(slideTimer);if(!slidePaused&&!document.hidden)slideTimer=setTimeout(()=>showSlide(slideIndex+1),6500);
 }
-function storageActive() {return storageBusy||['planning','deleting'].includes(storageInfo?.state?.status);}
+function storageActive() {return storageBusy||['planning','deleting','cancelling'].includes(storageInfo?.state?.status);}
 function stoppedRun(value){return typeof value?.session==='string'&&/^[a-f0-9]{32}$/.test(value.session)&&['ready','failed','blocked','cancelled','interrupted'].includes(value.status)&&!removedRuns.has(value.session);}
 function normalRuns(){
   const saved=stoppedRuns?.runs??discovery?.recentSessions??[];
@@ -143,10 +143,8 @@ function reconcileRemovedRuns(result){
   const refresh=result.state.status==='complete'&&identity&&identity!==lastCleanupRefresh;
   if(refresh){
     lastCleanupRefresh=identity;
-    // Deletion invalidates the old ownership census. Measure once after this
-    // explicit mutation, rather than displaying stale bytes or resuming a scan
-    // on every navigation/status poll. Yield until the POST's admission ends.
-    if(result.inventory?.status==='idle')setTimeout(()=>void inventoryStorage(),0);
+    // Mutation invalidates the measurement. Only a user-requested refresh may
+    // start another large filesystem walk; status and run metadata stay cheap.
   }
   if(!ids.length){if(refresh)void refreshRuns(true);return;}
   ids.forEach(id=>removedRuns.add(id));
@@ -343,7 +341,7 @@ async function downloadCapture(){
 }
 function downloadBlob(result){const url=URL.createObjectURL(result.blob),link=document.createElement('a');link.href=url;link.download=result.name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 async function inventoryStorage(){
-  if(storageInfo?.inventory?.status==='scanning'||storageActive()||deviceActive()||discovery?.capabilities?.storageInventory!==true)return;
+  if(['scanning','cancelling'].includes(storageInfo?.inventory?.status)||storageActive()||deviceActive()||discovery?.capabilities?.storageInventory!==true)return;
   $('storage-refresh').disabled=true;
   const generation=storageGeneration;
   runsRefreshAfterInventory=true;
@@ -400,11 +398,13 @@ function renderStorage() {
   $('storage-volume').hidden=!Number.isFinite(volume.usedBytes)||!Number.isFinite(volume.totalBytes);
   $('storage-volume').textContent=t('storageVolume',{used:storageSize(volume.usedBytes),total:storageSize(volume.totalBytes)});
   const current=storageInfo.state??{},status=current.status,plan=current.plan;
-  const inventory=storageInfo.inventory??{},measuring=inventory.status==='scanning';
+  const inventory=storageInfo.inventory??{},measuring=['scanning','cancelling'].includes(inventory.status);
   $('storage-refresh').hidden=discovery?.capabilities?.storageInventory!==true;
   $('storage-refresh').disabled=measuring||busy||isActive(state)||storageActive()||deviceActive()||packageActive();
   $('storage-used').textContent=Number.isFinite(inventory.totalBytes)?t('storageUsed',{size:storageSize(inventory.totalBytes)}):t('storageUsageUnknown');
-  $('storage-inventory-status').textContent=measuring?[t('storageUsageScanning',{files:new Intl.NumberFormat(language).format(inventory.done??inventory.files??0)}),typeof inventory.detail==='string'&&inventory.detail?t('storageInventoryFolder',{path:inventory.detail}):''].filter(Boolean).join(' · '):inventory.status==='failed'?t('storageUsageFailed'):inventory.completedAt?t('storageUsageMeasured',{time:new Date(inventory.completedAt*1000).toLocaleTimeString(language)}):'';
+  $('storage-inventory-cancel').hidden=!measuring||discovery?.capabilities?.storageCancel!==true;
+  $('storage-inventory-cancel').disabled=inventory.status==='cancelling'||!inventory.operationId;
+  $('storage-inventory-status').textContent=measuring?[t(inventory.status==='cancelling'?'storageCancelling':'storageUsageScanning',{files:new Intl.NumberFormat(language).format(inventory.files??inventory.done??0)}),storageCounters(inventory)].filter(Boolean).join(' · '):inventory.status==='cancelled'?[t('storageInventoryCancelled'),storageCounters(inventory)].filter(Boolean).join(' · '):inventory.status==='failed'?[t('storageUsageFailed'),message(inventory.error?.message,''),storageCounters(inventory)].filter(Boolean).join(' · '):inventory.status==='stale'?t('storageUsageStale',{time:new Date(inventory.completedAt*1000).toLocaleString(language)}):inventory.completedAt?t('storageUsageMeasured',{time:new Date(inventory.completedAt*1000).toLocaleTimeString(language)}):'';
   $('storage-categories').hidden=!Array.isArray(inventory.categories);$('storage-categories').replaceChildren();
   for(const row of inventory.categories??[]){const pair=document.createElement('div'),label=document.createElement('dt'),size=document.createElement('dd'),key='storageCategory_'+row.id;label.textContent=t(key)===key?t('storageCategory_other'):t(key);size.textContent=storageSize(row.bytes);pair.append(label,size);$('storage-categories').append(pair);}
   for(const [field,key] of [['originalApkBytes','storageBackupOriginalApk'],['appDataBytes','storageBackupAppData']]){
@@ -426,21 +426,28 @@ function renderStorage() {
   $('storage-plan-cache').hidden=!completed;$('storage-plan-cache').disabled=locked;
   if(completed&&!storageCompletedShown){$('storage-details').open=true;storageCompletedShown=true;}
   $('storage-cache-consequence').hidden=plan?.mode!=='build-cache';
-  const measured=Number.isFinite(current.done)&&Number.isFinite(current.total)&&current.total>0;
-  const count=measured?t('storageMeasured',{done:new Intl.NumberFormat(language).format(current.done),total:new Intl.NumberFormat(language).format(current.total)}):Number.isFinite(current.done)&&current.done>0?t('storageScanned',{done:new Intl.NumberFormat(language).format(current.done)}):'';
+  const measured=current.phase==='cleanup-delete'&&Number.isFinite(current.done)&&Number.isFinite(current.total)&&current.total>0;
+  const count=['planning','deleting','cancelling','cancelled','failed'].includes(status)?storageCounters(current):'';
   const files=plan?.files??0,parameters={files:new Intl.NumberFormat(language).format(files),size:storageSize(plan?.bytes)};
   const sessionPlan=plan?.mode==='session';
   const sessionEligible=sessionPlan&&plan.eligible===true;
   const removed=current.result?.sessionsRemoved;
-  const copy=['planning','deleting'].includes(status)&&current.phase==='inventory-pausing'?t('storageInventoryPausing'):status==='planning'?t('storagePlanning'):status==='deleting'?t('storageDeleting'):status==='preview'?t(sessionPlan?(plan.retired?'runRetiredPreview':'runPreview'):files>0?'storagePreview':plan?.mode==='duplicates'&&discovery?.capabilities?.runRemoval===true?'storageNoFilesRetained':'storageNoFiles',{...parameters,session:(plan?.session??'').slice(0,8)}):status==='complete'?Array.isArray(removed)&&removed.length?t('runRemoved',{session:removed.map(id=>id.slice(0,8)).join(', '),size:storageSize(current.result?.freedBytes)}):t('storageComplete',{files:new Intl.NumberFormat(language).format(current.result?.deletedFiles??0),size:storageSize(current.result?.freedBytes)}):'';
+  const copy=['planning','deleting'].includes(status)&&current.phase==='inventory-pausing'?t('storageInventoryPausing'):status==='cancelling'?t('storageCancelling'):status==='cancelled'?t('storageCancelled'):status==='planning'?t('storagePlanning'):status==='deleting'?t('storageDeleting'):status==='preview'?t(sessionPlan?(plan.retired?'runRetiredPreview':'runPreview'):files>0?'storagePreview':plan?.mode==='duplicates'&&discovery?.capabilities?.runRemoval===true?'storageNoFilesRetained':'storageNoFiles',{...parameters,session:(plan?.session??'').slice(0,8)}):status==='complete'?Array.isArray(removed)&&removed.length?t('runRemoved',{session:removed.map(id=>id.slice(0,8)).join(', '),size:storageSize(current.result?.freedBytes)}):t('storageComplete',{files:new Intl.NumberFormat(language).format(current.result?.deletedFiles??0),size:storageSize(current.result?.freedBytes)}):'';
   const failure=storageFailure??(status==='failed'?current.error:null);
   const failed=failure?t('storageFailed',{message:failure.message?message(failure.message):t(failure.code??'unknownAction')}):'';
   const buildStage=state?.stages?.find(row=>['running','cancelling','cancel_requested'].includes(row.status))?.id??state?.progress?.phase;
   const waiting=isActive(state)?t('storageWaitingBuild',{stage:buildStage?t('stage_'+buildStage):t('working')}):deviceActive()?t('storageWaitingDevice'):packageActive()?t('storageWaitingExport'):busy?t('storageWaitingSetup'):'';
   const skipped=status==='preview'&&plan?.skipped?.length?t('storageSkipped',{count:plan.skipped.length}):'';
-  $('storage-status').textContent=[failed,copy,count,['planning','deleting'].includes(status)?current.detail:'',skipped,waiting].filter(Boolean).join(' · ');$('storage-status').setAttribute('role',failure?'alert':'status');
-  $('storage-progress').hidden=!['planning','deleting'].includes(status);
-  if(measured)$('storage-progress').value=Math.min(100,Math.max(0,current.done/current.total*100));else $('storage-progress').removeAttribute('value');
+  const phaseKey='storage_phase_'+current.phase,phase=t(phaseKey)!==phaseKey?t(phaseKey):'';
+  const partial=current.result??failure?.parameters?.result;
+  const freed=partial?.deletedFiles>0?t('storagePartialRemoval',{files:new Intl.NumberFormat(language).format(partial.deletedFiles),size:storageSize(partial.freedBytes)}):'';
+  $('storage-status').textContent=[failed,copy,phase,count,freed,skipped,waiting].filter(Boolean).join(' · ');$('storage-status').setAttribute('role',failure?'alert':'status');
+  $('storage-progress').hidden=!['planning','deleting','cancelling'].includes(status);
+  if(measured)$('storage-progress').value=Math.min(99.999,Math.max(0,current.done/current.total*100));else $('storage-progress').removeAttribute('value');
+  $('storage-cancel').hidden=!['planning','deleting','cancelling'].includes(status)||discovery?.capabilities?.storageCancel!==true;
+  $('storage-cancel').disabled=storageBusy||status==='cancelling'||!current.operationId;
+  $('storage-retry').hidden=!['failed','cancelled'].includes(status)||!current.selection?.mode;
+  $('storage-retry').disabled=locked;
   const previewing=status==='preview'&&!failure;$('storage-paths').hidden=!previewing;$('storage-paths').replaceChildren();
   if(previewing)for(const row of plan?.paths??[]){const li=document.createElement('li'),path=document.createElement('code'),detail=document.createElement('small');path.textContent=row.path;detail.textContent=t('storagePlanSize',{size:storageSize(row.bytes),files:new Intl.NumberFormat(language).format(row.files??0)});li.append(path,detail);$('storage-paths').append(li);}
   $('storage-skipped').hidden=!previewing||!plan?.skipped?.length;$('storage-skipped').replaceChildren();
@@ -449,7 +456,26 @@ function renderStorage() {
   $('storage-clean').textContent=t(sessionPlan&&!plan.retired?'runConfirm':'storageConfirm');
   $('storage-clean').disabled=locked||!plan?.id||Boolean(failure)||sessionPlan&&!sessionEligible;$('storage-dismiss').disabled=locked;
 }
-function scheduleStoragePoll() {clearTimeout(storagePollTimer);if(!document.hidden)storagePollTimer=setTimeout(refreshStorage,storageActive()||storageInfo?.inventory?.status==='scanning'?750:15000);}
+function storageCounters(current){
+  const parts=[],files=current.files??current.done;
+  if(Number.isFinite(files))parts.push(t('storageScanned',{done:new Intl.NumberFormat(language).format(files)}));
+  if(Number.isFinite(current.folders))parts.push(t('storageFolders',{count:new Intl.NumberFormat(language).format(current.folders)}));
+  if(Number.isFinite(current.bytes))parts.push(t('storageObservedBytes',{size:storageSize(current.bytes)}));
+  if(current.unit==='entries'&&Number.isFinite(current.done)&&Number.isFinite(current.total))parts.push(t('storageEntries',{done:new Intl.NumberFormat(language).format(current.done),total:new Intl.NumberFormat(language).format(current.total)}));
+  const elapsed=Number.isFinite(current.startedAt)?Math.max(0,(current.endedAt??Date.now()/1000)-current.startedAt):Number.isFinite(current.elapsedSeconds)?current.elapsedSeconds:null;
+  if(elapsed!==null)parts.push(t('storageElapsed',{time:durationText(elapsed)}));
+  const path=current.currentPath??current.detail;if(typeof path==='string'&&path)parts.push(t('storageInventoryFolder',{path}));
+  return parts.join(' · ');
+}
+async function cancelStorage(target){
+  const current=target==='inventory'?storageInfo?.inventory:storageInfo?.state;
+  if(!current?.operationId||current.status==='cancelling')return;
+  storageGeneration++;current.status='cancelling';updateView();
+  try{acceptStorage(await api.storageCancel(target,current.operationId));}
+  catch(value){error(value);}
+  finally{updateView();scheduleStoragePoll();}
+}
+function scheduleStoragePoll() {clearTimeout(storagePollTimer);if(!document.hidden)storagePollTimer=setTimeout(refreshStorage,storageActive()||['scanning','cancelling'].includes(storageInfo?.inventory?.status)?750:15000);}
 async function refreshStorage() {
   if(storageBusy)return;
   const generation=storageGeneration;
@@ -1099,6 +1125,9 @@ document.querySelectorAll('[data-language]').forEach(node=>node.addEventListener
 $('storage-plan-duplicates').addEventListener('click',()=>planStorage('duplicates'));
 $('storage-plan-cache').addEventListener('click',()=>planStorage('build-cache'));
 $('storage-refresh').addEventListener('click',inventoryStorage);
+$('storage-inventory-cancel').addEventListener('click',()=>void cancelStorage('inventory'));
+$('storage-cancel').addEventListener('click',()=>void cancelStorage('cleanup'));
+$('storage-retry').addEventListener('click',()=>{const value=storageInfo?.state?.selection;if(value?.mode)void planStorage(value.mode,value.session??undefined,value.removeData===true);});
 $('storage-runs-refresh').addEventListener('click',()=>void refreshRuns());
 $('storage-run').addEventListener('change',()=>{$('storage-run-keep').checked=true;updateView();});
 $('storage-run-plan').addEventListener('click',()=>{
@@ -1200,5 +1229,6 @@ try{discovery=await api.discover();renderGames();if(discovery.games?.length===1)
   if(discovery.capabilities?.deviceTools===true)void refreshDevice();
   if(discovery.capabilities?.portablePackages===true)void refreshPackage();
   if(discovery.capabilities?.runOverview===true||discovery.capabilities?.runRemoval===true)void refreshRuns();
-  if(discovery.capabilities?.storageInventory===true&&storageInfo?.inventory?.status!=='complete')void inventoryStorage();
+  // No automatic cache enumeration at launch. A previous measurement is shown
+  // with its date; a fresh scan is an explicit storage-management action.
 }catch(value){$('discovery-status').textContent=t('notFound');error(value);}finally{busy=false;preselectUpdateApk();renderGames();updateView();}
