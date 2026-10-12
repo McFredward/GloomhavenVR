@@ -59,9 +59,17 @@ class NativeSchedules(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder); ndk = root / "ndk"; ndk.mkdir(); (ndk / "source.properties").write_bytes(b"NDK r21")
             archive = root / "box64.tar.gz"
+            abi = procedural._abi_tools("abi_audit")
+            adapter = procedural._abi_tools("box64_bionic_abi")
+            load_abi = procedural._abi_tools
             with tarfile.open(archive, "w:gz") as package:
                 item = tarfile.TarInfo("box64-" + procedural.LOCK["box64"]["revision"] + "/CMakeLists.txt")
                 item.size = 1; package.addfile(item, io.BytesIO(b"x"))
+                for library in abi.WRAPPERS:
+                    item = tarfile.TarInfo("box64-" + procedural.LOCK["box64"]["revision"]
+                                           + "/src/wrapped/wrapped" + library + "_private.h")
+                    body = b"controlled wrapper header for scheduling receipt\n"
+                    item.size = len(body); package.addfile(item, io.BytesIO(body))
             tools = root / "tools"; tools.mkdir()
             for name in ("clang", "ld.lld", "llvm-strip", "llvm-nm"): (tools / name).write_bytes(b"controlled tool")
             calls = []
@@ -76,9 +84,12 @@ class NativeSchedules(unittest.TestCase):
                         if arg.startswith("/out:"): Path(arg[5:]).write_bytes(b"MZ controlled worker")
             scheduler = SimpleNamespace(phase_budget=lambda phase, path: {"jobs": 9}, timed_phase=lambda *a, **k: nullcontext())
             guest = SimpleNamespace(apply=lambda *a: None, require_exports=lambda *a: None, REQUIRED_EXPORTS=("guest_entry",), SOURCE_SHA256="a" * 64)
-            symbols = "\n".join("T " + name for name in procedural.EXPORTS + ("quest_apparance_configure", "quest_apparance_last_error", "guest_entry"))
+            symbols = "\n".join("T " + name for name in procedural.EXPORTS + ("quest_apparance_configure", "quest_apparance_last_error", "guest_entry")
+                                + tuple(sorted(adapter.REQUIRED_EXPORTS)))
             with patch.object(procedural, "fetch", return_value=archive), patch.object(procedural, "ndk_bin", return_value=tools), \
                  patch.object(procedural, "_guest_patch"), patch.object(procedural, "_host_patch"), \
+                 patch.object(procedural, "_abi_tools", side_effect=lambda name: adapter if name == "box64_bionic_abi" else load_abi(name)), \
+                 patch.object(adapter, "apply"), \
                  patch.object(procedural, "_glibc_guest_tools", return_value=guest), \
                  patch.object(procedural, "_voice_tools", return_value=SimpleNamespace(cmake_command=lambda: "cmake")), \
                  patch.object(procedural, "_resource_tools", return_value=scheduler), patch.object(procedural.subprocess, "run", side_effect=run), \
