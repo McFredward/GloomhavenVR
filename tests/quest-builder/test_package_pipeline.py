@@ -54,7 +54,14 @@ class AuthoredModPipelineTests(Temporary):
             self.write(self.authored / (name + ".meta"), ("original-guid:" + name).encode())
         self.write(self.authored / "Assets/Editor/QuestModBundles.cs", b"controlled bundle recipe input")
         self.files = storage.inventory(self.authored)
-        self.inputs = {"inputKey": "fixture-input", "mod": {"files": [{**row, "path": ART_PREFIX + row["path"]} for row in self.files]}}
+        # The real cache owner qualifies the captured producer bytes too;
+        # authored assets alone no longer describe a valid source snapshot.
+        producer_names = ["tools/quest-builder/builder.py", "tools/quest-builder/mod_assets.py"]
+        for name in producer_names:
+            self.write(self.source / name, Path(builder.__file__).with_name(Path(name).name).read_bytes())
+        producers = storage.inventory(self.source, producer_names)
+        self.inputs = {"inputKey": "fixture-input", "mod": {"files": [
+            *[{**row, "path": ART_PREFIX + row["path"]} for row in self.files], *producers]}}
         self.commands = []
 
     def receipt(self, folder, authored):

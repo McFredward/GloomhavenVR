@@ -59,7 +59,7 @@ class CampaignShaderCachePaths(unittest.TestCase):
             (current / "interrupted-output").write_bytes(b"unfinished generated output")
             manifest = {"graphicsApi": "Vulkan", "compilerPlatform": "Vulkan",
                         "shaders": [{"guid": "b" * 32, "assetPath": "Assets/Original.shader"}],
-                        "materials": []}
+                        "programs": [], "materials": []}
 
             def native_inventory(*args, **kwargs):
                 (cache / "original-shader-inventory.json").write_bytes(b"{}"); return {}
@@ -69,6 +69,7 @@ class CampaignShaderCachePaths(unittest.TestCase):
                 self.assertFalse((overlay / "interrupted-output").exists())
                 (overlay / "Assets").mkdir(parents=True)
                 (overlay / "Assets/Original.shader").write_bytes(b"exact original program fixture")
+                (overlay / "Assets/Original.shader.meta").write_text("fileFormatVersion: 2\nguid: " + "b" * 32 + "\n")
                 return manifest
 
             converter = SimpleNamespace(ensure=lambda *args: {})
