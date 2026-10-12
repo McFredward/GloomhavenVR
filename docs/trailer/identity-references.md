@@ -25,6 +25,8 @@ the main checkout's gitignored directory:
 | `livingbones_front.png` | Original skull, skeletal anatomy, armor, sword and complete limb silhouette |
 | `official-reference-21s.png` | Unmodified 1280×720 official trailer face close-up in warm cinematic lighting |
 | `official-reference-21_5s.png` | A second original cinematic face/expression comparison |
+| `official-reference-20s.png` | Original Mindthief full-body silhouette at the front left, including feet, tail, clothing and small blade |
+| `official-reference-23s.png` | Larger original Mindthief face, eyes, ears, cloak, neck details and equipment at the right center |
 
 Native portraits are 1536×1536 with neutral soft lighting and sharp focus. Brute
 uses the original idle frame 0, original mesh order, UVs and diffuse textures.
@@ -42,6 +44,17 @@ facial proportions, painted identity and equipment should remain consistent.
 Reuse the same source portraits across cuts instead of treating each shot as a
 new character design. Arcane symbols belong primarily to the original hand
 backs and finger backs; the palm reference establishes their actual underside.
+
+For Runeveil's teammate, use the original Mindthief from the two official frames
+together: 20 seconds establishes the complete small Vermling silhouette and
+scale beside Brute; 23 seconds supplies the clearer face and equipment. Keep the
+gray/white fur, bright cyan eyes, pointed ears, violet neck details, layered
+feather/fur-like cloak, brown bag and small blade consistent. The larger detail
+frame crops the lowest feet, so it does not replace the complete silhouette
+frame. These are original trailer references, not a newly exported native actor:
+the existing bounded native exporter currently supports Brute and Living Bones.
+`mindthief-official-reference-manifest.json` records this deliberate source-only
+fallback, each timestamp, visual subject location and exact file hash.
 
 ## Reproduction
 
