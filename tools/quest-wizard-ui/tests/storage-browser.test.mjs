@@ -32,12 +32,12 @@ for(const completed of [false,true])test('native browser storage: explicit previ
           requestedMode=input.mode;storagePolls=0;storageState={status:'planning',done:0,total:4};return reply(storage());
         }
         if(path==='/api/storage/clean'){
-          assert.equal(input.planId,'displayed-only-plan');cleanCalls++;storagePolls=0;storageState={status:'deleting',done:0,total:4};return reply(storage());
+          assert.equal(input.planId,'displayed-only-plan');cleanCalls++;storagePolls=0;storageState={status:'deleting',phase:'cleanup-delete',done:0,total:4,unit:'entries',files:0};return reply(storage());
         }
         if(path==='/api/storage'){
           if(['planning','deleting'].includes(storageState.status)){
             storagePolls++;
-            if(storagePolls===1)storageState={...storageState,done:1};
+            if(storagePolls===1)storageState={...storageState,done:1,...(storageState.status==='deleting'?{files:1}:{})};
             else if(storageState.status==='planning')storageState={status:'preview',plan:{id:'displayed-only-plan',mode:requestedMode,paths:[{path:'C:\\Users\\Fixture\\.ghvrq\\build\\unused-copy',bytes:2*1073741824,files:4}],bytes:2*1073741824,files:4,exact:true}};
             else storageState={status:'complete',result:{freedBytes:2*1073741824,deletedFiles:4}};
           }
