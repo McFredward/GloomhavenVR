@@ -1,5 +1,30 @@
 # State — where the project stands
 
+**Quest cleanup read-only repair and scan cost, 2026-10-12.**
+
+Capture153619 identifies release8865ce1b8 / ModBuild671. Its stopped-run removal
+fails on a copied OpenXR Git pack `.rev` with Windows access-denied5; the retained
+trace points to the plain `Path.unlink()` in cleanup. Read-only attributes can
+cause that exact Windows error even in a Builder-created folder; the report does
+not record the failing file's actual attributes. Check those attributes on the
+exact already-authorized leaf and repair a read-only failure automatically.
+Sharing violations need bounded retries and an actionable retained recovery.
+
+The same report spends100seconds waiting for background inventory cancellation
+and then ends during build-cache preview. The user reports371712files without
+further visible progress. The old scanner repeatedly validates full ancestor
+chains and opens individual Windows metadata handles, then serializes its entire
+node list for a final fingerprint. Reduce that metadata work, stream fingerprint
+construction, and keep aggregate counters and cooperative cancellation visible
+through enumeration, validation and deletion. Source/preview identities, links,
+pins, completed deliverables and kernel/Editor ownership remain protected.
+
+Builder-only repair: retain existing build/run data and ModBuild671, deliver a
+game-free Windows/Linux archive. Focused verification and actual host benchmarks
+must distinguish simulated Windows errors from the maintainer's next Windows
+cleanup result; neither exact final scan duration nor reclaimed bytes are yet
+hardware-verified.
+
 **Quest run list, actual storage attribution and global support export, 2026-10-12.**
 
 The maintainer reports only400MiB reclaimed and ambiguous singleton resume/delete

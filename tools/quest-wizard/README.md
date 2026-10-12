@@ -143,7 +143,28 @@ not another additive partition. Candidate reclaimable bytes are estimates until
 an actual guarded deletion preview. Volume capacity is reported independently:
 logical file sizes do not prove exact physical allocation on every filesystem.
 Publish the bounded completed snapshot as `logs/storage-analysis.json` for
-support export. Refresh once after an explicit cleanup rather than on every poll.
+support export. Reopening the Wizard shows a dated cached measurement where
+available; it does not automatically enumerate the workspace. Refresh only on
+the user's explicit request. Cleanup marks measurements stale instead of
+starting another full inventory behind the deletion operation.
+
+Capture153619 reports a Windows access-denied5 on an OpenXR Git pack reverse
+index in an owned source snapshot. Windows read-only attributes can block
+deletion even for the account that created the file. Cleanup checks the exact
+already-authorized leaf, clears that attribute only when needed and retries;
+it does not change unrelated permissions. Sharing violations use bounded,
+cancellable retries and retain actionable recovery context.
+
+Cleanup scans qualify ancestors per directory and reuse enumerated metadata,
+including Windows directory batches when available. Their incremental
+fingerprint avoids serializing the entire large tree again at the end of a
+preview. Pins, linked/borrowed paths, changed previews, active producer locks
+and completed delivery/signing artifacts remain protected. Live progress uses
+aggregate files, bytes, directories, current folder and elapsed time. Unknown
+enumeration totals stay unknown rather than pretending that a local folder's
+counter is the complete job. Cancellation applies only to the selected storage
+operation, waits for that worker to exit, preserves diagnostics and any already
+removed files, and allows a new preview of the remaining data.
 
 Legacy ownership reads actual structured capacity events and the two bounded
 progress-log producer names. The capture130723 full-update fallback's new game
