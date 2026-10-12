@@ -135,7 +135,8 @@ test('unrepaired locked file keeps actionable recovery and counters until explic
     assert.equal(await client.evaluate("document.getElementById('storage-status').getAttribute('role')"),'alert');
     await delay(300);assert.equal(server.requests.filter(row=>row.path==='/api/storage/plan').length,1);
     await client.command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
-    assert.equal(await client.evaluate('document.documentElement.scrollWidth<=window.innerWidth'),true);await client.picture('storage-locked-file-recovery-mobile');
+    assert.equal(await client.evaluate('document.documentElement.scrollWidth<=window.innerWidth'),true);
+    await client.evaluate("document.getElementById('storage-status').scrollIntoView({block:'center'})");await client.picture('storage-locked-file-recovery-mobile');
     await client.evaluate("document.getElementById('storage-retry').click()");await client.wait("!document.getElementById('storage-cancel').hidden");
     assert.equal(await client.evaluate("document.getElementById('storage-status').getAttribute('role')"),'status');
     assert.equal(server.requests.filter(row=>row.path==='/api/storage/plan').length,2);
