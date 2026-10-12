@@ -2,6 +2,7 @@
 import http.client
 import importlib.util
 import json
+import shutil
 from pathlib import Path
 import sys
 import tempfile
@@ -94,6 +95,7 @@ class PortablePackageHttpTests(unittest.TestCase):
     def test_cancel_retains_original_and_last_result_then_retry_finishes(self):
         self.start(); self.request("/api/package/cancel", {})
         self.wait("cancelled"); self.assertEqual(self.source.read_bytes(), b"owned apk fixture")
+        self.http.package_job.join(3)
         self.release.set(); self.start(); self.wait("complete")
         log = (self.store.root / "logs/package-export.jsonl").read_text()
         self.assertIn("export_cancelled", log); self.assertIn("export_complete", log)
@@ -139,6 +141,8 @@ class PackageInputTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name); self.store = Store(self.root / "workspace")
         self.package = self.root / "selected.zip"; self.package.write_bytes(b"metadata fixture")
+        package_tools._destination_hints.clear()
+        self.addCleanup(package_tools._destination_hints.clear)
 
     def test_inspect_key_reads_bounded_package_identity_without_extracting_apk(self):
         selected = self.store.create(wizard.choices({"gameRoot": str(self.root / "PC"), "mode": "update-profile",
@@ -188,6 +192,57 @@ class PackageInputTests(unittest.TestCase):
                 self.assertEqual(host_paths.browse_linux("export"), str(self.package))
                 self.assertIn("--save" if name == "zenity" else "--getsavefilename", run.call_args.args[0])
                 self.assertNotIn("shell", run.call_args.kwargs)
+
+    def test_updated_workspace_default_preserves_source_export_after_cache_cleanup(self):
+        path = ROOT / "tests/quest-builder/test_portable_package.py"
+        spec = importlib.util.spec_from_file_location("wizard_closed_update_package_fixture", path)
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        fixture = module.PortablePackageTests(); fixture.setUp(); self.addCleanup(fixture.doCleanups)
+        fixture.output = self.store.root / "build"; fixture.output.mkdir()
+        protected = self.store.root / "exports/GloomhavenVR-Quest-B671.zip"
+        module.portable.export_package(fixture.ap, protected, fixture.output)
+        imported = module.portable.import_apk(protected, fixture.output)
+        updated = fixture.closed_update("b" * 64, base=imported, package=protected)
+        before = protected.read_bytes()
+        # The durable closed locator also works after deleting import data.
+        shutil.rmtree(fixture.output / "cache"); shutil.rmtree(fixture.output / "imports")
+        helper = SimpleNamespace(portable_packages=module.portable)
+        adapter = package_tools.PackageTools(ROOT, self.store.root)
+        with mock.patch.object(discovery, "builder", return_value=helper), \
+             mock.patch.object(discovery, "default_apk", return_value={"path": str(updated), "modBuild": 671}), \
+             mock.patch.object(module.portable, "open_content", side_effect=AssertionError("Default selection must not read bank payload")):
+            defaults = adapter.defaults(self.store)
+            with mock.patch.object(module.portable, "content_source", side_effect=AssertionError("Unchanged UI hint must not repeat locator/cache work")):
+                self.assertEqual(package_tools.PackageTools(ROOT, self.store.root).defaults(self.store), defaults)
+        destination = protected.with_name("GloomhavenVR-Quest-B671-copy.zip")
+        self.assertEqual(defaults["source"], str(updated))
+        self.assertEqual(defaults["destination"], str(destination))
+        with mock.patch.object(discovery, "builder", return_value=helper):
+            result = adapter.export({"source": defaults["source"], "destination": defaults["destination"]},
+                                    progress=lambda _: None, cancel=threading.Event())
+        self.assertEqual(protected.read_bytes(), before)
+        self.assertEqual(result["apk"]["sha256"], module.storage.digest(updated))
+        self.assertEqual(result["content"], fixture.delivery)
+
+    def test_default_hint_rechecks_changed_source_and_falls_back_safely_on_transient_lookup(self):
+        apk = self.root / "current.apk"; apk.write_bytes(b"current APK fixture")
+        destination = self.store.root / "exports/GloomhavenVR-Quest-B671.zip"
+        destination.parent.mkdir(); destination.write_bytes(b"existing export fixture")
+        source = self.root / "bank.zip"; source.write_bytes(b"first bank fixture")
+        locator = mock.Mock(return_value={"path": source})
+        helper = SimpleNamespace(portable_packages=SimpleNamespace(content_source=locator))
+        with mock.patch.object(discovery, "builder", return_value=helper), \
+             mock.patch.object(discovery, "default_apk", return_value={"path": str(apk), "modBuild": 671}):
+            first = package_tools.PackageTools(ROOT, self.store.root).defaults(self.store)
+            self.assertEqual(first["destination"], str(destination))
+            self.assertEqual(package_tools.PackageTools(ROOT, self.store.root).defaults(self.store), first)
+            self.assertEqual(locator.call_count, 1)
+            source.write_bytes(b"changed bank fixture")
+            locator.side_effect = OSError("Cache cleanup is in progress")
+            fallback = package_tools.PackageTools(ROOT, self.store.root).defaults(self.store)
+            self.assertEqual(fallback["destination"], str(destination.with_name(destination.stem + "-copy.zip")))
+            self.assertEqual(locator.call_count, 2)
+            self.assertEqual(destination.read_bytes(), b"existing export fixture")
 
 
 class PackageLogTests(unittest.TestCase):

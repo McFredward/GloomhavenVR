@@ -4,10 +4,22 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import stat
+import threading
 import time
 
 import discovery
 from state import WizardError, atomic_json, ordinary, read_json
+
+_destination_hints = {}
+_destination_hints_lock = threading.Lock()
+
+
+def _hint_stamp(path):
+    """Metadata qualifies a UI hint only; actual export owns all byte checks."""
+    try: info = ordinary(path).lstat()
+    except FileNotFoundError: return None
+    if not stat.S_ISREG(info.st_mode): raise ValueError("Export hint is not an ordinary file.")
+    return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
 
 
 class PackageTools:
@@ -46,8 +58,34 @@ class PackageTools:
         selected = discovery.default_apk(store)
         build = selected.get("modBuild") if selected else None
         name = "GloomhavenVR-Quest" + ("-B" + str(build) if type(build) is int else "") + ".zip"
+        destination = self.workspace / "exports" / name
+        # A personalized workspace APK can still use the bank inside a prior
+        # export. Its input field is an APK, so the UI cannot see this collision.
+        # Resolve the signed bank's bounded locator only when the proposed ZIP
+        # already exists; never hash/copy the bank just to suggest a filename.
+        if selected and destination.exists():
+            fallback = destination.with_name(destination.stem + "-copy.zip")
+            try:
+                key = (str(self.workspace), selected["path"], _hint_stamp(Path(selected["path"])),
+                       str(destination), _hint_stamp(destination))
+                with _destination_hints_lock: cached = _destination_hints.get(key)
+                if cached and cached["stamp"] == _hint_stamp(cached["source"]):
+                    return {"source": selected["path"], "destination": cached["destination"], "latestExport": self.latest()}
+                helper = discovery.builder(self.repo)
+                source = helper.portable_packages.content_source(Path(selected["path"]), self.workspace / "build")
+                protected = Path(source["path"])
+                if destination == protected or destination.samefile(protected):
+                    destination = fallback
+                hint = {"destination": str(destination), "source": protected, "stamp": _hint_stamp(protected)}
+                with _destination_hints_lock:
+                    if len(_destination_hints) >= 8: _destination_hints.pop(next(iter(_destination_hints)))
+                    _destination_hints[key] = hint
+            except (OSError, ValueError, RuntimeError, WizardError):
+                # This remains a hint. Actual export independently qualifies
+                # the APK and refuses replacing either exact payload source.
+                destination = fallback
         return {"source": selected["path"] if selected else "",
-                "destination": str(self.workspace / "exports" / name), "latestExport": self.latest()}
+                "destination": str(destination), "latestExport": self.latest()}
 
     def export(self, options, *, progress, cancel):
         helper = discovery.builder(self.repo)
