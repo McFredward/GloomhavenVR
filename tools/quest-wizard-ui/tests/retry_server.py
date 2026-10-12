@@ -66,7 +66,7 @@ Engine(store, actions=actions).run(saved["session"])
 
 
 def discover(*_):
-    return {"schema": 1, "event": "discovery", "latestSession": saved["session"], "games": [], "unityEditors": [],
+    return {"schema": 1, "event": "discovery", "latestSession": saved["session"], "recentSessions": [{"session": saved["session"], "status": saved["status"]}], "games": [], "unityEditors": [],
             "capabilities": {"browse": False, "logs": True, "support": False}}
 
 

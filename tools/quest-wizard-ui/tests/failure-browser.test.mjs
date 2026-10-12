@@ -26,7 +26,7 @@ test('failed status survives unavailable events and prominently shows cause, ret
       try {
         const url=new URL(request.url,'http://localhost');let value;
         if(request.method==='POST'){let body='';for await(const part of request)body+=part;posts.push({path:url.pathname,body:JSON.parse(body)});}
-        if(url.pathname==='/api/discover')value={schema:1,event:'discovery',latestSession:retained,games:[],unityEditors:[],capabilities:{browse:false,logs:false,support:true}};
+        if(url.pathname==='/api/discover')value={schema:1,event:'discovery',latestSession:retained,recentSessions:[{session:retained,status:state().status}],games:[],unityEditors:[],capabilities:{browse:false,logs:false,support:true}};
         else if(url.pathname==='/api/status')value={schema:1,event:'status',state:state()};
         else if(url.pathname==='/api/gallery')value={schema:1,event:'gallery',artwork:[]};
         else if(url.pathname==='/api/events'){

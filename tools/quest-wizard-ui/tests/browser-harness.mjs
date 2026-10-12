@@ -41,6 +41,11 @@ export async function browser() {
     async function evaluate(expression){const result=await command('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});assert.equal(result.exceptionDetails,undefined,expression);return result.result.value;}
     async function wait(expression){for(let index=0;index<80;index++){if(await evaluate(expression))return;await delay(50);}assert.fail('Browser condition: '+expression);}
     async function chooseHome(action='resume'){
+      if(action==='resume'||action==='remove-run'){
+        const selector=action==='remove-run'?"#home-runs-list [data-run-action=delete]":"#home-runs-list [data-run-action=resume],#home-runs-list [data-run-action=open],#home-runs-list [data-run-action=result]";
+        await wait("document.getElementById('home-page')&&!document.getElementById('home-page').hidden&&document.querySelector("+JSON.stringify(selector)+")&&!document.querySelector("+JSON.stringify(selector)+").disabled");
+        await evaluate('document.querySelector('+JSON.stringify(selector)+').click()');return;
+      }
       const id='home-'+action;
       await wait("document.getElementById('home-page')&&!document.getElementById('home-page').hidden&&document.getElementById("+JSON.stringify(id)+")&&!document.getElementById("+JSON.stringify(id)+").hidden&&!document.getElementById("+JSON.stringify(id)+").disabled");
       await evaluate('document.getElementById('+JSON.stringify(id)+').click()');

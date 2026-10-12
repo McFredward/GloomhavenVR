@@ -23,7 +23,7 @@ for(const completed of [false,true])test('native browser storage: explicit previ
         assert.equal(request.headers['x-quest-token'],'storage-fixture-token');
         let body='';for await(const data of request)body+=data;
         const input=body?JSON.parse(body):{},reply=value=>{response.writeHead(200,{'Content-Type':'application/json'});response.end(JSON.stringify(value));};
-        if(path==='/api/discover')return reply({schema:1,event:'discovery',capabilities:{browse:false,support:false,logs:false},games:[],unityEditors:[],...(completed?{latestSession:session}:{})});
+        if(path==='/api/discover')return reply({schema:1,event:'discovery',capabilities:{browse:false,support:false,logs:false},games:[],unityEditors:[],...(completed?{latestSession:session,recentSessions:[{session,status:'complete'}]}:{})});
         if(path==='/api/gallery')return reply({schema:1,event:'gallery',artwork:[]});
         if(path==='/api/status')return reply({schema:1,event:'status',session,state:{session,status:'complete',needsActions:[],choices:{gameRoot:'C:\\OwnedGame',provider:'steam',install:false},stages:['tools','source','unity','profile','inspect','build','install'].map(id=>({id,status:'complete',details:id==='install'?{requested:false}:{}})),result:{apk:'C:\\Users\\Fixture\\.ghvrq\\build\\result.apk'}}});
         if(path==='/api/events')return reply({schema:1,event:'events',session,events:[],lastEvent:0});

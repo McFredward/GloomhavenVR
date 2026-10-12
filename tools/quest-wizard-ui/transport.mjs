@@ -16,10 +16,11 @@ export class LocalApi {
     return value;
   }
   async support(session) {
-    if (!sessionId(session) || !this.token) throw {code:'invalidReply'};
+    if (session !== undefined && !sessionId(session)) throw {code:'invalidReply'};
+    if (!this.token) throw {code:'noToken'};
     const response = await this.fetcher(new URL('/api/support',this.origin), {method:'POST',
       headers:{'X-Quest-Token':this.token,'Content-Type':'application/json'},
-      cache:'no-store',credentials:'same-origin',body:JSON.stringify({session})});
+      cache:'no-store',credentials:'same-origin',body:JSON.stringify(session === undefined ? {} : {session})});
     if (!response.ok) { let value; try { value=await response.json(); } catch { throw {code:'invalidReply'}; } throw value; }
     if (response.headers.get('Content-Type') !== 'application/zip') throw {code:'invalidReply'};
     return {blob:await response.blob(),name:response.headers.get('Content-Disposition')?.match(/filename="([A-Za-z0-9_.-]+)"/)?.[1]??'quest-build-support.zip'};
@@ -68,6 +69,7 @@ export class LocalApi {
 
 // Deliberate, visibly labelled design preview; never falls through to real tools.
 export class PreviewApi {
+  async support(){throw {code:'preview'};}
   async packageStatus(){return {schema:1,event:'package',state:{status:'idle'},defaults:{source:'',destination:'C:\\Users\\Preview\\.ghvrq\\exports\\GloomhavenVR-Quest.zip'}};}
   async packageExport(){throw {code:'preview'};}
   async packageCancel(){throw {code:'preview'};}

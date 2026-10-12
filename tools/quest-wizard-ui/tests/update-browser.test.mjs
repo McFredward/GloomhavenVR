@@ -137,7 +137,7 @@ test('a just-completed APK update replaces the previous automatic default for th
     await client.evaluate("document.getElementById('primary').click()");
     await client.wait("!document.getElementById('result-card').hidden");
     await client.evaluate("document.getElementById('home').click()");
-    assert.equal(await client.evaluate("document.getElementById('home-resume').hidden"),true,'a just-completed run does not leave an aborted-run tile');
+    assert.equal(await client.evaluate("Boolean(document.querySelector('#home-runs-list .run-row:first-child [data-run-action=resume]'))"),false,'a completed row has no resume action');
     await client.chooseHome('mod');
     assert.equal(await client.evaluate("document.getElementById('base-apk').value"),server.updatedApk,'do not reuse the old automatic base after a completed update');
     assert.equal(server.requests.filter(path=>path==='/api/plan').length,1);
@@ -228,10 +228,10 @@ for(const selectedStatus of ['complete','failed','running'])test('homepage resum
   try{
     client=await browser();await client.command('Page.navigate',{url:server.url});
     await client.wait("document.getElementById('home-mod')&&!document.getElementById('home-mod').disabled");
-    assert.equal(await client.evaluate("document.getElementById('home-resume').hidden"),selectedStatus==='complete');
+    assert.equal(await client.evaluate("Boolean(document.querySelector('#home-runs-list .run-row:first-child [data-run-action=resume]'))"),selectedStatus==='failed');
     if(selectedStatus==='running'){
       await client.evaluate("document.querySelector('[data-language=de]').click()");
-      assert.match(await client.evaluate("document.getElementById('home-resume').textContent"),/Laufenden Vorgang/);
+      assert.match(await client.evaluate("document.querySelector('#home-runs-list .run-row:first-child [data-run-action=open]').textContent"),/Laufenden Vorgang/);
     }
     assert.equal(server.requests.includes('/api/status'),false,'discovery metadata does not start/reopen any run');
     await client.chooseHome('mod');

@@ -1,5 +1,5 @@
 import {translate} from './i18n.mjs';
-import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,sessionId,savedSession,resumableSession,activeWorkView,timingView,durationText,failureView,installationView,activityView,buildOverviewView,nativeMemoryView,unityImportView,unityTaskView} from './model.mjs';
+import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,sessionId,activeWorkView,timingView,durationText,failureView,installationView,activityView,buildOverviewView,nativeMemoryView,unityImportView,unityTaskView} from './model.mjs';
 import {LocalApi,PreviewApi} from './transport.mjs';
 
 const $ = id => document.getElementById(id);
@@ -12,6 +12,8 @@ let page=-1,selected=null,discovery=null,state=null,busy=false,after=0,log=[],lo
 let storageInfo=null,storageBusy=false,storagePollTimer=null,storageCompletedShown=false,storageFailure=null,storageGeneration=0;
 let storageOperationId=null,storageFailureOperationId=null;
 let stoppedRuns=null,runsBusy=false,runsFailure=null,runsGeneration=0,pendingRunSelection=null;
+let lastCleanupRefresh=null,supportBusy=false,supportResult=null,supportFailure=null;
+let runsRefreshAfterInventory=false;
 const removedRuns=new Set();
 let deviceInfo=null,deviceBusy=false,devicePollTimer=null,deviceDownloading=false;
 let qualification=null,resumeFailed=null,restoredSession=null,sessionGeneration=0;
@@ -81,14 +83,65 @@ function showSlide(index) {
 }
 function storageActive() {return storageBusy||['planning','deleting'].includes(storageInfo?.state?.status);}
 function stoppedRun(value){return typeof value?.session==='string'&&/^[a-f0-9]{32}$/.test(value.session)&&['ready','failed','blocked','cancelled','interrupted'].includes(value.status)&&!removedRuns.has(value.session);}
-function homeRemovalSession(){
-  const session=savedSession(discovery)??state?.session;
-  const row=state?.session===session?state:discovery?.recentSessions?.find(item=>item?.session===session);
-  return stoppedRun(row)?session:null;
+function normalRuns(){
+  const saved=stoppedRuns?.runs??discovery?.recentSessions??[];
+  const rows=state?.session&&!saved.some(row=>row?.session===state.session)?[state,...saved]:saved;
+  const seen=new Set();
+  return rows.filter(row=>sessionId(row?.session)&&!row.retired&&!removedRuns.has(row.session)&&!seen.has(row.session)&&seen.add(row.session))
+    .map(row=>state?.session===row.session?{...row,status:state.status,mode:state.choices?.mode??row.mode}:row)
+    .sort((left,right)=>(Number(right.updated??right.created)||0)-(Number(left.updated??left.created)||0)||(right.session===discovery?.latestSession?1:0)-(left.session===discovery?.latestSession?1:0));
+}
+function retiredRuns(){
+  const rows=storageInfo?.inventory?.retiredRuns??stoppedRuns?.retiredRuns??[];
+  return rows.filter(row=>sessionId(row?.session));
+}
+function runTitle(row){
+  const stamp=Number(row.created??row.updated),date=stamp>0?new Date(stamp*1000).toLocaleString(language,{dateStyle:'short',timeStyle:'short'}):t('runDateUnknown');
+  const mode={build:'modeBuild','update-mod':'homeMod','update-profile':'homeProfile'}[row.mode]??'modeBuild';
+  return [date,t(mode),row.session.slice(0,8)].join(' · ');
+}
+function runStatus(row){return t(row.retired?'runRetired':row.status==='ready'?'runReady':row.status==='cancel_requested'?'cancelling':row.status??'pending');}
+function runMeasurement(row){
+  const measured=storageInfo?.inventory?.runs?.find(item=>item.session===row.session)??row.storage??row;
+  return Number.isFinite(measured.exclusiveBytes)?measured:null;
+}
+function retainedCleanupEligible(row){const measured=runMeasurement(row);return !measured||measured.reclaimableBytes>0||measured.complete===false||measured.exact===false;}
+function renderRunList(target,rows,{home=false,locked=false,retired=false}={}){
+  target.replaceChildren();
+  for(const row of rows){
+    const article=document.createElement('article');article.className='run-row';article.dataset.session=row.session;
+    const title=document.createElement('h4');title.textContent=runTitle(row);article.append(title);
+    const status=document.createElement('span');status.className='run-status '+(row.retired?'retired':row.status);status.textContent=runStatus(row);article.append(status);
+    if(row.gameRoot){const path=document.createElement('p');path.className='run-game-root';path.textContent=row.gameRoot;article.append(path);}
+    const measured=runMeasurement(row),usage=document.createElement('p');usage.className='run-usage';
+    usage.textContent=measured?[t('runExclusiveSize',{size:storageSize(measured.exclusiveBytes)}),t('runSharedSize',{size:storageSize(measured.sharedBytes)}),t('runReclaimableSize',{size:storageSize(measured.reclaimableBytes)})].join(' · '):t('runStorageUnknown');article.append(usage);
+    if(measured&&Number.isFinite(measured.intermediateBytes)){
+      const detail=document.createElement('small');detail.className='run-storage-detail';detail.textContent=t('runIntermediateSize',{size:storageSize(measured.intermediateBytes)})+' · '+t('runDeliveredSize',{size:storageSize(measured.deliverableBytes)});article.append(detail);
+    }
+    if(measured&&(measured.complete===false||measured.exact===false)){const partial=document.createElement('p');partial.className='hint';partial.textContent=t('runStoragePartial');article.append(partial);}
+    const actions=document.createElement('div');actions.className='run-actions';
+    if(home&&!retired){
+      const action=isActive(row)?'open':['ready','failed','blocked','cancelled','interrupted'].includes(row.status)?'resume':row.status==='complete'?'result':null;
+      if(action){const button=document.createElement('button');button.className='secondary';button.dataset.runAction=action;button.textContent=t(action==='open'?'homeOpenActive':action==='result'?'runOpenResult':'resumeContinue');button.disabled=busy||storageActive()||deviceActive()||packageActive();button.addEventListener('click',()=>openSession(row.session));actions.append(button);}
+    }
+    if(discovery?.capabilities?.runRemoval===true&&(retired?retainedCleanupEligible(row):stoppedRun(row))){
+      const button=document.createElement('button');button.className='text-button';button.dataset.runAction=retired?'cleanup':'delete';button.textContent=t(retired?'runCleanRetained':'runRemove');button.disabled=locked;button.addEventListener('click',()=>openStorage(row.session,retired));actions.append(button);
+    }
+    if(actions.childElementCount)article.append(actions);target.append(article);
+  }
 }
 function reconcileRemovedRuns(result){
   const ids=result.state.status==='complete'&&Array.isArray(result.state.result?.sessionsRemoved)?result.state.result.sessionsRemoved.filter(id=>typeof id==='string'&&/^[a-f0-9]{32}$/.test(id)&&!removedRuns.has(id)):[];
-  if(!ids.length)return;
+  const identity=result.state.operationId??(result.state.result?JSON.stringify(result.state.result):null);
+  const refresh=result.state.status==='complete'&&identity&&identity!==lastCleanupRefresh;
+  if(refresh){
+    lastCleanupRefresh=identity;
+    // Deletion invalidates the old ownership census. Measure once after this
+    // explicit mutation, rather than displaying stale bytes or resuming a scan
+    // on every navigation/status poll. Yield until the POST's admission ends.
+    if(result.inventory?.status==='idle')setTimeout(()=>void inventoryStorage(),0);
+  }
+  if(!ids.length){if(refresh)void refreshRuns(true);return;}
   ids.forEach(id=>removedRuns.add(id));
   // A successful deletion invalidates every retained browser read of this
   // record, including an already in-flight status or optional stage log.
@@ -110,7 +163,7 @@ async function refreshAfterRemoval(){
   try{discovery=await api.discover();if(discovery?.event!=='discovery')throw {code:'invalidReply'};preselectUpdateApk();renderGames();updateView();}
   catch(value){error(value);}
   // Refresh only after this explicit mutation, never on storage status polls.
-  if(page==='storage')await refreshRuns(true);
+  await refreshRuns(true);
 }
 function acceptStorage(result) {
   if(result?.event!=='storage'||!result.state)throw {code:'invalidReply'};
@@ -125,6 +178,9 @@ function acceptStorage(result) {
   }
   storageOperationId=operationId;
   reconcileRemovedRuns(result);
+  if(runsRefreshAfterInventory&&result.inventory?.status==='complete'){
+    runsRefreshAfterInventory=false;void refreshRuns(true);
+  }
 }
 function failStorage(value) {
   // A rejected request or disconnected browser can leave the backend idle.
@@ -203,16 +259,13 @@ function renderHome(){
   $('home-device').hidden=discovery?.capabilities?.deviceTools!==true;
   $('home-storage').hidden=!storageInfo;
   for(const id of ['home-export','home-device','home-storage'])$(id).disabled=busy||!canConnect;
-  const session=resumableSession(discovery,state);
-  const savedState=state??discovery?.recentSessions?.find(row=>row?.session===session);
-  $('home-resume').hidden=!session;
-  $('home-resume').firstElementChild.textContent=t(isActive(savedState)?'homeOpenActive':'homeResume');
-  $('home-resume-copy').textContent=t('homeResumeCopy',{session:session??''});
   const locked=busy||storageActive()||deviceActive()||packageActive()||isActive(state)||!canConnect;
   for(const id of ['home-build','home-mod','home-profile'])$(id).disabled=locked;
-  $('home-resume').disabled=busy||storageActive()||deviceActive()||packageActive();
-  $('home-remove-run').hidden=discovery?.capabilities?.runRemoval!==true||!homeRemovalSession();
-  $('home-remove-run').disabled=locked;
+  const rows=normalRuns();$('home-runs').hidden=!rows.length&&!runsBusy&&!runsFailure;
+  $('home-runs-refresh').disabled=busy||runsBusy||storageActive();
+  $('home-runs-status').textContent=runsFailure?t('runsFailed',{message:runsFailure.message?message(runsFailure.message):t(runsFailure.code??'offline')}):runsBusy?t('runsLoading'):'';
+  $('home-runs-status').setAttribute('role',runsFailure?'alert':'status');
+  renderRunList($('home-runs-list'),rows,{home:true,locked});
 }
 function renderDevice(){
   $('device-card').hidden=discovery?.capabilities?.deviceTools!==true||page!=='device';
@@ -286,43 +339,48 @@ async function inventoryStorage(){
   if(storageInfo?.inventory?.status==='scanning'||storageActive()||deviceActive()||discovery?.capabilities?.storageInventory!==true)return;
   $('storage-refresh').disabled=true;
   const generation=storageGeneration;
+  runsRefreshAfterInventory=true;
   try{const result=await api.storageInventory();if(generation===storageGeneration)acceptStorage(result);}
-  catch(value){error(value);}finally{updateView();scheduleStoragePoll();}
+  catch(value){runsRefreshAfterInventory=false;error(value);}finally{updateView();scheduleStoragePoll();}
 }
 async function refreshRuns(force=false){
-  if(discovery?.capabilities?.runRemoval!==true||runsBusy&&!force)return;
+  if(discovery?.capabilities?.runOverview!==true&&discovery?.capabilities?.runRemoval!==true||runsBusy&&!force)return;
   const generation=++runsGeneration;runsBusy=true;runsFailure=null;updateView();
   try{
     const result=await api.storageRuns();
     if(result?.event!=='runs'||!Array.isArray(result.runs))throw {code:'invalidReply'};
     if(generation!==runsGeneration)return;
-    stoppedRuns={...result,runs:result.runs.filter(stoppedRun)};
+    stoppedRuns={...result,runs:result.runs.filter(row=>sessionId(row?.session)&&!row.retired&&!removedRuns.has(row.session))};
     const selected=pendingRunSelection??$('storage-run').value;
     pendingRunSelection=stoppedRuns.runs.some(row=>row.session===selected)?selected:null;
   }catch(value){if(generation===runsGeneration)runsFailure=value;}
   finally{if(generation===runsGeneration){runsBusy=false;updateView();}}
 }
-function openStorage(session=null){
+function openStorage(session=null,retired=false){
   pendingRunSelection=session;
-  if(session){$('storage-details').open=true;$('storage-run-keep').checked=true;}
-  navigatePage('storage','storage-title');void refreshRuns();
+  if(session){$('storage-details').open=true;$('storage-run-keep').checked=!retired;$('storage-run-remove-data').checked=retired;}
+  navigatePage('storage','storage-title');if(!stoppedRuns)void refreshRuns();
+  if(session)$('storage-run-choice').scrollIntoView({block:'nearest'});
 }
 function renderRuns(locked){
   const available=discovery?.capabilities?.runRemoval===true;
   $('storage-runs').hidden=!available;if(!available)return;
-  const rows=stoppedRuns?.runs??[],selection=pendingRunSelection??$('storage-run').value;
-  const key=JSON.stringify([language,rows.map(row=>[row.session,row.status,row.gameRoot,row.updated])]);
+  const rows=[...normalRuns().filter(stoppedRun),...retiredRuns().filter(retainedCleanupEligible).map(row=>({...row,retired:true}))],selection=pendingRunSelection??$('storage-run').value;
+  const key=JSON.stringify([language,rows.map(row=>[row.session,row.status,row.gameRoot,row.updated,row.created,row.mode,row.retired])]);
   if($('storage-run').dataset.runs!==key){
     $('storage-run').replaceChildren();
-    for(const row of rows){const option=document.createElement('option');option.value=row.session;option.textContent=t('runDescription',{status:t(row.status==='ready'?'runReady':row.status),session:row.session,gameRoot:row.gameRoot??''});$('storage-run').append(option);}
+    for(const row of rows){const option=document.createElement('option');option.value=row.session;option.dataset.retired=String(row.retired===true);option.textContent=runTitle(row)+' · '+runStatus(row);$('storage-run').append(option);}
     if(rows.some(row=>row.session===selection))$('storage-run').value=selection;
     $('storage-run').dataset.runs=key;
   }
   if(pendingRunSelection&&rows.some(row=>row.session===pendingRunSelection))pendingRunSelection=null;
-  const disabled=locked||runsBusy||!rows.length||Boolean(runsFailure);
+  const retired=$('storage-run').selectedOptions[0]?.dataset.retired==='true';
+  if(retired){$('storage-run-keep').checked=false;$('storage-run-remove-data').checked=true;}
+  const disabled=locked||!rows.length||Boolean(runsFailure);
   $('storage-runs-refresh').disabled=locked||runsBusy;
   for(const id of ['storage-run','storage-run-choice','storage-run-plan'])$(id).disabled=disabled;
-  $('storage-run-consequence').hidden=!rows.length;
+  $('storage-run-keep').disabled=retired;
+  $('storage-run-consequence').hidden=!rows.length;$('storage-run-consequence').textContent=t(retired?'runRetiredConsequence':'runRemovalConsequence');
   $('storage-runs-status').textContent=runsFailure?t('runsFailed',{message:runsFailure.message?message(runsFailure.message):t(runsFailure.code??'offline')}):runsBusy?t('runsLoading'):rows.length?'':t('runsEmpty');
   $('storage-runs-status').setAttribute('role',runsFailure?'alert':'status');
 }
@@ -331,12 +389,15 @@ function renderStorage() {
   if(!storageInfo)return;
   $('storage-root').textContent=storageInfo.workspaceRoot??'';
   $('storage-free').textContent=Number.isFinite(storageInfo.freeBytes)?t('storageFree',{size:storageSize(storageInfo.freeBytes)}):'';
+  const volume=storageInfo.volume??{};
+  $('storage-volume').hidden=!Number.isFinite(volume.usedBytes)||!Number.isFinite(volume.totalBytes);
+  $('storage-volume').textContent=t('storageVolume',{used:storageSize(volume.usedBytes),total:storageSize(volume.totalBytes)});
   const current=storageInfo.state??{},status=current.status,plan=current.plan;
   const inventory=storageInfo.inventory??{},measuring=inventory.status==='scanning';
   $('storage-refresh').hidden=discovery?.capabilities?.storageInventory!==true;
   $('storage-refresh').disabled=measuring||busy||isActive(state)||storageActive()||deviceActive()||packageActive();
   $('storage-used').textContent=Number.isFinite(inventory.totalBytes)?t('storageUsed',{size:storageSize(inventory.totalBytes)}):t('storageUsageUnknown');
-  $('storage-inventory-status').textContent=measuring?t('storageUsageScanning',{files:new Intl.NumberFormat(language).format(inventory.files??0)}):inventory.status==='failed'?t('storageUsageFailed'):inventory.completedAt?t('storageUsageMeasured',{time:new Date(inventory.completedAt*1000).toLocaleTimeString(language)}):'';
+  $('storage-inventory-status').textContent=measuring?[t('storageUsageScanning',{files:new Intl.NumberFormat(language).format(inventory.done??inventory.files??0)}),typeof inventory.detail==='string'&&inventory.detail?t('storageInventoryFolder',{path:inventory.detail}):''].filter(Boolean).join(' · '):inventory.status==='failed'?t('storageUsageFailed'):inventory.completedAt?t('storageUsageMeasured',{time:new Date(inventory.completedAt*1000).toLocaleTimeString(language)}):'';
   $('storage-categories').hidden=!Array.isArray(inventory.categories);$('storage-categories').replaceChildren();
   for(const row of inventory.categories??[]){const pair=document.createElement('div'),label=document.createElement('dt'),size=document.createElement('dd'),key='storageCategory_'+row.id;label.textContent=t(key)===key?t('storageCategory_other'):t(key);size.textContent=storageSize(row.bytes);pair.append(label,size);$('storage-categories').append(pair);}
   for(const [field,key] of [['originalApkBytes','storageBackupOriginalApk'],['appDataBytes','storageBackupAppData']]){
@@ -344,6 +405,14 @@ function renderStorage() {
     const pair=document.createElement('div'),label=document.createElement('dt'),size=document.createElement('dd');pair.className='storage-backup-detail';label.textContent=t(key);size.textContent=storageSize(bytes);pair.append(label,size);$('storage-categories').append(pair);
   }
   const locked=busy||isActive(state)||storageActive()||deviceActive()||packageActive();
+  $('storage-attribution').hidden=!Array.isArray(inventory.runs)&&!Array.isArray(stoppedRuns?.runs);
+  $('storage-ownership').replaceChildren();
+  for(const [field,key] of [['exclusiveBytes','storageOwnershipExclusive'],['sharedBytes','storageOwnershipShared'],['unassignedBytes','storageOwnershipUnassigned']]){
+    if(!Number.isFinite(inventory[field]))continue;
+    const pair=document.createElement('div'),label=document.createElement('dt'),size=document.createElement('dd');label.textContent=t(key);size.textContent=storageSize(inventory[field]);pair.append(label,size);$('storage-ownership').append(pair);
+  }
+  renderRunList($('storage-runs-list'),normalRuns(),{locked});
+  const retired=retiredRuns();$('storage-retired').hidden=!retired.length;renderRunList($('storage-retired-list'),retired,{retired:true,locked});
   renderRuns(locked);
   $('storage-plan-duplicates').disabled=locked;
   const completed=storageInfo.canDeleteBuildCache===true||inventory.canDeleteBuildCache===true||state?.status==='complete'||state?.stages?.some(row=>row.id==='build'&&row.status==='complete');
@@ -356,7 +425,7 @@ function renderStorage() {
   const sessionPlan=plan?.mode==='session';
   const sessionEligible=sessionPlan&&plan.eligible===true;
   const removed=current.result?.sessionsRemoved;
-  const copy=['planning','deleting'].includes(status)&&current.phase==='inventory-pausing'?t('storageInventoryPausing'):status==='planning'?t('storagePlanning'):status==='deleting'?t('storageDeleting'):status==='preview'?t(sessionPlan?'runPreview':files>0?'storagePreview':plan?.mode==='duplicates'&&discovery?.capabilities?.runRemoval===true?'storageNoFilesRetained':'storageNoFiles',{...parameters,session:plan?.session??''}):status==='complete'?Array.isArray(removed)&&removed.length?t('runRemoved',{session:removed.join(', '),size:storageSize(current.result?.freedBytes)}):t('storageComplete',{files:new Intl.NumberFormat(language).format(current.result?.deletedFiles??0),size:storageSize(current.result?.freedBytes)}):'';
+  const copy=['planning','deleting'].includes(status)&&current.phase==='inventory-pausing'?t('storageInventoryPausing'):status==='planning'?t('storagePlanning'):status==='deleting'?t('storageDeleting'):status==='preview'?t(sessionPlan?(plan.retired?'runRetiredPreview':'runPreview'):files>0?'storagePreview':plan?.mode==='duplicates'&&discovery?.capabilities?.runRemoval===true?'storageNoFilesRetained':'storageNoFiles',{...parameters,session:(plan?.session??'').slice(0,8)}):status==='complete'?Array.isArray(removed)&&removed.length?t('runRemoved',{session:removed.map(id=>id.slice(0,8)).join(', '),size:storageSize(current.result?.freedBytes)}):t('storageComplete',{files:new Intl.NumberFormat(language).format(current.result?.deletedFiles??0),size:storageSize(current.result?.freedBytes)}):'';
   const failure=storageFailure??(status==='failed'?current.error:null);
   const failed=failure?t('storageFailed',{message:failure.message?message(failure.message):t(failure.code??'unknownAction')}):'';
   const buildStage=state?.stages?.find(row=>['running','cancelling','cancel_requested'].includes(row.status))?.id??state?.progress?.phase;
@@ -369,8 +438,8 @@ function renderStorage() {
   if(previewing)for(const row of plan?.paths??[]){const li=document.createElement('li'),path=document.createElement('code'),detail=document.createElement('small');path.textContent=row.path;detail.textContent=t('storagePlanSize',{size:storageSize(row.bytes),files:new Intl.NumberFormat(language).format(row.files??0)});li.append(path,detail);$('storage-paths').append(li);}
   $('storage-skipped').hidden=!previewing||!plan?.skipped?.length;$('storage-skipped').replaceChildren();
   if(previewing)for(const row of plan?.skipped??[]){const li=document.createElement('li'),path=document.createElement('code'),detail=document.createElement('small');path.textContent=typeof row==='string'?row:row.path??'';const reason=typeof row==='object'?row.reason:'';detail.textContent=t('storageRetainedPath',{reason:reason==='shared'?t('storageRetainedShared'):reason==='shared_or_delivered'?t('storageRetainedSharedDelivered'):reason==='protected'?t('storageRetainedProtected'):t('storageRetainedUnknown')});li.append(path,detail);$('storage-skipped').append(li);}
-  $('storage-confirmation').hidden=!previewing||sessionPlan&&!sessionEligible||files<=0&&!sessionEligible;$('storage-confirm-copy').textContent=t(sessionPlan?'runConfirmCopy':'storageConfirmCopy');
-  $('storage-clean').textContent=t(sessionPlan?'runConfirm':'storageConfirm');
+  $('storage-confirmation').hidden=!previewing||sessionPlan&&!sessionEligible||files<=0&&!sessionEligible;$('storage-confirm-copy').textContent=t(sessionPlan?(plan.retired?'runRetiredConfirmCopy':'runConfirmCopy'):'storageConfirmCopy');
+  $('storage-clean').textContent=t(sessionPlan&&!plan.retired?'runConfirm':'storageConfirm');
   $('storage-clean').disabled=locked||!plan?.id||Boolean(failure)||sessionPlan&&!sessionEligible;$('storage-dismiss').disabled=locked;
 }
 function scheduleStoragePoll() {clearTimeout(storagePollTimer);if(!document.hidden)storagePollTimer=setTimeout(refreshStorage,storageActive()||storageInfo?.inventory?.status==='scanning'?750:15000);}
@@ -673,11 +742,6 @@ function renderGames() {
     info.append(title,path,badges);button.append(icon,info,marker);button.addEventListener('click',()=>selectGame(game));$('game-list').append(button);
   }
   $('browse-game').hidden=discovery?.capabilities?.browse===false;$('browse-unity').hidden=discovery?.capabilities?.browse===false;
-  const resume=resumableSession(discovery,state);
-  if(resume&&!state) {
-    const button=document.createElement('button');button.className='secondary';button.id='resume-session';button.textContent=t(resumeFailed?'resumeRetry':'resume');button.disabled=busy;
-    button.addEventListener('click',()=>openSession(resume));$('game-list').append(button);
-  }
 }
 function updateView() {
   const previous=state?.modSource,current=discovery?.modSource;
@@ -700,7 +764,7 @@ function updateView() {
   $('space-estimate').hidden=!estimate;
   if(estimate){$('space-estimate').textContent=t(estimate.scanBounded?'spacePartial':qualification.spaceWarning?'spaceLow':'spaceEstimate',{required:Math.ceil(estimate.additionalEstimatedBytes/1073741824),free:Math.floor(qualification.freeBytes/1073741824)});$('space-estimate').classList.toggle('warning',qualification.spaceWarning===true);}
   $('game-page').hidden=page!==0;$('setup-page').hidden=page!==1;$('progress-page').hidden=page!==2;
-  renderHome();renderDevice();renderPackage();
+  renderHome();renderDevice();renderPackage();renderSupport();
   const step=page===2 ? macroStep(state) : page;
   document.querySelectorAll('[data-step]').forEach(node => {const index=Number(node.dataset.step);node.classList.toggle('active',index===step);node.classList.toggle('done',index<step);if(index===step)node.setAttribute('aria-current','step');else node.removeAttribute('aria-current');});
   $('back').hidden=page!==1;$('cancel').hidden=page!==2||!isActive(state);
@@ -840,7 +904,7 @@ function renderProgress() {
   $('install-keep-saves').hidden=!installation?.canUseSaves;$('install-keep-saves').disabled=locked;
   $('install-content-reinstall').hidden=!installation?.canReinstallContent;$('install-content-reinstall').disabled=locked||deviceActive();
   $('failure-support').hidden=preview||discovery?.capabilities?.support!==true;
-  $('failure-support').disabled=!sessionId(state.session);
+  $('failure-support').disabled=supportBusy||!sessionId(state.session);
   if(connectionWait)$('action-needed-copy').textContent=t('questConnectionWaitingCopy');
   else if(action||blocked||stopped){const blockedStage=state.stages?.find(stage=>stage.status==='blocked');const code=typeof action==='string'?action:action?.code??blockedStage?.details?.needsAction;
     const hint=action?.message?message(action.message):blockedStage?.details?.message?message(blockedStage.details.message):t('action_'+code)!=='action_'+code?t('action_'+code):t('unknownAction');
@@ -861,7 +925,7 @@ function renderProgress() {
   const result=installation?.paths??state.result??state.stages?.find(stage=>stage.id==='build')?.details??{};
   $('result-path').textContent=[result.apk,result.handoff,result.outputRoot].filter(value=>typeof value==='string').join('\n')||t('resultAvailable');
   $('session-detail').textContent=t('session',{session:state.session??''});$('event-log').textContent=log.slice(-50).join('\n');
-  $('save-support').hidden=preview||discovery?.capabilities?.support!==true;$('save-support').disabled=!sessionId(state?.session);
+  $('save-support').hidden=preview||discovery?.capabilities?.support!==true;$('save-support').disabled=supportBusy||!sessionId(state?.session);
   $('stage-log-controls').hidden=!preview&&discovery?.capabilities?.logs!==true;
   loadArtwork(state.artwork);
 }
@@ -977,7 +1041,7 @@ async function primary() {
   busy=true;clearTimeout(pollTimer);sessionGeneration++;stopOptionalReads();updateView();
   try {
     if(page===1){const choices=choicesFromForm(form(),language);if(choices.mode!=='update-profile'&&!choices.acceptUnityTerms)throw {code:'missingTerms'};
-      const result=await api.plan(choices,state?.session);if(!sessionId(result.session)||!result.state)throw {code:'invalidReply'};clearLoadedLog();state=result.state;page=2;after=0;log=[];}
+      const result=await api.plan(choices,state?.session);if(!sessionId(result.session)||!result.state)throw {code:'invalidReply'};clearLoadedLog();state=result.state;page=2;after=0;log=[];void refreshRuns(true);}
     await api.run(state.session);const result=await api.status(state.session);state=result.state;await poll();schedulePoll();
   }catch(value){error(value);}finally{busy=false;updateView();}
 }
@@ -1032,7 +1096,7 @@ $('storage-runs-refresh').addEventListener('click',()=>void refreshRuns());
 $('storage-run').addEventListener('change',()=>{$('storage-run-keep').checked=true;updateView();});
 $('storage-run-plan').addEventListener('click',()=>{
   const session=$('storage-run').value;
-  if(!stoppedRuns?.runs.some(row=>stoppedRun(row)&&row.session===session))return;
+  if(!normalRuns().some(row=>stoppedRun(row)&&row.session===session)&&!retiredRuns().some(row=>row.session===session))return;
   void planStorage('session',session,$('storage-run-remove-data').checked);
 });
 $('storage-clean').addEventListener('click',cleanStorage);
@@ -1072,13 +1136,12 @@ $('home-mod').addEventListener('click',()=>beginBuild('update-mod'));
 $('home-profile').addEventListener('click',()=>beginBuild('update-profile'));
 $('home-device').addEventListener('click',()=>navigatePage('device','device-title'));
 $('home-storage').addEventListener('click',()=>openStorage());
-$('home-remove-run').addEventListener('click',()=>{const session=homeRemovalSession();if(session)openStorage(session);});
+$('home-runs-refresh').addEventListener('click',()=>refreshRuns(true));
 $('home-export').addEventListener('click',focusPackage);$('result-export').addEventListener('click',focusPackage);
 $('package-browse-source').addEventListener('click',()=>browsePackage('source'));$('package-browse-destination').addEventListener('click',()=>browsePackage('destination'));
 $('package-source').addEventListener('input',()=>{automaticPackageSource='';updateView();});$('package-destination').addEventListener('input',()=>{automaticPackageDestination='';});
 $('package-export').addEventListener('click',exportPackage);
 $('package-cancel').addEventListener('click',async()=>{try{packageInfo=await api.packageCancel();}catch(value){error(value);}finally{updateView();schedulePackagePoll();}});
-$('home-resume').addEventListener('click',()=>openSession(resumableSession(discovery,state)));
 $('home').addEventListener('click',()=>navigatePage(-1,'home-title'));
 $('device-connect').addEventListener('click',()=>deviceOperation('connect'));
 $('device-wireless').addEventListener('click',()=>deviceOperation('wireless'));
@@ -1086,15 +1149,28 @@ $('device-capture').addEventListener('click',()=>deviceOperation('capture'));
 $('device-download').addEventListener('click',downloadCapture);
 $('device-cancel').addEventListener('click',async()=>{try{const result=await api.deviceCancel();if(result?.event!=='device'||!result.state)throw {code:'invalidReply'};deviceInfo=result;}catch(value){error(value);}finally{updateView();scheduleDevicePoll();}});
 $('edit-choices').addEventListener('click',()=>{if(isActive(state))return;clearTimeout(pollTimer);restoreChoices(state?.choices);page=0;clearError();updateView();$('game-root').focus();});
-async function saveSupport() {
-  if(!sessionId(state?.session))return;
-  $('save-support').disabled=true;$('failure-support').disabled=true;
-  try {const result=await api.support(state.session);const url=URL.createObjectURL(result.blob);
-    const link=document.createElement('a');link.href=url;link.download=result.name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
-  }catch(value){error(value);}finally{$('save-support').disabled=false;$('failure-support').disabled=false;}
+function renderSupport(){
+  const available=!preview&&(discovery?.capabilities?.workspaceSupport===true||discovery?.capabilities?.support===true);
+  const workspace=discovery?.capabilities?.workspaceSupport===true;
+  $('export-support').hidden=preview;
+  $('export-support').disabled=supportBusy||!canConnect||!available||!workspace&&!sessionId(state?.session);
+  $('export-support').textContent=t(supportBusy?'logsExporting':'exportLogs');
+  for(const id of ['save-support','failure-support'])$(id).disabled=supportBusy||!sessionId(state?.session);
+  $('support-status').hidden=!supportBusy&&!supportFailure&&!supportResult;
+  $('support-status').setAttribute('role',supportFailure?'alert':'status');
+  $('support-status').textContent=supportFailure?t('logsExportFailed',{message:supportFailure.message?message(supportFailure.message):t(supportFailure.code??'offline')}):supportBusy?t('logsExporting'):supportResult?t('logsExported',{name:supportResult}):'';
 }
-$('save-support').addEventListener('click',saveSupport);
-$('failure-support').addEventListener('click',saveSupport);
+async function saveSupport(workspace=false) {
+  if(supportBusy||!canConnect)return;
+  const session=workspace&&discovery?.capabilities?.workspaceSupport===true?undefined:sessionId(state?.session)?state.session:undefined;
+  if(session===undefined&&discovery?.capabilities?.workspaceSupport!==true)return;
+  supportBusy=true;supportFailure=null;supportResult=null;renderSupport();
+  try {const result=await api.support(session);downloadBlob(result);supportResult=result.name;}
+  catch(value){supportFailure=value;}finally{supportBusy=false;renderSupport();}
+}
+$('export-support').addEventListener('click',()=>saveSupport(true));
+$('save-support').addEventListener('click',()=>saveSupport());
+$('failure-support').addEventListener('click',()=>saveSupport());
 $('failure-retry').addEventListener('click',primary);
 $('install-skip').addEventListener('click',skipInstallation);
 $('install-keep-saves').addEventListener('click',keepSavesAndInstall);
@@ -1116,5 +1192,6 @@ try{discovery=await api.discover();renderGames();if(discovery.games?.length===1)
   const editor=discovery.unityEditors?.find(row=>row.version==='2021.3.5f1'&&row.androidSupport);if(editor)$('unity-editor').value=editor.path;
   if(discovery.capabilities?.deviceTools===true)void refreshDevice();
   if(discovery.capabilities?.portablePackages===true)void refreshPackage();
+  if(discovery.capabilities?.runOverview===true||discovery.capabilities?.runRemoval===true)void refreshRuns();
   if(discovery.capabilities?.storageInventory===true&&storageInfo?.inventory?.status!=='complete')void inventoryStorage();
 }catch(value){$('discovery-status').textContent=t('notFound');error(value);}finally{busy=false;preselectUpdateApk();renderGames();updateView();}

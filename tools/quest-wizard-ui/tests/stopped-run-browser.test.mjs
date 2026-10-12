@@ -29,10 +29,10 @@ async function fixture({status='blocked',failClean=false,lostClean=false,many=fa
         let raw='';for await(const chunk of request)raw+=chunk;
         const body=raw?JSON.parse(raw):undefined;requests.push({path,method:request.method,body});
         const reply=(value,code=200)=>{response.writeHead(code,{'Content-Type':'application/json'});response.end(JSON.stringify(value));};
-        if(path==='/api/discover')return reply({schema:1,event:'discovery',capabilities:{runRemoval:true,browse:false,support:false,logs:false,portablePackages:activeUtility},games:[],unityEditors:[],latestSession:latest,
+        if(path==='/api/discover')return reply({schema:1,event:'discovery',capabilities:{runRemoval:true,runOverview:true,browse:false,support:false,logs:false,portablePackages:activeUtility},games:[],unityEditors:[],latestSession:latest,
           recentSessions:[...runs,{session:completed,status:'complete'}],defaultApk:{path:apk}});
         if(path==='/api/gallery')return reply({schema:1,event:'gallery',artwork:[]});
-        if(path==='/api/storage/runs')return reply({schema:1,event:'runs',runs,latestSession:latest});
+        if(path==='/api/storage/runs')return reply({schema:1,event:'runs',runs:[...runs,{session:completed,status:'complete'}],latestSession:latest});
         if(path==='/api/storage')return reply(storage());
         if(path==='/api/status'){
           const value={schema:1,event:'status',session,state:retained};
@@ -86,7 +86,7 @@ for(const status of ['blocked','cancelled'])test('explicit '+status+' run remova
   {skip:!existsSync(chrome),timeout:30000},async()=>{
     const server=await fixture({status});let client;
     try{
-      client=await launch(server);assert.equal(server.requests.filter(row=>row.path==='/api/storage/runs').length,0,'home load never scans every retained run');
+      client=await launch(server);await client.wait("document.querySelectorAll('#home-runs-list .run-row').length===3");assert.equal(server.requests.filter(row=>row.path==='/api/storage/runs').length,1,'home loads bounded run metadata once');
       await client.chooseHome('resume');await client.wait("!document.getElementById('progress-page').hidden");
       await client.evaluate("document.getElementById('home').click()");await client.chooseHome('remove-run');
       await client.wait("document.getElementById('storage-run').value==='"+session+"'&&!document.getElementById('storage-run-plan').disabled");
@@ -106,8 +106,8 @@ for(const status of ['blocked','cancelled'])test('explicit '+status+' run remova
       assert.equal(await client.evaluate("document.getElementById('event-log').textContent"),'');
       assert.equal(await client.evaluate("document.getElementById('session-detail').textContent"),'');
       await client.evaluate("document.getElementById('home').click()");
-      assert.equal(await client.evaluate("document.getElementById('home-resume').hidden"),true,'the retired run never returns as resume');
-      assert.equal(await client.evaluate("document.getElementById('home-remove-run').hidden"),true,'completed latest record is not offered for retirement');
+      assert.equal(await client.evaluate("Boolean(document.querySelector('#home-runs-list [data-session=\""+session+"\"]'))"),false,'the retired run never returns as resume');
+      assert.equal(await client.evaluate("document.getElementById('home-remove-run')"),null,'singleton retirement tile is removed');
       await client.chooseHome('mod');assert.equal(await client.evaluate("document.getElementById('base-apk').value"),apk,'APK remains selected for compact updates');
       await client.evaluate("document.getElementById('home').click()");await client.chooseHome('profile');
       assert.equal(await client.evaluate("document.getElementById('base-apk').value"),apk,'same APK remains available for profile editing');
@@ -159,14 +159,14 @@ for(const lostClean of [false,true])test('run removal '+(lostClean?'lost respons
         await client.wait("document.getElementById('storage-status').getAttribute('role')==='alert'");await delay(350);
         assert.match(await client.evaluate("document.getElementById('storage-status').textContent"),/Bereinigung fehlgeschlagen.*Daten wurden verändert/);
         assert.equal(await client.evaluate("document.getElementById('storage-confirmation').hidden"),true);
-        assert.equal(await client.evaluate("document.getElementById('home-resume').hidden"),false,'failed retirement preserves the resumable record');
+        assert.equal(await client.evaluate("Boolean(document.querySelector('#home-runs-list [data-session=\""+session+"\"] [data-run-action=resume]'))"),true,'failed retirement preserves the resumable record');
         await client.evaluate("document.getElementById('storage-run-plan').click()");await client.wait("!document.getElementById('storage-confirmation').hidden");
         assert.equal(mutations(server).filter(row=>row.path==='/api/storage/clean').length,1,'retry preview requires another final confirmation');
         await client.evaluate("document.getElementById('storage-clean').click()");
       }
       await client.wait("document.getElementById('storage-status').textContent.includes('Run gelöscht')");
       assert.equal(await client.evaluate("document.getElementById('storage-status').getAttribute('role')"),'status');
-      await client.evaluate("document.getElementById('home').click()");await client.wait("document.getElementById('home-resume').hidden");
+      await client.evaluate("document.getElementById('home').click()");await client.wait("!document.querySelector('#home-runs-list [data-session=\""+session+"\"]')");
       assert.equal(client.events.filter(row=>row.method==='Runtime.exceptionThrown').length,0);
     }finally{try{await client?.close();}finally{await server.close();}}
   });
@@ -184,7 +184,7 @@ test('an old in-flight build status cannot revive a retired run',
       await client.evaluate("document.getElementById('storage-clean').click()");await client.wait("document.getElementById('storage-status').textContent.includes('Run gelöscht')");
       server.releaseStatus();await delay(250);
       assert.equal(await client.evaluate("document.getElementById('storage-card').hidden"),false);
-      await client.evaluate("document.getElementById('home').click()");await client.wait("document.getElementById('home-resume').hidden");
+      await client.evaluate("document.getElementById('home').click()");await client.wait("!document.querySelector('#home-runs-list [data-session=\""+session+"\"]')");
       assert.equal(await client.evaluate("document.getElementById('session-detail').textContent"),'');
       assert.equal(client.events.filter(row=>row.method==='Runtime.exceptionThrown').length,0);
     }finally{try{await client?.close();}finally{await server.close();}}
@@ -195,8 +195,9 @@ for(const options of [{status:'running'},{status:'complete'},{activeUtility:true
     const server=await fixture(options);let client;
     try{
       client=await launch(server);
-      if(options.activeUtility)await client.wait("document.getElementById('home-remove-run').disabled");
-      else assert.equal(await client.evaluate("document.getElementById('home-remove-run').hidden"),true);
+      await client.wait("document.querySelectorAll('#home-runs-list .run-row').length===3");
+      if(options.activeUtility)await client.wait("document.querySelector('#home-runs-list [data-session=\""+session+"\"] [data-run-action=delete]').disabled");
+      else assert.equal(await client.evaluate("document.querySelector('#home-runs-list [data-session=\""+session+"\"] [data-run-action=delete]')"),null);
       await client.chooseHome('storage');await client.wait("document.getElementById('storage-run').options.length>=1");
       assert.equal(await client.evaluate("[...document.getElementById('storage-run').options].some(row=>row.value==='"+session+"')"),options.activeUtility??false,'active and completed rows never become deletable');
       if(options.activeUtility)assert.equal(await client.evaluate("document.getElementById('storage-run-plan').disabled"),true,'active export remains protected');

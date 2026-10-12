@@ -34,7 +34,7 @@ test('Mod updates explain the retained full-build route, preserve measured progr
       if(path.startsWith('/api/')){
         let raw='';for await(const chunk of request)raw+=chunk;
         const body=raw?JSON.parse(raw):null;requests.push({path,body});let value;
-        if(path==='/api/discover')value={schema:1,event:'discovery',latestSession:rows.compact.session,games:[],unityEditors:[],capabilities:{browse:false,logs:false,support:false}};
+        if(path==='/api/discover')value={schema:1,event:'discovery',latestSession:rows.compact.session,recentSessions:[{session:rows.compact.session,status:rows.compact.status}],games:[],unityEditors:[],capabilities:{browse:false,logs:false,support:false}};
         else if(path==='/api/status')value={schema:1,event:'status',state:rows[mode]};
         else if(path==='/api/events')value={schema:1,event:'events',events:[]};
         else if(path==='/api/gallery')value={schema:1,event:'gallery',artwork:[]};

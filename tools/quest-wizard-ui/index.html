@@ -13,8 +13,9 @@
   <div class="shell">
     <header class="topbar">
       <div class="brand"><img src="assets/gloomhavenvr-logo.png" alt="GloomhavenVR" width="280" height="53"></div>
-      <div class="top-actions"><span class="local-tag"><span class="status-dot"></span><span data-i18n="local">Läuft auf deinem PC</span></span><div class="language" role="group" aria-label="Language / Sprache"><button data-language="de" aria-pressed="true">DE</button><button data-language="en" aria-pressed="false">EN</button></div></div>
+      <div class="top-actions"><button id="export-support" class="secondary" data-i18n="exportLogs" disabled>Logs exportieren</button><span class="local-tag"><span class="status-dot"></span><span data-i18n="local">Läuft auf deinem PC</span></span><div class="language" role="group" aria-label="Language / Sprache"><button data-language="de" aria-pressed="true">DE</button><button data-language="en" aria-pressed="false">EN</button></div></div>
     </header>
+    <p id="support-status" class="support-status" role="status" hidden></p>
     <div class="preview-notice" id="preview-notice" hidden data-i18n="preview">Design-Vorschau · Demo-Daten · Es wird nichts gebaut oder installiert.</div>
     <main class="layout" id="workspace" tabindex="-1">
       <aside class="adventure">
@@ -37,9 +38,8 @@
               <button id="home-export" class="home-action" disabled><strong data-i18n="homeExport">Quest-Paket exportieren</strong><span data-i18n="homeExportCopy">APK und alle Spielinhalte in einer ZIP-Datei speichern.</span><b aria-hidden="true">→</b></button>
               <button id="home-device" class="home-action" hidden><strong data-i18n="deviceTitle">Quest-Verbindung und Spielprotokolle</strong><span data-i18n="homeDeviceCopy">Quest verbinden und Protokolle eines Hardwaretests speichern.</span><b aria-hidden="true">→</b></button>
               <button id="home-storage" class="home-action" hidden><strong data-i18n="storageTitle">Arbeitsordner und Speicherplatz</strong><span data-i18n="homeStorageCopy">Speicherbelegung anzeigen und ungenutzte Zwischendaten bereinigen.</span><b aria-hidden="true">→</b></button>
-              <button id="home-resume" class="home-action retained" hidden><strong data-i18n="homeResume">Abgebrochenen Run fortsetzen</strong><span id="home-resume-copy"></span><b aria-hidden="true">→</b></button>
-              <button id="home-remove-run" class="home-action" hidden><strong data-i18n="runRemove">Run löschen</strong><span data-i18n="homeRemoveRunCopy">Abgebrochenen Run entfernen und über seine Zwischendaten entscheiden.</span><b aria-hidden="true">→</b></button>
             </div>
+            <section id="home-runs" class="run-overview" aria-labelledby="home-runs-title" hidden><div class="storage-usage-heading"><h3 id="home-runs-title" data-i18n="runOverviewTitle">Gespeicherte Runs</h3><button id="home-runs-refresh" class="text-button" data-i18n="runsRefresh">Runs aktualisieren</button></div><p id="home-runs-status" class="hint" role="status"></p><div id="home-runs-list" class="run-list"></div></section>
             <p class="hint" data-i18n="homeOwnedCopy">Auch APK-Updates und Profiländerungen benötigen deine gekaufte PC-Spielkopie.</p>
           </section>
           <p id="mod-source" class="mod-source" hidden></p>
@@ -95,13 +95,15 @@
           <section id="storage-card" class="storage-card utility-page" aria-labelledby="storage-title" hidden>
             <div class="storage-heading"><h2 id="storage-title" data-i18n="storageTitle">Arbeitsordner und Speicherplatz</h2><span id="storage-free"></span></div>
             <p id="storage-root" class="storage-root"></p>
+            <p id="storage-volume" class="hint"></p>
             <div class="storage-usage-heading"><strong id="storage-used"></strong><button id="storage-refresh" class="text-button" data-i18n="storageRefresh">Belegung aktualisieren</button></div>
             <p id="storage-inventory-status" class="hint" role="status"></p><dl id="storage-categories" class="storage-categories" hidden></dl>
+            <section id="storage-attribution" class="run-overview" aria-labelledby="storage-attribution-title" hidden><h3 id="storage-attribution-title" data-i18n="storageAttributionTitle">Zuordnung der Speicherbelegung</h3><dl id="storage-ownership" class="storage-categories"></dl><p class="hint" data-i18n="storageSharedHint">Gemeinsame Daten werden insgesamt einmal gezählt. Sie können von mehreren Runs verwendet werden.</p><h4 data-i18n="runOverviewTitle">Gespeicherte Runs</h4><div id="storage-runs-list" class="run-list"></div><section id="storage-retired" hidden><h4 data-i18n="storageRetiredTitle">Daten gelöschter Runs</h4><p class="hint" data-i18n="storageRetiredHint">Diese Runs können nicht fortgesetzt werden. Behaltene Zwischendaten lassen sich nach einer Vorschau bereinigen.</p><div id="storage-retired-list" class="run-list"></div></section><p class="hint" data-i18n="storageUnassignedHint">Nicht zugeordnete und gemeinsame Build-Zwischendaten lassen sich über „Build-Zwischendaten prüfen“ bereinigen. Fertige APKs und Spieldatenpakete bleiben erhalten.</p></section>
             <details id="storage-details" class="storage-details"><summary data-i18n="storageManage">Speicher freigeben</summary>
               <p class="hint" data-i18n="storageDuplicatesHint">Eine Vorschau zeigt nicht mehr verwendete Duplikate. Aktuelle Ergebnisse und Fortsetzungsdaten bleiben erhalten.</p>
               <div class="storage-actions"><button id="storage-plan-duplicates" class="secondary" data-i18n="storageFindDuplicates">Ungenutzte Duplikate suchen</button><button id="storage-plan-cache" class="secondary" data-i18n="storagePlanCache" hidden>Build-Zwischendaten prüfen</button></div>
               <section id="storage-runs" class="storage-runs" aria-labelledby="storage-runs-title" hidden>
-                <div class="storage-usage-heading"><h3 id="storage-runs-title" data-i18n="stoppedRuns">Angehaltene Runs</h3><button id="storage-runs-refresh" class="text-button" data-i18n="runsRefresh">Runs aktualisieren</button></div>
+                <div class="storage-usage-heading"><h3 id="storage-runs-title" data-i18n="runRemovalTitle">Run oder behaltene Daten bereinigen</h3><button id="storage-runs-refresh" class="text-button" data-i18n="runsRefresh">Runs aktualisieren</button></div>
                 <p id="storage-runs-status" class="hint" role="status"></p>
                 <label for="storage-run" data-i18n="runSelect">Run auswählen</label><select id="storage-run"></select>
                 <fieldset id="storage-run-choice" class="storage-run-choice"><legend data-i18n="runCleanupQuestion">Sollen auch alte Zwischendaten dieses Runs bereinigt werden?</legend>

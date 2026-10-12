@@ -65,7 +65,7 @@ test('browser displays validation/copy/catalog/Gradle live counters and phase ow
     const server=createServer(async(request,response)=>{
       try{
         const url=new URL(request.url,'http://localhost');let value;
-        if(url.pathname==='/api/discover')value={schema:1,event:'discovery',latestSession:'unity-phase-session',games:[],unityEditors:[],capabilities:{browse:false,logs:false,support:false}};
+        if(url.pathname==='/api/discover')value={schema:1,event:'discovery',latestSession:'unity-phase-session',recentSessions:[{session:'unity-phase-session',status:'running'}],games:[],unityEditors:[],capabilities:{browse:false,logs:false,support:false}};
         else if(url.pathname==='/api/status')value={schema:1,event:'status',state:state()};
         else if(url.pathname==='/api/gallery')value={schema:1,event:'gallery',artwork:[]};
         else if(url.pathname==='/api/events')value={schema:1,event:'events',events:[]};

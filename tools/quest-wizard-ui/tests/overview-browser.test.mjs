@@ -22,7 +22,7 @@ test('resumed build names retained, current and remaining real work while observ
    try {
     const url=new URL(request.url,'http://localhost');let value;
     if(request.method==='POST'){let body='';for await(const part of request)body+=part;posts.push({path:url.pathname,body:JSON.parse(body)});}
-    if(url.pathname==='/api/discover')value={schema:1,event:'discovery',latestSession:session,games:[],unityEditors:[],capabilities:{browse:false,logs:true,support:false}};
+    if(url.pathname==='/api/discover')value={schema:1,event:'discovery',latestSession:session,recentSessions:[{session,status:state().status}],games:[],unityEditors:[],capabilities:{browse:false,logs:true,support:false}};
     else if(url.pathname==='/api/status')value={schema:1,event:'status',state:state()};
     else if(url.pathname==='/api/events')value={schema:1,event:'events',events:[]};
     else if(url.pathname==='/api/gallery')value={schema:1,event:'gallery',artwork:[]};

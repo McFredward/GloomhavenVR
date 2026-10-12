@@ -35,7 +35,7 @@ async function fixture() {
           setup.requests.push({path:url.pathname,method:request.method,body,session:url.searchParams.get('session')});
           let value;
           if(url.pathname==='/api/discover')value={schema:1,event:'discovery',latestSession:setup.latest,
-            recentSessions:[{session:recentId}],games:[{id:'discovered-copy',gameRoot:'C:\\Other Steam copy',provider:'steam'}],
+            recentSessions:[{session:setup.latest,status:setup.state.status},{session:recentId,status:setup.state.status}],games:[{id:'discovered-copy',gameRoot:'C:\\Other Steam copy',provider:'steam'}],
             unityEditors:[],capabilities:{browse:false,logs:false,support:false},modSource:source('b')};
           else if(url.pathname==='/api/status') {
             if(setup.missing){response.writeHead(404,{'Content-Type':'application/json'});response.end(JSON.stringify({schema:1,event:'error',code:'session_missing',message:{de:'Gespeicherter Vorgang fehlt.',en:'Saved session is missing.'}}));return;}
@@ -147,7 +147,7 @@ test('choice editing keeps session ID; only explicit new-build selection creates
       await client.wait("!document.getElementById('game-page').hidden");
       assert.deepEqual(server.setup.state,before,'new selection cannot delete retained owner state');
       assert.equal(await client.evaluate("document.getElementById('unity-terms').checked"),false,'new choice needs its own review');
-      assert.ok(await client.evaluate("Boolean(document.getElementById('resume-session'))"),'retained build remains reopenable');
+      assert.ok(await client.evaluate("Boolean(document.querySelector('#home-runs-list [data-run-action=resume]'))"),'retained build remains reopenable from its saved main-page row');
       await client.evaluate("document.getElementById('primary').click()");
       await client.wait("!document.getElementById('setup-page').hidden");
       await client.evaluate("document.getElementById('unity-terms').checked=true;document.getElementById('primary').click()");
@@ -165,18 +165,18 @@ test('inaccessible retained state is visible and cannot silently start a new ses
       client=await browser();await client.command('Page.navigate',{url:await server.open()});
       await client.chooseHome('resume');
       // Navigation acknowledgment can precede the replacement document.
-      await client.wait("document.getElementById('error-banner')&&!document.getElementById('error-banner').hidden&&!document.getElementById('home-resume').disabled");
+      await client.wait("document.getElementById('error-banner')&&!document.getElementById('error-banner').hidden&&!document.querySelector('#home-runs-list [data-run-action=resume]').disabled");
       assert.equal(await client.evaluate("document.getElementById('primary').disabled"),true);
       assert.equal(await client.evaluate("document.getElementById('home-page').hidden"),false);
       assert.equal(await client.evaluate("document.getElementById('home-build').hidden||document.getElementById('home-build').disabled"),false);
-      assert.equal(await client.evaluate("document.getElementById('home-resume').hidden"),false);
+      assert.equal(await client.evaluate("!document.querySelector('#home-runs-list [data-run-action=resume]')"),false);
       assert.equal(await client.evaluate("['primary','new-build','resume-notice','progress-page'].every(id=>document.getElementById(id).hidden)"),true,'home failure exposes no unrelated progress/footer controls');
       await client.evaluate("document.getElementById('primary').click()");await delay(100);
       assert.equal(writes(server.setup).length,0);
       assert.equal(server.setup.requests.filter(row=>row.path==='/api/status').length,1,'no silent fallback to another session');
       await client.picture('inaccessible-retained-build-en');
       server.setup.missing=false;
-      await client.evaluate("document.getElementById('home-resume').click()");
+      await client.evaluate("document.querySelector('#home-runs-list [data-run-action=resume]').click()");
       await client.wait("document.getElementById('progress-page')&&!document.getElementById('progress-page').hidden");
       assert.equal(writes(server.setup).length,0);
       assert.equal(server.setup.requests.filter(row=>row.path==='/api/status').length,2,'visible retry opens the same owner exactly once');

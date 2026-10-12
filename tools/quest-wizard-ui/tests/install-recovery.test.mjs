@@ -149,7 +149,7 @@ test('live cable loss shows actionable guidance and resumes in place without res
       try{
         const url=new URL(request.url,'http://localhost');let value;
         if(request.method==='POST'){let body='';for await(const part of request)body+=part;posts.push({path:url.pathname,body:JSON.parse(body)});}
-        if(url.pathname==='/api/discover')value={schema:1,event:'discovery',latestSession:session,games:[],unityEditors:[],capabilities:{browse:false,logs:false,support:false}};
+        if(url.pathname==='/api/discover')value={schema:1,event:'discovery',latestSession:session,recentSessions:[{session,status:current.status}],games:[],unityEditors:[],capabilities:{browse:false,logs:false,support:false}};
         else if(url.pathname==='/api/status')value={schema:1,event:'status',session,state:current};
         else if(url.pathname==='/api/gallery')value={schema:1,event:'gallery',artwork:[]};
         else if(url.pathname==='/api/events')value={schema:1,event:'events',events:[]};
@@ -216,7 +216,7 @@ test('completed APK is prominent while connection is blocked; retry and skip ret
       try{
         const url=new URL(request.url,'http://localhost');let value;
         if(request.method==='POST'){let body='';for await(const part of request)body+=part;posts.push({path:url.pathname,body:JSON.parse(body)});}
-        if(url.pathname==='/api/discover')value={schema:1,event:'discovery',latestSession:session,games:[],unityEditors:[],capabilities:{browse:false,logs:false,support:false},modSource:{sourceCommit:'4'.repeat(40),modBuild:668,modVersion:'1.1.0',kind:'bundled-release'}};
+        if(url.pathname==='/api/discover')value={schema:1,event:'discovery',latestSession:session,recentSessions:[{session,status:current.status}],games:[],unityEditors:[],capabilities:{browse:false,logs:false,support:false},modSource:{sourceCommit:'4'.repeat(40),modBuild:668,modVersion:'1.1.0',kind:'bundled-release'}};
         else if(url.pathname==='/api/status')value={schema:1,event:'status',session,state:current};
         else if(url.pathname==='/api/gallery')value={schema:1,event:'gallery',artwork:[]};
         else if(url.pathname==='/api/events')value={schema:1,event:'events',events:[]};

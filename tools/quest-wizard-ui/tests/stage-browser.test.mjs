@@ -37,7 +37,7 @@ test('browser keeps a whole-stage total across phase resets and preserves the vi
         await delay(100); // Empty auto-selection races a slow publisher image.
         value={schema:1,event:'discovery',capabilities:{browse:false,logs:false,support:false},games:[
           {id:'fixture-game',gameRoot:'C:\\Fixture game',provider:'steam',displayName:'Gloomhaven',artwork:[]}],
-          recentSessions:[{session:'fixture-local-session'}],unityEditors:[],modSource:state().modSource};
+          recentSessions:[{session:'fixture-local-session',status:state().status}],unityEditors:[],modSource:state().modSource};
       }else if(url.pathname==='/api/gallery')value={schema:1,event:'gallery',artwork:ids.map((id,index)=>({
         id,sha256:String(index),url:'/api/promo-artwork?id='+id,altCode:'promoArtwork',source:sourceFor(index),caption:{en:id,de:id}}))};
       else if(url.pathname==='/api/status')value={schema:1,event:'status',state:state()};

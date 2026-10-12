@@ -40,7 +40,7 @@ def action(name):
 actions = {name: action(name) for name in STAGES}
 def discover(*_):
     return {'schema': 1, 'event': 'discovery', 'capabilities': {'logs': True, 'support': True, 'browse': False},
-            'games': [], 'unityEditors': [], 'recentSessions': [{'session': state['session']}]}
+            'games': [], 'unityEditors': [], 'recentSessions': [{'session': state['session'], 'status': state['status']}]}
 
 server = LocalServer(store, ui_root, discover=discover, engine_factory=lambda value: Engine(value, actions=actions))
 gallery = Gallery(ui_root, state_root / 'artwork/publisher', opener=lambda *_, **__: (_ for _ in ()).throw(OSError('fixture network disabled')))
