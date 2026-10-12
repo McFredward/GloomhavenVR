@@ -1,5 +1,7 @@
 """Closed-output concurrency, deterministic merge, sampling and cache footprint."""
 import hashlib
+import contextlib
+import io
 import json
 import os
 from pathlib import Path
@@ -74,8 +76,11 @@ class ParallelRecoveryTests(unittest.TestCase):
             self.assertEqual(Path(environment["QUEST_EXPORT_IDENTITIES"]).parent, target.parent)
             self.assertEqual((stage / "original-core").read_bytes(), b"original PC serialized data")
             self.assertEqual([path.name for path in (stage / "SelectedBundles").iterdir()], [str(index) + ".bundle"])
-            for _ in range(8 - index * 2):
+            iterations = 8 - index * 2
+            for work in range(iterations):
                 time.sleep(.012); cancellation.check()
+                if kwargs.get("progress_callback"):
+                    kwargs["progress_callback"]((work + 1) * 10, iterations * 10, "fixture collection")
             project = target / "ExportedProject"
             row = self.asset(project, str(index + 1) * 32, "original-bundle-" + str(index), index + 2)
             Path(environment["QUEST_EXPORT_IDENTITIES"]).write_text(json.dumps(row) + "\n")
@@ -147,6 +152,23 @@ class ParallelRecoveryTests(unittest.TestCase):
         result = self.convert("pressure", 3, export=pressure)
         self.assertEqual(result["completedGroups"], [0, 1, 2]); self.assertEqual(self.attempts, {0: 1, 1: 1, 2: 1})
         self.assertEqual(self.active, 0); self.assertTrue(failures[0])
+
+    def test_parallel_collection_progress_is_monotone_aggregate_until_all_receipts_close(self):
+        output = io.StringIO()
+        with patch.dict(os.environ, {"GHVRQ_WIZARD_PROGRESS": "1"}), contextlib.redirect_stdout(output):
+            self.convert("aggregate", 3)
+        rows = [json.loads(line.removeprefix("GHVRQ_PROGRESS ")) for line in output.getvalue().splitlines()
+            if line.startswith("GHVRQ_PROGRESS ")]
+        exports = [row for row in rows if row["phase"] == "recovery-asset-export"]
+        self.assertGreater(len(exports), 3)
+        self.assertEqual({row["total"] for row in exports}, {3})
+        self.assertEqual({row["unit"] for row in exports}, {"batches"})
+        self.assertEqual([row["done"] for row in exports], sorted(row["done"] for row in exports))
+        self.assertTrue(all(row["done"] < 3 for row in exports[:-1]))
+        self.assertEqual((exports[-1]["done"], exports[-1]["status"]), (3, "complete"))
+        merges = [row["detail"] for row in rows if row["phase"] == "recovery-batch"
+            and row.get("detail", "").startswith("Merging")]
+        self.assertEqual(merges, ["Merging original batch " + str(index + 1) + " of 3" for index in range(3)])
 
     def test_input_links_share_only_private_serialized_copy_and_reject_links(self):
         shared = self.root / "private-input"; shared.mkdir(); value = shared / "serialized"; value.write_bytes(b"private owned copy")
@@ -251,6 +273,44 @@ class RecoveryBudgetTests(unittest.TestCase):
         optional = [row for row in samples if row["path"] not in bundles.MUTABLE_NATIVE_INDICES]
         self.assertLessEqual(sum(row["bytes"] for row in optional), 32 * 1048576)
         self.assertIn(records[-1], samples)
+
+
+class OwnedSourceReuseTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(); self.root = Path(self.temp.name)
+        workers.modules()
+        import storage
+        self.storage = storage
+        self.original = self.root / "original"; self.original.mkdir()
+        (self.original / "one").write_bytes(b"first owned original")
+        (self.original / "two").write_bytes(b"second owned original")
+        self.records = storage.inventory(self.original)
+        self.snapshot = self.root / "build/inputs/game" / storage.value_hash({"files": self.records})
+        storage.snapshot(self.original, self.records, self.snapshot)
+
+    def tearDown(self): self.temp.cleanup()
+
+    def test_owned_snapshot_reuses_closed_witnesses_without_rehashing_payload_and_keeps_exact_fingerprint(self):
+        with patch.dict(os.environ, {"GHVRQ_FULL_ASSET_AUDIT": "1"}):
+            expected = recover.source_inventory(self.snapshot)
+        with patch.object(self.storage, "digest", side_effect=AssertionError("Unchanged snapshot payload was rehashed")):
+            actual = recover.source_inventory(self.snapshot)
+        self.assertEqual(actual, expected)
+
+    def test_changed_same_size_snapshot_file_rehashes_only_changed_file_and_rejects_bytes(self):
+        changed = self.snapshot / "one"; changed.write_bytes(b"x" * changed.stat().st_size)
+        with patch.object(self.storage, "digest", wraps=self.storage.digest) as hashes:
+            with self.assertRaisesRegex(recover.RecoveryError, "Owned snapshot file changed"):
+                recover.source_inventory(self.snapshot)
+        self.assertEqual([call.args[0] for call in hashes.call_args_list], [changed])
+
+    def test_unmarked_original_input_still_uses_exact_inventory_and_changed_file_set_is_rejected(self):
+        with patch.object(recover, "sha256", wraps=recover.sha256) as hashes:
+            recover.source_inventory(self.original)
+        self.assertEqual(len(hashes.call_args_list), 2)
+        (self.snapshot / "unexpected").write_bytes(b"unqualified addition")
+        with self.assertRaisesRegex(recover.RecoveryError, "file set changed"):
+            recover.source_inventory(self.snapshot)
 
 
 class ExportProcessTests(unittest.TestCase):

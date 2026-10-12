@@ -481,13 +481,24 @@ def run_recovery(game_data, core_project, core_identities, output, workspace, to
     # Workers consume private inputs and produce closed disk-backed projects.
     active = [index for index in groups if index not in progress["completedGroups"]]
     progress_lock, progress_at = threading.Lock(), [0.]
-    def observe(index, done, total, detail):
+    export_states = {index: (0, None, False) for index in active}
+    def observe(index, done=None, total=None, detail="Closed exporter output", *, closed=False):
         with progress_lock:
+            previous = export_states[index]
+            export_states[index] = (done if done is not None else previous[0],
+                total if total is not None else previous[1], closed or previous[2])
             now = time.monotonic()
-            if now - progress_at[0] < .5 and done != total: return
+            if now - progress_at[0] < .5 and not closed: return
             progress_at[0] = now
-            build_progress.event("recovery-asset-export", done, total, "collections",
-                "Original batch " + str(index + 1) + " of " + str(len(plan["groups"])) + ": " + detail)
+            completed = sum(state[2] for state in export_states.values())
+            measured = sum(1. if state[2] else state[0] / (state[1] + 1) if state[1] is not None else 0.
+                for state in export_states.values())
+            count = export_states[index]
+            actual = str(count[0]) + " / " + str(count[1]) + " collections; " if count[1] is not None else ""
+            build_progress.event("recovery-asset-export", measured, len(active), "batches",
+                "Original batch " + str(index + 1) + " of " + str(len(plan["groups"])) + ": " + actual
+                + str(completed) + " / " + str(len(active)) + " closed exports; " + detail,
+                status="complete" if completed == len(active) else "progress")
 
     def prepare_batch(index):
         nonlocal tool_files, staged
@@ -509,6 +520,7 @@ def run_recovery(game_data, core_project, core_identities, output, workspace, to
             project = ordinary_path(directory / completed_export["project"])
             if directory not in project.parents: raise RecoveryError("Batch export project escaped its owner.")
             shaders = completed_export["shaderRecipes"]
+            observe(index, detail="Reusing closed exporter receipt", closed=True)
         else:
             # Only the currently unfinished bounded export is restarted. Earlier
             # groups and an already verified export waiting to merge are reused.
@@ -560,12 +572,15 @@ def run_recovery(game_data, core_project, core_identities, output, workspace, to
         write_json(directory / "export-complete.json", {"schema": 2,
             "verification": "bounded-samples-plus-exact-native-identities",
             "project": project.relative_to(directory).as_posix(), "shaderRecipes": shaders, "files": files})
+        observe(package.index, closed=True)
         return project, shaders
 
     def publish_batch(package, result):
         index, group, directory = package.index, package.group, package.directory
         project, shaders = result
         identity_path = directory / "identities.jsonl"
+        build_progress.event("recovery-batch", group_counter.done, len(measured_groups), "batches",
+            "Merging original batch " + str(index + 1) + " of " + str(len(plan["groups"])), status="start")
         incoming = read_identities(identity_path, project)
         incoming = exportable_identities(incoming, directory / "Evidence")
         begin_merge(output, workspace, index, incoming, directory / "Evidence", canonical, proofs=proofs)

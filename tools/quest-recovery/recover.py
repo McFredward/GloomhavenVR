@@ -136,7 +136,61 @@ def validate_output(source, output):
         raise RecoveryError("Output already contains files. Use --resume for a matching receipt or choose a fresh output.")
 
 
+def _snapshot_inventory(game_data):
+    """Reuse real closed-file byte witnesses only for Builder-owned snapshots.
+
+    A manifest alone is insufficient. The existing SQLite verifier checks
+    filesystem identity/change stamps and hashes only a changed/unknown member;
+    unmarked standalone PC input keeps the original exhaustive inventory path.
+    """
+    root = Path(game_data).resolve()
+    marker = root / ".snapshot.json"
+    database = root.with_name("." + root.name + ".snapshot-witnesses.sqlite3")
+    if (root.parent.name != "game" or root.parent.parent.name != "inputs"
+            or not re.fullmatch("[0-9a-f]{64}", root.name) or not marker.is_file() or not database.is_file()
+            or os.environ.get("GHVRQ_FULL_ASSET_AUDIT") == "1"):
+        return None
+    ordinary_path(marker); ordinary_path(database)
+    if marker.stat().st_size > 32 * 1048576: raise RecoveryError("Owned snapshot inventory is oversized.")
+    snapshot = json.loads(marker.read_text())
+    records = snapshot.get("files")
+    if snapshot.get("schema") != 1 or not isinstance(records, list):
+        raise RecoveryError("Owned snapshot inventory is invalid.")
+    for row in records:
+        if (not isinstance(row, dict) or not isinstance(row.get("path"), str)
+                or type(row.get("size")) is not int or row["size"] < 0
+                or not isinstance(row.get("sha256"), str) or not re.fullmatch("[0-9a-f]{64}", row["sha256"])):
+            raise RecoveryError("Owned snapshot inventory has an invalid member.")
+    expected = {row["path"] for row in records}
+    actual = {path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file()}
+    if len(expected) != len(records) or actual != expected | {marker.name}:
+        raise RecoveryError("Owned snapshot file set changed.")
+    import recovery_workers
+    recovery_workers.modules()
+    storage = importlib.import_module("storage")
+    counter = build_progress.Counter("recovery-source-hash", len(records), "files",
+        "Reusing owned snapshot byte witnesses; hashing only changed files")
+    try:
+        with storage._snapshot_witnesses(root, root, records) as witnesses:
+            for row, valid in witnesses.qualify_many(records, hasher=storage.digest):
+                if not valid: raise RecoveryError("Owned snapshot file changed: " + row["path"])
+                counter.add(1, Path(row["path"]).name)
+    except storage.BuildError as error:
+        raise RecoveryError("Owned snapshot witnesses could not qualify its files: " + str(error)) from error
+    except storage.sqlite3.Error:
+        # A broken observation cache cannot prove bytes, but does not make the
+        # read-only game itself unusable. Fall back to its exact file inventory.
+        return None
+    counter.finish(reused=True)
+    files = [{"path": row["path"], "bytes": row["size"], "sha256": row["sha256"]} for row in records]
+    files.append({"path": marker.name, "bytes": marker.stat().st_size, "sha256": sha256(marker)})
+    files.sort(key=lambda row: Path(row["path"]))  # Preserve source_inventory's native Path order.
+    return files, hashlib.sha256(json.dumps(files, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
 def source_inventory(game_data):
+    retained = _snapshot_inventory(game_data)
+    if retained is not None: return retained
     files = []
     paths = [path for path in sorted(game_data.rglob("*")) if path.is_file()]
     counter = build_progress.Counter("recovery-source-hash", len(paths), "files")
