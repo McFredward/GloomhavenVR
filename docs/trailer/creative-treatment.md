@@ -1,216 +1,225 @@
-# The Table Calls
+# Take Your Place
 
-Original cinematic concept for **GloomhavenVR**. Target: 64 seconds, 16:9,
-1920×1080 master, 24 fps. The maintainer has selected English and approved a first
-**$30 fal.ai ceiling**. This document authorizes no additional spend.
+Original cinematic concept for **GloomhavenVR**. Target: **70 seconds**, eight
+scenes, 16:9, 1920×1080 master at 24 fps. English narration. The maintainer's
+first fal.ai budget is **$30 total**. This is a revised concept for review;
+**generate no imagery, video or narration before the maintainer approves it**.
 
 ## The film
 
-A dungeon breathes in torchlight. At miniature ground level, its stone, shadows
-and distant passage seem to fill a world. The camera travels through that
-source-faithful environment before rising past the board edge: the entire
-journey is within reach, a diorama on a table. Hands enter the world before faces
-do. One bargains at the merchant's stand. Another offers a purse at the temple.
-These small acts feel like promises.
+The first twelve seconds look like a premium Gloomhaven render trailer. A low
+camera travels through a beautiful, source-faithful dungeon or ruined chamber.
+Torchlight grazes stone. Familiar original mercenaries stand at their actual
+positions. We see the world at their height. There is no table edge, oversized
+hand, mask, room backdrop or revealing card fan yet.
 
-Three familiar masks meet the light: the scarred iron of **Ironwatch**, the pale
-rune-lit face of **Runeveil**, the carved horns of **Grimhorn**. They are the actual
-mod assets, paired respectively with plate, arcane and leather-glove hands for
-this film. These pairings are art direction, not enforced character classes.
-Masks and hands remain the mod's disembodied VR presence. We do not invent bodies
-or turn the mercenaries into live-action warriors.
+Then something interrupts the light. A vast shadow crosses the chamber. The
+camera remains at mercenary height as **Grimhorn**, the actual horned carved-wood
+mask shipped by the mod, leans into the open sightline above. Its enormous face
+looks down with curiosity. The score withdraws; the figure and viewer share one
+brief moment of uncertainty. No human eyes appear behind the eye openings. No new eye
+glow or facial anatomy is invented.
 
-The world answers their attention. A miniature passes between careful fingers;
-a card is offered to the enchantress. We cross the table rather than cut to a
-generic battlefield. A player studies a real card fan, commits two cards to the
-tray, and releases the figure back to its board position before the native turn
-begins. As the music opens, the figures move within their diorama. The scale of
-the world has not changed; its emotional scale has.
+A giant **leather-glove hand** descends. It gently picks up one idle original miniature.
+The camera travels with the lifted figure, following a precise locally animated
+path. Stone gives way to the board edge. Beyond it, we discover the physical
+scale of the VR table and its surrounding mod environment: the towering face
+is a player, the dungeon a diorama. Only now does the narrator say **“Take your
+place.”** The hand returns the miniature to its original board cell before any
+native action begins.
 
-The final wide reveals the companions gathered around the same table. Their
-hands settle. The table remains the hero. A restrained title resolves over
-black: **GLOOMHAVEN VR**. The last line is an invitation: **THE TABLE CALLS**.
-The final footer says **Requires Gloomhaven Digital. Unofficial fan-made mod.**
-Every frame also carries the legible lower-right label **UNOFFICIAL · FAN-MADE
-MOD**, including opening frames, black transitions and the end card. The opening
-subtitle says **An unofficial community VR mod**. Production quality should feel
-like a premium publisher trailer while this remains clearly a community project.
+The reveal continues. Across the table, **Runeveil** enters the light. The second
+player's actual arcane hands catch a cool cyan rim; Grimhorn answers with a
+small friendly nod. Both masks are the mod's disembodied multiplayer presence,
+each with two shipped hands. No bodies are added. What seemed solitary becomes
+shared. We hold this connection long enough for it to feel intentional.
+
+The hands turn to the real tactical controls: two cards per controlled character,
+considered and committed to their original trays. The cut becomes more decisive.
+Selection privacy is preserved; a local player's fronts are visible while remote
+selection cards remain covered. Once the native action phase begins, cards open
+as the game's rules allow. The score answers the physical card contacts.
+
+Three short native action beats bring the diorama alive. Figures act from their
+board positions; giant masks and resting hands remain visible above or behind
+them. The hands made the choices. The original game executes those choices.
+The camera widens into a modest orbit around the VR table, revealing both
+players and the board as one coherent space. The film ends on **GLOOMHAVEN VR**,
+**TAKE YOUR PLACE**, and the narrator's final line: **“Gloomhaven. In your hands.”**
+
+## The two reveals
+
+1. **World to embodiment, 12–30 seconds.** Preserve the original game's apparent
+   scale for twelve seconds. A mask breaks that assumption; the hand and camera
+   lift explain it. The table reveal pays off a visual question already raised.
+2. **Solitary to together, 30–37 seconds.** Runeveil and the second pair of hands
+   establish another player. The friendly nod makes multiplayer legible through
+   behavior. Let this beat breathe before cutting to card decisions.
+
+The mask and hand never become fantasy gods with gameplay powers. Their apparent
+scale comes from looking up from an actual miniature's world. Calibrate the actual mask, hand,
+figure and board relationship against the real captured/rendered VR table.
+Do not invent a fixed 1:20 scale ratio.
 
 ## Original narration
 
-84-word original script. Read with quiet authority, warmth and pauses; approximately
-46–49 seconds of speech inside the 64-second edit. English narration in the
-reference performer's voice uses the maintainer's explicit consent attestation,
-reported by the integrator on 2026-10-12. Preserve natural consonants and an
-intimate room sound.
-Increase resolve in the final third, rather than increase volume. Keep breaths
-and a slight roughness. Avoid a booming parody trailer delivery. No sentence
-from the reference trailer is reused.
+**51 words**, approximately 30–36 seconds of speech with deliberate silent space.
+Quiet authority, mature low-mid register, natural consonants, warmth and slight
+roughness. Avoid shouting. **12–25 seconds are completely free of narration**:
+the Grimhorn reveal and most of the lift rely on material sound and the image.
+The opening does not name VR or the table.
 
-> Some journeys begin with a road.
-> Ours begins with a table.
+> You know this world.
+> The roads that brought you here.
+> The dangers waiting in the dark.
+> And the weight of every choice.
 >
-> With a hand that bargains.
-> A hand that gives.
-> And the hands you trust beside you.
+> Take your place.
+> Gather your party.
 >
-> A city of old debts.
-> A world of dangerous choices.
+> Choose your cards.
+> Make your move.
+> Together.
 >
-> Close enough to touch.
-> Vast enough to lose yourself.
-> Real enough to matter.
+> Every decision.
+> Every victory.
+> Shared.
 >
-> Choose what you carry.
-> Choose what you spend.
-> Then choose what you will risk together.
->
-> One breath.
-> Two cards.
-> The room falls silent.
-> And the world answers.
+> The world you know.
+> Closer than ever.
 >
 > Gloomhaven.
-> Gather your party.
-> The table calls.
+> In your hands.
 
-The clone must use a clean authorized source sample and retain an internal
-consent/source receipt. The integrator is extracting game voice samples; verify
-the actual source speaker rather than assuming every game line is the trailer
-speaker. Do not use reference music or dialogue as the narration. Generate the
-original script as one performance where practical, then edit pauses locally;
-per-sentence synthesis can change vocal identity. Audition the sample for source
-noise and diction before a paid whole-script call.
+The reference performer's voice uses the maintainer's explicit consent
+attestation reported by the integrator on 2026-10-12. Retain a clean authorized
+sample and an internal consent/source receipt. Verify the actual source speaker:
+a game voice sample is not automatically the reference narrator. The script is
+original. Generate one continuous performance where practical and edit pauses
+locally to retain vocal identity. Audition source noise and diction before a
+paid whole-script call.
 
-## Visual direction
+## Scene plan
 
-- **Materials lead.** Worn leather, quiet steel, timber grain and printed card
-  edges. Copper/amber practical light with cool rune accents. Blacks retain
-  surface detail. No wall of orange fire or indiscriminate blue magic.
-- **The scale is intentional.** Macro lens language makes the tabletop feel
-  substantial; wide shots keep the board perimeter and hands visible. Do not
-  let a generated clip silently turn miniatures into life-size actors.
-- **Camera moves earn their cost.** One slow push, lateral move or short orbit
-  per shot. No circling camera with three simultaneous actions. Match cut a
-  circular enchantress workspace to a card-slot detail if the geometry allows.
-- **Exact assets beat invention.** Use the shipped FBX meshes, UVs and textures
-  for every mask and hand. Rigged local renders own finger/card contact. Native
-  capture owns game figures, original card artwork, UI and service outcomes.
-  AI video may add atmosphere and restrained camera motion to selected renders;
-  it must preserve these identities. Logo and text are composited locally.
-- **Readable craft.** Avoid ultra-thin cinematic crops, rapid incoherent montage,
-  illegible AI runes, extra fingers, floating finger tips, melted rivets,
-  deformed masks, invented monsters and replacement card illustrations.
+| Time | Scene and camera | Narration / sound |
+|---|---|---|
+| 00–12 | **The world you know.** Ground-level move through an actual open dungeon/ruin. Original figures and architecture; no tabletop hints. | First four lines. Sparse native ambience, bowed low strings, warm torch details. |
+| 12–19 | **Something above.** Shadow and light change. Huge exact Grimhorn peers into the open sightline; camera stays low. Hold the mask reveal. | No VO. Music withdraws; low material resonance and one breath. |
+| 19–30 | **The hand and the scale.** Actual leather-glove hand lifts an idle miniature; camera travels with it past the board edge to reveal the VR table. Return the figure before action. | “Take your place” only after the table discovery, about 26 seconds. Leather articulation and one restrained rise in the score. |
+| 30–37 | **A second presence.** Exact Runeveil opposite Grimhorn, arcane hands, distinct amber/cyan rims, friendly response/nod. | “Gather your party.” A second tonal voice joins the score. |
+| 37–45 | **The choice.** Two-card consideration and coordinated commitments to the native trays; original local/remote face rules. | “Choose your cards. Make your move. Together.” Two decisive contact beats, brief air before the action. |
+| 45–56 | **The world answers.** Three native action beats with masks/hands visibly observing the diorama; no hand-driven combat. | “Every decision. Every victory. Shared.” Low impact, strings and restrained brass open. |
+| 56–64 | **Together in VR.** Broad table reveal and modest orbit; both original masks and both pairs of hands remain clear. | “The world you know. Closer than ever.” Full musical resolution begins. |
+| 64–70 | **Take your place.** Exact mod title and invitation, followed by a clean final hold. | “Gloomhaven. In your hands.” Resolve by 68 seconds; two seconds of room tail. |
 
-The reference URL is `https://www.youtube.com/watch?v=N9vXBNJ5r1k`. The integrator
-inspected its 24 sampled frames: a 112.9-second GOG launch CGI trailer, with
-game-native dungeon/tavern/forest settings, ground-level camera sweeps, character
-portraits, warm torch light against green/cyan/purple magic, a rising battle
-montage and a group finish near 1:43. Those observations inform this film's
-material lighting, portraits and rising final act. They do not establish source
-narrator identity or authorize copied shots/dialogue. This worker inspected the
-project's asset images; reference observations above are attributed to the
-integrator's viewing rather than a separate viewing by this worker.
+## Source and motion conditions
 
-## Edit and sound
+- Use the actual **Grimhorn `Mask_2`** and **Runeveil `Mask_1`** meshes, UVs and
+  textures, with the actual leather-glove and arcane hand rigs. Pairings are art
+  direction, not enforced character classes. Ironwatch is an optional source
+  alternate, not a third player in the core edit.
+- The opening needs an original game room with an already-open overhead sightline.
+  A closed cellar ceiling cannot become a broken roof for the reveal. Choose a
+  source-backed open chamber, ruins, doorway or wall-edge camera line. Do not
+  modify game references or remove architecture to fake the reveal.
+- Game figures and scenario scenery still require extraction from a legitimate
+  read-only source or native capture. **Existing previews do not demonstrate this
+  new reveal.** A shipped surrounding-environment prefab does not establish that
+  the opening dungeon or original figures are available.
+- Locally rig and render the critical hand contact, miniature lift and camera
+  travel. Source geometry owns all five fingers, the figure and the grip. AI video
+  should not invent a multi-object pick-up or change the miniature during travel.
+  Use input and output reference frames if the selected model supports them.
+- The lifted figure is idle. Native movement never begins from a held transform.
+  End the hold and return the figure to its original board cell before native action;
+  the turn is driven by the original game after the card decision.
+- Scenario selection exposes only local controlled-character card fronts. Remote
+  fans, held and placed selection cards remain covered. Action-phase cards are
+  face-up. Use separate source-faithful angles for coordinated commitments rather
+  than an omniscient shot that leaks every selected card.
+- Keep both tracked hands for both represented players. No human faces, torso,
+  body silhouettes or extra arms. No player sword combat, hand-cast invented
+  spells or hand-moved figures fighting freely. Remove the previous NPC montage;
+  this concept is about the VR conversion and shared presence.
 
-| Time | Image | Narration / edit beat | Sound |
-|---|---|---|---|
-| 00–11 | Gorgeous dungeon at ground level; rise reveals tabletop | “Some journeys … a road. Ours begins … a table.” | Torch/stone ambience; bowed low note, first restrained pulse at reveal. |
-| 11–17 | Merchant / temple, three seconds each | “A hand that bargains. A hand that gives.” | Leather, print edge, restrained purse/coin detail. |
-| 17–23 | Ironwatch / Runeveil / Grimhorn, two seconds each | “And the hands you trust beside you.” | Three distinct material accents; strings join. |
-| 23–29 | City/map to threatening diorama detail | “A city of old debts. A world of dangerous choices.” | Sparse drum pulse; distant native ambience. |
-| 29–34 | Glove carefully holds and sets down a figure | “Close enough … Real enough to matter.” | Small contact sound; voice remains intimate. |
-| 34–44 | Enchantress / exact offered card, then card fan studied while companions wait | “Choose what you carry. Choose what you spend. Then choose what you will risk together.” | Native ring-like tonal shimmer, then pulse gathers. |
-| 44–49 | Two local cards meet the play tray | “One breath. Two cards. The room falls silent.” | Card contacts; score withdraws for the last second. |
-| 49–54 | Original miniature turn begins | “And the world answers.” | A single low impact; full strings and horns open. |
-| 54–59 | Shared table / three companions | “Gloomhaven. Gather your party.” | Broad resolution, human scale; no choir required. |
-| 59–64 | Title and fan-mod footer | “The table calls.” Leave a clean final hold. | Resolve by 62 seconds; two seconds of room tail. |
+Native original card artwork, figure models and action effects remain locked.
+Warm practical light against restrained cyan/violet accents draws on the verified
+reference's visual rhythm. Avoid generic medieval replacements, orange fire
+covering contacts, extra fingers, warped masks, generated runes, text or logos.
+The low camera and later wide must show the same source world, with coherent
+lighting and unchanged figure/mask scale.
 
-Use an original score or an appropriately licensed track. The preferred score
-is a 64-second dark chamber-orchestral cue: bowed low strings, tactile percussion,
-muted brass in the final third, one clear motif. Avoid a recognizable existing
-Gloomhaven cue or borrowed reference music. Stems or simple local layers make
-the 48–49-second silence possible. VO stays intelligible above the music; target
-approximately -14 LUFS integrated and no true peaks above -1 dBTP for the review
-export, checking the actual rendered mix rather than relying on input levels.
+## Clearly unofficial, every frame
 
-## Accuracy conditions
+Burn **UNOFFICIAL · FAN-MADE MOD** into the lower-right corner after the final edit,
+including opening frames, transitions, black frames and the title hold. At 1080p,
+use at least 24 px lettering, a 48 px safe margin and a subtle dark backing for
+legibility. Keep it present for all 70 seconds.
 
-This is a cinematic interpretation of supported tabletop interactions, not proof
-of headset performance. No first-person sword fighting, new spells cast by the
-player's hands, full avatar bodies or unsupported feature promises. Town NPCs
-are source-backed by the 1.1.0 release highlights. Original game miniatures and
-artwork require a legitimate native capture or a read-only, authorized rendering
-source; do not replace missing evidence with generated generic fantasy.
-
-During scenario ability selection, remote fans, held cards and placed cards are
-face-down; local controlled cards stay face-up. Action-phase cards are face-up.
-Map/town cards are public. Stage the card-commit close-up from the local player's
-view, or preserve covered backs for remote observers. Use each visitor's own
-town pre-drop guide; an observer must not see a duplicate guide. Prefer shots
-without these personal guides. Offered-card ring direction, speed and plane and
-card hover retain native behavior. The immediate held-figure return before a
-non-idle turn is not an animated flight.
+The opening subtitle is **An unofficial community mod**: clear authorship without
+spoiling the VR visual reveal. End with **Requires Gloomhaven Digital. Unofficial
+fan-made mod.** and a modest community attribution, **A community project by
+McFredward**. Composite all text and the existing mod logo locally. The trailer
+should have premium production values while clearly representing an unofficial
+community mod.
 
 ## $30 production envelope
 
-Present this full ten-scene concept and voiceover to the maintainer first. The
-maintainer explicitly requested this review before actual generation. Await
-creative approval before generating imagery, video or narration. No paid calls
-have been made by this worker.
+The maintainer requested the full scene concept before actual generation.
+Present this revision and the voiceover, then await creative approval. No paid
+calls, images or videos were generated by this worker.
 
-Once that approval arrives, render the complete animatic locally. Inspect
-masks/hands at full frame size and rough edit with guide speech before paying
-for video.
-Choose one 5-second image-to-video pilot using a source-locked render of the
-table and masked companions. Keep hands stationary in that pilot. A slow camera
-move tests fidelity more cheaply than an invented multi-character action.
+After approval, confirm original game figure/scenery extraction first. Build a
+local full-sequence animatic and inspect full-resolution asset renders. Then
+make one tightly scoped source-fidelity proof before further paid clips. The
+first **13-second proof prioritizes the giant Grimhorn and lift/scale reveal**,
+condensing the planned 12–30-second sequence. Use at most two source key plates:
+miniature-height Grimhorn overhead, then the same figure/table after the lift.
+Locally animate the exact hand/figure/camera contact path between them. The
+proof must make three views coherent: the original world at figure height, the
+colossal player presence above it, and the actual VR tabletop outside it. The
+second Runeveil reveal is the next production phase; the first proof does not
+claim to establish multiplayer or native action. Optional paid motion must
+preserve the local contact animation rather than invent a pick-up.
 
 | Stage | Maximum USD | Condition |
 |---|---:|---|
-| Local asset renders, animatic and edit | 0.00 | Use existing local tools. |
-| Selected AI video, including pilot | 18.00 | Pilot maximum $4.50; at most three additional selected clips. |
-| Authorized cloned narration | 3.00 | Verify clean source identity and preview diction first; one whole-script generation preferred. |
-| Original music / sound generation | 3.00 | Prefer reusable full-length cue over many short calls. |
-| Retakes / unavoidable paid processing | 6.00 | Log reason and predicted cost before each use. |
-| **Hard ceiling** | **30.00** | No further calls if balance/reservation would exceed it. |
+| Local source extraction, renders, animatic and edit | 0.00 | Existing local tools; read-only game references. |
+| Selected AI video, including first proof | 18.00 | Pilot maximum $4.50; at most three further selected calls. |
+| Authorized cloned narration | 3.00 | Clean verified speaker sample; one whole-script call preferred. |
+| Original music / sound generation | 3.00 | One reusable cue with local mix/edit. |
+| Retakes / unavoidable paid processing | 6.00 | Log purpose and cost before use. |
+| **Hard ceiling** | **30.00** | Queued reservations and failed jobs count. |
 
-These are cost allocations, not asserted provider prices. The integrator must
-verify the exact chosen fal endpoint's current pricing and billed units, including
-audio and upscaling. Make a ledger entry with endpoint, predicted cost, reserved
-maximum and actual cost for each call. Reserve the upper-bound cost of queued
-jobs. A network retry must not duplicate a still-running paid job. Canceling a
-job does not establish a refund. Prefer a smaller number of strong generated
-shots to paying to animate the entire 64 seconds.
+These are allocations, not asserted current provider prices. Verify the chosen
+fal endpoint's price and billed units before each call. Log request ID, endpoint,
+purpose, predicted/reserved maximum cost, actual cost, output artifact and review
+result. Do not duplicate a still-running paid job after a network error; do not
+assume cancellation means a refund. Source-locked local motion can complete
+shots where paid generation changes identity. Present the first proof and ledger
+to the maintainer before spending the remainder on similar generation.
 
-The first review package should contain the source-render contact sheet, the
-complete local animatic and a **13-second opening proof using just two source
-plates** (source-faithful dungeon interior and wide shared table), with the
-ledger. Its paid portion stays within the $4.50 pilot reservation; locally rendered motion/holds
-complete the proof. This short preview has its own edit, not the first 13 seconds
-of the final shot sequence. Present this intermediate result to the maintainer
-before spending the remainder on
-similar clips. Reject a pilot that changes a mask, hand, card or board geometry;
-use the local render move in its place. A failed pilot is useful only if its cost
-and failure are recorded. The treatment does not require a second paid pilot.
+## Evidence and final review
 
-## Review before delivery
+The integrator inspected 24 sampled frames of the reference at
+`https://www.youtube.com/watch?v=N9vXBNJ5r1k`: 112.9 seconds, GOG launch CGI,
+game-native dungeon/tavern/forest, ground-level sweeps, character portraits,
+warm torch light against green/cyan/purple magic, rising action and a group
+finish near 1:43. Those observations inform lighting and pacing, not copied
+compositions or dialogue. This worker inspected `docs/img/styles-masks.png`,
+`docs/img/styles-hands.png` and `docs/img/town-enchantress.png`; the new lift/reveal
+has not been rendered or viewed.
 
-Watch the complete export using the available watch skill and inspect beginning,
-middle and end frames of each generated clip. Then inspect the contact sheet at
-full resolution. Record remaining artifacts and whether they were fixed, cut or
-kept for the next review. Verify the 64-second duration, narration sync, title
-spelling, legible continuous lower-right fan-mod label, opening subtitle, final
-footer and consistent masks/hands, and listen once without looking at the image
-for speech and mix problems. Automated file checks
-are only export checks; they do not establish visual quality.
+Before delivery, watch the complete export with the watch skill. Inspect the
+beginning, middle and end of each generated clip and the contacts at full
+resolution. Check that the first twelve seconds preserve the apparent original
+scale, the Grimhorn intrusion reads clearly, the lift maintains exact identity,
+the second mask feels friendly, and the action stays native. Verify every-frame
+unofficial attribution, title spelling, 70 seconds/1680 frames at 24 fps and the
+actual mix (approximately -14 LUFS integrated, true peak no higher than -1 dBTP).
+Listen once without looking at the image. Record what was fixed, cut or remains
+for review; export checks alone do not establish visual quality.
 
-Developer sources read for this treatment: `AGENTS.md`, `CLAUDE.md`,
-`.planning/STATE.md` (Build672), the Build672/671 notes beside
-`src/GloomhavenVR/Net/NetProtocol.cs`, `packaging/release-highlights/1.1.0.md`,
-`src/GloomhavenVR/Core/Loc/Loc.cs` mask-name entries,
-`src/GloomhavenVR/Net/Avatar/HeadMaskLibrary.cs`, and
-`unity/GloomhavenVR.Assets/Assets/Bundle/Hands/README.md`. Inspected images:
-`docs/img/styles-masks.png`, `docs/img/styles-hands.png` and
-`docs/img/town-enchantress.png`.
+Project contracts read: `AGENTS.md`, `CLAUDE.md`, `.planning/STATE.md` (Build672),
+the newest notes beside `NetProtocol.ModBuild`, 1.1.0 release highlights,
+`HeadMaskLibrary.cs`, mask localization entries and the hand-asset README.

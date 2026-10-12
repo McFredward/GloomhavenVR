@@ -1,18 +1,18 @@
 {
   "schema_version": 1,
   "project": {
-    "working_title": "The Table Calls",
+    "working_title": "Take Your Place",
     "product": "GloomhavenVR",
     "language": "en",
-    "duration_seconds": 64,
+    "duration_seconds": 70,
     "width": 1920,
     "height": 1080,
     "fps": 24,
-    "frame_count": 1536,
+    "frame_count": 1680,
     "color": "Rec.709",
-    "status": "Complete concept for creative approval; do not generate imagery, video or narration until maintainer approves this concept.",
+    "status": "Revised concept for maintainer creative approval. No imagery, video or narration generation before approval. Existing previews do not demonstrate the new giant-mask/lift reveal.",
     "developer_base_commit": "cd72fde56fc6de846a34fa104ca73dfad888b3e9",
-    "scene_count": 10
+    "scene_count": 8
   },
   "reference": {
     "url": "https://www.youtube.com/watch?v=N9vXBNJ5r1k",
@@ -32,7 +32,7 @@
     "continuous_label": {
       "text": "UNOFFICIAL · FAN-MADE MOD",
       "start_seconds": 0,
-      "end_seconds": 64,
+      "end_seconds": 70,
       "position": "bottom-right",
       "safe_margin_px": 48,
       "min_font_px_at_1080p": 24,
@@ -42,18 +42,24 @@
       "must_be_legible_every_frame": true
     },
     "opening_subtitle": {
-      "text": "An unofficial community VR mod",
+      "text": "An unofficial community mod",
       "start_seconds": 1,
       "end_seconds": 5,
       "position": "lower center, clear of continuous label"
     },
     "final_footer": {
       "text": "Requires Gloomhaven Digital. Unofficial fan-made mod.",
-      "start_seconds": 59,
-      "end_seconds": 64,
+      "start_seconds": 64,
+      "end_seconds": 70,
       "position": "lower center, clear of continuous label"
     },
-    "no_official_publisher_implication": true
+    "no_official_publisher_implication": true,
+    "community_attribution": {
+      "text": "A community project by McFredward",
+      "start_seconds": 64,
+      "end_seconds": 70,
+      "position": "under title, clear of requirements and continuous unofficial label"
+    }
   },
   "voice": {
     "mode": "consent_attested_clone",
@@ -63,150 +69,137 @@
     "direction": "Quiet authority, mature low-mid register, warmth, tactile consonants, natural breaths; resolve grows without shouting.",
     "whole_script_preferred": true,
     "target_spoken_seconds": [
-      46,
-      49
+      30,
+      36
     ],
     "cues": [
       {
         "id": "N01",
-        "start_seconds": 0.9,
-        "end_seconds": 4.5,
-        "text": "Some journeys begin with a road."
+        "start_seconds": 0.8,
+        "end_seconds": 3.0,
+        "text": "You know this world."
       },
       {
         "id": "N02",
-        "start_seconds": 6.1,
-        "end_seconds": 9.2,
-        "text": "Ours begins with a table."
+        "start_seconds": 3.5,
+        "end_seconds": 6.1,
+        "text": "The roads that brought you here."
       },
       {
         "id": "N03",
-        "start_seconds": 11.1,
-        "end_seconds": 13.6,
-        "text": "With a hand that bargains."
+        "start_seconds": 6.5,
+        "end_seconds": 9.1,
+        "text": "The dangers waiting in the dark."
       },
       {
         "id": "N04",
-        "start_seconds": 14.1,
-        "end_seconds": 16.3,
-        "text": "A hand that gives."
+        "start_seconds": 9.4,
+        "end_seconds": 11.9,
+        "text": "And the weight of every choice."
       },
       {
         "id": "N05",
-        "start_seconds": 17.3,
-        "end_seconds": 22,
-        "text": "And the hands you trust beside you."
+        "start_seconds": 26.2,
+        "end_seconds": 28.4,
+        "text": "Take your place."
       },
       {
         "id": "N06",
-        "start_seconds": 23.1,
-        "end_seconds": 25.3,
-        "text": "A city of old debts."
-      },
-      {
-        "id": "N07",
-        "start_seconds": 25.7,
-        "end_seconds": 28.5,
-        "text": "A world of dangerous choices."
-      },
-      {
-        "id": "N08",
-        "start_seconds": 29.1,
-        "end_seconds": 31,
-        "text": "Close enough to touch."
-      },
-      {
-        "id": "N09",
-        "start_seconds": 31.2,
-        "end_seconds": 33.2,
-        "text": "Vast enough to lose yourself."
-      },
-      {
-        "id": "N10",
-        "start_seconds": 33.4,
-        "end_seconds": 35.3,
-        "text": "Real enough to matter."
-      },
-      {
-        "id": "N11",
-        "start_seconds": 35.5,
-        "end_seconds": 37.3,
-        "text": "Choose what you carry."
-      },
-      {
-        "id": "N12",
-        "start_seconds": 37.6,
-        "end_seconds": 39.2,
-        "text": "Choose what you spend."
-      },
-      {
-        "id": "N13",
-        "start_seconds": 39.6,
-        "end_seconds": 43.7,
-        "text": "Then choose what you will risk together."
-      },
-      {
-        "id": "N14",
-        "start_seconds": 44.1,
-        "end_seconds": 45.1,
-        "text": "One breath."
-      },
-      {
-        "id": "N15",
-        "start_seconds": 45.5,
-        "end_seconds": 46.6,
-        "text": "Two cards."
-      },
-      {
-        "id": "N16",
-        "start_seconds": 47,
-        "end_seconds": 49,
-        "text": "The room falls silent."
-      },
-      {
-        "id": "N17",
-        "start_seconds": 49.7,
-        "end_seconds": 52.7,
-        "text": "And the world answers."
-      },
-      {
-        "id": "N18",
-        "start_seconds": 54.1,
-        "end_seconds": 55.5,
-        "text": "Gloomhaven."
-      },
-      {
-        "id": "N19",
-        "start_seconds": 55.9,
-        "end_seconds": 58.3,
+        "start_seconds": 32.1,
+        "end_seconds": 35.0,
         "text": "Gather your party."
       },
       {
-        "id": "N20",
-        "start_seconds": 59.3,
-        "end_seconds": 61.6,
-        "text": "The table calls."
+        "id": "N07",
+        "start_seconds": 37.5,
+        "end_seconds": 39.3,
+        "text": "Choose your cards."
+      },
+      {
+        "id": "N08",
+        "start_seconds": 40.1,
+        "end_seconds": 42.0,
+        "text": "Make your move."
+      },
+      {
+        "id": "N09",
+        "start_seconds": 43.0,
+        "end_seconds": 44.0,
+        "text": "Together."
+      },
+      {
+        "id": "N10",
+        "start_seconds": 46.0,
+        "end_seconds": 48.0,
+        "text": "Every decision."
+      },
+      {
+        "id": "N11",
+        "start_seconds": 50.0,
+        "end_seconds": 52.0,
+        "text": "Every victory."
+      },
+      {
+        "id": "N12",
+        "start_seconds": 53.5,
+        "end_seconds": 54.8,
+        "text": "Shared."
+      },
+      {
+        "id": "N13",
+        "start_seconds": 56.5,
+        "end_seconds": 59.3,
+        "text": "The world you know."
+      },
+      {
+        "id": "N14",
+        "start_seconds": 60.0,
+        "end_seconds": 62.0,
+        "text": "Closer than ever."
+      },
+      {
+        "id": "N15",
+        "start_seconds": 64.7,
+        "end_seconds": 65.8,
+        "text": "Gloomhaven."
+      },
+      {
+        "id": "N16",
+        "start_seconds": 66.4,
+        "end_seconds": 68.2,
+        "text": "In your hands."
       }
     ],
-    "script": "Some journeys begin with a road.\nOurs begins with a table.\nWith a hand that bargains.\nA hand that gives.\nAnd the hands you trust beside you.\nA city of old debts.\nA world of dangerous choices.\nClose enough to touch.\nVast enough to lose yourself.\nReal enough to matter.\nChoose what you carry.\nChoose what you spend.\nThen choose what you will risk together.\nOne breath.\nTwo cards.\nThe room falls silent.\nAnd the world answers.\nGloomhaven.\nGather your party.\nThe table calls."
+    "script": "You know this world.\nThe roads that brought you here.\nThe dangers waiting in the dark.\nAnd the weight of every choice.\nTake your place.\nGather your party.\nChoose your cards.\nMake your move.\nTogether.\nEvery decision.\nEvery victory.\nShared.\nThe world you know.\nCloser than ever.\nGloomhaven.\nIn your hands.",
+    "word_count": 51,
+    "narration_free_interval": {
+      "start_seconds": 12,
+      "end_seconds": 25,
+      "reason": "Giant mask and most of the miniature lift must reveal scale visually; Take your place begins only after table discovery."
+    }
   },
   "music": {
     "direction": "Original dark chamber-orchestral cue: bowed low strings, tactile percussion, muted brass final third; no recognizable copied reference/game cue.",
-    "duration_seconds": 64,
-    "withdraw_start_seconds": 48,
-    "withdraw_end_seconds": 49,
-    "resolve_seconds": 62,
+    "duration_seconds": 70,
+    "withdraw_start_seconds": 12,
+    "withdraw_end_seconds": 19,
+    "resolve_seconds": 68,
     "target_integrated_lufs": -14,
-    "true_peak_ceiling_dbtp": -1
+    "true_peak_ceiling_dbtp": -1,
+    "secondary_pause": {
+      "start_seconds": 44,
+      "end_seconds": 45,
+      "reason": "Physical card commitment before native action crescendo."
+    }
   },
   "asset_registry": {
-    "ironwatch": {
+    "grimhorn": {
       "kind": "shipped_mesh",
-      "name": "Ironwatch",
+      "name": "Grimhorn",
       "paths": [
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_0.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_0_albedo.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_0.prefab"
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_2.fbx",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_2_albedo.png",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_2.prefab"
       ]
     },
     "runeveil": {
@@ -218,15 +211,6 @@
         "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_1.prefab"
       ]
     },
-    "grimhorn": {
-      "kind": "shipped_mesh",
-      "name": "Grimhorn",
-      "paths": [
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_2.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_2_albedo.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_2.prefab"
-      ]
-    },
     "glove": {
       "kind": "shipped_skinned_mesh",
       "paths": [
@@ -234,16 +218,6 @@
         "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_R_rig.fbx",
         "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_albedo.png",
         "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_normal.png"
-      ]
-    },
-    "plate": {
-      "kind": "shipped_skinned_mesh",
-      "paths": [
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandPlate_L_rig.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandPlate_R_rig.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandPlate_albedo.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandPlate_normal.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandPlate_mrs.png"
       ]
     },
     "arcane": {
@@ -279,30 +253,6 @@
       ],
       "preview": "docs/img/env-cellar.jpg"
     },
-    "merchant": {
-      "kind": "shipped_npc",
-      "paths": [
-        "unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Prefabs/TownMerchant.prefab",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Actors/merchant/merchant_rig.fbx"
-      ],
-      "preview": "docs/img/town-merchant.png"
-    },
-    "enchantress": {
-      "kind": "shipped_npc",
-      "paths": [
-        "unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Prefabs/TownEnchantress.prefab",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Actors/enchantress/enchantress_rig.fbx"
-      ],
-      "preview": "docs/img/town-enchantress.png"
-    },
-    "priestess": {
-      "kind": "shipped_npc",
-      "paths": [
-        "unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Prefabs/TownPriestess.prefab",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Actors/priestess/priestess_rig.fbx"
-      ],
-      "preview": "docs/img/town-priestess.png"
-    },
     "logo": {
       "kind": "existing_mod_logo",
       "paths": [
@@ -311,278 +261,114 @@
       "usage": "Composite locally; inspect transparent edge and existing exact spelling before export."
     }
   },
-  "global_video_prompt": "Premium cinematic tabletop fantasy using the supplied exact GloomhavenVR render as the fixed design reference. Worn timber, restrained amber practical light, cool cyan or violet accents, rich detailed blacks, natural shallow depth of field, physically plausible materials. Keep the tabletop scale and the original mask, glove, armor, runes, artwork and board geometry intact. Camera motion is subtle and deliberate. Preserve the input composition and every visible silhouette. Text and logo will be composited afterward.",
-  "global_negative_prompt": "No additional fingers or limbs, no full avatar bodies, no exposed human faces replacing masks, no changing mask shapes or painted runes, no new weapons, no first-person sword combat, no giant battlefield, no life-size miniatures, no melting card edges, no substituted card art, no generated text or logos, no sparks covering important contact, no modern sci-fi HUD, no aggressive camera orbit, no warping or temporal flicker.",
+  "global_video_prompt": "Premium source-faithful Gloomhaven cinematic with exact original game figures/scenery and shipped GloomhavenVR masks/hands. Warm amber torchlight, restrained cyan/violet original rune accents, rich detailed blacks, coherent scale and lighting. Preserve every input mesh, UV design, card artwork and silhouette. First twelve seconds are filmed at miniature height and look like normal Gloomhaven; no table or VR hints. Giant Grimhorn then an exact hand lift reveal the actual tabletop. Runeveil establishes the second VR player. Text/logo are composited locally.",
+  "global_negative_prompt": "No changed game architecture, no broken ceiling invented for a sightline, no tabletop edge/hands/masks visible before 12 seconds, no new mask eyes/glows/facial anatomy, no full avatar bodies or extra limbs, no extra fingers, no morphing grip or changing miniature identity, no free physical relocation to another cell, no hand-driven combat, no first-person sword fight or invented hand spells, no remote private card fronts during selection, no replacement card text/art, no generative logos, no aggressive orbit or scale jumps, no generic castle or invented monster.",
   "shots": [
     {
       "id": "S01",
-      "name": "A world within reach",
+      "start_seconds": 0,
+      "end_seconds": 12,
+      "name": "The world you know",
       "asset_ids": [
-        "table",
-        "ironwatch",
-        "runeveil",
-        "grimhorn",
-        "glove",
-        "plate",
-        "arcane",
         "cellar"
       ],
-      "method": "local_source_render_with_optional_i2v",
-      "motion": "Start at miniature ground level in a gorgeous actual dungeon, seeming full scale. One slow move explores torchlit stone, then rises past the board edge to reveal the tabletop and original companion hands.",
-      "prompt": "Source-faithful Gloomhaven dungeon in warm torchlight, seen from miniature ground level with substantial stone and dramatic dark depth. Begin with an in-world impression; a deliberate gentle camera rise reveals the board edge and the tabletop surrounding it. Preserve exact environment and miniature scale. The second source plate shows the same world on its table with the actual three masks and shipped hands. No generic castle, new monsters or invented full avatar bodies.",
-      "sound": [
-        "torch and stone ambience",
-        "bowed low note",
-        "restrained pulse at table reveal"
-      ],
-      "paid": true,
-      "requires_native_capture": true,
-      "capture_reason": "Source-locked dungeon presentation requires original native capture or an authorized read-only game-asset render; a table made from invented fantasy is not final.",
-      "proof_role": [
-        "P01",
-        "P02"
-      ],
-      "start_seconds": 0,
-      "end_seconds": 11,
-      "duration_seconds": 11,
-      "frame_count": 264,
       "narration_cues": [
         "N01",
-        "N02"
+        "N02",
+        "N03",
+        "N04"
       ],
+      "method": "source_extraction_and_local_render_or_native_capture",
+      "motion": "One low camera move at original mercenary height through an actual open-topped dungeon/ruin. Original figures remain at board positions. Preserve the impression of a full-scale normal Gloomhaven world for all twelve seconds.",
+      "prompt": "Actual Gloomhaven original mercenaries and original open dungeon/ruined-chamber scenery, seen at miniature ground level in warm torchlight. Rich stone surface detail and deep passage shadows. Keep all board edges, oversized hands/masks, cards and surrounding-room/table hints completely outside frame. Do not generate generic fantasy figures or change architecture. The overhead reveal sightline must already exist in the chosen source.",
+      "sound": [
+        "sparse native dungeon ambience",
+        "bowed low strings",
+        "torch detail"
+      ],
+      "paid": false,
+      "requires_native_capture": true,
+      "capture_reason": "Original game scenario geometry and mercenary figures must be extracted read-only or captured. Env_Cellar is a surrounding-environment reference, not proof of an open native scenario or available game figure.",
+      "source_requirements": [
+        "original game figures",
+        "original open-topped dungeon or source-backed unobstructed camera sightline"
+      ],
+      "no_embodiment_hints_until_seconds": 12,
+      "duration_seconds": 12,
+      "frame_count": 288,
       "source_asset_paths": [
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Table/MapTable.prefab",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Table/MapTable.asset",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Table/MapTable.mat",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_0.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_0_albedo.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_0.prefab",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_1.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_1_albedo.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_1.prefab",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_2.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_2_albedo.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_2.prefab",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_L_rig.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_R_rig.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_albedo.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_normal.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandPlate_L_rig.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandPlate_R_rig.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandPlate_albedo.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandPlate_normal.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandPlate_mrs.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandArcane_L_rig.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandArcane_R_rig.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandArcane_albedo.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandArcane_normal.png",
         "unity/GloomhavenVR.Assets/Assets/Bundle/Environments/Env_Cellar.prefab"
-      ],
-      "priority": "pilot_after_concept_approval",
-      "max_usd": 4.5,
-      "cuts": [
-        {
-          "offset_seconds": 0,
-          "plate_id": "P01",
-          "duration_seconds": 6,
-          "subject": "source-faithful dungeon interior at ground level"
-        },
-        {
-          "offset_seconds": 6,
-          "plate_id": "P02",
-          "duration_seconds": 5,
-          "subject": "tabletop reveal with actual masks/hands"
-        }
       ]
     },
     {
       "id": "S02",
-      "name": "Small promises",
+      "start_seconds": 12,
+      "end_seconds": 19,
+      "name": "Something above",
       "asset_ids": [
-        "merchant",
-        "priestess",
-        "glove"
+        "grimhorn"
       ],
-      "method": "native_capture_or_rigged_local_render",
-      "motion": "Two restrained three-second inserts: physical merchant card handoff, then held purse reaching the priestess. Keep each resident's original offered-hand pose.",
-      "prompt": "Source-locked close insert of the actual merchant stand and original gloved hand offering an exact native item card, then a separate source-locked temple purse offering. Warm practical light; maintain original contact and silhouettes. Animate locally or use native footage; do not ask a model to invent fingers, cards or transaction outcomes.",
+      "narration_cues": [],
+      "method": "local_source_render_with_optional_i2v",
+      "motion": "Camera stays at mercenary height. A source-accurate shadow crosses the original chamber. The giant actual Grimhorn leans into the existing overhead sightline and holds, curious rather than hostile.",
+      "prompt": "The supplied exact horned carved-wood Grimhorn mask peers down from above the source-backed open dungeon sightline. Seen from tiny mercenary height, the mask is immense. Preserve original horns, carved contours, paint, eye openings and their exact existing albedo; no new eyes or eye glow. Amber torch-side rim, shadow and a restrained head tilt create the reveal. Camera remains low. Do not invent god powers, a body or broken roof. One subtle source-locked motion only.",
       "sound": [
-        "leather movement",
-        "card paper edge",
-        "muted coin detail"
+        "music withdraws",
+        "low wood/material resonance",
+        "one quiet breath"
       ],
-      "paid": false,
+      "paid": true,
+      "priority": "pilot_after_concept_approval",
+      "max_usd": 4.5,
       "requires_native_capture": true,
-      "capture_reason": "Item artwork, actual purse and native handoff timing need original capture or authorized read-only game assets.",
-      "cuts": [
-        {
-          "offset_seconds": 0,
-          "subject": "merchant",
-          "duration_seconds": 3
-        },
-        {
-          "offset_seconds": 3,
-          "subject": "priestess",
-          "duration_seconds": 3
-        }
-      ],
-      "source_contract_paths": [
-        "src/GloomhavenVR/WorldUI/TownServices/TownServicePursePresentation.cs"
-      ],
-      "start_seconds": 11,
-      "end_seconds": 17,
-      "duration_seconds": 6,
-      "frame_count": 144,
-      "narration_cues": [
-        "N03",
-        "N04"
-      ],
+      "capture_reason": "Must use the same extracted original room and figures as S01, with an existing open sightline.",
+      "proof_role": "P01",
+      "duration_seconds": 7,
+      "frame_count": 168,
       "source_asset_paths": [
-        "unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Prefabs/TownMerchant.prefab",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Actors/merchant/merchant_rig.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Prefabs/TownPriestess.prefab",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Actors/priestess/priestess_rig.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_L_rig.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_R_rig.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_albedo.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_normal.png"
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_2.fbx",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_2_albedo.png",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_2.prefab"
       ]
     },
     {
       "id": "S03",
-      "name": "Companions",
+      "start_seconds": 19,
+      "end_seconds": 30,
+      "name": "The hand and the scale",
       "asset_ids": [
-        "ironwatch",
-        "runeveil",
         "grimhorn",
-        "glove",
-        "plate",
-        "arcane"
-      ],
-      "method": "local_render",
-      "motion": "Three two-second portraits, a tiny camera slide across each mask's surface; no face/body additions.",
-      "prompt": "Exact source mask portraits: Ironwatch iron with aged brass trim; Runeveil pale face with existing violet markings; Grimhorn carved horned wood with existing painted markings. Render one mask per insert from original FBX and albedo. Bring its actual paired hand into the lower edge of frame. Preserve the original designs; light travel is more useful than invented motion.",
-      "sound": [
-        "quiet steel scrape",
-        "arcane tonal overtone",
-        "dry leather accent"
-      ],
-      "paid": false,
-      "requires_native_capture": false,
-      "cuts": [
-        {
-          "offset_seconds": 0,
-          "asset_id": "ironwatch",
-          "hand_id": "plate",
-          "duration_seconds": 2
-        },
-        {
-          "offset_seconds": 2,
-          "asset_id": "runeveil",
-          "hand_id": "arcane",
-          "duration_seconds": 2
-        },
-        {
-          "offset_seconds": 4,
-          "asset_id": "grimhorn",
-          "hand_id": "glove",
-          "duration_seconds": 2
-        }
-      ],
-      "start_seconds": 17,
-      "end_seconds": 23,
-      "duration_seconds": 6,
-      "frame_count": 144,
-      "narration_cues": [
-        "N05"
-      ],
-      "source_asset_paths": [
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_0.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_0_albedo.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_0.prefab",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_1.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_1_albedo.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_1.prefab",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_2.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_2_albedo.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_2.prefab",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_L_rig.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_R_rig.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_albedo.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_normal.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandPlate_L_rig.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandPlate_R_rig.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandPlate_albedo.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandPlate_normal.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandPlate_mrs.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandArcane_L_rig.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandArcane_R_rig.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandArcane_albedo.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandArcane_normal.png"
-      ]
-    },
-    {
-      "id": "S04",
-      "name": "Old debts, dangerous choices",
-      "asset_ids": [
-        "table",
-        "cellar"
-      ],
-      "method": "native_capture_with_local_grade",
-      "motion": "Three-second campaign-map detail dissolves into an original dungeon diorama detail; do not invent a city or monsters.",
-      "prompt": "Original Gloomhaven campaign-map geography, followed by a low camera sweep across the actual dungeon diorama. Warm torch accents and deep stone shadows; a cool accent may connect it to the rune mask. Keep board edges/miniature scale visible. Source capture owns all figure and terrain identity.",
-      "sound": [
-        "native distant ambience",
-        "sparse drum pulse"
-      ],
-      "paid": false,
-      "requires_native_capture": true,
-      "capture_reason": "Exact native campaign map and dungeon board presentation.",
-      "start_seconds": 23,
-      "end_seconds": 29,
-      "duration_seconds": 6,
-      "frame_count": 144,
-      "narration_cues": [
-        "N06",
-        "N07"
-      ],
-      "source_asset_paths": [
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Table/MapTable.prefab",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Table/MapTable.asset",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Table/MapTable.mat",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Environments/Env_Cellar.prefab"
-      ]
-    },
-    {
-      "id": "S05",
-      "name": "Close enough",
-      "asset_ids": [
         "glove",
         "table"
       ],
-      "method": "native_capture_or_rigged_local_render",
-      "motion": "Macro on local glove carefully holding a real miniature, then ordinary idle release. Before the next native action, the figure must already be at its board position.",
-      "prompt": "Precise local-hand view of the actual leather glove holding an original miniature above its tabletop board. Exact five fingers and realistic gentle grip. Use original rig animation or native footage for contact, lift and release. Maintain the tabletop scale and original figure appearance. No generated grasp.",
+      "narration_cues": [
+        "N05"
+      ],
+      "method": "precise_local_rigged_animation",
+      "motion": "Actual glove descends and gently picks an idle original figurine. Camera travels with it past the unchanged board edge into the actual VR tabletop/player relationship. Complete the visual discovery by 26 seconds. Return the figure to its original board cell before native action.",
+      "prompt": "Rigged source-locked animation using the original five-finger leather glove and original game miniature. Gentle idle pick-up with exact contact and unchanged miniature geometry. Camera follows a deliberate path with the lift; the same dungeon becomes visibly a diorama on the actual table. Grimhorn is a player mask at the source-calibrated VR scale. End the hold and return the figure to its exact original cell. Do not let a generative model invent contact, relocate the figure, resize the miniature or animate freeform combat.",
       "sound": [
-        "small miniature base contact",
-        "room breath"
+        "leather articulation",
+        "small figure-base contact",
+        "one restrained score rise"
       ],
       "paid": false,
       "requires_native_capture": true,
-      "capture_reason": "Original miniature source and held/idle-release contact; no invented generic figure.",
+      "capture_reason": "Original figure mesh/material and exact board cell/scale require source extraction or native capture. This critical contact/lift is locally animated.",
       "source_contract_paths": [
-        "src/GloomhavenVR/Board/FigureGrab/FigureGrabDriver.cs"
+        "src/GloomhavenVR/Board/FigureGrab/FigureGrabDriver.cs",
+        "src/GloomhavenVR/Board/FigureGrab/ActorBehaviour_HeldTransform_Patch.cs"
       ],
-      "start_seconds": 29,
-      "end_seconds": 34,
-      "duration_seconds": 5,
-      "frame_count": 120,
-      "narration_cues": [
-        "N08",
-        "N09",
-        "N10"
-      ],
+      "restore_original_board_cell": true,
+      "no_native_action_while_held": true,
+      "reveal_table_by_seconds": 26,
+      "proof_role": "P02",
+      "duration_seconds": 11,
+      "frame_count": 264,
       "source_asset_paths": [
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_2.fbx",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_2_albedo.png",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_2.prefab",
         "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_L_rig.fbx",
         "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_R_rig.fbx",
         "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_albedo.png",
@@ -593,194 +379,37 @@
       ]
     },
     {
-      "id": "S06",
-      "name": "The choice",
+      "id": "S04",
+      "start_seconds": 30,
+      "end_seconds": 37,
+      "name": "A second presence",
       "asset_ids": [
-        "enchantress",
-        "arcane",
-        "glove",
-        "plate",
-        "play_tray"
-      ],
-      "method": "native_capture_or_rigged_local_render",
-      "motion": "Follow the original physical card to its exact offered pose. Original ring is in the card's plane; preserve hover/ring waveform if visible. Then study the local card fan while companions wait; preserve covered remote selection backs.",
-      "prompt": "The actual enchantress at her stand, an original ability card offered by the arcane glove. Existing violet/cyan cues and native offered-card ring only. Camera makes one restrained push. No new spell casting, no rewritten card front, no floating card that detaches from native pose. Capture or animate the exact interaction locally. Second insert: The controlled player's actual card fan in the foreground, original glove studying two choices. Companion plate and arcane hands wait around the table. Native scenario-selection privacy is intact: local cards are face-up, remote cards show exact native covered backs. Preserve native artwork and card geometry. Motion is original card handling, not generative morphing.",
-      "sound": [
-        "subtle native-like tonal shimmer",
-        "paper contact",
-        "soft card fan shuffle",
-        "pulse gathers"
-      ],
-      "paid": false,
-      "requires_native_capture": true,
-      "capture_reason": "Exact original offered card artwork, native hover, ring geometry and enhancement presentation.",
-      "privacy": "Map/town offered cards are public. In scenario ability selection, only the local controlled-character fronts may be exposed; remote cards stay covered. Omit visitor-local town pre-drop guides from observer angles.",
-      "start_seconds": 34,
-      "end_seconds": 44,
-      "duration_seconds": 10,
-      "frame_count": 240,
-      "narration_cues": [
-        "N10",
-        "N11",
-        "N12",
-        "N13"
-      ],
-      "source_asset_paths": [
-        "unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Prefabs/TownEnchantress.prefab",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/TownServices/Actors/enchantress/enchantress_rig.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandArcane_L_rig.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandArcane_R_rig.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandArcane_albedo.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandArcane_normal.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_L_rig.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_R_rig.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_albedo.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_normal.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandPlate_L_rig.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandPlate_R_rig.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandPlate_albedo.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandPlate_normal.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandPlate_mrs.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Table/PlayTray_prepped.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Table/PlayTray_albedo.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Table/PlayTray_normal.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Table/PlayTray.prefab"
-      ],
-      "cuts": [
-        {
-          "offset_seconds": 0,
-          "duration_seconds": 5,
-          "subject": "enchantress offered card"
-        },
-        {
-          "offset_seconds": 5,
-          "duration_seconds": 5,
-          "subject": "local native card fan and waiting companions"
-        }
-      ],
-      "source_contract_paths": [
-        "src/GloomhavenVR/Cards/CardFan.cs"
-      ]
-    },
-    {
-      "id": "S07",
-      "name": "Two cards",
-      "asset_ids": [
-        "glove",
-        "play_tray"
-      ],
-      "method": "native_capture_or_rigged_local_render",
-      "motion": "Local hands place the two exact ability cards in their original tray slots. Hold on second contact; no remote front disclosure.",
-      "prompt": "Tactile close-up from the local player's controlled-character perspective. Two actual ability cards settle into their original two play-tray slots with exact glove contact and original artwork. One simple action per beat. Use native footage or rigged local animation; no generated fingers or card text. Hold the composition as the room falls silent.",
-      "sound": [
-        "first dry card contact",
-        "second card contact",
-        "score withdraws at 48 seconds"
-      ],
-      "paid": false,
-      "requires_native_capture": true,
-      "capture_reason": "Native original two-card selection/commit sequence and correct local-card identity.",
-      "privacy": "Local controlled cards remain face-up; remote selection cards remain covered.",
-      "source_contract_paths": [
-        "src/GloomhavenVR/Cards/Tray/PlayTray.4.Slots.cs"
-      ],
-      "start_seconds": 44,
-      "end_seconds": 49,
-      "duration_seconds": 5,
-      "frame_count": 120,
-      "narration_cues": [
-        "N14",
-        "N15",
-        "N16"
-      ],
-      "source_asset_paths": [
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_L_rig.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_R_rig.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_albedo.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_normal.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Table/PlayTray_prepped.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Table/PlayTray_albedo.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Table/PlayTray_normal.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Table/PlayTray.prefab"
-      ]
-    },
-    {
-      "id": "S08",
-      "name": "The world answers",
-      "asset_ids": [
-        "table",
-        "cellar"
-      ],
-      "method": "native_capture_with_local_grade",
-      "motion": "Native miniature action begins from the board position. Low camera motion follows its short path; never start native movement from a held transform.",
-      "prompt": "Exact native Gloomhaven miniature turn inside its tabletop diorama. The miniature starts at the board position; all hands have released it. Actual native ability/action effect, presented faithfully. One camera sweep, preserved board scale and original character design. No unsupported player sword fight or invented explosion.",
-      "sound": [
-        "single low impact",
-        "strings and muted horns open",
-        "native action detail"
-      ],
-      "paid": false,
-      "requires_native_capture": true,
-      "capture_reason": "Actual native action and figure movement rather than an invented gameplay claim.",
-      "privacy": "Action-phase cards are face-up.",
-      "source_contract_paths": [
-        "src/GloomhavenVR/Board/FigureGrab/ActorBehaviour_HeldTransform_Patch.cs"
-      ],
-      "start_seconds": 49,
-      "end_seconds": 54,
-      "duration_seconds": 5,
-      "frame_count": 120,
-      "narration_cues": [
-        "N17"
-      ],
-      "source_asset_paths": [
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Table/MapTable.prefab",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Table/MapTable.asset",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Table/MapTable.mat",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Environments/Env_Cellar.prefab"
-      ]
-    },
-    {
-      "id": "S09",
-      "name": "Gather your party",
-      "asset_ids": [
-        "table",
-        "ironwatch",
-        "runeveil",
         "grimhorn",
         "glove",
-        "plate",
-        "arcane"
+        "runeveil",
+        "arcane",
+        "table"
       ],
-      "method": "local_render_with_optional_i2v",
-      "motion": "Return to the source-locked shared-table wide; a tiny rise reveals all three presences and preserves every board/card silhouette.",
-      "prompt": "Exact three-mask companion tableau around the same GloomhavenVR table. Ironwatch with plate hands, Runeveil with arcane hands, Grimhorn with leather-glove hands. Each presence has the two shipped hands; no avatar bodies. Preserve exact geometry and scale. A subtle ascending camera move and warm practical light bring the group into one composition. Hands settle rather than perform an invented action.",
+      "narration_cues": [
+        "N06"
+      ],
+      "method": "local_source_render_with_optional_i2v",
+      "motion": "Runeveil appears across the table with both arcane hands. Grimhorn answers with a small friendly nod. Hold their relationship, then the shared board.",
+      "prompt": "The exact ivory Runeveil and both actual arcane glove hands enter opposite the actual Grimhorn and leather-glove hands. Distinct amber/cyan rim light, original Runeveil markings and original eye presentation only. A slight friendly Grimhorn nod communicates another VR player rather than an enemy. Each presence has only its mask and two shipped hands; no bodies. Keep the same table, board, masks and source-calibrated scale.",
       "sound": [
-        "broad orchestral resolution",
-        "tactile room tone"
+        "a second musical voice joins",
+        "warm room tone"
       ],
       "paid": true,
       "priority": "optional_after_pilot_review",
       "max_usd": 4.5,
-      "requires_native_capture": false,
-      "start_seconds": 54,
-      "end_seconds": 59,
-      "duration_seconds": 5,
-      "frame_count": 120,
-      "narration_cues": [
-        "N18",
-        "N19"
-      ],
+      "requires_native_capture": true,
+      "capture_reason": "Maintain the same exact source game board/figure tableau.",
+      "represented_players": 2,
+      "hands_per_player": 2,
+      "duration_seconds": 7,
+      "frame_count": 168,
       "source_asset_paths": [
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Table/MapTable.prefab",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Table/MapTable.asset",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Table/MapTable.mat",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_0.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_0_albedo.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_0.prefab",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_1.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_1_albedo.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_1.prefab",
         "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_2.fbx",
         "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_2_albedo.png",
         "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_2.prefab",
@@ -788,44 +417,223 @@
         "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_R_rig.fbx",
         "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_albedo.png",
         "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_normal.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandPlate_L_rig.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandPlate_R_rig.fbx",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandPlate_albedo.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandPlate_normal.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandPlate_mrs.png",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_1.fbx",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_1_albedo.png",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_1.prefab",
         "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandArcane_L_rig.fbx",
         "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandArcane_R_rig.fbx",
         "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandArcane_albedo.png",
-        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandArcane_normal.png"
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandArcane_normal.png",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Table/MapTable.prefab",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Table/MapTable.asset",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Table/MapTable.mat"
       ]
     },
     {
-      "id": "S10",
-      "name": "The table calls",
+      "id": "S05",
+      "start_seconds": 37,
+      "end_seconds": 45,
+      "name": "The choice",
+      "asset_ids": [
+        "grimhorn",
+        "glove",
+        "runeveil",
+        "arcane",
+        "play_tray"
+      ],
+      "narration_cues": [
+        "N07",
+        "N08",
+        "N09"
+      ],
+      "method": "native_capture_or_source_locked_rigged_card_animation",
+      "motion": "Two actual cards per controlled character are considered and committed in coordinated native-tray beats. Source-faithful local/observer angles maintain original privacy.",
+      "prompt": "Actual physical tactical card selection and two-card tray commitments by the two represented VR players. Exact original game artwork, covered backs, card geometry and shipped glove/arcane rigs. Local controlled-character fronts may be visible. Remote ability-selection fans, held and placed cards remain face-down. Show the shared timing through hand and slot contacts, not an omniscient leak of both selected fronts. Pause at the last contact before native action.",
+      "sound": [
+        "first card contact",
+        "second decisive contact",
+        "short score air before action"
+      ],
+      "paid": false,
+      "requires_native_capture": true,
+      "capture_reason": "Original native cards, two-card trays, exact selection/commit sequence and local/remote state must be captured or reconstructed from authorized original assets.",
+      "privacy": "During selection, local controlled-character fronts are open; remote selection cards stay covered. The action-phase reveal occurs only under native rules.",
+      "source_contract_paths": [
+        "src/GloomhavenVR/Cards/CardFan.cs",
+        "src/GloomhavenVR/Cards/Tray/PlayTray.4.Slots.cs"
+      ],
+      "duration_seconds": 8,
+      "frame_count": 192,
+      "source_asset_paths": [
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_2.fbx",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_2_albedo.png",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_2.prefab",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_L_rig.fbx",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_R_rig.fbx",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_albedo.png",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_normal.png",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_1.fbx",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_1_albedo.png",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_1.prefab",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandArcane_L_rig.fbx",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandArcane_R_rig.fbx",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandArcane_albedo.png",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandArcane_normal.png",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Table/PlayTray_prepped.fbx",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Table/PlayTray_albedo.png",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Table/PlayTray_normal.png",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Table/PlayTray.prefab"
+      ]
+    },
+    {
+      "id": "S06",
+      "start_seconds": 45,
+      "end_seconds": 56,
+      "name": "The world answers",
+      "asset_ids": [
+        "grimhorn",
+        "glove",
+        "runeveil",
+        "arcane",
+        "table",
+        "cellar"
+      ],
+      "narration_cues": [
+        "N10",
+        "N11",
+        "N12"
+      ],
+      "method": "native_capture_with_source_locked_player_composite",
+      "motion": "Three original native action beats from the board. Giant player masks and resting hands frame the same original world in background. Figures begin at their original board cells after release.",
+      "prompt": "Actual original Gloomhaven action-phase figure movement and effects within the same source diorama. All held figures have returned to their original board cells before native movement. Grimhorn/Runeveil and their exact hands observe in background; hands do not move figures through combat. Preserve game-native figures, abilities and terrain. Three coherent action cuts rather than invented explosions or live-size fighting.",
+      "sound": [
+        "single low impact",
+        "strings and restrained brass open",
+        "native action detail"
+      ],
+      "paid": false,
+      "requires_native_capture": true,
+      "capture_reason": "Use actual native action capture or exact original source animation/effects; do not present generated combat as supported gameplay.",
+      "privacy": "Action-phase cards are face-up under the native presentation rules.",
+      "cuts": [
+        {
+          "offset_seconds": 0,
+          "duration_seconds": 3.5,
+          "subject": "original native movement from board cell"
+        },
+        {
+          "offset_seconds": 3.5,
+          "duration_seconds": 3.5,
+          "subject": "original native ability/action beat"
+        },
+        {
+          "offset_seconds": 7,
+          "duration_seconds": 4,
+          "subject": "original native response/resolution"
+        }
+      ],
+      "duration_seconds": 11,
+      "frame_count": 264,
+      "source_asset_paths": [
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_2.fbx",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_2_albedo.png",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_2.prefab",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_L_rig.fbx",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_R_rig.fbx",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_albedo.png",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_normal.png",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_1.fbx",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_1_albedo.png",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_1.prefab",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandArcane_L_rig.fbx",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandArcane_R_rig.fbx",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandArcane_albedo.png",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandArcane_normal.png",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Table/MapTable.prefab",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Table/MapTable.asset",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Table/MapTable.mat",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Environments/Env_Cellar.prefab"
+      ]
+    },
+    {
+      "id": "S07",
+      "start_seconds": 56,
+      "end_seconds": 64,
+      "name": "Together in VR",
+      "asset_ids": [
+        "grimhorn",
+        "glove",
+        "runeveil",
+        "arcane",
+        "table"
+      ],
+      "narration_cues": [
+        "N13",
+        "N14"
+      ],
+      "method": "local_source_render_with_optional_i2v",
+      "motion": "One modest wide table orbit, then settle toward a player view. Both masks and both pairs of hands remain clear around the same source board.",
+      "prompt": "Wide reveal of the actual GloomhavenVR table with source Grimhorn/leather gloves and Runeveil/arcane gloves together. The same original dungeon and miniatures remain on the board at consistent scale. Two masks, four actual hands, no bodies. A short restrained orbit reveals the social VR composition, then settles. Amber/cyan material lighting resolves into warm room tone; original printed card detail stays intact.",
+      "sound": [
+        "full musical resolution begins",
+        "tactile room tone"
+      ],
+      "paid": true,
+      "priority": "optional_after_pilot_review",
+      "max_usd": 4.5,
+      "requires_native_capture": true,
+      "capture_reason": "Original source board, figures and consistent table/room geography must already be available.",
+      "duration_seconds": 8,
+      "frame_count": 192,
+      "source_asset_paths": [
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_2.fbx",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_2_albedo.png",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_2.prefab",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_L_rig.fbx",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_R_rig.fbx",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_albedo.png",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHand_normal.png",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_1.fbx",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_1_albedo.png",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_1.prefab",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandArcane_L_rig.fbx",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandArcane_R_rig.fbx",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandArcane_albedo.png",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Hands/VRHandArcane_normal.png",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Table/MapTable.prefab",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Table/MapTable.asset",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Table/MapTable.mat"
+      ]
+    },
+    {
+      "id": "S08",
+      "start_seconds": 64,
+      "end_seconds": 70,
+      "name": "Take your place",
       "asset_ids": [
         "logo"
       ],
+      "narration_cues": [
+        "N15",
+        "N16"
+      ],
       "method": "local_composite",
-      "motion": "Restrained logo resolve over detailed black; title stable by 60 seconds. Footer and continuous unofficial label remain legible.",
-      "prompt": "No AI video or generated lettering. Composite the exact existing mod logo after visual inspection, followed by THE TABLE CALLS and the final requirements/footer. Preserve the lower-right unofficial label throughout any fade.",
+      "motion": "Exact mod logo resolves over detailed black. Invitation, requirement and community attribution hold; continuous unofficial label remains legible.",
+      "prompt": "No AI lettering or video. Locally composite the existing exact mod logo, TAKE YOUR PLACE, requirements and community attribution. Burn the continuous lower-right unofficial label after every fade including the final black/hold.",
       "sound": [
-        "score resolves by 62 seconds",
-        "two-second room tail"
+        "score resolves by 68 seconds",
+        "two seconds of room tail"
       ],
       "paid": false,
       "requires_native_capture": false,
       "text": [
         "GLOOMHAVEN VR",
-        "THE TABLE CALLS",
-        "Requires Gloomhaven Digital. Unofficial fan-made mod."
+        "TAKE YOUR PLACE",
+        "Requires Gloomhaven Digital. Unofficial fan-made mod.",
+        "A community project by McFredward"
       ],
-      "start_seconds": 59,
-      "end_seconds": 64,
-      "duration_seconds": 5,
-      "frame_count": 120,
-      "narration_cues": [
-        "N20"
-      ],
+      "duration_seconds": 6,
+      "frame_count": 144,
       "source_asset_paths": [
         "docs/img/logo.png"
       ]
@@ -833,36 +641,47 @@
   ],
   "proof": {
     "duration_seconds": 13,
+    "source_interval_seconds": [
+      12,
+      30
+    ],
     "max_source_plates": 2,
-    "status": "After concept approval, generate this intermediate and show it before remainder spend.",
+    "status": "After concept approval, build this source-fidelity intermediate and show it before remainder spend.",
+    "focus": "Iconic giant-mask plus miniature lift/table-scale reveal; not the ordinary opening.",
     "sequence": [
       {
         "plate_id": "P01",
-        "source_shot": "S01",
+        "source_shot": "S02",
         "start_seconds": 0,
-        "end_seconds": 6,
-        "method": "Source-locked dungeon interior at miniature ground level; use actual environment, not an invented fantasy asset."
+        "end_seconds": 5,
+        "subject": "Giant exact Grimhorn above original world, camera at figure height."
       },
       {
         "plate_id": "P02",
-        "source_shot": "S01",
-        "start_seconds": 6,
+        "source_shot": "S03",
+        "start_seconds": 5,
         "end_seconds": 13,
-        "method": "Same dungeon revealed on the shared table, using actual masks/hands. One 5-second paid motion pilot plus two seconds of matching local motion or hold if needed."
+        "subject": "Exact local glove/miniature contact path and camera lift from figure world to board edge and actual VR table."
       }
     ],
+    "motion_source": "Locally animated source meshes/contact path; two key plates are identity/composition anchors, not permission for a model to invent an eight-second grasp.",
     "voice_cues": [
-      "N01",
-      "N02"
+      {
+        "text": "Take your place.",
+        "start_seconds": 10.2,
+        "end_seconds": 12.2,
+        "condition": "Only after table scale is visually understood."
+      }
     ],
-    "branding": "Same continuous unofficial label on all 13 seconds; opening unofficial subtitle.",
+    "branding": "Continuous lower-right unofficial label on all thirteen seconds, including black frames.",
     "paid_reservation_max_usd": 4.5,
     "review_questions": [
-      "Do the actual masks and hands retain identity across the motion?",
-      "Does the lighting and camera language feel cinematic while the tabletop scale remains obvious?",
-      "Is the cloned English voice clean, intelligible and the authorized intended speaker?",
-      "Is the continuous unofficial label legible without dominating?"
-    ]
+      "Does original miniature-height world, giant mask, then actual table scale read as one coherent reveal?",
+      "Are Grimhorn, five-finger glove and original figure identical throughout?",
+      "Does the figure return to its original cell before any native action?",
+      "Is the continuous unofficial indication legible?"
+    ],
+    "next_phase": "Second Runeveil reveal establishes unambiguous multiplayer; pilot alone does not claim it."
   },
   "budget": {
     "currency": "USD",
@@ -901,16 +720,67 @@
   },
   "acceptance": {
     "required": [
-      "Continuous unofficial label legible on every frame, including black transitions.",
-      "No invented avatar bodies, hands, masks, card text or gameplay.",
-      "Correct local/remote scenario card visibility.",
-      "Native held figure returned to board before non-idle action.",
-      "Source assets and original narrator sample verified.",
-      "Watch complete export using watch skill; inspect beginning/middle/end of generated clips.",
-      "Listen to final mix for diction, clipping and intelligibility.",
-      "Maintain spend ledger including failed jobs.",
-      "Export duration 64 seconds, 1536 frames at 24 fps."
+      "Continuous unofficial label legible on all seventy seconds, including black transitions.",
+      "First twelve seconds contain no tabletop/mask/hand hints.",
+      "No narration between twelve and twenty-five seconds.",
+      "Actual Grimhorn and glove first; actual Runeveil and arcane hands second.",
+      "Two represented players, two shipped hands each; no full bodies.",
+      "Source-backed open room/sightline; no changed architecture.",
+      "Critical hand/figure/camera path preserves identity and actual source scale.",
+      "Idle held figure returns to ORIGINAL board cell before any native action.",
+      "No hand-driven freeform combat or remote selection-front leakage.",
+      "Native original figures, artwork and action source verified.",
+      "Watch complete export and inspect generated contacts/frame endpoints.",
+      "Title is TAKE YOUR PLACE; final VO is Gloomhaven. In your hands.",
+      "Keep ledger including failed and queued paid jobs.",
+      "Export seventy seconds, 1680 frames at twenty-four fps."
     ],
-    "remaining_evidence": "Native capture-dependent shots cannot be marked final until their original capture or authorized read-only game-asset source is available."
+    "remaining_evidence": "Actual original game figure/scenery extraction and the new giant-mask/lift render are pending. Existing previews are not evidence for the revised reveal."
+  },
+  "optional_asset_alternatives": {
+    "ironwatch": {
+      "kind": "shipped_mesh",
+      "name": "Ironwatch",
+      "paths": [
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_0.fbx",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_0_albedo.png",
+        "unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_0.prefab"
+      ],
+      "usage": "Optional first-mask alternate only; not a third player in the core edit."
+    }
+  },
+  "scale_reveals": [
+    {
+      "name": "world_to_embodiment",
+      "start_seconds": 12,
+      "end_seconds": 30,
+      "levels": [
+        "original world at figure height",
+        "giant source Grimhorn and glove above figure",
+        "actual captured/rendered VR tabletop and player relationship"
+      ],
+      "scale_rule": "Calibrate to actual source table/figure/player relationship; no asserted fixed 1:20 ratio."
+    },
+    {
+      "name": "solitary_to_together",
+      "start_seconds": 30,
+      "end_seconds": 37,
+      "evidence": "Actual Runeveil, two arcane hands and friendly Grimhorn nod; two represented players."
+    }
+  ],
+  "source_availability": {
+    "status": "Game figure/scenario extraction still required; shipped mask/hand paths are verified, but existing previews do not demonstrate this reveal.",
+    "requirements": [
+      "read-only original game figure meshes/materials",
+      "original scenario scenery with already-open overhead sightline",
+      "exact source native cards and action sequence",
+      "consistent source table/room relationship"
+    ],
+    "prohibited_shortcuts": [
+      "invented fantasy figure",
+      "breaking a closed ceiling",
+      "free hand-driven relocation/combat",
+      "claiming prior preview proves the new reveal"
+    ]
   }
 }
