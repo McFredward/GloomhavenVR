@@ -15,11 +15,13 @@ import errno
 import hashlib
 import importlib.util
 import json
+import math
 import os
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
 import secrets
 import stat
+import sys
 import threading
 import time
 
@@ -66,6 +68,8 @@ def inventory(state_root, progress=None, cancel=None):
     The server caches this result and only refreshes it on explicit request.
     """
     proofs = {}; root, _ = _root(state_root, proofs)
+    from run_storage import Ownership
+    ownership = Ownership(sys.modules[__name__], root, root / "build", cancel)
     rows = {name: {"id": name, "bytes": 0, "files": 0} for name in INVENTORY_CATEGORIES}
     skipped_links = inaccessible = count = 0
     signing = {"originalApkBytes": 0, "appDataBytes": 0, "otherBytes": 0}
@@ -84,12 +88,14 @@ def inventory(state_root, progress=None, cancel=None):
                     try:
                         info = entry.stat(follow_symlinks=False)
                         if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
+                            ownership.obstacle(Path(entry.path))
                             skipped_links += 1; continue
                         path = Path(entry.path)
                         if stat.S_ISDIR(info.st_mode): pending.append(path); continue
                         if not stat.S_ISREG(info.st_mode): skipped_links += 1; continue
                         row = rows[_inventory_category(path.relative_to(root))]
                         row["bytes"] += info.st_size; row["files"] += 1; count += 1
+                        ownership.add(path, info.st_size, row["id"])
                         if row["id"] == "signing-backups":
                             kind = "originalApkBytes" if path.name == "original.apk" else (
                                 "appDataBytes" if path.suffix == ".tar" else "otherBytes")
@@ -101,9 +107,11 @@ def inventory(state_root, progress=None, cancel=None):
                                 allocated += info.st_blocks * 512
                         else: allocated_known = False
                     except Cancelled: raise
-                    except (OSError, WizardError): inaccessible += 1
+                    except (OSError, WizardError):
+                        ownership.obstacle(Path(entry.path)); inaccessible += 1
         except Cancelled: raise
-        except (OSError, WizardError): inaccessible += 1
+        except (OSError, WizardError):
+            ownership.obstacle(folder); inaccessible += 1
         now = time.monotonic()
         if count == 0 or now - last_report >= .15:
             _notify(progress, "storage-inventory", count, None, folder.relative_to(root).as_posix())
@@ -114,6 +122,15 @@ def inventory(state_root, progress=None, cancel=None):
               "inaccessible": inaccessible, "complete": inaccessible == 0,
               "allocatedBytes": allocated if allocated_known else None, "completedAt": time.time(),
               "signingBackups": signing, "canDeleteBuildCache": has_completed_build(root)}
+    result.update(ownership.finish(complete=inaccessible == 0))
+    # Keep a small source observation for support export. Publication follows
+    # the completed size snapshot; its own new bytes appear on the next scan.
+    summary = {"schema": 1, **result}
+    if len(canonical(summary)) <= 2 * 1048576:
+        try: atomic_json(root / "logs/storage-analysis.json", summary)
+        except (OSError, WizardError): result["analysisSaved"] = False
+        else: result["analysisSaved"] = True
+    else: result["analysisSaved"] = False
     _notify(progress, "storage-inventory-complete", count, count, str(result["totalBytes"]))
     return result
 
@@ -248,15 +265,16 @@ def _children(parent):
     return selected
 
 
-def _snapshot(folder, proofs):
+def _snapshot(folder, proofs, *, verify_files=True):
     proofs[str(folder)] = {"identity": _stamp(folder)[:3], "sha256": None}
     value = _read(folder / ".snapshot.json", proofs)
     if value.get("schema") != 1 or set(value) != {"schema", "files"}: raise _error("cleanup_receipt")
     rows = _rows(value["files"])
     if value_hash({"files": value["files"]}) != folder.name: raise _error("cleanup_receipt")
-    for name, row in rows.items():
-        stamp = _stamp(folder / name)
-        if not stat.S_ISREG(stamp[2]) or stamp[3] != row["size"]: raise _error("cleanup_receipt", name)
+    if verify_files:
+        for name, row in rows.items():
+            stamp = _stamp(folder / name)
+            if not stat.S_ISREG(stamp[2]) or stamp[3] != row["size"]: raise _error("cleanup_receipt", name)
     return value, rows
 
 
@@ -429,16 +447,61 @@ def _same_identity(captured, manifest_profile):
     except (ValueError, TypeError, KeyError): return False
 
 
+def _qualified_games(folder, value, proofs):
+    """Use the real qualification publisher, including its bounded old logs.
+
+    Older engines stored capacity results only as structured events. Their
+    state history rotates, so the exact two producer log names are considered
+    as well. Text paths, latest-input and unrelated event fields cannot grant
+    ownership. This supplies a game identity; fallback manifest binding still
+    requires the captured source inventory and normalized profile below.
+    """
+    games = set()
+    provenance = value.get("storageProvenance")
+    if isinstance(provenance, dict) and provenance.get("schema") == 1:
+        members = provenance.get("games")
+        if isinstance(members, list) and len(members) <= MAX_IDENTITIES:
+            for member in members:
+                if isinstance(member, dict) and set(member) == {"gameKey"} and _key(member.get("gameKey")):
+                    games.add(member["gameKey"])
+    def observe(event):
+        if (not isinstance(event, dict) or event.get("code") not in
+                ("workspace_space_checked", "space_estimate_warning")
+                or event.get("stage") not in STAGES or type(event.get("sequence")) is not int
+                or event["sequence"] < 1 or type(event.get("time")) not in (int, float)
+                or not math.isfinite(event["time"])): return
+        parameters = event.get("parameters")
+        estimate = parameters.get("spaceEstimate") if isinstance(parameters, dict) else None
+        key = estimate.get("cacheGameKey") if isinstance(estimate, dict) else None
+        if _key(key): games.add(key)
+    events = value.get("events")
+    if isinstance(events, list):
+        for event in events[-128:]: observe(event)
+    for name in ("progress.previous.log", "progress.log"):
+        path = folder / "logs" / name
+        if not path.is_file(): continue
+        stamp = _stamp(path)
+        if not stat.S_ISREG(stamp[2]) or stamp[3] > MAX_JSON_BYTES: continue
+        with path.open("rb") as stream:
+            for raw in stream:
+                if len(raw) > 2 * 1048576: continue
+                try: observe(json.loads(raw))
+                except (ValueError, TypeError, UnicodeDecodeError): continue
+        if _stamp(path) != stamp: raise _error("cleanup_changed", name)
+        proofs[str(path)] = {"stamp": stamp, "sha256": None}
+    return games
+
+
 def _session_scope(root, build, folder, value, manifests, proofs):
     """Read actual stage owners, including the full-update fallback's inputs.
 
     Full migration publishes a new manifest but inspect retains the old APK's
     inputKey. Bind that fallback only to the captured exact source inventory,
     profile fields and the game inventory observed by capacity qualification.
-    Paths in progress text and the mutable global latest-input pointer are not
-    per-run owners and must never authorize cleanup.
+    Structured capacity events are genuine per-run observations; arbitrary
+    progress text and the mutable global latest-input pointer are not owners.
     """
-    inputs = set(); games = set(); sources = set(); references = set()
+    inputs = set(); games = _qualified_games(folder, value, proofs); sources = set(); references = set()
     def observe(item):
         if isinstance(item, dict):
             for name, member in item.items():
@@ -572,7 +635,7 @@ def _source_targets(root, folder, session, proofs, skipped):
     return targets
 
 
-def _raw_owners(build, manifests, proofs):
+def _raw_owners(build, manifests, proofs, *, verify_files=True):
     inventories = {}; result = {}
     for manifest in manifests:
         key = manifest["game"]["key"]
@@ -580,7 +643,7 @@ def _raw_owners(build, manifests, proofs):
         snapshot = build / "inputs/game" / key
         if not snapshot.is_dir(): continue
         try:
-            _, rows = _snapshot(snapshot, proofs); receipt = snapshot / ".snapshot.json"
+            _, rows = _snapshot(snapshot, proofs, verify_files=verify_files); receipt = snapshot / ".snapshot.json"
             inventories[key] = {**rows, ".snapshot.json": {"path": ".snapshot.json", "size": receipt.stat().st_size,
                                 "sha256": proofs[str(receipt)]["sha256"]}}
         except (WizardError, OSError, KeyError, TypeError): continue
@@ -670,13 +733,17 @@ def plan_session(state_root, session, *, remove_data=False, progress=None):
     proofs = {}; root, build = _root(state_root, proofs)
     with _guard(root, build):
         parent = ordinary(root / "sessions"); folder = ordinary(parent / session)
+        retired = ordinary(root / "logs/removed-runs" / session)
+        already_retired = not folder.exists() and retired.is_dir()
+        if already_retired:
+            if not remove_data: raise _error("cleanup_session_archive", "Select data cleanup for this removed run.")
+            folder = retired
         value = _session(folder, proofs)
         if value.get("status") not in ("ready", "failed", "blocked", "cancelled", "interrupted"):
             raise WizardError("cleanup_session_active", "Only a stopped, unfinished run can be removed.",
                               "Nur ein angehaltener, nicht abgeschlossener Lauf kann entfernt werden.")
         proofs[str(parent)] = {"stamp": _stamp(parent), "sha256": None}
-        retired = ordinary(root / "logs/removed-runs" / session)
-        if retired.exists(): raise _error("cleanup_session_archive")
+        if retired.exists() and not already_retired: raise _error("cleanup_session_archive")
         session_scan = _scan(folder, progress, "cleanup-session-scan")
         latest = root / "latest-session.json"
         pointer = _read(latest, proofs) if latest.is_file() else None
@@ -757,13 +824,15 @@ def plan_session(state_root, session, *, remove_data=False, progress=None):
                     if _editor_busy(project): raise _error("cleanup_editor_busy", project.name[:12])
                 paths.append({"path": target.relative_to(root).as_posix(), "bytes": scan["bytes"], "files": scan["files"]})
                 private.append({"root": target, **scan})
-        preview = {"id": secrets.token_urlsafe(24), "mode": "session", "session": session,
+        preview = {"id": secrets.token_urlsafe(24), "mode": "session", "session": session, "retired": already_retired,
                    "removeData": remove_data, "paths": paths, "bytes": sum(row["bytes"] for row in paths),
                    "files": sum(row["files"] for row in paths), "exact": True, "eligible": True,
                    "skipped": skipped, "sessionBytes": session_scan["bytes"], "sessionFiles": session_scan["files"],
-                   "consequences": ["run-removed", "resume-lost", "diagnostics-retained"] +
+                   "consequences": (["diagnostics-retained"] if already_retired else
+                                    ["run-removed", "resume-lost", "diagnostics-retained"]) +
                                    (["exclusive-run-data-removed"] if remove_data else ["build-data-retained"])}
         saved = {"folder": folder, "archive": retired, "scan": session_scan,
+                 "retired": already_retired,
                  "pointer": pointer, "survivor": max(survivors)[1] if survivors else None,
                  "projects": set().union(*(_tree_projects(tree, build) for tree in private))}
         _notify(progress, "cleanup-ready", preview["files"], preview["files"], "session")
@@ -862,7 +931,7 @@ def execute(state_root, preview, progress=None):
             if fresh["fingerprint"] != tree["fingerprint"]: raise _error("cleanup_preview_changed", tree["root"].name)
         session = saved.get("session")
         if session is not None:
-            if session["archive"].exists(): raise _error("cleanup_session_archive")
+            if session["archive"].exists() and not session.get("retired"): raise _error("cleanup_session_archive")
             current = _scan(session["folder"], progress, "cleanup-session-check")
             if current["fingerprint"] != session["scan"]["fingerprint"]: raise _error("cleanup_preview_changed")
             for project in session["projects"]:
@@ -878,7 +947,7 @@ def execute(state_root, preview, progress=None):
                     path.unlink(); freed += stamp[3]; deleted += 1
                     if deleted == 1 or deleted % 256 == 0: _notify(progress, "cleanup-delete", deleted, public["files"], path.name)
         if public["mode"] == "build-cache": reset = _invalidate(root)
-        if session is not None:
+        if session is not None and not session.get("retired"):
             session["archive"].parent.mkdir(parents=True, exist_ok=True)
             ordinary(session["archive"].parent)
             os.replace(session["folder"], session["archive"])
@@ -889,4 +958,4 @@ def execute(state_root, preview, progress=None):
         _notify(progress, "cleanup-complete", deleted, public["files"], public["mode"])
     return {"freedBytes": freed, "deletedFiles": deleted,
             "invalidatedStages": ["inspect", "build"] if public["mode"] == "build-cache" and deleted else [], "sessionsReset": reset,
-            "sessionsRemoved": [public["session"]] if public["mode"] == "session" else []}
+            "sessionsRemoved": [public["session"]] if public["mode"] == "session" and not public.get("retired") else []}

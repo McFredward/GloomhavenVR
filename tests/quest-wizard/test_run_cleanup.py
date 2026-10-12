@@ -160,8 +160,8 @@ class RunCleanupTests(unittest.TestCase):
 
     def test_another_qualified_run_before_inspect_protects_its_game_and_import(self):
         manifest = self.manifest(); project = self.project(manifest)
-        other = self.other_run(); other["qualification"] = {"spaceEstimate": {"cacheGameKey": manifest["game"]["key"]}}
-        self.store.save(other)
+        other = self.other_run()
+        self.store.event(other, "workspace_space_checked", "tools", spaceEstimate={"cacheGameKey": manifest["game"]["key"]})
         preview, _ = self.retire(remove_data=True)
         self.assertTrue(project.is_dir()); self.assertTrue((self.build / "inputs/game" / manifest["game"]["key"]).is_dir())
         self.assertTrue(any(row["reason"] == "shared_or_delivered" for row in preview["skipped"]))
@@ -182,7 +182,7 @@ class RunCleanupTests(unittest.TestCase):
         new = self.manifest(game=game, mod=mod, bind=False); project = self.project(new)
         source = next(row for row in self.run["stages"] if row["id"] == "source")
         source["details"] = {"sourceHash": state.value_hash(new["mod"]["files"])}
-        self.run["qualification"] = {"spaceEstimate": {"cacheGameKey": new["game"]["key"]}}
+        self.store.event(self.run, "workspace_space_checked", "build", spaceEstimate={"cacheGameKey": new["game"]["key"]})
         state.atomic_json(self.folder / "profile.json", new["profile"])
         self.store.save(self.run)
         self.retire(remove_data=True)
@@ -202,7 +202,7 @@ class RunCleanupTests(unittest.TestCase):
         state.atomic_json(self.build / "manifests" / (new["inputKey"] + ".json"), new)
         project = self.project(new)
         next(row for row in self.run["stages"] if row["id"] == "source")["details"] = {"sourceHash": state.value_hash(new["mod"]["files"])}
-        self.run["qualification"] = {"spaceEstimate": {"cacheGameKey": new["game"]["key"]}}
+        self.store.event(self.run, "space_estimate_warning", "tools", spaceEstimate={"cacheGameKey": new["game"]["key"]})
         state.atomic_json(self.folder / "profile.json", captured); self.store.save(self.run)
         self.retire(remove_data=True)
         self.assertFalse(project.exists()); self.assertFalse(game[1].exists())
@@ -359,6 +359,92 @@ class RunCleanupTests(unittest.TestCase):
         for session in ("../outside", "A" * 32, "f" * 64, None):
             with self.assertRaises(state.WizardError): cleanup.plan_session(self.root, session)
         with self.assertRaises(state.WizardError): cleanup.plan_session(self.root, self.session, remove_data="yes")
+
+    def fallback_run(self, *, archived=False, log_only=False, durable=False):
+        """Capture130723's actual publisher shape, not a fabricated qualification.
+
+        Inspect is bound to the old APK, while tools admission observed a newer
+        OpenXR subsystem inventory. sourceHash/profile qualify that new full
+        migration manifest; no state.qualification field exists in production.
+        """
+        old = self.manifest()
+        self.run["choices"]["mode"] = "update-mod"
+        game = self.snapshot("game", {"app.info": b"Unity original", "UnitySubsystems/UnityOpenXR/UnitySubsystemsManifest.json": b"changed"})
+        new = self.manifest(game=game, bind=False); project = self.project(new); raw, staged = self.raw_recovery(new)
+        next(row for row in self.run["stages"] if row["id"] == "source")["details"] = {
+            "sourceHash": state.value_hash(new["mod"]["files"])}
+        state.atomic_json(self.folder / "profile.json", new["profile"])
+        self.store.event(self.run, "space_estimate_warning", "tools", spaceEstimate={"cacheGameKey": new["game"]["key"]})
+        if log_only: self.run["events"] = []
+        if durable:
+            self.run["storageProvenance"] = {"schema": 1, "games": [{"gameKey": new["game"]["key"]}]}
+            self.run["events"] = []; (self.folder / "logs/progress.log").unlink()
+        self.store.save(self.run)
+        if archived:
+            preview = cleanup.plan_session(self.root, self.session)
+            cleanup.execute(self.root, preview)
+        return old, new, project, raw, staged, game[1]
+
+    def test_actual_legacy_capacity_event_reclaims_full_migration_data(self):
+        old, new, project, raw, staged, snapshot = self.fallback_run()
+        preview = cleanup.plan_session(self.root, self.session, remove_data=True)
+        self.assertIn(project.relative_to(self.root).as_posix(), {row["path"] for row in preview["paths"]})
+        cleanup.execute(self.root, preview)
+        self.assertTrue((self.root / "logs/removed-runs" / self.session / "state.json").is_file())
+        for removed in (project, raw, staged, snapshot): self.assertFalse(removed.exists())
+
+    def test_rotated_structured_event_recovers_removed_run_large_intermediates(self):
+        old, new, project, raw, staged, snapshot = self.fallback_run(log_only=True, archived=True)
+        archive = self.root / "logs/removed-runs" / self.session
+        os.replace(archive / "logs/progress.log", archive / "logs/progress.previous.log")
+        original_state = (archive / "state.json").read_bytes()
+        preview = cleanup.plan_session(self.root, self.session, remove_data=True)
+        self.assertTrue(preview["retired"])
+        result = cleanup.execute(self.root, preview)
+        self.assertEqual(result["sessionsRemoved"], []); self.assertGreater(result["freedBytes"], 0)
+        self.assertEqual((archive / "state.json").read_bytes(), original_state)
+        self.assertFalse(self.folder.exists())
+        for removed in (project, raw, staged, snapshot): self.assertFalse(removed.exists())
+        with self.assertRaises(state.WizardError): cleanup.plan_session(self.root, self.session)
+
+    def test_durable_provenance_reclaims_after_diagnostic_log_rotation(self):
+        _, _, project, raw, staged, snapshot = self.fallback_run(durable=True, archived=True)
+        preview = cleanup.plan_session(self.root, self.session, remove_data=True)
+        cleanup.execute(self.root, preview)
+        for removed in (project, raw, staged, snapshot): self.assertFalse(removed.exists())
+
+    def test_arbitrary_progress_key_and_text_do_not_grant_fallback_ownership(self):
+        _, _, project, raw, staged, snapshot = self.fallback_run()
+        self.run["events"] = []
+        arbitrary = {"sequence": 1, "time": 1, "code": "stage_progress", "stage": "build",
+                     "parameters": {"spaceEstimate": {"cacheGameKey": snapshot.name},
+                                    "detail": "workspace_space_checked " + snapshot.name}}
+        (self.folder / "logs/progress.log").write_text(json.dumps(arbitrary) + "\n")
+        self.store.save(self.run)
+        self.retire(remove_data=True)
+        for kept in (project, raw, staged, snapshot): self.assertTrue(kept.exists())
+
+    def test_different_profile_cannot_bind_legacy_capacity_event_fallback(self):
+        _, new, project, raw, staged, snapshot = self.fallback_run()
+        state.atomic_json(self.folder / "profile.json", {**new["profile"], "steamId": "76561198000000001"})
+        self.retire(remove_data=True)
+        self.assertTrue(project.is_dir()); self.assertTrue(snapshot.is_dir())
+
+    def test_removed_run_cleanup_preserves_later_run_dependencies(self):
+        _, new, project, raw, staged, snapshot = self.fallback_run(archived=True)
+        other = self.other_run()
+        self.store.event(other, "workspace_space_checked", "tools", spaceEstimate={"cacheGameKey": new["game"]["key"]})
+        preview = cleanup.plan_session(self.root, self.session, remove_data=True)
+        cleanup.execute(self.root, preview)
+        for kept in (project, raw, staged, snapshot): self.assertTrue(kept.is_dir())
+
+    def test_removed_run_preview_detects_archive_changes(self):
+        self.fallback_run(archived=True)
+        preview = cleanup.plan_session(self.root, self.session, remove_data=True)
+        archive = self.root / "logs/removed-runs" / self.session
+        with (archive / "logs/progress.log").open("ab") as stream: stream.write(b"diagnosis appended\n")
+        with self.assertRaises(state.WizardError): cleanup.execute(self.root, preview)
+        self.assertFalse(self.folder.exists()); self.assertTrue(archive.is_dir())
 
 
 if __name__ == "__main__": unittest.main()
