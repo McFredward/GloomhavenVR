@@ -72,7 +72,7 @@ test('home shows every APK action and opens retained progress only on an explici
   const server=await fixture();let client;
   try{
     client=await browser();await client.command('Page.navigate',{url:server.url});
-    await client.wait("document.getElementById('home-page')&&!document.getElementById('home-page').hidden&&!document.getElementById('home-build').disabled");
+    await client.wait("document.getElementById('home-page')&&!document.getElementById('home-page').hidden&&document.getElementById('home-build')&&!document.getElementById('home-build').disabled");
     assert.equal(server.requests.some(row=>row.path==='/api/status'),false,'home does not reopen or rerun an interrupted job');
     assert.equal(server.requests.some(row=>['/api/run','/api/plan'].includes(row.path)),false);
     assert.equal(await client.evaluate("document.getElementById('progress-page').hidden"),true);
@@ -121,8 +121,10 @@ test('device tools guide wireless setup, expose real capture progress and downlo
  {skip:!existsSync(chrome),timeout:30000},async()=>{
   const server=await fixture();let client;
   try{
-    client=await browser();await client.command('Page.navigate',{url:server.url});
-    await client.wait("document.getElementById('storage-root')?.textContent?.includes('.ghvrq')&&document.getElementById('home-storage')&&!document.getElementById('home-storage').disabled");
+    client=await browser();
+    const ready="document.getElementById('storage-root')?.textContent?.includes('.ghvrq')&&document.getElementById('home-storage')&&!document.getElementById('home-storage').disabled";
+    assert.equal(Boolean(await client.evaluate(ready)),false,'an empty pre-navigation DOM is an ordinary readiness wait');
+    await client.command('Page.navigate',{url:server.url});await client.wait(ready);
     assert.equal(server.requests.some(row=>row.path==='/api/storage/inventory'),false,'disk measurement is user-requested');
     await client.evaluate("document.querySelector('[data-language=de]').click()");
     assert.equal(await client.evaluate("['package-card','device-card','storage-card'].every(id=>document.getElementById(id).hidden)"),true);
