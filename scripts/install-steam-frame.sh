@@ -7,7 +7,8 @@ usage() {
 Usage: bash install-steam-frame.sh [--game-path PATH] [--steam-root PATH] [--dry-run] [--pause]
 
 Run this from the extracted GloomhavenVR release after installing BepInEx.
-The setup creates the GloomhavenVR library entry and configures the first VR launch.
+The setup prepares the GloomhavenVR library entry. While Steam is running,
+finish the original game's launch options in Steam's Properties UI as instructed.
 EOF
 }
 
@@ -92,6 +93,7 @@ fi
 game_dir="$(cd -- "$game_dir" && pwd -P)"
 patcher="$game_dir/BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll"
 marker="$game_dir/BepInEx/patchers/GloomhavenVR/frame-launch-opt-in.marker"
+pending_setup="$script_dir/steam-launch-options.pending.json"
 # Valve reads this app-provided Steam Frame default from the installed game's
 # root. SteamVR keeps any per-application value the player has already chosen.
 vr_preferences="$game_dir/vrpreferences.json"
@@ -258,10 +260,8 @@ python3 "$boot_helper" --game-path "$game_dir"
 # preferResolution is an absolute per-eye width, not SteamVR's percentage
 # multiplier. This file is a suggested DEFAULT; the user's SteamVR override
 # remains authoritative. The helper adds only a missing key in valid JSON.
-preferences_changed=false
 preferences_result="$(ensure_frame_preferences apply)"
 echo "$preferences_result"
-[[ "$preferences_result" != CHANGED:* ]] || preferences_changed=true
 
 # The marker is intentionally Frame-only. It keeps the original library entry
 # flat even when its winhttp override loads BepInEx.
@@ -286,6 +286,26 @@ cat > "$temporary_launcher" <<'EOF'
 #!/usr/bin/env bash
 # Keep Gloomhaven's original Steam AppID and Proton prefix (including its saves).
 set -euo pipefail
+EOF
+# Quote each argument as shell syntax, including Steam libraries with spaces.
+# The read-only helper also resolves the current account afresh on each launch.
+printf 'check=(python3 %q --game-path %q --pending-setup %q' "$steam_helper" "$game_dir" "$pending_setup" >> "$temporary_launcher"
+for argument in "${steam_root_args[@]}"; do
+    printf ' %q' "$argument" >> "$temporary_launcher"
+done
+printf ' --check-launch-options)\n' >> "$temporary_launcher"
+cat >> "$temporary_launcher" <<'EOF'
+if ! message="$("${check[@]}" 2>&1)"; then
+    printf '%s\n' "$message" >&2
+    if command -v kdialog >/dev/null 2>&1 && [[ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]]; then
+        # KDialog auto-detects rich text; custom launch options are literal data.
+        dialog_message="$(python3 -c 'import html,sys; print("<pre>" + html.escape(sys.argv[1]) + "</pre>")' "$message")"
+        kdialog --title 'GloomhavenVR setup required' --error "$dialog_message" || true
+    elif command -v zenity >/dev/null 2>&1 && [[ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]]; then
+        zenity --error --no-markup --title='GloomhavenVR setup required' --text="$message" || true
+    fi
+    exit 3
+fi
 if ! command -v steam >/dev/null 2>&1; then
     echo 'Steam is not available in PATH.' >&2
     exit 127
@@ -300,31 +320,40 @@ else
 fi
 temporary_launcher=""
 
-# On Steam Frame, closing Steam also restarts the headset shell and terminates
-# the installer, even when it runs in a detached process session. Complete and
-# verify every file change before requesting that restart as the final step.
-steam_changes="$(python3 "$steam_helper" "${steam_helper_args[@]}" --needs-update)"
+# A native Frame report after 1.1.0 had the VR shortcut but no original-app
+# override. The old live write passed disk readback, then Steam could overwrite
+# localconfig with its cached value. Closing Frame's Steam kills the whole UI
+# session, including detached writers; neither ordering is a safe handoff.
+# Live setup now prepares only the separate shortcut and keeps Steam open for
+# saving the exact options through its supported Properties UI. Offline setup
+# remains automatic. A disk readback is never proof of the live client's state.
+live_setup=false
+write_args=()
+if steam_client_alive; then
+    live_setup=true
+    write_args=(--shortcut-only --allow-running)
+    python3 "$steam_helper" "${steam_helper_args[@]}" --record-running-setup "$pending_setup"
+    echo 'Steam is running; original launch options must be saved through Steam Properties.'
+fi
+required_options="$(python3 "$steam_helper" "${steam_helper_args[@]}" --required-launch-options)"
+printf '%s\n' "$required_options" > "$script_dir/steam-launch-options.txt"
+steam_changes="$(python3 "$steam_helper" "${steam_helper_args[@]}" "${write_args[@]}" --needs-update)"
 if [[ "$steam_changes" != yes && "$steam_changes" != no ]]; then
     echo "error: unexpected Steam setup status: $steam_changes" >&2
     exit 1
 fi
 if [[ "$steam_changes" == yes ]]; then
-    live_write_args=()
-    if steam_client_alive; then
-        live_write_args=(--allow-running)
-        echo 'Steam is running; writing its backed-up configuration before the headset restarts.'
-    fi
-    python3 "$steam_helper" "${steam_helper_args[@]}" "${live_write_args[@]}"
+    python3 "$steam_helper" "${steam_helper_args[@]}" "${write_args[@]}"
 else
-    echo 'Steam configuration already correct; no Steam restart needed.'
+    echo 'Steam files selected for this setup are already current.'
 fi
 
-echo 'Steam configuration readback before restart:'
-python3 "$steam_helper" "${steam_helper_args[@]}" --dry-run
-readback_changes="$(python3 "$steam_helper" "${steam_helper_args[@]}" --needs-update)"
-echo "Steam configuration before restart needs repair: $readback_changes"
+echo 'Steam file readback (does not verify a running Steam client):'
+python3 "$steam_helper" "${steam_helper_args[@]}" "${write_args[@]}" --dry-run
+readback_changes="$(python3 "$steam_helper" "${steam_helper_args[@]}" "${write_args[@]}" --needs-update)"
+echo "Selected Steam files need repair: $readback_changes"
 if [[ "$readback_changes" != no ]]; then
-    echo 'error: Steam-side files differ from the expected setup state before restart' >&2
+    echo 'error: selected Steam-side files differ from the expected setup state' >&2
     exit 1
 fi
 # Archives before the nested setup layout placed these owned helpers directly in
@@ -344,26 +373,27 @@ if [[ "$script_dir" == "$game_dir/BepInEx/plugins/GloomhavenVR/FrameSetup" ]]; t
         fi
     done
 fi
-echo 'Steam configuration is present on disk; the original Gloomhaven entry remains flat.'
-if { [[ "$steam_changes" == yes ]] || $preferences_changed; } &&
-   command -v steam >/dev/null 2>&1 && steam_client_alive; then
-    echo 'All setup changes and readback checks are complete. Restarting Steam as the final step.'
-    echo 'The Steam Frame display may briefly reboot; then check the library for GloomhavenVR.'
-    # Desktop-mode Steam may not relaunch itself. This best-effort waiter starts
-    # it after shutdown there; Frame's own shell restart can terminate it.
-    if command -v setsid >/dev/null 2>&1; then
-        setsid bash -c '
-            for ((attempt = 0; attempt < 45; attempt++)); do
-                if ! pgrep -u "$(id -u)" -x steam >/dev/null 2>&1 &&
-                   ! pgrep -u "$(id -u)" -x steamwebhelper >/dev/null 2>&1; then
-                    exec steam -silent
-                fi
-                sleep 1
-            done
-        ' </dev/null >/dev/null 2>&1 &
+if $live_setup; then
+    instruction="Library entry prepared. One required step remains in Steam:
+Open Gloomhaven (the ORIGINAL game) > Properties > General > Launch options.
+Paste/save the complete line below, including %command%:
+$required_options
+The line is also saved in $script_dir/steam-launch-options.txt.
+Then restart Frame from its normal power menu and launch GloomhavenVR.
+The original Gloomhaven entry remains flat; do not add --gloomhavenvr there.
+
+Bibliothekseintrag vorbereitet. In Steam beim ORIGINALEN Gloomhaven:
+Eigenschaften > Allgemein > Startoptionen; die komplette Zeile oben speichern.
+Danach Frame über das normale Power-Menü neu starten und GloomhavenVR starten."
+    printf '%s\n' "$instruction"
+    if command -v kdialog >/dev/null 2>&1 && [[ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]]; then
+        dialog_message="$(python3 -c 'import html,sys; print("<pre>" + html.escape(sys.argv[1]) + "</pre>")' "$instruction")"
+        kdialog --title 'GloomhavenVR: finish Steam setup / Steam-Einrichtung abschließen' --msgbox "$dialog_message" || true
+    elif command -v zenity >/dev/null 2>&1 && [[ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]]; then
+        zenity --info --no-markup --title='GloomhavenVR: finish Steam setup' --text="$instruction" || true
     fi
-    pause_on_exit=false
-    steam -shutdown || true
+    echo 'Setup state: native Steam launch-options confirmation required; no automatic shutdown requested.'
 else
-    echo 'Check the Steam library for GloomhavenVR.'
+    rm -f -- "$pending_setup"
+    echo 'Setup state: complete (Steam was stopped); launch GloomhavenVR after starting Steam.'
 fi

@@ -193,7 +193,8 @@ internal static class ActorBars
         // The game's UI materials resolve their global ZTest to LEqual in VR. Previously the
         // BarsOccluded=false path restored those materials, so both positions of the setting hid
         // the bar behind opaque walls. Every adopted Graphic now gets a per-instance material:
-        // LEqual when walls should hide it, Always when it should show through. We never deactivate
+        // LEqual when walls should hide it; exact native derivatives ignore walls while testing
+        // actual solid VR foreground. We never deactivate
         // the bar controller (that would kill native attack/health coroutines). Rescan on a slow
         // cadence because HealthBar pools new division-mark Graphics after adoption.
 
@@ -205,6 +206,9 @@ internal static class ActorBars
 
         /// <summary>Index of the owned clone record; native material replacement is re-adopted.</summary>
         public readonly Dictionary<int, int> DepthMatRecords = new();
+        /// <summary>Only our native pre-render listeners, retired before material restore.</summary>
+        public readonly HashSet<int> DepthTextIds = new();
+        public readonly List<(TMP_Text text, System.Action<TMP_TextInfo> callback)> DepthTextRefresh = new();
 
         /// <summary>The material mode installed on this host. Both sides use explicit ZTest
         /// overrides: restoring the game's material for the show-through mode left LEqual in
@@ -516,11 +520,17 @@ internal static class ActorBars
     internal static void LateTick()
     {
         if (Adoptions.Count == 0)
+        {
+            HealthbarForegroundDepth.SetActive(false);
             return;
+        }
 
         Camera? head = CanvasConversion.WorldCamera;
         if (head == null)
+        {
+            HealthbarForegroundDepth.SetActive(false);
             return;
+        }
 
         Vector3 headPos = head.transform.position;
         float worldScale = PanelLayout.WorldScale;
@@ -534,6 +544,7 @@ internal static class ActorBars
         // arithmetic with the same inputs, and it removes ~40 BepInEx property reads per frame at
         // 20 bars. BarsOccluded in particular ran its lazy BindConfig null-check twice per bar.
         bool barsOccluded = BarsOccluded;
+        HealthbarForegroundDepth.SetActive(!barsOccluded && Adoptions.Count > 0);
         bool barFixedSize = WorldUIConfig.BarFixedSize.Value;
         float now = Time.unscaledTime;
 
@@ -2539,8 +2550,11 @@ internal static class ActorBars
     ///
     /// <para>1. DEPTH TEST (<paramref name="depthTest"/> = the [WorldUI] BarsOccluded gate): assign
     /// a per-instance copy of the graphic's material with <c>unity_GUIZTestMode</c> = LEqual(4)
-    /// when walls hide bars, Always(8) when they show through. The game's original material uses
-    /// LEqual, so merely restoring it for the latter case made the setting ineffective. Unity's
+    /// when walls hide bars. Through-wall mode uses an exact native-program derivative with
+    /// Always(8) plus a per-pixel comparison against actual solid VR foreground depth. Always
+    /// alone made cards/hands/boards disappear behind bars (user2026-10-12). Missing/unknown
+    /// derivative shaders keep ordinary LEqual until available, rather than piercing foreground.
+    /// The game's original material uses LEqual. Unity's
     /// UI/Default shader declares <c>ZTest [unity_GUIZTestMode]</c>; TMP variants may expose
     /// <c>_ZTestMode</c> instead. Both spellings are written on the material clone.</para>
     ///
@@ -2558,6 +2572,7 @@ internal static class ActorBars
         GraphicScratch.Clear();
         host.GetComponentsInChildren(includeInactive: true, GraphicScratch);
         int added = 0;
+        int foregroundDepth = 0;
         int unraycast = 0;
         for (int i = 0; i < GraphicScratch.Count; i++)
         {
@@ -2565,6 +2580,17 @@ internal static class ActorBars
             if (g == null)
                 continue;
             int id = g.GetInstanceID();
+
+            // Native TMP reparses inline sprite/fallback materials on health updates
+            // and replaces its submesh binding from its own material references.
+            // Reapply this bar's existing clones after that native update, before draw;
+            // never mutate the shared font/sprite asset or replace native callbacks.
+            if (g is TMP_Text text && adopted.DepthTextIds.Add(id))
+            {
+                System.Action<TMP_TextInfo> callback = _ => ScanBarGraphics(adopted, barName, depthTest);
+                text.OnPreRenderText += callback;
+                adopted.DepthTextRefresh.Add((text, callback));
+            }
 
             if (!adopted.RaycastOffIds.Contains(id))
             {
@@ -2598,21 +2624,51 @@ internal static class ActorBars
                 int record = -1;
                 if (adopted.DepthMatRecords.TryGetValue(id, out int existing))
                 {
+                    bool rebuildFallback = false;
                     if (ReferenceEquals(src, adopted.DepthMats[existing].inst))
+                    {
+                        // A first scan may precede bundle availability. Retry only that
+                        // ordinary-depth fallback at the existing bounded scan cadence.
+                        Material original = adopted.DepthMats[existing].orig;
+                        Shader? ready = !depthTest ? ActorBarDepthShaders.For(original.shader) : null;
+                        if (ready == null || src.shader == ready) continue;
+                        src = original;
+                        rebuildFallback = true;
+                    }
+                    // A native TMP update restores the same original sprite material.
+                    // Rebind its existing clone without allocating a new material each update.
+                    if (!rebuildFallback && ReferenceEquals(src, adopted.DepthMats[existing].orig)
+                        && adopted.DepthMats[existing].inst != null)
+                    {
+                        AssignBarMaterial(g, adopted.DepthMats[existing].inst);
                         continue;
-                    // Native health/effect updates may replace a font/sprite material after
-                    // adoption. The new native source wins; retire only our detached clone.
+                    }
+                    // Native health/effect updates may supply a new font/sprite source.
+                    // The new source wins; retire only our detached clone.
                     record = existing;
                     Material previous = adopted.DepthMats[record].inst;
-                    if (previous != null) Object.Destroy(previous);
+                    if (previous != null)
+                    {
+                        ActorBarDepthShaders.Unregister(previous);
+                        Object.Destroy(previous);
+                    }
                 }
+                Shader? foregroundShader = !depthTest ? ActorBarDepthShaders.For(src.shader) : null;
                 var inst = new Material(src);
+                if (foregroundShader != null)
+                {
+                    inst.shader = foregroundShader;
+                    inst.CopyPropertiesFromMaterial(src);
+                }
                 // Not a declared shader Property (bracket lookup only) ⇒ HasProperty is false;
                 // SetInt still creates the per-material override that wins over the global.
-                CompareFunction mode = depthTest ? CompareFunction.LessEqual : CompareFunction.Always;
+                CompareFunction mode = !depthTest && foregroundShader != null
+                    ? CompareFunction.Always : CompareFunction.LessEqual;
+                if (foregroundShader != null) foregroundDepth++;
                 inst.SetInt("unity_GUIZTestMode", (int)mode);
                 if (inst.HasProperty("_ZTestMode"))
                     inst.SetInt("_ZTestMode", (int)mode);
+                if (foregroundShader != null) ActorBarDepthShaders.Register(inst);
                 AssignBarMaterial(g, inst);
                 adopted.DepthMatIds.Add(id);
                 if (record >= 0) adopted.DepthMats[record] = (g, src, inst);
@@ -2643,8 +2699,8 @@ internal static class ActorBars
             {
                 adopted.DepthLogged = true;
                 VRLog.Info("WorldUI",
-                    $"bar depth-test: forced unity_GUIZTestMode={(depthTest ? "LEqual" : "Always")} " +
-                    $"on {added} graphics ('{barName}').");
+                    $"bar depth-test: forced unity_GUIZTestMode={(foregroundDepth > 0 ? "Always with solid VR foreground depth" : "LEqual")} " +
+                    $"on {added} graphics ('{barName}'); {foregroundDepth} selective, {added - foregroundDepth} ordinary-depth.");
             }
             else
             {
@@ -2668,6 +2724,13 @@ internal static class ActorBars
     /// </summary>
     private static void RestoreBarDepthTest(Adopted adopted)
     {
+        for (int i = 0; i < adopted.DepthTextRefresh.Count; i++)
+        {
+            (TMP_Text text, System.Action<TMP_TextInfo> callback) = adopted.DepthTextRefresh[i];
+            if (text != null) text.OnPreRenderText -= callback;
+        }
+        adopted.DepthTextRefresh.Clear();
+        adopted.DepthTextIds.Clear();
         for (int i = 0; i < adopted.DepthMats.Count; i++)
         {
             (Graphic g, Material orig, Material inst) = adopted.DepthMats[i];
@@ -2682,7 +2745,11 @@ internal static class ActorBars
             }
             if (inst != null)
             {
-                try { Object.Destroy(inst); }
+                try
+                {
+                    ActorBarDepthShaders.Unregister(inst);
+                    Object.Destroy(inst);
+                }
                 catch { /* already gone with the scene */ }
             }
         }
@@ -2732,11 +2799,16 @@ internal static class ActorBars
         }
         Adoptions.Remove(controller);
         Owned.Remove(controller);
-        if (Adoptions.Count == 0) ActorBarPose.Reset(); // release native mesh references between boards
+        if (Adoptions.Count == 0)
+        {
+            HealthbarForegroundDepth.SetActive(false);
+            ActorBarPose.Reset(); // release native mesh references between boards
+        }
     }
 
     internal static void ReleaseAll()
     {
+        HealthbarForegroundDepth.SetActive(false);
         foreach (KeyValuePair<WorldspacePanelUIController, Adopted> pair in Adoptions)
         {
             CloseModifierIconEpisode(pair.Value, pair.Key);

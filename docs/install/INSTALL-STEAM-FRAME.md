@@ -105,10 +105,20 @@ file selected in its folder.
   <img src="../img/frame-install/05-setup.jpg" width="640" alt="GloomhavenVR-Setup.desktop selected in BepInEx/plugins/GloomhavenVR/FrameSetup/ in Dolphin.">
 </p>
 
-The setup configures BepInEx for the original Steam game and adds a separate **GloomhavenVR**
-entry with artwork to the VR library. Steam may restart to show the new entry. The original
-**Gloomhaven** entry remains available for flat play; both entries use the same installed game
-and saves. The Frame display may briefly restart with Steam; setup finishes its changes first.
+The setup adds a separate **GloomhavenVR** entry with artwork to the VR library. While Steam
+is running, one required step remains: open the original **Gloomhaven** entry's
+**Properties → General → Launch options** and save this complete line, including `%command%`:
+
+```text
+WINEDLLOVERRIDES="winhttp=n,b" %command%
+```
+
+If you already use other launch options, use the complete combined line saved in
+`BepInEx/plugins/GloomhavenVR/FrameSetup/steam-launch-options.txt` instead; it keeps those options.
+Do not add `--gloomhavenvr` to the original entry. After saving, restart Frame through its normal
+power menu, then launch **GloomhavenVR**. The original **Gloomhaven** entry remains available
+for flat play; both entries use the same installed game and saves. Setup keeps Steam open
+while you finish this step. If Steam was already stopped, setup applies the options automatically.
 It also suggests a 3408-pixel per-eye SteamVR resolution, preserving an existing preference
 or a resolution you have chosen in SteamVR. SteamVR reads a new suggested default after a restart.
 
@@ -150,11 +160,11 @@ with lower figure detail, clothing simulation off and reduced generation on. All
 also work on PC; saved choices are retained.
 
 Fresh Frame configurations use the original service windows rather than immersive NPCs.
-You can change **Immersive town NPCs** under **VR Options → World & sound** when using the 3D map.
+You can change **Immersive town NPCs** under **VR Options → World → Campaign map** when using the 3D map.
 
 ## Mixed reality
 
-Choose **Mixed reality** under **VR Options → World & sound** to place the table in your
+Choose **Mixed reality** under **VR Options → Graphics** to place the table in your
 room. Standalone uses the Frame's native passthrough when the active runtime supports it.
 If the choice is grey, hover over it for the explanation. Update **SteamVR** and the
 **Proton version selected for Gloomhaven**, then restart the game and check again.
@@ -173,7 +183,8 @@ need the same mod build.
 | GloomhavenVR is missing from Steam | Run `GloomhavenVR-Setup.desktop` again. Steam may need to restart. |
 | Dolphin does not offer **Execute** | Use the terminal command in step 5. |
 | The mod does not load | Check the two green mod folders in the diagram, then run setup again. |
-| GloomhavenVR starts flat or closes | Keep `BepInEx/LogOutput.log` from that launch and report the problem. |
+| GloomhavenVR asks to finish setup | Save the complete launch-options line in the original Gloomhaven entry as in step 5, then restart Frame. |
+| GloomhavenVR starts flat or closes | Check the original Gloomhaven launch options in step 5, then keep `BepInEx/LogOutput.log` from that launch and report the problem. |
 | The game no longer starts | Restore `GH_Data/boot.config` from `GH_Data/boot.config.gloomhavenvr-backup`. |
 
 For a setup problem, keep `BepInEx/plugins/GloomhavenVR/FrameSetup/steam-frame-setup.log`.

@@ -2,6 +2,7 @@
 """Focused synthetic Steam configuration checks for the Frame setup helper."""
 
 import importlib.util
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -19,7 +20,7 @@ SPEC.loader.exec_module(module)
 
 
 def localconfig(options: str | None = None) -> bytes:
-    value = f'"LaunchOptions" "{options}"' if options is not None else ""
+    value = f'"LaunchOptions" {json.dumps(options)}' if options is not None else ""
     return (f'"UserLocalConfigStore" {{ "Software" {{ "Valve" {{ "Steam" '
             f'{{ "Apps" {{ "999" {{ "LaunchOptions" "-unrelated" }} '
             f'"780290" {{ {value} }} }} }} }} }} }}').encode()
@@ -52,6 +53,70 @@ class SteamFrameConfigTest(unittest.TestCase):
         self.assertIn("-foo", changed)
         self.assertNotIn("--gloomhavenvr", changed)
         self.assertEqual(module.update_launch_options(changed), changed)
+
+    def test_launch_check_accepts_equivalent_whitespace_and_override_quotes(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            config = base / "Steam/userdata/123/config"
+            config.mkdir(parents=True)
+            local = config / "localconfig.vdf"
+            game = base / "game"
+            game.mkdir()
+            (game / "GH.exe").touch()
+            args = [sys.executable, str(HELPER), "--steam-root", str(base / "Steam"),
+                    "--game-path", str(game), "--check-launch-options"]
+            valid = [
+                '  WINEDLLOVERRIDES="winhttp=n,b" %command%  ',
+                "WINEDLLOVERRIDES='winhttp=n,b' %command%",
+                'WINEDLLOVERRIDES=winhttp=n,b %command%',
+                "PROTON_LOG=1  WINEDLLOVERRIDES='d3d11=n;winhttp=n,b'  %command% -windowed",
+            ]
+            for options in valid:
+                with self.subTest(options=options):
+                    original = localconfig(options)
+                    local.write_bytes(original)
+                    checked = subprocess.run(args, text=True, capture_output=True)
+                    self.assertEqual(checked.returncode, 0, checked.stderr)
+                    self.assertEqual(local.read_bytes(), original)
+
+    def test_launch_check_refuses_missing_wrong_or_misplaced_environment(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            config = base / "Steam/userdata/123/config"
+            config.mkdir(parents=True)
+            local = config / "localconfig.vdf"
+            game = base / "game"
+            game.mkdir()
+            (game / "GH.exe").touch()
+            args = [sys.executable, str(HELPER), "--steam-root", str(base / "Steam"),
+                    "--game-path", str(game)]
+            invalid = [
+                "%command% -windowed",
+                'WINEDLLOVERRIDES="winhttp=b" %command%',
+                'WINEDLLOVERRIDES="winhttp=n,b" -windowed',
+                '%command% WINEDLLOVERRIDES="winhttp=n,b" -windowed',
+                'WINEDLLOVERRIDES="winhttp=n,b" "%command%"',
+                'WINEDLLOVERRIDES="winhttp=n,b" %command% %command%',
+                'WINEDLLOVERRIDES="winhttp=n,b %command%',
+                'WINEDLLOVERRIDES="winhttp=n,b" %command% ; echo unsafe-wrapper',
+                'gamescope WINEDLLOVERRIDES="winhttp=n,b" %command%',
+                'WINEDLLOVERRIDES="winhttp=n,b" # %command%',
+                'WINEDLLOVERRIDES="winhttp=n,b" %command% `unterminated',
+                'WINEDLLOVERRIDES="winhttp=n,b" %command% "--gloomhavenvr"',
+            ]
+            for options in invalid:
+                with self.subTest(options=options):
+                    original = localconfig(options)
+                    local.write_bytes(original)
+                    checked = subprocess.run(args + ["--check-launch-options"], text=True, capture_output=True)
+                    self.assertNotEqual(checked.returncode, 0)
+                    self.assertIn("Properties > General > Launch options", checked.stderr)
+                    self.assertEqual(local.read_bytes(), original)
+            local.write_bytes(localconfig('%command% WINEDLLOVERRIDES="winhttp=n,b" -windowed'))
+            suggested = subprocess.run(args + ["--required-launch-options"], text=True, capture_output=True)
+            self.assertEqual(suggested.returncode, 0, suggested.stderr)
+            self.assertEqual(suggested.stdout.strip(), 'WINEDLLOVERRIDES="winhttp=n,b" %command%  -windowed')
+            self.assertTrue(module.valid_launch_options(suggested.stdout, suggested.stdout))
 
     def test_missing_game_entry_is_added_once(self):
         raw = b'"UserLocalConfigStore" { "Software" { "Valve" { "Steam" { "Apps" { } } } } }'
@@ -187,11 +252,132 @@ class SteamFrameConfigTest(unittest.TestCase):
             self.assertEqual((config / "localconfig.vdf").read_bytes(), source)
             self.assertFalse((config / "shortcuts.vdf").exists())
             prepared = subprocess.run(args + ["--allow-running"], text=True, capture_output=True)
+            self.assertNotEqual(prepared.returncode, 0)
+            self.assertIn("Properties UI", prepared.stderr)
+            self.assertEqual((config / "localconfig.vdf").read_bytes(), source)
+            self.assertFalse((config / "shortcuts.vdf").exists())
+            prepared = subprocess.run(args + ["--allow-running", "--shortcut-only"], text=True, capture_output=True)
             self.assertEqual(prepared.returncode, 0, prepared.stderr)
             self.assertTrue((config / "shortcuts.vdf").is_file())
-            self.assertIn(b"WINEDLLOVERRIDES", (config / "localconfig.vdf").read_bytes())
+            self.assertEqual((config / "localconfig.vdf").read_bytes(), source)
+            self.assertFalse(list(config.glob("localconfig.vdf.gloomhavenvr-backup-*")))
             self.assertEqual(subprocess.run(args + ["--needs-update"], text=True,
+                                            capture_output=True).stdout, "yes\n")
+            self.assertEqual(subprocess.run(args + ["--needs-update", "--shortcut-only"], text=True,
                                             capture_output=True).stdout, "no\n")
+
+    def test_pending_live_session_rejects_stale_disk_success_and_cached_flush(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            config = base / "Steam/userdata/123/config"
+            config.mkdir(parents=True)
+            local = config / "localconfig.vdf"
+            stale = localconfig("PROTON_LOG=1 %command% -windowed")
+            ready = module.patch_localconfig(stale)
+            local.write_bytes(ready)  # Old live setup's apparently green disk readback.
+            game = base / "game"
+            game.mkdir()
+            (game / "GH.exe").touch()
+            proc = base / "proc/222"
+            proc.mkdir(parents=True)
+            (proc / "comm").write_text("steam\n")
+            boot_id = proc.parent / "sys/kernel/random/boot_id"
+            boot_id.parent.mkdir(parents=True)
+            boot_id.write_text("00000000-0000-0000-0000-000000000001")
+
+            def start(ticks):
+                (proc / "stat").write_text("222 (steam) S " + "0 " * 18 + str(ticks))
+
+            start(100)
+            guard = base / "pending.json"
+            args = [sys.executable, str(HELPER), "--steam-root", str(base / "Steam"),
+                    "--game-path", str(game), "--proc-root", str(proc.parent)]
+            record = subprocess.run(args + ["--record-running-setup", str(guard)], text=True, capture_output=True)
+            self.assertEqual(record.returncode, 0, record.stderr)
+            self.assertEqual(json.loads(guard.read_text())["processes"], {"222": "100"})
+            check = args + ["--check-launch-options", "--pending-setup", str(guard)]
+            before = subprocess.run(check, text=True, capture_output=True)
+            self.assertEqual(before.returncode, 3)
+            self.assertIn("native Steam save", before.stderr)
+            self.assertEqual(local.read_bytes(), ready)
+            local.write_bytes(stale)  # Steam flushes its OLD in-memory state after setup dies.
+            start(200)  # Even PID reuse is a new Steam client lifetime.
+            flushed = subprocess.run(check, text=True, capture_output=True)
+            self.assertEqual(flushed.returncode, 3)
+            self.assertIn("missing or stale", flushed.stderr)
+            self.assertIn('WINEDLLOVERRIDES="winhttp=n,b" PROTON_LOG=1 %command% -windowed', flushed.stderr)
+            local.write_bytes(ready)  # Native Steam UI save survived the restart.
+            complete = subprocess.run(check, text=True, capture_output=True)
+            self.assertEqual(complete.returncode, 0, complete.stderr)
+            self.assertEqual(local.read_bytes(), ready)
+            self.assertFalse((config / "shortcuts.vdf").exists())
+            # A full Frame power restart can reuse the same PID/start ticks.
+            start(100)
+            again = subprocess.run(check, text=True, capture_output=True)
+            self.assertEqual(again.returncode, 3)
+            boot_id.write_text("00000000-0000-0000-0000-000000000002")
+            rebooted = subprocess.run(check, text=True, capture_output=True)
+            self.assertEqual(rebooted.returncode, 0, rebooted.stderr)
+            boot_id.write_text("00000000-0000-0000-0000-000000000001")
+            (proc / "stat").unlink()
+            incomplete = subprocess.run(args + ["--record-running-setup", str(guard)], text=True, capture_output=True)
+            self.assertEqual(incomplete.returncode, 0, incomplete.stderr)
+            self.assertEqual(json.loads(guard.read_text())["processes"], {"222": "unknown"})
+            start(100)
+            boot_id.write_text("00000000-0000-0000-0000-000000000002")
+            for interrupted in ({"222": "unknown"}, {}):
+                receipt = json.loads(guard.read_text())
+                receipt["processes"] = interrupted
+                guard.write_text(json.dumps(receipt))
+                # A boot change is independent proof even with lost proc data.
+                recovered = subprocess.run(check, text=True, capture_output=True)
+                self.assertEqual(recovered.returncode, 0, recovered.stderr)
+
+    def test_missing_or_corrupt_session_receipts_fail_closed(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            config = base / "Steam/userdata/123/config"
+            config.mkdir(parents=True)
+            local = config / "localconfig.vdf"
+            local.write_bytes(module.patch_localconfig(localconfig()))
+            game = base / "game"
+            game.mkdir()
+            (game / "GH.exe").touch()
+            proc = base / "empty-proc"
+            proc.mkdir()
+            guard = base / "pending.json"
+            args = [sys.executable, str(HELPER), "--steam-root", str(base / "Steam"),
+                    "--game-path", str(game), "--proc-root", str(proc)]
+            record = subprocess.run(args + ["--record-running-setup", str(guard)], text=True, capture_output=True)
+            self.assertEqual(record.returncode, 0, record.stderr)
+            for receipt in (guard.read_bytes(), b"{broken", b'{"schema":1,"processes":{"222":false}}'):
+                guard.write_bytes(receipt)
+                checked = subprocess.run(args + ["--check-launch-options", "--pending-setup", str(guard)],
+                                         text=True, capture_output=True)
+                self.assertEqual(checked.returncode, 3)
+                self.assertIn("Rerun setup, save the native options", checked.stderr)
+
+    def test_read_only_launch_check_and_required_line_do_not_need_shortcut_inputs(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            config = base / "Steam/userdata/123/config"
+            config.mkdir(parents=True)
+            local = config / "localconfig.vdf"
+            original = localconfig("MANGOHUD=1 %command% --gloomhavenvr -windowed")
+            local.write_bytes(original)
+            game = base / "game"
+            game.mkdir()
+            (game / "GH.exe").touch()
+            args = [sys.executable, str(HELPER), "--steam-root", str(base / "Steam"), "--game-path", str(game)]
+            required = subprocess.run(args + ["--required-launch-options"], text=True, capture_output=True)
+            self.assertEqual(required.returncode, 0, required.stderr)
+            self.assertIn('WINEDLLOVERRIDES="winhttp=n,b"', required.stdout)
+            self.assertEqual(required.stdout.count("%command%"), 1)
+            self.assertNotIn("--gloomhavenvr", required.stdout)
+            checked = subprocess.run(args + ["--check-launch-options"], text=True, capture_output=True)
+            self.assertEqual(checked.returncode, 3)
+            self.assertIn("Eigenschaften > Allgemein > Startoptionen", checked.stderr)
+            self.assertEqual(local.read_bytes(), original)
 
     def test_most_recent_account_id_uses_steam_id64_conversion(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -199,12 +385,29 @@ class SteamFrameConfigTest(unittest.TestCase):
             for account in ("123", "456"):
                 config = root / "userdata" / account / "config"
                 config.mkdir(parents=True)
-                (config / "localconfig.vdf").write_bytes(localconfig())
+                (config / "localconfig.vdf").write_bytes(localconfig(f"ACCOUNT_{account}=1 %command%"))
             steamid = module.STEAM_ID64_BASE + 456
             (root / "config").mkdir()
             (root / "config/loginusers.vdf").write_text(
                 f'"users" {{ "{steamid}" {{ "MostRecent" "1" }} }}')
             self.assertEqual(module.select_account(root, None).name, "456")
+            game = root / "game"
+            game.mkdir()
+            (game / "GH.exe").touch()
+            args = [sys.executable, str(HELPER), "--steam-root", str(root), "--game-path", str(game),
+                    "--required-launch-options"]
+            current = subprocess.run(args, text=True, capture_output=True)
+            self.assertEqual(current.returncode, 0, current.stderr)
+            self.assertIn("ACCOUNT_456=1", current.stdout)
+            self.assertNotIn("ACCOUNT_123=1", current.stdout)
+            (root / "config/loginusers.vdf").write_text(
+                f'"users" {{ "{module.STEAM_ID64_BASE + 123}" {{ "MostRecent" "1" }} }}')
+            switched = subprocess.run(args, text=True, capture_output=True)
+            self.assertEqual(switched.returncode, 0, switched.stderr)
+            self.assertIn("ACCOUNT_123=1", switched.stdout)
+            for account in ("123", "456"):
+                self.assertEqual((root / "userdata" / account / "config/localconfig.vdf").read_bytes(),
+                                 localconfig(f"ACCOUNT_{account}=1 %command%"))
 
 
 if __name__ == "__main__":

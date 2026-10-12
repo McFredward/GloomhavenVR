@@ -1,0 +1,57 @@
+{
+  "sources": [
+    {
+      "file": "ActorBarUI.shader",
+      "original_shader": "UI/Default",
+      "original_sha256": "e10f436278b514397e17482f7fc4e27e71c2b11d39485cf11a648198e2393b12",
+      "encoding": "UTF8 with optional source BOM",
+      "source": "Unity builtin shaders2021.3.5f1",
+      "normalized_original_sha256": "e10f436278b514397e17482f7fc4e27e71c2b11d39485cf11a648198e2393b12",
+      "retained_feature_pragmas": []
+    },
+    {
+      "file": "ActorBarSDF.shader",
+      "original_shader": "TextMeshPro/Distance Field",
+      "original_sha256": "8ce675eb8aef9769efbbb7960bd855ab5349f6d8226218b4d8d079b9fbda5671",
+      "encoding": "UTF8 with optional source BOM",
+      "source": "Unity com.unity.textmeshpro1.3.0 Essential Resources",
+      "normalized_original_sha256": "8ce675eb8aef9769efbbb7960bd855ab5349f6d8226218b4d8d079b9fbda5671",
+      "retained_feature_pragmas": [
+        "\t\t#pragma shader_feature __ BEVEL_ON",
+        "\t\t#pragma shader_feature __ UNDERLAY_ON UNDERLAY_INNER",
+        "\t\t#pragma shader_feature __ GLOW_ON"
+      ]
+    },
+    {
+      "file": "ActorBarMobileSDF.shader",
+      "original_shader": "TextMeshPro/Mobile/Distance Field",
+      "original_sha256": "7c9a9cbcceb645cea8faaeaae60b55fbeae79f107a5c581ed05dfe7d82d9fc00",
+      "encoding": "UTF8 with optional source BOM",
+      "source": "Unity com.unity.textmeshpro1.3.0 Essential Resources",
+      "normalized_original_sha256": "7c9a9cbcceb645cea8faaeaae60b55fbeae79f107a5c581ed05dfe7d82d9fc00",
+      "retained_feature_pragmas": [
+        "\t\t#pragma shader_feature __ OUTLINE_ON",
+        "\t\t#pragma shader_feature __ UNDERLAY_ON UNDERLAY_INNER"
+      ]
+    },
+    {
+      "file": "ActorBarSprite.shader",
+      "original_shader": "TextMeshPro/Sprite",
+      "original_sha256": "5fbb240225ecdc7df641625459488f053f911974b2245944da8cf60bcbd6daf1",
+      "encoding": "UTF8 with optional source BOM",
+      "source": "Unity com.unity.textmeshpro1.3.0 Essential Resources",
+      "normalized_original_sha256": "5fbb240225ecdc7df641625459488f053f911974b2245944da8cf60bcbd6daf1",
+      "retained_feature_pragmas": []
+    }
+  ],
+  "tmp_package_url": "https://packages.unity.com/com.unity.textmeshpro/-/com.unity.textmeshpro-1.3.0.tgz",
+  "builtin_url": "https://download.unity3d.com/download_unity/40eb3a945986/builtin_shaders-2021.3.5f1.zip",
+  "changes": [
+    "Shader name only",
+    "Include foreground fragment depth test",
+    "Call fragment depth test; original typography, texture, color, alpha, clip, stencil and pass semantics unchanged",
+    "Retain all original runtime shader_feature variants with multi_compile; no keyword/control-flow changes",
+    "Full SDF fallback points to the equally derived Mobile program",
+    "One additional TEXCOORD7 carrying Unity ComputeScreenPos of the final unchanged native clip position; maps normalized per-eye coordinates into the actual foreground viewport without _ScreenParams pixel-unit assumptions. Sprite retains its original half-texel adjustment before this interpolation."
+  ]
+}

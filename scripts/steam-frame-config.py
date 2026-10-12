@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
 """Install the Steam-side GloomhavenVR Frame shortcut without third-party modules.
 
-Steam does not expose a supported command-line shortcut editor. This helper edits
-the account's two local KeyValues files only while Steam is stopped. It patches
-the original text file and the binary shortcut file in place at field boundaries,
-leaving unrelated settings and shortcuts byte-for-byte intact.
+Steam does not expose a supported command-line launch-options editor. Original
+app options are edited only while Steam is stopped; a live client can flush its
+cached localconfig over an apparently successful external write. The installer
+may prepare the separate shortcut while Steam runs, but the original app options
+must then be saved through Steam's own Properties UI. Unrelated fields are kept.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import struct
 import sys
@@ -176,6 +179,12 @@ def update_launch_options(existing: str) -> str:
         if not found:
             parts.append("winhttp=n,b")
         merged = ";".join(part for part in parts if part)
+        if "%command%" in existing[:match.start()]:
+            # Behind %command% this is a game argument, not an environment
+            # assignment. Preserve other text, but put the repaired override
+            # in the supported environment prefix of the native UI suggestion.
+            remaining = (existing[:match.start()] + existing[match.end():]).strip()
+            return f'WINEDLLOVERRIDES="{merged}" {remaining}'
         result = existing[:match.start()] + f'WINEDLLOVERRIDES="{merged}"' + existing[match.end():]
         if "%command%" not in result:
             insertion = match.start() + len(f'WINEDLLOVERRIDES="{merged}"')
@@ -184,6 +193,42 @@ def update_launch_options(existing: str) -> str:
     if "%command%" in existing:
         return f"{OVERRIDE} {existing}"
     return f"{OVERRIDE} %command% {existing}"
+
+
+def valid_launch_options(existing: str, required: str) -> bool:
+    """Accept harmless spelling differences, but only a real environment prefix."""
+    try:
+        lexer = shlex.shlex(existing, posix=True, punctuation_chars=";&|<>()")
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        tokens = list(lexer)
+        expected = shlex.split(required)
+    except ValueError:
+        return False  # Never accept an unterminated shell quote.
+    if tokens != expected or tokens.count("%command%") != 1:
+        return False
+    if any(token.casefold() == "--gloomhavenvr" for token in tokens):
+        return False  # Including a quoted flag on the original flat entry.
+    # Quoting/escaping the complete substituted command can turn it into one
+    # invalid executable name; require the actual standalone Steam placeholder.
+    if len(re.findall(r"(?<!\S)%command%(?=\s|$)", existing)) != 1:
+        return False
+    command_index = tokens.index("%command%")
+    if "`" in existing or "$(" in existing or any(token.startswith("#") for token in tokens[:command_index]):
+        return False
+    assignments = []
+    for token in tokens[:command_index]:
+        if not re.match(r"[A-Za-z_][A-Za-z0-9_]*=", token):
+            break  # Later assignments would be arguments to a shell wrapper.
+        assignments.append(token)
+    overrides = [token for token in assignments if token.startswith("WINEDLLOVERRIDES=")]
+    if len(overrides) != 1:
+        return False
+    # Unquoted shell controls and substitutions are ambiguous launch wrappers;
+    # guide native UI correction instead of pretending to interpret/rewrite them.
+    if any(re.fullmatch(r"[;&|<>()]+", token) for token in tokens):
+        return False
+    return True
 
 
 def patch_localconfig(raw: bytes) -> bytes:
@@ -230,6 +275,19 @@ def patch_localconfig(raw: bytes) -> bytes:
                   + "\t\t" + quoted(update_launch_options("")) + newline + "\t" * 5
                   + data[parent.close:])
     return result.encode("utf-8", "surrogateescape")
+
+
+def launch_options(raw: bytes) -> str:
+    parsed = parse_text(raw.decode("utf-8", "surrogateescape"))
+    node, _ = find_path(parsed, ["UserLocalConfigStore", "Software", "Valve", "Steam", "Apps", GAME_APP_ID])
+    if node is None:
+        return ""
+    launch = one_child(node.children or [], "LaunchOptions")
+    if launch is None:
+        return ""
+    if launch.value is None:
+        raise ConfigError("Steam LaunchOptions is not a string")
+    return launch.value
 
 
 @dataclass
@@ -455,8 +513,14 @@ def read_bounded(path: Path) -> bytes:
 
 
 def steam_running(proc_root: Path) -> bool:
+    return bool(steam_processes(proc_root))
+
+
+def steam_processes(proc_root: Path) -> dict[str, str]:
+    """Identify a Steam lifetime, including PID reuse, without relying on D-Bus."""
+    result: dict[str, str] = {}
     if not proc_root.is_dir():
-        return False
+        return result
     for process in proc_root.iterdir():
         if not process.name.isdigit():
             continue
@@ -467,8 +531,33 @@ def steam_running(proc_root: Path) -> bool:
         except (OSError, UnicodeError):
             continue
         if name in {"steam", "steamwebhelper", "steam.exe"}:
-            return True
-    return False
+            try:
+                # Field22 is starttime; the process name in parentheses may
+                # itself contain spaces or ')', so split after its last ')'.
+                start = (process / "stat").read_text().rsplit(")", 1)[1].split()[19]
+            except (OSError, UnicodeError, IndexError):
+                if not process.exists():
+                    continue  # A webhelper exited between comm and stat.
+                start = "unknown"
+            result[process.name] = start
+    return result
+
+
+def steam_boot_id(proc_root: Path) -> str | None:
+    try:
+        value = (proc_root / "sys/kernel/random/boot_id").read_text().strip()
+    except (OSError, UnicodeError):
+        return None
+    return value if re.fullmatch(r"[0-9a-f-]{36}", value) else None
+
+
+def show_launch_options_instruction(required: str, reason: str) -> int:
+    print(f"VR launch stopped: {reason}", file=sys.stderr)
+    print("In Steam, open Gloomhaven (the original game) > Properties > General > Launch options.", file=sys.stderr)
+    print("Save the complete line below there, then restart Steam/Frame before retrying GloomhavenVR:", file=sys.stderr)
+    print(required, file=sys.stderr)
+    print("Steam > Gloomhaven > Eigenschaften > Allgemein > Startoptionen; komplette Zeile speichern, danach Steam/Frame neu starten.", file=sys.stderr)
+    return 3
 
 
 def backup_and_replace(path: Path, content: bytes) -> None:
@@ -496,18 +585,29 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--steam-root", type=Path, help="Steam installation root (for alternate installs/tests)")
     parser.add_argument("--account-id", help="Steam userdata account ID when several accounts are present")
     parser.add_argument("--game-path", type=Path, required=True)
-    parser.add_argument("--launcher", type=Path, required=True)
-    parser.add_argument("--icon", type=Path, required=True)
-    parser.add_argument("--logo", type=Path, required=True)
-    parser.add_argument("--portrait", type=Path, required=True,
+    parser.add_argument("--launcher", type=Path)
+    parser.add_argument("--icon", type=Path)
+    parser.add_argument("--logo", type=Path)
+    parser.add_argument("--portrait", type=Path,
                         help="600x900 Steam Library capsule for the VR shortcut")
-    parser.add_argument("--header", type=Path, required=True,
+    parser.add_argument("--header", type=Path,
                         help="wide Steam Library capsule for the VR shortcut")
-    parser.add_argument("--hero", type=Path, required=True,
+    parser.add_argument("--hero", type=Path,
                         help="Steam Library details background for the VR shortcut")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--needs-update", action="store_true",
                         help="print only yes/no without changing Steam files")
+    parser.add_argument("--shortcut-only", action="store_true",
+                        help="prepare only the shortcut/artwork; never edit original app options")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--required-launch-options", action="store_true",
+                       help="print the complete original-app launch options to save in Steam")
+    modes.add_argument("--check-launch-options", action="store_true",
+                       help="read-only VR launch check; refuse missing options instead of starting flat")
+    modes.add_argument("--record-running-setup", type=Path,
+                       help="record a pending native-UI setup until the current Steam session has restarted")
+    parser.add_argument("--pending-setup", type=Path,
+                        help="pending setup guard to check before forwarding a VR launch")
     parser.add_argument("--allow-running", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--proc-root", type=Path, default=Path("/proc"), help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
@@ -522,13 +622,63 @@ def main(argv: list[str] | None = None) -> int:
         config = account / "config"
         localconfig = config / "localconfig.vdf"
         shortcuts = config / "shortcuts.vdf"
+        old_local = read_bounded(localconfig)
+        if args.required_launch_options or args.check_launch_options or args.record_running_setup:
+            existing = launch_options(old_local)
+            required = update_launch_options(existing)
+            if args.required_launch_options:
+                print(required)
+                return 0
+            if args.record_running_setup:
+                processes = steam_processes(args.proc_root)
+                # An empty/unknown process receipt still records pending setup,
+                # and later checks fail closed. Never call live setup complete
+                # just because process inspection could not identify Steam.
+                receipt = {"schema": 1, "processes": processes, "boot_id": steam_boot_id(args.proc_root)}
+                backup_and_replace(args.record_running_setup, (json.dumps(receipt) + "\n").encode())
+                return 0
+            if args.pending_setup and args.pending_setup.exists():
+                try:
+                    pending = json.loads(read_bounded(args.pending_setup))
+                    previous = pending["processes"]
+                    previous_boot = pending["boot_id"]
+                    if (pending["schema"] != 1 or not isinstance(previous, dict)
+                            or (previous_boot is not None and (not isinstance(previous_boot, str)
+                                                               or not re.fullmatch(r"[0-9a-f-]{36}", previous_boot)))
+                            or any(not isinstance(pid, str) or not pid.isdigit()
+                                   or not isinstance(start, str) or (not start.isdigit() and start != "unknown")
+                                   for pid, start in previous.items())):
+                        raise ValueError("Invalid pending setup receipt")
+                    current = steam_processes(args.proc_root)
+                    current_boot = steam_boot_id(args.proc_root)
+                    # A Frame power restart also changes the boot ID. PID and
+                    # start ticks may coincidentally recur on the next boot.
+                    # It also safely retires an empty/unknown old process census
+                    # caused by a transient shutdown race or denied proc read.
+                    rebooted = previous_boot is not None and current_boot is not None and current_boot != previous_boot
+                    if not rebooted:
+                        if (not previous or not current
+                                or (previous_boot is not None and current_boot is None)):
+                            return show_launch_options_instruction(required, "Steam's setup session restart has not been verified. Rerun setup, save the native options, then restart Frame from its power menu.")
+                        if any(pid in current and (start == "unknown" or current[pid] == "unknown" or current[pid] == start)
+                               for pid, start in previous.items()):
+                            return show_launch_options_instruction(required, "live setup still needs a native Steam save and a Steam/Frame restart.")
+                except (ConfigError, OSError, ValueError, KeyError, TypeError):
+                    return show_launch_options_instruction(required, "the pending Steam setup receipt cannot be verified. Rerun setup, save the native options, then restart Frame from its power menu.")
+            if valid_launch_options(existing, required):
+                return 0
+            if not valid_launch_options(required, required):
+                return show_launch_options_instruction(f"{OVERRIDE} %command%", "custom shell quoting/wrapper needs correction in Steam. Use the basic line below or manually merge your custom options into it; existing settings have not been overwritten.")
+            return show_launch_options_instruction(required, "Gloomhaven's Steam launch options are missing or stale.")
+        for name in ("launcher", "icon", "logo", "portrait", "header", "hero"):
+            if getattr(args, name) is None:
+                raise ConfigError(f"--{name} is required when configuring the Steam shortcut")
         launcher = args.launcher.expanduser().absolute()
         icon = args.icon.expanduser().absolute()
         logo = args.logo.expanduser().absolute()
         portrait = args.portrait.expanduser().absolute()
         header = args.header.expanduser().absolute()
         hero = args.hero.expanduser().absolute()
-        old_local = read_bounded(localconfig)
         old_shortcuts = read_bounded(shortcuts) if shortcuts.exists() else b""
         new_local = patch_localconfig(old_local)
         new_shortcuts, appid = patch_shortcuts(old_shortcuts, launcher, icon)
@@ -543,7 +693,7 @@ def main(argv: list[str] | None = None) -> int:
             config / "grid" / f"{appid}_icon.png": icon,
         }
         changed = []
-        if new_local != old_local:
+        if new_local != old_local and not args.shortcut_only:
             changed.append((localconfig, new_local))
         if new_shortcuts != old_shortcuts:
             changed.append((shortcuts, new_shortcuts))
@@ -559,14 +709,23 @@ def main(argv: list[str] | None = None) -> int:
             print("yes" if changed else "no")
             return 0
         if not args.dry_run:
-            if changed and steam_running(args.proc_root) and not args.allow_running:
-                raise ConfigError("Steam is still running; close it before writing its shortcut/config files")
+            if changed and steam_running(args.proc_root):
+                # --allow-running historically allowed localconfig writes too.
+                # That lost the override when Frame restarted and Steam flushed
+                # its old in-memory options. Never restore that unsafe exception:
+                # offline writes or Steam's own native Properties UI are required.
+                if any(destination == localconfig for destination, _ in changed):
+                    raise ConfigError("Steam is still running; save Gloomhaven launch options in Steam's Properties UI, or close Steam before applying them")
+                if not args.allow_running:
+                    raise ConfigError("Steam is still running; close it before writing its shortcut/config files")
             for destination, data in changed:
                 backup_and_replace(destination, data)
         print(f"Steam account: {account.name}")
         print(f"Steam shortcuts file: {shortcuts}")
         print(f"GloomhavenVR shortcut before this check: {'current' if new_shortcuts == old_shortcuts else 'missing or stale'}")
         print(f"Gloomhaven launch options before this check: {'current' if new_local == old_local else 'missing or stale'}")
+        if args.shortcut_only:
+            print("Original Gloomhaven launch options were not written; live setup requires checking Steam's Properties UI.")
         print(f"GloomhavenVR shortcut AppID: {appid}")
         print(f"Steam configuration {'would change' if args.dry_run else 'changed'}: {len(changed)} file(s)")
         print(f"Steam restart required: {'yes' if changed else 'no'}")

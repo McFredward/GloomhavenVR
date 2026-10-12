@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -51,7 +52,9 @@ def main():
         if token not in adopt: raise SystemExit('Production adoption hook drift: ' + token)
     if 'ActorBarPose.Reset();' not in bars or bars.index('ResampleAnchor(adopted, controller, now);') > bars.index('Vector3 pos = track + Vector3.up * adopted.AnchorOffsetWU;'):
         raise SystemExit('Production steady pose or shutdown hook drift')
-    if 'if (Adoptions.Count == 0) ActorBarPose.Reset();' not in bars:
+    release = method(bars, 'private static void Release(WorldspacePanelUIController controller)')
+    if not re.search(r'if\s*\(Adoptions\.Count == 0\)\s*'
+                     r'(?:ActorBarPose\.Reset\(\);|\{[^{}]*ActorBarPose\.Reset\(\);[^{}]*\})', release):
         raise SystemExit('Last native bar release must drop cached native mesh references')
     methods = '\n'.join(method(bars, signature) for signature in (
         'private static bool TryGetTrackPoint(', 'private static void ResampleAnchor(',

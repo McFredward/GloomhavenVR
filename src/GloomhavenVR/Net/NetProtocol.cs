@@ -612,7 +612,24 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 671;
+    public const ushort ModBuild = 672;
+
+    // ModBuild672 — separate wall visibility from VR foreground and verify Frame launch setup.
+    // Through-wall native health/effect widgets now sample the original visible depth of
+    // solid VR hands, cards, boards and currently held native figures/props. Four original
+    // UI/TMP shader derivatives preserve glyph, sprite, mask and transparent presentation;
+    // owned material clones survive native text reparsing without changing shared assets.
+    // Native final clip coordinates map into each eye's actual capture viewport. Missing
+    // capture/bank data falls back to ordinary depth until recovery, never unconditional
+    // foreground visibility. Existing MR plates are registered without new room geometry.
+    // BarsOccluded=true already hides bars behind walls on both PC and standalone Frame;
+    // saved preferences remain authoritative. The updated main bundle is required.
+    // Running Steam can overwrite external launch-option edits from its cached config.
+    // Setup edits offline only; live setup persists recovery guidance for Steam's own save
+    // and Frame restart. The VR launcher checks options and the retired Steam session before
+    // App780290 --gloomhavenvr. Preserve the shared prefix and original flat-entry behavior.
+    // Version3/next-free118; focused/native-render evidence and hardware boundaries are in
+    // FIX-672-REVIEW.md. No new release or complete local gate is claimed.
 
     // ModBuild671 — publish the reviewed 1.1.0 release candidate.
     // The maintainer approved the completed NPC and Steam Frame work for release.
