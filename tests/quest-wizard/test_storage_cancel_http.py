@@ -134,11 +134,13 @@ class StorageCancelHttpTests(unittest.TestCase):
                       "bytes": 2048, "folders": 3, "currentPath": "source/owned"})
             raise WizardError("cleanup_file_busy", "Close the program using this file, refresh the preview and retry.",
                               "Das Programm mit Dateizugriff schließen, die Vorschau erneuern und wiederholen.",
-                              path="source/owned/locked.bin", retryable=True, recovery="refresh-preview")
+                              path="source/owned/locked.bin", retryable=True, recovery="refresh-preview",
+                              result={"deletedFiles": 2, "freedBytes": 512, "sessionsRemoved": []})
         self.helper.plan = fail
         self.request("/api/storage/plan", {"mode": "build-cache"}); state = self.wait("cleanup", "failed")
         self.assertEqual(state["files"], 123)
         self.assertTrue(state["error"]["parameters"]["retryable"])
+        self.assertEqual(state["result"]["deletedFiles"], 2)
         self.assertEqual(state["selection"]["mode"], "build-cache")
         rows = [json.loads(row) for row in (self.store.root / "logs/storage-cleanup.log").read_text().splitlines()]
         self.assertEqual(rows[-1]["progress"]["files"], 123)

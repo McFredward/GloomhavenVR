@@ -63,7 +63,7 @@ for(const completed of [false,true])test('native browser storage: explicit previ
     else assert.equal(await client.evaluate("document.getElementById('storage-plan-cache').hidden"),true,'no cache deletion before a completed build');
     assert.equal(cleanCalls,0,'opening or completing a build never deletes automatically');
     await client.evaluate("document.getElementById('storage-plan-duplicates').click()");
-    await client.wait("document.getElementById('storage-progress').value===25");
+    await client.wait("!document.getElementById('storage-progress').hidden&&!document.getElementById('storage-progress').hasAttribute('value')");
     assert.equal(await client.evaluate("document.getElementById('storage-plan-duplicates').disabled"),true);
     assert.equal(await client.evaluate("document.getElementById('primary').disabled"),true,'no build starts during cleanup work');
     await client.wait("!document.getElementById('storage-confirmation').hidden");

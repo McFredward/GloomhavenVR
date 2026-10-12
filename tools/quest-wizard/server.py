@@ -139,6 +139,9 @@ class LocalServer(ThreadingHTTPServer):
                     self.inventory_state = {**value, "status": "stale", "cached": True}
         except (OSError, ValueError, WizardError):
             pass
+        import cleanup
+        qualify_cache = getattr(cleanup, "has_completed_build", None)
+        self.can_delete_build_cache = bool(qualify_cache(store.root)) if callable(qualify_cache) else False
         self.device_factory = device_factory
         self.device_tools = None
         self.device_job = None
@@ -292,7 +295,7 @@ class LocalServer(ThreadingHTTPServer):
         return {"schema": 1, "event": "storage", "state": value,
                 "workspaceRoot": str(self.store.root), "freeBytes": volume.free,
                 "volume": {"totalBytes": volume.total, "usedBytes": volume.used, "freeBytes": volume.free},
-                "inventory": inventory, "canDeleteBuildCache": bool(inventory.get("canDeleteBuildCache"))}
+                "inventory": inventory, "canDeleteBuildCache": self.can_delete_build_cache or bool(inventory.get("canDeleteBuildCache"))}
 
     def runs_status(self):
         """List every owned run and its last measured usage without another scan.
@@ -331,6 +334,7 @@ class LocalServer(ThreadingHTTPServer):
             # scan for a duplicate preview must not hide cache reclamation.
             qualify_cache = getattr(cleanup, "has_completed_build", None)
             can_delete_cache = bool(qualify_cache(self.store.root)) if callable(qualify_cache) else False
+            self.can_delete_build_cache = can_delete_cache
             operation_id, started = secrets.token_hex(16), time.time()
             with self.storage_lock:
                 self.inventory_state = {"status": "scanning", "done": 0, "total": None,
@@ -493,6 +497,8 @@ class LocalServer(ThreadingHTTPServer):
             with self.storage_lock:
                 current = getattr(self, state_name)
                 current.update(value)
+                if type(current.get("startedAt")) in (int, float):
+                    current["elapsedSeconds"] = max(0, time.time() - current["startedAt"])
                 partial = {key: current[key] for key in ("phase", "done", "total", "files", "bytes", "folders",
                            "currentPath", "detail", "elapsedSeconds") if key in current}
             phase = value.get("phase")
@@ -633,6 +639,11 @@ class LocalServer(ThreadingHTTPServer):
                         self.storage_plan = None
                         self.storage_state.update(status="failed", endedAt=time.time(), error={"code": code, "message": message,
                                                   "parameters": error.parameters if isinstance(error, WizardError) else {}})
+                        result = error.parameters.get("result") if isinstance(error, WizardError) else None
+                        if result:
+                            self.storage_state["result"] = result
+                            if result.get("deletedFiles"):
+                                self.inventory_state.update(status="stale" if self.inventory_state.get("completedAt") else "idle")
                         partial = copy.deepcopy(self.storage_state)
                     self.storage_log("failed", code=code, message=message, operationId=operation_id, progress=partial)
                     try: self.request_failure(error)

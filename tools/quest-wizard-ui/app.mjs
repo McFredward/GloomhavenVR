@@ -434,7 +434,8 @@ function renderStorage() {
   const removed=current.result?.sessionsRemoved;
   const copy=['planning','deleting'].includes(status)&&current.phase==='inventory-pausing'?t('storageInventoryPausing'):status==='cancelling'?t('storageCancelling'):status==='cancelled'?t('storageCancelled'):status==='planning'?t('storagePlanning'):status==='deleting'?t('storageDeleting'):status==='preview'?t(sessionPlan?(plan.retired?'runRetiredPreview':'runPreview'):files>0?'storagePreview':plan?.mode==='duplicates'&&discovery?.capabilities?.runRemoval===true?'storageNoFilesRetained':'storageNoFiles',{...parameters,session:(plan?.session??'').slice(0,8)}):status==='complete'?Array.isArray(removed)&&removed.length?t('runRemoved',{session:removed.map(id=>id.slice(0,8)).join(', '),size:storageSize(current.result?.freedBytes)}):t('storageComplete',{files:new Intl.NumberFormat(language).format(current.result?.deletedFiles??0),size:storageSize(current.result?.freedBytes)}):'';
   const failure=storageFailure??(status==='failed'?current.error:null);
-  const failed=failure?t('storageFailed',{message:failure.message?message(failure.message):t(failure.code??'unknownAction')}):'';
+  const recoverable=failure?.parameters?.retryable===true&&failure?.parameters?.recovery==='refresh-preview';
+  const failed=failure?t(recoverable?'storageActionRequired':'storageFailed',{message:failure.message?message(failure.message):t(failure.code??'unknownAction')}):'';
   const buildStage=state?.stages?.find(row=>['running','cancelling','cancel_requested'].includes(row.status))?.id??state?.progress?.phase;
   const waiting=isActive(state)?t('storageWaitingBuild',{stage:buildStage?t('stage_'+buildStage):t('working')}):deviceActive()?t('storageWaitingDevice'):packageActive()?t('storageWaitingExport'):busy?t('storageWaitingSetup'):'';
   const skipped=status==='preview'&&plan?.skipped?.length?t('storageSkipped',{count:plan.skipped.length}):'';

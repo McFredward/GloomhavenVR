@@ -131,6 +131,7 @@ test('unrepaired locked file keeps actionable recovery and counters until explic
   const server=await fixture({failure:true});let client;try{
     client=await launch(server);await client.evaluate("document.getElementById('storage-plan-cache').click()");await client.wait("!document.getElementById('storage-retry').hidden");
     assert.match(await client.evaluate("document.getElementById('storage-status').textContent"),/Dateizugriff schließen.*Vorschau erneuern.*371\.712/);
+    assert.doesNotMatch(await client.evaluate("document.getElementById('storage-status').textContent"),/Bereinigung fehlgeschlagen/);
     assert.equal(await client.evaluate("document.getElementById('storage-status').getAttribute('role')"),'alert');
     await delay(300);assert.equal(server.requests.filter(row=>row.path==='/api/storage/plan').length,1);
     await client.command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
