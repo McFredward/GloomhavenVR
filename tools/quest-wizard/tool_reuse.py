@@ -105,7 +105,12 @@ def _closed(store, session, stage_key, selected, expected_receipt=None):
         return None
     outputs = {}
     for row in receipt["outputs"]:
-        path = _owned(store, store.root / row["path"])
+        # Store.valid has just qualified every exact output using its bounded
+        # path rules and batched directory/leaf identities. Walking ancestors
+        # and statting each of thousands of SDK members again cannot add a new
+        # byte proof; keep only the pure roster mapping here. Small metadata,
+        # executable and marker ownership controls below retain their guards.
+        path = store.root / row["path"]
         if path in outputs:
             return None
         outputs[path] = row
@@ -116,7 +121,7 @@ def _closed(store, session, stage_key, selected, expected_receipt=None):
     # A new stage can retain the previous session's small, already qualified
     # metadata document as one of its own outputs. The current closed receipt
     # owns that complete roster, so no new SDK files or copies are necessary.
-    document = documents[0]
+    document = _owned(store, documents[0])
     value = _read(document, MAX_METADATA_BYTES)
     expected = {"schema": 1, **receipt["details"], "host": selected["host"],
                 "pins": {name: value_hash(selected["recipes"][name]) for name in NAMES}}
