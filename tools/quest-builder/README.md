@@ -22,7 +22,8 @@ editing show only their setup/progress. Export, Quest connection/log capture and
 storage management have separate views. Navigation preserves their existing
 operation state and does not start another build; shared workspace locks still
 prevent concurrent mutations. The completed build's export shortcut opens the
-same export view.
+same export view. The resume tile appears only for an unfinished selected run;
+a successful latest run does not revive an older failed run's resume prompt.
 
 Code-compatible updates retain the original game payload and compile the current
 managed/native code pair. Changed Quest scenes, shaders, native programs or their

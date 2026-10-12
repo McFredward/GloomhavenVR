@@ -6,6 +6,8 @@ The maintainer found export/device panels on unrelated setup pages and a forced
 APK/ZIP source prompt despite a completed `.ghvrq` build. Each initial tile now
 opens its own operation; export, connection/capture and storage controls no longer
 share build/update/name setup views. Navigation retains operation state and locks.
+The maintainer's follow-up hides resume for a completed latest run, including
+initial discovery, while preserving its completed APK as the editing default.
 
 The existing default locator rejected real full-build metadata twice: its
 64-KiB latest-pointer bound rejected a retained 245,825-byte report, and it
