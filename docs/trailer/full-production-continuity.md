@@ -22,11 +22,20 @@ directly down at him; a gentle hand lift reveals that this world is a VR diorama
 The figure is returned to its original cell. Runeveil appears opposite: another
 player, another pair of hands, the same adventure.
 
+The outer reveal uses the game's **SwampNight forest**, sourced from
+`Env_Swamp.prefab`, matching the existing upper-right moonlight. The actual
+visible table is **GH_Map_TableTop_Lg**, with long parallel planks and a thick
+double-profile rim; `MapTableLegs` supplies the runtime underside. The bundled
+`MapTable.prefab` is not spawned and is not the table identity master. Keep the
+approved sanctuary miniature through all these cuts; Black Barrow footage is
+a separate native reference, not a replacement map. Forest-source Blender
+lighting is diagnostic and does not establish a headset image.
+
 The film then shows the core conversion rather than describing it. Grimhorn
 studies original ability cards. His original fingerless hand places **two cards
 in the controlboard's two card wells**. The chosen cards lead to legal native-style
 movement and Brute melee. The hands make decisions; the game figures execute
-them. A short town handoff shows the same physical presence beyond the dungeon.
+them. A short priestess donation shows the same physical presence beyond the dungeon.
 The companions share the table, and the title resolves: **GLOOMHAVEN VR — STEP
 INSIDE**. The old spoken lines and old invitation title are retired.
 
@@ -76,20 +85,20 @@ and local composition. Avoid stretching a weak clip to fill the timeline.
 
 | Shot | Time / frames | Image and action | Cut and sound |
 |---|---|---|---|
-| F01 | 00–02 /48 | Actual merchant, cabinet/item cue, short living glance. No giant hands or board yet. | Warm practical light; restrained town detail. |
-| F02 | 02–03.5 /36 | Actual enchantress at her stand, original garment/face/ring-workspace design. | Match the resident's glance and lateral screen direction. |
-| F03 | 03.5–05 /36 | Actual priestess, altar/purse/coin cue. Save a complete transaction for F14. | Circular altar/coin detail cuts to Brute's native medallion. |
-| F04 | 05–09 /96 | Living, original-faced Brute in the complete ruined dungeon. One heavy step or weight shift, then eyes/head respond upward. | Character-height camera, foreground occlusion, warm torch/cool sky. |
-| F05 | 09–13 /96 | Over-Brute-shoulder view: huge original Grimhorn peers down at Brute, not at the lens. | Cut on Brute's upward eyeline; architecture and light continue. |
-| F06 | 13–18 /120 | Original fingerless glove gently lifts the idle miniature. Camera follows through the board-edge revelation; release restores original cell. | Keep the same grip, figure and world. A small base contact ends the beat. |
+| F01 | 00–02.25 /54 | Actual merchant, cabinet/item cue, short living glance. No giant hands or board yet. | Warm practical light; restrained town detail. |
+| F02 | 02.25–03.75 /36 | Actual enchantress at her stand, original garment/face/ring-workspace design. | Match the resident's glance and lateral screen direction. |
+| F03 | 03.75–05.25 /36 | Actual priestess, altar/purse/coin cue. Save a complete transaction for F14. | Circular altar/coin detail cuts to Brute's native medallion. |
+| F04 | 05.25–09.25 /96 | Living, original-faced Brute in the complete ruined dungeon. One heavy step or weight shift, then eyes/head respond upward. | Character-height camera, foreground occlusion, warm torch/cool sky. |
+| F05 | 09.25–13.25 /96 | Over-Brute-shoulder view: huge original Grimhorn peers down at Brute. | Cut on Brute's upward eyeline; architecture and light continue. |
+| F06 | 13.25–18 /114 | Original fingerless glove lifts the idle miniature; cut after 1.75 seconds before the superseded tavern becomes visible. New forest reveal lowers and releases the figure in its original cell. | Keep the same grip, figure and sanctuary; native forest/table outside. |
 | F07 | 18–22 /96 | Original Runeveil opposite Grimhorn, two original arcane hands, friendly response. | Match the camera's table-side direction; a second tonal layer joins. |
 | F08 | 22–26 /96 | Wide establishes the source-accurate VR table, both mask/hand pairs and each player's separate controlboard. | One restrained orbit/settle; establish physical geography before close-ups. |
-| F09 | 26–30 /96 | Grimhorn looks down at two original Brute choices; left hand supports fan, dominant right hand selects. Controlboard recognizable in frame. | Mask/card glance motivates the next detail. Observer-visible cards show backs. |
-| F10 | 30–34 /96 | Controlled-player detail: the same two cards enter **Slot1 left, Slot2 right** on the actual controlboard. First card stays seated during second placement. | Two audible, separate contacts. Preserve source card prints and original button state. |
+| F09 | 26–29.5 /84 | Controlled-player macro: dominant right hand places the original Assault card into **Slot1 left**. | Original printed surface tracked through the motion; fingers remain in front. |
+| F10 | 29.5–34 /108 | Left hand places the original Trample card into **Slot2 right**, followed by the existing upper-right confirmation button. First card stays seated. | Tight macro excludes superseded tavern windows; two separate contacts and stable original card prints. |
 | F11 | 34–36 /48 | Source-verified legal movement, beginning from the original cell after release. | Match the card's directional edge/contact to the figure's committed step. |
 | F12 | 36–40 /96 | Original Brute sword-and-shield melee against one source-native target, based on the selected ability. | Cut to figure height at the same facing; one clear strike and native response. |
 | F13 | 40–45 /120 | Tactical overhead/result, then companions observing the same dungeon. Preserve the settled destination and actual action outcome. | Pull the sound/detail into a shared composition; do not add a second invented attack. |
-| F14 | 45–51 /144 | Clearly separate town map: one original physical NPC card handoff, native response and return. Merchant is the default; enchantress is an alternative only with complete source references. | Card shape/contact motivates town cut; native handoff/return, not repeated portraits. |
+| F14 | 45–51 /144 | Separate temple: player's fingerless hand lowers original cloth purse into priestess's bowl and releases. Successful purse settles, sinks/fades, then native-style blessing gesture. | Physical drop confirms internally; no new popup/button or purse into priestess's palm. Cloth/metal contact motivates the service cut. |
 | F15 | 51–59 /192 | Grimhorn and Runeveil share the table. Both pairs of actual hands, a small friendly response and settled wide/player view. | Return to established table geography; N07 carries warmth, not another rule explanation. |
 | F16 | 59–65 /144 | Exact mod logo, **STEP INSIDE**, requirements and community attribution. Continuous unofficial mark survives fades and black. | N08/N09, musical resolve, clean hold. Composite text locally. |
 
@@ -100,9 +109,9 @@ the center, two rest symbols at left, three button seats at right. A wooden
 source variant exists in the repository (`docs/img/board-artwork.png`, canonical
 `PlayTray.prefab`, `PlayTray_prepped.fbx`, `PlayTray_albedo.png`). The asset lane
 must verify the corresponding mesh/material before it becomes the hero board.
-Prefer the verified actual Wood variant for the maintainer's requested wooden
-controlboard. If that reference cannot be completed, use the exact Steel board
-on the wooden scenario table. Never invent a generic flat tray or equate a
+Use the verified actual **Steel** board on the native wooden scenario table.
+The maintainer's table correction does not request a different controlboard.
+Never invent a generic flat tray or equate a
 wooden TABLE with a wooden CONTROLBOARD.
 
 Source contract: `Slot1` is the left initiative well from the player's view;
@@ -130,10 +139,10 @@ misrepresent what a remote observer can see during selection.
 ## Identity and location locks
 
 - **Brute:** use original Inox face references from the game/official trailer and
-  the original-asset portrait, with its dark grey facial palette, muzzle/jaw,
+  the original-asset portrait, with its pale cream/grey marked feline muzzle/jaw,
   horns, ear silhouette, eyes and sharp teeth. The approved film's environment
-  and lighting may guide production, but its lighter, furry goat-like face is
-  not the final identity master. Preserve native sword shape, shield silhouette,
+  and lighting guide production; the earlier probe's goat-like face is
+  superseded by the original face and exactly three horns. Preserve native sword shape, shield silhouette,
   bone armor/shoulder arrangement and handedness: sword in his right hand,
   shield in his left. The same character and target continue through F04–F13.
 - **Grimhorn:** exact `Mask_2` carved wood, asymmetric bone horns, red/white paint,
@@ -157,6 +166,14 @@ misrepresent what a remote observer can see during selection.
   action. An already-open sightline admits the mask; no roof breaks during the
   reveal. No board edge or oversized hand/mask is visible before F05, and the
   physical table is not exposed before the F06 revelation.
+- **Outer environment:** actual conifer night forest and native planked table
+  throughout reveal, combat return and shared finale. Upper-right moon source,
+  warm miniature torches; no tavern/window background around the table. The
+  separate priestess temple retains its source candle/moon-window setting.
+- **Readable prints:** video generation may mutate words, numbers and symbols.
+  Correct original surfaces frame by frame with tracked perspective, finger
+  occlusion, source shading and motion blur. Do not spend on a video reroll
+  merely to ask it to preserve text. Retain original clips and repair receipts.
 
 The lifted figure is idle and restored to its **original board cell** before
 F11. No free physical relocation, hand-cast attack or native movement derived
@@ -187,8 +204,9 @@ Build only the source references needed by the next shot, inspect its actual
 clip before another request, and separate difficult contacts into valid cuts
 rather than asking one model to solve three simultaneous actions.
 
-The ledger currently reports a conservative **$18.75 remaining**; its queued
-reservations/actual receipts remain authoritative. Prioritize source-accurate
+All planned calls reserve a conservative **$29.75 of $30**, including earlier
+studies and failed reservations; the actual invoice is unreconciled. Private
+ledger/receipts remain authoritative. Prioritize source-accurate
 Brute, the controlboard placement and reveal continuity. Existing successful
 material/audio, exact native footage and local composites can provide other
 cuts. A failed costly shot is cut or replaced within the authorized budget;
