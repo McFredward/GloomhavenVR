@@ -379,6 +379,10 @@ def _code_rows(files):
     producers = {"tools/quest-builder/apk_update.py", "tools/quest-builder/update_driver.py",
                  "unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCodeUpdateBuild.cs"}
     def selected(name):
+        # Every release records its commit and complete host-file inventory.
+        # This metadata is qualified by source_inventory but consumed by no
+        # runtime compiler; a new Wizard archive must not rebuild native code.
+        if name == "quest-builder-release.json": return False
         if name.startswith(prefixes) or name in producers: return True
         if name.startswith("unity/GloomhavenVR.Quest/Assets/Quest/Runtime/"): return True
         return "/" not in name and name.endswith((".props", ".targets", ".config", ".json"))
@@ -397,8 +401,11 @@ def _update_source_rows(files, *, art_changed):
     """
     if art_changed: return files
     prefixes = ("src/", "tools/QuestWeaver/", "unity/GloomhavenVR.Quest/", "libs/RefAsm/", "libs/RuntimeDeps/")
-    return [row for row in files if row["path"].startswith(prefixes)
-            or "/" not in row["path"] and row["path"].endswith((".props", ".targets", ".config", ".json"))]
+    # The release inventory describes complete inputs; this private partial
+    # compiler snapshot must not advertise itself as another complete release.
+    return [row for row in files if row["path"] != "quest-builder-release.json" and
+            (row["path"].startswith(prefixes)
+             or "/" not in row["path"] and row["path"].endswith((".props", ".targets", ".config", ".json")))]
 
 
 # Exact complete sources reviewed against the existing orchestration aliases in

@@ -26,6 +26,7 @@ import apk_input_cache
 import storage
 import portable_package as portable
 import preparation_identity
+import release
 import update_driver as driver
 
 
@@ -364,10 +365,51 @@ class UpdateDriverTests(unittest.TestCase):
         for name in ("src/GloomhavenVR/Core/Plugin.cs", "tools/QuestWeaver/StartupPatches.cs",
                      "unity/GloomhavenVR.Quest/Assets/Quest/Runtime/QuestGameBootstrap.cs",
                      "unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCodeUpdateBuild.cs",
-                     "tools/quest-builder/apk_update.py", "Directory.Build.props"):
+                     "tools/quest-builder/apk_update.py", "Directory.Build.props", "global.json"):
             before = [{"path": name, "size": 1, "sha256": "1" * 64}]
             after = [{"path": name, "size": 1, "sha256": "2" * 64}]
             with self.subTest(path=name): self.assertNotEqual(driver._code_rows(before), driver._code_rows(after))
+
+    def test_actual_verified_release_metadata_change_skips_native_compiler_and_updates_source_identity(self):
+        source = self.root / "released-source"; source.mkdir()
+        code = source / "src/GloomhavenVR/Core/Plugin.cs"; code.parent.mkdir(parents=True)
+        code.write_bytes(b"unchanged actual runtime source")
+        code_row = storage.record_file(code, code.relative_to(source).as_posix())
+        manifest = source / release.MANIFEST
+        def publish(commit):
+            storage.write_json(manifest, {"schema": 1, "kind": release.RELEASE_KIND, "sourceCommit": commit,
+                "modBuild": 671, "files": [code_row], "localDependencyRoots": list(release.LOCAL_DEPENDENCIES)})
+        # Real release byte verification supplies the manifest row. Small fixture
+        # package requirements avoid shipping unrelated pinned native archives.
+        with patch.object(release, "PUBLIC_PACKAGES", {}), patch.object(release, "REQUIRED", {code_row["path"]}), \
+             patch.object(release, "LINUX_REQUIRED", set()):
+            publish("1" * 40); previous, _, _ = release.verified_source_inventory(source)
+            publish("2" * 40); current, commit, dirty = release.verified_source_inventory(source)
+        self.assertEqual(previous[:-1], current[:-1]); self.assertNotEqual(previous[-1], current[-1])
+        self.current_mod.update(files=previous, modBuild=671); self.write_apk()
+        self.args.command = "update-mod"; self.builder.mod_build = lambda repo: 671
+        self.builder.source_inventory = lambda repo: (current, commit, dirty)
+        for name in ("update_driver.py", "apk_update.py", "apk_manifest.py", "builder.py", "storage.py", "profile.py", "dlcs.py"):
+            path = source / "tools/quest-builder" / name; path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / "tools/quest-builder" / name, path)
+        with patch.object(driver, "package_fingerprint", return_value=self.capsule["packageAbi"]), \
+             patch.object(driver, "signing_tools", return_value={}), \
+             patch.object(driver, "_signers", return_value=(lambda _: None, lambda _: None)), \
+             patch.object(driver, "_compile_code", side_effect=AssertionError("Release metadata is not native code")), \
+             patch.object(driver, "_game_subset", side_effect=AssertionError("No game snapshot for release metadata")), \
+             patch.object(apk_update, "patch_resource_json", return_value={}), \
+             patch.object(apk_update, "update_android_versions", return_value=b"AXML tested separately"):
+            updated = driver.run(self.builder, self.args, source, self.output)
+        with zipfile.ZipFile(self.apk) as before, zipfile.ZipFile(updated) as after:
+            for name in (apk_update.LIBRARY, apk_update.METADATA, "assets/fixture.resource"):
+                self.assertEqual(before.read(name), after.read(name))
+            update = json.loads(after.read(apk_update.UPDATE))
+        self.assertEqual(update["mod"]["files"], current)
+        self.assertEqual(update["mod"]["key"], storage.value_hash({"files": current}))
+        self.assertNotEqual(update["mod"]["key"], storage.value_hash({"files": previous}))
+        plan = json.loads((self.output / "updates" / update["updateKey"] / "plan.json").read_text())
+        self.assertFalse(plan["requiresUnity"]); self.assertFalse(plan["codeChanged"])
+        self.assertFalse((self.output / "updates/source-inputs").exists())
 
     def test_actual_code_source_snapshot_excludes_unused_large_banks_without_claiming_complete_inputs(self):
         repo = self.root / "selected-source"
@@ -377,6 +419,7 @@ class UpdateDriverTests(unittest.TestCase):
                   "unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCodeUpdateBuild.cs": b"compiler source",
                   "libs/RuntimeDeps/Unity.XR.OpenXR.dll": b"owned compiler reference",
                   "Directory.Build.props": b"current build settings",
+                  "quest-builder-release.json": b'{"completeReleaseInventory": "must not claim a partial source copy"}',
                   "prebuilt/quest-proton-runtime.tar.zst": b"unchanged native package" * 8192,
                   "unity/GloomhavenVR.Assets/Assets/unchanged.asset": b"unchanged authored asset" * 4096}
         for name, body in values.items():
@@ -393,7 +436,7 @@ class UpdateDriverTests(unittest.TestCase):
         observed = []
         def compile_code(builder, args, inputs, output, source, game, *_):
             for name, body in values.items():
-                if name.startswith(("prebuilt/", "unity/GloomhavenVR.Assets/")):
+                if name.startswith(("prebuilt/", "unity/GloomhavenVR.Assets/")) or name == "quest-builder-release.json":
                     self.assertFalse((source / name).exists())
                 else: self.assertEqual((source / name).read_bytes(), body)
             self.assertTrue((game / "Managed/GH.Runtime.dll").is_file())
