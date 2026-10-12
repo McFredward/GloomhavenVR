@@ -93,7 +93,7 @@ class Ownership:
                 except Cancelled: raise
                 except (WizardError, OSError, ValueError, TypeError, KeyError):
                     self.warn("unreadable_source_owner", folder); row["complete"] = False
-                for reference in h._references(self.root, self.build, scope["references"] | scope["sources"]):
+                for reference in h._references(self.root, self.build, scope["references"] | scope["sources"], cancel=self.cancel):
                     self.claim(reference, folder.name)
                 # Early accepted qualification is enough to show what this run
                 # depends on. An exact selected manifest additionally qualifies
@@ -144,7 +144,7 @@ class Ownership:
             self.report(self.build / "cache")
             raw_owners = h._raw_owners(self.build, manifests, proofs, verify_files=False, cancel=self.cancel)
             staged = {}
-            for candidate in h._children(self.build / "cache/recovery"):
+            for candidate in h._children(self.build / "cache/recovery", cancel=self.cancel):
                 self.check_cancel()
                 marker = candidate / "stage-owner.json"
                 if not marker.is_file(): continue
@@ -157,7 +157,7 @@ class Ownership:
                 for path, game_key in {**raw_owners, **staged}.items():
                     if game_key in scope["games"]:
                         self.claim(path, session, intermediate=True, reclaimable=True)
-            self.retained = h._delivered_references(self.root, self.build, proofs)
+            self.retained = h._delivered_references(self.root, self.build, proofs, cancel=self.cancel)
         except Cancelled: raise
         except (WizardError, OSError, ValueError, TypeError, KeyError):
             self.warn("unreadable_shared_owner", self.build)

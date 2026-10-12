@@ -146,6 +146,7 @@ class CleanupPerformanceTests(unittest.TestCase):
             with self.assertRaises(state.Cancelled): cleanup._directory_metadata(self.build, tracker)
         self.assertEqual(closed, [123])
         self.assertIs(shared.kernel, kernel)
+        self.assertEqual(tracker.metadata_queries, 1)
 
     def test_cancel_during_flat_folder_enumeration_is_observed_before_any_delete(self):
         for index in range(128): self.file(f"cache/asset-{index}.bin")
@@ -191,10 +192,17 @@ class CleanupPerformanceTests(unittest.TestCase):
         self.assertEqual([event["files"] for event in scan], sorted(event["files"] for event in scan))
         self.assertEqual(preview["files"], 12)
         self.assertTrue(all("currentPath" in event and "elapsedSeconds" in event for event in scan))
+        self.assertEqual(scan[-1]["processedEntries"], 15)
+        self.assertTrue(all("metadataQueries" in event and "subphase" in event for event in scan))
 
     def test_cancel_in_inventory_ownership_is_not_converted_to_warning(self):
         value = self.store.create({"mode": "build"}); value["status"] = "failed"; self.store.save(value)
         with mock.patch.object(cleanup, "_session_scope", side_effect=state.Cancelled()):
+            with self.assertRaises(state.Cancelled): cleanup.inventory(self.root)
+
+    def test_cancel_enumerating_owner_runs_is_not_converted_to_warning(self):
+        from run_storage import Ownership
+        with mock.patch.object(Ownership, "_folders", side_effect=state.Cancelled()):
             with self.assertRaises(state.Cancelled): cleanup.inventory(self.root)
 
     def test_inventory_reports_inside_a_single_large_directory(self):
