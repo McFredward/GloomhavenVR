@@ -298,6 +298,7 @@ h2{font-size:23px}
 #storage-status[role=alert]{color:var(--danger)}#storage-progress{width:100%;height:5px;accent-color:var(--gold);margin-top:10px}.storage-paths{list-style:none;padding:0;margin:12px 0;max-height:220px;overflow:auto}.storage-paths li{display:flex;flex-direction:column;gap:3px;padding:8px 0;border-bottom:1px solid #ffffff0a}.storage-paths code{font-size:10px;overflow-wrap:anywhere;color:#bbc3cc}.storage-paths small{font-size:10px;color:var(--muted)}.storage-confirmation{padding-top:4px}.storage-confirmation>p{font-size:11px;line-height:1.6;color:#d4b78c}.storage-confirmation .secondary{border-color:#b6976366}
 
 .storage-backup-detail dt{padding-left:12px;font-size:10px}
+.storage-runs{margin:20px 0;padding-top:14px;border-top:1px solid #ffffff15}.storage-runs h3{font-size:13px;margin:0}.storage-runs select{width:100%;overflow:hidden;text-overflow:ellipsis}.storage-run-choice{margin:14px 0;padding:12px;border:1px solid #ffffff22;border-radius:7px}.storage-run-choice legend{font-size:11px;padding:0 5px;line-height:1.6}.storage-run-choice label{display:flex;align-items:baseline;gap:9px;font-size:11px;line-height:1.6;margin:7px 0}.storage-run-choice input{width:auto;flex:none;accent-color:var(--gold)}#storage-runs-status[role=alert]{color:var(--danger)}#storage-skipped small{color:#d4b78c}
 .panel-footer{flex-wrap:wrap}
 
 /* Utility pages own their complete panel; none are repeated under workflows. */

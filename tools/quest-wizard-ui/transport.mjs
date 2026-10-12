@@ -25,6 +25,7 @@ export class LocalApi {
     return {blob:await response.blob(),name:response.headers.get('Content-Disposition')?.match(/filename="([A-Za-z0-9_.-]+)"/)?.[1]??'quest-build-support.zip'};
   }
   storage() { return this.request('/api/storage'); }
+  storageRuns() { return this.request('/api/storage/runs'); }
   packageStatus() { return this.request('/api/package/status'); }
   packageExport(source,destination) { return this.request('/api/package/export',{source,destination}); }
   packageCancel() { return this.request('/api/package/cancel',{}); }
@@ -40,7 +41,14 @@ export class LocalApi {
     if(response.headers.get('Content-Type')!=='application/zip')throw {code:'invalidReply'};
     return {blob:await response.blob(),name:response.headers.get('Content-Disposition')?.match(/filename="([A-Za-z0-9_.-]+)"/)?.[1]??'quest-capture.zip'};
   }
-  storagePlan(mode='duplicates') { if(!['duplicates','build-cache'].includes(mode))throw {code:'invalidReply'};return this.request('/api/storage/plan',{mode}); }
+  storagePlan(mode='duplicates',session,removeData=false) {
+    if(mode==='session'){
+      if(typeof session!=='string'||!/^[a-f0-9]{32}$/.test(session)||typeof removeData!=='boolean')throw {code:'invalidReply'};
+      return this.request('/api/storage/plan',{mode,session,removeData});
+    }
+    if(!['duplicates','build-cache'].includes(mode)||session!==undefined)throw {code:'invalidReply'};
+    return this.request('/api/storage/plan',{mode});
+  }
   storageClean(planId) { if(typeof planId!=='string'||!planId||planId.length>256)throw {code:'invalidReply'};return this.request('/api/storage/clean',{planId}); }
   discover() { return this.request('/api/discover'); }
   plan(choices, session) { if(session !== undefined && !sessionId(session))throw {code:'invalidReply'};return this.request('/api/plan',{choices,...(session?{session}:{})}); }
@@ -65,6 +73,7 @@ export class PreviewApi {
   async packageCancel(){throw {code:'preview'};}
   async storage() {return {schema:1,event:'storage',workspaceRoot:'C:\\Users\\Preview\\.ghvrq',freeBytes:150*1073741824,state:this.storageState??{status:'idle'},inventory:{status:'complete',totalBytes:19*1073741824,categories:[{id:'apk-content',bytes:13*1073741824,files:2},{id:'unity-caches',bytes:6*1073741824,files:24000}]}};}
   async storageInventory(){return this.storage();}
+  async storageRuns(){return {schema:1,event:'runs',runs:[],latestSession:null};}
   async deviceStatus(){return {schema:1,event:'device',state:{status:'idle',devices:[]}};}
   async deviceConnect(){throw {code:'preview'};}
   async deviceCapture(){throw {code:'preview'};}

@@ -11,6 +11,8 @@ if (!['de','en'].includes(language)) language='de';
 let page=-1,selected=null,discovery=null,state=null,busy=false,after=0,log=[],loadedLog=null,pollTimer=null,canConnect=preview||Boolean(token),artworkKey='',artworkGeneration=0;
 let storageInfo=null,storageBusy=false,storagePollTimer=null,storageCompletedShown=false,storageFailure=null,storageGeneration=0;
 let storageOperationId=null,storageFailureOperationId=null;
+let stoppedRuns=null,runsBusy=false,runsFailure=null,runsGeneration=0,pendingRunSelection=null;
+const removedRuns=new Set();
 let deviceInfo=null,deviceBusy=false,devicePollTimer=null,deviceDownloading=false;
 let qualification=null,resumeFailed=null,restoredSession=null,sessionGeneration=0;
 let automaticBaseApk='',workflowMode=null,workflowPage=0;
@@ -78,6 +80,38 @@ function showSlide(index) {
   clearTimeout(slideTimer);if(!slidePaused&&!document.hidden)slideTimer=setTimeout(()=>showSlide(slideIndex+1),6500);
 }
 function storageActive() {return storageBusy||['planning','deleting'].includes(storageInfo?.state?.status);}
+function stoppedRun(value){return typeof value?.session==='string'&&/^[a-f0-9]{32}$/.test(value.session)&&['ready','failed','blocked','cancelled','interrupted'].includes(value.status)&&!removedRuns.has(value.session);}
+function homeRemovalSession(){
+  const session=savedSession(discovery)??state?.session;
+  const row=state?.session===session?state:discovery?.recentSessions?.find(item=>item?.session===session);
+  return stoppedRun(row)?session:null;
+}
+function reconcileRemovedRuns(result){
+  const ids=result.state.status==='complete'&&Array.isArray(result.state.result?.sessionsRemoved)?result.state.result.sessionsRemoved.filter(id=>typeof id==='string'&&/^[a-f0-9]{32}$/.test(id)&&!removedRuns.has(id)):[];
+  if(!ids.length)return;
+  ids.forEach(id=>removedRuns.add(id));
+  // A successful deletion invalidates every retained browser read of this
+  // record, including an already in-flight status or optional stage log.
+  if(ids.includes(state?.session)){
+    clearTimeout(pollTimer);sessionGeneration++;stopOptionalReads();state=null;resumeFailed=null;restoredSession=null;qualification=null;
+    after=0;log=[];clearLoadedLog();eventsUnavailable=false;stageLogUnavailable=false;lastFailureFocus='';
+    artworkGeneration++;resetArtwork();
+    $('event-log').textContent='';$('session-detail').textContent='';$('log-stage').selectedIndex=0;
+    workflowMode=null;workflowPage=0;
+  }
+  if(ids.includes(resumeFailed))resumeFailed=null;
+  if(ids.includes(restoredSession))restoredSession=null;
+  if(discovery){discovery={...discovery,recentSessions:discovery.recentSessions?.filter(row=>!removedRuns.has(row.session))};if(removedRuns.has(discovery.latestSession))discovery.latestSession=null;}
+  if(stoppedRuns)stoppedRuns={...stoppedRuns,runs:stoppedRuns.runs.filter(row=>!removedRuns.has(row.session))};
+  pendingRunSelection=null;runsGeneration++;
+  void refreshAfterRemoval();
+}
+async function refreshAfterRemoval(){
+  try{discovery=await api.discover();if(discovery?.event!=='discovery')throw {code:'invalidReply'};preselectUpdateApk();renderGames();updateView();}
+  catch(value){error(value);}
+  // Refresh only after this explicit mutation, never on storage status polls.
+  if(page==='storage')await refreshRuns(true);
+}
 function acceptStorage(result) {
   if(result?.event!=='storage'||!result.state)throw {code:'invalidReply'};
   const operationId=typeof result.state.operationId==='string'&&/^[a-f0-9]{32}$/.test(result.state.operationId)?result.state.operationId:null;
@@ -90,6 +124,7 @@ function acceptStorage(result) {
     storageFailure=null;storageFailureOperationId=null;
   }
   storageOperationId=operationId;
+  reconcileRemovedRuns(result);
 }
 function failStorage(value) {
   // A rejected request or disconnected browser can leave the backend idle.
@@ -176,6 +211,8 @@ function renderHome(){
   const locked=busy||storageActive()||deviceActive()||packageActive()||isActive(state)||!canConnect;
   for(const id of ['home-build','home-mod','home-profile'])$(id).disabled=locked;
   $('home-resume').disabled=busy||storageActive()||deviceActive()||packageActive();
+  $('home-remove-run').hidden=discovery?.capabilities?.runRemoval!==true||!homeRemovalSession();
+  $('home-remove-run').disabled=locked;
 }
 function renderDevice(){
   $('device-card').hidden=discovery?.capabilities?.deviceTools!==true||page!=='device';
@@ -252,6 +289,43 @@ async function inventoryStorage(){
   try{const result=await api.storageInventory();if(generation===storageGeneration)acceptStorage(result);}
   catch(value){error(value);}finally{updateView();scheduleStoragePoll();}
 }
+async function refreshRuns(force=false){
+  if(discovery?.capabilities?.runRemoval!==true||runsBusy&&!force)return;
+  const generation=++runsGeneration;runsBusy=true;runsFailure=null;updateView();
+  try{
+    const result=await api.storageRuns();
+    if(result?.event!=='runs'||!Array.isArray(result.runs))throw {code:'invalidReply'};
+    if(generation!==runsGeneration)return;
+    stoppedRuns={...result,runs:result.runs.filter(stoppedRun)};
+    const selected=pendingRunSelection??$('storage-run').value;
+    pendingRunSelection=stoppedRuns.runs.some(row=>row.session===selected)?selected:null;
+  }catch(value){if(generation===runsGeneration)runsFailure=value;}
+  finally{if(generation===runsGeneration){runsBusy=false;updateView();}}
+}
+function openStorage(session=null){
+  pendingRunSelection=session;
+  if(session){$('storage-details').open=true;$('storage-run-keep').checked=true;}
+  navigatePage('storage','storage-title');void refreshRuns();
+}
+function renderRuns(locked){
+  const available=discovery?.capabilities?.runRemoval===true;
+  $('storage-runs').hidden=!available;if(!available)return;
+  const rows=stoppedRuns?.runs??[],selection=pendingRunSelection??$('storage-run').value;
+  const key=JSON.stringify([language,rows.map(row=>[row.session,row.status,row.gameRoot,row.updated])]);
+  if($('storage-run').dataset.runs!==key){
+    $('storage-run').replaceChildren();
+    for(const row of rows){const option=document.createElement('option');option.value=row.session;option.textContent=t('runDescription',{status:t(row.status==='ready'?'runReady':row.status),session:row.session,gameRoot:row.gameRoot??''});$('storage-run').append(option);}
+    if(rows.some(row=>row.session===selection))$('storage-run').value=selection;
+    $('storage-run').dataset.runs=key;
+  }
+  if(pendingRunSelection&&rows.some(row=>row.session===pendingRunSelection))pendingRunSelection=null;
+  const disabled=locked||runsBusy||!rows.length||Boolean(runsFailure);
+  $('storage-runs-refresh').disabled=locked||runsBusy;
+  for(const id of ['storage-run','storage-run-choice','storage-run-plan'])$(id).disabled=disabled;
+  $('storage-run-consequence').hidden=!rows.length;
+  $('storage-runs-status').textContent=runsFailure?t('runsFailed',{message:runsFailure.message?message(runsFailure.message):t(runsFailure.code??'offline')}):runsBusy?t('runsLoading'):rows.length?'':t('runsEmpty');
+  $('storage-runs-status').setAttribute('role',runsFailure?'alert':'status');
+}
 function renderStorage() {
   $('storage-card').hidden=!storageInfo||page!=='storage';
   if(!storageInfo)return;
@@ -270,6 +344,7 @@ function renderStorage() {
     const pair=document.createElement('div'),label=document.createElement('dt'),size=document.createElement('dd');pair.className='storage-backup-detail';label.textContent=t(key);size.textContent=storageSize(bytes);pair.append(label,size);$('storage-categories').append(pair);
   }
   const locked=busy||isActive(state)||storageActive()||deviceActive()||packageActive();
+  renderRuns(locked);
   $('storage-plan-duplicates').disabled=locked;
   const completed=storageInfo.canDeleteBuildCache===true||inventory.canDeleteBuildCache===true||state?.status==='complete'||state?.stages?.some(row=>row.id==='build'&&row.status==='complete');
   $('storage-plan-cache').hidden=!completed;$('storage-plan-cache').disabled=locked;
@@ -278,7 +353,10 @@ function renderStorage() {
   const measured=Number.isFinite(current.done)&&Number.isFinite(current.total)&&current.total>0;
   const count=measured?t('storageMeasured',{done:new Intl.NumberFormat(language).format(current.done),total:new Intl.NumberFormat(language).format(current.total)}):Number.isFinite(current.done)&&current.done>0?t('storageScanned',{done:new Intl.NumberFormat(language).format(current.done)}):'';
   const files=plan?.files??0,parameters={files:new Intl.NumberFormat(language).format(files),size:storageSize(plan?.bytes)};
-  const copy=['planning','deleting'].includes(status)&&current.phase==='inventory-pausing'?t('storageInventoryPausing'):status==='planning'?t('storagePlanning'):status==='deleting'?t('storageDeleting'):status==='preview'?t(files>0?'storagePreview':'storageNoFiles',parameters):status==='complete'?t('storageComplete',{files:new Intl.NumberFormat(language).format(current.result?.deletedFiles??0),size:storageSize(current.result?.freedBytes)}):'';
+  const sessionPlan=plan?.mode==='session';
+  const sessionEligible=sessionPlan&&plan.eligible===true;
+  const removed=current.result?.sessionsRemoved;
+  const copy=['planning','deleting'].includes(status)&&current.phase==='inventory-pausing'?t('storageInventoryPausing'):status==='planning'?t('storagePlanning'):status==='deleting'?t('storageDeleting'):status==='preview'?t(sessionPlan?'runPreview':files>0?'storagePreview':plan?.mode==='duplicates'&&discovery?.capabilities?.runRemoval===true?'storageNoFilesRetained':'storageNoFiles',{...parameters,session:plan?.session??''}):status==='complete'?Array.isArray(removed)&&removed.length?t('runRemoved',{session:removed.join(', '),size:storageSize(current.result?.freedBytes)}):t('storageComplete',{files:new Intl.NumberFormat(language).format(current.result?.deletedFiles??0),size:storageSize(current.result?.freedBytes)}):'';
   const failure=storageFailure??(status==='failed'?current.error:null);
   const failed=failure?t('storageFailed',{message:failure.message?message(failure.message):t(failure.code??'unknownAction')}):'';
   const buildStage=state?.stages?.find(row=>['running','cancelling','cancel_requested'].includes(row.status))?.id??state?.progress?.phase;
@@ -289,8 +367,11 @@ function renderStorage() {
   if(measured)$('storage-progress').value=Math.min(100,Math.max(0,current.done/current.total*100));else $('storage-progress').removeAttribute('value');
   const previewing=status==='preview'&&!failure;$('storage-paths').hidden=!previewing;$('storage-paths').replaceChildren();
   if(previewing)for(const row of plan?.paths??[]){const li=document.createElement('li'),path=document.createElement('code'),detail=document.createElement('small');path.textContent=row.path;detail.textContent=t('storagePlanSize',{size:storageSize(row.bytes),files:new Intl.NumberFormat(language).format(row.files??0)});li.append(path,detail);$('storage-paths').append(li);}
-  $('storage-confirmation').hidden=!previewing||files<=0;$('storage-confirm-copy').textContent=t('storageConfirmCopy');
-  $('storage-clean').disabled=locked||!plan?.id||Boolean(failure);$('storage-dismiss').disabled=locked;
+  $('storage-skipped').hidden=!previewing||!plan?.skipped?.length;$('storage-skipped').replaceChildren();
+  if(previewing)for(const row of plan?.skipped??[]){const li=document.createElement('li'),path=document.createElement('code'),detail=document.createElement('small');path.textContent=typeof row==='string'?row:row.path??'';const reason=typeof row==='object'?row.reason:'';detail.textContent=t('storageRetainedPath',{reason:reason==='shared'?t('storageRetainedShared'):reason==='shared_or_delivered'?t('storageRetainedSharedDelivered'):reason==='protected'?t('storageRetainedProtected'):t('storageRetainedUnknown')});li.append(path,detail);$('storage-skipped').append(li);}
+  $('storage-confirmation').hidden=!previewing||sessionPlan&&!sessionEligible||files<=0&&!sessionEligible;$('storage-confirm-copy').textContent=t(sessionPlan?'runConfirmCopy':'storageConfirmCopy');
+  $('storage-clean').textContent=t(sessionPlan?'runConfirm':'storageConfirm');
+  $('storage-clean').disabled=locked||!plan?.id||Boolean(failure)||sessionPlan&&!sessionEligible;$('storage-dismiss').disabled=locked;
 }
 function scheduleStoragePoll() {clearTimeout(storagePollTimer);if(!document.hidden)storagePollTimer=setTimeout(refreshStorage,storageActive()||storageInfo?.inventory?.status==='scanning'?750:15000);}
 async function refreshStorage() {
@@ -300,16 +381,16 @@ async function refreshStorage() {
   catch(value){if(generation===storageGeneration&&storageInfo){failStorage(value);updateView();}}
   finally{if(!storageBusy)scheduleStoragePoll();}
 }
-async function planStorage(mode) {
+async function planStorage(mode,session,removeData=false) {
   if(storageActive()||deviceActive()||packageActive()||busy||isActive(state))return;
   $('storage-details').open=true;beginStorage('planning');
-  try{acceptStorage(await api.storagePlan(mode));}
+  try{acceptStorage(await api.storagePlan(mode,session,removeData));}
   catch(value){failStorage(value);storageInfo={...storageInfo,state:{status:'failed'}};}
   finally{storageBusy=false;updateView();scheduleStoragePoll();}
 }
 async function cleanStorage() {
   const plan=storageInfo?.state?.status==='preview'?storageInfo.state.plan:null;
-  if(storageActive()||deviceActive()||packageActive()||busy||isActive(state)||storageFailure||!plan?.id||!(plan.files>0))return;
+  if(storageActive()||deviceActive()||packageActive()||busy||isActive(state)||storageFailure||!plan?.id||plan.mode==='session'&&plan.eligible!==true||!(plan.files>0)&&plan.mode!=='session')return;
   beginStorage('deleting');
   try{acceptStorage(await api.storageClean(plan.id));qualification=null;}
   catch(value){failStorage(value);storageInfo={...storageInfo,state:{status:'failed'}};}
@@ -947,6 +1028,13 @@ document.querySelectorAll('[data-language]').forEach(node=>node.addEventListener
 $('storage-plan-duplicates').addEventListener('click',()=>planStorage('duplicates'));
 $('storage-plan-cache').addEventListener('click',()=>planStorage('build-cache'));
 $('storage-refresh').addEventListener('click',inventoryStorage);
+$('storage-runs-refresh').addEventListener('click',()=>void refreshRuns());
+$('storage-run').addEventListener('change',()=>{$('storage-run-keep').checked=true;updateView();});
+$('storage-run-plan').addEventListener('click',()=>{
+  const session=$('storage-run').value;
+  if(!stoppedRuns?.runs.some(row=>stoppedRun(row)&&row.session===session))return;
+  void planStorage('session',session,$('storage-run-remove-data').checked);
+});
 $('storage-clean').addEventListener('click',cleanStorage);
 $('storage-dismiss').addEventListener('click',()=>{if(storageActive())return;storageGeneration++;storageFailure=null;storageFailureOperationId=null;storageInfo={...storageInfo,state:{status:'idle'}};updateView();});
 $('primary').addEventListener('click',primary);$('back').addEventListener('click',()=>{page=0;clearError();updateView();});
@@ -983,7 +1071,8 @@ $('home-build').addEventListener('click',()=>beginBuild());
 $('home-mod').addEventListener('click',()=>beginBuild('update-mod'));
 $('home-profile').addEventListener('click',()=>beginBuild('update-profile'));
 $('home-device').addEventListener('click',()=>navigatePage('device','device-title'));
-$('home-storage').addEventListener('click',()=>navigatePage('storage','storage-title'));
+$('home-storage').addEventListener('click',()=>openStorage());
+$('home-remove-run').addEventListener('click',()=>{const session=homeRemovalSession();if(session)openStorage(session);});
 $('home-export').addEventListener('click',focusPackage);$('result-export').addEventListener('click',focusPackage);
 $('package-browse-source').addEventListener('click',()=>browsePackage('source'));$('package-browse-destination').addEventListener('click',()=>browsePackage('destination'));
 $('package-source').addEventListener('input',()=>{automaticPackageSource='';updateView();});$('package-destination').addEventListener('input',()=>{automaticPackageDestination='';});

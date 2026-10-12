@@ -20,3 +20,17 @@ test('the labelled design preview never contains deletable workspace files',asyn
   const plan=await api.storagePlan('build-cache');assert.deepEqual(plan.state.plan.paths,[]);assert.equal(plan.state.plan.files,0);
   assert.deepEqual((await api.storageClean()).state.result,{freedBytes:0,deletedFiles:0});
 });
+
+test('stopped-run previews validate the explicit cleanup choice before authenticated requests',async()=>{
+  const calls=[],session='ab'.repeat(16),api=new LocalApi('http://127.0.0.1:1234','local-token',async(url,options)=>{
+    calls.push({url:String(url),options});return {ok:true,json:async()=>({schema:1,event:'storage',state:{status:'preview'}})};
+  });
+  await api.storageRuns();await api.storagePlan('session',session);await api.storagePlan('session',session,true);
+  assert.equal(calls[0].url,'http://127.0.0.1:1234/api/storage/runs');assert.equal(calls[0].options.method,'GET');
+  assert.deepEqual(calls.slice(1).map(row=>JSON.parse(row.options.body)),[{mode:'session',session,removeData:false},{mode:'session',session,removeData:true}]);
+  for(const row of calls)assert.equal(row.options.headers['X-Quest-Token'],'local-token');
+  for(const id of ['',null,{},'../other','AB'.repeat(16),'ab'.repeat(17)])assert.throws(()=>api.storagePlan('session',id,true),error=>error.code==='invalidReply');
+  for(const choice of ['yes',1,null,{}])assert.throws(()=>api.storagePlan('session',session,choice),error=>error.code==='invalidReply');
+  assert.throws(()=>api.storagePlan('build-cache',session,true),error=>error.code==='invalidReply');
+  assert.equal(calls.length,3,'invalid or cross-mode inputs never trigger deletion planning');
+});

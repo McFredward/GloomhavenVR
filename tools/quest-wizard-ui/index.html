@@ -38,6 +38,7 @@
               <button id="home-device" class="home-action" hidden><strong data-i18n="deviceTitle">Quest-Verbindung und Spielprotokolle</strong><span data-i18n="homeDeviceCopy">Quest verbinden und Protokolle eines Hardwaretests speichern.</span><b aria-hidden="true">→</b></button>
               <button id="home-storage" class="home-action" hidden><strong data-i18n="storageTitle">Arbeitsordner und Speicherplatz</strong><span data-i18n="homeStorageCopy">Speicherbelegung anzeigen und ungenutzte Zwischendaten bereinigen.</span><b aria-hidden="true">→</b></button>
               <button id="home-resume" class="home-action retained" hidden><strong data-i18n="homeResume">Abgebrochenen Run fortsetzen</strong><span id="home-resume-copy"></span><b aria-hidden="true">→</b></button>
+              <button id="home-remove-run" class="home-action" hidden><strong data-i18n="runRemove">Run löschen</strong><span data-i18n="homeRemoveRunCopy">Abgebrochenen Run entfernen und über seine Zwischendaten entscheiden.</span><b aria-hidden="true">→</b></button>
             </div>
             <p class="hint" data-i18n="homeOwnedCopy">Auch APK-Updates und Profiländerungen benötigen deine gekaufte PC-Spielkopie.</p>
           </section>
@@ -99,9 +100,21 @@
             <details id="storage-details" class="storage-details"><summary data-i18n="storageManage">Speicher freigeben</summary>
               <p class="hint" data-i18n="storageDuplicatesHint">Eine Vorschau zeigt nicht mehr verwendete Duplikate. Aktuelle Ergebnisse und Fortsetzungsdaten bleiben erhalten.</p>
               <div class="storage-actions"><button id="storage-plan-duplicates" class="secondary" data-i18n="storageFindDuplicates">Ungenutzte Duplikate suchen</button><button id="storage-plan-cache" class="secondary" data-i18n="storagePlanCache" hidden>Build-Zwischendaten prüfen</button></div>
+              <section id="storage-runs" class="storage-runs" aria-labelledby="storage-runs-title" hidden>
+                <div class="storage-usage-heading"><h3 id="storage-runs-title" data-i18n="stoppedRuns">Angehaltene Runs</h3><button id="storage-runs-refresh" class="text-button" data-i18n="runsRefresh">Runs aktualisieren</button></div>
+                <p id="storage-runs-status" class="hint" role="status"></p>
+                <label for="storage-run" data-i18n="runSelect">Run auswählen</label><select id="storage-run"></select>
+                <fieldset id="storage-run-choice" class="storage-run-choice"><legend data-i18n="runCleanupQuestion">Sollen auch alte Zwischendaten dieses Runs bereinigt werden?</legend>
+                  <label><input id="storage-run-keep" type="radio" name="run-data-policy" value="keep" checked><span data-i18n="runKeepData">Nein, Zwischendaten behalten</span></label>
+                  <label><input id="storage-run-remove-data" type="radio" name="run-data-policy" value="remove"><span data-i18n="runDeleteData">Ja, ungenutzte Zwischendaten bereinigen</span></label>
+                </fieldset>
+                <p id="storage-run-consequence" class="storage-consequence" data-i18n="runRemovalConsequence">Der Run kann danach nicht mehr fortgesetzt werden. APKs, Spiel-Datenpakete, Signierschlüssel, Werkzeuge und von anderen Runs genutzte Daten bleiben erhalten. Gelöschte Zwischendaten müssen bei einem späteren vollständigen Build erneut erstellt werden.</p>
+                <button id="storage-run-plan" class="secondary" data-i18n="runReviewRemoval">Löschung prüfen</button>
+              </section>
               <p id="storage-cache-consequence" class="storage-consequence" data-i18n="storageCacheConsequence" hidden>Build-Zwischendaten löschen: APK, Spiel-Datenpakete, Signierschlüssel und heruntergeladene Werkzeuge bleiben erhalten. Vollständige Builds benötigen danach erneut Konvertierung und Unity-Import. APK-Updates bleiben möglich.</p>
               <p id="storage-status" class="hint" role="status"></p><progress id="storage-progress" max="100" hidden></progress>
               <ul id="storage-paths" class="storage-paths" hidden></ul>
+              <ul id="storage-skipped" class="storage-paths" hidden></ul>
               <div id="storage-confirmation" class="storage-confirmation" hidden><p id="storage-confirm-copy"></p><button id="storage-clean" class="secondary" data-i18n="storageConfirm">Angezeigte Dateien löschen</button><button id="storage-dismiss" class="text-button" data-i18n="storageDismiss">Vorschau schließen</button></div>
             </details>
           </section>
