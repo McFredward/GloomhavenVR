@@ -81,7 +81,9 @@ class ImportMutationProfileTests(unittest.TestCase):
             self.assertIn(extra, recovery_resume.preparation_source_rows([*profile.values(), extra]))
 
     def test_latest_delivery_profile_matches_exact_current_consumer_bytes(self):
-        for current, _ in {**preparation_identity.MOD_UPDATE_DELIVERY_ROWS, **preparation_identity.PORTABLE_DELIVERY_ROWS}.values():
+        for current, _ in {**preparation_identity.MOD_UPDATE_DELIVERY_ROWS,
+                           **preparation_identity.PORTABLE_DELIVERY_ROWS,
+                           **preparation_identity.PORTABLE_LOCATOR_DELIVERY_ROWS}.values():
             raw = (ROOT / current["path"]).read_bytes()
             self.assertEqual(current, {"path": current["path"], "size": len(raw),
                 "sha256": hashlib.sha256(raw).hexdigest()})

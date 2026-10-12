@@ -417,6 +417,12 @@ PORTABLE_DELIVERY_ROWS = {
          "sha256": "fc9e2f733dc1662cf29b9281f40eda4e9e13045caf0a6916fdd351fdf5d64f7f"},
         MOD_UPDATE_DELIVERY_ROWS["tools/quest-builder/update_driver.py"][0]),
 }
+PORTABLE_LOCATOR_DELIVERY_ROWS = {
+    "tools/quest-builder/update_driver.py": (
+        {"path": "tools/quest-builder/update_driver.py", "size": 53582,
+         "sha256": "23949b52b7b51e2a5047399d66b43b67cb1477bfccd0d5aa98d884f1e36740ea"},
+        PORTABLE_DELIVERY_ROWS["tools/quest-builder/update_driver.py"][0]),
+}
 
 
 def builder_producer_digest(raw, *, original_prefix=False):
@@ -557,7 +563,7 @@ def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=Fal
             if row in (PLAYER_DELIVERY_ROW, FINAL_DELIVERY_ROW): continue
             if row == COMPUTE_OWNER_DELIVERY_ROW:
                 row = LATE_DELIVERY_ROWS[row['path']][1]
-            for aliases in (PORTABLE_DELIVERY_ROWS, MOD_UPDATE_DELIVERY_ROWS, ZIP32_DELIVERY_ROWS, ZIP32_DELIVERY_PREVIOUS_ROWS):
+            for aliases in (PORTABLE_LOCATOR_DELIVERY_ROWS, PORTABLE_DELIVERY_ROWS, MOD_UPDATE_DELIVERY_ROWS, ZIP32_DELIVERY_ROWS, ZIP32_DELIVERY_PREVIOUS_ROWS):
                 current, preceding = aliases.get(row["path"], (None, row))
                 if row == current: row = preceding
             current, preceding = LATE_DELIVERY_ROWS.get(row["path"], (None, row))
