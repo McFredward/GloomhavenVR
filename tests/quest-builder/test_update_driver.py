@@ -11,6 +11,7 @@ import json
 import shutil
 from pathlib import Path
 import struct
+import subprocess
 import sys
 import tempfile
 from types import SimpleNamespace
@@ -73,7 +74,7 @@ class UpdateDriverTests(unittest.TestCase):
         values = {apk_update.INPUT: storage.canonical(self.manifest),
                   apk_update.INSTALLATION: storage.canonical({"schema": 1, "inputKey": "a" * 64}),
                   apk_update.UPDATE: storage.canonical({"schema": 1, "gameInputKey": "a" * 64,
-                    "updateKey": "2" * 64, "modBuild": 643, "mod": self.current_mod}),
+                    "updateKey": "2" * 64, "modBuild": self.current_mod["modBuild"], "mod": self.current_mod}),
                   apk_update.CAPSULE: storage.canonical(self.capsule), apk_update.LIBRARY: bytes(lib),
                   apk_update.METADATA: struct.pack("<II", 0xFAB11BAF, 29), "assets/fixture.resource": b"unchanged payload" * 10000}
         values.update(extra or {})
@@ -289,6 +290,125 @@ class UpdateDriverTests(unittest.TestCase):
             plan = driver.inspect(self.builder, self.args, source, self.output)
         self.assertEqual(plan["updateStrategy"], "cached-full-build")
         self.assertIn("QuestWorldScreen.shader", plan["rebuildReasons"][0])
+
+    def test_actual_legacy_b665_producers_without_new_capsule_field_retain_game_payloads(self):
+        # These are the actual immutable pre-update Git source blobs, rather
+        # than invented matching digests. The historical capsule lacked the
+        # newly introduced producer field; its signed inventory was sufficient.
+        paths = ("tools/quest-builder/builder.py", "tools/quest-builder/preparation_identity.py",
+                 "tools/quest-builder/campaign_compute.py", "tools/quest-builder/campaign_native_shaders.py")
+        rows = [storage.record_file(ROOT / name, name) for name in paths]
+        self.builder.source_inventory = lambda repo: (rows, "8" * 40, False)
+        self.args.command = "update-mod"; self.builder.mod_build = lambda repo: 671
+        for revision in ("8063c8fc8", "cb6f84fb2", "f23bea592", "5cfcfa1c0", "4b4b40b1d"):
+            old = []
+            for name in paths:
+                body = subprocess.check_output(["git", "-C", str(ROOT), "show", revision + ":" + name])
+                old.append({"path": name, "size": len(body), "sha256": hashlib.sha256(body).hexdigest()})
+            self.current_mod.update(files=old, modBuild=665)
+            self.capsule.pop("payloadProducer", None); self.write_apk()
+            with self.subTest(revision=revision), patch.object(driver, "package_fingerprint", return_value=self.capsule["packageAbi"]):
+                plan = driver.inspect(self.builder, self.args, ROOT, self.output)
+            self.assertEqual(plan["updateStrategy"], "compact-code")
+            self.assertEqual(plan["rebuildReasons"], [])
+            self.assertTrue(plan["codeChanged"]); self.assertTrue(plan["requiresUnity"])
+            # Changing even one byte identity loses the finite old-source proof.
+            self.current_mod["files"][0]["sha256"] = "0" * 64; self.write_apk()
+            with patch.object(driver, "package_fingerprint", return_value=self.capsule["packageAbi"]):
+                unknown = driver.inspect(self.builder, self.args, ROOT, self.output)
+            self.assertEqual(unknown["updateStrategy"], "cached-full-build")
+            self.assertIn("builder.py", unknown["rebuildReasons"][0])
+
+    def test_known_audit_alias_never_accepts_new_compute_producer_or_removed_audit(self):
+        paths = ("tools/quest-builder/campaign_compute.py", "tools/quest-builder/campaign_native_shaders.py")
+        current = [storage.record_file(ROOT / name, name) for name in paths]
+        old = []
+        for name in paths:
+            body = subprocess.check_output(["git", "-C", str(ROOT), "show", "f23bea592:" + name])
+            old.append({"path": name, "size": len(body), "sha256": hashlib.sha256(body).hexdigest()})
+        self.assertEqual(driver.rebuild_reasons(current, old), [])
+        changed = copy.deepcopy(current)
+        changed[0]["sha256"] = hashlib.sha256((ROOT / paths[0]).read_bytes().replace(
+            b"converter.ensure(cache", b"different_converter.ensure(cache")).hexdigest()
+        self.assertIn("campaign_compute.py", driver.rebuild_reasons(changed, old)[0])
+        changed = copy.deepcopy(current); changed[1]["sha256"] = "0" * 64
+        self.assertIn("campaign_native_shaders.py", driver.rebuild_reasons(changed, old)[0])
+        self.assertIn("campaign_native_shaders.py", driver.rebuild_reasons(current[:1], old)[0])
+
+    def test_host_only_update_reuses_signed_native_pair_without_snapshot_or_unity(self):
+        self.args.command = "update-mod"
+        code = {"path": "src/GloomhavenVR/Core/Plugin.cs", "size": 4, "sha256": "7" * 64}
+        self.current_mod.update(files=[code], modBuild=671); self.write_apk()
+        self.builder.source_inventory = lambda repo: ([code, {"path": "tools/quest-wizard/server.py", "size": 4,
+                                                              "sha256": "8" * 64}], "8" * 40, False)
+        self.builder.mod_build = lambda repo: 671
+        with patch.object(driver, "package_fingerprint", return_value=self.capsule["packageAbi"]), \
+             patch.object(driver, "signing_tools", return_value={}), \
+             patch.object(driver, "_signers", return_value=(lambda _: None, lambda _: None)), \
+             patch.object(driver, "_game_subset", side_effect=AssertionError("No owned-game snapshot for host-only edits")), \
+             patch.object(driver, "_compile_code", side_effect=AssertionError("The signed native pair is already current")), \
+             patch.object(apk_update, "patch_resource_json", return_value={}), \
+             patch.object(apk_update, "update_android_versions", return_value=b"AXML tested separately"):
+            updated = driver.run(self.builder, self.args, ROOT, self.output)
+        with zipfile.ZipFile(self.apk) as before, zipfile.ZipFile(updated) as after:
+            for name in (apk_update.LIBRARY, apk_update.METADATA, "assets/fixture.resource"):
+                self.assertEqual(before.read(name), after.read(name))
+            update = json.loads(after.read(apk_update.UPDATE))
+            self.assertEqual(update["mod"]["files"][1]["path"], "tools/quest-wizard/server.py")
+        plan = json.loads((self.output / "updates" / update["updateKey"] / "plan.json").read_text())
+        self.assertFalse(plan["requiresUnity"]); self.assertFalse(plan["codeChanged"]); self.assertFalse(plan["artChanged"])
+        self.assertFalse((self.output / "inputs/mod").exists())
+        self.assertFalse((self.output / "updates/game-inputs").exists())
+
+    def test_changed_runtime_weaver_or_compiler_source_always_requires_native_pair(self):
+        for name in ("src/GloomhavenVR/Core/Plugin.cs", "tools/QuestWeaver/StartupPatches.cs",
+                     "unity/GloomhavenVR.Quest/Assets/Quest/Runtime/QuestGameBootstrap.cs",
+                     "unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCodeUpdateBuild.cs",
+                     "tools/quest-builder/apk_update.py", "Directory.Build.props"):
+            before = [{"path": name, "size": 1, "sha256": "1" * 64}]
+            after = [{"path": name, "size": 1, "sha256": "2" * 64}]
+            with self.subTest(path=name): self.assertNotEqual(driver._code_rows(before), driver._code_rows(after))
+
+    def test_actual_code_source_snapshot_excludes_unused_large_banks_without_claiming_complete_inputs(self):
+        repo = self.root / "selected-source"
+        values = {"src/GloomhavenVR/Core/Plugin.cs": b"changed runtime code",
+                  "tools/QuestWeaver/StartupPatches.cs": b"current static original-game adapter",
+                  "unity/GloomhavenVR.Quest/Packages/manifest.json": b'{"dependencies": {}}',
+                  "unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCodeUpdateBuild.cs": b"compiler source",
+                  "libs/RuntimeDeps/Unity.XR.OpenXR.dll": b"owned compiler reference",
+                  "Directory.Build.props": b"current build settings",
+                  "prebuilt/quest-proton-runtime.tar.zst": b"unchanged native package" * 8192,
+                  "unity/GloomhavenVR.Assets/Assets/unchanged.asset": b"unchanged authored asset" * 4096}
+        for name, body in values.items():
+            path = repo / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(body)
+        for name in ("update_driver.py", "apk_update.py", "apk_manifest.py", "builder.py", "storage.py", "profile.py", "dlcs.py"):
+            path = repo / "tools/quest-builder" / name; path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / "tools/quest-builder" / name, path)
+        rows = [storage.record_file(repo / name, name) for name in values]
+        previous = copy.deepcopy(rows); previous[0]["sha256"] = "0" * 64
+        self.current_mod.update(files=previous, modBuild=671); self.write_apk()
+        self.args.command = "update-mod"; self.builder.mod_build = lambda repo: 671
+        self.builder.source_inventory = lambda repo: (rows, "8" * 40, False)
+        self.builder.snapshot = storage.snapshot
+        observed = []
+        def compile_code(builder, args, inputs, output, source, game, *_):
+            for name, body in values.items():
+                if name.startswith(("prebuilt/", "unity/GloomhavenVR.Assets/")):
+                    self.assertFalse((source / name).exists())
+                else: self.assertEqual((source / name).read_bytes(), body)
+            self.assertTrue((game / "Managed/GH.Runtime.dll").is_file())
+            self.assertTrue(source.is_relative_to(output / "updates/source-inputs"))
+            self.assertFalse((output / "inputs/mod").exists())
+            self.assertEqual(inputs["mod"]["files"], rows)  # Full immutable identity is retained.
+            observed.append(source); return {"replacements": {}}
+        with patch.object(driver, "package_fingerprint", return_value=self.capsule["packageAbi"]), \
+             patch.object(driver, "signing_tools", return_value={}), \
+             patch.object(driver, "_signers", return_value=(lambda _: None, lambda _: None)), \
+             patch.object(driver, "_compile_code", side_effect=compile_code), \
+             patch.object(apk_update, "patch_resource_json", return_value={}), \
+             patch.object(apk_update, "update_android_versions", return_value=b"AXML tested separately"):
+            self.assertTrue(driver.run(self.builder, self.args, repo, self.output).is_file())
+        self.assertEqual(len(observed), 1)
 
     def test_normalizer_reads_exact_current_captured_source_and_rejects_drift(self):
         source, rows = self.producer_fixture()

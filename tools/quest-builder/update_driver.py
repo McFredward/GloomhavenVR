@@ -77,19 +77,13 @@ def inspect(builder, args, repo, output, data=None):
     inputs["profileKey"] = builder.value_hash(profile)
     if mode == "update-mod":
         files, commit, dirty = builder.source_inventory(repo)
-        current_mod = current.get("mod", original["mod"])
         inputs["mod"] = {"files": files, "key": builder.value_hash({"files": files}),
                          "commit": commit, "dirty": dirty, "modBuild": builder.mod_build(repo)}
-        capsule = base.get("capsule")
-        producer = payload_producer(builder, repo, files) if capsule and capsule.get("payloadProducer") else None
-        reasons = rebuild_reasons(files, current_mod["files"], payload_producer=producer,
-                                  previous_producer=capsule.get("payloadProducer") if capsule else None)
-        if capsule is None:
-            reasons.append("The older APK has no signed compact compiler/package compatibility capsule.")
-        elif capsule["packageAbi"] != package_fingerprint(builder, repo, inputs):
-            reasons.append("The selected Unity package/template ABI changed.")
+        requirements = update_requirements(builder, repo, base, files, inputs["mod"]["modBuild"])
+        reasons, code_changed, art_changed = (requirements[name] for name in ("rebuildReasons", "codeChanged", "artChanged"))
     else:
         reasons = []
+        code_changed = art_changed = False
     # Owned game and DLC qualification above must precede any local key creation.
     source_stamp = _core(builder)._base_stamp(base_apk)
     source_change_stamp = _selection_stamp(builder, [base_apk])
@@ -106,7 +100,8 @@ def inspect(builder, args, repo, output, data=None):
             "signing": identity, "sourcePackage": base.get("sourcePackage"),
             "ownedGame": proof, "inputs": inputs,
             "updateStrategy": "cached-full-build" if reasons else "compact-code" if mode == "update-mod" else "profile-only",
-            "rebuildReasons": reasons, "requiresUnity": mode == "update-mod",
+            "rebuildReasons": reasons, "requiresUnity": bool(reasons or code_changed or art_changed),
+            "codeChanged": code_changed, "artChanged": art_changed,
             "updateRecipe": {name: builder.digest(Path(repo) / "tools/quest-builder" / name) for name in
                 ("update_driver.py", "apk_update.py", "apk_manifest.py", "builder.py", "storage.py", "profile.py", "dlcs.py")}}
     plan["updateKey"] = builder.value_hash({name: value for name, value in plan.items() if name not in ("baseApk", "sourcePackage")})
@@ -371,6 +366,91 @@ def _art_rows(files):
                    and not row["path"].endswith(".md") or row["path"] in producers), key=lambda row: row["path"])
 
 
+def _code_rows(files):
+    """Conservatively retain every consumed runtime/compiler source identity.
+
+    The source snapshot also contains browser, installer and recovery tools.
+    Those do not become IL2CPP code. Native/assets and orchestration are checked
+    independently before this comparison; an unsupported change never reaches
+    the no-compiler path. Compiler-driver edits remain inputs even when they
+    only improve reporting, rather than guessing whether new code is equivalent.
+    """
+    prefixes = ("src/", "tools/QuestWeaver/", "libs/RefAsm/")
+    producers = {"tools/quest-builder/apk_update.py", "tools/quest-builder/update_driver.py",
+                 "unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCodeUpdateBuild.cs"}
+    def selected(name):
+        if name.startswith(prefixes) or name in producers: return True
+        if name.startswith("unity/GloomhavenVR.Quest/Assets/Quest/Runtime/"): return True
+        return "/" not in name and name.endswith((".props", ".targets", ".config", ".json"))
+    return sorted((row for row in files if selected(row["path"])), key=lambda row: row["path"])
+
+
+def _update_source_rows(files, *, art_changed):
+    """Snapshot only consumed compiler sources on an independently owned path.
+
+    Retain the full captured mod identity in the signed update. A code compiler
+    does not consume the large prebuilt Proton/converter programs, original
+    recovery tools or authored banks. Art updates retain the full source set
+    because their producer also builds original-derived environment geometry.
+    A partial snapshot must never occupy inputs/mod, whose owner is a complete
+    source conversion and may be reused by a genuine later full build.
+    """
+    if art_changed: return files
+    prefixes = ("src/", "tools/QuestWeaver/", "unity/GloomhavenVR.Quest/", "libs/RefAsm/", "libs/RuntimeDeps/")
+    return [row for row in files if row["path"].startswith(prefixes)
+            or "/" not in row["path"] and row["path"].endswith((".props", ".targets", ".config", ".json"))]
+
+
+# Exact complete sources reviewed against the existing orchestration aliases in
+# preparation_identity. These are historical INPUT/UPDATE identities, not loose
+# version ranges. A capsule without payloadProducer still signed those rows.
+# No code is recovered from Git at build time and an unknown/mutated row is not
+# accepted. All listed revisions normalize to the same complete producer AST.
+_LEGACY_BUILDER_PRODUCERS = {
+    (132328, "419aaa4eec29164fbf8298c60b5bea7ec9392d9eb74d35084f84000d92ab7b67"),  # 8063c8fc8
+    (133597, "545fa081d3ef9e8839935e4b13464b461473a3f6e6c176ff71d91d271e482c92"),  # 19b973084
+    (134727, "0d8231f08b47cf5816145a08d5dc20e1b5f03945be0817fd747710bfc2855d24"),  # cb6f84fb2
+    (135037, "95d75fd770c3f729c00d836f71c18da2daff4a3535acd63c2ec3c8099207bbb9"),  # f23bea592
+    (140271, "d65dd915ec9d2ded7614238690e64c0f746f1f8caf7afe4244878e0108129bbd"),  # 5cfcfa1c0
+    (141280, "23915dd40b9a3b8b8089ad545d4731c8ba40d1d3c88ad373113f6af91874deff"),  # 4b4b40b1d
+    (145682, "3e6a2ea23cce800fb041c5ffa4782feb63a205422a81fb6e97f946bee03c35ac"),  # 0acf20ef5
+    (147152, "114fc82dbac09e1c563888bac005c7d2c4ff8e3f0ff3138505a6ed2fd0cb20b2"),  # 3fa908fc0
+}
+_LEGACY_BUILDER_AST = "6905242806bb695c86e84be373112f21804c425afa710398cb40b665f4d608d1"
+
+# The B665 -> B671 hardware report migrated the complete original project for
+# changes to final read-only Shader/Compute audits. These exact revisions leave
+# campaign_compute.stage/recovery_process and every generated asset unchanged.
+# Native Shader code only reads delivered native bytes and writes audit JSON.
+# Unknown source edits (including new converter behavior) still need migration.
+_PAYLOAD_AUDIT_ONLY_ROWS = {
+    "tools/quest-builder/campaign_compute.py": {
+        (22840, "a9f9201ba8a5c2c205f2c334efe1d57c715244846e3899dba8e83384d4158a97"),
+        (23104, "b7215b2c8e61918816f4050e24c0a78469d4f12ea572aabda1e59d54497b4c86"),
+        (24752, "4c12d3cc7023b2a576e4049e8b62ba7bc9ce8e3b0f46b1d250d247793ba1a4bc"),
+    },
+    "tools/quest-builder/campaign_native_shaders.py": {
+        (35994, "64e7213dcedda078a38aae8b5dd9b5e37253644eb16a607cd0d193b86704b2f3"),
+        (41271, "81805d07e6fe37a2697a31b2b1767f8b233c8641c0c5e2228f4f62b782863306"),
+        (41671, "85d41dfd671901d6ba830f6e23f080f484828558b489843623e29fcb7727a7d6"),
+    },
+}
+
+
+def _legacy_payload_producer(files):
+    rows = [row for row in files if row["path"] == "tools/quest-builder/builder.py"]
+    if len(rows) == 1 and (rows[0].get("size"), rows[0].get("sha256")) in _LEGACY_BUILDER_PRODUCERS:
+        return {"sha256": _LEGACY_BUILDER_AST}
+    return None
+
+
+def _audit_only_change(path, current, previous):
+    known = _PAYLOAD_AUDIT_ONLY_ROWS.get(path)
+    return bool(known and isinstance(current, dict) and isinstance(previous, dict)
+                and (current.get("size"), current.get("sha256")) in known
+                and (previous.get("size"), previous.get("sha256")) in known)
+
+
 def _native_rows(files):
     """A code-only update cannot silently retain changed non-IL2CPP programs."""
     interop = {"QuestGameNetwork.cs", "QuestContentHash.cs", "QuestPassthroughFeature.cs", "QuestGameProcedural.cs"}
@@ -452,6 +532,35 @@ def payload_producer(builder, source, files):
             "normalizer": copy.deepcopy(selected[names[1]][0]), "sha256": normalizer.builder_producer_digest(raw)}
 
 
+def update_requirements(builder, source, base, files, mod_build):
+    """Classify actual captured sources before provisioning the Unity compiler.
+
+    This is a requirements estimate, never APK/signature/ownership admission.
+    The final inspect invocation repeats it after qualifying those boundaries.
+    It reads only captured producer source and bounded package/capsule metadata;
+    neither the original game banks nor the imported Unity project are opened.
+    """
+    original = base["manifest"]
+    current_mod = (base.get("update") or {}).get("mod", original["mod"])
+    capsule = base.get("capsule")
+    # Earlier signed capsules predate payloadProducer, but INPUT/UPDATE
+    # already contains each exact producer's size and SHA. Only the finite
+    # reviewed legacy sources may supply that missing AST identity.
+    producer = payload_producer(builder, source, files) if capsule else None
+    reasons = rebuild_reasons(files, current_mod["files"], payload_producer=producer,
+                              previous_producer=capsule.get("payloadProducer") if capsule else None)
+    if capsule is None:
+        reasons.append("The older APK has no signed compact compiler/package compatibility capsule.")
+    elif capsule["packageAbi"] != package_fingerprint(builder, source, original):
+        reasons.append("The selected Unity package/template ABI changed.")
+    code_changed = (_code_rows(files) != _code_rows(current_mod["files"])
+                    or mod_build != base.get("modBuild", current_mod.get("modBuild")))
+    art_changed = _art_rows(files) != _art_rows(current_mod["files"])
+    return {"rebuildReasons": reasons, "codeChanged": code_changed, "artChanged": art_changed,
+            "requiresUnity": bool(reasons or code_changed or art_changed),
+            "updateStrategy": "cached-full-build" if reasons else "compact-code"}
+
+
 def rebuild_reasons(current_files, previous_files, *, payload_producer=None, previous_producer=None):
     """Classify real unsupported payload changes without reading game banks."""
     reasons = []
@@ -459,10 +568,12 @@ def rebuild_reasons(current_files, previous_files, *, payload_producer=None, pre
                            ("Quest scenes, shaders, package settings or game-asset producers", _payload_rows)):
         current = {row["path"]: row for row in selected(current_files)}
         previous = {row["path"]: row for row in selected(previous_files)}
-        same_builder = (payload_producer and previous_producer
-                        and payload_producer["sha256"] == previous_producer["sha256"])
+        prior = previous_producer if previous_producer is not None else _legacy_payload_producer(previous_files)
+        same_builder = (payload_producer and prior and payload_producer["sha256"] == prior["sha256"])
         changed = sorted(path for path in current.keys() | previous.keys() if current.get(path) != previous.get(path)
-                         and not (selected is _payload_rows and path == "tools/quest-builder/builder.py" and same_builder))
+                         and not (selected is _payload_rows and
+                                  (path == "tools/quest-builder/builder.py" and same_builder
+                                   or _audit_only_change(path, current.get(path), previous.get(path)))))
         if changed:
             shown = ", ".join(changed[:4])
             suffix = " (+" + str(len(changed) - 4) + " more)" if len(changed) > 4 else ""
@@ -702,22 +813,32 @@ def run(builder, args, repo, output):
             replacements.update(core.profile_update(base_apk, inputs["profile"]))
             builder.build_progress.operation("update-profile", complete=True, detail="Signed offline profile prepared; no Unity build.")
         else:
-            builder.build_progress.operation("update-mod-source", detail="Freezing the current mod source.")
-            source = output / "inputs/mod" / inputs["mod"]["key"]
-            builder.snapshot(repo, inputs["mod"]["files"], source, phase="update-source-snapshot")
-            builder.build_progress.operation("update-mod-source", complete=True, detail="Current mod source snapshot retained.")
-            current_mod = (base.get("update") or {}).get("mod", base["manifest"]["mod"])
-            changed_art = _art_rows(inputs["mod"]["files"]) != _art_rows(current_mod["files"])
-            game = output / "updates/game-inputs" / inputs["game"]["key"] / ("with-art" if changed_art else "code")
-            _game_subset(builder, inputs, builder.game_data(args.game_root), game, art_changed=changed_art)
+            changed_art = plan["artChanged"]
+            if plan["codeChanged"] or changed_art:
+                builder.build_progress.operation("update-mod-source", detail="Freezing the current mod source.")
+                source_rows = _update_source_rows(inputs["mod"]["files"], art_changed=changed_art)
+                source_key = builder.value_hash({"mod": inputs["mod"]["key"], "files": source_rows,
+                                                "scope": "compact-update-source-v1"})
+                source = output / "updates/source-inputs" / source_key
+                builder.snapshot(repo, source_rows, source, phase="update-source-snapshot")
+                builder.build_progress.operation("update-mod-source", complete=True, detail="Current mod source snapshot retained.")
+                game = output / "updates/game-inputs" / inputs["game"]["key"] / ("with-art" if changed_art else "code")
+                _game_subset(builder, inputs, builder.game_data(args.game_root), game, art_changed=changed_art)
+            else:
+                builder.build_progress.operation("update-mod-source", complete=True,
+                    detail="Runtime/compiler and authored art sources are unchanged; no new source or game snapshot.")
             # A stable private compiler directory retains Unity/Bee's native
             # object cache across mod versions. Its owner requires the same
             # converted game and package ABI; each update keeps separate receipts.
-            compiler_scope = builder.value_hash({"gameInputKey": base["inputKey"],
-                "packageAbi": package_fingerprint(builder, source, inputs), "scope": "quest-code-project-v1"})
-            project = output / "updates/code-projects" / compiler_scope
-            code = _compile_code(builder, args, inputs, output, source, game, project, base_apk, tools, root)
-            replacements.update(code["replacements"])
+            if plan["codeChanged"]:
+                compiler_scope = builder.value_hash({"gameInputKey": base["inputKey"],
+                    "packageAbi": package_fingerprint(builder, source, inputs), "scope": "quest-code-project-v1"})
+                project = output / "updates/code-projects" / compiler_scope
+                code = _compile_code(builder, args, inputs, output, source, game, project, base_apk, tools, root)
+                replacements.update(code["replacements"])
+            else:
+                builder.build_progress.operation("update-code", complete=True,
+                    detail="Signed runtime code and metadata retained; no Unity or native compilation.")
             if changed_art:
                 builder.build_progress.operation("update-art", detail="Building changed authored mod banks; original game assets are retained.")
                 # Only authored VR banks and their original-derived environment
