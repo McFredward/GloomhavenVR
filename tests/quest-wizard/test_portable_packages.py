@@ -50,8 +50,9 @@ class PortablePackageHttpTests(unittest.TestCase):
         return result
 
     def export(self, apk, destination, output, *, source_package, progress, cancel):
-        self.calls.append((apk, destination, output, source_package)); self.entered.set()
+        self.calls.append((apk, destination, output, source_package))
         progress({"phase": "portable-export", "completed": 7, "total": 20, "percent": 35, "detail": "content.zip"})
+        self.entered.set()
         while not self.release.wait(.01):
             if cancel(): raise RuntimeError("Export cancelled")
         destination.parent.mkdir(parents=True, exist_ok=True); destination.write_bytes(b"actual result fixture")

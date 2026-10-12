@@ -23,6 +23,16 @@ def refusal(reason="non-save-inaccessible", policy="all"):
             "Original recovery data is retained at /owned/backup. Retry with the same APK and headset.\nADB log: current.log\n")
 
 
+def assert_installation_arguments(test, argv, policy):
+    # Connection resilience appends its own switch. Test the exact policy
+    # option/value rather than assuming it occupies the command's final slots.
+    test.assertEqual(argv.count("--recovery-data-policy"), 1)
+    index = argv.index("--recovery-data-policy")
+    test.assertLess(index + 1, len(argv))
+    test.assertEqual(argv[index + 1], policy)
+    test.assertEqual(argv.count("--wait-for-connection"), 1)
+
+
 class DataPolicyTests(unittest.TestCase):
     setUp = fixture.InstallationRecoveryTests.setUp
     forbid_earlier_work = fixture.InstallationRecoveryTests.forbid_earlier_work
@@ -40,7 +50,7 @@ class DataPolicyTests(unittest.TestCase):
         self.forbid_earlier_work()
         before = {row["id"]: self.engine.key(self.saved, row["id"]) for row in self.saved["stages"]}
         commands = self.installer(); current = self.engine.run(self.session)
-        self.assertEqual(commands[0][-2:], ["--recovery-data-policy", "saves"])
+        assert_installation_arguments(self, commands[0], "saves")
         self.assertEqual(current["installationRecoveryPolicy"]["policy"], "saves")
         self.assertEqual({row["id"]: self.engine.key(current, row["id"]) for row in current["stages"]}, before)
         self.assertEqual(current["choices"], self.saved["choices"])
@@ -74,7 +84,7 @@ class DataPolicyTests(unittest.TestCase):
         self.assert_prior_retained(accepted)
         self.forbid_earlier_work(); commands = self.installer()
         self.assertEqual(self.engine.run(self.session)["status"], "complete")
-        self.assertEqual(commands[0][-2:], ["--recovery-data-policy", "saves"])
+        assert_installation_arguments(self, commands[0], "saves")
         self.assert_prior_retained(self.store.load(self.session))
         with self.assertRaises(state.WizardError): self.engine.approve_installation_policy(self.session, nonce, "saves")
 
@@ -82,7 +92,7 @@ class DataPolicyTests(unittest.TestCase):
         self.forbid_earlier_work(); paused = self.pause()
         nonce = paused["installationAction"]["nonce"]
         commands = self.installer(); current = self.engine.run(self.session)
-        self.assertEqual(commands[0][-2:], ["--recovery-data-policy", "all"])
+        assert_installation_arguments(self, commands[0], "all")
         self.assertNotIn("installationAction", current)
         with self.assertRaises(state.WizardError): self.engine.approve_installation_policy(self.session, nonce, "saves")
         self.assert_prior_retained(current)
@@ -181,7 +191,7 @@ class DataPolicyTests(unittest.TestCase):
         def supervisor(store, session):
             actual = fixture.Supervisor(store, session, poll=.01)
             def run(argv, log, **kwargs):
-                self.assertEqual(argv[-2:], ["--recovery-data-policy", "saves"])
+                assert_installation_arguments(self, argv, "saves")
                 actual.set_stage("install")
                 actual.run([sys.executable, "-c", "import sys;print(sys.argv[1]);sys.exit(1)",
                             refusal("save-data-inaccessible", "saves")], log)
