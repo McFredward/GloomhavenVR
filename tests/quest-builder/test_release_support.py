@@ -79,7 +79,9 @@ class ReleaseTests(unittest.TestCase):
 
     def test_release_cannot_publish_an_inventory_omitting_dynamic_installation_dependencies(self):
         for name in ('tools/quest-installer/installer.py', 'tools/quest-installer/signing_recovery.py',
-                     'tools/quest-installer/native_rename.py', 'tools/quest-wizard/device_tools.py'):
+                     'tools/quest-installer/native_rename.py', 'tools/quest-wizard/device_tools.py',
+                     'tools/quest-wizard/server.py', 'tools/quest-wizard/cleanup.py',
+                     'tools/quest-wizard/cleanup_io.py', 'tools/quest-wizard/run_storage.py'):
             with self.subTest(name=name):
                 path = self.root / name; original = path.read_bytes()
                 try:

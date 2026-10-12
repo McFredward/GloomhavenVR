@@ -61,6 +61,8 @@ PROMOTIONAL_ASSETS = {'tools/quest-wizard-ui/assets/promo/' + name for name in (
 REQUIRED = set(PUBLIC_PACKAGES) | {'Quest-Builder.cmd', 'QUEST-BUILDER-START.txt', 'scripts/quest-builder-wizard.cmd', 'scripts/quest-builder-wizard.ps1', 'scripts/build-quest.py',
             'Quest-Repair-Access.cmd', 'Quest-Repair-Access.sh', 'scripts/repair-quest-access.ps1',
             'tools/quest-wizard/wizard.py', 'tools/quest-wizard-ui/index.html', 'tools/quest-installer/bootstrap.ps1',
+            'tools/quest-wizard/server.py', 'tools/quest-wizard/cleanup.py',
+            'tools/quest-wizard/cleanup_io.py', 'tools/quest-wizard/run_storage.py',
             'tools/quest-installer/installer.py', 'tools/quest-installer/signing_recovery.py',
             'tools/quest-installer/content_access.py',
             'tools/quest-builder/portable_package.py', 'tools/quest-wizard/package_tools.py',
