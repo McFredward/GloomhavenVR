@@ -14,7 +14,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools/quest-wizard"))
 import server
-from state import Store, WizardError
+from state import Cancelled, Store, WizardError
 
 
 class StorageHttpTests(unittest.TestCase):
@@ -110,6 +110,49 @@ class StorageHttpTests(unittest.TestCase):
         self.assertIsNone(self.http.storage_job)
         self.release.set()
         active.join(5)
+
+    def test_background_inventory_yields_to_cleanup_for_a_blocked_run(self):
+        saved = self.store.load(self.session); saved['status'] = 'blocked'; self.store.save(saved)
+        scanning = threading.Event(); stopped = threading.Event()
+        def inventory(root, *, progress, cancel):
+            scanning.set(); progress({'phase': 'storage-inventory', 'files': 100, 'done': 100})
+            if not cancel.wait(3): raise AssertionError('Cleanup did not pause its metadata scanner')
+            stopped.set(); raise Cancelled()
+        self.helper.inventory = inventory
+        self.release.set()
+        self.assertEqual(self.request('/api/storage/inventory', {})[0], 200)
+        self.assertTrue(scanning.wait(2))
+        self.assertEqual(self.request('/api/storage/plan', {'mode': 'duplicates'})[0], 200)
+        value = self.wait_status('preview')
+        self.assertTrue(stopped.is_set()); self.assertFalse(self.http.inventory_job.is_alive())
+        self.assertEqual(value['inventory']['status'], 'paused')
+        self.assertEqual(self.request('/api/storage/clean', {'planId': self.plan['id']})[0], 200)
+        self.assertEqual(self.wait_status('complete')['state']['result']['deletedFiles'], 2)
+        logs = (self.store.root / 'logs/storage-cleanup.log').read_text()
+        self.assertIn('inventory-paused', logs); self.assertNotIn('failed', logs)
+
+    def test_actual_active_job_rejection_stays_visible_and_is_logged_before_a_cleanup_thread(self):
+        active = threading.Thread(target=self.release.wait, args=(5,)); active.start()
+        self.http.jobs[self.session] = active
+        code, reply = self.request('/api/storage/plan', {'mode': 'duplicates'})
+        self.assertEqual(code, 400); self.assertEqual(reply['code'], 'already_running')
+        for _ in range(3):
+            value = self.request('/api/storage')[1]['state']
+            self.assertEqual(value['status'], 'failed')
+            self.assertEqual(value['error']['code'], 'already_running')
+        self.assertFalse(self.entered.is_set()); self.assertIsNone(self.http.storage_job)
+        self.assertIn('already_running', (self.store.root / 'logs/storage-cleanup.log').read_text())
+        self.release.set(); active.join(5)
+        self.assertEqual(self.request('/api/storage/plan', {'mode': 'duplicates'})[0], 200)
+        self.assertEqual(self.wait_status('preview')['state']['plan']['id'], self.plan['id'])
+
+    def test_missing_confirmation_preview_is_persisted_in_utility_status(self):
+        code, reply = self.request('/api/storage/clean', {'planId': 'not-an-existing-preview'})
+        self.assertEqual(code, 400); self.assertEqual(reply['code'], 'cleanup_preview')
+        current = self.request('/api/storage')[1]['state']
+        self.assertEqual(current['status'], 'failed')
+        self.assertEqual(current['error']['code'], 'cleanup_preview')
+        self.assertIn('cleanup_preview', (self.store.root / 'logs/storage-cleanup.log').read_text())
 
     def test_cleanup_failures_are_visible_and_a_fresh_preview_is_required(self):
         self.release.set()

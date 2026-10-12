@@ -88,5 +88,17 @@ class UpdateSupportTests(unittest.TestCase):
         (folder / 'device-tools-state.json').write_text('broken JSON')
         meta, _ = self.export(); self.assertNotIn('deviceTools', meta)
 
+    def test_current_cleanup_and_request_failures_survive_many_historical_unity_logs(self):
+        logs = self.root / 'logs'; logs.mkdir()
+        (logs / 'storage-cleanup.log').write_text('already_running: current cleanup admission failed\n')
+        (logs / 'wizard-requests.log').write_text('current utility failure traceback\n')
+        build_logs = self.build / 'logs'; build_logs.mkdir()
+        for index in range(support.MAX_FILES + 3):
+            (build_logs / ('unity-build-' + str(index) + '.log')).write_text('historic unrelated build\n')
+        _, rows = self.export()
+        self.assertIn('wizard/storage-cleanup.log', rows)
+        self.assertIn('wizard/wizard-requests.log', rows)
+        self.assertIn('current cleanup', rows['wizard/storage-cleanup.log'])
+
 
 if __name__ == '__main__': unittest.main()

@@ -1,5 +1,26 @@
 # State — where the project stands
 
+**Quest storage cleanup after stopped runs, 2026-10-12.**
+
+Capture130723 identifies the delivered8692bd51a Builder, completed665 APK and
+blocked update setup:21.8GiB free, but an inherited false full-migration decision
+requests133.5GiB before current inspect can correct the route. Restrict that full
+reserve to qualified build admission. The reported cleanup error is the server's
+generic active-operation rejection; its automatic read-only inventory was
+included there despite stopped build work. Pause that scanner cooperatively and
+serialize the actual cleanup under the existing kernel guards.
+
+Retain/log pre-worker admission failures. Browser cleanup errors survive idle
+inventory and unrelated build polls; operation IDs distinguish a genuine newer
+result from an older reply. Current cleanup/request logs precede historical
+Unity logs in bounded support exports (the original package omitted cleanup.log).
+Actual full-build receipts, blocked/cancelled sessions and compact-update bank
+locators are covered by focused controls; no additional cleanup producer changes
+are needed. Finished APKs, banks, signing and original PC files remain outside
+the deletion scope. No new game APK or runtime change; physical Windows cleanup
+completion remains to be tested. Source-bound handoff checks are recorded beside
+the current game-free Builder archive. Runtime remains671.
+
 **Quest compact-update qualification and measured device progress, 2026-10-12.**
 
 Capture114856 proves B665->B671 takes a false full migration: audit/observer-only

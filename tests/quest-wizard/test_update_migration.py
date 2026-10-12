@@ -174,6 +174,16 @@ class UpdateMigrationTests(unittest.TestCase):
         self.assertEqual(details["apk"], str(apk))
         self.assertEqual(self.row()["progress"]["stageOperation"], "unity-import")
 
+    def test_saved_false_fallback_does_not_reserve_full_recovery_space_before_current_inspect(self):
+        saved = self.stage_context(); engine = wizard.Engine(self.store)
+        result = {'workspaceRoot': str(self.store.root), 'freeBytes': 50, 'requiredFreeBytes': 1}
+        with patch.object(qualification, 'qualify', return_value=result) as capacity:
+            for stage in ('tools', 'inspect'):
+                engine.qualify(saved, stage=stage)
+                self.assertEqual(capacity.call_args.kwargs['mode'], 'update-mod')
+            engine.qualify(saved, stage='build')
+            self.assertEqual(capacity.call_args.kwargs['mode'], 'build')
+
 
 def provision_environment():
     return wizard.provision

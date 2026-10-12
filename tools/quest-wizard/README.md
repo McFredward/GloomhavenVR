@@ -92,6 +92,23 @@ hashes are preserved because the build banner alone previously misattributed a
 hardware capture. Cancellation reaps owned commands and removes incomplete
 capture archives while keeping completed evidence.
 
+Storage cleanup accepts stopped/blocked sessions. A background disk-usage scan
+is a cancellable read-only estimate, so cleanup pauses it automatically and
+waits for its reader to exit before acquiring the ordinary deletion locks.
+Actually active build/device/export/cleanup work still excludes conflicting
+actions. A failure before a worker starts is retained in utility status and
+`logs/storage-cleanup.log`; request traces are captured too. Browser request
+errors survive unrelated build polls and idle inventory replies until retry or
+a genuinely new cleanup result. Each accepted utility job has an operation ID,
+allowing a lost POST response to reconcile with its completed actual result.
+
+Capture130723 also exposes a stale full-migration reserve during tools setup.
+Update setup uses its compact allowance; a full-build reserve is requested only
+after current inspect actually qualifies that route, immediately before build.
+The full-build safety reserve and real native compilation admission remain intact.
+Support exports prioritize the bounded cleanup/request logs ahead of historical
+Unity logs, so a disk-capacity stop cannot hide the separate reclamation failure.
+
 Completed steps are reused only after their output size and SHA256 match the
 saved receipt and their input/dependency key matches. Installation failures can
 retry independently of an already verified APK. A changed profile does not

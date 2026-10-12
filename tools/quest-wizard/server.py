@@ -21,7 +21,7 @@ import webbrowser
 
 import discovery
 import host_paths
-from state import STAGES, WizardError, file_lock, ordinary
+from state import STAGES, Cancelled, WizardError, file_lock, ordinary
 from wizard import Engine, REPO, choices
 
 
@@ -122,6 +122,7 @@ class LocalServer(ThreadingHTTPServer):
         self.storage_plan = None
         self.inventory_job = None
         self.inventory_state = {"status": "idle"}
+        self.inventory_stop = threading.Event()
         self.device_factory = device_factory
         self.device_tools = None
         self.device_job = None
@@ -278,13 +279,19 @@ class LocalServer(ThreadingHTTPServer):
                                   "Die Speicherbereinigung zuerst abschließen lassen.")
             with self.storage_lock:
                 self.inventory_state = {"status": "scanning", "done": 0, "total": None}
+            self.inventory_stop.clear()
             def progress(value):
                 with self.storage_lock: self.inventory_state.update(value)
             def work():
                 try:
-                    result = cleanup.inventory(self.store.root, progress=progress)
+                    result = cleanup.inventory(self.store.root, progress=progress, cancel=self.inventory_stop)
                     with self.storage_lock:
                         self.inventory_state = {**result, "status": "complete", "completedAt": time.time()}
+                except Cancelled:
+                    # This is a read-only estimate, not a build or a failed
+                    # cleanup. Reclamation takes priority and can remeasure later.
+                    with self.storage_lock:
+                        self.inventory_state = {**self.inventory_state, "status": "paused"}
                 except Exception as error:
                     message = error.message if isinstance(error, WizardError) else {"en": str(error), "de": str(error)}
                     with self.storage_lock:
@@ -412,52 +419,91 @@ class LocalServer(ThreadingHTTPServer):
         except OSError:
             pass  # A full drive must still permit preview and actual reclamation.
 
+    def storage_failure(self, error, *, preserve_state=False):
+        """Keep admission failures visible too, before a cleanup thread exists."""
+        code = error.code if isinstance(error, WizardError) else "cleanup_failed"
+        message = error.message if isinstance(error, WizardError) else {
+            "en": "Storage cleanup stopped: " + str(error), "de": "Speicherbereinigung angehalten: " + str(error)}
+        failure = {"code": code, "message": message}
+        with self.storage_lock:
+            # A rejected second request must not replace an active cleanup's
+            # live state. Its actual current work remains the authority.
+            if not preserve_state and not (self.storage_job and self.storage_job.is_alive()):
+                self.storage_state = {"status": "failed", "error": failure, "operationId": secrets.token_hex(16)}
+        self.storage_log("failed", **failure)
+        try: self.request_failure(error)
+        except (OSError, ImportError, RuntimeError, ValueError): pass
+
     def manage_storage(self, *, mode=None, plan_id=None):
         """Keep previews and deletions responsive and separate from active builds."""
         import cleanup
         with self.jobs_lock:
-            if self.operation_active() or self.inventory_job and self.inventory_job.is_alive():
-                raise WizardError("already_running", "Stop the active operation before managing storage.",
-                                  "Den laufenden Vorgang vor der Speicherbereinigung anhalten.")
+            active_cleanup = bool(self.storage_job and self.storage_job.is_alive())
+            if active_cleanup or self.operation_active():
+                error = WizardError("already_running", "Stop the active operation before managing storage.",
+                                    "Den laufenden Vorgang vor der Speicherbereinigung anhalten.")
+                # Its worker may publish the completed preview while this
+                # rejection is logged. Preserve that result even after thread
+                # exit; a second request must never erase newly accepted work.
+                self.storage_failure(error, preserve_state=active_cleanup)
+                raise error
             deleting = plan_id is not None
             if deleting:
                 if self.storage_plan is None or self.storage_plan["id"] != plan_id:
-                    raise WizardError("cleanup_preview", "Refresh the storage preview before deleting files.",
-                                      "Vor dem Löschen die Speichervorschau erneut erstellen.")
+                    error = WizardError("cleanup_preview", "Refresh the storage preview before deleting files.",
+                                        "Vor dem Löschen die Speichervorschau erneut erstellen.")
+                    self.storage_failure(error)
+                    raise error
                 selected = self.storage_plan
             else:
                 if mode not in ("duplicates", "build-cache"):
                     raise WizardError("cleanup_mode", "Unsupported cleanup selection.", "Ungültige Auswahl für die Bereinigung.")
                 self.storage_plan = None
                 selected = None
+            inventory = self.inventory_job if self.inventory_job and self.inventory_job.is_alive() else None
+            if inventory:
+                # The homepage's automatic size scan can traverse hundreds of
+                # thousands of files. It must not masquerade as an active build
+                # and block the very cleanup needed to recover disk capacity.
+                self.inventory_stop.set()
+            operation_id = secrets.token_hex(16)
             with self.storage_lock:
-                self.storage_state = {"status": "deleting" if deleting else "planning", "phase": "starting",
-                                      "done": 0, "total": None, **({"plan": selected} if selected else {})}
+                self.storage_state = {"status": "deleting" if deleting else "planning", "phase": "inventory-pausing" if inventory else "starting",
+                                      "done": 0, "total": None, "operationId": operation_id, **({"plan": selected} if selected else {})}
             def progress(value):
                 with self.storage_lock:
                     self.storage_state.update(value)
             def work():
                 try:
+                    self.storage_log("started", mode=selected["mode"] if deleting else mode, operationId=operation_id,
+                                     action="delete" if deleting else "preview", backgroundInventoryPaused=inventory is not None)
+                    if inventory:
+                        # This join owns only the cooperative metadata scanner;
+                        # no build/device process is cancelled or force-killed.
+                        # The cleanup thread already holds server admission, and
+                        # the usual kernel locks still qualify actual deletion.
+                        inventory.join()
+                        self.storage_log("inventory-paused", mode=selected["mode"] if deleting else mode)
                     if deleting:
                         result = cleanup.execute(self.store.root, selected, progress=progress)
                         self.storage_log("completed", mode=selected["mode"], **result)
                         with self.storage_lock:
                             self.storage_plan = None
-                            self.storage_state = {"status": "complete", "result": result}
+                            self.storage_state = {"status": "complete", "result": result, "operationId": operation_id}
                             self.inventory_state = {"status": "idle"}
                     else:
                         planned = cleanup.plan(self.store.root, mode, progress=progress)
                         self.storage_log("preview", mode=mode, paths=planned["paths"], bytes=planned["bytes"], files=planned["files"])
                         with self.storage_lock:
                             self.storage_plan = planned
-                            self.storage_state = {"status": "preview", "plan": planned}
+                            self.storage_state = {"status": "preview", "plan": planned, "operationId": operation_id}
                 except Exception as error:
                     code = error.code if isinstance(error, WizardError) else "cleanup_failed"
                     message = error.message if isinstance(error, WizardError) else {
                         "en": "Storage cleanup stopped: " + str(error), "de": "Speicherbereinigung angehalten: " + str(error)}
                     with self.storage_lock:
                         self.storage_plan = None
-                        self.storage_state = {"status": "failed", "error": {"code": code, "message": message}}
+                        self.storage_state = {"status": "failed", "error": {"code": code, "message": message}, "operationId": operation_id}
                     self.storage_log("failed", code=code, message=message)
                     try: self.request_failure(error)
                     except (OSError, ImportError, RuntimeError, ValueError): pass
@@ -468,6 +514,7 @@ class LocalServer(ThreadingHTTPServer):
     def close_owned(self):
         # Closing the console/server cancels owned children before allowing the
         # interpreter to exit. Receipts survive; incomplete work stays uncommitted.
+        self.inventory_stop.set()
         with self.jobs_lock: running = [(session, job) for session, job in self.jobs.items() if job.is_alive()]
         for session, _ in running: self.store.cancel(session)
         for _, job in running: job.join()

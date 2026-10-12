@@ -557,10 +557,15 @@ class Engine:
     def qualify(self, state, *, stage="tools"):
         from qualification import qualify
         mode = state["choices"].get("mode", "build")
-        if (mode == "update-mod" and state.get("completed", {}).get("inspect", {}).get("details", {}).get("updateStrategy") == "cached-full-build"):
+        if (stage == "build" and mode == "update-mod"
+                and state.get("completed", {}).get("inspect", {}).get("details", {}).get("updateStrategy") == "cached-full-build"):
             # A proved serialized/native migration uses the ordinary retained
             # project. Reserve its measured incremental space before launch;
             # the smaller compact-code allowance is insufficient for this path.
+            # Before current inspect completes, a saved older fallback decision
+            # is not current admission: it may be the observer-only false
+            # migration this release repairs. Never request full recovery space
+            # at tools/source setup before the actual route is qualified again.
             mode = "build"
         try:
             qualification = qualify(self.store.root, game_root=state["choices"]["gameRoot"], repo=self.repo,

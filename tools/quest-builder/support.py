@@ -649,7 +649,12 @@ def export_support(state_root, session, destination=None):
     failed_log = failed_command_log(build_root, failure)
     def priority(row):
         _, name, _, structured = row
-        return (5 if name == failed_log else 4 if structured else
+        # Capture130723 loses its actual cleanup failure to dozens of older
+        # Unity/export logs. Admission failures happen before any build child;
+        # preserve these two bounded utility/request records even when the
+        # current build event history only reports a disk-capacity stop.
+        return (6 if name in ('wizard/storage-cleanup.log', 'wizard/wizard-requests.log') else
+                5 if name == failed_log else 4 if structured else
                 3 if name in ('wizard/build.log', 'wizard/install.log', 'wizard/progress.log') or name.startswith('device/') else
                 2 if name.startswith('build/') and name[6:] in UPDATE_LOGS else 1)
     candidates.sort(key=lambda row: (priority(row), row[0]), reverse=True)

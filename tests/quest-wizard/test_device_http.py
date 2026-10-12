@@ -144,7 +144,7 @@ class DeviceHttpTests(unittest.TestCase):
 
     def test_inventory_is_asynchronous_and_polling_does_not_repeat_scan(self):
         scans = []
-        def inventory(root, *, progress):
+        def inventory(root, *, progress, cancel):
             scans.append(root)
             progress({"done": 2, "total": None})
             self.entered.set()
