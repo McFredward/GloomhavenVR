@@ -304,6 +304,10 @@ def snapshot(source: Path, records: list[dict], destination: Path, *, phase="sna
 
 def _copy_snapshot_member(original, copied, item, witnesses):
     """Qualify copied bytes in their required transfer, never a second read."""
+    # A retained partial member must never overwrite an externally hardlinked
+    # file, including under the explicit developer reread policy.
+    if copied.exists() and copied.lstat().st_nlink != 1:
+        raise BuildError("Snapshot staging member has multiple hard links: " + item["path"])
     if exhaustive_verification():
         shutil.copyfile(original, copied)
         if not witnesses.qualify(copied, item["sha256"], item["size"]):
@@ -312,10 +316,6 @@ def _copy_snapshot_member(original, copied, item, witnesses):
     before = original.stat()
     strong = _digest_stamp(original)
     checksum = hashlib.sha256(); written = 0
-    # A retained partial member must never overwrite an externally hardlinked
-    # file. The immutable source remains read-only throughout this transaction.
-    if copied.exists() and copied.lstat().st_nlink != 1:
-        raise BuildError("Snapshot staging member has multiple hard links: " + item["path"])
     with original.open("rb") as source, copied.open("wb") as destination:
         for chunk in iter(lambda: source.read(8 * 1048576), b""):
             if destination.write(chunk) != len(chunk):

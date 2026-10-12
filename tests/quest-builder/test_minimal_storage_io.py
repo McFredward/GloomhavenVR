@@ -175,6 +175,20 @@ class MinimalStorageIoTests(unittest.TestCase):
         storage._invocation_file_proofs.clear()
         with self.no_payload_reads({destination / member.name}): storage.snapshot(source, records, destination)
 
+    def test_snapshot_copy_cannot_modify_external_hardlink_in_fast_or_full_mode(self):
+        source = self.root / "source.bin"; source.write_bytes(b"selected original")
+        protected = self.root / "other-original.bin"; protected.write_bytes(b"protected original")
+        target = self.root / "partial.bin"; os.link(protected, target)
+        item = {"path": target.name, "size": source.stat().st_size,
+                "sha256": hashlib.sha256(source.read_bytes()).hexdigest()}
+        witness = self.witness("fixture")
+        for policy in ("", "full"):
+            with self.subTest(policy=policy), mock.patch.dict(os.environ, {"GHVR_QUEST_VERIFICATION": policy}):
+                with self.assertRaisesRegex(storage.BuildError, "multiple hard links"):
+                    storage._copy_snapshot_member(source, target, item, witness)
+        self.assertEqual(protected.read_bytes(), b"protected original")
+        self.assertEqual(source.read_bytes(), b"selected original")
+
     def test_snapshot_wrong_source_bytes_never_publish_a_success_receipt(self):
         source = self.root / "originals"; source.mkdir(); member = source / "fixture.bin"
         member.write_bytes(b"original"); records = storage.inventory(source); member.write_bytes(b"replaced")
