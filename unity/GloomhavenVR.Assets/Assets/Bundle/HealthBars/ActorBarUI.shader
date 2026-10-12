@@ -71,6 +71,7 @@ Shader "GloomhavenVR/ActorBarUI"
             struct v2f
             {
                 float4 vertex   : SV_POSITION;
+			float4 ghvrScreenPosition : TEXCOORD7;
                 fixed4 color    : COLOR;
                 float2 texcoord  : TEXCOORD0;
                 float4 worldPosition : TEXCOORD1;
@@ -104,12 +105,13 @@ Shader "GloomhavenVR/ActorBarUI"
                 OUT.mask = float4(v.vertex.xy * 2 - clampedRect.xy - clampedRect.zw, 0.25 / (0.25 * half2(_UIMaskSoftnessX, _UIMaskSoftnessY) + abs(pixelSize.xy)));
 
                 OUT.color = v.color * _Color;
+			OUT.ghvrScreenPosition = ComputeScreenPos(OUT.vertex);
                 return OUT;
             }
 
             fixed4 frag(v2f IN) : SV_Target
             {
-			GHVRActorBarForegroundClip(IN.vertex);
+			GHVRActorBarForegroundClip(IN.vertex, IN.ghvrScreenPosition);
                 //Round up the alpha color coming from the interpolator (to 1.0/256.0 steps)
                 //The incoming alpha could have numerical instability, which makes it very sensible to
                 //HDR color transparency blend, when it blends with the world's texture.

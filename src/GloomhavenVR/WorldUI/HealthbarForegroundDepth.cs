@@ -36,6 +36,7 @@ internal static class HealthbarForegroundDepth
     private static readonly ShaderTagId LightMode = new("LightMode");
     private static readonly int DepthId = Shader.PropertyToID("_GHVRActorForegroundDepth");
     private static readonly int SizeId = Shader.PropertyToID("_GHVRActorForegroundSize");
+    private static readonly int ViewportId = Shader.PropertyToID("_GHVRActorForegroundViewport");
     private static readonly int ReadyId = Shader.PropertyToID("_GHVRActorForegroundReady");
     private static Camera? _camera;
     private static CommandBuffer? _capture;
@@ -106,7 +107,9 @@ internal static class HealthbarForegroundDepth
             if (!_captureWarned)
             {
                 _captureWarned = true;
-                VRLog.Warn("WorldUI", $"Healthbar foreground capture deferred ({ex.GetType().Name}); retrying on the next head-camera render.");
+                string reason = ex.Message.Replace('\r', ' ').Replace('\n', ' ');
+                if (reason.Length > 200) reason = reason.Substring(0, 200);
+                VRLog.Warn("WorldUI", $"Healthbar foreground capture deferred ({ex.GetType().Name}: {reason}); retrying on the next head-camera render.");
             }
         }
     }
@@ -156,6 +159,7 @@ internal static class HealthbarForegroundDepth
         Materials.Clear();
         capture.SetGlobalTexture(DepthId, DepthId);
         capture.SetGlobalVector(SizeId, new Vector4(1f / width, 1f / height, width, height));
+        capture.SetGlobalVector(ViewportId, new Vector4(viewport.x, viewport.y, viewport.width, viewport.height));
         capture.SetGlobalFloat(ReadyId, 1f);
         capture.SetRenderTarget(BuiltinRenderTextureType.CameraTarget);
         // SetRenderTarget resets the viewport to the complete allocation. Restore
@@ -164,6 +168,7 @@ internal static class HealthbarForegroundDepth
         _release!.Clear();
         _release.SetGlobalFloat(ReadyId, 0f);
         _release.ReleaseTemporaryRT(DepthId);
+        ActorBarDepthShaders.SetCaptureAvailable(true);
     }
 
     private static Rect Viewport(Camera camera, int width, int height)
@@ -282,5 +287,6 @@ internal static class HealthbarForegroundDepth
         }
         _capture?.Release(); _release?.Release(); _capture = null; _release = null; _camera = null;
         Shader.SetGlobalFloat(ReadyId, 0f);
+        ActorBarDepthShaders.SetCaptureAvailable(false);
     }
 }

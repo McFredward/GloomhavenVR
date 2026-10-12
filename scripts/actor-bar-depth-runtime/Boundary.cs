@@ -3,7 +3,11 @@ using UnityEngine;
 using UnityEngine.UI;
 namespace GloomhavenVR.Core {
  internal static class VRLog { internal static void Info(string scope,string value) { } internal static void Debug(string scope,string value) { } internal static void Warn(string scope,string value) { } }
- internal static class BundleShaders { internal static Shader? Resolve(string name,string scope,string found,string missing)=>Shader.Find(name); }
+ internal static class BundleShaders {
+  private static AssetBundle? _bank;
+  internal static void UseBank(string path) {_bank=AssetBundle.LoadFromFile(path);if(_bank==null)throw new System.InvalidOperationException("Native shader-bank load failed: "+path);}
+  internal static Shader? Resolve(string name,string scope,string found,string missing)=>_bank!=null?_bank.LoadAsset<Shader>("Assets/Bundle/HealthBars/"+name.Substring("GloomhavenVR/".Length)+".shader"):Shader.Find(name);
+ }
  internal static class VRLayers { internal const int ModLayer=31; }
 }
 namespace GloomhavenVR.Rig { internal static class VRRigDriver {internal static Camera? HeadCamera;} }

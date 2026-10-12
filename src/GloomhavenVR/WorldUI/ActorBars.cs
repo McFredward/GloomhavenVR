@@ -2647,7 +2647,11 @@ internal static class ActorBars
                     // The new source wins; retire only our detached clone.
                     record = existing;
                     Material previous = adopted.DepthMats[record].inst;
-                    if (previous != null) Object.Destroy(previous);
+                    if (previous != null)
+                    {
+                        ActorBarDepthShaders.Unregister(previous);
+                        Object.Destroy(previous);
+                    }
                 }
                 Shader? foregroundShader = !depthTest ? ActorBarDepthShaders.For(src.shader) : null;
                 var inst = new Material(src);
@@ -2664,6 +2668,7 @@ internal static class ActorBars
                 inst.SetInt("unity_GUIZTestMode", (int)mode);
                 if (inst.HasProperty("_ZTestMode"))
                     inst.SetInt("_ZTestMode", (int)mode);
+                if (foregroundShader != null) ActorBarDepthShaders.Register(inst);
                 AssignBarMaterial(g, inst);
                 adopted.DepthMatIds.Add(id);
                 if (record >= 0) adopted.DepthMats[record] = (g, src, inst);
@@ -2740,7 +2745,11 @@ internal static class ActorBars
             }
             if (inst != null)
             {
-                try { Object.Destroy(inst); }
+                try
+                {
+                    ActorBarDepthShaders.Unregister(inst);
+                    Object.Destroy(inst);
+                }
                 catch { /* already gone with the scene */ }
             }
         }

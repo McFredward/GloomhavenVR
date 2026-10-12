@@ -149,6 +149,7 @@ SubShader {
 			fixed4	underlayColor	: COLOR1;
 		#endif
 			float4 textures			: TEXCOORD5;
+			float4 ghvrScreenPosition : TEXCOORD7;
 		};
 
 		// Used by Unity internally to handle Texture Tiling and Offset.
@@ -218,6 +219,7 @@ SubShader {
 				underlayColor,
 			#endif
 				float4(faceUV, outlineUV),
+				ComputeScreenPos(vPosition),
 			};
 
 			return output;
@@ -226,7 +228,7 @@ SubShader {
 
 		fixed4 PixShader(pixel_t input) : SV_Target
 		{
-			GHVRActorBarForegroundClip(input.position);
+			GHVRActorBarForegroundClip(input.position, input.ghvrScreenPosition);
 			float c = tex2D(_MainTex, input.atlas).a;
 		
 		#ifndef UNDERLAY_ON

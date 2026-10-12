@@ -65,6 +65,9 @@ for path_id,prefix,atlas_key in [(10356,'native-font','m_AtlasTextures'),(10387,
  clean={k:v for k,v in data.items() if k not in links}
  (out/(prefix+'.json')).write_text(json.dumps(clean,indent=2)+'\n')
  records.append({'name':data['m_Name'],'path_id':path_id,'atlas_path_id':atlas_ref['m_PathID'],'glyph_count':len(data.get('m_GlyphTable',data.get('m_SpriteGlyphTable',[]))),'atlas_png_sha256':hashlib.sha256((out/(prefix+'-atlas.png')).read_bytes()).hexdigest(),'serialized_json_sha256':hashlib.sha256((out/(prefix+'.json')).read_bytes()).hexdigest()})
+material=objects[202].read_typetree();saved=material['m_SavedProperties'];native_material={'name':material['m_Name'],'shader_path_id':material['m_Shader']['m_PathID'],'keywords':material['m_ValidKeywords'],'renderQueue':material['m_CustomRenderQueue'],'floats':[{'name':n,'value':v} for n,v in saved['m_Floats']],'colors':[{'name':n,'value':v} for n,v in saved['m_Colors']],'textures':[{'name':n,'path_id':v['m_Texture']['m_PathID'],'scale':v['m_Scale'],'offset':v['m_Offset']} for n,v in saved['m_TexEnvs']]}
+(out/'native-font-material.json').write_text(json.dumps(native_material,indent=2)+'\n')
+records.append({'font_material_path_id':202,'shader_path_id':native_material['shader_path_id'],'material_json_sha256':hashlib.sha256((out/'native-font-material.json').read_bytes()).hexdigest()})
 (out/'native-font-provenance.json').write_text(json.dumps({'game_asset':str(asset),'game_asset_sha256':hashlib.file_digest(asset.open('rb'),'sha256').hexdigest(),'originals':records,'limits':'Original game serialized glyph metrics/characters and atlas execute with shipped managed TMP/UI. The native Windows shader program is compared to its matching upstream1.3.0 program properties; derivative and original canonical source programs are rasterized, not native game Shader objects.'},indent=2)+'\n')
 '''
     result=subprocess.run([str(Path.home()/'unitypy-venv/bin/python'),'-c',code,str(root),str(run)],capture_output=True,text=True)
@@ -100,6 +103,8 @@ def main():
         assert code.count(before)==1, 'Mutation binding drift: '+name
         variants.append((name,code.replace(before,after),foreground,expected))
     more=[
+        ('capture-fallback-unsafe','ActorBarDepthShaders.SetCaptureAvailable(false);','/* unsafe Always retained */','capture unavailable keeps own derivative on safe ordinary depth rather than piercing foreground'),
+        ('viewport-native-domain-ignored','new Vector4(viewport.x, viewport.y, viewport.width, viewport.height)','new Vector4(0, 0, camera.pixelWidth, camera.pixelHeight)','target-texture viewport matches native full-target card occlusion despite ignored camera rect'),
         ('ignore-solid-foreground','capture.SetGlobalFloat(ReadyId, 1f);','capture.SetGlobalFloat(ReadyId, 0f);','actual nearer solid card geometry hides every covered native glyph pixel'),
         ('world-roots-foreground','name == "GloomhavenVR.Hands" || name == "GloomhavenVR.PlayTray"','name == "GloomhavenVR.Room" || name == "GloomhavenVR.Hands" || name == "GloomhavenVR.PlayTray"','original game atlas and real TMP glyph tessellation render through a wall'),
         ('wrong-duplicate-forward-pass','ForwardPass(material.shader)','0','duplicate FORWARD names select actual depth-writing ForwardBase by LightMode'),
@@ -127,7 +132,7 @@ def main():
     hashes={str(root/'src/GloomhavenVR/WorldUI/ActorBars.cs'):hashlib.sha256(bars.encode()).hexdigest(),str(root/'src/GloomhavenVR/WorldUI/Sharpness/PanelGraphicMaterial.cs'):hashlib.sha256(read.encode()).hexdigest()}
     for source in (root/'src/GloomhavenVR/WorldUI/ActorBarDepthShaders.cs',root/'src/GloomhavenVR/WorldUI/HealthbarForegroundDepth.cs',root/'scripts/check-actor-bar-depth-runtime.py',root/'scripts/actor-bar-depth-runtime/Depth.csproj',*(root/'scripts/actor-bar-depth-runtime').rglob('*.cs'),*(root/'scripts/actor-bar-depth-runtime').rglob('*.shader'),*(root/'unity/GloomhavenVR.Assets/Assets/Bundle/HealthBars').glob('*.shader'),*(root/'unity/GloomhavenVR.Assets/Assets/Bundle/HealthBars').glob('*.cginc')):
         hashes[str(source)]=hashlib.file_digest(source.open('rb'),'sha256').hexdigest()
-    for name in ('Unity.TextMeshPro.dll','UnityEngine.UI.dll'):
+    for name in ('Unity.TextMeshPro.dll','UnityEngine.UI.dll','Newtonsoft.Json.dll'):
         hashes[str(managed/name)]=hashlib.file_digest((managed/name).open('rb'),'sha256').hexdigest()
     (run/'source-hashes.json').write_text(json.dumps({'sha256':hashes,'coverage':'partial' if args.case or args.skip_viewport or args.native_font_only else 'production-and-negative-controls','limits':['Original game TMP/UI assemblies execute unchanged in Unity 2021.3.5.','Legacy binding cases use rectangle tessellation. Added native-font cases execute original game glyph/character metrics, atlas, actual TMP glyph tessellation, full/Mobile original source programs and original Sprite data. Canonical source hashes independently bind the derivative undo to official upstream original source; original Windows game shader bytecode is metadata checked, not used as the font reference shader.','Actual camera pixels/depth/stencil, clone bindings and per-render held lifetime are exercised; there is no game scenario controller, headset, multiplayer picture or hardware performance claim.','Skipped viewport cases remain explicitly partial and are never promoted to a complete pass.']},indent=2)+'\n')
     for name,value,depth,expected in variants:
@@ -160,6 +165,9 @@ def main():
         source=source.replace('Shader "GloomhavenVR/'+file+'"','Shader "'+name+'"',1)
         source=source.replace('\n\t\t\t#include "ActorBarForeground.cginc"','',1)
         source=re.sub(r'\n\t\t\tGHVRActorBarForegroundClip\([^;]*\);','',source)
+        source=re.sub(r'\n\t\t\tfloat4 ghvrScreenPosition : TEXCOORD7;','',source)
+        source=re.sub(r'\n\t\t\tOUT.ghvrScreenPosition = ComputeScreenPos\(OUT.vertex\);','',source)
+        source=source.replace('\n\t\t\t\tComputeScreenPos(vPosition),','')
         source=source.replace('Fallback "GloomhavenVR/ActorBarMobileSDF"','Fallback "TextMeshPro/Mobile/Distance Field"')
         record=next(r for r in provenance['sources'] if r['file']==file+'.shader');original=source
         for pragma in record['retained_feature_pragmas']:
@@ -168,9 +176,17 @@ def main():
         digest=hashlib.sha256(original.encode()).hexdigest();assert digest==record['normalized_original_sha256'],'Canonical upstream hash differs: '+file
         canonical.append({'shader':file,'verified_official_normalized_source_sha256':digest,'reference_runtime_pragmas':'same original keyword branches retained with multi_compile'})
         (original_dir/(file+'.shader')).write_text(source)
+    # Deliberately wrong historical mapping: allocation _ScreenParams does not
+    # identify the active GPU eye viewport. Actual subset controls must reject it.
+    bad_dir=project/'Assets/Resources/DiagnosticBad';bad_dir.mkdir()
+    bad_shader=(actual_shader_dir/'ActorBarMobileSDF.shader').read_text().replace('Shader "GloomhavenVR/ActorBarMobileSDF"','Shader "GloomhavenVR/ActorBarMobileSDF_BadViewport"')
+    (bad_dir/'ActorBarMobileSDF.shader').write_text(bad_shader)
+    bad_include=(actual_shader_dir/'ActorBarForeground.cginc').read_text().replace('(screenPosition.xy / screenPosition.w) * _GHVRActorForegroundViewport.zw','pixelPosition.xy * (_GHVRActorForegroundViewport.zw / _ScreenParams.xy)')
+    (bad_dir/'ActorBarForeground.cginc').write_text(bad_include)
+    for file in ('TMPro.cginc','TMPro_Properties.cginc'):shutil.copyfile(actual_shader_dir/file,bad_dir/file)
     (run/'canonical-source-provenance.json').write_text(json.dumps(canonical,indent=2)+'\n')
     for file in ('TMPro.cginc','TMPro_Properties.cginc'):shutil.copyfile(actual_shader_dir/file,original_dir/file)
-    for name in ('Unity.TextMeshPro.dll','UnityEngine.UI.dll'):shutil.copyfile(managed/name,project/'Assets/Plugins'/name)
+    for name in ('Unity.TextMeshPro.dll','UnityEngine.UI.dll','Newtonsoft.Json.dll'):shutil.copyfile(managed/name,project/'Assets/Plugins'/name)
     (project/'Packages/manifest.json').write_text('{"dependencies":{"com.unity.modules.ui":"1.0.0","com.unity.modules.imgui":"1.0.0","com.unity.modules.jsonserialize":"1.0.0","com.unity.modules.physics":"1.0.0","com.unity.modules.imageconversion":"1.0.0"}}\n')
     (project/'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n');path=run/'manifest.json';path.write_text(json.dumps(manifest,indent=2)+'\n')
     command=[str(args.unity),'-batchmode','-force-'+args.graphics_api,'-projectPath',str(project),'-executeMethod','DepthRunner.Start','-depthManifest',str(path),'-logFile',str(run/'unity.log')]

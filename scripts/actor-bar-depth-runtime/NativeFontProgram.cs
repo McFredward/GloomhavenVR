@@ -6,6 +6,7 @@ using GloomhavenVR.Core;
 using GloomhavenVR.Rig;
 using GloomhavenVR.WorldUI;
 using TMPro;
+using Newtonsoft.Json;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.UI;
@@ -17,6 +18,12 @@ public static class NativeFontProgram
     private static void Check(bool value,string message) {_checks++;if(!value)throw new InvalidOperationException(message);}
     private static int Green(Color32[] pixels)
     {int n=0;foreach(var p in pixels)if(p.g>80&&p.g>p.r+25&&p.g>p.b+25)n++;return n;}
+    private static int Ink(Color32[] pixels)
+    {int n=0;foreach(var p in pixels)if(p.r>80||p.g>80||p.b>80)n++;return n;}
+    [Serializable] public sealed class SavedFloat {public string name="";public float value=0;}
+    [Serializable] public sealed class SavedColor {public string name="";public Color value=Color.clear;}
+    [Serializable] public sealed class SavedTexture {public string name="";public int path_id=0;public Vector2 scale=Vector2.one,offset=Vector2.zero;}
+    [Serializable] public sealed class SavedMaterial {public string name="";public int shader_path_id=0,renderQueue=0;public string[] keywords=Array.Empty<string>();public SavedFloat[] floats=Array.Empty<SavedFloat>();public SavedColor[] colors=Array.Empty<SavedColor>();public SavedTexture[] textures=Array.Empty<SavedTexture>();}
     private static bool Same(Color32[] a,Color32[] b)
     {if(a.Length!=b.Length)return false;for(int i=0;i<a.Length;i++)if(!a[i].Equals(b[i]))return false;return true;}
     public static int Run(string evidence)
@@ -60,7 +67,8 @@ public static class NativeFontProgram
         var owner=ActorBars.Create(host);
         wall.SetActive(false);var firstOriginal=Render("native-font-first-original",false);
         File.WriteAllText(Path.Combine(evidence,"native-font-binding.txt"),"initialOriginalPixels="+Green(firstOriginal)+"\nshader="+number.fontSharedMaterial.shader.name+"\ncharCount="+number.textInfo.characterCount+"\nvertexCount="+number.textInfo.meshInfo[0].vertexCount+"\natlas="+atlas.width+"x"+atlas.height+"\nfont="+font.faceInfo.familyName+"\n");
-        Check(Green(firstOriginal)>20&&number.textInfo.characterCount==2,"canonical original shader and actual native game glyphs render before capture instrumentation");wall.SetActive(true);
+        Check(Green(firstOriginal)>20&&number.textInfo.characterCount==2,"canonical original shader and actual native game glyphs render before capture instrumentation");
+        _checks+=ActorBarViewportPixels.Run(evidence,camera,number,original,wallMat);wall.SetActive(true);
         ActorBars.Scan(owner,true);Check(Green(Render("native-font-wall-hidden"))==0,"actual native font health numbers are hidden by walls only when requested");
         ActorBars.Restore(owner);ActorBars.Scan(owner,false);HealthbarForegroundDepth.SetActive(true);
         var baseline=Render("native-font-through-wall");int visible=Green(baseline);Check(visible>20,"original game atlas and real TMP glyph tessellation render through a wall");
@@ -71,6 +79,11 @@ public static class NativeFontProgram
         ActorBars.Scan(owner,false);HealthbarForegroundDepth.SetActive(true);var derivedPixels=Render("native-derived-font-pixels");
         Check(Same(nativePixels,derivedPixels),"derivative preserves original native glyph pixel colour/shape without foreground");
         wall.SetActive(true);
+        HealthbarForegroundDepth.SetActive(false);
+        Check(Green(Render("capture-unavailable-native-depth",false))==0,"capture unavailable keeps own derivative on safe ordinary depth rather than piercing foreground");
+        Check(number.fontSharedMaterial.GetInt("unity_GUIZTestMode")==4,"capture unavailable selects ordinary native depth on each owned material");
+        HealthbarForegroundDepth.SetActive(true);
+        Check(Green(Render("capture-recovered-native-depth"))==visible&&number.fontSharedMaterial.GetInt("unity_GUIZTestMode")==8,"successful capture restores complete through-wall mode on the same native clone");
         GameObject Solid(string name,float z,float x=0,float width=.85f)
         {
             var root=new GameObject(name);root.layer=VRLayers.ModLayer;var mesh=GameObject.CreatePrimitive(PrimitiveType.Cube);mesh.transform.SetParent(root.transform,false);mesh.layer=VRLayers.ModLayer;
@@ -134,20 +147,49 @@ public static class NativeFontProgram
         // The original game's Sarala material uses the full Distance Field shader.
         // Exercise its real glyph/outline/underlay path, independently of Mobile.
         ActorBars.Restore(owner);HealthbarForegroundDepth.SetActive(false);
-        var full=new Material(Resources.Load<Shader>("OriginalShaders/ActorBarSDF"));Check(full.HasProperty("_FaceTex")&&full.HasProperty("_OutlineTex"),"canonical full SDF source resolves its authored face and outline texture properties");full.CopyPropertiesFromMaterial(original);full.SetInt("unity_GUIZTestMode",8);
-        // Mobile has no face/outline texture bindings. Populate the full native
-        // program's neutral textures explicitly instead of copying a missing slot.
-        full.SetTexture("_FaceTex",Texture2D.whiteTexture);full.SetTexture("_OutlineTex",Texture2D.whiteTexture);
-        full.SetFloat("_OutlineWidth",.08f);full.SetFloat("_UnderlayOffsetX",.6f);full.SetFloat("_UnderlayOffsetY",.6f);full.EnableKeyword("UNDERLAY_ON");
+        var full=new Material(Resources.Load<Shader>("OriginalShaders/ActorBarSDF"));
+        Check(full.HasProperty("_FaceTex")&&full.HasProperty("_OutlineTex"),"canonical full SDF source resolves its authored face and outline texture properties");
+        var saved=JsonConvert.DeserializeObject<SavedMaterial>(File.ReadAllText(Path.Combine(inputs,"native-font-material.json")))!;
+        File.WriteAllText(Path.Combine(evidence,"native-material202-binding.txt"),"name="+saved.name+"\nshaderPath="+saved.shader_path_id+"\nfloats="+saved.floats.Length+"\ncolours="+saved.colors.Length+"\ntextures="+saved.textures.Length+"\nqueue="+saved.renderQueue+"\n");
+        Check(saved.floats.Length>30&&saved.colors.Length>8&&saved.textures.Length==5,"original font material202 serialized floats colours and textures all deserialize");
+        Check(saved.shader_path_id==568,"actual original font material202 references original full SDF shader568");
+        full.name=saved.name;full.shaderKeywords=saved.keywords;full.renderQueue=saved.renderQueue;
+        foreach(var property in saved.floats)full.SetFloat(property.name,property.value);
+        foreach(var property in saved.colors)full.SetColor(property.name,property.value);
+        foreach(var property in saved.textures){Check(property.path_id==0||property.path_id==440,"original font material texture binding is the actual game atlas or authored null");full.SetTexture(property.name,property.path_id==440?atlas:null);full.SetTextureScale(property.name,property.scale);full.SetTextureOffset(property.name,property.offset);}
+        Check(full.GetTexture("_MainTex")==atlas&&Math.Abs(full.GetFloat("_GradientScale")-6f)<.0001f,"original font material202 retains its actual atlas and gradient scale");
+        full.SetInt("unity_GUIZTestMode",8);
         number.fontSharedMaterial=full;wall.SetActive(false);var fullOriginal=Render("full-sdf-original",false);
-        File.WriteAllText(Path.Combine(evidence,"full-sdf-binding.txt"),"shader="+full.shader.name+"\nsupported="+full.shader.isSupported+"\nface="+full.GetColor("_FaceColor")+"\nmain="+(full.GetTexture("_MainTex")!=null)+"\nfaceTex="+(full.GetTexture("_FaceTex")!=null)+"\nscale="+full.GetFloat("_GradientScale")+"\nkeywords="+string.Join(",",full.shaderKeywords)+"\nfontVertices="+number.textInfo.meshInfo[0].vertexCount+"\nfontCharacters="+number.textInfo.characterCount+"\nvisible="+Green(fullOriginal)+"\n");
-        Check(Green(fullOriginal)>20,"full native Distance Field font renders actual original game glyphs");
+        File.WriteAllText(Path.Combine(evidence,"full-sdf-binding.txt"),"shader="+full.shader.name+"\nsupported="+full.shader.isSupported+"\nface="+full.GetColor("_FaceColor")+"\nmain="+(full.GetTexture("_MainTex")!=null)+"\nfaceTex="+(full.GetTexture("_FaceTex")!=null)+"\nscale="+full.GetFloat("_GradientScale")+"\nkeywords="+string.Join(",",full.shaderKeywords)+"\nfontVertices="+number.textInfo.meshInfo[0].vertexCount+"\nfontCharacters="+number.textInfo.characterCount+"\nvisible="+Ink(fullOriginal)+"\n");
+        Check(Ink(fullOriginal)>20,"full native Distance Field font renders actual original game glyphs");
         ActorBars.Scan(owner,false);HealthbarForegroundDepth.SetActive(true);var fullDerived=Render("full-sdf-derived");
         Check(Same(fullOriginal,fullDerived),"full native SDF outline/underlay/glyph pixels survive exact derivative binding");
         wall.SetActive(true);card.SetActive(true);card.transform.GetChild(0).position=new Vector3(0,0,-2);card.transform.GetChild(0).localScale=new Vector3(.85f,.9f,.02f);
-        Check(Green(Render("full-sdf-nearer-card"))==0,"full native SDF glyphs respect actual nearer solid card depth");
+        Check(Ink(Render("full-sdf-nearer-card"))==0,"full native SDF glyphs respect actual nearer solid card depth");
         card.transform.GetChild(0).position=new Vector3(0,0,.8f);
         Check(Same(fullDerived,Render("full-sdf-farther-card")),"full native SDF preserves all original pixels in front of farther foreground");card.SetActive(false);
+
+        ActorBars.Restore(owner);HealthbarForegroundDepth.SetActive(false);wall.SetActive(false);
+        camera.orthographic=false;camera.fieldOfView=33f;camera.pixelRect=new Rect(0,0,128,128);full.SetInt("unity_GUIZTestMode",4);
+        foreach(string geometry in new[]{"absent","near","partial","far"})
+        {
+            card.SetActive(geometry!="absent");card.transform.GetChild(0).position=new Vector3(geometry=="partial"?-.15f:0,0,geometry=="far"?.8f:-2);
+            card.transform.GetChild(0).localScale=new Vector3(geometry=="partial"?.14f:.85f,.9f,.02f);
+            var nativePerspective=Render("perspective-"+geometry+"-original",false);
+            ActorBars.Scan(owner,false);HealthbarForegroundDepth.SetActive(true);var derivedPerspective=Render("perspective-"+geometry+"-derived");
+            Check(Same(nativePerspective,derivedPerspective),"perspective native clip varying preserves original per-pixel "+geometry+" depth");
+            if(geometry=="near")Check(Ink(derivedPerspective)==0,"perspective nearer foreground clips all original native glyphs");
+            else Check(Ink(derivedPerspective)>20,"perspective original glyphs remain visible without full near overlap");
+            ActorBars.Restore(owner);HealthbarForegroundDepth.SetActive(false);
+        }
+        camera.orthographic=true;card.SetActive(false);
+        full.SetInt("unity_GUIZTestMode",8);
+        full.SetFloat("_OutlineWidth",.08f);full.SetFloat("_UnderlayOffsetX",.6f);full.SetFloat("_UnderlayOffsetY",.6f);full.EnableKeyword("UNDERLAY_ON");number.UpdateMeshPadding();
+        var styledOriginal=Render("full-sdf-original-outline-underlay",false);
+        ActorBars.Scan(owner,false);HealthbarForegroundDepth.SetActive(true);var styledDerived=Render("full-sdf-derived-outline-underlay");
+        Check(Same(styledOriginal,styledDerived)&&Ink(styledOriginal)>20,"additional native full-SDF outline and underlay branches remain pixel-identical");
+        wall.SetActive(true);card.SetActive(true);card.transform.GetChild(0).position=new Vector3(0,0,-2);
+        Check(Ink(Render("full-sdf-outline-underlay-nearer-card"))==0,"nearer card clips native full SDF outlines and underlay together");card.SetActive(false);
 
         var spriteAtlas=new Texture2D(2,2,TextureFormat.RGBA32,false);spriteAtlas.LoadImage(File.ReadAllBytes(Path.Combine(inputs,"native-sprite-atlas.png")));
         var sprite=ScriptableObject.CreateInstance<TMP_SpriteAsset>();JsonUtility.FromJsonOverwrite(File.ReadAllText(Path.Combine(inputs,"native-sprite.json")),sprite);

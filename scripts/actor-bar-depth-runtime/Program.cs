@@ -15,6 +15,7 @@ public static class ActorBarDepthProgram
         var mesh=new Mesh(); mesh.vertices=new[]{new Vector3(-.35f,-.35f,0),new Vector3(.35f,-.35f,0),new Vector3(.35f,.35f,0),new Vector3(-.35f,.35f,0)};
         mesh.triangles=new[]{0,1,2,0,2,3}; mesh.colors=new[]{color,color,color,color}; return mesh;
     }
+    public static void ConfigureShaderBank(string path)=>GloomhavenVR.Core.BundleShaders.UseBank(path);
     public static int Run(string evidence)
     {
         FixtureNativeSettings.Ensure();

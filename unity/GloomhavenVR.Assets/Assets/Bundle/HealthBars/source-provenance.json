@@ -51,6 +51,7 @@
     "Include foreground fragment depth test",
     "Call fragment depth test; original typography, texture, color, alpha, clip, stencil and pass semantics unchanged",
     "Retain all original runtime shader_feature variants with multi_compile; no keyword/control-flow changes",
-    "Full SDF fallback points to the equally derived Mobile program"
+    "Full SDF fallback points to the equally derived Mobile program",
+    "One additional TEXCOORD7 carrying Unity ComputeScreenPos of the final unchanged native clip position; maps normalized per-eye coordinates into the actual foreground viewport without _ScreenParams pixel-unit assumptions. Sprite retains its original half-texel adjustment before this interpolation."
   ]
 }

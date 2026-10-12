@@ -67,6 +67,7 @@ Shader "GloomhavenVR/ActorBarSprite"
 			struct v2f
 			{
 				float4 vertex   : SV_POSITION;
+			float4 ghvrScreenPosition : TEXCOORD7;
 				fixed4 color    : COLOR;
 				half2 texcoord  : TEXCOORD0;
 				float4 worldPosition : TEXCOORD1;
@@ -89,6 +90,7 @@ Shader "GloomhavenVR/ActorBarSprite"
 				#endif
 				
 				OUT.color = IN.color * _Color;
+			OUT.ghvrScreenPosition = ComputeScreenPos(OUT.vertex);
 				return OUT;
 			}
 
@@ -96,7 +98,7 @@ Shader "GloomhavenVR/ActorBarSprite"
 
 			fixed4 frag(v2f IN) : SV_Target
 			{
-			GHVRActorBarForegroundClip(IN.vertex);
+			GHVRActorBarForegroundClip(IN.vertex, IN.ghvrScreenPosition);
 				half4 color = (tex2D(_MainTex, IN.texcoord) + _TextureSampleAdd) * IN.color;
 				
 				#if UNITY_UI_CLIP_RECT

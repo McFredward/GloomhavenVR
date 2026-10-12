@@ -111,6 +111,7 @@ SubShader {
 			float4	texcoord1		: TEXCOORD3;			// Texture UV, alpha, reserved
 			half2	underlayParam	: TEXCOORD4;			// Scale(x), Bias(y)
 		#endif
+			float4 ghvrScreenPosition : TEXCOORD7;
 		};
 
 
@@ -178,6 +179,7 @@ SubShader {
 				float4(input.texcoord0 + layerOffset, input.color.a, 0),
 				half2(layerScale, layerBias),
 			#endif
+				ComputeScreenPos(vPosition),
 			};
 
 			return output;
@@ -187,7 +189,7 @@ SubShader {
 		// PIXEL SHADER
 		fixed4 PixShader(pixel_t input) : SV_Target
 		{
-			GHVRActorBarForegroundClip(input.vertex);
+			GHVRActorBarForegroundClip(input.vertex, input.ghvrScreenPosition);
 			half d = tex2D(_MainTex, input.texcoord0.xy).a * input.param.x;
 			half4 c = input.faceColor * saturate(d - input.param.w);
 
