@@ -927,25 +927,46 @@ def package_startup_content(project: Path, input_key: str, *, retain_sources=Fal
     streaming = project / "Assets/StreamingAssets"
     streaming.mkdir(parents=True, exist_ok=True)
     archive_path = streaming / "quest-startup-content.zip"
-    sources = sorted(path for path in streaming.rglob("*") if path.is_file() and
-                     path.suffix != ".meta" and path != archive_path and
-                     "Quest" not in path.relative_to(streaming).parts)
+    sources = []
+    for folder, directories, names in os.walk(streaming, followlinks=False):
+        # Exclude runtime-only Proton/Wine/mod payload before recursion, not
+        # after walking every member of those large private directory trees.
+        directories[:] = sorted(name for name in directories if name != "Quest")
+        for name in names:
+            path = Path(folder) / name
+            scratch = re.fullmatch(re.escape(archive_path.name) + r"\.(?:packing|repack)-[0-9a-f]{32}", name)
+            if path.suffix != ".meta" and path != archive_path and not scratch and path.is_file():
+                sources.append(path)
+    sources.sort()
     if not any(path.relative_to(streaming).parts[0] == "Rulebase" for path in sources):
         raise BuildError("Original startup requires real Rulebase files; no empty content success is allowed.")
     records = []
-    with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
-        for path in sources:
-            name = "StreamingAssets/" + path.relative_to(streaming).as_posix()
-            record = {"path": name, "sha256": digest(path), "size": path.stat().st_size}
-            records.append(record)
-            # Fixed ZIP timestamps prevent cache identity changing with the export time.
-            info = zipfile.ZipInfo(name, date_time=(2020, 1, 1, 0, 0, 0))
-            info.compress_type = zipfile.ZIP_DEFLATED
-            with path.open("rb") as source, archive.open(info, "w") as destination:
-                shutil.copyfileobj(source, destination, 1024 * 1024)
-    manifest = {"schema": 1, "inputKey": input_key, "archive": archive_path.name,
-                "archiveSha256": digest(archive_path), "files": records}
-    write_json(project / "Assets/Quest/Resources/quest-startup-content.json", manifest)
+    temporary = archive_path.with_name(archive_path.name + ".packing-" + secrets.token_hex(16))
+    try:
+        with zipfile.ZipFile(temporary, "x", compression=zipfile.ZIP_DEFLATED, compresslevel=1, allowZip64=True) as archive:
+            for path in sources:
+                name = "StreamingAssets/" + path.relative_to(streaming).as_posix()
+                before = path.stat(); sha, size = hashlib.sha256(), 0
+                # Fixed timestamps and one transfer read, hashing while writing.
+                info = zipfile.ZipInfo(name, date_time=(2020, 1, 1, 0, 0, 0))
+                info.file_size = before.st_size
+                compressed = path.suffix.casefold() in (".mp4", ".webm", ".ogg", ".jpg", ".jpeg", ".png", ".zip", ".bk2")
+                info.compress_type = zipfile.ZIP_STORED if compressed else zipfile.ZIP_DEFLATED
+                info._compresslevel = 1
+                with path.open("rb") as source, archive.open(info, "w", force_zip64=True) as destination:
+                    for block in iter(lambda: source.read(1024 * 1024), b""):
+                        destination.write(block); sha.update(block); size += len(block)
+                after = path.stat()
+                if (size != before.st_size or (before.st_size, before.st_mtime_ns, before.st_ctime_ns)
+                        != (after.st_size, after.st_mtime_ns, after.st_ctime_ns)):
+                    raise BuildError("File-backed content changed during packaging: " + path.name)
+                records.append({"path": name, "sha256": sha.hexdigest(), "size": size})
+        manifest = {"schema": 1, "inputKey": input_key, "archive": archive_path.name,
+                    "archiveSha256": digest(temporary), "files": records}
+        os.replace(temporary, archive_path)
+        write_json(project / "Assets/Quest/Resources/quest-startup-content.json", manifest)
+    finally:
+        temporary.unlink(missing_ok=True)
     # Ship exactly one copy of file-backed data. Unity assets continue through
     # their native Android import/bundle path; the original game installation is untouched.
     if not retain_sources:
@@ -1262,13 +1283,29 @@ def original_builtin_modules(game: Path, editor: Path) -> dict:
     return dependencies
 
 
+def project_plugin_paths(project: Path, *, metadata=False):
+    """Census managed inputs without traversing file-backed native game data."""
+    assets = project / "Assets"; result = []
+    suffix = ".dll.meta" if metadata else ".dll"
+    def failed(error):
+        raise BuildError("Cannot enumerate the owned managed plugin folder: " + str(error))
+    for folder, directories, names in os.walk(assets, followlinks=False, onerror=failed):
+        if Path(folder) == assets:
+            directories[:] = [name for name in directories if name.casefold() != "streamingassets"]
+        directories.sort()
+        for name in names:
+            if name.casefold().endswith(suffix):
+                result.append(_ordinary_owned(Path(folder) / name))
+    return sorted(result)
+
+
 def isolate_original_compiler_namespace(project: Path) -> None:
     """Keep the original global Debug wrapper out of unrelated package compilation.
 
     Auto Reference only controls C# compiler references. The recovered plugin's
     platform availability, GUID and original runtime dependencies are retained.
     """
-    matches = list((project / "Assets").rglob("GH.Runtime.dll.meta"))
+    matches = [path for path in project_plugin_paths(project, metadata=True) if path.name == "GH.Runtime.dll.meta"]
     if len(matches) != 1:
         raise BuildError("Original startup needs one recovered GH.Runtime plugin importer.")
     metadata = matches[0].read_text(encoding="utf-8")
@@ -1289,7 +1326,7 @@ def stage_campaign_runtime_assembly(project: Path) -> Path:
     if not runtime.is_dir():
         raise BuildError("The Quest runtime source folder is missing.")
     plugins = []
-    for path in (project / "Assets").rglob("*.dll"):
+    for path in project_plugin_paths(project):
         if path.stem not in REPLACED_PACKAGES:
             plugins.append(path.name)
     if len(set(plugins)) != len(plugins) or not {"GH.Runtime.dll", "GloomhavenVR.dll", "QuestGame.Compatibility.dll"}.issubset(plugins):
@@ -1328,11 +1365,12 @@ def deploy_woven_assemblies(staged: Path, game: Path, project: Path, *, link_nam
     """Retain recovered plugin identity; add only genuinely new assemblies."""
     destination = project / "Assets/Plugins/QuestGame"
     destination.mkdir(parents=True, exist_ok=True)
+    original_plugins = project_plugin_paths(project)
     for dll in staged.glob("*.dll"):
         if (game / "Managed" / dll.name).is_file():
             # AssetRipper retains the original MonoScript-to-plugin GUID mapping.
             # A second copy would introduce duplicate types and break that identity.
-            matches = [p for p in (project / "Assets").rglob(dll.name) if p.is_file()]
+            matches = [p for p in original_plugins if p.name == dll.name and p.is_file()]
             if len(matches) != 1 or not Path(str(matches[0]) + ".meta").is_file():
                 raise BuildError("A rewritten original assembly needs one recovered DLL and its retained .meta: " + dll.name)
             shutil.copyfile(dll, matches[0])
@@ -1544,9 +1582,11 @@ def build(args, inputs: dict, output: Path, source: Path, game: Path, project: P
     build_progress.operation("weave", complete=True, detail="Current mod and original managed game bindings compiled")
     key_file, private = signing(output, tools)
     provenance = build_provenance.capture(inputs, project, source, Path(__file__).resolve().parent, tools)
-    key = value_hash({"input": inputs["inputKey"], "toolchain": tools["key"], "recipe": RECIPE,
+    build_identity = {"input": inputs["inputKey"], "toolchain": tools["key"], "recipe": RECIPE,
                       "buildProvenance": value_hash(provenance),
-                      "validateCampaignShaders": bool(getattr(args, "validate_campaign_shaders", False))})
+                      "validateCampaignShaders": bool(getattr(args, "validate_campaign_shaders", False))}
+    if full_asset_validation(): build_identity["fullAssetValidation"] = True
+    key = value_hash(build_identity)
     apk = output / "builds" / key / "GloomhavenVR-Quest.apk"
     report = Path(str(apk) + ".build.json")
     provenance_path = apk.parent / "build-provenance.json"
@@ -1619,10 +1659,17 @@ def build(args, inputs: dict, output: Path, source: Path, game: Path, project: P
                "apk": apk.relative_to(output).as_posix(), "details": receipt["details"]})
     print("build: verified " + str(apk) + (" (DIAGNOSTIC: " + args.target + ")" if args.target != "game" else "") +
           (" (DUMMY IDENTITY)" if inputs["profile"].get("isDummy") else ""), flush=True)
-    build_progress.event("delivery-finalize", 5, 5, "steps", "Android Player delivery completed",
+    delivery_total = 5 if inputs["target"] == "game" and full_asset_validation() else 3
+    build_progress.event("delivery-finalize", delivery_total, delivery_total, "steps", "Android Player delivery completed",
                          operation="delivery", status="complete")
     build_progress.operation("delivery", complete=True, detail="Signed APK, native content bank and build receipt verified")
     return apk
+
+
+def full_asset_validation():
+    """Normal builds execute producers and required contracts, not exhaustive QA."""
+    return (os.environ.get("GHVR_QUEST_VALIDATE_IMPORTED_ASSETS") == "1" or
+            os.environ.get("GHVR_QUEST_VERIFICATION") == "full")
 
 
 def finish_player_delivery(inputs, output, source, project, tools, key, provenance, *, resumed=False):
@@ -1635,9 +1682,11 @@ def finish_player_delivery(inputs, output, source, project, tools, key, provenan
     apk = output / "builds" / key / "GloomhavenVR-Quest.apk"
     report = Path(str(apk) + ".build.json")
     provenance_path = apk.parent / "build-provenance.json"
-    build_progress.operation("delivery", detail="Validating the actual signed APK and complete delivered content banks")
+    detailed = inputs["target"] == "game" and full_asset_validation()
+    delivery_total = 5 if detailed else 3
+    build_progress.operation("delivery", detail="Finalizing the signed APK and its delivered content contract")
     def delivery_progress(done, detail):
-        build_progress.event("delivery-finalize", done, 5, "steps", detail, operation="delivery")
+        build_progress.event("delivery-finalize", done, delivery_total, "steps", detail, operation="delivery")
     delivery_progress(0, "Signing the existing Player for later local updates")
     metadata = json.loads(report.read_text(encoding="utf-8"))
     if inputs["target"] == "game":
@@ -1657,10 +1706,10 @@ def finish_player_delivery(inputs, output, source, project, tools, key, provenan
         _module_context(), output, key, apk, source, project)
     details = gates.apk_validation(inputs, tools, report, provenance,
         lambda: validate_apk(apk, report, inputs, tools, output, provenance))
-    delivery_progress(2, "Validating the delivered native graphics")
+    if detailed: delivery_progress(2, "Validating the delivered native graphics")
     details["buildEvidenceFiles"] = [record_file(provenance_path, provenance_path.relative_to(output).as_posix())]
     evidence = [provenance_path]
-    if inputs["target"] == "game":
+    if inputs["target"] == "game" and full_asset_validation():
         import campaign_compute
         import campaign_native_shaders
         early_receipt = apk.parent / "shaders-addressables-validation.json"
@@ -1705,7 +1754,14 @@ def finish_player_delivery(inputs, output, source, project, tools, key, provenan
             if field in checked:
                 details["computeValidation"][field] = checked[field]
         evidence.append(compute_receipt)
-    delivery_progress(4, "Publishing the completed build receipt")
+    if inputs["target"] == "game" and not full_asset_validation():
+        details["optionalAssetValidation"] = {
+            "requested": False, "completed": False,
+            "scope": "whole-bank-delivered-shader-and-compute-audit",
+            "reason": "developer-only; native compilation and APK/content contracts remain required",
+            "hardwareVerified": False}
+        print("delivery: optional whole-bank graphics/compute readback omitted; signature and content contract validated", flush=True)
+    delivery_progress(4 if full_asset_validation() and inputs["target"] == "game" else 2, "Publishing the completed build receipt")
     return [apk, report, *evidence, *(output / row["path"] for row in details["contentFiles"])], details
 
 
@@ -1729,7 +1785,8 @@ def finish_completed_build(args, output):
     write_json(output / "latest-build.json", {"schema": 1,
         "receipt": Stages(output).path("build", key).relative_to(output).as_posix(),
         "apk": apk.relative_to(output).as_posix(), "details": receipt["details"]})
-    build_progress.event("delivery-finalize", 5, 5, "steps", "Android Player delivery completed",
+    delivery_total = 5 if inputs["target"] == "game" and full_asset_validation() else 3
+    build_progress.event("delivery-finalize", delivery_total, delivery_total, "steps", "Android Player delivery completed",
                          operation="delivery", status="complete")
     build_progress.operation("delivery", complete=True,
                              detail="Existing Android Player delivery completed; runtime B" + str(inputs["mod"]["modBuild"]))
@@ -1841,7 +1898,7 @@ def bind_startup_package_apis(args, output: Path, source: Path, project: Path,
     build_progress.operation("package-api", detail="Binding recovered original scripts to the imported Android Unity package APIs")
     sdk_files = inventory(sdk, [name + ".dll" for name in REPLACED_PACKAGES])
     plugins = {}
-    for path in sorted((project / "Assets").rglob("*.dll")):
+    for path in project_plugin_paths(project):
         # Unity copies StreamingAssets as runtime data; Wine/engine payload DLLs
         # there are not managed plugins and must never be rewritten by this audit.
         if path.relative_to(project / "Assets").parts[0].casefold() == "streamingassets":
@@ -1994,6 +2051,8 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--target", choices=("probe", "startup", "game"), default="game")
     result.add_argument("--procedural-backend", choices=("proton-arm64ec-fex", "box64-wine9"),
                         help="Developer override: the default full-game backend is Android ARM64EC Proton/FEX; Box64/Wine9 is an explicit comparison only.")
+    result.add_argument("--full-validation", action="store_true",
+                        help="Developer audit: opt in to exhaustive file, scene, graphics and delivered-bank readback; omitted in normal builds.")
     result.add_argument("--validate-campaign-shaders", action="store_true",
                         help="Developer audit: compile/reflect every original Campaign shader program; normal builds keep required native SVC/import checks.")
     result.add_argument("--profile-json", type=Path)
@@ -2078,6 +2137,8 @@ def export_portable(args, output: Path):
 def main(argv: list[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     args = parser().parse_args(arguments)
+    if args.full_validation:
+        os.environ.update(GHVR_QUEST_VERIFICATION="full", GHVR_QUEST_VALIDATE_IMPORTED_ASSETS="1", GHVRQ_FULL_ASSET_AUDIT="1")
     try:
         repo = args.repo_root.resolve()
         if args.command in ("inspect", "prepare", "build", "finish-build", "inspect-update", "update-mod", "update-profile") and not args.game_root:

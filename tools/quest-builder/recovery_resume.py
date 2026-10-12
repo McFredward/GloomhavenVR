@@ -312,6 +312,42 @@ OBSERVATION_EDITOR_OVERLAY = {
         "sha256": "17282bd3e2424b80be6f1d4fb611afda18e5bc80a043afc33bfbd217856e570c"},
 }
 
+# Keep the entire shipped profile and the exact minimum-I/O reader profile.
+OBSERVATION_COST_PREVIOUS = OBSERVATION_EDITOR_OVERLAY
+OBSERVATION_EDITOR_OVERLAY = {'tools/quest-builder/campaign_native_shaders.py': {'path': 'tools/quest-builder/campaign_native_shaders.py',
+                                                    'sha256': '85d41dfd671901d6ba830f6e23f080f484828558b489843623e29fcb7727a7d6',
+                                                    'size': 41671},
+ 'tools/quest-builder/editor_overlay.py': {'path': 'tools/quest-builder/editor_overlay.py',
+                                           'sha256': 'ba03316ea23b1d9ad1b29ced02f19e5c5f8daae8b7ea3c368570191d48d2665e',
+                                           'size': 25471},
+ 'tools/quest-builder/full_assets.py': {'path': 'tools/quest-builder/full_assets.py',
+                                        'sha256': '6b0bd5ab1b5f0596c2484869b992cdaa9d35794c7b5139753aca10e662f27db1',
+                                        'size': 33240},
+ 'tools/quest-builder/preparation_metadata.py': {'path': 'tools/quest-builder/preparation_metadata.py',
+                                                 'sha256': '49214de8c09314161b5604ca6374d127ad4463922491fcd6227a654a1bdf00f4',
+                                                 'size': 13093},
+ 'tools/quest-builder/preparation_repair.py': {'path': 'tools/quest-builder/preparation_repair.py',
+                                               'sha256': '66591585acb4ae75f87d9d2d77b7609af998754841f16924d3267222261bcb07',
+                                               'size': 29301},
+ 'tools/quest-builder/prepare_resume.py': {'path': 'tools/quest-builder/prepare_resume.py',
+                                           'sha256': '17282bd3e2424b80be6f1d4fb611afda18e5bc80a043afc33bfbd217856e570c',
+                                           'size': 83153},
+ 'tools/quest-builder/project_access.py': {'path': 'tools/quest-builder/project_access.py',
+                                           'sha256': '813d2724ed401e87b897b2949482222b6a4fb7ced7a4133c977eb011f48425b6',
+                                           'size': 3747},
+ 'tools/quest-builder/script_remap_resume.py': {'path': 'tools/quest-builder/script_remap_resume.py',
+                                                'sha256': '2df458731fe9f50ec17df9d420506dc21d98b89fbead24b2b1356dbf5b7788e0',
+                                                'size': 11422},
+ 'tools/quest-builder/staging_resume.py': {'path': 'tools/quest-builder/staging_resume.py',
+                                           'sha256': '1adbfa212166bc7266bb3da6a6750cb91f3547fad2806d69f59116a38f17b3d4',
+                                           'size': 21916},
+ 'tools/quest-builder/storage.py': {'path': 'tools/quest-builder/storage.py',
+                                    'sha256': '325cbfedd0da653aceda281c902b96cc1cce869a2fee8ce6f4050e7907442662',
+                                    'size': 70564},
+ 'tools/quest-builder/unity_work.py': {'path': 'tools/quest-builder/unity_work.py',
+                                       'sha256': 'a3194a3b5bdb40988f008a7095722e71264ebb359ef04e94d57e0a0083c08277',
+                                       'size': 13937}}
+
 OBSERVATION_PROFILES = (OBSERVATION_BYTE_WITNESSES, OBSERVATION_FIXED,
                         OBSERVATION_INPUT_INDEX, OBSERVATION_INPUT_ORDER, OBSERVATION_DIRECTORY_BATCH, OBSERVATION_GRAPHICS_CONTRACT, OBSERVATION_COMPLETED_METADATA)
 # Shipped d4cc44eeb adds an exporter-log observer and invocation-local proof
@@ -323,6 +359,40 @@ TIMED_RECOVERY_FILES = {
     'tools/quest-recovery/native_evidence.py': 'f272fd2db64f6b59a2d7e4c2fcc9eb130bc0996b9fb21fa20f7c82cb12ec8d62',
     'tools/quest-recovery/recover.py': 'ff0e086e45e8ed1978f69bd0fea5d738aabe7ea59d260c28dbf69b08ef914b7f',
 }
+# Scheduling, bounded observation and pruning retain canonical asset bytes.
+# Source qualification uses actual rows. Only this entire exact orchestration
+# profile maps to its shipped raw/derived producer scope; unknown/mixed rows do
+# not remove the newly introduced process supervisor from their contract.
+COST_RECOVERY_PREVIOUS = {'tools/quest-recovery/bundle_recovery.py': {'path': 'tools/quest-recovery/bundle_recovery.py',
+                                             'sha256': '7a3993a642486797d43529e8e5e443c7f747cadb3da103c015c7e33b3c3e8a93',
+                                             'size': 32407},
+ 'tools/quest-recovery/full_recovery.py': {'path': 'tools/quest-recovery/full_recovery.py',
+                                           'sha256': '7c50355e648109232182f84ea271017603c12c87f70380cce76dbdca5ed23858',
+                                           'size': 14972},
+ 'tools/quest-recovery/native_evidence.py': {'path': 'tools/quest-recovery/native_evidence.py',
+                                             'sha256': 'f272fd2db64f6b59a2d7e4c2fcc9eb130bc0996b9fb21fa20f7c82cb12ec8d62',
+                                             'size': 14123},
+ 'tools/quest-recovery/recover.py': {'path': 'tools/quest-recovery/recover.py',
+                                     'sha256': 'c0e738efa56b4c6c29cea965eb94a6e274e0ed19bd3802a42206cf343339365f',
+                                     'size': 47667}}
+COST_RECOVERY_CURRENT = {'tools/quest-recovery/bundle_recovery.py': {'path': 'tools/quest-recovery/bundle_recovery.py',
+                                             'sha256': '9d08921fe17ca32a679c6fca1a87d4dc29ccd8062b8ef86a0083ae8d1f690eaf',
+                                             'size': 41183},
+ 'tools/quest-recovery/full_recovery.py': {'path': 'tools/quest-recovery/full_recovery.py',
+                                           'sha256': 'ca5019594872459fac3aa2eaf62eadaec08904904dfeea981d34e67a9d98202d',
+                                           'size': 16521},
+ 'tools/quest-recovery/native_evidence.py': {'path': 'tools/quest-recovery/native_evidence.py',
+                                             'sha256': '4538cbbf9be0c6d4ed396076763b3809ff635131cf09de14b50affd94855c03f',
+                                             'size': 14904},
+ 'tools/quest-recovery/recover.py': {'path': 'tools/quest-recovery/recover.py',
+                                     'sha256': 'abb9abd9a35e27a618a5d3a08d1bd364a140d117c107f56557c87e026eb8b368',
+                                     'size': 54417},
+ 'tools/quest-recovery/recovery_workers.py': {'path': 'tools/quest-recovery/recovery_workers.py',
+                                              'sha256': '462fd29f8096787f32f62ccae6fa682003eedd2a2b0c8afc8ed7573ef784fa97',
+                                              'size': 4825}}
+CRLF_OBSERVER_COST_PREVIOUS = CRLF_OBSERVER_FIXED
+CRLF_OBSERVER_FIXED = COST_RECOVERY_CURRENT[OBSERVER_FILE]
+
 ORCHESTRATION_FILES = set(LEGACY_MERGE_FILES) | {OBSERVER_FILE}
 # native_stage runs only on the fresh derived project, after all raw export
 # checkpoints. Its deferred duplicate audit cannot alter an original export.
@@ -349,6 +419,17 @@ def _native_byte_rows(rows):
     by_path = {}
     for row in rows:
         by_path.setdefault(row["path"], []).append(row)
+    # Scheduling helper bytes cannot produce asset content. Exclude only its
+    # exact reviewed row, while every unknown helper/body remains consumed.
+    complete = all(by_path.get(name) == [COST_RECOVERY_CURRENT[name]] for name in COST_RECOVERY_PREVIOUS)
+    helper = "tools/quest-recovery/recovery_workers.py"
+    helper_valid = helper not in by_path or by_path[helper] == [COST_RECOVERY_CURRENT[helper]]
+    if helper_valid:
+        rows = [row for row in rows if row["path"] != helper]
+    if complete and helper_valid:
+        rows = [COST_RECOVERY_PREVIOUS.get(row["path"], row) for row in rows]
+        by_path = {}
+        for row in rows: by_path.setdefault(row["path"], []).append(row)
     if (NATIVE_BYTES_FIXED and all(by_path.get(name) == [fixed]
                                   for name, fixed in NATIVE_BYTES_FIXED.items())):
         return [NATIVE_BYTES_PREVIOUS.get(row["path"], row) for row in rows]
@@ -370,6 +451,7 @@ def preparation_source_rows(rows):
                                            OBSERVATION_NATIVE_VALIDATION_PREVIOUS,
                                            OBSERVATION_ZIP32_DELIVERY_PREVIOUS,
                                            OBSERVATION_UNDO_WITNESSES_PREVIOUS,
+                                           OBSERVATION_COST_PREVIOUS,
                                            OBSERVATION_EDITOR_OVERLAY)
                     if all(current.get(name) == [fixed] for name, fixed in profile.items())), None)
     if profile is not None:
@@ -403,7 +485,7 @@ def preparation_source_rows(rows):
 
 def recipe_key(inputs, recipe):
     selected = {"mod": {"files": preparation_source_rows(inputs["mod"]["files"])}}
-    rows = [CRLF_OBSERVER_PREVIOUS if row == CRLF_OBSERVER_FIXED else row
+    rows = [CRLF_OBSERVER_PREVIOUS if row in (CRLF_OBSERVER_FIXED, CRLF_OBSERVER_COST_PREVIOUS) else row
             for row in recipe_files(selected)]
     return value_hash({"game": inputs["game"]["key"], "recoveryRecipe": rows, "recipe": recipe})
 
@@ -470,7 +552,8 @@ def _compatible(previous, current):
         if old[name] == new[name]: continue
         if (name == OBSERVER_FILE
                 and old[name] == {"path": name, "bytes": CRLF_OBSERVER_PREVIOUS["size"], "sha256": CRLF_OBSERVER_PREVIOUS["sha256"]}
-                and new[name] == {"path": name, "bytes": CRLF_OBSERVER_FIXED["size"], "sha256": CRLF_OBSERVER_FIXED["sha256"]}):
+                and new[name] in ({"path": name, "bytes": item["size"], "sha256": item["sha256"]}
+                                  for item in (CRLF_OBSERVER_FIXED, CRLF_OBSERVER_COST_PREVIOUS))):
             continue  # The same reviewed observer-only repair also keeps a bound raw tree eligible.
         if name not in ORCHESTRATION_FILES: return False
         changed.append(name)

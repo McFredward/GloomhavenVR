@@ -97,8 +97,10 @@ MEMORY_OBSERVER_PROFILES = {
 }
 
 
+MEMORY_POLICY_MINIMUM = {'path': 'tools/quest-builder/host_resources.py', 'size': 26933, 'sha256': 'b3f6c466e52edbccb8a0497adf6f57ffd0197e1b5c33a0ff641af6cd6eb3ee12'}
+
 def _memory_row(row):
-    if row in (MEMORY_POLICY_FIXED, MEMORY_POLICY_ADAPTIVE):
+    if row in (MEMORY_POLICY_FIXED, MEMORY_POLICY_ADAPTIVE, MEMORY_POLICY_MINIMUM):
         return MEMORY_POLICY_PREVIOUS
     fixed, previous = MEMORY_OBSERVER_PROFILES.get(row["path"], (None, row))
     return previous if row == fixed else row
@@ -107,7 +109,8 @@ def _memory_row(row):
 PREFIX_DELIVERY_HELPERS = {"tools/quest-builder/release.py", "tools/quest-builder/support.py",
                            "tools/quest-builder/README.md", "Quest-Builder.cmd", "Quest-Builder.sh",
                            "QUEST-BUILDER-START.txt", "tools/quest-builder/update_capacity.py",
-                           "tools/quest-builder/apk_input_cache.py", "tools/quest-builder/portable_package.py"}
+                           "tools/quest-builder/apk_input_cache.py", "tools/quest-builder/portable_package.py",
+                           "tools/quest-builder/native_content_pack.py"}
 # The captured Windows TLS failure precedes the first completed native-runtime
 # transaction. Its Opus downloader cannot produce any earlier original assets.
 # Once that transaction closes, this source again qualifies the native outputs.
@@ -153,6 +156,16 @@ BUILDER_UNITY_WORK_AST = {
             "6905242806bb695c86e84be373112f21804c425afa710398cb40b665f4d608d1"),
     True: ("ae48c5ed4bd681a70b83f0ae027f7735d059229f24dc28b626a63d59436e6f7f",
            "cc09e2c539f383d447f494d386bd5fa6dd8df9989a964543d98c33f4bea6385f"),
+}
+
+# Exact reviewed minimum-work release: required producer order and decoded asset
+# bytes stay the same; atomic ZIP wrappers use faster compression. Existing ZIP
+# bytes remain owned by their real receipts, not this compatibility fingerprint.
+# The two preceding CLI reconstructions differ only in late update/export code.
+BUILDER_MINIMUM_WORK_AST = {
+    "1cb377c5b5db046330deb95984f5c9d403e01b6cb9b8f2ff166f5dbcb1d6b0a0": "6905242806bb695c86e84be373112f21804c425afa710398cb40b665f4d608d1",
+    "c8b33abda427e267d71ca88e5ca5c8e9a5ec6d41ecc4b64365c93aedde241009": "6905242806bb695c86e84be373112f21804c425afa710398cb40b665f4d608d1",
+    "ea8ab0377918b31a9c35213974997d8665588412254ba0435e4e0e51c3e0aad8": "6905242806bb695c86e84be373112f21804c425afa710398cb40b665f4d608d1"
 }
 
 # Once every preparation owner has closed, the old loading drawing bytes and
@@ -484,6 +497,7 @@ def builder_producer_digest(raw, *, original_prefix=False):
             if isinstance(node, ast.ImportFrom) and node.module == "storage":
                 node.names = [name for name in node.names if not (name.name == "persistent_inventory" and name.asname is None)]
     result = hashlib.sha256(ast.dump(tree, include_attributes=False).encode("utf-8")).hexdigest()
+    result = BUILDER_MINIMUM_WORK_AST.get(result, result)
     observed, preceding = BUILDER_PORTABLE_AST[bool(original_prefix)]
     if result == observed: result = preceding
     observed, preceding = BUILDER_MOD_UPDATE_AST[bool(original_prefix)]

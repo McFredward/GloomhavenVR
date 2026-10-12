@@ -414,6 +414,8 @@ def _update_source_rows(files, *, art_changed):
 # No code is recovered from Git at build time and an unknown/mutated row is not
 # accepted. All listed revisions normalize to the same complete producer AST.
 _LEGACY_BUILDER_PRODUCERS = {
+    (147152, '114fc82dbac09e1c563888bac005c7d2c4ff8e3f0ff3138505a6ed2fd0cb20b2'),  # last delivered B671
+
     (132328, "419aaa4eec29164fbf8298c60b5bea7ec9392d9eb74d35084f84000d92ab7b67"),  # 8063c8fc8
     (133597, "545fa081d3ef9e8839935e4b13464b461473a3f6e6c176ff71d91d271e482c92"),  # 19b973084
     (134727, "0d8231f08b47cf5816145a08d5dc20e1b5f03945be0817fd747710bfc2855d24"),  # cb6f84fb2
@@ -443,6 +445,38 @@ _PAYLOAD_AUDIT_ONLY_ROWS = {
     },
 }
 
+# Reviewed minimum-work Editor consumers retain all actual serialized assets.
+_PAYLOAD_AUDIT_ONLY_ROWS.update({'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestBuild.cs': {(49322, '19d6e2358ba946b00f038c38674b1a0c37766d1a76ecfa9b0e5e29ec5ca84366'), (54277, 'dbea1fde653acfafd281186f966ea7951eda6b6fc5f325d2c05b83c979b546f4')}, 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestStartupAddressablesBuild.cs': {(38495, '9a9d7ddadcee369ac3551102b608b13b5c92c57f993fe170e05ab314005e86ac'), (35449, 'f1e997c4ed9de67bf7f9c920df4d2d464c27b11e6cf34a5edbcbd6aedf358dc6')}, 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCampaignShaderValidation.cs': {(47628, '8adfde472a64405672550a0890274569603a56b21aba7f5fcdabcd3dbeac6740'), (48221, '73883a7f76937561365b3276daeec221ee4c522999429d9ab43762423ba3bbcb')}})
+
+# Exact scheduling/observation and decoded-content-equivalent ZIP wrappers.
+_PAYLOAD_AUDIT_ONLY_ROWS.update({'tools/quest-builder/full_assets.py': {(32663,
+                                         '871186d12af12ab23dd59746acd9a0ade6d87feee03f6b654d4b6451e874206e'),
+                                        (33240,
+                                         '6b0bd5ab1b5f0596c2484869b992cdaa9d35794c7b5139753aca10e662f27db1')},
+ 'tools/quest-builder/native_content_pack.py': {(16256,
+                                                 '18bb1c74ec6da61c1c4500b0c94ba3b505762da645de10c338694bbb1c163ddd'),
+                                                (22386,
+                                                 '29c8e696072116265634379acbb89c84051c46701ad4e2b4ee577699f4d3a714')},
+ 'tools/quest-recovery/bundle_recovery.py': {(32407,
+                                              '7a3993a642486797d43529e8e5e443c7f747cadb3da103c015c7e33b3c3e8a93'),
+                                             (41183,
+                                              '9d08921fe17ca32a679c6fca1a87d4dc29ccd8062b8ef86a0083ae8d1f690eaf')},
+ 'tools/quest-recovery/full_recovery.py': {(14972,
+                                            '7c50355e648109232182f84ea271017603c12c87f70380cce76dbdca5ed23858'),
+                                           (16521,
+                                            'ca5019594872459fac3aa2eaf62eadaec08904904dfeea981d34e67a9d98202d')},
+ 'tools/quest-recovery/native_evidence.py': {(14123,
+                                              'f272fd2db64f6b59a2d7e4c2fcc9eb130bc0996b9fb21fa20f7c82cb12ec8d62'),
+                                             (14904,
+                                              '4538cbbf9be0c6d4ed396076763b3809ff635131cf09de14b50affd94855c03f')},
+ 'tools/quest-recovery/recover.py': {(47667,
+                                      'c0e738efa56b4c6c29cea965eb94a6e274e0ed19bd3802a42206cf343339365f'),
+                                     (54417,
+                                      'abb9abd9a35e27a618a5d3a08d1bd364a140d117c107f56557c87e026eb8b368')},
+ 'tools/quest-recovery/recovery_workers.py': {(4825,
+                                               '462fd29f8096787f32f62ccae6fa682003eedd2a2b0c8afc8ed7573ef784fa97')}})
+_PAYLOAD_INTRODUCED_OBSERVERS = {'tools/quest-recovery/recovery_workers.py': {'path': 'tools/quest-recovery/recovery_workers.py', 'size': 4825, 'sha256': '462fd29f8096787f32f62ccae6fa682003eedd2a2b0c8afc8ed7573ef784fa97'}}
+
 
 def _legacy_payload_producer(files):
     rows = [row for row in files if row["path"] == "tools/quest-builder/builder.py"]
@@ -452,6 +486,8 @@ def _legacy_payload_producer(files):
 
 
 def _audit_only_change(path, current, previous):
+    added = _PAYLOAD_INTRODUCED_OBSERVERS.get(path)
+    if added is not None and previous is None and current == added: return True
     known = _PAYLOAD_AUDIT_ONLY_ROWS.get(path)
     return bool(known and isinstance(current, dict) and isinstance(previous, dict)
                 and (current.get("size"), current.get("sha256")) in known

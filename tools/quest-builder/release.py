@@ -58,7 +58,7 @@ PROMOTIONAL_ASSETS = {'tools/quest-wizard-ui/assets/promo/' + name for name in (
     'bandit-guard-elite.jpg', 'bandit-archer-elite.jpg', 'living-bones-elite.jpg', 'living-corpse-elite.jpg',
     'living-spirit-elite.jpg', 'cultist-elite.jpg', 'sun-demon-elite.jpg', 'bandit-commander.jpg',
     'nightcrawler-scoundrel.jpg')}
-REQUIRED = set(PUBLIC_PACKAGES) | {'Quest-Builder.cmd', 'QUEST-BUILDER-START.txt', 'scripts/quest-builder-wizard.cmd', 'scripts/quest-builder-wizard.ps1', 'scripts/build-quest.py',
+REQUIRED = set(PUBLIC_PACKAGES) | {'tools/quest-recovery/recovery_workers.py', 'Quest-Builder.cmd', 'QUEST-BUILDER-START.txt', 'scripts/quest-builder-wizard.cmd', 'scripts/quest-builder-wizard.ps1', 'scripts/build-quest.py',
             'Quest-Repair-Access.cmd', 'Quest-Repair-Access.sh', 'scripts/repair-quest-access.ps1',
             'tools/quest-wizard/wizard.py', 'tools/quest-wizard-ui/index.html', 'tools/quest-installer/bootstrap.ps1',
             'tools/quest-wizard/server.py', 'tools/quest-wizard/cleanup.py',

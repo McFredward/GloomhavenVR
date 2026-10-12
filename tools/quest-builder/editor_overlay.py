@@ -92,6 +92,12 @@ REVIEWED = {'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestBuild.cs': ({'pat
                                                                                     'sha256': '8adfde472a64405672550a0890274569603a56b21aba7f5fcdabcd3dbeac6740'})}
 
 
+# Preserve the entire shipped Editor source profile when opting out of QA.
+MINIMUM_WORK_PREVIOUS = {'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestBuild.cs': {'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestBuild.cs', 'size': 49322, 'sha256': '19d6e2358ba946b00f038c38674b1a0c37766d1a76ecfa9b0e5e29ec5ca84366'}, 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestWizardProgress.cs': {'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestWizardProgress.cs', 'size': 16165, 'sha256': 'f6214ad8dda7d490b438d727f5b9b0e34610dda6bb2a85b0f3aebca353de9f4e'}, 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestStartupAddressablesBuild.cs': {'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestStartupAddressablesBuild.cs', 'size': 35449, 'sha256': 'f1e997c4ed9de67bf7f9c920df4d2d464c27b11e6cf34a5edbcbd6aedf358dc6'}, 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCampaignContentBuild.cs': {'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCampaignContentBuild.cs', 'size': 24053, 'sha256': 'cdc7a23ddf3e75ae157dabd3b2ebae6dbde0832d0b85b750104893e5e302948a'}, 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestSpriteGeometryValidation.cs': {'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestSpriteGeometryValidation.cs', 'size': 10988, 'sha256': 'b55c63d542ae0c4cae14f5723b5ec3d3711b78dc6fd595ea0d7d1d64cd3a89d1'}, 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCampaignSpriteValidation.cs': {'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCampaignSpriteValidation.cs', 'size': 23947, 'sha256': 'dc6210044d40058190d4d00711b453c9f05804db49371a5396b1f941b4300d97'}, 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestOriginalScriptBindings.cs': {'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestOriginalScriptBindings.cs', 'size': 13979, 'sha256': '91519d0b53c61762f6b2bf415c1e6e8e11247a67554d3f39546fe5572490e783'}, 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCampaignAssetValidation.cs': {'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCampaignAssetValidation.cs', 'size': 24726, 'sha256': '4e3941712f4befa1972f128f97df2446f3f89cddeab4d6db41208736a420ab3e'}, 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCampaignTextureValidation.cs': {'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCampaignTextureValidation.cs', 'size': 21965, 'sha256': 'b0b2bd98ad70a80ade1a2e8ef6b576abedb70f2abca66fd52ba00afe03984db9'}, 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCampaignComputeValidation.cs': {'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCampaignComputeValidation.cs', 'size': 20276, 'sha256': '581cb344d6a1561f5ca175c0e2d243c866e9d9e1da19b0dd7fb5341a0e585af5'}, 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCampaignShaderValidation.cs': {'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCampaignShaderValidation.cs', 'size': 47628, 'sha256': '8adfde472a64405672550a0890274569603a56b21aba7f5fcdabcd3dbeac6740'}}
+for _name, _row in {'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestBuild.cs': {'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestBuild.cs', 'size': 54277, 'sha256': 'dbea1fde653acfafd281186f966ea7951eda6b6fc5f325d2c05b83c979b546f4'}, 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestStartupAddressablesBuild.cs': {'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestStartupAddressablesBuild.cs', 'size': 38495, 'sha256': '9a9d7ddadcee369ac3551102b608b13b5c92c57f993fe170e05ab314005e86ac'}, 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCampaignShaderValidation.cs': {'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCampaignShaderValidation.cs', 'size': 48221, 'sha256': '73883a7f76937561365b3276daeec221ee4c522999429d9ab43762423ba3bbcb'}}.items():
+    REVIEWED[_name] = (REVIEWED[_name][0], _row)
+
+
 def _record(relative, raw):
     return {"path": relative, "size": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
 
@@ -156,13 +162,13 @@ PREVIOUS_NATIVE_AUDIT_PROGRESS_SCRIPTS = {'unity/GloomhavenVR.Quest/Assets/Quest
 def source_profiles():
     """Whole reviewed source profiles, never independently mixed script rows."""
     current = {name: pair[1] for name, pair in REVIEWED.items()}
-    previous = {**current, **PREVIOUS_NATIVE_AUDIT_PROGRESS_SCRIPTS}
+    previous = {**MINIMUM_WORK_PREVIOUS, **PREVIOUS_NATIVE_AUDIT_PROGRESS_SCRIPTS}
     counted = {**previous, PREVIOUS_COUNTED_LOADING_SCRIPT["path"]: PREVIOUS_COUNTED_LOADING_SCRIPT}
     preceding = {**previous, **PREVIOUS_TASK_SCRIPTS}
     profiles = (previous, {**previous, PREVIOUS_BINDINGS["path"]: PREVIOUS_BINDINGS},
             preceding, {**preceding, PREVIOUS_BINDINGS["path"]: PREVIOUS_BINDINGS},
             counted, {**counted, PREVIOUS_BINDINGS["path"]: PREVIOUS_BINDINGS})
-    return (current,) + profiles + tuple({**profile, **PREVIOUS_NATIVE_VALIDATION_SCRIPTS} for profile in profiles)
+    return (current, MINIMUM_WORK_PREVIOUS) + profiles + tuple({**profile, **PREVIOUS_NATIVE_VALIDATION_SCRIPTS} for profile in profiles)
 
 
 
@@ -187,7 +193,7 @@ def changes(previous, inputs):
         profile = REVIEWED.get(name)
         if (not isinstance(profile, tuple) or len(profile) != 2
                 or right != profile[1] or left not in (
-                    profile[0], PREVIOUS_BINDINGS if name == PREVIOUS_BINDINGS["path"] else profile[0],
+                    profile[0], MINIMUM_WORK_PREVIOUS.get(name, profile[0]), PREVIOUS_BINDINGS if name == PREVIOUS_BINDINGS["path"] else profile[0],
                     PREVIOUS_COUNTED_LOADING_SCRIPT if name == PREVIOUS_COUNTED_LOADING_SCRIPT["path"] else profile[0],
                     PREVIOUS_NATIVE_VALIDATION_SCRIPTS.get(name, profile[0]),
                     PREVIOUS_NATIVE_AUDIT_PROGRESS_SCRIPTS.get(name, profile[0]),

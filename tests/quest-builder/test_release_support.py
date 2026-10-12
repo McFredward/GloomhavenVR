@@ -120,7 +120,10 @@ class ReleaseTests(unittest.TestCase):
             return original_open(path, *args, **kwargs)
         with mock.patch.object(Path, 'open', observe):
             rows, _, _ = release.verified_source_inventory(self.root)
-        self.assertEqual(len(reads), 1)
+        # Fixture publication already measured this exact file. Its strong
+        # unchanged stamp carries that proof; release admission still compares
+        # the manifest below and must not read the same archive again.
+        self.assertEqual(len(reads), 0)
         self.assertIn(package.relative_to(self.root).as_posix(), {row['path'] for row in rows})
         value = self.manifest()
         next(row for row in value['files'] if row['path'] in release.PUBLIC_PACKAGES)['sha256'] = 'f' * 64

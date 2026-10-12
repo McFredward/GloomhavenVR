@@ -409,6 +409,8 @@ class CompatibleMigrationTests(ResumeFixture):
         current = self.inputs(self.previous["game"]["files"])
         published = copy.deepcopy(current)
         for index, row in enumerate(published["mod"]["files"]):
+            if row["path"] in recovery_resume.COST_RECOVERY_PREVIOUS:
+                published["mod"]["files"][index] = dict(recovery_resume.COST_RECOVERY_PREVIOUS[row["path"]])
             if row["path"] == recovery_resume.OBSERVER_FILE:
                 published["mod"]["files"][index] = dict(recovery_resume.CRLF_OBSERVER_PREVIOUS)
         key = recovery_resume.recipe_key(published, 1)
@@ -499,6 +501,10 @@ class ObserverStageContinuationTests(ResumeFixture):
         self.current = self.inputs(files)
         self.previous = copy.deepcopy(self.current)
         for index, row in enumerate(self.previous["mod"]["files"]):
+            # Preserve a real shipped whole orchestration profile; combining
+            # today's parallel supervisor with an older parser never shipped.
+            if row["path"] in recovery_resume.COST_RECOVERY_PREVIOUS:
+                self.previous["mod"]["files"][index] = dict(recovery_resume.COST_RECOVERY_PREVIOUS[row["path"]])
             if row["path"] == recovery_resume.OBSERVER_FILE:
                 self.previous["mod"]["files"][index] = dict(recovery_resume.CRLF_OBSERVER_PREVIOUS)
         self.previous["mod"]["key"] = storage.value_hash({"files": self.previous["mod"]["files"]})

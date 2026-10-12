@@ -3673,6 +3673,39 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ---
 
+
+## Quest Builder minimum storage/work review (2026-10-12, B672)
+
+Quest remains isolated on `feature/quest3-standalone` by the maintainer's explicit
+branch ruling. Current dev Build672 is merged; no game/APK is built locally.
+After the maintainer deleted the nearly400GB Windows workspace and reported7h
+cold builds, independent worker changes now overlap bounded raw exporters,
+prune committed scratch/duplicate core YAML, reuse real closed-source byte
+witnesses, and omit optional whole-graph/import/GPU/whole-bank diagnostic rereads.
+Campaign Unity tasks are17→8 before native cooking and6→1 afterward. Actual
+conversion/script binding/native compilation/owned-PC/signature contracts stay
+required. Archive transfer hashes while writing; qualified ZIP64 compressed
+members are copied without inflating/recompressing, with pre/post source identity
+checks and atomic publication. Plugin/content discovery prunes native runtime
+trees before recursion. Known observer/scheduling/QA changes retain reviewed
+raw/preparation/APK-update producer scopes; unknown producer changes remain real
+migrations. Concurrent exporter progress aggregates actual collection/closed
+receipt tasks; canonical merge stays in original order.
+
+Review: `.planning/QUEST-BUILD-STORAGE-TIME-20261012.md`. Focused composed checks
+include190 root,380 Wizard and165 profile/resume cases; final source/profile
+integration reruns and exact extracted-release qualification are recorded beside
+the ZIP. Strict composed mod Release has0 warnings/errors. Worker scopes include
+storage341, Recovery192 cases with2 existing skips, Builder80, Unity201 unique
+passing checks including inherited unchanged scope. Do not sum overlaps or call
+these a fresh complete-game gate. Small host fixtures prove eliminated reads and
+parallel overlap; no new Windows end-to-end duration/peak is claimed. Current
+hardware runtime outcomes are unchanged/unverified by this Builder review.
+
+All test subprocesses are reaped before central fixture cleanup. Own worker
+worktrees/caches are removed after integration, preserving external evidence,
+current deliverables and every other agent's active/borrowed inputs.
+
 ## 1. Position
 
 - **dev / 1.1.0 / ModBuild 600 (configurable Frame candidate):** reduce verified

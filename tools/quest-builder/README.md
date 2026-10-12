@@ -17,6 +17,33 @@ Mod updates select the source included in the current
 Builder archive, including its Quest runtime/weaver patches, rather than the mod
 DLL in the owner's PC game folder. Profile-only edits retain the installed mod.
 
+Normal builds now omit optional whole-project and whole-bank diagnostic readback.
+The required asset conversions, native compilation, package/ABI contracts, owned
+PC game/DLC admission and APK signature checks remain. Developers can request the
+full audit with `--full-validation`; this also enables imported-scene/texture QA
+and whole-reference audits. Audit receipts distinguish omitted work from passed
+work and never claim headset rendering was verified.
+
+Recovery uses bounded parallel exporter processes with private immutable input
+views, per-process environments and CPU quotas. Successful batches merge in the
+original order and publish independent durable receipts. Their temporary exports
+and duplicate recipe YAML are deleted immediately after canonical ownership
+closes; a failure retains earlier committed batches. Tight memory reduces
+concurrency and allocation-pressure retries the unfinished batch. Parallelism
+never launches two Unity Editors against the same Library.
+
+File snapshots compute hashes while transferring bytes. Reliable file-change
+witnesses carry a previously measured hash across compatible receipt owners;
+unknown or changed metadata falls back to a real read. Native bank repacking
+copies qualified compressed ZIP records directly, including ZIP64, and skips
+whole-entry decompression on unchanged reuse. Initial file-backed packaging is
+atomic and uses fast Deflate; existing native bundle compression remains intact.
+
+See `.planning/QUEST-BUILD-STORAGE-TIME-20261012.md` for the storage/time review,
+measured fixture scope, and remaining expensive required work. No fresh Windows
+end-to-end duration or fixed disk-space ceiling has been established by these
+source and fixture changes.
+
 The initial tile view opens one operation at a time. Build, mod update and name
 editing show only their setup/progress. Export, Quest connection/log capture and
 storage management have separate views. Navigation preserves their existing

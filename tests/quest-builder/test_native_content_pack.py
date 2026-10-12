@@ -17,6 +17,8 @@ import builder
 
 class NativeContentPack(unittest.TestCase):
     def setUp(self):
+        self.full = patch.dict(os.environ, {"GHVR_QUEST_VERIFICATION": "full"})
+        self.full.start(); self.addCleanup(self.full.stop)
         self.temp = tempfile.TemporaryDirectory(); self.root = Path(self.temp.name)
         self.native = self.root / "native"; self.native.mkdir()
         (self.native / "original.bundle").write_bytes(b"UnityFS\0native byte fixture" * 120)

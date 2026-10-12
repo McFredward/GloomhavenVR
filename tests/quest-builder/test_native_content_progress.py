@@ -22,6 +22,8 @@ PHASES = ("native-content-source-hash", "native-content-native-hash", "native-co
 
 class ContentProgress(unittest.TestCase):
     def setUp(self):
+        self.full = patch.dict(os.environ, {"GHVR_QUEST_VERIFICATION": "full"})
+        self.full.start(); self.addCleanup(self.full.stop)
         self.temp = tempfile.TemporaryDirectory(); self.output = Path(self.temp.name) / "output"
         self.output.mkdir()
         (self.output / ".quest-builder-output.json").write_text(json.dumps(

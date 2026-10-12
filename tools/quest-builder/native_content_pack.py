@@ -5,12 +5,14 @@ Addressables banks are already Unity-compressed; ZIP_STORED preserves their exac
 bytes without a second compressor. Original files keep the Deflate policy.
 """
 import argparse
+import copy
 import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
 import re
 import stat
+import struct
 import sys
 import time
 import uuid
@@ -198,6 +200,8 @@ def verify_entries(archive, files):
         entry = by_name[row["path"]]
         if entry.is_dir() or entry.file_size != row["size"] or stat.S_ISLNK(entry.external_attr >> 16):
             raise ValueError("Owned content ZIP entry size/type differs from its manifest.")
+        if entry.flag_bits & (1 | 0x20 | 0x40) or entry.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
+            raise ValueError("Owned content ZIP uses unsupported compression or encryption.")
 
 
 def write_entry(archive, row, stream, progress=None):
@@ -211,6 +215,81 @@ def write_entry(archive, row, stream, progress=None):
             if progress: progress.add(len(block), row["path"])
     if size != row["size"] or sha.hexdigest() != row["sha256"]:
         raise ValueError("Owned content bytes changed during native catalog packaging.")
+
+
+def full_validation():
+    """Developer-only whole-entry readback; normal builds keep archive SHA proof."""
+    return (os.environ.get("GHVR_QUEST_VERIFICATION") == "full" or
+            os.environ.get("GHVR_QUEST_VALIDATE_IMPORTED_ASSETS") == "1")
+
+
+def file_identity(path):
+    """Use the existing stdlib observer's FileID/change-time on Windows."""
+    import storage
+    value = ordinary(path).lstat()
+    if not stat.S_ISREG(value.st_mode): raise ValueError("Owned content member is not a regular file.")
+    portable = (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+    stamp = storage._file_witness_stamp(path, value)
+    if stamp is None and sys.platform == "win32" and value.st_nlink > 1:
+        # Content transactions already hardlink a read-only ZIP preimage. The
+        # persistent witness policy correctly excludes such files. For this
+        # one open-source read, directory FileID/ChangeTime still detects any
+        # mutation; never seed a persistent proof from this observation.
+        try:
+            observer = storage._windows_metadata or storage._WindowsFileMetadata()
+            entries = observer.directory(path.parent)
+            stamp = entries.get(path.name) if entries is not None else None
+        except (OSError, AttributeError):
+            pass
+    return portable, stamp
+
+
+def copy_compressed_entry(original, archive, entry, progress=None):
+    """Preserve qualified Deflate/STORED payload bytes without a decompressor.
+
+    Rebuild local headers from the validated central-directory sizes/CRC. Remove
+    the input data descriptor and regenerate ZIP64 fields for the new offset.
+    ZipFile writes the central directory and ZIP64 end records on close.
+    """
+    if entry.flag_bits & (1 | 0x20 | 0x40) or entry.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
+        raise ValueError("Owned content ZIP uses unsupported compression or encryption.")
+    stream = original.fp; stream.seek(entry.header_offset)
+    header = stream.read(30)
+    if len(header) != 30 or header[:4] != b"PK\x03\x04":
+        raise ValueError("Owned content ZIP lost its local entry header.")
+    fields = struct.unpack("<4s5H3I2H", header)
+    name_size, extra_size = fields[-2:]
+    name = stream.read(name_size)
+    encoding = "utf-8" if fields[2] & 0x800 else "cp437"
+    if (name.decode(encoding) != entry.filename or fields[3] != entry.compress_type
+            or fields[2] != entry.flag_bits):
+        raise ValueError("Owned content ZIP local header differs from its directory.")
+    stream.seek(extra_size, 1)
+    if stream.tell() + entry.compress_size > original.start_dir:
+        raise ValueError("Owned content ZIP payload leaves its directory boundary.")
+    info = copy.copy(entry); info.flag_bits &= ~8
+    # Old ZIP64 extra fields contain input offsets/sizes. FileHeader and the
+    # standard central writer regenerate them for this output, including >4GB.
+    extra, cursor = bytearray(), 0
+    while cursor < len(entry.extra):
+        if cursor + 4 > len(entry.extra): raise ValueError("Malformed ZIP extra field.")
+        kind, length = struct.unpack_from("<HH", entry.extra, cursor)
+        end = cursor + 4 + length
+        if end > len(entry.extra): raise ValueError("Malformed ZIP extra field.")
+        if kind != 1: extra.extend(entry.extra[cursor:end])
+        cursor = end
+    info.extra = bytes(extra); info.header_offset = archive.fp.tell()
+    archive._writecheck(info); archive._didModify = True
+    archive.fp.write(info.FileHeader(info.file_size > zipfile.ZIP64_LIMIT or
+                                     info.compress_size > zipfile.ZIP64_LIMIT))
+    remaining = info.compress_size
+    while remaining:
+        block = stream.read(min(1024 * 1024, remaining))
+        if not block: raise ValueError("Truncated owned ZIP compressed payload.")
+        archive.fp.write(block); remaining -= len(block)
+        if progress: progress.add(len(block), info.filename)
+    archive.filelist.append(info); archive.NameToInfo[info.filename] = info
+    archive.start_dir = archive.fp.tell()
 
 
 def pack(request):
@@ -231,7 +310,8 @@ def _pack(request, progress):
     project, native = project.resolve(), native.resolve()
     if not project.is_dir() or not native.is_dir() or not native.is_relative_to(project):
         raise ValueError("Native Addressables output must exist inside its owned project.")
-    manifest_path = project / MANIFEST; manifest = read_json(manifest_path)
+    manifest_path = project / MANIFEST
+    manifest_identity = file_identity(manifest_path); manifest = read_json(manifest_path)
     validate_files(manifest.get("files"))
     if not isinstance(manifest.get("inputKey"), str) or not re.fullmatch(r"[0-9a-f]{64}", manifest["inputKey"]):
         raise ValueError("Owned content manifest lost its exact input identity.")
@@ -241,6 +321,7 @@ def _pack(request, progress):
     archive_path = ordinary(project / "Assets/StreamingAssets" / name)
     if not archive_path.is_file():
         raise ValueError("Owned content archive changed before native catalog packaging.")
+    source_identity = file_identity(archive_path)
     source_hash = progress.counter("native-content-source-hash", archive_path.stat().st_size, archive_path.name)
     if digest(archive_path, source_hash) != manifest.get("archiveSha256"):
         raise ValueError("Owned content archive changed before native catalog packaging.")
@@ -269,29 +350,50 @@ def _pack(request, progress):
     try:
         with zipfile.ZipFile(archive_path) as original:
             verify_entries(original, manifest["files"])
-            writes = progress.counter("native-content-write", sum(row["size"] for row in desired),
-                                      "Validating retained ZIP entries" if reused else "Writing native Android content")
-            if reused:
+            full = full_validation()
+            retained_bytes = sum(row["size"] if full else original.getinfo(row["path"]).compress_size
+                                 for row in retained)
+            writes = progress.counter("native-content-write",
+                sum(row["size"] for row in desired) if reused and full else
+                0 if reused else retained_bytes + sum(row["size"] for row in added),
+                "Validating retained ZIP entries" if reused and full else
+                "Reusing qualified archive" if reused else "Writing native Android content")
+            if reused and full:
                 for row in desired:
                     writes.detail = row["path"]
                     with original.open(row["path"]) as stream:
                         if stream_hash(stream, writes) != row["sha256"]:
                             raise ValueError("Owned content ZIP file hash differs from its manifest.")
-            else:
+            elif not reused:
                 with zipfile.ZipFile(temporary, "x", compression=zipfile.ZIP_DEFLATED, compresslevel=6, allowZip64=True) as output:
                     for row in retained:
-                        with original.open(row["path"]) as stream:
-                            write_entry(output, row, stream, writes)
+                        if full:
+                            with original.open(row["path"]) as stream:
+                                write_entry(output, row, stream, writes)
+                        else:
+                            copy_compressed_entry(original, output, original.getinfo(row["path"]), writes)
                     for row in added:
                         with sources[row["path"]].open("rb") as stream:
                             write_entry(output, row, stream, writes)
         writes.finish()
+        # Bind the earlier SHA qualification to the exact closed source that
+        # was raw-copied. A replacement during native hashing never becomes a
+        # newly accepted archive. Unknown Windows stamps use a byte fallback.
+        if (file_identity(archive_path) != source_identity or
+                file_identity(manifest_path) != manifest_identity):
+            raise ValueError("Owned content archive/manifest changed during native catalog packaging.")
+        if os.name == "nt" and source_identity[1] is None:
+            if digest(archive_path) != manifest["archiveSha256"]:
+                raise ValueError("Owned content archive changed during native catalog packaging.")
         if not reused:
             # The existing durable builder journal recovers interruptions between
             # publishing this mutable archive/manifest pair.
             final_hash = progress.counter("native-content-final-hash", temporary.stat().st_size, archive_path.name)
             manifest["files"] = desired; manifest["archiveSha256"] = digest(temporary, final_hash)
             final_hash.finish()
+            if (file_identity(archive_path) != source_identity or
+                    file_identity(manifest_path) != manifest_identity):
+                raise ValueError("Owned content archive/manifest changed before publication.")
             os.replace(temporary, archive_path); publish_json(manifest_path, manifest)
         else:
             # Source qualification already hashed the unchanged archive.
@@ -301,10 +403,12 @@ def _pack(request, progress):
                    "nativeBundleCount": sum(row["path"].endswith(".bundle") for row in added),
                    "nativeBundleBytes": sum(row["size"] for row in added if row["path"].endswith(".bundle")),
                    "nativeBundleCompression": "preserved-existing" if reused else "ZIP_STORED",
-                   "retainedCompression": "preserved-existing" if reused else "ZIP_DEFLATED",
+                   "retainedCompression": "preserved-existing" if reused or not full else "ZIP_DEFLATED",
                    "archiveSha256": manifest["archiveSha256"], "archiveSize": archive_path.stat().st_size,
                    "manifestSha256": digest(manifest_path), "elapsedSeconds": time.monotonic() - started,
-                   "allEntryBytesVerified": True, "headsetVerified": False}
+                   "allEntryBytesVerified": full, "archiveBytesVerified": True,
+                   "retainedEntryReadback": "full" if full else "omitted-qualified-archive",
+                   "compressedRecordsCopied": not reused and not full, "headsetVerified": False}
         publish_json(project / RECEIPT, receipt)
         return receipt
     finally:
