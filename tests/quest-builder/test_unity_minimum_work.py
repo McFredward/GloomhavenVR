@@ -115,6 +115,7 @@ class MinimumUnityWorkTests(unittest.TestCase):
             "static string Required(string key)", "static string[] PrepareOriginalStartup(",
             "public static bool ImportedAssetValidationRequested(string value)",
             "public static bool ImportedAssetValidationRequested()", "static void WriteBuildWorkReceipt()")]
+        self.excerpts = excerpts
         production = (SHIMS + "\nnamespace GloomhavenVR.Quest.Editor {public static class QuestBuild {\n"
             "const string BuildWorkReceiptPath=\"QuestStartupEvidence/build-work.json\";\n"
             "static BuildWorkReceipt buildWork;static object campaignShaderMode;\n"
@@ -177,6 +178,40 @@ class MinimumUnityWorkTests(unittest.TestCase):
         self.assertFalse(result["receipt"]["importedAssetQaCompleted"])
         self.assertFalse(result["receipt"]["originalPixelParityVerified"])
         self.assertFalse(result["receipt"]["headsetPictureVerified"])
+
+    def test_preparation_and_real_validation_consumers_compile_against_pinned_unity_sdk(self):
+        # Compile the changed preparation method with actual Unity types and
+        # real native validation consumers, independently of the behavioral
+        # API spies above. Only startup runtime construction/cooking and the
+        # small surrounding Build entry point are bounded declarations here.
+        path = self.base / "ActualSdk.cs"
+        path.write_text("using System;using System.IO;using System.Linq;using UnityEngine;"
+            "using UnityEditor;using UnityEditor.SceneManagement;\n"
+            "namespace GloomhavenVR.Quest.Editor {"
+            "public sealed class QuestGameBootstrap:MonoBehaviour {}"
+            "public sealed class QuestGameModLifecycle:MonoBehaviour {public void PrepareStartupView(){}}"
+            "public static class QuestStartupAddressablesBuild {public static void Build(){}}"
+            "public static class QuestBuild {"
+            "const string BuildWorkReceiptPath=\"QuestStartupEvidence/build-work.json\";"
+            "static BuildWorkReceipt buildWork;static object campaignShaderMode;"
+            "static void ValidatePackageApiContract(){}static void ValidateCampaignBuildContract(){}"
+            "static object PrepareCampaignShaders(){return null;}static void PrepareLoadingLogo(){}\n" +
+            "\n".join(self.excerpts) + "}}\n")
+        names = ("QuestWizardProgress.cs", "QuestOriginalScriptBindings.cs", "QuestOriginalScriptOrders.cs",
+            "QuestAudioValidation.cs", "QuestSpriteGeometryValidation.cs", "QuestUiAssetValidation.cs",
+            "QuestPostEffectValidation.cs", "QuestVideoValidation.cs", "QuestWorldScreenValidation.cs",
+            "QuestBlurValidation.cs", "QuestCampaignAssetValidation.cs", "QuestCampaignTextureValidation.cs",
+            "QuestCampaignSpriteValidation.cs", "QuestCampaignComputeValidation.cs", "QuestCampaignShaderValidation.cs",
+            "QuestCampaignShaderCache.cs", "QuestVulkanShaderValidation.cs", "QuestSmolvDecoder.cs")
+        result = subprocess.run([str(MONO), str(MCS), "-langversion:latest", "-target:library",
+            "-define:UNITY_EDITOR,GHVR_QUEST_STARTUP,GHVR_QUEST_GAME", "-nowarn:0649,0414",
+            "-out:" + str(self.base / "ActualSdk.dll"),
+            *["-r:" + str(file) for file in sorted((DATA / "Managed/UnityEngine").glob("*.dll"))],
+            "-r:" + str(DATA / "PlaybackEngines/AndroidPlayer/UnityEditor.Android.Extensions.dll"),
+            str(path), *[str(EDITOR / name) for name in names]], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stderr.count("warning"), 1, result.stderr)
+        self.assertIn("PassType.VertexLMRGBM", result.stderr)
 
     def test_explicit_campaign_qa_preserves_existing_17_plus_6_actual_tasks(self):
         result = self.run_policy(flag="1")
