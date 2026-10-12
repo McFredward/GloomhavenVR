@@ -17,6 +17,8 @@ from release import ordinary
 MAX_FILE_BYTES = 2 * 1048576
 MAX_TOTAL_BYTES = 24 * 1048576
 MAX_FILES = 64
+MAX_WORKSPACE_RUNS = 128
+MAX_WORKSPACE_MANIFESTS = 32
 # Completed preparation retains per-output receipts: capture 134446 reports
 # 25,864,174 journal bytes. This is a journal input bound, not an archive or
 # generic metadata allowance; only identities/counts enter the support package.
@@ -53,7 +55,9 @@ def redact(text, replacements=()):
     # Remove complete sensitive log lines, not just a guess at token punctuation.
     lines = []
     for line in text.splitlines(keepends=True):
-        if re.fullmatch(r'[A-Z][A-Z0-9_]{2,}=.*', line.strip()) or re.search(r'(?i)(cookie\s*[:=]|[a-z0-9_-]*(?:secret|api[_-]?key|token)[a-z0-9_-]*\s*["\x27]?\s*[:=]|authorization\s*[:=]|(?:access|refresh|id)[_-]?token\s*["\x27]?\s*[:=]|password\s*[:=]|(?:license|entitlement)[_-]?(?:key|token|data|signature)\s*[:=]|client[_-]?secret\s*[:=]|serial\s*(?:number)?\s*[:=]|(?:steamid(?:64)?|providerid|accountid|displayname|personaname)\s*["\x27]?\s*[:=])', line):
+        # Start credential identifiers at a word boundary. A bounded 2-MiB
+        # token-free line otherwise retries a greedy prefix at every character.
+        if re.fullmatch(r'[A-Z][A-Z0-9_]{2,}=.*', line.strip()) or re.search(r'(?i)(cookie\s*[:=]|\b[a-z0-9_-]*(?:secret|api[_-]?key|token)[a-z0-9_-]*\s*["\x27]?\s*[:=]|authorization\s*[:=]|(?:access|refresh|id)[_-]?token\s*["\x27]?\s*[:=]|password\s*[:=]|(?:license|entitlement)[_-]?(?:key|token|data|signature)\s*[:=]|client[_-]?secret\s*[:=]|serial\s*(?:number)?\s*[:=]|(?:steamid(?:64)?|providerid|accountid|displayname|personaname)\s*["\x27]?\s*[:=])', line):
             lines.append('[redacted sensitive log line]\n'); count += 1
         else: lines.append(line)
     text = ''.join(lines)
@@ -66,6 +70,8 @@ def redact(text, replacements=()):
         (r'(unityhub://[^\s?"<>]+)\?[^\s"<>]+', r'\1?[redacted query]'),
         (r'(?is)<(?:Serial|Signature|AccessToken|RefreshToken)>.*?</(?:Serial|Signature|AccessToken|RefreshToken)>', '[redacted license/token field]'),
         (r'-----BEGIN [^-]+-----[\s\S]*?-----END [^-]+-----', '[redacted key block]'),
+        (r'(?i)\b[A-Z]:[\\/]+Users[\\/]+[^\\/\s"<>]+', '<user-home>'),
+        (r'/(?:home|Users)/[^/\s"<>]+', '<user-home>'),
     )
     for pattern, replacement in patterns: text, n = re.subn(pattern, replacement, text); count += n
     return text, count
@@ -78,6 +84,146 @@ def safe_json(value, replacements=(), depth=0):
     if isinstance(value, str): return redact(value[:16384], replacements)[0]
     if value is None or type(value) in (bool, int, float): return value
     return '[unsupported value]'
+
+
+def optional_object(path, omitted, name, limit=4 * 1048576):
+    """An incomplete optional diagnostic must not prevent exporting other logs."""
+    try:
+        return read_object(path, limit=limit)
+    except (BuildError, OSError, ValueError, TypeError, RecursionError):
+        omitted.append({'name': name, 'reason': 'unreadable or incomplete metadata'})
+        return None
+
+
+def add_log(candidates, name, path, structured, omitted, *, strict_links=False):
+    """Collect a directly owned optional log, without following a link."""
+    try:
+        path = ordinary(path)
+        if path.is_file(): candidates.append((path.stat().st_mtime_ns, name, path, structured))
+    except BuildError:
+        if strict_links: raise
+        omitted.append({'name': name, 'reason': 'unsafe or unavailable log'})
+    except (OSError, ValueError):
+        omitted.append({'name': name, 'reason': 'unsafe or unavailable log'})
+
+
+def account_replacements(folder, state, replacements, omitted):
+    """Read only selected redaction inputs, never include account/profile data."""
+    choices = state.get('choices', {})
+    if not isinstance(choices, dict): choices = {}
+    for key, label in (('gameRoot', '<owned-game>'), ('sourceRoot', '<source>'), ('steamRoot', '<store>')):
+        if isinstance(choices.get(key), str): replacements.append((choices[key], label))
+    profile = optional_object(folder / 'profile.json', omitted, 'runs/' + folder.name + '/profile.json', 128 * 1024)
+    for value in (choices.get('profile'), profile, choices):
+        if not isinstance(value, dict): continue
+        for key in ('steamId', 'providerId', 'accountId', 'displayName'):
+            if value.get(key) is not None: replacements.append((str(value[key]), '<profile>'))
+
+
+def run_summary(state, removed, replacements):
+    """Report retained identities and observed status; never qualify ownership."""
+    choices = state.get('choices', {})
+    result = {key: safe_json(value[:80] if isinstance(value, str) else value, replacements)
+              for key, value in state.items() if key in
+              ('schema', 'session', 'status', 'created', 'updated', 'revision') and
+              (value is None or type(value) in (str, int, float, bool))}
+    result.update(removed=removed, contentVerified=False)
+    if isinstance(choices, dict) and choices.get('mode') in ('build', 'update-mod', 'update-profile'):
+        result['mode'] = choices['mode']
+    stages = state.get('stages', [])
+    if isinstance(stages, list):
+        result['stages'] = []
+        for row in stages[:16]:
+            if not isinstance(row, dict): continue
+            summary = {key: safe_json(value[:80] if isinstance(value, str) else value, replacements)
+                       for key, value in row.items() if key in ('id', 'status', 'attempts', 'durationSeconds')
+                       and (value is None or type(value) in (str, int, float, bool))}
+            progress = row.get('progress')
+            if isinstance(progress, dict):
+                summary['progress'] = {key: safe_json(value[:512] if isinstance(value, str) else value, replacements)
+                                       for key, value in progress.items() if key in
+                                       ('phase', 'done', 'total', 'unit', 'percent', 'detail') and
+                                       (value is None or type(value) in (str, int, float, bool))}
+            result['stages'].append(summary)
+    owners = {key: set() for key in ('inputKeys', 'gameKeys', 'sourceHashes', 'updateKeys')}
+    identity_keys = {'inputKey': 'inputKeys', 'gameInputKey': 'inputKeys', 'gameKey': 'gameKeys',
+                     'cacheGameKey': 'gameKeys', 'sourceHash': 'sourceHashes', 'updateKey': 'updateKeys'}
+    def observe(value, depth=0):
+        if depth > 8: return
+        if isinstance(value, dict):
+            for key, member in list(value.items())[:256]:
+                target = identity_keys.get(key)
+                if target and isinstance(member, str) and re.fullmatch(r'[0-9a-f]{64}', member):
+                    owners[target].add(member)
+                elif isinstance(member, (dict, list)): observe(member, depth + 1)
+        elif isinstance(value, list):
+            for member in value[:256]: observe(member, depth + 1)
+    for field in ('completed', 'qualification', 'stages'): observe(state.get(field))
+    result['observedOwners'] = {key: sorted(values)[:16] for key, values in owners.items() if values}
+    return result
+
+
+def workspace_evidence(root, replacements, omitted):
+    """Finite metadata summaries, including retired runs, without payload scans.
+
+    A cleanup-only report must work after the last run is removed. Enumerate only
+    known session metadata directories and direct input manifests; do not enter
+    game inputs, asset conversion, Unity projects, banks, signing or save data.
+    These observations explain retained disk ownership, not deletion permission.
+    """
+    runs = []; retained = []
+    for relative, removed in (('sessions', False), ('logs/removed-runs', True)):
+        try:
+            folder = ordinary(root / relative)
+            if not folder.is_dir(): continue
+            count = 0
+            for entry in folder.iterdir():
+                if not re.fullmatch(r'[0-9a-f]{32}', entry.name): continue
+                count += 1
+                if count > MAX_WORKSPACE_RUNS:
+                    omitted.append({'name': relative, 'reason': 'run summary limit'}); break
+                try:
+                    entry = ordinary(entry)
+                    if not entry.is_dir(): continue
+                    state = optional_object(entry / 'state.json', omitted, relative + '/' + entry.name + '/state.json')
+                    if not isinstance(state, dict) or state.get('session') != entry.name:
+                        omitted.append({'name': relative + '/' + entry.name, 'reason': 'missing or mismatched run metadata'}); continue
+                    account_replacements(entry, state, replacements, omitted)
+                    # Retain compact facts, not up to 256 full event histories.
+                    retained.append((entry, run_summary(state, removed, replacements), removed))
+                except (BuildError, OSError, ValueError):
+                    omitted.append({'name': relative + '/' + entry.name, 'reason': 'unsafe or unavailable run metadata'})
+        except (BuildError, OSError, ValueError):
+            omitted.append({'name': relative, 'reason': 'unsafe or unavailable run directory'})
+    retained.sort(key=lambda row: row[0].name)
+    for folder, summary, _ in retained: runs.append(summary)
+    manifests = []
+    try:
+        folder = ordinary(root / 'build/manifests')
+        if folder.is_dir():
+            count = 0
+            for path in folder.iterdir():
+                if not re.fullmatch(r'[0-9a-f]{64}\.json', path.name): continue
+                count += 1
+                if count > MAX_WORKSPACE_MANIFESTS:
+                    omitted.append({'name': 'build/manifests', 'reason': 'manifest summary limit'}); break
+                value = optional_object(path, omitted, 'build/manifests/' + path.name, 16 * 1048576)
+                if not isinstance(value, dict) or value.get('schema') != 1 or value.get('inputKey') != path.stem:
+                    continue
+                row = {'inputKey': path.stem, 'contentVerified': False}
+                if value.get('target') in ('game', 'startup', 'probe'): row['target'] = value['target']
+                if type(value.get('recipe')) is int: row['recipe'] = value['recipe']
+                for key in ('game', 'mod'):
+                    member = value.get(key)
+                    if not isinstance(member, dict): continue
+                    identity = member.get('key')
+                    if isinstance(identity, str) and re.fullmatch(r'[0-9a-f]{64}', identity): row[key + 'Key'] = identity
+                    files = member.get('files')
+                    if isinstance(files, list): row[key + 'FileCount'] = len(files)
+                manifests.append(row)
+    except (BuildError, OSError, ValueError):
+        omitted.append({'name': 'build/manifests', 'reason': 'unsafe or unavailable manifest directory'})
+    return {'runs': runs, 'inputManifests': manifests, 'contentVerified': False}, retained
 
 
 def failed_command_log(build_root, failure):
@@ -542,103 +688,137 @@ def procedural_logs(build_root):
     return result
 
 
-def export_support(state_root, session, destination=None):
-    """Snapshot even a running/failed build without altering stage receipts."""
+def export_support(state_root, session=None, destination=None):
+    """Snapshot owned workspace, live or retired run without altering receipts."""
     root = ordinary(state_root)
-    if not re.fullmatch('[0-9a-f]{32}', str(session)): raise BuildError('Invalid wizard session ID.')
+    if session is not None and not re.fullmatch('[0-9a-f]{32}', str(session)):
+        raise BuildError('Invalid wizard session ID.')
     if read_object(root / 'wizard-owner.json') != {'schema': 1, 'owner': 'GloomhavenVR.QuestWizard'}:
         raise BuildError('Diagnostic source is not a wizard-owned workspace.')
-    session_root = ordinary(root / 'sessions' / session)
-    state = read_object(session_root / 'state.json')
-    if not isinstance(state, dict) or state.get('session') != session: raise BuildError('Missing diagnostic session.')
-    choices = state.get('choices', {})
+    omitted = []; state = {}; session_root = None; scope = 'workspace'
+    if session is not None:
+        session_root = ordinary(root / 'sessions' / session)
+        if session_root.exists(): scope = 'session'
+        else:
+            session_root = ordinary(root / 'logs/removed-runs' / session); scope = 'removed-session'
+        state = read_object(session_root / 'state.json')
+        if not isinstance(state, dict) or state.get('session') != session:
+            raise BuildError('Missing diagnostic session.')
     replacements = [(str(root), '<workspace>'), (str(Path.home()), '<user-home>')]
+    workspace, run_records = workspace_evidence(root, replacements, omitted)
     device_summary, device_logs = device_tool_evidence(root, replacements)
-    for key, label in (('gameRoot', '<owned-game>'), ('sourceRoot', '<source>'), ('steamRoot', '<store>')):
-        if isinstance(choices.get(key), str): replacements.append((choices[key], label))
-    # These inputs are consulted solely to redact values, never archived.
-    profiles = [choices.get('profile', {}), read_object(session_root / 'profile.json') or {}]
-    for profile in profiles:
-        for key in ('steamId', 'providerId', 'accountId', 'displayName'):
-            if profile.get(key) is not None: replacements.append((str(profile[key]), '<profile>'))
-    if choices.get('steamId'): replacements.append((str(choices['steamId']), '<profile>'))
+    if session_root is not None: account_replacements(session_root, state, replacements, omitted)
     stages = []
     for stage in state.get('stages', [])[:16]:
         stages.append({key: safe_json(stage[key], replacements) for key in ('id', 'status', 'attempts', 'progress', 'waiting', 'durationSeconds') if key in stage} |
                       {'details': {key: safe_json(value, replacements) for key, value in stage.get('details', {}).items() if key in SAFE_DETAIL_KEYS}})
     meta = {'schema': 1, 'kind': 'GloomhavenVR Quest build support', 'createdUtc': datetime.now(timezone.utc).isoformat(),
-            'session': session, 'status': state.get('status'), 'created': state.get('created'), 'updated': state.get('updated'),
+            'scope': scope, 'session': session,
             'host': {'system': platform.system(), 'machine': platform.machine(), 'python': platform.python_version(), 'logicalCpuCount': os.cpu_count()},
             'stages': stages, 'needsActions': safe_json(state.get('needsActions', []), replacements),
             'events': [{key: safe_json(event[key], replacements) for key in ('sequence', 'time', 'code', 'stage') if key in event} |
                        {'parameters': {key: safe_json(value, replacements) for key, value in event.get('parameters', {}).items() if key in SAFE_EVENT_KEYS}}
                        for event in state.get('events', [])[-128:]],
             'limits': {'fileBytes': MAX_FILE_BYTES, 'totalBytes': MAX_TOTAL_BYTES, 'files': MAX_FILES},
-            'files': [], 'omitted': [], 'hardwareVerified': False}
+            'files': [], 'omitted': omitted, 'hardwareVerified': False, 'workspace': workspace}
+    if session is not None:
+        meta.update({key: safe_json(state[key], replacements) for key in ('status', 'created', 'updated') if key in state})
+    else:
+        # A deleted or absent run is not an invented current build.
+        for key in ('stages', 'needsActions', 'events'): meta.pop(key)
     if device_summary: meta['deviceTools'] = device_summary
     repo = Path(__file__).resolve().parents[2]
     protocol = ordinary(repo / 'src/GloomhavenVR/Net/NetProtocol.cs')
     if protocol.is_file() and protocol.stat().st_size <= 1048576:
         match = re.search(r'const (?:int|ushort) ModBuild\s*=\s*(\d+)', protocol.read_text(encoding='utf-8'))
         if match: meta['modBuild'] = int(match[1])
-    release = read_object(repo / 'quest-builder-release.json')
-    if release: meta['release'] = {key: release[key] for key in ('sourceCommit', 'modBuild', 'schema') if key in release}
-    qualification = read_object(root / 'qualification.json')
+    release = optional_object(repo / 'quest-builder-release.json', omitted, 'builder-release')
+    if isinstance(release, dict):
+        meta['release'] = {key: release[key] for key in ('sourceCommit', 'modBuild', 'schema') if key in release}
+    qualification = optional_object(root / 'qualification.json', omitted, 'qualification.json')
     if qualification: meta['qualification'] = safe_json(qualification, replacements)
-    exported = read_object(root / 'packages/latest-export.json')
+    exported = optional_object(root / 'packages/latest-export.json', omitted, 'packages/latest-export.json')
     if isinstance(exported, dict):
         result = exported.get('result', {})
         if isinstance(result, dict):
             meta['portableExport'] = {key: safe_json(result[key], replacements)
                                       for key in ('schema', 'package', 'path', 'size', 'sha256') if key in result}
-    build_root = ordinary(root / 'build')
+    build_root = ordinary(root / 'build') if session_root else root / 'build'
     route = update_route_stats(build_root, state, replacements)
     if route: meta['updateRoute'] = route
     signing_diagnostic = {}
-    signing = signing_recovery_stats(root, session_root, state, diagnostic=signing_diagnostic)
+    signing = signing_recovery_stats(root, session_root, state, diagnostic=signing_diagnostic) if session_root else None
     if signing: meta['signingRecovery'] = signing
     elif signing_diagnostic: meta['signingRecoveryUnavailable'] = signing_diagnostic
-    failure = read_object(build_root / 'last-failure.json')
+    failure = optional_object(build_root / 'last-failure.json', omitted, 'build/last-failure.json')
     if isinstance(failure, dict):
         meta['buildFailure'] = {key: safe_json(failure[key], replacements) for key in ('stage', 'error', 'message') if key in failure}
-    recovery_folders = recovery_workspaces(build_root, failure)
+    # Workspace utility exports stay independent of all proprietary cache trees.
+    recovery_folders = recovery_workspaces(build_root, failure) if session_root else []
     if recovery_folders: meta['recoveryReceipts'] = recovery_receipt_stats(recovery_folders)
-    preparation = preparation_receipt_stats(build_root)
+    preparation = preparation_receipt_stats(build_root) if session_root else []
     if preparation: meta['preparationReceipts'] = preparation
     compute = compute_contract_stats(build_root, preparation, replacements)
     if compute: meta['computeContracts'] = compute
     # Include only the selected build's small identity fields, never copy complete
     # receipts (which contain profile data, full game inventories and file paths).
     for name in ('latest-input.json', 'latest-build.json'):
-        value = read_object(build_root / name)
+        value = optional_object(build_root / name, omitted, 'build/' + name)
         if isinstance(value, dict):
             details = value.get('details', value)
-            meta[name] = {key: safe_json(item, replacements) for key, item in details.items() if key in SAFE_DETAIL_KEYS}
+            if isinstance(details, dict):
+                meta[name] = {key: safe_json(item, replacements) for key, item in details.items() if key in SAFE_DETAIL_KEYS}
+                report = details.get('buildReport')
+                if isinstance(report, dict):
+                    meta[name]['buildReport'] = {key: safe_json(item, replacements) for key, item in report.items()
+                                                 if key in SAFE_DETAIL_KEYS}
     candidates = []
-    network_report = ordinary(session_root / 'network-preflight.json')
-    if network_report.is_file():
-        candidates.append((network_report.stat().st_mtime_ns, 'wizard/network-preflight.json', network_report, True))
+    if session_root:
+        add_log(candidates, 'wizard/network-preflight.json', session_root / 'network-preflight.json', True, omitted,
+                strict_links=True)
+    analysis = optional_object(root / 'logs/storage-analysis.json', omitted, 'wizard/storage-analysis.json', MAX_FILE_BYTES)
+    if isinstance(analysis, dict):
+        for field in ('runs', 'retiredRuns'):
+            for row in analysis.get(field, [])[:512] if isinstance(analysis.get(field), list) else []:
+                if isinstance(row, dict) and isinstance(row.get('gameRoot'), str):
+                    replacements.append((row['gameRoot'], '<owned-game>'))
+        add_log(candidates, 'wizard/storage-analysis.json', root / 'logs/storage-analysis.json', True, omitted)
     for name in ('wizard-requests.log', 'wizard-requests.previous.log', 'storage-cleanup.log', 'storage-cleanup.previous.log',
                  'package-export.jsonl', 'package-export.previous.jsonl'):
-        path = ordinary(root / 'logs' / name)
-        if path.is_file(): candidates.append((path.stat().st_mtime_ns, 'wizard/' + name, path, False))
-    for log_root, prefix, accept in ((session_root / 'logs', 'wizard', lambda name: bool(WIZARD_LOG.fullmatch(name))),
-                                     (build_root / 'logs', 'build', lambda name: bool(BUILD_LOG.fullmatch(name)) or name in UPDATE_LOGS)):
-        log_root = ordinary(log_root)
-        if not log_root.is_dir(): continue
-        # Never recurse into tool caches, games, Unity projects or save folders.
-        for path in log_root.iterdir():
-            if accept(path.name):
-                path = ordinary(path)
-                if path.is_file(): candidates.append((path.stat().st_mtime_ns, prefix + '/' + path.name, path, False))
+        add_log(candidates, 'wizard/' + name, root / 'logs' / name, False, omitted)
+    log_sources = [(build_root / 'logs', 'build', lambda name: bool(BUILD_LOG.fullmatch(name)) or name in UPDATE_LOGS)]
+    if session_root:
+        log_sources.insert(0, (session_root / 'logs', 'wizard', lambda name: bool(WIZARD_LOG.fullmatch(name))))
+    else:
+        # Keep recent qualifier events when retirement left no current session.
+        def updated(row):
+            value = row[1].get('updated', row[1].get('created', 0))
+            return value if type(value) in (int, float) and math.isfinite(value) else 0
+        for folder, _, _ in sorted(run_records, key=updated, reverse=True)[:3]:
+            prefix = 'runs/' + folder.name
+            log_sources.append((folder / 'logs', prefix, lambda name: name in ('progress.log', 'build.log', 'inspect.log')))
+    for log_root, prefix, accept in log_sources:
+        try:
+            log_root = ordinary(log_root)
+            if not log_root.is_dir(): continue
+            # Never recurse into tool caches, games, Unity projects or save folders.
+            for path in log_root.iterdir():
+                if accept(path.name): add_log(candidates, prefix + '/' + path.name, path, False, omitted,
+                                              strict_links=session_root is not None)
+                if len(candidates) >= 1024:
+                    omitted.append({'name': prefix + '/logs', 'reason': 'candidate log limit'}); break
+        except BuildError:
+            if session_root is not None: raise
+            omitted.append({'name': prefix + '/logs', 'reason': 'unsafe or unavailable log directory'})
+        except (OSError, ValueError):
+            omitted.append({'name': prefix + '/logs', 'reason': 'unsafe or unavailable log directory'})
     for name in RESOURCE_FILES:
-        path = ordinary(build_root / 'evidence' / name)
-        if path.is_file(): candidates.append((path.stat().st_mtime_ns, 'resources/' + name, path, True))
+        add_log(candidates, 'resources/' + name, build_root / 'evidence' / name, True, omitted)
     for name, path in recovery_logs(build_root, failure, workspaces=recovery_folders):
         candidates.append((path.stat().st_mtime_ns, name, path, False))
-    for name, path in procedural_logs(build_root):
+    for name, path in procedural_logs(build_root) if session_root else []:
         candidates.append((path.stat().st_mtime_ns, name, path, name.endswith('.json')))
-    for name, path in installation_logs(root, session_root, state):
+    for name, path in installation_logs(root, session_root, state) if session_root else []:
         candidates.append((path.stat().st_mtime_ns, name, path, False))
     for name, path, structured in device_logs:
         candidates.append((path.stat().st_mtime_ns, name, path, structured))
@@ -653,7 +833,7 @@ def export_support(state_root, session, destination=None):
         # Unity/export logs. Admission failures happen before any build child;
         # preserve these two bounded utility/request records even when the
         # current build event history only reports a disk-capacity stop.
-        return (6 if name in ('wizard/storage-cleanup.log', 'wizard/wizard-requests.log') else
+        return (6 if name in ('wizard/storage-cleanup.log', 'wizard/wizard-requests.log', 'wizard/storage-analysis.json') else
                 5 if name == failed_log else 4 if structured else
                 3 if name in ('wizard/build.log', 'wizard/install.log', 'wizard/progress.log') or name.startswith('device/') else
                 2 if name.startswith('build/') and name[6:] in UPDATE_LOGS else 1)
@@ -662,14 +842,18 @@ def export_support(state_root, session, destination=None):
     for _, name, path, structured in candidates:
         if len(archive_rows) >= MAX_FILES or used >= MAX_TOTAL_BYTES:
             meta['omitted'].append({'name': name, 'reason': 'archive limit'}); continue
-        limit = min(MAX_FILE_BYTES, MAX_TOTAL_BYTES - used); original_size = path.stat().st_size
-        with path.open('rb') as stream:
-            if original_size <= limit: raw = stream.read(limit)
-            else:
-                marker = b'\n[... diagnostic middle omitted ...]\n'
-                first = max(0, limit // 4 - len(marker)); tail = limit - first - len(marker)
-                raw = stream.read(first); stream.seek(max(first, original_size - tail))
-                raw += marker + stream.read(tail)
+        limit = min(MAX_FILE_BYTES, MAX_TOTAL_BYTES - used)
+        try:
+            path = ordinary(path); original_size = path.stat().st_size
+            with path.open('rb') as stream:
+                if original_size <= limit: raw = stream.read(limit)
+                else:
+                    marker = b'\n[... diagnostic middle omitted ...]\n'
+                    first = max(0, limit // 4 - len(marker)); tail = max(0, limit - first - len(marker))
+                    raw = stream.read(first); stream.seek(max(first, original_size - tail))
+                    raw = (raw + marker + stream.read(tail))[:limit]
+        except (BuildError, OSError, ValueError):
+            omitted.append({'name': name, 'reason': 'log disappeared or became unavailable'}); continue
         decoded = raw.decode('utf-8', errors='replace')
         text, redactions = redact(decoded, replacements)
         if structured and original_size > limit:
@@ -678,7 +862,9 @@ def export_support(state_root, session, destination=None):
             try:
                 if name.endswith('.jsonl'): text = '\n'.join(json.dumps(safe_json(json.loads(line), replacements), ensure_ascii=False) for line in decoded.splitlines() if line.strip()) + '\n'
                 else: text = json.dumps(safe_json(json.loads(decoded), replacements), ensure_ascii=False, indent=2) + '\n'
-            except ValueError: text = '[Resource record was incomplete during export; retry after the current stage.]\n'
+            except (ValueError, TypeError, RecursionError):
+                text = '[Resource record was incomplete during export; retry after the current stage.]\n'
+                omitted.append({'name': name, 'reason': 'incomplete structured log'})
         delivered = text.encode('utf-8')
         if len(delivered) > limit:
             marker = b'\n[... redacted diagnostic middle omitted ...]\n'
@@ -691,6 +877,9 @@ def export_support(state_root, session, destination=None):
         meta['files'].append({'name': name, 'sourceBytes': original_size, 'exportedBytes': len(delivered),
                               'truncated': original_size > limit, 'redactions': redactions, 'sha256': hashlib.sha256(delivered).hexdigest()})
     stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+    if len(omitted) > 512:
+        meta['omitted'] = omitted[:511] + [{'name': 'additional diagnostics', 'reason': 'omission summary limit',
+                                          'count': len(omitted) - 511}]
     destination = ordinary(destination or root / 'exports' / ('quest-build-support-' + stamp + '-' + uuid.uuid4().hex[:8] + '.zip'))
     destination.parent.mkdir(parents=True, exist_ok=True)
     # Exclusive creation prevents an export from overwriting any existing user file.
@@ -708,7 +897,15 @@ def main(argv=None):
     parser.add_argument('--session'); parser.add_argument('--output', type=Path)
     args = parser.parse_args(argv)
     try:
-        session = args.session or read_object(args.state_root / 'latest-session.json')['session']
+        session = args.session
+        if session is None:
+            # Historical pointers can remain after interrupted/manual retirement.
+            # Explicit API None means workspace; the CLI still prefers a real run.
+            latest = optional_object(args.state_root / 'latest-session.json', [], 'latest-session.json', 65536)
+            selected = latest.get('session') if isinstance(latest, dict) else None
+            if isinstance(selected, str) and re.fullmatch(r'[0-9a-f]{32}', selected):
+                value = optional_object(args.state_root / 'sessions' / selected / 'state.json', [], 'run')
+                if isinstance(value, dict) and value.get('session') == selected: session = selected
         print(json.dumps(export_support(args.state_root, session, args.output))); return 0
     except (BuildError, OSError, ValueError, KeyError, TypeError) as error:
         print('Build support export: ' + str(error)); return 1
