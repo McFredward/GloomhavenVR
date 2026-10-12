@@ -83,13 +83,13 @@ class NativeSchedules(unittest.TestCase):
                  patch.object(procedural, "_voice_tools", return_value=SimpleNamespace(cmake_command=lambda: "cmake")), \
                  patch.object(procedural, "_resource_tools", return_value=scheduler), patch.object(procedural.subprocess, "run", side_effect=run), \
                  patch.object(procedural.subprocess, "check_output", return_value=symbols):
-                output, contract = procedural.build(root / "cache", ndk)
+                output, contract = procedural.build(root / "cache", ndk, backend="box64-wine9")
             builds = [command for command in calls if "--build" in command]
             self.assertEqual(builds[0][-2:], ["--parallel", "9"])
             self.assertNotIn("jobs", contract)
             self.assertNotIn("host", contract)
             with patch.object(procedural, "_resource_tools", side_effect=AssertionError("warm native cache should not rebuild")):
-                warm, receipt = procedural.build(root / "cache", ndk)
+                warm, receipt = procedural.build(root / "cache", ndk, backend="box64-wine9")
             self.assertEqual(warm, output); self.assertEqual(receipt, contract)
 
     def test_actual_guest_inventory_expressions_are_canonical_for_windows_paths(self):
