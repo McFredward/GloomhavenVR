@@ -12,6 +12,7 @@ import shutil
 import sqlite3
 import stat
 import sys
+import threading
 import time
 import uuid
 
@@ -53,8 +54,10 @@ def _digest_stamp(path):
 
 def digest(path: Path, progress=None) -> str:
     path = Path(path).absolute()
-    before = path.stat()
-    stamp = _digest_stamp(path)
+    frame = getattr(_digest_read_scope, "current", None)
+    scoped = frame is not None and frame[0] == path
+    before = frame[1] if scoped else path.stat()
+    stamp = None if scoped else _digest_stamp(path)
     counter = None
     if progress is None and build_progress and build_progress.enabled() and before.st_size >= 8 * 1048576:
         counter = build_progress.Counter("file-hash", before.st_size, "bytes", path.name)
@@ -71,12 +74,15 @@ def digest(path: Path, progress=None) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             result.update(chunk); size += len(chunk)
             if progress: progress(len(chunk))
-    after, observed = path.stat(), _digest_stamp(path)
-    portable = lambda value: (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
-    if portable(before) != portable(after) or stamp != observed or size != after.st_size:
-        raise BuildError("File changed while its bytes were read: " + path.name)
     hashed = result.hexdigest()
-    if observed is not None: _invocation_file_proofs[path] = (observed, hashed)
+    if not scoped:
+        after, observed = path.stat(), _digest_stamp(path)
+        portable = lambda value: (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+        if portable(before) != portable(after) or stamp != observed or size != after.st_size:
+            raise BuildError("File changed while its bytes were read: " + path.name)
+        if observed is not None: _invocation_file_proofs[path] = (observed, hashed)
+    elif size != before.st_size:
+        raise BuildError("File changed while its bytes were read: " + path.name)
     if counter: counter.finish()
     return hashed
 
@@ -522,6 +528,7 @@ class _WindowsFileMetadata:
 
 _windows_metadata = None
 _invocation_file_proofs = {}
+_digest_read_scope = threading.local()
 
 
 def invocation_file_matches(path, expected_sha256, expected_size):
@@ -696,8 +703,14 @@ class ValidatedFileWitnesses:
                     result.update(chunk); read += len(chunk)
             hashed = result.hexdigest()
         else:
-            # Custom hashers must consume the complete file, as digest does.
-            hashed = hasher(path); read = fallback_before.st_size
+            # This observer already owns the pre/post strong stamps. Let the
+            # common digest/progress callback share that read scope instead of
+            # opening two more Windows metadata handles for every small asset.
+            # No provisional digest proof is published before our final check.
+            prior = getattr(_digest_read_scope, "current", None)
+            _digest_read_scope.current = (path, fallback_before)
+            try: hashed = hasher(path); read = fallback_before.st_size
+            finally: _digest_read_scope.current = prior
         self.counters["files_read"] += 1; self.counters["bytes_read"] += read
         after = self._current(path)
         fallback_after = path.lstat()

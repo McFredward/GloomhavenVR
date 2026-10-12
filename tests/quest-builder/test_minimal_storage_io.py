@@ -108,6 +108,21 @@ class MinimalStorageIoTests(unittest.TestCase):
             storage.digest(self.path)
         self.assertNotIn(self.path, storage._invocation_file_proofs)
 
+    def test_custom_digest_reuses_observers_pre_and_post_metadata_handles(self):
+        witness = self.witness("fixture"); original = storage._file_witness_stamp; observations = []
+        def stamped(path, value): observations.append(path); return original(path, value)
+        with mock.patch.object(storage, "_file_witness_stamp", stamped):
+            expected = witness.observe(self.path, hasher=lambda path: storage.digest(path))
+        self.assertEqual(expected, hashlib.sha256(self.path.read_bytes()).hexdigest())
+        self.assertEqual(observations, [self.path, self.path])
+
+    def test_custom_digest_scope_is_cleared_after_cancelled_read(self):
+        witness = self.witness("fixture")
+        with self.assertRaises(KeyboardInterrupt):
+            witness.observe(self.path, hasher=mock.Mock(side_effect=KeyboardInterrupt))
+        self.assertIsNone(getattr(storage._digest_read_scope, "current", None))
+        self.assertNotIn(self.path, storage._invocation_file_proofs)
+
     def test_namespace_bridge_reuses_exact_persistent_file_without_bytes(self):
         initial = self.witness("profile-before"); expected = initial.observe(self.path); initial.db.commit()
         storage._invocation_file_proofs.clear()
