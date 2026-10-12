@@ -1,5 +1,38 @@
 # State — where the project stands
 
+**Build672 Frame launch setup and healthbar foreground depth, 2026-10-12: dev1.1.1 repair.**
+
+Running Steam can overwrite a verified external launch-options edit from its
+cached configuration while the VR shortcut persists. Setup now edits the original
+app offline only. Live setup prepares the exact merged `%command%` line, retains
+a recoverable session receipt and directs completion through Steam's own save
+and Frame restart. The VR launcher validates options and the retired session
+before launching App780290 with the exact VR opt-in. Existing custom arguments,
+prefix, saves and the original flat-entry behavior remain authoritative.
+
+Optional through-wall bars now respect nearer solid VR cards, hands, boards and
+currently held native props/figures through their original visible depth passes.
+Four native UI/TMP derivatives preserve the whole widget and owned clones survive
+native text/sprite reparsing. Final native clip coordinates map into the actual
+eye viewport; missing capture/bank resources fall back to ordinary depth until
+recovery. Existing MR plates are registered without adding scenery geometry.
+The default was already correct on PC and Frame: BarsOccluded=true means
+**Hide bars behind walls** is on, through-wall visibility off. Saved choices stay.
+
+The main bundle is rebuilt with game-exact2021.3.5f1; install it with the plugin.
+Other banks are unchanged. Final source16, strict Debug/Release0/0, focused six
+existing suites, player-help2305/all8 controls, direct300518 goldens, docs and bank
+checks pass. Native GL depth90/all11 controls, independent GPU-subset19 and actual
+final-bank Windows/D3D11 depth90 pass, including reversed-Z rendering.
+Compiled1255 ->1257 adds only two depth helpers; all13 changed existing types
+are explained. Surfaces666/236/4795 and Version3/next-free118 remain unchanged.
+This is focused validation with inherited unchanged coverage, not a new complete
+runtime gate or another release. See [FIX-672-REVIEW.md](FIX-672-REVIEW.md) for final
+D3D/CI receipts and the separate actual Frame/headset verification boundary.
+
+Owned processes are reaped and caches cleaned after runs. Sources, original
+inputs, failed controls, captures, manifests and current deliverables are retained.
+
 **Build671 approved 1.1.0 release source, 2026-10-11.**
 
 The maintainer approved publication. Bilingual highlights prominently describe

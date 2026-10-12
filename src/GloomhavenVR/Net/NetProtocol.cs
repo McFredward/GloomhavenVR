@@ -615,17 +615,21 @@ internal static class NetProtocol
     public const ushort ModBuild = 672;
 
     // ModBuild672 — separate wall visibility from VR foreground and verify Frame launch setup.
-    // The maintainer requests that health/effect bars respect nearer held cards, hands and
-    // control boards even when visibility through walls is explicitly selected. Preserve
-    // the original complete widget, partial pixel occlusion and depth ordering; the wall
-    // preference must not become an unconditional foreground overlay. BarsOccluded=true
-    // already hides bars behind walls by default on both PC and standalone Frame, and saved
-    // preferences remain authoritative. Installer validation must cover Steam's cached
-    // configuration surviving or overwriting a live file edit after its pre-shutdown readback.
-    // A live Steam client owns launch-options edits; setup must expose any required native
-    // completion step and the VR launcher must not silently fall through to a flat launch.
-    // Keep the original Steam AppID/prefix and exact Frame VR opt-in; Version3/next-free118.
-    // Integration validation and hardware boundaries are recorded beside the Build672 review.
+    // Through-wall native health/effect widgets now sample the original visible depth of
+    // solid VR hands, cards, boards and currently held native figures/props. Four original
+    // UI/TMP shader derivatives preserve glyph, sprite, mask and transparent presentation;
+    // owned material clones survive native text reparsing without changing shared assets.
+    // Native final clip coordinates map into each eye's actual capture viewport. Missing
+    // capture/bank data falls back to ordinary depth until recovery, never unconditional
+    // foreground visibility. Existing MR plates are registered without new room geometry.
+    // BarsOccluded=true already hides bars behind walls on both PC and standalone Frame;
+    // saved preferences remain authoritative. The updated main bundle is required.
+    // Running Steam can overwrite external launch-option edits from its cached config.
+    // Setup edits offline only; live setup persists recovery guidance for Steam's own save
+    // and Frame restart. The VR launcher checks options and the retired Steam session before
+    // App780290 --gloomhavenvr. Preserve the shared prefix and original flat-entry behavior.
+    // Version3/next-free118; focused/native-render evidence and hardware boundaries are in
+    // FIX-672-REVIEW.md. No new release or complete local gate is claimed.
 
     // ModBuild671 — publish the reviewed 1.1.0 release candidate.
     // The maintainer approved the completed NPC and Steam Frame work for release.
