@@ -10,12 +10,19 @@
     "fps": 24,
     "frame_count": 1560,
     "color": "Rec.709",
-    "status": "Approved by maintainer on2026-10-12; production active. Initial review ceilingUSD5, overallUSD30. Media and receipts remain private under.planning/debug/trailer.",
+    "status": "Revision active after the maintainer rejected premature tabletop appearance and mechanical motion. Finish one corrected reveal review, then pause production until the maintainer approves its direction. Overall USD 30; media and receipts remain private under .planning/debug/trailer.",
     "developer_base_commit": "cd72fde56fc6de846a34fa104ca73dfad888b3e9",
     "scene_count": 9,
     "cinematic_opener_seconds": 18,
     "staged_gameplay_seconds": 41,
     "title_composite_seconds": 6
+  },
+  "opener_revision": {
+    "source": "Maintainer direct review of the first reveal on 2026-10-12",
+    "world": "Continuous believable film architecture, living original character, no exposed tabletop or hex grid before deliberate scale disclosure",
+    "performance": "Fluid purposeful hand reach/grip/lift; Grimhorn tracks hero; Runeveil looks to hero and other player, with relaxed meaningful hand poses",
+    "review_gate": "Share the next corrected video and stop further production until direction approval, explicitly requested by the maintainer",
+    "evidence_root": ".planning/debug/trailer/revision-02/"
   },
   "branding": {
     "continuous_label": {

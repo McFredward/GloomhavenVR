@@ -8,6 +8,7 @@ import argparse
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 import re
 import shutil
@@ -24,8 +25,17 @@ SERIF = Path("/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf")
 
 
 def run(command, log):
-    with log.open("a") as stream:
-        subprocess.run(command, stdout=stream, stderr=stream, check=True)
+    try:
+        with log.open("a") as stream:
+            subprocess.run(command, stdout=stream, stderr=stream, check=True)
+    except (subprocess.CalledProcessError, KeyboardInterrupt):
+        # subprocess.run has reaped the encoder. Delete only this invocation's
+        # owned intermediate encodes, retaining the error log and source evidence.
+        cache = log.parent.parent.parent / "edit-work" / log.parent.name
+        owner = cache / "owner.json"
+        if owner.is_file() and json.loads(owner.read_text()).get("pid") == os.getpid():
+            shutil.rmtree(cache)
+        raise
 
 
 def digest(path):
@@ -51,13 +61,14 @@ def branding(path):
 def title(path, subtitle="TAKE YOUR PLACE"):
     layer = Image.new("RGB", (WIDTH, HEIGHT), (5, 7, 9))
     logo = Image.open(REPO / "src/GloomhavenVR/Assets/GloomhavenVR_logo.png").convert("RGBA")
-    logo.thumbnail((1450, 400), Image.Resampling.LANCZOS)
+    logo = logo.resize((1450, round(logo.height*1450/logo.width)), Image.Resampling.LANCZOS)
     layer.paste(logo, ((WIDTH-logo.width)//2, 370), logo)
     draw = ImageDraw.Draw(layer)
     for text, size, y, color, face in (
         (subtitle, 46, 640, (214, 187, 138), SERIF),
         ("AN UNOFFICIAL COMMUNITY VR MOD", 25, 731, (165, 170, 177), FONT),
         ("Requires Gloomhaven Digital", 23, 778, (146, 151, 158), FONT),
+        ("A community project by McFredward", 22, 823, (125, 131, 138), FONT),
     ):
         font = ImageFont.truetype(str(face), size)
         box = draw.textbbox((0, 0), text, font=font)
@@ -66,7 +77,7 @@ def title(path, subtitle="TAKE YOUR PLACE"):
     layer.save(path)
 
 
-def assemble(spec_path, output, name):
+def _assemble(spec_path, output, name):
     spec = json.loads(spec_path.read_text())
     if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}", name):
         raise ValueError("Review name must be a safe basename")
@@ -75,8 +86,13 @@ def assemble(spec_path, output, name):
     if any(output == p or output.is_relative_to(p) for p in protected):
         raise ValueError("Review outputs must be outside original source assets")
     output.mkdir(parents=True, exist_ok=True)
+    if (output/(name+".mp4")).exists():
+        raise ValueError("Review movie already exists; choose a new versioned name")
+    if (output/"latest.mp4").exists() and not (output/"latest.mp4").is_symlink():
+        raise ValueError("latest.mp4 must be a managed symlink; preserve the existing file")
     private = output.parent / "edit-work" / name
-    private.mkdir(parents=True, exist_ok=True)
+    private.mkdir(parents=True, exist_ok=False)
+    (private/"owner.json").write_text(json.dumps({"pid": os.getpid(), "name": name}))
     evidence = output.parent / "edit-evidence" / name
     evidence.mkdir(parents=True, exist_ok=True)
     log = evidence / "ffmpeg.log"
@@ -117,43 +133,69 @@ def assemble(spec_path, output, name):
         receipt.append({**shot, "source": str(source), "timeline_start": total,
                         "encoded_segment_sha256": digest(segment)})
         total += duration
-    listing = private/"concat.txt"
-    listing.write_text("".join("file '"+str(p).replace("'", "'\\''")+"'\n" for p in segments))
     joined = private/"picture.mp4"
-    run(["ffmpeg", "-v", "warning", "-y", "-f", "concat", "-safe", "0", "-i", str(listing),
-         "-c", "copy", "-an", str(joined)], log)
-    command = ["ffmpeg", "-v", "warning", "-y", "-i", str(joined),
-               "-loop", "1", "-framerate", str(FPS), "-i", str(water)]
-    graph = [f"[0:v]fade=t=in:st=0:d=0.18,fade=t=out:st={total-.28}:d=0.28[picture]",
-             "[picture][1:v]overlay=0:0:format=auto,format=yuv420p[video]"]
-    audio = []
-    for index, event in enumerate(spec.get("audio", []), start=2):
+    join_command = ["ffmpeg", "-v", "warning", "-y", "-filter_complex_threads", "2"]
+    for segment in segments:
+        join_command += ["-i", str(segment)]
+    # Decode before joining: stream-copy concatenation can propagate mismatched
+    # H.264 parameter sets and timestamps across generated/captured inputs.
+    join_graph = [f"[{i}:v]setpts=PTS-STARTPTS[shot{i}]" for i in range(len(segments))]
+    join_graph.append("".join(f"[shot{i}]" for i in range(len(segments))) +
+                      f"concat=n={len(segments)}:v=1:a=0,fps={FPS},setpts=N/({FPS}*TB)[picture]")
+    join_command += ["-filter_complex", ";".join(join_graph), "-map", "[picture]", "-an",
+                     "-c:v", "libx264", "-preset", "medium", "-crf", "16", "-threads", "4", str(joined)]
+    run(join_command, log)
+    # Render a finite stereo mix separately. Many short, delayed inputs in the
+    # same graph as a looping PNG can stall older FFmpeg framesync schedulers.
+    mix_command = ["ffmpeg", "-v", "warning", "-y", "-filter_complex_threads", "2"]
+    audio_graph, audio = [], []
+    for index, event in enumerate(spec.get("audio", [])):
         path = Path(event["source"]).resolve(strict=True)
         sources.setdefault(str(path), digest(path))
-        command += ["-i", str(path)]
+        mix_command += ["-i", str(path)]
         start, duration = float(event.get("start", 0)), float(event["duration"])
         delay, volume = round(float(event.get("at", 0))*1000), float(event.get("volume", 1))
         label = f"audio{index}"
-        graph.append(f"[{index}:a]atrim=start={start}:duration={duration},asetpts=PTS-STARTPTS,"
+        audio_graph.append(f"[{index}:a]aformat=channel_layouts=stereo,"
+                     f"atrim=start={start}:duration={duration},asetpts=PTS-STARTPTS,"
                      f"afade=t=in:d=0.02,afade=t=out:st={max(0,duration-.05)}:d=0.05,"
                      f"volume={volume},adelay={delay}:all=1,apad=whole_dur={total}[{label}]")
         audio.append(f"[{label}]")
     if audio:
-        graph.append("".join(audio)+f"amix=inputs={len(audio)}:normalize=0,atrim=duration={total},"
+        audio_graph.append("".join(audio)+f"amix=inputs={len(audio)}:normalize=0,atrim=duration={total},"
                      "loudnorm=I=-14:TP=-1:LRA=8[audio]")
+        mixed = private/"mix.wav"
+        mix_command += ["-filter_complex", ";".join(audio_graph), "-map", "[audio]",
+                        "-t", str(total), "-c:a", "pcm_f32le", "-ar", "48000", "-ac", "2", str(mixed)]
+        run(mix_command, log)
+    command = ["ffmpeg", "-v", "warning", "-y", "-filter_complex_threads", "2",
+               "-i", str(joined), "-loop", "1", "-framerate", str(FPS),
+               "-t", str(total), "-i", str(water)]
+    graph = [f"[0:v]setpts=N/({FPS}*TB),fade=t=in:st=0:d=0.18,"
+             f"fade=t=out:st={total-.28}:d=0.28[picture]",
+             f"[1:v]setpts=N/({FPS}*TB)[water]",
+             "[picture][water]overlay=0:0:format=auto:shortest=1,format=yuv420p[video]"]
+    if audio:
+        command += ["-i", str(mixed)]
     command += ["-filter_complex", ";".join(graph), "-map", "[video]"]
     if audio:
-        command += ["-map", "[audio]", "-c:a", "aac", "-b:a", "256k", "-ar", "48000"]
+        command += ["-map", "2:a", "-c:a", "aac", "-b:a", "256k", "-ar", "48000", "-ac", "2"]
     command += ["-t", str(total), "-c:v", "libx264", "-preset", "slow", "-crf", "17",
                 "-threads", "4", "-movflags", "+faststart", str(output/(name+".mp4"))]
     run(command, log)
     movie = output/(name+".mp4")
+    probe = json.loads(subprocess.check_output([
+        "ffprobe", "-v", "error", "-show_entries", "stream=codec_type,nb_frames,width,height,r_frame_rate:format=duration",
+        "-of", "json", str(movie)]))
+    video = next(s for s in probe["streams"] if s["codec_type"] == "video")
+    if int(video["nb_frames"]) != round(total*FPS) or video["r_frame_rate"] != f"{FPS}/1":
+        raise ValueError("Rendered movie frame count/rate differs from the edit")
     run(["ffmpeg", "-v", "warning", "-y", "-ss", str(spec.get("poster_time", min(8,total/2))),
          "-i", str(movie), "-frames:v", "1", str(output/(name+".jpg"))], log)
     receipt = {"name": name, "duration_seconds": total, "frame_rate": FPS,
                "branding": "Continuous lower-right "+LABEL+"; explicit end-card mod attribution",
                "tool_sha256": digest(__file__), "spec": spec, "shots": receipt,
-               "sources_sha256": sources, "movie_sha256": digest(movie)}
+               "sources_sha256": sources, "movie_sha256": digest(movie), "ffprobe": probe}
     (evidence/"edit-manifest.json").write_text(json.dumps(receipt, indent=2)+"\n")
     latest = output/"latest.mp4"
     if latest.is_symlink():
@@ -168,10 +210,25 @@ def assemble(spec_path, output, name):
     print(json.dumps({"movie": str(movie), "seconds": total, "poster": str(output/(name+".jpg"))}))
 
 
+def assemble(spec_path, output, name):
+    try:
+        _assemble(spec_path, output, name)
+    finally:
+        if re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}", name):
+            cache = output.resolve().parent/"edit-work"/name
+            owner = cache/"owner.json"
+            if owner.is_file() and json.loads(owner.read_text()).get("pid") == os.getpid():
+                # All subprocesses have been reaped before returning here.
+                shutil.rmtree(cache)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("spec", type=Path)
     parser.add_argument("--output", type=Path, default=REPO/".planning/debug/trailer/review")
     parser.add_argument("--name", required=True)
     args = parser.parse_args()
-    assemble(args.spec.resolve(strict=True), args.output, args.name)
+    try:
+        assemble(args.spec.resolve(strict=True), args.output, args.name)
+    except ValueError as error:
+        parser.error(str(error))

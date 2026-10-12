@@ -7,6 +7,27 @@ fal.ai budget remains **$30 total**. The maintainer approved this revision on
 The first review is limited to USD5 and is shared before further similar
 generation. All intermediate media belongs under `.planning/debug/trailer/`.
 
+### Maintainer correction after the first reveal proof
+
+On 2026-10-12 the maintainer rejected the first reveal's premature diorama
+appearance and mechanical motion. This correction supersedes the opener's
+literal tabletop staging below. The initial shots must read as a believable
+film world: continuous architecture, motivated entrances, a living original
+Brute, and no exposed hex grid or tabletop edge. The original masks intervene
+like gods; only the later camera move discloses the VR tabletop. Hand gestures
+need fluid overlapping anticipation, reach, contact and lift. Grimhorn tracks
+the hero, while Runeveil looks deliberately toward the held hero and the other
+player, with relaxed purposeful hands. Source geometry remains identifiable.
+
+The USD4.75 first proof is retained as a superseded study. No additional
+inference was submitted before this feedback. New local composition and motion
+proofs belong under `.planning/debug/trailer/revision-02/` and precede another
+paid reveal. Existing source extraction, narration and original native motion
+data remain reusable; the first film is still in production.
+The maintainer then explicitly requested the next corrected video for review
+before further work. Complete that concrete review, share its location, and
+pause production until the maintainer approves the direction.
+
 ## The film
 
 A short premium render overture introduces the world and its town residents.
