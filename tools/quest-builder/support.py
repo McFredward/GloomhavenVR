@@ -158,7 +158,17 @@ def run_summary(state, removed, replacements):
                 elif isinstance(member, (dict, list)): observe(member, depth + 1)
         elif isinstance(value, list):
             for member in value[:256]: observe(member, depth + 1)
-    for field in ('completed', 'qualification', 'stages'): observe(state.get(field))
+    for field in ('completed', 'qualification', 'stages', 'storageProvenance'): observe(state.get(field))
+    # Engine.qualify historically emitted the census instead of attaching a
+    # state.qualification record. Preserve its observed identities without
+    # inferring ownership from arbitrary event text or absolute source paths.
+    events = state.get('events')
+    if isinstance(events, list):
+        for event in events[-128:]:
+            if not isinstance(event, dict) or event.get('code') not in ('workspace_space_checked', 'space_estimate_warning'):
+                continue
+            parameters = event.get('parameters')
+            if isinstance(parameters, dict): observe(parameters.get('spaceEstimate'))
     result['observedOwners'] = {key: sorted(values)[:16] for key, values in owners.items() if values}
     return result
 
@@ -877,6 +887,10 @@ def export_support(state_root, session=None, destination=None):
         meta['files'].append({'name': name, 'sourceBytes': original_size, 'exportedBytes': len(delivered),
                               'truncated': original_size > limit, 'redactions': redactions, 'sha256': hashlib.sha256(delivered).hexdigest()})
     stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+    # Run summaries are compacted during enumeration. A later live/retired run
+    # can supply the account value mentioned in an earlier progress detail.
+    # Apply the complete replacement set before publishing any summary.
+    meta['workspace'] = safe_json(meta['workspace'], replacements)
     if len(omitted) > 512:
         meta['omitted'] = omitted[:511] + [{'name': 'additional diagnostics', 'reason': 'omission summary limit',
                                           'count': len(omitted) - 511}]

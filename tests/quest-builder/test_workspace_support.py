@@ -106,6 +106,36 @@ class WorkspaceSupportTests(unittest.TestCase):
         for private in ('SECRET-ASSET.png', 'PRIVATE-SOURCE.cs', 'PROFILE MUST NOT EXPORT', 'KEY MUST NOT EXPORT'):
             self.assertNotIn(private, text)
 
+    def test_actual_qualification_events_and_durable_provenance_keep_only_observed_owner_ids(self):
+        folder, state = self.run_state()
+        state['completed'] = {}; state['stages'] = []
+        state['storageProvenance'] = {'games': [{'gameKey': 'd' * 64, 'gameRoot': 'D:\\PrivateGame'}]}
+        state['events'] = [
+            {'code': 'workspace_space_checked', 'parameters': {'spaceEstimate': {'gameKey': 'e' * 64}}},
+            {'code': 'space_estimate_warning', 'parameters': {'spaceEstimate': {'gameKey': 'f' * 64}}},
+            {'code': 'arbitrary-event', 'parameters': {'spaceEstimate': {'gameKey': '1' * 64}}}]
+        write_json(folder / 'state.json', state)
+        meta, rows = self.export()
+        owners = meta['workspace']['runs'][0]['observedOwners']
+        self.assertEqual(owners['gameKeys'], ['d' * 64, 'e' * 64, 'f' * 64])
+        self.assertNotIn('1' * 64, json.dumps(owners))
+        self.assertNotIn('D:\\PrivateGame', '\n'.join(rows.values()))
+
+    def test_earlier_run_summary_cannot_leak_a_later_retired_runs_account_or_paths(self):
+        folder, state = self.run_state()
+        state['stages'][0]['progress']['detail'] = 'LaterOwner OTHER-ACCOUNT D:\\OtherGame'
+        write_json(folder / 'state.json', state)
+        later, saved = self.run_state(session='f' * 32, removed=True)
+        saved['choices'] = {'mode': 'build', 'gameRoot': 'D:\\OtherGame', 'profile': {'displayName': 'LaterOwner'}}
+        write_json(later / 'state.json', saved)
+        write_json(later / 'profile.json', {'displayName': 'LaterOwner', 'accountId': 'OTHER-ACCOUNT'})
+        # sessions are necessarily summarized before logs/removed-runs.
+        meta, rows = self.export()
+        detail = meta['workspace']['runs'][0]['stages'][0]['progress']['detail']
+        self.assertEqual(detail, '<profile> <profile> <owned-game>')
+        for private in ('LaterOwner', 'OTHER-ACCOUNT', 'D:\\OtherGame'):
+            self.assertNotIn(private, '\n'.join(rows.values()))
+
     def test_global_export_reads_no_payload_and_does_not_enter_cache_or_unity_trees(self):
         forbidden = ('build/cache', 'build/projects', 'build/inputs', 'build/signing', 'build/tool-cache')
         for relative in forbidden:
