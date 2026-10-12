@@ -9,7 +9,8 @@ const api = preview ? new PreviewApi() : new LocalApi(location.origin,token);
 let language = (preview ? new URLSearchParams(location.search).get('lang') : null) ?? readStorage('quest-wizard-language') ?? (navigator.language.startsWith('de') ? 'de' : 'en');
 if (!['de','en'].includes(language)) language='de';
 let page=-1,selected=null,discovery=null,state=null,busy=false,after=0,log=[],loadedLog=null,pollTimer=null,canConnect=preview||Boolean(token),artworkKey='',artworkGeneration=0;
-let storageInfo=null,storageBusy=false,storagePollTimer=null,storageCompletedShown=false;
+let storageInfo=null,storageBusy=false,storagePollTimer=null,storageCompletedShown=false,storageFailure=null,storageGeneration=0;
+let storageOperationId=null,storageFailureOperationId=null;
 let deviceInfo=null,deviceBusy=false,devicePollTimer=null,deviceDownloading=false;
 let qualification=null,resumeFailed=null,restoredSession=null,sessionGeneration=0;
 let automaticBaseApk='',workflowMode=null,workflowPage=0;
@@ -77,6 +78,30 @@ function showSlide(index) {
   clearTimeout(slideTimer);if(!slidePaused&&!document.hidden)slideTimer=setTimeout(()=>showSlide(slideIndex+1),6500);
 }
 function storageActive() {return storageBusy||['planning','deleting'].includes(storageInfo?.state?.status);}
+function acceptStorage(result) {
+  if(result?.event!=='storage'||!result.state)throw {code:'invalidReply'};
+  const operationId=typeof result.state.operationId==='string'&&/^[a-f0-9]{32}$/.test(result.state.operationId)?result.state.operationId:null;
+  storageInfo=result;
+  if(result.state.status==='failed'){
+    storageFailure=result.state.error??{code:'unknownAction'};storageFailureOperationId=operationId;
+  }else if(storageFailure&&(operationId?operationId!==storageFailureOperationId:!storageFailureOperationId&&['planning','deleting'].includes(result.state.status))){
+    // A lost POST response may still have started and completed a real job.
+    // Only its new operation identity supersedes a failure from an old request.
+    storageFailure=null;storageFailureOperationId=null;
+  }
+  storageOperationId=operationId;
+}
+function failStorage(value) {
+  // A rejected request or disconnected browser can leave the backend idle.
+  // Its next inventory/status reply must not erase the cleanup explanation.
+  // Keep the error separate so an actual job still locks conflicting actions.
+  storageFailure=value?.message?{message:value.message}:{code:value?.code??'offline'};
+  storageFailureOperationId=storageOperationId;
+}
+function beginStorage(status) {
+  storageGeneration++;storageFailure=null;storageFailureOperationId=null;storageBusy=true;clearTimeout(storagePollTimer);
+  storageInfo={...storageInfo,state:{status}};updateView();
+}
 function storageSize(bytes) {
   const amount=Math.max(0,Number(bytes)||0),scale=amount>=1073741824?1073741824:amount>=1048576?1048576:amount>=1024?1024:1;
   return new Intl.NumberFormat(language,{maximumFractionDigits:1}).format(amount/scale)+' '+({1:'B',1024:'KiB',1048576:'MiB',1073741824:'GiB'}[scale]);
@@ -223,7 +248,8 @@ function downloadBlob(result){const url=URL.createObjectURL(result.blob),link=do
 async function inventoryStorage(){
   if(storageInfo?.inventory?.status==='scanning'||storageActive()||deviceActive()||discovery?.capabilities?.storageInventory!==true)return;
   $('storage-refresh').disabled=true;
-  try{const result=await api.storageInventory();if(result?.event!=='storage')throw {code:'invalidReply'};storageInfo=result;}
+  const generation=storageGeneration;
+  try{const result=await api.storageInventory();if(generation===storageGeneration)acceptStorage(result);}
   catch(value){error(value);}finally{updateView();scheduleStoragePoll();}
 }
 function renderStorage() {
@@ -252,36 +278,41 @@ function renderStorage() {
   const measured=Number.isFinite(current.done)&&Number.isFinite(current.total)&&current.total>0;
   const count=measured?t('storageMeasured',{done:new Intl.NumberFormat(language).format(current.done),total:new Intl.NumberFormat(language).format(current.total)}):Number.isFinite(current.done)&&current.done>0?t('storageScanned',{done:new Intl.NumberFormat(language).format(current.done)}):'';
   const files=plan?.files??0,parameters={files:new Intl.NumberFormat(language).format(files),size:storageSize(plan?.bytes)};
-  const copy=status==='planning'?t('storagePlanning'):status==='deleting'?t('storageDeleting'):status==='preview'?t(files>0?'storagePreview':'storageNoFiles',parameters):status==='complete'?t('storageComplete',{files:new Intl.NumberFormat(language).format(current.result?.deletedFiles??0),size:storageSize(current.result?.freedBytes)}):status==='failed'?t('storageFailed',{message:message(current.error?.message)}):'';
+  const copy=['planning','deleting'].includes(status)&&current.phase==='inventory-pausing'?t('storageInventoryPausing'):status==='planning'?t('storagePlanning'):status==='deleting'?t('storageDeleting'):status==='preview'?t(files>0?'storagePreview':'storageNoFiles',parameters):status==='complete'?t('storageComplete',{files:new Intl.NumberFormat(language).format(current.result?.deletedFiles??0),size:storageSize(current.result?.freedBytes)}):'';
+  const failure=storageFailure??(status==='failed'?current.error:null);
+  const failed=failure?t('storageFailed',{message:failure.message?message(failure.message):t(failure.code??'unknownAction')}):'';
+  const buildStage=state?.stages?.find(row=>['running','cancelling','cancel_requested'].includes(row.status))?.id??state?.progress?.phase;
+  const waiting=isActive(state)?t('storageWaitingBuild',{stage:buildStage?t('stage_'+buildStage):t('working')}):deviceActive()?t('storageWaitingDevice'):packageActive()?t('storageWaitingExport'):busy?t('storageWaitingSetup'):'';
   const skipped=status==='preview'&&plan?.skipped?.length?t('storageSkipped',{count:plan.skipped.length}):'';
-  $('storage-status').textContent=[copy,count,['planning','deleting'].includes(status)?current.detail:'',skipped].filter(Boolean).join(' · ');$('storage-status').setAttribute('role',status==='failed'?'alert':'status');
+  $('storage-status').textContent=[failed,copy,count,['planning','deleting'].includes(status)?current.detail:'',skipped,waiting].filter(Boolean).join(' · ');$('storage-status').setAttribute('role',failure?'alert':'status');
   $('storage-progress').hidden=!['planning','deleting'].includes(status);
   if(measured)$('storage-progress').value=Math.min(100,Math.max(0,current.done/current.total*100));else $('storage-progress').removeAttribute('value');
-  const previewing=status==='preview';$('storage-paths').hidden=!previewing;$('storage-paths').replaceChildren();
+  const previewing=status==='preview'&&!failure;$('storage-paths').hidden=!previewing;$('storage-paths').replaceChildren();
   if(previewing)for(const row of plan?.paths??[]){const li=document.createElement('li'),path=document.createElement('code'),detail=document.createElement('small');path.textContent=row.path;detail.textContent=t('storagePlanSize',{size:storageSize(row.bytes),files:new Intl.NumberFormat(language).format(row.files??0)});li.append(path,detail);$('storage-paths').append(li);}
   $('storage-confirmation').hidden=!previewing||files<=0;$('storage-confirm-copy').textContent=t('storageConfirmCopy');
-  $('storage-clean').disabled=locked||!plan?.id;$('storage-dismiss').disabled=locked;
+  $('storage-clean').disabled=locked||!plan?.id||Boolean(failure);$('storage-dismiss').disabled=locked;
 }
 function scheduleStoragePoll() {clearTimeout(storagePollTimer);if(!document.hidden)storagePollTimer=setTimeout(refreshStorage,storageActive()||storageInfo?.inventory?.status==='scanning'?750:15000);}
 async function refreshStorage() {
-  try{const result=await api.storage();if(result?.event!=='storage'||!result.state)throw {code:'invalidReply'};storageInfo=result;updateView();}
-  catch(value){if(storageInfo){storageInfo={...storageInfo,state:{status:'failed',error:{message:value?.message??t(value?.code??'offline')}}};updateView();}}
-  finally{scheduleStoragePoll();}
+  if(storageBusy)return;
+  const generation=storageGeneration;
+  try{const result=await api.storage();if(generation===storageGeneration){acceptStorage(result);updateView();}}
+  catch(value){if(generation===storageGeneration&&storageInfo){failStorage(value);updateView();}}
+  finally{if(!storageBusy)scheduleStoragePoll();}
 }
 async function planStorage(mode) {
   if(storageActive()||deviceActive()||packageActive()||busy||isActive(state))return;
-  storageBusy=true;clearTimeout(storagePollTimer);$('storage-details').open=true;
-  if(storageInfo)storageInfo={...storageInfo,state:{status:'planning'}};updateView();
-  try{const result=await api.storagePlan(mode);if(result?.event!=='storage'||!result.state)throw {code:'invalidReply'};storageInfo=result;}
-  catch(value){storageInfo={...storageInfo,state:{status:'failed',error:{message:value?.message??t(value?.code??'offline')}}};}
+  $('storage-details').open=true;beginStorage('planning');
+  try{acceptStorage(await api.storagePlan(mode));}
+  catch(value){failStorage(value);storageInfo={...storageInfo,state:{status:'failed'}};}
   finally{storageBusy=false;updateView();scheduleStoragePoll();}
 }
 async function cleanStorage() {
   const plan=storageInfo?.state?.status==='preview'?storageInfo.state.plan:null;
-  if(storageActive()||deviceActive()||packageActive()||busy||isActive(state)||!plan?.id||!(plan.files>0))return;
-  storageBusy=true;clearTimeout(storagePollTimer);storageInfo={...storageInfo,state:{status:'deleting'}};updateView();
-  try{const result=await api.storageClean(plan.id);if(result?.event!=='storage'||!result.state)throw {code:'invalidReply'};storageInfo=result;qualification=null;}
-  catch(value){storageInfo={...storageInfo,state:{status:'failed',error:{message:value?.message??t(value?.code??'offline')}}};}
+  if(storageActive()||deviceActive()||packageActive()||busy||isActive(state)||storageFailure||!plan?.id||!(plan.files>0))return;
+  beginStorage('deleting');
+  try{acceptStorage(await api.storageClean(plan.id));qualification=null;}
+  catch(value){failStorage(value);storageInfo={...storageInfo,state:{status:'failed'}};}
   finally{storageBusy=false;updateView();scheduleStoragePoll();}
 }
 function phaseLabel(phase='') {
@@ -917,7 +948,7 @@ $('storage-plan-duplicates').addEventListener('click',()=>planStorage('duplicate
 $('storage-plan-cache').addEventListener('click',()=>planStorage('build-cache'));
 $('storage-refresh').addEventListener('click',inventoryStorage);
 $('storage-clean').addEventListener('click',cleanStorage);
-$('storage-dismiss').addEventListener('click',()=>{if(storageActive())return;storageInfo={...storageInfo,state:{status:'idle'}};updateView();});
+$('storage-dismiss').addEventListener('click',()=>{if(storageActive())return;storageGeneration++;storageFailure=null;storageFailureOperationId=null;storageInfo={...storageInfo,state:{status:'idle'}};updateView();});
 $('primary').addEventListener('click',primary);$('back').addEventListener('click',()=>{page=0;clearError();updateView();});
 function previousApkSelection(){
   // A typed/browsed or restored selection is the user's explicit override.
