@@ -295,29 +295,37 @@ namespace GloomhavenVR.Quest.Editor
                 input.shaders == null || input.shaders.Length == 0 || input.requiredShaderCount != input.shaders.Length ||
                 collection == null || collection.shaderCount != input.shaders.Length)
                 throw new InvalidDataException("Original native shader collection is incomplete before Addressables.");
-            var retained = new HashSet<string>(StringComparer.Ordinal);
-            var shaderProgress = new QuestWizardProgress.Counter("unity-addressables-shaders", "content-bank", input.shaders.Length, "shaders", "Verify original native Shader retention");
-            int shadersDone = 0;
-            foreach (var row in input.shaders)
+            // PrepareVariantCollection has just constructed and checked every
+            // required original alias in this Editor. Repeating its complete
+            // membership census here produces no additional cooking input.
+            // Keep the exact native CopySerialized/count/root operations below;
+            // a second exhaustive membership inspection is development QA.
+            if (QuestBuild.ImportedAssetValidationRequested())
             {
-                shaderProgress.Report(shadersDone, row.assetPath);
-                var shader = AssetDatabase.LoadAssetAtPath<Shader>(row.assetPath);
-                if (shader == null || shader.name != row.originalName || AssetDatabase.AssetPathToGUID(row.assetPath) != row.guid ||
-                    row.variants == null || row.variants.Length == 0)
-                    throw new InvalidDataException("Native shader collection changes an original shader identity.");
-                foreach (var bank in row.variants)
+                var retained = new HashSet<string>(StringComparer.Ordinal);
+                var shaderProgress = new QuestWizardProgress.Counter("unity-addressables-shaders", "content-bank", input.shaders.Length, "shaders", "Verify original native Shader retention");
+                int shadersDone = 0;
+                foreach (var row in input.shaders)
                 {
-                    PassType pass;
-                    if (bank == null || bank.keywords == null || !Enum.TryParse(bank.passType, out pass) ||
-                        !collection.Contains(new ShaderVariantCollection.ShaderVariant(shader, pass, bank.keywords)))
-                        throw new InvalidDataException("Native Addressables collection omits an original shader alias.");
-                    retained.Add(row.guid + "/" + pass + "/" + string.Join(" ", bank.keywords.OrderBy(key => key, StringComparer.Ordinal)));
+                    shaderProgress.Report(shadersDone, row.assetPath);
+                    var shader = AssetDatabase.LoadAssetAtPath<Shader>(row.assetPath);
+                    if (shader == null || shader.name != row.originalName || AssetDatabase.AssetPathToGUID(row.assetPath) != row.guid ||
+                        row.variants == null || row.variants.Length == 0)
+                        throw new InvalidDataException("Native shader collection changes an original shader identity.");
+                    foreach (var bank in row.variants)
+                    {
+                        PassType pass;
+                        if (bank == null || bank.keywords == null || !Enum.TryParse(bank.passType, out pass) ||
+                            !collection.Contains(new ShaderVariantCollection.ShaderVariant(shader, pass, bank.keywords)))
+                            throw new InvalidDataException("Native Addressables collection omits an original shader alias.");
+                        retained.Add(row.guid + "/" + pass + "/" + string.Join(" ", bank.keywords.OrderBy(key => key, StringComparer.Ordinal)));
+                    }
+                    shaderProgress.Report(++shadersDone, row.assetPath);
                 }
-                shaderProgress.Report(++shadersDone, row.assetPath);
+                shaderProgress.Complete("Original native Shader aliases retained");
+                if (collection.variantCount != retained.Count)
+                    throw new InvalidDataException("Native Addressables collection adds or removes original keyword aliases.");
             }
-            shaderProgress.Complete("Original native Shader aliases retained");
-            if (collection.variantCount != retained.Count)
-                throw new InvalidDataException("Native Addressables collection adds or removes original keyword aliases.");
             // Addressables owns an independent copy outside Resources. Never
             // move/remove the Player's collection or mark its Resources path as
             // Addressable; both native build phases need their own root.

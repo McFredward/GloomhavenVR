@@ -203,15 +203,21 @@ class MinimumUnityWorkTests(unittest.TestCase):
             "QuestBlurValidation.cs", "QuestCampaignAssetValidation.cs", "QuestCampaignTextureValidation.cs",
             "QuestCampaignSpriteValidation.cs", "QuestCampaignComputeValidation.cs", "QuestCampaignShaderValidation.cs",
             "QuestCampaignShaderCache.cs", "QuestVulkanShaderValidation.cs", "QuestSmolvDecoder.cs")
-        result = subprocess.run([str(MONO), str(MCS), "-langversion:latest", "-target:library",
+        # Unity's shipped Roslyn supports the native sources' C# 8/9 nullable
+        # directives and lambda shadowing; legacy mcs does not. Use that pinned
+        # compiler for the complete native consumer set, without rewriting it.
+        roslyn = DATA / "MonoBleedingEdge/lib/mono/4.5/csc.exe"
+        self.assertTrue(roslyn.is_file(), "Pinned Unity Roslyn compiler is required")
+        result = subprocess.run([str(MONO), str(roslyn), "-nologo", "-langversion:9", "-target:library",
             "-define:UNITY_EDITOR,GHVR_QUEST_STARTUP,GHVR_QUEST_GAME", "-nowarn:0649,0414",
             "-out:" + str(self.base / "ActualSdk.dll"),
             *["-r:" + str(file) for file in sorted((DATA / "Managed/UnityEngine").glob("*.dll"))],
             "-r:" + str(DATA / "PlaybackEngines/AndroidPlayer/UnityEditor.Android.Extensions.dll"),
             str(path), *[str(EDITOR / name) for name in names]], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(result.stderr.count("warning"), 1, result.stderr)
-        self.assertIn("PassType.VertexLMRGBM", result.stderr)
+        compiler_output = result.stdout + result.stderr
+        self.assertEqual(compiler_output.count("warning"), 1, compiler_output)
+        self.assertIn("PassType.VertexLMRGBM", compiler_output)
 
     def test_explicit_campaign_qa_preserves_existing_17_plus_6_actual_tasks(self):
         result = self.run_policy(flag="1")
