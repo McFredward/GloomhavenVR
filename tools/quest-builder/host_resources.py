@@ -40,7 +40,11 @@ PROFILES = {"il2cpp": (2 * GIB, 2 * GIB, 6 * GIB, 32),
             # Managed image codecs are separate processes. Keep native bundle
             # readers and the single parent YAML publisher outside their pool.
             # Admission also checks each job's actual estimated payload memory.
-            "asset-codec": (2 * GIB, GIB, 6 * GIB, 16)}
+            "asset-codec": (2 * GIB, GIB, 6 * GIB, 16),
+            # Isolated AssetRipper instances load the bounded original core and
+            # one <=768 MiB compressed bundle group. The per-package estimate
+            # additionally accounts for compressed expansion before dispatch.
+            "asset-recovery": (8 * GIB, 8 * GIB, 2 * GIB, 8)}
 NATIVE_REPLAY_PEAK_BYTES = 1662372 * 1024
 NATIVE_DISPATCH_REPLAY_PEAK_BYTES = 456724 * 1024
 NATIVE_HISTORICAL_RESERVE_BYTES = 32 * GIB
@@ -277,6 +281,7 @@ def choose_jobs(host, phase, override=None):
     if paging:
         jobs = 1
     policy = {"schema": 1, "phase": phase, "requestedJobs": requested, "jobs": jobs,
+            "effectiveCpus": cpus,
             "cpuLimit": cpu_limit, "memoryLimit": memory_limit, "memoryBudgetBytes": budget,
             "osReserveBytes": os_reserve, "parentReserveBytes": parent,
             "largestWorkerReserveBytes": first, "additionalWorkerReserveBytes": extra,

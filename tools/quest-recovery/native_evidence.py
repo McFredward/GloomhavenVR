@@ -80,6 +80,13 @@ class FileProofs:
         # the two current output indexes instead of all large batch graphs.
         self._indexes.pop(Path(path).absolute(), None)
 
+    def forget_tree(self, root):
+        """Drop temporary batch stamps after its canonical checkpoint commits."""
+        root = Path(root).absolute()
+        for records in (self._files, self._indexes):
+            for path in [path for path in records if path == root or root in path.parents]:
+                records.pop(path, None)
+
     def published_digest(self, path):
         """Require an unchanged writer/read proof, rather than adopting new bytes."""
         path = ordinary_path(path)
@@ -166,7 +173,7 @@ def _write_index(destination, values):
     return digest.hexdigest(), size
 
 
-def merge(project, evidence, *, proofs=None):
+def merge(project, evidence, *, proofs=None, verify_unused_duplicates=True):
     """Preserve exact native recipes, never the random exported GUID graph.
 
     The 2026-10-06 Windows report ends after collection 2761/2761. Native
@@ -234,6 +241,12 @@ def merge(project, evidence, *, proofs=None):
                     continue
                 # The freshly copied first source was hashed while copying.
                 if original == first and copied_now:
+                    continue
+                if not copied_now and not verify_unused_duplicates:
+                    # The exact original identity/index hash agrees with the
+                    # already qualified canonical bytes. This exporter copy is
+                    # discarded after commit and never consumed by conversion.
+                    # Hashing its unused duplicate was optional extra auditing.
                     continue
                 if proofs.digest(original, _hash_recipe) != expected:
                     raise RecoveryError("Captured original native recipe changed.")

@@ -341,12 +341,13 @@ class ExportLogProgress:
     """Read the pinned exporter's actual collection counts, never guess time."""
     pattern = re.compile(rb"^ExportProgress\s*:\s*\(([0-9]+)/([0-9]+)\) Exporting '([^\r\n]*)'\r?$", re.M)
 
-    def __init__(self, path):
+    def __init__(self, path, callback=None):
         self.path = Path(path)
         self.offset = self.path.stat().st_size if self.path.is_file() else 0
         self.pending = b""
         self.done, self.total, self.detail = 0, None, None
         self.counter = None
+        self.callback = callback
 
     def poll(self):
         if not self.path.is_file(): return
@@ -367,18 +368,21 @@ class ExportLogProgress:
                 continue  # A reset/different export must not change this scope.
             self.done, self.total = done, total
             self.detail = "Exporting " + match[3].decode("utf-8", errors="replace")[:512]
+            if self.callback is not None:
+                self.callback(done, total, self.detail)
+                continue
             if self.counter is None:
                 self.counter = build_progress.Counter("recovery-asset-export", total, "collections", self.detail)
             self.counter.update(done, self.detail)
 
 
 @contextmanager
-def observe_export_log(path):
+def observe_export_log(path, callback=None):
     """Bounded optional observation while the synchronous export request runs."""
-    if not build_progress.enabled():
+    if not build_progress.enabled() and callback is None:
         yield
         return
-    progress, stopped = ExportLogProgress(path), threading.Event()
+    progress, stopped = ExportLogProgress(path, callback), threading.Event()
 
     def observe():
         while not stopped.wait(.25):
@@ -403,17 +407,49 @@ def observe_export_log(path):
             except (OSError, ValueError): pass  # Optional observation never fails export.
 
 
-def run_export(executable, stage, export, log_path, shader_root, settings, require_scene_settings=True):
-    build_progress.event("recovery-exporter-start", detail="Starting pinned asset exporter", status="start")
+def run_export(executable, stage, export, log_path, shader_root, settings, require_scene_settings=True,
+               *, environment=None, cancellation=None, progress_callback=None):
+    """Run one isolated exporter with explicit process-local capture settings.
+
+    Recovery batches never mutate os.environ. The optional supervisor reaps the
+    full process tree on cancellation and converts witnessed allocation failures
+    into the existing retained-output serial retry policy.
+    """
+    if cancellation is None:
+        build_progress.event("recovery-exporter-start", detail="Starting pinned asset exporter", status="start")
     with socket.socket() as available:
         available.bind(("127.0.0.1", 0))
         port = available.getsockname()[1]
     base = f"http://127.0.0.1:{port}"
     with log_path.with_suffix(".console.log").open("wb") as console:
         command = list(executable) if isinstance(executable, (list, tuple)) else [str(executable)]
-        process = subprocess.Popen(command + ["--headless", "--port", str(port),
+        supervised = {}
+        stopped, watcher = threading.Event(), None
+        if cancellation is not None:
+            import recovery_workers
+            jobs, _ = recovery_workers.modules()
+            oom_before = recovery_workers.oom_kill_count()
+            cancellation.check()
+            supervised = {"start_new_session": True} if os.name != "nt" else {
+                "creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+        try:
+            process = subprocess.Popen(command + ["--headless", "--port", str(port),
                                     "--log-path", str(log_path)], stdout=console, stderr=subprocess.STDOUT,
-                                   cwd=stage.parent)
+                                   cwd=stage.parent, env=environment, **supervised)
+        except OSError as error:
+            if cancellation is not None and (error.errno == 12 or getattr(error, "winerror", None) in (8, 14, 1455)):
+                raise jobs.MemoryPressure("Asset exporter could not start because of allocation pressure.") from error
+            raise
+        if cancellation is not None:
+            def supervise():
+                while not stopped.wait(.1):
+                    if cancellation.event.is_set():
+                        jobs._terminate(process)
+                        return
+                    if process.poll() is not None:
+                        return
+            watcher = threading.Thread(target=supervise, name="quest-recovery-supervisor", daemon=True)
+            watcher.start()
         try:
             deadline = time.monotonic() + 60
             while True:
@@ -428,28 +464,55 @@ def run_export(executable, stage, export, log_path, shader_root, settings, requi
                     time.sleep(0.2)
             request(base, "/Settings/Update", settings)
             print("[Quest recovery] Loading owned core assets; detailed progress is in", log_path, flush=True)
-            build_progress.event("recovery-asset-load", detail="Loading owned assets; detailed exporter log: " + log_path.name, status="start")
+            if cancellation is None:
+                build_progress.event("recovery-asset-load", detail="Loading owned assets; detailed exporter log: " + log_path.name, status="start")
             request(base, "/LoadFolder", {"Path": str(stage)})
-            build_progress.event("recovery-asset-load", 1, 1, "requests", "Original assets loaded", status="complete")
-            build_progress.event("recovery-asset-export", detail="Exporting original assets; detailed exporter log: " + log_path.name, status="start")
-            with observe_export_log(log_path):
+            if cancellation is None:
+                build_progress.event("recovery-asset-load", 1, 1, "requests", "Original assets loaded", status="complete")
+                build_progress.event("recovery-asset-export", detail="Exporting original assets; detailed exporter log: " + log_path.name, status="start")
+            with observe_export_log(log_path, progress_callback):
                 request(base, "/Export/UnityProject", {"Path": str(export)})
             project = export / "ExportedProject"
             if require_scene_settings and not (project / "ProjectSettings/EditorBuildSettings.asset").is_file():
                 raise RecoveryError(f"Export did not produce original scene settings; see {log_path}.")
             if not (project / "Assets").is_dir():
                 raise RecoveryError(f"Export did not produce an asset tree; see {log_path}.")
-            build_progress.event("recovery-asset-export", 1, 1, "requests", "Original asset export completed", status="complete")
+            if cancellation is None:
+                build_progress.event("recovery-asset-export", 1, 1, "requests", "Original asset export completed", status="complete")
             recipes = export_shader_recipes(base, shader_root)
             identities = export_script_identities(base, shader_root)
             return project, recipes, identities
+        except Exception as error:
+            if cancellation is not None:
+                cancellation.check()
+                diagnostics = ""
+                for path in (log_path, log_path.with_suffix(".console.log")):
+                    if path.is_file():
+                        with path.open("rb") as stream:
+                            diagnostics += stream.read(8192).decode("utf-8", errors="replace")
+                            stream.seek(max(0, path.stat().st_size - 8192))
+                            diagnostics += stream.read(8192).decode("utf-8", errors="replace")
+                code = process.poll()
+                oom_after = recovery_workers.oom_kill_count()
+                witnessed_kill = oom_before is not None and oom_after is not None and oom_after > oom_before
+                if code is None and witnessed_kill:
+                    try: code = process.wait(timeout=.2)
+                    except subprocess.TimeoutExpired: pass
+                if jobs.allocation_failure(code or 0, diagnostics) or code == -9 and witnessed_kill:
+                    raise jobs.MemoryPressure("Asset exporter exhausted memory; the isolated batch will retry.") from error
+            raise
         finally:
-            process.terminate()
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait()
+            stopped.set()
+            if watcher is not None: watcher.join(timeout=1.)
+            if cancellation is not None:
+                jobs._terminate(process)
+            elif process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
 
 
 def repair_managed_plugins(project, game_data):

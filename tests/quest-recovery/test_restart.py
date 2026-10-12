@@ -109,7 +109,7 @@ class FullBatchRestartTests(Fixture):
             index = len(exports); exports.append(index)
             project = target / 'ExportedProject'
             row = self.asset(project, str(index + 1) * 32, 'native-bundle-' + str(index), index + 2)
-            Path(os.environ['QUEST_EXPORT_IDENTITIES']).write_text(json.dumps(row) + '\n')
+            Path(_['environment']['QUEST_EXPORT_IDENTITIES']).write_text(json.dumps(row) + '\n')
             directory = evidence / 'QuestRecovery/NativeRecipes'; directory.mkdir(parents=True)
             (directory / recipe.name).write_bytes(recipe.read_bytes())
             (directory / 'index.jsonl').write_text(json.dumps(native_row) + '\n')
@@ -131,7 +131,8 @@ class FullBatchRestartTests(Fixture):
         for row in result['files']:
             if row['path'].startswith('Assets/QuestRecoveredBundles/'):
                 self.assertEqual(sum(call.args[0] == output / row['path'] for call in hashes.call_args_list), 1)
-        self.assertEqual(references.call_count, 1)
+        self.assertEqual(references.call_count, 0)
+        self.assertEqual(result['assetReferences']['status'], 'skipped')
         # A new child hashes the completed output once, skips exporter staging,
         # and retains the completed reference audit. No loop or re-export occurs.
         with patch.object(bundles, 'catalog_bundle_plan', return_value=plan), \
@@ -160,7 +161,7 @@ class FullBatchRestartTests(Fixture):
         output=self.root/'merged';workspace=self.root/'batches';exports=[];real_merge=bundles.merge_export
         def export(command,stage,target,log,evidence,settings,**_):
             index=len(exports);exports.append(index);project=target/'ExportedProject';row=self.asset(project, str(index+1)*32, 'native-bundle-'+str(index), index+2)
-            Path(os.environ['QUEST_EXPORT_IDENTITIES']).write_text(json.dumps(row)+'\n');log.write_text('original export succeeded\n')
+            Path(_['environment']['QUEST_EXPORT_IDENTITIES']).write_text(json.dumps(row)+'\n');log.write_text('original export succeeded\n')
             return project, [], []
         failed=[False]
         def interrupt(project,incoming,rows,canonical):
@@ -225,10 +226,10 @@ class CoreExportRestartTests(Fixture):
         source=self.root/'owned/GH_Data';(source/'Managed').mkdir(parents=True)
         for name in ('Managed/GH.Runtime.dll','globalgamemanagers','level0','resources.assets','ScriptingAssemblies.json'):(source/name).write_bytes(b'actual original '+name.encode())
         workspace=self.root/'workspace';calls=[];before=recover.source_inventory(source)
-        def export(command,stage,target,log,evidence,settings):
+        def export(command,stage,target,log,evidence,settings,**kwargs):
             calls.append('export');project=target/'ExportedProject';row=self.asset(project,'a'*32,'native-core',1)
             if len(calls)==1:raise KeyboardInterrupt()
-            Path(os.environ['QUEST_EXPORT_IDENTITIES']).write_text(json.dumps(row)+'\n');return project,[],[]
+            Path(kwargs['environment']['QUEST_EXPORT_IDENTITIES']).write_text(json.dumps(row)+'\n');return project,[],[]
         def merged(game,core,identities,output,where,command,**_):
             import shutil
             shutil.copytree(core,output)

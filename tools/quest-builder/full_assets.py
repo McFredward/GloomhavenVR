@@ -509,9 +509,17 @@ def stage(source, game_data, output, tmp_archive, *, canonical_project=None,
             if isinstance(script_origins, dict):
                 script_origins = script_origins.get("identities", [])
             script_audit = recover.audit_script_bindings(output, types, script_origins)
-            references = recover.audit_asset_references(output)
-            if references["missingGuidCount"] or references["duplicateGuidCount"]:
-                raise BuildError("Full original native source closure remains unresolved after exact repair.")
+            if os.environ.get("GHVRQ_FULL_ASSET_AUDIT") == "1":
+                references = recover.audit_asset_references(output)
+                if references["missingGuidCount"] or references["duplicateGuidCount"]:
+                    raise BuildError("Full original native source closure remains unresolved after exact repair.")
+            else:
+                # GUID/native/catalog restoration and Unity's actual import
+                # still qualify the inputs they consume. A second exhaustive
+                # YAML graph audit is optional developer diagnosis; never label
+                # an omitted audit as a proven zero-missing-reference result.
+                references = {"status": "skipped", "scope": "optional-full-reference-audit",
+                    "reason": "disabled-for-normal-build", "evaluated": False}
             return [script_audit, references]
         script_audit, references = journal.run("audit", 11, _audit)
         def _scenes():

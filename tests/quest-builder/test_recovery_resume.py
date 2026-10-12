@@ -173,7 +173,7 @@ class ResumeFixture(unittest.TestCase):
         self.export_calls += 1
         project = target / "ExportedProject"
         row = self.asset(project, "b" * 32, "Portrait_Jekserah", 2)
-        Path(os.environ["QUEST_EXPORT_IDENTITIES"]).write_text(json.dumps(row) + "\n")
+        Path(kwargs["environment"]["QUEST_EXPORT_IDENTITIES"]).write_text(json.dumps(row) + "\n")
         log.write_text("original export completed\n")
         return project, [], []
 

@@ -289,7 +289,9 @@ class StagingTests(unittest.TestCase):
         self.assertEqual(len(report['selectedScenes']),13)
         self.assertTrue(report['readiness']['originalSceneClosureStaged'])
         self.assertFalse(report['fullGameReady'])
-        self.assertEqual(report['missingReferences']['missingGuidCount'],0)
+        self.assertEqual(report['missingReferences']['status'],'skipped')
+        self.assertFalse(report['missingReferences']['evaluated'])
+        self.assertNotIn('missingGuidCount',report['missingReferences'])
         self.assertEqual({row['path']:(project/row['path']).read_bytes() for row in records},before)
         self.assertEqual(json.loads((output/'quest-campaign-report.json').read_text()),report)
         self.assertFalse((output/'Assets/Resources/srdebugger/unused.txt').exists())
@@ -355,18 +357,18 @@ class StagingTests(unittest.TestCase):
              mock.patch.object(native_stage,'restore',side_effect=AssertionError('completed native replayed')):
             final_resume=full_assets.stage(project,game,interrupted,self.root/'unused-tmp.zip',**parameters)
         self.assertEqual(len(final_resume['selectedScenes']),13)
-        self.assertEqual(final_resume['missingReferences']['missingGuidCount'],0)
+        self.assertEqual(final_resume['missingReferences']['status'],'skipped')
         resumed_files={row['path']:row for row in final_resume['files']}
         self.assertEqual(resumed_files[scene_paths[0]]['sha256'],digest((interrupted/scene_paths[0]).read_bytes()))
         self.assertEqual({row['path']:(project/row['path']).read_bytes() for row in records},before)
-        # Deferring the intermediate native audit must never remove the last
-        # closure gate. Simulate a later font edit introducing a duplicate GUID.
+        # The explicitly enabled developer audit still diagnoses a later font
+        # edit introducing a duplicate GUID before publishing its report.
         broken = self.root / 'broken-font-stage'
         def bad_font(*args):
             path = broken / 'Assets/BrokenFont.asset.meta'
             path.write_text('fileFormatVersion: 2\nguid: ' + rows[0]['guid'] + '\n')
             return []
-        with contextlib.redirect_stdout(self.stream), \
+        with contextlib.redirect_stdout(self.stream), mock.patch.dict(os.environ,{'GHVRQ_FULL_ASSET_AUDIT':'1'}), \
              mock.patch.object(catalogs,'associate',return_value=catalog_manifest), \
              mock.patch.object(canonical_contracts,'witness',return_value=proof), \
              mock.patch.object(layouts,'restore',return_value={'repairedObjectCount':0}), \

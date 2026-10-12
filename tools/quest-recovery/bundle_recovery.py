@@ -3,12 +3,14 @@
 import argparse
 import collections
 import hashlib
+import heapq
 import json
 import os
 from pathlib import Path
 import re
 import shutil
 import sys
+import threading
 import time
 import uuid
 
@@ -16,6 +18,7 @@ from catalog import bundle_closure, decode_catalog
 from export_identity import (build_tool, identity_remaps, object_index, read_identities,
                              remap_yaml, POINTER)
 import native_evidence
+import recovery_workers
 from recover import (RecoveryError, YAML_EXTENSIONS, audit_asset_references,
                      audit_export_log, repair_managed_plugins, run_export,
                      sha256, stage_input, write_json, is_unity_yaml, ordinary_path, own_attempt, build_progress)
@@ -81,6 +84,47 @@ def _inventory(root, phase, byte_phase, *, proofs=None):
         counter.add(1, path.name)
     counter.finish()
     return records
+
+
+def export_receipt_samples(directory, limit=64):
+    """Bounded cache sampling, not a second full-project byte audit.
+
+    The exporter writes its actual identities and native recipe hashes. Merge
+    consumes all actual identities, checks every referenced GUID/importer and
+    hashes the canonical files it publishes. Re-reading every throwaway export
+    asset before that merge provided no additional conversion work. Sample
+    retained exports on restart and keep exact identity/index witnesses.
+    """
+    directory = ordinary_path(directory)
+    candidates = []
+    with (directory / "identities.jsonl").open(encoding="utf-8") as stream:
+        for line in stream:
+            row = json.loads(line)
+            if row.get("skippedCore"): continue
+            path = Path(row["path"]).absolute()
+            if directory not in path.parents or ".." in path.parts:
+                raise RecoveryError("Export sample path escaped its batch owner.")
+            score = int(hashlib.sha256(str(path.relative_to(directory)).encode()).hexdigest(), 16)
+            item = (-score, str(path))
+            if len(candidates) < limit: heapq.heappush(candidates, item)
+            elif item > candidates[0]: heapq.heapreplace(candidates, item)
+    paths = [directory / "identities.jsonl", directory / "export.log"]
+    sampled_bytes = 0
+    for _, name in sorted(candidates):
+        # Qualify only files actually sampled. Running a full ancestor/stat
+        # walk on every identity before choosing64 reintroduced the optional
+        # 400,000-file Windows scan this receipt replaces.
+        path = ordinary_path(name)
+        metadata = ordinary_path(path.with_name(path.name + ".meta"))
+        size, meta_size = path.stat().st_size, metadata.stat().st_size
+        if size > 8 * 1048576 or sampled_bytes + size + meta_size > 32 * 1048576: continue
+        sampled_bytes += size + meta_size
+        paths.extend((path, path.with_name(path.name + ".meta")))
+    for name in MUTABLE_NATIVE_INDICES:
+        path = directory / "Evidence" / name
+        if path.is_file(): paths.append(path)
+    return [{"path": path.relative_to(directory).as_posix(), "bytes": path.stat().st_size,
+             "sha256": sha256(path)} for path in paths]
 
 
 def write_checkpoint(path, value, *, proofs=None):
@@ -153,6 +197,24 @@ def verified_records(root, records, *, excluded=(), phase="recovery-checkpoint-v
     counter.finish()
     print("[Quest full recovery] Checkpoint verified:", len(records), "files;",
           round(time.monotonic() - started, 3), "seconds.", flush=True)
+
+
+def resume_samples(records, limit=64, byte_limit=32 * 1048576):
+    """Sample an immutable raw cache; actual consumers still check exact bytes.
+
+    Rollback preimages are excluded from this shortcut and keep exhaustive
+    verification. No sampled result is recorded as a full file qualification.
+    """
+    if os.environ.get("GHVRQ_FULL_ASSET_AUDIT") == "1": return records
+    candidates = heapq.nsmallest(limit, (row for row in records if row["bytes"] <= 8 * 1048576),
+        key=lambda row: row["sha256"])
+    selected, reserved = [], 0
+    for row in candidates:
+        if reserved + row["bytes"] > byte_limit: continue
+        selected.append(row); reserved += row["bytes"]
+    critical = [row for row in records if row["path"] in MUTABLE_NATIVE_INDICES]
+    unique = {row["path"]: row for row in [*selected, *critical]}
+    return [unique[key] for key in sorted(unique)]
 
 
 def _merge_journal(output, workspace):
@@ -357,7 +419,8 @@ def merge_export(project, incoming_project, incoming_rows, canonical_objects):
             "remappedOriginalPointerCount": len(pointers), "files": files, "identities": rows}
 
 
-def run_recovery(game_data, core_project, core_identities, output, workspace, tool_command, selected_groups=None, *, bundle_plan=None):
+def run_recovery(game_data, core_project, core_identities, output, workspace, tool_command, selected_groups=None,
+                 *, bundle_plan=None, shared_input=None):
     for path in (output, workspace): ordinary_path(path)
     source, core, output, workspace = map(lambda value: Path(value).resolve(), (game_data, core_project, output, workspace))
     if output == source or source in output.parents or output in source.parents or output == core or core in output.parents or output in core.parents:
@@ -377,9 +440,9 @@ def run_recovery(game_data, core_project, core_identities, output, workspace, to
             raise RecoveryError("Full recovery resume inputs changed.")
         if ordinary_path(workspace / "merge-pending.json").exists():
             raise RecoveryError("Unfinished recovery merge has no matching ownership receipt.")
-        verified_records(output, previous["files"], phase="recovery-resume-verify", proofs=proofs)
+        verified_records(output, resume_samples(previous["files"]), phase="recovery-resume-verify", proofs=proofs)
         qualified = previous
-        write_json(owner, expected)  # adopt only a complete verified legacy checkpoint
+        write_json(owner, expected)  # Adopt coherent legacy identity plus bounded cache samples.
     own_attempt(owner, expected, output)
     restored = recover_merge(output, workspace, proofs=proofs)
     if checkpoint.exists():
@@ -387,7 +450,7 @@ def run_recovery(game_data, core_project, core_identities, output, workspace, to
         if progress["catalogSha256"] != plan["catalogSha256"] or progress["coreIdentitySha256"] != expected["coreIdentitySha256"]:
             raise RecoveryError("Full recovery resume inputs changed.")
         if restored is None and qualified is None:
-            verified_records(output, progress["files"], phase="recovery-resume-verify", proofs=proofs)
+            verified_records(output, resume_samples(progress["files"]), phase="recovery-resume-verify", proofs=proofs)
         identities = progress["identities"]
     else:
         # An interrupted initial core copy has the durable matching owner above.
@@ -400,22 +463,34 @@ def run_recovery(game_data, core_project, core_identities, output, workspace, to
                     "completedGroups": [], "files": files, "identities": identities, "groups": [], "assetsRecovered": False}
         write_checkpoint(checkpoint, progress, proofs=proofs)
     canonical = object_index(identities)
-    stage = workspace / "Input/GH_Data"
+    stage = ordinary_path(shared_input) if shared_input is not None else workspace / "Input/GH_Data"
     stage.parent.mkdir(parents=True, exist_ok=True)
     settings = json.loads((Path(__file__).parent / "tool-lock.json").read_text())["settings"]
     groups = list(dict.fromkeys(range(len(plan["groups"])) if selected_groups is None else selected_groups))
     if any(not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < len(plan["groups"])
            for index in groups + progress["completedGroups"]) or len(set(progress["completedGroups"])) != len(progress["completedGroups"]):
         raise RecoveryError("Recovery batch schedule or completed checkpoint contains invalid/repeated groups.")
-    staged = False
+    staged = shared_input is not None
     measured_groups = list(dict.fromkeys(groups))
     build_progress.event("recovery-section:batches", detail="Recovering the selected original bundle schedule", status="start")
     group_counter = build_progress.Counter("recovery-batches", len(measured_groups), "batches")
     group_counter.update(sum(index in progress["completedGroups"] for index in measured_groups), "Verified retained recovery batches", force=True)
     tool_files = None
-    for index in groups:
-        if index in progress["completedGroups"]:
-            continue
+    selected_policy = recovery_workers.policy(workspace)
+    # Only the parent owns source staging, receipts and canonical publication.
+    # Workers consume private inputs and produce closed disk-backed projects.
+    active = [index for index in groups if index not in progress["completedGroups"]]
+    progress_lock, progress_at = threading.Lock(), [0.]
+    def observe(index, done, total, detail):
+        with progress_lock:
+            now = time.monotonic()
+            if now - progress_at[0] < .5 and done != total: return
+            progress_at[0] = now
+            build_progress.event("recovery-asset-export", done, total, "collections",
+                "Original batch " + str(index + 1) + " of " + str(len(plan["groups"])) + ": " + detail)
+
+    def prepare_batch(index):
+        nonlocal tool_files, staged
         group = plan["groups"][index]
         build_progress.event("recovery-batch", group_counter.done, len(measured_groups), "batches",
                              "Preparing original batch " + str(index + 1) + " of " + str(len(plan["groups"])), status="start")
@@ -429,7 +504,7 @@ def run_recovery(game_data, core_project, core_identities, output, workspace, to
         export_receipt = directory / "export-complete.json"
         completed_export = json.loads(export_receipt.read_text()) if export_receipt.is_file() else None
         if completed_export:
-            if completed_export.get("schema") != 1: raise RecoveryError("Batch export receipt is invalid.")
+            if completed_export.get("schema") not in (1, 2): raise RecoveryError("Batch export receipt is invalid.")
             verified_records(directory, completed_export["files"], phase="recovery-batch-export-verify", proofs=proofs)
             project = ordinary_path(directory / completed_export["project"])
             if directory not in project.parents: raise RecoveryError("Batch export project escaped its owner.")
@@ -437,15 +512,15 @@ def run_recovery(game_data, core_project, core_identities, output, workspace, to
         else:
             # Only the currently unfinished bounded export is restarted. Earlier
             # groups and an already verified export waiting to merge are reused.
-            if directory.exists(): shutil.rmtree(directory)
+            if directory.exists(): recovery_workers.discard_tree(directory)
             directory.mkdir()
-        identity_path = directory / "identities.jsonl"
         if not completed_export:
             if not staged:
                 stage_input(source, stage, [])
                 staged = True
-            selected = stage / "SelectedBundles"
-            if selected.exists(): shutil.rmtree(selected)
+            batch_stage = directory / "Input/GH_Data"
+            recovery_workers.isolate_input(stage, batch_stage)
+            selected = batch_stage / "SelectedBundles"
             selected.mkdir()
             bundle_counter = build_progress.Counter("recovery-batch-bundle-copy", len(group["bundles"]), "bundles")
             for row in group["bundles"]:
@@ -457,20 +532,40 @@ def run_recovery(game_data, core_project, core_identities, output, workspace, to
                 shutil.copy2(path, destination)
                 bundle_counter.add(1, path.name)
             bundle_counter.finish()
-            capture = native_evidence.environment(directory / "Evidence")
-            previous = {key: os.environ.get(key) for key in ("QUEST_EXPORT_IDENTITIES", "QUEST_EXPORT_BUNDLE_ONLY", *capture)}
-            os.environ["QUEST_EXPORT_IDENTITIES"] = str(identity_path)
-            os.environ["QUEST_EXPORT_BUNDLE_ONLY"] = "1"
-            os.environ.update(capture)
-            try:
-                project, shaders, scripts = run_export(tool_command, stage, directory / "Export", directory / "export.log",
-                                                       directory / "Evidence", settings, require_scene_settings=False)
-                write_json(export_receipt, {"schema": 1, "project": project.relative_to(directory).as_posix(), "shaderRecipes": shaders,
-                           "files": _inventory(directory, "recovery-export-receipt-hash", "recovery-export-file-hash", proofs=proofs)})
-            finally:
-                for key, value in previous.items():
-                    if value is None: os.environ.pop(key, None)
-                    else: os.environ[key] = value
+        return recovery_workers.package(index, group, directory, completed_export)
+
+    def execute_batch(package, cancellation):
+        directory = package.directory
+        if package.completed:
+            return directory / package.completed["project"], package.completed["shaderRecipes"]
+        # On a witnessed allocation failure only this unpublished export and
+        # evidence are reset. Inputs and successful sibling exports survive.
+        for name in ("Export", "Evidence"):
+            path = ordinary_path(directory / name)
+            if path.exists(): recovery_workers.discard_tree(path)
+        (directory / "identities.jsonl").unlink(missing_ok=True)
+        environment = dict(os.environ)
+        environment.update(native_evidence.environment(directory / "Evidence"))
+        environment.update(QUEST_EXPORT_IDENTITIES=str(directory / "identities.jsonl"), QUEST_EXPORT_BUNDLE_ONLY="1")
+        environment["DOTNET_PROCESSOR_COUNT"] = str(selected_policy.get("workerProcessorCount", 1))
+        project, shaders, scripts = run_export(tool_command, directory / "Input/GH_Data",
+            directory / "Export", directory / "export.log", directory / "Evidence", settings,
+            require_scene_settings=False, environment=environment, cancellation=cancellation,
+            progress_callback=(lambda done, total, detail: observe(package.index, done, total, detail))
+                if build_progress.enabled() else None)
+        cancellation.check()
+        # Input clones are not export evidence. Omitting them from the receipt
+        # also avoids rereading the same immutable core for every bundle group.
+        files = export_receipt_samples(directory)
+        write_json(directory / "export-complete.json", {"schema": 2,
+            "verification": "bounded-samples-plus-exact-native-identities",
+            "project": project.relative_to(directory).as_posix(), "shaderRecipes": shaders, "files": files})
+        return project, shaders
+
+    def publish_batch(package, result):
+        index, group, directory = package.index, package.group, package.directory
+        project, shaders = result
+        identity_path = directory / "identities.jsonl"
         incoming = read_identities(identity_path, project)
         incoming = exportable_identities(incoming, directory / "Evidence")
         begin_merge(output, workspace, index, incoming, directory / "Evidence", canonical, proofs=proofs)
@@ -478,7 +573,8 @@ def run_recovery(game_data, core_project, core_identities, output, workspace, to
         progress["files"].extend(merged["files"])
         # Native field recipes and engine redirects are stable original object
         # evidence, even when a batch drops the corresponding export asset.
-        additions = native_evidence.merge(output, directory / "Evidence", proofs=proofs)
+        additions = native_evidence.merge(output, directory / "Evidence", proofs=proofs,
+            verify_unused_duplicates=os.environ.get("GHVRQ_FULL_ASSET_AUDIT") == "1")
         existing_files = {row["path"]: row for row in progress["files"]}
         for row in additions:
             existing_files[row["path"]] = row
@@ -494,16 +590,49 @@ def run_recovery(game_data, core_project, core_identities, output, workspace, to
         progress.pop("assetReferences", None)
         write_checkpoint(checkpoint, progress, proofs=proofs)
         commit_merge(output, workspace, index, progress, proofs)
+        # The exact merged checkpoint is durable before deleting the redundant
+        # exporter tree. Preserve identities, logs and native recipes for later
+        # diagnostics; there is no need to retain sixteen duplicate projects.
+        for name in ("Export", "Input"):
+            obsolete = ordinary_path(directory / name)
+            if obsolete.exists(): recovery_workers.discard_tree(obsolete)
+        recipes = ordinary_path(directory / "Evidence/QuestRecovery/NativeRecipes")
+        if recipes.is_dir():
+            # Every accepted original YAML is already in output/QuestRecovery,
+            # including its exact index hash. Keep that compact source index
+            # rather than another 62,000-file core recipe copy in every group.
+            saved_index = directory / "native-recipe-index.retained.jsonl"
+            source_index = recipes / "index.jsonl"
+            if source_index.is_file(): os.replace(source_index, saved_index)
+            recovery_workers.discard_tree(recipes)
+            if saved_index.is_file():
+                recipes.mkdir(parents=True)
+                os.replace(saved_index, recipes / "index.jsonl")
+        proofs.forget_tree(directory)
         group_counter.add(1, "Original batch " + str(index + 1) + " merged and checkpoint committed")
         print("[Quest full recovery] Batch", index + 1, "of", len(plan["groups"]), "merged:",
               merged["exportedCollectionCount"], "collections; total original objects", len(canonical), flush=True)
+    recovery_workers.ordered(active, prepare_batch, execute_batch, publish_batch, selected_policy)
+    if progress["assetsRecovered"]:
+        obsolete = ordinary_path(workspace / "Input")
+        if obsolete.exists(): recovery_workers.discard_tree(obsolete)
     group_counter.finish()
     build_progress.event("recovery-section:references", detail="Qualifying recovered original asset references", status="start")
-    if "assetReferences" not in progress:
+    if os.environ.get("GHVRQ_FULL_ASSET_AUDIT") == "1" and (
+            "assetReferences" not in progress or progress["assetReferences"].get("status") == "skipped"):
         # The auditor owns its file/byte counters and completion. Do not reset
         # that actual total to a synthetic one-audit counter after it returns.
         progress["assetReferences"] = audit_asset_references(output)
         write_checkpoint(checkpoint, progress, proofs=proofs)
+    elif "assetReferences" not in progress:
+        progress["assetReferences"] = {"status": "skipped", "scope": "optional-full-reference-audit",
+            "reason": "disabled-for-normal-build", "evaluated": False}
+        write_checkpoint(checkpoint, progress, proofs=proofs)
+        build_progress.event("recovery-asset-references", 1, 1, "operations",
+            "Optional whole-project reference audit omitted; exact merge provenance retained", status="complete")
+    elif progress["assetReferences"].get("status") == "skipped":
+        build_progress.event("recovery-asset-references", 1, 1, "operations",
+            "Optional whole-project reference audit remains omitted", status="complete")
     else:
         build_progress.event("recovery-asset-references", 1, 1, "audits", "Reusing the qualified recovered asset-reference audit", status="reuse")
     return progress

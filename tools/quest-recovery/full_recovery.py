@@ -11,6 +11,7 @@ from bundle_members import serialized_members
 from bundle_recovery import catalog_bundle_plan, run_recovery, write_checkpoint, _hash_file
 from export_identity import build_tool, read_identities
 import native_evidence
+import recovery_workers
 from recover import (RecoveryError, managed_inventory, repair_managed_plugins, resolve_game_data,
                      run_export, sha256, source_inventory, stage_input, write_json, own_attempt, ordinary_path)
 from recover import build_progress
@@ -23,7 +24,8 @@ def prepare(game_data, workspace, tool_cache, dotnet, output_project=None, *,
 
     Only original game files and the pinned open-source tool source are inputs.
     All exports, metadata and checkpoints live in the supplied private workspace.
-    Existing completed core/bundle outputs must pass their hash receipts to reuse.
+    Exact identity receipts and bounded immutable-cache samples qualify reuse;
+    copying/consuming generated assets still checks their recorded exact bytes.
     The .NET 10 SDK runs the pinned exporter; managed_inventory additionally uses
     the builder's existing .NET 8 toolchain for metadata-only assembly inspection.
     """
@@ -36,6 +38,8 @@ def prepare(game_data, workspace, tool_cache, dotnet, output_project=None, *,
     workspace.mkdir(parents=True, exist_ok=True)
     build_progress.event("recovery-section:source", detail="Qualifying original source inputs", status="start")
     files, fingerprint = source_inventory(source)
+    source_stamps = {row["path"]: (lambda value: (value.st_dev, value.st_ino, value.st_size,
+        value.st_mtime_ns, value.st_ctime_ns))(ordinary_path(source / row["path"]).stat()) for row in files}
     source_receipt = workspace / "original-source.json"
     if source_receipt.exists():
         previous = json.loads(source_receipt.read_text())
@@ -98,20 +102,12 @@ def prepare(game_data, workspace, tool_cache, dotnet, output_project=None, *,
         staged.parent.mkdir(parents=True, exist_ok=True)
         stage_input(source, staged, [])
         capture = native_evidence.environment(workspace / "CoreEvidence")
-        previous_env = {name: os.environ.get(name) for name in ("QUEST_EXPORT_IDENTITIES", "QUEST_EXPORT_BUNDLE_ONLY", *capture)}
-        os.environ["QUEST_EXPORT_IDENTITIES"] = str(core_identities)
-        os.environ.pop("QUEST_EXPORT_BUNDLE_ONLY", None)
-        os.environ.update(capture)
-        try:
-            settings = json.loads(Path(__file__).with_name("tool-lock.json").read_text())["settings"]
-            core, _, _ = run_export(tool, staged, workspace / "CoreExport", workspace / "core-export.log",
-                                    workspace / "CoreEvidence", settings)
-        finally:
-            for name, value in previous_env.items():
-                if value is None:
-                    os.environ.pop(name, None)
-                else:
-                    os.environ[name] = value
+        environment = dict(os.environ)
+        environment.update(capture, QUEST_EXPORT_IDENTITIES=str(core_identities))
+        environment.pop("QUEST_EXPORT_BUNDLE_ONLY", None)
+        settings = json.loads(Path(__file__).with_name("tool-lock.json").read_text())["settings"]
+        core, _, _ = run_export(tool, staged, workspace / "CoreExport", workspace / "core-export.log",
+                                workspace / "CoreEvidence", settings, environment=environment)
         repair_managed_plugins(core, source)
         read_identities(core_identities, core)
         shutil.copytree(workspace / "CoreEvidence/QuestRecovery", core / "QuestRecovery")
@@ -129,9 +125,10 @@ def prepare(game_data, workspace, tool_cache, dotnet, output_project=None, *,
     # The actual catalog plan hashes required original bundles once. Final CAB
     # ownership indexing uses this same plan instead of rereading every bundle
     # merely to recreate an unchanged schedule; the final source guard remains.
+    private_core_input = workspace / "CoreInput/GH_Data"
     progress = run_recovery(source, core, core_identities, output,
                             Path(bundle_workspace).resolve() if bundle_workspace else workspace / "BundleRecovery", tool,
-                            bundle_plan=plan)
+                            bundle_plan=plan, shared_input=private_core_input if private_core_input.is_dir() else None)
     if metadata_project is not None:
         metadata = Path(metadata_project).resolve() / "QuestRecovery"
         if not metadata.is_dir():
@@ -158,9 +155,23 @@ def prepare(game_data, workspace, tool_cache, dotnet, output_project=None, *,
             if previous is None:
                 progress["files"].append({"path": relative, "bytes": path.stat().st_size, "sha256": digest})
     build_progress.event("recovery-section:source-recheck", detail="Rechecking original inputs after conversion", status="start")
-    _, after_fingerprint = source_inventory(source)
-    if after_fingerprint != fingerprint:
-        raise RecoveryError("Original game files changed during full recovery.")
+    # Initial qualification already hashed the exact owned-game inputs. Check
+    # all sizes and a deterministic bounded content sample, rather than reading
+    # the entire 17+ GiB PC player again after conversion. The private snapshot
+    # is read-only; this guard is not advertised as another exhaustive audit.
+    exhaustive = os.environ.get("GHVRQ_FULL_ASSET_AUDIT") == "1"
+    sampled = files if exhaustive else sorted((row for row in files if row["bytes"] <= 8 * 1048576),
+        key=lambda row: row["sha256"])[:16]
+    for row in files:
+        value = ordinary_path(source / row["path"]).stat()
+        if (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns) != source_stamps[row["path"]]:
+            raise RecoveryError("Original game files changed during full recovery.")
+    for row in sampled:
+        if sha256(source / row["path"]) != row["sha256"]:
+            raise RecoveryError("Original game sample changed during full recovery.")
+    progress["finalSourceCheck"] = {"scope": "all-input-change-stamps-and-bounded-content-samples"
+        if not exhaustive else "full-content-recheck", "sampledFileCount": len(sampled),
+        "sampledBytes": sum(row["bytes"] for row in sampled), "fileCount": len(files), "fullContentRecheck": exhaustive}
     progress["sourceFingerprint"], progress["sourceInventory"] = fingerprint, files
     build_progress.event("recovery-section:checkpoint", detail="Publishing the qualified full recovery checkpoint", status="start")
     write_checkpoint(output / "quest-full-recovery-progress.json", progress)
@@ -187,6 +198,11 @@ def prepare(game_data, workspace, tool_cache, dotnet, output_project=None, *,
               "privateB614CacheRequired": False, "androidPlayerBuilt": False,
               "faithfulGraphicsVerified": False, "playableCampaignVerified": False}
     write_json(workspace / "full-recovery.json", result)
+    for name in ("CoreInput", "CoreEvidence"):
+        # Core native recipes were copied into the canonical recovered project.
+        # Their input clone/evidence duplicate is never a later stage's owner.
+        obsolete = ordinary_path(workspace / name)
+        if obsolete.is_dir(): recovery_workers.discard_tree(obsolete)
     # The merged checkpoint is independently hashed and complete. Temporary
     # per-batch project exports are no longer required for reproducible resume;
     # retain native input hashes, identity rows, recipes and exporter logs.
