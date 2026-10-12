@@ -38,10 +38,11 @@ class PortablePackageTests(unittest.TestCase):
         storage._invocation_file_proofs.clear()
         self.addCleanup(storage._invocation_file_proofs.clear)
 
-    def write_apk(self, path, *, payload=b"actual Android player\n" * 1024, delivery=None):
+    def write_apk(self, path, *, payload=b"actual Android player\n" * 1024, delivery=None, inventory=None):
         with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_STORED) as archive:
             archive.writestr("assets/Quest/input-manifest.json", storage.canonical(
-                {"schema": 1, "target": "game", "inputKey": "a" * 64, "mod": {"modBuild": 671}}))
+                {"schema": 1, "target": "game", "inputKey": "a" * 64, "mod": {"modBuild": 671},
+                 **({"game": inventory} if inventory is not None else {})}))
             archive.writestr("assets/Quest/content-delivery.json", storage.canonical(
                 {"schema": 1, "package": portable.PACKAGE, "inputKey": "a" * 64, "files": [delivery or self.delivery]}))
             archive.writestr("lib/arm64-v8a/libil2cpp.so", payload)
@@ -265,6 +266,102 @@ print(json.dumps({'path':str(p.import_apk(Path(sys.argv[2]),Path(sys.argv[3]))),
         changed = self.bank.read_bytes(); self.bank.write_bytes(b"Y" + changed[1:])
         with self.assertRaisesRegex(storage.BuildError, "signed APK SHA-256"):
             portable.qualify_content(source, self.output)
+
+    def test_complete_game_inventory_uses_eight_mib_bound_not_small_delivery_bound(self):
+        inventory = {"files": [{"path": "StreamingAssets/aa/bundles/character_" + str(index) + ".bundle",
+                               "size": 100000 + index, "sha256": "d" * 64} for index in range(6000)]}
+        self.write_apk(self.ap, inventory=inventory)
+        with zipfile.ZipFile(self.ap) as archive:
+            size = archive.getinfo("assets/Quest/input-manifest.json").file_size
+            self.assertGreater(size, portable.MAX_MANIFEST)
+            self.assertLess(size, portable.MAX_INPUT_MANIFEST)
+        self.export(); manifest = portable.inspect(self.destination)
+        imported = portable.import_apk(self.destination, self.output)
+        self.assertEqual(manifest["content"], self.delivery)
+        self.assertEqual(storage.digest(imported), storage.digest(self.ap))
+
+    def test_over_bound_original_game_inventory_refused_before_export_copy(self):
+        self.write_apk(self.ap, inventory={"padding": "X" * portable.MAX_INPUT_MANIFEST})
+        self.destination.write_bytes(b"previous deliverable")
+        with self.assertRaisesRegex(storage.BuildError, "bounded signed Quest delivery manifest"): self.export()
+        self.assertEqual(self.destination.read_bytes(), b"previous deliverable")
+
+    def test_killed_import_uses_durable_checkpoint_without_trusting_unclosed_tail(self):
+        self.write_apk(self.ap, payload=b"actual Android player\n" * 4096); self.export()
+        script = """
+import os,sys
+from pathlib import Path
+sys.path.insert(0,sys.argv[1]);import portable_package as p
+p.CHUNK=4096;p.CHECKPOINT=8192
+def progress(value):
+ if value['completed']>=16384: os._exit(17)
+p.import_apk(Path(sys.argv[2]),Path(sys.argv[3]),progress=progress)
+"""
+        result = subprocess.run([sys.executable, "-I", "-B", "-c", script, str(ROOT / "tools/quest-builder"),
+                                 str(self.destination), str(self.output)], capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 17, result.stderr)
+        checkpoint = list((self.output / "imports/portable").glob("*/copy-progress.json"))[0]
+        retained = json.loads(checkpoint.read_text())["copied"]
+        self.assertEqual(retained, 8192)
+        events = []; imported = portable.import_apk(self.destination, self.output, progress=events.append)
+        self.assertEqual(events[0]["completed"], retained)
+        self.assertEqual(imported.read_bytes(), self.ap.read_bytes())
+
+    def test_corrupt_checkpoint_and_observation_database_repair_targeted(self):
+        self.export(); events = []
+        with mock.patch.object(portable, "CHUNK", 4096):
+            with self.assertRaises(storage.BuildError):
+                portable.import_apk(self.destination, self.output, progress=events.append,
+                    cancel=lambda: bool(events and events[-1]["completed"] >= 4096))
+        checkpoint = list((self.output / "imports/portable").glob("*/copy-progress.json"))[0]
+        checkpoint.write_text("broken checkpoint")
+        database = self.output / "cache/portable-witnesses.sqlite3"; database.write_bytes(b"broken regenerable database")
+        imported = portable.import_apk(self.destination, self.output)
+        self.assertEqual(imported.read_bytes(), self.ap.read_bytes())
+        self.assertTrue(list(database.parent.glob(database.name + ".damaged-*")))
+
+    def test_killed_export_retires_only_exact_owned_partial_before_space_check(self):
+        self.destination.write_bytes(b"previous deliverable")
+        script = """
+import os,sys
+from pathlib import Path
+sys.path.insert(0,sys.argv[1]);import portable_package as p
+p.CHUNK=4096
+def progress(value):
+ if value['completed']>=4096: os._exit(19)
+p.export_package(Path(sys.argv[2]),Path(sys.argv[3]),Path(sys.argv[4]),progress=progress)
+"""
+        result = subprocess.run([sys.executable, "-I", "-B", "-c", script, str(ROOT / "tools/quest-builder"),
+                                 str(self.ap), str(self.destination), str(self.output)], capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 19, result.stderr)
+        stale = list(self.root.glob(self.destination.name + ".partial-*"))
+        self.assertEqual(len(stale), 1)
+        unrelated = self.root / (self.destination.name + ".partial-" + "e" * 32); unrelated.write_bytes(b"unrelated artifact")
+        with mock.patch.object(portable, "_space", wraps=portable._space) as reserve:
+            self.export()
+            reserve.assert_called_once()
+        self.assertFalse(stale[0].exists())
+        self.assertEqual(unrelated.read_bytes(), b"unrelated artifact")
+        self.assertEqual(portable.inspect(self.destination)["content"], self.delivery)
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "Symbolic links unavailable")
+    def test_linked_source_and_destination_refused_without_touching_target(self):
+        linked = self.root / "linked.apk"; linked.symlink_to(self.ap)
+        with self.assertRaises(storage.BuildError): portable.export_package(linked, self.destination, self.output)
+        actual = self.root / "existing.zip"; actual.write_bytes(b"keep original")
+        self.destination.symlink_to(actual)
+        with self.assertRaises(storage.BuildError): self.export()
+        self.assertEqual(actual.read_bytes(), b"keep original")
+
+    def test_source_changed_during_export_cannot_publish_a_completed_package(self):
+        self.destination.write_bytes(b"previous deliverable")
+        changed = False
+        def progress(value):
+            nonlocal changed
+            if value["completed"] and not changed:
+                changed = True; self.ap.write_bytes(self.ap.read_bytes())
+        with self.assertRaisesRegex(storage.BuildError, "APK changed"): self.export(progress=progress)
+        self.assertEqual(self.destination.read_bytes(), b"previous deliverable")
 
     @unittest.skipUnless(os.name == "posix", "Actual sparse file accounting requires POSIX")
     def test_sparse_zip64_nested_seek_above_four_gibibytes(self):

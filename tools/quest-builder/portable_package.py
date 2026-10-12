@@ -34,6 +34,7 @@ FORMAT = "gloomhavenvr-quest-install-package"
 CHUNK = 8 * 1048576
 CHECKPOINT = 64 * 1048576
 MAX_MANIFEST = 65536
+MAX_INPUT_MANIFEST = 8 * 1048576
 MAX_CONTENT = 64 * 1024 ** 3
 MAX_APK = 4 * 1024 ** 3 - 1
 MAX_METADATA = 2 * 1048576
@@ -210,6 +211,7 @@ def _outer(path):
 
 def _delivery(stream):
     try: return _read_delivery(stream)
+    except storage.BuildError: raise
     except (zipfile.BadZipFile, EOFError, RuntimeError, struct.error, OSError) as exc:
         raise storage.BuildError("APK signed delivery metadata is incomplete or corrupt.") from exc
 
@@ -217,13 +219,13 @@ def _delivery(stream):
 def _read_delivery(stream):
     _directory(stream)
     with zipfile.ZipFile(stream) as archive:
-        def read(name):
+        def read(name, bound=MAX_MANIFEST):
             rows = [row for row in archive.infolist() if row.filename == name]
-            if len(rows) != 1 or rows[0].file_size > MAX_MANIFEST or rows[0].flag_bits & 1:
+            if len(rows) != 1 or rows[0].file_size > bound or rows[0].flag_bits & 1:
                 raise storage.BuildError("APK lacks one bounded signed Quest delivery manifest: " + name)
-            with archive.open(rows[0]) as member: return _json(member, MAX_MANIFEST, name)
+            with archive.open(rows[0]) as member: return _json(member, bound, name)
         value = read("assets/Quest/content-delivery.json")
-        identity = read("assets/Quest/input-manifest.json")
+        identity = read("assets/Quest/input-manifest.json", MAX_INPUT_MANIFEST)
     rows = value.get("files")
     if (value.get("schema") != 1 or value.get("package") != PACKAGE
             or not SHA.fullmatch(str(value.get("inputKey", "")))
@@ -277,6 +279,7 @@ def _cache(output):
                 connection = sqlite3.connect(database, timeout=30)
                 connection.execute("CREATE TABLE IF NOT EXISTS portable_sources (sha TEXT PRIMARY KEY, value TEXT NOT NULL)")
                 connection.execute("CREATE TABLE IF NOT EXISTS portable_members (identity TEXT PRIMARY KEY, value TEXT NOT NULL)")
+                connection.execute("CREATE TABLE IF NOT EXISTS portable_exports (destination TEXT PRIMARY KEY, value TEXT NOT NULL)")
                 break
             except sqlite3.DatabaseError:
                 if connection: connection.close(); connection = None
@@ -290,9 +293,10 @@ def _cache(output):
         connection = sqlite3.connect(":memory:")
         connection.execute("CREATE TABLE portable_sources (sha TEXT PRIMARY KEY, value TEXT NOT NULL)")
         connection.execute("CREATE TABLE portable_members (identity TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        connection.execute("CREATE TABLE portable_exports (destination TEXT PRIMARY KEY, value TEXT NOT NULL)")
     try:
         yield connection
-        for table in ("portable_sources", "portable_members"):
+        for table in ("portable_sources", "portable_members", "portable_exports"):
             connection.execute("DELETE FROM " + table + " WHERE rowid NOT IN (SELECT rowid FROM " + table + " ORDER BY rowid DESC LIMIT 128)")
         connection.commit()
     finally: connection.close()
@@ -308,7 +312,9 @@ def _known_source(output, sha):
     with _cache(output) as connection:
         value = connection.execute("SELECT value FROM portable_sources WHERE sha=?", (sha,)).fetchone()
     if value:
-        try: return json.loads(value[0])
+        try:
+            row = json.loads(value[0])
+            return row if isinstance(row, dict) else None
         except ValueError: pass
     return None
 
@@ -351,6 +357,9 @@ def _receipt_paths(output, expected):
             for row in rows:
                 if (isinstance(row, dict) and row.get("sha256") == expected["sha256"]
                         and row.get("size") == expected["size"] and isinstance(row.get("path"), str)):
+                    relative = row["path"]
+                    if (not relative or relative.startswith("/") or "\\" in relative or ":" in relative
+                            or any(part in ("", ".", "..") for part in relative.split("/"))): continue
                     path = storage._ordinary_owned(output / row["path"])
                     if output not in path.parents: continue
                     try: yield _physical(path, expected)
@@ -560,6 +569,39 @@ def _info(name):
     return value
 
 
+def _begin_export(output, destination, temporary):
+    """Retire only the exact cache-owned failed attempt, before reserving disk.
+
+    Callers serialize jobs with the workspace lock. A killed process can leave
+    its one temporary ZIP behind; no glob or unrelated export is ever removed.
+    Without trustworthy small metadata, ordinary disk qualification still runs.
+    """
+    with _cache(output) as connection:
+        row = connection.execute("SELECT value FROM portable_exports WHERE destination=?", (str(destination),)).fetchone()
+        if row:
+            try:
+                value = json.loads(row[0]); path = storage._ordinary_owned(Path(value["temporary"]))
+                prefix = destination.name + ".partial-"
+                if (value.get("schema") == 1 and value.get("destination") == str(destination)
+                        and path.parent == destination.parent and path.name.startswith(prefix)
+                        and re.fullmatch(r"[0-9a-f]{32}", path.name[len(prefix):])
+                        and path != temporary and path.exists() and _file(path).stat().st_nlink == 1):
+                    path.unlink()
+            except (ValueError, KeyError, TypeError, OSError, storage.BuildError): pass
+        connection.execute("INSERT OR REPLACE INTO portable_exports VALUES (?,?)", (str(destination), json.dumps(
+            {"schema": 1, "destination": str(destination), "temporary": str(temporary)})))
+
+
+def _end_export(output, destination, temporary):
+    with _cache(output) as connection:
+        row = connection.execute("SELECT value FROM portable_exports WHERE destination=?", (str(destination),)).fetchone()
+        if row:
+            try:
+                if json.loads(row[0]).get("temporary") == str(temporary):
+                    connection.execute("DELETE FROM portable_exports WHERE destination=?", (str(destination),))
+            except (ValueError, AttributeError): pass
+
+
 def export_package(apk, destination, output, source_package=None, progress=None, cancel=None):
     """Write one atomic ZIP64 transport with actual measured payload proofs."""
     apk = _file(apk); destination = storage._ordinary_owned(Path(destination).expanduser())
@@ -579,9 +621,10 @@ def export_package(apk, destination, output, source_package=None, progress=None,
                 "apk": {"file": APK, "size": apk_size, "sha256": "0" * 64},
                 "content": {"file": CONTENT, "size": source["size"], "sha256": source["sha256"], "archive": ARCHIVE}}
     total = apk_size + source["size"] + len(storage.canonical(manifest)); done = 0
-    _space(destination.parent, total + 65536); _cancel(cancel)
     temporary = storage._ordinary_owned(destination.with_name(destination.name + ".partial-" + uuid.uuid4().hex))
+    _begin_export(output, destination, temporary)
     try:
+        _space(destination.parent, total + 65536); _cancel(cancel)
         with temporary.open("xb") as raw:
             sink = _HashingWriter(raw)
             with zipfile.ZipFile(sink, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as archive:
@@ -612,6 +655,8 @@ def export_package(apk, destination, output, source_package=None, progress=None,
                         "sha256": source["sha256"], "archive": ARCHIVE}
             _save_proof(connection, exported)
         _remember_source(output, exported)
-        _progress(progress, "portable-package-export", total, total, "Portable package exported", complete=True)
-        return receipt
-    finally: temporary.unlink(missing_ok=True)
+    finally:
+        temporary.unlink(missing_ok=True)
+        _end_export(output, destination, temporary)
+    _progress(progress, "portable-package-export", total, total, "Portable package exported", complete=True)
+    return receipt
