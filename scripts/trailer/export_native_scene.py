@@ -391,7 +391,7 @@ def export_dungeon(base, output):
     props = []
     for mesh_name, material_bank in (
         ("CR_Dungeon_Wall_Stone_01", "pcg_materials_assets_cr_dungeon_stonewall_01_mat.bundle"),
-        ("CR_Dungeon_Floor_Seg_P", "pcg_materials_assets_cr_dungeon_stonefloor_01_mat.bundle"),
+        ("CR_TC_Floor_01", "pcg_materials_assets_cr_dungeon_stonefloor_01_mat.bundle"),
     ):
         source = base / material_bank
         material_environment = UnityPy.load(str(source))
