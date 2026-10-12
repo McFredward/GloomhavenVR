@@ -28,6 +28,16 @@ The maintainer then explicitly requested the next corrected video for review
 before further work. Complete that concrete review, share its location, and
 pause production until the maintainer approves the direction.
 
+The corrected review is `review/08-reveal-revision-02.mp4`: eight seconds of
+the continuous film courtyard and original-rig intervention, then a three-second
+mod title. It was inspected with the watch skill; 264 frames at 1080p/24 fps,
+complete stereo audio and continuous unofficial lettering were verified.
+The conservative cumulative fal reservation is USD6.25, including earlier
+failed requests. Further production is paused pending direction approval.
+This review does not complete the full 65-second trailer or prove runtime/
+headset behavior. Its exact sources, controls, jobs and mix receipts remain
+under the gitignored trailer directory.
+
 ## The film
 
 A short premium render overture introduces the world and its town residents.

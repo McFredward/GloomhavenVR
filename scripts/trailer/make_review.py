@@ -15,6 +15,7 @@ import shutil
 import subprocess
 
 from PIL import Image, ImageDraw, ImageFont
+import numpy as np
 
 
 REPO = Path(__file__).resolve().parents[2]
@@ -24,10 +25,10 @@ FONT = Path("/usr/share/fonts/truetype/lato/Lato-Semibold.ttf")
 SERIF = Path("/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf")
 
 
-def run(command, log):
+def run(command, log, input_bytes=None):
     try:
         with log.open("a") as stream:
-            subprocess.run(command, stdout=stream, stderr=stream, check=True)
+            subprocess.run(command, input=input_bytes, stdout=stream, stderr=stream, check=True)
     except (subprocess.CalledProcessError, KeyboardInterrupt):
         # subprocess.run has reaped the encoder. Delete only this invocation's
         # owned intermediate encodes, retaining the error log and source evidence.
@@ -75,6 +76,46 @@ def title(path, subtitle="TAKE YOUR PLACE"):
         draw.text(((WIDTH-(box[2]-box[0]))/2, y), text, font=font, fill=color)
     draw.line((680, 704, 1240, 704), fill=(95, 76, 48), width=1)
     layer.save(path)
+
+
+def mix_audio(events, seconds, destination, log, sources):
+    rate = 48000
+    timeline = np.zeros((round(seconds*rate), 2), dtype=np.float32)
+    for event in events:
+        path = Path(event["source"]).resolve(strict=True)
+        sources.setdefault(str(path), digest(path))
+        start, duration = float(event.get("start", 0)), float(event["duration"])
+        at, volume = float(event.get("at", 0)), float(event.get("volume", 1))
+        if (not all(math.isfinite(v) for v in (start, duration, at, volume))
+                or min(start, at, volume) < 0 or duration <= 0 or at >= seconds):
+            raise ValueError("Invalid audio event timing or volume")
+        # Decode each excerpt independently and mix on an explicit sample
+        # timeline. Delayed amix/atrim branches can finish early in some FFmpeg
+        # builds; sample placement makes the requested duration unambiguous.
+        raw = subprocess.check_output([
+            "ffmpeg", "-v", "error", "-ss", str(start), "-i", str(path),
+            "-t", str(duration), "-vn", "-ar", str(rate), "-ac", "2",
+            "-f", "f32le", "-"])
+        chunk = np.frombuffer(raw, dtype="<f4").reshape(-1, 2).copy()
+        if not len(chunk) or not np.isfinite(chunk).all():
+            raise ValueError("Audio excerpt is empty or non-finite")
+        count = min(len(chunk), round(duration*rate))
+        chunk = chunk[:count]
+        head, tail = min(count, round(.02*rate)), min(count, round(.05*rate))
+        chunk[:head] *= np.linspace(0, 1, head, dtype=np.float32)[:, None]
+        chunk[-tail:] *= np.linspace(1, 0, tail, dtype=np.float32)[:, None]
+        offset = round(at*rate)
+        count = min(count, len(timeline)-offset)
+        timeline[offset:offset+count] += chunk[:count]*volume
+    run(["ffmpeg", "-v", "warning", "-y", "-f", "f32le", "-ar", str(rate),
+         "-ac", "2", "-i", "-", "-af", "loudnorm=I=-14:TP=-1:LRA=8",
+         "-t", str(seconds), "-c:a", "pcm_f32le", "-ar", str(rate), str(destination)],
+        log, input_bytes=timeline.astype("<f4").tobytes())
+    probe = json.loads(subprocess.check_output([
+        "ffprobe", "-v", "error", "-show_entries", "format=duration",
+        "-of", "json", str(destination)]))
+    if abs(float(probe["format"]["duration"])-seconds) > .01:
+        raise ValueError("Mixed audio duration differs from the edit")
 
 
 def _assemble(spec_path, output, name):
@@ -147,27 +188,10 @@ def _assemble(spec_path, output, name):
     run(join_command, log)
     # Render a finite stereo mix separately. Many short, delayed inputs in the
     # same graph as a looping PNG can stall older FFmpeg framesync schedulers.
-    mix_command = ["ffmpeg", "-v", "warning", "-y", "-filter_complex_threads", "2"]
-    audio_graph, audio = [], []
-    for index, event in enumerate(spec.get("audio", [])):
-        path = Path(event["source"]).resolve(strict=True)
-        sources.setdefault(str(path), digest(path))
-        mix_command += ["-i", str(path)]
-        start, duration = float(event.get("start", 0)), float(event["duration"])
-        delay, volume = round(float(event.get("at", 0))*1000), float(event.get("volume", 1))
-        label = f"audio{index}"
-        audio_graph.append(f"[{index}:a]aformat=channel_layouts=stereo,"
-                     f"atrim=start={start}:duration={duration},asetpts=PTS-STARTPTS,"
-                     f"afade=t=in:d=0.02,afade=t=out:st={max(0,duration-.05)}:d=0.05,"
-                     f"volume={volume},adelay={delay}:all=1,apad=whole_dur={total}[{label}]")
-        audio.append(f"[{label}]")
+    audio = spec.get("audio", [])
     if audio:
-        audio_graph.append("".join(audio)+f"amix=inputs={len(audio)}:normalize=0,atrim=duration={total},"
-                     "loudnorm=I=-14:TP=-1:LRA=8[audio]")
         mixed = private/"mix.wav"
-        mix_command += ["-filter_complex", ";".join(audio_graph), "-map", "[audio]",
-                        "-t", str(total), "-c:a", "pcm_f32le", "-ar", "48000", "-ac", "2", str(mixed)]
-        run(mix_command, log)
+        mix_audio(audio, total, mixed, log, sources)
     command = ["ffmpeg", "-v", "warning", "-y", "-filter_complex_threads", "2",
                "-i", str(joined), "-loop", "1", "-framerate", str(FPS),
                "-t", str(total), "-i", str(water)]
@@ -185,11 +209,15 @@ def _assemble(spec_path, output, name):
                 "-threads", "4", "-movflags", "+faststart", str(movie)]
     run(command, log)
     probe = json.loads(subprocess.check_output([
-        "ffprobe", "-v", "error", "-show_entries", "stream=codec_type,nb_frames,width,height,r_frame_rate:format=duration",
+        "ffprobe", "-v", "error", "-show_entries", "stream=codec_type,nb_frames,width,height,r_frame_rate,duration:format=duration",
         "-of", "json", str(movie)]))
     video = next(s for s in probe["streams"] if s["codec_type"] == "video")
     if int(video["nb_frames"]) != round(total*FPS) or video["r_frame_rate"] != f"{FPS}/1":
         raise ValueError("Rendered movie frame count/rate differs from the edit")
+    if audio:
+        sound = next(s for s in probe["streams"] if s["codec_type"] == "audio")
+        if abs(float(sound["duration"])-total) > .05:
+            raise ValueError("Rendered audio duration differs from the edit")
     run(["ffmpeg", "-v", "warning", "-y", "-ss", str(spec.get("poster_time", min(8,total/2))),
          "-i", str(movie), "-frames:v", "1", str(output/(name+".jpg"))], log)
     receipt = {"name": name, "duration_seconds": total, "frame_rate": FPS,
