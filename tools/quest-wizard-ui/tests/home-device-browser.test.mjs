@@ -47,8 +47,12 @@ async function fixture(contentDecision=false){
         if(path==='/api/storage/inventory'){inventory={status:'complete',totalBytes:6*1073741824+6679,completedAt:1791720000,files:31,categories:[{id:'unity-caches',bytes:6*1073741824,files:30},{id:'signing-backups',bytes:6679,files:1}]};return reply(storageReply());}
         if(path==='/api/storage')return reply(storageReply());
         if(path==='/api/device/connect'){assert.deepEqual(body,{host:'192.168.0.5:5555',setupWireless:true,serial:''});device={status:'waiting',message:{de:'USB-Debugging in der Brille bestätigen.',en:'Authorize USB debugging in the headset.'},devices:[{serial:'usb-fixture',state:'unauthorized',kind:'usb',model:'Quest_3'}]};return reply(deviceReply());}
-        if(path==='/api/device/capture'&&request.method==='POST'){assert.deepEqual(body,{host:'192.168.0.5:5555',serial:''});device={status:'capturing',progress:{done:1,total:4,percent:25,label:'logcat'}};polls=0;return reply(deviceReply());}
-        if(path==='/api/device/status'){if(device.status==='capturing'&&++polls>1)device={status:'complete',message:{de:'Testbericht gespeichert.',en:'Test report saved.'},capture:{id:captureId,name:'quest-capture-fixture.zip',path:'C:\\Users\\Fixture\\.ghvrq\\captures\\quest-capture-fixture.zip'}};return reply(deviceReply());}
+        if(path==='/api/device/capture'&&request.method==='POST'){assert.deepEqual(body,{host:'192.168.0.5:5555',serial:''});device={status:'capturing',elapsedSeconds:15,
+          progress:{done:1,total:4,percent:25,label:'logcat'},activity:{label:'log-transfer',detail:'quest-startup.log',receivedBytes:1024,totalBytes:4096,percent:25,elapsedSeconds:7}};polls=0;return reply(deviceReply());}
+        if(path==='/api/device/status'){
+          if(device.status==='capturing'&&++polls===2){device.elapsedSeconds=16;device.activity={label:'installed-apk-hash',elapsedSeconds:8};}
+          if(device.status==='capturing'&&polls>3)device={status:'complete',message:{de:'Testbericht gespeichert.',en:'Test report saved.'},capture:{id:captureId,name:'quest-capture-fixture.zip',path:'C:\\Users\\Fixture\\.ghvrq\\captures\\quest-capture-fixture.zip'}};
+          return reply(deviceReply());}
         if(path==='/api/device/capture'&&request.method==='GET'){assert.equal(url.searchParams.get('id'),captureId);response.writeHead(200,{'Content-Type':'application/zip','Content-Disposition':'attachment; filename="quest-capture-fixture.zip"'});return response.end('fixture ZIP');}
         if(path==='/api/device/cancel'){device={status:'cancelled'};return reply(deviceReply());}
         if(path==='/api/storage/plan'){assert.equal(body.mode,'build-cache');storageState={status:'preview',plan:{id:'scoped-plan',mode:'build-cache',files:30,bytes:6*1073741824,paths:[{path:'build/projects/fixture/Library',files:30,bytes:6*1073741824}]}};return reply(storageReply());}
@@ -132,7 +136,14 @@ test('device tools guide wireless setup, expose real capture progress and downlo
     assert.equal(await client.evaluate("document.getElementById('device-guide').open"),true);
     await client.evaluate("document.getElementById('device-capture').click()");
     await client.wait("!document.getElementById('device-progress').hidden&&document.getElementById('device-progress').value===25");
+    assert.equal(await client.evaluate("document.getElementById('device-subprogress').hidden"),false);
+    assert.equal(await client.evaluate("document.getElementById('device-subprogress').value"),25);
+    assert.match(await client.evaluate("document.getElementById('device-status').textContent"),/25 %.*1 \/ 4 Aufgaben.*Gesamtdauer/);
+    assert.match(await client.evaluate("document.getElementById('device-activity').textContent"),/Protokolldatei übertragen.*quest-startup\.log.*1.024 \/ 4.096 Bytes übertragen.*Aktuelle Aufgabe/);
     assert.equal(await client.evaluate("document.getElementById('home-build').disabled"),true,'no concurrent build while capture is active');
+    await client.wait("document.getElementById('device-activity').textContent.includes('Installierte APK')");
+    assert.equal(await client.evaluate("document.getElementById('device-subprogress').hidden"),true,'unknown APK hash total is never an invented percentage');
+    assert.equal(await client.evaluate("document.getElementById('device-progress').value"),25,'elapsed activity does not fabricate completed work');
     await client.wait("!document.getElementById('device-capture-result').hidden");
     await client.evaluate("document.getElementById('device-download').click()");
     await client.wait("!document.getElementById('device-download').disabled");

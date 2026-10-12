@@ -3,6 +3,7 @@ import importlib.util
 import json
 from pathlib import Path
 import subprocess
+import shutil
 import sys
 import tempfile
 import threading
@@ -132,6 +133,75 @@ class DeviceToolsTests(unittest.TestCase):
         self.assertFalse(any("install" in command or "uninstall" in command or "tcpip" in command for command in self.runner.commands))
         self.assertEqual(events[-1]["progress"]["percent"], 100)
         self.assertTrue(all(event["progress"]["percent"] < 100 for event in events[:-1]))
+        self.assertEqual(events[-1]["progress"]["total"], len(self.tools._capture_targets(self.collector)))
+        observed = [event["progress"]["done"] for event in events]
+        self.assertEqual(observed, sorted(observed))
+        self.assertEqual(max(observed[:-1]), observed[-1] - 1)
+        self.assertTrue(any(event.get("activity", {}).get("label") == "installed-apk-hash" for event in events if event.get("activity")))
+        self.assertTrue(any(event.get("activity", {}).get("totalBytes", 0) > 0 for event in events if event.get("activity")))
+
+    def test_running_adb_exposes_real_received_bytes_elapsed_and_unchanged_global_progress(self):
+        tools = device_tools.DeviceTools(ROOT, self.store.root)
+        tools.started = time.monotonic()
+        events = []
+        tools._step(events.append, 2, 4, "quest-connect", status="connecting")
+        command = [sys.executable, "-c", "import sys,time;sys.stdout.buffer.write(b'x'*4096);sys.stdout.flush();time.sleep(1.2)"]
+        result = tools._runner(None, events.append)(command, capture_output=True, timeout=5)
+        self.assertEqual(len(result.stdout), 4096)
+        active = [row["activity"] for row in events if row.get("activity")]
+        self.assertTrue(any(row.get("receivedBytes") == 4096 and row["elapsedSeconds"] >= .5 for row in active))
+        self.assertTrue(all(row["progress"]["percent"] == 50 for row in events))
+        self.assertTrue(all("percent" not in row and "totalBytes" not in row for row in active))
+        self.assertFalse(any(thread.name == "quest-device-activity" for thread in threading.enumerate()))
+
+    def test_private_adb_download_reports_measured_bytes_without_raising_global_completion(self):
+        repo = self.temp / "repo"
+        (repo / "scripts/.quest-adb").mkdir(parents=True)
+        (repo / "tools/quest-installer").mkdir(parents=True)
+        shutil.copyfile(ROOT / "tools/quest-installer/adb_bootstrap.py", repo / "tools/quest-installer/adb_bootstrap.py")
+        tools = device_tools.DeviceTools(repo, self.store.root, self.runner)
+        def provision(*_):
+            partial = repo / "scripts/.quest-adb/download-owned.partial"
+            partial.write_bytes(b"d" * 1024)
+            time.sleep(.7)
+            partial.write_bytes(b"d" * 8192)
+            time.sleep(.7)
+            partial.unlink()
+            return self.adb
+        self.installer.adb_path.side_effect = provision
+        events = []; result = tools.connect({}, events.append)
+        self.assertEqual(result["status"], "connected")
+        downloads = [event for event in events if (event.get("activity") or {}).get("label") == "adb-download"]
+        self.assertTrue(any(row["activity"]["receivedBytes"] == 1024 for row in downloads))
+        self.assertTrue(any(row["activity"]["receivedBytes"] == 8192 for row in downloads))
+        self.assertTrue(all(row["activity"]["totalBytes"] > 8192 and row["progress"]["percent"] == 0 for row in downloads))
+
+    def test_device_support_state_selects_this_jobs_command_log_and_bounded_progress(self):
+        self.tools.connect({})
+        saved = json.loads(self.tools.state_path.read_text())
+        log = Path(saved["log"])
+        self.assertEqual(log.parent, self.tools.directory)
+        self.assertRegex(log.name, r"^device-tools-[0-9a-f]{32}\.log$")
+        self.assertTrue(log.is_file())
+        records = [json.loads(line) for line in self.tools.progress_log.read_text().splitlines()]
+        self.assertEqual(records[-1]["status"], "connected")
+        self.assertTrue(any(row.get("activity") for row in records))
+        self.assertTrue(all("devices" not in row and "message" not in row for row in records))
+        with mock.patch.object(device_tools, "MAX_PROGRESS_LOG_BYTES", 1):
+            self.tools._publish(status="idle")
+        self.assertEqual(len(self.tools.progress_log.read_text().splitlines()), 1)
+
+    def test_cancel_during_capture_zip_removes_only_the_unfinished_capture(self):
+        cancelled = threading.Event()
+        retained = self.tools.captures / "quest-capture-retained.zip"
+        retained.write_bytes(b"previous completed capture")
+        def stop_at_archive(event):
+            if (event.get("activity") or {}).get("label") == "capture-archive": cancelled.set()
+        result = self.tools.capture({}, progress=stop_at_archive, cancel=cancelled)
+        self.assertEqual(result["status"], "idle")
+        self.assertEqual(list(self.tools.captures.iterdir()), [retained])
+        self.assertEqual(retained.read_bytes(), b"previous completed capture")
+        self.assertIsNone(result.get("capture"))
 
     def test_capture_available_after_server_restart(self):
         result = self.tools.capture({})

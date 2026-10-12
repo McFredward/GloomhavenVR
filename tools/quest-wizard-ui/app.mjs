@@ -168,13 +168,32 @@ function renderDevice(){
   $('device-selection').hidden=devices.length<2;
   const parameters=current.progress??{},number=value=>new Intl.NumberFormat(language).format(value);
   const counter=Number.isFinite(parameters.done)&&Number.isFinite(parameters.total)&&parameters.total>0?t('deviceCounter',{done:number(parameters.done),total:number(parameters.total)}):'';
+  const percent=Number.isFinite(parameters.percent)?t('phasePercent',{percent:percentText(parameters.percent)}):'';
+  const elapsed=Number.isFinite(current.elapsedSeconds)?t('deviceElapsed',{duration:durationText(current.elapsedSeconds)}):'';
   const fallback='deviceStatus_'+(current.status??'idle');
   const status=current.message?message(current.message):t(fallback)===fallback?t('deviceStatus_idle'):t(fallback);
   const selected=[current.model,current.serial,current.endpoint].filter(Boolean).join(' · ');
-  $('device-status').textContent=[status,counter,typeof parameters.label==='string'?parameters.label:'',selected].filter(Boolean).join(' · ');
+  $('device-status').textContent=[status,percent,counter,elapsed,typeof parameters.label==='string'?parameters.label:'',selected].filter(Boolean).join(' · ');
   $('device-status').setAttribute('role',current.status==='failed'?'alert':'status');
   $('device-progress').hidden=!active;
   if(Number.isFinite(parameters.percent))$('device-progress').value=Math.max(0,Math.min(100,parameters.percent));else $('device-progress').removeAttribute('value');
+  $('device-progress').setAttribute('aria-label',t('deviceOverallProgress'));
+  if(!$('device-activity')){
+    const description=document.createElement('p');description.id='device-activity';description.className='hint';
+    $('device-progress').insertAdjacentElement('afterend',description);
+    const progress=document.createElement('progress');progress.id='device-subprogress';progress.max=100;
+    description.insertAdjacentElement('afterend',progress);
+  }
+  const activity=current.activity??{},activityKey='deviceActivity_'+activity.label;
+  const activityLabel=t(activityKey)===activityKey?activity.label??'':t(activityKey);
+  const byteCount=Number.isFinite(activity.receivedBytes)&&(activity.receivedBytes>0||Number.isFinite(activity.totalBytes))?t(Number.isFinite(activity.totalBytes)?'deviceTransferKnown':'deviceTransferObserved',{
+    done:number(Math.max(0,activity.receivedBytes)),total:number(Math.max(0,activity.totalBytes??0))}):'';
+  const activityTime=Number.isFinite(activity.elapsedSeconds)?t('deviceTaskElapsed',{duration:durationText(activity.elapsedSeconds)}):'';
+  $('device-activity').hidden=!active||!activityLabel;
+  $('device-activity').textContent=[activityLabel,activity.detail,byteCount,activityTime].filter(Boolean).join(' · ');
+  $('device-subprogress').hidden=!active||!Number.isFinite(activity.totalBytes)||activity.totalBytes<=0;
+  $('device-subprogress').setAttribute('aria-label',t('deviceTaskProgress'));
+  if(Number.isFinite(activity.percent))$('device-subprogress').value=Math.max(0,Math.min(100,activity.percent));else $('device-subprogress').removeAttribute('value');
   const capture=current.capture,complete=Boolean(capture?.id&&capture?.name);
   $('device-capture-result').hidden=!complete;$('device-capture-path').textContent=complete?(capture.path??capture.name):'';
   $('device-download').disabled=!complete||deviceDownloading;
