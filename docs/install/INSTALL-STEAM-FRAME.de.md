@@ -110,12 +110,23 @@ Datei in ihrem Ordner markiert.
   <img src="../img/frame-install/05-setup.jpg" width="640" alt="GloomhavenVR-Setup.desktop ist in BepInEx/plugins/GloomhavenVR/FrameSetup/ in Dolphin markiert.">
 </p>
 
-Das Setup richtet BepInEx für das ursprüngliche Steam-Spiel ein und fügt einen separaten
-Eintrag **GloomhavenVR** mit Bildern zur VR-Bibliothek hinzu. Steam startet eventuell neu,
-damit der Eintrag erscheint. Der ursprüngliche Eintrag **Gloomhaven** bleibt für Flat-Spiel
-verfügbar; beide verwenden dieselbe Spielinstallation und dieselben Spielstände. Die
-Frame-Anzeige kann mit Steam kurz neu starten; das Setup hat seine Änderungen dann bereits
-abgeschlossen. Es schlägt zudem 3408 Pixel pro Auge in SteamVR vor und behält
+Das Setup fügt einen separaten Eintrag **GloomhavenVR** mit Bildern zur VR-Bibliothek hinzu.
+Solange Steam läuft, bleibt ein notwendiger Schritt: Öffne beim ursprünglichen Eintrag
+**Gloomhaven** die **Eigenschaften → Allgemein → Startoptionen** und speichere diese komplette
+Zeile inklusive `%command%`:
+
+```text
+WINEDLLOVERRIDES="winhttp=n,b" %command%
+```
+
+Falls du bereits andere Startoptionen verwendest, nimm stattdessen die vollständige kombinierte
+Zeile aus `BepInEx/plugins/GloomhavenVR/FrameSetup/steam-launch-options.txt`; sie behält diese
+Optionen bei. Trage `--gloomhavenvr` nicht beim ursprünglichen Eintrag ein. Starte nach dem
+Speichern die Frame über ihr normales Power-Menü neu und starte dann **GloomhavenVR**.
+Der ursprüngliche Eintrag **Gloomhaven** bleibt für Flat-Spiel verfügbar; beide verwenden
+dieselbe Spielinstallation und dieselben Spielstände. Das Setup lässt Steam geöffnet,
+während du diesen Schritt abschließt. War Steam bereits beendet, trägt das Setup die Optionen
+automatisch ein. Es schlägt zudem 3408 Pixel pro Auge in SteamVR vor und behält
 vorhandene Vorgaben oder eine von dir in SteamVR gewählte Auflösung bei. SteamVR liest eine
 neue vorgeschlagene Auflösung nach einem Neustart ein.
 
@@ -184,7 +195,8 @@ und Kampagnen bleiben erhalten. Im Mehrspieler brauchen alle VR-Spieler denselbe
 | GloomhavenVR fehlt in Steam | Starte `GloomhavenVR-Setup.desktop` erneut. Steam muss eventuell neu starten. |
 | Dolphin bietet kein **Execute** an | Nutze den Terminal-Befehl aus Schritt 5. |
 | Die Mod wird nicht geladen | Prüfe die beiden grünen Mod-Ordner in der Grafik und starte das Setup erneut. |
-| GloomhavenVR startet flat oder schließt sich | Bewahre `BepInEx/LogOutput.log` dieses Starts auf und melde das Problem. |
+| GloomhavenVR fordert den Abschluss des Setups | Speichere die komplette Startoptionen-Zeile beim ursprünglichen Gloomhaven wie in Schritt 5 und starte die Frame neu. |
+| GloomhavenVR startet flat oder schließt sich | Prüfe die ursprünglichen Gloomhaven-Startoptionen aus Schritt 5, bewahre dann `BepInEx/LogOutput.log` dieses Starts auf und melde das Problem. |
 | Das Spiel startet gar nicht mehr | Stelle `GH_Data/boot.config` aus `GH_Data/boot.config.gloomhavenvr-backup` wieder her. |
 
 Bewahre bei einem Setup-Problem
