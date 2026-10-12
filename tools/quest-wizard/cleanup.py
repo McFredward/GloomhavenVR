@@ -129,6 +129,9 @@ def has_completed_build(state_root):
 
 
 def _error(code, detail=""):
+    if code == "cleanup_editor_busy":
+        return WizardError(code, "Close the Unity Editor for this project, then refresh the deletion preview.",
+                           "Den Unity-Editor für dieses Projekt schließen und anschließend die Löschvorschau erneut erstellen.")
     return WizardError(code, "Cleanup stopped. Preview again; files already removed remain removed. " + detail,
                        "Die Bereinigung wurde gestoppt. Vorschau erneut erstellen; bereits entfernte Dateien bleiben entfernt. " + detail)
 

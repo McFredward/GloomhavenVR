@@ -317,6 +317,8 @@ class RunCleanupTests(unittest.TestCase):
         with mock.patch.object(cleanup, "_editor_busy", return_value=True):
             with self.assertRaises(state.WizardError) as error: cleanup.plan_session(self.root, self.session, remove_data=True)
             self.assertEqual(error.exception.code, "cleanup_editor_busy")
+            self.assertIn("Close the Unity Editor", error.exception.message["en"])
+            self.assertIn("Unity-Editor", error.exception.message["de"])
         self.assertTrue(project.is_dir()); self.assertTrue(self.folder.is_dir())
 
     def test_editor_started_after_preview_blocks_execution(self):
