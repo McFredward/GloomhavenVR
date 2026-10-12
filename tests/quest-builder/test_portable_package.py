@@ -50,6 +50,19 @@ class PortablePackageTests(unittest.TestCase):
     def export(self, **kwargs):
         return portable.export_package(self.ap, self.destination, self.output, **kwargs)
 
+    def closed_update(self, key, *, base=None, package=None):
+        apk = self.output / "updates" / key / portable.APK
+        apk.parent.mkdir(parents=True, exist_ok=True)
+        self.write_apk(apk, payload=b"profile/code update " + key.encode())
+        hashed = storage.digest(apk)
+        storage.write_json(self.output / "receipts/build" / (key + ".json"),
+            {"schema": 1, "stage": "build", "key": key,
+             "outputs": [{"path": apk.relative_to(self.output).as_posix(), "size": apk.stat().st_size, "sha256": hashed}],
+             "details": {"package": portable.PACKAGE, "isDiagnostic": False, "apkSha256": hashed,
+                         "contentFiles": [], "retainedGameContent": True, "baseApk": str(base) if base else None,
+                         "sourcePackage": str(package) if package else None}})
+        return apk
+
     def mutate_export(self, operation):
         with zipfile.ZipFile(self.destination) as archive:
             rows = [(info.filename, archive.read(info)) for info in archive.infolist()]
@@ -258,6 +271,65 @@ print(json.dumps({'path':str(p.import_apk(Path(sys.argv[2]),Path(sys.argv[3]))),
         source = portable.content_source(update, self.output)
         self.assertEqual(source["path"], self.destination)
         self.assertEqual(source["member"], portable.CONTENT)
+
+    def test_update_after_cache_cleanup_resolves_closed_import_and_can_export(self):
+        self.export(); imported = portable.import_apk(self.destination, self.output)
+        updated = self.closed_update("b" * 64, base=imported)
+        shutil.rmtree(self.output / "cache")
+        with mock.patch.object(portable, "_receipt_paths", side_effect=AssertionError("unnecessary artifact scan")):
+            source = portable.content_source(updated, self.output)
+        self.assertEqual(source["path"], self.destination)
+        self.assertEqual(source["member"], portable.CONTENT)
+        self.assertFalse((updated.parent / portable.CONTENT).exists())
+        destination = self.root / "updated-after-cleanup.zip"
+        receipt = portable.export_package(updated, destination, self.output)
+        self.assertEqual(receipt["apk"]["sha256"], storage.digest(updated))
+        with zipfile.ZipFile(destination) as archive:
+            self.assertEqual(archive.read(portable.CONTENT), self.bank.read_bytes())
+
+    def test_second_update_resolves_two_closed_base_owners_after_cache_cleanup(self):
+        self.export(); imported = portable.import_apk(self.destination, self.output)
+        first = self.closed_update("b" * 64, base=imported)
+        second = self.closed_update("c" * 64, base=first)
+        shutil.rmtree(self.output / "cache")
+        with mock.patch.object(portable, "_receipt_paths", side_effect=AssertionError("unnecessary artifact scan")):
+            source = portable.content_source(second, self.output)
+        self.assertEqual(source["path"], self.destination)
+        with portable.open_content(source) as stream, zipfile.ZipFile(stream) as bank:
+            self.assertEqual(bank.read("StreamingAssets/catalog.json"), b'{"catalog":"original"}')
+
+    def test_direct_closed_source_package_survives_removal_of_imported_apk(self):
+        self.export(); imported = portable.import_apk(self.destination, self.output)
+        updated = self.closed_update("b" * 64, base=imported, package=self.destination)
+        shutil.rmtree(self.output / "cache"); shutil.rmtree(self.output / "imports")
+        source = portable.content_source(updated, self.output)
+        self.assertEqual(source["path"], self.destination)
+
+    def test_closed_locator_cannot_adopt_another_bank_or_unclosed_output(self):
+        self.export(); imported = portable.import_apk(self.destination, self.output)
+        updated = self.closed_update("b" * 64, base=imported)
+        shutil.rmtree(self.output / "cache")
+        receipt = self.output / "receipts/build" / ("b" * 64 + ".json")
+        value = json.loads(receipt.read_text()); value["stage"] = "update-plan"
+        receipt.write_text(json.dumps(value))
+        with self.assertRaisesRegex(storage.BuildError, "content bank is missing"):
+            portable.content_source(updated, self.output)
+        value["stage"] = "build"; receipt.write_text(json.dumps(value))
+        other = {**self.delivery, "sha256": "0" * 64}
+        self.write_apk(imported, delivery=other)
+        with self.assertRaisesRegex(storage.BuildError, "content bank is missing"):
+            portable.content_source(updated, self.output)
+
+    def test_closed_locator_cycles_are_bounded_and_never_walk_imports(self):
+        first = self.closed_update("b" * 64)
+        second = self.closed_update("c" * 64, base=first)
+        receipt = self.output / "receipts/build" / ("b" * 64 + ".json")
+        value = json.loads(receipt.read_text()); value["details"]["baseApk"] = str(second)
+        receipt.write_text(json.dumps(value))
+        with mock.patch.object(portable, "_json_path", wraps=portable._json_path) as reads:
+            with self.assertRaisesRegex(storage.BuildError, "content bank is missing"):
+                portable.content_source(first, self.output)
+        self.assertLessEqual(reads.call_count, 5)
 
     def test_optional_content_digest_reuses_only_real_unchanged_byte_proof(self):
         self.export(); source = portable.content_source(self.ap, self.output)

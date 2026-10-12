@@ -367,6 +367,59 @@ def _receipt_paths(output, expected):
         except (OSError, ValueError, AttributeError, storage.BuildError): continue
 
 
+def _closed_source(apk, output, expected):
+    """Follow at most eight exact closed update owners after cache cleanup.
+
+    A closed receipt is a locator hint, never a new byte/signature proof. The
+    selected APK's delivery identity stays authoritative; every hinted source
+    must declare exactly that same bank before any reader is returned. This
+    avoids scanning imports or rebuilding a bank just because its optional
+    SQLite lookup cache was removed after a successful update.
+    """
+    output = storage._ordinary_owned(Path(output)); selected = Path(apk)
+    seen = set()
+    for _ in range(8):
+        try:
+            selected = _file(selected)
+            if selected.suffix.lower() != ".apk" or selected in seen: return None
+            seen.add(selected)
+            with selected.open("rb") as stream:
+                if _delivery(stream) != expected: return None
+            bank = selected.parent / CONTENT
+            if bank.is_file():
+                try: return _physical(bank, expected)
+                except (OSError, storage.BuildError): pass
+            descriptor = selected.parent / "portable-source.json"
+            if descriptor.exists():
+                try:
+                    value = _json_path(descriptor)
+                    if value.get("schema") == 1 and value.get("content") == expected:
+                        return _source_from_package(value["sourcePackage"], expected)
+                except (OSError, KeyError, TypeError, ValueError, storage.BuildError): pass
+            relative = selected.relative_to(output)
+            if (len(relative.parts) != 3 or relative.parts[0] not in ("builds", "updates")
+                    or not SHA.fullmatch(relative.parts[1])): return None
+            value = _json_path(output / "receipts/build" / (relative.parts[1] + ".json"))
+            details = value.get("details"); rows = value.get("outputs")
+            if (value.get("schema") != 1 or value.get("stage") != "build"
+                    or value.get("key") != relative.parts[1] or not isinstance(details, dict)
+                    or details.get("package") != PACKAGE or details.get("isDiagnostic") is not False
+                    or not isinstance(rows, list) or not 0 < len(rows) <= 64): return None
+            matches = [row for row in rows if isinstance(row, dict) and row.get("path") == relative.as_posix()]
+            if (len(matches) != 1 or matches[0].get("size") != selected.stat().st_size
+                    or matches[0].get("sha256") != details.get("apkSha256")
+                    or not SHA.fullmatch(str(details.get("apkSha256", "")))): return None
+            package = details.get("sourcePackage")
+            if isinstance(package, str):
+                try: return _source_from_package(package, expected)
+                except (OSError, TypeError, storage.BuildError): pass
+            base = details.get("baseApk")
+            if not isinstance(base, str) or not base: return None
+            selected = Path(base)
+        except (OSError, ValueError, AttributeError, storage.BuildError): return None
+    return None
+
+
 def content_source(apk, output, source_package=None):
     """Find the exact signed bank without hashing or materializing its bytes."""
     apk = _file(apk)
@@ -389,6 +442,9 @@ def content_source(apk, output, source_package=None):
             if row.get("member") == CONTENT: return _source_from_package(row["path"], expected)
             if row.get("member") is None: return _physical(row["path"], expected)
         except (OSError, KeyError, TypeError, storage.BuildError): pass
+    result = _closed_source(apk, output, expected)
+    if result is not None:
+        _remember_source(output, result); return result
     for result in _receipt_paths(output, expected):
         _remember_source(output, result); return result
     raise storage.BuildError("The complete-game content bank is missing. Select its original portable ZIP or retain the matching .ghvrq build output.")
