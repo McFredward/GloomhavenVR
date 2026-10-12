@@ -180,10 +180,10 @@ def _assemble(spec_path, output, name):
     command += ["-filter_complex", ";".join(graph), "-map", "[video]"]
     if audio:
         command += ["-map", "2:a", "-c:a", "aac", "-b:a", "256k", "-ar", "48000", "-ac", "2"]
+    movie = private/"master.mp4"
     command += ["-t", str(total), "-c:v", "libx264", "-preset", "slow", "-crf", "17",
-                "-threads", "4", "-movflags", "+faststart", str(output/(name+".mp4"))]
+                "-threads", "4", "-movflags", "+faststart", str(movie)]
     run(command, log)
-    movie = output/(name+".mp4")
     probe = json.loads(subprocess.check_output([
         "ffprobe", "-v", "error", "-show_entries", "stream=codec_type,nb_frames,width,height,r_frame_rate:format=duration",
         "-of", "json", str(movie)]))
@@ -197,6 +197,11 @@ def _assemble(spec_path, output, name):
                "tool_sha256": digest(__file__), "spec": spec, "shots": receipt,
                "sources_sha256": sources, "movie_sha256": digest(movie), "ffprobe": probe}
     (evidence/"edit-manifest.json").write_text(json.dumps(receipt, indent=2)+"\n")
+    # A review appears only after its complete encode and validation, so opening
+    # the shared directory never exposes an unfinished MP4 under its final name.
+    completed = output/(name+".mp4")
+    os.replace(movie, completed)
+    movie = completed
     latest = output/"latest.mp4"
     if latest.is_symlink():
         latest.unlink()
