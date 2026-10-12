@@ -171,6 +171,7 @@ def inventory(workspace, source, state, *, pending, editor=None, hub=None, host=
              present(cache / 'openxr-headers/openxr' / name))
     native = cache / 'campaign-native'
     proton = json.loads((source / 'tools/quest-procedural-runtime/proton.lock.json').read_text())
+    mirrors = constants(source / 'tools/quest-procedural-runtime/runtime.py').get('DOWNLOAD_MIRRORS', {})
     ndk = Path(editor).parent / 'Data/PlaybackEngines/AndroidPlayer/NDK/source.properties' if editor else None
     sha = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
     proton_local = False
@@ -180,7 +181,8 @@ def inventory(workspace, source, state, *, pending, editor=None, hub=None, host=
         key = value_hash({'backend': 'proton-arm64ec-fex', 'sources': inputs, 'ndkSha256': sha(ndk)})
         proton_local = present(native / 'procedural-runtime-proton' / key / 'native-build.json')
     for name, spec in [('proton-11.0-2-arm64ec.wcp', proton['wine']), ('fex-emu-wine_2609.1-1~n_arm64.deb', proton['fex']), *proton['licenses'].items()]:
-        need('proton-' + name, name, [spec['url']], proton_local or present(native / 'procedural-runtime-proton/downloads' / name, spec.get('size')))
+        need('proton-' + name, name, [*mirrors.get(spec['url'], ()), spec['url']],
+             proton_local or present(native / 'procedural-runtime-proton/downloads' / name, spec.get('size')))
     voice = constants(source / 'tools/quest-network/native.py'); voice_local = False
     if ndk and present(ndk):
         key = hashlib.sha256((voice['OPUS_SHA256'] + sha(source / 'tools/quest-network/opus_bridge.c') +

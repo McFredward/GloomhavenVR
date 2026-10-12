@@ -1,5 +1,20 @@
 # State — where the project stands
 
+**Quest cold-build FEX download repair, 2026-10-12: feature branch / B672.**
+
+Capture181854 identifies Builder135a5508f and a fresh Windows workspace. It
+stops before conversion because the exact FEX2609 PPA pool file returns404.
+The original official Launchpad build/librarian file remains available; real
+full downloads and static staging match both unchanged archive and DLL pins.
+Downloader and early preflight now share finite official transport alternatives.
+Correct caches remain local; corrupt/interrupted downloads repair atomically.
+Exact Proton-only source aliases preserve completed preparation/native caches
+and compact updates. Box64, unknown backend/helper bytes and changed actual
+native producers retain ordinary migration. No new game/APK build is asserted.
+See [QUEST-FEX-DOWNLOAD-20261012.md](QUEST-FEX-DOWNLOAD-20261012.md) and the compact
+handoff/evidence receipts for focused checks and cleanup. Keep the existing
+Windows workspace and resume with the corrected game-free Builder.
+
 **Build672 Frame launch setup and healthbar foreground depth, 2026-10-12: dev1.1.1 repair.**
 
 Running Steam can overwrite a verified external launch-options edit from its

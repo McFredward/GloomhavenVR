@@ -366,7 +366,7 @@ def _art_rows(files):
                    and not row["path"].endswith(".md") or row["path"] in producers), key=lambda row: row["path"])
 
 
-def _code_rows(files):
+def _code_rows(files, *, normalizer=None):
     """Conservatively retain every consumed runtime/compiler source identity.
 
     The source snapshot also contains browser, installer and recovery tools.
@@ -386,7 +386,16 @@ def _code_rows(files):
         if name.startswith(prefixes) or name in producers: return True
         if name.startswith("unity/GloomhavenVR.Quest/Assets/Quest/Runtime/"): return True
         return "/" not in name and name.endswith((".props", ".targets", ".config", ".json"))
-    return sorted((row for row in files if selected(row["path"])), key=lambda row: row["path"])
+    rows = [row for row in files if selected(row["path"])]
+    # One fully reviewed acquisition classifier repair changes no compiler call
+    # or IL2CPP input. Its external finite byte profile avoids self-hash pins.
+    # Every unknown driver body remains qualified by the ordinary source rows.
+    if normalizer is not None:
+        fixed = getattr(normalizer, "UPDATE_DOWNLOAD_FIXED", None)
+        previous = getattr(normalizer, "UPDATE_DOWNLOAD_PREVIOUS", None)
+        if fixed is not None and previous is not None:
+            rows = [previous if row == fixed else row for row in rows]
+    return sorted(rows, key=lambda row: row["path"])
 
 
 def _update_source_rows(files, *, art_changed):
@@ -476,6 +485,17 @@ _PAYLOAD_AUDIT_ONLY_ROWS.update({'tools/quest-builder/full_assets.py': {(32663,
  'tools/quest-recovery/recovery_workers.py': {(4825,
                                                '462fd29f8096787f32f62ccae6fa682003eedd2a2b0c8afc8ed7573ef784fa97')}})
 _PAYLOAD_INTRODUCED_OBSERVERS = {'tools/quest-recovery/recovery_workers.py': {'path': 'tools/quest-recovery/recovery_workers.py', 'size': 4825, 'sha256': '462fd29f8096787f32f62ccae6fa682003eedd2a2b0c8afc8ed7573ef784fa97'}}
+
+# Capture181854 changes acquisition of the same locked FEX file only. Proton's
+# seven-source native key excludes runtime.py; Box64 embeds its hash, so this
+# exact alias requires an explicitly recorded Proton backend. Unknown edits,
+# missing rows and missing backend provenance still require ordinary migration.
+_PROTON_DOWNLOAD_ROWS = (
+    {"path": "tools/quest-procedural-runtime/runtime.py", "size": 23737,
+     "sha256": "8a78594e78ad8d415e0121871c6474113e1ab78484b41ba193b9f464fd9babbe"},
+    {"path": "tools/quest-procedural-runtime/runtime.py", "size": 25710,
+     "sha256": "383f865db376d001eef05fddbaf385653cc10af897a6ec34af65849f2974bd9d"},
+)
 
 
 def _legacy_payload_producer(files):
@@ -591,12 +611,14 @@ def update_requirements(builder, source, base, files, mod_build):
     # reviewed legacy sources may supply that missing AST identity.
     producer = payload_producer(builder, source, files) if capsule else None
     reasons = rebuild_reasons(files, current_mod["files"], payload_producer=producer,
-                              previous_producer=capsule.get("payloadProducer") if capsule else None)
+                              previous_producer=capsule.get("payloadProducer") if capsule else None,
+                              procedural_backend=original.get("proceduralBackend"))
     if capsule is None:
         reasons.append("The older APK has no signed compact compiler/package compatibility capsule.")
     elif capsule["packageAbi"] != package_fingerprint(builder, source, original):
         reasons.append("The selected Unity package/template ABI changed.")
-    code_changed = (_code_rows(files) != _code_rows(current_mod["files"])
+    normalizer = getattr(builder, "preparation_identity", None)
+    code_changed = (_code_rows(files, normalizer=normalizer) != _code_rows(current_mod["files"], normalizer=normalizer)
                     or mod_build != base.get("modBuild", current_mod.get("modBuild")))
     art_changed = _art_rows(files) != _art_rows(current_mod["files"])
     return {"rebuildReasons": reasons, "codeChanged": code_changed, "artChanged": art_changed,
@@ -604,7 +626,7 @@ def update_requirements(builder, source, base, files, mod_build):
             "updateStrategy": "cached-full-build" if reasons else "compact-code"}
 
 
-def rebuild_reasons(current_files, previous_files, *, payload_producer=None, previous_producer=None):
+def rebuild_reasons(current_files, previous_files, *, payload_producer=None, previous_producer=None, procedural_backend=None):
     """Classify real unsupported payload changes without reading game banks."""
     reasons = []
     for name, selected in (("Native Quest programs or interop sources", _native_rows),
@@ -614,6 +636,9 @@ def rebuild_reasons(current_files, previous_files, *, payload_producer=None, pre
         prior = previous_producer if previous_producer is not None else _legacy_payload_producer(previous_files)
         same_builder = (payload_producer and prior and payload_producer["sha256"] == prior["sha256"])
         changed = sorted(path for path in current.keys() | previous.keys() if current.get(path) != previous.get(path)
+                         and not (selected is _native_rows and procedural_backend == "proton-arm64ec-fex"
+                                  and current.get(path) in _PROTON_DOWNLOAD_ROWS
+                                  and previous.get(path) in _PROTON_DOWNLOAD_ROWS)
                          and not (selected is _payload_rows and
                                   (path == "tools/quest-builder/builder.py" and same_builder
                                    or _audit_only_change(path, current.get(path), previous.get(path)))))

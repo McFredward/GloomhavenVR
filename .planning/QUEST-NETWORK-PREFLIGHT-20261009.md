@@ -56,6 +56,13 @@ later restore, large download, activation or APK export will succeed. Actual
 compact endpoint evidence is retained outside the handoff folder at
 `/home/claw/quest3-local/build/evidence/B647-network-preflight-20261009/`.
 
+**October12 cold-build repair:** the same FEX archive remains available through
+the original official Launchpad build/librarian file. Preflight now reads the
+downloader's exact finite alternatives and uses the same order. Full actual
+archive downloads and static DLL staging match the unchanged pins. No newer
+FEX or changed native provenance is accepted. See
+[the cold-build repair evidence](QUEST-FEX-DOWNLOAD-20261012.md).
+
 ## Focused verification
 
 - 25 preflight tests cover capacity-before-network order, operation-specific dependencies, actual recipe and

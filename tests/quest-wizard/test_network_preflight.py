@@ -157,6 +157,29 @@ class InventoryTests(unittest.TestCase):
         self.assertEqual(selected['opus']['urls'][0], 'https://github.com/xiph/opus/releases/download/v1.5.2/opus-1.5.2.tar.gz')
         self.assertFalse(selected['opus']['local'])
 
+    def test_cold_fex_probe_uses_the_actual_downloaders_exact_archive_alternatives(self):
+        self.saved['choices']['mode'] = 'build'
+        pin = json.loads((ROOT / 'tools/quest-procedural-runtime/proton.lock.json').read_text())['fex']
+        mirrors = network.constants(ROOT / 'tools/quest-procedural-runtime/runtime.py')['DOWNLOAD_MIRRORS']
+        row = next(r for r in self.inventory() if r['id'] == 'proton-fex-emu-wine_2609.1-1~n_arm64.deb')
+        self.assertFalse(row['local'])
+        self.assertEqual(row['urls'], [*mirrors[pin['url']], pin['url']])
+        missing = urllib.error.HTTPError(row['urls'][0], 404, 'Not Found', {}, io.BytesIO(b'not found'))
+        opener = Mock(side_effect=[missing, Response(b'archive byte')])
+        checked = network.check([row], probe_fn=lambda r: network.probe(r, opener=opener))
+        self.assertEqual(checked['results'][0]['status'], 'reachable')
+        self.assertEqual([call.args[0].full_url for call in opener.call_args_list], row['urls'][:2])
+
+    def test_existing_fex_archive_omits_all_mirror_probes(self):
+        self.saved['choices']['mode'] = 'build'
+        pin = json.loads((ROOT / 'tools/quest-procedural-runtime/proton.lock.json').read_text())['fex']
+        archive = self.root / 'build/tool-cache/campaign-native/procedural-runtime-proton/downloads/fex-emu-wine_2609.1-1~n_arm64.deb'
+        archive.parent.mkdir(parents=True)
+        with archive.open('wb') as output: output.truncate(pin['size'])
+        row = next(r for r in self.inventory() if r['id'] == 'proton-fex-emu-wine_2609.1-1~n_arm64.deb')
+        self.assertTrue(row['local'])
+        network.check([row], probe_fn=lambda r: self.fail('No endpoint is needed for the cached archive'))
+
     def test_old_opus_key_does_not_claim_current_archive_ready(self):
         self.saved['choices']['mode'] = 'build'
         old = self.root / 'build/tool-cache/campaign-native/voice/old-key/verified-source/opus-1.5.2.tar.gz'

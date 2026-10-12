@@ -19,10 +19,23 @@ import struct
 import subprocess
 import sys
 import tarfile
+import tempfile
+import urllib.error
+import urllib.parse
 import urllib.request
 
 HERE = Path(__file__).resolve().parent
 LOCK = json.loads((HERE / "upstream.lock.json").read_text())
+# Launchpad removes superseded packages from the PPA pool. Capture181854 failed
+# before conversion on the FEX2609 pool URL; the original build's librarian file
+# still has the exact locked archive SHA/size. Both download and Wizard preflight
+# use these same finite transport alternatives. Never substitute a newer FEX.
+DOWNLOAD_MIRRORS = {
+    "https://ppa.launchpadcontent.net/fex-emu/fex/ubuntu/pool/main/f/fex-emu-wine/fex-emu-wine_2609.1-1~n_arm64.deb": (
+        "https://launchpadlibrarian.net/877920617/fex-emu-wine_2609.1-1~n_arm64.deb",
+        "https://launchpad.net/~fex-emu/+archive/ubuntu/fex/+build/33620553/+files/fex-emu-wine_2609.1-1~n_arm64.deb",
+    ),
+}
 EXPORTS = ("ApparanceInitialise", "ApparanceIsRunning", "ApparanceUpdate", "ApparanceSave",
            "ApparanceShutdown", "ApparanceCreateEntity", "ApparanceDestroyEntity", "ApparanceEntityBuild",
            "ApparancePopEntityTask", "ApparancePopEngineTask", "ApparanceUpdateAsset", "ApparanceGetNextAssetRequest")
@@ -48,17 +61,41 @@ def digest(path: Path) -> str:
 def fetch(cache: Path, name: str, url: str, expected: str) -> Path:
     cache.mkdir(parents=True, exist_ok=True)
     result = cache / name
-    if not result.exists():
-        partial = result.with_suffix(result.suffix + ".partial")
-        with urllib.request.urlopen(url, timeout=60) as source, partial.open("wb") as target:
-            shutil.copyfileobj(source, target, 1024 * 1024)
-        if digest(partial) != expected:
-            partial.unlink()
-            raise RuntimeError(f"Procedural runtime download failed pinned checksum: {name}")
-        os.replace(partial, result)
-    if digest(result) != expected:
-        raise RuntimeError(f"Procedural runtime cache failed pinned checksum: {name}")
-    return result
+    if result.exists() and digest(result) == expected:
+        return result
+    # A missing/corrupt cache is repaired atomically. Retain any old file until
+    # the replacement's actual transferred bytes match the same pinned SHA.
+    failures = []
+    for candidate in (*DOWNLOAD_MIRRORS.get(url, ()), url):
+        host = urllib.parse.urlsplit(candidate).hostname
+        print(f"[Quest procedural] Acquiring pinned {name} from {host}.", flush=True)
+        partial = None
+        try:
+            with tempfile.NamedTemporaryFile(dir=cache, prefix=name + ".", suffix=".partial", delete=False) as target:
+                partial = Path(target.name)
+                hashed = hashlib.sha256()
+                with urllib.request.urlopen(candidate, timeout=60) as source:
+                    while chunk := source.read(1024 * 1024):
+                        target.write(chunk)
+                        hashed.update(chunk)
+            if hashed.hexdigest() != expected:
+                raise RuntimeError("pinned checksum mismatch")
+            os.replace(partial, result)
+            return result
+        except (OSError, urllib.error.URLError, RuntimeError) as error:
+            if isinstance(error, urllib.error.HTTPError):
+                detail = "HTTP " + str(error.code)
+                error.close()
+            elif isinstance(error, RuntimeError):
+                detail = str(error)
+            else:
+                detail = type(error).__name__
+            failures.append(str(host) + ": " + detail)
+            print(f"[Quest procedural] Pinned download attempt failed: {name}, {host}, {detail}.", flush=True)
+        finally:
+            if partial is not None:
+                partial.unlink(missing_ok=True)
+    raise RuntimeError(f"Procedural runtime acquisition failed for {name}: " + "; ".join(failures))
 
 
 def _voice_tools():

@@ -99,6 +99,19 @@ MEMORY_OBSERVER_PROFILES = {
 
 MEMORY_POLICY_MINIMUM = {'path': 'tools/quest-builder/host_resources.py', 'size': 26933, 'sha256': 'b3f6c466e52edbccb8a0497adf6f57ffd0197e1b5c33a0ff641af6cd6eb3ee12'}
 
+# The original FEX build is still available in Launchpad's librarian archive.
+# Only these complete reviewed downloader bytes route to that same pinned file.
+# Proton native sources, locks, archive/DLL hashes and payloads are unchanged;
+# Box64 includes runtime.py in its native key and receives no acquisition alias.
+PROTON_DOWNLOAD_PREVIOUS = {"path": "tools/quest-procedural-runtime/runtime.py", "size": 23737,
+    "sha256": "8a78594e78ad8d415e0121871c6474113e1ab78484b41ba193b9f464fd9babbe"}
+PROTON_DOWNLOAD_FIXED = {"path": "tools/quest-procedural-runtime/runtime.py", "size": 25710,
+    "sha256": "383f865db376d001eef05fddbaf385653cc10af897a6ec34af65849f2974bd9d"}
+UPDATE_DOWNLOAD_PREVIOUS = {"path": "tools/quest-builder/update_driver.py", "size": 65025,
+    "sha256": "7e50d673bb456c66cc08d939ecf025827811c6b1785c52f7a78365223a1bd0c2"}
+UPDATE_DOWNLOAD_FIXED = {"path": "tools/quest-builder/update_driver.py", "size": 66742,
+    "sha256": "47268c18c60e326d74f1c1684baf995994b2ec0dddcbffc8fb57e56ecad8916c"}
+
 def _memory_row(row):
     if row in (MEMORY_POLICY_FIXED, MEMORY_POLICY_ADAPTIVE, MEMORY_POLICY_MINIMUM):
         return MEMORY_POLICY_PREVIOUS
@@ -574,6 +587,8 @@ def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=Fal
     # produced retained bytes; require the complete reviewed Builder AST.
     builder = builder_producer_digest(_builder_bytes(source, records), original_prefix=original_prefix and not completed)
     rows = _reviewed_startup_rows(recovery.preparation_source_rows(inputs["mod"]["files"]))
+    if inputs.get("proceduralBackend") == "proton-arm64ec-fex":
+        rows = [PROTON_DOWNLOAD_PREVIOUS if row == PROTON_DOWNLOAD_FIXED else row for row in rows]
     if completed:
         rows = _completed_editor_rows(rows)
     # These modules validate/select identity; neither generates game assets.
@@ -583,6 +598,7 @@ def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=Fal
     if original_prefix:
         reviewed = []
         for row in rows:
+            if row == UPDATE_DOWNLOAD_FIXED: row = UPDATE_DOWNLOAD_PREVIOUS
             if row in (PLAYER_DELIVERY_ROW, FINAL_DELIVERY_ROW): continue
             if row == COMPUTE_OWNER_DELIVERY_ROW:
                 row = LATE_DELIVERY_ROWS[row['path']][1]
