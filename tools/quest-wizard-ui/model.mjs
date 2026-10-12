@@ -5,11 +5,13 @@ export function choicesFromForm(form, language) {
   const mode = form.mode ?? 'build';
   if (!['build','update-mod','update-profile'].includes(mode)) throw new Error('invalidMode');
   const baseApk = String(form.baseApk ?? '').trim();
-  if (mode !== 'build' && !baseApk) throw new Error('missingBaseApk');
   const provider = ['steam','epic','gog'].includes(form.provider) ? form.provider : 'steam';
   if(form.hostSystem==='Linux'&&provider==='steam'&&mode!=='update-profile'&&!form.declareDlc)throw new Error('linuxDlcRequired');
   const choices = {gameRoot, provider, mode, install:Boolean(form.install), acceptUnityTerms:Boolean(form.acceptUnityTerms), language};
-  if (mode !== 'build') choices.baseApk = baseApk;
+  // An omitted source lets the local server select the completed owner workspace.
+  // Explicit APK/ZIP choices remain intact; the server reports a missing source
+  // only when no suitable workspace result exists.
+  if (mode !== 'build' && baseApk) choices.baseApk = baseApk;
   if (mode !== 'build' && ['auto','original','new-owner'].includes(form.signingMode)) choices.signingMode=form.signingMode;
   if (mode !== 'build' && String(form.signingRoot ?? '').trim()) choices.signingRoot = form.signingRoot.trim();
   if (String(form.unityEditor ?? '').trim()) choices.unityEditor = form.unityEditor.trim();
@@ -396,4 +398,15 @@ export function savedSession(discovery) {
   // decides which retained build to reopen after a launcher update.
   return sessionId(discovery?.latestSession) ??
     (Array.isArray(discovery?.recentSessions) ? discovery.recentSessions.map(row=>sessionId(row?.session)).find(Boolean) : null) ?? null;
+}
+
+
+export function resumableSession(discovery,state) {
+  // The selected latest record owns the resume decision. A completed latest
+  // build must never reveal an older failed job as the current resume target.
+  const selected=sessionId(state?.session)??savedSession(discovery);
+  if(!selected)return null;
+  const status=state?.session===selected?state.status:
+    discovery?.recentSessions?.find(row=>row?.session===selected)?.status;
+  return status==='complete'?null:selected;
 }

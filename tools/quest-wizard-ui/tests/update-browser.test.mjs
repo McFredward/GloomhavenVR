@@ -12,7 +12,7 @@ const root=fileURLToPath(new URL('../',import.meta.url));
 const mime={'.html':'text/html','.mjs':'text/javascript','.css':'text/css',
   '.png':'image/png','.jpg':'image/jpeg','.svg':'image/svg+xml'};
 
-for(const mode of ['update-profile','update-mod'])test('native browser: '+mode+' requires the APK, restores choices and applies its Unity requirement',
+for(const mode of ['update-profile','update-mod'])test('native browser: '+mode+' accepts an optional APK override, restores choices and applies its Unity requirement',
  {skip:!existsSync(chrome),timeout:30000},async()=>{
   const server=createServer(async(request,response)=>{
     try{
@@ -33,9 +33,9 @@ for(const mode of ['update-profile','update-mod'])test('native browser: '+mode+'
     assert.equal(await client.evaluate("document.getElementById('base-apk-choice').hidden"),false);
     assert.equal(await client.evaluate("document.getElementById('update-signing-choice').hidden"),false);
     await client.evaluate("document.getElementById('primary').click()");
-    await client.wait("!document.getElementById('error-banner').hidden");
-    assert.match(await client.evaluate("document.getElementById('error-banner').textContent"),/APK/);
-    assert.equal(await client.evaluate("document.getElementById('setup-page').hidden"),true);
+    await client.wait("!document.getElementById('setup-page').hidden");
+    assert.equal(await client.evaluate("document.getElementById('error-banner').hidden"),true,'a blank override is qualified by the backend workspace lookup');
+    await client.evaluate("document.getElementById('back').click()");
     await client.evaluate("document.getElementById('base-apk').value='C:\\\\Quest\\\\Existing.apk';document.getElementById('signing-root').value='C:\\\\Workspace\\\\build\\\\signing';document.getElementById('primary').click()");
     await client.wait("!document.getElementById('setup-page').hidden");
     assert.equal(await client.evaluate("document.querySelector('.license-note').hidden"),mode==='update-profile');
@@ -68,7 +68,7 @@ for(const mode of ['update-profile','update-mod'])test('native browser: '+mode+'
   }
  });
 
-async function ownedApkFixture({hasApk=true,hasRestoredApk=true}={}) {
+async function ownedApkFixture({hasApk=true,hasRestoredApk=true,selectedStatus='cancelled'}={}) {
   const requests=[],session='a'.repeat(32),defaultApk='C:\\Users\\Fixture\\.ghvrq\\build\\updates\\'+'b'.repeat(64)+'\\GloomhavenVR-Quest.apk';
   const customApk='D:\\Custom game backups\\Explicit Quest.apk';
   const updatedApk='C:\\Users\\Fixture\\.ghvrq\\build\\updates\\'+'c'.repeat(64)+'\\GloomhavenVR-Quest.apk';
@@ -82,7 +82,7 @@ async function ownedApkFixture({hasApk=true,hasRestoredApk=true}={}) {
         assert.equal(request.headers['x-quest-token'],'owned-apk-fixture');requests.push(path);
         let raw='';for await(const chunk of request)raw+=chunk;const body=raw?JSON.parse(raw):undefined;
         let value;
-        if(path==='/api/discover')value={schema:1,event:'discovery',latestSession:session,defaultApk:hasApk?{path:defaultApk,modBuild:671,source:'latest-build'}:null,
+        if(path==='/api/discover')value={schema:1,event:'discovery',latestSession:session,recentSessions:[{session,status:selectedStatus},{session:'older-failed-session',status:'failed'}],defaultApk:hasApk?{path:defaultApk,modBuild:671,source:'latest-build'}:null,
           games:[{id:'owned',gameRoot:'C:\\Owned game',provider:'gog'}],unityEditors:[],capabilities:{browse:false,logs:false,support:false}};
         else if(path==='/api/gallery')value={schema:1,event:'gallery',artwork:[]};
         else if(path==='/api/storage')value={schema:1,event:'storage',workspaceRoot:'C:\\Users\\Fixture\\.ghvrq',state:{status:'idle'},inventory:{status:'idle'}};
@@ -136,7 +136,9 @@ test('a just-completed APK update replaces the previous automatic default for th
     await client.wait("!document.getElementById('setup-page').hidden");
     await client.evaluate("document.getElementById('primary').click()");
     await client.wait("!document.getElementById('result-card').hidden");
-    await client.evaluate("document.getElementById('home').click()");await client.chooseHome('mod');
+    await client.evaluate("document.getElementById('home').click()");
+    assert.equal(await client.evaluate("document.getElementById('home-resume').hidden"),true,'a just-completed run does not leave an aborted-run tile');
+    await client.chooseHome('mod');
     assert.equal(await client.evaluate("document.getElementById('base-apk').value"),server.updatedApk,'do not reuse the old automatic base after a completed update');
     assert.equal(server.requests.filter(path=>path==='/api/plan').length,1);
     assert.equal(server.requests.filter(path=>path==='/api/run').length,1);
@@ -186,6 +188,54 @@ test('an incomplete session result cannot fill the APK field when no completed A
     await client.evaluate("document.getElementById('home').click()");await client.chooseHome('profile');
     assert.equal(await client.evaluate("document.getElementById('base-apk').value"),'');
     assert.equal(server.requests.some(path=>['/api/run','/api/plan'].includes(path)),false);
+    assert.equal(client.events.filter(row=>row.method==='Runtime.exceptionThrown').length,0);
+  }finally{try{await client?.close();}finally{await server.close();}}
+ });
+
+
+test('an update route shows only its operation and retains setup choices through utility/home navigation',
+ {skip:!existsSync(chrome),timeout:30000},async()=>{
+  const server=await ownedApkFixture();let client;
+  try{
+    client=await browser();await client.command('Page.navigate',{url:server.url});await client.chooseHome('profile');
+    await client.evaluate("document.querySelector('[data-language=de]').click()");
+    assert.equal(await client.evaluate("['package-card','device-card','storage-card'].every(id=>document.getElementById(id).hidden)"),true);
+    assert.equal(await client.evaluate("document.getElementById('build-mode').hidden"),true);
+    assert.equal(await client.evaluate("document.querySelector('#game-page h2').textContent"),'Spielername ändern');
+    assert.match(await client.evaluate("document.getElementById('base-apk-default').textContent"),/vorhandene Stand aus \.ghvrq/);
+    await client.evaluate("document.getElementById('profile-name').value='Retained typed name';document.getElementById('primary').click()");
+    await client.wait("!document.getElementById('setup-page').hidden");
+    await client.evaluate("document.getElementById('home').click()");await client.chooseHome('storage');
+    assert.equal(await client.evaluate("document.getElementById('storage-card').hidden"),false);
+    assert.equal(await client.evaluate("document.activeElement.id"),'storage-title');
+    assert.equal(await client.evaluate("document.getElementById('primary').hidden&&document.querySelector('.steps').hidden"),true);
+    await client.evaluate("document.getElementById('primary').click()");
+    assert.equal(server.requests.some(path=>['/api/plan','/api/run'].includes(path)),false,'hidden primary cannot trigger a build on a utility page');
+    await client.evaluate("document.getElementById('home').click()");await client.chooseHome('profile');
+    assert.equal(await client.evaluate("document.getElementById('setup-page').hidden"),false,'the selected workflow retains its last page');
+    assert.equal(await client.evaluate("document.getElementById('profile-name').value"),'Retained typed name');
+    assert.equal(await client.evaluate("document.getElementById('base-apk').value"),server.defaultApk);
+    assert.equal(await client.evaluate("document.getElementById('storage-card').hidden"),true);
+    assert.equal(client.events.filter(row=>row.method==='Runtime.exceptionThrown').length,0);
+    await client.picture('focused-profile-setup-de');
+  }finally{try{await client?.close();}finally{await server.close();}}
+ });
+
+
+for(const selectedStatus of ['complete','failed','running'])test('homepage resume reflects selected saved status '+selectedStatus+' without reopening older jobs',
+ {skip:!existsSync(chrome),timeout:30000},async()=>{
+  const server=await ownedApkFixture({selectedStatus});let client;
+  try{
+    client=await browser();await client.command('Page.navigate',{url:server.url});
+    await client.wait("document.getElementById('home-mod')&&!document.getElementById('home-mod').disabled");
+    assert.equal(await client.evaluate("document.getElementById('home-resume').hidden"),selectedStatus==='complete');
+    if(selectedStatus==='running'){
+      await client.evaluate("document.querySelector('[data-language=de]').click()");
+      assert.match(await client.evaluate("document.getElementById('home-resume').textContent"),/Laufenden Vorgang/);
+    }
+    assert.equal(server.requests.includes('/api/status'),false,'discovery metadata does not start/reopen any run');
+    await client.chooseHome('mod');
+    assert.equal(await client.evaluate("document.getElementById('base-apk').value"),server.defaultApk,'completed APK metadata remains available independently');
     assert.equal(client.events.filter(row=>row.method==='Runtime.exceptionThrown').length,0);
   }finally{try{await client?.close();}finally{await server.close();}}
  });

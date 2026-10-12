@@ -120,8 +120,13 @@ test('device tools guide wireless setup, expose real capture progress and downlo
     client=await browser();await client.command('Page.navigate',{url:server.url});
     await client.wait("document.getElementById('storage-used')&&document.getElementById('storage-used').textContent.includes('6 GiB')&&!document.getElementById('device-wireless').disabled");
     await client.evaluate("document.querySelector('[data-language=de]').click()");
+    assert.equal(await client.evaluate("['package-card','device-card','storage-card'].every(id=>document.getElementById(id).hidden)"),true);
+    await client.chooseHome('storage');
     assert.match(await client.evaluate("document.getElementById('storage-categories').textContent"),/Unity-Import.*6 GiB.*Signierschlüssel.*6,5 KiB/);
     assert.equal(await client.evaluate("document.getElementById('storage-plan-cache').hidden"),false,'retained APK permits cache cleanup from home without opening a build');
+    await client.evaluate("document.getElementById('home').click()");await client.chooseHome('device');
+    assert.equal(await client.evaluate("document.getElementById('storage-card').hidden"),true);
+    assert.equal(await client.evaluate("document.activeElement.id"),'device-title');
     await client.evaluate("document.getElementById('device-host').value='192.168.0.5:5555';document.getElementById('device-wireless').click()");
     await client.wait("document.getElementById('device-status').textContent.includes('USB-Debugging')");
     assert.equal(await client.evaluate("document.getElementById('device-guide').open"),true);
@@ -133,6 +138,7 @@ test('device tools guide wireless setup, expose real capture progress and downlo
     await client.wait("!document.getElementById('device-download').disabled");
     assert.ok(server.requests.some(row=>row.path==='/api/device/capture'&&row.body===undefined));
     assert.equal(server.requests.some(row=>['/api/run','/api/plan'].includes(row.path)),false);
+    await client.evaluate("document.getElementById('home').click()");await client.chooseHome('storage');
     await client.evaluate("document.getElementById('storage-plan-cache').click()");await client.wait("!document.getElementById('storage-confirmation').hidden");
     assert.equal(server.requests.some(row=>row.path==='/api/storage/clean'),false);
     assert.match(await client.evaluate("document.getElementById('storage-cache-consequence').textContent"),/APK.*Spiel-Datenpakete.*Signierschlüssel/);

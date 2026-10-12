@@ -1,5 +1,5 @@
 import {translate} from './i18n.mjs';
-import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,sessionId,savedSession,activeWorkView,timingView,durationText,failureView,installationView,activityView,buildOverviewView,nativeMemoryView,unityImportView,unityTaskView} from './model.mjs';
+import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,sessionId,savedSession,resumableSession,activeWorkView,timingView,durationText,failureView,installationView,activityView,buildOverviewView,nativeMemoryView,unityImportView,unityTaskView} from './model.mjs';
 import {LocalApi,PreviewApi} from './transport.mjs';
 
 const $ = id => document.getElementById(id);
@@ -12,7 +12,7 @@ let page=-1,selected=null,discovery=null,state=null,busy=false,after=0,log=[],lo
 let storageInfo=null,storageBusy=false,storagePollTimer=null,storageCompletedShown=false;
 let deviceInfo=null,deviceBusy=false,devicePollTimer=null,deviceDownloading=false;
 let qualification=null,resumeFailed=null,restoredSession=null,sessionGeneration=0;
-let automaticBaseApk='';
+let automaticBaseApk='',workflowMode=null,workflowPage=0;
 let packageInfo=null,packageBusy=false,packagePollTimer=null,automaticPackageSource='',automaticPackageDestination='';
 let eventsUnavailable=false,stageLogUnavailable=false,lastFailureFocus='',eventsRequest=null,stageLogRequest=null;
 let buildFocus=false;const buildGroupChoices=new Map();
@@ -85,7 +85,7 @@ function deviceActive(){return deviceBusy||['preparing','connecting','capturing'
 function packageActive(){return packageBusy||packageInfo?.state?.status==='exporting';}
 function renderPackage(){
   const available=discovery?.capabilities?.portablePackages===true;
-  $('package-card').hidden=!available;$('home-export').hidden=!available;$('result-export').hidden=!available;
+  $('package-card').hidden=!available||page!=='export';$('home-export').hidden=!available;$('result-export').hidden=!available;
   if(!available)return;
   const defaults=packageInfo?.defaults??{},current=packageInfo?.state??{},active=packageActive();
   const built=state?.stages?.find(row=>row.id==='build'&&row.status==='complete')?.details?.apk;
@@ -101,15 +101,15 @@ function renderPackage(){
     }
     $('package-destination').value=destination;automaticPackageDestination=destination;
   }
-  const locked=busy||isActive(state)||deviceActive()||storageActive()||active||!canConnect;
-  for(const id of ['package-source','package-destination','package-browse-source','package-browse-destination','package-export','home-export','result-export'])$(id).disabled=locked;
+  const locked=busy||!packageInfo||isActive(state)||deviceActive()||storageActive()||active||!canConnect;
+  for(const id of ['package-source','package-destination','package-browse-source','package-browse-destination','package-export','result-export'])$(id).disabled=locked;
   for(const id of ['package-browse-source','package-browse-destination'])$(id).hidden=discovery?.capabilities?.browse===false;
   $('package-export').textContent=t(['failed','cancelled'].includes(current.status)?'packageRetry':'packageExport');
   $('package-cancel').hidden=!active;$('package-cancel').disabled=packageBusy;
   const progress=current.progress??{},status=current.status??'idle';
   const detail=typeof progress.detail==='string'?progress.detail:'';
   const counter=Number.isFinite(progress.completed)&&Number.isFinite(progress.total)&&progress.total>0?storageSize(progress.completed)+' / '+storageSize(progress.total):'';
-  $('package-status').textContent=current.error?message(current.error.message):[t('package_status_'+status),Number.isFinite(progress.percent)?percentText(progress.percent)+' %':'',counter,detail].filter(Boolean).join(' · ');
+  $('package-status').textContent=!packageInfo?t('packageLoading'):current.error?message(current.error.message):[t('package_status_'+status),Number.isFinite(progress.percent)?percentText(progress.percent)+' %':'',counter,detail].filter(Boolean).join(' · ');
   $('package-status').setAttribute('role',status==='failed'?'alert':'status');
   $('package-progress').hidden=!active&&status!=='complete';$('package-progress').value=Math.max(0,Math.min(100,Number(progress.percent)||0));
   const result=current.result??defaults.latestExport;
@@ -120,10 +120,15 @@ async function refreshPackage(){
   try{const result=await api.packageStatus();if(result?.event!=='package'||!result.state)throw {code:'invalidReply'};packageInfo=result;updateView();}
   catch(value){error(value);}finally{schedulePackagePoll();}
 }
-function focusPackage(){
-  if(busy||isActive(state)||storageActive()||deviceActive()||packageActive())return;
-  renderPackage();$('package-card').scrollIntoView({behavior:reducedMotion.matches?'instant':'smooth',block:'center'});$('package-source').focus();
+function navigatePage(next,focusId){
+  // Navigation does not reset retained work, stop an active job or authorize a
+  // mutation. Utility controls enforce the shared active-work lock separately.
+  if(typeof page==='number'&&page>=0)workflowPage=page;
+  page=next;clearError();updateView();
+  const heading=$(focusId);heading?.setAttribute('tabindex','-1');heading?.focus();
 }
+function focusPackage(){if(discovery?.capabilities?.portablePackages===true)navigatePage('export','package-title');}
+
 async function exportPackage(){
   if(busy||isActive(state)||storageActive()||deviceActive()||packageActive())return;
   const source=$('package-source').value.trim(),destination=$('package-destination').value.trim();
@@ -134,18 +139,22 @@ async function exportPackage(){
 }
 function renderHome(){
   $('home-page').hidden=page!==-1;$('home').hidden=page===-1;$('home').disabled=busy;
-  document.querySelector('.steps').hidden=page===-1;
-  const session=state?.session??savedSession(discovery);
+  document.querySelector('.steps').hidden=typeof page!=='number'||page<0;
+  $('home-device').hidden=discovery?.capabilities?.deviceTools!==true;
+  $('home-storage').hidden=!storageInfo;
+  for(const id of ['home-export','home-device','home-storage'])$(id).disabled=busy||!canConnect;
+  const session=resumableSession(discovery,state);
+  const savedState=state??discovery?.recentSessions?.find(row=>row?.session===session);
   $('home-resume').hidden=!session;
-  $('home-resume').firstElementChild.textContent=t(isActive(state)?'homeOpenActive':state?.status==='complete'?'homeOpenResult':'homeResume');
+  $('home-resume').firstElementChild.textContent=t(isActive(savedState)?'homeOpenActive':'homeResume');
   $('home-resume-copy').textContent=t('homeResumeCopy',{session:session??''});
   const locked=busy||storageActive()||deviceActive()||packageActive()||isActive(state)||!canConnect;
   for(const id of ['home-build','home-mod','home-profile'])$(id).disabled=locked;
   $('home-resume').disabled=busy||storageActive()||deviceActive()||packageActive();
 }
 function renderDevice(){
-  $('device-card').hidden=discovery?.capabilities?.deviceTools!==true;
-  if($('device-card').hidden)return;
+  $('device-card').hidden=discovery?.capabilities?.deviceTools!==true||page!=='device';
+  if(discovery?.capabilities?.deviceTools!==true)return;
   const current=deviceInfo?.state??{},active=deviceActive(),locked=busy||isActive(state)||storageActive()||packageActive()||active||!canConnect;
   for(const id of ['device-connect','device-wireless','device-capture','device-host','device-serial'])$(id).disabled=locked;
   $('device-cancel').hidden=!active;$('device-cancel').disabled=deviceBusy||current.status==='cancelling';
@@ -199,14 +208,14 @@ async function inventoryStorage(){
   catch(value){error(value);}finally{updateView();scheduleStoragePoll();}
 }
 function renderStorage() {
-  $('storage-card').hidden=!storageInfo;
+  $('storage-card').hidden=!storageInfo||page!=='storage';
   if(!storageInfo)return;
   $('storage-root').textContent=storageInfo.workspaceRoot??'';
   $('storage-free').textContent=Number.isFinite(storageInfo.freeBytes)?t('storageFree',{size:storageSize(storageInfo.freeBytes)}):'';
   const current=storageInfo.state??{},status=current.status,plan=current.plan;
   const inventory=storageInfo.inventory??{},measuring=inventory.status==='scanning';
   $('storage-refresh').hidden=discovery?.capabilities?.storageInventory!==true;
-  $('storage-refresh').disabled=measuring||storageActive()||deviceActive();
+  $('storage-refresh').disabled=measuring||busy||isActive(state)||storageActive()||deviceActive()||packageActive();
   $('storage-used').textContent=Number.isFinite(inventory.totalBytes)?t('storageUsed',{size:storageSize(inventory.totalBytes)}):t('storageUsageUnknown');
   $('storage-inventory-status').textContent=measuring?t('storageUsageScanning',{files:new Intl.NumberFormat(language).format(inventory.files??0)}):inventory.status==='failed'?t('storageUsageFailed'):inventory.completedAt?t('storageUsageMeasured',{time:new Date(inventory.completedAt*1000).toLocaleTimeString(language)}):'';
   $('storage-categories').hidden=!Array.isArray(inventory.categories);$('storage-categories').replaceChildren();
@@ -533,7 +542,7 @@ function renderGames() {
     info.append(title,path,badges);button.append(icon,info,marker);button.addEventListener('click',()=>selectGame(game));$('game-list').append(button);
   }
   $('browse-game').hidden=discovery?.capabilities?.browse===false;$('browse-unity').hidden=discovery?.capabilities?.browse===false;
-  const resume=savedSession(discovery);
+  const resume=resumableSession(discovery,state);
   if(resume&&!state) {
     const button=document.createElement('button');button.className='secondary';button.id='resume-session';button.textContent=t(resumeFailed?'resumeRetry':'resume');button.disabled=busy;
     button.addEventListener('click',()=>openSession(resume));$('game-list').append(button);
@@ -549,12 +558,12 @@ function updateView() {
   const version=typeof source?.modVersion==='string'?source.modVersion:'';
   const build=Number.isInteger(source?.modBuild)?'B'+source.modBuild:'';
   const commit=typeof source?.sourceCommit==='string'&&/^[a-f0-9]{40}$/i.test(source.sourceCommit)?source.sourceCommit.slice(0,10):'';
-  $('mod-source').hidden=!source||![version,build,commit].some(Boolean);
+  $('mod-source').hidden=typeof page!=='number'||!source||![version,build,commit].some(Boolean);
   $('mod-source').textContent=[version?'GloomhavenVR '+version:'GloomhavenVR',build,commit,t(source?.kind==='bundled-release'?'modSourceRelease':'modSourceCheckout')].filter(Boolean).join(' · ');
   $('mod-source').title=t('modSourceHint');
   $('source-update').hidden=!sourceUpdate;
   $('source-update').textContent=sourceUpdate?t('sourceUpdate',{commit:previous.sourceCommit.slice(0,10)}):'';
-  $('resume-notice').hidden=!resumeFailed&&!(page===2&&restoredSession===state?.session);
+  $('resume-notice').hidden=page!==2||!resumeFailed&&restoredSession!==state?.session;
   $('resume-notice').textContent=t(resumeFailed?'resumeUnavailable':state?.status==='complete'?'resumeCompleted':isActive(state)?'resumeActive':'resumeRestored');
   const estimate=qualification?.spaceEstimate;
   $('space-estimate').hidden=!estimate;
@@ -564,7 +573,7 @@ function updateView() {
   const step=page===2 ? macroStep(state) : page;
   document.querySelectorAll('[data-step]').forEach(node => {const index=Number(node.dataset.step);node.classList.toggle('active',index===step);node.classList.toggle('done',index<step);if(index===step)node.setAttribute('aria-current','step');else node.removeAttribute('aria-current');});
   $('back').hidden=page!==1;$('cancel').hidden=page!==2||!isActive(state);
-  $('new-build').hidden=!(resumeFailed||page===2&&state&&!isActive(state));$('new-build').disabled=busy||storageActive();$('new-build').title=t('newBuildHint');
+  $('new-build').hidden=page!==2||!(resumeFailed||state&&!isActive(state));$('new-build').disabled=busy||storageActive();$('new-build').title=t('newBuildHint');
   $('cancel').disabled=busy||['cancelling','cancel_requested'].includes(state?.status);
   $('cancel').textContent=t(['cancelling','cancel_requested'].includes(state?.status)?'cancelling':'cancel');
   $('profile-summary').textContent=t($('profile-name').value?'profileManual':'profileCheck');
@@ -575,6 +584,16 @@ function updateView() {
   document.querySelector('label[for=profile-id]').textContent=t(mode==='update-profile'?'profileUpdateId':'profileId');
   const unityLabel=document.querySelector('label[for=unity-editor]');unityLabel.hidden=mode==='update-profile';unityLabel.nextElementSibling.hidden=mode==='update-profile';
   $('base-apk-choice').hidden=mode==='build';
+  const workspaceSource=discovery?.defaultApk?.path??'';
+  const chosenSource=$('base-apk').value.trim();
+  $('base-apk-default').hidden=mode==='build';
+  $('base-apk-default').textContent=t(chosenSource&&chosenSource!==automaticBaseApk&&chosenSource!==workspaceSource?'baseApkOverride':workspaceSource?'baseApkWorkspace':'baseApkChoose',{path:chosenSource||workspaceSource});
+  const actionTitle=mode==='update-mod'?'modOperationTitle':mode==='update-profile'?'profileOperationTitle':'gameTitle';
+  document.querySelector('#game-page h2').textContent=t(actionTitle);
+  document.querySelector('#setup-page h2').textContent=t(mode==='build'?'setupTitle':actionTitle);
+  // The homepage owns operation selection; an opened workflow shows its own
+  // task rather than advertising unrelated operations inside the form.
+  $('build-mode').hidden=true;document.querySelector('label[for=build-mode]').hidden=true;
   $('update-signing-choice').hidden=mode==='build';
   document.querySelector('.license-note').hidden=mode==='update-profile';
   const updateContent=mode==='update-profile'?'setupProfile':mode==='update-mod'?'setupMod':'setupContent';
@@ -582,8 +601,8 @@ function updateView() {
   document.querySelector('[data-i18n=setupContentCopy]').textContent=t(updateContent+'Copy');
   document.querySelector('[data-i18n=firstBuild]').textContent=t(mode==='build'?'firstBuild':'updateBuild');
   $('browse-apk').hidden=discovery?.capabilities?.browse===false;
-  $('primary').hidden=page===-1;
-  $('primary').disabled=page===-1||busy||storageActive()||deviceActive()||packageActive()||!canConnect||Boolean(resumeFailed)||(page===0&&!$('game-root').value.trim())||(page===2&&(isActive(state)||state?.status==='complete'));
+  $('primary').hidden=typeof page!=='number'||page<0;
+  $('primary').disabled=typeof page!=='number'||page<0||busy||storageActive()||deviceActive()||packageActive()||!canConnect||Boolean(resumeFailed)||(page===0&&!$('game-root').value.trim())||(page===2&&(isActive(state)||state?.status==='complete'));
   $('primary').firstElementChild.textContent=t(busy?'preparing':page===0?'continue':page===1?'build':isActive(state)?'working':state?.status==='complete'?'done':state?.status==='blocked'?'retry':'resumeContinue');
   if(page===2&&!busy&&installationView(state)?.attention)$('primary').firstElementChild.textContent=t('installationRetry');
   $('primary').lastElementChild.textContent=state?.status==='complete'?'✓':'→';
@@ -753,7 +772,7 @@ function restoreChoices(choices) {
 async function openSession(session) {
   if(!sessionId(session)||busy)return false;clearError();busy=true;clearTimeout(pollTimer);sessionGeneration++;stopOptionalReads();updateView();
   try {const result=await api.status(session);if(!result.state||result.state.session!==session)throw {code:'invalidReply'};
-    resetArtwork();clearLoadedLog();eventsUnavailable=false;stageLogUnavailable=false;state=result.state;resumeFailed=null;restoredSession=session;restoreChoices(state.choices);page=2;after=0;log=[];schedulePoll();return true;}
+    resetArtwork();clearLoadedLog();eventsUnavailable=false;stageLogUnavailable=false;state=result.state;resumeFailed=null;restoredSession=session;restoreChoices(state.choices);workflowMode=state.choices?.mode??'build';workflowPage=2;page=2;after=0;log=[];schedulePoll();return true;}
   catch(value){resumeFailed=session;error(value);return false;}finally{busy=false;renderGames();updateView();}
 }
 function schedulePoll() {
@@ -819,7 +838,7 @@ document.addEventListener('visibilitychange',()=>showSlide(slideIndex));
 reducedMotion.addEventListener('change',event=>{if(event.matches){slidePaused=true;$('gallery-pause').textContent=t('galleryPlay');showSlide(slideIndex);}});
 async function pollGallery(){try{const result=await api.gallery();await loadArtwork(result.artwork,{publisher:true});}catch{}if(!preview)artPollTimer=setTimeout(pollGallery,5000);}
 async function primary() {
-  if(page<0||busy||actionBusy||resumeFailed||storageActive()||deviceActive()||packageActive()||isActive(state))return;
+  if(typeof page!=='number'||page<0||busy||actionBusy||resumeFailed||storageActive()||deviceActive()||packageActive()||isActive(state))return;
   clearError();
   if(page===0){busy=true;updateView();try{const selectedChoices=choicesFromForm(form(),language);
     if(discovery?.capabilities?.spaceEstimate===true){qualification=await api.qualify(selectedChoices.gameRoot,selectedChoices.mode,selectedChoices.baseApk);}
@@ -895,30 +914,33 @@ function preselectUpdateApk(){
   const selected=previousApkSelection();
   $('base-apk').value=selected.path;automaticBaseApk=selected.explicit?'':selected.path;
 }
-function beginBuild(mode='build'){
+function beginBuild(mode='build',force=false){
   if(busy||isActive(state)||storageActive()||deviceActive()||packageActive())return;
+  if(!force&&workflowMode===mode&&state?.status!=='complete'){navigatePage(workflowPage,workflowPage===0?'game-root':workflowPage===1?'setup-page':'progress-title');preselectUpdateApk();updateView();return;}
   const previousApk=previousApkSelection();
   // This is an explicit opt-out. Removing a UI selection never deletes the
   // backend session, completed receipts or owner recovery/download workspace.
   clearTimeout(pollTimer);sessionGeneration++;stopOptionalReads();state=null;resumeFailed=null;restoredSession=null;qualification=null;page=0;after=0;log=[];
   restoreChoices({install:true});resetArtwork();clearLoadedLog();clearError();renderGames();
-  $('build-mode').value=mode;
+  $('build-mode').value=mode;workflowMode=mode;workflowPage=0;
   if(mode!=='build'&&previousApk.path){$('base-apk').value=previousApk.path;automaticBaseApk=previousApk.explicit?'':previousApk.path;}
   if(mode==='update-profile')document.querySelector('#game-page .advanced').open=true;
   if(discovery?.games?.length===1)selectGame(discovery.games[0]);
   updateView();$('game-root').focus();
 }
-$('new-build').addEventListener('click',()=>beginBuild());
+$('new-build').addEventListener('click',()=>beginBuild('build',true));
 $('home-build').addEventListener('click',()=>beginBuild());
 $('home-mod').addEventListener('click',()=>beginBuild('update-mod'));
 $('home-profile').addEventListener('click',()=>beginBuild('update-profile'));
+$('home-device').addEventListener('click',()=>navigatePage('device','device-title'));
+$('home-storage').addEventListener('click',()=>navigatePage('storage','storage-title'));
 $('home-export').addEventListener('click',focusPackage);$('result-export').addEventListener('click',focusPackage);
 $('package-browse-source').addEventListener('click',()=>browsePackage('source'));$('package-browse-destination').addEventListener('click',()=>browsePackage('destination'));
 $('package-source').addEventListener('input',()=>{automaticPackageSource='';updateView();});$('package-destination').addEventListener('input',()=>{automaticPackageDestination='';});
 $('package-export').addEventListener('click',exportPackage);
 $('package-cancel').addEventListener('click',async()=>{try{packageInfo=await api.packageCancel();}catch(value){error(value);}finally{updateView();schedulePackagePoll();}});
-$('home-resume').addEventListener('click',()=>openSession(state?.session??savedSession(discovery)));
-$('home').addEventListener('click',()=>{page=-1;clearError();updateView();document.querySelector('#home-page h2').setAttribute('tabindex','-1');document.querySelector('#home-page h2').focus();});
+$('home-resume').addEventListener('click',()=>openSession(resumableSession(discovery,state)));
+$('home').addEventListener('click',()=>navigatePage(-1,'home-title'));
 $('device-connect').addEventListener('click',()=>deviceOperation('connect'));
 $('device-wireless').addEventListener('click',()=>deviceOperation('wireless'));
 $('device-capture').addEventListener('click',()=>deviceOperation('capture'));
@@ -956,4 +978,4 @@ try{discovery=await api.discover();renderGames();if(discovery.games?.length===1)
   if(discovery.capabilities?.deviceTools===true)void refreshDevice();
   if(discovery.capabilities?.portablePackages===true)void refreshPackage();
   if(discovery.capabilities?.storageInventory===true&&storageInfo?.inventory?.status!=='complete')void inventoryStorage();
-}catch(value){$('discovery-status').textContent=t('notFound');error(value);}finally{busy=false;renderGames();updateView();}
+}catch(value){$('discovery-status').textContent=t('notFound');error(value);}finally{busy=false;preselectUpdateApk();renderGames();updateView();}

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {strings,translate} from '../i18n.mjs';
-import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,publisherSourceUrl,sessionId,savedSession,activeWorkView,timingView,durationText,failureView,activityView,buildOverviewView,nativeMemoryView} from '../model.mjs';
+import {choicesFromForm,progressView,macroStep,isActive,stageStatus,stageProgress,artworkUrl,publisherSourceUrl,sessionId,savedSession,resumableSession,activeWorkView,timingView,durationText,failureView,activityView,buildOverviewView,nativeMemoryView} from '../model.mjs';
 import {LocalApi,PreviewApi} from '../transport.mjs';
 
 test('German and English expose the same strings and parameter ABI',()=>{
@@ -143,14 +143,14 @@ test('ownership is never inferred from selected checkboxes unless explicitly dec
   assert.equal(choicesFromForm({...base,profileName:'Name',profileId:'gog-id'},'en').profile.steamId,undefined);
 });
 
-test('update workflows require the owned game and selected base APK; profile updates need no Unity consent',()=>{
+test('update workflows require the owned game and allow the owner workspace source; profile updates need no Unity consent',()=>{
   const base={gameRoot:' C:\\Owned Game ',provider:'gog',baseApk:' C:\\Quest\\Built.apk ',install:false};
   for(const mode of ['update-mod','update-profile']){
     const result=choicesFromForm({...base,mode},'de');
     assert.equal(result.mode,mode);assert.equal(result.baseApk,'C:\\Quest\\Built.apk');
     assert.equal(result.acceptUnityTerms,false);assert.equal(result.gameRoot,'C:\\Owned Game');
     assert.equal(choicesFromForm({...base,mode,signingRoot:' C:\\Owner Workspace '},'de').signingRoot,'C:\\Owner Workspace');
-    assert.throws(()=>choicesFromForm({...base,mode,baseApk:' '},'de'),/missingBaseApk/);
+    assert.equal(choicesFromForm({...base,mode,baseApk:' '},'de').baseApk,undefined,'an omitted override delegates to the owned workspace');
     assert.throws(()=>choicesFromForm({...base,mode,gameRoot:' '},'de'),/missingGame/);
   }
   assert.equal(choicesFromForm(base,'de').mode,'build');
@@ -329,4 +329,15 @@ test('measured graphics and restoration tasks have localized readable labels', (
     assert.notEqual(label,key,language+': '+phase);
     assert.ok(label.length > 3 && label.length < 70,language+': '+phase);
   }
+});
+
+
+test('only the selected unfinished run can supply resume; completed latest hides older failures',()=>{
+  const selected='latest-owner-session',older='older-owner-session';
+  const discovery={latestSession:selected,recentSessions:[{session:older,status:'failed'},{session:selected,status:'complete'}]};
+  assert.equal(resumableSession(discovery,null),null);
+  for(const status of ['failed','cancelled','interrupted','ready','pending','running','blocked'])
+    assert.equal(resumableSession({...discovery,recentSessions:[{session:selected,status}]},null),selected);
+  assert.equal(resumableSession({...discovery,recentSessions:[{session:selected,status:'running'}]},{session:selected,status:'complete'}),null);
+  assert.equal(resumableSession(discovery,{session:older,status:'ready'}),older,'a newly selected unfinished run owns its status');
 });

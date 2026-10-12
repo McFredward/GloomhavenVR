@@ -299,3 +299,9 @@ h2{font-size:23px}
 
 .storage-backup-detail dt{padding-left:12px;font-size:10px}
 .panel-footer{flex-wrap:wrap}
+
+/* Utility pages own their complete panel; none are repeated under workflows. */
+.utility-page.storage-card,.utility-page.device-card{margin:0;padding:0;border:0;border-radius:0;background:none}
+.utility-page h2{font-size:24px;margin:0 0 14px;line-height:1.35}
+.utility-page>.hint{margin-bottom:20px}
+.source-selection{overflow-wrap:anywhere}
