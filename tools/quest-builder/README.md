@@ -8,11 +8,21 @@ sources, private profiles, signing material and APKs remain local. This director
 contains no original game payload.
 
 Both editing modes accept an APK or the portable Quest installation ZIP and
-suggest the last completed APK in the selected `.ghvrq` workspace. A typed or
-browsed path remains authoritative; cancelled/incomplete outputs are not
-suggested. Mod updates select the source included in the current
+use the last completed APK in the selected `.ghvrq` workspace by default.
+An alternative APK/ZIP path is optional when that completed output exists. A
+typed or browsed path remains authoritative; cancelled/incomplete outputs are
+not selected. Metadata-only discovery supports complete original-build reports
+and completed updates; selecting a default never hashes the whole game bank.
+Mod updates select the source included in the current
 Builder archive, including its Quest runtime/weaver patches, rather than the mod
 DLL in the owner's PC game folder. Profile-only edits retain the installed mod.
+
+The initial tile view opens one operation at a time. Build, mod update and name
+editing show only their setup/progress. Export, Quest connection/log capture and
+storage management have separate views. Navigation preserves their existing
+operation state and does not start another build; shared workspace locks still
+prevent concurrent mutations. The completed build's export shortcut opens the
+same export view.
 
 Code-compatible updates retain the original game payload and compile the current
 managed/native code pair. Changed Quest scenes, shaders, native programs or their

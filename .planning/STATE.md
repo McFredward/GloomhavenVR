@@ -1,5 +1,22 @@
 # State — where the project stands
 
+**Quest focused Wizard views and actual workspace defaults, 2026-10-12.**
+
+The maintainer found export/device panels on unrelated setup pages and a forced
+APK/ZIP source prompt despite a completed `.ghvrq` build. Each initial tile now
+opens its own operation; export, connection/capture and storage controls no longer
+share build/update/name setup views. Navigation retains operation state and locks.
+
+The existing default locator rejected real full-build metadata twice: its
+64-KiB latest-pointer bound rejected a retained 245,825-byte report, and it
+required top-level inputKey while complete builds store it in buildReport.
+Use bounded closed receipt/report metadata and file sizes without reading APK or
+game-bank payloads. Missing edit-source fields select the completed workspace
+output; explicit APK/ZIP choices still override it and actual owned-PC/signature
+qualification remains mandatory. Focused host/browser controls and the extracted
+delivery launcher are recorded in the handoff validation. Runtime remains671;
+no new game APK or hardware rendering acceptance this round.
+
 **Quest portable installation ZIP and recipient updates, 2026-10-12.**
 
 The maintainer approved a single PC-side ZIP instead of a legacy oversized APK.
