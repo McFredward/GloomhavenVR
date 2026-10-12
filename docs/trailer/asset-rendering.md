@@ -38,7 +38,7 @@ references:
 ```sh
 /home/claw/blender-4.2/blender --background \
   --python scripts/trailer/render_assets.py -- \
-  --output .planning/trailer/render/review \
+  --output .planning/debug/trailer/render/review \
   --shots mask_hero,hands_table,party_ensemble,asset_reference \
   --width 1920 --samples 128 --save-blend
 ```
@@ -59,7 +59,7 @@ references, captures, `.keep` pins or another worker's active run.
 
 The maintainer requested a full scene concept before further image or video
 production. Rendering stopped at local 960x540 pilots. The latest private set is
-`.planning/trailer/render/pilot-v2/`: all three intended composition studies plus
+`.planning/debug/trailer/render/pilot-v2/`: all three intended composition studies plus
 an RGBA asset sheet. These are prototypes, not approved final plates. No paid
 generation or finished 1920x1080 plate is claimed.
 

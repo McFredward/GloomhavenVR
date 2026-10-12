@@ -47,7 +47,7 @@ overwritten. Do not point this command at a tracked asset destination:
   --clip Quest_Campaign_001_INTRO_TRAVEL_1 \
   --clip Quest_Campaign_001_INTRO_TRAVEL_2 \
   --clip Quest_Campaign_004_INTRO \
-  --output .planning/trailer/voice/new-reference-set
+  --output .planning/debug/trailer/voice/new-reference-set
 ```
 
 The output is restricted to selected WAV files and `manifest.json`. The manifest

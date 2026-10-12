@@ -2,10 +2,10 @@
 
 Revised cinematic concept for **GloomhavenVR**: **65 seconds**, nine scenes,
 16:9, 1920×1080 master at 24 fps. English narration. The maintainer's first
-fal.ai budget remains **$30 total**. This revision is for creative review:
-Production is currently paused for the maintainer's requested concept discussion;
-present the complete scene plan before actual generation. This records the
-current pause, not an approval requirement for every later revision or API call.
+fal.ai budget remains **$30 total**. The maintainer approved this revision on
+2026-10-12 ("Das passt, geh das so an"). Production is active within that budget.
+The first review is limited to USD5 and is shared before further similar
+generation. All intermediate media belongs under `.planning/debug/trailer/`.
 
 ## The film
 
