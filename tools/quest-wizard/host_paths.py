@@ -33,7 +33,7 @@ def browse_available():
 
 def browse_linux(kind):
     """Use the desktop's picker without shell interpolation or uploading files."""
-    if kind not in ("game", "unity", "apk"):
+    if kind not in ("game", "unity", "apk", "export"):
         raise WizardError("browse_unavailable", "Unsupported path selection.", "Diese Dateiauswahl wird nicht unterstützt.")
     picker = linux_picker()
     if picker is None:
@@ -42,13 +42,15 @@ def browse_linux(kind):
                           "Eine Desktop-Dateiauswahl (Zenity oder KDialog) ist nicht verfügbar. Den Pfad stattdessen im Feld eingeben.")
     name, executable = picker
     title = {"game": "Select your Gloomhaven installation", "unity": "Select the Unity 2021.3.5f1 Editor folder",
-             "apk": "Select the existing Quest APK"}[kind]
+             "apk": "Select the existing Quest APK or package", "export": "Export Quest package"}[kind]
     if name == "zenity":
         command = [executable, "--file-selection", "--title=" + title]
-        command += ["--file-filter=Quest APK | *.apk"] if kind == "apk" else ["--directory"]
+        command += (["--file-filter=Quest APK or package | *.apk *.zip"] if kind == "apk" else
+                    ["--save", "--confirm-overwrite", "--file-filter=Quest package | *.zip"] if kind == "export" else ["--directory"])
     else:
         command = [executable, "--title", title]
-        command += ["--getopenfilename", str(Path.home()), "Quest APK (*.apk)"] if kind == "apk" else ["--getexistingdirectory", str(Path.home())]
+        command += (["--getopenfilename", str(Path.home()), "Quest APK or package (*.apk *.zip)"] if kind == "apk" else
+                    ["--getsavefilename", str(Path.home()), "Quest package (*.zip)"] if kind == "export" else ["--getexistingdirectory", str(Path.home())])
     try:
         result = subprocess.run(command, capture_output=True, text=True, timeout=600)
     except (OSError, subprocess.TimeoutExpired) as error:

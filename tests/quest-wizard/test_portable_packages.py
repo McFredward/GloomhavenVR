@@ -1,0 +1,193 @@
+"""Production HTTP export ownership and bounded update/package input seams."""
+import http.client
+import importlib.util
+import json
+from pathlib import Path
+import sys
+import tempfile
+import threading
+import time
+from types import SimpleNamespace
+import unittest
+from unittest import mock
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "tools/quest-wizard"))
+import discovery
+import host_paths
+import package_tools
+import qualification
+import server
+from state import Store, WizardError, file_lock
+import wizard
+
+
+class PortablePackageHttpTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name); self.store = Store(self.root / "workspace")
+        self.source = self.root / "player.apk"; self.source.write_bytes(b"owned apk fixture")
+        self.destination = self.store.root / "exports/player.zip"
+        self.entered, self.release = threading.Event(), threading.Event()
+        self.calls = []
+        helper = SimpleNamespace(portable_packages=SimpleNamespace(export_package=self.export))
+        self.loader = mock.patch.object(discovery, "builder", return_value=helper); self.loader.start()
+        self.http = server.LocalServer(self.store, ROOT / "tools/quest-wizard-ui",
+            discover=lambda *_: {"schema": 1, "event": "discovery", "capabilities": {}})
+        self.thread = threading.Thread(target=self.http.serve_forever, daemon=True); self.thread.start()
+
+    def tearDown(self):
+        self.release.set(); self.http.shutdown(); self.http.close_owned(); self.thread.join(5)
+        self.loader.stop(); self.temp.cleanup()
+
+    def request(self, route, body=None, token=True):
+        connection = http.client.HTTPConnection(*self.http.server_address, timeout=3)
+        headers = {"Origin": self.http.origin, "X-Quest-Token": self.http.token if token else "wrong"}
+        if body is not None: headers["Content-Type"] = "application/json"
+        connection.request("GET" if body is None else "POST", route, None if body is None else json.dumps(body), headers)
+        response = connection.getresponse(); result = response.status, json.loads(response.read()); connection.close()
+        return result
+
+    def export(self, apk, destination, output, *, source_package, progress, cancel):
+        self.calls.append((apk, destination, output, source_package)); self.entered.set()
+        progress({"phase": "portable-export", "completed": 7, "total": 20, "percent": 35, "detail": "content.zip"})
+        while not self.release.wait(.01):
+            if cancel(): raise RuntimeError("Export cancelled")
+        destination.parent.mkdir(parents=True, exist_ok=True); destination.write_bytes(b"actual result fixture")
+        return {"schema": 1, "package": "dev.gloomhavenvr.quest", "path": str(destination),
+                "size": destination.stat().st_size, "sha256": "a" * 64, "apk": {}, "content": {}}
+
+    def start(self):
+        status, value = self.request("/api/package/export", {"source": str(self.source), "destination": str(self.destination)})
+        self.assertEqual(status, 200); self.assertTrue(self.entered.wait(2)); return value
+
+    def wait(self, status):
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            value = self.request("/api/package/status")[1]
+            if value["state"]["status"] == status: return value
+            time.sleep(.01)
+        self.fail("Package state never reached " + status)
+
+    def test_actual_http_progress_and_completed_receipt_survive_server_restart(self):
+        self.start(); value = self.request("/api/package/status")[1]
+        self.assertEqual(value["state"]["progress"]["percent"], 35)
+        self.assertEqual(value["state"]["progress"]["completed"], 7)
+        self.release.set(); result = self.wait("complete")
+        self.assertEqual(result["state"]["progress"]["percent"], 100)
+        self.assertEqual(package_tools.PackageTools(ROOT, self.store.root).latest()["path"], str(self.destination))
+        self.destination.write_bytes(b"replaced")
+        self.assertIsNone(package_tools.PackageTools(ROOT, self.store.root).latest())
+        self.assertEqual(self.calls[0][2], self.store.root / "build")
+        self.assertIsNone(self.calls[0][3])
+
+    def test_export_excludes_build_device_cleanup_and_other_server_run_lock(self):
+        self.start()
+        for route, body in (("/api/package/export", {"source": str(self.source), "destination": str(self.destination)}),
+                            ("/api/device/connect", {"host": "", "serial": "", "setupWireless": False}),
+                            ("/api/storage/plan", {"mode": "duplicates"})):
+            status, result = self.request(route, body)
+            self.assertNotEqual(status, 200); self.assertEqual(result["code"], "already_running")
+        with self.assertRaises(WizardError):
+            with file_lock(self.store.root / "run.lock"): pass
+
+    def test_cancel_retains_original_and_last_result_then_retry_finishes(self):
+        self.start(); self.request("/api/package/cancel", {})
+        self.wait("cancelled"); self.assertEqual(self.source.read_bytes(), b"owned apk fixture")
+        self.release.set(); self.start(); self.wait("complete")
+        log = (self.store.root / "logs/package-export.jsonl").read_text()
+        self.assertIn("export_cancelled", log); self.assertIn("export_complete", log)
+
+    def test_token_and_path_bounds_prevent_unrequested_payload_work(self):
+        self.assertNotEqual(self.request("/api/package/status", token=False)[0], 200)
+        for body in ({}, {"source": str(self.source), "destination": str(self.destination), "extra": "anything"},
+                     {"source": "x" * 32769, "destination": str(self.destination)}):
+            self.assertNotEqual(self.request("/api/package/export", body)[0], 200)
+        self.assertEqual(self.calls, [])
+
+    def test_default_is_workspace_export_and_metadata_polls_read_no_payload(self):
+        with mock.patch.object(discovery, "default_apk", return_value={"path": str(self.source), "modBuild": 671}), \
+             mock.patch.object(Path, "read_bytes", side_effect=AssertionError("No payload stream during empty discovery")):
+            value = self.request("/api/package/status")[1]
+        self.assertEqual(value["defaults"]["source"], str(self.source))
+        self.assertEqual(value["defaults"]["destination"], str(self.store.root / "exports/GloomhavenVR-Quest-B671.zip"))
+
+    def test_production_api_exports_and_reexports_real_portable_core_bytes(self):
+        path = ROOT / "tests/quest-builder/test_portable_package.py"
+        spec = importlib.util.spec_from_file_location("wizard_real_package_fixture", path)
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        fixture = module.PortablePackageTests(); fixture.setUp(); self.addCleanup(fixture.doCleanups)
+        discovery.builder.return_value.portable_packages = module.portable
+        self.source = fixture.ap
+        status, _ = self.request("/api/package/export", {"source": str(self.source), "destination": str(self.destination)})
+        self.assertEqual(status, 200); first = self.wait("complete")["state"]["result"]
+        import zipfile
+        with zipfile.ZipFile(self.destination) as archive:
+            self.assertEqual(archive.read(module.portable.APK), fixture.ap.read_bytes())
+            self.assertEqual(archive.read(module.portable.CONTENT), fixture.bank.read_bytes())
+            self.assertFalse(any("keystore" in name or "local-key" in name for name in archive.namelist()))
+        target = self.store.root / "exports/second.zip"
+        self.request("/api/package/export", {"source": str(self.destination), "destination": str(target)})
+        second = self.wait("complete")["state"]["result"]
+        self.assertEqual(first["apk"], second["apk"]); self.assertEqual(first["content"], second["content"])
+        self.assertEqual(module.portable.inspect(target)["content"]["sha256"], fixture.delivery["sha256"])
+        self.assertFalse(any(path.name == module.portable.CONTENT for path in (self.store.root / "build").rglob("*")))
+
+
+class PackageInputTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name); self.store = Store(self.root / "workspace")
+        self.package = self.root / "selected.zip"; self.package.write_bytes(b"metadata fixture")
+
+    def test_inspect_key_reads_bounded_package_identity_without_extracting_apk(self):
+        selected = self.store.create(wizard.choices({"gameRoot": str(self.root / "PC"), "mode": "update-profile",
+                                                    "baseApk": str(self.package), "profileName": "Recipient"}))
+        inspect = mock.Mock(return_value={"apk": {"sha256": "a" * 64}})
+        module = SimpleNamespace(portable_packages=SimpleNamespace(inspect=inspect,
+                                import_apk=mock.Mock(side_effect=AssertionError("Key must not copy payload"))))
+        with mock.patch.object(discovery, "builder", return_value=module):
+            first = wizard.Engine(self.store).key(selected, "inspect")
+            inspect.return_value = {"apk": {"sha256": "b" * 64}}
+            self.assertNotEqual(first, wizard.Engine(self.store).key(selected, "inspect"))
+        self.assertEqual(inspect.call_count, 2)
+
+    def test_package_space_uses_apk_size_not_entire_content_container(self):
+        with self.package.open("wb") as stream: stream.truncate(13 * qualification.GIB)
+        inspect = mock.Mock(return_value={"apk": {"size": 2 * qualification.GIB}})
+        helper = SimpleNamespace(game_data=lambda _: self.root,
+                                 portable_packages=SimpleNamespace(inspect=inspect))
+        with mock.patch.object(qualification, "space_estimate", side_effect=AssertionError("No game bank walk")):
+            result = qualification.qualify(self.store.root, game_root=self.root, mode="update-profile",
+                            helper=helper, base_apk=self.package, free_bytes=12 * qualification.GIB)
+        self.assertEqual(result["requiredFreeBytes"], 9 * qualification.GIB)
+        self.assertTrue(result["buildSpaceCheckPassed"])
+        self.assertEqual(result["spaceEstimate"]["apkBytes"], 2 * qualification.GIB)
+
+    def test_original_zip_choice_and_signing_mode_are_preserved_in_arguments(self):
+        saved = self.store.create(wizard.choices({"gameRoot": str(self.root / "PC"), "mode": "update-profile",
+            "baseApk": str(self.package), "signingMode": "auto"}))
+        saved["completed"] = {"source": {"details": {"sourceRoot": str(ROOT)}}, "tools": {"details": {}},
+                              "profile": {"details": {"profilePath": str(self.root / "profile.json"), "steamLogo": str(self.root / "logo.png")}}}
+        arguments = wizard.Engine(self.store).arguments(saved, "build")
+        self.assertEqual(arguments[arguments.index("--base-apk") + 1], str(self.package))
+        self.assertEqual(arguments[arguments.index("--signing-mode") + 1], "auto")
+        self.assertNotIn("--unity-editor", arguments)
+        helper = SimpleNamespace(portable_packages=SimpleNamespace(inspect=lambda _: {"apk": {"sha256": "a" * 64}}))
+        with mock.patch.object(discovery, "builder", return_value=helper):
+            engine = wizard.Engine(self.store); before = engine.key(saved, "inspect")
+            saved["choices"]["signingMode"] = "original"
+            self.assertNotEqual(before, engine.key(saved, "inspect"))
+
+    def test_linux_package_open_and_zip_save_do_not_use_shell(self):
+        for name in ("zenity", "kdialog"):
+            with mock.patch.object(host_paths, "linux_picker", return_value=(name, "/usr/bin/" + name)), \
+                 mock.patch.object(host_paths.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout=str(self.package))) as run:
+                self.assertEqual(host_paths.browse_linux("apk"), str(self.package))
+                self.assertIn("*.zip", " ".join(run.call_args.args[0]))
+                self.assertEqual(host_paths.browse_linux("export"), str(self.package))
+                self.assertIn("--save" if name == "zenity" else "--getsavefilename", run.call_args.args[0])
+                self.assertNotIn("shell", run.call_args.kwargs)
+
+
+if __name__ == "__main__": unittest.main()

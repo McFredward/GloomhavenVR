@@ -314,6 +314,8 @@ def phase_operation(stage, phase, value):
     """Recognize only counters with a known parent; arbitrary nested work stays local."""
     if phase == "output-verify": return "output-verify", True
     if phase == "receipt-verify": return None, False
+    if phase == "package-import" and stage in ("tools", "profile"):
+        return "qualify" if stage == "tools" else "identity", True
     if stage == "tools":
         for prefix, operation in (("tool-download-", "download-"), ("tool-extract-", "extract-")):
             if phase.startswith(prefix): return operation + phase[len(prefix):], True

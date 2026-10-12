@@ -10,6 +10,7 @@ export function choicesFromForm(form, language) {
   if(form.hostSystem==='Linux'&&provider==='steam'&&mode!=='update-profile'&&!form.declareDlc)throw new Error('linuxDlcRequired');
   const choices = {gameRoot, provider, mode, install:Boolean(form.install), acceptUnityTerms:Boolean(form.acceptUnityTerms), language};
   if (mode !== 'build') choices.baseApk = baseApk;
+  if (mode !== 'build' && ['auto','original','new-owner'].includes(form.signingMode)) choices.signingMode=form.signingMode;
   if (mode !== 'build' && String(form.signingRoot ?? '').trim()) choices.signingRoot = form.signingRoot.trim();
   if (String(form.unityEditor ?? '').trim()) choices.unityEditor = form.unityEditor.trim();
   const displayName = String(form.profileName ?? '').trim(), providerId = String(form.profileId ?? '').trim();

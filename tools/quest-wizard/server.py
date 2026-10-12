@@ -28,8 +28,8 @@ from wizard import Engine, REPO, choices
 def browse(kind):
     if os.name != "nt":
         return host_paths.browse_linux(kind)
-    if kind == "apk" and os.name == "nt":
-        return browse_apk()
+    if kind in ("apk", "export") and os.name == "nt":
+        return browse_apk(save=kind == "export")
     if os.name != "nt" or kind not in ("game", "unity"):
         raise WizardError("browse_unavailable", "Native path selection is unavailable on this host.", "Die native Ordnerauswahl ist hier nicht verfügbar.")
     from ctypes import wintypes as w
@@ -70,7 +70,7 @@ def browse(kind):
     finally: ole.CoUninitialize()
 
 
-def browse_apk():
+def browse_apk(*, save=False):
     """Unicode Win32 file picker; no shell or uploaded proprietary APK data."""
     from ctypes import wintypes as w
     class OpenFile(ctypes.Structure):
@@ -85,12 +85,16 @@ def browse_apk():
                     ("reservedWord", w.DWORD), ("flagsEx", w.DWORD)]
     buffer = ctypes.create_unicode_buffer(32768)
     value = OpenFile(size=ctypes.sizeof(OpenFile), file=ctypes.cast(buffer, w.LPWSTR), fileMax=len(buffer),
-                     filter="Quest APK\0*.apk\0\0", title="Select the existing Quest APK", flags=0x180800)
+                     filter="Quest APK or package\0*.apk;*.zip\0\0" if not save else "Quest package\0*.zip\0\0",
+                     title="Select the existing Quest APK or package" if not save else "Export Quest package",
+                     defaultExtension="zip" if save else None,
+                     flags=0x8000A if save else 0x180808)
     dialog = ctypes.WinDLL("comdlg32", use_last_error=True)
-    dialog.GetOpenFileNameW.argtypes = [ctypes.POINTER(OpenFile)]
-    dialog.GetOpenFileNameW.restype = w.BOOL
+    function = dialog.GetSaveFileNameW if save else dialog.GetOpenFileNameW
+    function.argtypes = [ctypes.POINTER(OpenFile)]
+    function.restype = w.BOOL
     dialog.CommDlgExtendedError.restype = w.DWORD
-    if dialog.GetOpenFileNameW(ctypes.byref(value)): return buffer.value
+    if function(ctypes.byref(value)): return buffer.value
     if dialog.CommDlgExtendedError(): raise WizardError("browse_failed", "Windows could not open the APK file picker.")
     return None
 
@@ -124,6 +128,10 @@ class LocalServer(ThreadingHTTPServer):
         self.device_lock = threading.Lock()
         self.device_stop = threading.Event()
         self.device_state = {"status": "idle", "devices": []}
+        self.package_job = None
+        self.package_lock = threading.Lock()
+        self.package_stop = threading.Event()
+        self.package_state = {"status": "idle"}
         self.promo = None
         if promotional:
             from promotional import Gallery
@@ -291,7 +299,52 @@ class LocalServer(ThreadingHTTPServer):
         """Called under jobs_lock; device actions share build/cleanup ownership."""
         return (any(job.is_alive() for job in self.jobs.values())
                 or bool(self.storage_job and self.storage_job.is_alive())
-                or bool(self.device_job and self.device_job.is_alive()))
+                or bool(self.device_job and self.device_job.is_alive())
+                or bool(self.package_job and self.package_job.is_alive()))
+
+    def package_status(self):
+        from package_tools import PackageTools
+        with self.package_lock: value = copy.deepcopy(self.package_state)
+        return {"schema": 1, "event": "package", "state": value,
+                "defaults": PackageTools(REPO, self.store.root).defaults(self.store)}
+
+    def export_package(self, options):
+        from package_tools import PackageTools
+        with self.jobs_lock:
+            if self.operation_active():
+                raise WizardError("already_running", "Stop the active operation before exporting.",
+                                  "Den laufenden Vorgang vor dem Exportieren anhalten.")
+            self.package_stop.clear()
+            with self.package_lock:
+                self.package_state = {"status": "exporting", "selection": options,
+                                      "progress": {"completed": 0, "total": None, "percent": 0},
+                                      "startedAt": time.time()}
+            def progress(value):
+                with self.package_lock: self.package_state["progress"] = copy.deepcopy(value)
+            def work():
+                adapter = PackageTools(REPO, self.store.root)
+                try:
+                    with file_lock(self.store.root / "run.lock"):
+                        result = adapter.export(options, progress=progress, cancel=self.package_stop)
+                    with self.package_lock:
+                        total = self.package_state.get("progress", {}).get("total") or result["size"]
+                        self.package_state.update(status="complete", result=result, completedAt=time.time(),
+                                                  progress={"completed": total, "total": total, "percent": 100})
+                except Exception as error:
+                    code = error.code if isinstance(error, WizardError) else "package_failed"
+                    message = error.message if isinstance(error, WizardError) else {
+                        "en": "Export stopped: " + str(error), "de": "Export angehalten: " + str(error)}
+                    with self.package_lock:
+                        self.package_state.update(status="cancelled" if self.package_stop.is_set() else "failed",
+                                                  error={"code": code, "message": message})
+                    try: adapter.log_event("export_cancelled" if self.package_stop.is_set() else "export_failed",
+                                          code=code, message=message)
+                    except OSError: pass
+                    try: self.request_failure(error)
+                    except (OSError, ImportError, RuntimeError, ValueError): pass
+            self.package_job = threading.Thread(target=work, name="quest-package-export", daemon=False)
+            self.package_job.start()
+        return self.package_status()
 
     def device_status(self):
         with self.device_lock: value = copy.deepcopy(self.device_state)
@@ -420,6 +473,8 @@ class LocalServer(ThreadingHTTPServer):
         for _, job in running: job.join()
         self.device_stop.set()
         if self.device_job: self.device_job.join()
+        self.package_stop.set()
+        if self.package_job: self.package_job.join()
         if self.storage_job: self.storage_job.join()
         if self.inventory_job: self.inventory_job.join()
         if self.promo: self.promo.stop.set()
@@ -514,6 +569,7 @@ class Handler(BaseHTTPRequestHandler):
             if len(values) != 1: raise WizardError("request_query", "Expected one " + name + " parameter.")
             return values[0]
         if self.command == "GET":
+            if parsed.path == "/api/package/status": return self.server.package_status()
             if parsed.path == "/api/storage": return self.server.storage_status()
             if parsed.path == "/api/device/status": return self.server.device_status()
             if parsed.path == "/api/device/capture":
@@ -523,7 +579,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.server.device_capture(identifier)
             if parsed.path == "/api/discover":
                 result = dict(self.server.discover(REPO, self.server.store))
-                result["capabilities"] = {**result.get("capabilities", {}), "deviceTools": True, "storageInventory": True}
+                result["capabilities"] = {**result.get("capabilities", {}), "deviceTools": True, "storageInventory": True, "portablePackages": True}
                 return result
             if parsed.path == '/api/gallery':
                 return {'schema': 1, 'event': 'gallery', 'artwork': self.server.promo.visible() if self.server.promo else []}
@@ -578,6 +634,17 @@ class Handler(BaseHTTPRequestHandler):
                         "truncated": any(path.stat().st_size > limit for _, path in existing)}
         else:
             value = self.body()
+            if parsed.path == "/api/package/export":
+                if (set(value) != {"source", "destination"}
+                        or any(not isinstance(item, str) or not item.strip() or len(item) > 32768 or "\0" in item
+                               for item in value.values())):
+                    raise WizardError("request_body", "Select the local source and ZIP destination.",
+                                      "Die lokale Quelle und ZIP-Zieldatei auswählen.")
+                return self.server.export_package(value)
+            if parsed.path == "/api/package/cancel":
+                if value: raise WizardError("request_body", "Unexpected export cancellation fields.")
+                self.server.package_stop.set()
+                return self.server.package_status()
             if parsed.path in ("/api/device/connect", "/api/device/capture"):
                 connecting = parsed.path.endswith("/connect")
                 allowed = {"host", "serial", "setupWireless"} if connecting else {"host", "serial"}
@@ -606,12 +673,15 @@ class Handler(BaseHTTPRequestHandler):
                 state = self.server.store.amend(value["session"], selected_choices) if value.get("session") else self.server.store.create(selected_choices)
                 return {"schema": 1, "event": "planned", "session": state["session"], "state": state}
             if parsed.path == "/api/qualify":
-                if set(value) - {"gameRoot", "mode"} or "gameRoot" not in value: raise WizardError("request_body", "Expected the owned game path and optional update mode.")
+                if set(value) - {"gameRoot", "mode", "baseApk"} or "gameRoot" not in value: raise WizardError("request_body", "Expected the owned game path and optional update mode.")
                 selected_choices = choices({"gameRoot": value["gameRoot"]})
                 from qualification import qualify
                 mode = value.get("mode", "build")
                 if mode not in ("build", "update-mod", "update-profile"): raise WizardError("invalid_choices", "Unsupported update mode.")
-                return qualify(self.server.store.root, game_root=selected_choices["gameRoot"], repo=REPO, mode=mode)
+                if "baseApk" in value and (not isinstance(value["baseApk"], str) or "\0" in value["baseApk"] or len(value["baseApk"]) > 32768):
+                    raise WizardError("request_body", "Invalid local APK or package path.")
+                return qualify(self.server.store.root, game_root=selected_choices["gameRoot"], repo=REPO, mode=mode,
+                               base_apk=value.get("baseApk") or None)
             if parsed.path == "/api/browse":
                 if set(value) != {"kind"}: raise WizardError("request_body", "Unsupported browse fields.")
                 with self.server.browse_lock: path = browse(value["kind"])

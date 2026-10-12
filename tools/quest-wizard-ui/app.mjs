@@ -13,6 +13,7 @@ let storageInfo=null,storageBusy=false,storagePollTimer=null,storageCompletedSho
 let deviceInfo=null,deviceBusy=false,devicePollTimer=null,deviceDownloading=false;
 let qualification=null,resumeFailed=null,restoredSession=null,sessionGeneration=0;
 let automaticBaseApk='';
+let packageInfo=null,packageBusy=false,packagePollTimer=null,automaticPackageSource='',automaticPackageDestination='';
 let eventsUnavailable=false,stageLogUnavailable=false,lastFailureFocus='',eventsRequest=null,stageLogRequest=null;
 let buildFocus=false;const buildGroupChoices=new Map();
 let publisherArtwork=[],ownedArtwork=[],artworkSource='';
@@ -45,7 +46,7 @@ function setLanguage(value) {
   if(discovery) renderGames();updateView();
 }
 function form() { return {gameRoot:$('game-root').value,provider:$('provider').value,unityEditor:$('unity-editor').value,hostSystem:discovery?.host?.system,
-  mode:$('build-mode').value,baseApk:$('base-apk').value,signingRoot:$('signing-root').value,
+  mode:$('build-mode').value,baseApk:$('base-apk').value,signingRoot:$('signing-root').value,signingMode:$('signing-mode').value,
   profileName:$('profile-name').value,profileId:$('profile-id').value,declareDlc:$('declare-dlc').checked,
   ownedDlc:[...document.querySelectorAll('input[name=dlc]:checked')].map(node => node.value),
   acceptUnityTerms:$('unity-terms').checked,install:$('install-choice').checked}; }
@@ -81,6 +82,56 @@ function storageSize(bytes) {
   return new Intl.NumberFormat(language,{maximumFractionDigits:1}).format(amount/scale)+' '+({1:'B',1024:'KiB',1048576:'MiB',1073741824:'GiB'}[scale]);
 }
 function deviceActive(){return deviceBusy||['preparing','connecting','capturing','cancelling'].includes(deviceInfo?.state?.status);}
+function packageActive(){return packageBusy||packageInfo?.state?.status==='exporting';}
+function renderPackage(){
+  const available=discovery?.capabilities?.portablePackages===true;
+  $('package-card').hidden=!available;$('home-export').hidden=!available;$('result-export').hidden=!available;
+  if(!available)return;
+  const defaults=packageInfo?.defaults??{},current=packageInfo?.state??{},active=packageActive();
+  const built=state?.stages?.find(row=>row.id==='build'&&row.status==='complete')?.details?.apk;
+  const suggested=built||defaults.source||discovery?.defaultApk?.path||'';
+  if(!$('package-source').value||$('package-source').value===automaticPackageSource){$('package-source').value=suggested;automaticPackageSource=suggested;}
+  if(!$('package-destination').value||$('package-destination').value===automaticPackageDestination){
+    let destination=defaults.destination??'';
+    const pathKey=value=>{const normalized=String(value??'').replaceAll('\\','/');return discovery?.host?.system==='Windows'?normalized.toLowerCase():normalized;};
+    const original=state?.choices?.baseApk;
+    if(destination&&[ $('package-source').value,original ].some(path=>/\.zip$/i.test(path??'')&&pathKey(path)===pathKey(destination))){
+      const suffix=state?.choices?.mode==='update-profile'?'-edited':state?.choices?.mode==='update-mod'?'-updated':'-copy';
+      destination=destination.replace(/\.zip$/i,suffix+'.zip');
+    }
+    $('package-destination').value=destination;automaticPackageDestination=destination;
+  }
+  const locked=busy||isActive(state)||deviceActive()||storageActive()||active||!canConnect;
+  for(const id of ['package-source','package-destination','package-browse-source','package-browse-destination','package-export','home-export','result-export'])$(id).disabled=locked;
+  for(const id of ['package-browse-source','package-browse-destination'])$(id).hidden=discovery?.capabilities?.browse===false;
+  $('package-export').textContent=t(['failed','cancelled'].includes(current.status)?'packageRetry':'packageExport');
+  $('package-cancel').hidden=!active;$('package-cancel').disabled=packageBusy;
+  const progress=current.progress??{},status=current.status??'idle';
+  const detail=typeof progress.detail==='string'?progress.detail:'';
+  const counter=Number.isFinite(progress.completed)&&Number.isFinite(progress.total)&&progress.total>0?storageSize(progress.completed)+' / '+storageSize(progress.total):'';
+  $('package-status').textContent=current.error?message(current.error.message):[t('package_status_'+status),Number.isFinite(progress.percent)?percentText(progress.percent)+' %':'',counter,detail].filter(Boolean).join(' · ');
+  $('package-status').setAttribute('role',status==='failed'?'alert':'status');
+  $('package-progress').hidden=!active&&status!=='complete';$('package-progress').value=Math.max(0,Math.min(100,Number(progress.percent)||0));
+  const result=current.result??defaults.latestExport;
+  $('package-result').hidden=!result?.path;$('package-result').textContent=result?.path??'';
+}
+function schedulePackagePoll(){clearTimeout(packagePollTimer);if(!document.hidden&&discovery?.capabilities?.portablePackages===true)packagePollTimer=setTimeout(refreshPackage,packageActive()?500:5000);}
+async function refreshPackage(){
+  try{const result=await api.packageStatus();if(result?.event!=='package'||!result.state)throw {code:'invalidReply'};packageInfo=result;updateView();}
+  catch(value){error(value);}finally{schedulePackagePoll();}
+}
+function focusPackage(){
+  if(busy||isActive(state)||storageActive()||deviceActive()||packageActive())return;
+  renderPackage();$('package-card').scrollIntoView({behavior:reducedMotion.matches?'instant':'smooth',block:'center'});$('package-source').focus();
+}
+async function exportPackage(){
+  if(busy||isActive(state)||storageActive()||deviceActive()||packageActive())return;
+  const source=$('package-source').value.trim(),destination=$('package-destination').value.trim();
+  if(!source||!destination){error({code:!source?'packageMissingSource':'packageMissingDestination'});return;}
+  packageBusy=true;clearError();updateView();
+  try{const result=await api.packageExport(source,destination);if(result?.event!=='package'||!result.state)throw {code:'invalidReply'};packageInfo=result;}
+  catch(value){error(value);}finally{packageBusy=false;updateView();schedulePackagePoll();}
+}
 function renderHome(){
   $('home-page').hidden=page!==-1;$('home').hidden=page===-1;$('home').disabled=busy;
   document.querySelector('.steps').hidden=page===-1;
@@ -88,14 +139,14 @@ function renderHome(){
   $('home-resume').hidden=!session;
   $('home-resume').firstElementChild.textContent=t(isActive(state)?'homeOpenActive':state?.status==='complete'?'homeOpenResult':'homeResume');
   $('home-resume-copy').textContent=t('homeResumeCopy',{session:session??''});
-  const locked=busy||storageActive()||deviceActive()||isActive(state)||!canConnect;
+  const locked=busy||storageActive()||deviceActive()||packageActive()||isActive(state)||!canConnect;
   for(const id of ['home-build','home-mod','home-profile'])$(id).disabled=locked;
-  $('home-resume').disabled=busy||storageActive()||deviceActive();
+  $('home-resume').disabled=busy||storageActive()||deviceActive()||packageActive();
 }
 function renderDevice(){
   $('device-card').hidden=discovery?.capabilities?.deviceTools!==true;
   if($('device-card').hidden)return;
-  const current=deviceInfo?.state??{},active=deviceActive(),locked=busy||isActive(state)||storageActive()||active||!canConnect;
+  const current=deviceInfo?.state??{},active=deviceActive(),locked=busy||isActive(state)||storageActive()||packageActive()||active||!canConnect;
   for(const id of ['device-connect','device-wireless','device-capture','device-host','device-serial'])$(id).disabled=locked;
   $('device-cancel').hidden=!active;$('device-cancel').disabled=deviceBusy||current.status==='cancelling';
   const devices=Array.isArray(current.devices)?current.devices:[],key=devices.map(row=>[row.serial,row.state,row.model].join(':')).join('|');
@@ -127,7 +178,7 @@ async function refreshDevice(){
   finally{scheduleDevicePoll();}
 }
 async function deviceOperation(operation){
-  if(deviceActive()||busy||isActive(state)||storageActive())return;
+  if(deviceActive()||busy||isActive(state)||storageActive()||packageActive())return;
   deviceBusy=true;clearError();clearTimeout(devicePollTimer);updateView();
   try{
     const host=$('device-host').value.trim(),serial=$('device-serial').value;
@@ -164,7 +215,7 @@ function renderStorage() {
     const bytes=inventory.signingBackups?.[field];if(!(bytes>0))continue;
     const pair=document.createElement('div'),label=document.createElement('dt'),size=document.createElement('dd');pair.className='storage-backup-detail';label.textContent=t(key);size.textContent=storageSize(bytes);pair.append(label,size);$('storage-categories').append(pair);
   }
-  const locked=busy||isActive(state)||storageActive()||deviceActive();
+  const locked=busy||isActive(state)||storageActive()||deviceActive()||packageActive();
   $('storage-plan-duplicates').disabled=locked;
   const completed=storageInfo.canDeleteBuildCache===true||inventory.canDeleteBuildCache===true||state?.status==='complete'||state?.stages?.some(row=>row.id==='build'&&row.status==='complete');
   $('storage-plan-cache').hidden=!completed;$('storage-plan-cache').disabled=locked;
@@ -190,7 +241,7 @@ async function refreshStorage() {
   finally{scheduleStoragePoll();}
 }
 async function planStorage(mode) {
-  if(storageActive()||deviceActive()||busy||isActive(state))return;
+  if(storageActive()||deviceActive()||packageActive()||busy||isActive(state))return;
   storageBusy=true;clearTimeout(storagePollTimer);$('storage-details').open=true;
   if(storageInfo)storageInfo={...storageInfo,state:{status:'planning'}};updateView();
   try{const result=await api.storagePlan(mode);if(result?.event!=='storage'||!result.state)throw {code:'invalidReply'};storageInfo=result;}
@@ -199,7 +250,7 @@ async function planStorage(mode) {
 }
 async function cleanStorage() {
   const plan=storageInfo?.state?.status==='preview'?storageInfo.state.plan:null;
-  if(storageActive()||deviceActive()||busy||isActive(state)||!plan?.id||!(plan.files>0))return;
+  if(storageActive()||deviceActive()||packageActive()||busy||isActive(state)||!plan?.id||!(plan.files>0))return;
   storageBusy=true;clearTimeout(storagePollTimer);storageInfo={...storageInfo,state:{status:'deleting'}};updateView();
   try{const result=await api.storageClean(plan.id);if(result?.event!=='storage'||!result.state)throw {code:'invalidReply'};storageInfo=result;qualification=null;}
   catch(value){storageInfo={...storageInfo,state:{status:'failed',error:{message:value?.message??t(value?.code??'offline')}}};}
@@ -509,7 +560,7 @@ function updateView() {
   $('space-estimate').hidden=!estimate;
   if(estimate){$('space-estimate').textContent=t(estimate.scanBounded?'spacePartial':qualification.spaceWarning?'spaceLow':'spaceEstimate',{required:Math.ceil(estimate.additionalEstimatedBytes/1073741824),free:Math.floor(qualification.freeBytes/1073741824)});$('space-estimate').classList.toggle('warning',qualification.spaceWarning===true);}
   $('game-page').hidden=page!==0;$('setup-page').hidden=page!==1;$('progress-page').hidden=page!==2;
-  renderHome();renderDevice();
+  renderHome();renderDevice();renderPackage();
   const step=page===2 ? macroStep(state) : page;
   document.querySelectorAll('[data-step]').forEach(node => {const index=Number(node.dataset.step);node.classList.toggle('active',index===step);node.classList.toggle('done',index<step);if(index===step)node.setAttribute('aria-current','step');else node.removeAttribute('aria-current');});
   $('back').hidden=page!==1;$('cancel').hidden=page!==2||!isActive(state);
@@ -532,7 +583,7 @@ function updateView() {
   document.querySelector('[data-i18n=firstBuild]').textContent=t(mode==='build'?'firstBuild':'updateBuild');
   $('browse-apk').hidden=discovery?.capabilities?.browse===false;
   $('primary').hidden=page===-1;
-  $('primary').disabled=page===-1||busy||storageActive()||deviceActive()||!canConnect||Boolean(resumeFailed)||(page===0&&!$('game-root').value.trim())||(page===2&&(isActive(state)||state?.status==='complete'));
+  $('primary').disabled=page===-1||busy||storageActive()||deviceActive()||packageActive()||!canConnect||Boolean(resumeFailed)||(page===0&&!$('game-root').value.trim())||(page===2&&(isActive(state)||state?.status==='complete'));
   $('primary').firstElementChild.textContent=t(busy?'preparing':page===0?'continue':page===1?'build':isActive(state)?'working':state?.status==='complete'?'done':state?.status==='blocked'?'retry':'resumeContinue');
   if(page===2&&!busy&&installationView(state)?.attention)$('primary').firstElementChild.textContent=t('installationRetry');
   $('primary').lastElementChild.textContent=state?.status==='complete'?'✓':'→';
@@ -633,7 +684,7 @@ function renderProgress() {
   if(retainedWait)$('failure-next').textContent='';
   if(installation?.backupPath&&!retainedWait)$('failure-next').textContent+=' '+t('installationRecoveryBackup',{path:installation.backupPath});
   $('failure-retry').textContent=t(installation?.dataIssue==='non-save-inaccessible'?'installationRetryAll':installIssue?'installationRetry':'failureRetry');
-  const locked=busy||actionBusy||storageActive()||active||!canConnect||Boolean(resumeFailed);
+  const locked=busy||actionBusy||storageActive()||packageActive()||active||!canConnect||Boolean(resumeFailed);
   $('failure-retry').disabled=locked;
   $('install-skip').hidden=!installation?.canSkip;$('install-skip').disabled=locked;
   $('install-keep-saves').hidden=!installation?.canUseSaves;$('install-keep-saves').disabled=locked;
@@ -690,7 +741,7 @@ async function loadArtwork(artwork,{publisher=false}={}) {
 }
 function restoreChoices(choices) {
   if(!choices)return;
-  $('build-mode').value=choices.mode??'build';$('base-apk').value=choices.baseApk??'';automaticBaseApk='';
+  $('build-mode').value=choices.mode??'build';$('base-apk').value=choices.baseApk??'';automaticBaseApk='';$('signing-mode').value=choices.signingMode??'auto';
   $('signing-root').value=choices.signingRoot??'';
   $('game-root').value=choices.gameRoot??'';$('provider').value=choices.provider??'steam';$('unity-editor').value=choices.unityEditor??'';
   $('profile-name').value=choices.profile?.displayName??choices.profileName??'';$('profile-id').value=choices.profile?.providerId??'';
@@ -768,10 +819,10 @@ document.addEventListener('visibilitychange',()=>showSlide(slideIndex));
 reducedMotion.addEventListener('change',event=>{if(event.matches){slidePaused=true;$('gallery-pause').textContent=t('galleryPlay');showSlide(slideIndex);}});
 async function pollGallery(){try{const result=await api.gallery();await loadArtwork(result.artwork,{publisher:true});}catch{}if(!preview)artPollTimer=setTimeout(pollGallery,5000);}
 async function primary() {
-  if(page<0||busy||actionBusy||resumeFailed||storageActive()||deviceActive()||isActive(state))return;
+  if(page<0||busy||actionBusy||resumeFailed||storageActive()||deviceActive()||packageActive()||isActive(state))return;
   clearError();
   if(page===0){busy=true;updateView();try{const selectedChoices=choicesFromForm(form(),language);
-    if(discovery?.capabilities?.spaceEstimate===true){qualification=await api.qualify(selectedChoices.gameRoot,selectedChoices.mode);}
+    if(discovery?.capabilities?.spaceEstimate===true){qualification=await api.qualify(selectedChoices.gameRoot,selectedChoices.mode,selectedChoices.baseApk);}
     page=1;updateView();const heading=document.querySelector('#setup-page h2');heading.setAttribute('tabindex','-1');heading.focus();}catch(value){error(typeof value?.message==='string'?{code:value.message}:value);}finally{busy=false;updateView();}return;}
   busy=true;clearTimeout(pollTimer);sessionGeneration++;stopOptionalReads();updateView();
   try {
@@ -818,6 +869,11 @@ async function browse(kind) {
   busy=true;clearError();updateView();try{const result=await api.browse(kind);if(result.path){$(({game:'game-root',unity:'unity-editor',apk:'base-apk'})[kind]).value=result.path;if(kind==='game')selected=null;if(kind==='apk')automaticBaseApk='';}}
   catch(value){error(value);}finally{busy=false;updateView();}
 }
+async function browsePackage(kind){
+  if(packageActive()||busy)return;
+  busy=true;clearError();updateView();try{const result=await api.browse(kind==='source'?'apk':'export');if(result.path){$('package-'+(kind==='source'?'source':'destination')).value=result.path;if(kind==='source')automaticPackageSource='';else automaticPackageDestination='';}}
+  catch(value){error(value);}finally{busy=false;updateView();}
+}
 document.querySelectorAll('[data-language]').forEach(node=>node.addEventListener('click',()=>setLanguage(node.dataset.language)));
 $('storage-plan-duplicates').addEventListener('click',()=>planStorage('duplicates'));
 $('storage-plan-cache').addEventListener('click',()=>planStorage('build-cache'));
@@ -840,7 +896,7 @@ function preselectUpdateApk(){
   $('base-apk').value=selected.path;automaticBaseApk=selected.explicit?'':selected.path;
 }
 function beginBuild(mode='build'){
-  if(busy||isActive(state)||storageActive()||deviceActive())return;
+  if(busy||isActive(state)||storageActive()||deviceActive()||packageActive())return;
   const previousApk=previousApkSelection();
   // This is an explicit opt-out. Removing a UI selection never deletes the
   // backend session, completed receipts or owner recovery/download workspace.
@@ -856,6 +912,11 @@ $('new-build').addEventListener('click',()=>beginBuild());
 $('home-build').addEventListener('click',()=>beginBuild());
 $('home-mod').addEventListener('click',()=>beginBuild('update-mod'));
 $('home-profile').addEventListener('click',()=>beginBuild('update-profile'));
+$('home-export').addEventListener('click',focusPackage);$('result-export').addEventListener('click',focusPackage);
+$('package-browse-source').addEventListener('click',()=>browsePackage('source'));$('package-browse-destination').addEventListener('click',()=>browsePackage('destination'));
+$('package-source').addEventListener('input',()=>{automaticPackageSource='';updateView();});$('package-destination').addEventListener('input',()=>{automaticPackageDestination='';});
+$('package-export').addEventListener('click',exportPackage);
+$('package-cancel').addEventListener('click',async()=>{try{packageInfo=await api.packageCancel();}catch(value){error(value);}finally{updateView();schedulePackagePoll();}});
 $('home-resume').addEventListener('click',()=>openSession(state?.session??savedSession(discovery)));
 $('home').addEventListener('click',()=>{page=-1;clearError();updateView();document.querySelector('#home-page h2').setAttribute('tabindex','-1');document.querySelector('#home-page h2').focus();});
 $('device-connect').addEventListener('click',()=>deviceOperation('connect'));
@@ -886,12 +947,13 @@ $('browse-apk').addEventListener('click',()=>browse('apk'));$('build-mode').addE
 $('cancel').addEventListener('click',async()=>{busy=true;updateView();try{await api.cancel(state.session);const result=await api.status(state.session);state=result.state;schedulePoll();}catch(value){error(value);}finally{busy=false;updateView();}});
 $('game-root').addEventListener('input',()=>{selected=null;resetArtwork();updateView();});$('provider').addEventListener('change',()=>{selected=null;resetArtwork();updateView();});$('profile-name').addEventListener('input',updateView);
 $('declare-dlc').addEventListener('change',()=>{$('dlc-declaration').hidden=!$('declare-dlc').checked;});
-window.addEventListener('beforeunload',()=>{clearTimeout(devicePollTimer);clearTimeout(storagePollTimer);clearTimeout(pollTimer);clearTimeout(slideTimer);clearTimeout(artPollTimer);stopOptionalReads();blobUrls.forEach(url=>URL.revokeObjectURL(url));});
+window.addEventListener('beforeunload',()=>{clearTimeout(packagePollTimer);clearTimeout(devicePollTimer);clearTimeout(storagePollTimer);clearTimeout(pollTimer);clearTimeout(slideTimer);clearTimeout(artPollTimer);stopOptionalReads();blobUrls.forEach(url=>URL.revokeObjectURL(url));});
 $('preview-notice').hidden=!preview;setLanguage(language);
 if(canConnect){pollGallery();void refreshStorage();}
 busy=true;updateView();
 try{discovery=await api.discover();renderGames();if(discovery.games?.length===1)selectGame(discovery.games[0]);
   const editor=discovery.unityEditors?.find(row=>row.version==='2021.3.5f1'&&row.androidSupport);if(editor)$('unity-editor').value=editor.path;
   if(discovery.capabilities?.deviceTools===true)void refreshDevice();
+  if(discovery.capabilities?.portablePackages===true)void refreshPackage();
   if(discovery.capabilities?.storageInventory===true&&storageInfo?.inventory?.status!=='complete')void inventoryStorage();
 }catch(value){$('discovery-status').textContent=t('notFound');error(value);}finally{busy=false;renderGames();updateView();}

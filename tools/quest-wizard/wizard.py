@@ -25,7 +25,7 @@ REPO = Path(__file__).resolve().parents[2]
 
 def choices(value):
     allowed = {"gameRoot", "provider", "sourceRoot", "sourceCommit", "sourceRef", "unityEditor", "unityHub", "steamRoot", "steamId",
-               "profile", "profileName", "ownedDlc", "steamLogo", "install", "acceptUnityTerms", "language", "mode", "baseApk", "signingRoot"}
+               "profile", "profileName", "ownedDlc", "steamLogo", "install", "acceptUnityTerms", "language", "mode", "baseApk", "signingRoot", "signingMode"}
     if not isinstance(value, dict) or set(value) - allowed:
         raise WizardError("invalid_choices", "Wizard choices contain unsupported fields.", "Die Auswahl enthält nicht unterstützte Felder.")
     result = dict(value)
@@ -34,10 +34,12 @@ def choices(value):
     result.setdefault("provider", "steam"); result.setdefault("language", "de")
     result.setdefault("install", True); result.setdefault("acceptUnityTerms", False)
     result.setdefault("mode", "build")
+    if "signingMode" in result and result["signingMode"] not in ("auto", "original", "new-owner"):
+        raise WizardError("invalid_choices", "Unsupported signing mode.")
     if result["mode"] not in ("build", "update-mod", "update-profile"):
         raise WizardError("invalid_choices", "Unsupported update mode.")
     if result["mode"] != "build" and (not isinstance(result.get("baseApk"), str) or not result["baseApk"].strip()):
-        raise WizardError("base_apk_required", "Select the existing Quest APK.", "Bitte die vorhandene Quest-APK auswählen.")
+        raise WizardError("base_apk_required", "Select the existing Quest APK or ZIP package.", "Bitte die vorhandene Quest-APK oder das ZIP-Paket auswählen.")
     if result["provider"] not in ("steam", "gog", "epic") or result["language"] not in ("en", "de"):
         raise WizardError("invalid_choices", "Unsupported provider or language.")
     if any(type(result[name]) is not bool for name in ("install", "acceptUnityTerms")):
@@ -84,6 +86,10 @@ class Engine:
         # repair must keep that exact completion frontier and skip Unity work.
         if stage == "profile" and "profileName" in state["choices"]:
             names += ("profileName", "baseApk")
+        if stage in ("inspect", "build") and "signingMode" in state["choices"]:
+            names += ("signingMode",)
+        if stage == "inspect" and "signingRoot" in state["choices"]:
+            names += ("signingRoot",)
         release_identity = None
         if stage == "source":
             selected = Path(state["choices"].get("sourceRoot") or self.repo)
@@ -91,10 +97,12 @@ class Engine:
             if manifest.is_file() and not (selected / ".git").exists(): release_identity = digest(manifest)
         base_identity = None
         if stage == "inspect" and state["choices"].get("mode", "build") != "build":
-            apk = ordinary(Path(state["choices"]["baseApk"]))
+            module = discovery.builder(self.repo)
+            apk = ordinary(state["choices"]["baseApk"])
             # A user may replace an APK at the same selected path. File path
             # equality must never authorize reuse of the preceding update.
-            base_identity = digest(apk)
+            base_identity = (module.portable_packages.inspect(apk)["apk"]["sha256"] if apk.suffix.lower() == ".zip"
+                             else module.apk_input_hashes.digest_apk(apk, self.store.root / "build"))
         # Adding a Linux host must not invalidate the pinned Windows recipes in
         # already completed sessions. Host-specific tools cannot be reused when
         # a workspace is moved to a different operating system.
@@ -105,6 +113,16 @@ class Engine:
         return value_hash({**({"releaseIdentity": release_identity} if release_identity else {}), "choices": {name: state["choices"].get(name) for name in names}, "stage": stage, "pins": value_hash(pins),
                            **({"baseApkSha256": base_identity} if base_identity else {}),
                            **({"prerequisitePolicy": 2} if stage == "unity" else {}), "dependencies": {name: state.get("completed", {}).get(name, {}).get("key") for name in before}})
+
+    def selected_apk(self, state, module):
+        """Retain the chosen package path while resolving only its cached APK."""
+        path = ordinary(state["choices"]["baseApk"])
+        if path.suffix.lower() != ".zip": return path
+        stage = next((row["id"] for row in state["stages"] if row.get("status") == "running"), "profile")
+        return module.portable_packages.import_apk(path, self.store.root / "build",
+                    progress=lambda value: self.store.progress(state["session"], stage, "package-import",
+                                    value.get("completed"), value.get("total"), "bytes", value.get("detail", "Importing package APK.")),
+                    cancel=lambda: self.store.check_cancel(state["session"]))
 
     def run(self, session):
         with file_lock(self.store.root / "run.lock"):
@@ -179,12 +197,18 @@ class Engine:
                     self.store.begin_stage(session, stage, key)
                 if stage == "tools" and state["choices"].get("mode", "build") != "build":
                     helper = discovery.builder(self.repo)
-                    helper._local_helper("update_driver").preflight(helper, state["choices"]["gameRoot"], state["choices"]["baseApk"], state["choices"]["mode"])
+                    if not self.actions:
+                        self.store.operation(session, "tools", "qualify", detail="Checking update disk reserve before importing the package APK.")
+                        self.qualify(state, stage=stage)
+                    helper._local_helper("update_driver").preflight(helper, state["choices"]["gameRoot"], state["choices"]["baseApk"], state["choices"]["mode"],
+                        output=self.store.root / "build", cancel=lambda: self.store.check_cancel(session),
+                        progress=lambda value: self.store.progress(session, "tools", "package-import", value.get("completed"),
+                                       value.get("total"), "bytes", value.get("detail", "Importing package APK.")))
                 if stage == "tools" and not self.actions:
                     # Capacity takes precedence over network setup, including
                     # reused tools. Do this once before receipts/downloads.
                     self.store.operation(session, "tools", "qualify", detail="Checking available memory, disk space and supported host.")
-                    self.qualify(state, stage=stage)
+                    if state["choices"].get("mode", "build") == "build": self.qualify(state, stage=stage)
                     self.store.operation(session, "tools", "qualify", complete=True, detail="Host capacity checked.")
                     self.check_downloads(state)
                 if stage == "build" and delivery_error:
@@ -510,7 +534,7 @@ class Engine:
             mode = "build"
         try:
             qualification = qualify(self.store.root, game_root=state["choices"]["gameRoot"], repo=self.repo,
-                                    mode=mode)
+                                    mode=mode, base_apk=state["choices"].get("baseApk"))
         except WizardError as error:
             if error.code in ("workspace_build_space_low", "workspace_space_estimate_incomplete"):
                 # Keep the existing diagnostic token; this warning is now
@@ -573,14 +597,15 @@ class Engine:
             # owned-PC installation qualification/preflight remains mandatory.
             core = module.apk_updates
             try:
-                with zipfile.ZipFile(ordinary(selected["baseApk"])) as apk:
+                base_apk = self.selected_apk(state, module)
+                with zipfile.ZipFile(base_apk) as apk:
                     profile = core._json(apk, core.PROFILE)
                 if profile.get("provider") != selected["provider"]:
                     raise ValueError("Selected provider differs from the existing APK profile.")
                 profile = {**profile, "displayName": selected["profileName"]}
                 # Reuse the updater's complete identity/ownership validation;
                 # no new identity or DLC entitlement is inferred from a name.
-                core.profile_update(selected["baseApk"], profile)
+                core.profile_update(base_apk, profile)
             except (ValueError, OSError, RuntimeError, zipfile.BadZipFile) as error:
                 raise WizardError("profile_name", "The existing APK profile could not be edited: " + str(error),
                                   "Das Profil der vorhandenen APK konnte nicht geändert werden: " + str(error)) from error
@@ -608,7 +633,8 @@ class Engine:
         else:
             argv += ["--dotnet", tool["dotnet8"], "--recovery-dotnet", tool["dotnet10"],
                      "--unity-editor", self.details(state, "unity")["unityEditor"]]
-        if mode != "build": argv += ["--base-apk", state["choices"]["baseApk"], "--update-kind", mode]
+        if mode != "build": argv += ["--base-apk", state["choices"]["baseApk"], "--update-kind", mode,
+                                    "--signing-mode", state["choices"].get("signingMode", "auto")]
         if state["choices"].get("signingRoot"): argv += ["--signing-root", state["choices"]["signingRoot"]]
         if "ownedDlc" in state["choices"]:
             ids = {row[0]: row[3] for row in discovery.builder(root).dlcs.CATALOG}

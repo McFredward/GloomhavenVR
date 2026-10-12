@@ -38,7 +38,7 @@ INVENTORY_CATEGORIES = ("inputs", "converted-assets", "unity-projects", "unity-c
 def _inventory_category(relative):
     parts = relative.parts
     if "signing-recovery" in parts: return "signing-backups"
-    if parts[:2] in (("build", "builds"), ("build", "updates")): return "apk-content"
+    if parts[:2] in (("build", "builds"), ("build", "updates")) or parts[:1] == ("exports",): return "apk-content"
     if parts[:2] == ("build", "inputs"): return "inputs"
     if parts[:2] == ("build", "projects"):
         if len(parts) > 3 and parts[3] in ("Library", "Temp", "Obj", "obj", "bin"): return "unity-caches"

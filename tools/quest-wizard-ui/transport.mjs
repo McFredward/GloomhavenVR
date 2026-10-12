@@ -25,6 +25,9 @@ export class LocalApi {
     return {blob:await response.blob(),name:response.headers.get('Content-Disposition')?.match(/filename="([A-Za-z0-9_.-]+)"/)?.[1]??'quest-build-support.zip'};
   }
   storage() { return this.request('/api/storage'); }
+  packageStatus() { return this.request('/api/package/status'); }
+  packageExport(source,destination) { return this.request('/api/package/export',{source,destination}); }
+  packageCancel() { return this.request('/api/package/cancel',{}); }
   storageInventory() { return this.request('/api/storage/inventory',{}); }
   deviceStatus() { return this.request('/api/device/status'); }
   deviceConnect(host='',setupWireless=false,serial='') { return this.request('/api/device/connect',{host,setupWireless,serial}); }
@@ -49,7 +52,7 @@ export class LocalApi {
   log(session,stage,signal) { if(!sessionId(session)||!stageIds.includes(stage))throw {code:'invalidReply'};return this.request('/api/log?session='+encodeURIComponent(session)+'&stage='+stage,undefined,signal); }
   gallery() {return this.request('/api/gallery');}
   action(session,action,nonce) {if(!sessionId(session)||!['unity-open','unity-check'].includes(action)||typeof nonce!=='string'||!/^[a-f0-9]{32}$/.test(nonce))throw {code:'invalidReply'};return this.request('/api/action',{session,action,nonce});}
-  qualify(gameRoot,mode='build') { return this.request('/api/qualify',{gameRoot,...(mode==='build'?{}:{mode})}); }
+  qualify(gameRoot,mode='build',baseApk='') { return this.request('/api/qualify',{gameRoot,...(mode==='build'?{}:{mode}),...(mode!=='build'&&baseApk?{baseApk}:{})}); }
   browse(kind) { return this.request('/api/browse',{kind}); }
   status(session) { if (!sessionId(session)) throw {code:'invalidReply'}; return this.request('/api/status?session='+encodeURIComponent(session)); }
   events(session, after,signal) { if(!sessionId(session))throw {code:'invalidReply'};return this.request('/api/events?session='+encodeURIComponent(session)+'&after='+(Number.isInteger(after)&&after>=0?after:0),undefined,signal); }
@@ -57,6 +60,9 @@ export class LocalApi {
 
 // Deliberate, visibly labelled design preview; never falls through to real tools.
 export class PreviewApi {
+  async packageStatus(){return {schema:1,event:'package',state:{status:'idle'},defaults:{source:'',destination:'C:\\Users\\Preview\\.ghvrq\\exports\\GloomhavenVR-Quest.zip'}};}
+  async packageExport(){throw {code:'preview'};}
+  async packageCancel(){throw {code:'preview'};}
   async storage() {return {schema:1,event:'storage',workspaceRoot:'C:\\Users\\Preview\\.ghvrq',freeBytes:150*1073741824,state:this.storageState??{status:'idle'},inventory:{status:'complete',totalBytes:19*1073741824,categories:[{id:'apk-content',bytes:13*1073741824,files:2},{id:'unity-caches',bytes:6*1073741824,files:24000}]}};}
   async storageInventory(){return this.storage();}
   async deviceStatus(){return {schema:1,event:'device',state:{status:'idle',devices:[]}};}

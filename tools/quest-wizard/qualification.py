@@ -172,7 +172,7 @@ def check_runtime_space(store_root, *, free_bytes=None):
 
 
 def qualify(store_root, *, system=None, machine=None, free_bytes=None, game_root=None, repo=None, mode="build", enforce=True,
-            helper=None, build_output=None):
+            helper=None, build_output=None, base_apk=None):
     root = ordinary(store_root)
     system = system or platform.system(); machine = machine or platform.machine()
     if system not in ('Windows', 'Linux'):
@@ -200,8 +200,20 @@ def qualify(store_root, *, system=None, machine=None, free_bytes=None, game_root
             helper = discovery.builder(repo or Path(__file__).resolve().parents[2])
         helper.game_data(Path(game_root))
         required = 4 * GIB if mode == "update-profile" else 40 * GIB
+        apk_bytes = import_bytes = None
+        if base_apk:
+            selected = ordinary(base_apk)
+            if selected.suffix.lower() == ".zip":
+                apk_bytes = helper.portable_packages.inspect(selected)["apk"]["size"]
+                # Worst-case one extracted APK, plus repack/align/sign outputs.
+                # The retained bank is streamed, not unpacked or copied here.
+                import_bytes = apk_bytes
+            else:
+                apk_bytes, import_bytes = selected.stat().st_size, 0
+            required = max(required, apk_bytes * 3 + import_bytes + GIB)
         result["spaceEstimate"] = {"additionalEstimatedBytes": required, "scanBounded": False,
-                                   "method": "APK update: retained game content; signing/code workspace reserve", "certifiedExact": False}
+                                   "method": "APK update: retained game content; signing/code workspace reserve", "certifiedExact": False,
+                                   **({"apkBytes": apk_bytes, "packageImportReserveBytes": import_bytes} if apk_bytes is not None else {})}
         result["spaceWarning"] = free < required
     elif game_root:
         result['spaceEstimate'] = space_estimate(root, game_root, repo or Path(__file__).resolve().parents[2],
