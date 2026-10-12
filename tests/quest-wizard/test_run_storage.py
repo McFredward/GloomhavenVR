@@ -1,5 +1,6 @@
 """Measure actual retained run dependencies once, including archived failures."""
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -153,6 +154,15 @@ class RunStorageTests(unittest.TestCase):
         self.assertGreaterEqual(result["unassignedBytes"], unknown.stat().st_size)
         self.assertEqual(result["ownershipWarnings"][0]["code"], "unreadable_run_owner")
         self.assertEqual(self.row(result)["reclaimableBytes"], 0)
+
+    def test_dynamic_unregistered_cleanup_module_keeps_its_private_namespace(self):
+        name = "quest_cleanup_unregistered_storage_fixture"
+        self.assertNotIn(name, sys.modules)
+        spec = importlib.util.spec_from_file_location(name, ROOT / "tools/quest-wizard/cleanup.py")
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        value = module.inventory(self.root)
+        self.assertEqual(value["runs"][0]["session"], self.session)
+        self.assertNotIn(name, sys.modules)
 
 
 if __name__ == "__main__": unittest.main()

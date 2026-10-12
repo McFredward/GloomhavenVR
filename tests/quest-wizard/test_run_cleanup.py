@@ -446,5 +446,47 @@ class RunCleanupTests(unittest.TestCase):
         with self.assertRaises(state.WizardError): cleanup.execute(self.root, preview)
         self.assertFalse(self.folder.exists()); self.assertTrue(archive.is_dir())
 
+    def test_durable_provenance_does_not_open_diagnostic_logs(self):
+        key = "a" * 64
+        value = {"storageProvenance": {"schema": 1, "games": [{"gameKey": key}]}, "events": []}
+        self.file(self.folder / "logs/progress.previous.log", b"diagnosis" * 10000)
+        original_open = Path.open
+        def no_logs(path, *args, **kwargs):
+            if path.name in ("progress.log", "progress.previous.log"):
+                raise AssertionError("Durable ownership reopened a diagnostic log")
+            return original_open(path, *args, **kwargs)
+        proofs = {}
+        with mock.patch.object(Path, "open", no_logs):
+            self.assertEqual(cleanup._qualified_games(self.folder, value, proofs), {key})
+        self.assertEqual(proofs, {})
+
+    def test_legacy_prefilter_decodes_only_possible_qualification_records(self):
+        key = "b" * 64
+        unrelated = {"sequence": 1, "time": 1, "code": "stage_progress", "stage": "build",
+                     "parameters": {"detail": "large derived progress " * 100}}
+        accepted = {"sequence": 2, "time": 2, "code": "workspace_space_checked", "stage": "tools",
+                    "parameters": {"spaceEstimate": {"cacheGameKey": key}}}
+        path = self.folder / "logs/progress.log"
+        path.write_bytes((state.canonical(unrelated) + b"\n") * 1000 + state.canonical(accepted) + b"\n")
+        loads = cleanup.json.loads; decoded = []
+        def record(raw):
+            decoded.append(raw); return loads(raw)
+        proofs = {}
+        with mock.patch.object(cleanup.json, "loads", record):
+            self.assertEqual(cleanup._qualified_games(self.folder, {"events": []}, proofs), {key})
+        self.assertEqual(len(decoded), 1)
+        self.assertIn(str(path), proofs)
+
+    def test_partial_or_invalid_durable_provenance_still_uses_legacy_witness(self):
+        key = "c" * 64
+        accepted = {"sequence": 1, "time": 1, "code": "space_estimate_warning", "stage": "tools",
+                    "parameters": {"spaceEstimate": {"cacheGameKey": key}}}
+        path = self.folder / "logs/progress.log"; path.write_bytes(state.canonical(accepted) + b"\n")
+        for members in ([], [{"gameKey": "d" * 64}, {"bad": "invalid"}]):
+            with self.subTest(members=members):
+                value = {"events": [], "storageProvenance": {"schema": 1, "games": members}}
+                proofs = {}; self.assertEqual(cleanup._qualified_games(self.folder, value, proofs), {key})
+                self.assertIn(str(path), proofs)
+
 
 if __name__ == "__main__": unittest.main()

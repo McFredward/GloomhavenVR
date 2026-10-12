@@ -24,6 +24,7 @@ import stat
 import sys
 import threading
 import time
+from types import SimpleNamespace
 
 from state import Cancelled, STAGES, WizardError, atomic_json, canonical, file_lock, ordinary, stage_progress, value_hash
 
@@ -69,7 +70,11 @@ def inventory(state_root, progress=None, cancel=None):
     """
     proofs = {}; root, _ = _root(state_root, proofs)
     from run_storage import Ownership
-    ownership = Ownership(sys.modules[__name__], root, root / "build", cancel)
+    # importlib callers may execute this module without registering an alias.
+    # Preserve that caller's own functions/globals without installing a global
+    # module name that another Wizard thread could already be using.
+    helper = sys.modules.get(__name__) or SimpleNamespace(**globals())
+    ownership = Ownership(helper, root, root / "build", cancel)
     rows = {name: {"id": name, "bytes": 0, "files": 0} for name in INVENTORY_CATEGORIES}
     skipped_links = inaccessible = count = 0
     signing = {"originalApkBytes": 0, "appDataBytes": 0, "otherBytes": 0}
@@ -456,14 +461,16 @@ def _qualified_games(folder, value, proofs):
     ownership. This supplies a game identity; fallback manifest binding still
     requires the captured source inventory and normalized profile below.
     """
-    games = set()
+    games = set(); durable = False
     provenance = value.get("storageProvenance")
     if isinstance(provenance, dict) and provenance.get("schema") == 1:
         members = provenance.get("games")
-        if isinstance(members, list) and len(members) <= MAX_IDENTITIES:
+        if (isinstance(members, list) and 0 < len(members) <= MAX_IDENTITIES
+                and all(isinstance(member, dict) and set(member) == {"gameKey"}
+                        and _key(member.get("gameKey")) for member in members)):
+            durable = True
             for member in members:
-                if isinstance(member, dict) and set(member) == {"gameKey"} and _key(member.get("gameKey")):
-                    games.add(member["gameKey"])
+                games.add(member["gameKey"])
     def observe(event):
         if (not isinstance(event, dict) or event.get("code") not in
                 ("workspace_space_checked", "space_estimate_warning")
@@ -477,6 +484,10 @@ def _qualified_games(folder, value, proofs):
     events = value.get("events")
     if isinstance(events, list):
         for event in events[-128:]: observe(event)
+    # The modern publisher retains every accepted qualification identity in
+    # state, so rotated diagnostics are no longer an ownership dependency.
+    if durable: return games
+    tokens = (b'"workspace_space_checked"', b'"space_estimate_warning"')
     for name in ("progress.previous.log", "progress.log"):
         path = folder / "logs" / name
         if not path.is_file(): continue
@@ -484,7 +495,7 @@ def _qualified_games(folder, value, proofs):
         if not stat.S_ISREG(stamp[2]) or stamp[3] > MAX_JSON_BYTES: continue
         with path.open("rb") as stream:
             for raw in stream:
-                if len(raw) > 2 * 1048576: continue
+                if len(raw) > 2 * 1048576 or not any(token in raw for token in tokens): continue
                 try: observe(json.loads(raw))
                 except (ValueError, TypeError, UnicodeDecodeError): continue
         if _stamp(path) != stamp: raise _error("cleanup_changed", name)
