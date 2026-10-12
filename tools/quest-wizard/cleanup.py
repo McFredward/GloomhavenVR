@@ -68,28 +68,30 @@ def inventory(state_root, progress=None, cancel=None):
     so disappearing/inaccessible files are reported rather than silently claimed.
     The server caches this result and only refreshes it on explicit request.
     """
+    _check_cancel(cancel)
+    _notify(progress, "storage-ownership", 0, None, "", files=0, bytes=0, folders=0)
     proofs = {}; root, _ = _root(state_root, proofs)
     from run_storage import Ownership
     # importlib callers may execute this module without registering an alias.
     # Preserve that caller's own functions/globals without installing a global
     # module name that another Wizard thread could already be using.
     helper = sys.modules.get(__name__) or SimpleNamespace(**globals())
-    ownership = Ownership(helper, root, root / "build", cancel)
+    ownership = Ownership(helper, root, root / "build", cancel, progress=progress)
     rows = {name: {"id": name, "bytes": 0, "files": 0} for name in INVENTORY_CATEGORIES}
     skipped_links = inaccessible = count = 0
     signing = {"originalApkBytes": 0, "appDataBytes": 0, "otherBytes": 0}
     allocated = 0; allocated_known = True; allocated_seen = set()
-    pending = [root]; last_report = 0.0
+    pending = [root]; tracker = _ScanProgress(progress, "storage-inventory", cancel, root=root)
+    tracker.report(root, force=True)
     while pending:
-        if cancel is not None and cancel.is_set():
-            raise Cancelled()
+        _check_cancel(cancel)
         folder = pending.pop()
         try:
             ordinary(folder)
+            tracker.folders += 1; tracker.report(folder)
             with os.scandir(folder) as entries:
                 for entry in entries:
-                    if cancel is not None and cancel.is_set():
-                        raise Cancelled()
+                    _check_cancel(cancel)
                     try:
                         info = entry.stat(follow_symlinks=False)
                         if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
@@ -100,6 +102,7 @@ def inventory(state_root, progress=None, cancel=None):
                         if not stat.S_ISREG(info.st_mode): skipped_links += 1; continue
                         row = rows[_inventory_category(path.relative_to(root))]
                         row["bytes"] += info.st_size; row["files"] += 1; count += 1
+                        tracker.bytes += info.st_size; tracker.files += 1
                         ownership.add(path, info.st_size, row["id"])
                         if row["id"] == "signing-backups":
                             kind = "originalApkBytes" if path.name == "original.apk" else (
@@ -114,14 +117,12 @@ def inventory(state_root, progress=None, cancel=None):
                     except Cancelled: raise
                     except (OSError, WizardError):
                         ownership.obstacle(Path(entry.path)); inaccessible += 1
+                    tracker.report(folder)
         except Cancelled: raise
         except (OSError, WizardError):
             ownership.obstacle(folder); inaccessible += 1
-        now = time.monotonic()
-        if count == 0 or now - last_report >= .15:
-            _notify(progress, "storage-inventory", count, None, folder.relative_to(root).as_posix())
-            last_report = now
-    if cancel is not None and cancel.is_set(): raise Cancelled()
+        tracker.report(folder)
+    _check_cancel(cancel)
     result = {"status": "complete", "totalBytes": sum(row["bytes"] for row in rows.values()),
               "files": count, "categories": list(rows.values()), "skippedLinks": skipped_links,
               "inaccessible": inaccessible, "complete": inaccessible == 0,
@@ -136,7 +137,9 @@ def inventory(state_root, progress=None, cancel=None):
         except (OSError, WizardError): result["analysisSaved"] = False
         else: result["analysisSaved"] = True
     else: result["analysisSaved"] = False
-    _notify(progress, "storage-inventory-complete", count, count, str(result["totalBytes"]))
+    _notify(progress, "storage-inventory-complete", count, count, str(result["totalBytes"]),
+            files=count, bytes=result["totalBytes"], folders=tracker.folders, currentPath="",
+            elapsedSeconds=time.monotonic() - tracker.started)
     return result
 
 
@@ -169,7 +172,8 @@ def _stamp(path):
     return (value.st_dev, value.st_ino, value.st_mode, value.st_size, value.st_mtime_ns, value.st_ctime_ns, native)
 
 
-def _read(path, proofs):
+def _read(path, proofs, *, cancel=None):
+    _check_cancel(cancel)
     stamp = _stamp(path)
     if not stat.S_ISREG(stamp[2]) or stamp[3] > MAX_JSON_BYTES:
         raise _error("cleanup_receipt", path.name)
@@ -179,6 +183,7 @@ def _read(path, proofs):
     try: value = json.loads(raw)
     except (ValueError, TypeError) as error: raise _error("cleanup_receipt", path.name) from error
     if not isinstance(value, dict): raise _error("cleanup_receipt", path.name)
+    _check_cancel(cancel)
     proofs[str(path)] = {"stamp": stamp, "sha256": hashlib.sha256(raw).hexdigest()}
     return value
 
@@ -247,10 +252,11 @@ def _relative(name):
     return path
 
 
-def _rows(rows, size_name="size"):
+def _rows(rows, size_name="size", *, cancel=None):
     if not isinstance(rows, list) or not rows: raise _error("cleanup_receipt")
     result = {}
     for row in rows:
+        _check_cancel(cancel)
         if not isinstance(row, dict): raise _error("cleanup_receipt")
         name = row.get("path"); _relative(name)
         size, hashed = row.get(size_name), row.get("sha256")
@@ -270,31 +276,35 @@ def _children(parent):
     return selected
 
 
-def _snapshot(folder, proofs, *, verify_files=True):
+def _snapshot(folder, proofs, *, verify_files=True, cancel=None):
+    _check_cancel(cancel)
     proofs[str(folder)] = {"identity": _stamp(folder)[:3], "sha256": None}
-    value = _read(folder / ".snapshot.json", proofs)
+    value = _read(folder / ".snapshot.json", proofs, cancel=cancel)
     if value.get("schema") != 1 or set(value) != {"schema", "files"}: raise _error("cleanup_receipt")
-    rows = _rows(value["files"])
+    rows = _rows(value["files"], cancel=cancel)
     if value_hash({"files": value["files"]}) != folder.name: raise _error("cleanup_receipt")
     if verify_files:
         for name, row in rows.items():
+            _check_cancel(cancel)
             stamp = _stamp(folder / name)
             if not stat.S_ISREG(stamp[2]) or stamp[3] != row["size"]: raise _error("cleanup_receipt", name)
     return value, rows
 
 
-def _manifests(build, proofs):
+def _manifests(build, proofs, *, cancel=None):
     result = []
     for path in _children_files(build / "manifests"):
+        _check_cancel(cancel)
         try:
-            value = _read(path, proofs)
+            value = _read(path, proofs, cancel=cancel)
             if (value.get("schema") != 1 or value.get("inputKey") != path.stem
                     or value_hash({key: item for key, item in value.items() if key != "inputKey"}) != path.stem):
                 continue
             for name in ("game", "mod"):
-                member = value[name]; _rows(member["files"])
+                member = value[name]; _rows(member["files"], cancel=cancel)
                 if member["key"] != value_hash({"files": member["files"]}): raise _error("cleanup_receipt")
             result.append(value)
+        except Cancelled: raise
         except (WizardError, OSError, KeyError, TypeError): continue
     return result
 
@@ -308,28 +318,32 @@ def _children_files(parent):
     return result
 
 
-def _duplicates(build, proofs):
-    targets = []; duplicates = {}; manifests = _manifests(build, proofs)
+def _duplicates(build, proofs, *, cancel=None):
+    targets = []; duplicates = {}; manifests = _manifests(build, proofs, cancel=cancel)
     for folder in _children(build / "inputs/game"):
+        _check_cancel(cancel)
         try:
-            value, rows = _snapshot(folder, proofs)
+            value, rows = _snapshot(folder, proofs, cancel=cancel)
             ordered = sorted(value["files"], key=lambda row: row["path"])
             correct_key = value_hash({"files": ordered})
             if correct_key == folder.name: continue
             correct = folder.with_name(correct_key)
-            correct_value, correct_rows = _snapshot(correct, proofs)
+            correct_value, correct_rows = _snapshot(correct, proofs, cancel=cancel)
             if correct_value["files"] != ordered or correct_rows != rows: continue
             if not any(item["game"]["key"] == folder.name and item["game"]["files"] == value["files"] for item in manifests):
                 continue
             targets.append(folder); duplicates[folder.name] = (folder, rows)
+        except Cancelled: raise
         except (WizardError, OSError, KeyError, TypeError): continue
     for folder in _children(build / "cache/recovery"):
+        _check_cancel(cancel)
         try:
             owner = _read(folder / "stage-owner.json", proofs)
             if owner == {"schema": 1, "owner": "Quest recovered Campaign stage", "key": folder.name, "gameKey": owner.get("gameKey")} and owner.get("gameKey") in duplicates:
                 targets.append(folder)
         except (WizardError, OSError): continue
     for folder in _children(build / "cache/full-original-recovery"):
+        _check_cancel(cancel)
         try:
             original = _read(folder / "original-source.json", proofs)
             if original.get("schema") != 1 or original.get("sourceFingerprint") != hashlib.sha256(
@@ -381,30 +395,154 @@ def _completed_build(build, proofs):
         proofs[str(build / name)] = {"stamp": stamp, "sha256": None}
 
 
-def _notify(progress, phase, done, total, detail):
-    if progress: progress({"phase": phase, "done": done, "total": total, "detail": detail})
+def _notify(progress, phase, done, total, detail, **observed):
+    if progress: progress({"phase": phase, "done": done, "total": total, "detail": detail, **observed})
 
 
-def _scan(folder, progress=None, phase="cleanup-scan"):
+def _check_cancel(cancel):
+    if cancel is not None and (cancel.is_set() if hasattr(cancel, "is_set") else cancel()):
+        raise Cancelled()
+
+
+class _ScanProgress:
+    """One observed counter across all selected trees, never a folder reset."""
+    def __init__(self, progress, phase, cancel=None, *, root=None, total=None, unit="files"):
+        self.progress, self.phase, self.cancel = progress, phase, cancel
+        self.root, self.total = root, total
+        self.unit, self.steps = unit, None
+        self.files = self.bytes = self.folders = 0
+        self.metadata_reader = None
+        self.started = time.monotonic(); self.reported = self.started - 1
+        self.detail = ""
+
+    def report(self, path=None, *, force=False):
+        _check_cancel(self.cancel)
+        if path is not None:
+            self.detail = (path.relative_to(self.root).as_posix() if self.root is not None else str(path))
+        now = time.monotonic()
+        if force or now - self.reported >= .15:
+            _notify(self.progress, self.phase, self.files if self.steps is None else self.steps, self.total, self.detail,
+                    files=self.files, bytes=self.bytes, folders=self.folders,
+                    currentPath=self.detail, elapsedSeconds=max(0, now - self.started), unit=self.unit)
+            self.reported = now
+
+
+def _metadata_stamp(path, info, native=None):
+    """Use enumerated metadata; only incomplete Windows fields need leaf lstat.
+
+    Win32 DirEntry.stat caches attributes/size/times but returns zero for inode,
+    device and link count. That observation cannot reject hardlinks or bind a
+    substituted node. Fall back to one lstat, never a full ancestor traversal or
+    a native per-file handle. An optional directory batch supplies FileID and
+    ChangeTime; the actual delete still opens its own strong leaf witness.
+    """
+    if (getattr(info, "st_file_attributes", 0) & 0x400
+            or not (stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode))):
+        raise _error("cleanup_linked_path", path.name)
+    if not info.st_ino or not info.st_nlink:
+        info = path.lstat()
+    if (getattr(info, "st_file_attributes", 0) & 0x400
+            or not (stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode))
+            or not info.st_ino or (stat.S_ISREG(info.st_mode) and info.st_nlink != 1)):
+        raise _error("cleanup_linked_path", path.name)
+    return (info.st_dev, info.st_ino, info.st_mode, info.st_size, info.st_mtime_ns, info.st_ctime_ns, native)
+
+
+def _directory_metadata(path, tracker=None):
+    """One Windows metadata handle per folder, with safe leaf-stat fallback."""
+    if sys.platform != "win32": return None
+    helper = _helper()
+    try:
+        if helper._windows_metadata is None:
+            helper._windows_metadata = helper._WindowsFileMetadata()
+        reader = helper._windows_metadata
+        if tracker is not None and hasattr(reader, "kernel"):
+            # The native batch reader queries64KiB at a time. Cooperate between
+            # those queries too: a flat directory must not spend its entire
+            # enumeration inside an uninterruptible helper. Keep the proxy on a
+            # private reader; never replace the shared builder's kernel object.
+            if tracker.metadata_reader is None:
+                kernel = reader.kernel
+                class Kernel:
+                    def __getattr__(self, name):
+                        target = getattr(kernel, name)
+                        if name != "GetFileInformationByHandleEx": return target
+                        def query(*args):
+                            tracker.report()
+                            result = target(*args)
+                            tracker.report()
+                            return result
+                        return query
+                tracker.metadata_reader = helper._WindowsFileMetadata(kernel=Kernel())
+                tracker.metadata_reader.filesystems = reader.filesystems
+            reader = tracker.metadata_reader
+        return reader.directory(path)
+    except helper.BuildError as error:
+        raise _error("cleanup_linked_path", path.name) from error
+    except (OSError, AttributeError): return None
+
+
+def _scan(folder, progress=None, phase="cleanup-scan", *, cancel=None, tracker=None):
     nodes = []; total = count = 0
+    folder = Path(folder)
+    tracker = tracker or _ScanProgress(progress, phase, cancel, root=folder)
+    tracker.report(folder, force=True)
     for ancestor in (folder, *folder.parents):
+        _check_cancel(cancel)
         pin = ancestor / ".keep"
         if pin.exists() or pin.is_symlink(): raise _error("cleanup_pinned", ".keep")
-    def visit(path):
+    # Feed one small record at a time while the walk is already reporting. The
+    # old code built and canonicalized a second giant list after371,712 files,
+    # silently repeating path conversion and retaining the whole JSON buffer.
+    # Per-directory name order keeps the digest deterministic without a global
+    # path sort. Each directory's cached stat is checked after its descendants.
+    fingerprint = hashlib.sha256()
+    def visit(path, captured=None):
         nonlocal total, count
+        _check_cancel(cancel)
         if path.name == ".keep": raise _error("cleanup_pinned", path.name)
-        stamp = _stamp(path); nodes.append((path, stamp))
+        stamp = _stamp(path) if captured is None else captured
+        nodes.append((path, stamp))
+        record = canonical([path.relative_to(folder).as_posix(), stamp])
+        fingerprint.update(len(record).to_bytes(8, "big")); fingerprint.update(record)
         if stat.S_ISDIR(stamp[2]):
-            for child in sorted(path.iterdir(), key=lambda item: item.name): visit(child)
-            if _stamp(path) != stamp: raise _error("cleanup_changed", path.name)
+            # A queued child may have changed while earlier siblings were
+            # processed. Reject its live leaf before opening/enumerating it,
+            # rather than discovering a substituted link only on the way out.
+            if _metadata_stamp(path, path.lstat()) != stamp:
+                raise _error("cleanup_changed", path.name)
+            tracker.folders += 1; tracker.report(path)
+            batch = _directory_metadata(path, tracker); tracker.report(path)
+            children = []
+            with os.scandir(path) as entries:
+                for entry in entries:
+                    _check_cancel(cancel)
+                    # Capture metadata at enumeration rather than stat every
+                    # parent again for each Unity artifact or Git object.
+                    child = Path(entry.path)
+                    child_stamp = _metadata_stamp(child, entry.stat(follow_symlinks=False),
+                                                  batch.get(entry.name) if batch is not None else None)
+                    children.append((entry.name, child, child_stamp))
+                    if stat.S_ISREG(child_stamp[2]):
+                        tracker.files += 1; tracker.bytes += child_stamp[3]
+                    tracker.report(path)
+            _check_cancel(cancel)
+            children.sort(key=lambda item: item[0])
+            tracker.report(path)
+            for name, child, child_stamp in children:
+                visit(child, child_stamp)
+            if _metadata_stamp(path, path.lstat()) != stamp:
+                raise _error("cleanup_changed", path.name)
         else:
             if path.suffix.lower() in (".keystore", ".jks", ".p12", ".pem", ".key"):
                 raise _error("cleanup_signing_path", path.name)
             total += stamp[3]; count += 1
-            if count == 1 or count % 256 == 0: _notify(progress, phase, count, None, path.name)
+            if captured is None:
+                tracker.files += 1; tracker.bytes += stamp[3]
+            tracker.report(path.parent)
     visit(folder)
-    fingerprint = value_hash([{"path": path.relative_to(folder).as_posix(), "stamp": stamp} for path, stamp in nodes])
-    return {"bytes": total, "files": count, "fingerprint": fingerprint, "nodes": nodes}
+    tracker.report(folder, force=True)
+    return {"bytes": total, "files": count, "fingerprint": fingerprint.hexdigest(), "nodes": nodes}
 
 
 def _retain(value, root, proofs, private, **extra):
@@ -452,7 +590,7 @@ def _same_identity(captured, manifest_profile):
     except (ValueError, TypeError, KeyError): return False
 
 
-def _qualified_games(folder, value, proofs):
+def _qualified_games(folder, value, proofs, *, cancel=None):
     """Use the real qualification publisher, including its bounded old logs.
 
     Older engines stored capacity results only as structured events. Their
@@ -462,6 +600,7 @@ def _qualified_games(folder, value, proofs):
     requires the captured source inventory and normalized profile below.
     """
     games = set(); durable = False
+    _check_cancel(cancel)
     provenance = value.get("storageProvenance")
     if isinstance(provenance, dict) and provenance.get("schema") == 1:
         members = provenance.get("games")
@@ -495,6 +634,7 @@ def _qualified_games(folder, value, proofs):
         if not stat.S_ISREG(stamp[2]) or stamp[3] > MAX_JSON_BYTES: continue
         with path.open("rb") as stream:
             for raw in stream:
+                _check_cancel(cancel)
                 if len(raw) > 2 * 1048576 or not any(token in raw for token in tokens): continue
                 try: observe(json.loads(raw))
                 except (ValueError, TypeError, UnicodeDecodeError): continue
@@ -503,7 +643,7 @@ def _qualified_games(folder, value, proofs):
     return games
 
 
-def _session_scope(root, build, folder, value, manifests, proofs):
+def _session_scope(root, build, folder, value, manifests, proofs, *, cancel=None):
     """Read actual stage owners, including the full-update fallback's inputs.
 
     Full migration publishes a new manifest but inspect retains the old APK's
@@ -512,8 +652,9 @@ def _session_scope(root, build, folder, value, manifests, proofs):
     Structured capacity events are genuine per-run observations; arbitrary
     progress text and the mutable global latest-input pointer are not owners.
     """
-    inputs = set(); games = _qualified_games(folder, value, proofs); sources = set(); references = set()
+    inputs = set(); games = _qualified_games(folder, value, proofs, cancel=cancel); sources = set(); references = set()
     def observe(item):
+        _check_cancel(cancel)
         if isinstance(item, dict):
             for name, member in item.items():
                 if name in ("inputKey", "gameInputKey") and _key(member): inputs.add(member)
@@ -526,6 +667,7 @@ def _session_scope(root, build, folder, value, manifests, proofs):
             for member in item: observe(member)
     observe(value.get("completed", {})); observe(value.get("qualification", {}))
     for row in value["stages"]:
+        _check_cancel(cancel)
         observe(row.get("details", {}))
         receipt = folder / "receipts" / (str(row.get("id")) + ".json")
         if receipt.is_file():
@@ -548,6 +690,7 @@ def _session_scope(root, build, folder, value, manifests, proofs):
     profile = _read(profile_path, proofs) if profile_path.is_file() else None
     selected = []
     for manifest in manifests:
+        _check_cancel(cancel)
         fallback = (value["choices"].get("mode") == "update-mod" and _key(source_hash)
                     and value_hash(manifest["mod"]["files"]) == source_hash
                     and _same_identity(profile, manifest.get("profile"))
@@ -620,12 +763,13 @@ def _delivered_references(root, build, proofs):
     return _references(root, build, values)
 
 
-def _source_targets(root, folder, session, proofs, skipped):
+def _source_targets(root, folder, session, proofs, skipped, *, cancel=None):
     targets = []
     parent = root / "source"
     if not parent.is_dir(): return targets
     _stamp(parent)
     for candidate in parent.iterdir():
+        _check_cancel(cancel)
         if not candidate.is_dir(): continue
         owned = False; matched = candidate.name == session or re.fullmatch(re.escape(session) + r"-[0-9a-f]{16}", candidate.name)
         if not matched: continue
@@ -646,19 +790,22 @@ def _source_targets(root, folder, session, proofs, skipped):
     return targets
 
 
-def _raw_owners(build, manifests, proofs, *, verify_files=True):
+def _raw_owners(build, manifests, proofs, *, verify_files=True, cancel=None):
     inventories = {}; result = {}
     for manifest in manifests:
+        _check_cancel(cancel)
         key = manifest["game"]["key"]
         if key in inventories: continue
         snapshot = build / "inputs/game" / key
         if not snapshot.is_dir(): continue
         try:
-            _, rows = _snapshot(snapshot, proofs, verify_files=verify_files); receipt = snapshot / ".snapshot.json"
+            _, rows = _snapshot(snapshot, proofs, verify_files=verify_files, cancel=cancel); receipt = snapshot / ".snapshot.json"
             inventories[key] = {**rows, ".snapshot.json": {"path": ".snapshot.json", "size": receipt.stat().st_size,
                                 "sha256": proofs[str(receipt)]["sha256"]}}
+        except Cancelled: raise
         except (WizardError, OSError, KeyError, TypeError): continue
     for candidate in _children(build / "cache/full-original-recovery"):
+        _check_cancel(cancel)
         path = candidate / "original-source.json"
         if not path.is_file(): continue
         try:
@@ -672,17 +819,18 @@ def _raw_owners(build, manifests, proofs, *, verify_files=True):
     return result
 
 
-def _session_targets(root, build, folder, session, scope, protected, proofs, skipped, raw_owners):
+def _session_targets(root, build, folder, session, scope, protected, proofs, skipped, raw_owners, *, cancel=None):
     """Prove each subtree independently; no entire-cache or guessed-path sweep."""
     targets = []
     for manifest in scope["manifests"]:
+        _check_cancel(cancel)
         for kind in ("game", "mod", "probeAssets", "startupProject"):
             member = manifest.get(kind)
             if not isinstance(member, dict) or not _key(member.get("key")): continue
             area = {"game": "game", "mod": "mod", "probeAssets": "probe", "startupProject": "startup"}[kind]
             candidate = build / "inputs" / area / member["key"]
             if not candidate.is_dir(): continue
-            captured, rows = _snapshot(candidate, proofs)
+            captured, rows = _snapshot(candidate, proofs, cancel=cancel)
             if captured["files"] != member.get("files"): raise _error("cleanup_receipt")
             targets.append(candidate)
         key = _project_key(manifest)
@@ -705,12 +853,13 @@ def _session_targets(root, build, folder, session, scope, protected, proofs, ski
                     if candidate.is_dir(): targets.append(candidate)
             elif project.is_dir(): skipped.append({"path": project.relative_to(root).as_posix(), "reason": "unproven_owner"})
     for candidate in _children(build / "cache/recovery"):
+        _check_cancel(cancel)
         owner = _read(candidate / "stage-owner.json", proofs) if (candidate / "stage-owner.json").is_file() else {}
         if (owner == {"schema": 1, "owner": "Quest recovered Campaign stage", "key": candidate.name, "gameKey": owner.get("gameKey")}
                 and owner.get("gameKey") in scope["games"]): targets.append(candidate)
     for candidate, game_key in raw_owners.items():
         if game_key in scope["games"]: targets.append(candidate)
-    targets.extend(_source_targets(root, folder, session, proofs, skipped))
+    targets.extend(_source_targets(root, folder, session, proofs, skipped, cancel=cancel))
     unique = []
     for target in sorted(set(targets), key=lambda path: (len(path.parts), str(path))):
         if any(parent == target or parent in target.parents for parent in unique): continue
@@ -730,7 +879,7 @@ def _tree_projects(tree, build):
     return projects
 
 
-def plan_session(state_root, session, *, remove_data=False, progress=None):
+def plan_session(state_root, session, *, remove_data=False, progress=None, cancel=None):
     """Retire one stopped run, optionally removing only its exclusive data.
 
     Capture130723 contains different game inventories, not canonical duplicate
@@ -741,6 +890,8 @@ def plan_session(state_root, session, *, remove_data=False, progress=None):
     """
     if not isinstance(session, str) or SESSION.fullmatch(session) is None or type(remove_data) is not bool:
         raise _error("cleanup_session")
+    _check_cancel(cancel)
+    _notify(progress, "cleanup-discover", 0, None, "", files=0, bytes=0, folders=0)
     proofs = {}; root, build = _root(state_root, proofs)
     with _guard(root, build):
         parent = ordinary(root / "sessions"); folder = ordinary(parent / session)
@@ -755,27 +906,29 @@ def plan_session(state_root, session, *, remove_data=False, progress=None):
                               "Nur ein angehaltener, nicht abgeschlossener Lauf kann entfernt werden.")
         proofs[str(parent)] = {"stamp": _stamp(parent), "sha256": None}
         if retired.exists() and not already_retired: raise _error("cleanup_session_archive")
-        session_scan = _scan(folder, progress, "cleanup-session-scan")
+        session_scan = _scan(folder, progress, "cleanup-session-scan", cancel=cancel)
         latest = root / "latest-session.json"
         pointer = _read(latest, proofs) if latest.is_file() else None
         survivors = []; skipped = []; private = []; paths = []
         uncertainty = False
         try:
-            manifests = _manifests(build, proofs) if remove_data else []
-            scope = _session_scope(root, build, folder, value, manifests, proofs) if remove_data else None
+            manifests = _manifests(build, proofs, cancel=cancel) if remove_data else []
+            scope = _session_scope(root, build, folder, value, manifests, proofs, cancel=cancel) if remove_data else None
             protected = _delivered_references(root, build, proofs) if remove_data else set()
-            raw_owners = _raw_owners(build, manifests, proofs) if remove_data else {}
+            raw_owners = _raw_owners(build, manifests, proofs, cancel=cancel) if remove_data else {}
+        except Cancelled: raise
         except (WizardError, OSError, ValueError, TypeError, KeyError):
             manifests = []; scope = None; protected = set(); raw_owners = {}; uncertainty = True
             skipped.append({"path": "build", "reason": "unreadable_ownership"})
         for other in parent.iterdir():
+            _check_cancel(cancel)
             if other == folder or SESSION.fullmatch(other.name) is None: continue
             try:
                 state = _session(other, proofs)
                 updated = state.get("updated", state.get("created", 0))
                 survivors.append((updated if type(updated) in (int, float) else 0, other.name))
                 if remove_data and scope is not None:
-                    used = _session_scope(root, build, other, state, manifests, proofs)
+                    used = _session_scope(root, build, other, state, manifests, proofs, cancel=cancel)
                     protected.update(_references(root, build, used["references"] | used["sources"]))
                     # Capacity qualification can bind a game before inspect
                     # publishes its input receipt. That run still owns access to
@@ -803,30 +956,35 @@ def plan_session(state_root, session, *, remove_data=False, progress=None):
                         if path.is_file() and _read(path, proofs).get("gameKey") in used["games"]: protected.add(candidate)
                     for candidate, game_key in raw_owners.items():
                         if game_key in used["games"]: protected.add(candidate)
+            except Cancelled: raise
             except (WizardError, OSError, ValueError, TypeError, KeyError):
                 uncertainty = True
                 skipped.append({"path": other.relative_to(root).as_posix(), "reason": "unreadable_dependency"})
         if remove_data and uncertainty:
             skipped.append({"path": "build", "reason": "dependency_proof_incomplete"})
         elif remove_data:
-            try: targets = _session_targets(root, build, folder, session, scope, protected, proofs, skipped, raw_owners)
+            try: targets = _session_targets(root, build, folder, session, scope, protected, proofs, skipped, raw_owners, cancel=cancel)
+            except Cancelled: raise
             except (WizardError, OSError, ValueError, TypeError, KeyError) as error:
                 if getattr(error, "code", None) == "cleanup_editor_busy": raise
                 targets = []; skipped.append({"path": "build", "reason": "unreadable_ownership"})
             retained_projects = set()
             retained_sources = set()
+            tracker = _ScanProgress(progress, "cleanup-scan", cancel, root=root)
             for target in targets:
+                _check_cancel(cancel)
                 if (target.parent.parent == build / "cache" and target.name in retained_projects
                         and target.parent.name in ("project-lifecycle", "prepare-resume", "project-content-transactions", "preparation-repair")):
                     skipped.append({"path": target.relative_to(root).as_posix(), "reason": "project_retained"}); continue
                 if target.parent == root / "source" and target.name.endswith(".owner.json") and target.name[:-len(".owner.json")] in retained_sources:
                     skipped.append({"path": target.relative_to(root).as_posix(), "reason": "source_retained"}); continue
                 try:
-                    scan = _scan(target, progress)
+                    scan = _scan(target, progress, cancel=cancel, tracker=tracker)
                     if target.parent.parent == build / "inputs":
                         expected = set(_rows(_read(target / ".snapshot.json", proofs)["files"])) | {".snapshot.json"}
                         observed = {path.relative_to(target).as_posix() for path, stamp in scan["nodes"] if stat.S_ISREG(stamp[2])}
                         if expected != observed: raise _error("cleanup_surplus_files")
+                except Cancelled: raise
                 except (WizardError, OSError) as error:
                     if target.parent == build / "projects": retained_projects.add(target.name)
                     if target.parent == root / "source": retained_sources.add(target.name)
@@ -846,13 +1004,17 @@ def plan_session(state_root, session, *, remove_data=False, progress=None):
                  "retired": already_retired,
                  "pointer": pointer, "survivor": max(survivors)[1] if survivors else None,
                  "projects": set().union(*(_tree_projects(tree, build) for tree in private))}
-        _notify(progress, "cleanup-ready", preview["files"], preview["files"], "session")
+        _check_cancel(cancel)
+        _notify(progress, "cleanup-ready", preview["files"], preview["files"], "session",
+                files=preview["files"], bytes=preview["bytes"], eligibleFiles=preview["files"], eligibleBytes=preview["bytes"])
         return _retain(preview, root, proofs, private, session=saved)
 
 
-def plan(state_root, mode="duplicates", progress=None):
+def plan(state_root, mode="duplicates", progress=None, *, cancel=None):
     """Return a confirmation preview; unknown/unproven duplicate data is retained."""
     if mode not in ("duplicates", "build-cache"): raise _error("cleanup_mode")
+    _check_cancel(cancel)
+    _notify(progress, "cleanup-discover", 0, None, "", files=0, bytes=0, folders=0)
     proofs = {}; root, build = _root(state_root, proofs)
     targets = []; skipped = []
     with _guard(root, build):
@@ -863,10 +1025,13 @@ def plan(state_root, mode="duplicates", progress=None):
                     raise WizardError("cleanup_no_completed_build", "Keep the caches until a complete APK and content bank have been built successfully.",
                                       "Die Zwischendaten behalten, bis APK und Inhaltspaket erfolgreich erstellt wurden.") from error
                 targets = [build / name for name in ("cache", "projects", "inputs") if (build / name).is_dir()]
-            else: targets = _duplicates(build, proofs)
+            else: targets = _duplicates(build, proofs, cancel=cancel)
         paths = []; private = []
+        tracker = _ScanProgress(progress, "cleanup-scan", cancel, root=root)
         for target in targets:
-            try: scan = _scan(target, progress)
+            _check_cancel(cancel)
+            try: scan = _scan(target, progress, cancel=cancel, tracker=tracker)
+            except Cancelled: raise
             except (WizardError, OSError) as error:
                 skipped.append({"path": target.relative_to(root).as_posix(), "reason": getattr(error, "code", "unreadable")}); continue
             # Reject surplus files in duplicate snapshots: they are not part of
@@ -881,7 +1046,9 @@ def plan(state_root, mode="duplicates", progress=None):
                  "bytes": sum(row["bytes"] for row in paths), "files": sum(row["files"] for row in paths),
                  "exact": True, "eligible": bool(paths), "skipped": skipped,
                  "consequences": ["full-rebuild-cache-removed"] if mode == "build-cache" else ["canonical-resume-preserved"]}
-        _notify(progress, "cleanup-ready", value["files"], value["files"], mode)
+        _check_cancel(cancel)
+        _notify(progress, "cleanup-ready", value["files"], value["files"], mode,
+                files=value["files"], bytes=value["bytes"], eligibleFiles=value["files"], eligibleBytes=value["bytes"])
         return _retain(value, root, proofs, private)
 
 
@@ -921,8 +1088,9 @@ def _invalidate(root):
     return reset
 
 
-def execute(state_root, preview, progress=None):
+def execute(state_root, preview, progress=None, *, cancel=None):
     """Execute only a retained, unchanged preview under both kernel locks."""
+    _check_cancel(cancel)
     identity = preview.get("id") if isinstance(preview, dict) else preview
     with _plans_lock: saved = _plans.pop(identity, None) if isinstance(identity, str) else None
     if saved is None or time.monotonic() - saved["created"] > PREVIEW_SECONDS: raise _error("cleanup_preview_expired")
@@ -930,7 +1098,9 @@ def execute(state_root, preview, progress=None):
     if root != saved["root"]: raise _error("cleanup_preview_changed")
     public = saved["public"]; deleted = freed = 0; reset = []
     with _guard(root, build):
+        checker = _ScanProgress(progress, "cleanup-check", cancel, root=root)
         for name, proof in saved["proofs"].items():
+            _check_cancel(cancel)
             path = ordinary(name)
             current = _stamp(path)
             if (current[:3] != proof["identity"] if "identity" in proof else current != proof["stamp"]):
@@ -938,35 +1108,55 @@ def execute(state_root, preview, progress=None):
             if proof["sha256"] is not None and hashlib.sha256(path.read_bytes()).hexdigest() != proof["sha256"]:
                 raise _error("cleanup_preview_changed", path.name)
         for tree in saved["trees"]:
-            fresh = _scan(tree["root"], progress, "cleanup-check")
+            fresh = _scan(tree["root"], progress, "cleanup-check", cancel=cancel, tracker=checker)
             if fresh["fingerprint"] != tree["fingerprint"]: raise _error("cleanup_preview_changed", tree["root"].name)
         session = saved.get("session")
         if session is not None:
             if session["archive"].exists() and not session.get("retired"): raise _error("cleanup_session_archive")
-            current = _scan(session["folder"], progress, "cleanup-session-check")
+            current = _scan(session["folder"], progress, "cleanup-check", cancel=cancel, tracker=checker)
             if current["fingerprint"] != session["scan"]["fingerprint"]: raise _error("cleanup_preview_changed")
             for project in session["projects"]:
+                _check_cancel(cancel)
                 if _editor_busy(project): raise _error("cleanup_editor_busy", project.name[:12])
-        for tree in saved["trees"]:
-            for path, stamp in reversed(tree["nodes"]):
-                current = _stamp(path)
-                if stat.S_ISDIR(stamp[2]):
-                    if current[:3] != stamp[:3]: raise _error("cleanup_preview_changed", path.name)
-                    path.rmdir()
-                else:
-                    if current != stamp: raise _error("cleanup_preview_changed", path.name)
-                    path.unlink(); freed += stamp[3]; deleted += 1
-                    if deleted == 1 or deleted % 256 == 0: _notify(progress, "cleanup-delete", deleted, public["files"], path.name)
-        if public["mode"] == "build-cache": reset = _invalidate(root)
-        if session is not None and not session.get("retired"):
-            session["archive"].parent.mkdir(parents=True, exist_ok=True)
-            ordinary(session["archive"].parent)
-            os.replace(session["folder"], session["archive"])
-            if session["pointer"] and session["pointer"].get("session") == public["session"]:
-                if session["survivor"]:
-                    atomic_json(root / "latest-session.json", {"schema": 1, "session": session["survivor"]})
-                else: (root / "latest-session.json").unlink()
-        _notify(progress, "cleanup-complete", deleted, public["files"], public["mode"])
+        from cleanup_io import delete_owned
+        deleting = _ScanProgress(progress, "cleanup-delete", cancel, root=root,
+                                total=sum(len(tree["nodes"]) for tree in saved["trees"]), unit="entries")
+        deleting.steps = 0
+        deleting.report(root, force=True)
+        def repair_progress(value):
+            _notify(progress, value.get("phase", "cleanup-delete-retry"), deleting.steps,
+                    deleting.total, deleting.detail, files=deleted, bytes=freed,
+                    folders=deleting.folders, currentPath=deleting.detail, unit="entries",
+                    elapsedSeconds=time.monotonic() - deleting.started, action=value)
+        try:
+            for tree in saved["trees"]:
+                for path, stamp in reversed(tree["nodes"]):
+                    deleting.report(path.parent)
+                    delete_owned(path, stamp, _stamp, owned_root=root, cancel=cancel, progress=repair_progress)
+                    if stat.S_ISDIR(stamp[2]): deleting.folders += 1
+                    else:
+                        freed += stamp[3]; deleted += 1
+                        deleting.files = deleted; deleting.bytes = freed
+                    deleting.steps += 1; deleting.report(path.parent)
+            _check_cancel(cancel)
+            if public["mode"] == "build-cache": reset = _invalidate(root)
+            if session is not None and not session.get("retired"):
+                session["archive"].parent.mkdir(parents=True, exist_ok=True)
+                ordinary(session["archive"].parent)
+                os.replace(session["folder"], session["archive"])
+                if session["pointer"] and session["pointer"].get("session") == public["session"]:
+                    if session["survivor"]:
+                        atomic_json(root / "latest-session.json", {"schema": 1, "session": session["survivor"]})
+                    else: (root / "latest-session.json").unlink()
+        except (WizardError, OSError) as error:
+            failure = error if isinstance(error, WizardError) else _error("cleanup_io_error", deleting.detail)
+            failure.parameters["result"] = {"freedBytes": freed, "deletedFiles": deleted,
+                    "invalidatedStages": ["inspect", "build"] if public["mode"] == "build-cache" and deleted else [],
+                    "sessionsReset": reset, "sessionsRemoved": []}
+            if failure is error: raise
+            raise failure from error
+        _notify(progress, "cleanup-complete", deleted, public["files"], public["mode"],
+                files=deleted, bytes=freed, folders=deleting.folders, currentPath="")
     return {"freedBytes": freed, "deletedFiles": deleted,
             "invalidatedStages": ["inspect", "build"] if public["mode"] == "build-cache" and deleted else [], "sessionsReset": reset,
             "sessionsRemoved": [public["session"]] if public["mode"] == "session" and not public.get("retired") else []}

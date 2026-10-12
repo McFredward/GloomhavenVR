@@ -14,8 +14,9 @@ STOPPED = frozenset(("ready", "failed", "blocked", "cancelled", "interrupted"))
 
 
 class Ownership:
-    def __init__(self, helper, root, build, cancel=None):
+    def __init__(self, helper, root, build, cancel=None, *, progress=None):
         self.helper, self.root, self.build, self.cancel = helper, root, build, cancel
+        self.progress = progress
         self.claims = {}; self.rows = {}; self.potential = {}; self.blocked = set()
         self.retained = set(); self.warnings = []; self.complete = True; self.expected_files = {}; self.project_groups = {}
         self.exclusive_bytes = self.shared_bytes = self.unassigned_bytes = 0
@@ -23,7 +24,13 @@ class Ownership:
         self._build()
 
     def check_cancel(self):
-        if self.cancel is not None and self.cancel.is_set(): raise Cancelled()
+        self.helper._check_cancel(self.cancel)
+
+    def report(self, path):
+        self.check_cancel()
+        self.helper._notify(self.progress, "storage-ownership", len(self.rows), None,
+                            path.relative_to(self.root).as_posix(), files=0, bytes=0, folders=0,
+                            currentPath=path.relative_to(self.root).as_posix())
 
     def warn(self, code, path):
         self.complete = False
@@ -50,19 +57,23 @@ class Ownership:
 
     def _build(self):
         h = self.helper; proofs = {}; scopes = {}
-        try: manifests = h._manifests(self.build, proofs)
+        self.report(self.build / "manifests")
+        try: manifests = h._manifests(self.build, proofs, cancel=self.cancel)
+        except Cancelled: raise
         except (WizardError, OSError, ValueError, TypeError, KeyError):
             manifests = []; self.warn("unreadable_manifests", self.build / "manifests")
         # A retirement archives the same state and receipts. It never becomes a
         # resumable normal run again, but its remaining large caches stay visible.
         for parent, retired in ((self.root / "sessions", False), (self.root / "logs/removed-runs", True)):
             try: folders = self._folders(parent)
+            except Cancelled: raise
             except (WizardError, OSError): self.warn("unreadable_runs", parent); continue
             for folder in folders:
-                self.check_cancel()
+                self.report(folder)
                 try:
                     value = h._session(folder, proofs)
-                    scope = h._session_scope(self.root, self.build, folder, value, manifests, proofs)
+                    scope = h._session_scope(self.root, self.build, folder, value, manifests, proofs, cancel=self.cancel)
+                except Cancelled: raise
                 except (WizardError, OSError, ValueError, TypeError, KeyError):
                     self.warn("unreadable_run_owner", folder); continue
                 if folder.name in self.rows:
@@ -77,8 +88,9 @@ class Ownership:
                 self.rows[folder.name] = row; scopes[folder.name] = scope
                 self.claim(folder, folder.name)
                 try:
-                    for target in h._source_targets(self.root, folder, folder.name, proofs, []):
+                    for target in h._source_targets(self.root, folder, folder.name, proofs, [], cancel=self.cancel):
                         self.claim(target, folder.name, intermediate=True, reclaimable=True)
+                except Cancelled: raise
                 except (WizardError, OSError, ValueError, TypeError, KeyError):
                     self.warn("unreadable_source_owner", folder); row["complete"] = False
                 for reference in h._references(self.root, self.build, scope["references"] | scope["sources"]):
@@ -87,12 +99,14 @@ class Ownership:
                 # depends on. An exact selected manifest additionally qualifies
                 # its producer roots as possible cleanup candidates.
                 for game_key in scope["games"]:
+                    self.check_cancel()
                     self.claim(self.build / "inputs/game" / game_key, folder.name, intermediate=True)
                     key = h._project_key({"target": "game", "game": {"key": game_key, "unityVersion": "2021.3.5f1"}})
                     self.claim(self.build / "projects" / key, folder.name, intermediate=True)
                     for area in PROJECT_AREAS:
                         self.claim(self.build / "cache" / area / key, folder.name, intermediate=True)
                 for manifest in scope["manifests"]:
+                    self.check_cancel()
                     for kind, area in (("game", "game"), ("mod", "mod"), ("probeAssets", "probe"), ("startupProject", "startup")):
                         member = manifest.get(kind)
                         if not isinstance(member, dict) or not h._key(member.get("key")): continue
@@ -100,10 +114,11 @@ class Ownership:
                         candidate = False
                         if path.is_dir():
                             try:
-                                captured, _ = h._snapshot(path, proofs, verify_files=False)
+                                captured, _ = h._snapshot(path, proofs, verify_files=False, cancel=self.cancel)
                                 candidate = captured["files"] == member.get("files")
                                 if candidate:
                                     self.expected_files[path] = {item["path"] for item in captured["files"]} | {".snapshot.json"}
+                            except Cancelled: raise
                             except (WizardError, OSError, ValueError, TypeError, KeyError): pass
                         self.claim(path, folder.name, intermediate=True, reclaimable=candidate)
                     key = h._project_key(manifest)
@@ -126,7 +141,8 @@ class Ownership:
                         self.claim(related, folder.name, intermediate=True, reclaimable=candidate)
                     self.project_groups[project] = group
         try:
-            raw_owners = h._raw_owners(self.build, manifests, proofs, verify_files=False)
+            self.report(self.build / "cache")
+            raw_owners = h._raw_owners(self.build, manifests, proofs, verify_files=False, cancel=self.cancel)
             staged = {}
             for candidate in h._children(self.build / "cache/recovery"):
                 self.check_cancel()
@@ -142,6 +158,7 @@ class Ownership:
                     if game_key in scope["games"]:
                         self.claim(path, session, intermediate=True, reclaimable=True)
             self.retained = h._delivered_references(self.root, self.build, proofs)
+        except Cancelled: raise
         except (WizardError, OSError, ValueError, TypeError, KeyError):
             self.warn("unreadable_shared_owner", self.build)
             # Unreadable dependency information must not advertise deletion.
