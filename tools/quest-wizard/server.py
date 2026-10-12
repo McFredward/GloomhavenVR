@@ -669,19 +669,19 @@ class Handler(BaseHTTPRequestHandler):
                 return self.server.manage_storage(plan_id=value["planId"])
             if parsed.path == "/api/plan":
                 if set(value) - {"choices", "session"}: raise WizardError("request_body", "Unsupported plan fields.")
-                selected_choices = choices(value["choices"])
-                state = self.server.store.amend(value["session"], selected_choices) if value.get("session") else self.server.store.create(selected_choices)
+                state = Engine(self.server.store).plan(value["choices"], session=value.get("session"))
                 return {"schema": 1, "event": "planned", "session": state["session"], "state": state}
             if parsed.path == "/api/qualify":
                 if set(value) - {"gameRoot", "mode", "baseApk"} or "gameRoot" not in value: raise WizardError("request_body", "Expected the owned game path and optional update mode.")
-                selected_choices = choices({"gameRoot": value["gameRoot"]})
                 from qualification import qualify
                 mode = value.get("mode", "build")
                 if mode not in ("build", "update-mod", "update-profile"): raise WizardError("invalid_choices", "Unsupported update mode.")
                 if "baseApk" in value and (not isinstance(value["baseApk"], str) or "\0" in value["baseApk"] or len(value["baseApk"]) > 32768):
                     raise WizardError("request_body", "Invalid local APK or package path.")
+                selected_choices = choices({"gameRoot": value["gameRoot"], "mode": mode,
+                    **({"baseApk": value["baseApk"]} if "baseApk" in value else {})}, store=self.server.store)
                 return qualify(self.server.store.root, game_root=selected_choices["gameRoot"], repo=REPO, mode=mode,
-                               base_apk=value.get("baseApk") or None)
+                               base_apk=selected_choices.get("baseApk") or None)
             if parsed.path == "/api/browse":
                 if set(value) != {"kind"}: raise WizardError("request_body", "Unsupported browse fields.")
                 with self.server.browse_lock: path = browse(value["kind"])

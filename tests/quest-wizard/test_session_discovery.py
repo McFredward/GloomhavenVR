@@ -262,7 +262,7 @@ class DefaultApkDiscoveryTests(unittest.TestCase):
     def test_nonregular_or_oversized_metadata_is_rejected_before_opening(self):
         _, _, _ = self.completed()
         pointer = self.build / 'latest-build.json'
-        pointer.write_text('x' * 65537)
+        pointer.write_text('x' * (2 * 1048576 + 1))
         self.assertIsNone(discovery.default_apk(self.store))
         pointer.unlink()
         pointer.mkdir()

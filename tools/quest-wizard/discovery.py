@@ -195,9 +195,38 @@ def default_apk(store):
         if (receipt.get("stage") != "build" or receipt.get("key") != Path(receipt_name).stem
                 or not isinstance(actual, dict) or actual.get("isDiagnostic") is not False
                 or actual.get("package") != "dev.gloomhavenvr.quest"
-                or not re.fullmatch(r"[0-9a-f]{64}", str(actual.get("inputKey", "")))
                 or not re.fullmatch(r"[0-9a-f]{64}", str(actual.get("apkSha256", "")))
                 or (details is not None and details != actual)):
+            return None
+        # Earlier complete game builds retain input identity in buildReport
+        # and runtime provenance, whereas current builds/updates expose it at
+        # the top level too. Real closed receipts contain hundreds of KiB of
+        # shader provenance: a 64-KiB pointer cap and top-level-only identity
+        # silently hid valid .ghvrq outputs. Read only bounded JSON metadata,
+        # require every recorded identity to agree, and leave payload/signature
+        # qualification to the update's owned-PC preflight.
+        report = actual.get("buildReport")
+        if report is not None and (not isinstance(report, dict) or report.get("schema") != 1
+                or report.get("package") != actual["package"] or report.get("target") != "game"
+                or report.get("buildResult") != "Succeeded"):
+            return None
+        identities = [actual]
+        if report is not None: identities.append(report)
+        for owner in (actual, report or {}):
+            provenance = owner.get("buildProvenance")
+            if provenance is not None:
+                if not isinstance(provenance, dict) or not isinstance(provenance.get("runtime"), dict): return None
+                identities.append(provenance["runtime"])
+        contract = actual.get("installationContract")
+        if contract is not None:
+            if not isinstance(contract, dict): return None
+            identities.append(contract)
+        input_keys = [owner["inputKey"] for owner in identities if "inputKey" in owner]
+        if (not input_keys or any(not isinstance(key, str) or not re.fullmatch(r"[0-9a-f]{64}", key) for key in input_keys)
+                or len(set(input_keys)) != 1):
+            return None
+        builds = [owner["modBuild"] for owner in identities if "modBuild" in owner]
+        if any(type(build) is not int or not 1 <= build <= 65535 for build in builds) or len(set(builds)) > 1:
             return None
         outputs = receipt.get("outputs")
         if not isinstance(outputs, list): return None
@@ -212,10 +241,10 @@ def default_apk(store):
         if (not stat.S_ISREG(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400
                 or info.st_size != row["size"]):
             return None
-        return {"path": str(path), "modBuild": actual.get("modBuild"), "source": source}
+        return {"path": str(path), "modBuild": builds[0] if builds else None, "source": source}
 
     try:
-        latest = metadata(root / "latest-build.json", limit=65536)
+        latest = metadata(root / "latest-build.json")
         details = latest.get("details")
         if isinstance(details, dict):
             selected = completed(latest.get("apk"), latest.get("receipt"), "latest-build", details)

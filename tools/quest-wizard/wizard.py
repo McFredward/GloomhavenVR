@@ -23,7 +23,7 @@ from state import (Cancelled, STAGES, Store, WizardError, atomic_json, digest,
 REPO = Path(__file__).resolve().parents[2]
 
 
-def choices(value):
+def choices(value, *, store=None):
     allowed = {"gameRoot", "provider", "sourceRoot", "sourceCommit", "sourceRef", "unityEditor", "unityHub", "steamRoot", "steamId",
                "profile", "profileName", "ownedDlc", "steamLogo", "install", "acceptUnityTerms", "language", "mode", "baseApk", "signingRoot", "signingMode"}
     if not isinstance(value, dict) or set(value) - allowed:
@@ -38,8 +38,18 @@ def choices(value):
         raise WizardError("invalid_choices", "Unsupported signing mode.")
     if result["mode"] not in ("build", "update-mod", "update-profile"):
         raise WizardError("invalid_choices", "Unsupported update mode.")
-    if result["mode"] != "build" and (not isinstance(result.get("baseApk"), str) or not result["baseApk"].strip()):
-        raise WizardError("base_apk_required", "Select the existing Quest APK or ZIP package.", "Bitte die vorhandene Quest-APK oder das ZIP-Paket auswählen.")
+    if result["mode"] != "build":
+        base = result.get("baseApk")
+        if "baseApk" in result and not isinstance(base, str):
+            raise WizardError("invalid_path", "Invalid selected APK or package path.")
+        if base is None or not base.strip():
+            selected = discovery.default_apk(store) if store is not None else None
+            if selected is None:
+                raise WizardError("base_apk_required", "No completed Quest APK is available in this workspace. Select an existing APK or ZIP package.",
+                                  "Im Arbeitsordner ist keine fertige Quest-APK vorhanden. Bitte eine vorhandene APK oder ein ZIP-Paket auswählen.")
+            # Freeze this exact completed source in the session. Restarting a
+            # run must not silently switch it to a later workspace output.
+            result["baseApk"] = selected["path"]
     if result["provider"] not in ("steam", "gog", "epic") or result["language"] not in ("en", "de"):
         raise WizardError("invalid_choices", "Unsupported provider or language.")
     if any(type(result[name]) is not bool for name in ("install", "acceptUnityTerms")):
@@ -74,6 +84,11 @@ def choices(value):
 class Engine:
     def __init__(self, store, repo=REPO, *, actions=None, supervisor_factory=Supervisor, emit=lambda value: None):
         self.store, self.repo, self.actions, self.supervisor_factory, self.emit = store, Path(repo), actions or {}, supervisor_factory, emit
+
+    def plan(self, value, *, session=None):
+        """Resolve omitted update inputs before any supervised work starts."""
+        selected = choices(value, store=self.store)
+        return self.store.amend(session, selected) if session else self.store.create(selected)
 
     def key(self, state, stage):
         before = STAGES[:STAGES.index(stage)]
@@ -813,8 +828,7 @@ def main(argv=None):
             from server import serve
             serve(store, args.ui_root, port=args.port, open_browser=args.open_browser); return 0
         elif args.command == "plan":
-            selected = choices(json.loads(args.choices_file.read_text(encoding="utf-8-sig")))
-            state = store.amend(args.session, selected) if args.session else store.create(selected)
+            state = Engine(store).plan(json.loads(args.choices_file.read_text(encoding="utf-8-sig")), session=args.session)
             result = {"schema": 1, "event": "planned", "session": state["session"], "state": state}
         elif args.command == "discover": result = discovery.discover(REPO, store)
         elif args.command == "cancel":
