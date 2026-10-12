@@ -131,7 +131,7 @@ def unity_paths(workspace=None):
     return editors, hubs
 
 
-def recent_sessions(store):
+def recent_sessions(store, *, limit=8):
     """Offer only readable owner session IDs; a stale latest pointer is optional.
 
     Discovery never resumes work or reconciles a running process. Loading the
@@ -164,7 +164,7 @@ def recent_sessions(store):
     except (OSError, ValueError, WizardError):
         pass
     if latest is None and recent: latest = recent[0]["session"]
-    visible = recent[:8]
+    visible = recent if limit is None else recent[:limit]
     if latest is not None and not any(row["session"] == latest for row in visible):
         visible[-1] = next(row for row in recent if row["session"] == latest)
     return visible, latest

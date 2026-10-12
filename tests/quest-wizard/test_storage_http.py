@@ -119,13 +119,16 @@ class StorageHttpTests(unittest.TestCase):
             if not cancel.wait(3): raise AssertionError('Cleanup did not pause its metadata scanner')
             stopped.set(); raise Cancelled()
         self.helper.inventory = inventory
+        self.helper.has_completed_build = lambda root: True
         self.release.set()
         self.assertEqual(self.request('/api/storage/inventory', {})[0], 200)
         self.assertTrue(scanning.wait(2))
+        self.assertTrue(self.request('/api/storage')[1]['canDeleteBuildCache'])
         self.assertEqual(self.request('/api/storage/plan', {'mode': 'duplicates'})[0], 200)
         value = self.wait_status('preview')
         self.assertTrue(stopped.is_set()); self.assertFalse(self.http.inventory_job.is_alive())
         self.assertEqual(value['inventory']['status'], 'paused')
+        self.assertTrue(value['canDeleteBuildCache'])
         self.assertEqual(self.request('/api/storage/clean', {'planId': self.plan['id']})[0], 200)
         self.assertEqual(self.wait_status('complete')['state']['result']['deletedFiles'], 2)
         logs = (self.store.root / 'logs/storage-cleanup.log').read_text()

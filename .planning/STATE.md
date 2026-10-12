@@ -1,5 +1,25 @@
 # State — where the project stands
 
+**Quest explicit stopped-run removal, 2026-10-12.**
+
+The maintainer's empty cleanup result refers to the duplicate-only selector:
+ordinary resumable work is deliberately not an inferred duplicate. Add an
+explicit stopped-run choice, optional removal of its exclusively owned build
+intermediates, and a retained confirmation preview. Small run diagnostics remain
+archived outside the sessions directory; discovery and restart cannot select a
+removed run. Shared or unproven data, completed APK/content banks, signing keys,
+downloaded tools and original PC files remain protected. No finished APK is
+required to discard an unsuccessful run.
+
+The storage view lists all readable inactive sessions on demand, rather than
+only discovery's eight recent items. The Store's kernel-lock rules reconcile
+abandoned running banners; a saved status never authorizes deleting a live run.
+The completed-build cache option becomes available from bounded delivery
+metadata immediately, without waiting for the large disk-usage scan to finish.
+Focused host/browser and extracted archive checks are recorded beside the
+handoff. Runtime remains671; no new game APK or Windows hardware acceptance is
+implied by this Builder change.
+
 **Quest storage cleanup after stopped runs, 2026-10-12.**
 
 Capture130723 identifies the delivered8692bd51a Builder, completed665 APK and

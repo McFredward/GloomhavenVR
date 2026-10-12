@@ -269,6 +269,27 @@ class LocalServer(ThreadingHTTPServer):
                 "workspaceRoot": str(self.store.root), "freeBytes": shutil.disk_usage(self.store.root).free,
                 "inventory": inventory, "canDeleteBuildCache": bool(inventory.get("canDeleteBuildCache"))}
 
+    def stopped_runs(self):
+        """List owned inactive runs on demand, without walking asset caches.
+
+        A console crash can leave a persisted running banner. Only the Store's
+        ordinary kernel-lock reconciliation may mark that run interrupted; a
+        saved status or PID is never authority to stop a real active builder.
+        """
+        recent, latest = discovery.recent_sessions(self.store, limit=None)
+        allowed = {"ready", "blocked", "failed", "cancelled", "interrupted"}
+        stopped = []
+        for row in recent:
+            if row["status"] == "running":
+                try:
+                    value = self.store.load(row["session"])
+                    row = {**row, "status": value["status"]}
+                except (OSError, ValueError, WizardError):
+                    continue
+            if row["status"] in allowed:
+                stopped.append(row)
+        return {"schema": 1, "event": "runs", "runs": stopped, "latestSession": latest}
+
     def refresh_inventory(self):
         """Measure file metadata once on request; status polling never walks caches."""
         import cleanup
@@ -277,8 +298,14 @@ class LocalServer(ThreadingHTTPServer):
             if self.storage_job and self.storage_job.is_alive():
                 raise WizardError("already_running", "Wait for storage cleanup to finish.",
                                   "Die Speicherbereinigung zuerst abschließen lassen.")
+            # This small retained-delivery qualification must not wait behind
+            # a potentially huge cache inventory. In particular, pausing that
+            # scan for a duplicate preview must not hide cache reclamation.
+            qualify_cache = getattr(cleanup, "has_completed_build", None)
+            can_delete_cache = bool(qualify_cache(self.store.root)) if callable(qualify_cache) else False
             with self.storage_lock:
-                self.inventory_state = {"status": "scanning", "done": 0, "total": None}
+                self.inventory_state = {"status": "scanning", "done": 0, "total": None,
+                                        "canDeleteBuildCache": can_delete_cache}
             self.inventory_stop.clear()
             def progress(value):
                 with self.storage_lock: self.inventory_state.update(value)
@@ -434,7 +461,7 @@ class LocalServer(ThreadingHTTPServer):
         try: self.request_failure(error)
         except (OSError, ImportError, RuntimeError, ValueError): pass
 
-    def manage_storage(self, *, mode=None, plan_id=None):
+    def manage_storage(self, *, mode=None, session=None, remove_data=False, plan_id=None):
         """Keep previews and deletions responsive and separate from active builds."""
         import cleanup
         with self.jobs_lock:
@@ -456,8 +483,12 @@ class LocalServer(ThreadingHTTPServer):
                     raise error
                 selected = self.storage_plan
             else:
-                if mode not in ("duplicates", "build-cache"):
+                if mode not in ("duplicates", "build-cache", "session"):
                     raise WizardError("cleanup_mode", "Unsupported cleanup selection.", "Ungültige Auswahl für die Bereinigung.")
+                if mode == "session":
+                    # Reconcile an abandoned console using the same Store
+                    # ownership rules before the preview worker takes its lock.
+                    self.store.load(session)
                 self.storage_plan = None
                 selected = None
             inventory = self.inventory_job if self.inventory_job and self.inventory_job.is_alive() else None
@@ -476,7 +507,8 @@ class LocalServer(ThreadingHTTPServer):
             def work():
                 try:
                     self.storage_log("started", mode=selected["mode"] if deleting else mode, operationId=operation_id,
-                                     action="delete" if deleting else "preview", backgroundInventoryPaused=inventory is not None)
+                                     action="delete" if deleting else "preview", backgroundInventoryPaused=inventory is not None,
+                                     **({"session": session, "removeData": remove_data} if mode == "session" else {}))
                     if inventory:
                         # This join owns only the cooperative metadata scanner;
                         # no build/device process is cancelled or force-killed.
@@ -486,13 +518,18 @@ class LocalServer(ThreadingHTTPServer):
                         self.storage_log("inventory-paused", mode=selected["mode"] if deleting else mode)
                     if deleting:
                         result = cleanup.execute(self.store.root, selected, progress=progress)
+                        with self.jobs_lock:
+                            for removed in result.get("sessionsRemoved", []):
+                                self.jobs.pop(removed, None)
+                                self.job_errors.pop(removed, None)
                         self.storage_log("completed", mode=selected["mode"], **result)
                         with self.storage_lock:
                             self.storage_plan = None
                             self.storage_state = {"status": "complete", "result": result, "operationId": operation_id}
                             self.inventory_state = {"status": "idle"}
                     else:
-                        planned = cleanup.plan(self.store.root, mode, progress=progress)
+                        planned = (cleanup.plan_session(self.store.root, session, remove_data=remove_data, progress=progress)
+                                   if mode == "session" else cleanup.plan(self.store.root, mode, progress=progress))
                         self.storage_log("preview", mode=mode, paths=planned["paths"], bytes=planned["bytes"], files=planned["files"])
                         with self.storage_lock:
                             self.storage_plan = planned
@@ -618,6 +655,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.command == "GET":
             if parsed.path == "/api/package/status": return self.server.package_status()
             if parsed.path == "/api/storage": return self.server.storage_status()
+            if parsed.path == "/api/storage/runs":
+                if query: raise WizardError("request_query", "Unexpected stopped-run query fields.")
+                return self.server.stopped_runs()
             if parsed.path == "/api/device/status": return self.server.device_status()
             if parsed.path == "/api/device/capture":
                 identifier = selected("id")
@@ -626,7 +666,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.server.device_capture(identifier)
             if parsed.path == "/api/discover":
                 result = dict(self.server.discover(REPO, self.server.store))
-                result["capabilities"] = {**result.get("capabilities", {}), "deviceTools": True, "storageInventory": True, "portablePackages": True}
+                result["capabilities"] = {**result.get("capabilities", {}), "deviceTools": True, "storageInventory": True, "portablePackages": True, "runRemoval": True}
                 return result
             if parsed.path == '/api/gallery':
                 return {'schema': 1, 'event': 'gallery', 'artwork': self.server.promo.visible() if self.server.promo else []}
@@ -708,6 +748,14 @@ class Handler(BaseHTTPRequestHandler):
                 if value: raise WizardError("request_body", "Unexpected storage inventory fields.")
                 return self.server.refresh_inventory()
             if parsed.path == "/api/storage/plan":
+                if value.get("mode") == "session":
+                    if (set(value) != {"mode", "session", "removeData"}
+                            or not isinstance(value["session"], str)
+                            or not re.fullmatch(r"[0-9a-f]{32}", value["session"])
+                            or type(value["removeData"]) is not bool):
+                        raise WizardError("request_body", "Expected a stopped run and an explicit intermediate-data cleanup choice.",
+                                          "Einen angehaltenen Run und eine ausdrückliche Auswahl zur Bereinigung seiner Zwischendaten angeben.")
+                    return self.server.manage_storage(mode="session", session=value["session"], remove_data=value["removeData"])
                 if set(value) != {"mode"}: raise WizardError("request_body", "Expected a cleanup selection.")
                 return self.server.manage_storage(mode=value["mode"])
             if parsed.path == "/api/storage/clean":

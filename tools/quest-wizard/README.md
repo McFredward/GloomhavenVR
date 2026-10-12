@@ -109,6 +109,25 @@ The full-build safety reserve and real native compilation admission remain intac
 Support exports prioritize the bounded cleanup/request logs ahead of historical
 Unity logs, so a disk-capacity stop cannot hide the separate reclamation failure.
 
+Duplicate-only cleanup never treats an abandoned build as disposable. The
+stopped-run selector offers an explicit choice to discard its restart state,
+optionally including its exclusively owned intermediate data. Both choices
+create a retained preview and require confirmation before any change. Small
+diagnostic records are retired under `logs/removed-runs/`; they are not claimed
+as freed bytes and never appear in discovery's resumable sessions. Dependencies
+referenced by other runs and completed APK/content-bank locators remain retained.
+Unproven or protected candidates are listed with their retention reasons.
+
+Authenticated GET `/api/storage/runs` lists readable inactive owner runs on
+demand without inspecting asset contents. POST `/api/storage/plan` accepts
+`{mode: "session", session: ID, removeData: BOOLEAN}` with an explicit cleanup
+choice; the existing `/api/storage/clean` accepts only its retained preview ID.
+Successful removal returns `sessionsRemoved`, so the browser can retire its
+selected run and refresh restart/default selection without opening another run.
+Kernel ownership still excludes real active work; stale running banners are
+reconciled through the Store before selecting a stopped run. Metadata-only run
+removal can be confirmed even when there are no intermediate files to reclaim.
+
 Completed steps are reused only after their output size and SHA256 match the
 saved receipt and their input/dependency key matches. Installation failures can
 retry independently of an already verified APK. A changed profile does not
