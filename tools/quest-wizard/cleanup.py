@@ -1,9 +1,11 @@
-"""Preview and explicitly reclaim owned duplicate exports or completed build caches.
+"""Preview finite owned intermediates; explicitly retire stopped Wizard runs.
 
 Only metadata and small ownership receipts are read. APK/content bytes are never
-rehashed to offer cleanup, and nothing outside the wizard-owned build root is
-eligible. A preview is bound in memory to its exact tree identities; restarting
-the wizard requires another preview rather than accepting paths from a client.
+rehashed to offer cleanup. Eligible intermediate/source paths stay inside the
+Wizard-owned workspace. Run retirement is a separate confirmed choice retaining
+small diagnostics and optionally deleting only its exclusive intermediates. A
+preview binds exact tree identities in memory; restarting requires a new preview
+rather than accepting paths from a client.
 """
 from __future__ import annotations
 
@@ -21,7 +23,7 @@ import stat
 import threading
 import time
 
-from state import Cancelled, WizardError, atomic_json, canonical, file_lock, ordinary, stage_progress, value_hash
+from state import Cancelled, STAGES, WizardError, atomic_json, canonical, file_lock, ordinary, stage_progress, value_hash
 
 HEX = re.compile(r"[0-9a-f]{64}\Z")
 SESSION = re.compile(r"[0-9a-f]{32}\Z")
@@ -31,6 +33,8 @@ PREVIEW_SECONDS = 1800
 _plans = {}
 _plans_lock = threading.RLock()
 _storage = None
+_access = None
+_profile = None
 INVENTORY_CATEGORIES = ("inputs", "converted-assets", "unity-projects", "unity-caches", "tools",
                         "apk-content", "signing-backups", "logs-captures", "other")
 
@@ -357,8 +361,12 @@ def _notify(progress, phase, done, total, detail):
 
 def _scan(folder, progress=None, phase="cleanup-scan"):
     nodes = []; total = count = 0
+    for ancestor in (folder, *folder.parents):
+        pin = ancestor / ".keep"
+        if pin.exists() or pin.is_symlink(): raise _error("cleanup_pinned", ".keep")
     def visit(path):
         nonlocal total, count
+        if path.name == ".keep": raise _error("cleanup_pinned", path.name)
         stamp = _stamp(path); nodes.append((path, stamp))
         if stat.S_ISDIR(stamp[2]):
             for child in sorted(path.iterdir(), key=lambda item: item.name): visit(child)
@@ -371,6 +379,392 @@ def _scan(folder, progress=None, phase="cleanup-scan"):
     visit(folder)
     fingerprint = value_hash([{"path": path.relative_to(folder).as_posix(), "stamp": stamp} for path, stamp in nodes])
     return {"bytes": total, "files": count, "fingerprint": fingerprint, "nodes": nodes}
+
+
+def _retain(value, root, proofs, private, **extra):
+    with _plans_lock:
+        now = time.monotonic()
+        for identity in list(_plans):
+            if now - _plans[identity]["created"] > PREVIEW_SECONDS or _plans[identity]["root"] == root:
+                _plans.pop(identity)
+        _plans[value["id"]] = {"created": now, "root": root, "proofs": copy.deepcopy(proofs),
+                                "trees": private, "public": copy.deepcopy(value), **extra}
+    return value
+
+
+def _session(folder, proofs):
+    value = _read(folder / "state.json", proofs)
+    if (value.get("schema") != 1 or value.get("session") != folder.name
+            or not isinstance(value.get("stages"), list) or not isinstance(value.get("choices"), dict)
+            or [row.get("id") if isinstance(row, dict) else None for row in value["stages"]] != list(STAGES)):
+        raise _error("cleanup_session")
+    return value
+
+
+def _key(value):
+    return isinstance(value, str) and HEX.fullmatch(value) is not None
+
+
+def _same_identity(captured, manifest_profile):
+    global _profile
+    if not isinstance(captured, dict) or not isinstance(manifest_profile, dict): return False
+    if _profile is None:
+        path = Path(__file__).resolve().parent.parent / "quest-builder/profile.py"
+        spec = importlib.util.spec_from_file_location("quest_cleanup_profile", path)
+        _profile = importlib.util.module_from_spec(spec); spec.loader.exec_module(_profile)
+    fields = ("schema", "provider", "providerId", "steamId", "accountId", "displayName")
+    # load_profile revalidates the Wizard's identity: Steam capture's source
+    # annotation becomes explicit-local-profile, and logo/DLC are added later.
+    # Use that actual identity normalizer, never compare provenance annotations
+    # or silently drop differences in the full provider/account identity.
+    if captured.get("isDummy") is True or manifest_profile.get("isDummy") is True:
+        return (captured.get("isDummy") is True and manifest_profile.get("isDummy") is True
+                and all(captured.get(name) == manifest_profile.get(name) for name in fields))
+    try:
+        return _profile.validate_identity({name: captured[name] for name in fields if name in captured}) == _profile.validate_identity(
+            {name: manifest_profile[name] for name in fields if name in manifest_profile})
+    except (ValueError, TypeError, KeyError): return False
+
+
+def _session_scope(root, build, folder, value, manifests, proofs):
+    """Read actual stage owners, including the full-update fallback's inputs.
+
+    Full migration publishes a new manifest but inspect retains the old APK's
+    inputKey. Bind that fallback only to the captured exact source inventory,
+    profile fields and the game inventory observed by capacity qualification.
+    Paths in progress text and the mutable global latest-input pointer are not
+    per-run owners and must never authorize cleanup.
+    """
+    inputs = set(); games = set(); sources = set(); references = set()
+    def observe(item):
+        if isinstance(item, dict):
+            for name, member in item.items():
+                if name in ("inputKey", "gameInputKey") and _key(member): inputs.add(member)
+                if name in ("gameKey", "cacheGameKey") and _key(member): games.add(member)
+                if name == "sourceRoot" and isinstance(member, str): sources.add(member)
+                if name in ("path", "sourcePackage", "apk", "bank", "profilePath") and isinstance(member, str):
+                    references.add(member)
+                observe(member)
+        elif isinstance(item, list):
+            for member in item: observe(member)
+    observe(value.get("completed", {})); observe(value.get("qualification", {}))
+    for row in value["stages"]:
+        observe(row.get("details", {}))
+        receipt = folder / "receipts" / (str(row.get("id")) + ".json")
+        if receipt.is_file():
+            captured = _read(receipt, proofs)
+            if (captured.get("schema") != 1 or captured.get("stage") != row.get("id")
+                    or not _key(captured.get("key"))): raise _error("cleanup_receipt")
+            observe(captured)
+            for output in captured.get("outputs", []):
+                name = output.get("path") if isinstance(output, dict) else None
+                if isinstance(name, str) and re.fullmatch(r"build/manifests/[0-9a-f]{64}\.json", name):
+                    inputs.add(Path(name).stem)
+                if isinstance(name, str) and re.fullmatch(r"build/updates/[0-9a-f]{64}/plan\.json", name):
+                    plan = _read(root / name, proofs)
+                    if plan.get("schema") != 1 or plan.get("updateKey") != Path(name).parent.name:
+                        raise _error("cleanup_receipt")
+                    observe(plan)
+    source = next((row.get("details", {}) for row in value["stages"] if row.get("id") == "source"), {})
+    source_hash = source.get("sourceHash")
+    profile_path = folder / "profile.json"
+    profile = _read(profile_path, proofs) if profile_path.is_file() else None
+    selected = []
+    for manifest in manifests:
+        fallback = (value["choices"].get("mode") == "update-mod" and _key(source_hash)
+                    and value_hash(manifest["mod"]["files"]) == source_hash
+                    and _same_identity(profile, manifest.get("profile"))
+                    and manifest["game"]["key"] in games)
+        if manifest["inputKey"] in inputs or fallback:
+            selected.append(manifest); inputs.add(manifest["inputKey"]); games.add(manifest["game"]["key"])
+    return {"inputs": inputs, "games": games, "sources": sources, "references": references, "manifests": selected}
+
+
+def _project_key(manifest):
+    # Exact stable ownership contract in import_workspace.workspace_key. No
+    # editor, recovery recipe normalization or game payload is needed here.
+    if manifest.get("target") == "game" and manifest["game"].get("unityVersion") == "2021.3.5f1":
+        return value_hash({"schema": 1, "purpose": "Quest owned original-asset workspace",
+                           "gameKey": manifest["game"]["key"], "unityVersion": "2021.3.5f1",
+                           "scope": "game", "import": {"schema": 1, "target": "Android",
+                           "graphicsApi": "Vulkan", "colorSpace": "Linear"}})
+    if type(manifest.get("recipe")) is int:
+        return value_hash({"input": manifest["inputKey"], "recipe": manifest["recipe"]})
+    return None
+
+
+def _editor_busy(project):
+    global _access
+    if _access is None:
+        # Load the standard-library guard with its exact storage dependency;
+        # do not pollute global loader aliases used by another Wizard thread.
+        path = Path(__file__).resolve().parent.parent / "quest-builder/project_access.py"
+        import builtins
+        module = type(_helper())("quest_cleanup_project_access")
+        def local_import(name, globals=None, locals=None, fromlist=(), level=0):
+            if name == "storage" and level == 0: return _helper()
+            return builtins.__import__(name, globals, locals, fromlist, level)
+        module.__dict__["__builtins__"] = {**vars(builtins), "__import__": local_import}
+        exec(compile(path.read_text(encoding="utf-8"), str(path), "exec"), module.__dict__)
+        _access = module
+    return _access.editor_busy(project)
+
+
+def _references(root, build, values):
+    result = set()
+    for value in values:
+        try:
+            path = Path(value)
+            if not path.is_absolute():
+                relative = _relative(value)
+                path = root / relative if relative.parts[0] in ("build", "source", "sessions", "exports") else build / relative
+            path = ordinary(path)
+            if path == root or root in path.parents: result.add(path)
+        except (WizardError, OSError, ValueError): continue
+    return result
+
+
+def _delivered_references(root, build, proofs):
+    values = []
+    def visit(item):
+        if isinstance(item, dict):
+            for name, value in item.items():
+                if name in ("path", "apk", "sourcePackage", "bank") and isinstance(value, str): values.append(value)
+                visit(value)
+        elif isinstance(item, list):
+            for value in item: visit(value)
+    for name in ("latest-build.json", "latest-update.json"):
+        if (build / name).is_file(): visit(_read(build / name, proofs))
+    for path in _children_files(build / "receipts/build"):
+        value = _read(path, proofs)
+        if value.get("schema") != 1 or value.get("stage") != "build" or value.get("key") != path.stem:
+            raise _error("cleanup_receipt")
+        visit(value)
+    return _references(root, build, values)
+
+
+def _source_targets(root, folder, session, proofs, skipped):
+    targets = []
+    parent = root / "source"
+    if not parent.is_dir(): return targets
+    _stamp(parent)
+    for candidate in parent.iterdir():
+        if not candidate.is_dir(): continue
+        owned = False; matched = candidate.name == session or re.fullmatch(re.escape(session) + r"-[0-9a-f]{16}", candidate.name)
+        if not matched: continue
+        try:
+            if candidate.name == session:
+                owner = _read(folder / "source-attempt.json", proofs)
+                if owner.get("schema") == 1 and owner.get("session") == session and isinstance(owner.get("origin"), str):
+                    targets.append(candidate); owned = True
+            else:
+                owner_path = candidate.with_name(candidate.name + ".owner.json")
+                owner = _read(owner_path, proofs)
+                if (owner.get("schema") == 1 and owner.get("session") == session and _key(owner.get("releaseHash"))
+                        and candidate.name.endswith(owner["releaseHash"][:16])
+                        and re.fullmatch(r"[0-9a-f]{40}", str(owner.get("commit", "")))):
+                    targets.extend((candidate, owner_path)); owned = True
+        except (WizardError, OSError, KeyError, TypeError): pass
+        if not owned: skipped.append({"path": candidate.relative_to(root).as_posix(), "reason": "unproven_owner"})
+    return targets
+
+
+def _raw_owners(build, manifests, proofs):
+    inventories = {}; result = {}
+    for manifest in manifests:
+        key = manifest["game"]["key"]
+        if key in inventories: continue
+        snapshot = build / "inputs/game" / key
+        if not snapshot.is_dir(): continue
+        try:
+            _, rows = _snapshot(snapshot, proofs); receipt = snapshot / ".snapshot.json"
+            inventories[key] = {**rows, ".snapshot.json": {"path": ".snapshot.json", "size": receipt.stat().st_size,
+                                "sha256": proofs[str(receipt)]["sha256"]}}
+        except (WizardError, OSError, KeyError, TypeError): continue
+    for candidate in _children(build / "cache/full-original-recovery"):
+        path = candidate / "original-source.json"
+        if not path.is_file(): continue
+        try:
+            original = _read(path, proofs)
+            if original.get("schema") != 1 or original.get("sourceFingerprint") != hashlib.sha256(
+                    json.dumps(original.get("sourceInventory"), sort_keys=True, separators=(",", ":")).encode()).hexdigest(): continue
+            rows = _rows(original.get("sourceInventory"), "bytes")
+            for key, expected in inventories.items():
+                if rows == expected: result[candidate] = key; break
+        except (WizardError, OSError, KeyError, TypeError): continue
+    return result
+
+
+def _session_targets(root, build, folder, session, scope, protected, proofs, skipped, raw_owners):
+    """Prove each subtree independently; no entire-cache or guessed-path sweep."""
+    targets = []
+    for manifest in scope["manifests"]:
+        for kind in ("game", "mod", "probeAssets", "startupProject"):
+            member = manifest.get(kind)
+            if not isinstance(member, dict) or not _key(member.get("key")): continue
+            area = {"game": "game", "mod": "mod", "probeAssets": "probe", "startupProject": "startup"}[kind]
+            candidate = build / "inputs" / area / member["key"]
+            if not candidate.is_dir(): continue
+            captured, rows = _snapshot(candidate, proofs)
+            if captured["files"] != member.get("files"): raise _error("cleanup_receipt")
+            targets.append(candidate)
+        key = _project_key(manifest)
+        if key:
+            project = build / "projects" / key
+            marker = build / "cache/project-lifecycle" / key / "owner.json"
+            if marker.is_file():
+                owner = _read(marker, proofs)
+                expected = {"schema": 2, "owner": "Quest generated project", "project": "projects/" + key, "workspaceKey": key}
+                legacy = {"schema": 1, "owner": "Quest generated project", "project": "projects/" + key, "inputKey": manifest["inputKey"]}
+                if owner not in (expected, legacy):
+                    skipped.append({"path": project.relative_to(root).as_posix(), "reason": "unproven_owner"}); continue
+                if project.is_dir():
+                    if _editor_busy(project): raise _error("cleanup_editor_busy", key[:12])
+                    targets.append(project)
+                # These exact producer roots are all owned by this same project
+                # lifecycle. Their large journals are stat-scanned, not decoded.
+                for area in ("project-lifecycle", "prepare-resume", "project-content-transactions", "preparation-repair"):
+                    candidate = build / "cache" / area / key
+                    if candidate.is_dir(): targets.append(candidate)
+            elif project.is_dir(): skipped.append({"path": project.relative_to(root).as_posix(), "reason": "unproven_owner"})
+    for candidate in _children(build / "cache/recovery"):
+        owner = _read(candidate / "stage-owner.json", proofs) if (candidate / "stage-owner.json").is_file() else {}
+        if (owner == {"schema": 1, "owner": "Quest recovered Campaign stage", "key": candidate.name, "gameKey": owner.get("gameKey")}
+                and owner.get("gameKey") in scope["games"]): targets.append(candidate)
+    for candidate, game_key in raw_owners.items():
+        if game_key in scope["games"]: targets.append(candidate)
+    targets.extend(_source_targets(root, folder, session, proofs, skipped))
+    unique = []
+    for target in sorted(set(targets), key=lambda path: (len(path.parts), str(path))):
+        if any(parent == target or parent in target.parents for parent in unique): continue
+        owner_source = target.with_name(target.name[:-len(".owner.json")]) if target.name.endswith(".owner.json") and target.parent == root / "source" else target
+        if any(target == path or target in path.parents or path in target.parents
+               or owner_source == path or owner_source in path.parents for path in protected):
+            skipped.append({"path": target.relative_to(root).as_posix(), "reason": "shared_or_delivered"}); continue
+        unique.append(target)
+    return unique
+
+
+def _tree_projects(tree, build):
+    projects = {tree["root"]} if tree["root"].parent == build / "projects" else set()
+    for path, stamp in tree["nodes"]:
+        if stat.S_ISREG(stamp[2]) and path.name == "ProjectVersion.txt" and path.parent.name == "ProjectSettings":
+            projects.add(path.parent.parent)
+    return projects
+
+
+def plan_session(state_root, session, *, remove_data=False, progress=None):
+    """Retire one stopped run, optionally removing only its exclusive data.
+
+    Capture130723 contains different game inventories, not canonical duplicate
+    snapshots. Ordinary duplicate cleanup correctly finds nothing in that case.
+    Removing a run is a separate explicit choice: move its small diagnostics out
+    of the resumable session directory; delete proven exclusive data only after
+    the retained preview is accepted. Completed APKs/banks/keys are never targets.
+    """
+    if not isinstance(session, str) or SESSION.fullmatch(session) is None or type(remove_data) is not bool:
+        raise _error("cleanup_session")
+    proofs = {}; root, build = _root(state_root, proofs)
+    with _guard(root, build):
+        parent = ordinary(root / "sessions"); folder = ordinary(parent / session)
+        value = _session(folder, proofs)
+        if value.get("status") not in ("ready", "failed", "blocked", "cancelled", "interrupted"):
+            raise WizardError("cleanup_session_active", "Only a stopped, unfinished run can be removed.",
+                              "Nur ein angehaltener, nicht abgeschlossener Lauf kann entfernt werden.")
+        proofs[str(parent)] = {"stamp": _stamp(parent), "sha256": None}
+        retired = ordinary(root / "logs/removed-runs" / session)
+        if retired.exists(): raise _error("cleanup_session_archive")
+        session_scan = _scan(folder, progress, "cleanup-session-scan")
+        latest = root / "latest-session.json"
+        pointer = _read(latest, proofs) if latest.is_file() else None
+        survivors = []; skipped = []; private = []; paths = []
+        uncertainty = False
+        try:
+            manifests = _manifests(build, proofs) if remove_data else []
+            scope = _session_scope(root, build, folder, value, manifests, proofs) if remove_data else None
+            protected = _delivered_references(root, build, proofs) if remove_data else set()
+            raw_owners = _raw_owners(build, manifests, proofs) if remove_data else {}
+        except (WizardError, OSError, ValueError, TypeError, KeyError):
+            manifests = []; scope = None; protected = set(); raw_owners = {}; uncertainty = True
+            skipped.append({"path": "build", "reason": "unreadable_ownership"})
+        for other in parent.iterdir():
+            if other == folder or SESSION.fullmatch(other.name) is None: continue
+            try:
+                state = _session(other, proofs)
+                updated = state.get("updated", state.get("created", 0))
+                survivors.append((updated if type(updated) in (int, float) else 0, other.name))
+                if remove_data and scope is not None:
+                    used = _session_scope(root, build, other, state, manifests, proofs)
+                    protected.update(_references(root, build, used["references"] | used["sources"]))
+                    # Capacity qualification can bind a game before inspect
+                    # publishes its input receipt. That run still owns access to
+                    # the exact snapshot/import workspace it is about to reuse.
+                    for game_key in used["games"]:
+                        protected.add(build / "inputs/game" / game_key)
+                        key = _project_key({"target": "game", "game": {"key": game_key, "unityVersion": "2021.3.5f1"}})
+                        protected.add(build / "projects" / key)
+                        for area in ("project-lifecycle", "prepare-resume", "project-content-transactions", "preparation-repair"):
+                            protected.add(build / "cache" / area / key)
+                    for manifest in used["manifests"]:
+                        for kind, area in (("game", "game"), ("mod", "mod"), ("probeAssets", "probe"), ("startupProject", "startup")):
+                            member = manifest.get(kind)
+                            if isinstance(member, dict) and _key(member.get("key")):
+                                protected.add(build / "inputs" / area / member["key"])
+                        key = _project_key(manifest)
+                        if key:
+                            protected.add(build / "projects" / key)
+                            for area in ("project-lifecycle", "prepare-resume", "project-content-transactions", "preparation-repair"):
+                                protected.add(build / "cache" / area / key)
+                    # Recovery owners bind to gameKey independently of changing
+                    # mod manifests; every other run keeps that common raw stage.
+                    for candidate in _children(build / "cache/recovery"):
+                        path = candidate / "stage-owner.json"
+                        if path.is_file() and _read(path, proofs).get("gameKey") in used["games"]: protected.add(candidate)
+                    for candidate, game_key in raw_owners.items():
+                        if game_key in used["games"]: protected.add(candidate)
+            except (WizardError, OSError, ValueError, TypeError, KeyError):
+                uncertainty = True
+                skipped.append({"path": other.relative_to(root).as_posix(), "reason": "unreadable_dependency"})
+        if remove_data and uncertainty:
+            skipped.append({"path": "build", "reason": "dependency_proof_incomplete"})
+        elif remove_data:
+            try: targets = _session_targets(root, build, folder, session, scope, protected, proofs, skipped, raw_owners)
+            except (WizardError, OSError, ValueError, TypeError, KeyError) as error:
+                if getattr(error, "code", None) == "cleanup_editor_busy": raise
+                targets = []; skipped.append({"path": "build", "reason": "unreadable_ownership"})
+            retained_projects = set()
+            retained_sources = set()
+            for target in targets:
+                if (target.parent.parent == build / "cache" and target.name in retained_projects
+                        and target.parent.name in ("project-lifecycle", "prepare-resume", "project-content-transactions", "preparation-repair")):
+                    skipped.append({"path": target.relative_to(root).as_posix(), "reason": "project_retained"}); continue
+                if target.parent == root / "source" and target.name.endswith(".owner.json") and target.name[:-len(".owner.json")] in retained_sources:
+                    skipped.append({"path": target.relative_to(root).as_posix(), "reason": "source_retained"}); continue
+                try:
+                    scan = _scan(target, progress)
+                    if target.parent.parent == build / "inputs":
+                        expected = set(_rows(_read(target / ".snapshot.json", proofs)["files"])) | {".snapshot.json"}
+                        observed = {path.relative_to(target).as_posix() for path, stamp in scan["nodes"] if stat.S_ISREG(stamp[2])}
+                        if expected != observed: raise _error("cleanup_surplus_files")
+                except (WizardError, OSError) as error:
+                    if target.parent == build / "projects": retained_projects.add(target.name)
+                    if target.parent == root / "source": retained_sources.add(target.name)
+                    skipped.append({"path": target.relative_to(root).as_posix(), "reason": getattr(error, "code", "unreadable")}); continue
+                for project in _tree_projects({"root": target, **scan}, build):
+                    if _editor_busy(project): raise _error("cleanup_editor_busy", project.name[:12])
+                paths.append({"path": target.relative_to(root).as_posix(), "bytes": scan["bytes"], "files": scan["files"]})
+                private.append({"root": target, **scan})
+        preview = {"id": secrets.token_urlsafe(24), "mode": "session", "session": session,
+                   "removeData": remove_data, "paths": paths, "bytes": sum(row["bytes"] for row in paths),
+                   "files": sum(row["files"] for row in paths), "exact": True, "eligible": True,
+                   "skipped": skipped, "sessionBytes": session_scan["bytes"], "sessionFiles": session_scan["files"],
+                   "consequences": ["run-removed", "resume-lost", "diagnostics-retained"] +
+                                   (["exclusive-run-data-removed"] if remove_data else ["build-data-retained"])}
+        saved = {"folder": folder, "archive": retired, "scan": session_scan,
+                 "pointer": pointer, "survivor": max(survivors)[1] if survivors else None,
+                 "projects": set().union(*(_tree_projects(tree, build) for tree in private))}
+        _notify(progress, "cleanup-ready", preview["files"], preview["files"], "session")
+        return _retain(preview, root, proofs, private, session=saved)
 
 
 def plan(state_root, mode="duplicates", progress=None):
@@ -404,14 +798,8 @@ def plan(state_root, mode="duplicates", progress=None):
                  "bytes": sum(row["bytes"] for row in paths), "files": sum(row["files"] for row in paths),
                  "exact": True, "eligible": bool(paths), "skipped": skipped,
                  "consequences": ["full-rebuild-cache-removed"] if mode == "build-cache" else ["canonical-resume-preserved"]}
-        with _plans_lock:
-            now = time.monotonic()
-            for identity in list(_plans):
-                if now - _plans[identity]["created"] > PREVIEW_SECONDS or _plans[identity]["root"] == root:
-                    _plans.pop(identity)
-            _plans[value["id"]] = {"created": now, "root": root, "proofs": copy.deepcopy(proofs), "trees": private, "public": copy.deepcopy(value)}
         _notify(progress, "cleanup-ready", value["files"], value["files"], mode)
-        return value
+        return _retain(value, root, proofs, private)
 
 
 def _invalidate(root):
@@ -469,6 +857,13 @@ def execute(state_root, preview, progress=None):
         for tree in saved["trees"]:
             fresh = _scan(tree["root"], progress, "cleanup-check")
             if fresh["fingerprint"] != tree["fingerprint"]: raise _error("cleanup_preview_changed", tree["root"].name)
+        session = saved.get("session")
+        if session is not None:
+            if session["archive"].exists(): raise _error("cleanup_session_archive")
+            current = _scan(session["folder"], progress, "cleanup-session-check")
+            if current["fingerprint"] != session["scan"]["fingerprint"]: raise _error("cleanup_preview_changed")
+            for project in session["projects"]:
+                if _editor_busy(project): raise _error("cleanup_editor_busy", project.name[:12])
         for tree in saved["trees"]:
             for path, stamp in reversed(tree["nodes"]):
                 current = _stamp(path)
@@ -480,6 +875,15 @@ def execute(state_root, preview, progress=None):
                     path.unlink(); freed += stamp[3]; deleted += 1
                     if deleted == 1 or deleted % 256 == 0: _notify(progress, "cleanup-delete", deleted, public["files"], path.name)
         if public["mode"] == "build-cache": reset = _invalidate(root)
+        if session is not None:
+            session["archive"].parent.mkdir(parents=True, exist_ok=True)
+            ordinary(session["archive"].parent)
+            os.replace(session["folder"], session["archive"])
+            if session["pointer"] and session["pointer"].get("session") == public["session"]:
+                if session["survivor"]:
+                    atomic_json(root / "latest-session.json", {"schema": 1, "session": session["survivor"]})
+                else: (root / "latest-session.json").unlink()
         _notify(progress, "cleanup-complete", deleted, public["files"], public["mode"])
     return {"freedBytes": freed, "deletedFiles": deleted,
-            "invalidatedStages": ["inspect", "build"] if public["mode"] == "build-cache" and deleted else [], "sessionsReset": reset}
+            "invalidatedStages": ["inspect", "build"] if public["mode"] == "build-cache" and deleted else [], "sessionsReset": reset,
+            "sessionsRemoved": [public["session"]] if public["mode"] == "session" else []}
