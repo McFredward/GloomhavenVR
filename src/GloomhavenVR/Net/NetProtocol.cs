@@ -612,7 +612,20 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 671;
+    public const ushort ModBuild = 672;
+
+    // ModBuild672 — separate wall visibility from VR foreground and verify Frame launch setup.
+    // The maintainer requests that health/effect bars respect nearer held cards, hands and
+    // control boards even when visibility through walls is explicitly selected. Preserve
+    // the original complete widget, partial pixel occlusion and depth ordering; the wall
+    // preference must not become an unconditional foreground overlay. BarsOccluded=true
+    // already hides bars behind walls by default on both PC and standalone Frame, and saved
+    // preferences remain authoritative. Installer validation must cover Steam's cached
+    // configuration surviving or overwriting a live file edit after its pre-shutdown readback.
+    // A live Steam client owns launch-options edits; setup must expose any required native
+    // completion step and the VR launcher must not silently fall through to a flat launch.
+    // Keep the original Steam AppID/prefix and exact Frame VR opt-in; Version3/next-free118.
+    // Integration validation and hardware boundaries are recorded beside the Build672 review.
 
     // ModBuild671 — publish the reviewed 1.1.0 release candidate.
     // The maintainer approved the completed NPC and Steam Frame work for release.
