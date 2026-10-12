@@ -160,11 +160,11 @@ with lower figure detail, clothing simulation off and reduced generation on. All
 also work on PC; saved choices are retained.
 
 Fresh Frame configurations use the original service windows rather than immersive NPCs.
-You can change **Immersive town NPCs** under **VR Options → World & sound** when using the 3D map.
+You can change **Immersive town NPCs** under **VR Options → World → Campaign map** when using the 3D map.
 
 ## Mixed reality
 
-Choose **Mixed reality** under **VR Options → World & sound** to place the table in your
+Choose **Mixed reality** under **VR Options → Graphics** to place the table in your
 room. Standalone uses the Frame's native passthrough when the active runtime supports it.
 If the choice is grey, hover over it for the explanation. Update **SteamVR** and the
 **Proton version selected for Gloomhaven**, then restart the game and check again.

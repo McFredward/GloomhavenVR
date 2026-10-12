@@ -298,7 +298,9 @@ cat >> "$temporary_launcher" <<'EOF'
 if ! message="$("${check[@]}" 2>&1)"; then
     printf '%s\n' "$message" >&2
     if command -v kdialog >/dev/null 2>&1 && [[ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]]; then
-        kdialog --title 'GloomhavenVR setup required' --error "$message" || true
+        # KDialog auto-detects rich text; custom launch options are literal data.
+        dialog_message="$(python3 -c 'import html,sys; print("<pre>" + html.escape(sys.argv[1]) + "</pre>")' "$message")"
+        kdialog --title 'GloomhavenVR setup required' --error "$dialog_message" || true
     elif command -v zenity >/dev/null 2>&1 && [[ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]]; then
         zenity --error --no-markup --title='GloomhavenVR setup required' --text="$message" || true
     fi
@@ -385,7 +387,8 @@ Eigenschaften > Allgemein > Startoptionen; die komplette Zeile oben speichern.
 Danach Frame über das normale Power-Menü neu starten und GloomhavenVR starten."
     printf '%s\n' "$instruction"
     if command -v kdialog >/dev/null 2>&1 && [[ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]]; then
-        kdialog --title 'GloomhavenVR: finish Steam setup / Steam-Einrichtung abschließen' --msgbox "$instruction" || true
+        dialog_message="$(python3 -c 'import html,sys; print("<pre>" + html.escape(sys.argv[1]) + "</pre>")' "$instruction")"
+        kdialog --title 'GloomhavenVR: finish Steam setup / Steam-Einrichtung abschließen' --msgbox "$dialog_message" || true
     elif command -v zenity >/dev/null 2>&1 && [[ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]]; then
         zenity --info --no-markup --title='GloomhavenVR: finish Steam setup' --text="$instruction" || true
     fi

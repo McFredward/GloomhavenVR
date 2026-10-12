@@ -262,6 +262,7 @@ rm -f -- "$shortcuts"
 { DISPLAY=:frame-test PATH="$scratch/bin:$PATH" bash "$setup/install-steam-frame.sh" || true; } > "$scratch/session-kill.log" 2>&1
 [[ -s "$shortcuts" && -s "$setup/steam-launch-options.pending.json" ]]
 cmp -s "$account/localconfig.vdf" "$HOME/steam-cached-localconfig"
+rg -q 'Properties &gt; General &gt; Launch options' "$HOME/setup-dialogs"
 [[ ! -e "$HOME/steam-args" && ! -e "$HOME/user-bus-calls" ]]
 rm -f -- "$HOME/fake-frame-session-kill"
 stop_steam
