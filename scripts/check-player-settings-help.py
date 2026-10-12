@@ -150,6 +150,9 @@ def production_lookup(keys, hints, output: Path, negative_controls: bool):
         search, replacement, expected = mutations[case]
         directory = run / case
         directory.mkdir()
+        # Retain the exact compiled project descriptor beside its owned outputs so
+        # completion cleanup can identify bin/obj without touching shared fixtures.
+        (directory / "Help.csproj").write_bytes((fixture / "Help.csproj").read_bytes())
         for name, text in originals.items():
             if name == "Loc.PlayerHelp.cs" and search is not None:
                 if text.count(search) != 1:
