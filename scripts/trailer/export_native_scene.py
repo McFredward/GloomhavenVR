@@ -376,7 +376,7 @@ class Actor:
 
 
 def export_dungeon(base, output):
-    """Export two static original PCG meshes and their matching original material banks.
+    """Export three static original PCG meshes and their matching original material banks.
 
     PCG template renderers have empty material slots: the native procedural
     builder supplies them later. This is an explicit cinematic pairing of the
@@ -392,6 +392,7 @@ def export_dungeon(base, output):
     for mesh_name, material_bank in (
         ("CR_Dungeon_Wall_Stone_01", "pcg_materials_assets_cr_dungeon_stonewall_01_mat.bundle"),
         ("CR_TC_Floor_01", "pcg_materials_assets_cr_dungeon_stonefloor_01_mat.bundle"),
+        ("CR_TC_Floor_Basic", "pcg_materials_assets_cr_dungeon_stonefloor_01_mat.bundle"),
     ):
         source = base / material_bank
         material_environment = UnityPy.load(str(source))
@@ -448,7 +449,7 @@ def main():
     parser.add_argument("--game-data", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--actors", default="brute,livingbones")
-    parser.add_argument("--dungeon", action="store_true", help="Also export one native wall and floor segment")
+    parser.add_argument("--dungeon", action="store_true", help="Also export one native wall and two full floor tiles")
     args = parser.parse_args()
     selected = args.actors.split(",") if args.actors else []
     if any(name not in ACTORS for name in selected):

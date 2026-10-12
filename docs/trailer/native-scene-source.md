@@ -3,7 +3,7 @@
 The approved trailer opens with a short CGI scene in which a giant original VR
 mask and hand reveal the adventure as a tabletop world. Its figures should be
 recognizable original Gloomhaven Digital actors. The private staging exporter
-reads only two actor banks and two small PCG architecture pieces. It never
+reads only two actor banks and three small PCG architecture pieces. It never
 modifies, repacks or checks extracted publisher assets into Git.
 
 ## Private deliverables
@@ -24,6 +24,7 @@ gitignored `.planning/debug/`. Current native scene sources are in:
   livingbones/native_rig.json
   dungeon/CR_Dungeon_Wall_Stone_01.obj
   dungeon/CR_TC_Floor_01.obj
+  dungeon/CR_TC_Floor_Basic.obj
   dungeon/manifest.json
 ```
 
@@ -52,8 +53,10 @@ Use the existing UnityPy 1.25.2 environment and read-only game data:
 ```
 
 `--actors brute` selects only the hero. `--actors '' --dungeon` selects only the
-two architecture pieces. The floor is the full flat `CR_TC_Floor_01` hex tile,
-not a narrow procedural floor trim/segment. Partial runs preserve manifest links to the current
+three architecture pieces. Both floors are full level hex tiles: detailed
+`CR_TC_Floor_01` and simpler `CR_TC_Floor_Basic`, with original structural
+recesses/bevels. They are not narrow procedural floor trim/segments.
+Partial runs preserve manifest links to the current
 deliverables for the other selected assets. No unrelated banks are extracted.
 
 The actor exporter reads the original generic animation bindings, matches their
