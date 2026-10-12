@@ -92,16 +92,16 @@ class ProgressTests(unittest.TestCase):
         source = self.root / "source"; source.mkdir(); (source / "a").write_bytes(b"one"); (source / "b").write_bytes(b"two")
         with contextlib.redirect_stdout(io.StringIO()): records = storage.inventory(source)
         destination = self.root / "snapshot"
-        original = storage.shutil.copyfile; calls = []
-        def interrupted(first, second):
+        original = storage._copy_snapshot_member; calls = []
+        def interrupted(first, second, item, witnesses):
             calls.append(first.name)
             if len(calls) == 2: raise KeyboardInterrupt
-            return original(first, second)
-        with contextlib.redirect_stdout(self.stream), mock.patch.object(storage.shutil, "copyfile", interrupted):
+            return original(first, second, item, witnesses)
+        with contextlib.redirect_stdout(self.stream), mock.patch.object(storage, "_copy_snapshot_member", interrupted):
             with self.assertRaises(KeyboardInterrupt): storage.snapshot(source, records, destination, phase="game-snapshot")
         self.assertFalse(any(event["phase"] == "game-snapshot" and event["status"] == "complete" for event in messages(self.stream)))
         self.assertFalse((destination / ".snapshot.json").exists())
-        with contextlib.redirect_stdout(self.stream), mock.patch.object(storage.shutil, "copyfile", wraps=original) as copying:
+        with contextlib.redirect_stdout(self.stream), mock.patch.object(storage, "_copy_snapshot_member", wraps=original) as copying:
             storage.snapshot(source, records, destination, phase="game-snapshot")
         self.assertEqual(copying.call_count, 1)
         self.assertEqual(json.loads((destination / ".snapshot.json").read_text()), {"schema": 1, "files": records})

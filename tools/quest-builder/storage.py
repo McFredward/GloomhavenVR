@@ -1,4 +1,4 @@
-"""Isolated immutable snapshots and hash-verified stage receipts."""
+"""Isolated snapshots and exact receipts without repeated payload reads."""
 
 from __future__ import annotations
 
@@ -32,18 +32,53 @@ class BuildError(RuntimeError):
     """An actionable conversion failure, safe to display without credentials."""
 
 
+def exhaustive_verification() -> bool:
+    """Developer-only rereads; ordinary builds reuse exact closed-byte proofs.
+
+    The maintainer's 2026-10-12 ruling prioritizes minimum disk work. A reliable
+    FileId/ChangeTime (or POSIX inode/ctime) binds bytes read earlier to the
+    unchanged physical file; repeating that entire read proves nothing new.
+    Unknown stamps, changed files and mandatory first hashes still read bytes.
+    """
+    return os.environ.get("GHVR_QUEST_VERIFICATION", "").strip().lower() == "full"
+
+
+def _digest_stamp(path):
+    value = path.lstat()
+    if (not stat.S_ISREG(value.st_mode) or value.st_nlink != 1
+            or getattr(value, "st_file_attributes", 0) & 0x400):
+        return None
+    return _file_witness_stamp(path, value)
+
+
 def digest(path: Path, progress=None) -> str:
-    result = hashlib.sha256()
+    path = Path(path).absolute()
+    before = path.stat()
+    stamp = _digest_stamp(path)
     counter = None
-    if progress is None and build_progress and build_progress.enabled() and path.stat().st_size >= 8 * 1048576:
-        counter = build_progress.Counter("file-hash", path.stat().st_size, "bytes", path.name)
+    if progress is None and build_progress and build_progress.enabled() and before.st_size >= 8 * 1048576:
+        counter = build_progress.Counter("file-hash", before.st_size, "bytes", path.name)
         progress = counter.add
+    proved = _invocation_file_proofs.get(path)
+    if not exhaustive_verification() and stamp is not None and proved is not None and proved[0] == stamp:
+        if progress: progress(before.st_size)
+        if counter:
+            counter.detail = "Retained exact byte proof by unchanged file metadata: " + path.name
+            counter.finish()
+        return proved[1]
+    result = hashlib.sha256(); size = 0
     with path.open("rb") as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            result.update(chunk)
+            result.update(chunk); size += len(chunk)
             if progress: progress(len(chunk))
+    after, observed = path.stat(), _digest_stamp(path)
+    portable = lambda value: (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+    if portable(before) != portable(after) or stamp != observed or size != after.st_size:
+        raise BuildError("File changed while its bytes were read: " + path.name)
+    hashed = result.hexdigest()
+    if observed is not None: _invocation_file_proofs[path] = (observed, hashed)
     if counter: counter.finish()
-    return result.hexdigest()
+    return hashed
 
 
 class ImmutableFileHashes:
@@ -211,16 +246,15 @@ def snapshot(source: Path, records: list[dict], destination: Path, *, phase="sna
             counter = _counter(phase + "-verify", sum(row["size"] for row in records), "bytes")
             with _snapshot_witnesses(destination, destination, records) as witnesses:
                 valid = True
-                for row in records:
-                    path = destination / row["path"]
-                    try:
-                        hits = witnesses.counters["cache_hits"]
-                        hasher = (lambda path: digest(path, progress=lambda size: counter.add(size, path.name))) if counter else None
-                        if not witnesses.qualify(path, row["sha256"], row["size"], hasher=hasher):
-                            valid = False; break
-                        if counter and witnesses.counters["cache_hits"] != hits: counter.add(row["size"], path.name)
-                    except (OSError, BuildError):
-                        valid = False; break
+                try:
+                    previous_hits = witnesses.counters["cache_hits"]
+                    hasher = (lambda path: digest(path, progress=lambda size: counter.add(size, path.name))) if counter else None
+                    for row, accepted in witnesses.qualify_many(records, hasher=hasher):
+                        if not accepted: valid = False; break
+                        if counter and witnesses.counters["cache_hits"] != previous_hits:
+                            counter.add(row["size"], Path(row["path"]).name)
+                        previous_hits = witnesses.counters["cache_hits"]
+                except (OSError, BuildError): valid = False
                 if valid:
                     if counter: counter.finish()
                     if build_progress: build_progress.event(phase, 1, 1, "snapshots", "Verified existing snapshot; " + witnesses.summary(), status="reuse")
@@ -248,9 +282,7 @@ def snapshot(source: Path, records: list[dict], destination: Path, *, phase="sna
             copied.parent.mkdir(parents=True, exist_ok=True)
             if not copied.is_file() or not witnesses.qualify(copied, item["sha256"], item["size"]):
                 witnesses.invalidate(copied)
-                shutil.copyfile(original, copied)
-                if not witnesses.qualify(copied, item["sha256"], item["size"]):
-                    raise BuildError("An input changed while copied: " + item["path"] + "; retry after editing stops.")
+                _copy_snapshot_member(original, copied, item, witnesses)
             proofs.append((item, witnesses.current(copied)))
             if counter: counter.add(1, Path(item["path"]).name)
         write_json(temp / ".snapshot.json", {"schema": 1, "files": records})
@@ -262,6 +294,34 @@ def snapshot(source: Path, records: list[dict], destination: Path, *, phase="sna
             witnesses.remember(destination / item["path"], item["sha256"], stamp=stamp)
     owner.unlink()
     if counter: counter.finish()
+
+
+def _copy_snapshot_member(original, copied, item, witnesses):
+    """Qualify copied bytes in their required transfer, never a second read."""
+    if exhaustive_verification():
+        shutil.copyfile(original, copied)
+        if not witnesses.qualify(copied, item["sha256"], item["size"]):
+            raise BuildError("An input changed while copied: " + item["path"] + "; retry after editing stops.")
+        return
+    before = original.stat()
+    strong = _digest_stamp(original)
+    checksum = hashlib.sha256(); written = 0
+    # A retained partial member must never overwrite an externally hardlinked
+    # file. The immutable source remains read-only throughout this transaction.
+    if copied.exists() and copied.lstat().st_nlink != 1:
+        raise BuildError("Snapshot staging member has multiple hard links: " + item["path"])
+    with original.open("rb") as source, copied.open("wb") as destination:
+        for chunk in iter(lambda: source.read(8 * 1048576), b""):
+            if destination.write(chunk) != len(chunk):
+                raise BuildError("Snapshot copy wrote fewer bytes than requested: " + item["path"])
+            checksum.update(chunk); written += len(chunk)
+    after = original.stat()
+    portable = lambda value: (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+    hashed = checksum.hexdigest()
+    if (portable(before) != portable(after) or strong != _digest_stamp(original)
+            or written != item["size"] or hashed != item["sha256"] or copied.lstat().st_size != written):
+        raise BuildError("An input changed while copied: " + item["path"] + "; retry after editing stops.")
+    witnesses.remember(copied, hashed)
 
 
 @contextmanager
@@ -321,7 +381,9 @@ def ensure_output(output: Path, repo: Path, game_data: Path | None = None) -> Pa
 def _ordinary_owned(path: Path) -> Path:
     path = Path(path).absolute()
     for part in (path, *path.parents):
-        if part.is_symlink() or (hasattr(part, "is_junction") and part.is_junction()):
+        try: value = part.lstat()
+        except FileNotFoundError: continue
+        if stat.S_ISLNK(value.st_mode) or getattr(value, "st_file_attributes", 0) & 0x400:
             raise BuildError("Generated workspace paths cannot be links: " + str(path))
     return path
 
@@ -491,7 +553,9 @@ class ValidatedFileWitnesses:
 
     The caller holds the workspace lock and commits the supplied SQLite
     connection. Receipt hashes remain authoritative. Unknown metadata or an old
-    database without witnesses requires a byte read; this is not a hash skip.
+    database without witnesses requires a byte read. A different receipt owner
+    may reuse an exact physical-file proof from this database, but only when its
+    reliable change stamp and self-checked full SHA still match that live file.
     """
     def __init__(self, connection, owned_root, owner_identity):
         self.db = connection
@@ -505,6 +569,10 @@ class ValidatedFileWitnesses:
             (owner TEXT NOT NULL, path TEXT NOT NULL, size INTEGER NOT NULL,
              sha TEXT NOT NULL, stamp TEXT NOT NULL, check_hash TEXT NOT NULL,
              PRIMARY KEY(owner,path))""")
+        # Receipt namespaces change with an updated profile/mod input key. The
+        # unchanged physical file has already been fully read: an indexed probe
+        # can transfer that byte proof instead of re-reading a multi-GB bank.
+        self.db.execute("CREATE INDEX IF NOT EXISTS validated_file_physical ON validated_file_witnesses(path,size,stamp)")
 
     def _path(self, path):
         path = Path(os.path.abspath(path))
@@ -590,7 +658,7 @@ class ValidatedFileWitnesses:
         before = self._current(path)
         row = self.db.execute("SELECT size,sha,stamp,check_hash FROM validated_file_witnesses WHERE owner=? AND path=?",
                               (self.namespace, self._key(path))).fetchone()
-        if row is not None and before is not None:
+        if not exhaustive_verification() and row is not None and before is not None:
             size, hashed, serialized, check = row
             try:
                 stamp = json.loads(serialized)
@@ -605,10 +673,21 @@ class ValidatedFileWitnesses:
         # A prior producer in this process may already have streamed the exact
         # closed-writer bytes. This also avoids a second producer/stage hash.
         proved = _invocation_file_proofs.get(path)
-        if before is not None and proved is not None and proved[0] == before:
+        if not exhaustive_verification() and before is not None and proved is not None and proved[0] == before:
             self._save(path, proved[1], before)
             self.counters["cache_hits"] += 1
             return proved[1]
+        if not exhaustive_verification() and before is not None:
+            relative = self._key(path)
+            serialized = canonical(list(before)).decode()
+            for owner, size, hashed, check in self.db.execute(
+                    "SELECT owner,size,sha,check_hash FROM validated_file_witnesses WHERE path=? AND size=? AND stamp=? AND owner!=?",
+                    (relative, before[3], serialized, self.namespace)):
+                if (isinstance(hashed, str) and len(hashed) == 64 and all(c in "0123456789abcdef" for c in hashed)
+                        and check == value_hash([owner, relative, size, hashed, list(before)])):
+                    self._save(path, hashed, before)
+                    self.counters["cache_hits"] += 1
+                    return hashed
         fallback_before = path.lstat()
         if hasher is None:
             result = hashlib.sha256(); read = 0
@@ -680,7 +759,7 @@ class ValidatedFileWitnesses:
                 relative = path.relative_to(self.root).as_posix()
                 prior = cached.get(relative)
                 good = False
-                if prior is not None and before is not None:
+                if not exhaustive_verification() and prior is not None and before is not None:
                     size, hashed, serialized, check = prior
                     try:
                         stamp = json.loads(serialized)
@@ -956,8 +1035,34 @@ def recover_project_content(output: Path, project: Path, input_key: str):
     for row in value["files"]: (root / row["backup"]).unlink(missing_ok=True)
 
 
-def content_records(project: Path, input_key: str):
-    files = [record_file(_ordinary_owned(project / relative), relative) for relative in CONTENT_PATHS]
+@contextmanager
+def _content_witnesses(output, project):
+    project = _ordinary_owned(project)
+    directory = _ordinary_owned(output / "cache/project-content-transactions" / project.name)
+    directory.mkdir(parents=True, exist_ok=True)
+    database = _ordinary_owned(directory / "content-witnesses.sqlite3")
+    if database.exists() and (not stat.S_ISREG(database.lstat().st_mode) or database.lstat().st_nlink != 1):
+        raise BuildError("Content witness database is not a regular owned file.")
+    connection = sqlite3.connect(database, timeout=30)
+    try:
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA synchronous=NORMAL")
+        yield ValidatedFileWitnesses(connection, project,
+                {"schema": 1, "owner": "Quest mutable content pair", "project": project.relative_to(output).as_posix()})
+        connection.commit()
+    finally: connection.close()
+
+
+def content_records(project: Path, input_key: str, *, output=None):
+    if output is None:
+        files = [record_file(_ordinary_owned(project / relative), relative) for relative in CONTENT_PATHS]
+    else:
+        # InputKey lives in the small manifest and remains checked below. The
+        # physical archive can stay unchanged across a profile/mod update; its
+        # independent reliable witness must not change merely with that key.
+        with _content_witnesses(output, project) as witnesses:
+            files = [{"path": relative, "sha256": witnesses.observe(project / relative, hasher=digest),
+                      "size": (project / relative).lstat().st_size} for relative in CONTENT_PATHS]
     manifest = json.loads((project / CONTENT_PATHS[1]).read_text())
     if manifest.get("inputKey") != input_key or manifest.get("archive") != "quest-startup-content.zip" or manifest.get("archiveSha256") != files[0]["sha256"]:
         raise BuildError("Content archive/manifest pair does not match this build.")
@@ -968,7 +1073,7 @@ def project_content_valid(output: Path, project: Path, input_key: str):
     """A separate mutable ledger permits completed native repacks to stay warm."""
     ledger = output / "cache/project-content-transactions" / project.name / "complete.json"
     try:
-        current = content_records(project, input_key)
+        current = content_records(project, input_key, output=output)
         if ledger.exists():
             prior = json.loads(_ordinary_owned(ledger).read_text())
             return prior == {"schema": 1, "inputKey": input_key, "files": current}
@@ -980,7 +1085,7 @@ def project_content_valid(output: Path, project: Path, input_key: str):
 
 def publish_project_content(output: Path, project: Path, input_key: str):
     write_json(output / "cache/project-content-transactions" / project.name / "complete.json",
-               {"schema": 1, "inputKey": input_key, "files": content_records(project, input_key)})
+               {"schema": 1, "inputKey": input_key, "files": content_records(project, input_key, output=output)})
 
 
 @contextmanager
@@ -990,7 +1095,7 @@ def project_content_transaction(output: Path, project: Path, input_key: str):
     root = output / "cache/project-content-transactions" / project.name
     root.mkdir(parents=True, exist_ok=True)
     files = []
-    for index, row in enumerate(content_records(project, input_key)):
+    for index, row in enumerate(content_records(project, input_key, output=output)):
         relative = row["path"]
         target = _ordinary_owned(project / relative)
         saved = _ordinary_owned(root / ("content-" + str(index) + ".backup"))

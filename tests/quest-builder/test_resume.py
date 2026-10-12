@@ -62,13 +62,13 @@ class SnapshotRestartTests(Fixture):
     def test_interrupted_copy_reuses_verified_members_without_success_receipt(self):
         source = self.root / 'source'; source.mkdir()
         for name in ('one', 'two'): (source / name).write_bytes(name.encode())
-        records = storage.inventory(source); destination = self.output / 'inputs/snapshot'; real_copy = storage.shutil.copyfile
-        def interrupted(original, target):
+        records = storage.inventory(source); destination = self.output / 'inputs/snapshot'; real_copy = storage._copy_snapshot_member
+        def interrupted(original, target, item, witnesses):
             if original.name == 'two': raise KeyboardInterrupt()
-            return real_copy(original, target)
-        with patch.object(storage.shutil, 'copyfile', interrupted), self.assertRaises(KeyboardInterrupt): storage.snapshot(source, records, destination)
+            return real_copy(original, target, item, witnesses)
+        with patch.object(storage, '_copy_snapshot_member', interrupted), self.assertRaises(KeyboardInterrupt): storage.snapshot(source, records, destination)
         self.assertFalse(destination.exists()); self.assertFalse((destination.with_name('snapshot.staging') / '.snapshot.json').exists())
-        with patch.object(storage.shutil, 'copyfile', wraps=real_copy) as copying: storage.snapshot(source, records, destination)
+        with patch.object(storage, '_copy_snapshot_member', wraps=real_copy) as copying: storage.snapshot(source, records, destination)
         self.assertEqual(copying.call_count, 1); self.assertEqual(copying.call_args.args[0].name, 'two')
         self.assertTrue(storage.verify_files(destination, records)); self.assertTrue((destination / '.snapshot.json').exists())
     def test_unowned_staging_and_link_cannot_be_adopted(self):

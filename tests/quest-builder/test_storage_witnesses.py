@@ -87,10 +87,11 @@ class WitnessTests(unittest.TestCase):
                 self.assertEqual(fresh.counters["files_read"], 1)
                 fresh.db.commit()
 
-    def test_changed_owner_does_not_inherit_persistent_witness(self):
+    def test_changed_owner_reuses_only_exact_physical_persistent_proof(self):
         self.cold(); changed = self.open("another-owner")
         self.assertTrue(changed.qualify(self.path, sha(b"known owned bytes"), 17))
-        self.assertEqual(changed.counters["files_read"], 1)
+        self.assertEqual(changed.counters["files_read"], 0)
+        self.assertEqual(changed.counters["cache_hits"], 1)
 
     def test_unsupported_stamp_always_reads_and_remember_does_not_persist(self):
         with mock.patch.object(storage, "_file_witness_stamp", return_value=None):
@@ -463,8 +464,8 @@ class SnapshotWitnessTests(unittest.TestCase):
 
     def test_new_snapshot_seeds_verified_producer_then_warm_reads_zero_bytes(self):
         reads = self.count_reads(lambda: storage.snapshot(self.source, self.records, self.destination))
-        self.assertEqual(reads.count(self.path), 0)  # kernel copy; original source verification is separate
-        self.assertEqual(reads.count(self.destination.with_name("snapshot.staging") / "game.bundle"), 1)
+        self.assertEqual(reads.count(self.path), 1)  # required transfer also streams the exact SHA
+        self.assertEqual(reads.count(self.destination.with_name("snapshot.staging") / "game.bundle"), 0)
         storage._invocation_file_proofs.clear()
         self.assertEqual(self.count_reads(lambda: storage.snapshot(self.source, self.records, self.destination)), [])
         database = self.root / ".snapshot.snapshot-witnesses.sqlite3"
@@ -514,6 +515,7 @@ class PersistentInventoryTests(unittest.TestCase):
 
     def test_first_actual_inventory_matches_strict_then_two_checks_read_nothing(self):
         expected = storage.inventory(self.source)
+        storage._invocation_file_proofs.clear()  # model a real first process without prior byte proofs
         result, reads = self.reads(self.inventory)
         self.assertEqual(result, expected); self.assertEqual(reads, ["one.bundle", "two.bundle"])
         storage._invocation_file_proofs.clear()
@@ -528,6 +530,7 @@ class PersistentInventoryTests(unittest.TestCase):
 
     def test_windows_path_order_preserves_legacy_inventory_rows_and_key(self):
         self.mixed_case_files(); expected = storage.inventory(self.source)
+        storage._invocation_file_proofs.clear()  # distinct first inventory invocation
         windows_rows = sorted(expected, key=lambda row: PureWindowsPath(row["path"]))
         # A Path sort is case-insensitive on Windows. The old manifest sorts
         # relative POSIX strings, so unchanged bytes must not adopt that order.
@@ -545,6 +548,7 @@ class PersistentInventoryTests(unittest.TestCase):
 
     def test_previous_windows_ordered_database_restores_legacy_key_without_reads(self):
         self.mixed_case_files(); expected = storage.inventory(self.source)
+        storage._invocation_file_proofs.clear()  # distinct first inventory invocation
         windows_rows = sorted(expected, key=lambda row: PureWindowsPath(row["path"]))
         self.database.parent.mkdir(parents=True)
         # Seed the exact previous database layout with individually observed
