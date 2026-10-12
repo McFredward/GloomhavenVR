@@ -299,6 +299,19 @@ OBSERVATION_EDITOR_OVERLAY = {
         "sha256": "85d41dfd671901d6ba830f6e23f080f484828558b489843623e29fcb7727a7d6"},
 }
 
+# A closed journal is no longer rewritten on an unchanged restart, and undo
+# copies retain the real closed-writer FileID/ChangeTime/hash proof. These two
+# preparation observer changes produce the same asset bytes and transactions.
+# Preserve both complete reviewed profiles; unknown or mixed helper edits must
+# still invalidate compatibility instead of copying all originals again.
+OBSERVATION_UNDO_WITNESSES_PREVIOUS = OBSERVATION_EDITOR_OVERLAY
+OBSERVATION_EDITOR_OVERLAY = {
+    **OBSERVATION_UNDO_WITNESSES_PREVIOUS,
+    "tools/quest-builder/prepare_resume.py": {
+        "path": "tools/quest-builder/prepare_resume.py", "size": 83153,
+        "sha256": "17282bd3e2424b80be6f1d4fb611afda18e5bc80a043afc33bfbd217856e570c"},
+}
+
 OBSERVATION_PROFILES = (OBSERVATION_BYTE_WITNESSES, OBSERVATION_FIXED,
                         OBSERVATION_INPUT_INDEX, OBSERVATION_INPUT_ORDER, OBSERVATION_DIRECTORY_BATCH, OBSERVATION_GRAPHICS_CONTRACT, OBSERVATION_COMPLETED_METADATA)
 # Shipped d4cc44eeb adds an exporter-log observer and invocation-local proof
@@ -356,6 +369,7 @@ def preparation_source_rows(rows):
                                            OBSERVATION_SPRITE_IMPORT_PREVIOUS,
                                            OBSERVATION_NATIVE_VALIDATION_PREVIOUS,
                                            OBSERVATION_ZIP32_DELIVERY_PREVIOUS,
+                                           OBSERVATION_UNDO_WITNESSES_PREVIOUS,
                                            OBSERVATION_EDITOR_OVERLAY)
                     if all(current.get(name) == [fixed] for name, fixed in profile.items())), None)
     if profile is not None:

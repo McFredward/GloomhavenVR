@@ -134,6 +134,7 @@ class Preparation:
         if compatible_input_key is not None and (not isinstance(compatible_input_key, str) or not re.fullmatch(r"[0-9a-f]{64}", compatible_input_key)):
             raise BuildError("Preparation compatibility evidence has an invalid prior input key.")
         migration = False
+        publish_journal = False
         self.sources = [(Path(path), dict(row)) for path, row in source_files]
         # Read-only immutable snapshot files were already hashed while selecting
         # inputs. Store metadata qualification once, not a tree sweep per phase.
@@ -169,13 +170,21 @@ class Preparation:
                     if value.get("sources", {}).get(str(path)) != self.source_stamps[str(path)]:
                         if not invocation_file_matches(path, row["sha256"], row["size"]) and (path.stat().st_size != row["size"] or digest(path) != row["sha256"]):
                             raise BuildError("Preparation source changed since its checkpoint: " + path.name)
-                if not migration: value["sources"] = self.source_stamps
+                if not migration:
+                    value["sources"] = self.source_stamps
+                    publish_journal = True
         else:
             value = None
             if self.project.exists() and reset is not None: reset()
         self.value = value or {**self.identity, "sources": self.source_stamps, "steps": [], "pending": None}
         if not isinstance(self.value.get("steps"), list): raise BuildError("Preparation journal has no ordered steps.")
-        if not migration: write_json(self.journal, self.value)
+        # The closed game journal can describe more than 100,000 outputs. Its
+        # unchanged bytes are already the restart contract, so serializing and
+        # replacing it on every warm constructor only adds disk work. New or
+        # requalified source ownership still publishes before phase work; the
+        # rollback/repair/migration writers retain their existing transactions.
+        if not migration and (value is None or publish_journal):
+            write_json(self.journal, self.value)
         self.project.mkdir(parents=True, exist_ok=True)
         copy_path = _ordinary_owned(self.root / ("copy-" + value_hash(self.identity) + ".sqlite"))
         self.copies = sqlite3.connect(copy_path)
@@ -183,6 +192,8 @@ class Preparation:
         self.copies.execute("CREATE TABLE IF NOT EXISTS retained_file_repairs (sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE, record TEXT NOT NULL)")
         self.copy_writes = 0
         self.witnesses = ValidatedFileWitnesses(self.copies, self.project, self.identity)
+        self.undo_witnesses = ValidatedFileWitnesses(self.copies, self.root,
+            {"preparation": self.identity, "purpose": "Quest preparation undo byte witnesses"})
         self.prior_copies, self.prior_witnesses = None, None
         try:
             if migration:
@@ -1011,9 +1022,13 @@ class Preparation:
             saved = _ordinary_owned(undo / row["backup"])
             if saved.parent != undo or not saved.is_file() or saved.stat().st_size != row["size"]:
                 raise BuildError("Preparation undo bytes changed; no project file was overwritten: " + row["path"])
-            checksum = digest(saved, progress=lambda size: verify_counter.add(size, row["path"])) if verify_counter else digest(saved)
-            if checksum != row["sha256"]:
+            hits = self.undo_witnesses.counters["cache_hits"]
+            hasher = ((lambda path: digest(path, progress=lambda size: verify_counter.add(size, row["path"])))
+                      if verify_counter else digest)
+            if not self.undo_witnesses.qualify(saved, row["sha256"], row["size"], hasher=hasher):
                 raise BuildError("Preparation undo bytes changed; no project file was overwritten: " + row["path"])
+            if verify_counter and self.undo_witnesses.counters["cache_hits"] != hits:
+                verify_counter.add(row["size"], row["path"])
         if verify_counter: verify_counter.finish()
         restore_counter = self.progress.Counter("prepare-items:" + name + "-rollback-restore", total, "bytes",
                                                 "Restoring saved inputs for interrupted-build recovery") if self.progress else None
@@ -1094,6 +1109,12 @@ class Preparation:
             def observed(checksum):
                 self.checked[relative] = (_stamp(path), checksum)
                 self.witnesses.remember(path, checksum)
+                # This hash came from the existing closed copy writer, rather
+                # than metadata or the journal's claimed checksum. A resumed
+                # rollback can qualify the unchanged FileID/ChangeTime proof
+                # without a second whole-backup read before restoring it. Old,
+                # modified or unsupported witnesses still hash the real bytes.
+                self.undo_witnesses.remember(saved, checksum)
             def transfer(size): backup_counter.add(size, relative)
             if backup_counter: copy_changed(path, saved, observed=observed, transfer=transfer)
             else: copy_changed(path, saved, observed=observed)
@@ -1105,6 +1126,10 @@ class Preparation:
             elif row.get("directory"):
                 rows.append({**row, "files": [preserve(relative) for relative in row["files"]]})
             else: rows.append(preserve(row["path"]))
+        # A phase can be interrupted immediately after publishing its pending
+        # journal. Persist its accepted closed-copy witnesses first; missing
+        # proofs after an earlier cut remain eligible through actual reads.
+        self.copies.commit()
         if backup_counter: backup_counter.finish()
         return rows
 
