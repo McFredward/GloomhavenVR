@@ -265,20 +265,25 @@ class LocalServer(ThreadingHTTPServer):
         with self.storage_lock:
             value = copy.deepcopy(self.storage_state)
             inventory = copy.deepcopy(self.inventory_state)
+        volume = shutil.disk_usage(self.store.root)
         return {"schema": 1, "event": "storage", "state": value,
-                "workspaceRoot": str(self.store.root), "freeBytes": shutil.disk_usage(self.store.root).free,
+                "workspaceRoot": str(self.store.root), "freeBytes": volume.free,
+                "volume": {"totalBytes": volume.total, "usedBytes": volume.used, "freeBytes": volume.free},
                 "inventory": inventory, "canDeleteBuildCache": bool(inventory.get("canDeleteBuildCache"))}
 
-    def stopped_runs(self):
-        """List owned inactive runs on demand, without walking asset caches.
+    def runs_status(self):
+        """List every owned run and its last measured usage without another scan.
 
         A console crash can leave a persisted running banner. Only the Store's
         ordinary kernel-lock reconciliation may mark that run interrupted; a
         saved status or PID is never authority to stop a real active builder.
         """
         recent, latest = discovery.recent_sessions(self.store, limit=None)
-        allowed = {"ready", "blocked", "failed", "cancelled", "interrupted"}
-        stopped = []
+        with self.storage_lock:
+            inventory = copy.deepcopy(self.inventory_state)
+        measured = {row["session"]: row for row in inventory.get("runs", [])
+                    if isinstance(row, dict) and isinstance(row.get("session"), str)}
+        rows = []
         for row in recent:
             if row["status"] == "running":
                 try:
@@ -286,9 +291,9 @@ class LocalServer(ThreadingHTTPServer):
                     row = {**row, "status": value["status"]}
                 except (OSError, ValueError, WizardError):
                     continue
-            if row["status"] in allowed:
-                stopped.append(row)
-        return {"schema": 1, "event": "runs", "runs": stopped, "latestSession": latest}
+            rows.append({**measured.get(row["session"], {}), **row})
+        return {"schema": 1, "event": "runs", "runs": rows, "latestSession": latest,
+                "retiredRuns": inventory.get("retiredRuns", []), "storageStatus": inventory.get("status", "idle")}
 
     def refresh_inventory(self):
         """Measure file metadata once on request; status polling never walks caches."""
@@ -488,7 +493,13 @@ class LocalServer(ThreadingHTTPServer):
                 if mode == "session":
                     # Reconcile an abandoned console using the same Store
                     # ownership rules before the preview worker takes its lock.
-                    self.store.load(session)
+                    if self.store.session_dir(session).exists():
+                        self.store.load(session)
+                    elif not remove_data:
+                        error = WizardError("cleanup_session_removed", "This run was removed. Select its remaining data in the storage overview.",
+                                            "Dieser Run wurde entfernt. Seine verbleibenden Daten in der Speicherübersicht auswählen.")
+                        self.storage_failure(error)
+                        raise error
                 self.storage_plan = None
                 selected = None
             inventory = self.inventory_job if self.inventory_job and self.inventory_job.is_alive() else None
@@ -657,7 +668,7 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path == "/api/storage": return self.server.storage_status()
             if parsed.path == "/api/storage/runs":
                 if query: raise WizardError("request_query", "Unexpected stopped-run query fields.")
-                return self.server.stopped_runs()
+                return self.server.runs_status()
             if parsed.path == "/api/device/status": return self.server.device_status()
             if parsed.path == "/api/device/capture":
                 identifier = selected("id")
@@ -666,7 +677,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.server.device_capture(identifier)
             if parsed.path == "/api/discover":
                 result = dict(self.server.discover(REPO, self.server.store))
-                result["capabilities"] = {**result.get("capabilities", {}), "deviceTools": True, "storageInventory": True, "portablePackages": True, "runRemoval": True}
+                result["capabilities"] = {**result.get("capabilities", {}), "deviceTools": True, "storageInventory": True,
+                                          "portablePackages": True, "runRemoval": True, "runOverview": True, "workspaceSupport": True}
                 return result
             if parsed.path == '/api/gallery':
                 return {'schema': 1, 'event': 'gallery', 'artwork': self.server.promo.visible() if self.server.promo else []}
@@ -794,14 +806,16 @@ class Handler(BaseHTTPRequestHandler):
                 if set(value) != {"session", "nonce"}:
                     raise WizardError("request_body", "Expected the current content transfer action.")
                 return self.server.approve_content_reinstallation(value["session"], value["nonce"])
+            if parsed.path == "/api/support":
+                if set(value) not in (set(), {"session"}):
+                    raise WizardError("request_body", "Expected an optional diagnostic session ID.")
+                support = discovery.local_support_module(REPO, "support")
+                result = support.export_support(self.server.store.root, value.get("session"))
+                return Download(result["path"])
             if set(value) != {"session"}: raise WizardError("request_body", "Expected only the session ID.")
             session = value["session"]
             if parsed.path == "/api/install/skip":
                 return self.server.skip_installation(session)
-            if parsed.path == "/api/support":
-                support = discovery.local_support_module(REPO, "support")
-                result = support.export_support(self.server.store.root, session)
-                return Download(result["path"])
             if parsed.path == "/api/run":
                 self.server.run_session(session); return {"schema": 1, "event": "started", "session": session}
             if parsed.path == "/api/cancel":

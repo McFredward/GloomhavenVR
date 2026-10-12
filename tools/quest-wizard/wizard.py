@@ -554,6 +554,27 @@ class Engine:
         atomic_json(self.store.session_dir(session) / "network-preflight.json", result)
         self.emit(self.store.event(state, "network_preflight_complete", "tools", checkedDependencies=result["checkedDependencies"], localDependencies=result["localDependencies"], offlineClosureVerified=False))
 
+    @staticmethod
+    def remember_storage_game(state, qualification):
+        """Keep actual input ownership beyond the bounded progress history.
+
+        This is diagnostic/cleanup provenance, never a build recipe or cache
+        reuse authorization. Older runs retained the observed game key only in
+        progress events; once those rotated, cleanup missed the new project's
+        large intermediate trees. The next existing event saves this small row.
+        """
+        estimate = qualification.get("spaceEstimate") if isinstance(qualification, dict) else None
+        key = estimate.get("cacheGameKey") if isinstance(estimate, dict) else None
+        if not isinstance(key, str) or re.fullmatch(r"[0-9a-f]{64}", key) is None:
+            return
+        prior = state.get("storageProvenance", {})
+        rows = prior.get("games", []) if isinstance(prior, dict) and prior.get("schema") == 1 else []
+        rows = rows[-256:] if isinstance(rows, list) else []
+        keys = [row["gameKey"] for row in rows if isinstance(row, dict)
+                and isinstance(row.get("gameKey"), str) and re.fullmatch(r"[0-9a-f]{64}", row["gameKey"])]
+        state["storageProvenance"] = {"schema": 1, "games": [{"gameKey": member}
+            for member in dict.fromkeys([*keys, key])][-256:]}
+
     def qualify(self, state, *, stage="tools"):
         from qualification import qualify
         mode = state["choices"].get("mode", "build")
@@ -572,6 +593,7 @@ class Engine:
                                     mode=mode, base_apk=state["choices"].get("baseApk"))
         except WizardError as error:
             if error.code in ("workspace_build_space_low", "workspace_space_estimate_incomplete"):
+                self.remember_storage_game(state, error.parameters)
                 # Keep the existing diagnostic token; this warning is now
                 # accompanied by the mandatory stop and its actionable cause.
                 self.emit(self.store.event(state, "space_estimate_warning", stage,
@@ -579,6 +601,7 @@ class Engine:
                                           estimatedBytes=error.parameters.get("estimatedBytes"),
                                           spaceEstimate=error.parameters.get("spaceEstimate")))
             raise
+        self.remember_storage_game(state, qualification)
         self.emit(self.store.event(state, "workspace_space_checked", stage,
                                   workspaceRoot=qualification["workspaceRoot"], freeBytes=qualification["freeBytes"],
                                   requiredFreeBytes=qualification["requiredFreeBytes"],

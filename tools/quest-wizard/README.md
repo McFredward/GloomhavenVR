@@ -128,6 +128,37 @@ Kernel ownership still excludes real active work; stale running banners are
 reconciled through the Store before selecting a stopped run. Metadata-only run
 removal can be confirmed even when there are no intermediate files to reclaim.
 
+The home page lists all normal runs instead of binding a resume/delete tile to
+the implicit latest pointer. A retired run is absent from that list. Storage may
+still show its retained diagnostic/intermediate footprint and offer a separate
+explicit cleanup, which cannot resurrect its session. `/api/storage/runs`
+returns fresh run statuses (including complete/running), cached measurements and
+a separate `retiredRuns` list; it never initiates another filesystem inventory.
+
+The single owned-file metadata walk reports exclusive/shared/unassigned bytes
+as a non-overlapping workspace partition. Each dependent run may display the
+same shared footprint; those row totals must not be added to get global usage.
+Reusable/data-package/tool/diagnostic buckets are descriptive classifications,
+not another additive partition. Candidate reclaimable bytes are estimates until
+an actual guarded deletion preview. Volume capacity is reported independently:
+logical file sizes do not prove exact physical allocation on every filesystem.
+Publish the bounded completed snapshot as `logs/storage-analysis.json` for
+support export. Refresh once after an explicit cleanup rather than on every poll.
+
+Legacy ownership reads actual structured capacity events and the two bounded
+progress-log producer names. The capture130723 full-update fallback's new game
+key was never stored in `state.qualification`. Future qualification keeps
+`storageProvenance.games` outside the rotating event ring; this changes no build
+recipe or reuse decision. A retired session's confirmed intermediate cleanup
+returns `sessionsRemoved: []` and leaves its diagnostic archive in place.
+
+POST `/api/support` accepts `{}` for workspace-wide diagnostics or an explicit
+session ID for current/retired run context. The header control remains available
+on every real wizard view. Missing optional utility metadata is reported as an
+omission; exports retain the same byte/file limits and credential redaction and
+never read APK, asset-bank or save payloads. Workspace exports use `scope:
+"workspace"`, `session: null`; they do not invent an active build.
+
 Completed steps are reused only after their output size and SHA256 match the
 saved receipt and their input/dependency key matches. Installation failures can
 retry independently of an already verified APK. A changed profile does not

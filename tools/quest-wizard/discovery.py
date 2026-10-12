@@ -153,7 +153,8 @@ def recent_sessions(store, *, limit=8):
                     or type(updated) not in (int, float) or not math.isfinite(updated)):
                 continue
             recent.append({"session": session, "status": value["status"],
-                           "gameRoot": selected["gameRoot"], "updated": updated})
+                           "gameRoot": selected["gameRoot"], "updated": updated,
+                           "created": value.get("created", updated), "mode": selected.get("mode", "build")})
         except (OSError, ValueError, KeyError, WizardError):
             continue
     recent.sort(key=lambda row: (row["updated"], row["session"]), reverse=True)

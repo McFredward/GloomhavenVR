@@ -1,5 +1,31 @@
 # State — where the project stands
 
+**Quest run list, actual storage attribution and global support export, 2026-10-12.**
+
+The maintainer reports only400MiB reclaimed and ambiguous singleton resume/delete
+tiles after retirement. Source review identifies a missing real ownership source:
+`Engine.qualify` publishes `spaceEstimate.cacheGameKey` in capacity events, not
+in the synthetic per-state qualification field previously read by cleanup.
+Capture130723's retained progress log confirms the new c287a983... game identity.
+Read those exact bounded legacy records, and retain future accepted game IDs
+outside the rotating event ring without changing build/reuse recipe inputs.
+
+Replace singleton resume/delete tiles with the actual list of normal runs and
+appropriate per-row actions. Removed runs stay out of that list; storage alone
+shows their remaining data and permits another explicitly confirmed cleanup.
+The existing metadata walk measures run-exclusive, shared and unassigned bytes
+without rehashing payloads or scanning separately for each run. Shared footprints
+can appear in multiple run rows but count once in workspace totals. Reclaimable
+figures are prospective; retained previews and ownership locks remain authority.
+Show volume usage separately from Builder workspace measurements.
+
+An always-available support control exports workspace diagnostics even without
+an active run or after the last run was retired. Include bounded current cleanup,
+request and storage-analysis records; exclude payloads, accounts and keys. The
+new source-bound focused host/browser and extracted-archive evidence accompanies
+the handoff. No new game APK or runtime/Unity source change; actual reclaimed
+Windows bytes remain unknown until the maintainer returns the next analysis.
+
 **Quest explicit stopped-run removal, 2026-10-12.**
 
 The maintainer's empty cleanup result refers to the duplicate-only selector:
