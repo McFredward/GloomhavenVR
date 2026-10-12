@@ -20,7 +20,7 @@ SPEC.loader.exec_module(module)
 
 
 def localconfig(options: str | None = None) -> bytes:
-    value = f'"LaunchOptions" "{options}"' if options is not None else ""
+    value = f'"LaunchOptions" {json.dumps(options)}' if options is not None else ""
     return (f'"UserLocalConfigStore" {{ "Software" {{ "Valve" {{ "Steam" '
             f'{{ "Apps" {{ "999" {{ "LaunchOptions" "-unrelated" }} '
             f'"780290" {{ {value} }} }} }} }} }} }}').encode()
@@ -53,6 +53,70 @@ class SteamFrameConfigTest(unittest.TestCase):
         self.assertIn("-foo", changed)
         self.assertNotIn("--gloomhavenvr", changed)
         self.assertEqual(module.update_launch_options(changed), changed)
+
+    def test_launch_check_accepts_equivalent_whitespace_and_override_quotes(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            config = base / "Steam/userdata/123/config"
+            config.mkdir(parents=True)
+            local = config / "localconfig.vdf"
+            game = base / "game"
+            game.mkdir()
+            (game / "GH.exe").touch()
+            args = [sys.executable, str(HELPER), "--steam-root", str(base / "Steam"),
+                    "--game-path", str(game), "--check-launch-options"]
+            valid = [
+                '  WINEDLLOVERRIDES="winhttp=n,b" %command%  ',
+                "WINEDLLOVERRIDES='winhttp=n,b' %command%",
+                'WINEDLLOVERRIDES=winhttp=n,b %command%',
+                "PROTON_LOG=1  WINEDLLOVERRIDES='d3d11=n;winhttp=n,b'  %command% -windowed",
+            ]
+            for options in valid:
+                with self.subTest(options=options):
+                    original = localconfig(options)
+                    local.write_bytes(original)
+                    checked = subprocess.run(args, text=True, capture_output=True)
+                    self.assertEqual(checked.returncode, 0, checked.stderr)
+                    self.assertEqual(local.read_bytes(), original)
+
+    def test_launch_check_refuses_missing_wrong_or_misplaced_environment(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            config = base / "Steam/userdata/123/config"
+            config.mkdir(parents=True)
+            local = config / "localconfig.vdf"
+            game = base / "game"
+            game.mkdir()
+            (game / "GH.exe").touch()
+            args = [sys.executable, str(HELPER), "--steam-root", str(base / "Steam"),
+                    "--game-path", str(game)]
+            invalid = [
+                "%command% -windowed",
+                'WINEDLLOVERRIDES="winhttp=b" %command%',
+                'WINEDLLOVERRIDES="winhttp=n,b" -windowed',
+                '%command% WINEDLLOVERRIDES="winhttp=n,b" -windowed',
+                'WINEDLLOVERRIDES="winhttp=n,b" "%command%"',
+                'WINEDLLOVERRIDES="winhttp=n,b" %command% %command%',
+                'WINEDLLOVERRIDES="winhttp=n,b %command%',
+                'WINEDLLOVERRIDES="winhttp=n,b" %command% ; echo unsafe-wrapper',
+                'gamescope WINEDLLOVERRIDES="winhttp=n,b" %command%',
+                'WINEDLLOVERRIDES="winhttp=n,b" # %command%',
+                'WINEDLLOVERRIDES="winhttp=n,b" %command% `unterminated',
+                'WINEDLLOVERRIDES="winhttp=n,b" %command% "--gloomhavenvr"',
+            ]
+            for options in invalid:
+                with self.subTest(options=options):
+                    original = localconfig(options)
+                    local.write_bytes(original)
+                    checked = subprocess.run(args + ["--check-launch-options"], text=True, capture_output=True)
+                    self.assertNotEqual(checked.returncode, 0)
+                    self.assertIn("Properties > General > Launch options", checked.stderr)
+                    self.assertEqual(local.read_bytes(), original)
+            local.write_bytes(localconfig('%command% WINEDLLOVERRIDES="winhttp=n,b" -windowed'))
+            suggested = subprocess.run(args + ["--required-launch-options"], text=True, capture_output=True)
+            self.assertEqual(suggested.returncode, 0, suggested.stderr)
+            self.assertEqual(suggested.stdout.strip(), 'WINEDLLOVERRIDES="winhttp=n,b" %command%  -windowed')
+            self.assertTrue(module.valid_launch_options(suggested.stdout, suggested.stdout))
 
     def test_missing_game_entry_is_added_once(self):
         raw = b'"UserLocalConfigStore" { "Software" { "Valve" { "Steam" { "Apps" { } } } } }'

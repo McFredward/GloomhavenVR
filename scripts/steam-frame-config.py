@@ -15,6 +15,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import struct
 import sys
@@ -178,6 +179,12 @@ def update_launch_options(existing: str) -> str:
         if not found:
             parts.append("winhttp=n,b")
         merged = ";".join(part for part in parts if part)
+        if "%command%" in existing[:match.start()]:
+            # Behind %command% this is a game argument, not an environment
+            # assignment. Preserve other text, but put the repaired override
+            # in the supported environment prefix of the native UI suggestion.
+            remaining = (existing[:match.start()] + existing[match.end():]).strip()
+            return f'WINEDLLOVERRIDES="{merged}" {remaining}'
         result = existing[:match.start()] + f'WINEDLLOVERRIDES="{merged}"' + existing[match.end():]
         if "%command%" not in result:
             insertion = match.start() + len(f'WINEDLLOVERRIDES="{merged}"')
@@ -186,6 +193,42 @@ def update_launch_options(existing: str) -> str:
     if "%command%" in existing:
         return f"{OVERRIDE} {existing}"
     return f"{OVERRIDE} %command% {existing}"
+
+
+def valid_launch_options(existing: str, required: str) -> bool:
+    """Accept harmless spelling differences, but only a real environment prefix."""
+    try:
+        lexer = shlex.shlex(existing, posix=True, punctuation_chars=";&|<>()")
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        tokens = list(lexer)
+        expected = shlex.split(required)
+    except ValueError:
+        return False  # Never accept an unterminated shell quote.
+    if tokens != expected or tokens.count("%command%") != 1:
+        return False
+    if any(token.casefold() == "--gloomhavenvr" for token in tokens):
+        return False  # Including a quoted flag on the original flat entry.
+    # Quoting/escaping the complete substituted command can turn it into one
+    # invalid executable name; require the actual standalone Steam placeholder.
+    if len(re.findall(r"(?<!\S)%command%(?=\s|$)", existing)) != 1:
+        return False
+    command_index = tokens.index("%command%")
+    if "`" in existing or "$(" in existing or any(token.startswith("#") for token in tokens[:command_index]):
+        return False
+    assignments = []
+    for token in tokens[:command_index]:
+        if not re.match(r"[A-Za-z_][A-Za-z0-9_]*=", token):
+            break  # Later assignments would be arguments to a shell wrapper.
+        assignments.append(token)
+    overrides = [token for token in assignments if token.startswith("WINEDLLOVERRIDES=")]
+    if len(overrides) != 1:
+        return False
+    # Unquoted shell controls and substitutions are ambiguous launch wrappers;
+    # guide native UI correction instead of pretending to interpret/rewrite them.
+    if any(re.fullmatch(r"[;&|<>()]+", token) for token in tokens):
+        return False
+    return True
 
 
 def patch_localconfig(raw: bytes) -> bytes:
@@ -622,8 +665,10 @@ def main(argv: list[str] | None = None) -> int:
                             return show_launch_options_instruction(required, "live setup still needs a native Steam save and a Steam/Frame restart.")
                 except (ConfigError, OSError, ValueError, KeyError, TypeError):
                     return show_launch_options_instruction(required, "the pending Steam setup receipt cannot be verified. Rerun setup, save the native options, then restart Frame from its power menu.")
-            if existing == required:
+            if valid_launch_options(existing, required):
                 return 0
+            if not valid_launch_options(required, required):
+                return show_launch_options_instruction(f"{OVERRIDE} %command%", "custom shell quoting/wrapper needs correction in Steam. Use the basic line below or manually merge your custom options into it; existing settings have not been overwritten.")
             return show_launch_options_instruction(required, "Gloomhaven's Steam launch options are missing or stale.")
         for name in ("launcher", "icon", "logo", "portrait", "header", "hero"):
             if getattr(args, name) is None:

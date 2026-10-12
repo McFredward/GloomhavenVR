@@ -281,6 +281,29 @@ printf '%s\n' -applaunch 780290 --gloomhavenvr > "$scratch/expected-args"
 cmp -s "$HOME/steam-args" "$scratch/expected-args"
 ! rg -q -- '--gloomhavenvr' "$account/localconfig.vdf"
 
+# Native Steam may preserve harmless whitespace or single-quoted assignment
+# values. The generated launcher must accept them without rewriting the file.
+python3 - "$account/localconfig.vdf" "$root/scripts/steam-frame-config.py" <<'STEAMPY'
+import importlib.util
+from pathlib import Path
+import sys
+spec = importlib.util.spec_from_file_location('frame_config_test', sys.argv[2])
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+p = Path(sys.argv[1])
+s = p.read_text()
+tokens = module.tokenize_text(s)
+value = next(t for i, t in enumerate(tokens) if i and tokens[i-1].value == 'LaunchOptions')
+options = "  WINEDLLOVERRIDES='winhttp=n,b' MANGOHUD=1 %command%  "
+p.write_text(s[:value.start] + module.quoted(options) + s[value.end:])
+STEAMPY
+cp -- "$account/localconfig.vdf" "$scratch/equivalent-localconfig"
+PATH="$scratch/bin:$PATH" "$launcher"
+cmp -s "$HOME/steam-args" "$scratch/expected-args"
+cmp -s "$account/localconfig.vdf" "$scratch/equivalent-localconfig"
+cp -- "$scratch/localconfig-before" "$account/localconfig.vdf"
+
 # A live rerun preserves all original options/config but again requires a
 # native UI check before restarting; offline rerun completes automatically.
 cp -- "$shortcuts" "$scratch/shortcuts-before"
