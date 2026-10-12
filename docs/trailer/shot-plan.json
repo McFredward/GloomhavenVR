@@ -10,7 +10,7 @@
     "fps": 24,
     "frame_count": 1560,
     "color": "Rec.709",
-    "status": "Revision active after the maintainer rejected premature tabletop appearance and mechanical motion. Finish one corrected reveal review, then pause production until the maintainer approves its direction. Overall USD 30; media and receipts remain private under .planning/debug/trailer.",
+    "status": "New generative film quality probe 09 ready for maintainer review; production paused until direction approval. Both prior Blender-based visual proofs rejected. USD 30 hard ceiling; all private media under .planning/debug/trailer.",
     "developer_base_commit": "cd72fde56fc6de846a34fa104ca73dfad888b3e9",
     "scene_count": 9,
     "cinematic_opener_seconds": 18,
@@ -930,5 +930,27 @@
       "currentNPC offer/donate/enhance through native confirmation/return"
     ],
     "camera_rule": "Use actual available player views; establish any independent spectator/cinematic camera before promising it."
+  },
+  "film_quality_reset": {
+    "source": "Maintainer rejection of review 08 on 2026-10-12",
+    "approach": "New narrative generative animated short, original game/mod identities, film-designed keyframes; no rejected Blender motion source",
+    "probe_seconds": 10,
+    "shots": [
+      "Living Brute, heavy step, sound/shadow, motivated upward reaction",
+      "Eyeline reverse angle, enormous attentive original Grimhorn beyond roofline, purposeful original glove approach"
+    ],
+    "model": "bytedance/seedance-2.5/reference-to-video",
+    "probe_native_resolution": "720p",
+    "additional_fal_reservation_ceiling_usd": 5,
+    "conservative_reserved_before_usd": 6.25,
+    "review_gate": "Deliver the next video and stop for maintainer approval. No automatic rerolls or full montage production.",
+    "evidence_root": ".planning/debug/trailer/revision-03/",
+    "review": "review/09-film-short-quality-probe.mp4",
+    "status": "ready_for_review_production_paused",
+    "conservative_reserved_total_usd": 11.25,
+    "unresolved": [
+      "Grimhorn gaze is relatively camera-facing",
+      "Generated glove covers fingertips instead of matching original fingerless mod hand"
+    ]
   }
 }
