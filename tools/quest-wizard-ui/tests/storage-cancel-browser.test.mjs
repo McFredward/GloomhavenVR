@@ -84,12 +84,12 @@ test('preview shows global counters and current folder, can stop and repreview, 
     assert.match(text,/Insgesamt 371\.712 Dateien.*4\.500 Ordner.*70 GiB.*Dauer: 00:00:0[7-9].*build\/projects\/owned\/Library/);
     assert.doesNotMatch(text,/im aktuellen Ordner|100\s*%/);
     assert.equal(await client.evaluate("document.getElementById('storage-progress').hasAttribute('value')"),false,'unknown total stays indeterminate');
-    server.change({phase:'cleanup-metadata',metadataQueries:700,processedEntries:372000});
+    server.change({subphase:'native-metadata',metadataQueries:700,processedEntries:372000});
     await client.wait("document.getElementById('storage-status').textContent.includes('700 Metadatenzugriffe')");
-    assert.match(await client.evaluate("document.getElementById('storage-status').textContent"),/371\.712 Dateien.*372\.000 Datei- und Ordnereinträge gelesen/);
-    server.change({metadataQueries:900,processedEntries:373000});
+    assert.match(await client.evaluate("document.getElementById('storage-status').textContent"),/Dateimetadaten lesen.*371\.712 Dateien.*372\.000 Metadatensätze verarbeitet/);
+    server.change({subphase:'fingerprint',metadataQueries:900,processedEntries:373000});
     await client.wait("document.getElementById('storage-status').textContent.includes('900 Metadatenzugriffe')");
-    assert.match(await client.evaluate("document.getElementById('storage-status').textContent"),/373\.000 Datei- und Ordnereinträge gelesen/);
+    assert.match(await client.evaluate("document.getElementById('storage-status').textContent"),/Metadaten-Zwischenstand erfassen.*373\.000 Metadatensätze verarbeitet/);
     assert.equal(await client.evaluate("document.getElementById('storage-progress').hasAttribute('value')"),false,'observable metadata work never invents a global percentage');
     await client.picture('storage-global-scan-and-cancel-de');
     await client.evaluate("document.getElementById('storage-cancel').click()");await client.wait("document.getElementById('storage-status').textContent.includes('Wird angehalten')");

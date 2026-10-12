@@ -500,7 +500,7 @@ class LocalServer(ThreadingHTTPServer):
                 if type(current.get("startedAt")) in (int, float):
                     current["elapsedSeconds"] = max(0, time.time() - current["startedAt"])
                 partial = {key: current[key] for key in ("phase", "done", "total", "files", "bytes", "folders",
-                           "processedEntries", "metadataQueries", "currentPath", "detail", "elapsedSeconds") if key in current}
+                           "processedEntries", "metadataQueries", "subphase", "currentPath", "detail", "elapsedSeconds") if key in current}
             phase = value.get("phase")
             if phase != last_phase or now - last_logged >= 2:
                 last_phase, last_logged = phase, now

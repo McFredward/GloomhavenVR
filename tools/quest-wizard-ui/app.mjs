@@ -439,7 +439,8 @@ function renderStorage() {
   const buildStage=state?.stages?.find(row=>['running','cancelling','cancel_requested'].includes(row.status))?.id??state?.progress?.phase;
   const waiting=isActive(state)?t('storageWaitingBuild',{stage:buildStage?t('stage_'+buildStage):t('working')}):deviceActive()?t('storageWaitingDevice'):packageActive()?t('storageWaitingExport'):busy?t('storageWaitingSetup'):'';
   const skipped=status==='preview'&&plan?.skipped?.length?t('storageSkipped',{count:plan.skipped.length}):'';
-  const phaseKey='storage_phase_'+current.phase,phase=t(phaseKey)!==phaseKey?t(phaseKey):'';
+  const phaseKey='storage_phase_'+current.phase,subphaseKey='storage_subphase_'+current.subphase;
+  const phase=[t(phaseKey)!==phaseKey?t(phaseKey):'',t(subphaseKey)!==subphaseKey?t(subphaseKey):''].filter(Boolean).join(' · ');
   const partial=current.result??failure?.parameters?.result;
   const freed=partial?.deletedFiles>0?t('storagePartialRemoval',{files:new Intl.NumberFormat(language).format(partial.deletedFiles),size:storageSize(partial.freedBytes)}):'';
   $('storage-status').textContent=[failed,copy,phase,count,freed,skipped,waiting].filter(Boolean).join(' · ');$('storage-status').setAttribute('role',failure?'alert':'status');
