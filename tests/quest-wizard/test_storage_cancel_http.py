@@ -68,6 +68,7 @@ class StorageCancelHttpTests(unittest.TestCase):
                 progress({"phase": "cleanup-scan", "done": count, "total": None, "files": count,
                           "folders": 23, "bytes": count * 1024, "elapsedSeconds": 7,
                           "metadataQueries": count + 1, "processedEntries": count + 5,
+                          "subphase": "fingerprint",
                           "currentPath": "build/cache/owned", "detail": "build/cache/owned"})
             self.wait_for_cancel(cancel)
 
@@ -102,6 +103,9 @@ class StorageCancelHttpTests(unittest.TestCase):
         self.assertIsNone(self.http.storage_plan)
         rows = [json.loads(row) for row in (self.store.root / "logs/storage-cleanup.log").read_text().splitlines()]
         self.assertLessEqual(sum(row["event"] == "progress" for row in rows), 2)
+        progress_row = next(row for row in rows if row["event"] == "progress")
+        self.assertEqual(progress_row["metadataQueries"], 1); self.assertEqual(progress_row["processedEntries"], 5)
+        self.assertEqual(progress_row["subphase"], "fingerprint")
         self.assertEqual(next(row for row in rows if row["event"] == "cancelled")["progress"]["files"], 499)
         self.assertNotIn("failed", [row["event"] for row in rows])
         code, raw = self.request("/api/support", {}, binary=True)
