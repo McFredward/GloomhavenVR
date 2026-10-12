@@ -17,10 +17,15 @@ class PackageTools:
         self.log = self.workspace / "logs/package-export.jsonl"
 
     def log_event(self, event, **details):
-        self.log.parent.mkdir(parents=True, exist_ok=True)
-        if self.log.exists() and self.log.stat().st_size > 1048576:
-            self.log.replace(self.log.with_name("package-export.previous.jsonl"))
-        with self.log.open("a", encoding="utf-8") as stream:
+        # Qualify all owned paths before creating a folder or rotating a log.
+        # Existing links must never redirect even a failed export's diagnostics.
+        log = ordinary(self.log)
+        previous = ordinary(log.with_name("package-export.previous.jsonl"))
+        parent = ordinary(log.parent)
+        parent.mkdir(parents=True, exist_ok=True)
+        if log.exists() and log.stat().st_size > 1048576:
+            log.replace(previous)
+        with log.open("a", encoding="utf-8") as stream:
             stream.write(json.dumps({"time": time.time(), "event": event, **details}, ensure_ascii=False) + "\n")
 
     def latest(self):

@@ -190,4 +190,48 @@ class PackageInputTests(unittest.TestCase):
                 self.assertNotIn("shell", run.call_args.kwargs)
 
 
+class PackageLogTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.workspace = self.root / "owned"; self.workspace.mkdir()
+        self.adapter = package_tools.PackageTools(ROOT, self.workspace)
+        self.foreign = self.root / "foreign.jsonl"; self.foreign.write_bytes(b"unrelated retained evidence\n")
+
+    def test_linked_log_rotation_and_parent_refuse_before_foreign_or_owned_bytes_change(self):
+        for linked in ("log", "rotation", "parent"):
+            with self.subTest(linked=linked):
+                workspace = self.workspace / linked; workspace.mkdir()
+                adapter = package_tools.PackageTools(ROOT, workspace)
+                if linked == "parent":
+                    foreign_folder = self.root / "foreign-folder"; foreign_folder.mkdir()
+                    marker = foreign_folder / "marker.txt"; marker.write_bytes(b"retained folder evidence")
+                    adapter.log.parent.symlink_to(foreign_folder, target_is_directory=True)
+                    protected = {entry.name: entry.read_bytes() for entry in foreign_folder.iterdir()}
+                else:
+                    adapter.log.parent.mkdir()
+                    if linked == "log": adapter.log.symlink_to(self.foreign)
+                    else:
+                        adapter.log.write_bytes(b"x" * (1048576 + 1))
+                        adapter.log.with_name("package-export.previous.jsonl").symlink_to(self.foreign)
+                        before = adapter.log.read_bytes()
+                with self.assertRaises(WizardError) as error:
+                    adapter.log_event("export_started", source="selected.apk")
+                self.assertEqual(error.exception.code, "linked_path")
+                self.assertEqual(self.foreign.read_bytes(), b"unrelated retained evidence\n")
+                if linked == "rotation": self.assertEqual(adapter.log.read_bytes(), before)
+                if linked == "parent":
+                    self.assertEqual({entry.name: entry.read_bytes() for entry in foreign_folder.iterdir()}, protected)
+
+    def test_regular_logs_create_and_rotate_only_the_exact_owned_files(self):
+        self.adapter.log_event("export_started", source="selected.apk")
+        value = json.loads(self.adapter.log.read_text())
+        self.assertEqual(value["event"], "export_started")
+        original = b"x" * (1048576 + 1); self.adapter.log.write_bytes(original)
+        self.adapter.log_event("export_complete", size=123)
+        self.assertEqual(self.adapter.log.with_name("package-export.previous.jsonl").read_bytes(), original)
+        self.assertEqual(json.loads(self.adapter.log.read_text())["size"], 123)
+        self.assertEqual(self.foreign.read_bytes(), b"unrelated retained evidence\n")
+
+
 if __name__ == "__main__": unittest.main()
