@@ -292,9 +292,19 @@ namespace GloomhavenVR.Quest.Editor
 
         public static void PrepareVariantCollection(string manifestPath)
         {
+            // Explicit development callers preserve their full source audit.
+            PrepareVariantCollection(manifestPath, true);
+        }
+
+        public static void PrepareVariantCollection(string manifestPath, bool verifyProgramSources)
+        {
             var input = Read(manifestPath);
             RequireGraphicsHost(input);
-            VerifyProgramSources(input);
+            // Translation already records the exact include outputs. A normal
+            // local build must not read every include again merely to assemble
+            // the required SVC. Actual native cooking consumes those files;
+            // full development QA retains this separate hash inspection.
+            if (verifyProgramSources) VerifyProgramSources(input);
             const string path = "Assets/Resources/QuestCampaignShaderVariants.shadervariants";
             Directory.CreateDirectory("Assets/Resources");
             var collection = new ShaderVariantCollection();

@@ -32,6 +32,15 @@ namespace GloomhavenVR.Quest.Editor
             public bool originalPixelParityVerified, headsetPictureVerified;
         }
         static CampaignShaderModeReceipt campaignShaderMode;
+        public const string BuildWorkReceiptPath = "QuestStartupEvidence/build-work.json";
+        [Serializable] public sealed class BuildWorkReceipt
+        {
+            public int schema = 1, optionalPreBuildTasks, optionalPostBuildTasks;
+            public string mode, inputKey, unityVersion;
+            public bool importedAssetQaRequested, importedAssetQaCompleted;
+            public bool requiredPreparationCompleted, originalPixelParityVerified, headsetPictureVerified;
+        }
+        static BuildWorkReceipt buildWork;
         [Serializable] sealed class Receipt
         {
             public int schema = 1;
@@ -41,6 +50,8 @@ namespace GloomhavenVR.Quest.Editor
             public string campaignShaderValidationMode;
             public bool campaignShaderExhaustiveCompleted, campaignShaderExhaustiveReused;
             public int campaignShaderNativeCompilerQueries;
+            public string importedAssetValidationMode;
+            public bool importedAssetQaRequested, importedAssetQaCompleted;
             public string[] scenes;
             public string proceduralBackend;
             public QuestNativePluginContract.NativeFile[] stagedProceduralNativeFiles;
@@ -123,6 +134,7 @@ namespace GloomhavenVR.Quest.Editor
             QuestWizardProgress.Operation("unity-import", true, "Unity project imported and Editor build entry point reached.");
             QuestWizardProgress.Operation("unity-validation", false, "Checking imported original scenes, package APIs and Android build settings.");
             campaignShaderMode = null;
+            buildWork = null;
             string target = Required("GHVR_QUEST_TARGET");
             if (target != "probe" && target != "startup" && target != "game")
                 throw new InvalidOperationException("Unknown Quest build target.");
@@ -210,6 +222,9 @@ namespace GloomhavenVR.Quest.Editor
                 campaignShaderExhaustiveCompleted = campaignShaderMode != null && campaignShaderMode.exhaustiveCompilerValidationCompleted,
                 campaignShaderExhaustiveReused = campaignShaderMode != null && campaignShaderMode.exhaustiveResultReused,
                 campaignShaderNativeCompilerQueries = campaignShaderMode == null ? 0 : campaignShaderMode.nativeCompilerQueriesThisInvocation,
+                importedAssetValidationMode = buildWork == null ? "not-applicable" : buildWork.mode,
+                importedAssetQaRequested = buildWork != null && buildWork.importedAssetQaRequested,
+                importedAssetQaCompleted = buildWork != null && buildWork.importedAssetQaCompleted,
                 proceduralBackend = nativeContract == null ? null : nativeContract.backend,
                 stagedProceduralNativeFiles = nativeContract == null ? null : nativeContract.files
             }, true));
@@ -379,6 +394,12 @@ namespace GloomhavenVR.Quest.Editor
                     !File.Exists(path) || new FileInfo(path).Length != file.size || FileHash(path) != file.sha256)
                     throw new InvalidOperationException("Imported package API inputs changed: " + file.path);
             }
+            // The builder already records the finite staged plugin contract.
+            // Hash its actual managed inputs and Android SDK above on every
+            // build, but do not traverse the complete Campaign asset tree just
+            // to repeat the extra unknown-plugin census. That read-only QA is
+            // available explicitly, including after manual Editor alterations.
+            if (!ImportedAssetValidationRequested()) return;
             string[] actual = Directory.GetFiles("Assets", "*.dll", SearchOption.AllDirectories)
                 .Select(path => path.Replace('\\', '/'))
                 // Match the builder audit: StreamingAssets DLLs are copied runtime
@@ -390,11 +411,27 @@ namespace GloomhavenVR.Quest.Editor
         }
         static string[] PrepareOriginalStartup(bool campaign = false)
         {
-            // Capture200517 had several minutes of actual validation with no
-            // visible work before its Sprite identity failure. Count each real
-            // task and publish its label BEFORE entering a synchronous native
-            // call; exceptions leave that task open and name it in the log.
-            var tasks = new QuestWizardProgress.TaskSequence("unity-validation-tasks", "unity-validation", campaign ? 17 : 11);
+            // The maintainer reports 7h cold builds and a 400GB workspace on
+            // 2026-10-12. The former normal path loaded all Campaign objects,
+            // opened every scenario scene, read back image mips on the GPU and
+            // repeated the scene/object inspections after native cooking. Those
+            // read-only development gates do not produce Player content. Keep
+            // the actual script-pointer/order mutations, finite scene/API/input
+            // contracts, shader retention and native builds; exhaustive import
+            // and pixel QA is now explicit. Never report omitted QA as verified.
+            bool importedQa = ImportedAssetValidationRequested();
+            buildWork = new BuildWorkReceipt {
+                mode = importedQa ? "exhaustive" : "minimum",
+                inputKey = JsonUtility.FromJson<InputManifest>(File.ReadAllText(Required("GHVR_QUEST_MANIFEST_PATH"))).inputKey,
+                unityVersion = Application.unityVersion, importedAssetQaRequested = importedQa,
+                optionalPreBuildTasks = campaign ? 9 : 6, optionalPostBuildTasks = campaign ? 5 : 4
+            };
+            WriteBuildWorkReceipt();
+            Debug.Log("[Quest build work] Imported asset QA=" + buildWork.mode + "; optional pre-build tasks=" +
+                buildWork.optionalPreBuildTasks + "; optional post-build tasks=" + buildWork.optionalPostBuildTasks +
+                "; original cooking, gameplay scripts and native compilation remain required.");
+            var tasks = new QuestWizardProgress.TaskSequence("unity-validation-tasks", "unity-validation",
+                (campaign ? 8 : 5) + (importedQa ? buildWork.optionalPreBuildTasks : 0));
             tasks.Run("Validate imported package API inputs", ValidatePackageApiContract);
             const string evidencePath = "Assets/Quest/Resources/quest-startup-report.json";
             const string adapterPath = "Assets/Quest/Resources/quest-standalone-report.json";
@@ -411,44 +448,59 @@ namespace GloomhavenVR.Quest.Editor
                     throw new InvalidOperationException("Original Bootstrap/Intro/menu scene names or order were lost.");
             });
             if (campaign) tasks.Run("Validate the complete Campaign build inputs", ValidateCampaignBuildContract);
-            tasks.Run("Load the required original scene assets", () => {
-                var scenes = new QuestWizardProgress.Counter("unity-original-scenes", "unity-validation", evidence.selectedScenes.Length, "scenes", "Loading original scene assets");
+            tasks.Run("Resolve the required original scene assets", () => {
+                var scenes = new QuestWizardProgress.Counter("unity-original-scenes", "unity-validation", evidence.selectedScenes.Length, "scenes", "Resolve required original scene paths");
                 int done = 0;
                 foreach (string path in evidence.selectedScenes)
                 {
                     scenes.Report(done, path);
-                    if (AssetDatabase.LoadAssetAtPath<SceneAsset>(path) == null)
+                    if (string.IsNullOrEmpty(path) || !path.StartsWith("Assets/", StringComparison.Ordinal) ||
+                        path.Split('/').Any(part => part == ".." || part == "." || part.Length == 0) ||
+                        path.Contains("\\") || Path.GetExtension(path) != ".unity" || !File.Exists(path) ||
+                        string.IsNullOrEmpty(AssetDatabase.AssetPathToGUID(path)) ||
+                        (importedQa && AssetDatabase.LoadAssetAtPath<SceneAsset>(path) == null))
                         throw new InvalidOperationException("Required original scene is unavailable: " + path);
                     scenes.Report(++done, path);
                 }
-                scenes.Complete("Required original scene assets loaded");
+                scenes.Complete("Required original scene paths resolved; actual Player cooking loads their contents");
             });
             // Preserve original package-script identities before original scenes run.
             tasks.Run("Remap and validate original script bindings", QuestOriginalScriptBindings.RemapAndValidate);
             tasks.Run("Restore original script execution orders", QuestOriginalScriptOrders.RestoreAndVerify);
-            tasks.Run("Validate original audio", QuestAudioValidation.Validate);
-            tasks.Run("Validate startup Sprite geometry", QuestSpriteGeometryValidation.ValidateStartupAssets);
-            tasks.Run("Validate original UI assets", () => QuestUiAssetValidation.Validate(false));
-            tasks.Run("Validate original post effects", () => QuestPostEffectValidation.Validate(false));
-            tasks.Run("Validate original video assets", () => QuestVideoValidation.Validate(false));
-            tasks.Run("Validate original world screens", () => QuestWorldScreenValidation.Validate(false));
+            if (importedQa)
+            {
+                tasks.Run("Validate original audio", QuestAudioValidation.Validate);
+                tasks.Run("Validate startup Sprite geometry", QuestSpriteGeometryValidation.ValidateStartupAssets);
+                tasks.Run("Validate original UI assets", () => QuestUiAssetValidation.Validate(false));
+                tasks.Run("Validate original post effects", () => QuestPostEffectValidation.Validate(false));
+                tasks.Run("Validate original video assets", () => QuestVideoValidation.Validate(false));
+                tasks.Run("Validate original world screens", () => QuestWorldScreenValidation.Validate(false));
+            }
             if (campaign)
             {
-                tasks.Run("Validate original Campaign assets", QuestCampaignAssetValidation.Validate);
-                tasks.Run("Validate original Campaign textures", () => QuestCampaignTextureValidation.Validate());
-                tasks.Run("Validate original Campaign Sprite geometry", () => QuestCampaignSpriteValidation.Validate());
+                if (importedQa)
+                {
+                    tasks.Run("Validate original Campaign assets", QuestCampaignAssetValidation.Validate);
+                    tasks.Run("Validate original Campaign textures", () => QuestCampaignTextureValidation.Validate());
+                    tasks.Run("Validate original Campaign Sprite geometry", () => QuestCampaignSpriteValidation.Validate());
+                }
                 tasks.Run("Validate original Campaign compute sources", QuestCampaignComputeValidation.ValidateSources);
                 tasks.Run("Retain original Campaign Shader identities", () => campaignShaderMode = PrepareCampaignShaders());
             }
-            QuestWizardProgress.Operation("unity-validation", true, "Required original scene and graphics contracts validated.");
+            QuestWizardProgress.Operation("unity-validation", true, importedQa ? "Required original inputs and requested exhaustive import QA completed."
+                : "Required original inputs prepared; exhaustive imported asset QA omitted.");
             QuestWizardProgress.Operation("content-bank", false, "Building original Android Addressables and complete game content bank.");
             QuestStartupAddressablesBuild.Build();
-            var post = new QuestWizardProgress.TaskSequence("unity-content-post-tasks", "content-bank", campaign ? 6 : 5);
-            if (campaign) post.Run("Validate built Android Campaign assets", QuestCampaignAssetValidation.ValidateAfterAndroidBuild);
-            post.Run("Validate built original post effects", () => QuestPostEffectValidation.Validate(true));
-            post.Run("Validate built original UI assets", () => QuestUiAssetValidation.Validate(true));
-            post.Run("Validate built original videos", () => QuestVideoValidation.Validate(true));
-            post.Run("Validate built original world screens", () => QuestWorldScreenValidation.Validate(true));
+            var post = new QuestWizardProgress.TaskSequence("unity-content-post-tasks", "content-bank",
+                1 + (importedQa ? buildWork.optionalPostBuildTasks : 0));
+            if (importedQa)
+            {
+                if (campaign) post.Run("Validate built Android Campaign assets", QuestCampaignAssetValidation.ValidateAfterAndroidBuild);
+                post.Run("Validate built original post effects", () => QuestPostEffectValidation.Validate(true));
+                post.Run("Validate built original UI assets", () => QuestUiAssetValidation.Validate(true));
+                post.Run("Validate built original videos", () => QuestVideoValidation.Validate(true));
+                post.Run("Validate built original world screens", () => QuestWorldScreenValidation.Validate(true));
+            }
             const string startupScene = "Assets/Quest/Scenes/QuestOriginalStartup.unity";
             post.Run("Prepare and save the original VR startup scene", () => {
                 var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
@@ -459,8 +511,29 @@ namespace GloomhavenVR.Quest.Editor
                 Directory.CreateDirectory("Assets/Quest/Scenes");
                 EditorSceneManager.SaveScene(scene, startupScene);
             });
-            QuestWizardProgress.Operation("content-bank", true, "Original Android content bank and startup scene built and verified.");
+            buildWork.requiredPreparationCompleted = true;
+            buildWork.importedAssetQaCompleted = importedQa;
+            WriteBuildWorkReceipt();
+            QuestWizardProgress.Operation("content-bank", true, importedQa ? "Original Android content bank, startup scene and requested import QA completed."
+                : "Original Android content bank and startup scene built; exhaustive import QA omitted.");
             return new[] { startupScene }.Concat(evidence.selectedScenes).ToArray();
+        }
+
+        public static bool ImportedAssetValidationRequested(string value)
+        {
+            if (string.IsNullOrEmpty(value) || value == "0") return false;
+            if (value == "1") return true;
+            throw new InvalidOperationException("GHVR_QUEST_VALIDATE_IMPORTED_ASSETS accepts only 0 or 1.");
+        }
+        public static bool ImportedAssetValidationRequested()
+        {
+            return ImportedAssetValidationRequested(Environment.GetEnvironmentVariable("GHVR_QUEST_VALIDATE_IMPORTED_ASSETS")) ||
+                Environment.GetEnvironmentVariable("GHVR_QUEST_VERIFICATION") == "full";
+        }
+        static void WriteBuildWorkReceipt()
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(BuildWorkReceiptPath));
+            File.WriteAllText(BuildWorkReceiptPath, JsonUtility.ToJson(buildWork, true) + "\n");
         }
 
         public static string CampaignShaderValidationMode(string value)
@@ -474,8 +547,9 @@ namespace GloomhavenVR.Quest.Editor
         {
             // The maintainer requires normal local builds to perform only the
             // necessary work, including on a cold first build. Retain every
-            // original alias and verify physical source/imported/pass/material
-            // identities. Unity's native bundle/player builds remain mandatory.
+            // original alias and preserve imported/pass identities required by
+            // retention. Full include/material inspection belongs to opt-in QA.
+            // Unity's native bundle/player builds remain mandatory.
             // The all-alias compiler/decode/reflection gate is an explicit
             // development opt-in and can reuse its completed graphics receipt.
             string mode = CampaignShaderValidationMode(Environment.GetEnvironmentVariable("GHVR_QUEST_VALIDATE_CAMPAIGN_SHADERS"));
@@ -487,15 +561,16 @@ namespace GloomhavenVR.Quest.Editor
                 input.shaders == null || input.materials == null || input.requiredShaderCount != input.shaders.Length || input.requiredMaterialCount != input.materials.Length)
                 throw new InvalidDataException("Complete Campaign graphics provenance is missing before native retention.");
             if (File.Exists(CampaignShaderModeReceiptPath)) File.Delete(CampaignShaderModeReceiptPath);
-            QuestCampaignShaderValidation.PrepareVariantCollection(manifestPath);
-            QuestCampaignShaderValidation.VerifyImportedIdentities(input);
             bool exhaustive = mode == "exhaustive";
+            bool importedQa = ImportedAssetValidationRequested() || exhaustive;
+            QuestCampaignShaderValidation.PrepareVariantCollection(manifestPath, importedQa);
+            if (importedQa) QuestCampaignShaderValidation.VerifyImportedIdentities(input);
             if (exhaustive) QuestCampaignShaderValidation.Validate(manifestPath, outputPath);
             if (before != FileHash(manifestPath)) throw new InvalidOperationException("Campaign shader manifest changed during build-mode validation.");
             var receipt = new CampaignShaderModeReceipt {
                 mode = mode, unityVersion = Application.unityVersion, sourceManifestSha256 = before,
                 shaderCount = input.shaders.Length, nativeAliasCount = input.shaders.Sum(row => row.variants.Length), materialCount = input.materials.Length,
-                requiredRetentionVerified = true, importedIdentitiesVerified = true, exhaustiveValidationRequested = exhaustive,
+                requiredRetentionVerified = true, importedIdentitiesVerified = importedQa, exhaustiveValidationRequested = exhaustive,
                 exhaustiveCompilerValidationCompleted = exhaustive,
                 exhaustiveResultReused = exhaustive && QuestCampaignShaderValidation.LastValidationCacheReused,
                 nativeCompilerQueriesThisInvocation = exhaustive ? QuestCampaignShaderValidation.LastNativeCompileCount : 0,

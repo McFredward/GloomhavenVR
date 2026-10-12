@@ -79,6 +79,30 @@ class UnityWorkTests(unittest.TestCase):
         with mock.patch.object(Path, "open", guarded): plan = self.plan()
         self.assertEqual(plan["total"], 3)
 
+    def test_census_reuses_directory_metadata_instead_of_restat_each_asset_path(self):
+        original = work._stat
+        def guarded(path):
+            if path.is_relative_to(self.project / "Assets"):
+                raise AssertionError("Repeated Path metadata query for an enumerated asset")
+            return original(path)
+        with mock.patch.object(work, "_stat", guarded):
+            plan = self.plan()
+        self.assertEqual(plan["total"], 3)
+        with closing(sqlite3.connect(plan["database"])) as connection:
+            witnesses = dict(connection.execute("SELECT path, witness FROM assets"))
+        path = self.project / "Assets/A.asset"
+        self.assertEqual(json.loads(witnesses["Assets/A.asset"]),
+                         [original(path), original(path.with_name(path.name + ".meta"))])
+
+    def test_linked_metadata_never_becomes_a_native_directory_witness(self):
+        if not hasattr(os, "symlink"): self.skipTest("Symbolic links unavailable")
+        path = self.project / "Assets/A.asset.meta"
+        path.unlink(); path.symlink_to(self.project / "Assets/Figures/A.asset.meta")
+        plan = self.plan()
+        with closing(sqlite3.connect(plan["database"])) as connection:
+            witness = json.loads(connection.execute("SELECT witness FROM assets WHERE path=?", ("Assets/A.asset",)).fetchone()[0])
+        self.assertIsNone(witness[1])
+
     def test_completed_unique_paths_survive_failed_process_and_warm_restart(self):
         first = self.witness("Assets/A.asset", "Assets/A.asset", "Assets/Figures/A.asset")
         work.finish_plan(first, success=False, progress=self.progress)

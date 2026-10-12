@@ -87,13 +87,27 @@ def _walk(root, prefix):
         folder, logical = pending.pop()
         with os.scandir(folder) as entries:
             children = list(entries)
+        # DirEntry metadata is already available from Windows' directory
+        # enumeration, and is cached after one stat on POSIX. The former Path
+        # helper repeated link/stat requests for both the asset and its .meta
+        # before every Editor invocation. This coverage census is telemetry,
+        # not a reason to reread payloads or make warm imports expensive.
+        by_name = {entry.name: entry for entry in children}
         for entry in sorted(children, key=lambda row: row.name):
             if entry.is_symlink() or entry.name.startswith((".", "~")) or entry.name.endswith("~"): continue
             path = Path(entry.path); relative = logical + "/" + entry.name
             if entry.is_dir(follow_symlinks=False):
                 pending.append((path, relative))
             elif entry.is_file(follow_symlinks=False) and not entry.name.endswith(".meta"):
-                yield relative, path, [_stat(path), _stat(path.with_name(path.name + ".meta"))]
+                yield relative, path, [_entry_stat(entry), _entry_stat(by_name.get(entry.name + ".meta"))]
+
+
+def _entry_stat(entry):
+    if entry is None or entry.is_symlink(): return None
+    try:
+        value = entry.stat(follow_symlinks=False)
+        return [value.st_size, value.st_mtime_ns, value.st_ctime_ns, value.st_dev, value.st_ino]
+    except (FileNotFoundError, NotADirectoryError): return None
 
 
 def _context(project, argv, editor, rows):

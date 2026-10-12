@@ -38,6 +38,8 @@ class EditorPackageContractTests(unittest.TestCase):
         text = SOURCE.read_text()
         excerpts = [declaration(text, marker) for marker in (
             "sealed class ApiFile", "sealed class ApiContract", "static string FileHash(string path)",
+            "public static bool ImportedAssetValidationRequested(string value)",
+            "public static bool ImportedAssetValidationRequested()",
             "static void ValidatePackageApiContract()")]
         production = ("using System; using System.IO; using System.Linq; using UnityEngine;\n"
                       "namespace GloomhavenVR.Quest.Editor { public static class QuestBuild {\n" +
@@ -92,9 +94,13 @@ class EditorPackageContractTests(unittest.TestCase):
                         "sdkRoot": "QuestStartupEvidence/PlayerSdk", "plugins": plugins, "sdk": sdk}
             contract_path = resources / "quest-package-api-contract.json"
 
-            def check(value, expected, message=None):
+            def check(value, expected, message=None, mode="1"):
                 contract_path.write_text(json.dumps(value))
-                result = subprocess.run([str(MONO), str(exe)], cwd=project, capture_output=True, text=True)
+                # Unknown-plugin census belongs to explicit exhaustive import
+                # QA; finite genuine plugin/SDK hashes still run in minimum.
+                result = subprocess.run([str(MONO), str(exe)], cwd=project,
+                    env={**os.environ, "GHVR_QUEST_VALIDATE_IMPORTED_ASSETS": mode,
+                         "GHVR_QUEST_VERIFICATION": "full" if mode == "1" else "minimum"}, capture_output=True, text=True)
                 self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
                 if message:
                     self.assertIn(message, result.stdout)
@@ -107,11 +113,14 @@ class EditorPackageContractTests(unittest.TestCase):
             original = plugin.read_bytes()
             plugin.unlink()
             check(contract, 2, "inputs changed")
+            check(contract, 2, "inputs changed", mode="0")
             plugin.write_bytes(original + b"modified")
             check(contract, 2, "inputs changed")
+            check(contract, 2, "inputs changed", mode="0")
             plugin.write_bytes(original)
             additional = write("Assets/Plugins/Uncovered.dll", b"uncovered managed plugin")
             check(contract, 2, "does not cover all active plugins")
+            check(contract, 0, "PASS production Editor package contract", mode="0")
             (project / additional["path"]).unlink()
             for change in ("missing nested plugin", "payload claimed as plugin"):
                 altered = copy.deepcopy(contract)

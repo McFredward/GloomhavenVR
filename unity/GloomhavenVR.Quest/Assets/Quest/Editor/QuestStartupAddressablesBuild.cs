@@ -51,6 +51,7 @@ namespace GloomhavenVR.Quest.Editor
         public static void Build()
         {
             bool campaign = Environment.GetEnvironmentVariable("GHVR_QUEST_TARGET") == "game";
+            bool importedQa = QuestBuild.ImportedAssetValidationRequested();
             string mappingPath = campaign ? "Assets/QuestOriginalCampaign/campaign-addressables.json"
                 : "Assets/QuestOriginalStartup/startup-addressables.json";
             var mapping = JsonUtility.FromJson<Associations>(File.ReadAllText(mappingPath));
@@ -88,6 +89,8 @@ namespace GloomhavenVR.Quest.Editor
                 bundled.IncludeLabelsInCatalog = true;
                 var ownedGroups = new Dictionary<string, AddressableAssetGroup>(StringComparer.Ordinal);
                 var nativeOwners = new Dictionary<string, AddressableAssetGroup>(StringComparer.Ordinal);
+                var importedPaths = new Dictionary<string, string>(StringComparer.Ordinal);
+                var nativeEntries = new Dictionary<string, AddressableAssetEntry>(StringComparer.Ordinal);
                 // The original AssetBundleManager preloads UnityEngine.Object only.
                 // Catalog locations for serialized enum/value types are not objects
                 // and must not become fabricated native assets during this startup check.
@@ -115,8 +118,20 @@ namespace GloomhavenVR.Quest.Editor
                     entryProgress.Report(entriesDone, association.assetPath);
                     if (string.IsNullOrEmpty(association.assetPath) || string.IsNullOrEmpty(association.recoveredGuid))
                         throw new InvalidDataException("Startup mapping contains an unresolved source asset.");
-                    string guid = AssetDatabase.AssetPathToGUID(association.assetPath);
-                    if (guid != association.recoveredGuid || AssetDatabase.LoadMainAssetAtPath(association.assetPath) == null)
+                    string guid;
+                    if (!importedPaths.TryGetValue(association.assetPath, out guid))
+                    {
+                        guid = AssetDatabase.AssetPathToGUID(association.assetPath);
+                        if (!File.Exists(association.assetPath) ||
+                            (importedQa && AssetDatabase.LoadMainAssetAtPath(association.assetPath) == null))
+                            throw new InvalidDataException("Original startup asset identity failed import: " + association.assetPath);
+                        importedPaths.Add(association.assetPath, guid);
+                    }
+                    // Register exact source GUIDs without loading every prefab,
+                    // texture and material closure merely to create catalog
+                    // entries. SBP's actual native build resolves/cooks them.
+                    // Exhaustive imported object/subobject QA remains explicit.
+                    if (guid != association.recoveredGuid)
                         throw new InvalidDataException("Original startup asset identity failed import: " + association.assetPath);
                     AddressableAssetGroup owner = group;
                     if (campaign)
@@ -135,12 +150,17 @@ namespace GloomhavenVR.Quest.Editor
                         }
                         if (nativeOwners.TryGetValue(guid, out AddressableAssetGroup previousOwner)) owner = previousOwner;
                         else nativeOwners.Add(guid, owner);
-                        if (!string.IsNullOrEmpty(association.subObjectName)
+                        if (importedQa && !string.IsNullOrEmpty(association.subObjectName)
                             && !AssetDatabase.LoadAllAssetsAtPath(association.assetPath).Any(asset => asset != null && asset.name == association.subObjectName))
                             throw new InvalidDataException("Original catalog subobject was lost: " + association.assetPath + "[" + association.subObjectName + "]");
                     }
-                    var entry = settings.CreateOrMoveEntry(guid, owner, false, false);
-                    entry.address = guid;
+                    AddressableAssetEntry entry;
+                    if (!nativeEntries.TryGetValue(guid, out entry))
+                    {
+                        entry = settings.CreateOrMoveEntry(guid, owner, false, false);
+                        entry.address = guid;
+                        nativeEntries.Add(guid, entry);
+                    }
                     entries.Add(guid);
                     foreach (string label in association.labels ?? Array.Empty<string>())
                     {
@@ -187,8 +207,12 @@ namespace GloomhavenVR.Quest.Editor
             QuestWizardProgress.Publish("unity-addressables-build", "Native Android Addressables bundles built; original Shader closure audit follows.", 1, 1, "tasks", "content-bank", "complete");
             if (campaign)
             {
-                QuestWizardProgress.Publish("unity-native-shader-audit", "Read actual native bundle Shader identities; no compiler matrix is run.", operation: "content-bank");
-                ValidateNativeCampaignShaders(built);
+                if (importedQa)
+                {
+                    QuestWizardProgress.Publish("unity-native-shader-audit", "Read actual native bundle Shader identities; no compiler matrix is run.", operation: "content-bank");
+                    ValidateNativeCampaignShaders(built);
+                }
+                else RecordOmittedNativeShaderAudit();
             }
             RepackContent(built);
             var content = JsonUtility.FromJson<ContentManifest>(File.ReadAllText("Assets/Quest/Resources/quest-startup-content.json"));
@@ -412,7 +436,23 @@ namespace GloomhavenVR.Quest.Editor
         {
             public int schema, shaderCount, originalNativeAliasCount, compilerQueries, selectedNativeBundleCount;
             public string scope;
+            public bool auditRequested, auditCompleted;
             public bool allOriginalAliasesRetained, signedApkAuditPerformed, hardwarePictureVerified;
+        }
+
+        static void RecordOmittedNativeShaderAudit()
+        {
+            // Keep the bounded delivery-side evidence path available, without
+            // carrying a prior exhaustive receipt into this minimum build.
+            // False verification flags distinguish omitted read-only QA from
+            // successful cooking; the real native compiler still runs.
+            const string evidence = "QuestCampaignShaderEvidence/native-addressables-validation.json";
+            Directory.CreateDirectory(Path.GetDirectoryName(evidence));
+            File.WriteAllText(evidence, JsonUtility.ToJson(new NativeShaderReceipt {
+                schema = 1, scope = "actual-native-addressables-before-player",
+                auditRequested = false, auditCompleted = false
+            }, true) + "\n");
+            Debug.Log("[Quest Campaign build] Optional early native Shader readback omitted; original alias retention and native content compilation remain required.");
         }
 
         static void ValidateNativeCampaignShaders(string nativeRoot)

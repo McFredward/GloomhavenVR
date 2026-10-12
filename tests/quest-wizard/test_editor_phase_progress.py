@@ -147,6 +147,20 @@ class EditorPhaseProgressTests(unittest.TestCase):
         # pointer/asset consumers retain their preceding checkpoints. This catches
         # accidental extra native changes, not just matching callback names.
         def native_tokens(source):
+            if "PrepareVariantCollection(string manifestPath, bool verifyProgramSources)" in source:
+                # Minimum-build policy adds a source-QA switch while the
+                # original explicit development overload keeps the complete
+                # algorithm. Normalize only that reviewed routing delta; all
+                # retention/pass/variant construction tokens still compare to
+                # the prior production checkpoint. Actual policy routing has
+                # independent compiled positive/negative controls.
+                first = source.index("public static void PrepareVariantCollection(string manifestPath)")
+                body = source.index("public static void PrepareVariantCollection(string manifestPath, bool verifyProgramSources)")
+                source = source[:first] + source[body:]
+                source = source.replace("PrepareVariantCollection(string manifestPath, bool verifyProgramSources)",
+                                        "PrepareVariantCollection(string manifestPath)")
+                source = re.sub(r"// Translation already records the exact include outputs\.[\s\S]*?if \(verifyProgramSources\) VerifyProgramSources\(input\);",
+                                "VerifyProgramSources(input);", source, count=1)
             source = re.sub(r"^\s*var \w+ = new QuestWizardProgress\.Counter\([^\n]+\);\n", "", source, flags=re.M)
             source = re.sub(r"\b\w+\.(?:Report|Complete)\([^;\n]*\);", "", source)
             source = re.sub(r"\bint (?:done|examined|objectsDone|dependenciesDone|atlasesDone|spritesDone|bindingsDone|assetsDone|written) = 0;", "", source)
@@ -174,7 +188,10 @@ class EditorPhaseProgressTests(unittest.TestCase):
     def test_plan_names_each_existing_validation_and_does_not_skip_failed_native_work(self):
         source = (EDITOR / "QuestBuild.cs").read_text()
         body = source[source.index("static string[] PrepareOriginalStartup("):source.index("public static string CampaignShaderValidationMode")]
-        self.assertIn('campaign ? 17 : 11', body)
+        self.assertIn('(campaign ? 8 : 5)', body)
+        self.assertIn('importedQa ? buildWork.optionalPreBuildTasks : 0', body)
+        self.assertIn('1 + (importedQa ? buildWork.optionalPostBuildTasks : 0)', body)
+        self.assertGreaterEqual(body.count('if (importedQa)'), 3)
         calls = re.findall(r'tasks.Run\("[^"\n]+",', body)
         self.assertEqual(len(calls), 17)
         for method in ("QuestOriginalScriptBindings.RemapAndValidate", "QuestOriginalScriptOrders.RestoreAndVerify", "QuestAudioValidation.Validate",
