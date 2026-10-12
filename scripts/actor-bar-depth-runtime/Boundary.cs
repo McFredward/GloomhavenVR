@@ -1,8 +1,34 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
-namespace GloomhavenVR.Core { internal static class VRLog { internal static void Info(string scope,string value) { } internal static void Debug(string scope,string value) { } } }
+namespace GloomhavenVR.Core {
+ internal static class VRLog { internal static void Info(string scope,string value) { } internal static void Debug(string scope,string value) { } }
+ internal static class BundleShaders { internal static Shader? Resolve(string name,string scope,string found,string missing)=>Shader.Find(name); }
+ internal static class VRLayers { internal const int ModLayer=31; }
+}
+namespace GloomhavenVR.Rig { internal static class VRRigDriver {internal static Camera? HeadCamera;} }
+namespace GloomhavenVR.Hands {internal enum HandSide {Left,Right} }
+namespace GloomhavenVR.Board.FigureGrab {
+ using GloomhavenVR.Hands;
+ internal sealed class FigureGrabbable {
+  internal static FigureGrabbable? Left,Right;internal Renderer[]? Renderers;
+  internal static FigureGrabbable? HeldBy(HandSide side)=>side==HandSide.Left?Left:Right;
+  internal Renderer[]? HeldRenderers()=>Renderers;
+ }
+ internal sealed class GrabbableProp {
+  internal static GrabbableProp? Left=null,Right=null;internal Renderer[]? Renderers=null;
+  internal static GrabbableProp? HeldBy(HandSide side)=>side==HandSide.Left?Left:Right;
+  internal Renderer[]? HeldRenderers()=>Renderers;
+ }
+}
 namespace GloomhavenVR.WorldUI {
+ internal static class FixtureNativeSettings {
+  internal static void Ensure() {
+   var field=typeof(TMPro.TMP_Settings).GetField("s_Instance",System.Reflection.BindingFlags.Static|System.Reflection.BindingFlags.NonPublic);
+   if(field==null)throw new System.InvalidOperationException("Native TMP settings singleton binding drift");
+   if(field.GetValue(null)==null)field.SetValue(null,ScriptableObject.CreateInstance<TMPro.TMP_Settings>());
+  }
+ }
  internal sealed class NativeHost { internal GameObject HostGo=null!; }
  internal static partial class ActorBars {
   private const float DepthScanIntervalSeconds=2f;

@@ -71,6 +71,10 @@ internal static class BundleShaders
     {
         { "GloomhavenVR/BoardLit",       "Assets/Bundle/Table/BoardLit.shader" },
         { "GloomhavenVR/Overlay",        "Assets/Bundle/Table/Overlay.shader" },
+        { "GloomhavenVR/ActorBarUI",     "Assets/Bundle/HealthBars/ActorBarUI.shader" },
+        { "GloomhavenVR/ActorBarSDF",    "Assets/Bundle/HealthBars/ActorBarSDF.shader" },
+        { "GloomhavenVR/ActorBarMobileSDF", "Assets/Bundle/HealthBars/ActorBarMobileSDF.shader" },
+        { "GloomhavenVR/ActorBarSprite", "Assets/Bundle/HealthBars/ActorBarSprite.shader" },
         { "GloomhavenVR/MapUnlit",       "Assets/Bundle/Table/MapUnlit.shader" },
         { "GloomhavenVR/HexDecalStable", "Assets/Bundle/Table/HexDecalStable.shader" },
         { "GloomhavenVR/WindowMaterialise", "Assets/Bundle/Table/WindowMaterialise.shader" },

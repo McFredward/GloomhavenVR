@@ -1332,6 +1332,7 @@ internal static partial class MrBacking
         mr.receiveShadows = false;
         mr.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
         mr.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+        HealthbarForegroundDepth.Register(go.transform);
         // sortingOrder starts at 0 but does NOT stay there: the callers slave it to the content
         // the plate backs (panel plates ride their panel's ladder slot as offset-0 order
         // followers, label plates copy their label renderer's live order each tick) — see the
