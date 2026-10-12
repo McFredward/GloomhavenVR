@@ -78,16 +78,28 @@ def title(path, subtitle="TAKE YOUR PLACE"):
     layer.save(path)
 
 
-def mix_audio(events, seconds, destination, log, sources):
+def mix_audio(events, seconds, destination, log, sources, ducking=None):
     rate = 48000
     timeline = np.zeros((round(seconds*rate), 2), dtype=np.float32)
+    music = None
+    if ducking is not None:
+        gain = float(ducking.get("gain", .30))
+        attack = float(ducking.get("attack", .12))
+        release = float(ducking.get("release", .35))
+        if (not all(math.isfinite(v) for v in (gain, attack, release))
+                or not 0 <= gain <= 1 or min(attack, release) < 0):
+            raise ValueError("Invalid music ducking gain or timing")
+        music = np.zeros_like(timeline)
+        duck = np.ones(len(timeline), dtype=np.float32)
     for event in events:
         path = Path(event["source"]).resolve(strict=True)
         sources.setdefault(str(path), digest(path))
         start, duration = float(event.get("start", 0)), float(event["duration"])
         at, volume = float(event.get("at", 0)), float(event.get("volume", 1))
-        if (not all(math.isfinite(v) for v in (start, duration, at, volume))
-                or min(start, at, volume) < 0 or duration <= 0 or at >= seconds):
+        fade_in = float(event.get("fade_in", .02))
+        fade_out = float(event.get("fade_out", .05))
+        if (not all(math.isfinite(v) for v in (start, duration, at, volume, fade_in, fade_out))
+                or min(start, at, volume, fade_in, fade_out) < 0 or duration <= 0 or at >= seconds):
             raise ValueError("Invalid audio event timing or volume")
         # Decode each excerpt independently and mix on an explicit sample
         # timeline. Delayed amix/atrim branches can finish early in some FFmpeg
@@ -99,14 +111,30 @@ def mix_audio(events, seconds, destination, log, sources):
         chunk = np.frombuffer(raw, dtype="<f4").reshape(-1, 2).copy()
         if not len(chunk) or not np.isfinite(chunk).all():
             raise ValueError("Audio excerpt is empty or non-finite")
-        count = min(len(chunk), round(duration*rate))
-        chunk = chunk[:count]
-        head, tail = min(count, round(.02*rate)), min(count, round(.05*rate))
-        chunk[:head] *= np.linspace(0, 1, head, dtype=np.float32)[:, None]
-        chunk[-tail:] *= np.linspace(1, 0, tail, dtype=np.float32)[:, None]
         offset = round(at*rate)
-        count = min(count, len(timeline)-offset)
-        timeline[offset:offset+count] += chunk[:count]*volume
+        count = min(len(chunk), round(duration*rate), len(timeline)-offset)
+        chunk = chunk[:count]
+        head, tail = min(count, round(fade_in*rate)), min(count, round(fade_out*rate))
+        if head:
+            chunk[:head] *= np.linspace(0, 1, head, dtype=np.float32)[:, None]
+        if tail:
+            chunk[-tail:] *= np.linspace(1, 0, tail, dtype=np.float32)[:, None]
+        if music is not None and event.get("role") == "music":
+            music[offset:offset+count] += chunk*volume
+        else:
+            timeline[offset:offset+count] += chunk*volume
+        if music is not None and event.get("role") == "voice":
+            before = max(0, offset-round(attack*rate))
+            after = min(len(timeline), offset+count+round(release*rate))
+            if before < offset:
+                duck[before:offset] = np.minimum(duck[before:offset],
+                                                np.linspace(1, gain, offset-before, dtype=np.float32))
+            duck[offset:offset+count] = np.minimum(duck[offset:offset+count], gain)
+            if offset+count < after:
+                duck[offset+count:after] = np.minimum(duck[offset+count:after],
+                                                     np.linspace(gain, 1, after-offset-count, dtype=np.float32))
+    if music is not None:
+        timeline += music*duck[:, None]
     run(["ffmpeg", "-v", "warning", "-y", "-f", "f32le", "-ar", str(rate),
          "-ac", "2", "-i", "-", "-af", "loudnorm=I=-14:TP=-1:LRA=8",
          "-t", str(seconds), "-c:a", "pcm_f32le", "-ar", str(rate), str(destination)],
@@ -191,7 +219,7 @@ def _assemble(spec_path, output, name):
     audio = spec.get("audio", [])
     if audio:
         mixed = private/"mix.wav"
-        mix_audio(audio, total, mixed, log, sources)
+        mix_audio(audio, total, mixed, log, sources, spec.get("audio_ducking"))
     command = ["ffmpeg", "-v", "warning", "-y", "-filter_complex_threads", "2",
                "-i", str(joined), "-loop", "1", "-framerate", str(FPS),
                "-t", str(total), "-i", str(water)]
