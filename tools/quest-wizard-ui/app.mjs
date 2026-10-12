@@ -461,6 +461,8 @@ function storageCounters(current){
   const parts=[],files=current.files??current.done;
   if(Number.isFinite(files))parts.push(t('storageScanned',{done:new Intl.NumberFormat(language).format(files)}));
   if(Number.isFinite(current.folders))parts.push(t('storageFolders',{count:new Intl.NumberFormat(language).format(current.folders)}));
+  if(Number.isFinite(current.processedEntries))parts.push(t('storageReadEntries',{count:new Intl.NumberFormat(language).format(current.processedEntries)}));
+  if(Number.isFinite(current.metadataQueries))parts.push(t('storageMetadataQueries',{count:new Intl.NumberFormat(language).format(current.metadataQueries)}));
   if(Number.isFinite(current.bytes))parts.push(t('storageObservedBytes',{size:storageSize(current.bytes)}));
   if(current.unit==='entries'&&Number.isFinite(current.done)&&Number.isFinite(current.total))parts.push(t('storageEntries',{done:new Intl.NumberFormat(language).format(current.done),total:new Intl.NumberFormat(language).format(current.total)}));
   const elapsed=Number.isFinite(current.startedAt)?Math.max(0,(current.endedAt??Date.now()/1000)-current.startedAt):Number.isFinite(current.elapsedSeconds)?current.elapsedSeconds:null;

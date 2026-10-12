@@ -67,6 +67,7 @@ class StorageCancelHttpTests(unittest.TestCase):
             for count in range(500):
                 progress({"phase": "cleanup-scan", "done": count, "total": None, "files": count,
                           "folders": 23, "bytes": count * 1024, "elapsedSeconds": 7,
+                          "metadataQueries": count + 1, "processedEntries": count + 5,
                           "currentPath": "build/cache/owned", "detail": "build/cache/owned"})
             self.wait_for_cancel(cancel)
 
@@ -97,6 +98,7 @@ class StorageCancelHttpTests(unittest.TestCase):
         self.assertFalse(self.http.storage_job.is_alive())
         with file_lock(self.store.root / "run.lock"): pass
         self.assertEqual(state["files"], 499); self.assertEqual(state["selection"]["mode"], "build-cache")
+        self.assertEqual(state["metadataQueries"], 500); self.assertEqual(state["processedEntries"], 504)
         self.assertIsNone(self.http.storage_plan)
         rows = [json.loads(row) for row in (self.store.root / "logs/storage-cleanup.log").read_text().splitlines()]
         self.assertLessEqual(sum(row["event"] == "progress" for row in rows), 2)
