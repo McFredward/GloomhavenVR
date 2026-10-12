@@ -8,6 +8,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import shutil
 from pathlib import Path
 import struct
 import sys
@@ -22,6 +23,7 @@ sys.path.insert(0, str(ROOT / "tools/quest-builder"))
 import apk_update
 import apk_input_cache
 import storage
+import portable_package as portable
 import preparation_identity
 import update_driver as driver
 
@@ -66,7 +68,7 @@ class UpdateDriverTests(unittest.TestCase):
         self.args = SimpleNamespace(command="update-profile", update_kind="update-profile", game_root=str(self.game),
                                     base_apk=str(self.apk), signing_root=None)
 
-    def write_apk(self):
+    def write_apk(self, *, extra=None):
         lib = bytearray(64); lib[:6] = b"\x7fELF\x02\x01"; struct.pack_into("<H", lib, 18, 183)
         values = {apk_update.INPUT: storage.canonical(self.manifest),
                   apk_update.INSTALLATION: storage.canonical({"schema": 1, "inputKey": "a" * 64}),
@@ -74,6 +76,7 @@ class UpdateDriverTests(unittest.TestCase):
                     "updateKey": "2" * 64, "modBuild": 643, "mod": self.current_mod}),
                   apk_update.CAPSULE: storage.canonical(self.capsule), apk_update.LIBRARY: bytes(lib),
                   apk_update.METADATA: struct.pack("<II", 0xFAB11BAF, 29), "assets/fixture.resource": b"unchanged payload" * 10000}
+        values.update(extra or {})
         with zipfile.ZipFile(self.apk, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             for name, value in values.items(): archive.writestr(name, value)
 
@@ -107,6 +110,63 @@ class UpdateDriverTests(unittest.TestCase):
             plan = driver.inspect(self.builder, self.args, ROOT, self.output)
         self.assertEqual(plan["baseApkSha256"], actual)
         self.builder.portable_packages.imported_apk_digest.assert_called_once_with(self.apk, self.output)
+
+    def external_bank(self):
+        bank = self.apk.parent / portable.CONTENT
+        with zipfile.ZipFile(bank, "w", compression=zipfile.ZIP_STORED) as archive:
+            archive.writestr("StreamingAssets/owned.bundle", b"actual owned nested content" * 8192)
+        contract = {"schema": 1, "package": portable.PACKAGE, "inputKey": self.manifest["inputKey"],
+                    "files": [{"file": portable.CONTENT, "size": bank.stat().st_size,
+                               "sha256": storage.digest(bank), "archive": portable.ARCHIVE}]}
+        self.write_apk(extra={"assets/Quest/content-delivery.json": storage.canonical(contract)})
+        return bank
+
+    def test_repeated_real_zip_updates_preserve_direct_locator_after_import_cleanup(self):
+        bank = self.external_bank(); original = bank.read_bytes()
+        package = self.root / "shared-install-package.zip"
+        portable.export_package(self.apk, package, self.output)
+        imported = portable.import_apk(package, self.output)
+        self.builder.portable_packages = portable
+        self.args.base_apk = str(package)
+        outputs = []
+        with patch.object(driver, "signing_tools", return_value={}), \
+             patch.object(driver, "_signers", return_value=(lambda _: None, lambda _: None)), \
+             patch.object(apk_update, "patch_resource_json", return_value={}), \
+             patch.object(apk_update, "update_android_versions", return_value=b"AXML tested separately"):
+            for index in range(10):
+                self.profile["displayName"] = "Fixture Owner " + str(index)
+                updated = driver.run(self.builder, self.args, ROOT, self.output)
+                details = json.loads(Path(str(updated) + ".build.json").read_text())
+                self.assertEqual(details["sourcePackage"], str(package))
+                closed = json.loads((self.output / "receipts/build" / (details["updateKey"] + ".json")).read_text())
+                self.assertEqual(closed["details"]["sourcePackage"], str(package))
+                self.assertEqual(json.loads((self.output / "latest-build.json").read_text())["details"]["sourcePackage"], str(package))
+                outputs.append(updated)
+                self.args.base_apk = str(updated)
+                # Retain evidence, but remove both the optional lookup DB and
+                # prior materialized APKs. The current closed owner must stand
+                # alone; ten updates exceed the helper's eight-hop bound.
+                for cache in (self.output / "cache").glob("portable-witnesses.sqlite3*"):
+                    cache.unlink()
+                if index == 1: shutil.rmtree(imported.parent)
+                if index:
+                    outputs[index - 1].unlink()
+                storage._invocation_file_proofs.clear()
+        source = portable.content_source(outputs[-1], self.output)
+        self.assertEqual(source["path"], package); self.assertEqual(source["member"], portable.CONTENT)
+        with portable.open_content(source) as stream:
+            self.assertEqual(stream.read(), original)
+        self.assertFalse(imported.exists())
+
+    def test_physical_bank_is_not_mislabelled_as_a_portable_package(self):
+        self.external_bank(); self.builder.portable_packages = portable
+        with patch.object(driver, "signing_tools", return_value={}), \
+             patch.object(driver, "_signers", return_value=(lambda _: None, lambda _: None)), \
+             patch.object(apk_update, "patch_resource_json", return_value={}), \
+             patch.object(apk_update, "update_android_versions", return_value=b"AXML tested separately"):
+            updated = driver.run(self.builder, self.args, ROOT, self.output)
+        self.assertIsNone(json.loads(Path(str(updated) + ".build.json").read_text())["sourcePackage"])
+        self.assertEqual(portable.content_source(self.apk, self.output)["member"], None)
 
     def test_dlc_cannot_expand_past_original_converted_content(self):
         self.ownership["installedAppIds"].append(1958560)

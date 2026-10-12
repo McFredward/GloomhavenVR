@@ -656,6 +656,32 @@ def add_update_capability(builder, apk, inputs, output, source, tools):
     return stages.run("player-update-capability", receipt_key, close_capability)["details"]
 
 
+def retained_source_package(builder, apk, output, fallback=None):
+    """Carry a direct nested-bank locator across updates, never a bank proof.
+
+    Repeated updates must not grow a chain of previous APK dependencies: users
+    can remove old import/update caches after a successful export. The package
+    helper qualifies its bounded locator against this APK's embedded bank
+    identity. Missing helpers/legacy manifests keep their existing behavior;
+    a physical bank is not a portable outer ZIP and must not be labelled one.
+    """
+    helper = getattr(builder, "portable_packages", None)
+    resolve = getattr(helper, "content_source", None)
+    if not callable(resolve): return fallback
+    try:
+        with zipfile.ZipFile(apk) as archive:
+            archive.getinfo("assets/Quest/content-delivery.json")
+        source = resolve(apk, output)
+        if (isinstance(source, dict) and source.get("member") == getattr(helper, "CONTENT", "GloomhavenVR-Quest-content.zip")
+                and isinstance(source.get("path"), (str, os.PathLike))):
+            return str(Path(source["path"]).resolve())
+    except (OSError, KeyError, TypeError, ValueError, zipfile.BadZipFile, builder.BuildError):
+        # Optional locator preservation never turns an otherwise valid APK/code
+        # update into a failure. Export/installation qualify required bank bytes.
+        pass
+    return fallback
+
+
 def run(builder, args, repo, output):
     # Do not authorize a cached update from yesterday's absent PC installation.
     plan = inspect(builder, args, repo, output)
@@ -734,7 +760,8 @@ def run(builder, args, repo, output):
                    "isDummy": bool(inputs["profile"].get("isDummy")), "apkSha256": output_hash,
                    "contentFiles": [], "retainedGameContent": True, "updateResult": result,
                    "signing": plan["signing"], "sourceCertificateSha256": plan["signing"]["sourceCertificateSha256"],
-                   "sourcePackage": plan.get("sourcePackage"), "baseApk": plan["baseApk"],
+                   "sourcePackage": retained_source_package(builder, base_apk, output, plan.get("sourcePackage")),
+                   "baseApk": plan["baseApk"],
                    **({"certificateSha256": result["certificateSha256"]} if "certificateSha256" in result else {})}
         builder.write_json(report, {"schema": 1, "buildResult": "Succeeded", "scope": "APK update", **details})
         builder.build_progress.operation("update-verify", complete=True, detail="Signed update published; original game content is retained.")
