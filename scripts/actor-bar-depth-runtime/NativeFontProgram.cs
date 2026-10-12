@@ -27,7 +27,7 @@ public static class NativeFontProgram
         var atlas=new Texture2D(2,2,TextureFormat.RGBA32,false);atlas.LoadImage(File.ReadAllBytes(Path.Combine(inputs,"native-font-atlas.png")));
         var font=ScriptableObject.CreateInstance<TMP_FontAsset>();JsonUtility.FromJsonOverwrite(File.ReadAllText(Path.Combine(inputs,"native-font.json")),font);
         font.atlasTextures=new[]{atlas};font.atlasPopulationMode=AtlasPopulationMode.Static;
-        var original=new Material(Shader.Find("TextMeshPro/Mobile/Distance Field"));
+        var original=new Material(Resources.Load<Shader>("OriginalShaders/ActorBarMobileSDF"));
         original.SetTexture("_MainTex",atlas);original.SetColor("_FaceColor",Color.green);
         original.SetFloat("_TextureWidth",atlas.width);original.SetFloat("_TextureHeight",atlas.height);
         original.SetFloat("_GradientScale",10);original.SetFloat("_WeightNormal",0);original.SetFloat("_WeightBold",.5f);
@@ -79,6 +79,9 @@ public static class NativeFontProgram
         }
         var card=Solid("VRCard",-2);
         Check(Green(Render("solid-nearer-card"))==0,"actual nearer solid card geometry hides every covered native glyph pixel");
+        var duplicate=new Material(Shader.Find("GloomhavenVR/HealthbarDuplicateForward"));var cardRenderer=card.GetComponentInChildren<Renderer>();cardRenderer.sharedMaterial=duplicate;
+        File.WriteAllText(Path.Combine(evidence,"duplicate-forward-pass.txt"),"passCount="+duplicate.passCount+"\nFindPassFORWARD="+duplicate.FindPass("FORWARD")+"\n");
+        Check(duplicate.passCount==2&&Green(Render("duplicate-forward-base-depth"))==0,"duplicate FORWARD names select actual depth-writing ForwardBase by LightMode");cardRenderer.sharedMaterial=wallMat;
         card.transform.GetChild(0).position=new Vector3(0,0,.8f);
         Check(Green(Render("solid-farther-card"))==visible,"farther solid foreground does not hide a nearer native healthbar");
         card.transform.GetChild(0).position=new Vector3(-.25f,0,-2);card.transform.GetChild(0).localScale=new Vector3(.24f,.9f,.02f);
@@ -131,38 +134,46 @@ public static class NativeFontProgram
         // The original game's Sarala material uses the full Distance Field shader.
         // Exercise its real glyph/outline/underlay path, independently of Mobile.
         ActorBars.Restore(owner);HealthbarForegroundDepth.SetActive(false);
-        var full=new Material(Shader.Find("TextMeshPro/Distance Field"));full.CopyPropertiesFromMaterial(original);full.SetInt("unity_GUIZTestMode",8);
+        var full=new Material(Resources.Load<Shader>("OriginalShaders/ActorBarSDF"));Check(full.HasProperty("_FaceTex")&&full.HasProperty("_OutlineTex"),"canonical full SDF source resolves its authored face and outline texture properties");full.CopyPropertiesFromMaterial(original);full.SetInt("unity_GUIZTestMode",8);
+        // Mobile has no face/outline texture bindings. Populate the full native
+        // program's neutral textures explicitly instead of copying a missing slot.
+        full.SetTexture("_FaceTex",Texture2D.whiteTexture);full.SetTexture("_OutlineTex",Texture2D.whiteTexture);
         full.SetFloat("_OutlineWidth",.08f);full.SetFloat("_UnderlayOffsetX",.6f);full.SetFloat("_UnderlayOffsetY",.6f);full.EnableKeyword("UNDERLAY_ON");
         number.fontSharedMaterial=full;wall.SetActive(false);var fullOriginal=Render("full-sdf-original",false);
+        File.WriteAllText(Path.Combine(evidence,"full-sdf-binding.txt"),"shader="+full.shader.name+"\nsupported="+full.shader.isSupported+"\nface="+full.GetColor("_FaceColor")+"\nmain="+(full.GetTexture("_MainTex")!=null)+"\nfaceTex="+(full.GetTexture("_FaceTex")!=null)+"\nscale="+full.GetFloat("_GradientScale")+"\nkeywords="+string.Join(",",full.shaderKeywords)+"\nfontVertices="+number.textInfo.meshInfo[0].vertexCount+"\nfontCharacters="+number.textInfo.characterCount+"\nvisible="+Green(fullOriginal)+"\n");
         Check(Green(fullOriginal)>20,"full native Distance Field font renders actual original game glyphs");
         ActorBars.Scan(owner,false);HealthbarForegroundDepth.SetActive(true);var fullDerived=Render("full-sdf-derived");
         Check(Same(fullOriginal,fullDerived),"full native SDF outline/underlay/glyph pixels survive exact derivative binding");
-        wall.SetActive(true);card.SetActive(true);card.transform.GetChild(0).position=new Vector3(0,0,-2);
+        wall.SetActive(true);card.SetActive(true);card.transform.GetChild(0).position=new Vector3(0,0,-2);card.transform.GetChild(0).localScale=new Vector3(.85f,.9f,.02f);
         Check(Green(Render("full-sdf-nearer-card"))==0,"full native SDF glyphs respect actual nearer solid card depth");
         card.transform.GetChild(0).position=new Vector3(0,0,.8f);
         Check(Same(fullDerived,Render("full-sdf-farther-card")),"full native SDF preserves all original pixels in front of farther foreground");card.SetActive(false);
 
         var spriteAtlas=new Texture2D(2,2,TextureFormat.RGBA32,false);spriteAtlas.LoadImage(File.ReadAllBytes(Path.Combine(inputs,"native-sprite-atlas.png")));
         var sprite=ScriptableObject.CreateInstance<TMP_SpriteAsset>();JsonUtility.FromJsonOverwrite(File.ReadAllText(Path.Combine(inputs,"native-sprite.json")),sprite);
-        var spriteMaterial=new Material(Shader.Find("TextMeshPro/Sprite"));spriteMaterial.SetTexture("_MainTex",spriteAtlas);spriteMaterial.SetInt("unity_GUIZTestMode",8);
+        var spriteMaterial=new Material(Resources.Load<Shader>("OriginalShaders/ActorBarSprite"));spriteMaterial.SetTexture("_MainTex",spriteAtlas);spriteMaterial.SetInt("unity_GUIZTestMode",8);
         sprite.spriteSheet=spriteAtlas;sprite.material=spriteMaterial;sprite.UpdateLookupTables();
         ActorBars.Restore(owner);HealthbarForegroundDepth.SetActive(false);number.spriteAsset=sprite;number.text="12<sprite=0>";wall.SetActive(false);
         var spriteOriginal=Render("native-inline-sprite-original",false);
         Check(number.textInfo.materialCount==2&&number.textInfo.meshInfo[1].vertexCount>=4,"actual original game sprite asset generates a real TMP inline submesh");
         ActorBars.Scan(owner,false);HealthbarForegroundDepth.SetActive(true);var spriteDerived=Render("native-inline-sprite-derived");
         Check(Same(spriteOriginal,spriteDerived),"original inline sprite atlas/geometry/colour pixels survive the native Sprite derivative");
-        var subs=host.GetComponentsInChildren<TMP_SubMeshUI>();Check(subs.Length>0&&subs[0].sharedMaterial.shader.name=="GloomhavenVR/ActorBarSprite","native inline sprite receives its own complete foreground-aware material");
+        var subs=host.GetComponentsInChildren<TMP_SubMeshUI>();string subInfo="";bool ownSprite=false;foreach(var submesh in subs){subInfo+=submesh.name+" active="+submesh.gameObject.activeInHierarchy+" material="+submesh.sharedMaterial.shader.name+"\n";ownSprite|=submesh.sharedMaterial.shader.name=="GloomhavenVR/ActorBarSprite";}File.WriteAllText(Path.Combine(evidence,"native-submesh-binding.txt"),subInfo);Check(ownSprite,"native inline sprite receives its own complete foreground-aware material");
         wall.SetActive(true);card.SetActive(true);card.transform.GetChild(0).position=new Vector3(0,0,-2);card.transform.GetChild(0).localScale=new Vector3(1.9f,1.2f,.02f);
         var covered=Render("native-inline-sprite-nearer-card");int coloured=0;foreach(var p in covered)if(p.r>40||p.g>40||p.b>40)coloured++;
         Check(coloured==0,"nearer solid card clips every native number and inline sprite pixel together");
         card.transform.GetChild(0).position=new Vector3(0,0,.8f);Check(Same(spriteDerived,Render("native-inline-sprite-farther-card")),"farther card never hides native inline sprites or font outlines");card.SetActive(false);
+        var spriteClone=subs[0].sharedMaterial;int cloneCount=owner.DepthMats.Count;
+        for(int update=0;update<6;update++){number.text="12<sprite=0>";Render("native-inline-update-"+update);}
+        Check(subs[0].sharedMaterial==spriteClone&&owner.DepthMats.Count==cloneCount,"repeated native text reparsing reuses the exact existing font and sprite clones");
         ActorBars.Restore(owner);HealthbarForegroundDepth.SetActive(false);
+        Check(owner.DepthTextRefresh.Count==0&&owner.DepthTextIds.Count==0,"restore retires every owned native pre-render listener");
         Check(number.fontSharedMaterial==full,"whole native font material binding restores exactly after through-wall mode");
         Check(camera.GetCommandBuffers(CameraEvent.BeforeForwardAlpha).Length==0&&camera.GetCommandBuffers(CameraEvent.AfterForwardAlpha).Length==0,"mode shutdown detaches both owned foreground command buffers");
         File.WriteAllText(Path.Combine(evidence,"native-font-platform.txt"),Application.unityVersion+"\n"+SystemInfo.graphicsDeviceType+"\nusesReversedZ="+SystemInfo.usesReversedZBuffer+"\nvisibleGlyphPixels="+visible+"\npartialGlyphPixels="+partial+"\nghostGlyphPixels="+ghostPixels+"\n");
         camera.targetTexture=null;VRRigDriver.HeadCamera=null;
         foreach(var go in new[]{host,cameraGo,wall,card,remote,held,hand,far})Object.DestroyImmediate(go);
-        foreach(var obj in new Object[]{target,read,original,full,wallMat,ghost,font,atlas,sprite,spriteAtlas,spriteMaterial})Object.DestroyImmediate(obj);
+        foreach(var obj in new Object[]{target,read,original,full,wallMat,ghost,duplicate,font,atlas,sprite,spriteAtlas,spriteMaterial})Object.DestroyImmediate(obj);
         return _checks;
     }
 }

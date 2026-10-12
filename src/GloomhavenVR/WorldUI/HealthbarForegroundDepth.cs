@@ -32,6 +32,8 @@ internal static class HealthbarForegroundDepth
     private static readonly List<Material> Materials = new(8);
     private static readonly HashSet<int> Seen = new();
     private static readonly List<XRDisplaySubsystem> Displays = new(1);
+    private static readonly Dictionary<Shader, int> ForwardPasses = new();
+    private static readonly ShaderTagId LightMode = new("LightMode");
     private static readonly int DepthId = Shader.PropertyToID("_GHVRActorForegroundDepth");
     private static readonly int SizeId = Shader.PropertyToID("_GHVRActorForegroundSize");
     private static readonly int ReadyId = Shader.PropertyToID("_GHVRActorForegroundReady");
@@ -42,6 +44,7 @@ internal static class HealthbarForegroundDepth
     private static bool _dirty;
     private static float _nextRefresh;
     private static bool _viewportQueryWarned;
+    private static bool _captureWarned;
 
     // These are existing owner identities, not a blanket mod-layer/name heuristic.
     // Sky/room, haunt figures, world geometry, lasers, particles and highlights are
@@ -94,7 +97,18 @@ internal static class HealthbarForegroundDepth
     private static void BeforeCamera(Camera camera)
     {
         if (!_active || camera == null || camera != VRRigDriver.HeadCamera) return;
-        Prepare(camera);
+        try { Prepare(camera); }
+        catch (Exception ex)
+        {
+            // A failed native render resource must not interrupt other camera
+            // listeners or leave stale per-eye commands attached. Retry next render.
+            Detach();
+            if (!_captureWarned)
+            {
+                _captureWarned = true;
+                VRLog.Warn("WorldUI", $"Healthbar foreground capture deferred ({ex.GetType().Name}); retrying on the next head-camera render.");
+            }
+        }
     }
 
     internal static void Prepare(Camera camera)
@@ -204,10 +218,26 @@ internal static class HealthbarForegroundDepth
         {
             Material material = Materials[submesh];
             if (material == null || material.passCount == 0) continue;
-            int pass = material.FindPass("FORWARD");
-            if (pass < 0) pass = material.FindPass("FORWARDBASE");
-            capture.DrawRenderer(renderer, material, submesh, pass < 0 ? 0 : pass);
+            capture.DrawRenderer(renderer, material, submesh, ForwardPass(material.shader));
         }
+    }
+
+    private static int ForwardPass(Shader shader)
+    {
+        if (ForwardPasses.TryGetValue(shader, out int selected)) return selected;
+        // Native ForwardBase and ForwardAdd can share the name FORWARD. Select
+        // the actual visible base by its tag; names alone are ambiguous. Untagged
+        // single-pass/unlit visuals retain their authored first colour pass.
+        selected = 0;
+        for (int pass = 0; pass < shader.passCount; pass++)
+        {
+            if (!string.Equals(shader.FindPassTagValue(pass, LightMode).name,
+                    "ForwardBase", StringComparison.OrdinalIgnoreCase)) continue;
+            selected = pass;
+            break;
+        }
+        ForwardPasses[shader] = selected;
+        return selected;
     }
 
     private static void Refresh()

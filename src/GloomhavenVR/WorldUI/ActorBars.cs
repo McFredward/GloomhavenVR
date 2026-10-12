@@ -193,7 +193,8 @@ internal static class ActorBars
         // The game's UI materials resolve their global ZTest to LEqual in VR. Previously the
         // BarsOccluded=false path restored those materials, so both positions of the setting hid
         // the bar behind opaque walls. Every adopted Graphic now gets a per-instance material:
-        // LEqual when walls should hide it, Always when it should show through. We never deactivate
+        // LEqual when walls should hide it; exact native derivatives ignore walls while testing
+        // actual solid VR foreground. We never deactivate
         // the bar controller (that would kill native attack/health coroutines). Rescan on a slow
         // cadence because HealthBar pools new division-mark Graphics after adoption.
 
@@ -205,6 +206,9 @@ internal static class ActorBars
 
         /// <summary>Index of the owned clone record; native material replacement is re-adopted.</summary>
         public readonly Dictionary<int, int> DepthMatRecords = new();
+        /// <summary>Only our native pre-render listeners, retired before material restore.</summary>
+        public readonly HashSet<int> DepthTextIds = new();
+        public readonly List<(TMP_Text text, System.Action<TMP_TextInfo> callback)> DepthTextRefresh = new();
 
         /// <summary>The material mode installed on this host. Both sides use explicit ZTest
         /// overrides: restoring the game's material for the show-through mode left LEqual in
@@ -2577,6 +2581,17 @@ internal static class ActorBars
                 continue;
             int id = g.GetInstanceID();
 
+            // Native TMP reparses inline sprite/fallback materials on health updates
+            // and replaces its submesh binding from its own material references.
+            // Reapply this bar's existing clones after that native update, before draw;
+            // never mutate the shared font/sprite asset or replace native callbacks.
+            if (g is TMP_Text text && adopted.DepthTextIds.Add(id))
+            {
+                System.Action<TMP_TextInfo> callback = _ => ScanBarGraphics(adopted, barName, depthTest);
+                text.OnPreRenderText += callback;
+                adopted.DepthTextRefresh.Add((text, callback));
+            }
+
             if (!adopted.RaycastOffIds.Contains(id))
             {
                 try
@@ -2609,6 +2624,7 @@ internal static class ActorBars
                 int record = -1;
                 if (adopted.DepthMatRecords.TryGetValue(id, out int existing))
                 {
+                    bool rebuildFallback = false;
                     if (ReferenceEquals(src, adopted.DepthMats[existing].inst))
                     {
                         // A first scan may precede bundle availability. Retry only that
@@ -2617,9 +2633,18 @@ internal static class ActorBars
                         Shader? ready = !depthTest ? ActorBarDepthShaders.For(original.shader) : null;
                         if (ready == null || src.shader == ready) continue;
                         src = original;
+                        rebuildFallback = true;
                     }
-                    // Native health/effect updates may replace a font/sprite material after
-                    // adoption. The new native source wins; retire only our detached clone.
+                    // A native TMP update restores the same original sprite material.
+                    // Rebind its existing clone without allocating a new material each update.
+                    if (!rebuildFallback && ReferenceEquals(src, adopted.DepthMats[existing].orig)
+                        && adopted.DepthMats[existing].inst != null)
+                    {
+                        AssignBarMaterial(g, adopted.DepthMats[existing].inst);
+                        continue;
+                    }
+                    // Native health/effect updates may supply a new font/sprite source.
+                    // The new source wins; retire only our detached clone.
                     record = existing;
                     Material previous = adopted.DepthMats[record].inst;
                     if (previous != null) Object.Destroy(previous);
@@ -2694,6 +2719,13 @@ internal static class ActorBars
     /// </summary>
     private static void RestoreBarDepthTest(Adopted adopted)
     {
+        for (int i = 0; i < adopted.DepthTextRefresh.Count; i++)
+        {
+            (TMP_Text text, System.Action<TMP_TextInfo> callback) = adopted.DepthTextRefresh[i];
+            if (text != null) text.OnPreRenderText -= callback;
+        }
+        adopted.DepthTextRefresh.Clear();
+        adopted.DepthTextIds.Clear();
         for (int i = 0; i < adopted.DepthMats.Count; i++)
         {
             (Graphic g, Material orig, Material inst) = adopted.DepthMats[i];

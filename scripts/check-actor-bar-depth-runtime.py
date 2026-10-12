@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Execute exact bar depth methods against the shipped TMP runtime and actual Unity pixels.
 
-The native widget's Image/TMP/submesh material APIs are real; test rectangles replace
-artwork/font tessellation only. This tests whole-widget depth and lifecycle, not HMD imagery.
+Legacy Image/TMP/submesh binding controls use rectangles. Native font controls use
+original game glyph metrics, atlas and sprite submeshes with exact upstream native
+shader source and its derivative. Actual pixels and lifecycle are checked, not HMD imagery.
 """
 import argparse
 import hashlib
@@ -14,6 +15,8 @@ import subprocess
 import tempfile
 import sys
 import atexit
+import signal
+import re
 
 from town_run_retention import cleanup_completed_run
 
@@ -41,7 +44,7 @@ for obj in env.objects:
  records.append({"shader":name,"path_id":obj.path_id,"depth":[{"zTest":p["zTest"],"zWrite":p["zWrite"]} for p in passes]})
 assert {r["shader"] for r in records}==wanted, "Required original TMP font/sprite shaders missing"
 with asset.open("rb") as stream: digest=hashlib.file_digest(stream,"sha256").hexdigest()
-Path(sys.argv[2]).write_text(json.dumps({"asset":str(asset),"sha256":digest,"original_shader_passes":records,"limits":"Metadata cross-check only: real managed TMP/UI and fixture clip/depth pixels execute; original Windows TMP bytecode, font atlas and glyph tessellation do not."},indent=2)+"\n")
+Path(sys.argv[2]).write_text(json.dumps({"asset":str(asset),"sha256":digest,"original_shader_passes":records,"limits":"This file checks original game Shader metadata only. Separate native-font controls execute original atlases/glyph/sprite data, shipped managed TMP/UI and canonical source shader pixels; original game Windows shader bytecode is not the reference executable."},indent=2)+"\n")
 '''
     result=subprocess.run([str(python),'-c',code,str(root/'ressources/GH_Data/resources.assets'),str(run/'native-tmp-depth-provenance.json')],capture_output=True,text=True)
     if result.returncode:raise SystemExit(result.stdout+result.stderr)
@@ -87,6 +90,7 @@ def main():
     foreground=(root/'src/GloomhavenVR/WorldUI/HealthbarForegroundDepth.cs').read_text()
     variants=[('production',code,foreground,'')]
     changes=[
+      ('text-native-refresh-ignored','text.OnPreRenderText += callback;','/* native refresh omitted */','native inline sprite receives its own complete foreground-aware material'),
       ('generic-tmp-draw-field','else if (graphic is TMP_Text text) text.fontSharedMaterial = material;','else if (graphic is TMP_Text) graphic.material = material;','through-wall mode renders native circle, actual TMP number and TMP inline symbol together'),
       ('inline-symbol-untreated','if (graphic is TMP_SubMeshUI submesh) submesh.sharedMaterial = material;','if (graphic is TMP_SubMeshUI) return;','through-wall mode renders native circle, actual TMP number and TMP inline symbol together'),
       ('native-replacement-stale','if (ReferenceEquals(src, adopted.DepthMats[existing].inst))','if (bool.Parse("true"))','native font replacement is immediately re-adopted on the next scan'),
@@ -98,6 +102,7 @@ def main():
     more=[
         ('ignore-solid-foreground','capture.SetGlobalFloat(ReadyId, 1f);','capture.SetGlobalFloat(ReadyId, 0f);','actual nearer solid card geometry hides every covered native glyph pixel'),
         ('world-roots-foreground','name == "GloomhavenVR.Hands" || name == "GloomhavenVR.PlayTray"','name == "GloomhavenVR.Room" || name == "GloomhavenVR.Hands" || name == "GloomhavenVR.PlayTray"','original game atlas and real TMP glyph tessellation render through a wall'),
+        ('wrong-duplicate-forward-pass','ForwardPass(material.shader)','0','duplicate FORWARD names select actual depth-writing ForwardBase by LightMode'),
         ('native-hold-ignored','DrawHeld(capture, camera, FigureGrabbable.HeldBy(HandSide.Left)?.HeldRenderers());','DrawHeld(capture, camera, null);','native figure held in the left hand occludes without changing its game layer'),
     ]
     for name,before,after,expected in more:
@@ -108,9 +113,9 @@ def main():
         if unknown:parser.error('Unknown cases: '+str(unknown))
         variants=[v for v in variants if v[0] in args.case]
     args.output_dir.mkdir(parents=True,exist_ok=True);run=Path(tempfile.mkdtemp(prefix='run-',dir=args.output_dir.resolve()))
-    completion=run/'completion.log';completion.write_text('evidence: '+str(run)+'\n');outcome={'exit_code':1}
+    completion=run/'completion.log';completion.write_text('evidence: '+str(run)+'\n');outcome={'exit_code':1,'reaped':True}
     def completed():
-        receipt=cleanup_completed_run('actor-bar-depth-runtime',outcome['exit_code'],completion,root,process_reaped=True)
+        receipt=cleanup_completed_run('actor-bar-depth-runtime',outcome['exit_code'],completion,root,process_reaped=outcome['reaped'])
         (run/'cache-cleanup.json').write_text(json.dumps(receipt,indent=2)+'\n')
     atexit.register(completed)
     native_shader_depth_contract(root,run)
@@ -120,9 +125,11 @@ def main():
     managed=root/'ressources/GH_Data/Managed'; fixture=ROOT/'scripts/actor-bar-depth-runtime';dotnet=shutil.which('dotnet') or str(Path.home()/'.dotnet/dotnet')
     manifest={'result':str(run/'results.txt'),'evidence':str(run),'cases':[]}
     hashes={str(root/'src/GloomhavenVR/WorldUI/ActorBars.cs'):hashlib.sha256(bars.encode()).hexdigest(),str(root/'src/GloomhavenVR/WorldUI/Sharpness/PanelGraphicMaterial.cs'):hashlib.sha256(read.encode()).hexdigest()}
+    for source in (root/'src/GloomhavenVR/WorldUI/ActorBarDepthShaders.cs',root/'src/GloomhavenVR/WorldUI/HealthbarForegroundDepth.cs',root/'scripts/check-actor-bar-depth-runtime.py',root/'scripts/actor-bar-depth-runtime/Depth.csproj',*(root/'scripts/actor-bar-depth-runtime').rglob('*.cs'),*(root/'scripts/actor-bar-depth-runtime').rglob('*.shader'),*(root/'unity/GloomhavenVR.Assets/Assets/Bundle/HealthBars').glob('*.shader'),*(root/'unity/GloomhavenVR.Assets/Assets/Bundle/HealthBars').glob('*.cginc')):
+        hashes[str(source)]=hashlib.file_digest(source.open('rb'),'sha256').hexdigest()
     for name in ('Unity.TextMeshPro.dll','UnityEngine.UI.dll'):
         hashes[str(managed/name)]=hashlib.file_digest((managed/name).open('rb'),'sha256').hexdigest()
-    (run/'source-hashes.json').write_text(json.dumps({'sha256':hashes,'coverage':'partial' if args.case else 'production-and-negative-controls','limits':['Original game TMP/UI assemblies execute unchanged in Unity 2021.3.5.','Native font/glyph artwork and Windows TMP shader bytecode are replaced by test rectangles and an explicit depth/stencil fixture shader; materialForRendering, depth, cloning and world-space canvas pixels are real. Original TMP pass metadata cross-checks the exact unity_GUIZTestMode binding.','No game scene, headset, multiplayer picture or frame rate is asserted.']},indent=2)+'\n')
+    (run/'source-hashes.json').write_text(json.dumps({'sha256':hashes,'coverage':'partial' if args.case or args.skip_viewport or args.native_font_only else 'production-and-negative-controls','limits':['Original game TMP/UI assemblies execute unchanged in Unity 2021.3.5.','Legacy binding cases use rectangle tessellation. Added native-font cases execute original game glyph/character metrics, atlas, actual TMP glyph tessellation, full/Mobile original source programs and original Sprite data. Canonical source hashes independently bind the derivative undo to official upstream original source; original Windows game shader bytecode is metadata checked, not used as the font reference shader.','Actual camera pixels/depth/stencil, clone bindings and per-render held lifetime are exercised; there is no game scenario controller, headset, multiplayer picture or hardware performance claim.','Skipped viewport cases remain explicitly partial and are never promoted to a complete pass.']},indent=2)+'\n')
     for name,value,depth,expected in variants:
         build=run/name;production=build/'production';production.mkdir(parents=True)
         (production/'ActorBarDepth.cs').write_text(value);(production/'PanelGraphicMaterial.cs').write_text(read)
@@ -131,7 +138,8 @@ def main():
         result=subprocess.run([dotnet,'build',str(project),'-c','Release','--nologo','--verbosity','quiet','-p:CaseName='+assembly,'-p:FixtureDir='+str(fixture),'-p:ProductionDir='+str(production),'-p:UnityManaged='+str(args.unity.parent/'Data/Managed'),'-p:GameManaged='+str(managed.resolve())],capture_output=True,text=True)
         (build/'build.log').write_text(result.stdout+result.stderr)
         if result.returncode:raise SystemExit(result.stdout+result.stderr+'\nCompilation failure is not a successful defect control')
-        manifest['cases'].append({'name':name,'dll':str(build/'bin/Release/netstandard2.1'/(assembly+'.dll')),'expected':expected})
+        binaries=run/'assemblies';binaries.mkdir(exist_ok=True);dll=binaries/(assembly+'.dll');shutil.copyfile(build/'bin/Release/netstandard2.1'/(assembly+'.dll'),dll)
+        manifest['cases'].append({'name':name,'dll':str(dll),'dll_sha256':hashlib.sha256(dll.read_bytes()).hexdigest(),'expected':expected})
     project=run/'unity'
     for name in ('Assets/Editor','Assets/Plugins','Packages','ProjectSettings'):(project/name).mkdir(parents=True)
     shutil.copyfile(fixture/'Editor/DepthRunner.cs',project/'Assets/Editor/DepthRunner.cs')
@@ -142,27 +150,45 @@ def main():
     if args.depth_debug:
         debug=shader_dir/'ActorBarUI.shader';value=debug.read_text();value=value.replace('GHVRActorBarForegroundClip(IN.vertex);','float depth = SAMPLE_DEPTH_TEXTURE(_GHVRActorForegroundDepth,IN.vertex.xy * _GHVRActorForegroundSize.xy); return fixed4(depth, IN.vertex.z * 100, _GHVRActorForegroundReady,1);');debug.write_text(value)
     shutil.copyfile(root/'unity/GloomhavenVR.Assets/Assets/Bundle/Table/BoardLit.shader',project/'Assets/Resources/BoardLit.shader')
+    shutil.copyfile(fixture/'DuplicateForward.shader',project/'Assets/Resources/DuplicateForward.shader')
     # Canonical original programs are recovered by undoing only our explicit changes.
     original_dir=project/'Assets/Resources/OriginalShaders';original_dir.mkdir()
     names={'ActorBarUI':'UI/Default','ActorBarSDF':'TextMeshPro/Distance Field','ActorBarMobileSDF':'TextMeshPro/Mobile/Distance Field','ActorBarSprite':'TextMeshPro/Sprite'}
+    provenance=json.loads((actual_shader_dir/'source-provenance.json').read_text());canonical=[]
     for file,name in names.items():
         source=(actual_shader_dir/(file+'.shader')).read_text()
         source=source.replace('Shader "GloomhavenVR/'+file+'"','Shader "'+name+'"',1)
         source=source.replace('\n\t\t\t#include "ActorBarForeground.cginc"','',1)
-        import re
         source=re.sub(r'\n\t\t\tGHVRActorBarForegroundClip\([^;]*\);','',source)
         source=source.replace('Fallback "GloomhavenVR/ActorBarMobileSDF"','Fallback "TextMeshPro/Mobile/Distance Field"')
+        record=next(r for r in provenance['sources'] if r['file']==file+'.shader');original=source
+        for pragma in record['retained_feature_pragmas']:
+            before=pragma.strip().replace('shader_feature','multi_compile');assert original.count(before)==1,'Canonical feature binding drift: '+before
+            original=original.replace(before,pragma.strip())
+        digest=hashlib.sha256(original.encode()).hexdigest();assert digest==record['normalized_original_sha256'],'Canonical upstream hash differs: '+file
+        canonical.append({'shader':file,'verified_official_normalized_source_sha256':digest,'reference_runtime_pragmas':'same original keyword branches retained with multi_compile'})
         (original_dir/(file+'.shader')).write_text(source)
+    (run/'canonical-source-provenance.json').write_text(json.dumps(canonical,indent=2)+'\n')
     for file in ('TMPro.cginc','TMPro_Properties.cginc'):shutil.copyfile(actual_shader_dir/file,original_dir/file)
     for name in ('Unity.TextMeshPro.dll','UnityEngine.UI.dll'):shutil.copyfile(managed/name,project/'Assets/Plugins'/name)
     (project/'Packages/manifest.json').write_text('{"dependencies":{"com.unity.modules.ui":"1.0.0","com.unity.modules.imgui":"1.0.0","com.unity.modules.jsonserialize":"1.0.0","com.unity.modules.physics":"1.0.0","com.unity.modules.imageconversion":"1.0.0"}}\n')
     (project/'ProjectSettings/ProjectVersion.txt').write_text('m_EditorVersion: 2021.3.5f1\n');path=run/'manifest.json';path.write_text(json.dumps(manifest,indent=2)+'\n')
     command=[str(args.unity),'-batchmode','-force-'+args.graphics_api,'-projectPath',str(project),'-executeMethod','DepthRunner.Start','-depthManifest',str(path),'-logFile',str(run/'unity.log')]
     if not os.environ.get('DISPLAY'):command=['xvfb-run','-a']+command
-    result=subprocess.run(command,stdout=subprocess.DEVNULL,stderr=subprocess.STDOUT,timeout=240)
+    outcome['reaped']=False
+    process=subprocess.Popen(command,stdout=subprocess.DEVNULL,stderr=subprocess.STDOUT,start_new_session=True)
+    try:
+        returncode=process.wait(timeout=240)
+    finally:
+        # xvfb-run is a wrapper: terminate the entire owned process group, not
+        # merely its parent, before permitting cache cleanup on any outcome.
+        try:os.killpg(process.pid,signal.SIGKILL)
+        except ProcessLookupError:pass
+        process.wait()
+        outcome['reaped']=True
     report=Path(manifest['result'])
     if report.is_file():print(report.read_text(),end='')
-    if result.returncode or not report.is_file():raise SystemExit('FAIL Unity: '+str(run/'unity.log'))
+    if returncode or not report.is_file():raise SystemExit('FAIL Unity: '+str(run/'unity.log'))
     outcome['exit_code']=0
-    print(('PARTIAL PASS' if args.case else 'PASS')+': '+str(len(variants))+' native TMP/UI runtime/pixel variants; '+str(run))
+    print(('PARTIAL PASS' if args.case or args.skip_viewport or args.native_font_only else 'PASS')+': '+str(len(variants))+' native TMP/UI runtime/pixel variants; '+str(run))
 if __name__=='__main__':main()
