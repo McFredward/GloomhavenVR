@@ -1,5 +1,11 @@
 # Local cinematic camera and figure release
 
+**The original tabletop layout is a superseded study.** The maintainer's review
+requires a believable full-scale living world before the divine masks reveal
+the table, purposeful continuous player motion and specific gaze targets.
+Only the initial release study was fully encoded; the remaining long render
+was stopped and reaped. Preserve it as technical evidence, not approved footage.
+
 `scripts/trailer/render_gameplay.py` produces source-faithful cinematic
 reconstructions for the approved trailer. It loads the packed
 `godmask_lift.blend` world, retaining the original masks, original native Brute,
@@ -53,6 +59,36 @@ frame has an explicitly evaluated aim and focus distance. H.264 encoding
 preserves all rendered frames at 1920×1080 and 24 fps. The movie is silent;
 the parent edit supplies original narration, music, source sound effects and
 the persistent fan-mod label.
+
+## Original source animation helper
+
+`apply_native_animation(objects, archive, start_frame=1, end_frame=None,
+loop=False, hold_final=True)` is independent of the superseded layout. New
+full-scale scenes can import it and animate either merged original OBJ geometry
+or the existing original split mesh parts. Original object world transforms,
+UVs and materials remain intact. It consumes the native motion worker's NPZ
+and accompanying JSON receipts under `.planning/debug/trailer/motion/`.
+
+For a living Brute, use `brute/HE_Brute_Idle_v001.npz` with `loop=True` and the
+scene's final frame. The exact original idle period is 40 distinct samples at
+24 fps; the duplicate closing sample is excluded from the loop. For an action,
+`HE_Brute_Melee_Attack_v001.npz` supplies the original sampled attack and source
+sword/shield attachment motion. Native action must follow the held figure's
+return to its original cell. No card name or specific game result is inferred
+from a generic animation clip.
+
+The helper verifies source bank/archive/OBJ hashes, original vertex count and
+per-part vertex order before adding shape keys. At each rendered frame, exactly
+one original pose sample has weight 1. Linear transitions permit subframe
+evaluation. One-shot motion can hold its final source pose; looping requires
+an actually closed source clip. The archive's source classification remains
+cinematic reconstruction, not runtime gameplay.
+
+Focused Blender geometry checks sampled frame 1, 11, 21, 31, 41, 49, 61, 81 and
+96, covering idle-loop wraparound, attack and final-pose hold. The actual
+evaluated mesh positions agree with original source samples within `1.2e-7`
+original units. The original OBJ import order agrees within `1.2e-7`. Receipts
+and the executed fixture live under `cinematic/animation-helper-qc/`.
 
 ## Evidence and cleanup
 

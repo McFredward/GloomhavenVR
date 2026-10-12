@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 
 import bpy
+import numpy as np
 from mathutils import Matrix, Quaternion, Vector
 
 
@@ -32,6 +33,119 @@ base = opener.base
 
 def sha(path):
     return hashlib.file_digest(Path(path).open('rb'), 'sha256').hexdigest()
+
+
+def apply_native_animation(objects, archive, start_frame=1, end_frame=None,
+                           loop=False, hold_final=True):
+    """Apply exact sampled source motion to original split or merged OBJ meshes.
+
+    This helper is independent of the superseded tabletop composition. Callers
+    can use it for full-scale actor scenes. Mesh world transforms stay intact;
+    source position samples remain in their original Blender-converted units.
+    Original UVs/materials/topology and weapon attachment geometry are retained.
+    """
+    archive = Path(archive).resolve()
+    manifest = archive.with_suffix('.json')
+    data = json.loads(manifest.read_text())
+    if sha(archive) != data['output_sha256']:
+        raise ValueError('Native animation archive differs from its receipt')
+    if sha(data['base_obj']) != data['base_obj_sha256']:
+        raise ValueError('Native animation base OBJ differs from original export')
+    for source in data['sources']:
+        if sha(source['path']) != source['sha256']:
+            raise ValueError('Native animation source bank changed')
+        base.USED.add(Path(source['path']))
+    base.USED.update((archive, manifest, Path(data['base_obj'])))
+    with np.load(archive, allow_pickle=False) as samples:
+        positions = samples['positions'].copy()
+        times = samples['times'].copy()
+    if positions.ndim != 3 or positions.shape[2] != 3:
+        raise ValueError('Expected positions[frame, vertex, 3]')
+    if len(positions) < 2 or int(data['fps']) != 24:
+        raise ValueError('Expected at least two original samples at 24 fps')
+    if np.max(np.abs(times - np.arange(len(times)) / 24)) > 1e-6:
+        raise ValueError('Source samples are not uniformly spaced at 24 fps')
+    objects = list(objects)
+    if not objects or any(o.type != 'MESH' for o in objects):
+        raise ValueError('Original mesh objects required')
+    if any(o.data.shape_keys for o in objects):
+        raise ValueError('Refusing to replace pre-existing actor shape keys')
+    source_vertices = np.array([tuple(float(v) for v in line.split()[1:4])
+                               for line in Path(data['base_obj']).read_text().splitlines()
+                               if line.startswith('v ')], dtype=np.float64)
+    if source_vertices.shape != positions.shape[1:]:
+        raise ValueError('Source vertex census differs from archive')
+    mapped = []
+    if len(objects) == 1 and len(objects[0].data.vertices) == len(source_vertices):
+        mapped.append((objects[0], 0, len(source_vertices)))
+    else:
+        for part in data['parts']:
+            candidates = [o for o in objects if o.name == part['name']
+                          or o.name.endswith(' ' + part['name'])]
+            if len(candidates) != 1:
+                raise ValueError(f"Cannot identify original mesh part {part['name']}")
+            obj = candidates[0]
+            if len(obj.data.vertices) != part['vertex_count']:
+                raise ValueError(f"Vertex census differs for {part['name']}")
+            mapped.append((obj, part['vertex_start'], part['vertex_count']))
+        if len(mapped) != len(objects):
+            raise ValueError('Unexpected original mesh object count')
+    max_error = 0.0
+    for obj, start, count in mapped:
+        vertices = np.empty(count * 3, dtype=np.float32)
+        obj.data.vertices.foreach_get('co', vertices)
+        error = float(np.max(np.abs(vertices.reshape(count, 3) - source_vertices[start:start + count])))
+        max_error = max(max_error, error)
+        if error > 2e-6:
+            raise ValueError(f'Original OBJ vertex order differs: {obj.name}, {error:g}')
+    # A closed idle export repeats its first sample as the last. Exclude that
+    # duplicate when looping, leaving precisely the original source period.
+    period = len(positions)
+    if loop:
+        if float(np.max(np.abs(positions[0] - positions[-1]))) > 2e-5:
+            raise ValueError('The requested source clip is not a closed loop')
+        period -= 1
+    if end_frame is None:
+        end_frame = start_frame + period - 1
+    if end_frame < start_frame:
+        raise ValueError('Animation end precedes start')
+    if hold_final and not loop and end_frame < start_frame + period - 1:
+        raise ValueError('Holding the final pose requires the complete source clip')
+    for obj, start, count in mapped:
+        obj.shape_key_add(name='Original idle basis')
+        keys = []
+        for index in range(period):
+            key = obj.shape_key_add(name=f"Original {data['clip']} sample {index:03d}")
+            key.data.foreach_set('co', positions[index, start:start + count].reshape(-1))
+            keys.append(key)
+        # At each rendered frame exactly one source sample has weight 1. Linear
+        # keys permit continuous in-between evaluation without changing samples.
+        for index, key in enumerate(keys):
+            key.value = 0.0
+            key.keyframe_insert('value', frame=start_frame - 1)
+            active_frames = [f for f in range(start_frame, end_frame + 1)
+                             if (f - start_frame) % period == index
+                             and (loop or f - start_frame < period)]
+            for frame in active_frames:
+                key.value = 0.0
+                key.keyframe_insert('value', frame=frame - 1)
+                key.value = 1.0
+                key.keyframe_insert('value', frame=frame)
+                if not (hold_final and not loop and index == period - 1):
+                    key.value = 0.0
+                    key.keyframe_insert('value', frame=frame + 1)
+            if hold_final and not loop and index == period - 1:
+                key.value = 1.0
+                key.keyframe_insert('value', frame=end_frame)
+        for curve in obj.data.shape_keys.animation_data.action.fcurves:
+            for point in curve.keyframe_points:
+                point.interpolation = 'LINEAR'
+    return {'archive': str(archive), 'sha256': sha(archive),
+            'source_clip': data['clip'], 'source_fps': 24,
+            'source_period_frames': period, 'start_frame': start_frame,
+            'end_frame': end_frame, 'loop': loop,
+            'original_obj_order_max_abs_error': max_error,
+            'classification': 'original sampled animation reconstruction; not runtime capture'}
 
 
 def arguments():
