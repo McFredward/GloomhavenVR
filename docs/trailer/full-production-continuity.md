@@ -3,8 +3,10 @@
 Authorized full-trailer production following the maintainer's approval of the
 new film direction. **65 seconds, 1920×1080, 24 fps, 1560 frames.** Base source:
 `b3a8df53d75088b2d51387335f09f8a41ca5b7de`, runtime ModBuild672. This document
-owns the editorial plan; it does not claim that the planned shots are generated,
-that gameplay has been recorded, or that the complete film is approved.
+owns the editorial plan and completed first-cut timing. The full export is
+`review/10-full-trailer-v1.mp4` under the private trailer evidence root. Its
+generative scenes interpret game/mod references; they are not recorded gameplay
+or an assertion that the complete film has maintainer approval.
 
 The maintainer requests the full original trailer, consistent cuts, a more
 source-accurate Brute face, new welcome/different/VR narration, and a central
@@ -56,17 +58,17 @@ consent/source receipt and verify diction before a paid whole-script call.
 > Gloomhaven VR.
 > Step inside.
 
-| Cue | Target window | Purpose |
+| Cue | Final excerpt window | Purpose |
 |---|---|---|
-| N01 | 00.4–02.8 | Welcome over the first resident; inviting, understated. |
-| N02 | 03.0–05.6 | City montage, carried across the cut into the dungeon. |
-| N03 | 05.9–08.4 | Brute owns the room; danger has tangible scale. |
-| N04 | 09.1–12.5 | The shadow and god-mask change our understanding. |
-| N05 | 15.0–18.7 | The gentle lift and actual tabletop-scale discovery. |
-| N06 | 23.0–26.0 | Shared table and two-player presence before card choices. |
-| N07 | 52.0–55.0 | Companionship after the physical town handoff. |
-| N08 | 59.7–61.9 | Exact product name on the final title. |
-| N09 | 62.5–63.8 | Invitation, then a clean final hold. |
+| N01 | 00.4–02.1 | Welcome over the first resident; inviting, understated. |
+| N02 | 03.0–05.14 | City montage, carried across the cut into the dungeon. |
+| N03 | 05.5–07.38 | Brute owns the room; danger has tangible scale. |
+| N04 | 09.3–12.35 | The shadow and god-mask change our understanding. |
+| N05 | 15.0–17.6 | The gentle lift and actual tabletop-scale discovery. |
+| N06 | 23.0–24.9 | Shared table and two-player presence before card choices. |
+| N07 | 51.95–53.65 | Companionship after the physical town handoff. |
+| N08 | 59.7–61.55 | Exact product name on the final title. |
+| N09 | 62.1–63.9 | Invitation, then a clean final hold. |
 
 The **26–51-second action/interaction sequence has no narrator**. Give the card
 contacts, original movement, melee impact and NPC return space. Original game
@@ -197,15 +199,17 @@ fingerless thumb and controlboard wells would reverse. Follow eyeline, card
 travel and figure facing across the cuts. A reaction/contact motivates each
 camera change. Avoid repeated generic orbits or empty holds padding65 seconds.
 
-Use Happy Horse1.1 1080p as the integrator's candidate for bounded individual
-shots; Seedance is the candidate for critical mask/lift/card-contact transitions.
-Those are routing suggestions, not asserted provider capabilities/prices.
+The first cut uses Happy Horse1.1 native1080p for the new resident, forest,
+card, action, donation and companion clips, Seedance2.5 native720p for the
+critical hero/mask and close-lift clips, and a reused Kling enchantress portrait.
 Build only the source references needed by the next shot, inspect its actual
 clip before another request, and separate difficult contacts into valid cuts
 rather than asking one model to solve three simultaneous actions.
 
-All planned calls reserve a conservative **$29.75 of $30**, including earlier
-studies and failed reservations; the actual invoice is unreconciled. Private
+Completed generation reserved **$29.75**; the final speech check added **$0.15**.
+The conservative total is **$29.90 of $30**, including earlier studies and
+failed reservations; the actual invoice is unreconciled. No jobs remain pending
+and no further paid calls are planned. Private
 ledger/receipts remain authoritative. Prioritize source-accurate
 Brute, the controlboard placement and reveal continuity. Existing successful
 material/audio, exact native footage and local composites can provide other
@@ -216,9 +220,9 @@ never silently exceed the cap or call a synthetic repaint native capture.
 
 Burn **UNOFFICIAL · FAN-MADE MOD** continuously into the lower-right corner,
 including all black frames and title fades. At1080p keep at least24px lettering,
-48px safe margin and a restrained dark backing. Opening attribution:
-**An unofficial community mod**. Final footer: **Requires Gloomhaven Digital.
-Unofficial fan-made mod.** Final community line: **A community project by
+48px safe margin and a restrained dark backing. The opening uses the persistent
+label. The final card adds **AN UNOFFICIAL COMMUNITY VR MOD** and
+**Requires Gloomhaven Digital**. Final community line: **A community project by
 McFredward**. The final product title is **GLOOMHAVEN VR** and invitation
 **STEP INSIDE**. No unrequested official-publisher attribution.
 
@@ -236,6 +240,26 @@ town cameo. Inspect generated start/middle/end frames and full-resolution
 contacts. Verify narration has the new words, title/attribution remain legible,
 duration is65 seconds, and the actual mix is clean. Record remaining drift
 honestly; no automated check establishes cinematic quality or headset behavior.
+
+## Completed first-cut review
+
+`10-full-trailer-v1.mp4` passed complete decoding, exact65-second/1560-frame
+timing, all-frame unofficial-label checks and the 33-word final speech check.
+The actual encoded mix measures -14.0 LUFS integrated and -1.9 dBTP. The
+integrator viewed 13 scene-change frames and 48 dense final cue frames with
+the watch skill; source reviews covered every generated clip and original-
+resolution contacts. An independent creative reviewer inspected 12 selected
+final moments and found no additional local blocker before maintainer review.
+
+The card correction replaces generated pseudo-text with exact native captured
+pixels across placements and later board views, preserving perspective, hand
+occlusion and lighting. Native print resolution remains limited, and the
+confirmation insert partly crops the outer button rim. Generative geometry,
+costume details and floor-cell placement remain interpretations. Sampled
+frames do not certify every motion frame or subjective listening quality.
+This bounded offline-editor integration uses actual export/audio/branding
+evidence and inherited focused fade/ducking fixtures; it is not a new complete
+C#/wire-test gate or hardware result.
 
 Worker setup and readings: `scripts/worktree-setup.sh`; `AGENTS.md`, `CLAUDE.md`,
 `.planning/STATE.md`, Build672/671 notes beside `NetProtocol.ModBuild`, the

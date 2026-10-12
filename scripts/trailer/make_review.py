@@ -78,8 +78,11 @@ def title(path, subtitle="TAKE YOUR PLACE"):
     layer.save(path)
 
 
-def mix_audio(events, seconds, destination, log, sources, ducking=None):
+def mix_audio(events, seconds, destination, log, sources, ducking=None, post_gain_db=0):
     rate = 48000
+    post_gain_db = float(post_gain_db)
+    if not math.isfinite(post_gain_db) or not -24 <= post_gain_db <= 0:
+        raise ValueError("Audio mastering trim must be finite and between -24 and 0 dB")
     timeline = np.zeros((round(seconds*rate), 2), dtype=np.float32)
     music = None
     if ducking is not None:
@@ -136,7 +139,7 @@ def mix_audio(events, seconds, destination, log, sources, ducking=None):
     if music is not None:
         timeline += music*duck[:, None]
     run(["ffmpeg", "-v", "warning", "-y", "-f", "f32le", "-ar", str(rate),
-         "-ac", "2", "-i", "-", "-af", "loudnorm=I=-14:TP=-1:LRA=8",
+         "-ac", "2", "-i", "-", "-af", f"loudnorm=I=-14:TP=-1:LRA=8,volume={post_gain_db}dB",
          "-t", str(seconds), "-c:a", "pcm_f32le", "-ar", str(rate), str(destination)],
         log, input_bytes=timeline.astype("<f4").tobytes())
     probe = json.loads(subprocess.check_output([
@@ -219,7 +222,8 @@ def _assemble(spec_path, output, name):
     audio = spec.get("audio", [])
     if audio:
         mixed = private/"mix.wav"
-        mix_audio(audio, total, mixed, log, sources, spec.get("audio_ducking"))
+        mix_audio(audio, total, mixed, log, sources, spec.get("audio_ducking"),
+                  spec.get("audio_post_gain_db", 0))
     command = ["ffmpeg", "-v", "warning", "-y", "-filter_complex_threads", "2",
                "-i", str(joined), "-loop", "1", "-framerate", str(FPS),
                "-t", str(total), "-i", str(water)]

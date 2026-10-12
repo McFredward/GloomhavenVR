@@ -1,13 +1,14 @@
 # Gloomhaven VR — Step Inside
 
-The authorized trailer is a65-second cinematic fantasy short focused on the VR
+The authorized trailer is a 65-second cinematic fantasy short focused on the VR
 conversion. The maintainer approved the film direction in review09 and requested
 completion of the original story with source-faithful character faces, coherent
 cuts and physical cards placed onto the original controlboard. English narration
 uses the explicitly authorized original game/reference narrator clone. The
-fal.ai ceiling remains USD30; conservative reservations total USD29.75,
+fal.ai ceiling remains USD30; conservative reservations total USD29.90,
 including earlier studies and failed requests. Actual invoice reconciliation is
-pending. All media, prompts, receipts and review exports remain in the main
+pending. This includes USD0.15 for the completed final speech check. All media,
+prompts, receipts and review exports remain in the main
 checkout's gitignored `.planning/debug/trailer/`.
 
 ## Story
@@ -79,7 +80,8 @@ player's borrowed conversation.
 
 Critical hero/divine and close-lift shots use Seedance2.5 at native720p. Individual
 resident, forest/table, combat, donation and companion shots use Happy Horse1.1
-at native1080p. Built-in imagegen provides source-referenced film keyframes
+at native1080p; the short enchantress portrait reuses an earlier Kling clip.
+Built-in imagegen provides source-referenced film keyframes
 outside the fal budget. The final1920×1080/24fps master includes resized720p
 sources and is not entirely native1080p generation.
 
@@ -89,13 +91,22 @@ mod, requires Gloomhaven Digital and credits McFredward. Exact logo/typography
 are composited locally. No official-publisher implication or external publication
 is authorized by production alone.
 
-The full edit, original card-surface postproduction and final watch/QC are in
-progress. `review/latest.mp4` currently points to the most recent completed
-review; `review/STATUS.txt` and `review/COSTS.json` report current private state.
-Preserve earlier versioned studies, original outputs, hashes and source receipts.
-Publish a new review filename only after complete encode/duration checks, then
-watch the whole film and inspect contacts/cuts at original resolution. Cleanup
-only owned regenerable intermediate caches after their processes have stopped.
+The first complete cut is `review/10-full-trailer-v1.mp4`; `review/latest.mp4`
+points to it. Native card-print repair, assembly and final export checks are
+complete. The movie decodes fully: exactly 65 seconds/1560 frames, stereo48kHz,
+-14.0 LUFS integrated and -1.9 dBTP. The persistent label passed checks on all
+1560 frames, and all 33 narration words matched the final mix transcription.
+The integrator inspected 13 scene-change and 48 dense final cue frames with the
+watch skill, alongside full-resolution source/contact checks. An independent
+12-frame review found no further local blocker before maintainer review.
+
+This is ready for the maintainer's assessment, not a claim of final creative
+approval, exact native geometry or verified headset behavior. Original card
+print is limited by its roughly190px capture width; the confirmation insert
+partly crops the outer button rim. Preserve earlier studies, original outputs,
+hashes and source receipts. `review/STATUS.txt`, `review/COSTS.json` and private
+QC reports record the current state. No further paid calls are planned. Cleanup
+only owned regenerable caches after their processes have stopped.
 
 Detailed timing and source locks: [full-production-continuity.md](full-production-continuity.md).
 Actual Steel/card source and audio controls: [full-edit.md](full-edit.md).

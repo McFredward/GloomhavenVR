@@ -10,9 +10,10 @@
     "fps": 24,
     "frame_count": 1560,
     "color": "Rec.709",
-    "status": "Full film generation complete; native card-print video postproduction and final assembly/watch/QC in progress.",
+    "status": "First complete 65-second cut ready for maintainer review; native card-print repair, assembly and final export QC complete.",
     "direction_authorization": "Review09 film direction approved; maintainer authorized full original script with faithful faces and consistent cuts. Earlier stop-after-probe fulfilled and superseded.",
-    "evidence_root": ".planning/debug/trailer/full-production/"
+    "evidence_root": ".planning/debug/trailer/full-production/",
+    "review_file": ".planning/debug/trailer/review/10-full-trailer-v1.mp4"
   },
   "voice": {
     "mode": "consent_attested_clone",
@@ -24,62 +25,63 @@
       {
         "id": "N01",
         "start_seconds": 0.4,
-        "end_seconds": 2.8,
+        "end_seconds": 2.1,
         "text": "Welcome to Gloomhaven."
       },
       {
         "id": "N02",
         "start_seconds": 3,
-        "end_seconds": 5.6,
+        "end_seconds": 5.14,
         "text": "A city of fortunes."
       },
       {
         "id": "N03",
-        "start_seconds": 5.9,
-        "end_seconds": 8.4,
+        "start_seconds": 5.5,
+        "end_seconds": 7.38,
         "text": "A world of danger."
       },
       {
         "id": "N04",
-        "start_seconds": 9.1,
-        "end_seconds": 12.5,
+        "start_seconds": 9.3,
+        "end_seconds": 12.35,
         "text": "But something is different this time."
       },
       {
         "id": "N05",
         "start_seconds": 15,
-        "end_seconds": 18.7,
+        "end_seconds": 17.6,
         "text": "The world is in your hands."
       },
       {
         "id": "N06",
         "start_seconds": 23,
-        "end_seconds": 26,
+        "end_seconds": 24.9,
         "text": "Gather your party."
       },
       {
         "id": "N07",
-        "start_seconds": 52,
-        "end_seconds": 55,
+        "start_seconds": 51.95,
+        "end_seconds": 53.65,
         "text": "Share the adventure."
       },
       {
         "id": "N08",
         "start_seconds": 59.7,
-        "end_seconds": 61.9,
+        "end_seconds": 61.55,
         "text": "Gloomhaven VR."
       },
       {
         "id": "N09",
-        "start_seconds": 62.5,
-        "end_seconds": 63.8,
+        "start_seconds": 62.1,
+        "end_seconds": 63.9,
         "text": "Step inside."
       }
     ],
     "narration_free_seconds": [
       26,
       51
-    ]
+    ],
+    "cue_time_basis": "Final placed excerpt windows; speech within each excerpt may begin after its leading silence."
   },
   "shots": [
     {
@@ -361,7 +363,7 @@
       "name": "GH_Map_TableTop_Lg",
       "source": "ressources/GH_Data/sharedassets9.assets Mesh27, original404 vertices/UV/triangles; GH_WorldMap_Table_Dk_MAT_LCM, GH_Map_Table_D texture",
       "runtime_underside": "MapTableLegs",
-      "identity": "Long parallel planks, thick double-profile rim, source scale1.5519\u00d72.30m and0.1481m thickness",
+      "identity": "Long parallel planks, thick double-profile rim, source scale1.5519×2.30m and0.1481m thickness",
       "excluded": "Bundle/Table/MapTable.prefab is built but not spawned"
     },
     "play_tray": {
@@ -420,7 +422,7 @@
   },
   "branding": {
     "continuous_label": {
-      "text": "UNOFFICIAL \u00b7 FAN-MADE MOD",
+      "text": "UNOFFICIAL · FAN-MADE MOD",
       "start_seconds": 0,
       "end_seconds": 65,
       "position": "bottom-right",
@@ -432,7 +434,7 @@
       "must_be_legible_every_frame": true
     },
     "final_footer": {
-      "text": "Requires Gloomhaven Digital. Unofficial fan-made mod.",
+      "text": "AN UNOFFICIAL COMMUNITY VR MOD\nRequires Gloomhaven Digital",
       "start_seconds": 59,
       "end_seconds": 65,
       "position": "lower center, clear of continuous label"
@@ -451,17 +453,20 @@
     "narration": "Existing authorized original narrator clone, MiniMax speech2.8HD",
     "music": "Original65-second ElevenLabs instrumental score",
     "keyframes": "Built-in imagegen with original source references; outside fal budget",
-    "postproduction": "Local FFmpeg/OpenCV/Pillow, exact native card-surface composites"
+    "postproduction": "Local FFmpeg/OpenCV/Pillow, exact native card-surface composites",
+    "reused_enchantress": "Earlier source-referenced Kling film portrait, locally cropped/graded"
   },
   "budget": {
     "currency": "USD",
     "hard_cap": 30,
-    "conservative_reserved_total_usd": 29.75,
+    "conservative_reserved_total_usd": 29.9,
     "actual_invoice_reconciled": false,
     "failed_reservations_retained": true,
     "further_paid_calls_planned": false,
     "ledger": ".planning/debug/trailer/production/ledger.json",
-    "no_automatic_rerolls": true
+    "no_automatic_rerolls": true,
+    "generation_reserved_total_usd": 29.75,
+    "final_speech_qc_reserved_usd": 0.15
   },
   "acceptance": {
     "requirements": [
@@ -473,7 +478,20 @@
       "Complete new narration without clipped final words, original score, intelligible stereo mix.",
       "Watch entire finished movie plus dense source/contact/cut frames; decode/duration/audio/branding checks.",
       "Private raw sources/prompts/hash manifests/receipts preserved; source/native-capture/generative classifications honest."
-    ]
+    ],
+    "first_cut_evidence": {
+      "complete_decode": "pass",
+      "duration_seconds": 65,
+      "frame_count": 1560,
+      "persistent_label_frames_pass": 1560,
+      "speech_words_matched": 33,
+      "encoded_integrated_lufs": -14.0,
+      "encoded_true_peak_dbtp": -1.9,
+      "integrator_final_frames_viewed": 61,
+      "independent_final_frames_viewed": 12,
+      "maintainer_final_creative_approval": false,
+      "qc": ".planning/debug/trailer/full-production/qc/final-technical/technical-qa.json"
+    }
   },
   "references": [
     {

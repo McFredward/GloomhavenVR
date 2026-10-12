@@ -64,6 +64,14 @@ continuous lower-right fan-mod label, finite movie/audio duration, source hashes
 atomic completed-movie publication and owned intermediate cleanup. Existing
 edit JSON remains compatible. The only additions are bounded audio controls.
 
+An optional top-level `audio_post_gain_db` applies a final mastering trim after
+normalization. It defaults to0dB, preserving existing edits, and accepts finite
+values from-24 through0dB. The full65-second mix uses-1dB after its measured
+normalizer output of-13LUFS, targeting approximately-14LUFS while leaving AAC
+peak headroom. This trims the complete mix without changing voice/music balance,
+ducking, cue placement or source audio. Verify the actual final encoded movie;
+the requested normalizer setting alone is not a loudness measurement.
+
 Each audio event may set `fade_in` and `fade_out` in seconds. Defaults remain
 0.02 and 0.05 seconds. Zero disables a fade. Values must be finite and
 non-negative; fades clamp to the actual placed excerpt length, including an
@@ -95,6 +103,25 @@ not a speech detector. Keep each voice event's duration close to its actual
 spoken excerpt. Final loudness normalization remains unchanged; measure the
 actual completed master rather than assuming the requested target was met.
 
+## Completed first cut
+
+The private `review/10-full-trailer-v1.mp4` is the first complete 65-second cut.
+Its exact edit specification is `full-production/full-edit-v1.json`. Local
+frame-by-frame correction uses the original full card fronts with tracked
+perspective, finger occlusion, low-frequency shading and motion blur. It covers
+the macro placements, confirmation insert and later action/companion board
+views. Generated source clips remain untouched. The macro framing excludes the
+superseded tavern backdrop; all outer wides use the native-referenced night
+forest and planked table.
+
+The full export passes decoding, 1560 frames at24fps, stereo48kHz and continuous
+unofficial-label checks on every frame. Its measured AAC mix is -14.0 LUFS and
+-1.9 dBTP. Final speech transcription matches all33 script words. The submitted
+speech-QC source and final encoder use byte-identical PCM, recorded by hash.
+The integrator's watch review covers 13 scene-change plus48 dense final cue
+frames and full-resolution source contacts. It does not establish a recorded
+native turn, identical generated geometry or final maintainer approval.
+
 ## Focused validation and storage
 
 Owned synthetic stereo sine fixtures under `full-production/edit-qc/` exercise
@@ -105,6 +132,11 @@ unchanged voice amplitude, and an exact 65-second output with a late excerpt
 fading at the edit endpoint. Negative controls reject a negative fade,
 non-finite fade and duck gain above unity. Fixture scripts, source WAVs, output
 WAVs, hashes, numeric results and logs are retained as evidence.
+
+Those fade/ducking fixtures remain inherited evidence for unchanged controls.
+The mastering-trim addition is validated by the complete65-second real render,
+measured final loudness/peak, in-memory syntax compilation and bounded-value
+rejection checks. No new complete runtime gate is claimed.
 
 No gameplay code, model geometry or read-only game data changes. Validation is
 focused production-tool evidence, not a new complete runtime gate or headset
