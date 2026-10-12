@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from unittest import mock
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools/quest-wizard"))
@@ -225,6 +226,82 @@ class CleanupTests(unittest.TestCase):
         self.file("cache/generated.bin")
         preview = cleanup.plan(self.root, "build-cache"); cleanup.execute(self.root, preview)
         self.assertTrue((self.build / apk["path"]).exists()); self.assertTrue((self.build / bank["path"]).exists())
+
+    def test_actual_stage_writer_full_build_with_nested_identity_can_remove_caches(self):
+        """The full player writes identity into buildReport, unlike compact updates."""
+        helper = cleanup._helper(); key = "9" * 64
+        apk = self.file("builds/" + key + "/GloomhavenVR-Quest.apk")
+        bank = self.file("builds/" + key + "/GloomhavenVR-Quest-content.zip")
+        report = self.file(apk["path"] + ".build.json", b'{"buildResult":"Succeeded"}')
+        details = {"isDiagnostic": False, "apkSha256": apk["sha256"], "contentFiles": [bank],
+                   "buildReport": {"inputKey": "8" * 64, "modBuild": 665},
+                   "installationContract": {"fixtureEvidence": "x" * (256 * 1024)}}
+        receipt = helper.Stages(self.build).run("build", key,
+            lambda: ([self.build / row["path"] for row in (apk, report, bank)], details))
+        state.atomic_json(self.build / "latest-build.json", {"schema": 1, "apk": apk["path"],
+            "receipt": "receipts/build/" + key + ".json", "details": receipt["details"]})
+        self.file("cache/second-conversion/generated.bin"); self.file("projects/second-project/generated.bin")
+        self.assertGreater((self.build / "latest-build.json").stat().st_size, 64 * 1024)
+        self.assertTrue(cleanup.has_completed_build(self.root))
+        preview = cleanup.plan(self.root, "build-cache"); cleanup.execute(self.root, preview)
+        self.assertFalse((self.build / "cache").exists()); self.assertFalse((self.build / "projects").exists())
+        for row in (apk, report, bank): self.assertTrue((self.build / row["path"]).is_file())
+
+    def test_blocked_or_cancelled_session_and_stale_kernel_record_do_not_prevent_cleanup(self):
+        """Recorded run status is not proof that a process still owns the output."""
+        self.success()
+        for status in ("blocked", "cancelled"):
+            with self.subTest(status=status):
+                session = self.store.create({"mode": "update-mod"}); session["status"] = status
+                self.store.save(session); self.file("cache/generated.bin")
+                state.atomic_json(self.build / ".builder.lock", {"schema": 1, "lock": "kernel-guard",
+                    "pid": os.getpid(), "nonce": "retained-record-with-no-active-kernel-owner"})
+                preview = cleanup.plan(self.root, "build-cache"); cleanup.execute(self.root, preview)
+                self.assertFalse((self.build / "cache").exists())
+                self.assertEqual(self.store.load(session["session"])["status"], "ready")
+
+    def test_real_portable_locator_remains_installable_after_closed_update_cache_cleanup(self):
+        """Removing conversion data must retain the small update's original bank."""
+        helper = cleanup._helper()
+        path = ROOT / "tools/quest-builder/portable_package.py"
+        spec = cleanup.importlib.util.spec_from_file_location("cleanup_portable_fixture", path)
+        portable = cleanup.importlib.util.module_from_spec(spec)
+        with mock.patch.dict(sys.modules, {"storage": helper}): spec.loader.exec_module(portable)
+        bank = self.temp / portable.CONTENT
+        with zipfile.ZipFile(bank, "w", compression=zipfile.ZIP_STORED) as archive:
+            archive.writestr("StreamingAssets/catalog.json", b'{"owned":"fixture"}')
+        delivery = {"file": portable.CONTENT, "size": bank.stat().st_size,
+                    "sha256": hashed(bank.read_bytes()), "archive": portable.ARCHIVE}
+        def player(path):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_STORED) as archive:
+                archive.writestr("assets/Quest/input-manifest.json", state.canonical({"schema": 1,
+                    "target": "game", "inputKey": "a" * 64, "mod": {"modBuild": 671}}))
+                archive.writestr("assets/Quest/content-delivery.json", state.canonical({"schema": 1,
+                    "package": portable.PACKAGE, "inputKey": "a" * 64, "files": [delivery]}))
+                archive.writestr("lib/arm64-v8a/libil2cpp.so", b"fixture native player")
+        original = self.temp / "original.apk"; player(original)
+        package = self.temp / "retained-export.zip"
+        portable.export_package(original, package, self.build)
+        key = "7" * 64; updated = self.build / "updates" / key / portable.APK; player(updated)
+        details = {"inputKey": "a" * 64, "package": portable.PACKAGE, "isDiagnostic": False,
+                   "apkSha256": hashed(updated.read_bytes()), "contentFiles": [], "retainedGameContent": True,
+                   "sourcePackage": str(package), "baseApk": str(original)}
+        report = Path(str(updated) + ".build.json")
+        state.atomic_json(report, {"schema": 1, "buildResult": "Succeeded", "scope": "APK update", **details})
+        receipt = helper.Stages(self.build).run("build", key, lambda: ([updated, report], details))
+        state.atomic_json(self.build / "latest-build.json", {"schema": 1,
+            "apk": updated.relative_to(self.build).as_posix(), "receipt": "receipts/build/" + key + ".json",
+            "details": receipt["details"]})
+        self.file("cache/generated.bin"); self.file("inputs/mod/generated.bin")
+        preview = cleanup.plan(self.root, "build-cache"); cleanup.execute(self.root, preview)
+        # Force the next consumer through the retained closed update receipt,
+        # without the removed portable locator database or original APK chain.
+        original.unlink(); bank.unlink()
+        source = portable.content_source(updated, self.build)
+        self.assertEqual(source["path"], package); self.assertEqual(source["member"], portable.CONTENT)
+        with portable.open_content(source) as stream, zipfile.ZipFile(stream) as archive:
+            self.assertEqual(archive.read("StreamingAssets/catalog.json"), b'{"owned":"fixture"}')
 
     def test_private_signing_files_within_a_cache_are_preserved(self):
         self.success(); self.file("cache/generated.bin"); self.file("cache/personal.keystore", b"private identity")
