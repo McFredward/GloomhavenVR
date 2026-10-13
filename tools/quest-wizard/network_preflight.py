@@ -66,7 +66,41 @@ def requirements_key(source):
     return hashlib.sha256('\n'.join(sorted(path.name + ':' + sha for path, sha in seen.items())).encode()).hexdigest()
 
 
-def inventory(workspace, source, state, *, pending, editor=None, hub=None, host=None):
+def local_adb(workspace, tool_source, *, editor=None, host=None):
+    """Select bounded known local candidates without launching or downloading.
+
+    Capture183123 timed out on Google's five-second probe. A selected Android
+    Unity installation can already supply adb. Installation still validates
+    the selected executable through its existing managed owner checks.
+    Preserve a managed lexical path until those checks run.
+    """
+    workspace, tool_source = Path(workspace), Path(tool_source)
+    linux = (host or provision.host_key()) == 'linux-x64'
+    executable = 'adb' if linux else 'adb.exe'
+    remembered = metadata(workspace / 'device/wireless-install.json').get('adb')
+    candidates = [remembered, shutil.which('adb')]
+    if editor:
+        candidates.append(Path(editor).parent / 'Data/PlaybackEngines/AndroidPlayer/SDK/platform-tools' / executable)
+    candidates.append(tool_source / 'scripts/.quest-adb/platform-tools' / executable)
+    for name in ('ANDROID_HOME', 'ANDROID_SDK_ROOT', 'SDK_ROOT'):
+        if os.environ.get(name): candidates.append(Path(os.environ[name]) / 'platform-tools' / executable)
+    if linux:
+        candidates += [Path.home() / 'Android/Sdk/platform-tools/adb', Path.home() / '.android/sdk/platform-tools/adb']
+    else:
+        local = Path(os.environ.get('LOCALAPPDATA', Path.home() / 'AppData/Local'))
+        roaming = Path(os.environ.get('APPDATA', Path.home() / 'AppData/Roaming'))
+        candidates += [local / 'Android/Sdk/platform-tools/adb.exe', roaming / 'SideQuest/platform-tools/adb.exe',
+                       roaming / 'SideQuest/platform-tools/adb', local / 'SideQuest/platform-tools/adb.exe',
+                       local / 'Programs/SideQuest/resources/app.asar.unpacked/build/platform-tools/adb.exe']
+    for path in candidates:
+        if not isinstance(path, (str, os.PathLike)): continue
+        try:
+            if path and Path(path).expanduser().is_file(): return Path(os.path.abspath(Path(path).expanduser()))
+        except (OSError, ValueError): continue
+    return None
+
+
+def inventory(workspace, source, state, *, pending, editor=None, hub=None, host=None, tool_source=None):
     """Find known remote inputs for this run; no payload scans or child tools."""
     workspace, source = Path(workspace), Path(source)
     host = host or provision.host_key(); linux = host == 'linux-x64'
@@ -81,25 +115,15 @@ def inventory(workspace, source, state, *, pending, editor=None, hub=None, host=
         need(name, name, [spec['url']], present(archive, spec.get('size')))
     mode = selected.get('mode', 'build')
     if 'install' in pending and selected.get('install', True):
-        adb = constants(source / 'tools/quest-installer/adb_bootstrap.py')
+        # A resumed game build can retain older frozen conversion sources.
+        # Installation belongs to the currently running Builder instead.
+        installer_source = Path(tool_source) if tool_source is not None else source
+        adb = constants(installer_source / 'tools/quest-installer/adb_bootstrap.py')
         spec = adb['LINUX'] if linux else {'url': adb['URL'], 'bytes': adb['BYTES']}
-        candidates = [shutil.which('adb'), source / ('scripts/.quest-adb/platform-tools/adb' + ('' if linux else '.exe'))]
-        for name in ('ANDROID_HOME', 'ANDROID_SDK_ROOT', 'SDK_ROOT'):
-            if os.environ.get(name): candidates.append(Path(os.environ[name]) / ('platform-tools/adb' + ('' if linux else '.exe')))
-        android = Path.home() / 'Android/Sdk' if linux else Path(os.environ.get('LOCALAPPDATA', Path.home() / 'AppData/Local')) / 'Android/Sdk'
-        candidates.append(android / ('platform-tools/adb' + ('' if linux else '.exe')))
-        if linux:
-            candidates.append(Path.home() / '.android/sdk/platform-tools/adb')
-        else:
-            local = Path(os.environ.get('LOCALAPPDATA', Path.home() / 'AppData/Local'))
-            roaming = Path(os.environ.get('APPDATA', Path.home() / 'AppData/Roaming'))
-            candidates += [roaming / 'SideQuest/platform-tools/adb.exe',
-                           roaming / 'SideQuest/platform-tools/adb',
-                           local / 'SideQuest/platform-tools/adb.exe',
-                           local / 'Programs/SideQuest/resources/app.asar.unpacked/build/platform-tools/adb.exe']
-        local = any(path and Path(path).is_file() for path in candidates)
-        local = local or present(source / 'scripts/.quest-adb' / Path(spec['url']).name, spec['bytes'])
-        need('adb', 'Android platform-tools for installation', [spec['url']], local)
+        local = local_adb(workspace, installer_source, editor=editor, host=host) is not None
+        local = local or present(installer_source / 'scripts/.quest-adb' / Path(spec['url']).name, spec['bytes'])
+        urls = list(spec.get('urls', (spec['url'],))) if linux else list(adb.get('URLS', (adb['URL'],)))
+        need('adb', 'Android platform-tools for installation', urls, local)
     if 'tools' in pending:
         for name in (('apkJdk', 'apkBuildTools') if mode == 'update-profile' else ('git', 'dotnet8', 'dotnet10')):
             if name != 'git' or not linux: tool(name)
@@ -229,7 +253,15 @@ def probe(row, *, opener=None):
             else: detail = str(reason)
             detail = re.sub(r'https?://[^\s<>]+', lambda m: location(m[0]), detail)
             if isinstance(error, urllib.error.HTTPError): error.close()
-            attempts.append({'url': location(url), 'status': 'unreachable', 'reason': detail[:512]})
+            kind = ('http' if isinstance(error, urllib.error.HTTPError) else
+                    'certificate' if isinstance(reason, ssl.SSLCertVerificationError) else
+                    'timeout' if isinstance(reason, TimeoutError) else 'connection')
+            attempts.append({'url': location(url), 'status': 'unreachable', 'reason': detail[:512], 'failureKind': kind})
+    # A short probe timing out does not establish that the actual downloader's
+    # longer request cannot work. Report an inconclusive check and let that
+    # producer qualify the real bytes. TLS/DNS/HTTP refusals remain failures.
+    if attempts and all(attempt['failureKind'] == 'timeout' for attempt in attempts):
+        return {**public, 'status': 'probe-timeout', 'attempts': attempts, 'downloadRequired': True}
     return {**public, 'status': 'unreachable', 'attempts': attempts}
 
 
@@ -255,9 +287,14 @@ def check(rows, *, check_cancel=lambda: None, report=lambda row: None, probe_fn=
                               'A required build dependency is unavailable at its download link: ' + labels + '. Save diagnostics and resume with a corrected builder or the matching local dependency. Completed build data is retained.',
                               'Eine benötigte Build-Abhängigkeit ist über ihren Downloadlink nicht verfügbar: ' + labels + '. Diagnosepaket speichern und mit einem korrigierten Builder oder der passenden lokalen Abhängigkeit fortsetzen. Fertige Build-Daten bleiben erhalten.',
                               failedDependencies=failed, completedWorkRetained=True)
+        kinds = {attempt.get('failureKind', 'connection') for row in failed for attempt in row.get('attempts', [])}
+        cause = ('HTTPS certificate validation failed for the reported servers.' if kinds == {'certificate'} else
+                 'The reported servers refused the request or could not be reached.')
+        cause_de = ('Die HTTPS-Zertifikatsprüfung für die genannten Server ist fehlgeschlagen.' if kinds == {'certificate'} else
+                    'Die genannten Server haben die Anfrage abgelehnt oder konnten nicht erreicht werden.')
         raise WizardError('network_preflight_failed',
-                          'Required download servers are unavailable: ' + labels + '. Connect to the internet or check the HTTPS certificate/proxy settings, then resume. Completed build data is retained.',
-                          'Benötigte Downloadserver sind nicht erreichbar: ' + labels + '. Internetverbindung bzw. HTTPS-Zertifikate/Proxy prüfen und anschließend fortsetzen. Fertige Build-Daten bleiben erhalten.',
+                          'Download check failed for: ' + labels + '. ' + cause + ' Retry or save diagnostics showing the endpoints and exact causes. Completed build data is retained.',
+                          'Downloadprüfung fehlgeschlagen für: ' + labels + '. ' + cause_de + ' Erneut versuchen oder das Diagnosepaket mit den Servern und genauen Ursachen speichern. Fertige Build-Daten bleiben erhalten.',
                           failedDependencies=failed, completedWorkRetained=True)
     return {'schema': 1, 'checkedDependencies': len(remote), 'localDependencies': len(rows) - len(remote),
             'offlineClosureVerified': False, 'results': results}

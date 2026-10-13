@@ -128,6 +128,21 @@ def run_summary(state, removed, replacements):
               ('schema', 'session', 'status', 'created', 'updated', 'revision') and
               (value is None or type(value) in (str, int, float, bool))}
     result.update(removed=removed, contentVerified=False)
+    # A workspace export may have no selected session. Capture183123 therefore
+    # showed an old compiler failure at the top while its live ADB timeout was
+    # visible only inside progress.log. Preserve each blocked run's current
+    # small action independently of historical build/last-failure.json.
+    if state.get('status') == 'blocked' and isinstance(state.get('needsActions'), list):
+        actions = []
+        for action in state['needsActions'][:4]:
+            if not isinstance(action, dict) or not re.fullmatch(r'[a-z0-9_-]{1,80}', str(action.get('code', ''))): continue
+            item = {'code': action['code'], 'message': safe_json(action.get('message', {}), replacements)}
+            parameters = action.get('parameters', {})
+            if isinstance(parameters, dict):
+                item['parameters'] = {key: safe_json(parameters[key], replacements) for key in
+                    ('failedDependencies', 'completedWorkRetained') if key in parameters}
+            actions.append(item)
+        if actions: result['needsActions'] = actions
     if isinstance(choices, dict) and choices.get('mode') in ('build', 'update-mod', 'update-profile'):
         result['mode'] = choices['mode']
     stages = state.get('stages', [])

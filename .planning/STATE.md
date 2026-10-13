@@ -1,5 +1,24 @@
 # State — where the project stands
 
+**Quest ADB probe timeout and verified alternatives, 2026-10-13: feature / B672.**
+
+Capture183123 identifies Builderb6514bce9. Its resumed run has13local dependencies,
+six reachable remote endpoints and one five-second ADB read timeout. No TLS/proxy
+failure is recorded; AdGuard involvement remains unproven. A short inconclusive
+probe no longer blocks the real bounded downloader. Reuse the selected Unity
+Android SDK's ADB when available, and pass that same path to installation.
+Installer policy comes from the running Builder rather than old frozen sources.
+
+Windows/Linux37.0.1 archives now use three fixed verified Google endpoints. Both
+alternatives match existing size/SHA pins and actual provisioning succeeds with
+earlier endpoints deliberately unavailable. TLS/redirect validation remains;
+broken transfers/wrong bytes fall back, local disk-full errors do not retry hosts.
+Current per-run network actions enter global support summaries without replaying
+stale actions. Keep `.ghvrq` and resume; asset/native producer scopes are unchanged.
+See [QUEST-NETWORK-PROBE-20261013.md](QUEST-NETWORK-PROBE-20261013.md) and the current
+game-free handoff's focused/extracted-release/cleanup receipts. No Windows full
+export, new APK, headset result or complete runtime gate is claimed.
+
 **Quest packer repair and actual import parallelism, 2026-10-13: feature / B672.**
 
 Capture165327 identifies Builder45416ec2f. Android Addressables succeeds after

@@ -532,7 +532,8 @@ class Engine:
             editor = editor or discovered_editor
             hub = hub or discovered_hub
         try:
-            rows = network_preflight.inventory(self.store.root, source, state, pending=pending, editor=editor, hub=hub)
+            rows = network_preflight.inventory(self.store.root, source, state, pending=pending, editor=editor, hub=hub,
+                                               tool_source=self.repo)
         except (KeyError, TypeError, SyntaxError) as error:
             raise WizardError("network_preflight_recipe", "The selected build dependency recipe cannot be read. Save diagnostics; completed conversions are retained.",
                               "Die ausgewählten Build-Abhängigkeiten konnten nicht gelesen werden. Diagnosepaket speichern; fertige Konvertierungen bleiben erhalten.",
@@ -544,7 +545,12 @@ class Engine:
             done[0] += 1
             observed.append(row)
             self.emit(self.store.event(state, "network_dependency_checked", "tools", **row))
-            self.store.progress(session, "tools", "network-preflight", done[0], len(rows), "dependencies", row["label"] + ': ' + row["status"])
+            status = row['status']
+            if status == 'probe-timeout':
+                status = ("Kurzprüfung hat das Zeitlimit erreicht; der Download versucht die verfügbaren Server."
+                          if state['choices'].get('language', 'de') == 'de' else
+                          "Quick check timed out; the downloader will try the available servers.")
+            self.store.progress(session, "tools", "network-preflight", done[0], len(rows), "dependencies", row["label"] + ': ' + status)
         try:
             result = network_preflight.check(rows, check_cancel=lambda: self.store.check_cancel(session), report=report)
         except WizardError as error:
@@ -854,6 +860,11 @@ class Engine:
             arguments = [sys.executable, "-B", "-X", "utf8", str(source / "scripts/install-quest-wireless.py"),
                             "--output-root", self.details(state, "build")["outputRoot"], "--config", str(config),
                             "--recovery-data-policy", policy["policy"], "--wait-for-connection"]
+            import network_preflight
+            editor = (state["choices"].get("unityEditor")
+                      or state.get("completed", {}).get("unity", {}).get("details", {}).get("unityEditor"))
+            adb = network_preflight.local_adb(self.store.root, source, editor=editor)
+            if adb is not None: arguments += ["--adb", str(adb)]
             if content_approval: arguments += ["--allow-content-reinstall", content_approval["transaction"]]
             supervisor.run(arguments, self.log(state, "install"))
         except WizardError as error:
