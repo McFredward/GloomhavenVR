@@ -1,6 +1,8 @@
 """Pinned ADB provisioning controls; no network, Windows executable or ADB call."""
 import contextlib
+import errno
 import hashlib
+import http.client
 import importlib.util
 import io
 import json
@@ -393,6 +395,62 @@ class AdbBootstrapTests(unittest.TestCase):
             REAL_DOWNLOAD(target)
         self.assertEqual(target.read_bytes(), content)
         self.assertEqual(opener.open.call_count, 2)
+
+    def test_broken_actual_chunked_http_response_discards_partial_and_tries_next_host(self):
+        content = self.archive.read_bytes()
+        # Exercise HTTPResponse's real chunk parser, whose IncompleteRead does
+        # not inherit OSError. One complete chunk precedes a truncated chunk.
+        socket = mock.Mock()
+        socket.makefile.return_value = io.BytesIO(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+            + b"20\r\n" + content[:32] + b"\r\n20\r\ntruncated")
+        broken = http.client.HTTPResponse(socket)
+        broken.begin()
+        opener = mock.Mock()
+        opener.open.side_effect = [broken, contextlib.closing(io.BytesIO(content))]
+        target = self.root / "download.zip"
+        output = io.StringIO()
+        with mock.patch.object(adb.urllib.request, "build_opener", return_value=opener), \
+             contextlib.redirect_stdout(output):
+            REAL_DOWNLOAD(target)
+        self.assertEqual(target.read_bytes(), content)
+        self.assertEqual(opener.open.call_count, 2)
+        self.assertTrue(broken.isclosed())
+        self.assertIn("HTTP response transfer failed (IncompleteRead)", output.getvalue())
+
+    def test_http_response_exception_text_is_not_logged(self):
+        class Broken(io.BytesIO):
+            def read1(self, size):
+                raise http.client.HTTPException("https://secret-user:secret-password@private-host")
+        opener = mock.Mock()
+        opener.open.side_effect = [contextlib.closing(Broken(b"")),
+                                  contextlib.closing(io.BytesIO(self.archive.read_bytes()))]
+        output = io.StringIO()
+        with mock.patch.object(adb.urllib.request, "build_opener", return_value=opener), \
+             contextlib.redirect_stdout(output):
+            REAL_DOWNLOAD(self.root / "download.zip")
+        self.assertEqual(opener.open.call_count, 2)
+        self.assertIn("HTTP response transfer failed (HTTPException)", output.getvalue())
+        for secret in ("secret-user", "secret-password", "private-host"):
+            self.assertNotIn(secret, output.getvalue())
+
+    def test_disk_full_does_not_try_another_host_and_leaves_no_ready_payload(self):
+        errors = [OSError(errno.ENOSPC, "fixture filesystem full")]
+        for code in (112, 39):
+            error = OSError("fixture Windows disk full")
+            error.winerror = code
+            errors.append(error)
+        for error in errors:
+            with self.subTest(errno=error.errno, winerror=getattr(error, "winerror", None)):
+                def write_failed(destination, spec, url):
+                    destination.write_bytes(b"partial before disk full")
+                    raise error
+                with mock.patch.object(adb, "_download", wraps=REAL_DOWNLOAD), \
+                     mock.patch.object(adb, "_download_once", side_effect=write_failed) as request:
+                    with self.assertRaisesRegex(adb.AdbBootstrapError, "disk full|filesystem full"):
+                        self.provision()
+                self.assertEqual(request.call_count, 1)
+                self.assertFalse(self.tools.exists())
+                self.assertFalse(list((self.scripts / ".quest-adb").glob("*.partial")))
 
     def test_download_staging_permission_error_does_not_retry_other_hosts(self):
         target = self.root / "download.zip"

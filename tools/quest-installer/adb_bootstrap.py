@@ -4,7 +4,9 @@ The installer calls this only after normal Windows/Linux ADB discovery fails. Th
 module never runs ADB, changes PATH, installs drivers or needs administrator rights.
 """
 from contextlib import contextmanager
+import errno
 import hashlib
+import http.client
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -181,6 +183,8 @@ def _failure(error):
         return "connection/read timeout"
     if isinstance(reason, socket.gaierror):
         return "hostname resolution failed"
+    if isinstance(reason, http.client.HTTPException):
+        return "HTTP response transfer failed (" + type(reason).__name__ + ")"
     if isinstance(error, AdbBootstrapError):
         return str(error)
     # URLError text can contain a proxy URL/user info. Report the failure class
@@ -231,8 +235,10 @@ def _download(destination, spec=None):
                 raise AdbBootstrapError("ADB download SHA-256/size mismatch.")
             print("ADB download verified: " + endpoint + " (" + str(spec["bytes"]) + " bytes).", flush=True)
             return
-        except (OSError, ValueError, AdbBootstrapError) as error:
-            if isinstance(error, (PermissionError, FileExistsError, IsADirectoryError)):
+        except (OSError, ValueError, http.client.HTTPException, AdbBootstrapError) as error:
+            if (isinstance(error, (PermissionError, FileExistsError, IsADirectoryError))
+                    or (isinstance(error, OSError) and (error.errno == errno.ENOSPC
+                        or getattr(error, "winerror", None) in (112, 39)))):
                 raise  # A different host cannot repair local cache access.
             reason = _failure(error)
             failures.append(endpoint + ": " + reason)
