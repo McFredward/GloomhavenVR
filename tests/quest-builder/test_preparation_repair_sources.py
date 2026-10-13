@@ -154,6 +154,34 @@ class PreparationRepairSourcesTests(unittest.TestCase):
         self.assertEqual(result["recipe"], "retained-shader-overlay")
         self.assertEqual(self.stage.read_bytes(), raw)
 
+    def test_large_shader_control_restores_only_its_streamed_converter_output(self):
+        relative = "Assets/QuestOriginalCampaign/campaign-shaders.json"
+        self.inputs["game"] = {"key": "e" * 64}
+        original = self.output / "tool-cache/cs" / ("e" * 64) / "o" / relative
+        original.parent.mkdir(parents=True)
+        # Match the captured legitimate manifest size without retaining a whole
+        # document in memory. Whitespace remains valid JSON after the object.
+        size = 74621329
+        hashed = hashlib.sha256()
+        header = b'{"fixture":"large generated shader metadata"}\n'
+        with original.open("wb") as stream:
+            stream.write(header); hashed.update(header)
+            remaining = size - len(header)
+            while remaining:
+                chunk = b" " * min(repair.CHUNK, remaining)
+                stream.write(chunk); hashed.update(chunk); remaining -= len(chunk)
+        expected = {"path": relative, "size": size, "sha256": hashed.hexdigest()}
+        library = self.put(self.project, "Library/Artifacts/existing", b"retained import")
+        before = library.stat()
+        with patch.object(Path, "read_bytes", side_effect=AssertionError("Stream large control bytes")), \
+                patch.object(Path, "read_text", side_effect=AssertionError("Do not parse large control JSON")), \
+                patch.object(Path, "rglob", side_effect=AssertionError("Do not scan unrelated game files")):
+            result = self.provider(relative, expected, "campaign-shaders", self.stage)
+            self.assertEqual(storage.record_file(self.stage, relative), expected)
+        self.assertEqual(result["recipe"], "retained-shader-overlay")
+        self.assertEqual(library.stat(), before)
+        self.assertFalse((self.project / relative).exists())
+
     def test_case_moved_original_metadata_uses_unchanged_frozen_receipt(self):
         original = "Assets/Texture2D/Foo.png.meta"
         moved = "Assets/QuestOriginalStartup/CaseVariants/Foo_case.png.meta"

@@ -1,5 +1,22 @@
 # State — where the project stands
 
+**Quest native control size guard, 2026-10-13: feature / B672.**
+
+Capture191013 identifies the shipped Builderf092812dc. All27preparation owners
+and package API publication succeed; the Player invocation is blocked by a
+64MiB guard on an existing74,621,329-byte shader manifest. Cooking identity uses
+streamed file hashes, so remove this inappropriate allocation-style limit.
+Preserve exact compiler keys, physical-change proofs and completed conversions.
+Malformed optional checkpoint/provenance shapes decline adoption rather than
+raising incidental Python exceptions; required controls still need real proofs.
+
+Finite reviewed selector aliases preserve the prior complete release's original
+recovery/preparation and compact update scopes. Large-control repair tests retain
+Library and stream only the affected overlay. Keep `.ghvrq` and resume with the
+new game-free Builder. See [QUEST-NATIVE-CONTROLS-20261013.md](QUEST-NATIVE-CONTROLS-20261013.md)
+and the handoff's focused/extracted-release receipts. No fresh Windows export,
+APK, headset outcome or complete runtime/wire gate is claimed for this repair.
+
 **Quest ADB probe timeout and verified alternatives, 2026-10-13: feature / B672.**
 
 Capture183123 identifies Builderb6514bce9. Its resumed run has13local dependencies,

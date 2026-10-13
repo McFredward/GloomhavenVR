@@ -83,6 +83,20 @@ class ParallelBuildIdentityTests(unittest.TestCase):
         self.assertNotEqual(identity._scope(self.after, self.new_source, recovery_resume, original_prefix=True, completed=True),
                             identity._scope(current, self.new_source, recovery_resume, original_prefix=True, completed=True))
 
+    def test_reviewed_large_control_selector_retains_previous_preparation_scope(self):
+        actual = storage.record_file(ROOT / identity.NATIVE_BANK_HOST_ROW["path"],
+                                     identity.NATIVE_BANK_HOST_ROW["path"])
+        self.assertIn(actual, identity.NATIVE_BANK_HOST_ROWS)
+        reference = identity._scope(self.after, self.new_source, recovery_resume,
+                                    original_prefix=True, completed=True)
+        for admitted in identity.NATIVE_BANK_HOST_ROWS:
+            previous = copy.deepcopy(self.after)
+            previous["mod"]["files"] = [admitted if row["path"] == admitted["path"] else row
+                                         for row in previous["mod"]["files"]]
+            with self.subTest(admitted=admitted["sha256"]):
+                self.assertEqual(reference, identity._scope(previous, self.new_source, recovery_resume,
+                                                            original_prefix=True, completed=True))
+
     def test_actual_update_producer_aliases_keep_original_payload_and_native_code(self):
         before = identity.builder_producer_digest(self.old_builder)
         after = identity.builder_producer_digest((ROOT / identity.BUILDER).read_bytes())

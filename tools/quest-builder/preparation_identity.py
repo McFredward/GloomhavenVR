@@ -114,6 +114,12 @@ UPDATE_DOWNLOAD_FIXED = {"path": "tools/quest-builder/update_driver.py", "size":
 
 MEMORY_POLICY_PARALLEL = {'path': 'tools/quest-builder/host_resources.py', 'size': 34185, 'sha256': '024e6993e83d319d76c215c9512fffb2e6c3c7c2e360652b2b8ff3cfcdf5294a'}
 NATIVE_BANK_HOST_ROW = {'path': 'tools/quest-builder/native_bank_resume.py', 'size': 13057, 'sha256': '49d77c797c3a412ee7bb6a848efabc40e6d10593a284edb39b7f0dc4165bcadf'}
+# Capture191013 corrects only the host checkpoint selector: stream legitimate
+# large controls and decline malformed optional provenance. Neither complete
+# reviewed source writes prepared assets; unknown selector edits still differ.
+NATIVE_BANK_HOST_ROWS = (NATIVE_BANK_HOST_ROW,
+    {"path": "tools/quest-builder/native_bank_resume.py", "size": 14554,
+     "sha256": "49063c51bb183f37437337b7688ecd05a94de90341267f9fa28eb0dd4793c766"})
 UPDATE_DOWNLOAD_PARALLEL_PREVIOUS = UPDATE_DOWNLOAD_FIXED
 UPDATE_DOWNLOAD_FIXED = {'path': 'tools/quest-builder/update_driver.py', 'size': 68217, 'sha256': '6a68046fff158d94604c7352fdd7b9171b6575b3b06364337c0269e16553b56b'}
 
@@ -605,7 +611,7 @@ def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=Fal
     # These modules validate/select identity; neither generates game assets.
     # Delivery tools are never read by generate_files or its conversion tools.
     rows = [row for row in rows if row["path"] not in (BUILDER, IDENTITY, RECIPE_IDENTITY, "quest-builder-release.json")
-            and not row["path"].startswith(DELIVERY_PREFIXES) and row != NATIVE_BANK_HOST_ROW]
+            and not row["path"].startswith(DELIVERY_PREFIXES) and row not in NATIVE_BANK_HOST_ROWS]
     if original_prefix:
         reviewed = []
         for row in rows:
