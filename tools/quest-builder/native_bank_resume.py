@@ -10,6 +10,7 @@ from pathlib import Path
 import hashlib
 import json
 import re
+import stat
 
 from storage import BuildError, _ordinary_owned, _file_witness_stamp, record_file, value_hash
 from import_workspace import workspace_key
@@ -21,6 +22,7 @@ CONTROLS = ("Assets/QuestOriginalCampaign/campaign-addressables.json",
             "Assets/QuestOriginalCampaign/script-bindings.json",
             "Packages/manifest.json",
             "QuestStartupEvidence/PlayerSdk/compilation.json")
+NATIVE_RECEIPT_BYTES = 64 * 1024 * 1024  # Match the isolated checkpoint reader's metadata bound.
 
 
 def _read(path, limit=4 * 1024 * 1024):
@@ -28,7 +30,13 @@ def _read(path, limit=4 * 1024 * 1024):
     if not path.is_file() or path.stat().st_size > limit:
         raise BuildError("Native bank legacy provenance is missing or oversized.")
     before = record_file(path, path.name)
-    value = json.loads(path.read_text(encoding="utf-8"))
+    with path.open("rb") as stream:
+        raw = stream.read(limit + 1)
+    if len(raw) > limit:
+        raise BuildError("Native bank legacy provenance grew beyond its bound while read.")
+    value = json.loads(raw.decode("utf-8"))
+    if not isinstance(value, dict):
+        raise BuildError("Native bank provenance must be a JSON object.")
     if before != record_file(path, path.name):
         raise BuildError("Native bank legacy provenance changed while read.")
     return value
@@ -45,7 +53,13 @@ def _prepared_controls(output, project, preparation):
             or journal.get("project") != project.relative_to(output).as_posix()
             or not preparation._completed_game_preparation(journal, "game")):
         return False
-    latest = {row["path"]: row for step in journal["steps"] for row in step.get("outputs", [])}
+    latest = {}
+    for step in journal["steps"]:
+        outputs = step.get("outputs", [])
+        if not isinstance(outputs, list): return False
+        for row in outputs:
+            if not isinstance(row, dict) or not isinstance(row.get("path"), str): return False
+            latest[row["path"]] = row
     for name in CONTROLS:
         if name == "QuestStartupEvidence/PlayerSdk/compilation.json": continue
         row = latest.get(name)
@@ -74,13 +88,24 @@ def _runtime_rows(inputs, preparation):
 
 
 def identity(inputs, source, project, tools, preparation, recovery):
-    """Use closed preparation/source scopes, small controls and the real compiler."""
+    """Bind closed preparation/source scopes, streamed controls and real compiler.
+
+    Capture20261013T191013 contains a valid prepared 74,621,329-byte shader
+    manifest. The previous 64 MiB JSON-style guard rejected that existing file,
+    although identity never parses it. Keep the exact record_file digest/size
+    contract and its cached native change-stamp proofs; do not impose a JSON
+    allocation bound on a one-MiB streaming hash or recook valid large controls.
+    """
     scope = preparation._scope(inputs, source, recovery, original_prefix=True, completed=True)
     controls = []
     for name in CONTROLS:
         path = _ordinary_owned(Path(project) / name)
-        if not path.is_file() or path.stat().st_size > 64 * 1024 * 1024:
-            raise BuildError("Native bank checkpoint requires its prepared control: " + name)
+        try:
+            value = path.stat()
+        except FileNotFoundError as error:
+            raise BuildError("Native bank prepared control is missing: " + name) from error
+        if not stat.S_ISREG(value.st_mode):
+            raise BuildError("Native bank prepared control is not a regular file: " + name)
         controls.append(record_file(path, name))
     return {"schema": 1, "scope": "quest-native-bank-cooking-inputs",
             "preparation": value_hash(scope), "runtimeSources": _runtime_rows(inputs, preparation),
@@ -124,7 +149,7 @@ def _actual_sources_match(provenance, previous):
     exact sets whose actual bytes matched that immutable invocation inventory.
     Unknown local Editor/driver repairs must use ordinary content compilation.
     """
-    if provenance.get("schema") != 1: return False
+    if provenance.get("schema") != 1 or not isinstance(provenance.get("toolchain"), dict): return False
     rows = previous["mod"]["files"]
     editor_prefix = "unity/GloomhavenVR.Quest/Assets/Quest/Editor/"
     drivers = {row["path"]: row for row in rows
@@ -156,12 +181,16 @@ def legacy_adoption(output, project, inputs, source, tools, preparation, recover
     try:
         scope = identity(inputs, source, project, tools, preparation, recovery)
         if not _prepared_controls(output, project, preparation): return None
-    except (OSError, ValueError, TypeError, KeyError, BuildError): return None
-    candidates = output / "builds"
-    if not candidates.is_dir(): return None
-    folders = [path for path in candidates.iterdir() if HEX.fullmatch(path.name)
-               and path.is_dir() and not path.is_symlink()]
-    for folder in sorted(folders, key=lambda path: path.stat().st_mtime_ns, reverse=True)[:32]:
+    except (OSError, ValueError, TypeError, KeyError, RecursionError, BuildError): return None
+    try:
+        candidates = _ordinary_owned(output / "builds")
+        if not candidates.is_dir(): return None
+        folders = [path for path in candidates.iterdir() if HEX.fullmatch(path.name)
+                   and path.is_dir() and not path.is_symlink()]
+        folders = sorted(folders, key=lambda path: path.stat().st_mtime_ns, reverse=True)[:32]
+    except (OSError, BuildError):
+        return None  # Optional old evidence cannot prevent the ordinary compiler path.
+    for folder in folders:
         try:
             provenance = _read(folder / "build-provenance.json")
             runtime = provenance["runtime"]
@@ -193,7 +222,7 @@ def legacy_adoption(output, project, inputs, source, tools, preparation, recover
                     "previousBuildKey": folder.name, "log": log.relative_to(output).as_posix(),
                     "reason": "exact-closed-addressables-with-downstream-isolated-packer-import-failure",
                     "hardwareVerified": False}
-        except (OSError, ValueError, TypeError, KeyError, BuildError):
+        except (OSError, ValueError, TypeError, KeyError, RecursionError, BuildError):
             continue  # Unknown/changed old work cannot authorize cache adoption.
     return None
 
@@ -209,16 +238,16 @@ def environment(base, inputs, source, project, output, tools, preparation, recov
     # helper before reuse. Its presence with this exact compiler owner makes
     # legacy authorization unnecessary; skip that much larger journal read.
     try:
-        receipt = _read(Path(project) / "QuestStartupEvidence/native-addressables-build.json")
+        receipt = _read(Path(project) / "QuestStartupEvidence/native-addressables-build.json", NATIVE_RECEIPT_BYTES)
         sealed = dict(receipt); proof = sealed.pop("checkpointSha256", None)
         owner = receipt.get("owner", {})
-        if (receipt.get("schema") == 1 and receipt.get("scope") == "closed-native-addressables"
+        if (isinstance(owner, dict) and receipt.get("schema") == 1 and receipt.get("scope") == "closed-native-addressables"
                 and receipt.get("compilerCompleted") is True
                 and proof == hashlib.sha256(json.dumps(sealed, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
                 and owner.get("compilerKey") == result["GHVR_QUEST_NATIVE_BANK_KEY"]
                 and owner.get("projectRoot") == str(Path(project).resolve())):
             return result
-    except (OSError, ValueError, TypeError, KeyError, BuildError):
+    except (OSError, ValueError, TypeError, KeyError, RecursionError, BuildError):
         pass
     adopted = legacy_adoption(output, project, inputs, source, tools, preparation, recovery, recipe=recipe)
     if adopted:

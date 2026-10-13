@@ -1,5 +1,8 @@
 """Closed legacy cooking evidence cannot turn an unrelated cache into a bank."""
 import copy
+import hashlib
+import json
+import os
 from pathlib import Path
 import shutil
 import sys
@@ -141,6 +144,95 @@ class NativeBankResumeTests(unittest.TestCase):
         self.assertNotEqual(storage.value_hash(before), storage.value_hash(after))
         self.assertIsNone(self.adopt())
 
+    def test_admissible_controls_keep_the_exact_preceding_identity_contract(self):
+        previous = {"schema": 1, "scope": "quest-native-bank-cooking-inputs",
+            "preparation": storage.value_hash(preparation_identity._scope(
+                self.inputs, self.source, recovery_resume, original_prefix=True, completed=True)),
+            "runtimeSources": resume._runtime_rows(self.inputs, preparation_identity),
+            "controls": [storage.record_file(self.project / name, name) for name in resume.CONTROLS],
+            "target": "Android", "graphicsApi": "Vulkan",
+            "compiler": {name: self.tools[name] for name in (
+                "unityVersion", "editorSha256", "ndkPropertiesSha256")}}
+        actual = resume.identity(self.inputs, self.source, self.project, self.tools,
+                                 preparation_identity, recovery_resume)
+        self.assertEqual(actual, previous)
+        self.assertEqual(storage.value_hash(actual), storage.value_hash(previous))
+
+    def test_real_large_shader_manifest_streams_and_keeps_modern_checkpoint(self):
+        path = self.project / "Assets/QuestOriginalCampaign/campaign-shaders.json"
+        size = 74621329  # Exact legitimate control size in capture20261013T191013.
+        opening = b'{"schema":1,"shaders":[]}'
+        block = b" " * (1024 * 1024)
+        expected = hashlib.sha256(opening)
+        with path.open("wb") as stream:
+            stream.write(opening)
+            remaining = size - len(opening)
+            while remaining:
+                chunk = block[:min(remaining, len(block))]
+                stream.write(chunk); expected.update(chunk); remaining -= len(chunk)
+        with patch.object(resume, "_read", side_effect=AssertionError("Controls must not be parsed as JSON")):
+            selected = resume.identity(self.inputs, self.source, self.project, self.tools,
+                                       preparation_identity, recovery_resume)
+        row = next(row for row in selected["controls"] if row["path"] == path.relative_to(self.project).as_posix())
+        self.assertEqual(row["size"], size)
+        self.assertEqual(row["sha256"], expected.hexdigest())
+        compiler_key = storage.value_hash(selected)
+        receipt = {"schema": 1, "scope": "closed-native-addressables", "compilerCompleted": True,
+                   "owner": {"compilerKey": compiler_key, "projectRoot": str(self.project.resolve())}, "files": []}
+        receipt["checkpointSha256"] = native_content_pack.checkpoint_hash(receipt)
+        storage.write_json(self.project / native_content_pack.NATIVE_CHECKPOINT, receipt)
+        real_open = Path.open
+        def guarded_open(candidate, *args, **kwargs):
+            if candidate == path:
+                raise AssertionError("Unchanged large control already has an exact native-stamp byte proof")
+            return real_open(candidate, *args, **kwargs)
+        with patch.object(Path, "open", guarded_open), patch.object(resume, "legacy_adoption",
+                side_effect=AssertionError("Modern checkpoint must bypass the legacy journal")):
+            result = resume.environment({}, self.inputs, self.source, self.project, self.output, self.tools,
+                preparation_identity, recovery_resume, recipe=77, progress=SimpleNamespace(event=Mock()))
+        self.assertEqual(result["GHVR_QUEST_NATIVE_BANK_KEY"], compiler_key)
+        self.assertNotIn("GHVR_QUEST_NATIVE_BANK_LEGACY_ADOPT", result)
+
+    def test_missing_or_non_file_control_is_not_reported_as_a_size_failure(self):
+        path = self.project / resume.CONTROLS[1]
+        path.unlink()
+        with self.assertRaisesRegex(storage.BuildError, "control is missing: .*campaign-shaders.json"):
+            resume.identity(self.inputs, self.source, self.project, self.tools, preparation_identity, recovery_resume)
+        path.mkdir()
+        with self.assertRaisesRegex(storage.BuildError, "control is not a regular file: .*campaign-shaders.json"):
+            resume.identity(self.inputs, self.source, self.project, self.tools, preparation_identity, recovery_resume)
+
+    def test_same_size_restored_mtime_rewrite_cannot_keep_a_control_proof(self):
+        path = self.project / resume.CONTROLS[0]
+        before = resume.identity(self.inputs, self.source, self.project, self.tools, preparation_identity, recovery_resume)
+        stamp = path.stat(); original = path.read_bytes()
+        path.write_bytes(original.replace(b"small", b"other"))
+        os.utime(path, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+        after = resume.identity(self.inputs, self.source, self.project, self.tools, preparation_identity, recovery_resume)
+        self.assertEqual(path.stat().st_size, stamp.st_size)
+        self.assertNotEqual(storage.value_hash(before), storage.value_hash(after))
+
+    def test_unknown_native_stamps_reread_controls(self):
+        path = self.project / resume.CONTROLS[1]
+        real_open = Path.open; reads = []
+        def observed_open(candidate, *args, **kwargs):
+            if candidate == path and args and args[0] == "rb": reads.append(candidate)
+            return real_open(candidate, *args, **kwargs)
+        with patch.object(storage, "_file_witness_stamp", return_value=None), patch.object(Path, "open", observed_open):
+            before = resume.identity(self.inputs, self.source, self.project, self.tools, preparation_identity, recovery_resume)
+            after = resume.identity(self.inputs, self.source, self.project, self.tools, preparation_identity, recovery_resume)
+        self.assertEqual(len(reads), 2)
+        self.assertEqual(before, after)
+
+    def test_control_read_permission_failure_remains_a_real_filesystem_error(self):
+        path = self.project / resume.CONTROLS[1]
+        real_record = resume.record_file
+        def denied(candidate, name, *args, **kwargs):
+            if candidate == path: raise PermissionError("Fixture denied control read")
+            return real_record(candidate, name, *args, **kwargs)
+        with patch.object(resume, "record_file", denied), self.assertRaisesRegex(PermissionError, "denied control read"):
+            resume.identity(self.inputs, self.source, self.project, self.tools, preparation_identity, recovery_resume)
+
     def test_incomplete_preparation_or_unknown_sdk_cannot_adopt_legacy_outputs(self):
         self.journal.unlink()
         self.assertIsNone(self.adopt())
@@ -177,6 +269,72 @@ class NativeBankResumeTests(unittest.TestCase):
             resume.environment({}, self.inputs, self.source, self.project, self.output, self.tools,
                                preparation_identity, recovery_resume, recipe=77, progress=progress)
         legacy.assert_called_once()
+
+    def test_malformed_optional_checkpoints_fall_back_without_inheriting_adoption(self):
+        path = self.project / native_content_pack.NATIVE_CHECKPOINT
+        path.parent.mkdir(parents=True, exist_ok=True)
+        invalid = [b"not JSON", b"[]", b"null", b'{"owner":[]}', b'{"owner":"invalid"}',
+                   b'{"schema":1,"scope":"closed-native-addressables","compilerCompleted":true,"owner":[]}',
+                   b'[' * 2048 + b']' * 2048, b'"\xff"']
+        # A correct checksum cannot turn a malformed owner into valid metadata.
+        for owner in ([], "invalid", None):
+            receipt = {"schema": 1, "scope": "closed-native-addressables",
+                       "compilerCompleted": True, "owner": owner}
+            receipt["checkpointSha256"] = native_content_pack.checkpoint_hash(receipt)
+            invalid.append(storage.canonical(receipt))
+        for raw in invalid:
+            path.write_bytes(raw)
+            with self.subTest(receipt=raw[:80]), patch.object(resume, "legacy_adoption", return_value=None) as legacy:
+                result = resume.environment({"GHVR_QUEST_NATIVE_BANK_LEGACY_ADOPT": "1"},
+                    self.inputs, self.source, self.project, self.output, self.tools,
+                    preparation_identity, recovery_resume, recipe=77, progress=SimpleNamespace(event=Mock()))
+                self.assertNotIn("GHVR_QUEST_NATIVE_BANK_LEGACY_ADOPT", result)
+                legacy.assert_called_once()
+        with path.open("wb") as stream: stream.truncate(resume.NATIVE_RECEIPT_BYTES + 1)
+        with patch.object(resume, "legacy_adoption", return_value=None) as legacy:
+            result = resume.environment({}, self.inputs, self.source, self.project, self.output, self.tools,
+                preparation_identity, recovery_resume, recipe=77, progress=SimpleNamespace(event=Mock()))
+        self.assertNotIn("GHVR_QUEST_NATIVE_BANK_LEGACY_ADOPT", result)
+        legacy.assert_called_once()
+
+    def test_modern_receipt_uses_the_isolated_reader_metadata_bound(self):
+        compiler_key = storage.value_hash(resume.identity(self.inputs, self.source, self.project, self.tools,
+            preparation_identity, recovery_resume))
+        receipt = {"schema": 1, "scope": "closed-native-addressables", "compilerCompleted": True,
+            "owner": {"compilerKey": compiler_key, "projectRoot": str(self.project.resolve())},
+            "files": [], "fixtureLabel": "x" * (4 * 1024 * 1024)}
+        receipt["checkpointSha256"] = native_content_pack.checkpoint_hash(receipt)
+        path = self.project / native_content_pack.NATIVE_CHECKPOINT
+        storage.write_json(path, receipt)
+        self.assertGreater(path.stat().st_size, 4 * 1024 * 1024)
+        with patch.object(resume, "legacy_adoption", side_effect=AssertionError("Known modern receipt needs no legacy scan")):
+            result = resume.environment({}, self.inputs, self.source, self.project, self.output, self.tools,
+                preparation_identity, recovery_resume, recipe=77, progress=SimpleNamespace(event=Mock()))
+        self.assertEqual(result["GHVR_QUEST_NATIVE_BANK_KEY"], compiler_key)
+
+    def test_malformed_optional_legacy_evidence_cannot_authorize_adoption(self):
+        broken_toolchain = copy.deepcopy(self.provenance); broken_toolchain["toolchain"] = []
+        broken_runtime = copy.deepcopy(self.provenance); broken_runtime["runtime"] = []
+        for value in ([], broken_toolchain, broken_runtime):
+            storage.write_json(self.folder / "build-provenance.json", value)
+            with self.subTest(provenance=value): self.assertIsNone(self.adopt())
+        journal = json.loads(self.journal.read_text())
+        journal["steps"][0]["outputs"] = ["invalid row"]
+        storage.write_json(self.journal, journal)
+        self.assertIsNone(self.adopt())
+
+    def test_unreadable_or_racing_optional_build_folders_fall_back(self):
+        real_iterdir, real_stat = Path.iterdir, Path.stat
+        candidates = self.output / "builds"
+        def denied(candidate):
+            if candidate == candidates: raise PermissionError("Fixture denied old build list")
+            return real_iterdir(candidate)
+        with patch.object(Path, "iterdir", denied): self.assertIsNone(self.adopt())
+        def raced(candidate, *args, **kwargs):
+            if candidate == self.folder and kwargs.get("follow_symlinks", True):
+                raise FileNotFoundError("Fixture old folder removed during inspection")
+            return real_stat(candidate, *args, **kwargs)
+        with patch.object(Path, "stat", raced): self.assertIsNone(self.adopt())
 
 
 if __name__ == "__main__": unittest.main()
