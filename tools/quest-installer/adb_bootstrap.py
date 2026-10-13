@@ -11,16 +11,22 @@ from pathlib import Path, PurePosixPath
 import platform
 import re
 import shutil
+import socket
 import ssl
 import stat
 import sys
 import tempfile
 import time
 import urllib.request
+import urllib.error
+import urllib.parse
 import uuid
 import zipfile
 
 URL = "https://dl.google.com/android/repository/platform-tools_r37.0.1-win.zip"
+URLS = ("https://dl.google.com/android/repository/platform-tools_r37.0.1-win.zip",
+        "https://dl-ssl.google.com/android/repository/platform-tools_r37.0.1-win.zip",
+        "https://redirector.gvt1.com/edgedl/android/repository/platform-tools_r37.0.1-win.zip")
 VERSION = "37.0.1"
 SHA256 = "45f4d63113e895ebde0c90f194099a4676b6ac653bd28d54314a9e022bbc1a99"
 BYTES = 8044989
@@ -28,6 +34,9 @@ OWNER = "GloomhavenVR.QuestInstaller.ADB"
 MARKER = ".quest-owner.json"
 REQUIRED = ("adb.exe", "AdbWinApi.dll", "AdbWinUsbApi.dll", "source.properties", "NOTICE.txt")
 LINUX = {"url": "https://dl.google.com/android/repository/platform-tools_r37.0.1-linux.zip",
+         "urls": ("https://dl.google.com/android/repository/platform-tools_r37.0.1-linux.zip",
+                  "https://dl-ssl.google.com/android/repository/platform-tools_r37.0.1-linux.zip",
+                  "https://redirector.gvt1.com/edgedl/android/repository/platform-tools_r37.0.1-linux.zip"),
          "sha256": "d230f13842f60f782a8645f9c813f8f845bf36089ea7289f28c48f17979313f1",
          "bytes": 9054187, "required": ("adb", "source.properties", "NOTICE.txt", "lib64/libc++.so"),
          "executable": "adb", "host": "linux-x64"}
@@ -37,6 +46,7 @@ def _spec(value=None):
     # Keep the historical Windows constants and entry point stable for older
     # installers and receipts. Host selection never falls back to a foreign ABI.
     return value or {"url": URL, "sha256": SHA256, "bytes": BYTES,
+                     "urls": URLS,
                      "required": REQUIRED, "executable": "adb.exe", "host": "win-x64"}
 
 
@@ -133,21 +143,105 @@ def _lock(path, attempts=40):
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
-def _download(destination, spec=None):
-    spec = _spec(spec)
+def _official_https(url):
+    parsed = urllib.parse.urlsplit(url)
+    return (parsed.scheme == "https" and not parsed.username and not parsed.password
+            and parsed.port in (None, 443) and (parsed.hostname in ("dl.google.com", "dl-ssl.google.com", "redirector.gvt1.com")
+                or (parsed.hostname or "").endswith(".gvt1.com")))
+
+
+class _HttpsRedirects(urllib.request.HTTPRedirectHandler):
+    # Google CDN redirects are host-specific and short-lived. Accept their
+    # authenticated HTTPS hosts, never a TLS downgrade or a third-party mirror.
+    max_repeats = 2
+    max_redirections = 4
+
+    def redirect_request(self, request, response, code, message, headers, url):
+        if not _official_https(url):
+            raise AdbBootstrapError("ADB download returned an unexpected redirect endpoint.")
+        return super().redirect_request(request, response, code, message, headers, url)
+
+
+def _endpoint(url):
+    # Neither proxy credentials nor the CDN's transient query parameters belong
+    # in receipts. All initial endpoints are the fixed, credential-free literals.
+    parsed = urllib.parse.urlsplit(url)
+    return urllib.parse.urlunsplit((parsed.scheme, parsed.hostname or "", parsed.path, "", ""))
+
+
+def _failure(error):
+    if isinstance(error, urllib.error.HTTPError):
+        return "HTTP " + str(error.code)
+    reason = error.reason if isinstance(error, urllib.error.URLError) else error
+    if isinstance(reason, ssl.SSLCertVerificationError):
+        return "TLS certificate validation failed"
+    if isinstance(reason, ssl.SSLError):
+        return "TLS connection failed"
+    if isinstance(reason, TimeoutError):
+        return "connection/read timeout"
+    if isinstance(reason, socket.gaierror):
+        return "hostname resolution failed"
+    if isinstance(error, AdbBootstrapError):
+        return str(error)
+    # URLError text can contain a proxy URL/user info. Report the failure class
+    # instead of interpolating external exception text into the local log.
+    return "network request failed (" + type(reason).__name__ + ")"
+
+
+def _download_once(destination, spec, url):
+    if not _official_https(url):
+        raise AdbBootstrapError("ADB download endpoint is not an official HTTPS host.")
     started = time.monotonic()
-    request = urllib.request.Request(spec["url"], headers={"User-Agent": "GloomhavenVR-QuestInstaller"})
-    with urllib.request.urlopen(request, timeout=30, context=ssl.create_default_context()) as response:
+    request = urllib.request.Request(url, headers={"User-Agent": "GloomhavenVR-QuestInstaller"})
+    context = ssl.create_default_context()
+    opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=context), _HttpsRedirects())
+    with opener.open(request, timeout=15) as response:
         with destination.open("xb") as stream:
             size = 0
+            read = getattr(response, "read1", response.read)
             while True:
-                block = response.read(1024 * 1024)
+                if time.monotonic() - started > 120:
+                    raise AdbBootstrapError("ADB download exceeded its expected size or time limit.")
+                # HTTPResponse.read1 makes one transport read instead of waiting
+                # for a whole MiB of slowly arriving bytes before checking time.
+                block = read(256 * 1024)
                 if not block:
                     break
                 size += len(block)
                 if size > spec["bytes"] or time.monotonic() - started > 120:
-                    raise AdbBootstrapError("ADB download exceeded its expected size or time limit. Retry on a reliable connection.")
+                    raise AdbBootstrapError("ADB download exceeded its expected size or time limit.")
                 stream.write(block)
+
+
+def _download(destination, spec=None):
+    """Try only reviewed official endpoints and accept the same pinned archive."""
+    spec = _spec(spec)
+    destination = Path(destination)
+    _plain(destination)
+    if destination.exists():
+        raise AdbBootstrapError("ADB download staging file already exists.")
+    urls = spec.get("urls", (spec["url"],))
+    failures = []
+    for index, url in enumerate(urls, 1):
+        endpoint = _endpoint(url)
+        print("ADB download " + str(index) + "/" + str(len(urls)) + ": " + endpoint, flush=True)
+        try:
+            _download_once(destination, spec, url)
+            if not _archive_valid(destination, spec):
+                raise AdbBootstrapError("ADB download SHA-256/size mismatch.")
+            print("ADB download verified: " + endpoint + " (" + str(spec["bytes"]) + " bytes).", flush=True)
+            return
+        except (OSError, ValueError, AdbBootstrapError) as error:
+            if isinstance(error, (PermissionError, FileExistsError, IsADirectoryError)):
+                raise  # A different host cannot repair local cache access.
+            reason = _failure(error)
+            failures.append(endpoint + ": " + reason)
+            print("ADB endpoint unavailable: " + endpoint + " - " + reason, flush=True)
+            _plain(destination)
+            destination.unlink(missing_ok=True)
+    raise AdbBootstrapError("Android platform-tools could not be downloaded from any official endpoint. "
+                            + "; ".join(failures)
+                            + ". Retry, or check access to the listed download hosts.")
 
 
 def _archive_valid(path, spec=None):
