@@ -397,6 +397,49 @@ def unity_launch_arguments(argv, output_path):
     return result
 
 
+def unity_import_retry_arguments(argv, *, memory_failure):
+    """Select one serial retry for a witnessed parallel initial-import OOM.
+
+    The caller owns bounded current Editor/worker-log inspection through the
+    existing native_admission.memory_failure diagnostics. A failed exit, lost
+    worker or arbitrary process kill alone is not an allocation witness. Keep
+    this helper pure: it neither reads stale logs nor kills another Editor,
+    clears the Library, changes assets, or repeats a Player/native build already
+    owned by the IL2CPP memory supervisor. The returned explicit one-worker
+    policy survives subsequent unity_launch_arguments resource qualification.
+    """
+    if memory_failure is not True:
+        return None
+    result = list(argv)
+    if not all(isinstance(arg, str) for arg in result) or not any(
+            Path(arg).name.casefold() in ("unity", "unity.exe") for arg in result):
+        return None
+
+    def value(name):
+        if result.count(name) != 1:
+            return None
+        index = result.index(name)
+        return result[index + 1] if index + 1 < len(result) else None
+
+    if (value("-executeMethod") != "GloomhavenVR.Quest.Editor.QuestBuild.CompileStartupSdk"
+            or value("-refreshImportMode") != "OutOfProcessPerQueue"):
+        return None
+    try:
+        workers = parse_jobs(value("-desiredWorkerCount"))
+        queue = parse_jobs(value("-job-worker-count"))
+    except ResourceError:
+        return None
+    if workers is None or workers <= 1 or ("-job-worker-count" in result and queue is None):
+        return None
+    for name, replacement in (("-refreshImportMode", "InProcess"),
+                              ("-desiredWorkerCount", "1"), ("-job-worker-count", "1")):
+        if name in result:
+            result[result.index(name) + 1] = replacement
+        else:
+            result.extend((name, replacement))
+    return result
+
+
 def _atomic_json(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(path.name + "." + uuid.uuid4().hex + ".tmp")

@@ -125,6 +125,68 @@ class UnityThroughput(unittest.TestCase):
             self.assertNotIn("-force-glcore", arguments)
             self.assertNotIn("-force-vulkan", arguments)
 
+    def import_command(self):
+        return ["Unity.exe", "-batchmode", "-quit", "-projectPath", "C:/work & spaces/project",
+                "-executeMethod", "GloomhavenVR.Quest.Editor.QuestBuild.CompileStartupSdk",
+                "-buildTarget", "Android", "-logFile", "C:/work & spaces/current-import.log",
+                "-refreshImportMode", "OutOfProcessPerQueue", "-desiredWorkerCount", "9",
+                "-job-worker-count", "15", "-standbyWorkerCount", "0"]
+
+    def test_witnessed_initial_parallel_import_oom_retries_serial_once_without_changing_build_inputs(self):
+        original = self.import_command()
+        before = original.copy()
+        retry = resources.unity_import_retry_arguments(original, memory_failure=True)
+        self.assertEqual(original, before)
+        self.assertIsNotNone(retry)
+        expected = original.copy()
+        for name, value in (("-refreshImportMode", "InProcess"), ("-desiredWorkerCount", "1"), ("-job-worker-count", "1")):
+            expected[expected.index(name) + 1] = value
+        self.assertEqual(retry, expected)
+        self.assertIsNone(resources.unity_import_retry_arguments(retry, memory_failure=True))
+        with patch.object(resources, "detect_host", return_value=host(128, 112, 112, 64)), patch("sys.stdout", new_callable=io.StringIO):
+            qualified = resources.unity_launch_arguments(retry, Path.cwd())
+        self.assertEqual(qualified, retry)
+        wrapped = resources.unity_import_retry_arguments(["xvfb-run", "-a", *original], memory_failure=True)
+        self.assertEqual(wrapped[:2], ["xvfb-run", "-a"])
+        self.assertEqual(wrapped[2:], expected)
+
+    def test_import_retry_never_guesses_memory_failure_or_duplicates_the_native_player_supervisor(self):
+        for witness in (False, None, 1, "out of memory"):
+            self.assertIsNone(resources.unity_import_retry_arguments(self.import_command(), memory_failure=witness))
+        for method in ("GloomhavenVR.Quest.Editor.QuestBuildConcurrency.Build", "GloomhavenVR.Quest.Editor.QuestBuild.Build",
+                       "DifferentNamespace.CompileStartupSdk", "GloomhavenVR.Quest.Editor.QuestBuild.CompileStartupSdkExtra"):
+            arguments = self.import_command()
+            arguments[arguments.index("-executeMethod") + 1] = method
+            self.assertIsNone(resources.unity_import_retry_arguments(arguments, memory_failure=True))
+        for name, value in (("-refreshImportMode", "InProcess"), ("-desiredWorkerCount", "1")):
+            arguments = self.import_command()
+            arguments[arguments.index(name) + 1] = value
+            self.assertIsNone(resources.unity_import_retry_arguments(arguments, memory_failure=True))
+        arguments = self.import_command()
+        arguments[0] = "different-tool.exe"
+        self.assertIsNone(resources.unity_import_retry_arguments(arguments, memory_failure=True))
+
+    def test_import_retry_rejects_malformed_or_ambiguous_existing_worker_policies(self):
+        for name in ("-desiredWorkerCount", "-job-worker-count"):
+            for value in ("0", "1025", "invalid", ""):
+                arguments = self.import_command()
+                arguments[arguments.index(name) + 1] = value
+                self.assertIsNone(resources.unity_import_retry_arguments(arguments, memory_failure=True))
+            duplicate = [*self.import_command(), name, "3"]
+            self.assertIsNone(resources.unity_import_retry_arguments(duplicate, memory_failure=True))
+            arguments = self.import_command()
+            index = arguments.index(name)
+            del arguments[index:index + 2]
+            arguments.append(name)
+            self.assertIsNone(resources.unity_import_retry_arguments(arguments, memory_failure=True))
+        duplicate = [*self.import_command(), "-executeMethod", "GloomhavenVR.Quest.Editor.QuestBuild.CompileStartupSdk"]
+        self.assertIsNone(resources.unity_import_retry_arguments(duplicate, memory_failure=True))
+        missing_queue = self.import_command()
+        index = missing_queue.index("-job-worker-count")
+        del missing_queue[index:index + 2]
+        repaired = resources.unity_import_retry_arguments(missing_queue, memory_failure=True)
+        self.assertEqual(option(repaired, "-job-worker-count"), "1")
+
 
 @unittest.skipUnless(os.environ.get("GHVRQ_TEST_UNITY_THROUGHPUT") == "1" and EDITOR.is_file(),
                      "Opt-in actual Unity 2021.3 import fixture")
