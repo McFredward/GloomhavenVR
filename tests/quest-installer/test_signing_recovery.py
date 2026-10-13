@@ -678,6 +678,47 @@ class TransactionTests(unittest.TestCase):
         self.assertFalse(self.device.process_started); self.assertFalse(any(call[0] == "uninstall" for call in self.device.calls))
         self.verify_saves()
 
+    def test_deferred_first_launch_retries_once_without_losing_original_debug_selection(self):
+        path = self.process_namespace_repair(); self.device.pidof_waits = 20
+        self.device.debug_current = "another.debug.app"
+        with mock.patch.object(recovery.time, "sleep"):
+            self.assertTrue(self.engine().recover(detected=True)["verified"])
+        starts = [index for index, row in enumerate(self.device.calls) if row[:3] == ("shell", "am", "start")]
+        self.assertGreaterEqual(len(starts), 2)
+        retry = self.device.calls[starts[0] + 1:starts[1]]
+        self.assertEqual(sum(row[:2] == ("shell", "pidof") for row in retry), 20)
+        self.assertEqual(sum(row[:3] == ("shell", "am", "force-stop") for row in retry), 1)
+        self.assertFalse(any("-STOP" in row for row in retry))
+        self.assertEqual(self.device.debug_current, "another.debug.app")
+        self.assertFalse(self.device.debug_transient)
+        self.assertEqual(self.device.path(path).read_bytes(), b"opaque player progress\x00")
+        self.assertFalse(self.device.process_started); self.verify_saves()
+
+    def test_deferred_replacement_retains_original_archives_and_resumes_without_uninstall(self):
+        self.device.app_direct_denied = True; self.device.process_enabled = True
+        engine = self.engine(data_policy="saves")
+        original = engine._restore_access_mode
+        def defer(item):
+            if not item["internal"]: self.device.pidof_waits = 100
+            return original(item)
+        engine._restore_access_mode = defer
+        with mock.patch.object(recovery.time, "sleep"), self.assertRaisesRegex(recovery.RecoveryError, "Wake and unlock"):
+            engine.recover(detected=True)
+        state = json.loads(engine.path.read_text())
+        self.assertEqual(state["state"], "restoring")
+        archives = {row["archive"]: (engine.backup / row["archive"]).read_bytes() for row in state["roots"]}
+        self.assertTrue(self.device.installed)
+        self.assertEqual(sum(row[0] == "uninstall" for row in self.device.calls), 1)
+        actions = [json.loads(line[len("GHVRQ_ACTION "):]) for line in self.output.getvalue().splitlines() if line.startswith("GHVRQ_ACTION ")]
+        self.assertEqual(actions[-1]["reason"], "restore-app-access")
+        self.device.pidof_waits = 0; before = len(self.device.calls)
+        with mock.patch.object(recovery.time, "sleep"):
+            self.assertTrue(self.engine(data_policy="saves").recover()["verified"])
+        resumed = self.device.calls[before:]
+        self.assertFalse(any(row[0] in ("uninstall", "install") for row in resumed))
+        self.assertEqual(archives, {name: (engine.backup / name).read_bytes() for name in archives})
+        self.verify_saves()
+
     def test_real_adb_wrapper_does_not_swallow_other_pidof_failures(self):
         for observed in (("", 2), ("error: device offline", 1), ("error: unauthorized", 1)):
             with self.subTest(observed=observed):

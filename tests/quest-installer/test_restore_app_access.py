@@ -90,6 +90,7 @@ class RestoreAccessTests(unittest.TestCase):
         item = {"root": recovery.EXTERNAL, "internal": False, "accessMode": "shell", "restoreAccessMode": "app-process"}
         scripts = []
         def command(script, mode):
+            if script.endswith("printf GHVRQ_APP_ROOT_READY"): return "GHVRQ_APP_ROOT_READY"
             scripts.append((script, mode))
             return script.rsplit("printf %s ", 1)[1]
         with mock.patch.object(engine, "_access_root", return_value="/storage/emulated/0/Android/data/" + recovery.PACKAGE), \
@@ -109,6 +110,9 @@ class RestoreAccessTests(unittest.TestCase):
         engine = self.engine()
         modes = []
         def command(script, mode):
+            if script.endswith("printf GHVRQ_APP_ROOT_READY"):
+                if mode == "app-direct": raise recovery.RecoveryError("app namespace denied")
+                return "GHVRQ_APP_ROOT_READY"
             modes.append(mode)
             if mode == "app-direct": raise recovery.RecoveryError("app namespace denied")
             return script.rsplit("printf %s ", 1)[1]
@@ -116,7 +120,7 @@ class RestoreAccessTests(unittest.TestCase):
                 mock.patch.object(engine, "_check_external_root"), \
                 mock.patch.object(engine, "_context_shell", side_effect=command):
             self.assertEqual(engine._restore_access_mode({"root": recovery.EXTERNAL, "internal": False}), "app-process")
-        self.assertEqual(modes, ["app-direct", "app-process"])
+        self.assertEqual(modes, ["app-process"])
 
     def test_invalid_acknowledgement_never_selects_shell_restore(self):
         engine = self.engine()
@@ -126,6 +130,128 @@ class RestoreAccessTests(unittest.TestCase):
             with self.assertRaisesRegex(recovery.RecoveryError, "scoped retry"):
                 engine._restore_access_mode({"root": recovery.EXTERNAL, "internal": False})
         self.assertIn('"shellRestoreAllowed": false', self.log.read_text())
+
+    def test_missing_external_root_is_created_only_through_its_replacement_uid(self):
+        (self.root / "storage/emulated/0/Android/data").mkdir(parents=True)
+        actual = str(self.root / "storage/emulated/0/Android/data" / recovery.PACKAGE)
+        scripts = []
+        def context(script, mode):
+            scripts.append((script, mode))
+            ran = subprocess.run(["sh", "-c", "set -eu\n" + script], capture_output=True, text=True)
+            if ran.returncode: raise recovery.RecoveryError(ran.stderr)
+            return ran.stdout
+        engine = self.engine()
+        with mock.patch.object(engine, "_access_root", return_value=actual), \
+                mock.patch.object(engine, "_context_shell", side_effect=context):
+            engine._prepare_external_restore_root(actual, "app-direct")
+            engine._prepare_external_restore_root(actual, "app-direct")
+        self.assertTrue(Path(actual).is_dir())
+        self.assertEqual(Path(actual).stat().st_mode & 0o777, 0o700)
+        self.assertTrue(all(mode == "app-direct" for _, mode in scripts))
+        self.assertFalse(any("chmod" in script or "chown" in script for script, _ in scripts))
+        self.adb.run.assert_not_called()
+
+    def test_external_root_creation_rejects_target_and_ancestor_symlinks(self):
+        container = self.root / "storage/emulated/0/Android/data"
+        container.mkdir(parents=True)
+        target = container / recovery.PACKAGE
+        foreign = self.root / "foreign"
+        foreign.mkdir()
+        def context(script, mode):
+            ran = subprocess.run(["sh", "-c", "set -eu\n" + script], capture_output=True, text=True)
+            if ran.returncode: raise recovery.RecoveryError("guarded creation refused")
+            return ran.stdout
+        engine = self.engine()
+        with mock.patch.object(engine, "_access_root", return_value=str(target)), \
+                mock.patch.object(engine, "_context_shell", side_effect=context):
+            target.symlink_to(foreign)
+            with self.assertRaisesRegex(recovery.RecoveryError, "guarded creation refused"):
+                engine._prepare_external_restore_root(str(target), "app-direct")
+            target.unlink()
+            container.rmdir(); container.symlink_to(foreign)
+            with self.assertRaisesRegex(recovery.RecoveryError, "guarded creation refused"):
+                engine._prepare_external_restore_root(str(target), "app-direct")
+        self.assertEqual(list(foreign.iterdir()), [])
+
+    def test_root_preparation_rejects_foreign_root_and_shell_identity(self):
+        engine = self.engine()
+        with mock.patch.object(engine, "_access_root", return_value="/storage/emulated/0/Android/data/" + recovery.PACKAGE):
+            for actual, mode in (("/storage/emulated/0/Android/data/foreign", "app-direct"), (recovery.EXTERNAL, "shell")):
+                with self.subTest(actual=actual, mode=mode), self.assertRaisesRegex(recovery.RecoveryError, "replacement app view"):
+                    engine._prepare_external_restore_root(actual, mode)
+        self.adb.run.assert_not_called()
+
+    def test_launch_pending_action_survives_restore_access_selection(self):
+        engine = self.engine()
+        pending = recovery.CaptureRepairError("wake and unlock", root="external", reason="restore-app-access", attempts=2, total=2)
+        def actual(root, mode):
+            if mode == "app-process": raise pending
+            raise recovery.RecoveryError("direct app view is inaccessible")
+        with mock.patch.object(engine, "_access_root", side_effect=actual):
+            with self.assertRaises(recovery.CaptureRepairError) as error:
+                engine._restore_access_mode({"root": recovery.EXTERNAL, "internal": False})
+        self.assertIs(error.exception, pending)
+        self.assertEqual(error.exception.action["reason"], "restore-app-access")
+
+    def test_only_observed_sleeping_headset_receives_one_idempotent_wake_request(self):
+        for wakefulness, wake_denied, expected in (("Asleep", False, 1), ("Dozing", False, 1), ("Awake", False, 0), ("", False, 0), ("Asleep", True, 1)):
+            with self.subTest(wakefulness=wakefulness, wake_denied=wake_denied):
+                engine = self.engine()
+                calls = []
+                def command(*args, **options):
+                    calls.append(args)
+                    if "resolve-activity" in args: return recovery.PACKAGE + "/com.unity3d.player.UnityPlayerActivity"
+                    if "KEYCODE_WAKEUP" in args and wake_denied: raise recovery.RecoveryError("input is unavailable on this Android build")
+                    return ""
+                def shell(script, **options):
+                    if script == "date +%s": return "1000"
+                    if script.startswith("dumpsys activity processes"): return ""
+                    if script.startswith("printf 'GHVRQ_STORAGE_POWER"):
+                        return "GHVRQ_STORAGE_POWER\n" + ("  mWakefulness=" + wakefulness + "\n" if wakefulness else "")
+                    raise AssertionError(script)
+                with mock.patch.object(engine, "shell", side_effect=shell), \
+                        mock.patch.object(self.adb, "run", side_effect=command), mock.patch.object(recovery.time, "sleep"), \
+                        contextlib.redirect_stdout(io.StringIO()) as output:
+                    with self.assertRaises(recovery.CaptureRepairError) as error:
+                        engine._process_storage_root()
+                self.assertEqual(error.exception.action["reason"], "restore-app-access")
+                self.assertEqual(sum("KEYCODE_WAKEUP" in call for call in calls), expected)
+                self.assertEqual(sum("start" in call for call in calls), 2)
+                self.assertEqual(sum("pidof" in call for call in calls), 40)
+                self.assertFalse(any("clear-debug-app" in call or "set-debug-app" in call for call in calls))
+                updates = [json.loads(line[len("GHVRQ_PROGRESS "):]) for line in output.getvalue().splitlines() if line.startswith("GHVRQ_PROGRESS ")]
+                self.assertTrue(updates)
+                self.assertTrue(all(row["done"] < row["total"] for row in updates))
+                if wake_denied: self.assertIn("storageWakeRequestUnavailable", self.log.read_text())
+
+    def test_restore_connection_failure_is_preserved_without_probing_another_mode(self):
+        engine = self.engine()
+        ConnectionRequired = type("ConnectionRequired", (RuntimeError,), {})
+        interrupted = ConnectionRequired("Reconnect the Quest")
+        with mock.patch.object(engine, "_access_root", side_effect=interrupted) as actual:
+            with self.assertRaises(ConnectionRequired) as error:
+                engine._restore_access_mode({"root": recovery.EXTERNAL, "internal": False})
+        self.assertIs(error.exception, interrupted)
+        self.assertEqual(actual.call_count, 1)
+
+    def test_actual_tar_restores_fresh_missing_external_root_without_launching_game(self):
+        class MissingRootDevice(fixture.Device):
+            def __call__(self, command, **options):
+                result = super().__call__(command, **options)
+                action = command[3:] if command[1:2] == ["-s"] else command[1:]
+                if action[:1] == ["install"] and result.returncode == 0:
+                    shutil.rmtree(self.path(recovery.EXTERNAL))
+                return result
+        device = MissingRootDevice(self.root / "device")
+        adb = fixture.installer.Adb("adb", self.log, device)
+        source = types.SimpleNamespace(apk=device.new_apk, sha256=recovery.file_hash(device.new_apk), input_key="a" * 64)
+        engine = recovery.Recovery(adb, "usb-local", "QUEST-LOCAL", source, self.root / "workspace", data_policy="saves")
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertTrue(engine.recover(detected=True)["verified"])
+        self.assertEqual(device.device_save_path().read_bytes(), b"campaign\0original")
+        self.assertFalse(any(row[:3] == ("shell", "am", "start") for row in device.calls))
+        writes = [row for row in device.calls if row[:2] == ("shell", "-T")]
+        self.assertTrue(any(row[2:4] == ("run-as", recovery.PACKAGE) for row in writes))
 
     def test_foreign_device_cannot_reach_app_restore_probe(self):
         engine = self.engine()

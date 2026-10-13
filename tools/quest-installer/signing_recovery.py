@@ -423,6 +423,109 @@ class Recovery:
             raise RecoveryError("The installed app's launcher cannot open its own storage view.")
         started_at = self.shell("date +%s").strip()
         if not started_at.isdigit(): raise RecoveryError("The app storage wait boundary could not be identified.")
+        debug_args = self._storage_debug_args()
+        # A launch acknowledgement is not a process-start acknowledgement. In
+        # capture211355 Android returned StartingIntent, but pidof was empty for
+        # the complete wait. A sleeping/deferred Quest launcher must not turn a
+        # completed APK into another build or restart an uninstall transaction.
+        # Retry only this package once while preserving the transient debugger
+        # choice. The observed debugger boundary remains mandatory for access.
+        owned = None
+        try:
+            for launch_attempt in range(2):
+                self._device_guard()
+                self.adb.run("-s", self.address, "shell", "am", "start", *debug_args, "--user", "0", "-n", shlex.quote(resolved[-1]), timeout=30)
+                for attempt in range(20):
+                    raw = self.adb.run("-s", self.address, "shell", "pidof", PACKAGE, check_text=False, empty_exit_codes=(1,)).strip()
+                    if raw and not re.fullmatch(r"[1-9][0-9]{0,9}", raw):
+                        raise RecoveryError("The storage launch returned an incomplete app process identity.")
+                    if re.fullmatch(r"[1-9][0-9]{0,9}", raw):
+                        owned = self._process_snapshot(raw)
+                        logs = self.adb.run("-s", self.address, "shell", "logcat", "-d", "-t", "128", "--pid", raw,
+                                            "-v", "epoch", "ActivityThread:I", "*:S", check_text=False)
+                        waiting = any(re.match(r"\s*([0-9]+)\.[0-9]+\s", line) and
+                                      int(re.match(r"\s*([0-9]+)\.[0-9]+\s", line).group(1)) >= int(started_at) and
+                                      "Application " + PACKAGE + " is waiting for the debugger" in line for line in logs.splitlines())
+                        if waiting:
+                            if self._process_snapshot(raw) != owned: raise RecoveryError("The waiting app process changed before pausing.")
+                            self._device_guard()
+                            self.adb.run("-s", self.address, "shell", "run-as", PACKAGE, "kill", "-STOP", raw, check_text=False)
+                            for pause_attempt in range(20):
+                                try: paused = self._process_snapshot(raw, stopped=True)
+                                except RuntimeError:
+                                    time.sleep(0.05); continue
+                                if paused != owned: raise RecoveryError("The waiting app process changed while pausing.")
+                                self._storage_process = paused
+                                progress("access", 1, 1, "Using the paused app's own Android storage namespace", local=True)
+                                return "/proc/" + raw + "/root/storage/emulated/0"
+                            raise RecoveryError("The app storage process did not completely pause.")
+                    # The last unit is the proved storage boundary, not the end
+                    # of an unsuccessful poll budget. Waiting never reports100%.
+                    progress("access", launch_attempt * 20 + attempt + 1, 41, "Opening the app's own storage view before gameplay starts", local=True)
+                    time.sleep(0.25)
+                if owned:
+                    # Never replay a launch over a process whose safe wait
+                    # marker was not proved, including stale debugger logs.
+                    raise RecoveryError("The app did not prove its debugger-wait storage boundary in time.")
+                sleeping = self._storage_launch_diagnostics()
+                if launch_attempt == 0:
+                    self._device_guard()
+                    self.adb.run("-s", self.address, "shell", "am", "force-stop", PACKAGE, check_text=False)
+                    if sleeping:
+                        # WAKEUP is idempotent; it neither toggles the screen nor
+                        # dismisses authentication, changes stay-awake settings
+                        # or bypasses the headset's physical presence sensor.
+                        try:
+                            self.adb.run("-s", self.address, "shell", "input", "keyevent", "KEYCODE_WAKEUP", timeout=30, check_text=False)
+                        except RuntimeError as error:
+                            if type(error).__name__ == "ConnectionRequired": raise
+                            with self.adb.log.open("a", encoding="utf-8") as log:
+                                log.write(json.dumps({"storageWakeRequestUnavailable": str(error)[:1024],
+                                                      "launchRetryRetained": True}) + "\n")
+                    debug_args = self._storage_debug_args()
+                    progress("access", 20, 41, "Retrying the replacement app's deferred storage-view launch once", local=True)
+            raise CaptureRepairError("Android acknowledged the app launch but did not prove its debugger-wait storage boundary. Wake and unlock the Quest, keep it connected, then continue installation; the completed APK and original save backups are retained.",
+                                     root="external", reason="restore-app-access", attempts=2, total=2)
+        except BaseException:
+            try:
+                self._device_guard()
+                if owned:
+                    if self._process_snapshot(owned[0]) == owned:
+                        self.adb.run("-s", self.address, "shell", "am", "force-stop", PACKAGE, check_text=False)
+                else:
+                    # The start request can reach Android even when ADB times
+                    # out before returning a PID. The target was force-stopped
+                    # before this scoped request; terminate only that package.
+                    self.adb.run("-s", self.address, "shell", "am", "force-stop", PACKAGE, check_text=False)
+            except RuntimeError as cleanup:
+                print("Signing recovery storage cleanup could not be confirmed: " + str(cleanup)[:1024], flush=True)
+            raise
+
+    def _storage_launch_diagnostics(self):
+        """Keep bounded power/package observations, without reading save trees.
+
+        A missing PID alone cannot distinguish a sleeping headset, a deferred
+        launcher or a pre-Application crash. Record observations rather than
+        assigning an unsupported cause or collecting other applications' logs.
+        Diagnostics are best effort and must never mask a lost-device action.
+        """
+        self._device_guard()
+        try:
+            rows = self.shell("printf 'GHVRQ_STORAGE_POWER\\n'\ndumpsys power | sed -n '/mWakefulness=/p;/mDisplayReady=/p' | head -n 6\n"
+                              "printf 'GHVRQ_STORAGE_PACKAGE\\n'\ndumpsys package " + PACKAGE + " | sed -n '/User 0:/p' | head -n 2\n"
+                              "printf 'GHVRQ_STORAGE_LAUNCH\\n'\nlogcat -d -t 256 -v brief ActivityManager:I ActivityTaskManager:I AndroidRuntime:E '*:S'"
+                              " | sed -n '/dev[.]gloomhavenvr[.]quest/p' | tail -n 12", timeout=30)
+            with self.adb.log.open("a", encoding="utf-8") as log:
+                log.write(json.dumps({"storageLaunchObservation": rows[:8192], "safeBoundaryObserved": False,
+                                      "savePayloadRead": False}) + "\n")
+            return bool(re.search(r"^\s*mWakefulness=(Asleep|Dozing)\s*$", rows, re.M))
+        except RuntimeError as error:
+            if type(error).__name__ == "ConnectionRequired": raise
+            with self.adb.log.open("a", encoding="utf-8") as log:
+                log.write(json.dumps({"storageLaunchObservationUnavailable": str(error)[:1024]}) + "\n")
+            return False
+
+    def _storage_debug_args(self):
         debug_rows = self.shell("dumpsys activity processes | sed -n '/mDebugApp=/p'").splitlines()
         debug_args = ["-D"]
         if debug_rows:
@@ -439,48 +542,7 @@ class Recovery:
         # Application or installing providers. Observe that boundary before
         # pausing; subsequent complete snapshots still verify mutable app data.
         # Do not clear-debug-app: it would overwrite another developer setting.
-        owned = None
-        try:
-            self.adb.run("-s", self.address, "shell", "am", "start", *debug_args, "--user", "0", "-n", shlex.quote(resolved[-1]), timeout=30)
-            for attempt in range(40):
-                raw = self.adb.run("-s", self.address, "shell", "pidof", PACKAGE, check_text=False, empty_exit_codes=(1,)).strip()
-                if re.fullmatch(r"[1-9][0-9]{0,9}", raw):
-                    owned = self._process_snapshot(raw)
-                    logs = self.adb.run("-s", self.address, "shell", "logcat", "-d", "-t", "128", "--pid", raw,
-                                        "-v", "epoch", "ActivityThread:I", "*:S", check_text=False)
-                    waiting = any(re.match(r"\s*([0-9]+)\.[0-9]+\s", line) and
-                                  int(re.match(r"\s*([0-9]+)\.[0-9]+\s", line).group(1)) >= int(started_at) and
-                                  "Application " + PACKAGE + " is waiting for the debugger" in line for line in logs.splitlines())
-                    if waiting:
-                        if self._process_snapshot(raw) != owned: raise RecoveryError("The waiting app process changed before pausing.")
-                        self._device_guard()
-                        self.adb.run("-s", self.address, "shell", "run-as", PACKAGE, "kill", "-STOP", raw, check_text=False)
-                        for pause_attempt in range(20):
-                            try: paused = self._process_snapshot(raw, stopped=True)
-                            except RuntimeError:
-                                time.sleep(0.05); continue
-                            if paused != owned: raise RecoveryError("The waiting app process changed while pausing.")
-                            self._storage_process = paused
-                            progress("access", 1, 1, "Using the paused app's own Android storage namespace", local=True)
-                            return "/proc/" + raw + "/root/storage/emulated/0"
-                        raise RecoveryError("The app storage process did not completely pause.")
-                progress("access", attempt + 1, 40, "Opening the app's own storage view before gameplay starts", local=True)
-                time.sleep(0.25)
-            raise RecoveryError("The app did not prove its debugger-wait storage boundary in time.")
-        except BaseException:
-            try:
-                self._device_guard()
-                if owned:
-                    if self._process_snapshot(owned[0]) == owned:
-                        self.adb.run("-s", self.address, "shell", "am", "force-stop", PACKAGE, check_text=False)
-                else:
-                    # The start request can reach Android even when ADB times
-                    # out before returning a PID. The target was force-stopped
-                    # before this scoped request; terminate only that package.
-                    self.adb.run("-s", self.address, "shell", "am", "force-stop", PACKAGE, check_text=False)
-            except RuntimeError as cleanup:
-                print("Signing recovery storage cleanup could not be confirmed: " + str(cleanup)[:1024], flush=True)
-            raise
+        return debug_args
 
     def _close_storage_process(self):
         owned = self._storage_process
@@ -666,6 +728,7 @@ class Recovery:
             self._device_guard()
             try:
                 actual = self._access_root(root, mode)
+                self._prepare_external_restore_root(actual, mode)
                 self._check_external_root(actual, mode)
                 token = uuid.uuid4().hex
                 probe = shlex.quote(actual + "/.quest-restore-access-" + token)
@@ -678,12 +741,45 @@ class Recovery:
                 if reply != token: raise RecoveryError("The app restoration access probe returned an incomplete acknowledgement.")
                 return mode
             except RuntimeError as error:
+                if type(error).__name__ == "ConnectionRequired": raise
                 errors.append({"mode": mode, "error": str(error)[:1024]})
+                if isinstance(error, CaptureRepairError):
+                    with self.adb.log.open("a", encoding="utf-8") as log:
+                        log.write(json.dumps({"replacementAppRestoreAccess": "pending", "attempts": errors,
+                                              "shellRestoreAllowed": False}) + "\n")
+                    raise
         with self.adb.log.open("a", encoding="utf-8") as log:
             log.write(json.dumps({"replacementAppRestoreAccess": "unavailable", "attempts": errors,
                                   "shellRestoreAllowed": False}) + "\n")
         raise CaptureRepairError("The replacement app cannot yet restore its external saves/settings through its own storage view; original backups are retained for a scoped retry.",
                                  root="external", reason="restore-app-access", attempts=len(errors), total=len(errors))
+
+    def _prepare_external_restore_root(self, root, mode):
+        """Create a missing exact external root as its replacement app UID.
+
+        A fresh uninstall can remove the package directory. Creating it in the
+        shell's mount view does not prove its existence or ownership in the
+        replacement UID's scoped view. Validate existing ancestors first, then
+        create just the exact package directory without following a link or
+        changing anyone's permissions. Inaccessible namespaces still use the
+        guarded debugger-wait fallback; they are never shell-extraction targets.
+        """
+        if mode not in ("app-direct", "app-process") or root != self._access_root(EXTERNAL, mode):
+            raise RecoveryError("External root preparation must use this package's replacement app view.")
+        boundary = "/storage"
+        if root.startswith("/proc/"): boundary = root.split("/root/", 1)[0] + "/root"
+        checks = ["test -d " + shlex.quote(str(PurePosixPath(root).parent))]
+        for parent in PurePosixPath(root).parents:
+            value = str(parent)
+            if value == boundary: break
+            checks.append("test ! -L " + shlex.quote(value))
+        target = shlex.quote(root)
+        script = "\n".join(checks) + "\ntest ! -L " + target
+        script += "\nif test -e " + target + "; then test -d " + target + "; else umask 077; mkdir " + target + "; fi"
+        script += "\ntest -d " + target + "\nprintf GHVRQ_APP_ROOT_READY"
+        reply = self._context_shell(script, mode).strip()
+        if reply != "GHVRQ_APP_ROOT_READY":
+            raise RecoveryError("The replacement-app external root preparation returned no complete acknowledgement.")
 
     def _check_users(self):
         current = self.adb.run("-s", self.address, "shell", "am", "get-current-user", check_text=False).strip()
@@ -1599,8 +1695,6 @@ class Recovery:
             local = self.backup / item["archive"]
             if item["internal"]:
                 self.adb.run("-s", self.address, "shell", "run-as", PACKAGE, "mkdir", "-p", item["root"], check_text=False)
-            else:
-                self.shell("test ! -L " + shlex.quote(item["root"]) + "\nmkdir -p " + shlex.quote(item["root"]))
             mode = self._restore_access_mode(item)
             item["restoreAccessMode"] = mode
             target_item = dict(item, accessMode=mode)
