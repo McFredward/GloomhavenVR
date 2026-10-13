@@ -129,12 +129,10 @@ class MinimumContentPack(unittest.TestCase):
 
     @unittest.skipIf(os.name == 'nt', 'Requires fixture hardlink permission')
     def test_transaction_preimage_uses_source_only_directory_change_stamp(self):
-        import storage
         preimage = self.root / 'preimage.zip'; os.link(self.archive, preimage)
         actual = ('win32-v1', 99, 'file-id', self.archive.stat().st_size, 20, 30)
-        observer = types.SimpleNamespace(directory=lambda path: {self.archive.name: actual})
-        with patch.object(packer.sys, 'platform', 'win32'), patch.object(storage, '_file_witness_stamp', return_value=None), \
-             patch.object(storage, '_windows_metadata', observer):
+        observer = types.SimpleNamespace(stamp=lambda path: actual)
+        with patch.object(packer.sys, 'platform', 'win32'), patch.object(packer, '_windows_metadata', observer):
             self.assertEqual(packer.file_identity(self.archive)[1], actual)
         # Persistent file trust remains unchanged: links still get no digest
         # shortcut, and the consumer only reads the qualified source inode.

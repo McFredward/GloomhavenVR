@@ -198,10 +198,21 @@ namespace GloomhavenVR.Quest.Editor
                 AssetDatabase.StopAssetEditing();
             }
             AssetDatabase.SaveAssets();
-            QuestWizardProgress.Publish("unity-addressables-build", "Unity builds the original Android Addressables bundles; native task and Shader counters follow.", 0, 1, "tasks", "content-bank", "start");
-            AddressableAssetSettings.BuildPlayerContent(out AddressablesPlayerBuildResult result);
-            if (!string.IsNullOrEmpty(result.Error)) throw new InvalidOperationException("Native startup Addressables failed: " + result.Error);
             string built = Addressables.BuildPath;
+            // Commit the native compiler's closed result before repacking. In
+            // capture20261013T165327 native Addressables succeeded after 1:09:50,
+            // then the isolated Python helper failed importing a sibling module.
+            // Archive failure must not discard that already cooked bank. The
+            // Builder supplies the exact original/compiler identity; retained
+            // outputs require actual byte proofs and reliable file-change stamps.
+            if (!CheckNativeContentCheckpoint(built))
+            {
+                QuestWizardProgress.Publish("unity-addressables-build", "Unity builds the original Android Addressables bundles; native task and Shader counters follow.", 0, 1, "tasks", "content-bank", "start");
+                AddressableAssetSettings.BuildPlayerContent(out AddressablesPlayerBuildResult result);
+                if (!string.IsNullOrEmpty(result.Error)) throw new InvalidOperationException("Native startup Addressables failed: " + result.Error);
+                RecordNativeContentCheckpoint(built);
+            }
+            else Debug.Log("[Quest content build] retained closed native Addressables bank; no repeated native compilation.");
             if (!File.Exists(Path.Combine(built, "settings.json")))
                 throw new InvalidDataException("Native Android Addressables did not produce actual RuntimeSettings.");
             QuestWizardProgress.Publish("unity-addressables-build", "Native Android Addressables bundles built; original Shader closure audit follows.", 1, 1, "tasks", "content-bank", "complete");
@@ -510,7 +521,58 @@ namespace GloomhavenVR.Quest.Editor
             public string inputKey, archiveSha256;
         }
 
+        [Serializable] sealed class NativeBankCheck
+        {
+            public int schema;
+            public string scope, inputKey, reason;
+            public bool reused;
+        }
+
+        [Serializable] sealed class NativeBankCheckpoint
+        {
+            public int schema;
+            public string scope;
+            public bool compilerCompleted;
+        }
+
+        static bool CheckNativeContentCheckpoint(string nativeRoot)
+        {
+            if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("GHVR_QUEST_NATIVE_BANK_KEY"))) return false;
+            const string path = "QuestStartupEvidence/native-addressables-check.json";
+            if (File.Exists(path)) File.Delete(path);
+            InvokeContentHelper(nativeRoot, "check");
+            var check = JsonUtility.FromJson<NativeBankCheck>(File.ReadAllText(path));
+            var content = JsonUtility.FromJson<ContentManifest>(File.ReadAllText("Assets/Quest/Resources/quest-startup-content.json"));
+            if (check == null || check.schema != 1 || check.scope != "closed-native-addressables-check" ||
+                (check.reused && (content == null || check.inputKey != content.inputKey)))
+                throw new InvalidDataException("Native Addressables checkpoint lost its exact original identity.");
+            Debug.Log("[Quest content build] native checkpoint " + (check.reused ? "retained: " : "requires compilation: ") + check.reason);
+            return check.reused;
+        }
+
+        static void RecordNativeContentCheckpoint(string nativeRoot)
+        {
+            if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("GHVR_QUEST_NATIVE_BANK_KEY"))) return;
+            InvokeContentHelper(nativeRoot, "record");
+            var receipt = JsonUtility.FromJson<NativeBankCheckpoint>(File.ReadAllText("QuestStartupEvidence/native-addressables-build.json"));
+            if (receipt == null || receipt.schema != 1 || receipt.scope != "closed-native-addressables" || !receipt.compilerCompleted)
+                throw new InvalidDataException("Native Addressables compiler output was not durably committed.");
+        }
+
         static void RepackContent(string nativeRoot)
+        {
+            InvokeContentHelper(nativeRoot, null);
+            const string evidence = "QuestStartupEvidence";
+            var receipt = JsonUtility.FromJson<NativePackReceipt>(File.ReadAllText(Path.Combine(evidence, "native-content-pack.json")));
+            var content = JsonUtility.FromJson<ContentManifest>(File.ReadAllText("Assets/Quest/Resources/quest-startup-content.json"));
+            if (receipt == null || receipt.schema != 1 || content == null
+                || receipt.inputKey != content.inputKey || receipt.archiveSha256 != content.archiveSha256)
+                throw new InvalidDataException("Native content packer lost the exact content identity.");
+            Debug.Log("[Quest content build] " + (receipt.reused ? "reused verified unchanged archive" : "packed native bundles without recompression")
+                + " files=" + receipt.fileCount + " native-bundles=" + receipt.nativeBundleCount);
+        }
+
+        static void InvokeContentHelper(string nativeRoot, string checkpoint)
         {
             string python = Environment.GetEnvironmentVariable("GHVR_QUEST_CONTENT_PACK_PYTHON");
             string helper = Environment.GetEnvironmentVariable("GHVR_QUEST_CONTENT_PACK_HELPER");
@@ -530,7 +592,8 @@ namespace GloomhavenVR.Quest.Editor
                 {
                     process.StartInfo = new System.Diagnostics.ProcessStartInfo
                     {
-                        FileName = python, Arguments = "-I -B -X utf8 " + QuoteArgument(helper) + " --request " + QuoteArgument(request),
+                        FileName = python, Arguments = "-I -B -X utf8 " + QuoteArgument(helper) + " --request " + QuoteArgument(request)
+                            + (checkpoint == null ? "" : " --native-checkpoint " + checkpoint),
                         UseShellExecute = false, CreateNoWindow = true,
                         RedirectStandardOutput = true, RedirectStandardError = true,
                         WorkingDirectory = Directory.GetCurrentDirectory()
@@ -542,13 +605,6 @@ namespace GloomhavenVR.Quest.Editor
                         throw new InvalidDataException("Native content packer failed (" + process.ExitCode + "): "
                             + error.Substring(0, Math.Min(error.Length, 2048)));
                 }
-                var receipt = JsonUtility.FromJson<NativePackReceipt>(File.ReadAllText(Path.Combine(evidence, "native-content-pack.json")));
-                var content = JsonUtility.FromJson<ContentManifest>(File.ReadAllText("Assets/Quest/Resources/quest-startup-content.json"));
-                if (receipt == null || receipt.schema != 1 || content == null
-                    || receipt.inputKey != content.inputKey || receipt.archiveSha256 != content.archiveSha256)
-                    throw new InvalidDataException("Native content packer lost the exact content identity.");
-                Debug.Log("[Quest content build] " + (receipt.reused ? "reused verified unchanged archive" : "packed native bundles without recompression")
-                    + " files=" + receipt.fileCount + " native-bundles=" + receipt.nativeBundleCount);
             }
             finally { if (File.Exists(request)) File.Delete(request); }
         }

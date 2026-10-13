@@ -122,6 +122,8 @@ class MinimumCatalogWorkTests(unittest.TestCase):
             "\n".join(declaration(source, marker) for marker in names) +
             '\nstatic void AddCampaignShaderRetention(AddressableAssetSettings value){Spy.Call("shader-retention");}\n' +
             'static void ValidateNativeCampaignShaders(string value){Spy.Call("native-audit");}\n' +
+            'static bool CheckNativeContentCheckpoint(string value){return false;}\n' +
+            'static void RecordNativeContentCheckpoint(string value){}\n' +
             'static void RepackContent(string value){Spy.Call("pack");File.WriteAllText("Assets/Quest/Resources/quest-startup-content.json", "{\\"inputKey\\":\\"'+ "a" * 64 +'\\"}");}\n' +
             "}}\n" + PROGRAM)
         path = self.root / "Catalog.cs"

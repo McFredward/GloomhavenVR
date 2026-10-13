@@ -20,6 +20,8 @@ import zipfile
 
 MANIFEST = "Assets/Quest/Resources/quest-startup-content.json"
 RECEIPT = "QuestStartupEvidence/native-content-pack.json"
+NATIVE_CHECKPOINT = "QuestStartupEvidence/native-addressables-build.json"
+NATIVE_CHECK_RESULT = "QuestStartupEvidence/native-addressables-check.json"
 NATIVE = "StreamingAssets/aa/"
 PROGRESS_LOG_BYTES = 8 * 1024 * 1024
 
@@ -223,25 +225,252 @@ def full_validation():
             os.environ.get("GHVR_QUEST_VALIDATE_IMPORTED_ASSETS") == "1")
 
 
+class WindowsFileMetadata:
+    """Source-only FileID/ChangeTime observer, usable from the isolated helper.
+
+    Unity invokes this literal file with ``python -I``. Importing a sibling
+    Builder module fails even when that module exists in the frozen checkout.
+    Keep the small documented Win32 observation self-contained. These stamps
+    bind an already measured read; unsupported volumes require byte checks.
+    """
+    def __init__(self, kernel=None):
+        import ctypes
+        self.ctypes = ctypes
+        class Basic(ctypes.Structure):
+            _fields_ = [(name, ctypes.c_int64) for name in
+                        ("CreationTime", "LastAccessTime", "LastWriteTime", "ChangeTime")] + [("FileAttributes", ctypes.c_uint32)]
+        class Standard(ctypes.Structure):
+            _fields_ = [("AllocationSize", ctypes.c_int64), ("EndOfFile", ctypes.c_int64),
+                        ("NumberOfLinks", ctypes.c_uint32), ("DeletePending", ctypes.c_ubyte), ("Directory", ctypes.c_ubyte)]
+        class Identity(ctypes.Structure):
+            _fields_ = [("VolumeSerialNumber", ctypes.c_uint64), ("FileId", ctypes.c_ubyte * 16)]
+        self.Basic, self.Standard, self.Identity = Basic, Standard, Identity
+        self.kernel = kernel or ctypes.WinDLL("kernel32", use_last_error=True)
+        self.filesystems = {}
+        if kernel is None:
+            self.kernel.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_uint32, ctypes.c_uint32,
+                                               ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p]
+            self.kernel.CreateFileW.restype = ctypes.c_void_p
+            self.kernel.GetFileInformationByHandleEx.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+            self.kernel.GetFileInformationByHandleEx.restype = ctypes.c_int
+            self.kernel.GetVolumeInformationByHandleW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_uint32,
+                ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_uint32]
+            self.kernel.GetVolumeInformationByHandleW.restype = ctypes.c_int
+            self.kernel.CloseHandle.argtypes = [ctypes.c_void_p]
+            self.kernel.CloseHandle.restype = ctypes.c_int
+
+    def stamp(self, path):
+        c, name = self.ctypes, str(path)
+        if not name.startswith("\\\\?\\"):
+            name = "\\\\?\\UNC\\" + name[2:] if name.startswith("\\\\") else "\\\\?\\" + name
+        handle = self.kernel.CreateFileW(name, 0x80, 7, None, 3, 0x00200000, None)
+        if handle is None or handle == c.c_void_p(-1).value: return None
+        try:
+            basic, standard, identity = self.Basic(), self.Standard(), self.Identity()
+            # FileBasicInfo=0, FileStandardInfo=1, FileIdInfo=18. ChangeTime is
+            # the true metadata/content change clock, never CreationTime.
+            for kind, value in ((0, basic), (1, standard), (18, identity)):
+                if not self.kernel.GetFileInformationByHandleEx(handle, kind, c.byref(value), c.sizeof(value)): return None
+            if basic.FileAttributes & (0x400 | 0x10) or standard.Directory or standard.DeletePending:
+                raise ValueError("Owned content witness is linked, pending deletion, or not a regular file.")
+            volume = identity.VolumeSerialNumber
+            if volume not in self.filesystems:
+                filesystem = c.create_unicode_buffer(261)
+                ok = self.kernel.GetVolumeInformationByHandleW(handle, None, 0, None, None, None, filesystem, len(filesystem))
+                self.filesystems[volume] = filesystem.value.upper() if ok else ""
+            if (self.filesystems[volume] not in ("NTFS", "REFS") or not basic.ChangeTime
+                    or not any(identity.FileId) or standard.NumberOfLinks < 1): return None
+            # A transaction's read-only hardlinked preimage is a valid source
+            # for this invocation. Persistent native checkpoints exclude links.
+            return ("win32-v1", volume, bytes(identity.FileId).hex(), standard.EndOfFile,
+                    basic.LastWriteTime, basic.ChangeTime)
+        finally:
+            self.kernel.CloseHandle(handle)
+
+
+_windows_metadata = None
+
+
 def file_identity(path):
-    """Use the existing stdlib observer's FileID/change-time on Windows."""
-    import storage
+    """Bind exact source reads without relying on a Builder import path."""
+    global _windows_metadata
     value = ordinary(path).lstat()
     if not stat.S_ISREG(value.st_mode): raise ValueError("Owned content member is not a regular file.")
     portable = (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
-    stamp = storage._file_witness_stamp(path, value)
-    if stamp is None and sys.platform == "win32" and value.st_nlink > 1:
-        # Content transactions already hardlink a read-only ZIP preimage. The
-        # persistent witness policy correctly excludes such files. For this
-        # one open-source read, directory FileID/ChangeTime still detects any
-        # mutation; never seed a persistent proof from this observation.
+    if sys.platform == "win32":
         try:
-            observer = storage._windows_metadata or storage._WindowsFileMetadata()
-            entries = observer.directory(path.parent)
-            stamp = entries.get(path.name) if entries is not None else None
+            if _windows_metadata is None: _windows_metadata = WindowsFileMetadata()
+            stamp = _windows_metadata.stamp(path)
         except (OSError, AttributeError):
-            pass
+            stamp = None
+    else:
+        stamp = ("posix-v1", *portable)
     return portable, stamp
+
+
+def native_roots(request):
+    if not isinstance(request, dict) or set(request) != {"schema", "projectRoot", "nativeRoot"} or request["schema"] != 1:
+        raise ValueError("Native content packer requires its exact schema1 request.")
+    for field in ("projectRoot", "nativeRoot"):
+        if not isinstance(request[field], str) or not Path(request[field]).is_absolute():
+            raise ValueError("Native content packer roots must be absolute owned paths.")
+    project, native = (ordinary(Path(request[field])).resolve() for field in ("projectRoot", "nativeRoot"))
+    if not project.is_dir() or not native.is_relative_to(project):
+        raise ValueError("Native Addressables output must be inside its owned project.")
+    return project, native
+
+
+def native_members(native):
+    result = []
+    for path in sorted(native.rglob("*")):
+        ordinary(path)
+        if path.is_dir() or path.name.endswith(".meta"): continue
+        if not path.is_file(): raise ValueError("Native output contains a non-file member.")
+        result.append((relative(path.relative_to(native).as_posix()), path, path.stat().st_size))
+    return result
+
+
+def native_closure(native, members):
+    """Qualify closed RuntimeSettings/catalog dependencies before bank reuse."""
+    names = {name for name, _, _ in members}
+    if "settings.json" not in names or any(size <= 0 for _, _, size in members):
+        raise ValueError("Native Addressables bank lacks complete nonempty RuntimeSettings/content.")
+    def document(path):
+        ordinary(path)
+        if path.stat().st_size > 256 * 1024 * 1024: raise ValueError("Native catalog exceeds its bounded JSON size.")
+        with path.open(encoding="utf-8-sig") as stream: value = json.load(stream)
+        if not isinstance(value, dict): raise ValueError("Native Addressables catalog/settings are not JSON objects.")
+        return value
+    settings = document(native / "settings.json")
+    catalogs = [name for name in names if PurePosixPath(name).name == "catalog.json" or
+                PurePosixPath(name).name.startswith("catalog_") and name.endswith(".json")]
+    if not catalogs: raise ValueError("Native Addressables bank lacks its actual closed JSON catalog.")
+    bundles = {name for name in names if name.endswith(".bundle")}
+    by_leaf = {}
+    for name in bundles:
+        leaf = PurePosixPath(name).name
+        if leaf in by_leaf: raise ValueError("Native bank has ambiguous bundle filenames.")
+        by_leaf[leaf] = name
+    if not bundles: raise ValueError("Native Addressables bank has no actual cooked bundles.")
+    references = set()
+    for name in catalogs:
+        catalog = document(native / name)
+        identifiers = catalog.get("m_InternalIds")
+        if not isinstance(identifiers, list) or not identifiers:
+            raise ValueError("Native Addressables catalog lacks its exact internal locations.")
+        for identifier in identifiers:
+            if not isinstance(identifier, str): raise ValueError("Native catalog contains an invalid internal location.")
+            if identifier.endswith(".bundle"):
+                leaf = identifier.replace("\\", "/").rsplit("/", 1)[-1]
+                if leaf not in by_leaf: raise ValueError("Native catalog references a missing cooked bundle: " + leaf)
+                references.add(by_leaf[leaf])
+    if references != bundles: raise ValueError("Native catalog bundle closure differs from the cooked output.")
+    # RuntimeSettings can select local catalogs by a RuntimePath placeholder.
+    # Require their exact filenames whenever the pinned native settings expose
+    # locations, without accepting a remote/nonexistent catalog as a local bank.
+    for location in settings.get("m_CatalogLocations", []):
+        identifier = location.get("m_InternalId") if isinstance(location, dict) else None
+        if not isinstance(identifier, str): raise ValueError("Native settings contain an invalid catalog location.")
+        if identifier.endswith(".json") and identifier.replace("\\", "/").rsplit("/", 1)[-1] not in {PurePosixPath(name).name for name in catalogs}:
+            raise ValueError("Native RuntimeSettings refer to a missing local catalog.")
+
+
+def checkpoint_key(request):
+    project, native = native_roots(request)
+    compiler_key = os.environ.get("GHVR_QUEST_NATIVE_BANK_KEY", "")
+    if not re.fullmatch(r"[0-9a-f]{64}", compiler_key): return project, native, None
+    manifest = read_json(project / MANIFEST)
+    if not re.fullmatch(r"[0-9a-f]{64}", manifest.get("inputKey", "")):
+        raise ValueError("Native checkpoint lacks the exact original content identity.")
+    owner = {"schema": 1, "scope": "closed-native-addressables", "inputKey": manifest["inputKey"],
+             "compilerKey": compiler_key, "projectRoot": str(project), "nativeRoot": native.relative_to(project).as_posix()}
+    return project, native, owner
+
+
+def checkpoint_hash(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def read_native_checkpoint(project, owner):
+    try:
+        value = read_json(project / NATIVE_CHECKPOINT)
+        previous_owner = value.get("owner")
+        if (not isinstance(previous_owner, dict) or not isinstance(owner, dict)
+                or set(previous_owner) != set(owner) or value.get("scope") != "closed-native-addressables"
+                or not re.fullmatch(r"[0-9a-f]{64}", previous_owner.get("inputKey", ""))): return None
+        # The compiler key independently binds actual original producers,
+        # assets, SDK/code ABI and platform settings. Reviewed packing-only
+        # updates can change the whole request input key without changing those
+        # cooking inputs. Keep the old key as provenance, never as byte trust.
+        if any(previous_owner[key] != expected for key, expected in owner.items() if key != "inputKey"): return None
+        sealed = dict(value); proof = sealed.pop("checkpointSha256", None)
+        if proof != checkpoint_hash(sealed) or not isinstance(value.get("files"), list): return None
+        validate_files([{key: row[key] for key in ("path", "size", "sha256")} for row in value["files"]])
+        return value
+    except (OSError, ValueError, TypeError, KeyError):
+        return None
+
+
+def qualify_native_files(members, progress, previous=None):
+    """Retain actual byte proofs only while the reliable physical stamp matches."""
+    prior = {row["path"]: row for row in previous["files"]} if previous else {}
+    counter = progress.counter("native-content-native-hash", sum(size for _, _, size in members), "Qualifying closed Android content")
+    rows = []
+    for name, path, size in members:
+        before = file_identity(path)
+        stamp = before[1] if path.lstat().st_nlink == 1 else None
+        old = prior.get(name)
+        if (not full_validation() and stamp is not None and old is not None
+                and old.get("stamp") == list(stamp) and old["size"] == size):
+            hashed = old["sha256"]; counter.add(size, "Retained exact native byte proof: " + name)
+        else:
+            counter.detail = name; hashed = digest(path, counter)
+            if before != file_identity(path) or path.stat().st_size != size:
+                raise ValueError("Native content changed during checkpoint qualification.")
+        rows.append({"path": name, "size": size, "sha256": hashed,
+                     "stamp": list(stamp) if stamp is not None else None})
+    counter.finish()
+    return rows
+
+
+def native_checkpoint(request, mode):
+    """Commit native cooking independently of downstream archive publication.
+
+    A successful native build was followed by an isolated-helper import failure
+    in capture20261013T165327. Its one-hour native bank already exists. Legacy
+    adoption requires the orchestrator's exact input/producer and successful-log
+    qualification; directory presence alone never authorizes that shortcut.
+    """
+    project, native, owner = checkpoint_key(request)
+    result = {"schema": 1, "scope": "closed-native-addressables-check", "reused": False,
+              "reason": "No qualified native compiler identity", "inputKey": owner["inputKey"] if owner else None}
+    if owner and native.is_dir():
+        previous = read_native_checkpoint(project, owner)
+        adopt = mode == "check" and previous is None and os.environ.get("GHVR_QUEST_NATIVE_BANK_LEGACY_ADOPT") == "1"
+        if mode == "record" or previous is not None or adopt:
+            members = native_members(native)
+            try:
+                native_closure(native, members)
+                if previous and {name for name, _, _ in members} != {row["path"] for row in previous["files"]}:
+                    raise ValueError("Native output member set changed since its closed checkpoint.")
+                with ProgressSink(request) as progress:
+                    rows = qualify_native_files(members, progress, previous)
+                if previous and [{key: row[key] for key in ("path", "size", "sha256")} for row in rows] != [
+                        {key: row[key] for key in ("path", "size", "sha256")} for row in previous["files"]]:
+                    raise ValueError("Cooked native bytes differ from their exact closed checkpoint.")
+                receipt = {"schema": 1, "scope": "closed-native-addressables", "owner": owner,
+                           "files": rows, "legacyAdopted": adopt or bool(previous and previous.get("legacyAdopted")),
+                           "compilerCompleted": True, "headsetVerified": False}
+                receipt["checkpointSha256"] = checkpoint_hash(receipt)
+                if receipt != previous: publish_json(project / NATIVE_CHECKPOINT, receipt)
+                result.update(reused=mode == "check", reason="Closed native output retained" if mode == "check" else "Native compiler output checkpoint committed")
+            except (OSError, ValueError, TypeError, KeyError) as error:
+                if mode == "record": raise
+                result["reason"] = str(error)[:1024]
+        else:
+            result["reason"] = "No matching closed native output checkpoint"
+    if mode == "check": publish_json(project / NATIVE_CHECK_RESULT, result)
+    return result
 
 
 def copy_compressed_entry(original, archive, entry, progress=None):
@@ -301,17 +530,12 @@ def pack(request):
 
 def _pack(request, progress):
     started = time.monotonic()
-    if not isinstance(request, dict) or set(request) != {"schema", "projectRoot", "nativeRoot"} or request["schema"] != 1:
-        raise ValueError("Native content packer requires its exact schema1 request.")
-    for field in ("projectRoot", "nativeRoot"):
-        if not isinstance(request[field], str) or not Path(request[field]).is_absolute():
-            raise ValueError("Native content packer roots must be absolute owned paths.")
-    project, native = (ordinary(Path(request[field])) for field in ("projectRoot", "nativeRoot"))
-    project, native = project.resolve(), native.resolve()
-    if not project.is_dir() or not native.is_dir() or not native.is_relative_to(project):
+    project, native = native_roots(request)
+    if not native.is_dir():
         raise ValueError("Native Addressables output must exist inside its owned project.")
     manifest_path = project / MANIFEST
-    manifest_identity = file_identity(manifest_path); manifest = read_json(manifest_path)
+    manifest_identity = file_identity(manifest_path); manifest_hash = digest(manifest_path)
+    manifest = read_json(manifest_path)
     validate_files(manifest.get("files"))
     if not isinstance(manifest.get("inputKey"), str) or not re.fullmatch(r"[0-9a-f]{64}", manifest["inputKey"]):
         raise ValueError("Owned content manifest lost its exact input identity.")
@@ -322,28 +546,22 @@ def _pack(request, progress):
     if not archive_path.is_file():
         raise ValueError("Owned content archive changed before native catalog packaging.")
     source_identity = file_identity(archive_path)
+    source_sha256 = manifest.get("archiveSha256")
     source_hash = progress.counter("native-content-source-hash", archive_path.stat().st_size, archive_path.name)
-    if digest(archive_path, source_hash) != manifest.get("archiveSha256"):
+    if digest(archive_path, source_hash) != source_sha256:
         raise ValueError("Owned content archive changed before native catalog packaging.")
     source_hash.finish()
     retained = [row for row in manifest["files"] if not row["path"].startswith(NATIVE)]
-    sources, added, native_files = {}, [], []
-    for path in sorted(native.rglob("*")):
-        ordinary(path)
-        if path.is_dir() or path.name.endswith(".meta"):
-            continue
-        if not path.is_file():
-            raise ValueError("Native output contains a non-file member.")
-        member = relative(NATIVE + path.relative_to(native).as_posix())
-        native_files.append((member, path, path.stat().st_size))
-    native_hash = progress.counter("native-content-native-hash", sum(size for _, _, size in native_files), "Native Android content")
-    for member, path, size in native_files:
-        native_hash.detail = member
-        row = {"path": member, "size": size, "sha256": digest(path, native_hash)}
-        sources[member] = path; added.append(row)
+    sources, added = {}, []
+    native_files = native_members(native)
+    _, _, owner = checkpoint_key(request)
+    checkpoint = read_native_checkpoint(project, owner) if owner else None
+    for row in qualify_native_files(native_files, progress, checkpoint):
+        member = relative(NATIVE + row["path"])
+        sources[member] = native / row["path"]
+        added.append({"path": member, "size": row["size"], "sha256": row["sha256"]})
     if not added:
         raise ValueError("Native startup Addressables output is empty.")
-    native_hash.finish()
     desired = sorted(retained + added, key=lambda row: row["path"]); validate_files(desired)
     reused = sorted(manifest["files"], key=lambda row: row["path"]) == desired
     temporary = archive_path.with_name(archive_path.name + ".repack-" + uuid.uuid4().hex)
@@ -380,10 +598,10 @@ def _pack(request, progress):
         # was raw-copied. A replacement during native hashing never becomes a
         # newly accepted archive. Unknown Windows stamps use a byte fallback.
         if (file_identity(archive_path) != source_identity or
-                file_identity(manifest_path) != manifest_identity):
+                file_identity(manifest_path) != manifest_identity or digest(manifest_path) != manifest_hash):
             raise ValueError("Owned content archive/manifest changed during native catalog packaging.")
-        if os.name == "nt" and source_identity[1] is None:
-            if digest(archive_path) != manifest["archiveSha256"]:
+        if sys.platform == "win32" and source_identity[1] is None:
+            if digest(archive_path) != source_sha256:
                 raise ValueError("Owned content archive changed during native catalog packaging.")
         if not reused:
             # The existing durable builder journal recovers interruptions between
@@ -392,8 +610,10 @@ def _pack(request, progress):
             manifest["files"] = desired; manifest["archiveSha256"] = digest(temporary, final_hash)
             final_hash.finish()
             if (file_identity(archive_path) != source_identity or
-                    file_identity(manifest_path) != manifest_identity):
+                    file_identity(manifest_path) != manifest_identity or digest(manifest_path) != manifest_hash):
                 raise ValueError("Owned content archive/manifest changed before publication.")
+            if sys.platform == "win32" and source_identity[1] is None and digest(archive_path) != source_sha256:
+                raise ValueError("Owned content archive changed before publication.")
             os.replace(temporary, archive_path); publish_json(manifest_path, manifest)
         else:
             # Source qualification already hashed the unchanged archive.
@@ -417,12 +637,14 @@ def _pack(request, progress):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__); parser.add_argument("--request", type=Path, required=True)
+    parser.add_argument("--native-checkpoint", choices=("record", "check"))
     args = parser.parse_args(argv)
     try:
-        receipt = pack(read_json(args.request, 65536))
+        request = read_json(args.request, 65536)
+        receipt = native_checkpoint(request, args.native_checkpoint) if args.native_checkpoint else pack(request)
     except Exception as error:
         print("Native content packer stopped: " + str(error)[:2048], file=sys.stderr); return 1
-    print(json.dumps({key: receipt[key] for key in ("schema", "reused", "fileCount", "archiveSha256")})); return 0
+    print(json.dumps(receipt if args.native_checkpoint else {key: receipt[key] for key in ("schema", "reused", "fileCount", "archiveSha256")})); return 0
 
 
 if __name__ == "__main__":
