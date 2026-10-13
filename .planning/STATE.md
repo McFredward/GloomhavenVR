@@ -1,5 +1,23 @@
 # State — where the project stands
 
+**Quest whole shader progress and app-storage restoration, 2026-10-13: feature / B672.**
+
+Capture211355 identifies Builderae0a6f072. APKd4e76da00ec2 is built and already
+installed over authorized USB; the incomplete signing transaction cannot enter
+the replacement app's external storage view. Retain its nonempty246MB backup.
+Create only the exact missing root in the actual app UID; keep write/read and
+paused-process ownership proofs. A bounded same-package launch retry and
+observed-sleep wake request precede explicit awake/unlock/retry guidance. Lost
+connections retain their distinct recovery actions; no APK rebuild is needed.
+
+A single returned shader pass incorrectly closed the separate whole compiler
+card. Primary progress now follows the owning source census and real handoff;
+the current pass's variants are secondary. Known-name coverage is labelled as
+coverage, not a selected variant queue. Retained states cannot revive false100%.
+See [QUEST-INSTALL-SHADER-PROGRESS-20261013.md](QUEST-INSTALL-SHADER-PROGRESS-20261013.md)
+and the handoff's focused/extracted-release receipts. Runtime and game producers
+are unchanged; the hardware installation outcome still needs the next test.
+
 **Quest native control size guard, 2026-10-13: feature / B672.**
 
 Capture191013 identifies the shipped Builderf092812dc. All27preparation owners

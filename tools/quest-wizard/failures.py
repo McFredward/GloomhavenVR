@@ -245,14 +245,17 @@ def installation_failure(text, parameters):
                 if (isinstance(value, dict) and set(value) == repair_fields
                         and type(value["schema"]) is int and value["schema"] == 1
                         and value["kind"] == "signing-repair-wait"
-                        and value["reason"] in ("backup-census-mismatch", "backup-transfer-unavailable")
+                        and value["reason"] in ("backup-census-mismatch", "backup-transfer-unavailable", "restore-app-access")
                         and value["saveDataProtected"] is True
                         and value["root"] in ("private", "device-protected", "external")
                         and type(value["attempts"]) is int and type(value["totalAttempts"]) is int
                         and 1 <= value["attempts"] == value["totalAttempts"] <= 64):
+                    restore = value["reason"] == "restore-app-access"
                     return WizardError("quest_signing_repair_wait",
-                        "The completed APK and existing saves are retained. Automatic repair tried the available safe backup transfers, but this data backup is not ready. Keep the Quest awake and connected and retry installation, or finish without installing. No save reset is performed.",
-                        "Die fertige APK und vorhandene Spielstände bleiben erhalten. Die automatische Reparatur hat die verfügbaren sicheren Übertragungswege versucht; diese Datensicherung ist noch nicht bereit. Quest eingeschaltet und verbunden lassen und die Installation erneut versuchen oder ohne Installation abschließen. Spielstände werden nicht zurückgesetzt.",
+                        ("The APK is ready, but Android cannot yet open the app's writable storage to restore its saves and settings. Wear and unlock the Quest, keep it awake and connected, then retry installation. Retained backups are kept; the APK is not rebuilt and saves are not reset."
+                         if restore else "The completed APK and existing saves are retained. Automatic repair tried the available safe backup transfers, but this data backup is not ready. Keep the Quest awake and connected and retry installation, or finish without installing. No save reset is performed."),
+                        ("Die APK ist fertig. Android kann den beschreibbaren App-Speicher zum Wiederherstellen der Spielstände und Einstellungen noch nicht öffnen. Quest aufsetzen, entsperren, eingeschaltet und verbunden lassen, dann die Installation erneut versuchen. Vorhandene Sicherungen bleiben erhalten; die APK wird nicht neu gebaut und Spielstände werden nicht zurückgesetzt."
+                         if restore else "Die fertige APK und vorhandene Spielstände bleiben erhalten. Die automatische Reparatur hat die verfügbaren sicheren Übertragungswege versucht; diese Datensicherung ist noch nicht bereit. Quest eingeschaltet und verbunden lassen und die Installation erneut versuchen oder ohne Installation abschließen. Spielstände werden nicht zurückgesetzt."),
                         **dict(fields, signingRecovery=True, saveDataProtected=True,
                                repairReason=value["reason"], repairRoot=value["root"],
                                repairAttempts=value["attempts"], repairTotalAttempts=value["totalAttempts"]))

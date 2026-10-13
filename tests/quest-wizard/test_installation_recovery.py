@@ -113,6 +113,30 @@ class InstallationFailureTests(unittest.TestCase):
                 self.assertIn("Diagnosepaket", error.message["de"])
                 self.assertNotIn("Zugriffs-", error.message["de"])
 
+    def test_current_app_storage_wait_is_a_retained_action_with_specific_guidance(self):
+        action = {"schema": 1, "kind": "signing-repair-wait", "reason": "restore-app-access",
+                  "saveDataProtected": True, "attempts": 2, "totalAttempts": 2, "root": "external"}
+        text = ("GHVRQ_ACTION " + json.dumps(action) + "\nQuest installation stopped: "
+                "Signing migration could not safely continue: The replacement app cannot yet restore its "
+                "external saves/settings through its own storage view. Original recovery data is retained "
+                "at /owned/current. Retry with the same APK and headset.\n")
+        error = self.failure(text)
+        self.assertEqual(error.code, "quest_signing_repair_wait")
+        self.assertEqual(error.parameters["repairReason"], "restore-app-access")
+        self.assertEqual(error.parameters["backupPath"], "/owned/current")
+        self.assertEqual(error.parameters["retryAction"], "install")
+        self.assertTrue(error.parameters["completedBuildRetained"])
+        self.assertTrue(error.parameters["saveDataProtected"])
+        self.assertIn("Quest aufsetzen", error.message["de"])
+        self.assertIn("Wear and unlock", error.message["en"])
+        self.assertNotIn("connectionReason", error.parameters)
+        for field, value in (("root", "unrelated"), ("saveDataProtected", False),
+                             ("attempts", 1), ("reason", "arbitrary-repair")):
+            invalid = dict(action, **{field: value})
+            with self.subTest(field=field):
+                unknown = self.failure(text.replace(json.dumps(action), json.dumps(invalid)))
+                self.assertNotEqual(unknown.code, "quest_signing_repair_wait")
+
     def test_backup_reference_is_scoped_to_the_last_real_refusal_and_remains_bounded(self):
         text = ("Quest installation stopped: Signing migration could not safely continue: stale failure\n"
                 ". Original recovery data is retained at /private/old. Retry with the same APK and headset.\n"
