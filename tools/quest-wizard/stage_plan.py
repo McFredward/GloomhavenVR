@@ -112,7 +112,7 @@ UNITY_VALIDATION_SHARES = {"unity-configuration": .1, "unity-validation-tasks": 
 UNITY_CHILD_COUNTERS = frozenset(("unity-sdk-tasks", "unity-original-scenes", "unity-validation-sprites",
     "unity-validation-campaign-sprites", "unity-addressables-keys", "unity-addressables-entries",
     "unity-addressables-shaders", "unity-addressables-shader-roots", "unity-content-post-tasks",
-    "unity-content-delivery", "unity-player-scenes", "unity-player-shaders", "unity-player-native-result", "unity-player-platform-handoff", "unity-native-build-plan", "unity-il2cpp", "unity-gradle-tasks",
+    "unity-content-delivery", "unity-player-scenes", "unity-player-shaders", "unity-bank-shaders", "unity-player-native-result", "unity-player-platform-handoff", "unity-native-build-plan", "unity-il2cpp", "unity-gradle-tasks",
     "unity-script-bindings", "unity-script-assets", "unity-script-write", "unity-campaign-objects", "unity-campaign-scenes", "unity-campaign-audio", "unity-campaign-atlases", "unity-campaign-packed-sprites",
     "unity-native-shader-audit", "unity-native-shader-audit-read", "unity-native-shader-audit-objects",
     "unity-scene-objects", "unity-scene-dependencies", "unity-texture-cubes", "unity-texture-targets",
@@ -939,6 +939,7 @@ def _recovery_work(recovery):
 def _unity_part(plan, owner, value):
     phase = value["phase"]
     parts = UNITY_METHOD_PARTS.get(owner, {})
+    if owner == "content-bank" and phase == "unity-bank-shaders": return "build"
     if owner in ("player", "update-code"):
         if phase in ("unity-il2cpp", "unity-native-build-plan", "unity-player-platform-handoff"):
             return "native"
@@ -1077,7 +1078,10 @@ def _observe_unity_work(plan, owner, value, status):
             graph_local = player_graph and (phase.startswith("bee-actions:") or phase.startswith("unity-progress:")
                 or phase in ("unity-bee-activity", "unity-native-build", "unity-progress", "unity-player-memory"))
             platform_handoff = player_graph and phase == "unity-player-platform-handoff"
-            shader_local = player_graph and (phase in ("unity-shader-compile", "unity-shader-task", "unity-shaders") or phase.startswith("unity-shader-task:"))
+            shader_owner = player_graph or owner == "content-bank"
+            coverage_phase = "unity-player-shaders" if player_graph else "unity-bank-shaders"
+            shader_part = "shaders" if player_graph else "build"
+            shader_local = shader_owner and (phase in ("unity-shader-compile", "unity-shader-task", "unity-shaders") or phase.startswith("unity-shader-task:"))
             if conversion:
                 activity = work.setdefault("activities", {}).setdefault("native", {})
                 if not activity.get("il2cpp", {}).get("closed"):
@@ -1101,10 +1105,10 @@ def _observe_unity_work(plan, owner, value, status):
                 # Variant counts belong to one pass, not the remaining
                 # Shader serialization of the entire Player operation.
                 work.setdefault("localCounters", {})[part] = counter
-                coverage = work["counters"].get("shaders", {})
+                coverage = work["counters"].get(shader_part, {})
                 if phase == "unity-shader-compile" and status not in ("complete", "reuse", "failed") \
                         and "[shader-source:unseen]" in (value.get("detail") or "") \
-                        and coverage.get("phase") == "unity-player-shaders" \
+                        and coverage.get("phase") == coverage_phase \
                         and type(coverage.get("done")) is int and type(coverage.get("total")) is int and coverage["total"] > 1 \
                         and type(value.get("done")) is int and type(value.get("total")) is int and value["total"] > 0:
                     # Only the first pass of one not-yet-observed declared
@@ -1114,9 +1118,9 @@ def _observe_unity_work(plan, owner, value, status):
                     # completion must not double-credit this partial source.
                     partial = value["done"] / (value["total"] + 1)
                     coverage_ratio = .8 * min(1., (coverage["done"] + partial) / (coverage["total"] - 1))
-                    seen = work.setdefault("partCounters", {}).setdefault("shaders", {})
-                    seen["unity-player-shaders"] = max(seen.get("unity-player-shaders", 0.), coverage_ratio)
-                    work["partFractions"]["shaders"] = max(work["partFractions"].get("shaders", 0.), coverage_ratio)
+                    seen = work.setdefault("partCounters", {}).setdefault(shader_part, {})
+                    seen[coverage_phase] = max(seen.get(coverage_phase, 0.), coverage_ratio)
+                    work["partFractions"][shader_part] = max(work["partFractions"].get(shader_part, 0.), coverage_ratio)
             elif not platform_handoff:
                 work["counters"][part] = counter
             ratio = None if conversion or graph_local or platform_handoff or shader_local else _ratio(value)
@@ -1128,21 +1132,22 @@ def _observe_unity_work(plan, owner, value, status):
             if owner == "unity-validation" and part == "checks":
                 ratio = plan.get("unityValidation", {}).get("fractions", {}).get("unity-validation-tasks", ratio)
             if ratio is not None:
-                schedule = {"unity-player-shaders": 1.} if player_graph and part == "shaders" else UNITY_PART_COUNTERS.get(part)
+                shader_coverage = shader_owner and part == shader_part and phase == coverage_phase
+                schedule = {coverage_phase: 1.} if shader_coverage else {"unity-player-shaders": 1.} if player_graph and part == "shaders" else UNITY_PART_COUNTERS.get(part)
                 if schedule and phase in schedule:
                     seen = work.setdefault("partCounters", {}).setdefault(part, {})
                     # Reading every bundle is not the authoritative receipt
                     # gate. Its last 10% belongs to the successful C# return.
                     if owner == "content-bank" and phase == "unity-native-shader-audit" and status not in ("complete", "reuse"):
                         ratio = 0.
-                    if player_graph and phase == "unity-player-shaders":
+                    if shader_owner and phase == coverage_phase:
                         # First observed passes establish source coverage,
                         # not completion of every pass/variant. Their known
                         # census owns80%; actual serialization handoff owns20%.
                         ratio = .8 * min(1., value.get("done", 0) / max(1, value["total"] - 1))
                     seen[phase] = max(seen.get(phase, 0.), min(.99, ratio))
                     terminal = status in ("complete", "reuse") and _ratio(value) == 1.
-                    if player_graph and phase in ("unity-player-scenes", "unity-player-shaders"): terminal = False
+                    if phase in ("unity-player-shaders", "unity-bank-shaders") or player_graph and phase == "unity-player-scenes": terminal = False
                     if terminal:
                         seen[phase] = 1.
                         work.setdefault("partCounterProofs", {}).setdefault(part, {})[phase] = status
@@ -1342,18 +1347,37 @@ def _build_overview(row, plan):
         if detail: item["preparation"] = detail
         compiler = plan.get("unityCompiler", {}).get(item["id"])
         if compiler:
-            part = "build" if item["id"] == "content-bank" else "native" if item["id"] in ("player", "update-code") else None
-            compiled = part is not None and part in plan.get("unityWork", {}).get(item["id"], {}).get("partCompleted", ())
-            shaders_returned = item["id"] in ("player", "update-code") and "shaders" in plan.get("unityWork", {}).get(item["id"], {}).get("partCompleted", ())
-            closed = item["closed"] or compiled or shaders_returned or compiler.get("closed", False)
-            # Native success can arrive after the last observed Shader counter
-            # and omit its final log line. Keep that original pass census for
-            # support, but display the authoritative completed scope at100%.
+            work = plan.get("unityWork", {}).get(item["id"], {})
+            part = "build" if item["id"] == "content-bank" else "shaders" if item["id"] in ("player", "update-code") else None
+            closed = item["closed"] or part is not None and part in work.get("partCompleted", ())
+            # Capture211355 has1557 returned passes. Each FINISHED closes one
+            # pass, not the compiler's remaining passes/serialization. The
+            # primary compiler bar must share its caller's actual boundary.
             compiler_status = "complete" if closed else "failed" if row["status"] == "failed" and item["id"] == active else "running" if item["id"] == active else "pending"
-            compiler_percent = 100. if closed else compiler.get("percent")
-            if not closed and compiler_status == "running" and type(compiler.get("done")) is int and type(compiler.get("total")) is int and compiler["total"] > 0:
-                compiler_percent = 100 * compiler["done"] / (compiler["total"] + 1)
-            item["compiler"] = dict(compiler, percent=compiler_percent, status=compiler_status)
+            coverage = work.get("counters", {}).get(part, {})
+            qualified = coverage.get("phase") in ("unity-player-shaders", "unity-bank-shaders") \
+                and type(coverage.get("done")) is int and type(coverage.get("total")) is int and coverage["total"] > 1
+            if qualified:
+                aggregate = dict(phase=coverage["phase"], done=coverage["done"], total=coverage["total"] - 1,
+                    unit="shader-names", scope="sources", percent=100. if closed else 100 * work.get("partFractions", {}).get(part, 0.))
+            else:
+                # The selected variant queue is not printed in advance. Do
+                # not turn a local pass's denominator into a made-up global
+                # queue: use the finite caller work or leave it unmeasured.
+                scope = plan.get("preparationScopes", {}).get(item["id"], {})
+                bank_scope = item["id"] == "mod-banks" and scope.get("name") == "mod-resource-banks" and type(scope.get("total")) is int and scope["total"] > 0
+                aggregate = dict(phase="unity-shader-overall", scope="banks" if bank_scope else "caller",
+                    percent=100. if closed else 100 * plan.get("liveFractions", {}).get(item["id"], 0.) if bank_scope else None,
+                    done=scope.get("done") if bank_scope else None, total=scope.get("total") if bank_scope else None,
+                    unit="bundles" if bank_scope else "tasks")
+            aggregate.update(status=compiler_status, closed=closed)
+            local_percent = compiler.get("percent")
+            if not compiler.get("closed") and type(compiler.get("done")) is int and type(compiler.get("total")) is int and compiler["total"] > 0:
+                local_percent = 100 * compiler["done"] / (compiler["total"] + 1)
+            current = {key: compiler.get(key) for key in ("phase", "done", "total", "unit", "scope", "detail")}
+            current.update(percent=local_percent, status="failed" if compiler.get("passFailed") else "complete" if compiler.get("closed") else compiler_status)
+            item["compiler"] = dict(compiler, percent=aggregate["percent"], status=compiler_status, closed=closed,
+                aggregate=aggregate, currentPass=current)
         imported = plan.get("unityImports", {}).get(item["id"])
         if imported:
             item["import"] = dict(imported, status="failed" if row["status"] == "failed" and item["id"] == active
@@ -1623,6 +1647,7 @@ def advance(row, value, operation=None, status=None):
                 "phase": value["phase"], "done": value.get("done"), "total": value.get("total"),
                 "unit": value.get("unit"), "percent": value.get("percent"), "detail": value.get("detail"),
                 "scope": "pass" if value["phase"] == "unity-shader-compile" else "task",
+                "passFailed": status == "failed",
                 "closed": status in ("complete", "reuse") and _ratio(value) == 1.}
             scope = plan.get("preparationScopes", {}).get(live_owner, {})
             if value["phase"] == "unity-shader-task" and scope.get("open") and scope.get("name") == "mod-resource-banks":

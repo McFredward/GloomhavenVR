@@ -255,10 +255,10 @@ class ProgressParser:
 
         Duplicate declared names identify the compiler's actual log namespace,
         not GUIDs or a promised variant queue. This explicitly named coverage
-        can reach its final task only at the Android platform handoff.
+        can reach its final task only at its native caller's observed return.
         """
         owner = self._unity_operation(source)
-        if owner not in ("player", "update-code") or owner in self.closed_operations: return None
+        if owner not in ("player", "update-code", "content-bank") or owner in self.closed_operations: return None
         key = (source, owner)
         fresh = key not in self.shader_coverage
         if key not in self.shader_coverage:
@@ -294,8 +294,10 @@ class ProgressParser:
             if finished not in census["names"] or finished in census["observed"]: return None
             census["observed"].add(finished)
         done, known = len(census["observed"]), len(census["names"])
-        return self._unity_fields({"phase": "unity-player-shaders", "done": done, "total": known + 1,
-            "unit": "tasks", "status": "progress", "detail": f"[shader-coverage] {done} / {known} known declared Shader names observed; +1 Android platform handoff pending"}, source)
+        player = owner in ("player", "update-code")
+        boundary = "Android platform handoff" if player else "native Addressables build return"
+        return self._unity_fields({"phase": "unity-player-shaders" if player else "unity-bank-shaders", "done": done, "total": known + 1,
+            "unit": "tasks", "status": "progress", "detail": f"[shader-coverage] {done} / {known} known declared Shader names observed; +1 {boundary} pending"}, source)
 
     def _conversion_complete(self, source, graph):
         if graph.get("conversionClosed"): return None

@@ -522,7 +522,8 @@ function phaseLabel(phase='') {
   return key?t('phase_'+key):phase;
 }
 function counters(value) {
-  if(['shader-phase','phase-continuation'].includes(value.progressScope))return '';
+  if(value.progressScope==='shader-phase')return value.scopeCounter?counters(value.scopeCounter):'';
+  if(value.progressScope==='phase-continuation')return '';
   if(['next-phase','result-phase'].includes(value.progressScope))return value.scopeCounter?counters(value.scopeCounter):'';
   if(value.unit==='assets'&&Number.isSafeInteger(value.done)&&value.done>=0&&value.total==null)return t('counterImportsCompleted',{done:new Intl.NumberFormat(language).format(value.done)});
   if(value.unit==='tasks'&&Number.isSafeInteger(value.done)&&value.done>=0&&value.total==null)return t('counterTasksReported',{done:new Intl.NumberFormat(language).format(value.done)});
@@ -532,7 +533,7 @@ function counters(value) {
   if(value.unit==='bytes')return t('counterBytes',{done:number(value.done/1048576)+' MiB',total:number(value.total/1048576)+' MiB'});
   if(value.phase?.startsWith('bee-actions:'))return t('counterLocalGraphActions',{done:number(value.done),total:number(value.total)});
   if(value.phase==='unity-player-scenes')return t('counterSceneEntries',{done:number(value.done),total:number(value.total)});
-  const key={attempts:'counterRepairAttempts',files:'counterFiles',bundles:'counterBundles',actions:'counterActions',checks:'counterChecks',dependencies:'counterDependencies',batches:'counterBatches',steps:'counterSteps',checkpoints:'counterSteps',variants:'counterVariants',objects:'counterObjects',assets:'counterImports',assemblies:'counterAssemblies',tasks:'counterSteps',invocations:'counterInvocations',scenes:'counterScenes',sprites:'counterSprites',shaders:'counterShaders'}[value.unit]??'counterUnits';
+  const key={attempts:'counterRepairAttempts',files:'counterFiles',bundles:'counterBundles',actions:'counterActions',checks:'counterChecks',dependencies:'counterDependencies',batches:'counterBatches',steps:'counterSteps',checkpoints:'counterSteps',variants:'counterVariants',objects:'counterObjects',assets:'counterImports',assemblies:'counterAssemblies',tasks:'counterSteps',invocations:'counterInvocations',scenes:'counterScenes',sprites:'counterSprites',shaders:'counterShaders','shader-names':'counterShaderNames'}[value.unit]??'counterUnits';
   return t(key,{done:number(value.done),total:number(value.total)});
 }
 function workDetail(value) {
@@ -699,13 +700,23 @@ function preparationDetail(operation,openPlans) {
   }
   if(compiler){
     const box=document.createElement('section');box.className='unity-compiler '+compiler.status;box.dataset.compilerOwner=operation.id;
-    const title=document.createElement('strong');title.textContent=t('phase_unity-shader-compile');
-    const scope=document.createElement('p');scope.className='hint';scope.textContent=t(compiler.scope==='task'?'shaderTaskScope':'shaderPassScope');
-    const status=document.createElement('p');status.className='hint';status.textContent=[t('overview_'+compiler.status),compiler.counter?counters(compiler.counter):'',compiler.percent===null?t('phaseUnknown'):t('phasePercent',{percent:percentText(compiler.percent)})].filter(Boolean).join(' · ');
-    const bar=document.createElement('progress');bar.max=100;bar.setAttribute('aria-label',t('phase_unity-shader-compile')+' · '+scope.textContent);
-    if(compiler.percent!==null)bar.value=compiler.percent;
-    const detail=document.createElement('p');detail.className='hint';detail.textContent=compiler.detail;
-    box.append(title,scope,status,bar,detail);container.append(box);
+    const overall=compiler.aggregate;
+    const title=document.createElement('strong');title.textContent=t('phase_unity-shader-overall');
+    const scope=document.createElement('p');scope.className='hint';scope.textContent=t(overall?.scope==='sources'?'unityShaderSourceScope':overall?.scope==='banks'?'shaderBankScope':'shaderCallerScope');
+    const percentage=overall?.percent??null;
+    const status=document.createElement('p');status.className='hint';status.textContent=[t('overview_'+(overall?.status??compiler.status)),overall?.counter?counters(overall.counter):'',percentage===null?t('phaseUnknown'):t('phasePercent',{percent:percentText(percentage)})].filter(Boolean).join(' · ');
+    const bar=document.createElement('progress');bar.max=100;bar.dataset.shaderOverall='true';bar.setAttribute('aria-label',t('phase_unity-shader-overall')+' · '+scope.textContent);
+    if(percentage!==null)bar.value=percentage;
+    const detail=document.createElement('p');detail.className='hint';detail.textContent=workDetail(compiler);
+    box.append(title,scope,status,bar,detail);
+    const local=compiler.currentPass??(overall?null:compiler);
+    if(local&&overall?.status!=='complete'){
+      const current=document.createElement('p');current.className='hint';current.textContent=[t(local.scope==='task'?'shaderTaskScope':'shaderPassScope'),local.counter?counters(local.counter):'',local.percent===null?t('phaseUnknown'):t('phasePercent',{percent:percentText(local.percent)}),t('overview_'+local.status)].filter(Boolean).join(' · ');
+      const pass=document.createElement('progress');pass.max=100;pass.dataset.shaderPass='true';pass.setAttribute('aria-label',t('shaderPassScope'));
+      if(local.percent!==null)pass.value=local.percent;
+      box.append(current,pass);
+    }
+    container.append(box);
   }
   return container;
 }
@@ -873,8 +884,9 @@ function renderProgress() {
       $('progress-copy').textContent=t(saves?'installationSaveWaitCopy':'installationDataChoiceCopy');
       $('action-needed-title').textContent=t(saves?'installationSaveWaitAction':'installationDataChoiceAction');
     }else if(installation.repairWait){
-      $('progress-title').textContent=t('installationRepairWaitTitle');
-      $('progress-copy').textContent=t('installationRepairWaitCopy');
+      const restoring=installation.repairWait.reason==='restore-app-access';
+      $('progress-title').textContent=t(restoring?'installationRestoreWaitTitle':'installationRepairWaitTitle');
+      $('progress-copy').textContent=t(restoring?'installationRestoreWaitCopy':'installationRepairWaitCopy');
       $('action-needed-title').textContent=t('installationRepairWaitAction');
     }
   }else if(installation&&active){
@@ -951,7 +963,7 @@ function renderProgress() {
       :installation?.dataIssue
       ?t(installation.dataIssue==='save-data-inaccessible'?'installationSaveWaitNext':'installationDataChoiceNext')
       :installation?.repairWait
-      ?t('installationRepairReason_'+installation.repairWait.reason)+' '+t('installationRepairWaitNext')
+      ?t('installationRepairReason_'+installation.repairWait.reason)+' '+t(installation.repairWait.reason==='restore-app-access'?'installationRestoreWaitNext':'installationRepairWaitNext')
       :(stageName?stageName+': ':'')+hint;}
   const failureKey=installIssue?state.session+':install:'+installation.cause:failure?state.session+':'+failure.stage+':'+failure.cause:'';
   if(failureKey&&failureKey!==lastFailureFocus){$('action-needed').focus({preventScroll:true});$('action-needed').scrollIntoView({block:'nearest'});}

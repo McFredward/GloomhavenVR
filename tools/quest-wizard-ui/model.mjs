@@ -80,7 +80,7 @@ export function installationView(state) {
      !['complete','reuse'].includes(install.progress.operationStatus))view.connectionWaiting=true;
   if(attention&&['quest_signing_recovery_required','quest_signing_data_required','quest_signing_repair_wait'].includes(action?.code))view.recoveryRequired=true;
   if(attention&&action?.code==='quest_signing_repair_wait'&&parameters.saveDataProtected===true&&
-     ['backup-census-mismatch','backup-transfer-unavailable'].includes(parameters.repairReason)&&
+     ['backup-census-mismatch','backup-transfer-unavailable','restore-app-access'].includes(parameters.repairReason)&&
      ['private','device-protected','external'].includes(parameters.repairRoot)&&
      Number.isSafeInteger(parameters.repairAttempts)&&Number.isSafeInteger(parameters.repairTotalAttempts)&&
      parameters.repairAttempts>=1&&parameters.repairAttempts===parameters.repairTotalAttempts&&parameters.repairTotalAttempts<=64){
@@ -236,12 +236,15 @@ export function stageProgress(stage) {
     phasePercent=part?.closed?0:part?.percent??0;displayPhase=phase;progressScope=scope;
     scopeCounter=part?.closed?null:part?.counter??null;
   };
-  if(['player','update-code'].includes(operation)&&['unity-player-scenes','unity-player-shaders'].includes(value.phase)){
-    const part=parts.find(row=>row.id===(value.phase==='unity-player-scenes'?'scenes':'shaders'));
+  if((['player','update-code'].includes(operation)&&['unity-player-scenes','unity-player-shaders'].includes(value.phase))||(operation==='content-bank'&&value.phase==='unity-bank-shaders')){
+    const part=parts.find(row=>row.id===(value.phase==='unity-player-scenes'?'scenes':operation==='content-bank'?'build':'shaders'));
     if(part?.closed){
       const next=parts.slice(parts.indexOf(part)+1).find(row=>!row.closed);
       project(next,'unity-work-stage:'+(next?.id??'result'),next?.status==='pending'?'next-phase':'phase-continuation');
-    }else if(part){phasePercent=part.percent;progressScope=value.phase==='unity-player-scenes'?'scenes':'shader-coverage';}
+    }else if(part){
+      phasePercent=part.percent;progressScope=value.phase==='unity-player-scenes'?'scenes':'shader-phase';
+      if(progressScope==='shader-phase')scopeCounter={done:value.done,total:value.total-1,unit:'shader-names'};
+    }
   }
   if(['player','update-code'].includes(operation)&&(value.phase?.startsWith('bee-actions:')||value.phase?.startsWith('unity-progress:')||['unity-bee-activity','unity-native-build','unity-progress','unity-player-memory','unity-player-platform-handoff','unity-il2cpp','unity-native-build-plan'].includes(value.phase))){
     const native=parts.find(row=>row.id==='native');
@@ -251,18 +254,20 @@ export function stageProgress(stage) {
     }else if(native){phasePercent=native.percent;displayPhase='unity-native-build-plan';progressScope='native-phase';}
   }
   if(['unity-shader-compile','unity-shader-task'].includes(value.phase)||value.phase?.startsWith('unity-shader-task:')){
-    const shaders=parts.find(row=>row.id==='shaders');
-    if(finished&&shaders&&!shaders.closed){
-      // Only the observed pass returned. Serialization and remaining passes
-      // still belong to the current whole Shader phase.
-      phasePercent=shaders.percent;displayPhase='unity-player-shader-work';progressScope='shader-phase';
-    }else if(finished&&shaders?.closed){
+    const shaders=parts.find(row=>row.id===(operation==='content-bank'?'build':'shaders'));
+    const aggregate=owner?.compiler?.aggregate;
+    if(shaders?.closed){
       const next=parts.slice(parts.indexOf(shaders)+1).find(row=>!row.closed);
       project(next,'unity-work-stage:'+(next?.id??'result'),next?.status==='pending'?'next-phase':'phase-continuation');
-    }else if(!finished&&Number.isSafeInteger(value.done)&&Number.isSafeInteger(value.total)&&value.done>=0&&value.total>0){
-      // Ready variants plus the actual compiler-pass return form a finite
-      // local scope. N/Nready cannot display100before FINISHED is observed.
-      phasePercent=100*value.done/(value.total+1);progressScope='shader-pass';
+    }else{
+      // Every pass, including its intermediate ready/finished counters,
+      // projects the same whole compiler phase. A pass's100% is secondary.
+      phasePercent=aggregate?.percent??shaders?.percent??null;
+      displayPhase='unity-shader-overall';progressScope='shader-phase';
+      scopeCounter=aggregate&&Number.isSafeInteger(aggregate.done)&&Number.isSafeInteger(aggregate.total)&&aggregate.total>0
+        ?{done:aggregate.done,total:aggregate.total,unit:aggregate.unit}:null;
+      if(!scopeCounter&&['unity-player-shaders','unity-bank-shaders'].includes(shaders?.counter?.phase)&&Number.isSafeInteger(shaders.counter.total)&&shaders.counter.total>1)
+        scopeCounter={done:shaders.counter.done,total:shaders.counter.total-1,unit:'shader-names'};
     }
   }
   if(owner&&!owner.closed&&work){
@@ -328,13 +333,32 @@ export function buildOverviewView(state) {
     return {checkpoints,done:checkpoints.filter(item=>item.closed).length,total:checkpoints.length,
       active:checkpoints.some(item=>item.id===value.active)?value.active:null};
   };
-  const compiler=value=>{
+  const compiler=(value,owner)=>{
     if(!value||!(['unity-shader-compile','unity-shader-task'].includes(value.phase)||typeof value.phase==='string'&&value.phase.startsWith('unity-shader-task:')))return null;
     // The backend retains the last observed pass census for diagnostics. Once
     // its native caller succeeded, that stale local count is no longer live.
-    return {phase:value.phase,scope:value.scope==='task'?'task':'pass',counter:value.status==='complete'?null:counter(value),
-      percent:typeof value.percent==='number'&&Number.isFinite(value.percent)&&value.percent>=0&&value.percent<=100?value.percent:null,
-      detail:typeof value.detail==='string'?value.detail.slice(0,1024):'',status:['running','failed','complete','pending'].includes(value.status)?value.status:'pending'};
+    let aggregate=value.aggregate;
+    if(!aggregate){
+      // Existing runs retain old last-pass.closed snapshots. Their owner
+      // work still records the genuine whole phase; never replay that local
+      // closure as completion after replacing the Builder.
+      const part=owner.unityWork?.phases?.find(row=>row.id==='method')?.parts?.find(row=>row.id===(owner.id==='content-bank'?'build':'shaders'));
+      const closed=owner.closed===true||part?.closed===true,coverage=part?.counter;
+      const known=coverage&&['unity-player-shaders','unity-bank-shaders'].includes(coverage.phase)&&Number.isSafeInteger(coverage.total)&&coverage.total>1&&Number.isSafeInteger(coverage.done)&&coverage.done>=0&&coverage.done<coverage.total;
+      aggregate={scope:known?'sources':'caller',closed,status:closed?'complete':owner.status==='failed'?'failed':owner.status==='running'?'running':'pending',
+        percent:closed?100:known&&Number.isFinite(part?.percent)?part.percent:null,
+        ...(known?{done:coverage.done,total:coverage.total-1,unit:'shader-names'}:{})};
+    }
+    const overall=aggregate&&['sources','banks','caller'].includes(aggregate.scope)&&['running','failed','complete','pending'].includes(aggregate.status)
+      ?{scope:aggregate.scope,status:aggregate.status,closed:aggregate.closed===true,counter:counter(aggregate),
+        percent:typeof aggregate.percent==='number'&&Number.isFinite(aggregate.percent)&&aggregate.percent>=0&&aggregate.percent<=100?aggregate.percent:null}:null;
+    const local=value.currentPass??value;
+    const currentPass=local&&['pass','task'].includes(local.scope)&&['running','failed','complete','pending'].includes(local.status)
+      ?{scope:local.scope,status:local.status,counter:counter(local),
+        percent:typeof local.percent==='number'&&Number.isFinite(local.percent)&&local.percent>=0&&local.percent<=100?local.percent:null}:null;
+    return {phase:value.phase,scope:value.scope==='task'?'task':'pass',counter:overall?.status==='complete'?null:counter(value),aggregate:overall,currentPass,
+      percent:overall?.percent??null,
+      detail:typeof value.detail==='string'?value.detail.slice(0,1024):'',status:overall?.status??'pending'};
   };
   const observedPasses=(value,names)=>{
     if(!value||!Array.isArray(value.passes)||value.passes.length!==names.length)return null;
@@ -345,7 +369,7 @@ export function buildOverviewView(state) {
   };
   const groups=raw.groups.filter(group=>validId(group?.id)).map(group=>({...group,operations:normalize(group.operations).map(row=>{
     const source=group.operations.find(item=>item.id===row.id);
-    return {...row,preparation:preparation(source.preparation),compiler:compiler(source.compiler),import:unityImportView(source.import),
+    return {...row,preparation:preparation(source.preparation),compiler:compiler(source.compiler,source),import:unityImportView(source.import),
       pack:observedPasses(source.pack,['native-content-source-hash','native-content-native-hash','native-content-write','native-content-final-hash']),
       api:observedPasses(source.api,['package-api-bind','package-api-output','package-api-publish']),
       validation:observedPasses(source.validation,['unity-configuration','unity-validation-tasks']),unityTask:unityTaskView(source.unityTask),unityWork:unityWorkView(source.unityWork)};

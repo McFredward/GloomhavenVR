@@ -98,7 +98,8 @@ class PlayerProgress231755Tests(unittest.TestCase):
         self.assertEqual(native['percent'], 0.)
         self.assertEqual(copy['stagePercent'], variants['stagePercent'])
         compiler = self.player(variants)['compiler']
-        self.assertEqual((compiler['status'], compiler['percent']), ('complete', 100.))
+        self.assertEqual((compiler['status'], compiler['percent']), ('running', None))
+        self.assertEqual((compiler['currentPass']['status'], compiler['currentPass']['percent']), ('complete', 100.))
         self.assertFalse(self.parts(variants)['shaders']['closed'], 'Only the precise last Shader pass completed')
 
     def test_qualified_native_plan_moves_continuously_and_raw_local_counter_does_not_replace_it(self):

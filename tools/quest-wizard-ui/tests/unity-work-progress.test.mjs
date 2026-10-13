@@ -42,18 +42,18 @@ test('completed content parts keep their100% proof while a later audit is still 
 
 test('completed compiler hides stale last-pass counts while failed compiler retains them',()=>{
   const observed={phase:'unity-shader-compile',scope:'pass',done:90,total:100,unit:'variants',percent:100,status:'complete'};
-  const overview=compiler=>buildOverviewView({stages:[{id:'build',progress:{buildOverview:{schema:1,groups:[{id:'export',operations:[{id:'content-bank',closed:false,status:'running',percent:45,compiler}]}]}}}]}).groups[0].operations[0].compiler;
+  const overview=compiler=>buildOverviewView({stages:[{id:'build',progress:{buildOverview:{schema:1,groups:[{id:'export',operations:[{id:'content-bank',closed:compiler.status==='complete',status:compiler.status==='failed'?'failed':'running',percent:45,compiler}]}]}}}]}).groups[0].operations[0].compiler;
   const complete=overview(observed);assert.equal(complete.counter,null);assert.equal(complete.percent,100);
-  const failed=overview({...observed,status:'failed',percent:90});assert.equal(failed.counter.done,90);assert.equal(failed.counter.total,100);assert.equal(failed.percent,90);
+  const failed=overview({...observed,status:'failed',percent:90});assert.equal(failed.counter.done,90);assert.equal(failed.counter.total,100);assert.equal(failed.percent,null);assert.equal(failed.currentPass.percent,90);
 });
 
 test('source-qualified return units prevent live N/Nfrom masquerading as whole phase completion',()=>{
   const progress=(phase,done,total,status='progress')=>stageProgress({status:'running',progress:{phase,done,total,unit:'variants',percent:100*done/total,operationStatus:status,
     activeWork:{operation:'player'},buildOverview:{active:'player',groups:[{operations:[{id:'player',unityWork:{phases:[{id:'method',parts:[{id:'scenes',percent:100*14/15,closed:false},{id:'shaders',percent:80,closed:false}]}]}}]}]}}});
   assert.equal(progress('unity-player-scenes',14,14).phasePercent,100*14/15);
-  assert.equal(progress('unity-shader-compile',6,6).phasePercent,100*6/7);
+  assert.equal(progress('unity-shader-compile',6,6).phasePercent,80);
   const completedPass=progress('unity-shader-compile',6,6,'complete');
-  assert.equal(completedPass.displayPhase,'unity-player-shader-work');assert.equal(completedPass.phasePercent,80);
+  assert.equal(completedPass.displayPhase,'unity-shader-overall');assert.equal(completedPass.phasePercent,80);
   const close=1-Number.EPSILON;assert.ok(progress('unity-shader-compile',999998,999999).phasePercent<100*close);
   for(const language of ['en','de'])for(const key of ['unityNativeGraphScope','unityNativeLocalScope','unityShaderSourceScope','unitySceneReturnScope','shaderPassReturnScope','shaderWholeReturnScope','phase_unity-player-shader-work','phase_unity-player-shaders','counterSceneEntries'])assert.notEqual(translate(language,key),key);
 });
@@ -155,18 +155,19 @@ test('browser presents asset census, native graphs and Gradle inside one stable 
       mode='shader-partial';await client.wait("document.getElementById('progress-detail').textContent.includes('Known Shader READY')");
       assert.ok(await client.evaluate("Number(document.getElementById('progress-track').getAttribute('aria-valuenow'))")>shaderBefore);
       assert.doesNotMatch(await client.evaluate("document.getElementById('progress-detail').textContent"),/shader-source:|shader-pass:/);
-      mode='shader-precision';await client.wait("document.getElementById('progress-detail').textContent.includes('999.998 / 999.999 Varianten')");
-      assert.equal(await client.evaluate("document.getElementById('substep-count').textContent"),'99,999 %','An unfinished nearly-complete pass cannot round to100');
-      mode='shader-ready';await client.wait("document.getElementById('progress-detail').textContent.includes('6 / 6 Varianten')");
-      assert.equal(await client.evaluate("document.getElementById('substep-count').textContent"),'85,714 %','The actual pass-return unit is still pending');
+      mode='shader-precision';await client.wait("document.querySelector('[data-compiler-owner=player]').textContent.includes('999.998 / 999.999 Varianten')");
+      assert.equal(await client.evaluate("document.getElementById('substep-count').textContent"),'0,342 %','Whole Shader coverage must not borrow the nearly-complete local pass');
+      mode='shader-ready';await client.wait("document.querySelector('[data-compiler-owner=player]').textContent.includes('6 / 6 Varianten')");
+      assert.equal(await client.evaluate("document.getElementById('substep-count').textContent"),'0,342 %','A local ready counter cannot replace overall Shader progress');
       mode='shader-coverage';await client.wait("document.getElementById('substep-label').textContent.includes('Shader-Aufbereitung insgesamt')");
       assert.equal(await client.evaluate("document.getElementById('substep-count').textContent"),'80 %');
-      mode='shader-pass';await client.wait("document.querySelector('[data-compiler-owner=player]')?.classList.contains('complete')");
+      mode='shader-pass';await client.wait("document.querySelector('[data-compiler-owner=player] [data-shader-pass]')?.value===100");
       assert.equal(await client.evaluate("document.getElementById('substep-count').textContent"),'80 %');
-      assert.match(await client.evaluate("document.getElementById('substep-label').textContent"),/Shader-Daten fertigstellen/);
+      assert.match(await client.evaluate("document.getElementById('substep-label').textContent"),/Unity-Shader kompilieren insgesamt/);
       assert.doesNotMatch(await client.evaluate("document.getElementById('progress-detail').textContent"),/6 \/ 6 Varianten|shader-pass:/);
-      assert.match(await client.evaluate("document.querySelector('[data-compiler-owner=player]').textContent"),/Abgeschlossen.*100 %/s);
-      assert.doesNotMatch(await client.evaluate("document.querySelector('[data-compiler-owner=player]').textContent"),/Wird erstellt|6 \/ 6/);
+      assert.equal(await client.evaluate("document.querySelector('[data-compiler-owner=player]').classList.contains('running')"),true);
+      assert.equal(await client.evaluate("document.querySelector('[data-compiler-owner=player] [data-shader-overall]').value"),80);
+      assert.match(await client.evaluate("document.querySelector('[data-compiler-owner=player]').textContent"),/Beobachtete Shader-Namen: 100 \/ 100.*80 %/s);
       mode='platform';await client.wait("document.querySelector('[data-plan=unity-work-player] [data-operation=scenes]').classList.contains('complete')");
       for(const id of ['scenes','shaders'])assert.match(await client.evaluate("document.querySelector('[data-plan=unity-work-player] [data-operation="+id+"]').textContent"),/Abgeschlossen.*100 %/);
       assert.deepEqual(await client.evaluate("[...document.querySelector('[data-plan=unity-work-player] [data-operation=method] > div > ol').children].map(row=>row.dataset.operation)"),['scenes','shaders','native','packaging']);

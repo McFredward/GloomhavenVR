@@ -37,6 +37,20 @@ test('connection prerequisite preserves completed build and exposes guarded inst
   assert.doesNotMatch(translate('de','questConnectionNext'),/korrigierten Builder/);
 });
 
+test('writable app storage recovery retains the finished APK and asks for headset wakeup',()=>{
+  const state=fixture('quest_signing_repair_wait','Writable app storage is not ready.');
+  Object.assign(state.needsActions[0].parameters,{saveDataProtected:true,repairReason:'restore-app-access',
+    repairRoot:'private',repairAttempts:3,repairTotalAttempts:3});
+  const view=installationView(state);
+  assert.equal(view.recoveryRequired,true);assert.equal(view.connectionRequired,false);assert.equal(view.canSkip,true);
+  assert.deepEqual(view.repairWait,{reason:'restore-app-access',root:'private',attempts:3,totalAttempts:3});
+  assert.equal(stageProgress(state.stages[5]).percent,100);assert.equal(stageStatus(state,state.stages[5]),'complete');
+  assert.equal(view.paths.apk,apk);
+  for(const language of ['en','de'])for(const key of ['installationRepairReason_restore-app-access','installationRestoreWaitTitle','installationRestoreWaitCopy','installationRestoreWaitNext'])assert.notEqual(translate(language,key),key);
+  assert.match(translate('en','installationRestoreWaitNext'),/unlock.*awake and connected.*Only restoration resumes.*not rebuilt.*not reset/);
+  assert.match(translate('de','installationRestoreWaitNext'),/entsperren.*verbunden.*Nur die Wiederherstellung.*nicht neu gebaut.*nicht zurückgesetzt/);
+});
+
 test('live connection waiting preserves measured content and does not enable a second install',()=>{
   const state=fixture();state.status='running';state.needsActions=[];
   state.stages[6].status='running';

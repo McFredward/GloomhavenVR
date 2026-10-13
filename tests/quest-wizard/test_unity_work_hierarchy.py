@@ -187,7 +187,8 @@ class UnityWorkHierarchyTests(unittest.TestCase):
         self.start()
         value = self.report("unity-shader-compile", None, None, "variants", detail='Compiling shader "Original" pass "FORWARD"')
         compiler = next(row for group in value["buildOverview"]["groups"] for row in group["operations"] if row["id"] == "player")["compiler"]
-        self.assertEqual((compiler["done"], compiler["total"], compiler["unit"], compiler["percent"]), (0, 1, "tasks", 0.))
+        self.assertEqual((compiler["done"], compiler["total"], compiler["unit"], compiler["percent"]), (0, 1, "tasks", None))
+        self.assertEqual(compiler["currentPass"]["percent"], 0.)
         variants = self.report("unity-shader-compile", 4, 10, "variants")
         compiler = next(row for group in variants["buildOverview"]["groups"] for row in group["operations"] if row["id"] == "player")["compiler"]
         self.assertEqual((compiler["done"], compiler["total"], compiler["unit"]), (4, 10, "variants"))
@@ -310,7 +311,8 @@ class UnityWorkHierarchyTests(unittest.TestCase):
         next(row for row in saved["stages"] if row["id"] == "build")["status"] = "failed"
         self.store.save(saved)
         compiler = next(row for group in self.row()["progress"]["buildOverview"]["groups"] for row in group["operations"] if row["id"] == "content-bank")["compiler"]
-        self.assertEqual((compiler["status"], compiler["percent"], compiler["done"], compiler["total"]), ("failed", 90., 90, 100))
+        self.assertEqual((compiler["status"], compiler["percent"], compiler["done"], compiler["total"]), ("failed", None, 90, 100))
+        self.assertLess(compiler["currentPass"]["percent"], 90.)
 
     def test_successful_native_player_closes_compiler_before_final_evidence(self):
         self.start()
