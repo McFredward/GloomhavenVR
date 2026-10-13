@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "status": "Full reference remake in progress; I01 paired keyframes generated/reviewed, offline source matching pending; O01/A04 free guides staged, additional budget pending",
-  "date": "2026-10-13",
+  "status": "Full working cut v3 exported and visually/technically reviewed; I01 integrated, O01/A04 remain original pending extra budget; complete three-scene trailer unfinished",
+  "date": "2026-10-14",
   "source_url": "https://www.youtube.com/watch?v=-SGDEP-zFHo",
   "source_title": "Gloomhaven | Gameplay Overview Trailer",
   "source_duration_seconds": 246.861,
@@ -12,7 +12,7 @@
     "total_viewed": 139,
     "independent_creative_frames": 12,
     "transcript": "Official manual English captions; no paid ASR",
-    "motion_quality": "Completed overhead diagnosis and rejected Seedance interaction reviewed. New physically integrated Kling reference trial running; full-film creative approval pending."
+    "motion_quality": "Rejected source-based interaction trials preserved; both keyframe phases and normalized matched-v2 reviewed. I01 approved for timeline only, remaining scenes/full trailer pending."
   },
   "direction": "Original film as base; selected cinematic shots modified with video-edit models; Flat explanation footage replaced by genuine VR captures; invisible visual joins",
   "timing_note": "Editorial planning windows, not a frame-perfect final EDL; sampled frames and native captions provide anchors. Preserve original full duration and cut order during actual edit.",
@@ -1045,13 +1045,13 @@
       "reserved_usd": 0.4,
       "status": "COMPLETED",
       "frames_viewed": 13,
-      "approval": "Suitable only for paired-exit trial; full action/join/master review pending"
+      "approval": "Raw phase reviewed; approved as part of repaired paired I01 timeline insertion"
     },
     "exit": {
       "job": "remake-i01-kling-keyframe-exit-v1",
       "duration_seconds": 3,
       "reserved_usd": 0.4,
-      "status": "COMPLETED;13 root cueframes inspected; physical upward withdrawal to original party ending; paired normalization pending",
+      "status": "COMPLETED;13 root cueframes reviewed; physical upward withdrawal to source-matched ending; joined offline",
       "request_id": "01a1374c-31d8-7c33-a9fd-8c0b5be0fad4",
       "raw_width": 1916,
       "raw_height": 1080,
@@ -1063,7 +1063,7 @@
     "approved_for_master": false,
     "billing_read_attempt": "403 from current key; no invoice reconciliation or reservation release",
     "offline_join": {
-      "status": "v1 exact endpoints/decode passed; root29-frame review identified thin source-picture stripes at bar edges; v2 free repair in progress",
+      "status": "matched-v2 repaired, focused checks passed, root approved for timeline insertion",
       "frames": 345,
       "dimensions": [
         1920,
@@ -1076,8 +1076,27 @@
       ],
       "root_join_frames_viewed": 29,
       "approved_for_master": false,
-      "observed_action": "Gentle shoulder contact, small living upper-body shift, physical upward withdrawal. Footstep hidden by crop and not independently verified."
-    }
+      "observed_action": "Gentle shoulder contact, small living upper-body shift, physical upward withdrawal. Footstep hidden by crop and not independently verified.",
+      "root_repaired_frames_viewed": 18,
+      "approved_for_timeline": true,
+      "black_core_rows": [
+        126,
+        961
+      ],
+      "black_core_changed_channels_all345frames": 0,
+      "generated_interior_changed_channels_vs_v1": 0,
+      "clip": ".planning/debug/trailer/remake-v1/ai-edits-v3/I01/paired-keyframes-v1/matched-v2/matched-interaction.mkv",
+      "sha256": "ad87888f88f07a7f6c2d6fef2a726e9a32156f5df7ffee9019429785b13ddf53",
+      "context_original_audio_window": [
+        139,
+        147
+      ],
+      "root_context_frames_viewed": 19,
+      "root_context_outline_frames_viewed": 3,
+      "context_browser_load_seek_slow_passed": true,
+      "whole_working_cut_inserted": true
+    },
+    "approved_for_timeline": true
   },
   "active_cinematic_windows": [
     {
@@ -1110,7 +1129,7 @@
       "players": 1,
       "mask": "Ironwatch",
       "action": "Metal hand reaches from above, gently guides rocky party warrior shoulder, releases and withdraws",
-      "status": "Both keyframe phases completed/reviewed; offline joining pending"
+      "status": "Root-approved matched-v2 integrated into full working cut v3; source-matched345frames/60fps"
     },
     {
       "id": "A04",
@@ -1136,5 +1155,40 @@
     "id": "A03",
     "reason": "Early native gold text and rapid class-silhouette pullback leave insufficient natural interaction time; keep original instead of risking lettering drift.",
     "free_staging_preserved": true
+  },
+  "branding_readability": {
+    "outline_pixels": 2,
+    "shadow_pixels": 1,
+    "text_font_size_position_unchanged": true,
+    "actual_native_fixture_frames_each": 36,
+    "fixture_checks_each": 13,
+    "original_opus_packets_identical": true,
+    "dark_and_bright_map_rendered_frames_viewed": true,
+    "scope": "Focused offline media only; no gameplay/runtime or complete-trailer approval"
+  },
+  "working_cut": {
+    "path": ".planning/debug/trailer/remake-v1/ai-edits-v3/full-timeline-v1/reference-remake-working-v3.mp4",
+    "sha256": "20d4449ca65d5e500117dfb1608439db06008950b163688d66032476c4f3e073",
+    "video_frames": 14810,
+    "video_fps": 60,
+    "dimensions": [
+      1920,
+      1080
+    ],
+    "container_duration_seconds": 246.861,
+    "source_opus_packet_hash_identical_in_visual_intermediate": true,
+    "final_aac_video_packets_identical_to_visual": true,
+    "final_stereo_48k_aac_decode_passed": true,
+    "final_audio_peak_below_full_scale": true,
+    "root_actual_frames_viewed": 41,
+    "accepted_as_working_cut": true,
+    "complete_requested_trailer_approved": false,
+    "original_flat_gameplay_preserved": true,
+    "cinematic_scenes_remaining": [
+      "O01",
+      "A04"
+    ],
+    "no_subjective_listening_approval": true,
+    "no_imperceptibility_claim": true
   }
 }

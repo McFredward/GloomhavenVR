@@ -35,8 +35,16 @@ later native VR recording exchange.
 The completed `ai-edits-v2/` movie is a historical placement diagnosis. Its
 GloomhavenVR narrator patch and exact native VR title are ready. Two source-based
 I01 models were rejected after actual video review. A guide-driven three-second
-Kling entry now reaches a readable shoulder contact with integrated lighting;
-its paired withdrawal is running. No complete interaction/master approval yet.
+Kling entry reaches a readable shoulder contact with integrated lighting;
+its paired exit physically withdraws upward to the native party ending. Root
+reviewed both raw phases and the repaired345-frame shot, approving I01 for
+timeline insertion. The original-audio context also passes focused visual and
+browser checks. O01/A04 video generation and complete-trailer approval remain
+pending; their integrated guides are ready.
+The whole four-minute working cut v3 now contains the reviewed I01 shot,
+opening voice/title patch and outlined fan-mod branding. Technical decode/timing
+checks pass and root inspected41 whole-cut frames. O01/A04 remain original in
+this explicitly incomplete working cut; no completed-trailer approval is claimed.
 Conservative reservations total USD40.00, the authorized ceiling. A proposed
 USD45 ceiling is pending and does not permit more spending. The current key
 cannot read billing events(403), so no reservations have been released.

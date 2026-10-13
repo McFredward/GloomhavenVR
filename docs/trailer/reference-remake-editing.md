@@ -46,8 +46,8 @@ is not reconciled; 720p is a direction trial, not a final-resolution approval.
 The raw137-frame/24fps result lasts5.708333s. Root inspected12 dense cue frames;
 the worker inspected19. Both rejected it: the native metal hand, shoulder
 contact and sidestep are absent, and Ironwatch sinks onto the warrior face. It
-is not inserted into the master. `ai-edits-v3/REVIEW.html` presents the raw
-result, original scene and completed intro as historical comparison. The latest
+is not inserted into the master. Its raw result remains a historical comparison;
+`ai-edits-v3/REVIEW.html` now presents the reviewed integrated interaction. The latest
 user instruction explicitly authorizes completion and self-review of the whole
 trailer without per-shot approval pauses. All Flat gameplay remains untouched
 until genuine VR recordings are supplied.
@@ -73,11 +73,22 @@ shoulder contact, slight living upper-body shift and physical upward withdrawal
 to the original party ending. A footstep is hidden by the crop and unverified.
 The offline pair restores345 frames/60fps and exact source endpoint pixels.
 Root review of29 normalized frames caught thin source-picture stripes copied
-by overly broad black-bar protection; a versioned black-core repair is in progress.
-Complete-shot and master approval remain pending. Total reservations are now
+by overly broad black-bar protection. A measured black-core repair protects only
+rows below126 and from961 onward: all345 frames retain the exact source black
+cores, unchanged generated interior, and exact source endpoint pixels. Root
+inspected18 repaired frames and approved `paired-keyframes-v1/matched-v2/` for
+timeline insertion. An eight-second original-audio context export includes both
+native transitions;19 context frames and three focused outlined-branding frames
+were reviewed. Browser load, seeking and slow playback pass. This approves I01
+for insertion, not the remaining two scenes or complete trailer.
+Total reservations are now
 USD40.00; no further inference is authorized until the pending budget decision.
 A read-only billing-event request returned403 with the configured key; no
 reservation was released or actual invoice amount claimed.
+The [official fal billing FAQ](https://fal.ai/docs/documentation/model-apis/faq)
+states that client422 errors can still be billed after GPU processing. All three
+failed ledger requests are422, so their reservations remain; only server500+
+failures are explicitly never charged by that rule.
 
 The complete film now plans O01 solo Runeveil(3.000–7.000s), I01 solo Ironwatch
 and A04 Grimhorn/Runeveil cooperation. A03 remains original because early native
@@ -85,6 +96,25 @@ lettering and class silhouettes leave insufficient natural interaction time.
 Source frames, native references and integrated middle guides for O01/A04 are
 prepared without fal calls. This preserves all three mask identities and varied
 one/two-player scenes while keeping readable source typography intact.
+
+The existing continuous bottom-right fan-mod label now has a two-pixel dark
+outline and one-pixel shadow. Two actual36-frame native fixtures, including the
+bright parchment map, pass13 media checks each with original Opus packet hashes
+unchanged; both rendered frames were visually inspected. Label text, font size,
+position, timeline and audio mapping remain unchanged.
+
+The full `ai-edits-v3/full-timeline-v1/reference-remake-working-v3.mp4` is now
+exported:14810 frames at1080p/60fps,246.861s including the original audio tail.
+It contains the reviewed I01 insertion, native VR title and bounded opening
+narrator patch. The visual intermediate passes13 media checks with original
+Opus packets unchanged; the final AAC mux passes seven checks, including complete
+audio/video decode, unchanged encoded video packets and a peak below full scale.
+Root viewed all41 whole-cut cue frames, covering the title, native cards/UI,
+interaction joins, bright map branding and ending. It is accepted as a working
+cut, not the completed requested film: O01/A04 remain original until additional
+budget is authorized. Original Flat gameplay is retained for the later genuine
+VR capture exchange. No subjective listening or universal imperceptibility
+approval is claimed.
 
 ## Earlier overhead placement diagnosis
 
