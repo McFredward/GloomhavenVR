@@ -402,7 +402,8 @@ def build_command(plan: dict) -> tuple[str, list[str]]:
                      f"pad={WIDTH}:{HEIGHT}:(ow-iw)/2:0:color=black[footer]")
         current = "footer"
     graph.append(f"[{current}]drawtext=fontfile=font.ttf:textfile=branding.txt:expansion=none:"
-                 f"fontcolor=0xE6DDD0:fontsize=23:x=w-tw-38:y=h-th-30,format=yuv420p[outv]")
+                 f"fontcolor=0xE6DDD0:fontsize=23:borderw=2:bordercolor=black@0.95:"
+                 f"shadowcolor=black@0.9:shadowx=1:shadowy=1:x=w-tw-38:y=h-th-30,format=yuv420p[outv]")
     command.extend(["-filter_complex_script", "filter.ffgraph", "-map", "[outv]", "-map", "0:a:0",
                     "-map_metadata", "0", "-c:v", "libx264", "-threads", str(plan["threads"]),
                     "-preset", plan["preset"], "-crf", str(plan["crf"]), "-pix_fmt", "yuv420p"])
