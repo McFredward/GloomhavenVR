@@ -26,6 +26,16 @@ REPO = Path(__file__).resolve().parents[2]
 DEFAULT_ROOT = REPO / ".planning/debug/trailer/production"
 
 
+def check_model_arguments(endpoint, arguments):
+    """Reject known provider limits before reserving or uploading paid inputs."""
+    if endpoint == "fal-ai/kling-video/o3/pro/video-to-video/edit":
+        # Actual provider validation rejected the overhead-player pilot above
+        # 2500 characters. Queue COMPLETED can still contain that HTTP422 failure.
+        prompt = arguments.get("prompt")
+        if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 2500:
+            raise ValueError("Kling O3 video-edit prompt must contain 1–2500 characters")
+
+
 def write_json(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=".receipt-")
@@ -167,6 +177,7 @@ def main():
         endpoint = spec["endpoint"]
         if not re.fullmatch(r"[a-zA-Z0-9_.-]+(?:/[a-zA-Z0-9_.-]+)+", endpoint):
             raise ValueError("Invalid model endpoint")
+        check_model_arguments(endpoint, spec["arguments"])
         total = reserve(root, args.job, args.reserve_usd, args.budget_usd)
         os.environ["FAL_KEY"] = key
         sources = []
