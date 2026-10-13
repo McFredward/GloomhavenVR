@@ -17,7 +17,7 @@ independent lightweight JobQueue limits and32-file parallel staging batches.
 Current worker logs share real unique-asset progress. A witnessed parallel-import
 allocation failure receives one in-process retry with existing Library retained.
 Focused native62, source/recovery/update339 (one optional fixture skipped),
-progress120, coverage19 and real-child memory retry7 checks pass; actual small
+progress122, coverage19 and real-child memory retry7 checks pass; actual small
 pinned Editor serial/parallel texture hashes agree. Tiny host benchmarks show
 startup overhead/no gain, so no full Windows speedup or new APK is claimed.
 See [QUEST-BUILD-SPEED-20261013.md](QUEST-BUILD-SPEED-20261013.md), actual extracted

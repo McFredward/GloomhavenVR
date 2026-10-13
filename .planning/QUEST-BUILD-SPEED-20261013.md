@@ -94,7 +94,7 @@ and [DesiredWorkerCount](https://docs.unity3d.com/2021.3/Documentation/ScriptRef
 
 The integrated focused groups run62native/packer tests,339source/recovery/update
 tests (one optional actual Editor test skipped, with its passing native fixture
-inherited),120progress tests,19coverage tests and7real-child memory-retry tests.
+inherited),122progress tests,19coverage tests and7real-child memory-retry tests.
 They include actual `-I` helper execution and production C# orchestration with
 small compiler spies: force packing failure after bank creation, resume, and
 prove that native cooking was not called again. Unknown source drift, changed

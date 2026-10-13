@@ -82,5 +82,34 @@ class ParallelImportProgressTests(unittest.TestCase):
         self.parser.closed_operations.add("unity-import")
         self.assertIsNone(self.parser.parse(self.line("first.png"), self.logs[0].name))
 
+    def test_closed_parent_cannot_register_an_old_worker_owner(self):
+        self.logs[0].write_text("Old worker completed\n")
+        self.parser.closed_operations.add("unity-import")
+        self.assertIsNone(self.parser.observe_plan(self.logs[0], started=self.started))
+        self.assertNotIn(self.logs[0].name, self.parser.import_worker_owners)
+
+    def test_next_invocation_resets_tail_even_when_overwritten_worker_log_is_larger(self):
+        self.logs[0].write_text(self.line("first.png") + "# old filler\n" * 300)
+        session = self.store.create({"mode": "build", "install": False})["session"]
+        supervisor = processes.Supervisor(self.store, session); supervisor.set_stage("build")
+        received = []; tails = {}
+        original = self.store.progress
+        self.store.progress = lambda *_a, **kwargs: received.append(kwargs)
+        try:
+            supervisor._tail_progress(tails, self.parser, self.started)
+            self.assertEqual(self.parser.import_coverage[self.logs[0].name].done, 1)
+            next_plan = work.publish_plan([str(self.editor), "-projectPath", str(self.project), "-buildTarget", "Android",
+                "-refreshImportMode", "OutOfProcessPerQueue", "-desiredWorkerCount", "2", "-logFile", str(self.native)],
+                self.native, SimpleNamespace(enabled=lambda: True, event=Mock()))
+            self.assertNotEqual(next_plan["invocationId"], self.plan["invocationId"])
+            self.native.write_text("Next current Editor invocation\n")
+            self.logs[0].write_text(self.line("second.png") + self.line("third.png") + "# next filler\n" * 600)
+            supervisor._tail_progress(tails, self.parser, self.started)
+            self.assertEqual(self.parser.import_coverage[self.logs[0].name].done, 3)
+            measured = [row for row in received if row.get("phase") == "unity-asset-import"]
+            self.assertTrue(any(row.get("done") == row.get("total") == 3 for row in measured))
+        finally:
+            self.store.progress = original
+
 
 if __name__ == "__main__": unittest.main()

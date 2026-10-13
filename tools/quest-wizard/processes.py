@@ -449,6 +449,7 @@ class ProgressParser:
             if str(path) in plan.get("importWorkerLogs", []):
                 owner = Path(plan.get("importWorkerOwnerLog", "")).name
                 if not self._unity_child(owner): return None
+                if self._unity_operation(owner) in self.closed_operations: return None
                 self.import_worker_owners[source] = owner
             coverage = self.coverage_invocations.get(plan["invocationId"])
             if coverage is None:
@@ -815,6 +816,7 @@ class LogTail:
     """Incremental bounded reads preserve whole child logs without pipe backpressure."""
     def __init__(self, path):
         self.path, self.offset, self.pending, self.identity = ordinary(path), 0, b"", None
+        self.invocation = None
 
     def read(self, final=False):
         if not self.path.is_file(): return []
@@ -985,10 +987,19 @@ class Supervisor:
                     except (OSError, ValueError, TypeError, ImportError): pass
                 candidates += additions
                 for path in list(tails):
-                    if path.parent == folder and path not in candidates: del tails[path]
+                    if (path.parent == folder or re.fullmatch(r"AssetImportWorker[0-9]{1,2}\.log", path.name)) and path not in candidates:
+                        del tails[path]
                 for entry in candidates: tails.setdefault(entry, LogTail(entry))
         for tail in list(tails.values())[:32]:
             planned = parser.observe_plan(tail.path, started=started)
+            coverage = parser.import_coverage.get(tail.path.name)
+            if coverage and str(tail.path) in [row["path"] for row in coverage.plan["logs"]]:
+                invocation = coverage.plan["invocationId"]
+                if tail.invocation != invocation:
+                    # Unity overwrites worker logs at each Editor launch. A new
+                    # file can grow beyond the previous offset before our next
+                    # poll, even without a changed inode or smaller file size.
+                    tail.offset, tail.pending, tail.identity, tail.invocation = 0, b"", None, invocation
             if planned and self.stage:
                 if planned.get("operation") not in PLANS[self.stage]: planned.pop("operation", None)
                 self.store.progress(self.session, self.stage, **planned)
