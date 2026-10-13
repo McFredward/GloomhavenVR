@@ -1,5 +1,19 @@
 # Gloomhaven VR — Step Inside
 
+**Direction update, 2026-10-13:** the maintainer replaced this original CGI-short
+approach with a close remake of the official Gameplay Overview Trailer
+(`-SGDEP-zFHo`, approximately4:07). The original film is the base: selected
+cinematic game shots receive AI video edits, while Flat explanation shots are
+replaced by new genuine VR capture. Preserve the original narrator/text/timing
+with minor GloomhavenVR name patches. The edit must have visually unobtrusive
+joins, source-faithful figures/materials and continuous unofficial branding.
+The active [reference-remake-plan.json](reference-remake-plan.json) records38
+planning windows,25 recording tasks plus a capture check, four proposed AI edits
+and current edit-model research. The private German briefing and capture list
+are under `.planning/debug/trailer/remake-v1/`. No inference has been run for
+this new approach. The completed65-second film described below remains retained
+as the earlier direction, with its sources and cost evidence.
+
 The authorized trailer is a 65-second cinematic fantasy short focused on the VR
 conversion. The maintainer approved the film direction in review09 and requested
 completion of the original story with source-faithful character faces, coherent

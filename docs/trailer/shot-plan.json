@@ -13,7 +13,9 @@
     "status": "First complete 65-second cut ready for maintainer review; native card-print repair, assembly and final export QC complete.",
     "direction_authorization": "Review09 film direction approved; maintainer authorized full original script with faithful faces and consistent cuts. Earlier stop-after-probe fulfilled and superseded.",
     "evidence_root": ".planning/debug/trailer/full-production/",
-    "review_file": ".planning/debug/trailer/review/10-full-trailer-v1.mp4"
+    "review_file": ".planning/debug/trailer/review/10-full-trailer-v1.mp4",
+    "superseded_by": "docs/trailer/reference-remake-plan.json",
+    "direction_update": "2026-10-13: prior65sCGI approach retained as historical complete cut; active task is reference-film edits plus genuine new VR capture."
   },
   "voice": {
     "mode": "consent_attested_clone",

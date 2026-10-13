@@ -1,0 +1,857 @@
+{
+  "schema_version": 1,
+  "status": "Reference-remake analysis and capture plan ready; no editing-model inference run",
+  "date": "2026-10-13",
+  "source_url": "https://www.youtube.com/watch?v=-SGDEP-zFHo",
+  "source_title": "Gloomhaven | Gameplay Overview Trailer",
+  "source_duration_seconds": 246.861,
+  "source_format": "YouTube source3840×2160/60fps; analysis proxy1280×720/60fps",
+  "source_frame_review": {
+    "scene_frames_viewed": 57,
+    "cue_frames_viewed": 82,
+    "total_viewed": 139,
+    "independent_creative_frames": 12,
+    "transcript": "Official manual English captions; no paid ASR",
+    "motion_quality": "No edited model output exists yet; no imperceptibility or subjective final audio quality claim"
+  },
+  "direction": "Original film as base; selected cinematic shots modified with video-edit models; Flat explanation footage replaced by genuine VR captures; invisible visual joins",
+  "timing_note": "Editorial planning windows, not a frame-perfect final EDL; sampled frames and native captions provide anchors. Preserve original full duration and cut order during actual edit.",
+  "voice": {
+    "mode": "Keep original English text/timing, user confirmed; small GloomhavenVR substitutions only",
+    "patches": [
+      {
+        "start": 3,
+        "end": 7,
+        "role": "Opening product-name candidate"
+      },
+      {
+        "start": 211.5,
+        "end": 217.15,
+        "role": "Co-op product/world-name candidate"
+      }
+    ],
+    "geographic_mentions": [
+      155.5,
+      174
+    ],
+    "geographic_note": "These two mentions name the fictional city/region; preserve Gloomhaven there unless final wording needs adjustment."
+  },
+  "budget": {
+    "new_paid_calls": 0,
+    "new_fal_usd": 0,
+    "previous_reserved_usd": 29.9,
+    "previous_cap_usd": 30,
+    "previous_invoice_reconciled": false,
+    "proposed_pilot_usd": 3.75,
+    "proposed_pilot_not_authorized_or_run": true
+  },
+  "private_briefing": ".planning/debug/trailer/remake-v1/AUFNAHMEPLAN.html",
+  "private_capture_list": ".planning/debug/trailer/remake-v1/AUFNAHMELISTE.txt",
+  "incoming": ".planning/debug/trailer/remake-v1/incoming/",
+  "scenes": [
+    {
+      "id": "S01",
+      "start_seconds": 0,
+      "end_seconds": 3,
+      "subject": "Fan-mod identification",
+      "mode": "composite",
+      "captures": []
+    },
+    {
+      "id": "S02",
+      "start_seconds": 3,
+      "end_seconds": 13.35,
+      "subject": "Welcome and mercenary party",
+      "mode": "original",
+      "captures": []
+    },
+    {
+      "id": "S03",
+      "start_seconds": 13.35,
+      "end_seconds": 17.9,
+      "subject": "Forest VR presence",
+      "mode": "edit",
+      "captures": [
+        "VR01",
+        "VR25"
+      ]
+    },
+    {
+      "id": "S04",
+      "start_seconds": 17.9,
+      "end_seconds": 28,
+      "subject": "Crypt atmosphere",
+      "mode": "original",
+      "captures": []
+    },
+    {
+      "id": "S05",
+      "start_seconds": 28,
+      "end_seconds": 38.2,
+      "subject": "Enemy groups",
+      "mode": "original",
+      "captures": []
+    },
+    {
+      "id": "S06",
+      "start_seconds": 38.2,
+      "end_seconds": 48.5,
+      "subject": "Initial action montage",
+      "mode": "original",
+      "captures": []
+    },
+    {
+      "id": "S07",
+      "start_seconds": 48.5,
+      "end_seconds": 51,
+      "subject": "Strategy chapter card",
+      "mode": "composite",
+      "captures": []
+    },
+    {
+      "id": "S08",
+      "start_seconds": 51,
+      "end_seconds": 54.53,
+      "subject": "Physical ability fan",
+      "mode": "capture",
+      "captures": [
+        "VR02"
+      ]
+    },
+    {
+      "id": "S09",
+      "start_seconds": 54.53,
+      "end_seconds": 57.5,
+      "subject": "Squad enters scenario",
+      "mode": "capture",
+      "captures": [
+        "VR01",
+        "VR05"
+      ]
+    },
+    {
+      "id": "S10",
+      "start_seconds": 57.5,
+      "end_seconds": 59.72,
+      "subject": "Equipment preparation",
+      "mode": "capture",
+      "captures": [
+        "VR04"
+      ]
+    },
+    {
+      "id": "S11",
+      "start_seconds": 59.72,
+      "end_seconds": 63,
+      "subject": "Danger insert",
+      "mode": "original",
+      "captures": []
+    },
+    {
+      "id": "S12",
+      "start_seconds": 63,
+      "end_seconds": 68.13,
+      "subject": "Damage choice and exhaustion",
+      "mode": "capture",
+      "captures": [
+        "VR06"
+      ]
+    },
+    {
+      "id": "S13",
+      "start_seconds": 68.13,
+      "end_seconds": 74.9,
+      "subject": "Initiative, AoE and Brute push",
+      "mode": "capture",
+      "captures": [
+        "VR03",
+        "VR07",
+        "VR08",
+        "VR09"
+      ]
+    },
+    {
+      "id": "S14",
+      "start_seconds": 74.9,
+      "end_seconds": 85,
+      "subject": "Adaptation and ally support",
+      "mode": "capture",
+      "captures": [
+        "VR06",
+        "VR07",
+        "VR10"
+      ]
+    },
+    {
+      "id": "S15",
+      "start_seconds": 85,
+      "end_seconds": 89,
+      "subject": "Environment and target choice",
+      "mode": "capture",
+      "captures": [
+        "VR08",
+        "VR09"
+      ]
+    },
+    {
+      "id": "S16",
+      "start_seconds": 89,
+      "end_seconds": 92,
+      "subject": "Combat transition",
+      "mode": "original",
+      "captures": []
+    },
+    {
+      "id": "S17",
+      "start_seconds": 92,
+      "end_seconds": 98.2,
+      "subject": "Loss cards and resource management",
+      "mode": "capture",
+      "captures": [
+        "VR11"
+      ]
+    },
+    {
+      "id": "S18",
+      "start_seconds": 98.2,
+      "end_seconds": 103.55,
+      "subject": "Consumable item",
+      "mode": "capture",
+      "captures": [
+        "VR12"
+      ]
+    },
+    {
+      "id": "S19",
+      "start_seconds": 103.55,
+      "end_seconds": 106.88,
+      "subject": "Loot coins",
+      "mode": "capture",
+      "captures": [
+        "VR13"
+      ]
+    },
+    {
+      "id": "S20",
+      "start_seconds": 106.88,
+      "end_seconds": 110.28,
+      "subject": "Loot chest",
+      "mode": "capture",
+      "captures": [
+        "VR14"
+      ]
+    },
+    {
+      "id": "S21",
+      "start_seconds": 110.28,
+      "end_seconds": 118.8,
+      "subject": "Cooperation",
+      "mode": "mixed",
+      "captures": [
+        "VR10",
+        "VR24"
+      ]
+    },
+    {
+      "id": "S22",
+      "start_seconds": 118.8,
+      "end_seconds": 120.57,
+      "subject": "Victory",
+      "mode": "capture",
+      "captures": [
+        "VR15"
+      ]
+    },
+    {
+      "id": "S23",
+      "start_seconds": 120.57,
+      "end_seconds": 125.9,
+      "subject": "Merchant equipment",
+      "mode": "mixed",
+      "captures": [
+        "VR16"
+      ]
+    },
+    {
+      "id": "S24",
+      "start_seconds": 125.9,
+      "end_seconds": 127.83,
+      "subject": "Enchantress enhancement",
+      "mode": "capture",
+      "captures": [
+        "VR17"
+      ]
+    },
+    {
+      "id": "S25",
+      "start_seconds": 127.83,
+      "end_seconds": 135.58,
+      "subject": "Quest and class progression",
+      "mode": "mixed",
+      "captures": [
+        "VR18",
+        "VR25"
+      ]
+    },
+    {
+      "id": "S26",
+      "start_seconds": 135.58,
+      "end_seconds": 145.93,
+      "subject": "Campaign moral atmosphere",
+      "mode": "original",
+      "captures": []
+    },
+    {
+      "id": "S27",
+      "start_seconds": 145.93,
+      "end_seconds": 164,
+      "subject": "Campaign routes and decisions",
+      "mode": "capture",
+      "captures": [
+        "VR19",
+        "VR20",
+        "VR21",
+        "VR05",
+        "VR08",
+        "VR14"
+      ]
+    },
+    {
+      "id": "S28",
+      "start_seconds": 164,
+      "end_seconds": 171.1,
+      "subject": "Campaign transition",
+      "mode": "mixed",
+      "captures": [
+        "VR19"
+      ]
+    },
+    {
+      "id": "S29",
+      "start_seconds": 171.1,
+      "end_seconds": 184.37,
+      "subject": "Guildmaster threats",
+      "mode": "original",
+      "captures": []
+    },
+    {
+      "id": "S30",
+      "start_seconds": 184.37,
+      "end_seconds": 189.32,
+      "subject": "Guildmaster region",
+      "mode": "capture",
+      "captures": [
+        "VR22"
+      ]
+    },
+    {
+      "id": "S31",
+      "start_seconds": 189.32,
+      "end_seconds": 195.23,
+      "subject": "Mercenary roles",
+      "mode": "original",
+      "captures": []
+    },
+    {
+      "id": "S32",
+      "start_seconds": 195.23,
+      "end_seconds": 199.2,
+      "subject": "Squad and equipment",
+      "mode": "capture",
+      "captures": [
+        "VR23",
+        "VR04",
+        "VR16"
+      ]
+    },
+    {
+      "id": "S33",
+      "start_seconds": 199.2,
+      "end_seconds": 203.15,
+      "subject": "Game variety mosaic",
+      "mode": "composite",
+      "captures": [
+        "VR01",
+        "VR02",
+        "VR04",
+        "VR09",
+        "VR14",
+        "VR16",
+        "VR17",
+        "VR19",
+        "VR22",
+        "VR23"
+      ]
+    },
+    {
+      "id": "S34",
+      "start_seconds": 203.15,
+      "end_seconds": 208.72,
+      "subject": "Co-op introduction",
+      "mode": "composite",
+      "captures": []
+    },
+    {
+      "id": "S35",
+      "start_seconds": 208.72,
+      "end_seconds": 217.2,
+      "subject": "Real multiplayer views",
+      "mode": "capture",
+      "captures": [
+        "VR24",
+        "VR25"
+      ]
+    },
+    {
+      "id": "S36",
+      "start_seconds": 217.2,
+      "end_seconds": 223.78,
+      "subject": "Modified Tinkerer forest finale",
+      "mode": "edit",
+      "captures": [
+        "VR25"
+      ]
+    },
+    {
+      "id": "S37",
+      "start_seconds": 223.78,
+      "end_seconds": 232.5,
+      "subject": "Final action and creature beat",
+      "mode": "original",
+      "captures": []
+    },
+    {
+      "id": "S38",
+      "start_seconds": 232.5,
+      "end_seconds": 246.861,
+      "subject": "GloomhavenVR end card",
+      "mode": "composite",
+      "captures": []
+    }
+  ],
+  "ai_candidates": [
+    {
+      "id": "A01",
+      "start_seconds": 13.35,
+      "end_seconds": 17.9,
+      "capture_references": [
+        "VR01",
+        "VR25"
+      ],
+      "optional": false
+    },
+    {
+      "id": "A02",
+      "start_seconds": 120.57,
+      "end_seconds": 125.9,
+      "capture_references": [
+        "VR16",
+        "VR25"
+      ],
+      "optional": true
+    },
+    {
+      "id": "A03",
+      "start_seconds": 130.3,
+      "end_seconds": 133.6,
+      "capture_references": [
+        "VR18",
+        "VR25"
+      ],
+      "optional": false
+    },
+    {
+      "id": "A04",
+      "start_seconds": 217.2,
+      "end_seconds": 223.78,
+      "capture_references": [
+        "VR25"
+      ],
+      "optional": false
+    }
+  ],
+  "recordings": [
+    {
+      "id": "VR00",
+      "filename_stem": "VR00_capture-check",
+      "batch": "00-check",
+      "target_raw_seconds": 15,
+      "takes": 2,
+      "reference_seconds": [
+        53,
+        68
+      ]
+    },
+    {
+      "id": "VR01",
+      "filename_stem": "VR01_table-overview",
+      "batch": "01-combat",
+      "target_raw_seconds": 25,
+      "takes": 2,
+      "reference_seconds": [
+        15,
+        56
+      ]
+    },
+    {
+      "id": "VR02",
+      "filename_stem": "VR02_spellweaver-fan",
+      "batch": "01-combat",
+      "target_raw_seconds": 20,
+      "takes": 2,
+      "reference_seconds": [
+        53
+      ]
+    },
+    {
+      "id": "VR03",
+      "filename_stem": "VR03_two-cards-initiative",
+      "batch": "01-combat",
+      "target_raw_seconds": 30,
+      "takes": 2,
+      "reference_seconds": [
+        68,
+        70,
+        73.5
+      ]
+    },
+    {
+      "id": "VR04",
+      "filename_stem": "VR04_equipment-loadout",
+      "batch": "03-town",
+      "target_raw_seconds": 25,
+      "takes": 2,
+      "reference_seconds": [
+        58,
+        198
+      ]
+    },
+    {
+      "id": "VR05",
+      "filename_stem": "VR05_move-door",
+      "batch": "01-combat",
+      "target_raw_seconds": 30,
+      "takes": 2,
+      "reference_seconds": [
+        56,
+        64
+      ]
+    },
+    {
+      "id": "VR06",
+      "filename_stem": "VR06_damage-exhaustion",
+      "batch": "02-resources",
+      "target_raw_seconds": 40,
+      "takes": 2,
+      "reference_seconds": [
+        66,
+        68,
+        79,
+        82
+      ]
+    },
+    {
+      "id": "VR07",
+      "filename_stem": "VR07_inspect-enemy",
+      "batch": "01-combat",
+      "target_raw_seconds": 20,
+      "takes": 2,
+      "reference_seconds": [
+        68,
+        76
+      ]
+    },
+    {
+      "id": "VR08",
+      "filename_stem": "VR08_push-trap",
+      "batch": "01-combat",
+      "target_raw_seconds": 40,
+      "takes": 2,
+      "reference_seconds": [
+        72.65,
+        73.5,
+        82
+      ]
+    },
+    {
+      "id": "VR09",
+      "filename_stem": "VR09_area-target",
+      "batch": "01-combat",
+      "target_raw_seconds": 30,
+      "takes": 2,
+      "reference_seconds": [
+        70.83,
+        85
+      ]
+    },
+    {
+      "id": "VR10",
+      "filename_stem": "VR10_ally-support",
+      "batch": "05-multiplayer",
+      "target_raw_seconds": 35,
+      "takes": 2,
+      "reference_seconds": [
+        76,
+        114,
+        214
+      ]
+    },
+    {
+      "id": "VR11",
+      "filename_stem": "VR11_loss-rest",
+      "batch": "02-resources",
+      "target_raw_seconds": 40,
+      "takes": 2,
+      "reference_seconds": [
+        93,
+        96
+      ]
+    },
+    {
+      "id": "VR12",
+      "filename_stem": "VR12_consumable-item",
+      "batch": "02-resources",
+      "target_raw_seconds": 30,
+      "takes": 2,
+      "reference_seconds": [
+        99,
+        101
+      ]
+    },
+    {
+      "id": "VR13",
+      "filename_stem": "VR13_loot-coins",
+      "batch": "02-resources",
+      "target_raw_seconds": 25,
+      "takes": 2,
+      "reference_seconds": [
+        104
+      ]
+    },
+    {
+      "id": "VR14",
+      "filename_stem": "VR14_loot-chest",
+      "batch": "02-resources",
+      "target_raw_seconds": 30,
+      "takes": 2,
+      "reference_seconds": [
+        108
+      ]
+    },
+    {
+      "id": "VR15",
+      "filename_stem": "VR15_victory-rewards",
+      "batch": "02-resources",
+      "target_raw_seconds": 20,
+      "takes": 2,
+      "reference_seconds": [
+        119
+      ]
+    },
+    {
+      "id": "VR16",
+      "filename_stem": "VR16_merchant-purchase",
+      "batch": "03-town",
+      "target_raw_seconds": 35,
+      "takes": 2,
+      "reference_seconds": [
+        121,
+        123,
+        198
+      ]
+    },
+    {
+      "id": "VR17",
+      "filename_stem": "VR17_enchantress-upgrade",
+      "batch": "03-town",
+      "target_raw_seconds": 40,
+      "takes": 2,
+      "reference_seconds": [
+        126
+      ]
+    },
+    {
+      "id": "VR18",
+      "filename_stem": "VR18_quest-unlock",
+      "batch": "03-town",
+      "target_raw_seconds": 30,
+      "takes": 2,
+      "reference_seconds": [
+        128.5,
+        131
+      ]
+    },
+    {
+      "id": "VR19",
+      "filename_stem": "VR19_campaign-map-wide",
+      "batch": "04-map",
+      "target_raw_seconds": 30,
+      "takes": 2,
+      "reference_seconds": [
+        149,
+        164
+      ]
+    },
+    {
+      "id": "VR20",
+      "filename_stem": "VR20_campaign-destination",
+      "batch": "04-map",
+      "target_raw_seconds": 30,
+      "takes": 2,
+      "reference_seconds": [
+        146.5,
+        152,
+        158
+      ]
+    },
+    {
+      "id": "VR21",
+      "filename_stem": "VR21_campaign-event",
+      "batch": "04-map",
+      "target_raw_seconds": 40,
+      "takes": 2,
+      "reference_seconds": [
+        155,
+        161
+      ]
+    },
+    {
+      "id": "VR22",
+      "filename_stem": "VR22_guildmaster-mission",
+      "batch": "04-map",
+      "target_raw_seconds": 35,
+      "takes": 2,
+      "reference_seconds": [
+        186,
+        188
+      ]
+    },
+    {
+      "id": "VR23",
+      "filename_stem": "VR23_guildmaster-roster",
+      "batch": "04-map",
+      "target_raw_seconds": 35,
+      "takes": 2,
+      "reference_seconds": [
+        195.23,
+        196,
+        198
+      ]
+    },
+    {
+      "id": "VR24",
+      "filename_stem": "VR24_cooperative-povs",
+      "batch": "05-multiplayer",
+      "target_raw_seconds": 45,
+      "takes": 2,
+      "reference_seconds": [
+        209,
+        212,
+        214,
+        216
+      ]
+    },
+    {
+      "id": "VR25",
+      "filename_stem": "VR25_avatar-reference",
+      "batch": "05-multiplayer",
+      "target_raw_seconds": 30,
+      "takes": 2,
+      "reference_seconds": [
+        15,
+        131,
+        219
+      ]
+    }
+  ],
+  "model_endpoints": [
+    {
+      "name": "Kling O3 Pro Edit",
+      "endpoint": "fal-ai/kling-video/o3/pro/video-to-video/edit",
+      "primary_api": "https://fal.ai/models/fal-ai/kling-video/o3/pro/video-to-video/edit/api",
+      "primary_price": "https://fal.ai/models/fal-ai/kling-video/o3/pro/video-to-video/edit",
+      "nominal_usd_per_5_seconds": 0.84
+    },
+    {
+      "name": "Luma Ray3.2 Modify",
+      "endpoint": "luma/agent/ray/v3.2/video-to-video",
+      "primary_api": "https://fal.ai/models/luma/agent/ray/v3.2/video-to-video/api",
+      "primary_price": "https://fal.ai/models/luma/agent/ray/v3.2/video-to-video",
+      "nominal_usd_per_5_seconds": 2.16
+    },
+    {
+      "name": "Gemini Omni Flash1.1 Edit",
+      "endpoint": "google/gemini-omni-flash/v1.1/edit",
+      "primary_api": "https://fal.ai/models/google/gemini-omni-flash/v1.1/edit/api",
+      "primary_price": "https://fal.ai/models/google/gemini-omni-flash/v1.1/edit",
+      "nominal_usd_per_5_seconds": 0.75
+    },
+    {
+      "name": "Seedance2.5 Editing",
+      "endpoint": "bytedance/seedance-2.5/reference-to-video; task=editing",
+      "primary_api": "https://fal.ai/models/bytedance/seedance-2.5/reference-to-video/api",
+      "primary_price": "https://fal.ai/models/bytedance/seedance-2.5/reference-to-video",
+      "nominal_usd_per_5_seconds": null
+    },
+    {
+      "name": "Runway Aleph2.0",
+      "endpoint": "aleph2",
+      "primary_api": "https://docs.dev.runwayml.com/assets/inputs/",
+      "primary_price": "https://docs.dev.runwayml.com/guides/pricing/",
+      "nominal_usd_per_5_seconds": 1.4
+    },
+    {
+      "name": "Happy Horse Video Edit",
+      "endpoint": "alibaba/happy-horse/video-edit",
+      "primary_api": "https://fal.ai/models/alibaba/happy-horse/video-edit/api",
+      "primary_price": "https://fal.ai/models/alibaba/happy-horse/video-edit",
+      "nominal_usd_per_5_seconds": null
+    },
+    {
+      "name": "Wan2.2 VACE Inpainting",
+      "endpoint": "fal-ai/wan-22-vace-fun-a14b/inpainting",
+      "primary_api": "https://fal.ai/models/fal-ai/wan-22-vace-fun-a14b/inpainting/api",
+      "primary_price": "https://fal.ai/models/fal-ai/wan-22-vace-fun-a14b/inpainting/api",
+      "nominal_usd_per_5_seconds": null
+    }
+  ],
+  "contracts": [
+    "Original source film remains master; selected cinematic shots are actually modified with video-edit models.",
+    "Flat explanation views replaced with genuine new VR capture, preserving story/cut rhythm.",
+    "No invented gameplay outcomes; exact native card/UI prints stay protected.",
+    "Existing game figures, native faces, architecture and original camera motion stay source-bound.",
+    "Only mod masks and disconnected hands represent players; no invented avatar bodies.",
+    "Original English narration with minor product-name patches; city names remain geographic.",
+    "Persistent UNOFFICIAL FAN-MADE MOD branding and explicit new mod end card.",
+    "Two ordinary VR clients plus real cropped details planned; no fabricated four-client capture.",
+    "Output motion cadence/audio/duration must be measured; published schema/benchmark claims do not prove imperceptible editing.",
+    "Previous65s film preserved; no new inference or external publication authorized by this planning step."
+  ],
+  "source_controls": [
+    {
+      "path": "src/GloomhavenVR/WorldUI/FlatScreen/FlatScreen.3.Desktop.cs",
+      "line": 30,
+      "role": "Left-HMD-eye desktop mirror"
+    },
+    {
+      "path": "docs/PLAYING.de.md",
+      "line": 40,
+      "role": "Cards/controlboard and native interaction"
+    },
+    {
+      "path": "docs/PLAYING.de.md",
+      "line": 109,
+      "role": "Campaign and town"
+    },
+    {
+      "path": "docs/PLAYING.de.md",
+      "line": 134,
+      "role": "Multiplayer and visibility"
+    },
+    {
+      "path": "src/GloomhavenVR/Board/FigureGrab/Choreographer_HeldFigureAction_Patch.cs",
+      "line": 40,
+      "role": "Held figure returns before action"
+    }
+  ]
+}
