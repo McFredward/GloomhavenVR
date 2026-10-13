@@ -73,13 +73,13 @@ class _StageProofs:
         self.files = {}
         self.witnesses = None
 
-    def remember(self, path, digest, stamp):
+    def remember(self, path, digest, stamp, *, witness_stamp=None):
         path = Path(path).absolute()
         self.files[path] = stamp, digest
         if self.witnesses is not None and self.witnesses.root in path.parents:
             # Persistent metadata has its own Win32 ChangeTime seam. Do not
             # compare path stat creation time against fstat change time here.
-            self.witnesses.remember(path, digest)
+            self.witnesses.remember(path, digest, stamp=witness_stamp)
 
     @staticmethod
     def current(path):
@@ -116,7 +116,7 @@ class _StageProofs:
 
 
 def _copy_recovered(original, target, expected=None, *, expected_size=None, proofs=None,
-                    phase="staging-copy-file"):
+                    phase="staging-copy-file", cancellation=None, receipt=False):
     """Qualify the exact bytes copied once into the fresh invocation-owned tree.
 
     The former verify_copy read every asset before copying and read the target
@@ -126,6 +126,7 @@ def _copy_recovered(original, target, expected=None, *, expected_size=None, proo
     Partial output is removed on every failure; original inputs stay read-only.
     """
     original, target = Path(original), Path(target)
+    if cancellation is not None: cancellation.check()
     before = original.lstat()
     if not stat.S_ISREG(before.st_mode):
         raise BuildError("Immutable source is not a regular file: " + str(original))
@@ -133,6 +134,13 @@ def _copy_recovered(original, target, expected=None, *, expected_size=None, proo
         raise BuildError("Recovered output size differs from recovery receipt: " + str(original))
     if expected is not None and (not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{64}", expected)):
         raise BuildError("Recovered output lacks an exact recovery receipt hash: " + str(original))
+    native_source = native_target = None
+    if receipt and WINDOWS_FILE_TIMES:
+        # A worker's portable path ctime can be Windows CreationTime. Return
+        # the actual native ChangeTime to bind delayed parent publication to
+        # the exact closed-writer bytes, rather than to a newly measured file.
+        import storage
+        native_source = storage._file_witness_stamp(original, before)
     target.parent.mkdir(parents=True, exist_ok=True)
     digest, count, created = hashlib.sha256(), 0, False
     counter = build_progress.Counter(phase, before.st_size, "bytes", original.name) if before.st_size >= LARGE_FILE else None
@@ -145,6 +153,7 @@ def _copy_recovered(original, target, expected=None, *, expected_size=None, proo
             with target.open("xb") as destination:
                 created = True
                 for chunk in iter(lambda: source.read(COPY_CHUNK), b""):
+                    if cancellation is not None: cancellation.check()
                     if count + len(chunk) > before.st_size:
                         raise BuildError("Recovered output grew while staging: " + str(original))
                     if destination.write(chunk) != len(chunk):
@@ -172,11 +181,15 @@ def _copy_recovered(original, target, expected=None, *, expected_size=None, proo
         # Retain the path API's final stamp after writer closure; using the
         # pre-close last-write time would invalidate a correct Windows proof.
         sealed = closed
+        if receipt and WINDOWS_FILE_TIMES:
+            if native_source is not None and storage._file_witness_stamp(original, original.lstat()) != native_source:
+                raise BuildError("Recovered output changed before parallel publication: " + str(original))
+            native_target = storage._file_witness_stamp(target, closed)
         if proofs is not None:
             proofs.remember(target, actual, _stamp(sealed))
             proofs.remember(original, actual, _stamp(before))
         if counter: counter.finish()
-        return actual
+        return (actual, _stamp(before), _stamp(sealed), native_source, native_target) if receipt else actual
     except BaseException as error:
         if created: target.unlink(missing_ok=True)
         if counter: counter.fail(error)
@@ -205,8 +218,8 @@ def _runtime_file(original, target, proofs):
         temporary.unlink(missing_ok=True)
 
 
-def _resume_copy(original, target, row, proofs, journal):
-    """Reuse qualified copy bytes; repair only an unfinished scheduled target.
+def _qualify_copy(original, target, row, proofs, journal):
+    """Qualify/repair an unfinished copy in the SQLite-owning parent only.
 
     No transformed target enters this path: a completed copy phase reuses its
     context instead. A process killed before the batched SQLite commit can
@@ -221,11 +234,19 @@ def _resume_copy(original, target, row, proofs, journal):
     if target.exists():
         if (expected_size is None or proofs.current(target)[2] == expected_size) and proofs.digest(target) == row["sha256"]:
             journal.record(target)
-            return row["sha256"]
+            return True
         if target.is_symlink() or not target.is_file():
             raise BuildError("Unfinished staged copy is not a regular owned target: " + str(target))
         target.unlink()
         proofs.files.pop(target.absolute(), None)
+    return False
+
+
+def _resume_copy(original, target, row, proofs, journal):
+    """Keep the serial writer seam used by rollback and existing callers."""
+    if _qualify_copy(original, target, row, proofs, journal):
+        return row["sha256"]
+    expected_size = row.get("bytes", row.get("size"))
     actual = _copy_recovered(original, target, row["sha256"], expected_size=expected_size, proofs=proofs)
     journal.record(target)
     return actual
@@ -402,24 +423,12 @@ def stage(source, game_data, output, tmp_archive, *, canonical_project=None,
             return guid_proof
         guid_proof = journal.run("canonical", 1, _canonical)
         def _copy():
-            copied = []
             # The retained checkpoint already contains the exact copy schedule.
             # Exclude the same unused debug resources before counting; do not walk
             # the input tree a second time merely for a progress denominator.
             copy_rows = [row for row in progress["files"] if not row["path"].startswith("Assets/Resources/srdebugger/")]
-            counter = build_progress.Counter("staging-copy", len(copy_rows), "files")
-            try:
-                for row in copy_rows:
-                    relative = row["path"]
-                    original, target = startup.safe_path(source, relative), startup.safe_path(output, relative)
-                    _resume_copy(original, target, row, proofs, journal)
-                    copied.append({"path": relative, "sha256": row["sha256"]})
-                    counter.add(1, relative)
-                counter.finish()
-            except BaseException as error:
-                counter.fail(error)
-                raise
-            return copied
+            from staging_copy import copy_rows as parallel_copy_rows
+            return parallel_copy_rows(source, output, copy_rows, proofs, journal, startup.safe_path)
         copied = journal.run("copy", 2, _copy, copy=True)
         original_metadata = Path(canonical_project) if canonical_project is not None else source
         old_identity = original_metadata / "QuestRecovery/original-script-identities.json"
