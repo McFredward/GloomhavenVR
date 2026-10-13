@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "status": "Reference-remake analysis and capture plan ready; no editing-model inference run",
+  "status": "First A04 AI insertion exported and technically reviewed; awaiting maintainer direction review before additional paid shots",
   "date": "2026-10-13",
   "source_url": "https://www.youtube.com/watch?v=-SGDEP-zFHo",
   "source_title": "Gloomhaven | Gameplay Overview Trailer",
   "source_duration_seconds": 246.861,
-  "source_format": "YouTube source3840×2160/60fps; analysis proxy1280×720/60fps",
+  "source_format": "YouTube source3840\u00d72160/60fps; analysis proxy1280\u00d7720/60fps",
   "source_frame_review": {
     "scene_frames_viewed": 57,
     "cue_frames_viewed": 82,
@@ -37,13 +37,18 @@
     "geographic_note": "These two mentions name the fictional city/region; preserve Gloomhaven there unless final wording needs adjustment."
   },
   "budget": {
-    "new_paid_calls": 0,
-    "new_fal_usd": 0,
+    "new_paid_calls": 1,
+    "new_fal_usd": null,
     "previous_reserved_usd": 29.9,
     "previous_cap_usd": 30,
     "previous_invoice_reconciled": false,
-    "proposed_pilot_usd": 3.75,
-    "proposed_pilot_not_authorized_or_run": true
+    "additional_round_cap_usd": 10,
+    "total_authorized_cap_usd": 40,
+    "new_reserved_usd": 1.35,
+    "actual_new_invoice_reconciled": false,
+    "pilot_scope": "One Kling O3 Pro Edit request; alternatives not run; first usable insertion reviewed before more paid shots",
+    "initial_three_model_comparison_proposed_usd": 3.75,
+    "initial_model_comparison_status": "Not run; only one Kling pilot commissioned"
   },
   "private_briefing": ".planning/debug/trailer/remake-v1/AUFNAHMEPLAN.html",
   "private_capture_list": ".planning/debug/trailer/remake-v1/AUFNAHMELISTE.txt",
@@ -853,5 +858,40 @@
       "line": 40,
       "role": "Held figure returns before action"
     }
-  ]
+  ],
+  "first_ai_pilot": {
+    "id": "A04",
+    "source_start_frame": 13032,
+    "source_end_frame_exclusive": 13427,
+    "source_start_seconds": 217.2,
+    "source_end_seconds": 223.78333333333333,
+    "source_frame_count": 395,
+    "model_endpoint": "fal-ai/kling-video/o3/pro/video-to-video/edit",
+    "model_output_frames": 161,
+    "model_output_fps": 24,
+    "model_output_duration_seconds": 6.708333333333333,
+    "private_review": ".planning/debug/trailer/remake-v1/ai-edits-v1/REVIEW.html",
+    "private_output": ".planning/debug/trailer/remake-v1/ai-edits-v1/reference-remake-ai-pilot-v1.mp4",
+    "pipeline_document": "docs/trailer/reference-remake-editing.md",
+    "status": "Ready for maintainer direction review; no creative approval claimed",
+    "source_actor_lock": [
+      "Tinkerer",
+      "Cragheart",
+      "Earth Demon"
+    ],
+    "audio": "Original complete narration/music/effects mix; name substitutions deferred",
+    "edited_presence_source_frames": {
+      "start_frame": 13032,
+      "end_frame_exclusive": 13111
+    },
+    "composite_video_frames": 395,
+    "composite_video_fps": 60,
+    "review_video_frames": 14810,
+    "review_video_fps": 60,
+    "review_audio_duration_seconds": 246.861,
+    "original_audio_packets_identical": true,
+    "actual_vr_gameplay_captured": false,
+    "local_composite_tool": "scripts/trailer/composite_reference_presence.py",
+    "private_composite": ".planning/debug/trailer/remake-v1/ai-edits-v1/A04/native-composite/v2/composite-review.mp4"
+  }
 }

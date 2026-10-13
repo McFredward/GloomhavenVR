@@ -10,8 +10,10 @@ joins, source-faithful figures/materials and continuous unofficial branding.
 The active [reference-remake-plan.json](reference-remake-plan.json) records38
 planning windows,25 recording tasks plus a capture check, four proposed AI edits
 and current edit-model research. The private German briefing and capture list
-are under `.planning/debug/trailer/remake-v1/`. No inference has been run for
-this new approach. The completed65-second film described below remains retained
+are under `.planning/debug/trailer/remake-v1/`. The first A04 video-edit result
+is complete; its source-preserving composite is inserted in the first review.
+See [reference-remake-editing.md](reference-remake-editing.md) for the active
+pipeline and additionalUSD10 cap. The completed65-second film below is retained
 as the earlier direction, with its sources and cost evidence.
 
 The authorized trailer is a 65-second cinematic fantasy short focused on the VR
