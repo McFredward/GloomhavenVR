@@ -1,5 +1,28 @@
 # State — where the project stands
 
+**Quest packer repair and actual import parallelism, 2026-10-13: feature / B672.**
+
+Capture165327 identifies Builder45416ec2f. Android Addressables succeeds after
+70minutes, then its isolated Python packer fails importing `storage`. Make that
+helper self-contained and close native bank outputs before downstream packing.
+Exact old invocation/source/control provenance permits one qualified legacy
+adoption; modern native receipts bypass the large legacy preparation journal.
+The complete3337-file prior release retains original recovery/preparation and
+compact update scopes under finite reviewed aliases. Unknown producer bytes
+and incomplete ownership do not gain this compatibility.
+
+The measured93-minute Unity import spends3516seconds in texture import without
+separate import processes. Enable actual RAM/commit-bounded Unity import workers,
+independent lightweight JobQueue limits and32-file parallel staging batches.
+Current worker logs share real unique-asset progress. A witnessed parallel-import
+allocation failure receives one in-process retry with existing Library retained.
+Focused native62, source/recovery/update339 (one optional fixture skipped),
+progress120, coverage19 and real-child memory retry7 checks pass; actual small
+pinned Editor serial/parallel texture hashes agree. Tiny host benchmarks show
+startup overhead/no gain, so no full Windows speedup or new APK is claimed.
+See [QUEST-BUILD-SPEED-20261013.md](QUEST-BUILD-SPEED-20261013.md), actual extracted
+release checks and cleanup receipts. Keep the Windows workspace and resume.
+
 **Quest cold-build FEX download repair, 2026-10-12: feature branch / B672.**
 
 Capture181854 identifies Builder135a5508f and a fresh Windows workspace. It

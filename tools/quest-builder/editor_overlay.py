@@ -159,6 +159,14 @@ PREVIOUS_NATIVE_AUDIT_PROGRESS_SCRIPTS = {'unity/GloomhavenVR.Quest/Assets/Quest
                                                                                    'sha256': '066fbc97a7f18afa672075a357ffbbfd0d103c3de282e278d722c5858d879411'}}
 
 
+# Capture165327's entire shipped profile remains eligible for a late overlay.
+# The checkpoint owns closed Android bank outputs; serialized asset producers
+# and all existing script GUIDs remain exactly the same.
+NATIVE_CHECKPOINT_PREVIOUS = {name: pair[1] for name, pair in REVIEWED.items()}
+_checkpoint_editor = {'path': 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestStartupAddressablesBuild.cs', 'size': 41665, 'sha256': 'c898b183f0e1a70ef3402b110b300483f485cec706d13a35c51c8e4c04067110'}
+REVIEWED[_checkpoint_editor['path']] = (REVIEWED[_checkpoint_editor['path']][0], _checkpoint_editor)
+
+
 def source_profiles():
     """Whole reviewed source profiles, never independently mixed script rows."""
     current = {name: pair[1] for name, pair in REVIEWED.items()}
@@ -168,7 +176,7 @@ def source_profiles():
     profiles = (previous, {**previous, PREVIOUS_BINDINGS["path"]: PREVIOUS_BINDINGS},
             preceding, {**preceding, PREVIOUS_BINDINGS["path"]: PREVIOUS_BINDINGS},
             counted, {**counted, PREVIOUS_BINDINGS["path"]: PREVIOUS_BINDINGS})
-    return (current, MINIMUM_WORK_PREVIOUS) + profiles + tuple({**profile, **PREVIOUS_NATIVE_VALIDATION_SCRIPTS} for profile in profiles)
+    return (current, NATIVE_CHECKPOINT_PREVIOUS, MINIMUM_WORK_PREVIOUS) + profiles + tuple({**profile, **PREVIOUS_NATIVE_VALIDATION_SCRIPTS} for profile in profiles)
 
 
 
@@ -193,7 +201,7 @@ def changes(previous, inputs):
         profile = REVIEWED.get(name)
         if (not isinstance(profile, tuple) or len(profile) != 2
                 or right != profile[1] or left not in (
-                    profile[0], MINIMUM_WORK_PREVIOUS.get(name, profile[0]), PREVIOUS_BINDINGS if name == PREVIOUS_BINDINGS["path"] else profile[0],
+                    profile[0], NATIVE_CHECKPOINT_PREVIOUS.get(name, profile[0]), MINIMUM_WORK_PREVIOUS.get(name, profile[0]), PREVIOUS_BINDINGS if name == PREVIOUS_BINDINGS["path"] else profile[0],
                     PREVIOUS_COUNTED_LOADING_SCRIPT if name == PREVIOUS_COUNTED_LOADING_SCRIPT["path"] else profile[0],
                     PREVIOUS_NATIVE_VALIDATION_SCRIPTS.get(name, profile[0]),
                     PREVIOUS_NATIVE_AUDIT_PROGRESS_SCRIPTS.get(name, profile[0]),

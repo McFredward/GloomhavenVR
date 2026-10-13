@@ -1,0 +1,182 @@
+"""Closed legacy cooking evidence cannot turn an unrelated cache into a bank."""
+import copy
+from pathlib import Path
+import shutil
+import sys
+import tempfile
+from types import SimpleNamespace
+import unittest
+from unittest.mock import Mock, patch
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "tools/quest-builder"))
+import import_workspace
+import native_bank_resume as resume
+import native_content_pack
+import preparation_identity
+import recovery_resume
+import storage
+
+
+class NativeBankResumeTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name); self.output = self.root / "build"
+        names = ["tools/quest-builder/builder.py", "src/GloomhavenVR/Net/NetProtocol.cs",
+                 "tools/QuestWeaver/Program.cs", "tools/quest-procedural-runtime/proton.lock.json",
+                 "unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestStartupAddressablesBuild.cs"]
+        rows = [storage.record_file(ROOT / name, name) for name in names]
+        value = {"schema": 1, "target": "game", "game": {"key": storage.value_hash({"files": []}), "files": [], "unityVersion": "2021.3.5f1"},
+                 "profile": {"displayName": "Fixture owner", "steamId": "76561197960265729"},
+                 "proceduralBackend": "proton-arm64ec-fex", "recipe": 77,
+                 "mod": {"files": rows, "key": storage.value_hash({"files": rows}), "commit": "d" * 40, "modBuild": 672}}
+        self.inputs = {**value, "inputKey": storage.value_hash(value)}
+        self.project = self.output / "projects" / import_workspace.workspace_key(self.inputs, "game")
+        self.project.mkdir(parents=True)
+        for name in resume.CONTROLS:
+            path = self.project / name; path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('{"fixture":"small compiler/control metadata, not native content"}\n')
+        storage.write_json(self.project / resume.CONTROLS[-1],
+            {"schema": 1, "target": "Android", "backend": "IL2CPP", "compilation": "Player",
+             "options": "DevelopmentBuild|Assertions", "unityVersion": "2021.3.5f1"})
+        schedule = [("base-project", "project-files")]
+        schedule += [(name, "startup-content") for name in ("post-effects", "loading-resources", "startup-movies",
+            "native-sprites", "loading-sprite", "startup-audio", "ui-recipes", "startup-ui", "startup-blur", "dlc-selection", "file-extras")]
+        schedule += [("native-runtime", "native-runtime"), ("bundled-audio", "audio")]
+        schedule += [(name, "textures") for name in ("native-cubemaps", "ordinary-texture-audit", "native-texture2d")]
+        schedule += [(name, "graphics") for name in ("campaign-compute", "campaign-shaders")]
+        schedule += [(name, "mod-banks") for name in ("startup-archive", "archive-cleanup", "package-settings", "mod-resource-banks")]
+        schedule += [(name, "preparation-contracts") for name in ("compiler-contracts", "case-paths", "script-orders", "final-settings")]
+        steps = [{"name": name, "operation": operation, "outputs": []} for name, operation in schedule]
+        steps[0]["outputs"] = [storage.record_file(self.project / name, name) for name in resume.CONTROLS[:-1]]
+        self.journal = self.output / "cache/prepare-resume" / self.project.name / "journal.json"
+        storage.write_json(self.journal, {"schema": 1, "owner": "Quest preparation substage journal",
+            "project": self.project.relative_to(self.output).as_posix(), "pending": None, "steps": steps})
+        self.source = self.output / "inputs/mod" / self.inputs["mod"]["key"]
+        for name in names:
+            path = self.source / name; path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / name, path)
+        storage.write_json(self.output / "manifests" / (self.inputs["inputKey"] + ".json"), self.inputs)
+        self.tools = {"unityVersion": "2021.3.5f1", "editorSha256": "e" * 64,
+                      "ndkPropertiesSha256": "f" * 64, "key": "9" * 64, "buildDriverSha256": rows[0]["sha256"]}
+        self.provenance = {"schema": 1, "runtime": {"inputKey": self.inputs["inputKey"],
+                           "sourceCommit": "d" * 40, "modBuild": 672}, "toolchain": self.tools}
+        for field, selected in (("buildDriverModules", rows[:1]), ("stagedEditorSources", rows[-1:])):
+            self.provenance[field] = [{**row, "path": row["path"].removeprefix("unity/GloomhavenVR.Quest/"),
+                "snapshotPath": row["path"], "snapshotSha256": row["sha256"], "changedFromSnapshot": False}
+                for row in selected]
+        self.key = storage.value_hash({"input": self.inputs["inputKey"], "toolchain": self.tools["key"],
+                                      "recipe": 77, "buildProvenance": storage.value_hash(self.provenance),
+                                      "validateCampaignShaders": False})
+        self.folder = self.output / "builds" / self.key
+        storage.write_json(self.folder / "build-provenance.json", self.provenance)
+        self.log = self.output / "logs" / ("unity-build-" + self.key[:12] + ".log")
+        self.log.parent.mkdir(parents=True)
+        self.completed = ("Addressable content successfully built (duration : 1:09:50.641)\n"
+                          "InvalidDataException: Native content packer failed (1): Native content packer stopped: No module named 'storage'\n"
+                          "executeMethod method GloomhavenVR.Quest.Editor.QuestBuildConcurrency.Build threw exception.\n")
+        self.log.write_text(self.completed)
+
+    def adopt(self, *, inputs=None, tools=None, project=None):
+        return resume.legacy_adoption(self.output, project or self.project, inputs or self.inputs,
+                                     self.source, tools or self.tools, preparation_identity, recovery_resume, recipe=77)
+
+    def test_exact_completed_invocation_qualifies_without_reading_native_banks(self):
+        observed = self.adopt()
+        self.assertEqual(observed["previousBuildKey"], self.key)
+        self.assertEqual(observed["previousInputKey"], self.inputs["inputKey"])
+        self.assertFalse(observed["hardwareVerified"])
+        self.assertEqual(observed["compilerKey"], storage.value_hash(resume.identity(
+            self.inputs, self.source, self.project, self.tools, preparation_identity, recovery_resume)))
+
+    def test_available_directory_or_unrelated_successful_log_cannot_authorize_adoption(self):
+        for text in ("Addressable content successfully built (duration : 1:09:50.641)\n",
+                     self.completed.replace("No module named 'storage'", "unknown native compiler error"),
+                     self.completed.replace("Addressable content successfully built", "Addressable content failed"),
+                     self.completed + "Shader error in retained bank\n"):
+            self.log.write_text(text)
+            self.assertIsNone(self.adopt())
+        self.log.write_text(self.completed)
+        self.folder.rename(self.output / "builds" / ("0" * 64))
+        self.assertIsNone(self.adopt())
+
+    def test_game_profile_runtime_code_or_compiler_drift_prevents_adoption(self):
+        for field in ("game", "profile", "runtime"):
+            changed = copy.deepcopy(self.inputs)
+            if field == "game": changed["game"]["key"] = "0" * 64
+            elif field == "profile": changed["profile"]["displayName"] = "different owner"
+            else: changed["mod"]["files"][1]["sha256"] = "0" * 64
+            with self.subTest(field=field): self.assertIsNone(self.adopt(inputs=changed))
+        self.assertIsNone(self.adopt(tools={**self.tools, "editorSha256": "0" * 64}))
+
+    def test_frozen_builder_tamper_and_runtime_provenance_drift_are_rejected(self):
+        path = self.source / "tools/quest-builder/builder.py"
+        path.write_bytes(path.read_bytes() + b"\n# changed after source qualification\n")
+        self.assertIsNone(self.adopt())
+        shutil.copyfile(ROOT / "tools/quest-builder/builder.py", path)
+        broken = copy.deepcopy(self.provenance); broken["runtime"]["sourceCommit"] = "0" * 40
+        storage.write_json(self.folder / "build-provenance.json", broken)
+        self.assertIsNone(self.adopt())
+
+    def test_actual_compiler_source_drift_missing_rows_or_unknown_provenance_cannot_adopt(self):
+        for field in ("buildDriverModules", "stagedEditorSources"):
+            for mutation in ("missing", "changed", "sha256", "snapshotSha256", "path"):
+                broken = copy.deepcopy(self.provenance)
+                if mutation == "missing": broken[field] = []
+                elif mutation == "changed": broken[field][0]["changedFromSnapshot"] = True
+                else: broken[field][0][mutation] = "unexpected actual producer"
+                # Even a valid folder hash of arbitrary provenance is insufficient.
+                key = storage.value_hash({"input": self.inputs["inputKey"], "toolchain": self.tools["key"],
+                    "recipe": 77, "buildProvenance": storage.value_hash(broken), "validateCampaignShaders": False})
+                self.folder.rename(self.output / "builds" / key); self.folder = self.output / "builds" / key
+                storage.write_json(self.folder / "build-provenance.json", broken)
+                (self.output / "logs" / ("unity-build-" + key[:12] + ".log")).write_text(self.completed)
+                with self.subTest(field=field, mutation=mutation): self.assertIsNone(self.adopt())
+
+    def test_small_native_controls_change_the_modern_compiler_key(self):
+        before = resume.identity(self.inputs, self.source, self.project, self.tools, preparation_identity, recovery_resume)
+        path = self.project / resume.CONTROLS[0]
+        path.write_text('{"fixture":"changed actual catalog associations"}\n')
+        after = resume.identity(self.inputs, self.source, self.project, self.tools, preparation_identity, recovery_resume)
+        self.assertNotEqual(storage.value_hash(before), storage.value_hash(after))
+        self.assertIsNone(self.adopt())
+
+    def test_incomplete_preparation_or_unknown_sdk_cannot_adopt_legacy_outputs(self):
+        self.journal.unlink()
+        self.assertIsNone(self.adopt())
+
+    def test_arbitrary_inherited_adoption_environment_is_cleared(self):
+        progress = SimpleNamespace(event=Mock())
+        env = resume.environment({"GHVR_QUEST_NATIVE_BANK_KEY": "untrusted", "GHVR_QUEST_NATIVE_BANK_LEGACY_ADOPT": "1"},
+            self.inputs, self.source, self.project, self.output, self.tools,
+            preparation_identity, recovery_resume, recipe=77, progress=progress)
+        self.assertRegex(env["GHVR_QUEST_NATIVE_BANK_KEY"], r"^[0-9a-f]{64}$")
+        self.assertEqual(env["GHVR_QUEST_NATIVE_BANK_LEGACY_ADOPT"], "1")
+        self.log.write_text("unfinished native build\n")
+        rejected = resume.environment(env, self.inputs, self.source, self.project, self.output, self.tools,
+            preparation_identity, recovery_resume, recipe=77, progress=progress)
+        self.assertNotIn("GHVR_QUEST_NATIVE_BANK_LEGACY_ADOPT", rejected)
+
+    def test_modern_checkpoint_bypasses_legacy_journal_without_authorizing_unproven_bank(self):
+        compiler_key = storage.value_hash(resume.identity(self.inputs, self.source, self.project, self.tools,
+                                                         preparation_identity, recovery_resume))
+        receipt = {"schema": 1, "scope": "closed-native-addressables", "compilerCompleted": True,
+                   "owner": {"compilerKey": compiler_key, "projectRoot": str(self.project.resolve())},
+                   "files": [], "fixtureLabel": "Ünicode"}
+        receipt["checkpointSha256"] = native_content_pack.checkpoint_hash(receipt)
+        path = self.project / native_content_pack.NATIVE_CHECKPOINT
+        storage.write_json(path, receipt)
+        progress = SimpleNamespace(event=Mock())
+        with patch.object(resume, "legacy_adoption", side_effect=AssertionError("No legacy journal scan needed")):
+            result = resume.environment({}, self.inputs, self.source, self.project, self.output, self.tools,
+                                        preparation_identity, recovery_resume, recipe=77, progress=progress)
+        self.assertEqual(result["GHVR_QUEST_NATIVE_BANK_KEY"], compiler_key)
+        self.assertNotIn("GHVR_QUEST_NATIVE_BANK_LEGACY_ADOPT", result)
+        receipt["checkpointSha256"] = "0" * 64; storage.write_json(path, receipt)
+        with patch.object(resume, "legacy_adoption", return_value=None) as legacy:
+            resume.environment({}, self.inputs, self.source, self.project, self.output, self.tools,
+                               preparation_identity, recovery_resume, recipe=77, progress=progress)
+        legacy.assert_called_once()
+
+
+if __name__ == "__main__": unittest.main()

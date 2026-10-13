@@ -393,10 +393,38 @@ COST_RECOVERY_CURRENT = {'tools/quest-recovery/bundle_recovery.py': {'path': 'to
 CRLF_OBSERVER_COST_PREVIOUS = CRLF_OBSERVER_FIXED
 CRLF_OBSERVER_FIXED = COST_RECOVERY_CURRENT[OBSERVER_FILE]
 
+# Exact file-batch scheduling and owned import telemetry preserve output bytes.
+# Unknown, missing or mixed scheduler source remains a consumed producer.
+PARALLEL_STAGING_PREVIOUS = {'path': 'tools/quest-builder/full_assets.py', 'size': 33240, 'sha256': '6b0bd5ab1b5f0596c2484869b992cdaa9d35794c7b5139753aca10e662f27db1'}
+PARALLEL_STAGING_CURRENT = {'tools/quest-builder/full_assets.py': {'path': 'tools/quest-builder/full_assets.py',
+                                        'sha256': 'fefd26838b2f8e823637d0fe21bf8a56a110b7a9ce24ae6a7009be4da4cfe459',
+                                        'size': 34056},
+ 'tools/quest-builder/staging_copy.py': {'path': 'tools/quest-builder/staging_copy.py',
+                                         'sha256': '7a0d18c4ca4ca2621a8ab57a5ff14164087db29dfddbd105939baaec7844d369',
+                                         'size': 7603}}
+PARALLEL_OBSERVATION_ROWS = {'tools/quest-builder/editor_overlay.py': ({'path': 'tools/quest-builder/editor_overlay.py',
+                                            'sha256': '94668aacbd035f783b1b7bcd88a29356b7c22fc50c820a55f407c2d11ac343c8',
+                                            'size': 26149},
+                                           {'path': 'tools/quest-builder/editor_overlay.py',
+                                            'sha256': 'ba03316ea23b1d9ad1b29ced02f19e5c5f8daae8b7ea3c368570191d48d2665e',
+                                            'size': 25471}),
+ 'tools/quest-builder/unity_work.py': ({'path': 'tools/quest-builder/unity_work.py',
+                                        'sha256': '9301848b4866ba9aaf3726e4f97fc4adc48c7e2cf806c61ca8034f9fb53d678e',
+                                        'size': 14692},
+                                       {'path': 'tools/quest-builder/unity_work.py',
+                                        'sha256': 'a3194a3b5bdb40988f008a7095722e71264ebb359ef04e94d57e0a0083c08277',
+                                        'size': 13937})}
+
+# Retain the preceding whole observer profile and expose the actual current
+# sources to diagnostics and compatibility controls. Normalization below still
+# requires the exact paired staging caller/helper.
+OBSERVATION_PARALLEL_PREVIOUS = OBSERVATION_EDITOR_OVERLAY
+OBSERVATION_EDITOR_OVERLAY = {**OBSERVATION_PARALLEL_PREVIOUS, **{'tools/quest-builder/editor_overlay.py': {'path': 'tools/quest-builder/editor_overlay.py', 'size': 26149, 'sha256': '94668aacbd035f783b1b7bcd88a29356b7c22fc50c820a55f407c2d11ac343c8'}, 'tools/quest-builder/unity_work.py': {'path': 'tools/quest-builder/unity_work.py', 'size': 14692, 'sha256': '9301848b4866ba9aaf3726e4f97fc4adc48c7e2cf806c61ca8034f9fb53d678e'}, 'tools/quest-builder/full_assets.py': {'path': 'tools/quest-builder/full_assets.py', 'size': 34056, 'sha256': 'fefd26838b2f8e823637d0fe21bf8a56a110b7a9ce24ae6a7009be4da4cfe459'}, 'tools/quest-builder/staging_copy.py': {'path': 'tools/quest-builder/staging_copy.py', 'size': 7603, 'sha256': '7a0d18c4ca4ca2621a8ab57a5ff14164087db29dfddbd105939baaec7844d369'}}}
+
 ORCHESTRATION_FILES = set(LEGACY_MERGE_FILES) | {OBSERVER_FILE}
 # native_stage runs only on the fresh derived project, after all raw export
 # checkpoints. Its deferred duplicate audit cannot alter an original export.
-DERIVED_FILES = {"tools/quest-builder/full_assets.py", "tools/quest-builder/full_shaders.py",
+DERIVED_FILES = {"tools/quest-builder/full_assets.py", "tools/quest-builder/full_shaders.py", "tools/quest-builder/staging_copy.py",
                  "tools/quest-recovery/native_stage.py", "tools/quest-builder/staging_resume.py"}
 MAX_MANIFESTS = 128
 MAX_JSON_BYTES = 16 * 1024 * 1024
@@ -430,6 +458,15 @@ def _native_byte_rows(rows):
         rows = [COST_RECOVERY_PREVIOUS.get(row["path"], row) for row in rows]
         by_path = {}
         for row in rows: by_path.setdefault(row["path"], []).append(row)
+    staging_pair = all(by_path.get(name) == [fixed] for name, fixed in PARALLEL_STAGING_CURRENT.items())
+    staging_helper = "tools/quest-builder/staging_copy.py"
+    if by_path.get(staging_helper) == [PARALLEL_STAGING_CURRENT[staging_helper]]:
+        rows = [row for row in rows if row['path'] != staging_helper]
+    if staging_pair:
+        rows = [PARALLEL_STAGING_PREVIOUS if row['path'] == PARALLEL_STAGING_PREVIOUS['path'] else row
+                for row in rows]
+        by_path = {}
+        for row in rows: by_path.setdefault(row["path"], []).append(row)
     if (NATIVE_BYTES_FIXED and all(by_path.get(name) == [fixed]
                                   for name, fixed in NATIVE_BYTES_FIXED.items())):
         return [NATIVE_BYTES_PREVIOUS.get(row["path"], row) for row in rows]
@@ -439,6 +476,9 @@ def _native_byte_rows(rows):
 def preparation_source_rows(rows):
     """Return reviewed output-equivalent rows; actual source proof stays exact."""
     rows = _native_byte_rows(rows)
+    rows = [PARALLEL_OBSERVATION_ROWS[row['path']][1]
+            if row['path'] in PARALLEL_OBSERVATION_ROWS and row == PARALLEL_OBSERVATION_ROWS[row['path']][0]
+            else row for row in rows]
     current = {}
     for row in rows:
         current.setdefault(row["path"], []).append(row)
@@ -452,6 +492,7 @@ def preparation_source_rows(rows):
                                            OBSERVATION_ZIP32_DELIVERY_PREVIOUS,
                                            OBSERVATION_UNDO_WITNESSES_PREVIOUS,
                                            OBSERVATION_COST_PREVIOUS,
+                                           OBSERVATION_PARALLEL_PREVIOUS,
                                            OBSERVATION_EDITOR_OVERLAY)
                     if all(current.get(name) == [fixed] for name, fixed in profile.items())), None)
     if profile is not None:

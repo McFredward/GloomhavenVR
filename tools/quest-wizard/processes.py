@@ -228,6 +228,7 @@ class ProgressParser:
         self.import_runs = {}
         self.import_pending = {}
         self.import_coverage = {}
+        self.import_worker_owners = {}
         self.coverage_invocations = {}
         self.plan_signatures = {}
         self.native_import_counts = {}
@@ -408,6 +409,8 @@ class ProgressParser:
 
     def _unity_operation(self, source):
         """Compiler logs belong to their actual child build, not Player import."""
+        if source in self.import_worker_owners:
+            return self._unity_operation(self.import_worker_owners[source])
         if re.fullmatch(r"mod-bundle(?:-launch)?-[A-Za-z0-9_.-]+\.log", source): return "mod-banks"
         if source.startswith(("update-code-unity", "update-sdk-unity")): return "update-code"
         if re.fullmatch(r"package-import(?:-launch)?-[A-Za-z0-9_.-]+\.log", source): return "unity-import"
@@ -443,6 +446,10 @@ class ProgressParser:
             if self.plan_signatures.get(source) == signature and source in self.import_coverage: return None
             plan = work.load_plan(path, started=started)
             if plan is None: return None
+            if str(path) in plan.get("importWorkerLogs", []):
+                owner = Path(plan.get("importWorkerOwnerLog", "")).name
+                if not self._unity_child(owner): return None
+                self.import_worker_owners[source] = owner
             coverage = self.coverage_invocations.get(plan["invocationId"])
             if coverage is None:
                 if len(self.coverage_invocations) >= 32:
@@ -589,6 +596,10 @@ class ProgressParser:
 
     def parse(self, line, source="tool"):
         line = line.strip()
+        if source in self.import_worker_owners:
+            # Worker completion lines share their owner's real unique-asset
+            # census, but keep independent pending-import state per process.
+            return self._import_progress(line, source)
         if line.startswith("resources: "):
             try:
                 value = json.loads(line[len("resources: "):])
@@ -960,6 +971,18 @@ class Supervisor:
                             if plan and side.stat().st_mtime >= plan["createdAt"]:
                                 additions.append(side)
                         except (OSError, ValueError, TypeError, ImportError): pass
+                    try:
+                        work = _unity_work_module(); plan = work.load_plan(native, started=started)
+                        if plan:
+                            project = ordinary(Path(plan["project"]))
+                            for value in plan.get("importWorkerLogs", [])[:16]:
+                                worker = ordinary(Path(value))
+                                if (worker.parent == project / "Logs"
+                                        and re.fullmatch(r"AssetImportWorker[0-9]{1,2}\.log", worker.name)
+                                        and worker.is_file() and not worker.is_symlink()
+                                        and worker.stat().st_mtime >= plan["createdAt"]):
+                                    additions.append(worker)
+                    except (OSError, ValueError, TypeError, ImportError): pass
                 candidates += additions
                 for path in list(tails):
                     if path.parent == folder and path not in candidates: del tails[path]

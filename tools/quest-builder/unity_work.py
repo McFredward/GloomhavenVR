@@ -174,11 +174,23 @@ def publish_plan(argv, log, progress, *, cwd=None):
             connection.execute("DELETE FROM assets WHERE invocation<>?", (invocation,))
             done = connection.execute("SELECT count(*) FROM assets WHERE completed=1").fetchone()[0]
         logs = list(dict.fromkeys([log, _argument(argv, "-logFile", cwd) or log]))
+        worker_logs = []
+        if "-desiredWorkerCount" in argv and "-refreshImportMode" in argv:
+            count = int(argv[argv.index("-desiredWorkerCount") + 1])
+            mode = argv[argv.index("-refreshImportMode") + 1]
+            worker_root = project / "Logs"
+            if mode == "OutOfProcessPerQueue" and 1 <= count <= 16 and not worker_root.is_symlink():
+                worker_root.mkdir(exist_ok=True)
+                worker_logs = [worker_root / ("AssetImportWorker" + str(index) + ".log") for index in range(count)]
+                logs += worker_logs
         plan = {"schema": SCHEMA, "invocationId": invocation, "createdAt": time.time(),
                 "project": str(project), "database": str(database), "databaseIdentity": _stat(database)[3:],
                 "context": context, "done": done, "total": len(rows),
                 "scopes": [prefix for prefix, _ in roots],
                 "logs": [{"path": str(path), "before": _stat(path)} for path in logs]}
+        if worker_logs:
+            plan["importWorkerLogs"] = list(map(str, worker_logs))
+            plan["importWorkerOwnerLog"] = str(_argument(argv, "-logFile", cwd) or log)
         for path in logs:
             path.parent.mkdir(parents=True, exist_ok=True)
             _atomic(sidecar(path), plan)

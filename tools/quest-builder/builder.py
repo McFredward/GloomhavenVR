@@ -67,6 +67,7 @@ preparation_identity = _local_helper("preparation_identity")
 preparation_repair = _local_helper("preparation_repair")
 project_access = _local_helper("project_access")
 native_admission = _local_helper("native_admission")
+native_bank_resume = _local_helper("native_bank_resume")
 _release = _local_helper("release") if Path(__file__).with_name("release.py").is_file() else None
 apk_updates = _local_helper("apk_update")
 apk_input_hashes = _local_helper("apk_input_cache")
@@ -97,25 +98,43 @@ def command(argv: list[str], log: Path, *, cwd: Path | None = None,
     build_progress.event("tool:" + log.stem[:140], detail=Path(argv[0]).name, status="start")
     unity = any(Path(arg).name.casefold() in ("unity", "unity.exe") for arg in argv)
     if unity and "-version" not in argv:
-        policy = host_resources.phase_budget("unity", log.parent)
-        if "-job-worker-count" in argv:
-            index = argv.index("-job-worker-count")
-            argv[index + 1] = str(min(int(argv[index + 1]), policy["jobs"]))
-        else:
-            argv += ["-job-worker-count", str(policy["jobs"])]
+        argv = host_resources.unity_launch_arguments(argv, log.parent)
     log.parent.mkdir(parents=True, exist_ok=True)
-    with host_resources.timed_phase("unity" if unity else "command", log=log), log.open("w", encoding="utf-8") as stream:
-        work = unity_work.publish_plan(argv, log, build_progress, cwd=cwd) if unity else None
-        try:
-            result = subprocess.run(argv, cwd=cwd, env=env, stdout=stream,
-                                    stderr=subprocess.STDOUT, check=False)
-        except OSError as exc:
-            unity_work.finish_plan(work, success=False, progress=build_progress)
-            raise BuildError("Cannot execute " + Path(argv[0]).name + "; verify the selected tool path.") from exc
-        unity_work.finish_plan(work, success=result.returncode == 0, progress=build_progress)
-        if result.returncode:
-            raise BuildError(Path(argv[0]).name + " exited with " + str(result.returncode) +
-                             "; inspect " + str(log))
+    for attempt in range(2):
+        with host_resources.timed_phase("unity" if unity else "command", log=log), log.open("w", encoding="utf-8") as stream:
+            work = unity_work.publish_plan(argv, log, build_progress, cwd=cwd) if unity else None
+            try:
+                result = subprocess.run(argv, cwd=cwd, env=env, stdout=stream,
+                                        stderr=subprocess.STDOUT, check=False)
+            except OSError as exc:
+                unity_work.finish_plan(work, success=False, progress=build_progress)
+                raise BuildError("Cannot execute " + Path(argv[0]).name + "; verify the selected tool path.") from exc
+            unity_work.finish_plan(work, success=result.returncode == 0, progress=build_progress)
+        if not result.returncode: break
+        error = BuildError(Path(argv[0]).name + " exited with " + str(result.returncode) + "; inspect " + str(log))
+        native_log = Path(argv[argv.index("-logFile") + 1]) if unity and "-logFile" in argv else log
+        memory_logs = [log, native_log]
+        if unity and isinstance(work, dict):
+            # A worker can be the first process to report allocation pressure.
+            # Read only logs qualified under this exact live invocation plan;
+            # old worker diagnostics cannot slow a healthy new import.
+            for worker_log in work.get("importWorkerLogs", [])[:16]:
+                try:
+                    observed = unity_work.load_plan(worker_log, started=work["createdAt"])
+                    if observed and observed["invocationId"] == work["invocationId"]:
+                        memory_logs.append(Path(worker_log))
+                except (OSError, ValueError, TypeError, KeyError):
+                    pass
+        retry = (host_resources.unity_import_retry_arguments(argv, memory_failure=
+            native_admission.memory_failure(*memory_logs, error=error)) if unity and attempt == 0 else None)
+        if retry is None: raise error
+        # The exact completed child is reaped by subprocess.run. Wait for its
+        # Editor lock to retire; never kill an unrelated Editor by name/PID.
+        project_access.wait_for_editor(Path(argv[argv.index("-projectPath") + 1]), build_progress)
+        native_admission._retain_logs(tuple(dict.fromkeys((log, native_log))), 1)
+        build_progress.event("unity-import-memory-retry", 0, 1, "attempts",
+            "Parallel import reached memory pressure; continuing in process with the existing Unity Library.", status="start")
+        argv = retry
     output = log.read_text(encoding="utf-8", errors="replace")
     build_progress.event("tool:" + log.stem[:140], 1, 1, "commands", Path(argv[0]).name, status="complete")
     return output
@@ -1623,6 +1642,8 @@ def build(args, inputs: dict, output: Path, source: Path, game: Path, project: P
                     "GHVR_QUEST_ANDROID_SDK": tools["androidSdk"],
                     "GHVR_QUEST_ANDROID_NDK": tools["androidNdk"], "GHVR_QUEST_JDK": tools["jdk"]})
         env = content_pack_environment(env, progress_log=output / "logs" / ("content-pack-" + key[:12] + ".log"))
+        env = native_bank_resume.environment(env, inputs, source, project, output, tools,
+                                            preparation_identity, recovery_resume, recipe=RECIPE, progress=build_progress)
         env = native_admission.player_environment(env, target=args.target)
         if args.target == "game":
             env = campaign_native_shader_environment(env, source)
@@ -1860,7 +1881,7 @@ def content_pack_environment(base, *, progress_log=None):
     # result contract and publish live counters to the supervisor-owned sidecar.
     # Never inherit an arbitrary host destination for this build's observer.
     result.pop("GHVR_QUEST_CONTENT_PROGRESS_LOG", None)
-    result.update(GHVR_QUEST_CONTENT_PACK_PYTHON=str(Path(sys.executable).resolve()),
+    result.update(GHVR_QUEST_CONTENT_PACK_PYTHON=str(Path(sys.executable).absolute()),
                   GHVR_QUEST_CONTENT_PACK_HELPER=str(helper))
     if progress_log is not None:
         result["GHVR_QUEST_CONTENT_PROGRESS_LOG"] = str(_ordinary_owned(Path(progress_log)).absolute())

@@ -393,8 +393,9 @@ def _code_rows(files, *, normalizer=None):
     if normalizer is not None:
         fixed = getattr(normalizer, "UPDATE_DOWNLOAD_FIXED", None)
         previous = getattr(normalizer, "UPDATE_DOWNLOAD_PREVIOUS", None)
+        preceding = getattr(normalizer, "UPDATE_DOWNLOAD_PARALLEL_PREVIOUS", None)
         if fixed is not None and previous is not None:
-            rows = [previous if row == fixed else row for row in rows]
+            rows = [previous if row in (fixed, preceding) else row for row in rows]
     return sorted(rows, key=lambda row: row["path"])
 
 
@@ -423,6 +424,8 @@ def _update_source_rows(files, *, art_changed):
 # No code is recovered from Git at build time and an unknown/mutated row is not
 # accepted. All listed revisions normalize to the same complete producer AST.
 _LEGACY_BUILDER_PRODUCERS = {
+    (151105, 'cc219acb69be23f61a4059b804794789956f08951e9792f5b90969b4ec0b2585'),  # captured B672 45416ec2f
+
     (147152, '114fc82dbac09e1c563888bac005c7d2c4ff8e3f0ff3138505a6ed2fd0cb20b2'),  # last delivered B671
 
     (132328, "419aaa4eec29164fbf8298c60b5bea7ec9392d9eb74d35084f84000d92ab7b67"),  # 8063c8fc8
@@ -497,6 +500,20 @@ _PROTON_DOWNLOAD_ROWS = (
      "sha256": "383f865db376d001eef05fddbaf385653cc10af897a6ec34af65849f2974bd9d"},
 )
 
+# Reviewed byte-equivalent parallel copies and standalone packing/checkpoints.
+# Real unknown asset writers still migrate; these are exact complete sources.
+for _parallel_path, _parallel_rows in {'tools/quest-builder/full_assets.py': {(34056,
+                                         'fefd26838b2f8e823637d0fe21bf8a56a110b7a9ce24ae6a7009be4da4cfe459')},
+ 'tools/quest-builder/native_content_pack.py': {(36167,
+                                                 '0ca828c10158fc16cf21722d36d9711208ce126c8bbc8ea28df4b35473e7041e')},
+ 'tools/quest-builder/staging_copy.py': {(7603,
+                                          '7a0d18c4ca4ca2621a8ab57a5ff14164087db29dfddbd105939baaec7844d369')},
+ 'unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestStartupAddressablesBuild.cs': {(41665,
+                                                                                    'c898b183f0e1a70ef3402b110b300483f485cec706d13a35c51c8e4c04067110')}}.items():
+    _PAYLOAD_AUDIT_ONLY_ROWS.setdefault(_parallel_path, set()).update(_parallel_rows)
+_PAYLOAD_INTRODUCED_OBSERVERS.update({'tools/quest-builder/staging_copy.py': {'path': 'tools/quest-builder/staging_copy.py', 'size': 7603, 'sha256': '7a0d18c4ca4ca2621a8ab57a5ff14164087db29dfddbd105939baaec7844d369'}})
+
+
 
 def _legacy_payload_producer(files):
     rows = [row for row in files if row["path"] == "tools/quest-builder/builder.py"]
@@ -543,7 +560,7 @@ def _payload_rows(files):
                  "ui_assets.py", "ui_blur.py", "full_assets.py", "full_audio.py", "full_shaders.py", "full_sprites.py",
                  "full_texture2d.py", "full_textures.py", "campaign_compute.py", "campaign_shaders.py",
                  "campaign_native_shaders.py", "stereo_eye_repair.py", "script_order.py", "installation_manifest.py",
-                 "native_content_pack.py", "preparation_repair.py", "import_workspace.py"}
+                 "native_content_pack.py", "staging_copy.py", "preparation_repair.py", "import_workspace.py"}
     def selected(name):
         if name.startswith("unity/GloomhavenVR.Quest/"):
             # Runtime .meta and asmdef changes can change retained script GUIDs

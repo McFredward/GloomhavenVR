@@ -107,7 +107,7 @@ class NativeContentPack(unittest.TestCase):
     def test_builder_overwrites_inherited_packer_paths_without_mutating_parent_env(self):
         inherited = {"GHVR_QUEST_CONTENT_PACK_PYTHON": "untrusted executable", "GHVR_QUEST_CONTENT_PACK_HELPER": "untrusted helper", "GHVR_QUEST_CONTENT_PROGRESS_LOG": "untrusted destination", "OTHER": "kept"}
         actual = builder.content_pack_environment(inherited)
-        self.assertEqual(actual["GHVR_QUEST_CONTENT_PACK_PYTHON"], str(Path(sys.executable).resolve()))
+        self.assertEqual(actual["GHVR_QUEST_CONTENT_PACK_PYTHON"], str(Path(sys.executable).absolute()))
         self.assertEqual(actual["GHVR_QUEST_CONTENT_PACK_HELPER"], str(Path(packer.__file__).resolve()))
         self.assertEqual(inherited["GHVR_QUEST_CONTENT_PACK_HELPER"], "untrusted helper"); self.assertEqual(actual["OTHER"], "kept")
         self.assertNotIn("GHVR_QUEST_CONTENT_PROGRESS_LOG", actual)

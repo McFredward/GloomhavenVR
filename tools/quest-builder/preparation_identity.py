@@ -112,8 +112,13 @@ UPDATE_DOWNLOAD_PREVIOUS = {"path": "tools/quest-builder/update_driver.py", "siz
 UPDATE_DOWNLOAD_FIXED = {"path": "tools/quest-builder/update_driver.py", "size": 66742,
     "sha256": "47268c18c60e326d74f1c1684baf995994b2ec0dddcbffc8fb57e56ecad8916c"}
 
+MEMORY_POLICY_PARALLEL = {'path': 'tools/quest-builder/host_resources.py', 'size': 34185, 'sha256': '024e6993e83d319d76c215c9512fffb2e6c3c7c2e360652b2b8ff3cfcdf5294a'}
+NATIVE_BANK_HOST_ROW = {'path': 'tools/quest-builder/native_bank_resume.py', 'size': 13057, 'sha256': '49d77c797c3a412ee7bb6a848efabc40e6d10593a284edb39b7f0dc4165bcadf'}
+UPDATE_DOWNLOAD_PARALLEL_PREVIOUS = UPDATE_DOWNLOAD_FIXED
+UPDATE_DOWNLOAD_FIXED = {'path': 'tools/quest-builder/update_driver.py', 'size': 68217, 'sha256': '6a68046fff158d94604c7352fdd7b9171b6575b3b06364337c0269e16553b56b'}
+
 def _memory_row(row):
-    if row in (MEMORY_POLICY_FIXED, MEMORY_POLICY_ADAPTIVE, MEMORY_POLICY_MINIMUM):
+    if row in (MEMORY_POLICY_FIXED, MEMORY_POLICY_ADAPTIVE, MEMORY_POLICY_MINIMUM, MEMORY_POLICY_PARALLEL):
         return MEMORY_POLICY_PREVIOUS
     fixed, previous = MEMORY_OBSERVER_PROFILES.get(row["path"], (None, row))
     return previous if row == fixed else row
@@ -180,6 +185,12 @@ BUILDER_MINIMUM_WORK_AST = {
     "c8b33abda427e267d71ca88e5ca5c8e9a5ec6d41ecc4b64365c93aedde241009": "6905242806bb695c86e84be373112f21804c425afa710398cb40b665f4d608d1",
     "ea8ab0377918b31a9c35213974997d8665588412254ba0435e4e0e51c3e0aad8": "6905242806bb695c86e84be373112f21804c425afa710398cb40b665f4d608d1"
 }
+
+# The exact complete orchestration trees only change bounded file scheduling,
+# Unity importer admission and post-cooking checkpoint ownership. Preparation
+# writer calls, arguments and order are unchanged. The two preceding late CLI
+# reconstructions retain their existing finite aliases; unknown code differs.
+BUILDER_MINIMUM_WORK_AST.update({'b55c8f6d3a22b30ace5a8928f081979397e0c7e0df21096f7714b531a32a64e7': '6905242806bb695c86e84be373112f21804c425afa710398cb40b665f4d608d1', '56032530ce8ea516109e65f9920d04f1ee836f21eb692ca923a6ea80c1f984c3': 'cc09e2c539f383d447f494d386bd5fa6dd8df9989a964543d98c33f4bea6385f', 'afc713a6b91e91c39fe33e6018f6094b685f0efa071e8c47e290886f24e5c408': '6905242806bb695c86e84be373112f21804c425afa710398cb40b665f4d608d1', 'b1a5e67ed01db87adc2b00dfb6601675c40244ce699a6a7cafffa1613752a4b2': 'cc09e2c539f383d447f494d386bd5fa6dd8df9989a964543d98c33f4bea6385f', '054b9fa067826ea9435d5af0dc8f1e233e8f061fa503bc6897e22aef75e3a76c': '6905242806bb695c86e84be373112f21804c425afa710398cb40b665f4d608d1', 'c7801ffeb1618b2a95b2b4099afcdbc68c6cf211b046054528d27c0c1b636660': 'cc09e2c539f383d447f494d386bd5fa6dd8df9989a964543d98c33f4bea6385f'})
 
 # Once every preparation owner has closed, the old loading drawing bytes and
 # their receipts remain valid under the exact late Editor transport repair.
@@ -594,11 +605,11 @@ def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=Fal
     # These modules validate/select identity; neither generates game assets.
     # Delivery tools are never read by generate_files or its conversion tools.
     rows = [row for row in rows if row["path"] not in (BUILDER, IDENTITY, RECIPE_IDENTITY, "quest-builder-release.json")
-            and not row["path"].startswith(DELIVERY_PREFIXES)]
+            and not row["path"].startswith(DELIVERY_PREFIXES) and row != NATIVE_BANK_HOST_ROW]
     if original_prefix:
         reviewed = []
         for row in rows:
-            if row == UPDATE_DOWNLOAD_FIXED: row = UPDATE_DOWNLOAD_PREVIOUS
+            if row in (UPDATE_DOWNLOAD_FIXED, UPDATE_DOWNLOAD_PARALLEL_PREVIOUS): row = UPDATE_DOWNLOAD_PREVIOUS
             if row in (PLAYER_DELIVERY_ROW, FINAL_DELIVERY_ROW): continue
             if row == COMPUTE_OWNER_DELIVERY_ROW:
                 row = LATE_DELIVERY_ROWS[row['path']][1]
