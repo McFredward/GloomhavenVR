@@ -16,16 +16,43 @@ See [reference-remake-editing.md](reference-remake-editing.md) for the active
 pipeline and additionalUSD10 cap. The completed65-second film below is retained
 as the earlier direction, with its sources and cost evidence.
 
-The authorized trailer is a 65-second cinematic fantasy short focused on the VR
-conversion. The maintainer approved the film direction in review09 and requested
-completion of the original story with source-faithful character faces, coherent
-cuts and physical cards placed onto the original controlboard. English narration
-uses the explicitly authorized original game/reference narrator clone. The
-fal.ai ceiling remains USD30; conservative reservations total USD29.90,
-including earlier studies and failed requests. Actual invoice reconciliation is
-pending. This includes USD0.15 for the completed final speech check. All media,
-prompts, receipts and review exports remain in the main
-checkout's gitignored `.planning/debug/trailer/`.
+**Active interaction direction:** giant native masks look down from high above
+living characters. Hands descend from above with purposeful motion, credible
+contact or direction, then release and withdraw. The maintainer permits changed
+interior action/camera while source first/last images, duration, narrative order
+and soundtrack clock match. Vary single players and multiplayer across Ironwatch,
+Runeveil and Grimhorn. The latest instruction authorizes autonomous completion
+and self-review of the entire film without per-shot user approval pauses.
+
+The current cinematic plan has three useful windows: Runeveil directs the party
+in the opening3.000–7.000s; Ironwatch guides the rocky party warrior in the
+client scene139.950–145.700s; Grimhorn and Runeveil coordinate early hero
+placement in the forest217.200–223.783333s. The class-unlock party shot remains
+original because its early gold lettering and rapid silhouette reveal leave
+insufficient natural contact time. All original Flat gameplay remains for the
+later native VR recording exchange.
+
+The completed `ai-edits-v2/` movie is a historical placement diagnosis. Its
+GloomhavenVR narrator patch and exact native VR title are ready. Two source-based
+I01 models were rejected after actual video review. A guide-driven three-second
+Kling entry now reaches a readable shoulder contact with integrated lighting;
+its paired withdrawal is running. No complete interaction/master approval yet.
+Conservative reservations total USD40.00, the authorized ceiling. A proposed
+USD45 ceiling is pending and does not permit more spending. The current key
+cannot read billing events(403), so no reservations have been released.
+All AI-generated videos, native sources, receipts and earlier drafts remain
+in the gitignored trailer directory. Its `START-HERE.html` links current work,
+completed intro and preserved archives. Fourteen identical raw-video archive
+copies now share immutable provider files through hardlinks, retaining all paths,
+bytes and modification timestamps while reclaiming136.23MiB.
+
+## Earlier completed CGI treatment
+
+The following65-second cinematic short is the preserved previous direction.
+It used the explicitly authorized original narrator clone and the original
+USD30 ceiling, with USD29.90 conservatively reserved including studies and failed
+requests. Its media, prompts, receipts and review exports remain under
+`.planning/debug/trailer/`; this historical film is not the active reference remake.
 
 ## Story
 

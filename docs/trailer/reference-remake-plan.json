@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "status": "First A04 AI insertion exported and technically reviewed; awaiting maintainer direction review before additional paid shots",
+  "status": "Full reference remake in progress; I01 paired keyframes generated/reviewed, offline source matching pending; O01/A04 free guides staged, additional budget pending",
   "date": "2026-10-13",
   "source_url": "https://www.youtube.com/watch?v=-SGDEP-zFHo",
   "source_title": "Gloomhaven | Gameplay Overview Trailer",
@@ -12,7 +12,7 @@
     "total_viewed": 139,
     "independent_creative_frames": 12,
     "transcript": "Official manual English captions; no paid ASR",
-    "motion_quality": "No edited model output exists yet; no imperceptibility or subjective final audio quality claim"
+    "motion_quality": "Completed overhead diagnosis and rejected Seedance interaction reviewed. New physically integrated Kling reference trial running; full-film creative approval pending."
   },
   "direction": "Original film as base; selected cinematic shots modified with video-edit models; Flat explanation footage replaced by genuine VR captures; invisible visual joins",
   "timing_note": "Editorial planning windows, not a frame-perfect final EDL; sampled frames and native captions provide anchors. Preserve original full duration and cut order during actual edit.",
@@ -20,14 +20,16 @@
     "mode": "Keep original English text/timing, user confirmed; small GloomhavenVR substitutions only",
     "patches": [
       {
-        "start": 3,
-        "end": 7,
-        "role": "Opening product-name candidate"
+        "start": 6.225,
+        "end": 7.575,
+        "role": "Opening GloomhavenVR patch: original Gloomhaven, authorized cloned V R, original recruit shifted 0.525s",
+        "private_audio_master": ".planning/debug/trailer/remake-v1/ai-edits-v2/intro/audio-v1/patched-master-48k-stereo.wav",
+        "preencode_pcm_outside_window_identical": true
       },
       {
         "start": 211.5,
         "end": 217.15,
-        "role": "Co-op product/world-name candidate"
+        "role": "Later co-op product/world-name candidate; not patched in review 2"
       }
     ],
     "geographic_mentions": [
@@ -37,18 +39,32 @@
     "geographic_note": "These two mentions name the fictional city/region; preserve Gloomhaven there unless final wording needs adjustment."
   },
   "budget": {
-    "new_paid_calls": 1,
+    "new_paid_calls": 8,
     "new_fal_usd": null,
     "previous_reserved_usd": 29.9,
     "previous_cap_usd": 30,
     "previous_invoice_reconciled": false,
     "additional_round_cap_usd": 10,
     "total_authorized_cap_usd": 40,
-    "new_reserved_usd": 1.35,
+    "new_reserved_usd": 10.1,
     "actual_new_invoice_reconciled": false,
-    "pilot_scope": "One Kling O3 Pro Edit request; alternatives not run; first usable insertion reviewed before more paid shots",
+    "pilot_scope": "Full selected-cinematic remake with internal per-shot QC and complete-film self-review. User revoked per-shot approval pauses. Cap remains USD40 until additional budget is explicitly authorized.",
     "initial_three_model_comparison_proposed_usd": 3.75,
-    "initial_model_comparison_status": "Not run; only one Kling pilot commissioned"
+    "initial_model_comparison_status": "Not run; only one Kling pilot commissioned",
+    "all_reserved_usd": 40,
+    "request_states": {
+      "completed_video_edits": 2,
+      "completed_voice_patches": 1,
+      "provider_validation_failures": 1,
+      "completed_interactive_edit_rejected": 1,
+      "completed_reference_trial_rejected": 1,
+      "completed_keyframe_entry": 1,
+      "completed_keyframe_exit": 1
+    },
+    "this_revision_reserved_usd": 8.75,
+    "proposed_total_cap_usd": 45,
+    "budget_extension_pending": true,
+    "unreserved_under_total_cap_usd": 0
   },
   "private_briefing": ".planning/debug/trailer/remake-v1/AUFNAHMEPLAN.html",
   "private_capture_list": ".planning/debug/trailer/remake-v1/AUFNAHMELISTE.txt",
@@ -463,7 +479,8 @@
         "VR18",
         "VR25"
       ],
-      "optional": false
+      "optional": false,
+      "treatment": "Two-player optional alternative only if upper-frame room and original dolly permit clear scale; do not force partial identities."
     },
     {
       "id": "A04",
@@ -472,7 +489,8 @@
       "capture_references": [
         "VR25"
       ],
-      "optional": false
+      "optional": false,
+      "treatment": "Two distinct native Grimhorn/Runeveil masks high above forest, looking down; only hands from above; protect original actor motion."
     }
   ],
   "recordings": [
@@ -822,15 +840,15 @@
   ],
   "contracts": [
     "Original source film remains master; selected cinematic shots are actually modified with video-edit models.",
-    "Flat explanation views replaced with genuine new VR capture, preserving story/cut rhythm.",
+    "Original Flat explanation footage remains until the later genuine VR recording exchange; preserve story/cut rhythm.",
     "No invented gameplay outcomes; exact native card/UI prints stay protected.",
-    "Existing game figures, native faces, architecture and original camera motion stay source-bound.",
+    "Native figure identities, faces and architecture stay source-faithful; cinematic interior camera/action may change, original first/last images and duration must match.",
     "Only mod masks and disconnected hands represent players; no invented avatar bodies.",
     "Original English narration with minor product-name patches; city names remain geographic.",
     "Persistent UNOFFICIAL FAN-MADE MOD branding and explicit new mod end card.",
     "Two ordinary VR clients plus real cropped details planned; no fabricated four-client capture.",
     "Output motion cadence/audio/duration must be measured; published schema/benchmark claims do not prove imperceptible editing.",
-    "Previous65s film preserved; no new inference or external publication authorized by this planning step."
+    "Previous65s film and every AI-generated video remain preserved. Paid trailer work is authorized only within the currentUSD40 total cap; complete-film self-review required before delivery."
   ],
   "source_controls": [
     {
@@ -873,7 +891,7 @@
     "private_review": ".planning/debug/trailer/remake-v1/ai-edits-v1/REVIEW.html",
     "private_output": ".planning/debug/trailer/remake-v1/ai-edits-v1/reference-remake-ai-pilot-v1.mp4",
     "pipeline_document": "docs/trailer/reference-remake-editing.md",
-    "status": "Ready for maintainer direction review; no creative approval claimed",
+    "status": "Historical first insertion; placement requires correction after maintainer feedback",
     "source_actor_lock": [
       "Tinkerer",
       "Cragheart",
@@ -893,5 +911,230 @@
     "actual_vr_gameplay_captured": false,
     "local_composite_tool": "scripts/trailer/composite_reference_presence.py",
     "private_composite": ".planning/debug/trailer/remake-v1/ai-edits-v1/A04/native-composite/v2/composite-review.mp4"
+  },
+  "player_presence_contract": [
+    "Masks are gigantic god-like players high above the living world, viewed from character height.",
+    "Vary one and two players across Ironwatch, Runeveil and Grimhorn; not two masks in every scene.",
+    "Hands enter from above with purposeful physical contact and can guide or move a source character, explicitly authorized by latest feedback.",
+    "No avatar arms, shoulders, robes or bodies are invented.",
+    "Interior action and camera can change to make VR interaction readable; keep original approximate narrative sequence, first/last images, frame count and audio clock.",
+    "Source character identities, anatomy, environment and light remain source-faithful and visually checked; earlier whole-shot pixel locking is superseded.",
+    "Natural wrist/finger articulation, smooth acceleration and living character weight transfer are required; reject freezes, jitter, duplicated contours and pose-crossfade ghosts.",
+    "Readable card/UI prints use native source material, with local restoration when necessary.",
+    "Existing moonlight/forest/cellar light stays source-coherent; the I01 scene uses original dark interior torch light."
+  ],
+  "next_review": {
+    "private_root": ".planning/debug/trailer/remake-v1/ai-edits-v2",
+    "presence_candidate": "A04",
+    "players": 2,
+    "opening_voice_patch": true,
+    "opening_title_patch": true,
+    "review_gate": "Historical diagnosis only; latest user instruction authorizes completion without per-shot approval pauses",
+    "private_review": ".planning/debug/trailer/remake-v1/ai-edits-v2/REVIEW.html",
+    "private_output": ".planning/debug/trailer/remake-v1/ai-edits-v2/reference-remake-ai-pilot-v2.mp4",
+    "private_composite": ".planning/debug/trailer/remake-v1/ai-edits-v2/presence-composite/v4/composite-review.mp4",
+    "local_composite_tool": "scripts/trailer/composite_reference_gods.py",
+    "local_intro_tool": "scripts/trailer/patch_reference_intro.py",
+    "title_window_seconds": [
+      7.0,
+      9.05
+    ],
+    "audio_patch_seconds": [
+      6.225,
+      7.575
+    ],
+    "this_revision_reserved_usd": 2.8,
+    "creative_approval": false,
+    "actual_vr_gameplay_captured": false,
+    "limits": [
+      "Two masks are strongly cropped by the original camera and visible together only briefly.",
+      "Source pixel preservation applies before the final lossy encode.",
+      "No subjective listening approval or imperceptibility claim."
+    ],
+    "local_pose_interpolation": "Motion-compensated interpolation required after dense v3 review found doubled mouths/chins",
+    "status": "Historical completed diagnosis; latest interactive pilot now supersedes background-only treatment",
+    "current_direction": false
+  },
+  "interactive_pilot": {
+    "id": "I01",
+    "private_root": ".planning/debug/trailer/remake-v1/ai-edits-v3",
+    "source_window_seconds": [
+      139.95,
+      145.7
+    ],
+    "source_frames": [
+      8397,
+      8742
+    ],
+    "frame_count": 345,
+    "fps": 60,
+    "players": 1,
+    "mask": "Ironwatch (Mask_0)",
+    "hand": "Native VRHandPlate_R, deliberately paired; hand/mask selections are independent",
+    "target": "Rocky-faced mercenary left of foreground cloaked client; outer left shoulder (screen-right), no unsupported Brute identity claim",
+    "action": "Reach from above, gentle shoulder contact, small balanced sidestep, release, withdraw, source-matched ending",
+    "interior_camera_change_authorized": true,
+    "first_last_source_images_required": true,
+    "same_duration_audio_required": true,
+    "tail_transition": "Original from145.7s retained",
+    "endpoint": "bytedance/seedance-2.5/reference-to-video",
+    "task": "editing",
+    "resolution": "720p direction trial",
+    "reservation_usd": 3.8,
+    "job": "remake-i01-seedance-interaction-v1",
+    "request_id": "01a13724-3261-70c1-9610-8fafd739c833",
+    "status": "Rejected after dense root/worker video review; not inserted into master",
+    "review_gate": "Historical rejected trial; no longer a per-shot user approval gate",
+    "creative_approval": false,
+    "raw_output": ".planning/debug/trailer/remake-v1/ai-edits-v3/I01/original-model-output.mp4",
+    "private_review": ".planning/debug/trailer/remake-v1/ai-edits-v3/REVIEW.html",
+    "raw_dimensions": [
+      1280,
+      720
+    ],
+    "raw_fps": 24,
+    "raw_frames": 137,
+    "raw_duration_seconds": 5.708333333333333,
+    "raw_sha256": "78eeb8936cd5522bd5045f42d313922565e47bf76166e0ab4bea3c79330e7674",
+    "root_raw_frames_viewed": 12,
+    "worker_raw_frames_viewed": 19,
+    "approved_for_master": false,
+    "in_master": false,
+    "rejection_reasons": [
+      "Native metal hand, shoulder contact and intended sidestep absent.",
+      "Mask sinks to mercenary face level and occludes him instead of observing from above.",
+      "Current result does not demonstrate the requested physical VR interaction."
+    ]
+  },
+  "integrated_interaction_trial": {
+    "id": "I01",
+    "job": "remake-i01-kling-integrated-v1",
+    "request_id": "01a1373b-224b-7941-a4e1-e3ba6d044d75",
+    "endpoint": "fal-ai/kling-video/o3/pro/video-to-video/reference",
+    "reserved_usd": 1.35,
+    "status": "COMPLETED but creatively rejected after26 root cueframes; preserved and excluded from master",
+    "guide": ".planning/debug/trailer/remake-v1/ai-edits-v3/I01/guide-integrated-v1.png",
+    "guide_visually_reviewed": true,
+    "video_creative_approval": false,
+    "source_window_seconds": [
+      139.95,
+      145.7
+    ],
+    "duration_generated_seconds": 6,
+    "interior_camera_change_authorized": true,
+    "root_frames_viewed": 26,
+    "raw_output": ".planning/debug/trailer/remake-v1/ai-edits-v3/I01/original-kling-integrated-v1.mp4"
+  },
+  "completion_instruction": {
+    "per_shot_user_review_required": false,
+    "entire_trailer_self_review_required": true,
+    "flat_gameplay_preserved_until_native_captures": true,
+    "all_ai_generated_videos_preserved": true,
+    "cleanup": "Only proven duplicates and regenerable snippets/caches; preserve sources/evidence/current deliverables. 14 SHA-identical archive videos hardlinked, all paths/bytes retained, actual136.2265625MiB reclaimed."
+  },
+  "keyframe_interaction_trial": {
+    "id": "I01",
+    "endpoint": "fal-ai/kling-video/o3/pro/image-to-video",
+    "source_window_seconds": [
+      139.95,
+      145.7
+    ],
+    "entry": {
+      "job": "remake-i01-kling-keyframe-entry-v1",
+      "duration_seconds": 3,
+      "reserved_usd": 0.4,
+      "status": "COMPLETED",
+      "frames_viewed": 13,
+      "approval": "Suitable only for paired-exit trial; full action/join/master review pending"
+    },
+    "exit": {
+      "job": "remake-i01-kling-keyframe-exit-v1",
+      "duration_seconds": 3,
+      "reserved_usd": 0.4,
+      "status": "COMPLETED;13 root cueframes inspected; physical upward withdrawal to original party ending; paired normalization pending",
+      "request_id": "01a1374c-31d8-7c33-a9fd-8c0b5be0fad4",
+      "raw_width": 1916,
+      "raw_height": 1080,
+      "raw_sha256": "e5bc724ace0687063da2a71eafa70693a83be2134d4ccc6d2922221972b567b8"
+    },
+    "shared_contact_guide": ".planning/debug/trailer/remake-v1/ai-edits-v3/I01/guide-integrated-v2.png",
+    "source_endpoints_required": true,
+    "output345frames60fps_required": true,
+    "approved_for_master": false,
+    "billing_read_attempt": "403 from current key; no invoice reconciliation or reservation release",
+    "offline_join": {
+      "status": "v1 exact endpoints/decode passed; root29-frame review identified thin source-picture stripes at bar edges; v2 free repair in progress",
+      "frames": 345,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "fps": 60,
+      "source_endpoints_changed_channels": [
+        0,
+        0
+      ],
+      "root_join_frames_viewed": 29,
+      "approved_for_master": false,
+      "observed_action": "Gentle shoulder contact, small living upper-body shift, physical upward withdrawal. Footstep hidden by crop and not independently verified."
+    }
+  },
+  "active_cinematic_windows": [
+    {
+      "id": "O01",
+      "window_seconds": [
+        3,
+        7
+      ],
+      "frames": [
+        180,
+        420
+      ],
+      "count": 240,
+      "players": 1,
+      "mask": "Runeveil",
+      "action": "High god uses one relaxed Arcane directional gesture; Tinkerer takes a balanced small step; recover original party ending",
+      "status": "Free source staging and integrated guide ready; no paid generation"
+    },
+    {
+      "id": "I01",
+      "window_seconds": [
+        139.95,
+        145.7
+      ],
+      "frames": [
+        8397,
+        8742
+      ],
+      "count": 345,
+      "players": 1,
+      "mask": "Ironwatch",
+      "action": "Metal hand reaches from above, gently guides rocky party warrior shoulder, releases and withdraws",
+      "status": "Both keyframe phases completed/reviewed; offline joining pending"
+    },
+    {
+      "id": "A04",
+      "window_seconds": [
+        217.2,
+        223.78333333333333
+      ],
+      "frames": [
+        13032,
+        13427
+      ],
+      "count": 395,
+      "players": 2,
+      "masks": [
+        "Grimhorn",
+        "Runeveil"
+      ],
+      "action": "Coordinated early hero placement; release Tinkerer before crossbow and Cragheart before native stone attack",
+      "status": "Free action/source staging and integrated guide ready; no paid generation"
+    }
+  ],
+  "omitted_cinematic_candidate": {
+    "id": "A03",
+    "reason": "Early native gold text and rapid class-silhouette pullback leave insufficient natural interaction time; keep original instead of risking lettering drift.",
+    "free_staging_preserved": true
   }
 }
