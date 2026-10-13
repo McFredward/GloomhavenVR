@@ -23,7 +23,12 @@ import cv2
 import numpy as np
 
 WIDTH, HEIGHT, FPS, COUNT = 1920, 1080, 60, 345
-TOP, BOTTOM = 134, 946
+# Measured over all 345 native I01 frames: only these outer cores stay within
+# 3/255 of black. The Lanczos/codec edge extends beyond the nominal bars;
+# rows 131-133 and 946-948 contain actual source picture, including bright light.
+# Copying those rows into a rebuilt interior paints unrelated horizontal strips.
+# Preserve the dark cores, while the generated scene supplies its own soft edge.
+TOP, BOTTOM = 126, 961
 
 
 def write_json(path, value):
@@ -263,7 +268,7 @@ def main():
                     cached_motion = measure_motion(*normalized) if lower != upper else None
                 generated, interpolation = aligned_morph(*normalized, fraction, motion=cached_motion)
                 result, join = aligned_morph(source, generated, weight)
-            # Native black bands are source-owned even when the interior changes.
+            # Source-owned black cores exclude the original active picture edge.
             result[:TOP] = source[:TOP]
             result[BOTTOM:] = source[BOTTOM:]
             encoder.write(result)
