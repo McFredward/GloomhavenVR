@@ -34,7 +34,15 @@ INPUT_ENV = "GHVRQ_RESOURCE_INPUT_KEY"
 RUN_ENV = "GHVRQ_RESOURCE_RUN_ID"
 # (largest first worker, each additional worker, parent/Unity headroom, CPU cap)
 PROFILES = {"il2cpp": (2 * GIB, 2 * GIB, 6 * GIB, 32),
-            "unity": (3 * GIB, 2 * GIB, 4 * GIB, 16),
+            # JobQueue threads are not full Editor/texture-import processes.
+            # Capture165327 spent 3,516 seconds in 14,986 texture imports while
+            # only JobQueue was configured (6/7 threads). This old 2 GiB/thread
+            # coupling neither enabled parallel imports nor bounded their RAM.
+            "unity": (64 * 1024 ** 2, 64 * 1024 ** 2, 4 * GIB, 64),
+            # Separate Editor children, admitted against actual physical and
+            # Windows commit headroom. Unknown/insufficient capacity keeps the
+            # existing in-process importer, without another Editor allocation.
+            "unity-import": (2 * GIB, 2 * GIB, 6 * GIB, 16),
             "box64": (4 * GIB, 2 * GIB, 0, 32),
             "opus": (2 * GIB, GIB, 0, 32),
             # Managed image codecs are separate processes. Keep native bundle
@@ -236,14 +244,16 @@ def choose_jobs(host, phase, override=None):
     physical = host.get("availableMemoryBytes")
     commit = host.get("commitHeadroomBytes")
     total = host.get("totalMemoryBytes")
-    if phase == "il2cpp":
+    if phase in ("il2cpp", "unity", "unity-import"):
         # Existing OS and Python allocations are already absent from both live
         # headroom values. Reserving another 10% of installed RAM penalized large
-        # machines and double counted their current allocations. The 6 GiB parent
+        # machines and double counted their current allocations. The parent
         # reserve is FUTURE Unity growth, since admission runs before its launch.
         os_reserve = 2 * GIB
-        available = commit if host.get("platform") == "win32" and commit is not None else physical
-        if host.get("platform") == "linux" and physical is not None:
+        available = commit if phase == "il2cpp" and host.get("platform") == "win32" and commit is not None else physical
+        if phase != "il2cpp" and commit is not None and available is not None:
+            available = min(available, commit)
+        if phase == "il2cpp" and host.get("platform") == "linux" and physical is not None:
             available = physical + (host.get("availableSwapBytes") or 0)
     else:
         os_reserve = max(4 * GIB, int((total or 0) * 0.10))
@@ -264,8 +274,8 @@ def choose_jobs(host, phase, override=None):
     physical_shortfall = max(0, required_commit - physical) if physical is not None else None
     commit_shortfall = max(0, required_commit - commit) if commit is not None else None
     memory_known = budget is not None and physical is not None and (
-        phase != "il2cpp" or host.get("platform") != "win32" or commit is not None)
-    if phase == "il2cpp" and not memory_known:
+        phase not in ("il2cpp", "unity-import") or host.get("platform") != "win32" or commit is not None)
+    if phase in ("il2cpp", "unity-import") and not memory_known:
         jobs = 1
     # Capture165405 has 64 GiB installed, 36.1 GiB physically available and
     # 27.5 GiB of additional commit. Requiring the old exceptional compiler's
@@ -308,6 +318,83 @@ def choose_jobs(host, phase, override=None):
                           "processPrivateCommitBytes", "availableSwapBytes")},
                       admissionMessage=None)
     return policy
+
+
+def unity_launch_arguments(argv, output_path):
+    """Apply independent JobQueue and native texture/model import scheduling.
+
+    These are witnessed process-local Unity 2021.3.5 command-line overrides.
+    Configure them before the first refresh: an executeMethod or InitializeOnLoad
+    change would miss the initial, expensive Android texture import. Never run
+    several Editors against the same mutable Library. Parallel imports respect
+    Unity's importer queues/dependencies; prefabs and other unsupported types
+    remain on its original sequential path. No shader keywords, formats, quality,
+    variants or compressor settings change. ShaderCompiler has its own native
+    scheduling; JobQueue's count must not be reported as its process count.
+    """
+    result = list(argv)
+    host = detect_host(output_path)
+    jobs = choose_jobs(host, "unity")
+    imports = choose_jobs(host, "unity-import")
+    root = os.environ.get(EVIDENCE_ENV)
+    mode = "InProcess" if imports["jobs"] == 1 or not imports["memoryKnown"] or imports["memoryInsufficient"] else "OutOfProcessPerQueue"
+
+    def option(name, value, *, bounded=False):
+        if name in result:
+            index = result.index(name)
+            if index + 1 >= len(result):
+                raise ResourceError("Unity scheduling option is missing a value: " + name)
+            if bounded:
+                requested = parse_jobs(result[index + 1])
+                value = str(min(int(value), requested))
+            result[index + 1] = value
+        else:
+            result.extend((name, value))
+
+    # An explicit serial retry must remain serial after resource requalification.
+    if "-refreshImportMode" in result:
+        index = result.index("-refreshImportMode")
+        if index + 1 < len(result) and result[index + 1] == "InProcess":
+            mode = "InProcess"
+    if "-job-worker-count" in result:
+        index = result.index("-job-worker-count")
+        if index + 1 < len(result) and result[index + 1] == "1":
+            mode = "InProcess"  # Existing native allocation retry owns this cap.
+    display = None
+    if (mode != "InProcess" and host.get("platform") == "linux"
+            and not os.environ.get("DISPLAY", "").strip()
+            and not any(Path(arg).name == "xvfb-run" for arg in result)):
+        # Unity 2021.3 import children need an X display even if their parent
+        # uses -nographics. The witnessed first headless fixture otherwise
+        # remained waiting for children which had already exited. Use the same
+        # isolated display tool as the full build, or retain in-process import.
+        display = shutil.which("xvfb-run") if shutil.which("xauth") else None
+        if display is None:
+            mode = "InProcess"
+    option("-job-worker-count", str(jobs["jobs"]), bounded=True)
+    option("-refreshImportMode", mode)
+    option("-desiredWorkerCount", str(imports["jobs"] if mode != "InProcess" else 1), bounded=True)
+    # Idle import children should not consume memory during shader/native builds.
+    option("-standbyWorkerCount", "0")
+    if display is not None:
+        result = [display, "-a", *result]
+    queue_count = int(result[result.index("-job-worker-count") + 1])
+    import_count = int(result[result.index("-desiredWorkerCount") + 1])
+    jobs = {**jobs, "jobs": queue_count, "schedulingScope": "JobQueue-threads"}
+    imports = {**imports, "jobs": import_count, "refreshImportMode": mode,
+               "parallelImportWorkerProcesses": import_count if mode != "InProcess" else 0,
+               "schedulingScope": "TextureImporter-and-ModelImporter-processes"}
+    if root:
+        for policy in (jobs, imports):
+            emit_resource_evidence(root, {"event": "policy", "host": host, "policy": policy})
+    print("resources: " + json.dumps({"phase": "unity-launch", "jobQueueThreads": queue_count,
+          "desiredImportWorkers": import_count, "parallelImportWorkerProcesses": imports["parallelImportWorkerProcesses"], "refreshImportMode": mode,
+          "effectiveCpus": host["effectiveCpus"], "availableMemoryBytes": host.get("availableMemoryBytes"),
+          "commitHeadroomBytes": host.get("commitHeadroomBytes"), "shaderCompilerScheduling": "editor-native",
+          "importWorkerReserveBytes": imports["additionalWorkerReserveBytes"],
+          "parallelImportScope": "TextureImporter-and-ModelImporter; other importers retain Unity ordering",
+          "windowsExecutionVerified": False}), flush=True)
+    return result
 
 
 def _atomic_json(path, value):
