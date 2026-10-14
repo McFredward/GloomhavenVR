@@ -1,5 +1,23 @@
 # State — where the project stands
 
+**Quest actual app-context storage restoration, 2026-10-14: feature / B672.**
+
+Capture165236 identifies Builder4ba4d5843. The completed APK is installed and
+authorized USB works; the replacement app starts and its exact debugger-wait
+process is proved and paused. Both run-as storage path guards still fail without
+stderr, so this attempt's wake/unlock advice is unsupported. Preserve the
+nonempty246MB original backup and continue its `restoring` transaction.
+
+Add a guarded app-origin JDWP storage child before Application starts. Transfer
+only retained app data through a journalled private stage; verify original member
+types/hashes in the actual app view and clean interrupted stages on retry.
+Retained content checks use the same access seam without scanning the11GB bank.
+App storage denial, no-PID launch and connection loss keep distinct actions.
+No APK/Unity rebuild is required. Focused tests include actual JVM protocol and
+browser controls; Android firmware behavior is still unverified.
+See [QUEST-INSTALL-APP-CONTEXT-20261014.md](QUEST-INSTALL-APP-CONTEXT-20261014.md)
+and the current game-free handoff's source, compatibility and cleanup receipts.
+
 **Quest whole shader progress and app-storage restoration, 2026-10-13: feature / B672.**
 
 Capture211355 identifies Builderae0a6f072. APKd4e76da00ec2 is built and already

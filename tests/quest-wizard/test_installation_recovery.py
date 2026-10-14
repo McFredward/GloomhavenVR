@@ -137,6 +137,23 @@ class InstallationFailureTests(unittest.TestCase):
                 unknown = self.failure(text.replace(json.dumps(action), json.dumps(invalid)))
                 self.assertNotEqual(unknown.code, "quest_signing_repair_wait")
 
+    def test_running_app_storage_refusal_does_not_ask_for_another_connection_or_wakeup(self):
+        action = {"schema": 1, "kind": "signing-repair-wait", "reason": "restore-app-storage-unavailable",
+                  "saveDataProtected": True, "attempts": 3, "totalAttempts": 3, "root": "external"}
+        error = self.failure("GHVRQ_ACTION " + json.dumps(action) + "\nQuest installation stopped: "
+                             "Signing migration could not safely continue: App-origin storage is unavailable. "
+                             "Original recovery data is retained at /owned/current. Retry with the same APK and headset.\n")
+        self.assertEqual(error.code, "quest_signing_repair_wait")
+        self.assertEqual(error.parameters["repairReason"], action["reason"])
+        self.assertEqual(error.parameters["backupPath"], "/owned/current")
+        self.assertEqual(error.parameters["retryAction"], "install")
+        self.assertTrue(error.parameters["completedBuildRetained"])
+        self.assertNotIn("connectionReason", error.parameters)
+        self.assertIn("Die Quest ist erreichbar", error.message["de"])
+        self.assertNotIn("aufsetzen", error.message["de"])
+        self.assertNotIn("unlock", error.message["en"])
+        self.assertIn("diagnostics", error.message["en"])
+
     def test_backup_reference_is_scoped_to_the_last_real_refusal_and_remains_bounded(self):
         text = ("Quest installation stopped: Signing migration could not safely continue: stale failure\n"
                 ". Original recovery data is retained at /private/old. Retry with the same APK and headset.\n"

@@ -80,7 +80,7 @@ export function installationView(state) {
      !['complete','reuse'].includes(install.progress.operationStatus))view.connectionWaiting=true;
   if(attention&&['quest_signing_recovery_required','quest_signing_data_required','quest_signing_repair_wait'].includes(action?.code))view.recoveryRequired=true;
   if(attention&&action?.code==='quest_signing_repair_wait'&&parameters.saveDataProtected===true&&
-     ['backup-census-mismatch','backup-transfer-unavailable','restore-app-access'].includes(parameters.repairReason)&&
+     ['backup-census-mismatch','backup-transfer-unavailable','restore-app-access','restore-app-storage-unavailable'].includes(parameters.repairReason)&&
      ['private','device-protected','external'].includes(parameters.repairRoot)&&
      Number.isSafeInteger(parameters.repairAttempts)&&Number.isSafeInteger(parameters.repairTotalAttempts)&&
      parameters.repairAttempts>=1&&parameters.repairAttempts===parameters.repairTotalAttempts&&parameters.repairTotalAttempts<=64){

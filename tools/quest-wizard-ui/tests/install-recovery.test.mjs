@@ -51,6 +51,21 @@ test('writable app storage recovery retains the finished APK and asks for headse
   assert.match(translate('de','installationRestoreWaitNext'),/entsperren.*verbunden.*Nur die Wiederherstellung.*nicht neu gebaut.*nicht zurückgesetzt/);
 });
 
+test('proved running app storage refusal is distinct from headset wake and USB prerequisites',()=>{
+  const state=fixture('quest_signing_repair_wait','The running app cannot access external storage.');
+  Object.assign(state.needsActions[0].parameters,{saveDataProtected:true,repairReason:'restore-app-storage-unavailable',
+    repairRoot:'external',repairAttempts:3,repairTotalAttempts:3});
+  const view=installationView(state);
+  assert.equal(view.recoveryRequired,true);assert.equal(view.connectionRequired,false);assert.equal(view.canSkip,true);
+  assert.equal(view.repairWait.reason,'restore-app-storage-unavailable');assert.equal(view.paths.apk,apk);
+  for(const language of ['en','de']){
+    for(const key of ['installationRepairReason_restore-app-storage-unavailable','installationStorageWaitTitle',
+      'installationStorageWaitCopy','installationStorageWaitAction','installationStorageWaitNext'])assert.notEqual(translate(language,key),key);
+    assert.doesNotMatch(translate(language,'installationStorageWaitNext'),/USB|unlock|entsperren|aufsetzen/i);
+  }
+  assert.match(translate('en','installationStorageWaitNext'),/retained backups.*export logs.*not rebuilt.*not reset/);
+});
+
 test('live connection waiting preserves measured content and does not enable a second install',()=>{
   const state=fixture();state.status='running';state.needsActions=[];
   state.stages[6].status='running';
@@ -330,6 +345,21 @@ test('completed APK is prominent while connection is blocked; retry and skip ret
       assert.equal(await client.evaluate("document.getElementById('install-guide').hidden"),true,'signing recovery refusal is not a missing USB prerequisite');
       await client.evaluate("document.getElementById('failure-retry').click()");await client.wait("!document.getElementById('cancel').hidden");
       assert.deepEqual(posts.at(-1),{path:'/api/run',body:{session}},'recovery retries only the retained installation');
+      current=fixture('quest_signing_repair_wait','The running replacement app rejected external-storage access.','blocked');
+      Object.assign(current.needsActions[0].parameters,{saveDataProtected:true,repairReason:'restore-app-storage-unavailable',
+        repairRoot:'external',repairAttempts:3,repairTotalAttempts:3});await reopen();
+      assert.equal(await client.evaluate("document.getElementById('progress-title').textContent"),'Installation wartet: App-Speicherzugriff.');
+      assert.match(await client.evaluate("document.getElementById('progress-copy').textContent"),/Quest ist erreichbar.*APK ist fertig/);
+      assert.match(await client.evaluate("document.getElementById('action-needed-copy').textContent"),/Sicherungen behalten.*Logs exportieren.*nicht neu gebaut.*nicht zurückgesetzt/s);
+      assert.doesNotMatch(await client.evaluate("document.getElementById('action-needed-copy').textContent"),/USB|entsperren|aufsetzen/i);
+      assert.equal(await client.evaluate("document.getElementById('install-guide').hidden"),true);
+      assert.equal(await client.evaluate("document.getElementById('action-needed').getAttribute('role')"),'status');
+      assert.equal(await client.evaluate("document.querySelectorAll('#stage-list li.complete').length"),6);
+      await client.picture('app-origin-storage-restore-required-de');
+      await client.evaluate("document.querySelector('[data-language=en]').click()");
+      assert.equal(await client.evaluate("document.getElementById('progress-title').textContent"),'Installation paused: app storage access.');
+      assert.match(await client.evaluate("document.getElementById('progress-copy').textContent"),/Quest is reachable.*APK is ready/);
+      await client.picture('app-origin-storage-restore-required-en');
       current=fixture('installation_tool_failed','INSTALL_PARSE_FAILED_NO_CERTIFICATES: APK has no valid signature','failed');await reopen();
       assert.equal(await client.evaluate("document.getElementById('progress-title').textContent"),'APK fertig. Installation fehlgeschlagen.');
       assert.match(await client.evaluate("document.getElementById('failure-cause').textContent"),/INSTALL_PARSE_FAILED_NO_CERTIFICATES/);

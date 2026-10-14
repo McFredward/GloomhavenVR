@@ -885,9 +885,10 @@ function renderProgress() {
       $('action-needed-title').textContent=t(saves?'installationSaveWaitAction':'installationDataChoiceAction');
     }else if(installation.repairWait){
       const restoring=installation.repairWait.reason==='restore-app-access';
-      $('progress-title').textContent=t(restoring?'installationRestoreWaitTitle':'installationRepairWaitTitle');
-      $('progress-copy').textContent=t(restoring?'installationRestoreWaitCopy':'installationRepairWaitCopy');
-      $('action-needed-title').textContent=t('installationRepairWaitAction');
+      const storage=installation.repairWait.reason==='restore-app-storage-unavailable';
+      $('progress-title').textContent=t(storage?'installationStorageWaitTitle':restoring?'installationRestoreWaitTitle':'installationRepairWaitTitle');
+      $('progress-copy').textContent=t(storage?'installationStorageWaitCopy':restoring?'installationRestoreWaitCopy':'installationRepairWaitCopy');
+      $('action-needed-title').textContent=t(storage?'installationStorageWaitAction':'installationRepairWaitAction');
     }
   }else if(installation&&active){
     $('progress-title').textContent=t(connectionWait?'questConnectionWaitingTitle':installation.recoveryActive?'installationRecoveryRunningTitle':'installationRunningTitle');
@@ -937,8 +938,8 @@ function renderProgress() {
   const action=active&&!waiting?null:state.needsActions?.[0];$('action-needed').hidden=!action&&!blocked&&!stopped&&!connectionWait;
   $('action-needed').classList.toggle('failure',Boolean(failure)&&!installation?.connectionRequired);
   $('action-needed').classList.toggle('installation',installIssue||connectionWait);
-  $('action-needed').setAttribute('role',installation?.connectionRequired?'status':failure||installIssue?'alert':'status');
   const retainedWait=Boolean(installation?.dataIssue||installation?.repairWait||installation?.contentReinstallRequired);
+  $('action-needed').setAttribute('role',installation?.connectionRequired||retainedWait?'status':failure||installIssue?'alert':'status');
   const cause=retainedWait||installation?.connectionRequired||connectionWait?null:installIssue?installation.cause:failure?.cause;
   $('failure-cause').hidden=!cause;
   $('failure-cause').textContent=cause?t('failureCause',{cause}):'';
@@ -963,7 +964,7 @@ function renderProgress() {
       :installation?.dataIssue
       ?t(installation.dataIssue==='save-data-inaccessible'?'installationSaveWaitNext':'installationDataChoiceNext')
       :installation?.repairWait
-      ?t('installationRepairReason_'+installation.repairWait.reason)+' '+t(installation.repairWait.reason==='restore-app-access'?'installationRestoreWaitNext':'installationRepairWaitNext')
+      ?t('installationRepairReason_'+installation.repairWait.reason)+' '+t(installation.repairWait.reason==='restore-app-storage-unavailable'?'installationStorageWaitNext':installation.repairWait.reason==='restore-app-access'?'installationRestoreWaitNext':'installationRepairWaitNext')
       :(stageName?stageName+': ':'')+hint;}
   const failureKey=installIssue?state.session+':install:'+installation.cause:failure?state.session+':'+failure.stage+':'+failure.cause:'';
   if(failureKey&&failureKey!==lastFailureFocus){$('action-needed').focus({preventScroll:true});$('action-needed').scrollIntoView({block:'nearest'});}
