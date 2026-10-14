@@ -744,7 +744,8 @@ class Recovery:
         record = self._manual_debug_record()
         if record is None: return
         self._device_guard()
-        paths = self.adb.run("-s", self.address, "shell", "pm", "path", "--user", "0", PACKAGE, check_text=False).splitlines()
+        installed = self._optional_installed_apk()
+        paths = ["package:" + installed] if installed is not None else []
         if paths:
             if paths != ["package:" + record["installedPath"]] or self._installed_stat(record["installedPath"]) != record["installedStat"]:
                 raise CaptureRepairError("The installed app changed after manual debugger arming. Its current data and original backups were retained; do not replay the old restoration over a different app.",
@@ -885,9 +886,9 @@ class Recovery:
         previous_policy = value.get("dataPolicy", "all")
         if previous_policy not in ("all", "saves"): raise RecoveryError("Invalid retained signing recovery data policy.")
         if self.data_policy == "saves" and not self._lightweight() and value["state"] in ("created", "backed-up", "parking", "parked", "uninstalling"):
-            installed = self.adb.run("-s", self.address, "shell", "pm", "path", "--user", "0", PACKAGE, check_text=False)
-            if installed.startswith("package:"):
-                self._legacy_upgrade_guard(installed)
+            installed = self._optional_installed_apk()
+            if installed is not None:
+                self._legacy_upgrade_guard("package:" + installed)
                 # Capture150551 stops inside the old FUSE copy fallback, while
                 # the original app and saves are still present. Retain healthy
                 # small archives, stop that copy frontier, and move any genuinely
@@ -957,20 +958,18 @@ class Recovery:
         if self.journal["state"] == "reset-removing":
             self._reset_content_source_guard()
             self._check_users()
-            paths = self.adb.run("-s", self.address, "shell", "pm", "path", "--user", "0", PACKAGE, check_text=False).strip()
-            if paths:
+            installed = self._optional_installed_apk()
+            if installed is not None:
                 self._installed_apk_guard(self.source.sha256)
                 progress("reset", 0, 2, "Removing the app and its data as explicitly requested; original PC backups remain retained", local=True)
                 self.adb.run("-s", self.address, "uninstall", PACKAGE, timeout=120, positive=r"^Success\s*$")
             self.commit("reset-installing", replacementStat=None)
         if self.journal["state"] == "reset-installing":
-            paths = self.adb.run("-s", self.address, "shell", "pm", "path", "--user", "0", PACKAGE, check_text=False).strip()
-            if paths:
+            installed = self._optional_installed_apk()
+            if installed is not None:
                 # A lost install reply may have completed. This exceptional
                 # adoption hashes only the APK, never an external game bank.
-                if not re.fullmatch(r"package:/data/app/[A-Za-z0-9_./=+~-]+/base\.apk", paths):
-                    raise RecoveryError("The replacement package cannot be identified after interrupted clean installation.")
-                remote = paths[8:]
+                remote = installed
                 if self.shell("sha256sum " + shlex.quote(remote), timeout=600) != self.source.sha256 + "  " + remote:
                     raise RecoveryError("A different app appeared during clean installation; its current data was retained.")
             else:
@@ -1648,9 +1647,7 @@ class Recovery:
         self._source_guard()
         self._check_users()
         self.adb.run("-s", self.address, "shell", "am", "force-stop", PACKAGE)
-        installed = self.adb.run("-s", self.address, "shell", "pm", "path", "--user", "0", PACKAGE, check_text=False).splitlines()
-        if not installed: return False
-        if len(installed) != 1 or not re.fullmatch(r"package:/data/app/[A-Za-z0-9_./=+~-]+/base\.apk", installed[0]): raise RecoveryError("Installed package changed since its recovery backup.")
+        if self._optional_installed_apk() is None: return False
         self._installed_apk_guard(self.journal["originalApk"]["sha256"])
         for index, item in enumerate(self.journal["roots"]):
             self._capture_census(item)
@@ -1701,6 +1698,23 @@ class Recovery:
 
     def _device_guard(self):
         if self.adb.identity(self.address) != self.hardware: raise RecoveryError("The ADB address now belongs to a different headset; no foreign app data will be changed.")
+
+    def _optional_installed_apk(self):
+        """Return a proved package path or Android's expected absent result.
+
+        Capture194342 removed the app successfully, durably entered
+        reset-installing, then stopped because pm path returns exit1 with no
+        output for an absent package. Adb permits that status only when both
+        streams are empty; transport errors, stderr and malformed/split paths
+        remain failures. Required installed-APK proofs never use this probe.
+        """
+        self._device_guard()
+        raw = self.adb.run("-s", self.address, "shell", "pm", "path", "--user", "0", PACKAGE,
+                           check_text=False, empty_exit_codes=(1,))
+        if not raw: return None
+        if not re.fullmatch(r"package:/data/app/[A-Za-z0-9_./=+~-]+/base\.apk", raw):
+            raise RecoveryError("The installed package path cannot be identified; its current app data was retained.")
+        return raw[8:]
 
     def _installed_apk_guard(self, expected):
         self._device_guard()
@@ -2284,8 +2298,8 @@ class Recovery:
             if self.journal["state"] == "parked":
                 self.commit("uninstalling")
             if self.journal["state"] == "uninstalling":
-                installed = self.adb.run("-s", self.address, "shell", "pm", "path", "--user", "0", PACKAGE, check_text=False)
-                if installed.startswith("package:"):
+                installed = self._optional_installed_apk()
+                if installed is not None:
                     self._installed_apk_guard(self.journal["originalApk"]["sha256"])
                     try:
                         # A resumed preparation may contain newly written saves.
@@ -2312,8 +2326,8 @@ class Recovery:
                     # Roll back to the exact original signed APK when Android has
                     # definitely left no replacement installed. Ambiguous states
                     # remain pending; no launch or success receipt is permitted.
-                    installed = self.adb.run("-s", self.address, "shell", "pm", "path", "--user", "0", PACKAGE, check_text=False)
-                    if not installed.startswith("package:"):
+                    installed = self._optional_installed_apk()
+                    if installed is None:
                         if self._lightweight():
                             # The finished replacement APK remains local. Retry
                             # its installation with retained small save archives;
@@ -2360,7 +2374,10 @@ class Recovery:
             elif isinstance(error, ContentReinstallChoiceError):
                 print("GHVRQ_ACTION " + json.dumps(error.action), flush=True)
             directory = str(getattr(self, "backup", self.home))
-            raise RecoveryError("Signing migration could not safely continue: " + str(error)
+            prefix = ("Clean installation could not safely continue: "
+                      if (getattr(self, "journal", None) or {}).get("state") in ("reset-approved", "reset-removing", "reset-installing", "reset-installed")
+                      else "Signing migration could not safely continue: ")
+            raise RecoveryError(prefix + str(error)
                                 + ". Original recovery data is retained at " + directory + ". Retry with the same APK and headset.") from error
         finally:
             failed = sys.exc_info()[0] is not None

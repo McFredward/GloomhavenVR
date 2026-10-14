@@ -2,6 +2,7 @@
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 import types
 import unittest
 from unittest import mock
@@ -54,6 +55,101 @@ class CleanResetTests(unittest.TestCase):
         self.assertEqual(json.loads(engine.path.read_text())["state"], "reset-complete")
         self.assertIsNone(self.engine().recover())
         self.assert_no_old_device_data()
+
+    def test_absent_package_exit_one_installs_finished_apk_without_signing_repair(self):
+        # Actual Adb.run sees the same code1/empty reply as Capture194342.
+        engine = self.engine(reset_app_data=self.transaction)
+        self.assertTrue(engine.recover()["saveDataReset"])
+        log = self.log.read_text()
+        self.assertIn('"path", "--user", "0", "' + recovery.PACKAGE + '"]\n{"exitCode": 1}\n', log)
+        self.assertEqual(sum(row[0] == "uninstall" for row in self.device.calls), 1)
+        self.assertEqual(sum(row[0] == "install" for row in self.device.calls), 1)
+        self.assertEqual(engine.journal["state"], "reset-installed")
+        self.assert_no_old_device_data(); self.assert_originals_retained()
+
+    def test_interrupted_reset_installing_resumes_absent_package_without_second_removal(self):
+        engine = self.engine(reset_app_data=self.transaction)
+        original = engine.commit
+        def commit(state=None, **fields):
+            original(state, **fields)
+            if state == "reset-installing": raise KeyboardInterrupt()
+        engine.commit = commit
+        with self.assertRaises(KeyboardInterrupt): engine.recover()
+        self.assertEqual(json.loads(engine.path.read_text())["state"], "reset-installing")
+        self.assertFalse(self.device.installed)
+        self.assertFalse(any(row[0] == "install" for row in self.device.calls))
+        # Durable approval is sufficient; do not ask for deletion again.
+        resumed = self.engine()
+        with mock.patch.object(resumed, "_restore", side_effect=AssertionError("old restore")), \
+                mock.patch.object(resumed, "_repair_retained_archives", side_effect=AssertionError("backup repair")):
+            self.assertTrue(resumed.recover()["saveDataReset"])
+        self.assertEqual(sum(row[0] == "uninstall" for row in self.device.calls), 1)
+        self.assertEqual(sum(row[0] == "install" for row in self.device.calls), 1)
+        self.assert_no_old_device_data(); self.assert_originals_retained()
+
+    def test_absent_probe_never_masks_nonempty_errors_stderr_or_malformed_paths(self):
+        replies = [
+            (1, "", "Permission denied"),
+            (1, "package:" + self.device.apk, ""),
+            (1, "Error: package manager unavailable", ""),
+            (1, "", "error: device not found"),
+            (0, "Error: package manager unavailable", ""),
+            (0, "package:/data/app/foreign/split.apk", ""),
+            (0, "package:" + self.device.apk + "\npackage:/data/app/foreign/base.apk", ""),
+            (0, "package:" + self.device.apk, "unexpected stderr"),
+        ]
+        original = self.adb.runner
+        for code, output, error in replies:
+            def runner(command, **options):
+                if command[3:6] == ["shell", "pm", "path"] and not self.device.installed:
+                    return subprocess.CompletedProcess(command, code, output, error)
+                return original(command, **options)
+            with self.subTest(code=code, output=output, stderr=error), \
+                    mock.patch.object(self.adb, "runner", side_effect=runner):
+                engine = self.engine(reset_app_data=self.transaction)
+                with self.assertRaisesRegex(recovery.RecoveryError, "^Clean installation could not safely continue:"):
+                    engine.recover()
+                self.assertEqual(engine.journal["state"], "reset-installing")
+                self.assertFalse(any(row[0] == "install" for row in self.device.calls))
+                self.assertEqual(sum(row[0] == "uninstall" for row in self.device.calls), 1)
+                self.assert_originals_retained()
+
+    def test_absent_probe_preserves_actual_adb_connection_errors(self):
+        original = self.adb.runner
+        for message in ("error: device offline", "error: device unauthorized", "error: device '192.0.2.10:5555' not found"):
+            def runner(command, **options):
+                if command[3:6] == ["shell", "pm", "path"] and not self.device.installed:
+                    return subprocess.CompletedProcess(command, 1, "", message)
+                return original(command, **options)
+            with self.subTest(message=message), mock.patch.object(self.adb, "runner", side_effect=runner):
+                engine = self.engine(reset_app_data=self.transaction)
+                with self.assertRaisesRegex(recovery.RecoveryError, "^Clean installation could not safely continue:") as raised:
+                    engine.recover()
+                self.assertIsInstance(raised.exception.__cause__, fixture.installer.ConnectionRequired)
+                self.assertEqual(engine.journal["state"], "reset-installing")
+                self.assertFalse(any(row[0] == "install" for row in self.device.calls))
+                self.assert_originals_retained()
+
+    def test_different_headset_after_removal_cannot_receive_the_finished_apk(self):
+        engine = self.engine(reset_app_data=self.transaction)
+        original = engine.commit
+        def commit(state=None, **fields):
+            original(state, **fields)
+            if state == "reset-installing": self.device.hardware = "OTHER-QUEST"
+        engine.commit = commit
+        with self.assertRaisesRegex(recovery.RecoveryError, "different headset"): engine.recover()
+        self.assertEqual(engine.journal["state"], "reset-installing")
+        self.assertFalse(any(row[0] == "install" for row in self.device.calls))
+        self.assertEqual(sum(row[0] == "uninstall" for row in self.device.calls), 1)
+        self.assert_originals_retained()
+
+    def test_required_installed_apk_guard_still_rejects_absent_package_exit_one(self):
+        engine = self.engine(reset_app_data=self.transaction)
+        engine.recover()
+        self.device.installed = False
+        with self.assertRaisesRegex(fixture.installer.InstallError, "exit 1.*no output"):
+            engine._installed_apk_guard(self.source.sha256)
+        self.assert_originals_retained()
 
     def test_wrong_transaction_and_mutually_exclusive_choices_cannot_remove_data(self):
         with self.assertRaisesRegex(recovery.RecoveryError, "exact pending"):

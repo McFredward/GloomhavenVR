@@ -124,7 +124,8 @@ class Device:
             return result(self.process_pid, 0) if self.process_started else result("", 1)
         if action[:2] == ["shell", "logcat"]:
             return result(("1000.5 1 1 I ActivityThread: Application " + recovery.PACKAGE + " is waiting for the debugger...\n") if self.waiting_marker else "999.5 1 1 I ActivityThread: Application " + recovery.PACKAGE + " is waiting for the debugger...\n")
-        if action[:3] == ["shell", "pm", "path"]: return result("package:" + self.apk if self.installed else "")
+        if action[:3] == ["shell", "pm", "path"]:
+            return result("package:" + self.apk) if self.installed else result("", 1)
         app_context = False
         if action[:2] == ["shell", "run-as"]:
             app_context = True
