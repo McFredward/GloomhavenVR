@@ -61,6 +61,13 @@ it could resume Application. Unconfirmed cleanup retains the suspended connectio
 and backup instead of claiming successful restoration. Private scratch cleanup
 is scoped to the same app UID and exact generated paths.
 
+Retaining a debugger socket is a protection within the live installer process,
+not a guarantee across loss of both transports or host-process termination.
+JDWP disconnection can release VM suspension independently of host intent.
+Original backups and the unfinished journal remain authoritative across that
+interruption; the next connected retry must qualify the current process/view
+again. No unconditional firmware shutdown or orphan-child guarantee is claimed.
+
 Distinguish `restore-app-storage-unavailable` from the legitimate no-PID
 `restore-app-access` action. The former states that the Quest is reachable and
 keeps restoration/retry/log export prominent without misleading USB/wakeup
