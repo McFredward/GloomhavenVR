@@ -127,6 +127,20 @@ class CleanupTests(unittest.TestCase):
         self.assertEqual(1, result["deletedFiles"])
         self.assertFalse(stage.exists())
 
+    def test_large_orphan_inventory_can_be_cleaned_in_bounded_refreshes(self):
+        self.upload_log()  # Historical, already absent stage must not monopolize the cap.
+        stages = [BASE + "/.quest-install-upload-" + format(i, "032x") for i in range(1, 6)]
+        for remote in stages: self.put(remote)
+        removed = 0
+        with mock.patch.object(cleanup, "MAX_TARGETS", 2):
+            for _ in range(3):
+                plan = self.preview()
+                self.assertGreater(len(plan["candidates"]), 0)
+                self.assertLessEqual(len(plan["candidates"]), 2)
+                removed += self.value.clean(plan)["deletedFiles"]
+        self.assertEqual(5, removed)
+        self.assertFalse(any(self.adb.path(remote).exists() for remote in stages))
+
     def test_unrelated_upload_and_unknown_reserved_name_are_retained(self):
         data = self.put(BASE + "/important.asset.upload")
         bad = self.put(BASE + "/.quest-install-upload-other")

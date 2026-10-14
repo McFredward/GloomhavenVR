@@ -283,8 +283,7 @@ class DeviceCleanup:
             paths = reply.splitlines()
             if len(paths) > MAX_TARGETS:
                 unknown.append(_row(root, "content-upload", "inventory-limit"))
-                continue
-            for path in paths:
+            for path in paths[:MAX_TARGETS]:
                 if UPLOAD.fullmatch(path):
                     found[path] = {"kind": "upload-marker" if path.endswith(".ready") else "content-upload",
                                    "private": False, "protected": None}
@@ -300,11 +299,12 @@ class DeviceCleanup:
         extra_unknown = []
         if not automatic:
             discovered, extra_unknown = self._reserved_uploads()
-            for path, owner in discovered.items():
-                if len(targets) >= MAX_TARGETS:
-                    limited = True
-                    break
-                targets.setdefault(path, owner)
+            # Existing reserved files take priority over historical log entries
+            # that may already be absent. A bounded cleanup can then make real
+            # progress even when more than one preview's limit accumulated.
+            combined = {**discovered, **targets}
+            limited = limited or len(combined) > MAX_TARGETS
+            targets = dict(list(combined.items())[:MAX_TARGETS])
         self._tick(progress, cancel, 1, len(targets) + 3, "Checking that the Quest app is stopped")
         active = self.adb.run("-s", self.address, "shell", "pidof", PACKAGE,
                               empty_exit_codes=(1,), check_text=False).strip()
