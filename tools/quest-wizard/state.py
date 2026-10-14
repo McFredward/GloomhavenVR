@@ -398,8 +398,8 @@ class Store:
         value = stage_progress(phase, done, total, unit, detail)
         memory = native_memory_progress(nativeMemory)
         if memory: value["nativeMemory"] = memory
-        if status == "waiting" and (stage != "install" or phase != "install-connection-wait"):
-            raise WizardError("progress_status", "Waiting progress belongs to an installation connection prerequisite.")
+        if status == "waiting" and (stage != "install" or phase not in ("install-connection-wait", "install-recovery-manual-launch")):
+            raise WizardError("progress_status", "Waiting progress belongs to an installation connection or manual-launch prerequisite.")
         if status is not None and status not in ("start", "progress", "complete", "reuse", "failed", "waiting"):
             raise WizardError("invalid_progress", "Invalid progress event status.")
         with self._lock:
