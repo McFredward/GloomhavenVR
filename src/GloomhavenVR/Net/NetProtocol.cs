@@ -612,7 +612,23 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 672;
+    public const ushort ModBuild = 673;
+
+    // ModBuild673 — restore asynchronous water adoption across the installed game.
+    // Native water prefabs begin with empty material slots. Build615's one-time tile
+    // seed removed recurring deep walks but did not observe the later Addressables
+    // assignment, leaving never-adopted films on the original VR-incompatible shader.
+    // Use the existing native material-ready publication to queue exact renderers;
+    // preserve bounded placement discovery and avoid steady-state hierarchy rescans.
+    // Audit all four native water shaders, fourteen high/LCM materials and forty-five
+    // original loader assignments, including decorative ponds and DLC sluice films.
+    // Replace only native water slots; preserve source tint, normals, queue, unrelated
+    // slots, native rewrites and conditional restoration. Solid basin/probe tuning
+    // remains terrain-only. Exact live water ownership preserves fountain wall-fade
+    // protection after shader substitution, including the generic Overlay fallback.
+    // No gameplay/network state, shader asset, configuration default or TLV changes.
+    // Version3/next-free118. Focused source/runtime evidence and headset boundaries
+    // are recorded in WATER-673-REVIEW.md and WATER-673-ASSET-AUDIT.md.
 
     // ModBuild672 — separate wall visibility from VR foreground and verify Frame launch setup.
     // Through-wall native health/effect widgets now sample the original visible depth of
