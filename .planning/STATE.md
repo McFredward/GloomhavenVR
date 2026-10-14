@@ -1,5 +1,17 @@
 # State — where the project stands
 
+**Quest clean-install continuation, 2026-10-14: feature / B672.**
+
+Capture194342 confirms the user's app-data reset and successful uninstall. The
+following package query returns exit1/empty because the app is absent; the Builder
+incorrectly rejects this expected state before issuing install. Resume the saved
+`reset-installing` frontier, accept absence only in guarded optional probes, keep
+required APK identity/error/transport checks strict, and never repeat deletion
+or restore old backups. Clean-install UI/errors and support reset states now
+describe the actual operation. Keep `.ghvrq`; no new APK or Unity work is needed.
+See [QUEST-CLEAN-INSTALL-194342-20261014.md](QUEST-CLEAN-INSTALL-194342-20261014.md)
+and the handoff's focused/extracted-delivery evidence. Hardware remains unverified.
+
 **Quest canonical launcher and workspace installation evidence, 2026-10-14: feature / B672.**
 
 Capture181310 identifies Builder6092efad7 and the same completed APK. Its global

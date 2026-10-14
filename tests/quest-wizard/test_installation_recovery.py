@@ -54,6 +54,23 @@ class InstallationFailureTests(unittest.TestCase):
         self.assertTrue(error.parameters["completedBuildRetained"])
         self.assertEqual(error.parameters["retryAction"], "install")
 
+    def test_clean_reinstall_refusal_is_not_presented_as_signing_or_data_restoration(self):
+        cause = ("Clean installation could not safely continue: replacement transfer interrupted. "
+                 "Original recovery data is retained at /owned/backup. Retry with the same APK and headset.")
+        error = self.failure("Quest installation stopped: " + cause + "\nADB log: current.log\n")
+        self.assertEqual(error.code, "quest_clean_install_required")
+        self.assertTrue(error.parameters["cleanInstallation"])
+        self.assertTrue(error.parameters["originalBackupsNotReplayed"])
+        self.assertEqual(error.parameters["backupPath"], "/owned/backup")
+        self.assertEqual(error.parameters["retryAction"], "install")
+        self.assertTrue(error.parameters["completedBuildRetained"])
+        self.assertTrue(error.parameters["canSkipInstall"])
+        self.assertNotIn("signingRecovery", error.parameters)
+        self.assertNotIn("connectionReason", error.parameters)
+        self.assertNotIn("Signatur", error.message["de"])
+        self.assertNotEqual(self.failure("Quest installation stopped: earlier " + cause).code,
+                            "quest_clean_install_required")
+
     def test_only_known_connection_refusals_are_prerequisites(self):
         for cause, reason in ((MISSING, "missing-or-unauthorized"),
             ("The requested USB serial is missing or unauthorized. Unlock the Quest.", "missing-or-unauthorized"),

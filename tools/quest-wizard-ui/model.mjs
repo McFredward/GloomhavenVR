@@ -79,6 +79,7 @@ export function installationView(state) {
   if(state.status==='running'&&install.status==='running'&&install.progress?.phase==='install-connection-wait'&&
      !['complete','reuse'].includes(install.progress.operationStatus))view.connectionWaiting=true;
   if(attention&&['quest_signing_recovery_required','quest_signing_data_required','quest_signing_repair_wait'].includes(action?.code))view.recoveryRequired=true;
+  if(attention&&action?.code==='quest_clean_install_required'&&parameters.cleanInstallation===true)view.cleanInstallRequired=true;
   if(attention&&action?.code==='quest_signing_repair_wait'&&parameters.saveDataProtected===true&&
      ['backup-census-mismatch','backup-transfer-unavailable','restore-app-access','restore-app-storage-unavailable','restore-app-launch-unavailable'].includes(parameters.repairReason)&&
      ['private','device-protected','external'].includes(parameters.repairRoot)&&
@@ -126,10 +127,11 @@ export function installationView(state) {
     if(view.canReinstallContent)view.contentActionNonce=nonce;
     if(Number.isSafeInteger(parameters.estimatedBytes)&&parameters.estimatedBytes>=0)view.contentBytes=parameters.estimatedBytes;
   }
-  if(view.recoveryRequired&&typeof parameters.backupPath==='string'&&parameters.backupPath.length<=2048&&
+  if((view.recoveryRequired||view.cleanInstallRequired)&&typeof parameters.backupPath==='string'&&parameters.backupPath.length<=2048&&
      !/[\u0000-\u001f\u007f]/.test(parameters.backupPath))view.backupPath=parameters.backupPath;
   if(isActive(state)&&install.status==='running'&&typeof install.progress?.phase==='string'&&
      /^(?:install-signature-|install-recovery-(?:backup(?:-work)?|restore|access|repair)$)/.test(install.progress.phase))view.recoveryActive=true;
+  if(isActive(state)&&install.status==='running'&&install.progress?.phase==='install-recovery-reset')view.cleanInstallActive=true;
   return view;
 }
 export function failureView(state) {

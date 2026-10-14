@@ -212,6 +212,14 @@ def installation_failure(text, parameters):
     ) if primary == prefix or primary.startswith(prefix + " ")), None)
     fields = dict(parameters, cause=cause, completedWorkRetained=True,
                   completedBuildRetained=True, retryAction="install", canSkipInstall=True)
+    if primary.startswith("Clean installation could not safely continue:"):
+        backup = re.search(r"Original recovery data is retained at ([^\r\n]{1,2048}?)(?=\. Retry with the same APK and headset\.)", current_error)
+        if backup and not any(ord(char) < 32 or ord(char) == 127 for char in backup[1]):
+            fields["backupPath"] = backup[1]
+        return WizardError("quest_clean_install_required",
+            "The confirmed clean installation paused at the step shown below. Retry installation to continue from its saved state. The finished APK and existing PC backups remain retained; old data is not restored and the APK is not rebuilt.",
+            "Die bestätigte Neuinstallation wartet beim unten genannten Schritt. Installation erneut versuchen, um am gespeicherten Stand fortzufahren. Die fertige APK und vorhandene PC-Sicherungen bleiben erhalten; alte Daten werden nicht wiederhergestellt und die APK wird nicht neu gebaut.",
+            **dict(fields, cleanInstallation=True, originalBackupsNotReplayed=True))
     if primary.startswith("Signing migration could not safely continue:"):
         backup = re.search(r"Original recovery data is retained at ([^\r\n]{1,2048}?)(?=\. Retry with the same APK and headset\.)", current_error)
         if backup is None: backup = re.search(r"(?:^|\n| )Retained backup: ([^\r\n]{1,2048})", current_error)

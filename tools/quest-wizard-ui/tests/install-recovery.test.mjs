@@ -37,6 +37,57 @@ test('connection prerequisite preserves completed build and exposes guarded inst
   assert.doesNotMatch(translate('de','questConnectionNext'),/korrigierten Builder/);
 });
 
+test('confirmed clean installation has its own retry context and never offers signing restoration',()=>{
+  const state=fixture('quest_clean_install_required','Clean installation paused.');
+  Object.assign(state.needsActions[0].parameters,{cleanInstallation:true,backupPath:'C:\\retained-backup'});
+  const view=installationView(state);
+  assert.equal(view.cleanInstallRequired,true);assert.equal(view.recoveryRequired,undefined);
+  assert.equal(view.canSkip,true);assert.equal(view.backupPath,'C:\\retained-backup');
+  for(const language of ['en','de']){
+    for(const key of ['installationCleanTitle','installationCleanCopy','installationCleanNext',
+      'installationCleanRunningTitle','installationCleanRunningCopy'])assert.notEqual(translate(language,key),key);
+    assert.doesNotMatch(translate(language,'installationCleanNext'),/Signatur|signing/i);
+  }
+  state.status=state.stages[6].status='running';state.needsActions=[];
+  state.stages[6].progress={phase:'install-recovery-reset',done:0,total:2,stagePercent:20};
+  assert.equal(installationView(state).cleanInstallActive,true);
+  assert.equal(installationView(state).cleanInstallRequired,undefined);
+  assert.equal(installationView(state).canSkip,false);
+});
+
+test('actual Chrome names the confirmed reinstall interruption instead of a signature failure',
+  {skip:!existsSync(chrome),timeout:20000},async()=>{
+    const current=fixture('quest_clean_install_required','Expected package absence after successful uninstall.');
+    Object.assign(current.needsActions[0].parameters,{cleanInstallation:true,backupPath:'C:\\retained-backup'});
+    let client;const posts=[];
+    const server=createServer(async(request,response)=>{
+      try{
+        const url=new URL(request.url,'http://localhost');let value;
+        if(request.method==='POST')posts.push(url.pathname);
+        if(url.pathname==='/api/discover')value={schema:1,event:'discovery',latestSession:session,recentSessions:[{session,status:current.status}],games:[],unityEditors:[],capabilities:{browse:false,logs:false,support:false}};
+        else if(url.pathname==='/api/status')value={schema:1,event:'status',session,state:current};
+        else if(url.pathname==='/api/gallery')value={schema:1,event:'gallery',artwork:[]};
+        else if(url.pathname==='/api/events')value={schema:1,event:'events',events:[]};
+        if(value){response.writeHead(200,{'Content-Type':'application/json'});response.end(JSON.stringify(value));return;}
+        const filename=resolve(root,'.'+(url.pathname==='/'?'/index.html':url.pathname));
+        if(!filename.startsWith(root)||!['.html','.mjs','.css','.png','.svg'].includes(extname(filename)))throw Error('not static');
+        response.writeHead(200,{'Content-Type':{'.html':'text/html','.mjs':'text/javascript','.css':'text/css','.png':'image/png','.svg':'image/svg+xml'}[extname(filename)]});response.end(await readFile(filename));
+      }catch(error){response.writeHead(500);response.end(String(error));}
+    });
+    await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+    try{
+      client=await browser();await client.command('Page.navigate',{url:'http://127.0.0.1:'+server.address().port+'/#fixture-token'});
+      await client.chooseHome('resume');await client.wait("document.getElementById('progress-page')&&!document.getElementById('progress-page').hidden");
+      for(const [language,title] of [['de','Neuinstallation fortsetzen.'],['en','Continue clean installation.']]){
+        await client.evaluate("document.querySelector('[data-language="+language+"]').click()");
+        assert.equal(await client.evaluate("document.getElementById('progress-title').textContent"),title);
+        assert.doesNotMatch(await client.evaluate("document.getElementById('failure-next').textContent"),/Signatur|signing/i);
+        assert.equal(await client.evaluate("document.getElementById('failure-retry').disabled"),false);
+      }
+      assert.deepEqual(posts,[]);
+    }finally{await client?.close();await new Promise(resolve=>server.close(resolve));}
+  });
+
 test('writable app storage recovery retains the finished APK and asks for headset wakeup',()=>{
   const state=fixture('quest_signing_repair_wait','Writable app storage is not ready.');
   Object.assign(state.needsActions[0].parameters,{saveDataProtected:true,repairReason:'restore-app-access',

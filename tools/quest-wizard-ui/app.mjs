@@ -877,7 +877,11 @@ function renderProgress() {
     $('progress-title').textContent=t(installation.connectionRequired?'questConnectionTitle':installation.recoveryRequired?'installationRecoveryTitle':'installationFailedTitle');
     $('progress-copy').textContent=t(installation.connectionRequired?'questConnectionCopy':installation.recoveryRequired?'installationRecoveryCopy':'installationFailedCopy');
     $('action-needed-title').textContent=t(installation.connectionRequired?'questConnectionNeeded':installation.recoveryRequired?'installationRecoveryAction':'installationFailedAction');
-    if(installation.contentReinstallRequired){
+    if(installation.cleanInstallRequired){
+      $('progress-title').textContent=t('installationCleanTitle');
+      $('progress-copy').textContent=t('installationCleanCopy');
+      $('action-needed-title').textContent=t('installationCleanAction');
+    }else if(installation.contentReinstallRequired){
       $('progress-title').textContent=t('installationContentTitle');
       $('progress-copy').textContent=t('installationContentCopy');
       $('action-needed-title').textContent=t('actionNeeded');
@@ -897,6 +901,10 @@ function renderProgress() {
   }else if(installation&&active){
     $('progress-title').textContent=t(manualWait?'installationManualWaitingTitle':connectionWait?'questConnectionWaitingTitle':installation.recoveryActive?'installationRecoveryRunningTitle':'installationRunningTitle');
     $('progress-copy').textContent=t(manualWait?'installationManualWaitingCopy':connectionWait?'questConnectionWaitingCopy':installation.recoveryActive?'installationRecoveryRunningCopy':'installationRunningCopy');
+    if(installation.cleanInstallActive&&!connectionWait&&!manualWait){
+      $('progress-title').textContent=t('installationCleanRunningTitle');
+      $('progress-copy').textContent=t('installationCleanRunningCopy');
+    }
     if(connectionWait)$('action-needed-title').textContent=t('questConnectionNeeded');
     if(manualWait)$('action-needed-title').textContent=t('installationManualWaitingAction');
   }
@@ -954,7 +962,7 @@ function renderProgress() {
   $('failure-cause').hidden=!cause;
   $('failure-cause').textContent=cause?t('failureCause',{cause}):'';
   $('failure-next').hidden=retainedWait||!failure&&!installIssue&&!connectionWait;$('failure-actions').hidden=!failure&&!installIssue;
-  $('failure-next').textContent=t(connectionWait?'questConnectionWaitingNext':installIssue?installation.connectionRequired?'questConnectionNext':installation.recoveryRequired?'installationRecoveryNext':'installationNext':failure?.blocked?'nativeMemoryNext':'failureNext');
+  $('failure-next').textContent=t(connectionWait?'questConnectionWaitingNext':installIssue?installation.connectionRequired?'questConnectionNext':installation.cleanInstallRequired?'installationCleanNext':installation.recoveryRequired?'installationRecoveryNext':'installationNext':failure?.blocked?'nativeMemoryNext':'failureNext');
   if(retainedWait)$('failure-next').textContent='';
   if(installation?.backupPath&&!retainedWait)$('failure-next').textContent+=' '+t('installationRecoveryBackup',{path:installation.backupPath});
   $('failure-retry').textContent=t(installation?.dataIssue==='non-save-inaccessible'?'installationRetryAll':installIssue?'installationRetry':'failureRetry');

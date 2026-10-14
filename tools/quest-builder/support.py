@@ -529,7 +529,8 @@ def signing_recovery_stats(root, session_root, state, *, diagnostic=None, requir
         original = ordinary(folder / 'original.apk')
         reason = 'backup-stat-unreadable'
         states = ('created', 'backed-up', 'parking', 'parked', 'uninstalling', 'removed', 'installing',
-                  'restoring', 'rolling-back', 'rollback-restoring', 'verified', 'complete')
+                  'restoring', 'rolling-back', 'rollback-restoring', 'verified', 'complete',
+                  'reset-approved', 'reset-removing', 'reset-installing', 'reset-installed', 'reset-complete')
         result = {'state': value.get('state') if value.get('state') in states else 'unknown',
                 'apkSha256': value['apkSha256'], 'inputKey': value['inputKey'],
                 'dataPolicy': policy, 'omittedNonSaveEntries': len(omissions),
@@ -542,6 +543,10 @@ def signing_recovery_stats(root, session_root, state, *, diagnostic=None, requir
                 'roots': roots, 'retainedBanks': [name for name in value.get('banks', [])
                                                   if name in ('files/quest-owned-game', 'files/quest-mod-resources')],
                 'hardwareVerified': False}
+        if value.get('state') in states[-5:]:
+            result.update(saveDataReset=value.get('saveDataReset') is True,
+                          restorationSkipped=value.get('restorationSkipped') is True,
+                          resetConsentBound=value.get('resetConsentTransaction') == value['transaction'])
         repair = value.get('captureRepair')
         counts = ('expectedCount', 'observedCount', 'missingCount', 'unexpectedCount',
                   'typeMismatchCount', 'sizeMismatchCount')

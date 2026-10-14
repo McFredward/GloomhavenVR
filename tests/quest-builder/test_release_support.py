@@ -276,6 +276,19 @@ class SupportTests(unittest.TestCase):
                        'WineLinkNeverShip', 'PrivateTargetNeverShip', 'JOURNAL SECRET', 'UNKNOWN PRIVATE BANK'):
             self.assertNotIn(secret, combined)
         self.assertEqual((folder / 'original.apk').read_bytes(), b'OLD APK BYTES NEVER EXPORT')
+
+    def test_explicit_reset_summary_keeps_exact_frontier_without_backup_payload_reads(self):
+        home, folder, value = self.signing_log()
+        for phase in ('reset-approved', 'reset-removing', 'reset-installing', 'reset-installed', 'reset-complete'):
+            value.update(state=phase, saveDataReset=True, restorationSkipped=True, resetConsentTransaction=value['transaction'])
+            write_json(home / 'active.json', value)
+            with self.subTest(phase=phase):
+                _, files = self.export()
+                row = json.loads(files['diagnostic.json'])['signingRecovery']
+                self.assertEqual(row['state'], phase)
+                self.assertTrue(row['saveDataReset']); self.assertTrue(row['restorationSkipped'])
+                self.assertTrue(row['resetConsentBound'])
+                self.assertNotIn('PRIVATE ARCHIVE BYTES', '\n'.join(files.values()))
     def test_signing_summary_rejects_foreign_source_or_transaction_and_retains_failure(self):
         home, folder, value = self.signing_log()
         for key, changed in [('apkSha256', '0' * 64), ('inputKey', '1' * 64), ('transaction', '2' * 32),
