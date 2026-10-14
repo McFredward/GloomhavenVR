@@ -67,6 +67,15 @@ legacy receipt fallback. No arbitrary device-log sweep is introduced.
 
 ## Evidence and remaining limits
 
+ActivityThread emits the wait log before its original synchronous waiting-display
+call reaches Debug.waitForDebugger. A narrow debugger-entry seam handles that
+interval only with the exact boot Proxy/Binder ancestry and a readable live
+`waiting=true` argument. Use bounded owned MIN/INTO Suspend_ALL events to reach
+the actual Debug wait before any Runtime invocation. The same post-wait Proxy
+called with false, Application, foreign process and unknown metadata paths stay
+rejected. This addresses a separate source race that today's no-PID path never
+reaches; it does not relax the original invocation boundary.
+
 Focused tests exercise the actual host launch/proof code with a policy-admission
 negative control: a bare start returns success without a PID, while the canonical
 request reaches the owned debugger boundary. This control models the documented
