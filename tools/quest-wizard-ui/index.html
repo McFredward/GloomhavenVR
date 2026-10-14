@@ -91,6 +91,19 @@
             <div class="device-actions"><button id="device-connect" class="secondary" data-i18n="deviceConnect">Verbinden / erneut versuchen</button><button id="device-wireless" class="secondary" data-i18n="deviceWireless">WLAN über USB einrichten</button><button id="device-capture" class="secondary" data-i18n="deviceCapture">Spielprotokolle abgreifen</button><button id="device-cancel" class="text-button" data-i18n="cancel" hidden>Anhalten</button></div>
             <p id="device-status" class="hint" role="status"></p><progress id="device-progress" max="100" hidden></progress>
             <div id="device-capture-result" class="device-capture-result" hidden><p id="device-capture-path" class="storage-root"></p><button id="device-download" class="secondary" data-i18n="deviceDownload">Quest-Testbericht speichern</button></div>
+            <section class="device-storage" aria-labelledby="device-storage-title">
+              <h3 id="device-storage-title" data-i18n="deviceStorageTitle">Quest-Speicher</h3>
+              <p class="hint" data-i18n="deviceStorageCopy">Prüft vom Builder angelegte temporäre Dateien. Spielinhalte, Spielstände, Einstellungen und Fortsetzungsdaten bleiben erhalten. Nicht erreichbare Daten werden als unbekannt angezeigt.</p>
+              <button id="device-storage-preview" class="secondary" data-i18n="deviceStoragePreview">Quest-Speicher prüfen</button>
+              <div id="device-storage-preview-result" hidden>
+                <p id="device-storage-summary" role="status"></p>
+                <h4 data-i18n="deviceStorageDisposable">Temporäre Dateien zum Entfernen</h4><ul id="device-storage-candidates" class="device-storage-list"></ul>
+                <h4 data-i18n="deviceStorageProtected">Bleibt erhalten</h4><ul id="device-storage-protected" class="device-storage-list"></ul>
+                <div id="device-storage-unknown" hidden><h4 data-i18n="deviceStorageUnknown">Nicht vollständig ermittelbar</h4><ul id="device-storage-unknown-list" class="device-storage-list"></ul></div>
+                <button id="device-storage-clean" class="secondary" data-i18n="deviceStorageClean" disabled>Temporäre Dateien bereinigen</button>
+              </div>
+              <p id="device-storage-result" class="hint" role="status" hidden></p>
+            </section>
           </section>
           <section id="storage-card" class="storage-card utility-page" aria-labelledby="storage-title" hidden>
             <div class="storage-heading"><h2 id="storage-title" data-i18n="storageTitle">Arbeitsordner und Speicherplatz</h2><span id="storage-free"></span></div>
@@ -134,6 +147,12 @@
     <label id="install-reset-acknowledgment" class="checkline" hidden><input id="install-reset-acknowledged" type="checkbox"><span data-i18n="installationResetAcknowledge">Ich verstehe, dass aktuelle und archivierte Spielstände sowie Einstellungen auf der Quest endgültig gelöscht werden.</span></label>
     <p id="install-restore-dialog-error" role="alert" hidden></p>
     <div class="failure-actions"><button id="install-restore-confirm" class="secondary"></button><button id="install-restore-cancel" class="text-button" data-i18n="installationChoiceCancel">Zurück, nichts ändern</button></div>
+  </dialog>
+  <dialog id="device-storage-dialog" class="install-restore-dialog" aria-labelledby="device-storage-dialog-title">
+    <h2 id="device-storage-dialog-title" data-i18n="deviceStorageConfirmTitle">Temporäre Quest-Dateien entfernen?</h2>
+    <p id="device-storage-dialog-copy"></p><ul id="device-storage-dialog-list" class="device-storage-list"></ul>
+    <p data-i18n="deviceStorageConfirmKeep">Nur die angezeigten, eindeutig zugeordneten temporären Dateien werden entfernt. Spielstände, Einstellungen, Spielinhalte und benötigte Fortsetzungsdaten bleiben erhalten.</p>
+    <div class="device-actions"><button id="device-storage-confirm" class="secondary" data-i18n="deviceStorageConfirm">Angezeigte Dateien entfernen</button><button id="device-storage-dismiss" class="text-button" data-i18n="cancel">Abbrechen</button></div>
   </dialog>
   <script type="module" src="app.mjs"></script>
 </body>

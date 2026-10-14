@@ -10,6 +10,7 @@ import threading
 import time
 import unittest
 from unittest import mock
+from types import SimpleNamespace
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -280,6 +281,83 @@ class DeviceToolsTests(unittest.TestCase):
             installer, collector = real(ROOT)
             self.assertIs(sys.modules["installer"], original)
             self.assertIs(collector.installer, installer)
+
+
+class DeviceStorageTests(unittest.TestCase):
+    setUp = DeviceToolsTests.setUp
+
+    def helper(self):
+        owner = self
+        class Cleanup:
+            def __init__(self, adb, serial, hardware, directory):
+                self.hardware, self.serial, self.adb = hardware, serial, adb
+                self.calls = []
+                owner.cleanup = self
+            def preview(self, *, progress, cancel):
+                cancel(); progress({"done": 1, "total": 2, "detail": "temporary-apk"})
+                progress({"done": 2, "total": 2, "detail": "temporary-apk"})
+                return {"schema": 1, "complete": False, "planId": "c" * 32,
+                        "deviceSerial": self.hardware, "bytes": 1024, "files": 1,
+                        "candidates": [{"id": "owned", "bytes": 1024, "files": 1}],
+                        "protected": [], "unknown": [{"bytes": None, "files": None}]}
+            def reconnect(self, adb, serial):
+                self.calls.append("reconnect")
+                if adb.identity(serial) != self.hardware: raise ValueError("Different Quest")
+                self.adb, self.serial = adb, serial
+            def clean(self, plan, *, progress, cancel):
+                cancel(); self.calls.append(("clean", plan["planId"]))
+                progress({"done": 1, "total": 1, "detail": "temporary-apk"})
+                return {"schema": 1, "deviceSerial": self.hardware, "freedBytes": 1024,
+                        "deletedFiles": 1, "removed": [], "retained": []}
+        patch = mock.patch.object(device_tools, "_cleanup_module", return_value=SimpleNamespace(DeviceCleanup=Cleanup))
+        patch.start(); self.addCleanup(patch.stop)
+
+    def test_preview_uses_usb_no_mutation_and_actual_completion_owns_100_percent(self):
+        self.helper(); events = []
+        result = self.tools.storage_preview({}, events.append)
+        self.assertEqual(result["status"], "storage-preview")
+        self.assertEqual(result["storagePlan"]["unknown"][0]["bytes"], None)
+        self.assertEqual(self.cleanup.calls, [])
+        self.assertEqual(self.cleanup.serial, "USB_TEST")
+        self.assertFalse(any("connect" in command or "tcpip" in command for command in self.runner.commands))
+        self.assertTrue(all(row["progress"]["percent"] is None or row["progress"]["percent"] < 100 for row in events[:-1]))
+        self.assertEqual(events[-1]["progress"]["percent"], 100)
+
+    def test_clean_reuses_exact_preview_helper_and_consumes_nonce_once(self):
+        self.helper(); self.tools.storage_preview({}); helper = self.cleanup
+        result = self.tools.storage_clean({"planId": "c" * 32})
+        self.assertEqual(result["status"], "storage-complete")
+        self.assertIs(self.cleanup, helper)
+        self.assertEqual(helper.calls, ["reconnect", ("clean", "c" * 32)])
+        self.assertEqual(result["storageResult"]["freedBytes"], 1024)
+        with self.assertRaises(state.WizardError): self.tools.storage_clean({"planId": "c" * 32})
+
+    def test_wrong_nonce_or_path_never_probes_device_or_cleans(self):
+        self.helper(); self.tools.storage_preview({}); count = len(self.runner.commands)
+        for value in ({"planId": "d" * 32}, {"planId": "c" * 32, "path": "/"}, {"planId": "../"}):
+            with self.assertRaises(state.WizardError): self.tools.storage_clean(value)
+        self.assertEqual(len(self.runner.commands), count)
+        self.assertEqual(self.cleanup.calls, [])
+
+    def test_new_connection_invalidates_previous_preview_and_unknown_data_is_never_sized_zero(self):
+        self.helper(); self.tools.storage_preview({}); self.tools.connect({})
+        self.assertIsNone(self.tools.status()["storagePlan"])
+        with self.assertRaises(state.WizardError): self.tools.storage_clean({"planId": "c" * 32})
+
+    def test_different_quest_refuses_mutation_and_requires_new_preview(self):
+        self.helper(); self.tools.storage_preview({}); self.runner.hardware = "OTHER_QUEST"
+        result = self.tools.storage_clean({"planId": "c" * 32})
+        self.assertEqual(result["status"], "waiting")
+        self.assertIsNone(result["storagePlan"])
+        self.assertEqual(self.cleanup.calls, ["reconnect"])
+        self.assertIn("Quest-Speicher prüfen", result["message"]["de"])
+
+    def test_cancelled_preview_retains_no_deletion_authority(self):
+        self.helper(); cancelled = threading.Event(); cancelled.set()
+        result = self.tools.storage_preview({}, cancel=cancelled)
+        self.assertEqual(result["status"], "cancelled")
+        self.assertIsNone(self.tools.cleanup_plan)
+        self.assertEqual(self.runner.commands, [])
 
 
 if __name__ == "__main__": unittest.main()

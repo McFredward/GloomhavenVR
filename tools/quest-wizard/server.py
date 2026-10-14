@@ -448,7 +448,9 @@ class LocalServer(ThreadingHTTPServer):
                 self.device_tools = self.device_factory(REPO, self.store.root)
             self.device_stop.clear()
             with self.device_lock:
-                self.device_state = {"status": "connecting" if operation == "connect" else "capturing",
+                self.device_state = {"status": "scanning" if operation == "storage-preview" else
+                                    "cleaning" if operation == "storage-clean" else
+                                    "connecting" if operation == "connect" else "capturing",
                                      "operation": operation, "devices": [], "progress": {"done": 0, "total": None}}
             def progress(value):
                 with self.device_lock: self.device_state.update(copy.deepcopy(value))
@@ -457,7 +459,7 @@ class LocalServer(ThreadingHTTPServer):
                     # The same nonblocking kernel lock also excludes CLI runs
                     # and other local servers. A read-only inventory can coexist.
                     with file_lock(self.store.root / "run.lock"):
-                        result = getattr(self.device_tools, operation)(options, progress=progress, cancel=self.device_stop)
+                        result = getattr(self.device_tools, operation.replace("-", "_"))(options, progress=progress, cancel=self.device_stop)
                     with self.device_lock: self.device_state = copy.deepcopy(result)
                 except Exception as error:
                     code = error.code if isinstance(error, WizardError) else "device_failed"
@@ -849,7 +851,7 @@ class Handler(BaseHTTPRequestHandler):
                 if value: raise WizardError("request_body", "Unexpected export cancellation fields.")
                 self.server.package_stop.set()
                 return self.server.package_status()
-            if parsed.path in ("/api/device/connect", "/api/device/capture"):
+            if parsed.path in ("/api/device/connect", "/api/device/capture", "/api/device/storage-preview"):
                 connecting = parsed.path.endswith("/connect")
                 allowed = {"host", "serial", "setupWireless"} if connecting else {"host", "serial"}
                 if (set(value) != allowed or any(not isinstance(value[key], str) or len(value[key]) > 256
@@ -857,7 +859,13 @@ class Handler(BaseHTTPRequestHandler):
                         or connecting and type(value["setupWireless"]) is not bool):
                     raise WizardError("request_body", "Expected a Quest connection selection.",
                                       "Eine Quest-Verbindung auswählen.")
-                return self.server.manage_device("connect" if connecting else "capture", value)
+                return self.server.manage_device(parsed.path.rsplit("/", 1)[-1], value)
+            if parsed.path == "/api/device/storage-clean":
+                if (set(value) != {"planId"} or not isinstance(value["planId"], str)
+                        or not re.fullmatch(r"[a-f0-9]{32}", value["planId"])):
+                    raise WizardError("request_body", "Confirm the current Quest storage preview.",
+                                      "Die aktuelle Quest-Speichervorschau bestätigen.")
+                return self.server.manage_device("storage-clean", value)
             if parsed.path == "/api/device/cancel":
                 if value: raise WizardError("request_body", "Unexpected device cancellation fields.")
                 return self.server.cancel_device()

@@ -74,6 +74,10 @@ h2{font-size:25px;font-weight:600;letter-spacing:-.025em;line-height:1.25;margin
 .device-card>label{margin-top:16px}
 .device-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:15px}
 .device-card progress{width:100%;margin:10px 0}
+.device-storage{margin-top:26px;padding-top:20px;border-top:1px solid var(--line)}
+.device-storage h4{margin:18px 0 8px;font-size:13px;color:var(--muted)}
+.device-storage-list{margin:8px 0 16px;padding-left:20px;font-size:13px;line-height:1.65;overflow-wrap:anywhere}
+.device-storage-list .storage-root{display:block;margin:2px 0 5px;font-size:11px}
 .device-capture-result{margin-top:14px;padding:13px;border:1px solid #a7c8a244;border-radius:8px}
 .storage-usage-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:15px}
 .storage-usage-heading strong{font-size:12px;color:var(--text)}

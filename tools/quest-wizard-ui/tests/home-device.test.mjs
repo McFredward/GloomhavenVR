@@ -34,8 +34,18 @@ test('capture download accepts only an opaque result ID and an authenticated ZIP
 
 test('the labelled preview cannot connect hardware, collect logs or download captures',async()=>{
   const api=new PreviewApi();assert.equal((await api.deviceStatus()).state.status,'idle');
-  for(const operation of ['deviceConnect','deviceCapture','deviceCancel','deviceDownload'])await assert.rejects(api[operation](),{code:'preview'});
+  for(const operation of ['deviceConnect','deviceCapture','deviceCancel','deviceDownload','deviceStoragePreview','deviceStorageClean'])await assert.rejects(api[operation](),{code:'preview'});
   assert.ok((await api.storageInventory()).inventory.totalBytes>0);
+});
+
+test('Quest cleanup submits only an opaque preview nonce and never an arbitrary remote path',async()=>{
+  const calls=[],api=new LocalApi('http://127.0.0.1:1234','local-token',async(url,options)=>{
+    calls.push({path:url.pathname,body:JSON.parse(options.body)});return {ok:true,json:async()=>({schema:1,event:'device'})};
+  });
+  await api.deviceStoragePreview('','');await api.deviceStorageClean('a'.repeat(32));
+  assert.deepEqual(calls,[{path:'/api/device/storage-preview',body:{host:'',serial:''}},{path:'/api/device/storage-clean',body:{planId:'a'.repeat(32)}}]);
+  for(const invalid of ['../','C:\\private','f'.repeat(31),null])assert.throws(()=>api.deviceStorageClean(invalid),{code:'invalidReply'});
+  assert.equal(calls.length,2);
 });
 
 test('editing just an APK username inherits its ID, while ordinary manual profiles still require both fields',()=>{

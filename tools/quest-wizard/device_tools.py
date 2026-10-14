@@ -37,6 +37,22 @@ MAX_PROGRESS_LOG_BYTES = 2 * 1048576
 HEARTBEAT_SECONDS = .5
 
 
+def _cleanup_module(repo):
+    """Load the packaged device helper without depending on a CLI import path."""
+    with discovery._LOADER_LOCK:
+        name = "_quest_wizard_device_cleanup"
+        spec = importlib.util.spec_from_file_location(name, repo / "tools/quest-installer/device_cleanup.py")
+        module = importlib.util.module_from_spec(spec)
+        previous = sys.modules.get(name)
+        sys.modules[name] = module
+        try:
+            spec.loader.exec_module(module)
+            return module
+        finally:
+            if previous is None: sys.modules.pop(name, None)
+            else: sys.modules[name] = previous
+
+
 def _modules(repo):
     """Bind the real collector to its installer without polluting other imports."""
     with discovery._LOADER_LOCK:
@@ -90,6 +106,8 @@ class DeviceTools:
         self.remote_sizes = {}
         self.recorded_progress = None
         self.recorded_at = 0
+        self.cleanup_plan = None
+        self.cleanup_helper = None
         self.state_path = ordinary(self.directory / "device-tools-state.json")
         self.progress_log = ordinary(self.directory / "device-tools-progress.jsonl")
         self.state = {"status": "idle", "operation": None, "devices": [], "endpoint": None,
@@ -137,7 +155,8 @@ class DeviceTools:
 
     def _step(self, progress, done, total, label, **values):
         return self._publish(progress, progress={"done": done, "total": total,
-            "percent": 100 if done == total else done / total * 100, "label": label}, activity=None, **values)
+            "percent": None if total is None else 100 if done == total else done / total * 100,
+            "label": label}, activity=None, **values)
 
     @contextmanager
     def _watch(self, callback, label, observe=None):
@@ -266,8 +285,11 @@ class DeviceTools:
         self.started = time.monotonic()
         self.remote_sizes = {}
         self.total = 4 if operation == "connect" else None
+        self.cleanup_plan = None
+        self.cleanup_helper = None
         self._publish(progress, progress={"done": 0, "total": self.total, "percent": 0, "label": "adb-setup"}, activity=None,
-            status="connecting", operation=operation, capture=None, startedAt=time.time(), log=None,
+            status="connecting", operation=operation, capture=None, storagePlan=None, storageResult=None,
+            startedAt=time.time(), log=None, error=None,
             message={"en": "Preparing Android platform-tools; missing tools are downloaded automatically.",
                      "de": "Android platform-tools vorbereiten; fehlende Werkzeuge werden automatisch heruntergeladen."})
         installer, collector = _modules(self.repo)
@@ -448,6 +470,87 @@ class DeviceTools:
                 try: archive.unlink(missing_ok=True)
                 except OSError: pass
             return self._failure(error, progress)
+
+    def _storage_device(self, operation, selected, progress, cancel, retained=None):
+        installer, collector, config, adb = self._begin(operation, progress, cancel)
+        if selected["host"]: selected["host"] = installer.endpoint(selected["host"])
+        serial, hardware, transport = collector.choose_capture_device(adb, SimpleNamespace(**selected), config)
+        self._cancel(cancel)
+        # Record the verified Quest, rather than a stale remembered Wi-Fi target.
+        atomic_json(self.config, installer.connection_settings(config, serial, hardware, adb.executable))
+        self._publish(progress, status="scanning" if operation == "storage-preview" else "cleaning",
+                      serial=serial, hardwareSerial=hardware, transport=transport)
+        if retained is not None:
+            retained.reconnect(adb, serial)
+            return retained
+        return _cleanup_module(self.repo).DeviceCleanup(adb, serial, hardware, self.directory)
+
+    def _storage_progress(self, progress, value):
+        """The connection and finite metadata plan share one completion owner."""
+        done, total = value.get("done"), value.get("total")
+        counted = type(done) is int and type(total) is int and 0 <= done <= total and total > 0
+        parameters = {"done": 3 + done if counted else 3, "total": 3 + total if counted else None,
+                      "percent": min(99, (3 + done) / (3 + total) * 100) if counted else None,
+                      "label": value.get("detail", "storage-metadata")}
+        self._publish(progress, progress=parameters)
+
+    def _storage_failure(self, error, progress):
+        self.cleanup_plan = None
+        self.cleanup_helper = None
+        if isinstance(error, Cancelled):
+            return self._publish(progress, status="cancelled", storagePlan=None,
+                                 message={"en": "Quest cleanup stopped. Retained game and save data are unchanged.",
+                                          "de": "Quest-Bereinigung angehalten. Behaltene Spieldaten und Spielstände bleiben erhalten."})
+        detail = str(error)[:1400]
+        code = error.code if isinstance(error, WizardError) else "device_storage_failed"
+        # A partial delete is not a reusable authorization. A fresh, bounded
+        # preview observes what remains before the user authorizes another pass.
+        return self._publish(progress, status="waiting", storagePlan=None,
+            error={"code": code}, message={
+                "en": "Quest cleanup needs attention. Keep the Quest connected and unlocked, then choose Check Quest storage again. Only newly confirmed temporary files can be removed. " + detail,
+                "de": "Quest-Bereinigung benötigt eine Aktion. Quest verbunden und entsperrt lassen, danach erneut „Quest-Speicher prüfen“ wählen. Nur neu bestätigte temporäre Dateien können entfernt werden. " + detail})
+
+    def storage_preview(self, options, progress=None, cancel=None):
+        selected = _options(options, capture=True)
+        try:
+            helper = self._storage_device("storage-preview", selected, progress, cancel)
+            plan = helper.preview(progress=lambda value: self._storage_progress(progress, value),
+                                  cancel=lambda: self._cancel(cancel))
+            self._cancel(cancel)
+            if (not isinstance(plan, dict) or plan.get("schema") != 1
+                    or not CAPTURE_ID.fullmatch(plan.get("planId", ""))
+                    or plan.get("deviceSerial") != self.state.get("hardwareSerial") or type(plan.get("complete")) is not bool):
+                raise ValueError("Invalid Quest cleanup preview")
+            self.cleanup_plan = copy.deepcopy(plan)
+            self.cleanup_helper = helper
+            return self._step(progress, 1, 1, "storage-preview-complete", status="storage-preview", storagePlan=plan,
+                message={"en": "Preview ready. Review temporary files before confirming their removal.",
+                         "de": "Vorschau bereit. Temporäre Dateien vor der Löschbestätigung prüfen."})
+        except (Cancelled, WizardError, OSError, ValueError, RuntimeError) as error:
+            return self._storage_failure(error, progress)
+
+    def storage_clean(self, options, progress=None, cancel=None):
+        if (not isinstance(options, dict) or set(options) != {"planId"}
+                or not isinstance(options["planId"], str) or not CAPTURE_ID.fullmatch(options["planId"])):
+            raise WizardError("device_cleanup_plan", "Check Quest storage before confirming cleanup.",
+                              "Vor der Löschbestätigung den Quest-Speicher prüfen.")
+        plan = copy.deepcopy(self.cleanup_plan)
+        helper = self.cleanup_helper
+        if plan is None or helper is None or plan.get("planId") != options["planId"]:
+            raise WizardError("device_cleanup_plan", "The preview is no longer current. Check Quest storage again.",
+                              "Die Vorschau ist nicht mehr aktuell. Quest-Speicher erneut prüfen.")
+        try:
+            helper = self._storage_device("storage-clean", _options({}, capture=True), progress, cancel, retained=helper)
+            if self.state.get("hardwareSerial") != plan["deviceSerial"]:
+                raise WizardError("device_cleanup_identity", "The connected Quest differs from the preview. Check its storage again.",
+                                  "Die verbundene Quest unterscheidet sich von der Vorschau. Speicher erneut prüfen.")
+            result = helper.clean(plan, progress=lambda value: self._storage_progress(progress, value),
+                                  cancel=lambda: self._cancel(cancel))
+            return self._step(progress, 1, 1, "storage-clean-complete", status="storage-complete", storageResult=result,
+                message={"en": "Temporary-file cleanup finished. Game content, saves and resume data were retained.",
+                         "de": "Temporäre Dateien bereinigt. Spielinhalte, Spielstände und Fortsetzungsdaten bleiben erhalten."})
+        except (Cancelled, WizardError, OSError, ValueError, RuntimeError) as error:
+            return self._storage_failure(error, progress)
 
     def download(self, identity):
         if not isinstance(identity, str) or not CAPTURE_ID.fullmatch(identity):

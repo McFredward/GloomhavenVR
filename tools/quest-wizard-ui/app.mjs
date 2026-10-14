@@ -16,6 +16,7 @@ let lastCleanupRefresh=null,supportBusy=false,supportResult=null,supportFailure=
 let runsRefreshAfterInventory=false;
 const removedRuns=new Set();
 let deviceInfo=null,deviceBusy=false,devicePollTimer=null,deviceDownloading=false;
+let pendingDeviceCleanup=null;
 let qualification=null,resumeFailed=null,restoredSession=null,sessionGeneration=0;
 let automaticBaseApk='',workflowMode=null,workflowPage=0;
 let packageInfo=null,packageBusy=false,packagePollTimer=null,automaticPackageSource='',automaticPackageDestination='';
@@ -52,6 +53,7 @@ function setLanguage(value) {
   showSlide(slideIndex);
   if(discovery) renderGames();updateView();
   renderRestoreChoiceDialog();
+  renderDeviceCleanupDialog();
 }
 function form() { return {gameRoot:$('game-root').value,provider:$('provider').value,unityEditor:$('unity-editor').value,hostSystem:discovery?.host?.system,
   mode:$('build-mode').value,baseApk:$('base-apk').value,signingRoot:$('signing-root').value,signingMode:$('signing-mode').value,
@@ -205,7 +207,7 @@ function storageSize(bytes) {
   const amount=Math.max(0,Number(bytes)||0),scale=amount>=1073741824?1073741824:amount>=1048576?1048576:amount>=1024?1024:1;
   return new Intl.NumberFormat(language,{maximumFractionDigits:1}).format(amount/scale)+' '+({1:'B',1024:'KiB',1048576:'MiB',1073741824:'GiB'}[scale]);
 }
-function deviceActive(){return deviceBusy||['preparing','connecting','capturing','cancelling'].includes(deviceInfo?.state?.status);}
+function deviceActive(){return deviceBusy||['preparing','connecting','capturing','scanning','cleaning','cancelling'].includes(deviceInfo?.state?.status);}
 function packageActive(){return packageBusy||packageInfo?.state?.status==='exporting';}
 function renderPackage(){
   const available=discovery?.capabilities?.portablePackages===true;
@@ -279,7 +281,7 @@ function renderDevice(){
   $('device-card').hidden=discovery?.capabilities?.deviceTools!==true||page!=='device';
   if(discovery?.capabilities?.deviceTools!==true)return;
   const current=deviceInfo?.state??{},active=deviceActive(),locked=busy||isActive(state)||storageActive()||packageActive()||active||!canConnect;
-  for(const id of ['device-connect','device-wireless','device-capture','device-host','device-serial'])$(id).disabled=locked;
+  for(const id of ['device-connect','device-wireless','device-capture','device-storage-preview','device-host','device-serial'])$(id).disabled=locked;
   $('device-cancel').hidden=!active;$('device-cancel').disabled=deviceBusy||current.status==='cancelling';
   const devices=Array.isArray(current.devices)?current.devices:[],key=devices.map(row=>[row.serial,row.state,row.model].join(':')).join('|');
   if($('device-serial').dataset.devices!==key){
@@ -320,6 +322,7 @@ function renderDevice(){
   const capture=current.capture,complete=Boolean(capture?.id&&capture?.name);
   $('device-capture-result').hidden=!complete;$('device-capture-path').textContent=complete?(capture.path??capture.name):'';
   $('device-download').disabled=!complete||deviceDownloading;
+  renderDeviceStorage(current,locked);
   if(current.status==='waiting')$('device-guide').open=true;
 }
 function scheduleDevicePoll(){clearTimeout(devicePollTimer);if(!document.hidden&&discovery?.capabilities?.deviceTools===true)devicePollTimer=setTimeout(refreshDevice,deviceActive()?600:5000);}
@@ -333,9 +336,60 @@ async function deviceOperation(operation){
   deviceBusy=true;clearError();clearTimeout(devicePollTimer);updateView();
   try{
     const host=$('device-host').value.trim(),serial=$('device-serial').value;
-    const result=operation==='capture'?await api.deviceCapture(host,serial):await api.deviceConnect(host,operation==='wireless',serial);
+    const result=operation==='capture'?await api.deviceCapture(host,serial):operation==='storage-preview'?await api.deviceStoragePreview(host,serial):await api.deviceConnect(host,operation==='wireless',serial);
     if(result?.event!=='device'||!result.state)throw {code:'invalidReply'};deviceInfo=result;
   }catch(value){deviceInfo={schema:1,event:'device',state:{status:'failed',message:value?.message??t(value?.code??'offline')}};}
+  finally{deviceBusy=false;updateView();scheduleDevicePoll();}
+}
+function deviceStorageRows(node,rows,emptyKey){
+  node.replaceChildren();
+  if(!Array.isArray(rows)||!rows.length){const li=document.createElement('li');li.textContent=t(emptyKey);node.append(li);return;}
+  for(const row of rows){
+    const li=document.createElement('li');
+    const size=Number.isFinite(row.bytes)?storageSize(row.bytes):t('deviceStorageSizeUnknown');
+    const count=Number.isFinite(row.files)?t('deviceStorageFiles',{files:new Intl.NumberFormat(language).format(row.files)}):'';
+    li.textContent=[message(row.label,'deviceStorageArtifact'),size,count].filter(Boolean).join(' · ');
+    // These are finite Builder artifact roots from the preview, never a save
+    // member inventory. textContent also keeps device-controlled text inert.
+    if(typeof row.path==='string'){const path=document.createElement('code');path.className='storage-root';path.textContent=row.path;li.append(path);}
+    node.append(li);
+  }
+}
+function renderDeviceStorage(current,locked){
+  const plan=current.storagePlan,valid=current.status==='storage-preview'&&typeof plan?.planId==='string'&&/^[a-f0-9]{32}$/.test(plan.planId)&&typeof plan.complete==='boolean';
+  $('device-storage-preview-result').hidden=!valid;
+  const candidates=valid&&Array.isArray(plan.candidates)?plan.candidates:[];
+  $('device-storage-clean').disabled=locked||!valid||!candidates.length;
+  if(valid){
+    $('device-storage-summary').textContent=t('deviceStorageSummary',{quest:plan.deviceSerial,size:storageSize(plan.bytes),files:new Intl.NumberFormat(language).format(plan.files??0)});
+    deviceStorageRows($('device-storage-candidates'),candidates,'deviceStorageNoFiles');
+    deviceStorageRows($('device-storage-protected'),plan.protected,'deviceStorageNoProtected');
+    $('device-storage-unknown').hidden=!plan.unknown?.length;
+    deviceStorageRows($('device-storage-unknown-list'),plan.unknown,'deviceStorageNoFiles');
+  }
+  const result=current.storageResult;
+  $('device-storage-result').hidden=!result;
+  if(result)$('device-storage-result').textContent=t('deviceStorageComplete',{size:storageSize(result.freedBytes),files:new Intl.NumberFormat(language).format(result.deletedFiles??0)})+(result.retained?.length?' '+t('deviceStorageRetained',{count:result.retained.length}):'');
+  if(pendingDeviceCleanup&&(!valid||pendingDeviceCleanup.planId!==plan.planId||pendingDeviceCleanup.deviceSerial!==plan.deviceSerial))closeDeviceCleanupDialog();
+}
+function renderDeviceCleanupDialog(){
+  if(!pendingDeviceCleanup)return;
+  const plan=pendingDeviceCleanup;
+  $('device-storage-dialog-copy').textContent=t('deviceStorageSummary',{quest:plan.deviceSerial,size:storageSize(plan.bytes),files:new Intl.NumberFormat(language).format(plan.files??0)});
+  deviceStorageRows($('device-storage-dialog-list'),plan.candidates,'deviceStorageNoFiles');
+}
+function closeDeviceCleanupDialog(){pendingDeviceCleanup=null;$('device-storage-dialog').close();}
+function openDeviceCleanupDialog(){
+  const plan=deviceInfo?.state?.storagePlan;
+  if($('device-storage-clean').disabled||!plan?.planId)return;
+  pendingDeviceCleanup=structuredClone(plan);renderDeviceCleanupDialog();$('device-storage-dialog').showModal();
+}
+async function confirmDeviceCleanup(){
+  const plan=pendingDeviceCleanup,current=deviceInfo?.state;
+  if(!plan||current?.status!=='storage-preview'||plan.planId!==current.storagePlan?.planId||plan.deviceSerial!==current.storagePlan?.deviceSerial||deviceActive()||busy||isActive(state)||storageActive()||packageActive())return;
+  closeDeviceCleanupDialog();deviceBusy=true;clearError();clearTimeout(devicePollTimer);updateView();
+  try{const result=await api.deviceStorageClean(plan.planId);if(result?.event!=='device'||!result.state)throw {code:'invalidReply'};deviceInfo=result;}
+  catch(value){deviceInfo={schema:1,event:'device',state:{status:'failed',message:value?.message??t(value?.code??'offline')}};}
   finally{deviceBusy=false;updateView();scheduleDevicePoll();}
 }
 async function downloadCapture(){
@@ -1268,6 +1322,11 @@ $('home').addEventListener('click',()=>navigatePage(-1,'home-title'));
 $('device-connect').addEventListener('click',()=>deviceOperation('connect'));
 $('device-wireless').addEventListener('click',()=>deviceOperation('wireless'));
 $('device-capture').addEventListener('click',()=>deviceOperation('capture'));
+$('device-storage-preview').addEventListener('click',()=>deviceOperation('storage-preview'));
+$('device-storage-clean').addEventListener('click',openDeviceCleanupDialog);
+$('device-storage-confirm').addEventListener('click',confirmDeviceCleanup);
+$('device-storage-dismiss').addEventListener('click',closeDeviceCleanupDialog);
+$('device-storage-dialog').addEventListener('cancel',()=>{pendingDeviceCleanup=null;});
 $('device-download').addEventListener('click',downloadCapture);
 $('device-cancel').addEventListener('click',async()=>{try{const result=await api.deviceCancel();if(result?.event!=='device'||!result.state)throw {code:'invalidReply'};deviceInfo=result;}catch(value){error(value);}finally{updateView();scheduleDevicePoll();}});
 $('edit-choices').addEventListener('click',()=>{if(isActive(state))return;clearTimeout(pollTimer);restoreChoices(state?.choices);page=0;clearError();updateView();$('game-root').focus();});

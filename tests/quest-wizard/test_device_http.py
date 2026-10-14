@@ -28,7 +28,8 @@ class DeviceHttpTests(unittest.TestCase):
         self.capture_path.parent.mkdir(parents=True)
         with zipfile.ZipFile(self.capture_path, "w") as archive:
             archive.writestr("summary.json", '{"hardwareVerified":false}')
-        self.adapter = SimpleNamespace(connect=self.connect, capture=self.capture, download=self.download)
+        self.adapter = SimpleNamespace(connect=self.connect, capture=self.capture, download=self.download,
+                                       storage_preview=self.storage_preview, storage_clean=self.storage_clean)
         self.http = server.LocalServer(self.store, ROOT / "tools/quest-wizard-ui",
                                        device_factory=self.factory,
                                        discover=lambda *_: {"schema": 1, "event": "discover", "capabilities": {}})
@@ -63,6 +64,18 @@ class DeviceHttpTests(unittest.TestCase):
     def download(self, identifier):
         if identifier != self.identity: raise WizardError("capture_unavailable", "Unknown capture.")
         return self.capture_path
+
+    def storage_preview(self, options, *, progress, cancel):
+        self.calls.append(("storage-preview", options))
+        self.entered.set()
+        progress({"status": "scanning", "progress": {"done": 3, "total": 6, "percent": 50}})
+        while not self.release.wait(.01):
+            if cancel.is_set(): raise WizardError("device_cancelled", "Quest operation cancelled.")
+        return {"status": "storage-preview", "storagePlan": {"planId": "c" * 32, "bytes": 1024}}
+
+    def storage_clean(self, options, *, progress, cancel):
+        self.calls.append(("storage-clean", options))
+        return {"status": "storage-complete", "storageResult": {"freedBytes": 1024, "deletedFiles": 1}}
 
     def request(self, route, body=None, *, token=True, raw=False):
         connection = http.client.HTTPConnection(*self.http.server_address, timeout=3)
@@ -165,6 +178,28 @@ class DeviceHttpTests(unittest.TestCase):
             self.assertEqual(value["status"], "complete")
             self.assertEqual(value["totalBytes"], 42)
             self.assertEqual(len(scans), 1)
+
+    def test_device_cleanup_preview_is_authenticated_cancelable_and_exclusive(self):
+        options = {"host": "", "serial": ""}
+        self.assertEqual(self.request("/api/device/storage-preview", options, token=False)[0], 403)
+        self.assertEqual(self.request("/api/device/storage-preview", {**options, "path": "/"})[0], 400)
+        self.assertEqual(self.request("/api/device/storage-clean", {"planId": "../"})[0], 400)
+        self.assertEqual(self.calls, [])
+        self.request("/api/device/storage-preview", options)
+        self.assertTrue(self.entered.wait(2))
+        self.assertEqual(self.request("/api/device/status")[1]["state"]["progress"]["percent"], 50)
+        self.assertEqual(self.request("/api/device/storage-clean", {"planId": "c" * 32})[0], 400)
+        self.request("/api/device/cancel", {})
+        self.wait_status("cancelled")
+
+    def test_device_cleanup_routes_pass_only_the_exact_preview_nonce_to_owner(self):
+        self.release.set()
+        self.request("/api/device/storage-preview", {"host": "", "serial": ""})
+        self.wait_status("storage-preview")
+        self.assertEqual(self.request("/api/device/storage-clean", {"planId": "c" * 32, "path": "/"})[0], 400)
+        self.request("/api/device/storage-clean", {"planId": "c" * 32})
+        self.wait_status("storage-complete")
+        self.assertIn(("storage-clean", {"planId": "c" * 32}), self.calls)
 
 
 if __name__ == "__main__": unittest.main()

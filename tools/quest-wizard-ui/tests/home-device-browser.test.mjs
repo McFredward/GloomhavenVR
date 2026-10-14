@@ -49,7 +49,19 @@ async function fixture(contentDecision=false){
         if(path==='/api/device/connect'){assert.deepEqual(body,{host:'192.168.0.5:5555',setupWireless:true,serial:''});device={status:'waiting',message:{de:'USB-Debugging in der Brille bestätigen.',en:'Authorize USB debugging in the headset.'},devices:[{serial:'usb-fixture',state:'unauthorized',kind:'usb',model:'Quest_3'}]};return reply(deviceReply());}
         if(path==='/api/device/capture'&&request.method==='POST'){assert.deepEqual(body,{host:'192.168.0.5:5555',serial:''});device={status:'capturing',elapsedSeconds:15,
           progress:{done:1,total:4,percent:25,label:'logcat'},activity:{label:'log-transfer',detail:'quest-startup.log',receivedBytes:1024,totalBytes:4096,percent:25,elapsedSeconds:7}};polls=0;return reply(deviceReply());}
+        if(path==='/api/device/storage-preview'){
+          assert.deepEqual(body,{host:'',serial:''});
+          device={status:'storage-preview',storagePlan:{schema:1,planId:'e'.repeat(32),deviceSerial:'quest-cleanup-fixture',complete:false,bytes:1024,files:1,
+            candidates:[{kind:'staged-apk',path:'/data/local/tmp/quest-install-fixture.apk',bytes:1024,files:1,label:{de:'Temporäre APK',en:'Temporary APK'}}],
+            protected:[{bytes:11025189977,files:null,label:{de:'Installierte Spielinhalte',en:'Installed game content'}}],
+            unknown:[{bytes:null,files:null,label:{de:'Nicht erreichbare temporäre Daten',en:'Inaccessible temporary data'}}]}};
+          return reply(deviceReply());
+        }
+        if(path==='/api/device/storage-clean'){
+          assert.deepEqual(body,{planId:'e'.repeat(32)});device={status:'cleaning',progress:{done:3,total:6,percent:50},elapsedSeconds:2};polls=0;return reply(deviceReply());
+        }
         if(path==='/api/device/status'){
+          if(device.status==='cleaning'&&++polls>1)device={status:'storage-complete',storageResult:{freedBytes:1024,deletedFiles:1,retained:[]}};
           if(device.status==='capturing'&&++polls===2){device.elapsedSeconds=16;device.activity={label:'installed-apk-hash',elapsedSeconds:8};}
           if(device.status==='capturing'&&polls>3)device={status:'complete',message:{de:'Testbericht gespeichert.',en:'Test report saved.'},capture:{id:captureId,name:'quest-capture-fixture.zip',path:'C:\\Users\\Fixture\\.ghvrq\\captures\\quest-capture-fixture.zip'}};
           return reply(deviceReply());}
@@ -63,9 +75,47 @@ async function fixture(contentDecision=false){
       response.writeHead(200,{'Content-Type':mime[extname(filename)]});response.end(await readFile(filename));
     }catch(error){response.writeHead(500,{'Content-Type':'application/json'});response.end(JSON.stringify({schema:1,event:'error',message:String(error)}));}
   });
+
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   return {url:'http://127.0.0.1:'+server.address().port+'/#home-fixture-token',requests,retained,close:()=>new Promise(resolve=>server.close(resolve))};
 }
+
+test('Quest cleanup is confined to device tools, shows unknown sizes and requires exact preview confirmation',
+ {skip:!existsSync(chrome),timeout:30000},async()=>{
+  const server=await fixture();let client;
+  try{
+    client=await browser();await client.command('Page.navigate',{url:server.url});await client.chooseHome('device');
+    await client.evaluate("document.querySelector('[data-language=de]').click();document.getElementById('device-storage-preview').click()");
+    await client.wait("!document.getElementById('device-storage-preview-result').hidden");
+    assert.equal(server.requests.some(row=>row.path==='/api/device/storage-clean'),false);
+    assert.match(await client.evaluate("document.getElementById('device-storage-summary').textContent"),/quest-cleanup-fixture.*1 KiB.*1 temporäre/);
+    assert.match(await client.evaluate("document.getElementById('device-storage-unknown-list').textContent"),/Größe unbekannt/);
+    assert.doesNotMatch(await client.evaluate("document.getElementById('device-storage-unknown-list').textContent"),/0 B/);
+    assert.match(await client.evaluate("document.getElementById('device-storage-protected').textContent"),/Spielinhalte.*10,3 GiB/);
+    await client.evaluate("document.getElementById('device-storage-clean').click()");
+    await client.wait("document.getElementById('device-storage-dialog').open");
+    assert.match(await client.evaluate("document.getElementById('device-storage-dialog-list').textContent"),/quest-install-fixture.apk/);
+    assert.equal(server.requests.some(row=>row.path==='/api/device/storage-clean'),false);
+    await client.picture('quest-storage-preview-de');
+    await client.evaluate("document.getElementById('device-storage-dismiss').click()");
+    assert.equal(await client.evaluate("document.getElementById('device-storage-dialog').open"),false);
+    assert.equal(server.requests.some(row=>row.path==='/api/device/storage-clean'),false);
+    await client.evaluate("document.querySelector('[data-language=en]').click();document.getElementById('device-storage-clean').click()");
+    assert.match(await client.evaluate("document.getElementById('device-storage-dialog-copy').textContent"),/1 temporary files to remove/);
+    await client.evaluate("document.getElementById('device-storage-confirm').click()");
+    await client.wait("!document.getElementById('device-progress').hidden&&document.getElementById('device-progress').value===50");
+    assert.equal(await client.evaluate("document.getElementById('device-storage-preview').disabled"),true);
+    assert.equal(await client.evaluate("document.getElementById('device-storage-dialog').open"),false);
+    await client.wait("!document.getElementById('device-storage-result').hidden");
+    assert.match(await client.evaluate("document.getElementById('device-storage-result').textContent"),/1 KiB of temporary data removed.*1 files/);
+    assert.equal(server.requests.filter(row=>row.path==='/api/device/storage-clean').length,1);
+    assert.equal(await client.evaluate("document.getElementById('device-storage-preview-result').hidden"),true);
+    await client.evaluate("document.getElementById('home').click()");
+    assert.equal(await client.evaluate("document.getElementById('device-card').hidden"),true);
+    assert.equal(server.requests.some(row=>['/api/run','/api/plan'].includes(row.path)),false);
+    assert.equal(client.events.filter(row=>row.method==='Runtime.exceptionThrown').length,0);
+  }finally{try{await client?.close();}finally{await server.close();}}
+ });
 
 test('home shows every APK action and opens retained progress only on an explicit resume click',
  {skip:!existsSync(chrome),timeout:30000},async()=>{
