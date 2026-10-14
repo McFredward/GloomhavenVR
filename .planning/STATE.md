@@ -1,5 +1,34 @@
 # State — where the project stands
 
+**Build673 asynchronous water replacement, 2026-10-14: dev1.1.1 repair.**
+
+Latest local logs are671, with WaterVR resolved but no actual water adoption.
+Build615's one-time empty placement seed missed later native Addressables material
+publication. The existing material-ready callback now queues exact renderers;
+late/inactive/replaced films adopt without recurring deep hierarchy scans.
+
+Read-only whole-game coverage checks380 native sources/57,915 renderers and7,527
+loaders: all45 terrain/pond/DLC films and14 high/LCM materials. Only water slots
+are replaced, with original tint/normals, unrelated slots and conditional restore
+preserved. Exact ownership keeps fountain wall protection; basin tuning stays
+terrain-only. Opaque original queues become3000 only on the private alpha film;
+authored transparent2900/3000 and native originals/restoration remain unchanged.
+
+Final Unity production488 and render17/old-queue control pass; eight unchanged
+causal lifetime controls are retained. Existing wall-read-facts19,511/all29 and
+native figure731/affected-water control pass. Source16 initial plus final affected
+three, strict Debug/Release0/0, retained direct300,518 goldens, docs and bundles
+pass. Surfaces666/236/4795; compiled1257 ->1257 with three implementation files,
+eight673 constant consumers and one private-baseline branch metadata difference.
+Version3/next-free118, existing bundle; no new configuration/wire/asset change.
+
+This is focused/composed evidence, not a fresh complete runtime gate. Actual
+Addressables/controller execution, shipped scenarios/headset/FPS and paired
+outcomes await hardware. Evidence is hash-archived; processes are reaped and
+generated caches cleaned while retaining original inputs/pins/current binaries.
+See [WATER-673-REVIEW.md](WATER-673-REVIEW.md) and
+[WATER-673-ASSET-AUDIT.md](WATER-673-ASSET-AUDIT.md).
+
 **Build672 Frame launch setup and healthbar foreground depth, 2026-10-12: dev1.1.1 repair.**
 
 Running Steam can overwrite a verified external launch-options edit from its

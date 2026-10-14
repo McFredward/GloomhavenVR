@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-10-11 for Build667: pre-1.1.0 review and bounded edge-case repairs.
+Updated 2026-10-14 for Build673: asynchronous whole-game water replacement.
 
 Hardware outcomes remain separate from source/runtime evidence. This
 directory holds internal engineering records, historical decisions and current
@@ -10,6 +10,8 @@ status; it is not the player manual.
 
 | File | Purpose |
 |---|---|
+| [WATER-673-REVIEW.md](WATER-673-REVIEW.md) | Exact native water publication, owned slots/queues, final compiled scope and focused validation limits |
+| [WATER-673-ASSET-AUDIT.md](WATER-673-ASSET-AUDIT.md) | All native water materials/renderer bindings, asynchronous provenance and exact property/queue evidence |
 | [RELEASE110-REVIEW.md](RELEASE110-REVIEW.md) | Pre-1.1.0 integrated findings, repair scope, multiplayer parity and validation limits |
 | [RELEASE110-NET-REVIEW.md](RELEASE110-NET-REVIEW.md) | Shared NPC author convergence, grant precedence, session cleanup and source-bound controls |
 | [RELEASE110-FLOW-REVIEW.md](RELEASE110-FLOW-REVIEW.md) | Original map-state eligibility and protected native continuation during pointer cleanup |

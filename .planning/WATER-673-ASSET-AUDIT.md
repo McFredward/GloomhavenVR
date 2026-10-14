@@ -86,10 +86,24 @@ Trans low does not, despite some retained saved values. The existing live
 proof that a shader declares a property.
 
 Queues vary: generic terrain is 2900; Cave/Forest and the high DLC films are 2000;
-DLC plane LCM is 3000 and torus LCM is 2000. Preserve the actual source material's
-queue, tint and normal input rather than assigning every water film terrain's
-queue or color. Changing appearance outside the already approved replacement
-shader still needs hardware review.
+DLC plane LCM is 3000 and torus LCM is 2000. Seven of the fourteen variants,
+covering nine of the forty-five authored bindings, use 2000. Preserve every
+native material's queue, tint and normal input, including exact restoration.
+The private replacement has straight-alpha blending and ZWrite off: its native
+opaque queues at or below 2500 must enter the transparent phase at 3000.
+Already-transparent queues, including terrain 2900 and DLC plane LCM 3000,
+remain authored. This is a blend/depth compatibility conversion on owned film
+instances, not a change to the immutable catalog or surrounding native geometry.
+
+Actual Unity `Camera.Render` proves the distinction. Water at queue 2000 remains
+visible above opaque ground also at 2000, so queue membership alone was not a
+failure. With later opaque/cutout-phase ground at 2450, the same physically
+frontmost green film at 2000 is erased to a pure red ground pixel. Moving only
+that owned film to 3000 retains its visible contribution. The focused final case
+passes seventeen assertions across both ground queues and authored water queues
+2000/2900/3000; a compiled old-queue control reproduces the red pixel. These are
+software-rendered fixture pixels, not a shipped-scene or headset outcome. See
+[WATER-673-REVIEW.md](WATER-673-REVIEW.md) for the exact-source integration evidence.
 
 ## Reproduction and evidence
 
