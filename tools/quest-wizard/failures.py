@@ -245,18 +245,21 @@ def installation_failure(text, parameters):
                 if (isinstance(value, dict) and set(value) == repair_fields
                         and type(value["schema"]) is int and value["schema"] == 1
                         and value["kind"] == "signing-repair-wait"
-                        and value["reason"] in ("backup-census-mismatch", "backup-transfer-unavailable", "restore-app-access", "restore-app-storage-unavailable")
+                        and value["reason"] in ("backup-census-mismatch", "backup-transfer-unavailable", "restore-app-access", "restore-app-storage-unavailable", "restore-app-launch-unavailable")
                         and value["saveDataProtected"] is True
                         and value["root"] in ("private", "device-protected", "external")
                         and type(value["attempts"]) is int and type(value["totalAttempts"]) is int
                         and 1 <= value["attempts"] == value["totalAttempts"] <= 64):
                     restore = value["reason"] == "restore-app-access"
                     storage = value["reason"] == "restore-app-storage-unavailable"
+                    launch = value["reason"] == "restore-app-launch-unavailable"
                     return WizardError("quest_signing_repair_wait",
-                        ("The Quest is reachable and the APK is ready, but automatic restoration could not access the app's external storage. Keep the retained backups and retry installation. If access remains unavailable, export diagnostics for this restoration step. The APK is not rebuilt and saves are not reset."
+                        ("The Quest is reachable and awake, but Android did not start the app for storage restoration. Retry installation. If the app still does not start, export installation diagnostics. The completed APK and original save backups are retained; no APK rebuild or save reset is performed."
+                         if launch else "The Quest is reachable and the APK is ready, but automatic restoration could not access the app's external storage. Keep the retained backups and retry installation. If access remains unavailable, export diagnostics for this restoration step. The APK is not rebuilt and saves are not reset."
                          if storage else "The APK is ready, but Android cannot yet open the app's writable storage to restore its saves and settings. Wear and unlock the Quest, keep it awake and connected, then retry installation. Retained backups are kept; the APK is not rebuilt and saves are not reset."
                          if restore else "The completed APK and existing saves are retained. Automatic repair tried the available safe backup transfers, but this data backup is not ready. Keep the Quest awake and connected and retry installation, or finish without installing. No save reset is performed."),
-                        ("Die Quest ist erreichbar und die APK ist fertig. Die automatische Wiederherstellung konnte den externen App-Speicher noch nicht öffnen. Vorhandene Sicherungen behalten und die Installation erneut versuchen. Bleibt der Zugriff gesperrt, das Diagnosepaket für diesen Wiederherstellungsschritt exportieren. Die APK wird nicht neu gebaut und Spielstände werden nicht zurückgesetzt."
+                        ("Die Quest ist erreichbar und wach. Android hat die App zum Wiederherstellen der Daten dennoch nicht gestartet. Installation erneut versuchen. Startet die App weiterhin nicht, die Installationsdiagnose exportieren. Die fertige APK und ursprünglichen Spielstand-Sicherungen bleiben erhalten; die APK wird nicht neu gebaut und Spielstände werden nicht zurückgesetzt."
+                         if launch else "Die Quest ist erreichbar und die APK ist fertig. Die automatische Wiederherstellung konnte den externen App-Speicher noch nicht öffnen. Vorhandene Sicherungen behalten und die Installation erneut versuchen. Bleibt der Zugriff gesperrt, das Diagnosepaket für diesen Wiederherstellungsschritt exportieren. Die APK wird nicht neu gebaut und Spielstände werden nicht zurückgesetzt."
                          if storage else "Die APK ist fertig. Android kann den beschreibbaren App-Speicher zum Wiederherstellen der Spielstände und Einstellungen noch nicht öffnen. Quest aufsetzen, entsperren, eingeschaltet und verbunden lassen, dann die Installation erneut versuchen. Vorhandene Sicherungen bleiben erhalten; die APK wird nicht neu gebaut und Spielstände werden nicht zurückgesetzt."
                          if restore else "Die fertige APK und vorhandene Spielstände bleiben erhalten. Die automatische Reparatur hat die verfügbaren sicheren Übertragungswege versucht; diese Datensicherung ist noch nicht bereit. Quest eingeschaltet und verbunden lassen und die Installation erneut versuchen oder ohne Installation abschließen. Spielstände werden nicht zurückgesetzt."),
                         **dict(fields, signingRecovery=True, saveDataProtected=True,

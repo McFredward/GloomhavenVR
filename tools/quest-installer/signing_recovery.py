@@ -38,6 +38,24 @@ class RecoveryError(RuntimeError):
     """The existing data could not be proved safe to replace or restore."""
 
 
+def launcher_arguments(component):
+    """Use the documented Android main-activity intent with Quest VR routing.
+
+    Capture181310 has a reachable awake Quest, a still-stopped installed package
+    and no PID after bare-component starts. Android can map an internal aborted
+    start to external success, so neither StartingIntent nor exit0 is a launch
+    witness. Android makeMainActivity adds MAIN/LAUNCHER and NEW_TASK/RESET_TASK;
+    Meta's immersive launcher also uses its VR category. Keep the exact resolved
+    component, transient debugger selection and subsequent process/wait proofs.
+    This repairs a launcher-contract mismatch; firmware policy remains a
+    hardware outcome, not something an intent or a host test can establish.
+    """
+    if not isinstance(component, str) or not re.fullmatch(re.escape(PACKAGE) + r"/(?:\.)?[A-Za-z_][A-Za-z0-9_.$]*", component):
+        raise RecoveryError("Quest launch must target its exact owned activity.")
+    return ["-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER",
+            "-c", "com.oculus.intent.category.VR", "-f", "0x10200000", "-n", shlex.quote(component)]
+
+
 class DataPolicyError(RecoveryError):
     def __init__(self, message, *, save_data):
         super().__init__(message)
@@ -425,6 +443,7 @@ class Recovery:
         started_at = self.shell("date +%s").strip()
         if not started_at.isdigit(): raise RecoveryError("The app storage wait boundary could not be identified.")
         debug_args = self._storage_debug_args()
+        self._storage_launch_wakefulness = None
         # A launch acknowledgement is not a process-start acknowledgement. In
         # capture211355 Android returned StartingIntent, but pidof was empty for
         # the complete wait. A sleeping/deferred Quest launcher must not turn a
@@ -435,7 +454,12 @@ class Recovery:
         try:
             for launch_attempt in range(2):
                 self._device_guard()
-                self.adb.run("-s", self.address, "shell", "am", "start", *debug_args, "--user", "0", "-n", shlex.quote(resolved[-1]), timeout=30)
+                reply = self.adb.run("-s", self.address, "shell", "am", "start", *debug_args, "--user", "0",
+                                     *launcher_arguments(resolved[-1]), timeout=30)
+                with self.adb.log.open("a", encoding="utf-8") as log:
+                    log.write(json.dumps({"storageLaunchRequest": {"attempt": launch_attempt + 1,
+                        "component": resolved[-1], "canonicalLauncherIntent": True, "reply": reply[:8192],
+                        "processStartProved": False}}) + "\n")
                 for attempt in range(20):
                     raw = self.adb.run("-s", self.address, "shell", "pidof", PACKAGE, check_text=False, empty_exit_codes=(1,)).strip()
                     if raw and not re.fullmatch(r"[1-9][0-9]{0,9}", raw):
@@ -485,7 +509,10 @@ class Recovery:
                                                       "launchRetryRetained": True}) + "\n")
                     debug_args = self._storage_debug_args()
                     progress("access", 20, 41, "Retrying the replacement app's deferred storage-view launch once", local=True)
-            raise CaptureRepairError("Android acknowledged the app launch but did not prove its debugger-wait storage boundary. Wake and unlock the Quest, keep it connected, then continue installation; the completed APK and original save backups are retained.",
+            if self._storage_launch_wakefulness == "Awake":
+                raise CaptureRepairError("The Quest is reachable and awake, but Android did not start the app's storage-recovery process. The completed APK and original save backups are retained; retry installation or export its startup diagnostics. No APK rebuild is needed.",
+                                         root="external", reason="restore-app-launch-unavailable", attempts=2, total=2)
+            raise CaptureRepairError("Android returned from the app launch request but did not prove its debugger-wait storage boundary. Wake and unlock the Quest, keep it connected, then continue installation; the completed APK and original save backups are retained.",
                                      root="external", reason="restore-app-access", attempts=2, total=2)
         except BaseException:
             try:
@@ -510,6 +537,7 @@ class Recovery:
         assigning an unsupported cause or collecting other applications' logs.
         Diagnostics are best effort and must never mask a lost-device action.
         """
+        self._storage_launch_wakefulness = None
         self._device_guard()
         try:
             rows = self.shell("printf 'GHVRQ_STORAGE_POWER\\n'\ndumpsys power | sed -n '/mWakefulness=/p;/mDisplayReady=/p' | head -n 6\n"
@@ -519,7 +547,9 @@ class Recovery:
             with self.adb.log.open("a", encoding="utf-8") as log:
                 log.write(json.dumps({"storageLaunchObservation": rows[:8192], "safeBoundaryObserved": False,
                                       "savePayloadRead": False}) + "\n")
-            return bool(re.search(r"^\s*mWakefulness=(Asleep|Dozing)\s*$", rows, re.M))
+            state = re.findall(r"^\s*mWakefulness=(Awake|Asleep|Dozing|Dreaming)\s*$", rows, re.M)
+            if len(state) == 1: self._storage_launch_wakefulness = state[0]
+            return self._storage_launch_wakefulness in ("Asleep", "Dozing")
         except RuntimeError as error:
             if type(error).__name__ == "ConnectionRequired": raise
             with self.adb.log.open("a", encoding="utf-8") as log:

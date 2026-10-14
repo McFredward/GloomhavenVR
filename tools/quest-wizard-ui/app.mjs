@@ -886,9 +886,10 @@ function renderProgress() {
     }else if(installation.repairWait){
       const restoring=installation.repairWait.reason==='restore-app-access';
       const storage=installation.repairWait.reason==='restore-app-storage-unavailable';
-      $('progress-title').textContent=t(storage?'installationStorageWaitTitle':restoring?'installationRestoreWaitTitle':'installationRepairWaitTitle');
-      $('progress-copy').textContent=t(storage?'installationStorageWaitCopy':restoring?'installationRestoreWaitCopy':'installationRepairWaitCopy');
-      $('action-needed-title').textContent=t(storage?'installationStorageWaitAction':'installationRepairWaitAction');
+      const launch=installation.repairWait.reason==='restore-app-launch-unavailable';
+      $('progress-title').textContent=t(launch?'installationLaunchWaitTitle':storage?'installationStorageWaitTitle':restoring?'installationRestoreWaitTitle':'installationRepairWaitTitle');
+      $('progress-copy').textContent=t(launch?'installationLaunchWaitCopy':storage?'installationStorageWaitCopy':restoring?'installationRestoreWaitCopy':'installationRepairWaitCopy');
+      $('action-needed-title').textContent=t(launch?'installationLaunchWaitAction':storage?'installationStorageWaitAction':'installationRepairWaitAction');
     }
   }else if(installation&&active){
     $('progress-title').textContent=t(connectionWait?'questConnectionWaitingTitle':installation.recoveryActive?'installationRecoveryRunningTitle':'installationRunningTitle');
@@ -964,7 +965,7 @@ function renderProgress() {
       :installation?.dataIssue
       ?t(installation.dataIssue==='save-data-inaccessible'?'installationSaveWaitNext':'installationDataChoiceNext')
       :installation?.repairWait
-      ?t('installationRepairReason_'+installation.repairWait.reason)+' '+t(installation.repairWait.reason==='restore-app-storage-unavailable'?'installationStorageWaitNext':installation.repairWait.reason==='restore-app-access'?'installationRestoreWaitNext':'installationRepairWaitNext')
+      ?t('installationRepairReason_'+installation.repairWait.reason)+' '+t(installation.repairWait.reason==='restore-app-launch-unavailable'?'installationLaunchWaitNext':installation.repairWait.reason==='restore-app-storage-unavailable'?'installationStorageWaitNext':installation.repairWait.reason==='restore-app-access'?'installationRestoreWaitNext':'installationRepairWaitNext')
       :(stageName?stageName+': ':'')+hint;}
   const failureKey=installIssue?state.session+':install:'+installation.cause:failure?state.session+':'+failure.stage+':'+failure.cause:'';
   if(failureKey&&failureKey!==lastFailureFocus){$('action-needed').focus({preventScroll:true});$('action-needed').scrollIntoView({block:'nearest'});}

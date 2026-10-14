@@ -154,6 +154,22 @@ class InstallationFailureTests(unittest.TestCase):
         self.assertNotIn("unlock", error.message["en"])
         self.assertIn("diagnostics", error.message["en"])
 
+    def test_awake_no_process_refusal_keeps_finished_build_and_asks_for_startup_diagnostics(self):
+        action = {"schema": 1, "kind": "signing-repair-wait", "reason": "restore-app-launch-unavailable",
+                  "saveDataProtected": True, "attempts": 2, "totalAttempts": 2, "root": "external"}
+        error = self.failure("GHVRQ_ACTION " + json.dumps(action) + "\nQuest installation stopped: "
+                             "Signing migration could not safely continue: No process started on the awake Quest. "
+                             "Original recovery data is retained at /owned/current. Retry with the same APK and headset.\n")
+        self.assertEqual(error.code, "quest_signing_repair_wait")
+        self.assertEqual(error.parameters["repairReason"], action["reason"])
+        self.assertEqual(error.parameters["backupPath"], "/owned/current")
+        self.assertTrue(error.parameters["completedBuildRetained"])
+        self.assertEqual(error.parameters["retryAction"], "install")
+        self.assertNotIn("connectionReason", error.parameters)
+        self.assertIn("erreichbar und wach", error.message["de"])
+        self.assertNotIn("aufsetzen", error.message["de"])
+        self.assertNotIn("unlock", error.message["en"])
+
     def test_backup_reference_is_scoped_to_the_last_real_refusal_and_remains_bounded(self):
         text = ("Quest installation stopped: Signing migration could not safely continue: stale failure\n"
                 ". Original recovery data is retained at /private/old. Retry with the same APK and headset.\n"

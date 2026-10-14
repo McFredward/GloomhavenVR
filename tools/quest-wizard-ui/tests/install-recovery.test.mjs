@@ -66,6 +66,19 @@ test('proved running app storage refusal is distinct from headset wake and USB p
   assert.match(translate('en','installationStorageWaitNext'),/retained backups.*export logs.*not rebuilt.*not reset/);
 });
 
+test('awake Quest without a launched process retains installation and names the Android startup pause',()=>{
+  const state=fixture('quest_signing_repair_wait','No process started on the awake Quest.');
+  Object.assign(state.needsActions[0].parameters,{saveDataProtected:true,repairReason:'restore-app-launch-unavailable',
+    repairRoot:'external',repairAttempts:2,repairTotalAttempts:2});
+  const view=installationView(state);
+  assert.equal(view.repairWait.reason,'restore-app-launch-unavailable');
+  assert.equal(view.connectionRequired,false);assert.equal(view.canSkip,true);assert.equal(view.paths.apk,apk);
+  for(const language of ['en','de'])for(const key of ['installationLaunchWaitTitle','installationLaunchWaitCopy',
+    'installationLaunchWaitAction','installationLaunchWaitNext','installationRepairReason_restore-app-launch-unavailable'])assert.notEqual(translate(language,key),key);
+  assert.match(translate('de','installationLaunchWaitCopy'),/erreichbar und wach.*noch nicht gestartet.*Sicherungen bleiben/s);
+  assert.doesNotMatch(translate('de','installationLaunchWaitNext'),/USB|aufsetzen|entsperren/i);
+});
+
 test('live connection waiting preserves measured content and does not enable a second install',()=>{
   const state=fixture();state.status='running';state.needsActions=[];
   state.stages[6].status='running';
@@ -360,6 +373,18 @@ test('completed APK is prominent while connection is blocked; retry and skip ret
       assert.equal(await client.evaluate("document.getElementById('progress-title').textContent"),'Installation paused: app storage access.');
       assert.match(await client.evaluate("document.getElementById('progress-copy').textContent"),/Quest is reachable.*APK is ready/);
       await client.picture('app-origin-storage-restore-required-en');
+      current=fixture('quest_signing_repair_wait','Android did not start the process on the awake Quest.','blocked');
+      Object.assign(current.needsActions[0].parameters,{saveDataProtected:true,repairReason:'restore-app-launch-unavailable',
+        repairRoot:'external',repairAttempts:2,repairTotalAttempts:2});await reopen();
+      assert.equal(await client.evaluate("document.getElementById('progress-title').textContent"),'Installation wartet: Android-App-Start.');
+      assert.match(await client.evaluate("document.getElementById('progress-copy').textContent"),/erreichbar und wach.*APK.*Sicherungen bleiben/s);
+      assert.doesNotMatch(await client.evaluate("document.getElementById('action-needed-copy').textContent"),/USB|entsperren|aufsetzen/i);
+      assert.equal(await client.evaluate("document.querySelectorAll('#stage-list li.complete').length"),6);
+      assert.equal(await client.evaluate("document.getElementById('action-needed').getAttribute('role')"),'status');
+      await client.picture('awake-quest-app-start-paused-de');
+      await client.evaluate("document.querySelector('[data-language=en]').click()");
+      assert.equal(await client.evaluate("document.getElementById('progress-title').textContent"),'Installation paused: Android app startup.');
+      await client.picture('awake-quest-app-start-paused-en');
       current=fixture('installation_tool_failed','INSTALL_PARSE_FAILED_NO_CERTIFICATES: APK has no valid signature','failed');await reopen();
       assert.equal(await client.evaluate("document.getElementById('progress-title').textContent"),'APK fertig. Installation fehlgeschlagen.');
       assert.match(await client.evaluate("document.getElementById('failure-cause').textContent"),/INSTALL_PARSE_FAILED_NO_CERTIFICATES/);

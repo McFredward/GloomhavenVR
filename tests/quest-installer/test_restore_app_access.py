@@ -214,7 +214,7 @@ class RestoreAccessTests(unittest.TestCase):
                         contextlib.redirect_stdout(io.StringIO()) as output:
                     with self.assertRaises(recovery.CaptureRepairError) as error:
                         engine._process_storage_root()
-                self.assertEqual(error.exception.action["reason"], "restore-app-access")
+                self.assertEqual(error.exception.action["reason"], "restore-app-launch-unavailable" if wakefulness == "Awake" else "restore-app-access")
                 self.assertEqual(sum("KEYCODE_WAKEUP" in call for call in calls), expected)
                 self.assertEqual(sum("start" in call for call in calls), 2)
                 self.assertEqual(sum("pidof" in call for call in calls), 40)

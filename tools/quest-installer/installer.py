@@ -1618,7 +1618,7 @@ def main(argv=None, runner=None):
                 raise InstallError("Access-only repair cannot be combined with full content verification.")
             content = repair_installed_access(adb, address, source, config_directory=config_path.parent, hardware=hardware)
             if not args.no_launch:
-                adb.run("-s", address, "shell", "am", "start", "-n", ACTIVITY, timeout=30, reconnect=True)
+                adb.run("-s", address, "shell", "am", "start", *signing_recovery_module().launcher_arguments(ACTIVITY), timeout=30, reconnect=True)
             write_json(config_path.parent / "app-access-last-repair.json", {
                 "schema": 1, "hardwareSerial": hardware, "inputKey": source.input_key,
                 "apkSha256": source.sha256, "content": content, "launched": not args.no_launch,
@@ -1672,7 +1672,7 @@ def main(argv=None, runner=None):
             repair_current_access(adb, address, hardware, source, config_path.parent)
         clean_previous_content(adb, address, previous, content_records)
         if not args.no_launch:
-            adb.run("-s", address, "shell", "am", "start", "-W", "-n", ACTIVITY,
+            adb.run("-s", address, "shell", "am", "start", "-W", *recovery_api.launcher_arguments(ACTIVITY),
                     timeout=45, positive=r"^Status:\s*ok\s*$", reconnect=True)
         address = adb.transport(address)
         settings = connection_settings(config, address, hardware, executable)

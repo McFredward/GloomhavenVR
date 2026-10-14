@@ -104,7 +104,7 @@ class FakeAdb:
                 raw = self.package_output if self.package_output is not None else (
                     "versionCode=" + str(identity["modBuild"]) + " minSdk=29\nversionName=0.1.0.B"
                     + str(identity["modBuild"]) + "." + identity["inputKey"][:12])
-            elif action == ["shell", "am", "start", "-W", "-n", installer.ACTIVITY]:
+            elif action == ["shell", "am", "start", "-W", *installer.signing_recovery_module().launcher_arguments(installer.ACTIVITY)]:
                 raw = self.launch_output
             else:
                 raise AssertionError("Unexpected scoped ADB command: " + repr(action))

@@ -1,5 +1,23 @@
 # State — where the project stands
 
+**Quest canonical launcher and workspace installation evidence, 2026-10-14: feature / B672.**
+
+Capture181310 identifies Builder6092efad7 and the same completed APK. Its global
+export omits current install/ADB/recovery logs; the supplied text tails show
+authorized USB, Awake after one wake request, but a still-stopped package with
+no PID. The JDWP storage fallback is not reached. AOSP can return success for an
+internally aborted start, so StartingIntent alone does not prove app execution.
+
+Use the documented MAIN/LAUNCHER/Quest-VR request on the exact owned component,
+keep debugger/process proofs and distinguish known awake launch denial from
+sleep/connection failures. Global support exports retain bounded installation
+logs and run-bound recovery facts without inventing a selected session. Existing
+game/Unity/APK results and original save backups remain retained. Source and
+focused/browser controls pass; particular Meta policy and installation success
+still require hardware confirmation. See
+[QUEST-INSTALL-LAUNCH-181310-20261014.md](QUEST-INSTALL-LAUNCH-181310-20261014.md)
+and the current game-free handoff's exact source/compatibility/cleanup receipts.
+
 **Quest actual app-context storage restoration, 2026-10-14: feature / B672.**
 
 Capture165236 identifies Builder4ba4d5843. The completed APK is installed and
