@@ -45,9 +45,12 @@ The whole four-minute working cut v3 now contains the reviewed I01 shot,
 opening voice/title patch and outlined fan-mod branding. Technical decode/timing
 checks pass and root inspected41 whole-cut frames. O01/A04 remain original in
 this explicitly incomplete working cut; no completed-trailer approval is claimed.
-Conservative reservations total USD40.00, the authorized ceiling. A proposed
-USD45 ceiling is pending and does not permit more spending. The current key
-cannot read billing events(403), so no reservations have been released.
+The maintainer has now explicitly approved an additionalUSD5, raising the total
+ceiling fromUSD40 toUSD45. Cinematic v4 is completing the remaining Runeveil
+opening and coordinated two-player forest scene. The priorUSD40 reservation
+boundary is historical; conservative reservations continue in the shared ledger.
+The current key cannot read billing events(403), so no failed-job reservations
+have been released.
 All AI-generated videos, native sources, receipts and earlier drafts remain
 in the gitignored trailer directory. Its `START-HERE.html` links current work,
 completed intro and preserved archives. Fourteen identical raw-video archive

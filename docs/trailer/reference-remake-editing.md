@@ -10,6 +10,14 @@ the first spoken Gloomhaven becomes GloomhavenVR. The original title reveal at
 
 ## Active interaction direction
 
+**Budget update,2026-10-14:** the maintainer explicitly approved the requested
+additionalUSD5 (`Freigegeben - leg los`). The total authorized cap is nowUSD45.
+`production/budget-authorization-45-usd.json` records the approval; root raised
+the private ledger ceiling under its lock while preserving every existing job.
+The historicalUSD40 boundary below explains the previous pause, not a current
+restriction. Cinematic v4 completes O01/A04 without a per-shot user approval gate.
+All generated videos and the working-v3 export remain preserved.
+
 The maintainer's later 2026-10-13 feedback permits meaningful changes to a
 selected shot's interior action and camera. Giant hands may physically guide or
 move a living character from above. Keep the original first/last images, the
@@ -82,7 +90,8 @@ native transitions;19 context frames and three focused outlined-branding frames
 were reviewed. Browser load, seeking and slow playback pass. This approves I01
 for insertion, not the remaining two scenes or complete trailer.
 Total reservations are now
-USD40.00; no further inference is authorized until the pending budget decision.
+USD40.00 at the end of v3; that round stopped further inference until the
+additionalUSD5 approval recorded above.
 A read-only billing-event request returned403 with the configured key; no
 reservation was released or actual invoice amount claimed.
 The [official fal billing FAQ](https://fal.ai/docs/documentation/model-apis/faq)

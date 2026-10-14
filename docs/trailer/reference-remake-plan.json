@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "status": "Full working cut v3 exported and visually/technically reviewed; I01 integrated, O01/A04 remain original pending extra budget; complete three-scene trailer unfinished",
+  "status": "Completing cinematic v4 after explicit USD45 cap approval; Runeveil entry and corrected two-player forest generation commissioned; original Flat gameplay retained",
   "date": "2026-10-14",
   "source_url": "https://www.youtube.com/watch?v=-SGDEP-zFHo",
   "source_title": "Gloomhaven | Gameplay Overview Trailer",
@@ -39,19 +39,19 @@
     "geographic_note": "These two mentions name the fictional city/region; preserve Gloomhaven there unless final wording needs adjustment."
   },
   "budget": {
-    "new_paid_calls": 8,
+    "new_paid_calls": 11,
     "new_fal_usd": null,
     "previous_reserved_usd": 29.9,
     "previous_cap_usd": 30,
     "previous_invoice_reconciled": false,
-    "additional_round_cap_usd": 10,
-    "total_authorized_cap_usd": 40,
-    "new_reserved_usd": 10.1,
+    "additional_round_cap_usd": 15,
+    "total_authorized_cap_usd": 45,
+    "new_reserved_usd": 12.25,
     "actual_new_invoice_reconciled": false,
     "pilot_scope": "Full selected-cinematic remake with internal per-shot QC and complete-film self-review. User revoked per-shot approval pauses. Cap remains USD40 until additional budget is explicitly authorized.",
     "initial_three_model_comparison_proposed_usd": 3.75,
     "initial_model_comparison_status": "Not run; only one Kling pilot commissioned",
-    "all_reserved_usd": 40,
+    "all_reserved_usd": 42.15,
     "request_states": {
       "completed_video_edits": 2,
       "completed_voice_patches": 1,
@@ -63,8 +63,8 @@
     },
     "this_revision_reserved_usd": 8.75,
     "proposed_total_cap_usd": 45,
-    "budget_extension_pending": true,
-    "unreserved_under_total_cap_usd": 0
+    "budget_extension_pending": false,
+    "unreserved_under_total_cap_usd": 2.85
   },
   "private_briefing": ".planning/debug/trailer/remake-v1/AUFNAHMEPLAN.html",
   "private_capture_list": ".planning/debug/trailer/remake-v1/AUFNAHMELISTE.txt",
@@ -848,7 +848,7 @@
     "Persistent UNOFFICIAL FAN-MADE MOD branding and explicit new mod end card.",
     "Two ordinary VR clients plus real cropped details planned; no fabricated four-client capture.",
     "Output motion cadence/audio/duration must be measured; published schema/benchmark claims do not prove imperceptible editing.",
-    "Previous65s film and every AI-generated video remain preserved. Paid trailer work is authorized only within the currentUSD40 total cap; complete-film self-review required before delivery."
+    "Previous65s film and every AI-generated video remain preserved. Paid trailer work is authorized only within the explicitly authorizedUSD45 total cap; complete-film self-review required before delivery."
   ],
   "source_controls": [
     {
@@ -1030,7 +1030,13 @@
     "entire_trailer_self_review_required": true,
     "flat_gameplay_preserved_until_native_captures": true,
     "all_ai_generated_videos_preserved": true,
-    "cleanup": "Only proven duplicates and regenerable snippets/caches; preserve sources/evidence/current deliverables. 14 SHA-identical archive videos hardlinked, all paths/bytes retained, actual136.2265625MiB reclaimed."
+    "cleanup": "Only proven duplicates and regenerable snippets/caches; preserve sources/evidence/current deliverables. 14 SHA-identical archive videos hardlinked, all paths/bytes retained, actual136.2265625MiB reclaimed.",
+    "additional_budget_authorized": {
+      "user_message": "Freigegeben - leg los",
+      "additional_usd": 5,
+      "total_cap_usd": 45,
+      "private_receipt": ".planning/debug/trailer/production/budget-authorization-45-usd.json"
+    }
   },
   "keyframe_interaction_trial": {
     "id": "I01",
@@ -1113,7 +1119,7 @@
       "players": 1,
       "mask": "Runeveil",
       "action": "High god uses one relaxed Arcane directional gesture; Tinkerer takes a balanced small step; recover original party ending",
-      "status": "Free source staging and integrated guide ready; no paid generation"
+      "status": "Guide-driven entry submitted under approvedUSD45 cap; exit waits entry review"
     },
     {
       "id": "I01",
@@ -1148,7 +1154,7 @@
         "Runeveil"
       ],
       "action": "Coordinated early hero placement; release Tinkerer before crossbow and Cragheart before native stone attack",
-      "status": "Free action/source staging and integrated guide ready; no paid generation"
+      "status": "Native face/body guide corrected and visually reviewed;7s reference video submitted under approvedUSD45 cap"
     }
   ],
   "omitted_cinematic_candidate": {
@@ -1190,5 +1196,35 @@
     ],
     "no_subjective_listening_approval": true,
     "no_imperceptibility_claim": true
+  },
+  "production_round_v4": {
+    "private_root": ".planning/debug/trailer/remake-v1/ai-edits-v4",
+    "total_cap_usd": 45,
+    "new_budget_usd": 5,
+    "user_approval_received": true,
+    "generated_videos_preserved": true,
+    "root_submits_inference_only": true,
+    "flat_gameplay_preserved": true,
+    "O01": {
+      "route": "guide-driven three-second entry/exit pair; review entry before exit; content-aware idle trimming before4s normalization",
+      "entry_job": "remake-o01-keyframe-entry-v4",
+      "entry_request_id": "01a138d9-8bba-7fb2-bb56-fc75b1b02c6d",
+      "entry_reserve_usd": 0.4,
+      "creative_approval": false,
+      "entry_creative_approval_for_exit_trial": true,
+      "entry_root_frames_viewed": 13,
+      "exit_job": "remake-o01-keyframe-exit-v4",
+      "exit_request_id": "01a138dd-a516-72c3-a1b1-5acd7fd6ba3e",
+      "exit_reserve_usd": 0.4
+    },
+    "A04": {
+      "route": "source-reference7s; two native elements, corrected integrated guide, original final image",
+      "job": "remake-a04-reference-v4",
+      "request_id": "01a138da-1238-7831-912c-11ced7e8de16",
+      "reserve_usd": 1.35,
+      "guide": ".planning/debug/trailer/remake-v1/ai-edits-v4/A04/guide-native-v2.png",
+      "guide_correction": "Source-native broad grey Cragheart face, bare muscular stone chest and original blue/gold shoulders; both god chins above hero heads.",
+      "creative_approval": false
+    }
   }
 }
