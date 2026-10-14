@@ -110,6 +110,49 @@ class ProtocolTests(unittest.TestCase):
             with self.subTest(policy=policy, thread=thread, identity=identity), self.assertRaises(bridge.StorageError):
                 protocol.step_event(4)
 
+    def test_waiting_argument_uses_visible_named_boolean_in_exact_frame(self):
+        table = bridge._u32(3) + bridge._u32(1) + (0).to_bytes(8, "big")
+        table += bridge._string("waiting") + bridge._string("Z") + bridge._u32(100) + bridge._u32(2)
+        for waiting in (0, 1):
+            stream = BufferSocket(reply(payload=table) + reply(identity=3, payload=bridge._u32(1) + b"Z" + bytes([waiting])))
+            protocol = bridge._Protocol(stream)
+            protocol.sizes = {"object": 8, "type": 8, "method": 8, "frame": 8}
+            frame = {"type": 12, "method": 13, "frame": 14, "index": 20}
+            self.assertEqual(protocol.waiting_argument(7, frame), waiting == 1)
+            self.assertEqual(stream.sent[1][9:11], bytes([16, 1]))
+            self.assertEqual(stream.sent[1][-5:], bridge._u32(2) + b"Z")
+
+    def test_owned_step_is_one_min_into_event_with_suspend_all(self):
+        stream = BufferSocket(reply(payload=bridge._u32(9)) + reply(identity=3))
+        protocol = bridge._Protocol(stream)
+        protocol.sizes = {"object": 8, "type": 8, "method": 8}
+        event = b"\x02" + bridge._u32(1) + b"\x01" + bridge._u32(9)
+        event += (4).to_bytes(8, "big") + b"\x01" + b"\0" * 24
+        protocol.events.append(event)
+        self.assertEqual(protocol.step_event(4), 9)
+        expected = b"\x01\x02" + bridge._u32(2) + b"\x0a" + (4).to_bytes(8, "big")
+        expected += bridge._u32(0) + bridge._u32(0) + b"\x01" + bridge._u32(1)
+        self.assertEqual(stream.sent[0][9:11], b"\x0f\x01")
+        self.assertEqual(stream.sent[0][11:], expected)
+        self.assertEqual(stream.sent[1][9:11], b"\x01\x09")
+
+    def test_waiting_argument_refuses_missing_out_of_scope_or_duplicate_slots(self):
+        variable = (0).to_bytes(8, "big") + bridge._string("waiting") + bridge._string("Z") + bridge._u32(10) + bridge._u32(2)
+        for arguments, count, index in ((2, 1, 0), (3, 0, 0), (3, 1, 10), (3, 2, 0), (3, 1025, 0)):
+            protocol = bridge._Protocol(BufferSocket(reply(payload=bridge._u32(arguments) + bridge._u32(count) + variable * min(count, 2))))
+            protocol.sizes = {"object": 8, "type": 8, "method": 8, "frame": 8}
+            with self.subTest(arguments=arguments, count=count, index=index), self.assertRaises(bridge.StorageError):
+                protocol.waiting_argument(7, {"type": 12, "method": 13, "frame": 14, "index": index})
+
+    def test_boot_type_refuses_non_boot_loader_and_caches_exact_type(self):
+        for loader in (0, 25):
+            stream = BufferSocket(reply(payload=loader.to_bytes(8, "big")))
+            protocol = bridge._Protocol(stream)
+            protocol.sizes = {"object": 8, "type": 8}
+            self.assertEqual(protocol.boot_type(12), loader == 0)
+            self.assertEqual(protocol.boot_type(12), loader == 0)
+            self.assertEqual(len(stream.sent), 1)
+
 
 class GuardTests(unittest.TestCase):
     def setUp(self):
@@ -168,6 +211,86 @@ class GuardTests(unittest.TestCase):
             ("Lcom/android/internal/os/RuntimeInit$MethodAndArgsCaller;", "run"),
             ("Lcom/android/internal/os/ZygoteInit;", "main")]
         self.value._wait_boundary()
+
+    @staticmethod
+    def detailed_frames(*pairs):
+        return [{"signature": signature, "name": name,
+                 "descriptor": "(Landroid/app/IApplicationThread;Z)V" if name == "showWaitingForDebugger" else "()V",
+                 "flags": 1, "type": index + 10, "method": index + 20, "frame": index + 30, "index": 4}
+                for index, (signature, name) in enumerate(pairs)]
+
+    def pre_wait_frames(self):
+        return self.detailed_frames(("Landroid/os/BinderProxy;", "transactNative"),
+                                    ("Landroid/os/BinderProxy;", "transact"),
+                                    ("Landroid/app/IActivityManager$Stub$Proxy;", "showWaitingForDebugger"),
+                                    ("Landroid/app/ActivityThread;", "handleBindApplication"),
+                                    ("Landroid/app/ActivityThread;", "main"))
+
+    def test_pre_wait_requires_true_argument_boot_ownership_and_exact_proxy_ancestry(self):
+        self.value.protocol.boot_type.return_value = True
+        self.value.protocol.waiting_argument.return_value = True
+        frames = self.pre_wait_frames()
+        witness = self.value._pre_wait_boundary(frames)
+        self.assertEqual(self.value._pre_wait_boundary(frames, witness), witness)
+        cases = [self.detailed_frames(("Landroid/app/Application;", "onCreate"),
+                                     ("Landroid/app/IActivityManager$Stub$Proxy;", "showWaitingForDebugger"),
+                                     ("Landroid/app/ActivityThread;", "handleBindApplication")),
+                 frames[:-1] + self.detailed_frames(("Landroid/app/LoadedApk;", "makeApplication")),
+                 self.detailed_frames(("Landroid/os/Trace;", "traceBegin"),
+                                      ("Landroid/app/ActivityThread;", "handleBindApplication")),
+                 self.detailed_frames(("Landroid/os/BinderProxy;", "transactNative"),
+                                      ("Landroid/app/ActivityThread;", "handleBindApplication"))]
+        for value in cases:
+            with self.subTest(frames=value), self.assertRaises(bridge.StorageError):
+                self.value._pre_wait_boundary(value)
+        self.value.protocol.waiting_argument.return_value = False
+        with self.assertRaisesRegex(bridge.StorageError, "waiting=true"):
+            self.value._pre_wait_boundary(frames)
+        self.value.protocol.waiting_argument.return_value = True
+        self.value.protocol.boot_type.return_value = False
+        with self.assertRaisesRegex(bridge.StorageError, "boot"):
+            self.value._pre_wait_boundary(frames)
+
+    def test_post_wait_application_and_loaded_apk_never_reach_invocation(self):
+        safe = [("Landroid/os/Debug;", "waitForDebugger"), ("Landroid/app/ActivityThread;", "handleBindApplication")]
+        for pair in (("Landroid/app/Application;", "onCreate"), ("Landroid/app/LoadedApk;", "makeApplication")):
+            self.value.protocol.frames.return_value = safe + [pair]
+            with self.subTest(pair=pair), self.assertRaises(bridge.StorageError):
+                self.value._wait_boundary()
+        self.value.protocol.invoke.assert_not_called()
+
+    def test_pre_wait_owned_step_budget_never_invokes_from_waiting_display(self):
+        self.value.protocol.frames.return_value = self.pre_wait_frames()
+        self.value.protocol.boot_type.return_value = True
+        self.value.protocol.waiting_argument.return_value = True
+        self.value._process_guard = mock.Mock()
+        with mock.patch.object(bridge, "MAX_PRE_WAIT_STEPS", 2), self.assertRaisesRegex(bridge.StorageError, "bounded"):
+            self.value._establish_wait_event()
+        self.assertEqual(self.value.protocol.step_event.call_count, 2)
+        self.value.protocol.invoke.assert_not_called()
+        self.assertIn('"ownedSingleSteps": 2', self.adb.log.read_text())
+
+    def test_pre_wait_foreign_process_stops_before_next_resume_or_invocation(self):
+        self.value.protocol.frames.return_value = self.pre_wait_frames()
+        self.value.protocol.boot_type.return_value = True
+        self.value.protocol.waiting_argument.return_value = True
+        self.value._process_guard = mock.Mock(side_effect=bridge._ProcessChanged("foreign PID"))
+        with self.assertRaises(bridge._ProcessChanged):
+            self.value._establish_wait_event()
+        self.value.protocol.step_event.assert_not_called()
+        self.value.protocol.invoke.assert_not_called()
+
+    def test_pre_wait_missing_argument_metadata_keeps_refusal_and_diagnostics(self):
+        self.value.protocol.frames.return_value = self.pre_wait_frames()
+        self.value.protocol.boot_type.return_value = True
+        self.value.protocol.waiting_argument.side_effect = bridge.StorageError("argument metadata unavailable")
+        with self.assertRaisesRegex(bridge.StorageError, "metadata unavailable"):
+            self.value._establish_wait_event()
+        self.value.protocol.step_event.assert_not_called()
+        self.value.protocol.invoke.assert_not_called()
+        log = self.adb.log.read_text()
+        self.assertIn('"appOriginStorageWaitEntryRefused"', log)
+        self.assertIn('"ownedSingleSteps": 0', log)
 
     def test_close_stops_only_matching_owned_process_before_socket_detach(self):
         self.adb.run.return_value = self.snapshot(state="S")
@@ -301,6 +424,10 @@ class RealJvmTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory(prefix="ghvr-jdwp-")
         self.addCleanup(self.temporary.cleanup)
         self.home = Path(self.temporary.name)
+        self.phase = {"test_actual_pre_wait_proxy_reaches_strict_wait_before_storage": "pre",
+                      "test_actual_post_wait_false_proxy_is_rejected_without_storage": "post",
+                      "test_actual_application_proxy_is_rejected_without_storage": "application",
+                      "test_actual_foreign_pid_cannot_attach_to_pre_wait_vm": "pre"}.get(self._testMethodName, "wait")
         debug = self.home / "android/os/Debug.java"
         activity = self.home / "android/app/ActivityThread.java"
         debug.parent.mkdir(parents=True)
@@ -309,30 +436,107 @@ class RealJvmTests(unittest.TestCase):
 public class Debug {
   public static void waitForDebugger() throws Exception {
     new java.io.FileOutputStream(System.getProperty("fixture.wait")).close();
+    if ("post".equals(System.getProperty("fixture.phase"))) return;
     while (true) { Thread.sleep(20); }
   }
 }''')
         activity.write_text('''package android.app;
 public class ActivityThread {
-  public static void handleBindApplication() throws Exception { android.os.Debug.waitForDebugger(); }
+  public static void handleBindApplication() throws Exception {
+    String phase=System.getProperty("fixture.phase");
+    android.app.IActivityManager.Stub.Proxy manager=new android.app.IActivityManager.Stub.Proxy();
+    if ("pre".equals(phase)) {
+      manager.showWaitingForDebugger(null,true);
+      android.os.Debug.waitForDebugger();
+      manager.showWaitingForDebugger(null,false);
+    } else if ("post".equals(phase)) {
+      android.os.Debug.waitForDebugger();
+      manager.showWaitingForDebugger(null,false);
+    } else if ("application".equals(phase)) {
+      new android.app.Application().onCreate();
+    } else {
+      android.os.Debug.waitForDebugger();
+    }
+  }
   public static void main(String[] args) throws Exception {
     Runtime.getRuntime();
     handleBindApplication();
     new java.io.FileOutputStream(System.getProperty("fixture.game")).close();
   }
 }''')
-        subprocess.run(["javac", "-g", "-d", str(self.home), str(debug), str(activity)], check=True, capture_output=True, timeout=30)
+        sources = {"android/app/IApplicationThread.java": "package android.app; public interface IApplicationThread {}",
+                   "android/app/IActivityManager.java": '''package android.app;
+public interface IActivityManager {
+  public static class Stub {
+    public static class Proxy {
+      public void showWaitingForDebugger(IApplicationThread who,boolean waiting) {
+        android.os.Parcel data=new android.os.Parcel(),reply=new android.os.Parcel();
+        try {
+          new android.os.BinderProxy().transact(1,data,reply,0);
+          reply.readException();
+        } finally { reply.recycle();data.recycle(); }
+      }
+    }
+  }
+}''', "android/os/Parcel.java": '''package android.os;
+public class Parcel {
+  public void readException() {}
+  public void recycle() {}
+}''', "android/os/BinderProxy.java": '''package android.os;
+public class BinderProxy {
+  static { System.load(System.getProperty("fixture.library")); }
+  public boolean transact(int code,Parcel data,Parcel reply,int flags) {
+    return transactNative(code,data,reply,flags);
+  }
+  private native boolean transactNative(int code,Parcel data,Parcel reply,int flags);
+}''', "android/app/Application.java": '''package android.app;
+public class Application {
+  public void onCreate() { new IActivityManager.Stub.Proxy().showWaitingForDebugger(null,true); }
+}'''}
+        paths = [debug, activity]
+        for name, text in sources.items():
+            path = self.home / name
+            path.write_text(text)
+            paths.append(path)
+        subprocess.run(["javac", "-g", "-d", str(self.home), *map(str, paths)], check=True, capture_output=True, timeout=30)
+        if self.phase != "wait":
+            if not shutil.which("cc"):
+                self.skipTest("Delayed real Binder control requires a native C compiler")
+            # An actual JNI call blocks outside Java, like BinderProxy's native
+            # transact. Thread.sleep would introduce an artificial Java frame
+            # and could not test the production's deliberately narrow stack.
+            native = self.home / "fixture-binder.c"
+            native.write_text('''#include <jni.h>
+#include <fcntl.h>
+#include <stdlib.h>
+#include <time.h>
+#include <unistd.h>
+JNIEXPORT jboolean JNICALL Java_android_os_BinderProxy_transactNative(
+  JNIEnv *env,jobject self,jint code,jobject data,jobject reply,jint flags) {
+  int file=open(getenv("GHVR_JDWP_PROXY_MARKER"),O_WRONLY|O_CREAT,0600);
+  if(file>=0) close(file);
+  struct timespec delay={0,800000000};
+  nanosleep(&delay,NULL);
+  return JNI_TRUE;
+}
+''')
+            jdk = Path(shutil.which("javac")).resolve().parents[1]
+            subprocess.run(["cc", "-shared", "-fPIC", "-I" + str(jdk / "include"), "-I" + str(jdk / "include/linux"),
+                            str(native), "-o", str(self.home / "libfixturebinder.so")], check=True, capture_output=True, timeout=30)
         output = (self.home / "java.log").open("w+b")
         self.addCleanup(output.close)
         self.process = subprocess.Popen(["java", "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=127.0.0.1:0",
                                          "-Dfixture.wait=" + str(self.home / "wait"), "-Dfixture.game=" + str(self.home / "game"),
-                                         "-cp", str(self.home), "android.app.ActivityThread"], stdout=output, stderr=output)
+                                         "-Dfixture.phase=" + self.phase, "-Dfixture.library=" + str(self.home / "libfixturebinder.so"),
+                                         "-Xbootclasspath/a:" + str(self.home), "-cp", str(self.home), "android.app.ActivityThread"],
+                                        stdout=output, stderr=output,
+                                        env=dict(os.environ, GHVR_JDWP_PROXY_MARKER=str(self.home / "proxy")))
         self.addCleanup(self.reap)
         deadline = time.monotonic() + 15
         while time.monotonic() < deadline:
             text = (self.home / "java.log").read_text(errors="replace")
             match = re.search(r"Listening for transport dt_socket at address: (\d+)", text)
-            if match and (self.home / "wait").is_file():
+            if match and (self.home / ("wait" if self.phase == "wait" else "proxy")).is_file():
                 self.port = match.group(1)
                 break
             if self.process.poll() is not None:
@@ -355,16 +559,19 @@ public class ActivityThread {
         if os.environ.get("GHVR_JDWP_EVIDENCE_DIR"):
             evidence = Path(os.environ["GHVR_JDWP_EVIDENCE_DIR"]) / self._testMethodName
             evidence.mkdir(parents=True, exist_ok=True)
-            for name in ("java.log", "adb.log", "android/os/Debug.java", "android/app/ActivityThread.java"):
+            for name in ("java.log", "adb.log", "android/os/Debug.java", "android/app/ActivityThread.java",
+                         "android/app/IActivityManager.java", "android/os/BinderProxy.java", "fixture-binder.c"):
                 source = self.home / name
                 if source.is_file():
                     shutil.copyfile(source, evidence / source.name)
             (evidence / "fixture-result.json").write_text(json.dumps({
                 "processReaped": self.process.poll() is not None, "processExitCode": self.process.returncode,
                 "gameplayMarkerExists": (self.home / "game").exists(), "cleanup": cleanup,
-                "androidUidAndPathAdapted": True, "realJdwpProtocolAndRuntimeExec": True}, indent=2))
+                "fixturePhase": self.phase, "debugWaitMarkerExists": (self.home / "wait").exists(),
+                "androidUidAndPathAdapted": True, "realJdwpProtocolAndRuntimeExec": True,
+                "nativeBinderDelayAdapted": self.phase != "wait"}, indent=2))
 
-    def fixture(self):
+    def fixture(self, *, identity=None):
         home, process, start, port = self.home, self.process, self.start, self.port
         absolute = "/data/user/0/" + bridge.PACKAGE
         class Adb:
@@ -394,6 +601,8 @@ public class ActivityThread {
                 return subprocess.run(["sh", "-c", command[-1]], cwd=home, **kwargs)
         class LocalAppCommand(bridge.AppCommand):
             def _process_guard(self, *, stopped=False):
+                if self.identity[:1] != (str(process.pid),) or self.identity[2] != start:
+                    raise bridge._ProcessChanged("Fixture actual PID/starttime changed")
                 if process.poll() is not None:
                     raise bridge.StorageError("Fixture process stopped")
                 values = Path("/proc/" + str(process.pid) + "/stat").read_text().rsplit(") ", 1)[1].split()
@@ -403,7 +612,7 @@ public class ActivityThread {
         def local_string(value):
             return original_string(value.replace(absolute, str(home)).replace("/system/bin/sh", "/bin/sh"))
         with mock.patch.object(bridge, "_string", side_effect=local_string):
-            app = LocalAppCommand(Adb(), "LOCAL", "FIXTURE", (str(process.pid), "10061", start))
+            app = LocalAppCommand(Adb(), "LOCAL", "FIXTURE", identity or (str(process.pid), "10061", start))
         self.addCleanup(app.close, suppress=True)
         return app, local_string
 
@@ -440,3 +649,41 @@ public class ActivityThread {
         self.assertTrue(app.closed)
         self.assertFalse((self.home / "game").exists())
         self.assertIn('"appOriginStorageExitFallback": true', (self.home / "adb.log").read_text())
+
+    def test_actual_pre_wait_proxy_reaches_strict_wait_before_storage(self):
+        self.assertFalse((self.home / "wait").exists())
+        app, local_string = self.fixture()
+        app.guard()
+        self.assertIn('"appOriginStorageWaitEntry": true', (self.home / "adb.log").read_text())
+        with mock.patch.object(bridge, "_string", side_effect=local_string):
+            self.assertEqual(app.shell("printf 'pre-wait storage'", timeout=20), "pre-wait storage")
+        self.assertFalse((self.home / "game").exists())
+        app.close()
+        self.process.wait(timeout=10)
+        self.assertFalse((self.home / "game").exists())
+
+    def test_actual_post_wait_false_proxy_is_rejected_without_storage(self):
+        self.assertTrue((self.home / "wait").exists())
+        with mock.patch.object(bridge._Protocol, "invoke", side_effect=AssertionError("post-wait invocation")) as invocation:
+            with self.assertRaisesRegex(bridge.StorageError, "waiting=true"):
+                self.fixture()
+        invocation.assert_not_called()
+        self.process.wait(timeout=10)
+        self.assertFalse((self.home / "game").exists())
+
+    def test_actual_application_proxy_is_rejected_without_storage(self):
+        self.assertFalse((self.home / "wait").exists())
+        with mock.patch.object(bridge._Protocol, "invoke", side_effect=AssertionError("Application invocation")) as invocation:
+            with self.assertRaisesRegex(bridge.StorageError, "directly by handleBindApplication"):
+                self.fixture()
+        invocation.assert_not_called()
+        self.process.wait(timeout=10)
+        self.assertFalse((self.home / "game").exists())
+
+    def test_actual_foreign_pid_cannot_attach_to_pre_wait_vm(self):
+        with mock.patch.object(bridge._Protocol, "invoke", side_effect=AssertionError("foreign invocation")) as invocation:
+            with self.assertRaises(bridge._ProcessChanged):
+                self.fixture(identity=(str(self.process.pid + 1), "10061", self.start))
+        invocation.assert_not_called()
+        self.assertIsNone(self.process.poll())
+        self.assertFalse((self.home / "game").exists())

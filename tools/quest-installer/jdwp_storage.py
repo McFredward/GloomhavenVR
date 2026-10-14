@@ -6,9 +6,11 @@ does not identify the precise FUSE or SELinux rejection. This bridge instead use
 the already installed, debuggable app's Java Runtime to start a storage-only
 shell. It never invokes game code, creates Application, or resumes gameplay.
 
-The caller first proves a fresh debugger wait and stops every native app task.
-An initial VM suspend only inspects the wait stack: invocation requires a real
-one-shot step EVENT with Suspend_ALL on that exact main thread. Cleanup kills
+The caller first proves a fresh debugger-wait log and stops every native app task.
+That log can precede Android's waiting=true Binder call. Initial VM suspension
+inspects only boot state; a proved pre-wait Proxy can take bounded one-shot
+steps to actual Debug.waitForDebugger entry. Invocation always requires a real
+step EVENT with Suspend_ALL on that exact main thread. Cleanup kills
 the same PID/UID/starttime before disconnecting; JDWP Dispose would resume it.
 """
 from __future__ import annotations
@@ -29,6 +31,8 @@ MAX_OUTPUT = 16 * 1024 * 1024
 MAX_PACKET = 8 * 1024 * 1024
 MAX_SCRIPT = 512 * 1024
 HANDSHAKE = b"JDWP-Handshake"
+MAX_PRE_WAIT_STEPS = 128
+MAX_PRE_WAIT_SECONDS = 15
 # A live event-suspended connection is deliberately retained if both kill
 # transports fail. Dropping its last socket reference would resume Application.
 _PENDING_CLOSE = []
@@ -85,7 +89,7 @@ class _Protocol:
         self.stream, self.sequence = stream, 1
         self.events = deque()
         self.sizes = None
-        self.types, self.methods_cache = {}, {}
+        self.types, self.methods_cache, self.boot_types = {}, {}, {}
 
     def _read(self, length, deadline):
         data = bytearray()
@@ -211,23 +215,60 @@ class _Protocol:
             raise StorageError("The required storage-only Java method is not unique.")
         return matches[0]
 
-    def frames(self, thread):
+    def frames(self, thread, *, detailed=False):
         reader = _Reader(self.command(11, 6, self.id(thread) + _u32(0) + _u32(0xffffffff)))
         count = reader.number()
         if not 1 <= count <= 128:
             raise StorageError("The storage main thread did not return a bounded stack.")
         frames = []
         for _ in range(count):
-            reader.take(self.sizes["frame"])
+            frame_id = reader.number(self.sizes["frame"])
             tag = reader.number(1)
             type_id = reader.number(self.sizes["type"])
             method_id = reader.number(self.sizes["method"])
-            reader.take(8)
+            index = reader.number(8)
             if tag != 1 or method_id not in self.methods(type_id):
                 raise StorageError("The storage main thread returned an unknown frame.")
-            frames.append((self.signature(type_id), self.methods(type_id)[method_id][0]))
+            signature = self.signature(type_id)
+            method = self.methods(type_id)[method_id]
+            frames.append({"frame": frame_id, "type": type_id, "method": method_id, "index": index,
+                           "signature": signature, "name": method[0], "descriptor": method[1], "flags": method[2]}
+                          if detailed else (signature, method[0]))
         reader.done()
         return frames
+
+    def boot_type(self, type_id):
+        if type_id not in self.boot_types:
+            reader = _Reader(self.command(2, 2, self.id(type_id, "type")))
+            self.boot_types[type_id] = reader.number(self.sizes["object"]) == 0
+            reader.done()
+        return self.boot_types[type_id]
+
+    def waiting_argument(self, thread, frame):
+        # The same Proxy is called with false after Debug.waitForDebugger.
+        # Prove the live, named argument from its actual method table; missing
+        # firmware debug metadata is a refusal, never a guessed ART slot.
+        reader = _Reader(self.command(6, 2, self.id(frame["type"], "type") + self.id(frame["method"], "method")))
+        arguments, count = reader.number(), reader.number()
+        if arguments != 3 or count > 1024:
+            raise StorageError("The Android waiting-proxy argument table is incomplete.")
+        slots = []
+        for _ in range(count):
+            start, name, signature, length, slot = reader.number(8), reader.string(), reader.string(), reader.number(), reader.number()
+            if (name, signature) == ("waiting", "Z") and start <= frame["index"] < start + length:
+                slots.append(slot)
+        reader.done()
+        if len(slots) != 1 or slots[0] > 65535:
+            raise StorageError("The Android waiting-proxy argument is not uniquely visible.")
+        payload = self.id(thread) + self.id(frame["frame"], "frame") + _u32(1) + _u32(slots[0]) + b"Z"
+        reader = _Reader(self.command(16, 1, payload))
+        if reader.number() != 1:
+            raise StorageError("The Android waiting-proxy argument value is incomplete.")
+        value = self.value(reader)
+        reader.done()
+        if value[0] != ord("Z") or value[1] not in (0, 1):
+            raise StorageError("The Android waiting-proxy argument is not a boolean.")
+        return value[1] == 1
 
     def main_thread(self):
         reader = _Reader(self.command(1, 4))
@@ -246,15 +287,18 @@ class _Protocol:
             raise StorageError("The storage debugger did not identify one main thread.")
         return main[0]
 
-    def step_event(self, thread):
+    def step_event(self, thread, *, timeout=15):
         # Count applies to the already thread-filtered step, not a random event.
+        deadline = time.monotonic() + timeout
         modifiers = (b"\x0a" + self.id(thread) + _u32(0) + _u32(0)
                      + b"\x01" + _u32(1))
-        reader = _Reader(self.command(15, 1, b"\x01\x02" + _u32(2) + modifiers))
+        reader = _Reader(self.command(15, 1, b"\x01\x02" + _u32(2) + modifiers, timeout=timeout))
         request = reader.number()
         reader.done()
-        self.command(1, 9)
-        deadline = time.monotonic() + 15
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise StorageError("The storage debugger did not establish its step request in time.")
+        self.command(1, 9, timeout=remaining)
         for _ in range(128):
             if not self.events:
                 if self._packet(deadline) is not None:
@@ -341,14 +385,13 @@ class AppCommand:
             self.protocol.reply(initial_suspend)
             self.protocol.widths()
             self.thread = self.protocol.main_thread()
-            self._wait_boundary()
             self._process_guard()
             self.socket_owned = True
-            self.protocol.step_event(self.thread)
-            self.event_owned = True
+            self._establish_wait_event()
             self.guard()
             self.runtime_type = self.protocol.loaded("Ljava/lang/Runtime;")
             method = self.protocol.method(self.runtime_type, "getRuntime", "()Ljava/lang/Runtime;", static=True)
+            self.guard()
             value = self.protocol.invoke(self.thread, self.runtime_type, method)
             if value[0] != ord("L") or not value[1]:
                 raise StorageError("The app storage Runtime was not established.")
@@ -396,12 +439,108 @@ class AppCommand:
 
     def _wait_boundary(self):
         frames = self.protocol.frames(self.thread)
+        self._require_wait_frames(frames)
+
+    @staticmethod
+    def _require_wait_frames(frames):
         allowed = ("Ljava/", "Ljavax/", "Landroid/", "Ldalvik/", "Llibcore/", "Lsun/", "Ljdk/",
                    "Lcom/android/internal/os/")
-        if (any(not signature.startswith(allowed) for signature, _ in frames)
-                or ("Landroid/os/Debug;", "waitForDebugger") not in frames
-                or ("Landroid/app/ActivityThread;", "handleBindApplication") not in frames):
+        forbidden = ("Landroid/app/Application;", "Landroid/app/Application$", "Landroid/app/LoadedApk;", "Landroid/app/LoadedApk$")
+        if (any(not signature.startswith(allowed) or signature.startswith(forbidden)
+                for signature, _ in frames)
+                or frames.count(("Landroid/os/Debug;", "waitForDebugger")) != 1
+                or frames.count(("Landroid/app/ActivityThread;", "handleBindApplication")) != 1
+                or frames.index(("Landroid/os/Debug;", "waitForDebugger")) + 1
+                    != frames.index(("Landroid/app/ActivityThread;", "handleBindApplication"))):
             raise StorageError("The app main thread did not retain its pre-Application debugger wait.")
+
+    def _pre_wait_boundary(self, frames, witness=None):
+        proxy = ("Landroid/app/IActivityManager$Stub$Proxy;", "showWaitingForDebugger")
+        bind = ("Landroid/app/ActivityThread;", "handleBindApplication")
+        pairs = [(frame["signature"], frame["name"]) for frame in frames]
+        if pairs.count(bind) != 1 or pairs.count(proxy) > 1:
+            raise StorageError("The Android waiting display has no unique bind/proxy boundary.")
+        bind_at = pairs.index(bind)
+        # No generic framework whitelist: these are only the original main
+        # dispatch ancestry beneath handleBindApplication in Android11-13.
+        ancestry = {("Landroid/app/ActivityThread$H;", "handleMessage"),
+                    ("Landroid/app/ActivityThread;", "-$$Nest$mhandleBindApplication"),
+                    ("Landroid/os/Handler;", "dispatchMessage"), ("Landroid/os/Looper;", "loop"),
+                    ("Landroid/os/Looper;", "loopOnce"), ("Landroid/app/ActivityThread;", "main"),
+                    ("Ljava/lang/reflect/Method;", "invoke"),
+                    ("Lcom/android/internal/os/RuntimeInit$MethodAndArgsCaller;", "run"),
+                    ("Lcom/android/internal/os/ZygoteInit;", "main")}
+        if (any(pair not in ancestry for pair in pairs[bind_at + 1:])
+                or not all(self.protocol.boot_type(frame["type"]) for frame in frames)):
+            raise StorageError("The Android waiting display is not bound to the boot main-thread stack.")
+        outer = tuple((frame["type"], frame["method"]) for frame in frames[bind_at:])
+        if witness is not None and (outer != witness[0] or frames[bind_at]["index"] < witness[1]):
+            raise StorageError("The Android waiting display changed its original bind call site.")
+        if proxy not in pairs:
+            if witness is None or bind_at != 0:
+                raise StorageError("The Android waiting display has not proved its pre-wait proxy call.")
+            return witness  # One-instruction steps between the proved call and Debug entry.
+        proxy_at = pairs.index(proxy)
+        frame = frames[proxy_at]
+        if proxy_at + 1 != bind_at:
+            raise StorageError("The Android waiting proxy was not called directly by handleBindApplication.")
+        if (frame["descriptor"] != "(Landroid/app/IApplicationThread;Z)V"
+                or frame["flags"] & (8 | 256) or not self.protocol.waiting_argument(self.thread, frame)):
+            raise StorageError("The Android waiting display is not its original waiting=true call.")
+        # Only known operations nested in that same live Proxy call may advance.
+        # A vendor listener, exception path or unknown helper remains suspended
+        # and fails closed before any storage Runtime invocation.
+        operations = {("Landroid/os/BinderProxy;", "transact"), ("Landroid/os/BinderProxy;", "transactNative"),
+                      ("Landroid/os/Parcel;", "readException"), ("Landroid/os/Parcel;", "readExceptionCode"),
+                      ("Landroid/os/Parcel;", "readInt"), ("Landroid/os/Parcel;", "nativeReadInt"),
+                      ("Landroid/os/Parcel;", "recycle"), ("Landroid/os/Parcel;", "freeBuffer"),
+                      ("Landroid/os/Parcel;", "nativeFreeBuffer")}
+        if any(pair not in operations for pair in pairs[:proxy_at]):
+            raise StorageError("The Android waiting display reached an unsupported proxy operation.")
+        return witness or (outer, frames[bind_at]["index"])
+
+    def _establish_wait_event(self):
+        # AOSP ActivityThread logs before showWaitingForDebugger(true), then
+        # enters Debug.waitForDebugger. The false Proxy call after that wait
+        # has identical stack names. Never resume from names alone: qualify
+        # boot ownership, exact ancestry and the live true argument first.
+        frames, pairs, witness, steps = [], [], None, 0
+        deadline = time.monotonic() + MAX_PRE_WAIT_SECONDS
+        try:
+            frames = self.protocol.frames(self.thread, detailed=True)
+            pairs = [(frame["signature"], frame["name"]) for frame in frames]
+            if ("Landroid/os/Debug;", "waitForDebugger") in pairs:
+                self._require_wait_frames(pairs)
+                self.protocol.step_event(self.thread)
+                self.event_owned = True
+                self._wait_boundary()
+                return
+            while True:
+                witness = self._pre_wait_boundary(frames, witness)
+                remaining = deadline - time.monotonic()
+                if steps >= MAX_PRE_WAIT_STEPS or remaining <= 0:
+                    raise StorageError("The Android waiting display exceeded its bounded debugger-entry steps.")
+                self._process_guard()
+                self.protocol.step_event(self.thread, timeout=min(15, remaining))
+                self.event_owned = True
+                steps += 1
+                self._process_guard()
+                frames = self.protocol.frames(self.thread, detailed=True)
+                pairs = [(frame["signature"], frame["name"]) for frame in frames]
+                if ("Landroid/os/Debug;", "waitForDebugger") in pairs:
+                    self._require_wait_frames(pairs)
+                    bind_at = pairs.index(("Landroid/app/ActivityThread;", "handleBindApplication"))
+                    if tuple((frame["type"], frame["method"]) for frame in frames[bind_at:]) != witness[0]:
+                        raise StorageError("The Android debugger entry changed its original boot ancestry.")
+                    self._wait_boundary()
+                    self._log({"appOriginStorageWaitEntry": True, "ownedSingleSteps": steps,
+                               "waitingProxyArgumentProved": True, "gameplayResumed": False})
+                    return
+        except StorageError as error:
+            self._log({"appOriginStorageWaitEntryRefused": str(error)[:1024], "ownedSingleSteps": steps,
+                       "mainFrames": [signature + "." + name for signature, name in pairs[:12]],
+                       "gameplayResumed": False})
+            raise
 
     def guard(self):
         if self.closed or not self.event_owned:
@@ -478,6 +617,7 @@ class AppCommand:
             command_string = reader.number(self.protocol.sizes["object"])
             reader.done()
             self.protocol.command(9, 7, self.protocol.id(command_string))
+            self.guard()
             value = self.protocol.invoke(self.thread, self.runtime_type, self.exec_method,
                                          b"s" + self.protocol.id(command_string), target=self.runtime, timeout=min(timeout, 30))
             self.protocol.command(9, 8, self.protocol.id(command_string))
