@@ -1,9 +1,14 @@
-"""Bounded app-context checks for retained, receipt-owned content.
+"""Separate ordinary content delivery from optional app-context diagnostics.
 
-ADB shell readability is not evidence that the newly installed app can open a
-bank. Normal reuse opens only its compact receipt and three representative files.
-An access failure permits metadata-only mode repair of the exact manifest paths;
-no payload hashing, directory census, copy, or save-data mutation is performed.
+Ordinary installation qualifies transferred bytes and compact receipts in its
+caller. Actual app access is checked by the existing Unity startup at its own
+Application.persistentDataPath (Android getExternalFilesDir). A failed run-as
+view is not proof that the real app cannot read that scoped-storage directory.
+Do not start or attach a debugger just to repeat that check from the PC.
+
+BankAccess remains an explicitly selected diagnostic/legacy access-repair tool.
+Its sampled app-origin opens and metadata-only repair never claim that shell
+readability proves app readability. Neither mode scans unmanifested save data.
 """
 from pathlib import PurePosixPath
 import shlex
@@ -21,6 +26,35 @@ def _transport_failure(error):
         if type(error).__name__ == "ConnectionRequired": return True
         error = error.__cause__
     return False
+
+
+class RuntimeBankAccess:
+    """Defer app-origin opens to normal startup without weakening delivery proofs."""
+    def __init__(self, adb, address, view_factory=None, *, hardware=None):
+        self.adb, self.address = adb, address
+        self.hardware = hardware or adb.identity(address)
+
+    def __enter__(self): return self
+
+    def __exit__(self, kind, error, traceback): return False
+
+    def qualify(self, root, manifest, receipt):
+        if (root not in (BASE + "quest-mod-resources", BASE + "quest-owned-game")
+                or receipt != ".quest-installation.receipt"
+                or not isinstance(manifest, dict) or not isinstance(manifest.get("files"), list)
+                or not manifest["files"]):
+            raise RuntimeError("Runtime content access refuses an unexpected delivery boundary.")
+        while True:
+            try:
+                if self.adb.identity(self.address) != self.hardware:
+                    raise RuntimeError("The headset changed before content delivery completed.")
+                # Never present this deferred observation as an app-origin
+                # verification. The caller still owns real transfer/integrity
+                # checks and the game opens the files through its own Context.
+                return {"appAccess": "runtime-pending", "appAccessVerified": False, "accessRepairFiles": 0}
+            except RuntimeError as error:
+                if not _transport_failure(error) or not getattr(self.adb, "wait_enabled", False): raise
+                self.adb.wait_for_connection(self.address)
 
 
 class BankAccess:

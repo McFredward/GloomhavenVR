@@ -123,6 +123,18 @@ class FakeAdb:
 
 
 class InstallerTests(unittest.TestCase):
+    def test_app_storage_probe_is_an_explicit_advanced_option(self):
+        self.assertFalse(installer.parser().parse_args([]).diagnose_app_storage)
+        for arguments, expected in (((), False), (("--diagnose-app-storage",), True)):
+            with self.subTest(arguments=arguments), \
+                    mock.patch.object(installer, "installation_manifest", return_value={"schema": 1}), \
+                    mock.patch.object(installer, "install_content", return_value=[]), \
+                    mock.patch.object(installer, "repair_current_access") as repair:
+                self.assertEqual(self.run_cli(*arguments), 0, self.error)
+                self.assertEqual(repair.called, expected)
+                self.assertFalse(any("-D" in call or "set-debug-app" in call or "forward" in call
+                                     for call in self.fake.calls))
+
     def test_recovery_choice_requires_device_binding_and_cannot_be_access_only(self):
         for arguments in (("--reset-app-data", "a" * 32),
                           ("--manual-storage-launch", "a" * 32),
@@ -196,7 +208,10 @@ class InstallerTests(unittest.TestCase):
     def campaign_bank(self, file="GloomhavenVR-Quest-content.zip", key=None):
         bank = self.root / "GloomhavenVR-Quest-content.zip"
         with zipfile.ZipFile(bank, "w") as archive:
-            archive.writestr("StreamingAssets/Rulebase/Campaign.ruleset", b"original rules fixture")
+            # Recreating identical content must not change its ZIP timestamp
+            # across a two-second clock boundary during update/reuse tests.
+            entry = zipfile.ZipInfo("StreamingAssets/Rulebase/Campaign.ruleset", (2026, 1, 1, 0, 0, 0))
+            archive.writestr(entry, b"original rules fixture")
         key = key or "c" * 64
         with zipfile.ZipFile(self.apk, "w") as archive:
             archive.writestr("AndroidManifest.xml", b"fixture")

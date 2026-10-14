@@ -84,6 +84,24 @@ class Device:
 
 
 class ContentAccessTests(unittest.TestCase):
+    def test_runtime_deferred_check_retains_exact_root_receipt_and_headset_guards(self):
+        class RuntimeDevice:
+            hardware = "fixture-headset"
+            def identity(self, address): return self.hardware
+        device = RuntimeDevice()
+        def forbidden_view(*args, **kwargs):
+            raise AssertionError("normal installation must not start an app-context probe")
+        with access.RuntimeBankAccess(device, "quest", forbidden_view) as owner:
+            result = owner.qualify(access.BASE + "quest-owned-game", {"files": [{}]}, ".quest-installation.receipt")
+            self.assertIs(result["appAccessVerified"], False)
+            for root, receipt in ((access.BASE + "quest-saves", ".quest-installation.receipt"),
+                                  (access.BASE + "quest-owned-game", "../save")):
+                with self.assertRaisesRegex(RuntimeError, "unexpected delivery boundary"):
+                    owner.qualify(root, {"files": [{}]}, receipt)
+            device.hardware = "another-headset"
+            with self.assertRaisesRegex(RuntimeError, "headset changed"):
+                owner.qualify(access.BASE + "quest-owned-game", {"files": [{}]}, ".quest-installation.receipt")
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)

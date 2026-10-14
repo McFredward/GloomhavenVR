@@ -454,6 +454,9 @@ class Recovery:
         return (str(pid), rows[2], fields[19])
 
     def _process_storage_root(self):
+        if getattr(self.adb, "storage_debugger_allowed", None) is False:
+            raise CaptureRepairError("Automatic debugger-based storage access is disabled. Original saves and completed files remain retained; use the offered restoration choices if direct app-data access is unavailable.",
+                                     root="external", reason="restore-app-storage-unavailable", attempts=1, total=1)
         if not self._storage_process: self._reconcile_manual_debug_wait()
         if getattr(self, "_manual_storage_launch_enabled", False) and not self._storage_process:
             return self._manual_process_storage_root()
@@ -2437,10 +2440,11 @@ class Recovery:
 class AppStorageView(Recovery):
     """Reuse guarded app-UID storage aliases without constructing a migration.
 
-    Content installation needs a small app-visible open proof, not a signing
-    journal, original APK backup or game-data census. The process alias, when
-    required, retains Recovery's exact package/UID/starttime and debugger-wait
-    guards and is closed before normal gameplay may start.
+    Explicit storage diagnostics can request an app-visible open proof without
+    a signing journal, original APK backup or game-data census. Normal content
+    delivery leaves real app opens to ordinary Unity startup. The optional
+    process alias retains Recovery's exact package/UID/starttime and debugger-
+    wait guards and is closed before normal gameplay may start.
     """
     def __init__(self, adb, address, hardware):
         if not re.fullmatch(r"[A-Za-z0-9_-]+", hardware): raise RecoveryError("Invalid headset identity.")

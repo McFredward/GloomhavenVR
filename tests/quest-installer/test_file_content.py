@@ -184,6 +184,29 @@ class FileContentTests(unittest.TestCase):
         self.assertFalse(any("quest-install-input" in str(call) or "start" in call for call in self.device.calls))
         self.assertFalse(list(self.device.root.rglob("*.zip")))
 
+    def test_normal_delivery_and_warm_resume_never_launch_an_app_storage_probe(self):
+        with mock.patch.object(installer.signing_recovery_module(), "AppStorageView",
+                               side_effect=AssertionError("normal delivery must not create an app probe")):
+            records = self.install()
+            self.assertEqual(sum(row["uploadedFiles"] for row in records), 7)
+            for row in records:
+                self.assertEqual(row["appAccess"], "runtime-pending")
+                self.assertIs(row["appAccessVerified"], False)
+            self.device.pushed_files.clear()
+            warm = self.install()
+            self.assertEqual(sum(row["uploadedFiles"] for row in warm), 0)
+            self.assertEqual(self.device.pushed_files, [])
+        for call in self.device.calls:
+            self.assertFalse(any(word in call for word in
+                                 ("run-as", "start", "set-debug-app", "jdwp", "forward", "-D")), call)
+        self.assertTrue(all(self.receipt(kind) for kind in ("mod", "game")))
+
+    def test_explicit_storage_diagnosis_keeps_actual_app_open_checks(self):
+        self.device.app_storage_diagnostics = True
+        records = self.install()
+        self.assertTrue(all(row["appAccess"] == "verified" for row in records))
+        self.assertTrue(any("run-as" in call for call in self.device.calls))
+
     def test_measured_progress_spans_both_banks_and_completes_once(self):
         output = io.StringIO()
         with contextlib.redirect_stdout(output):

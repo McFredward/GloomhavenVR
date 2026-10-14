@@ -386,7 +386,8 @@ def device_tool_evidence(root, replacements):
         folder = ordinary(root / 'device')
         value = read_object(folder / 'device-tools-state.json', limit=512 * 1024)
         if not isinstance(value, dict) or value.get('status') not in ('idle', 'running', 'connecting', 'connected', 'capturing', 'complete', 'waiting', 'failed', 'cancelled',
-                                                                   'scanning', 'cleaning', 'storage-preview', 'storage-complete'): return None, []
+                                                                   'scanning', 'cleaning', 'storage-preview', 'storage-complete',
+                                                                   'starting', 'started', 'debug-wait'): return None, []
         for serial in [value.get('serial'), value.get('hardwareSerial'),
                        *(row.get('serial') for row in value.get('devices', [])[:32] if isinstance(row, dict))]:
             if isinstance(serial, str) and 3 <= len(serial) <= 256: replacements.append((serial, '<quest>'))

@@ -1397,8 +1397,11 @@ def install_file_content(adb, address, source, repair=False, *, hardware=None):
     records = []
     total_bytes = sum(row["size"] for kind in ("mod", "game") for row in manifest[kind]["files"])
     completed_bytes = 0
+    access_api = content_access_module()
+    access_type = (access_api.BankAccess if getattr(adb, "app_storage_diagnostics", False) is True
+                   else access_api.RuntimeBankAccess)
     with tempfile.TemporaryDirectory(prefix="ghvr-quest-install-") as name, zipfile.ZipFile(source.apk) as apk, \
-            content_access_module().BankAccess(adb, address, signing_recovery_module().AppStorageView, hardware=hardware) as access:
+            access_type(adb, address, signing_recovery_module().AppStorageView, hardware=hardware) as access:
         temporary = Path(name)
         mod_info = apk.getinfo("assets/quest-mod-content.zip")
         if mod_info.file_size > 4 * 1024 * 1024 * 1024:
@@ -1563,6 +1566,19 @@ def install_connected_apk(adb, address, source, timeout):
                     return
 
 
+def release_retained_storage_wait(adb, address, hardware):
+    """Release only a durable, source-bound wait owned by an interrupted probe.
+
+    Ordinary installs never create a debugger wait. A previous advanced probe
+    may have left one behind; reconcile its exact receipt without starting or
+    attaching another process. The view retains foreign/changed selections.
+    """
+    marker = adb.log.parent / (".manual-storage-debug-" + hardware + ".json")
+    if marker.exists():
+        with signing_recovery_module().AppStorageView(adb, address, hardware) as view:
+            view._reconcile_manual_debug_wait()
+
+
 def repair_current_access(adb, address, hardware, source, config_directory):
     """Retry only current small-file access when the same headset reconnects."""
     api = signing_recovery_module()
@@ -1631,6 +1647,8 @@ def parser():
     result.add_argument("--serial")
     result.add_argument("--setup", action="store_true")
     result.add_argument("--no-launch", action="store_true")
+    result.add_argument("--diagnose-app-storage", action="store_true",
+                        help="Advanced, optional app-origin storage diagnostics; may temporarily use the Android debugger. Normal installation leaves app opens to ordinary game startup.")
     result.add_argument("--wait-for-connection", action="store_true",
                         help="Keep the Wizard installation paused until the same authorized Quest reconnects.")
     result.add_argument("--repair-content", action="store_true", help="Verify installed game bytes and repair missing/changed files before launch.")
@@ -1694,6 +1712,12 @@ def main(argv=None, runner=None):
                                    "isDiagnostic": source.diagnostic, "isDummy": source.dummy}) + "\n",
                        encoding="utf-8")
         adb = Adb(executable, log, runner)
+        adb.app_storage_diagnostics = args.diagnose_app_storage or args.repair_app_access
+        # Old signing recovery may offer an explicitly approved diagnostic
+        # launch if direct save restoration is unavailable. Never arm that
+        # debugger as an automatic fallback during ordinary installation.
+        adb.storage_debugger_allowed = (args.diagnose_app_storage or args.repair_app_access
+                                        or args.manual_storage_launch is not None)
         adb.wait_enabled = args.wait_for_connection
         adb.connection_config = dict(config)
         try: address, hardware = choose_device(adb, args, config)
@@ -1731,6 +1755,8 @@ def main(argv=None, runner=None):
                                          reset_source_available=reset_source_available)
         adb.connection_operation = "apk"
         migration = connected_recovery(adb, address, recovery)
+        adb.manual_storage_identity["transaction"] = migration.get("transaction") if migration else None
+        release_retained_storage_wait(adb, address, hardware)
         if migration is None:
             if any(not content_available(bank) for bank in source.content):
                 with tempfile.TemporaryDirectory(prefix="ghvr-quest-retained-") as temporary:
@@ -1743,7 +1769,7 @@ def main(argv=None, runner=None):
         # launch. Arbitrary CLI input cannot grant it to another APK/headset.
         adb.manual_storage_identity = {"apkSha256": source.sha256, "inputKey": source.input_key,
                                        "transaction": migration.get("transaction") if migration else None}
-        if migration and (migration.get("manualStorageLaunch") is True or migration.get("saveDataReset") is True):
+        if args.diagnose_app_storage and migration and (migration.get("manualStorageLaunch") is True or migration.get("saveDataReset") is True):
             adb.manual_storage_launch = True
         # B618+ uses its build number as Android versionCode. Querying that
         # small package record confirms installation without another multi-GB
@@ -1770,7 +1796,7 @@ def main(argv=None, runner=None):
             except (OSError, ValueError):
                 pass
         content_records = install_content(adb, address, source, previous, repair=args.repair_content, hardware=hardware)
-        if installation_manifest(source) is not None and not (migration and migration.get("saveDataReset") is True):
+        if args.diagnose_app_storage and installation_manifest(source) is not None and not (migration and migration.get("saveDataReset") is True):
             repair_current_access(adb, address, hardware, source, config_path.parent)
         clean_previous_content(adb, address, previous, content_records)
         if not args.no_launch:

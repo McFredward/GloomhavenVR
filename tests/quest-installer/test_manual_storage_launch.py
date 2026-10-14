@@ -98,6 +98,14 @@ class ManualLaunchTests(unittest.TestCase):
         self.assertEqual(self.device.debug_current, "null")
         self.assertFalse(self.view._manual_debug_receipt().exists())
 
+    def test_normal_install_policy_never_arms_a_storage_debugger_on_denial(self):
+        self.adb.storage_debugger_allowed = False
+        with self.assertRaises(recovery.CaptureRepairError) as failure:
+            self.view._process_storage_root()
+        self.assertEqual(failure.exception.action["reason"], "restore-app-storage-unavailable")
+        self.assertEqual(self.device.calls, [])
+        self.assertFalse(self.view._manual_debug_receipt().exists())
+
     def test_rearming_old_quest_pending_selection_is_released_after_attach(self):
         self.device.debug_current = recovery.PACKAGE
         self.device.debug_wait = self.device.debug_transient = True
@@ -134,6 +142,21 @@ class ManualLaunchTests(unittest.TestCase):
         self.assertEqual(sum("clear-debug-app" in row for row in self.device.calls), count)
         self.assertFalse(self.view._manual_debug_receipt().exists())
         self.view._storage_process = None
+
+    def test_normal_install_releases_only_its_retained_wait_without_rearming(self):
+        self.run_manual()
+        self.view._storage_process = None  # Simulate an interrupted host.
+        self.device.calls.clear()
+        with mock.patch.object(fixture.installer, "signing_recovery_module", return_value=recovery):
+            fixture.installer.release_retained_storage_wait(self.adb, "usb", self.device.hardware)
+        self.assertFalse(self.view._manual_debug_receipt().exists())
+        self.assertFalse(self.device.debug_wait)
+        self.assertFalse(self.device.process_started)
+        self.assertFalse(any("set-debug-app" in row or "start" in row or "forward" in row
+                             for row in self.device.calls))
+        self.device.calls.clear()
+        fixture.installer.release_retained_storage_wait(self.adb, "usb", self.device.hardware)
+        self.assertEqual(self.device.calls, [])
 
     def test_inactive_foreign_history_is_not_used_to_arm_or_clear_debugger(self):
         self.device.debug_original = "another.debug.app"

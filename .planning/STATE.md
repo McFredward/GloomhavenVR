@@ -1,5 +1,25 @@
 # State — where the project stands
 
+**Quest normal delivery without debugger, 2026-10-14: feature / B672.**
+
+Capture205156 reaches successful mod-file transfer, then the additional run-as
+diagnostic's here-document tries to create `/data/local/shozs4gc.tmp`. Android
+mksh's global temp default is not writable by that app context. Replace the
+optional helper upload with quoted stdin printf and private scratch TMPDIR.
+The maintainer explicitly rejects mandatory debugger-based installation:
+normal transfer now retains its file journal, integrity and compact receipt,
+then leaves real app opens to the existing persistentDataPath runtime. Mark
+app access honestly as runtime-pending; do not claim a hardware read proof.
+No automatic debugger fallback for normal signing restoration; retain saves
+and present explicit choices when needed. Reconcile only an already owned wait.
+
+Device tools now offer independent Start game and an unchecked advanced
+Android/Java debugger-wait choice. No automatic attach or Unity C# promise.
+Keep the installed APK, reset frontier and accepted files; resume installation
+without a Unity rebuild. See
+[QUEST-STORAGE-CONTRACT-205156-20261014.md](QUEST-STORAGE-CONTRACT-205156-20261014.md)
+for the storage matrix, primary sources and validation/hardware limits.
+
 **Quest actual Android wait wrapper, 2026-10-14: feature / B672.**
 
 Capture203422 completes the four-file mod transfer, then positively proves the
