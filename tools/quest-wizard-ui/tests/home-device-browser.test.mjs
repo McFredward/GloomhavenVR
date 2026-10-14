@@ -49,6 +49,11 @@ async function fixture(contentDecision=false){
         if(path==='/api/device/connect'){assert.deepEqual(body,{host:'192.168.0.5:5555',setupWireless:true,serial:''});device={status:'waiting',message:{de:'USB-Debugging in der Brille bestätigen.',en:'Authorize USB debugging in the headset.'},devices:[{serial:'usb-fixture',state:'unauthorized',kind:'usb',model:'Quest_3'}]};return reply(deviceReply());}
         if(path==='/api/device/capture'&&request.method==='POST'){assert.deepEqual(body,{host:'192.168.0.5:5555',serial:''});device={status:'capturing',elapsedSeconds:15,
           progress:{done:1,total:4,percent:25,label:'logcat'},activity:{label:'log-transfer',detail:'quest-startup.log',receivedBytes:1024,totalBytes:4096,percent:25,elapsedSeconds:7}};polls=0;return reply(deviceReply());}
+        if(path==='/api/device/start'){
+          assert.equal(body.host,'');assert.equal(body.serial,'');assert.equal(typeof body.waitForDebugger,'boolean');
+          device={status:'starting',operation:'start',launch:{waitForDebugger:body.waitForDebugger},progress:{done:5,total:7,percent:71,label:'game-start'}};
+          polls=0;return reply(deviceReply());
+        }
         if(path==='/api/device/storage-preview'){
           assert.deepEqual(body,{host:'',serial:''});
           device={status:'storage-preview',storagePlan:{schema:1,planId:'e'.repeat(32),deviceSerial:'quest-cleanup-fixture',complete:false,bytes:1024,files:1,
@@ -61,6 +66,8 @@ async function fixture(contentDecision=false){
           assert.deepEqual(body,{planId:'e'.repeat(32)});device={status:'cleaning',progress:{done:3,total:6,percent:50},elapsedSeconds:2};polls=0;return reply(deviceReply());
         }
         if(path==='/api/device/status'){
+          if(device.status==='starting'&&++polls>1)device={status:device.launch.waitForDebugger?'debug-wait':'started',
+            launch:{...device.launch,processId:123,requestAcknowledged:true},message:{en:device.launch.waitForDebugger?'Android debugger wait requested; attach separately.':'Game process observed.',de:device.launch.waitForDebugger?'Warten auf Android-Debugger angefordert; separat verbinden.':'Spielprozess erkannt.'}};
           if(device.status==='cleaning'&&++polls>1)device={status:'storage-complete',storageResult:{freedBytes:1024,deletedFiles:1,retained:[]}};
           if(device.status==='capturing'&&++polls===2){device.elapsedSeconds=16;device.activity={label:'installed-apk-hash',elapsedSeconds:8};}
           if(device.status==='capturing'&&polls>3)device={status:'complete',message:{de:'Testbericht gespeichert.',en:'Test report saved.'},capture:{id:captureId,name:'quest-capture-fixture.zip',path:'C:\\Users\\Fixture\\.ghvrq\\captures\\quest-capture-fixture.zip'}};
@@ -213,5 +220,39 @@ test('device tools guide wireless setup, expose real capture progress and downlo
     assert.match(await client.evaluate("document.getElementById('device-title').textContent"),/Quest connection/);
     assert.equal(client.events.filter(row=>row.method==='Runtime.exceptionThrown').length,0);
     await delay(50);
+  }finally{try{await client?.close();}finally{await server.close();}}
+ });
+
+
+test('device runner starts normally by default and exposes debugger wait only as an explicit advanced choice',
+ {skip:!existsSync(chrome),timeout:30000},async()=>{
+  const server=await fixture();let client;
+  try{
+    client=await browser();await client.command('Page.navigate',{url:server.url});await client.chooseHome('device');
+    await client.evaluate("document.querySelector('[data-language=de]').click()");
+    assert.equal(await client.evaluate("document.getElementById('device-debug-options').open"),false);
+    assert.equal(await client.evaluate("document.getElementById('device-wait-debugger').checked"),false);
+    assert.match(await client.evaluate("document.getElementById('device-start').textContent"),/Spiel starten/);
+    await client.evaluate("document.getElementById('device-start').click()");
+    await client.wait("!document.getElementById('device-progress').hidden");
+    assert.equal(await client.evaluate("document.getElementById('device-wait-debugger').disabled"),true);
+    await client.wait("document.getElementById('device-status').textContent.includes('Spielprozess erkannt')");
+    assert.deepEqual(server.requests.filter(row=>row.path==='/api/device/start').map(row=>row.body),[{host:'',serial:'',waitForDebugger:false}]);
+    await client.evaluate("document.getElementById('device-debug-options').open=true;document.getElementById('device-wait-debugger').checked=true");
+    assert.match(await client.evaluate("document.querySelector('[data-i18n=deviceWaitDebuggerCopy]').textContent"),/Android.*Java.*Unity.*ausgeschaltet/);
+    await client.evaluate("document.getElementById('device-start').click()");
+    await client.wait("document.getElementById('device-status').textContent.includes('separat verbinden')");
+    assert.deepEqual(server.requests.filter(row=>row.path==='/api/device/start').map(row=>row.body),[
+      {host:'',serial:'',waitForDebugger:false},{host:'',serial:'',waitForDebugger:true}
+    ]);
+    await client.picture('quest-runner-debug-de');
+    await client.evaluate("document.querySelector('[data-language=en]').click()");
+    assert.match(await client.evaluate("document.querySelector('[data-i18n=deviceWaitDebuggerCopy]').textContent"),/does not attach.*does not enable Unity C#/);
+    await client.evaluate("document.getElementById('home').click()");
+    assert.equal(await client.evaluate("document.getElementById('device-card').hidden"),true);
+    assert.equal(server.requests.some(row=>['/api/run','/api/plan'].includes(row.path)),false);
+    assert.equal(client.events.filter(row=>row.method==='Runtime.exceptionThrown').length,0);
+    await client.command('Page.reload');await client.chooseHome('device');
+    assert.equal(await client.evaluate("document.getElementById('device-wait-debugger').checked"),false,'debug mode is not persisted');
   }finally{try{await client?.close();}finally{await server.close();}}
  });

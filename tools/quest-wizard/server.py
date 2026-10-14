@@ -450,6 +450,7 @@ class LocalServer(ThreadingHTTPServer):
             with self.device_lock:
                 self.device_state = {"status": "scanning" if operation == "storage-preview" else
                                     "cleaning" if operation == "storage-clean" else
+                                    "starting" if operation == "start" else
                                     "connecting" if operation == "connect" else "capturing",
                                      "operation": operation, "devices": [], "progress": {"done": 0, "total": None}}
             def progress(value):
@@ -860,6 +861,13 @@ class Handler(BaseHTTPRequestHandler):
                     raise WizardError("request_body", "Expected a Quest connection selection.",
                                       "Eine Quest-Verbindung auswählen.")
                 return self.server.manage_device(parsed.path.rsplit("/", 1)[-1], value)
+            if parsed.path == "/api/device/start":
+                if (set(value) != {"host", "serial", "waitForDebugger"}
+                        or any(not isinstance(value[key], str) or len(value[key]) > 256 for key in ("host", "serial"))
+                        or type(value["waitForDebugger"]) is not bool):
+                    raise WizardError("request_body", "Select a Quest and a debugger yes/no choice.",
+                                      "Eine Quest und eine Ja/Nein-Auswahl für den Debugger angeben.")
+                return self.server.manage_device("start", value)
             if parsed.path == "/api/device/storage-clean":
                 if (set(value) != {"planId"} or not isinstance(value["planId"], str)
                         or not re.fullmatch(r"[a-f0-9]{32}", value["planId"])):

@@ -38,6 +38,7 @@ export class LocalApi {
   deviceStatus() { return this.request('/api/device/status'); }
   deviceConnect(host='',setupWireless=false,serial='') { return this.request('/api/device/connect',{host,setupWireless,serial}); }
   deviceCapture(host='',serial='') { return this.request('/api/device/capture',{host,serial}); }
+  deviceStart(host='',serial='',waitForDebugger=false) { if(typeof waitForDebugger!=='boolean')throw {code:'invalidReply'};return this.request('/api/device/start',{host,serial,waitForDebugger}); }
   deviceStoragePreview(host='',serial='') { return this.request('/api/device/storage-preview',{host,serial}); }
   deviceStorageClean(planId) { if(typeof planId!=='string'||!/^[a-f0-9]{32}$/.test(planId))throw {code:'invalidReply'};return this.request('/api/device/storage-clean',{planId}); }
   deviceCancel() { return this.request('/api/device/cancel',{}); }
@@ -87,6 +88,7 @@ export class PreviewApi {
   async deviceStatus(){return {schema:1,event:'device',state:{status:'idle',devices:[]}};}
   async deviceConnect(){throw {code:'preview'};}
   async deviceCapture(){throw {code:'preview'};}
+  async deviceStart(){throw {code:'preview'};}
   async deviceStoragePreview(){throw {code:'preview'};}
   async deviceStorageClean(){throw {code:'preview'};}
   async deviceCancel(){throw {code:'preview'};}

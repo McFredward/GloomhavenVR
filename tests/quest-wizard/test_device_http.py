@@ -28,7 +28,7 @@ class DeviceHttpTests(unittest.TestCase):
         self.capture_path.parent.mkdir(parents=True)
         with zipfile.ZipFile(self.capture_path, "w") as archive:
             archive.writestr("summary.json", '{"hardwareVerified":false}')
-        self.adapter = SimpleNamespace(connect=self.connect, capture=self.capture, download=self.download,
+        self.adapter = SimpleNamespace(connect=self.connect, capture=self.capture, start=self.start, download=self.download,
                                        storage_preview=self.storage_preview, storage_clean=self.storage_clean)
         self.http = server.LocalServer(self.store, ROOT / "tools/quest-wizard-ui",
                                        device_factory=self.factory,
@@ -60,6 +60,11 @@ class DeviceHttpTests(unittest.TestCase):
     def capture(self, options, *, progress, cancel):
         self.calls.append(("capture", options))
         return {"status": "complete", "capture": {"id": self.identity, "name": self.capture_path.name}}
+
+    def start(self, options, *, progress, cancel):
+        self.calls.append(("start", options))
+        return {"status": "debug-wait" if options["waitForDebugger"] else "started",
+                "launch": {"waitForDebugger": options["waitForDebugger"], "processId": 123}}
 
     def download(self, identifier):
         if identifier != self.identity: raise WizardError("capture_unavailable", "Unknown capture.")
@@ -112,6 +117,22 @@ class DeviceHttpTests(unittest.TestCase):
             self.assertEqual(self.request("/api/device/connect", bad)[0], 400)
         self.assertEqual(self.request("/api/device/capture", {"host": "", "serial": "", "path": "../"})[0], 400)
         self.assertEqual(self.calls, [])
+
+    def test_start_requires_authentication_and_exact_explicit_boolean_before_adapter_creation(self):
+        options = {"host": "", "serial": "", "waitForDebugger": False}
+        self.assertEqual(self.request("/api/device/start", options, token=False)[0], 403)
+        for bad in ({"host": "", "serial": ""}, {**options, "waitForDebugger": 0},
+                    {**options, "waitForDebugger": "true"}, {**options, "host": []},
+                    {**options, "command": "shell"}):
+            self.assertEqual(self.request("/api/device/start", bad)[0], 400)
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self.request("/api/device/start", options)[0], 200)
+        self.wait_status("started")
+        options["waitForDebugger"] = True
+        self.assertEqual(self.request("/api/device/start", options)[0], 200)
+        self.wait_status("debug-wait")
+        self.assertEqual([row[1] for row in self.calls if isinstance(row, tuple) and row[0] == "start"],
+                         [{"host": "", "serial": "", "waitForDebugger": False}, options])
 
     def test_connection_reports_progress_and_rejects_competing_build_cleanup_and_device_jobs(self):
         options = {"host": "", "serial": "", "setupWireless": True}

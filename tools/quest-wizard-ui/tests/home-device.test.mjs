@@ -34,7 +34,7 @@ test('capture download accepts only an opaque result ID and an authenticated ZIP
 
 test('the labelled preview cannot connect hardware, collect logs or download captures',async()=>{
   const api=new PreviewApi();assert.equal((await api.deviceStatus()).state.status,'idle');
-  for(const operation of ['deviceConnect','deviceCapture','deviceCancel','deviceDownload','deviceStoragePreview','deviceStorageClean'])await assert.rejects(api[operation](),{code:'preview'});
+  for(const operation of ['deviceConnect','deviceCapture','deviceStart','deviceCancel','deviceDownload','deviceStoragePreview','deviceStorageClean'])await assert.rejects(api[operation](),{code:'preview'});
   assert.ok((await api.storageInventory()).inventory.totalBytes>0);
 });
 
@@ -54,4 +54,20 @@ test('editing just an APK username inherits its ID, while ordinary manual profil
   for(const mode of ['build','update-mod'])assert.throws(()=>choicesFromForm({...form,mode},'en'),/missingProfile/);
   const explicit=choicesFromForm({...form,profileId:'76561198000000001'},'en');
   assert.equal(explicit.profileName,undefined);assert.equal(explicit.profile.providerId,'76561198000000001');
+});
+
+
+test('standalone game starts send an explicit debugger boolean and ordinary launches default to false',async()=>{
+  const calls=[],api=new LocalApi('http://127.0.0.1:1234','local-token',async(url,options)=>{
+    calls.push({path:url.pathname,body:JSON.parse(options.body),headers:options.headers});
+    return {ok:true,json:async()=>({schema:1,event:'device',state:{status:'started'}})};
+  });
+  await api.deviceStart();await api.deviceStart('','usb-fixture',true);
+  assert.deepEqual(calls.map(({path,body})=>({path,body})),[
+    {path:'/api/device/start',body:{host:'',serial:'',waitForDebugger:false}},
+    {path:'/api/device/start',body:{host:'',serial:'usb-fixture',waitForDebugger:true}}
+  ]);
+  for(const row of calls)assert.equal(row.headers['X-Quest-Token'],'local-token');
+  assert.throws(()=>api.deviceStart('','','true'),{code:'invalidReply'});
+  assert.equal(calls.length,2);
 });

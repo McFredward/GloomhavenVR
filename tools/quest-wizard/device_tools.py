@@ -92,6 +92,14 @@ def _options(value, capture=False):
             "serial": serial or None, "setup": value.get("setupWireless", False)}
 
 
+def _start_options(value):
+    if (not isinstance(value, dict) or set(value) != {"host", "serial", "waitForDebugger"}
+            or type(value["waitForDebugger"]) is not bool):
+        raise WizardError("device_options", "Select a Quest and an explicit debugger yes/no choice.",
+                          "Eine Quest und eine ausdrückliche Ja/Nein-Auswahl für den Debugger angeben.")
+    return _options({key: value[key] for key in ("host", "serial")}, capture=True), value["waitForDebugger"]
+
+
 class DeviceTools:
     def __init__(self, repo, state_root, runner=None):
         self.repo, self.root = Path(repo), ordinary(state_root)
@@ -195,6 +203,9 @@ class DeviceTools:
         if args[:2] == ["shell", "getprop"]: return "device-properties"
         if args[:2] == ["shell", "logcat"]: return "logcat-history" if "-s" in args else "logcat"
         if args[:2] == ["shell", "dumpsys"] or args[:2] == ["shell", "pm"]: return "installed-package"
+        if args[:3] == ["shell", "cmd", "package"]: return "game-launcher"
+        if args[:3] == ["shell", "am", "start"]: return "game-start"
+        if args[:2] == ["shell", "pidof"]: return "game-process"
         if "head" in args: return "log-transfer"
         if "stat" in args: return "log-metadata"
         return "quest-command"
@@ -284,11 +295,11 @@ class DeviceTools:
         self._cancel(cancel)
         self.started = time.monotonic()
         self.remote_sizes = {}
-        self.total = 4 if operation == "connect" else None
+        self.total = 4 if operation == "connect" else 7 if operation == "start" else None
         self.cleanup_plan = None
         self.cleanup_helper = None
         self._publish(progress, progress={"done": 0, "total": self.total, "percent": 0, "label": "adb-setup"}, activity=None,
-            status="connecting", operation=operation, capture=None, storagePlan=None, storageResult=None,
+            status="connecting", operation=operation, capture=None, storagePlan=None, storageResult=None, launch=None,
             startedAt=time.time(), log=None, error=None,
             message={"en": "Preparing Android platform-tools; missing tools are downloaded automatically.",
                      "de": "Android platform-tools vorbereiten; fehlende Werkzeuge werden automatisch heruntergeladen."})
@@ -375,6 +386,88 @@ class DeviceTools:
                 "en": "Quest connected over " + ("USB" if transport == "usb" else "Wi-Fi") + ". The verified headset identity is remembered.",
                 "de": "Quest über " + ("USB" if transport == "usb" else "WLAN") + " verbunden. Die geprüfte Headset-Identität ist gespeichert."})
         except (Cancelled, WizardError, OSError, ValueError, RuntimeError) as error:
+            return self._failure(error, progress)
+
+    def start(self, options, progress=None, cancel=None):
+        """Launch independently of installation, with opt-in Android debugging.
+
+        The maintainer's 2026-10-14 ruling separates debugger use from ordinary
+        installation. This action never opens app storage or attaches JDWP. Only
+        this request's explicit choice adds Android's transient -D start flag;
+        no persistent debugger setting, port forwarding or process stop is used.
+        An observed PID is a process witness, not proof of visible gameplay.
+        """
+        selected, debug = _start_options(options)
+        try:
+            installer, collector, config, adb = self._begin("start", progress, cancel)
+            if selected["host"]: selected["host"] = installer.endpoint(selected["host"])
+            serial, hardware, transport = collector.choose_capture_device(adb, SimpleNamespace(**selected), config)
+            self._cancel(cancel)
+            atomic_json(self.config, installer.connection_settings(config, serial, hardware, adb.executable))
+            self._step(progress, 3, self.total, "installed-package", status="starting", serial=serial,
+                       hardwareSerial=hardware, transport=transport,
+                       message={"en": "Checking the installed game before requesting its launch.",
+                                "de": "Installiertes Spiel vor der Startanforderung prüfen."})
+            raw = adb.run("-s", serial, "shell", "pm", "path", "--user", "0", installer.PACKAGE,
+                          check_text=False, empty_exit_codes=(1,))
+            if not raw:
+                raise WizardError("device_game_missing", "Install the Quest version before starting the game.",
+                                  "Vor dem Spielstart die Quest-Version installieren.")
+            if len(raw) > 16384 or not re.fullmatch(r"package:/data/app/[A-Za-z0-9_./=+~-]+/base\.apk", raw):
+                raise WizardError("device_game_identity", "The installed game could not be identified. Keep it installed and collect a support report.",
+                                  "Das installierte Spiel konnte nicht zugeordnet werden. Installation behalten und Diagnosepaket speichern.")
+            self._step(progress, 4, self.total, "game-launcher")
+            recovery = installer.signing_recovery_module()
+            raw = adb.run("-s", serial, "shell", "cmd", "package", "resolve-activity", "--brief", "--user", "0",
+                          "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER", installer.PACKAGE,
+                          check_text=False)
+            component = raw.splitlines()[-1] if raw and len(raw) <= 8192 else ""
+            try: arguments = recovery.launcher_arguments(component)
+            except RuntimeError as error:
+                raise WizardError("device_game_launcher", "Android did not identify GloomhavenVR's launcher. Keep the installation and collect a support report.",
+                                  "Android konnte den GloomhavenVR-Start nicht zuordnen. Installation behalten und Diagnosepaket speichern.") from error
+            def process_id():
+                self._cancel(cancel)
+                value = adb.run("-s", serial, "shell", "pidof", installer.PACKAGE,
+                                check_text=False, empty_exit_codes=(1,))
+                if not value: return None
+                if not re.fullmatch(r"[1-9][0-9]{0,9}", value) or int(value) > 2147483647:
+                    raise WizardError("device_game_process", "Android returned an ambiguous game process. Close GloomhavenVR in the headset and retry.",
+                                      "Android meldet keinen eindeutigen Spielprozess. GloomhavenVR in der Brille schließen und erneut versuchen.")
+                return int(value)
+            before = process_id()
+            if debug and before is not None:
+                raise WizardError("device_debug_game_running", "Close GloomhavenVR in the headset first, saving your game if needed. Then start again with the debugger option.",
+                                  "GloomhavenVR zuerst in der Brille schließen und bei Bedarf den Spielstand speichern. Danach mit der Debugger-Option erneut starten.")
+            self._step(progress, 5, self.total, "game-start", message={
+                "en": "Requesting the game launch" + (" with the selected Android debugger wait." if debug else "."),
+                "de": "Spielstart anfordern" + (" mit dem gewählten Warten auf einen Android-Debugger." if debug else ".")})
+            self._cancel(cancel)
+            if adb.identity(serial) != hardware:
+                raise WizardError("device_game_identity", "The connection now belongs to another Quest. Reconnect the selected headset and retry.",
+                                  "Die Verbindung gehört inzwischen zu einer anderen Quest. Ausgewählte Brille erneut verbinden und wiederholen.")
+            adb.run("-s", serial, "shell", "am", "start", *(["-D"] if debug else []), "--user", "0", *arguments, timeout=30)
+            self._step(progress, 6, self.total, "game-process")
+            pid = None
+            for attempt in range(5):
+                pid = process_id()
+                if pid is not None: break
+                if attempt < 4:
+                    if cancel is not None:
+                        if cancel.wait(.2): raise Cancelled()
+                    else: time.sleep(.2)
+            launch = {"waitForDebugger": debug, "processId": pid, "requestAcknowledged": True}
+            if pid is None:
+                return self._step(progress, 7, self.total, "game-start-observed", status="waiting", launch=launch,
+                    message={"en": "Android acknowledged the launch, but no game process was observed. Put on and unlock the Quest, then retry or open GloomhavenVR under Unknown Sources. Collect game logs if it closes again.",
+                             "de": "Android hat den Start angenommen, aber es wurde kein Spielprozess erkannt. Quest aufsetzen und entsperren, dann erneut versuchen oder GloomhavenVR unter „Unbekannte Quellen“ öffnen. Falls es sich wieder schließt, Spielprotokolle speichern."})
+            return self._step(progress, 7, self.total, "game-start-observed", status="debug-wait" if debug else "started", launch=launch,
+                message={"en": "Game process started with Android debugger wait requested. Attach your Android/Java debugger; the Builder does not attach automatically. This is separate from Unity C# debugging." if debug else "Game process observed. Continue in the Quest; use Collect game logs if a problem occurs.",
+                         "de": "Spielprozess mit angefordertem Warten auf einen Android-Debugger gestartet. Android-/Java-Debugger verbinden; der Builder verbindet ihn nicht automatisch. Dies ist unabhängig vom Unity-C#-Debugging." if debug else "Spielprozess erkannt. In der Quest fortfahren; bei Problemen die Spielprotokolle speichern."})
+        except (Cancelled, WizardError, OSError, ValueError, RuntimeError) as error:
+            if isinstance(error, Cancelled): return self._failure(error, progress)
+            if isinstance(error, WizardError):
+                return self._publish(progress, status="waiting", error={"code": error.code}, message=error.message)
             return self._failure(error, progress)
 
     def capture(self, options, progress=None, cancel=None):

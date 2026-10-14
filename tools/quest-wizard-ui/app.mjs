@@ -207,7 +207,7 @@ function storageSize(bytes) {
   const amount=Math.max(0,Number(bytes)||0),scale=amount>=1073741824?1073741824:amount>=1048576?1048576:amount>=1024?1024:1;
   return new Intl.NumberFormat(language,{maximumFractionDigits:1}).format(amount/scale)+' '+({1:'B',1024:'KiB',1048576:'MiB',1073741824:'GiB'}[scale]);
 }
-function deviceActive(){return deviceBusy||['preparing','connecting','capturing','scanning','cleaning','cancelling'].includes(deviceInfo?.state?.status);}
+function deviceActive(){return deviceBusy||['preparing','connecting','starting','capturing','scanning','cleaning','cancelling'].includes(deviceInfo?.state?.status);}
 function packageActive(){return packageBusy||packageInfo?.state?.status==='exporting';}
 function renderPackage(){
   const available=discovery?.capabilities?.portablePackages===true;
@@ -281,7 +281,7 @@ function renderDevice(){
   $('device-card').hidden=discovery?.capabilities?.deviceTools!==true||page!=='device';
   if(discovery?.capabilities?.deviceTools!==true)return;
   const current=deviceInfo?.state??{},active=deviceActive(),locked=busy||isActive(state)||storageActive()||packageActive()||active||!canConnect;
-  for(const id of ['device-connect','device-wireless','device-capture','device-storage-preview','device-host','device-serial'])$(id).disabled=locked;
+  for(const id of ['device-connect','device-wireless','device-start','device-wait-debugger','device-capture','device-storage-preview','device-host','device-serial'])$(id).disabled=locked;
   $('device-cancel').hidden=!active;$('device-cancel').disabled=deviceBusy||current.status==='cancelling';
   const devices=Array.isArray(current.devices)?current.devices:[],key=devices.map(row=>[row.serial,row.state,row.model].join(':')).join('|');
   if($('device-serial').dataset.devices!==key){
@@ -336,7 +336,7 @@ async function deviceOperation(operation){
   deviceBusy=true;clearError();clearTimeout(devicePollTimer);updateView();
   try{
     const host=$('device-host').value.trim(),serial=$('device-serial').value;
-    const result=operation==='capture'?await api.deviceCapture(host,serial):operation==='storage-preview'?await api.deviceStoragePreview(host,serial):await api.deviceConnect(host,operation==='wireless',serial);
+    const result=operation==='capture'?await api.deviceCapture(host,serial):operation==='start'?await api.deviceStart(host,serial,$('device-wait-debugger').checked):operation==='storage-preview'?await api.deviceStoragePreview(host,serial):await api.deviceConnect(host,operation==='wireless',serial);
     if(result?.event!=='device'||!result.state)throw {code:'invalidReply'};deviceInfo=result;
   }catch(value){deviceInfo={schema:1,event:'device',state:{status:'failed',message:value?.message??t(value?.code??'offline')}};}
   finally{deviceBusy=false;updateView();scheduleDevicePoll();}
@@ -1327,6 +1327,7 @@ $('package-cancel').addEventListener('click',async()=>{try{packageInfo=await api
 $('home').addEventListener('click',()=>navigatePage(-1,'home-title'));
 $('device-connect').addEventListener('click',()=>deviceOperation('connect'));
 $('device-wireless').addEventListener('click',()=>deviceOperation('wireless'));
+$('device-start').addEventListener('click',()=>deviceOperation('start'));
 $('device-capture').addEventListener('click',()=>deviceOperation('capture'));
 $('device-storage-preview').addEventListener('click',()=>deviceOperation('storage-preview'));
 $('device-storage-clean').addEventListener('click',openDeviceCleanupDialog);
