@@ -306,7 +306,16 @@ The portable core is `scripts/install-quest-wireless.py`.
 
 Installation first uses `adb install -r`. A genuine signing conflict uses the
 existing save/settings recovery before replacement, retaining owned game content
-where Android permits it. Keep the output's `signing/quest.keystore` and private
+where Android permits it. If the installed replacement cannot start its safe
+storage-restoration process, the Wizard offers a manual Quest-library start
+after arming a debugger wait, or an explicitly confirmed clean reinstall.
+The latter deletes current and archived Quest saves/settings, retains existing
+PC backups without replaying them, and reuses the completed APK. Missing game
+banks need normal transfer again; clean reinstall is unavailable without the
+complete local content package. Retry never implies reset consent. See the
+[capture191308 recovery contract](../../.planning/QUEST-INSTALL-OPTIONS-191308-20261014.md).
+
+Keep the output's `signing/quest.keystore` and private
 `signing/local-key.json` to avoid unnecessary signing migration. These files are never included in
 the APK, source snapshot, reports or command arguments. On Unix their permissions
 are restricted to the local user. Android SDK/NDK/JDK overrides are available as
