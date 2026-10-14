@@ -31,6 +31,7 @@ class LocalDevice:
 
     def __init__(self, root):
         self.root = root
+        self.log = root.parent / "adb.log"
         self.calls = []
         self.pushed_files = []
         self.fail_after_directory = None

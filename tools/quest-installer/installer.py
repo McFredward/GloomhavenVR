@@ -1055,15 +1055,59 @@ def _stream_content_file(adb, address, local, remote, row, timeout, report=None,
             except InstallError as error: log_event({"retainedUploadStaging": str(error)[:1000]})
 
 
+def _prepare_content_parents(adb, address, root, rows):
+    """Create only manifested parents in shell, without SYNC ownership writes.
+
+    Capture 20261014T200458 proves shell mkdir and a small ordinary push work,
+    but SYNC's secure_mkdirs rejects the first fresh StreamingAssets directory.
+    AOSP's secure_mkdirs chowns directories only when it creates them; existing
+    directories avoid that failing metadata operation. Prepare exact ancestors
+    before the fast transfer, never discover or traverse an installed tree.
+    """
+    parents = {root}
+    for row in rows:
+        parts = row["path"].split("/")
+        parents.update(root + "/" + "/".join(parts[:end]) for end in range(1, len(parts)))
+    ordered = sorted(parents, key=lambda path: (path.count("/"), path))
+    for offset in range(0, len(ordered), 128):
+        lines = []
+        for path in ordered[offset:offset + 128]:
+            quoted = shlex.quote(path)
+            lines += ["test ! -L " + quoted, "mkdir -p " + quoted,
+                      "test ! -L " + quoted, "test -d " + quoted]
+        _content_shell(adb, address, lines, timeout=30)
+    for offset in range(0, len(rows), 128):
+        _content_shell(adb, address, ["test ! -L " + shlex.quote(root + "/" + row["path"])
+                                    for row in rows[offset:offset + 128]], timeout=30)
+
+
+def _checkpoint_content_files(adb, address, root, rows, checkpoint):
+    """Journal only this interrupted batch's independently qualified files."""
+    if not checkpoint or not rows:
+        return
+    if not re.fullmatch(r"[0-9a-f]{64}", checkpoint):
+        raise InstallError("Invalid content checkpoint identity.")
+    journal = shlex.quote(root + "/" + _FILE_JOURNAL)
+    for offset in range(0, len(rows), 128):
+        lines = ["test ! -L " + journal]
+        lines += ["printf '\\n%s\\n' " + shlex.quote(json.dumps(dict(row, key=checkpoint), separators=(",", ":")))
+                  + " >> " + journal for row in rows[offset:offset + 128]]
+        _content_shell(adb, address, lines, timeout=30)
+
+
 def _push_content(adb, address, local, remote, *, timeout, rows, report=None, checkpoint=None):
-    """Keep sync's fast path; repair only its observed Android fchown failure."""
+    """Keep fast SYNC delivery; repair only observed ownership metadata errors."""
     local = Path(local)
+    raw_addresses = getattr(adb, "_raw_content_addresses", set())
     if local.is_dir():
         if not rows or any(not _content_path(row.get("path")) for row in rows):
             raise InstallError("Directory upload requires exact manifested content paths.")
         for row in rows: _content_bank_root(remote.rstrip("/") + "/" + row["path"])
+        root = _content_bank_root(remote.rstrip("/") + "/" + rows[0]["path"])
+        if address not in raw_addresses:
+            _prepare_content_parents(adb, address, root, rows)
     else: _content_bank_root(remote)
-    raw_addresses = getattr(adb, "_raw_content_addresses", set())
+    interrupted_sync = False
     if address not in raw_addresses:
         try:
             adb.run("-s", address, "push", local, remote, timeout=timeout)
@@ -1073,14 +1117,28 @@ def _push_content(adb, address, local, remote, *, timeout, rows, report=None, ch
                 adb.wait_for_connection(address)
                 # Sync left an uncertain partial batch. Switch this attempt to
                 # atomic single-file delivery instead of blindly replaying it.
-            elif not re.search(r"remote fchown failed:\s*Operation not permitted", str(error)):
+            elif not re.search(r"remote (?:fchown(?:\(\))? failed(?: uid: -?[0-9]+ gid: -?[0-9]+)?|"
+                               r"secure_mkdirs(?:\(\))? failed):\s*Operation not permitted", str(error)):
                 raise
             else:
                 print("Android rejected sync ownership metadata; using verified binary content upload.", flush=True)
             raw_addresses = {*raw_addresses, address}; adb._raw_content_addresses = raw_addresses
+            interrupted_sync = True
     if local.is_dir():
+        accepted = {}
+        if interrupted_sync:
+            # A failed recursive push can have completed earlier files. Qualify
+            # only this bounded batch, then journal them before further writes;
+            # do not resend accepted bytes or scan/hash the installed bank.
+            sizes = _remote_content_sizes(adb, address, root, rows)
+            candidates = [row for row in rows if sizes.get(row["path"]) == row["size"]]
+            accepted = _matching_remote_content(adb, address, root, candidates)
+            _checkpoint_content_files(adb, address, root, list(accepted.values()), checkpoint)
         for row in rows:
             target = remote.rstrip("/") + "/" + row["path"]
+            if row["path"] in accepted:
+                if report: report(row["size"], row["size"], target)
+                continue
             while True:
                 try:
                     _stream_content_file(adb, address, local.parent / row["path"], target, row, timeout, report, checkpoint)
