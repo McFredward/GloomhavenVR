@@ -123,6 +123,25 @@ class FakeAdb:
 
 
 class InstallerTests(unittest.TestCase):
+    def test_recovery_choice_requires_device_binding_and_cannot_be_access_only(self):
+        for arguments in (("--reset-app-data", "a" * 32),
+                          ("--manual-storage-launch", "a" * 32),
+                          ("--recovery-device", "HARDWARE-1"),
+                          ("--repair-app-access", "--reset-app-data", "a" * 32, "--recovery-device", "HARDWARE-1")):
+            with self.subTest(arguments=arguments):
+                self.assertEqual(self.run_cli(*arguments), 1)
+                self.assertEqual(self.fake.calls, [])
+
+    def test_reset_without_local_game_content_stops_before_any_device_command(self):
+        from types import SimpleNamespace
+        source = SimpleNamespace(content=(installer.ContentFile(self.root / "missing-game-content.zip",
+                                                                "quest-owned-game", "b" * 64, 11025189977),))
+        with mock.patch.object(installer, "select_source", return_value=source):
+            self.assertEqual(self.run_cli("--reset-app-data", "a" * 32, "--recovery-device", "HARDWARE-1"), 1)
+        self.assertEqual(self.fake.calls, [])
+        self.assertIn("No app data was removed", self.error)
+        self.assertIn("complete ZIP/output", self.error)
+
     def test_signing_recovery_policy_preserves_standalone_default_and_explicit_wizard_selection(self):
         self.assertEqual(installer.parser().parse_args([]).recovery_data_policy, "saves")
         self.assertEqual(installer.parser().parse_args(["--recovery-data-policy", "all"]).recovery_data_policy, "all")
