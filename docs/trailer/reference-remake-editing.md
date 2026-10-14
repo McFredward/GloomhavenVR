@@ -15,10 +15,168 @@ additionalUSD5 (`Freigegeben - leg los`). The total authorized cap is nowUSD45.
 `production/budget-authorization-45-usd.json` records the approval; root raised
 the private ledger ceiling under its lock while preserving every existing job.
 The historicalUSD40 boundary below explains the previous pause, not a current
-restriction. Cinematic v4 completes O01/A04 without a per-shot user approval gate.
+restriction. The initial cinematic v4 round targeted O01/A04 without a per-shot
+user approval gate; the follow-up below supersedes its O01 approval.
 All generated videos and the working-v3 export remain preserved.
 
-### Cinematic v4 production
+### Current continuity rule and model prompting
+
+The maintainer explicitly permits a somewhat different environment, provided
+it stays coherent throughout the shot. Sudden wall reconstruction is a rejected
+AI artifact. The new guide-to-native-end attempt was also rejected by the
+maintainer: changing the guide's room into the exact native party ending still
+creates architectural deformation. Root retracts its preliminary raw approval.
+The request and normalized diagnostic remain preserved, never promoted.
+
+O01 ends at the original hard cut to the logo at7.000s. The selected free repair
+therefore reuses the earlier generated entry alone and ends in its own world;
+it removes the entire return phase and original-party endpoint morph. This is
+an editorial interpretation of the latest continuity clarification: the last
+party picture changes, while the exact240-frame window, initial source black,
+native logo cut, complete audio clock and all later footage remain fixed.
+For a continuous live-action join elsewhere, endpoint neighborhoods still need
+to match; a hard title cut does not require reconstructing another room first.
+
+Official prompting research, checked2026-10-14:
+
+- [Kling3.0 Omni's guide](https://kling.ai/quickstart/klingai-video-3-omni-model-user-guide)
+  directs editing users to its O1 guide. That
+  [editing guide](https://kling.ai/quickstart/klingai-video-o1-user-guide)
+  distinguishes adding an image/element to an existing video from generating
+  a transition between endpoint images. Choose the task before writing prompts.
+- [fal's video-editing guide](https://fal.ai/learn/tools/how-to-edit-videos-with-ai)
+  recommends a bounded change, named preserved content and explicit reference
+  tags. Start with one coherent change. Keep mask and hand identities in their
+  actual references instead of repeatedly redescribing every existing hero.
+- [fal's Kling3.0 prompting guide](https://blog.fal.ai/kling-3-0-prompting-guide/)
+  recommends explicit subject/camera motion and treating an input still as an
+  anchor. For this project, describe one natural gesture in a single shot;
+  do not combine a new lens, new room, six actor performances and an incompatible
+  native ending in the same short request. This last restriction is our
+  production inference from the failed clips, not a provider guarantee.
+- The current [Kling O3 editing API](https://fal.ai/models/fal-ai/kling-video/o3/pro/video-to-video/edit/api)
+  accepts the actual source clip as `video_url`, referenced as `@Video1`;
+  `@Element1`/`@Element2` bind subject references. Images plus elements share a
+  limit of four. Its exposed schema has no editable-region mask or preservation
+  strength control. A preservation clause is therefore a soft instruction;
+  exact unchanged pixels require original-plate compositing and verification.
+  Retain the local2500-character edit-prompt preflight discovered from provider
+  validation. Do not apply it as an invented limit on every other endpoint.
+
+Concrete unsubmitted local-edit prompt, with native Runeveil and Arcane glove
+registered as two elements:
+
+```text
+Local addition to @Video1: add the giant floating mask from @Element1 high
+above the mercenaries, looking down at Tinkerer. Its chin stays above the
+tallest hero. The detached glove from @Element2 descends from the upper-left,
+makes one relaxed downward direction gesture, then withdraws upward.
+Match the source torchlight, depth blur and foreground occlusion.
+Keep the original camera path, walls, pillars, torch positions, six heroes,
+weapons, timing and lighting throughout. Only the added mask and glove move
+differently. Preserve the source shot without adding a new angle or transition.
+```
+
+This prompt is a prepared alternative, not an executed call or claimed repair.
+For I2V, use a single coherent guide and one motion description; do not supply
+a different original-room endpoint solely to satisfy an unnecessary title join.
+Review every raw model frame in order for background deformation before any
+normalization, then inspect interpolated motion, faces, fingers, contact,
+occlusion, markings and text at delivery resolution. Reject defects instead of
+extending a dissolve to hide them. New calls remain stopped at USD44.85 reserved
+against USD45; the entry-only repair uses no new generation.
+
+### Corrected cinematic v5 export
+
+The corrected opening is selected and root-approved for local review:
+`ai-edits-v5/O01-background/entry-only-matched-v6/matched-interaction.mkv`,
+SHA256`0c9cdc31428dbaac103862d0a756161c9f7acda4a321e6b71e7edb3883d26771`.
+It uses all73 original entry frames, slowed to240/60fps with optical-flow
+interpolation. First25 native black frames and every measured black core are
+exact. The final party image is its own generated endpoint, not the original
+party; no exit phase or native-party tail is mixed back in. Runeveil and its
+pointing hand remain visible when the native title cut occurs.
+
+Root reviewed all73 raw frames chronologically in five contact sheets,
+13 individual raw cues,29 normalized cues and19 actual final-export context
+cues, including the last party image and first logo images. The independent
+worker reviewed the same73-frame sequence,20 normalized cues and13 corrected
+context cues. The torch facade, stairs and sun banner remain one coherent
+setting. Mild film softness and optical-flow softness remain; this is a bounded
+visual approval, not a universal claim that every pixel is artifact-free.
+
+The complete selected movie is
+`ai-edits-v5/full-timeline-v1/reference-remake-cinematic-v5.mp4`,
+290152951 bytes, SHA256
+`e8278d2ab7c420fe0044340bbdea5c84959b3c56512b26b2c664a705c1baaf29`.
+It retains14810 frames at1080p60 and the246.861s container clock. Only the
+first7s is encoded anew. The remaining14390 H264 packets retain exact payloads,
+timestamps and decode timestamps from v4; the entire AAC stream is also byte-
+and timestamp-identical. The native title, I01/A04, all Flat gameplay, cards,
+UI and later branding therefore inherit their unchanged v4 evidence.
+
+Nine new focused copy/decode/clock checks pass. All420 re-encoded prefix frames
+pass the fan-mark luminance/outline check; the unchanged14390-frame tail
+inherits its earlier check. Complete video/audio decoding passes. This is a
+focused repair gate, not another13-check full assembly run. The first mux
+automatically inserted redundant SPS/PPS headers at native keyframes; disabling
+concat auto conversion with identical codec configuration preserved the exact
+original packets. Both intermediates remain preserved. No game/runtime gate,
+new subjective listening approval or headset result is claimed.
+
+The private `ai-edits-v5/REVIEW.html` and `START-HERE.html` select this movie.
+The six additional cinematic proposals below remain planning work, so the
+expanded cinematic phase is not complete. The latest failedUSD0.50 model trial
+remains reserved and rejected; the selected repair costs no further inference.
+
+### Background diagnosis and additional scenes
+
+The maintainer's subsequent review found a world-continuity defect in O01:
+the generated torch facade changes into a different courtyard around local
+3.2–3.7 seconds (whole-film6.2–6.7s). Root confirmed this in the model interior;
+the earlier endpoint and black-band checks did not establish background
+continuity. The v4 approval below is historical evidence, superseded for O01.
+Keep its complete movie and every raw attempt for comparison.
+
+Free source-background composites removed that morph but made the mask read
+as an oversized foreground layer. They remain diagnostics, not replacements.
+A new guide used the native ending's broad rectangular pilasters, recessed
+panels and red drape, with modestly wider framing for the high player. One
+continuous4s Kling O3 Pro start/end request replaced the previous two-phase
+world construction. It reserved USD0.50: total reservations are USD44.85 of
+USD45, leaving USD0.15. Current provider pricing is USD0.112 per generated
+second without audio, nominally USD0.448 for this shot
+([official model page](https://fal.ai/models/fal-ai/kling-video/o3/pro/image-to-video)).
+The maintainer rejected that repair trial for another progressive wall change.
+It remains a preserved diagnostic. A guide or exact endpoint did not establish
+world continuity; the selected entry-only correction above removes this entire
+model result from the timeline.
+
+The maintainer also requests more than three cinematic edits. Free analysis
+identifies four priority additions and two quieter alternatives:
+
+| Original window | Proposed addition | Main constraint |
+| --- | --- | --- |
+| 110.283–116.400s | Grimhorn/Runeveil coordinate Scoundrel and Mindthief in the red cavern | Preserve native angles, attacks and effect clock. |
+| 130.300–132.900s | Grimhorn indicates a mercenary in the class formation | Retain exact native class emblems; stop before title entry. |
+| 166.217–168.900s | Ironwatch's hand assists the already-opening rune door | Native rune and entire far aperture remain original plates. |
+| 189.317–192.983s | Runeveil gently positions Tinkerer before his shot | Use this first continuous shot; later portrait cuts stay native. |
+| 171.100–175.617s, alternative | One Arcane hand indicates the mine route through the existing light shaft | No invented roof opening or moving scenery. |
+| 175.617–178.917s, alternative | Ironwatch inspects bandit and undead threats | Preserve the internal native cut; never help enemy attacks. |
+
+Two optional forest atmosphere inserts are separate short settings, not one
+continuous interaction: camp14.4–15.883s and blue graveyard15.883–17.9s.
+The early battle and final combat montage also contain multiple short cuts;
+do not advertise them as long uninterrupted grab/release shots. Four priority
+additions would bring the cinematic windows to seven; including both quiet
+alternatives would bring them to nine, subject to successful guide/video review.
+These are identified proposals, not generated scenes or new spending approval.
+The German private review page is
+`remake-v1/expansion-v1/MEHR-SZENEN.html`; exact frame ranges and actual source
+witnesses are in `scene-expansion-plan.json` and `late-analysis/` beside it.
+All Flat gameplay remains until the later genuine VR capture exchange.
+
+### Historical cinematic v4 production
 
 The new paid round conservatively reserves USD4.35, bringing all reservations
 to USD44.35 against the approved USD45 ceiling. Invoice reconciliation remains

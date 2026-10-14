@@ -8,8 +8,8 @@ replaced by new genuine VR capture. Preserve the original narrator/text/timing
 with minor GloomhavenVR name patches. The edit must have visually unobtrusive
 joins, source-faithful figures/materials and continuous unofficial branding.
 The active [reference-remake-plan.json](reference-remake-plan.json) records38
-planning windows,25 recording tasks plus a capture check, four proposed AI edits
-and current edit-model research. The private German briefing and capture list
+initial planning windows,25 recording tasks plus a capture check, the initial
+AI candidates and six follow-up proposals with prompting research. The private German briefing and capture list
 are under `.planning/debug/trailer/remake-v1/`. The first A04 video-edit result
 and its source-preserving composite remain historical review material.
 See [reference-remake-editing.md](reference-remake-editing.md) for the active
@@ -24,12 +24,40 @@ and soundtrack clock match. Vary single players and multiplayer across Ironwatch
 Runeveil and Grimhorn. The latest instruction authorizes autonomous completion
 and self-review of the entire film without per-shot user approval pauses.
 
-The current cinematic plan has three useful windows: Runeveil directs the party
+**Latest follow-up,2026-10-14:** the maintainer requests additional cinematic
+VR scenes and reports O01's visible background transformation. Root confirms
+the generated facade-to-courtyard change around whole-film6.2–6.7s; the earlier
+v4 review missed world continuity. The single continuous native-hall attempt
+also changes its wall structure and was rejected by the maintainer. It reserved
+USD0.50 within the existing USD45 cap. A free entry-only repair now keeps one
+coherent generated world through the existing hard logo cut at7s, instead of
+forcing a return to the original party room. The maintainer permits a changed
+environment if it remains consistent. The explicit motion/reference prompting
+research and unsubmitted editing alternative are documented in the editing
+guide. The corrected complete v5 movie is now root-reviewed at
+`ai-edits-v5/full-timeline-v1/reference-remake-cinematic-v5.mp4`; only the first7s
+is encoded anew, while every later video packet and the whole AAC stream remain
+identical to v4. Root reviewed the entire73-frame original entry sequence,
+29 normalized cues and19 complete-export opening/context cues. Nine focused
+media checks and the fan-mark check on all420 prefix frames pass; unchanged
+areas inherit their previous evidence. All reservations
+now total USD44.85, leaving USD0.15; no failed-job reservation is released.
+Free analysis identifies four priority new windows (cooperation, class reveal,
+rune door and Tinkerer formation) plus two quieter alternatives (mine route and
+threat inspection). They would expand three edits to seven or, with the two
+alternatives, nine. These additions are planned only. Two brief forest shots
+are further atmosphere options. See the follow-up table in
+[reference-remake-editing.md](reference-remake-editing.md) and the private
+`expansion-v1/MEHR-SZENEN.html` review page. Original gameplay remains for later
+genuine VR recordings. The completion statements below describe the previous
+three-scene v4 milestone, not completion of this expanded scope.
+
+The previous cinematic plan had three inserted windows: Runeveil directs the party
 in the opening3.000–7.000s; Ironwatch guides the rocky party warrior in the
 client scene139.950–145.700s; Grimhorn and Runeveil coordinate early hero
-placement in the forest217.200–223.783333s. The class-unlock party shot remains
-original because its early gold lettering and rapid silhouette reveal leave
-insufficient natural contact time. All original Flat gameplay remains for the
+placement in the forest217.200–223.783333s. The class-unlock party shot remained
+original in v4. New analysis isolates its short text-free prefix before the
+title; use a restrained gesture and protect native symbols. All original Flat gameplay remains for the
 later native VR recording exchange.
 
 The completed `ai-edits-v2/` movie is a historical placement diagnosis. Its
