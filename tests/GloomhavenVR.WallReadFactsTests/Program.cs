@@ -167,6 +167,13 @@ namespace GloomhavenVR.Core
         internal static int Reads;
         internal static bool SharedWallReadCacheOn { get { Reads++; return SharedWallReadCache; } }
     }
+    internal static class WaterTerrainVR
+    {
+        // The real owner lifetime is exercised by the separate Unity water suite.
+        // This counted classifier fixture controls its exact ownership verdict.
+        internal static readonly HashSet<Renderer> Owned = new();
+        internal static bool IsOwnedWaterSurface(Renderer renderer) => Owned.Contains(renderer);
+    }
     internal static partial class WallSegmentFade
     {
         internal static int Run() => FadeDriver.Run();
@@ -242,6 +249,7 @@ namespace GloomhavenVR.Core
                 driver.NativeSelectionVisuals();
                 driver.NativeTransientOwnership();
                 driver.ActorParticleSignatures();
+                driver.OwnedWaterProtection();
                 driver.BudgetMasks();
                 driver.PreparedReadLifetime();
                 driver.PreparedPublicationGate();
@@ -407,6 +415,27 @@ namespace GloomhavenVR.Core
                 SurveyOwned(actorMesh);
                 Check(_sceneFoldedRows == 1 && _factWallFade.Count == 1,
                     "Actor ancestry never exempts a structural or wall-shader mesh");
+            }
+
+            private void OwnedWaterProtection()
+            {
+                foreach (string shader in new[] { "GloomhavenVR/WaterVR", "GloomhavenVR/Overlay" })
+                {
+                    var film = Renderer(Mat(shader));
+                    var fact = new RendererFact { Mesh = film };
+                    ClassifyMaterialsAndName(film, ref fact);
+                    Check(!fact.WaterSurface, "Generic mod shaders never infer water ownership");
+                    WaterTerrainVR.Owned.Add(film);
+                    ClassifyMaterialsAndName(film, ref fact);
+                    Check(fact.WaterSurface, "Exact owned water retains the fountain protection input");
+                    WaterTerrainVR.Owned.Remove(film);
+                    ClassifyMaterialsAndName(film, ref fact);
+                    Check(!fact.WaterSurface, "Retired ownership never protects a foreign overlay");
+                }
+                var native = Renderer(Mat("VFX/Water_Shd_Trans_Low"));
+                var nativeFact = new RendererFact { Mesh = native };
+                ClassifyMaterialsAndName(native, ref nativeFact);
+                Check(nativeFact.WaterSurface, "Native water retains protection before adoption");
             }
 
             private void VisualCloneOwnership()

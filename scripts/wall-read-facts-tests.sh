@@ -7,7 +7,7 @@ if ! command -v dotnet >/dev/null 2>&1 && [[ -x "$HOME/.dotnet/dotnet" ]]; then
 fi
 export PATH="${DOTNET_ROOT:-$HOME/.dotnet}:$PATH"
 project="$repo_root/tests/GloomhavenVR.WallReadFactsTests/GloomhavenVR.WallReadFactsTests.csproj"
-mutations=(material-no-cache material-retained figure-no-cache figure-retained gate-inverted phase-unbounded material-bypass-ignored figure-bypass-ignored selection-owner-broadened drawing-force-ignored masked-restitution-lost prepared-cross-frame prepared-label-unshared prepare-room-gate-omitted mirror-owner-ignored mirror-cache-ignored mirror-cache-unbounded mirror-wall-signature-unconditional mirror-death-reclassified root-selection-owner-broadened root-selection-owner-ignored waypoint-parent-broadened waypoint-owner-ignored action-prefab-broadened action-parked-omitted native-water-veto-omitted native-wall-veto-omitted native-live-owner-omitted)
+mutations=(material-no-cache material-retained figure-no-cache figure-retained gate-inverted phase-unbounded material-bypass-ignored figure-bypass-ignored selection-owner-broadened drawing-force-ignored masked-restitution-lost prepared-cross-frame prepared-label-unshared prepare-room-gate-omitted mirror-owner-ignored mirror-cache-ignored mirror-cache-unbounded mirror-wall-signature-unconditional mirror-death-reclassified root-selection-owner-broadened root-selection-owner-ignored waypoint-parent-broadened waypoint-owner-ignored action-prefab-broadened action-parked-omitted native-water-veto-omitted native-wall-veto-omitted native-live-owner-omitted owned-water-veto-omitted)
 if (($#)); then
     mutations=()
     while (($#)); do
@@ -65,8 +65,9 @@ changes = {
     'native-water-veto-omitted': ('shader.IndexOf("Water_Sh", System.StringComparison.OrdinalIgnoreCase) >= 0', 'bool.Parse("false")'),
     'native-wall-veto-omitted': ('IsWallFadeShaderName(shader)', 'bool.Parse("false")'),
     'native-live-owner-omitted': ('if (!cold && f.Particles) f.Mod = f.ModPresentation || IsNativeNonWallPresentation(r);', '// injected: immutable native pooled ownership'),
+    'owned-water-veto-omitted': ('water = WaterTerrainVR.IsOwnedWaterSurface(r)', 'water = false'),
 }
-if mutation in ('figure-retained', 'gate-inverted', 'phase-unbounded', 'figure-bypass-ignored', 'mirror-cache-unbounded', 'mirror-wall-signature-unconditional', 'mirror-death-reclassified', 'native-live-owner-omitted'):
+if mutation in ('figure-retained', 'gate-inverted', 'phase-unbounded', 'figure-bypass-ignored', 'mirror-cache-unbounded', 'mirror-wall-signature-unconditional', 'mirror-death-reclassified', 'native-live-owner-omitted', 'owned-water-veto-omitted'):
     source = root / 'src/GloomhavenVR/Core/WallFade/WallSegmentFade.cs'
 extra_sources = {
     'selection-owner-broadened': 'WallSegmentFade.SelectionFacts.cs',
@@ -131,6 +132,7 @@ PY
         native-water-veto-omitted) property=SelectionFactsSource; expected='Published waypoint water remains a protection input' ;;
         native-wall-veto-omitted) property=SelectionFactsSource; expected='Published waypoint with a real wall shader remains a table input' ;;
         native-live-owner-omitted) property=DriverSource; expected='Reparented unpublished waypoint fails conservative on warm ownership' ;;
+        owned-water-veto-omitted) property=DriverSource; expected='Exact owned water retains the fountain protection input' ;;
     esac
     if [[ "$mutation" == phase-unbounded ]]; then
         if python3 "$repo_root/tests/GloomhavenVR.WallReadFactsTests/extract-driver.py" \

@@ -622,8 +622,11 @@ internal static class NetProtocol
     // preserve bounded placement discovery and avoid steady-state hierarchy rescans.
     // Audit all four native water shaders, fourteen high/LCM materials and forty-five
     // original loader assignments, including decorative ponds and DLC sluice films.
-    // Replace only native water slots; preserve source tint, normals, queue, unrelated
-    // slots, native rewrites and conditional restoration. Solid basin/probe tuning
+    // Replace only native water slots; preserve source tint, normals, transparent
+    // queues, unrelated slots, native rewrites and conditional restoration. Opaque
+    // native queues enter the transparent phase on the private alpha film only:
+    // actual Camera.Render proves later opaque/cutout ground otherwise erases it.
+    // Solid basin/probe tuning
     // remains terrain-only. Exact live water ownership preserves fountain wall-fade
     // protection after shader substitution, including the generic Overlay fallback.
     // No gameplay/network state, shader asset, configuration default or TLV changes.
