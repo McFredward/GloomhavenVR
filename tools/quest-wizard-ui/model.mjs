@@ -86,6 +86,23 @@ export function installationView(state) {
      parameters.repairAttempts>=1&&parameters.repairAttempts===parameters.repairTotalAttempts&&parameters.repairTotalAttempts<=64){
     view.repairWait={reason:parameters.repairReason,root:parameters.repairRoot,attempts:parameters.repairAttempts,totalAttempts:parameters.repairTotalAttempts};
   }
+  if(view.repairWait&&parameters.requiresRestoreChoice===true&&
+     ['restore-app-access','restore-app-storage-unavailable','restore-app-launch-unavailable'].includes(view.repairWait.reason)){
+    const nonce=parameters.installationActionNonce,transaction=parameters.restoreChoiceTransaction,device=parameters.restoreChoiceDeviceSerial;
+    const declared=state.installationAction;
+    const bound=validIdentity&&sessionId(state.session)!==null&&typeof nonce==='string'&&/^[a-f0-9]{32}$/.test(nonce)&&
+      typeof transaction==='string'&&/^[a-f0-9]{32}$/.test(transaction)&&typeof device==='string'&&/^[A-Za-z0-9_.:-]{1,256}$/.test(device)&&
+      declared?.nonce===nonce&&declared.session===state.session&&declared.kind==='restore-choice'&&
+      declared.reason===view.repairWait.reason&&declared.transaction===transaction&&declared.deviceSerial===device&&
+      declared.attempt===install.attempts&&declared.inputKey===build.details?.inputKey&&declared.apkSha256===build.details?.apkSha256;
+    view.canManualLaunch=bound&&parameters.manualLaunchAvailable===true;
+    view.canResetAppData=bound&&parameters.resetAppDataAvailable===true;
+    if(view.canManualLaunch||view.canResetAppData)view.restoreActionNonce=nonce;
+  }
+  if(state.status==='running'&&install.status==='running'&&install.progress?.phase==='install-recovery-manual-launch'&&
+     !['complete','reuse'].includes(install.progress.operationStatus)){
+    view.manualLaunchWaiting=true;
+  }
   if(attention&&action?.code==='quest_signing_data_required'&&parameters.saveDataProtected===true&&
      ['save-data-inaccessible','non-save-inaccessible'].includes(parameters.recoveryDataReason)){
     view.dataIssue=parameters.recoveryDataReason;

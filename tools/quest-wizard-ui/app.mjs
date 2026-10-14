@@ -20,6 +20,8 @@ let qualification=null,resumeFailed=null,restoredSession=null,sessionGeneration=
 let automaticBaseApk='',workflowMode=null,workflowPage=0;
 let packageInfo=null,packageBusy=false,packagePollTimer=null,automaticPackageSource='',automaticPackageDestination='';
 let eventsUnavailable=false,stageLogUnavailable=false,lastFailureFocus='',eventsRequest=null,stageLogRequest=null;
+let pendingRestoreChoice=null;
+let manualLaunchWaitSince=null;
 let buildFocus=false;const buildGroupChoices=new Map();
 let publisherArtwork=[],ownedArtwork=[],artworkSource='';
 const reducedMotion=matchMedia('(prefers-reduced-motion:reduce)');
@@ -49,6 +51,7 @@ function setLanguage(value) {
   $('gallery-pause').textContent=t(slidePaused?'galleryPlay':'galleryPause');
   showSlide(slideIndex);
   if(discovery) renderGames();updateView();
+  renderRestoreChoiceDialog();
 }
 function form() { return {gameRoot:$('game-root').value,provider:$('provider').value,unityEditor:$('unity-editor').value,hostSystem:discovery?.host?.system,
   mode:$('build-mode').value,baseApk:$('base-apk').value,signingRoot:$('signing-root').value,signingMode:$('signing-mode').value,
@@ -858,7 +861,7 @@ function renderProgress() {
   const active=isActive(state),stopped=['failed','cancelled','interrupted'].includes(state.status),blocked=state.status==='blocked',done=state.status==='complete';
   if(state.requestError)error(state.requestError);
   const failure=failureView(state);
-  const installation=installationView(state),installIssue=installation?.attention===true,connectionWait=installation?.connectionWaiting===true;
+  const installation=installationView(state),installIssue=installation?.attention===true,connectionWait=installation?.connectionWaiting===true,manualWait=installation?.manualLaunchWaiting===true;
   // Show connection setup as soon as installation begins, before a missing
   // device can become an error. Signing/corrupt-package failures retain their
   // distinct cause rather than sending the owner through unrelated USB steps.
@@ -892,9 +895,10 @@ function renderProgress() {
       $('action-needed-title').textContent=t(launch?'installationLaunchWaitAction':storage?'installationStorageWaitAction':'installationRepairWaitAction');
     }
   }else if(installation&&active){
-    $('progress-title').textContent=t(connectionWait?'questConnectionWaitingTitle':installation.recoveryActive?'installationRecoveryRunningTitle':'installationRunningTitle');
-    $('progress-copy').textContent=t(connectionWait?'questConnectionWaitingCopy':installation.recoveryActive?'installationRecoveryRunningCopy':'installationRunningCopy');
+    $('progress-title').textContent=t(manualWait?'installationManualWaitingTitle':connectionWait?'questConnectionWaitingTitle':installation.recoveryActive?'installationRecoveryRunningTitle':'installationRunningTitle');
+    $('progress-copy').textContent=t(manualWait?'installationManualWaitingCopy':connectionWait?'questConnectionWaitingCopy':installation.recoveryActive?'installationRecoveryRunningCopy':'installationRunningCopy');
     if(connectionWait)$('action-needed-title').textContent=t('questConnectionNeeded');
+    if(manualWait)$('action-needed-title').textContent=t('installationManualWaitingAction');
   }
   const progress=progressView(state);
   if(!logSelectionManual&&(progress.active??progress.current)?.id)$('log-stage').value=(progress.active??progress.current).id;
@@ -909,15 +913,20 @@ function renderProgress() {
   const memory=nativeMemoryView(progress.active??progress.current),resourceWait=active&&memory?.waiting===true;
   // Exhausted transfer methods are not a successfully repaired backup. Keep
   // their actual counts in the detail line, without a misleading100% repair bar.
-  const hasSubstep=!done&&!installation?.repairWait&&sub.phase&&!['pending','starting','complete'].includes(sub.phase);
+  const hasSubstep=!done&&!manualWait&&!installation?.repairWait&&sub.phase&&!['pending','starting','complete'].includes(sub.phase);
   $('progress-detail').textContent=[progress.retaining?t('retainedProgress'):'',!hasSubstep&&sub.phase?substepLabel(sub):'',imported?importSummary(imported):counters(sub),memory?memorySummary(memory):imported?.detail??workDetail(sub),waiting?t('waitingSince',{seconds:Math.max(0,Math.floor(Date.now()/1000-waiting.since))}):''].filter(Boolean).join(' · ');
+  if(manualWait){
+    const owner=state.session+':'+state.stages.find(row=>row.id==='install')?.attempts;
+    if(manualLaunchWaitSince?.owner!==owner)manualLaunchWaitSince={owner,since:Date.now()};
+    $('progress-detail').textContent=t('installationManualWaitingElapsed',{seconds:Math.max(0,Math.floor((Date.now()-manualLaunchWaitSince.since)/1000))});
+  }else manualLaunchWaitSince=null;
   $('progress-completed').hidden=done;
   $('progress-completed').textContent=workSummary(sub);
   renderTiming(progress.current,resourceWait,connectionWait);
   const activity=activityView(progress.active??progress.current);
   $('activity-status').hidden=!active||Boolean(waiting);
   $('activity-status').classList.toggle('quiet',!resourceWait&&!connectionWait&&activity?.quiet===true);
-  $('activity-status').textContent=t(connectionWait?'questConnectionWaitingActivity':resourceWait?'memoryWaitActivity':activity?.quiet?'activityQuiet':activity?'activityRecent':'activityUnknown',{duration:durationText(activity?.seconds??0)});
+  $('activity-status').textContent=t(manualWait?'installationManualWaitingActivity':connectionWait?'questConnectionWaitingActivity':resourceWait?'memoryWaitActivity':activity?.quiet?'activityQuiet':activity?'activityRecent':'activityUnknown',{duration:durationText(activity?.seconds??0)});
   $('log-status').hidden=!eventsUnavailable&&!stageLogUnavailable;$('log-status').textContent=t('logUnavailable');
   renderBuildOverview();
   $('substep-progress').hidden=!hasSubstep;
@@ -936,9 +945,9 @@ function renderProgress() {
     const bar=document.createElement('progress');bar.max=100;bar.setAttribute('aria-label',t('stage_'+stage.id)+' · '+t('stageTotal'));bar.value=measured.percent;label.append(bar);
     const status=document.createElement('span');status.className='stage-state';status.textContent=t('measuredPercent',{percent:percentText(measured.percent)})+' · '+t(stage.id==='install'&&connectionWait?'waiting':measured.waiting?'blocked':displayed);li.append(marker,label,status);$('stage-list').append(li);
   }
-  const action=active&&!waiting?null:state.needsActions?.[0];$('action-needed').hidden=!action&&!blocked&&!stopped&&!connectionWait;
+  const action=active&&!waiting?null:state.needsActions?.[0];$('action-needed').hidden=!action&&!blocked&&!stopped&&!connectionWait&&!manualWait;
   $('action-needed').classList.toggle('failure',Boolean(failure)&&!installation?.connectionRequired);
-  $('action-needed').classList.toggle('installation',installIssue||connectionWait);
+  $('action-needed').classList.toggle('installation',installIssue||connectionWait||manualWait);
   const retainedWait=Boolean(installation?.dataIssue||installation?.repairWait||installation?.contentReinstallRequired);
   $('action-needed').setAttribute('role',installation?.connectionRequired||retainedWait?'status':failure||installIssue?'alert':'status');
   const cause=retainedWait||installation?.connectionRequired||connectionWait?null:installIssue?installation.cause:failure?.cause;
@@ -954,9 +963,12 @@ function renderProgress() {
   $('install-skip').hidden=!installation?.canSkip;$('install-skip').disabled=locked;
   $('install-keep-saves').hidden=!installation?.canUseSaves;$('install-keep-saves').disabled=locked;
   $('install-content-reinstall').hidden=!installation?.canReinstallContent;$('install-content-reinstall').disabled=locked||deviceActive();
+  $('install-manual-launch').hidden=!installation?.canManualLaunch;$('install-manual-launch').disabled=locked||deviceActive();
+  $('install-reset-app-data').hidden=!installation?.canResetAppData;$('install-reset-app-data').disabled=locked||deviceActive();
   $('failure-support').hidden=preview||discovery?.capabilities?.support!==true;
   $('failure-support').disabled=supportBusy||!sessionId(state.session);
-  if(connectionWait)$('action-needed-copy').textContent=t('questConnectionWaitingCopy');
+  if(manualWait)$('action-needed-copy').textContent=t('installationManualWaitingCopy');
+  else if(connectionWait)$('action-needed-copy').textContent=t('questConnectionWaitingCopy');
   else if(action||blocked||stopped){const blockedStage=state.stages?.find(stage=>stage.status==='blocked');const code=typeof action==='string'?action:action?.code??blockedStage?.details?.needsAction;
     const hint=action?.message?message(action.message):blockedStage?.details?.message?message(blockedStage.details.message):t('action_'+code)!=='action_'+code?t('action_'+code):t('unknownAction');
     const phase=action?.parameters?.failureStage;const stageName=phase?t('phase_stage_'+phase):action?.stage?t('stage_'+action.stage):progress.current?t('stage_'+progress.current.id):'';
@@ -967,6 +979,12 @@ function renderProgress() {
       :installation?.repairWait
       ?t('installationRepairReason_'+installation.repairWait.reason)+' '+t(installation.repairWait.reason==='restore-app-launch-unavailable'?'installationLaunchWaitNext':installation.repairWait.reason==='restore-app-storage-unavailable'?'installationStorageWaitNext':installation.repairWait.reason==='restore-app-access'?'installationRestoreWaitNext':'installationRepairWaitNext')
       :(stageName?stageName+': ':'')+hint;}
+  if(installation?.canManualLaunch||installation?.canResetAppData){
+    $('action-needed-copy').textContent=t(installation.canManualLaunch&&installation.canResetAppData?'installationRestoreChoicesNext':
+      installation.canManualLaunch?'installationRestoreManualOnlyNext':'installationRestoreResetOnlyNext');
+    if(installation.backupPath)$('action-needed-copy').textContent+=' '+t('installationRecoveryBackup',{path:installation.backupPath});
+  }
+  if(pendingRestoreChoice&&(state.session!==pendingRestoreChoice.session||installation?.restoreActionNonce!==pendingRestoreChoice.nonce))closeRestoreChoiceDialog();
   const failureKey=installIssue?state.session+':install:'+installation.cause:failure?state.session+':'+failure.stage+':'+failure.cause:'';
   if(failureKey&&failureKey!==lastFailureFocus){$('action-needed').focus({preventScroll:true});$('action-needed').scrollIntoView({block:'nearest'});}
   lastFailureFocus=failureKey;
@@ -1130,6 +1148,48 @@ async function allowContentReinstall(){
     await api.run(session);const current=await api.status(session);state=current.state;await poll();schedulePoll();
   }catch(value){error(value);}finally{busy=false;updateView();}
 }
+function closeRestoreChoiceDialog(){
+  pendingRestoreChoice=null;
+  if($('install-restore-dialog').open)$('install-restore-dialog').close();
+  $('install-reset-acknowledged').checked=false;
+}
+function renderRestoreChoiceDialog(){
+  if(!pendingRestoreChoice)return;
+  const reset=pendingRestoreChoice.choice==='reset-app-data';
+  $('install-restore-dialog').dataset.choice=pendingRestoreChoice.choice;
+  $('install-restore-dialog-title').textContent=t(reset?'installationResetConfirmTitle':'installationManualConfirmTitle');
+  $('install-restore-dialog-copy').textContent=t(reset?'installationResetConfirmCopy':'installationManualConfirmCopy');
+  $('install-manual-instructions').hidden=reset;
+  $('install-reset-acknowledgment').hidden=!reset;
+  $('install-restore-confirm').textContent=t(reset?'installationResetConfirm':'installationManualConfirm');
+  $('install-restore-confirm').disabled=reset&&!$('install-reset-acknowledged').checked;
+}
+function showRestoreChoiceDialog(choice){
+  const installation=installationView(state),available=choice==='manual-launch'?installation?.canManualLaunch:choice==='reset-app-data'?installation?.canResetAppData:false;
+  if(!available||busy||actionBusy||storageActive()||deviceActive()||packageActive()||isActive(state)||!canConnect||resumeFailed)return;
+  pendingRestoreChoice={session:state.session,nonce:installation.restoreActionNonce,choice};
+  $('install-reset-acknowledged').checked=false;
+  $('install-restore-dialog-error').hidden=true;
+  renderRestoreChoiceDialog();$('install-restore-dialog').showModal();
+  // Reset is never the default action or preselected acknowledgment. Returning
+  // to the protected installation is the initial keyboard focus for that choice.
+  $(choice==='reset-app-data'?'install-restore-cancel':'install-restore-confirm').focus();
+}
+async function confirmRestoreChoice(){
+  const requested=pendingRestoreChoice,installation=installationView(state);
+  const available=requested?.choice==='manual-launch'?installation?.canManualLaunch:requested?.choice==='reset-app-data'?installation?.canResetAppData:false;
+  if(!available||state.session!==requested?.session||installation.restoreActionNonce!==requested.nonce||
+     requested.choice==='reset-app-data'&&!$('install-reset-acknowledged').checked||
+     busy||actionBusy||storageActive()||deviceActive()||packageActive()||isActive(state)||!canConnect||resumeFailed){closeRestoreChoiceDialog();return;}
+  const {session,nonce,choice}=requested;
+  closeRestoreChoiceDialog();busy=true;clearError();clearTimeout(pollTimer);sessionGeneration++;stopOptionalReads();updateView();
+  try{
+    const result=await api.installRestoreChoice(session,nonce,choice);
+    if(result?.event!=='status'||result.session!==session||result.state?.session!==session)throw {code:'invalidReply'};
+    state=result.state;
+    await api.run(session);const current=await api.status(session);state=current.state;await poll();schedulePoll();
+  }catch(value){error(value);}finally{busy=false;updateView();}
+}
 async function browse(kind) {
   busy=true;clearError();updateView();try{const result=await api.browse(kind);if(result.path){$(({game:'game-root',unity:'unity-editor',apk:'base-apk'})[kind]).value=result.path;if(kind==='game')selected=null;if(kind==='apk')automaticBaseApk='';}}
   catch(value){error(value);}finally{busy=false;updateView();}
@@ -1229,6 +1289,12 @@ $('failure-retry').addEventListener('click',primary);
 $('install-skip').addEventListener('click',skipInstallation);
 $('install-keep-saves').addEventListener('click',keepSavesAndInstall);
 $('install-content-reinstall').addEventListener('click',allowContentReinstall);
+$('install-manual-launch').addEventListener('click',()=>showRestoreChoiceDialog('manual-launch'));
+$('install-reset-app-data').addEventListener('click',()=>showRestoreChoiceDialog('reset-app-data'));
+$('install-reset-acknowledged').addEventListener('change',renderRestoreChoiceDialog);
+$('install-restore-confirm').addEventListener('click',confirmRestoreChoice);
+$('install-restore-cancel').addEventListener('click',closeRestoreChoiceDialog);
+$('install-restore-dialog').addEventListener('cancel',()=>{pendingRestoreChoice=null;$('install-reset-acknowledged').checked=false;});
 $('log-stage').addEventListener('change',()=>{logSelectionManual=true;if($('live-log').checked)refreshLog();});
 document.querySelector('#diagnostic-details').addEventListener('toggle',()=>{if(document.querySelector('#diagnostic-details').open&&$('live-log').checked)refreshLog();});
 $('load-log').addEventListener('click',()=>void refreshLog());

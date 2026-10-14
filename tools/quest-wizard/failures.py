@@ -242,7 +242,15 @@ def installation_failure(text, parameters):
                                estimatedBytes=value["estimatedBytes"], contentReinstallReason=value["reason"],
                                contentReinstallTransaction=value["transaction"], contentReinstallDeviceSerial=value["deviceSerial"]))
                 repair_fields = {"schema", "kind", "reason", "saveDataProtected", "attempts", "totalAttempts", "root"}
-                if (isinstance(value, dict) and set(value) == repair_fields
+                restore_fields = {"requiresRestoreChoice", "manualLaunchAvailable", "resetAppDataAvailable", "transaction", "deviceSerial"}
+                restore_choice = (isinstance(value, dict) and set(value) == repair_fields | restore_fields
+                    and value["requiresRestoreChoice"] is True
+                    and type(value["manualLaunchAvailable"]) is bool and type(value["resetAppDataAvailable"]) is bool
+                    and (value["manualLaunchAvailable"] or value["resetAppDataAvailable"])
+                    and value["reason"] in ("restore-app-access", "restore-app-storage-unavailable", "restore-app-launch-unavailable")
+                    and isinstance(value["transaction"], str) and re.fullmatch(r"[0-9a-f]{32}", value["transaction"])
+                    and isinstance(value["deviceSerial"], str) and re.fullmatch(r"[A-Za-z0-9_.:-]{1,256}", value["deviceSerial"]))
+                if (isinstance(value, dict) and (set(value) == repair_fields or restore_choice)
                         and type(value["schema"]) is int and value["schema"] == 1
                         and value["kind"] == "signing-repair-wait"
                         and value["reason"] in ("backup-census-mismatch", "backup-transfer-unavailable", "restore-app-access", "restore-app-storage-unavailable", "restore-app-launch-unavailable")
@@ -253,18 +261,23 @@ def installation_failure(text, parameters):
                     restore = value["reason"] == "restore-app-access"
                     storage = value["reason"] == "restore-app-storage-unavailable"
                     launch = value["reason"] == "restore-app-launch-unavailable"
+                    choices = ({"requiresRestoreChoice": True, "manualLaunchAvailable": value["manualLaunchAvailable"],
+                        "resetAppDataAvailable": value["resetAppDataAvailable"], "restoreChoiceTransaction": value["transaction"],
+                        "restoreChoiceDeviceSerial": value["deviceSerial"]} if restore_choice else {})
                     return WizardError("quest_signing_repair_wait",
-                        ("The Quest is reachable and awake, but Android did not start the app for storage restoration. Retry installation. If the app still does not start, export installation diagnostics. The completed APK and original save backups are retained; no APK rebuild or save reset is performed."
+                        ("Automatic restoration is paused. Choose one of the available options below, retry installation, or finish without installing. Removing all Quest app data and reinstalling requires a separate explicit confirmation; existing PC backups are retained and will not be restored automatically. The completed APK is not rebuilt."
+                         if restore_choice else "The Quest is reachable and awake, but Android did not start the app for storage restoration. Retry installation. If the app still does not start, export installation diagnostics. The completed APK and original save backups are retained; no APK rebuild or save reset is performed."
                          if launch else "The Quest is reachable and the APK is ready, but automatic restoration could not access the app's external storage. Keep the retained backups and retry installation. If access remains unavailable, export diagnostics for this restoration step. The APK is not rebuilt and saves are not reset."
                          if storage else "The APK is ready, but Android cannot yet open the app's writable storage to restore its saves and settings. Wear and unlock the Quest, keep it awake and connected, then retry installation. Retained backups are kept; the APK is not rebuilt and saves are not reset."
                          if restore else "The completed APK and existing saves are retained. Automatic repair tried the available safe backup transfers, but this data backup is not ready. Keep the Quest awake and connected and retry installation, or finish without installing. No save reset is performed."),
-                        ("Die Quest ist erreichbar und wach. Android hat die App zum Wiederherstellen der Daten dennoch nicht gestartet. Installation erneut versuchen. Startet die App weiterhin nicht, die Installationsdiagnose exportieren. Die fertige APK und ursprünglichen Spielstand-Sicherungen bleiben erhalten; die APK wird nicht neu gebaut und Spielstände werden nicht zurückgesetzt."
+                        ("Die automatische Wiederherstellung wartet. Eine der unten angebotenen Möglichkeiten wählen, die Installation erneut versuchen oder ohne Installation abschließen. Alle App-Daten auf der Quest löschen und neu installieren ist nur nach gesonderter ausdrücklicher Bestätigung möglich; vorhandene PC-Sicherungen bleiben erhalten und werden nicht automatisch wiederhergestellt. Die fertige APK wird nicht neu gebaut."
+                         if restore_choice else "Die Quest ist erreichbar und wach. Android hat die App zum Wiederherstellen der Daten dennoch nicht gestartet. Installation erneut versuchen. Startet die App weiterhin nicht, die Installationsdiagnose exportieren. Die fertige APK und ursprünglichen Spielstand-Sicherungen bleiben erhalten; die APK wird nicht neu gebaut und Spielstände werden nicht zurückgesetzt."
                          if launch else "Die Quest ist erreichbar und die APK ist fertig. Die automatische Wiederherstellung konnte den externen App-Speicher noch nicht öffnen. Vorhandene Sicherungen behalten und die Installation erneut versuchen. Bleibt der Zugriff gesperrt, das Diagnosepaket für diesen Wiederherstellungsschritt exportieren. Die APK wird nicht neu gebaut und Spielstände werden nicht zurückgesetzt."
                          if storage else "Die APK ist fertig. Android kann den beschreibbaren App-Speicher zum Wiederherstellen der Spielstände und Einstellungen noch nicht öffnen. Quest aufsetzen, entsperren, eingeschaltet und verbunden lassen, dann die Installation erneut versuchen. Vorhandene Sicherungen bleiben erhalten; die APK wird nicht neu gebaut und Spielstände werden nicht zurückgesetzt."
                          if restore else "Die fertige APK und vorhandene Spielstände bleiben erhalten. Die automatische Reparatur hat die verfügbaren sicheren Übertragungswege versucht; diese Datensicherung ist noch nicht bereit. Quest eingeschaltet und verbunden lassen und die Installation erneut versuchen oder ohne Installation abschließen. Spielstände werden nicht zurückgesetzt."),
                         **dict(fields, signingRecovery=True, saveDataProtected=True,
                                repairReason=value["reason"], repairRoot=value["root"],
-                               repairAttempts=value["attempts"], repairTotalAttempts=value["totalAttempts"]))
+                               repairAttempts=value["attempts"], repairTotalAttempts=value["totalAttempts"], **choices))
                 expected = {"schema", "kind", "reason", "policy", "saveDataProtected"}
                 if (isinstance(value, dict) and set(value) == expected
                         and type(value["schema"]) is int and value["schema"] == 1

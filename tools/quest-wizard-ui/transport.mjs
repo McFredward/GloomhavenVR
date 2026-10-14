@@ -60,6 +60,7 @@ export class LocalApi {
   run(session) { return this.request('/api/run',{session}); }
   skipInstall(session) { if(!sessionId(session))throw {code:'invalidReply'};return this.request('/api/install/skip',{session}); }
   installDataPolicy(session,nonce,policy='saves') { if(!sessionId(session)||typeof nonce!=='string'||!/^[a-f0-9]{32}$/.test(nonce)||policy!=='saves')throw {code:'invalidReply'};return this.request('/api/install/data-policy',{session,nonce,policy}); }
+  installRestoreChoice(session,nonce,choice) { if(!sessionId(session)||typeof nonce!=='string'||!/^[a-f0-9]{32}$/.test(nonce)||!['manual-launch','reset-app-data'].includes(choice))throw {code:'invalidReply'};return this.request('/api/install-restore-choice',{session,nonce,choice}); }
   installContentReinstall(session,nonce) { if(!sessionId(session)||typeof nonce!=='string'||!/^[a-f0-9]{32}$/.test(nonce))throw {code:'invalidReply'};return this.request('/api/install/content-reinstall',{session,nonce}); }
   cancel(session) { return this.request('/api/cancel',{session}); }
   log(session,stage,signal) { if(!sessionId(session)||!stageIds.includes(stage))throw {code:'invalidReply'};return this.request('/api/log?session='+encodeURIComponent(session)+'&stage='+stage,undefined,signal); }
@@ -92,6 +93,7 @@ export class PreviewApi {
   async action() {throw {code:'preview'};}
   async skipInstall() {throw {code:'preview'};}
   async installDataPolicy() {throw {code:'preview'};}
+  async installRestoreChoice() {throw {code:'preview'};}
   async installContentReinstall() {throw {code:'preview'};}
   constructor() { this.sequence=0; this.state=null; this.eventsList=[]; this.tick=0; }
   async discover() { return {schema:1,event:'discovery',capabilities:{browse:false,artwork:false,deviceTools:true,storageInventory:true},games:[

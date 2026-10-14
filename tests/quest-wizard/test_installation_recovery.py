@@ -182,6 +182,40 @@ class InstallationFailureTests(unittest.TestCase):
         self.assertLessEqual(len(error.parameters["cause"]), 2048)
         self.assertEqual(error.parameters["backupPath"], "/owned/current")
 
+    def test_restore_choices_require_a_current_complete_device_transaction_declaration(self):
+        action = {"schema": 1, "kind": "signing-repair-wait", "reason": "restore-app-launch-unavailable",
+                  "saveDataProtected": True, "attempts": 2, "totalAttempts": 2, "root": "external",
+                  "requiresRestoreChoice": True, "manualLaunchAvailable": True, "resetAppDataAvailable": True,
+                  "transaction": "a" * 32, "deviceSerial": "Quest-serial_01"}
+        def declared(value):
+            return self.failure("GHVRQ_ACTION " + json.dumps(value) + "\nQuest installation stopped: "
+                "Signing migration could not safely continue: No process started. Original recovery data is retained "
+                "at /owned/current. Retry with the same APK and headset.\n")
+        error = declared(action)
+        self.assertEqual(error.code, "quest_signing_repair_wait")
+        self.assertTrue(error.parameters["requiresRestoreChoice"])
+        self.assertTrue(error.parameters["manualLaunchAvailable"])
+        self.assertTrue(error.parameters["resetAppDataAvailable"])
+        self.assertEqual(error.parameters["restoreChoiceTransaction"], action["transaction"])
+        self.assertEqual(error.parameters["restoreChoiceDeviceSerial"], action["deviceSerial"])
+        self.assertIn("gesonderter ausdrücklicher Bestätigung", error.message["de"])
+        self.assertIn("not be restored automatically", error.message["en"])
+        for reason in ("restore-app-access", "restore-app-storage-unavailable", "restore-app-launch-unavailable"):
+            self.assertTrue(declared(dict(action, reason=reason)).parameters["requiresRestoreChoice"])
+        for field, bad in (("requiresRestoreChoice", False), ("manualLaunchAvailable", 1), ("resetAppDataAvailable", 1),
+                           ("deviceSerial", "../foreign"), ("transaction", "b" * 31),
+                           ("reason", "backup-census-mismatch"), ("saveDataProtected", False)):
+            with self.subTest(field=field):
+                rejected = declared(dict(action, **{field: bad}))
+                self.assertNotIn("requiresRestoreChoice", rejected.parameters)
+        missing = dict(action); del missing["deviceSerial"]
+        self.assertNotIn("requiresRestoreChoice", declared(missing).parameters)
+        self.assertNotIn("requiresRestoreChoice", declared(dict(action, manualLaunchAvailable=False, resetAppDataAvailable=False)).parameters)
+        self.assertNotIn("requiresRestoreChoice", declared(dict(action, arbitrary="untrusted")).parameters)
+        stale = "GHVRQ_ACTION " + json.dumps(action) + "\nQuest installation stopped: old\n" \
+            "Quest installation stopped: Signing migration could not safely continue: current refusal\n"
+        self.assertNotIn("requiresRestoreChoice", self.failure(stale).parameters)
+
     def test_other_stage_unanchored_and_stale_lines_cannot_claim_connection_failure(self):
         for text in ("Earlier: Quest installation stopped: " + MISSING,
                      "Quest installation stopped: No authorized USB Quest is available.unrecognized"):

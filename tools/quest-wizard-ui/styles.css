@@ -308,3 +308,12 @@ h2{font-size:23px}
 .utility-page h2{font-size:24px;margin:0 0 14px;line-height:1.35}
 .utility-page>.hint{margin-bottom:20px}
 .source-selection{overflow-wrap:anywhere}
+.install-restore-dialog{max-width:min(600px,calc(100vw - 40px));box-sizing:border-box;padding:28px;border:1px solid var(--gold);border-radius:12px;background:#15202b;color:var(--text)}
+.install-restore-dialog::backdrop{background:#000b}
+.install-restore-dialog h2{margin:0 0 14px;font-size:23px;line-height:1.35}
+.install-restore-dialog p,.install-restore-dialog li{font-size:14px;line-height:1.6;overflow-wrap:anywhere}
+.install-restore-dialog ol{padding-left:22px;margin:18px 0}
+.install-restore-dialog .checkline{margin:20px 0;align-items:flex-start}
+.install-restore-dialog[data-choice=reset-app-data]{border-color:var(--danger)}
+.install-restore-dialog[data-choice=reset-app-data] #install-restore-confirm{border-color:var(--danger);color:var(--danger)}
+#install-restore-dialog-error{color:var(--danger)}
