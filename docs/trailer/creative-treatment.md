@@ -13,18 +13,19 @@ AI candidates and six follow-up proposals with prompting research. The private G
 are under `.planning/debug/trailer/remake-v1/`. The first A04 video-edit result
 and its source-preserving composite remain historical review material.
 See [reference-remake-editing.md](reference-remake-editing.md) for the active
-pipeline and the current USD55 total cap. The completed65-second film below is retained
+pipeline and the current USD65 total cap. The completed65-second film below is retained
 as the earlier direction, with its sources and cost evidence.
 
-**Expansion checkpoint, 2026-10-14:** all six extra cinematic edits and both
-forest atmospheres are authorized. Four new components (E01/E02/L05/L06) pass
-root review; L01/L02/L03/L04 require further repair. The complete v5 movie remains
-the current selected review until every additional component passes the gated
-assembly. The private v6 progress page exposes the approved clips and all twelve
-preserved raw videos separately. Conservative reservations are USD54.05 of the
-explicit USD55 ceiling, including rejected results and a provider validation
-failure. Historical amounts and completion statements below refer to prior
-milestones, not completion of the current eight-shot expansion.
+**Expansion correction checkpoint, 2026-10-14:** all six additional cinematic
+edits and both forest atmospheres are authorized, with total ceiling USD65 and
+USD58.75 conservatively reserved. Five new components remain root-approved;
+L01/L03 need longer readable interactions and L05 needs moving-cloud continuity.
+Their earlier approvals are withdrawn. The liked O01 Runeveil scene needs its
+Tinkerer restored to the original performance, equipment and two-leg anatomy,
+without changing the surrounding staging. AI-assisted local repairs are in
+progress; the expanded full film is not complete or approved. All generated
+videos, including rejects, remain preserved. The earlier42-video/six-audio audit
+is a historical preservation snapshot, not the current queue state.
 
 **Active interaction direction:** giant native masks look down from high above
 living characters. Hands descend from above with purposeful motion, credible

@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "status": "Eight-shot expansion in progress: four new components root-approved, four require repair; selected full movie remains cinematic v5; original Flat gameplay retained",
+  "status": "User rejected L01/L03 for imperceptibly brief VR additions and L05 for cloud discontinuity; five other new clips retained, AI-assisted revisions in progress. Full expansion assembly withheld.",
   "date": "2026-10-14",
   "source_url": "https://www.youtube.com/watch?v=-SGDEP-zFHo",
   "source_title": "Gloomhaven | Gameplay Overview Trailer",
   "source_duration_seconds": 246.861,
-  "source_format": "YouTube source3840×2160/60fps; analysis proxy1280×720/60fps",
+  "source_format": "YouTube source3840\u00d72160/60fps; analysis proxy1280\u00d7720/60fps",
   "source_frame_review": {
     "scene_frames_viewed": 57,
     "cue_frames_viewed": 82,
@@ -39,26 +39,26 @@
     "geographic_note": "These two mentions name the fictional city/region; preserve Gloomhaven there unless final wording needs adjustment."
   },
   "budget": {
-    "new_paid_calls": 31,
+    "new_paid_calls": 36,
     "new_fal_usd": null,
     "previous_reserved_usd": 29.9,
     "previous_cap_usd": 30,
     "previous_invoice_reconciled": false,
-    "additional_round_cap_usd": 25,
-    "total_authorized_cap_usd": 55,
-    "new_reserved_usd": 24.15,
+    "additional_round_cap_usd": 35,
+    "total_authorized_cap_usd": 65,
+    "new_reserved_usd": 28.85,
     "actual_new_invoice_reconciled": false,
-    "pilot_scope": "User authorized all six new cinematic edits and two forest atmospheres, with USD10 more and an explicit USD55 overall ceiling. Complete-film approval remains pending all eight components.",
+    "pilot_scope": "Five new components approved; three user-rejected revisions and native O01 Tinkerer restoration in progress. Total ceiling65; conservative reservations58.75 including all failures; invoice unreconciled.",
     "initial_three_model_comparison_proposed_usd": 3.75,
     "initial_model_comparison_status": "Not run; only one Kling pilot commissioned",
-    "all_reserved_usd": 54.05,
+    "all_reserved_usd": 58.75,
     "request_states": {
       "all_remake_ledger_states": {
-        "completed": 28,
-        "failed": 2,
-        "queued": 1
+        "completed": 31,
+        "failed": 3,
+        "queued": 2
       },
-      "remake_paid_requests_including_voice_and_failed": 31,
+      "remake_paid_requests_including_voice_and_failed": 36,
       "v4_paid_requests": 8,
       "v4_raw_videos_preserved": 8,
       "v4_timeline_components_selected": 2,
@@ -66,14 +66,15 @@
       "v5_raw_video_requests": 1,
       "v5_raw_video_creative_status": "rejected_by_user; reservation retained"
     },
-    "this_revision_reserved_usd": 10.95,
-    "proposed_total_cap_usd": 55,
+    "this_revision_reserved_usd": 13.9,
+    "proposed_total_cap_usd": 65,
     "budget_extension_pending": false,
-    "unreserved_under_total_cap_usd": 0.95,
+    "unreserved_under_total_cap_usd": 6.25,
     "request_states_note": "Completed state is provider transport/result availability, not creative approval. Selected/rejected clips are recorded separately.",
     "this_v4_reserved_usd": 4.35,
     "this_v5_reserved_usd": 0.5,
-    "this_v6_reserved_usd": 9.2
+    "this_v6_reserved_usd": 13.9,
+    "authorization_receipt": ".planning/debug/trailer/production/budget-authorization-65-usd.json"
   },
   "private_briefing": ".planning/debug/trailer/remake-v1/AUFNAHMEPLAN.html",
   "private_capture_list": ".planning/debug/trailer/remake-v1/AUFNAHMELISTE.txt",
@@ -1367,7 +1368,7 @@
     "root_original_entry_frames_viewed_in_ordered_sheets": 73,
     "independent_master_boundary_actual_frames": 8,
     "independent_pixel_identical_logo_frames": 4,
-    "audio_scope": "Entire AAC stream byte/timestamp-identical to v4, including its earlier authorized6.225–7.575s narrator patch; no new subjective listening claim",
+    "audio_scope": "Entire AAC stream byte/timestamp-identical to v4, including its earlier authorized6.225\u20137.575s narrator patch; no new subjective listening claim",
     "limits": [
       "Generated world differs from native party room but remains coherent, permitted by latest user clarification",
       "Source party last frame deliberately not restored; direct existing hard logo cut at7s",
@@ -1417,7 +1418,7 @@
     "free_repair_status": "root-approved for local review; direct native hard logo cut; no native party endpoint morph"
   },
   "cinematic_expansion": {
-    "status": "In production; E01/E02/L05/L06 root-approved components, L01/L02/L03/L04 repairs pending; no expanded full movie rendered",
+    "status": "Five new components retained; L01/L03 sustained-visibility revisions, L05 temporal cloud repair and original-faithful O01 Tinkerer restoration in progress. Full expansion assembly withheld.",
     "private_review": ".planning/debug/trailer/remake-v1/expansion-v1/MEHR-SZENEN.html",
     "private_exact_plan": ".planning/debug/trailer/remake-v1/expansion-v1/scene-expansion-plan.json",
     "existing_windows": 3,
@@ -1464,13 +1465,13 @@
         "kind": "priority",
         "frames": [
           9973,
-          10134
+          10153
         ],
         "seconds": [
           166.21666666666667,
-          168.9
+          169.21666666666667
         ],
-        "duration_seconds": 2.683333333333333,
+        "duration_seconds": 3,
         "action": "Ironwatch hand assists the already-opening rune door; original rune and entire far aperture remain protected."
       },
       {
@@ -1486,7 +1487,7 @@
           135.58333333333334
         ],
         "duration_seconds": 5.45,
-        "action": "Full continuous native pullback; high downward-looking Grimhorn; original class emblems and title protected. Native-model repair in progress."
+        "action": "Full native pullback; approved high downward-looking Grimhorn with native gold title/emblems and focus shift preserved."
       },
       {
         "id": "L06",
@@ -1528,7 +1529,7 @@
     "flat_gameplay": "Preserved for later genuine VR replacement",
     "private_progress": ".planning/debug/trailer/remake-v1/ai-edits-v6/PROGRESS.html",
     "private_raw_catalogue": ".planning/debug/trailer/remake-v1/ai-edits-v6/RAW-OUTPUTS.html",
-    "budget_for_new_proposals_reserved_usd": 9.2,
+    "budget_for_new_proposals_reserved_usd": 13.9,
     "total_if_all_eight_pass": 11,
     "approved_components": [
       {
@@ -1552,14 +1553,24 @@
         "source_frame_end_exclusive": 1074
       },
       {
-        "id": "L05",
-        "review": ".planning/debug/trailer/remake-v1/ai-edits-v6/L05/root-creative-review.json",
+        "id": "L02",
+        "review": ".planning/debug/trailer/remake-v1/ai-edits-v6/L02/root-creative-review.json",
         "status": "root-approved-for-assembly",
-        "sha256": "b8a496a1e4d6b5cb98ff186f5e6b4d36862a321fbf9b3f9425492438e904e455",
-        "frames": 121,
+        "sha256": "a7ad3db27819d26d4334faeeb65760ab1fdfb39f45a8a1f817ab229627d5c60e",
+        "frames": 327,
         "fps": 60,
-        "source_frame_start": 10537,
-        "source_frame_end_exclusive": 10658
+        "source_frame_start": 7808,
+        "source_frame_end_exclusive": 8135
+      },
+      {
+        "id": "L04",
+        "review": ".planning/debug/trailer/remake-v1/ai-edits-v6/L04/root-creative-review.json",
+        "status": "root-approved-for-assembly",
+        "sha256": "2060227d100c3d8c699e053e92f1aeabe0152201af8688f9390089585080ddda",
+        "frames": 220,
+        "fps": 60,
+        "source_frame_start": 11359,
+        "source_frame_end_exclusive": 11579
       },
       {
         "id": "L06",
@@ -1570,6 +1581,62 @@
         "fps": 60,
         "source_frame_start": 10266,
         "source_frame_end_exclusive": 10359
+      }
+    ],
+    "user_hand_feedback": {
+      "scene": "L05 bandits (called L03 by user)",
+      "corrected_component": "L05/matched-v2",
+      "status": "Previous hand-tail repair rejected for cloud discontinuity; original raw and all attempts preserved.",
+      "method": "Rejected static sky tail; replaced by proposed temporal AI inpainting of late fist only, with original moving clouds and foreground preserved."
+    },
+    "alternate_wan_door_probe": {
+      "job": "remake-l03-wan-edit-v3b",
+      "status": "Completed provider output rejected: foreground glove crosses native rune/actors instead of overhead assist; retained raw.",
+      "raw_sha256": "c1bc0ade48c0bcd9602eac48e60646c4d56a289f03cf3f8d06338e8656bd6e49"
+    },
+    "preservation_audit": {
+      "receipt": ".planning/debug/trailer/remake-v1/ai-edits-v6/independent-qc/preservation-final/audit.json",
+      "generated_videos_verified": 42,
+      "generated_audio_verified": 6,
+      "public_v6_hardlinks_verified": 13,
+      "pending_provider_jobs": 0,
+      "ledger_completed": 51,
+      "ledger_failed": 4,
+      "original_audit_cap_usd": 55,
+      "latest_optional_cap_usd": 65,
+      "all_failed_reservations_retained": true
+    },
+    "latest_user_rejections": {
+      "L01": "User rejection: added mask glimpse is too short and almost no perceptible change. Needs sustained readable VR action.",
+      "L03": "User rejection: brief hand flash during camera move is not noticeable. Needs sustained readable door assistance.",
+      "L05": "User rejection: static hand-tail repair causes a visible cloud transition. Needs AI-assisted temporal hand correction preserving moving clouds.",
+      "O01": "User likes Runeveil/world but reports three-leg Tinkerer. Restore actual original O01 posture/equipment/anatomy; this area was not intended to change."
+    },
+    "current_correction_jobs": [
+      {
+        "job": "remake-l03-seedance25-sustained-v7",
+        "state": "completed",
+        "reserved_usd": "2.50"
+      },
+      {
+        "job": "remake-l05-temporal-fist-void-v7",
+        "state": "completed",
+        "reserved_usd": "0.10"
+      },
+      {
+        "job": "remake-l01-visible-contact-kling-ref-v7",
+        "state": "failed",
+        "reserved_usd": "0.65"
+      },
+      {
+        "job": "remake-l01-visible-contact-kling-ref-v7b",
+        "state": "queued",
+        "reserved_usd": "0.65"
+      },
+      {
+        "job": "remake-o01-native-tinkerer-restore-v7",
+        "state": "queued",
+        "reserved_usd": "0.80"
       }
     ]
   },

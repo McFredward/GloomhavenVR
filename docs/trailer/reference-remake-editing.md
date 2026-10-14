@@ -10,18 +10,27 @@ the first spoken Gloomhaven becomes GloomhavenVR. The original title reveal at
 
 ## Active interaction direction
 
-**Expansion checkpoint, 2026-10-14:** the maintainer approved another USD10,
-explicitly setting the total ceiling to USD55. The private authorization receipt
-is `production/budget-authorization-55-usd.json`. Conservative reservations are
-USD54.05, including failed validation and rejected creative outputs; invoices
-remain unavailable. This supersedes the USD45 boundary below.
+**Expansion correction checkpoint, 2026-10-14:** the total authorized ceiling
+is USD65. Conservative reservations are USD58.75, including validation failures
+and rejected creative outputs; invoices remain unavailable. The latest
+`production/budget-authorization-65-usd.json` supersedes the USD55/45 history.
 
-The additional six cinematic scenes and both forest atmospheres are now in
-production. E01/E02/L05/L06 have separate root-reviewed, frame-addressed
-components; no expanded complete movie is approved yet. The v5 movie remains
-the selected complete review. The private `ai-edits-v6/PROGRESS.html` separates
-approved components from ongoing repairs; `RAW-OUTPUTS.html` preserves all twelve
-initial and second-round model videos individually, including rejected results.
+Five new components remain root-approved: E01/E02/L02/L04/L06. The maintainer
+rejected L01/L03 because their additions were too brief to read and L05 because
+the hand-tail patch visibly changed the clouds. Those three assembly receipts
+are withdrawn. O01's liked Runeveil/world staging also needs a local Tinkerer
+repair: the original has an upright ready stance and distinct crossbow-equipped
+arms; the generated crouch/ambiguous third limb is not an authorized redesign.
+Compare the actual original O01 performance first; the later native full-body
+shot supplies anatomy only. Preserve Runeveil, other actors and the world.
+
+AI-assisted revisions are in progress; no expanded complete movie is approved.
+The previous complete v5 stays available with the newly reported O01 defect.
+`ai-edits-v6/PROGRESS.html` distinguishes local clips from the complete movie;
+`RAW-OUTPUTS.html` preserves successful raw outputs, including rejected trials.
+The earlier preservation audit verified42 provider videos and six audio outputs
+before this correction round. Its media evidence remains valid; it is not a
+current queue/budget snapshot.
 
 Dense source inspection corrected the provisional edit ranges: E01 begins at
 frame801, including the original black entry; L02 covers the entire continuous
@@ -31,17 +40,38 @@ Their following native hard cuts remain untouched. L01's endpoint at6984 and
 both L03 boundaries are continuous camera motion, not arbitrary hard cuts. The
 L01 impact never fully hides the architecture, so it cannot conceal a room swap.
 
-The four approved components retain their original clocks and fan-mod mark.
-L05 restores original faces, bodies, weapons and attacks over the generated
-upper background. Both L01 model trials and both L03 Kling trials inserted a
-reference at the beginning without delivering the requested later interaction.
-L02's outputs failed original-symbol or downward-gaze requirements. Both L04
-outputs bring the glove too close to the head/weapon and alter the first native
-shot. These results are rejected, despite valid decoding and stable scenery.
-Free native-model/plate corrections are being evaluated; a short alternate
-Wan2.7 edit is queued for L03. There is no approval based solely on transport
-completion, a still image, exact source pixels outside a matte, or upward
-translation of a front-facing mask.
+The retained approved components keep native clocks and the fan-mod mark.
+L02 uses native Grimhorn with the original camera pullback and title focus shift.
+L04 isolates clean generated god pixels over native action: the glove exits
+before the original shot and the mask passes above the camera crop. L05's
+static-sky repair is rejected; temporal AI inpainting must preserve moving
+clouds. The latest Seedance2.5 door trial gives a readable hand but no convincing
+edge contact and is rejected. A sustained native-rig motion guide is being
+prepared for a bounded video-edit refinement. L01 uses a corrected contact guide
+and source-pinned5s core; its first request failed element-schema validation,
+and the separate corrected request retains that failed reservation.
+No clip approval follows merely from queue completion, a still, unchanged pixels
+outside a matte or a reference pose lasting too briefly to see.
+
+Additional primary-source research for the correction round:
+
+- [Seedance2.5 reference/edit API](https://fal.ai/models/bytedance/seedance-2.5/reference-to-video/api)
+  has an explicit editing task with source-duration/aspect preservation, images
+  and videos. The trial preserved the room well but failed the intended contact;
+  that actual outcome takes precedence over model capability claims.
+- [VOID video inpainting API](https://fal.ai/models/fal-ai/void-video-inpainting/api)
+  accepts a temporal mask and optional second-pass refinement. The L05 trial
+  targets the late fist only, describing the remaining drifting clouds and
+  battlements. Root reviewed all69 input mask frames before the USD0.10 call.
+- [Gemini Omni Flash1.1 edit API](https://fal.ai/models/google/gemini-omni-flash/v1.1/edit/api)
+  accepts a source video and local text instruction, with no image-reference or
+  duration parameter. Its [guide](https://fal.ai/learn/tools/how-to-use-gemini-omni-flash-1-1)
+  recommends short, bounded edits and explicit preservation. A preplaced motion
+  guide is our proposed way to constrain contact, not a provider guarantee.
+- [Kling O3 reference API](https://fal.ai/models/fal-ai/kling-video/o3/pro/reference-to-video/api)
+  exposes endpoint images. Actual validation requires a frontal image together
+  with additional element images, or an element video. A single mask image is
+  therefore supplied as an image reference, not an incomplete element.
 
 Additional official research checked for this round:
 
