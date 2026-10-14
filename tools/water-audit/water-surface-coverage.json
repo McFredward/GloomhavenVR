@@ -1,0 +1,1195 @@
+{
+  "census": {
+    "materialLoaderCount": 7527,
+    "rendererCount": 57915,
+    "sourceCount": 380,
+    "waterSlotCount": 45
+  },
+  "limits": "Read-only installed native renderer/material provenance; not live procedural placement, headset pixels, or FPS proof.",
+  "materials": [
+    {
+      "exclusions": [
+        "unreviewed-native-family"
+      ],
+      "id": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_cavewater_mat.bundle::CAB-061a7183ceca948b0ce290fdbc75c7ca:-960588957517911381",
+      "name": "CaveWater_Mat",
+      "rawSha256": "784478ca33804279b6c96d0134d1b750bef560f54a269d40491198f76115a208",
+      "shader": "VFX/Water_Shd",
+      "shaderPPtr": {
+        "m_FileID": 1,
+        "m_PathID": 2876939246108794617
+      },
+      "shaderResolution": {
+        "status": "resolved",
+        "targets": [
+          408
+        ]
+      }
+    },
+    {
+      "exclusions": [
+        "unreviewed-native-family"
+      ],
+      "id": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_cavewater_mat_lcm.bundle::CAB-126ab5a6a42eeea3a9884a11d17bd62b:3685606001769648181",
+      "name": "CaveWater_Mat_LCM",
+      "rawSha256": "422715176f71a335e59cfda1ae894a8105318ad7f2eca44904687a56554be99c",
+      "shader": "VFX/Water_Shd_Low",
+      "shaderPPtr": {
+        "m_FileID": 1,
+        "m_PathID": -7950005278423524780
+      },
+      "shaderResolution": {
+        "status": "resolved",
+        "targets": [
+          432
+        ]
+      }
+    },
+    {
+      "exclusions": [
+        "unreviewed-native-family"
+      ],
+      "id": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_dlc_sc11_waterplane_mat.bundle::CAB-2b8975dc627ed12a42352d00844f687b:-7697117355709442674",
+      "name": "DLC_SC11_WaterPlane_MAT",
+      "rawSha256": "05ebf2e99d2e146d3c849a1e25713ca2cea8a230186754dd4147d76cc080f51e",
+      "shader": "VFX/Water_Shd_Trans",
+      "shaderPPtr": {
+        "m_FileID": 1,
+        "m_PathID": 8185742841229247
+      },
+      "shaderResolution": {
+        "status": "resolved",
+        "targets": [
+          410
+        ]
+      }
+    },
+    {
+      "exclusions": [
+        "unreviewed-native-family"
+      ],
+      "id": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_dlc_sc11_waterplane_mat_lcm.bundle::CAB-1824d1eaeee16d290d2a2956669299d3:6320377157843362863",
+      "name": "DLC_SC11_WaterPlane_MAT_LCM",
+      "rawSha256": "6f9a824af1cb15a88f03ff4de71be3a4119049601bd85fda3e4f6a87ca8bd34f",
+      "shader": "VFX/Water_Shd_Trans_Low",
+      "shaderPPtr": {
+        "m_FileID": 1,
+        "m_PathID": 8700936916506224203
+      },
+      "shaderResolution": {
+        "status": "resolved",
+        "targets": [
+          463
+        ]
+      }
+    },
+    {
+      "exclusions": [
+        "unreviewed-native-family"
+      ],
+      "id": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_dlc_sc11_watertorus_mat.bundle::CAB-402adf223b5e9435d35513103ba7e2f3:-6817190155308395833",
+      "name": "DLC_SC11_WaterTorus_MAT",
+      "rawSha256": "f38c5d914b91320089a2fcf97dc66080c0bf65ba5d4f51406cdbfa425eb1e27f",
+      "shader": "VFX/Water_Shd_Trans",
+      "shaderPPtr": {
+        "m_FileID": 1,
+        "m_PathID": 8185742841229247
+      },
+      "shaderResolution": {
+        "status": "resolved",
+        "targets": [
+          410
+        ]
+      }
+    },
+    {
+      "exclusions": [
+        "unreviewed-native-family"
+      ],
+      "id": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_dlc_sc11_watertorus_mat_lcm.bundle::CAB-b4f4593d83e5d350465fd39ad10f0596:-5258566870842283138",
+      "name": "DLC_SC11_WaterTorus_MAT_LCM",
+      "rawSha256": "70fc02128c35803fdeca6e782b86b16bbeeeefacdce463f5c88699e31ace0bd8",
+      "shader": "VFX/Water_Shd_Trans_Low",
+      "shaderPPtr": {
+        "m_FileID": 1,
+        "m_PathID": 8700936916506224203
+      },
+      "shaderResolution": {
+        "status": "resolved",
+        "targets": [
+          463
+        ]
+      }
+    },
+    {
+      "exclusions": [
+        "unreviewed-native-family"
+      ],
+      "id": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_forestwater_mat.bundle::CAB-82b14f94462ba049a59c5dd9082d1a91:4238829028166234560",
+      "name": "ForestWater_Mat",
+      "rawSha256": "3a6099c3289ab89217b62352bd7a0dcd5b5636bf9780391191a3a5efc80fc513",
+      "shader": "VFX/Water_Shd",
+      "shaderPPtr": {
+        "m_FileID": 1,
+        "m_PathID": 2876939246108794617
+      },
+      "shaderResolution": {
+        "status": "resolved",
+        "targets": [
+          408
+        ]
+      }
+    },
+    {
+      "exclusions": [
+        "unreviewed-native-family"
+      ],
+      "id": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_forestwater_mat_lcm.bundle::CAB-488f7c3060234ea0e30e576bdb4fb57e:-1136454742408358481",
+      "name": "ForestWater_Mat_LCM",
+      "rawSha256": "79857bf18c74ccb3ce6fc7ddb51bf3f33d7ee73d3d98ecbb67270aa202aa9b93",
+      "shader": "VFX/Water_Shd_Low",
+      "shaderPPtr": {
+        "m_FileID": 1,
+        "m_PathID": -7950005278423524780
+      },
+      "shaderResolution": {
+        "status": "resolved",
+        "targets": [
+          432
+        ]
+      }
+    },
+    {
+      "exclusions": [
+        "unreviewed-native-family"
+      ],
+      "id": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_crypt_mat.bundle::CAB-c7a43240c16625e49b1c92aa6e0e5c19:-8892978875446173739",
+      "name": "TERRAIN_GEN_WaterPlane_Crypt_Mat",
+      "rawSha256": "770119aa3096216269dd250a60d53e8c88cc1a99ce1eb2a8d0b9063bc17f81bd",
+      "shader": "VFX/Water_Shd_Trans",
+      "shaderPPtr": {
+        "m_FileID": 1,
+        "m_PathID": 8185742841229247
+      },
+      "shaderResolution": {
+        "status": "resolved",
+        "targets": [
+          410
+        ]
+      }
+    },
+    {
+      "exclusions": [
+        "unreviewed-native-family"
+      ],
+      "id": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_crypt_mat_lcm.bundle::CAB-7846e992ae636622bb503dc77b3e243d:1469976354582322149",
+      "name": "TERRAIN_GEN_WaterPlane_Crypt_Mat_LCM",
+      "rawSha256": "50c992c7ac2feb8be4b2c86173379d7f6355769a2a639144db8528656cc09588",
+      "shader": "VFX/Water_Shd_Trans_Low",
+      "shaderPPtr": {
+        "m_FileID": 1,
+        "m_PathID": 8700936916506224203
+      },
+      "shaderResolution": {
+        "status": "resolved",
+        "targets": [
+          463
+        ]
+      }
+    },
+    {
+      "exclusions": [
+        "unreviewed-native-family"
+      ],
+      "id": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_mat.bundle::CAB-19d828663fc8b1a31f540e8bd793c449:7018948157779208032",
+      "name": "TERRAIN_GEN_WaterPlane_Mat",
+      "rawSha256": "07b56623d6f11776b434e8b6b2ea93dd9cc0b323b8bd9f00a2cf32eb3a213062",
+      "shader": "VFX/Water_Shd_Trans",
+      "shaderPPtr": {
+        "m_FileID": 1,
+        "m_PathID": 8185742841229247
+      },
+      "shaderResolution": {
+        "status": "resolved",
+        "targets": [
+          410
+        ]
+      }
+    },
+    {
+      "exclusions": [
+        "unreviewed-native-family"
+      ],
+      "id": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_mat_lcm.bundle::CAB-7282f5bb372969688493d5a597068a80:2106209393374173098",
+      "name": "TERRAIN_GEN_WaterPlane_Mat_LCM",
+      "rawSha256": "2ef36114e6b0868eb09f3fe279b21e2aae2e154c8c8ead8e4bd88084691095a5",
+      "shader": "VFX/Water_Shd_Trans_Low",
+      "shaderPPtr": {
+        "m_FileID": 1,
+        "m_PathID": 8700936916506224203
+      },
+      "shaderResolution": {
+        "status": "resolved",
+        "targets": [
+          463
+        ]
+      }
+    },
+    {
+      "exclusions": [
+        "unreviewed-native-family"
+      ],
+      "id": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_sewer_mat.bundle::CAB-16d173ac114489e0188a95aa2da0f94e:6427031447857611425",
+      "name": "TERRAIN_GEN_WaterPlane_Sewer_Mat",
+      "rawSha256": "5887992eb6e6f7e7174d2ca1cac0c598f9117358b50d74508078c2ee41443021",
+      "shader": "VFX/Water_Shd_Trans",
+      "shaderPPtr": {
+        "m_FileID": 1,
+        "m_PathID": 8185742841229247
+      },
+      "shaderResolution": {
+        "status": "resolved",
+        "targets": [
+          410
+        ]
+      }
+    },
+    {
+      "exclusions": [
+        "unreviewed-native-family"
+      ],
+      "id": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_sewer_mat_lcm.bundle::CAB-3582d22c05655a6ec4d65236f6bcdd67:-1887622985945822350",
+      "name": "TERRAIN_GEN_WaterPlane_Sewer_Mat_LCM",
+      "rawSha256": "9a91e63e98b5a67daf2411445f767a1bac4e0d47900c189e5005fc06de8d8b87",
+      "shader": "VFX/Water_Shd_Trans_Low",
+      "shaderPPtr": {
+        "m_FileID": 1,
+        "m_PathID": 8700936916506224203
+      },
+      "shaderResolution": {
+        "status": "resolved",
+        "targets": [
+          463
+        ]
+      }
+    }
+  ],
+  "nativeAddressablesCatalogSha256": "9c76d2e44fb76b81420379bd3a9b71dec569be27fcb9d296956d9e3a3d82e4bf",
+  "nativeMaterialIndexSha256": "9417b2c22f7f0df56e8d3b3e6a83ad337583e7159c91cf529372d1603ae3fe1d",
+  "nativeSourceCatalogSha256": "559d1ee0a830d2c010392036efdf8e85bb0c1b3c9dd843860a0da6f734b8a802",
+  "schema": 1,
+  "scope": "All exact native water-film shaders, including terrain, decorative pools and DLC sluice water. Solid basin/stone materials are not film candidates.",
+  "surfaces": [
+    {
+      "ancestry": [
+        "TERRAIN_Water_Crypt_02_PR",
+        "TERRAIN_Water_Plane"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "terrain",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_crypt_mat.bundle::CAB-c7a43240c16625e49b1c92aa6e0e5c19:-8892978875446173739",
+      "materialAssetGUID": "88b35496a8cf1bb499871ada85658393",
+      "materialAssetPath": "Assets/Content/Props/HazardousTerrain/Materials/TERRAIN_GEN_WaterPlane_Crypt_Mat.mat",
+      "materialName": "TERRAIN_GEN_WaterPlane_Crypt_Mat",
+      "rendererPathId": 5780932122345095309,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-4b094b66b1e2c5b887b6842928ce4213",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_ancientcaverns.asset.bundle",
+      "sourceSha256": "91a46eb6251e44aa88193a225fa1b07e5a0b7cc3f8143ae2c8676395cd89a1a7"
+    },
+    {
+      "ancestry": [
+        "TERRAIN_Water_Crypt_01_PR",
+        "TERRAIN_Water_Plane"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "terrain",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_crypt_mat.bundle::CAB-c7a43240c16625e49b1c92aa6e0e5c19:-8892978875446173739",
+      "materialAssetGUID": "88b35496a8cf1bb499871ada85658393",
+      "materialAssetPath": "Assets/Content/Props/HazardousTerrain/Materials/TERRAIN_GEN_WaterPlane_Crypt_Mat.mat",
+      "materialName": "TERRAIN_GEN_WaterPlane_Crypt_Mat",
+      "rendererPathId": -147495011234594696,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-4b094b66b1e2c5b887b6842928ce4213",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_ancientcaverns.asset.bundle",
+      "sourceSha256": "91a46eb6251e44aa88193a225fa1b07e5a0b7cc3f8143ae2c8676395cd89a1a7"
+    },
+    {
+      "ancestry": [
+        "TERRAIN_Water_Crypt_03_PR",
+        "TERRAIN_Water_Plane"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "terrain",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_crypt_mat.bundle::CAB-c7a43240c16625e49b1c92aa6e0e5c19:-8892978875446173739",
+      "materialAssetGUID": "88b35496a8cf1bb499871ada85658393",
+      "materialAssetPath": "Assets/Content/Props/HazardousTerrain/Materials/TERRAIN_GEN_WaterPlane_Crypt_Mat.mat",
+      "materialName": "TERRAIN_GEN_WaterPlane_Crypt_Mat",
+      "rendererPathId": -5521999231246032361,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-4b094b66b1e2c5b887b6842928ce4213",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_ancientcaverns.asset.bundle",
+      "sourceSha256": "91a46eb6251e44aa88193a225fa1b07e5a0b7cc3f8143ae2c8676395cd89a1a7"
+    },
+    {
+      "ancestry": [
+        "PCG_CV_Bay_Medium_Pool_01_PR",
+        "FR_SW_Pond_Medium (1)"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "decorative-pool",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_cavewater_mat.bundle::CAB-061a7183ceca948b0ce290fdbc75c7ca:-960588957517911381",
+      "materialAssetGUID": "24cb9e7270751b94f8a5957b57f01fc6",
+      "materialAssetPath": "Assets/Content/VFX/Common/Materials/CaveWater_Mat.mat",
+      "materialName": "CaveWater_Mat",
+      "rendererPathId": -6094458038874420916,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-51aa9263e69fd1300c7ce8cfa80e2671",
+      "shader": "VFX/Water_Shd",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_cave.asset.bundle",
+      "sourceSha256": "f45a822912db6cbc234710bb152f99b80969d18152775e488a847c9c3116a455"
+    },
+    {
+      "ancestry": [
+        "PCG_CV_Bay_Medium_Pool_01_PR",
+        "FR_SW_Pond_Medium (2)"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "decorative-pool",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_cavewater_mat.bundle::CAB-061a7183ceca948b0ce290fdbc75c7ca:-960588957517911381",
+      "materialAssetGUID": "24cb9e7270751b94f8a5957b57f01fc6",
+      "materialAssetPath": "Assets/Content/VFX/Common/Materials/CaveWater_Mat.mat",
+      "materialName": "CaveWater_Mat",
+      "rendererPathId": -845037731851351732,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-51aa9263e69fd1300c7ce8cfa80e2671",
+      "shader": "VFX/Water_Shd",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_cave.asset.bundle",
+      "sourceSha256": "f45a822912db6cbc234710bb152f99b80969d18152775e488a847c9c3116a455"
+    },
+    {
+      "ancestry": [
+        "PCG_CV_Bay_Medium_Waterfall_01_PR",
+        "FR_SW_Pond_Small",
+        "FR_SW_Pond_Small"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "decorative-pool",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_cavewater_mat.bundle::CAB-061a7183ceca948b0ce290fdbc75c7ca:-960588957517911381",
+      "materialAssetGUID": "24cb9e7270751b94f8a5957b57f01fc6",
+      "materialAssetPath": "Assets/Content/VFX/Common/Materials/CaveWater_Mat.mat",
+      "materialName": "CaveWater_Mat",
+      "rendererPathId": -5159802822590019412,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-51aa9263e69fd1300c7ce8cfa80e2671",
+      "shader": "VFX/Water_Shd",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_cave.asset.bundle",
+      "sourceSha256": "f45a822912db6cbc234710bb152f99b80969d18152775e488a847c9c3116a455"
+    },
+    {
+      "ancestry": [
+        "TERRAIN_Water_Crypt_02_PR",
+        "TERRAIN_Water_Plane"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "terrain",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_crypt_mat.bundle::CAB-c7a43240c16625e49b1c92aa6e0e5c19:-8892978875446173739",
+      "materialAssetGUID": "88b35496a8cf1bb499871ada85658393",
+      "materialAssetPath": "Assets/Content/Props/HazardousTerrain/Materials/TERRAIN_GEN_WaterPlane_Crypt_Mat.mat",
+      "materialName": "TERRAIN_GEN_WaterPlane_Crypt_Mat",
+      "rendererPathId": 5780932122345095309,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-3c3a362ce9009c3be92b36e38b1934ad",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_crypt.asset.bundle",
+      "sourceSha256": "2d8866a92d9c8bbc72107ee9e2a6cf642d5334fd4c3e7faaf755546d19745fa2"
+    },
+    {
+      "ancestry": [
+        "TERRAIN_Water_Crypt_01_PR",
+        "TERRAIN_Water_Plane"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "terrain",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_crypt_mat.bundle::CAB-c7a43240c16625e49b1c92aa6e0e5c19:-8892978875446173739",
+      "materialAssetGUID": "88b35496a8cf1bb499871ada85658393",
+      "materialAssetPath": "Assets/Content/Props/HazardousTerrain/Materials/TERRAIN_GEN_WaterPlane_Crypt_Mat.mat",
+      "materialName": "TERRAIN_GEN_WaterPlane_Crypt_Mat",
+      "rendererPathId": -147495011234594696,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-3c3a362ce9009c3be92b36e38b1934ad",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_crypt.asset.bundle",
+      "sourceSha256": "2d8866a92d9c8bbc72107ee9e2a6cf642d5334fd4c3e7faaf755546d19745fa2"
+    },
+    {
+      "ancestry": [
+        "TERRAIN_Water_Crypt_03_PR",
+        "TERRAIN_Water_Plane"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "terrain",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_crypt_mat.bundle::CAB-c7a43240c16625e49b1c92aa6e0e5c19:-8892978875446173739",
+      "materialAssetGUID": "88b35496a8cf1bb499871ada85658393",
+      "materialAssetPath": "Assets/Content/Props/HazardousTerrain/Materials/TERRAIN_GEN_WaterPlane_Crypt_Mat.mat",
+      "materialName": "TERRAIN_GEN_WaterPlane_Crypt_Mat",
+      "rendererPathId": -5521999231246032361,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-3c3a362ce9009c3be92b36e38b1934ad",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_crypt.asset.bundle",
+      "sourceSha256": "2d8866a92d9c8bbc72107ee9e2a6cf642d5334fd4c3e7faaf755546d19745fa2"
+    },
+    {
+      "ancestry": [
+        "TERRAIN_Water_Wood_03_PR",
+        "TERRAIN_Water_Plane"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "terrain",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_crypt_mat.bundle::CAB-c7a43240c16625e49b1c92aa6e0e5c19:-8892978875446173739",
+      "materialAssetGUID": "88b35496a8cf1bb499871ada85658393",
+      "materialAssetPath": "Assets/Content/Props/HazardousTerrain/Materials/TERRAIN_GEN_WaterPlane_Crypt_Mat.mat",
+      "materialName": "TERRAIN_GEN_WaterPlane_Crypt_Mat",
+      "rendererPathId": -6241515777665587850,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-343ca4c2462048772ed8c5cb2bae1555",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_dlc_sb_custom_02.asset.bundle",
+      "sourceSha256": "24eac55a224ac62591b35968a916d783bc7d33a31530d3b680d9cf52cba397ee"
+    },
+    {
+      "ancestry": [
+        "TERRAIN_Water_Wood_02_PR",
+        "TERRAIN_Water_Plane"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "terrain",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_crypt_mat.bundle::CAB-c7a43240c16625e49b1c92aa6e0e5c19:-8892978875446173739",
+      "materialAssetGUID": "88b35496a8cf1bb499871ada85658393",
+      "materialAssetPath": "Assets/Content/Props/HazardousTerrain/Materials/TERRAIN_GEN_WaterPlane_Crypt_Mat.mat",
+      "materialName": "TERRAIN_GEN_WaterPlane_Crypt_Mat",
+      "rendererPathId": 950923193528801076,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-343ca4c2462048772ed8c5cb2bae1555",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_dlc_sb_custom_02.asset.bundle",
+      "sourceSha256": "24eac55a224ac62591b35968a916d783bc7d33a31530d3b680d9cf52cba397ee"
+    },
+    {
+      "ancestry": [
+        "TERRAIN_Water_Wood_01_PR",
+        "TERRAIN_Water_Plane"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "terrain",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_crypt_mat.bundle::CAB-c7a43240c16625e49b1c92aa6e0e5c19:-8892978875446173739",
+      "materialAssetGUID": "88b35496a8cf1bb499871ada85658393",
+      "materialAssetPath": "Assets/Content/Props/HazardousTerrain/Materials/TERRAIN_GEN_WaterPlane_Crypt_Mat.mat",
+      "materialName": "TERRAIN_GEN_WaterPlane_Crypt_Mat",
+      "rendererPathId": -6945915481748586116,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-343ca4c2462048772ed8c5cb2bae1555",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_dlc_sb_custom_02.asset.bundle",
+      "sourceSha256": "24eac55a224ac62591b35968a916d783bc7d33a31530d3b680d9cf52cba397ee"
+    },
+    {
+      "ancestry": [
+        "TERRAIN_Water_Wood_03_PR",
+        "TERRAIN_Water_Plane"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "terrain",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_crypt_mat.bundle::CAB-c7a43240c16625e49b1c92aa6e0e5c19:-8892978875446173739",
+      "materialAssetGUID": "88b35496a8cf1bb499871ada85658393",
+      "materialAssetPath": "Assets/Content/Props/HazardousTerrain/Materials/TERRAIN_GEN_WaterPlane_Crypt_Mat.mat",
+      "materialName": "TERRAIN_GEN_WaterPlane_Crypt_Mat",
+      "rendererPathId": -6241515777665587850,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-f066d896524d0ee5a7a43cf9d019378d",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_dlc_sb_platform.asset.bundle",
+      "sourceSha256": "8dd9ca8d6a417e60435f16acbb887eb1eef394815b29fe5087e86f72d99b8530"
+    },
+    {
+      "ancestry": [
+        "TERRAIN_Water_Wood_02_PR",
+        "TERRAIN_Water_Plane"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "terrain",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_crypt_mat.bundle::CAB-c7a43240c16625e49b1c92aa6e0e5c19:-8892978875446173739",
+      "materialAssetGUID": "88b35496a8cf1bb499871ada85658393",
+      "materialAssetPath": "Assets/Content/Props/HazardousTerrain/Materials/TERRAIN_GEN_WaterPlane_Crypt_Mat.mat",
+      "materialName": "TERRAIN_GEN_WaterPlane_Crypt_Mat",
+      "rendererPathId": 950923193528801076,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-f066d896524d0ee5a7a43cf9d019378d",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_dlc_sb_platform.asset.bundle",
+      "sourceSha256": "8dd9ca8d6a417e60435f16acbb887eb1eef394815b29fe5087e86f72d99b8530"
+    },
+    {
+      "ancestry": [
+        "TERRAIN_Water_Wood_01_PR",
+        "TERRAIN_Water_Plane"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "terrain",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_crypt_mat.bundle::CAB-c7a43240c16625e49b1c92aa6e0e5c19:-8892978875446173739",
+      "materialAssetGUID": "88b35496a8cf1bb499871ada85658393",
+      "materialAssetPath": "Assets/Content/Props/HazardousTerrain/Materials/TERRAIN_GEN_WaterPlane_Crypt_Mat.mat",
+      "materialName": "TERRAIN_GEN_WaterPlane_Crypt_Mat",
+      "rendererPathId": -6945915481748586116,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-f066d896524d0ee5a7a43cf9d019378d",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_dlc_sb_platform.asset.bundle",
+      "sourceSha256": "8dd9ca8d6a417e60435f16acbb887eb1eef394815b29fe5087e86f72d99b8530"
+    },
+    {
+      "ancestry": [
+        "TERRAIN_Water_Sewer_01_PR",
+        "TERRAIN_Water_Plane"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "terrain",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_sewer_mat.bundle::CAB-16d173ac114489e0188a95aa2da0f94e:6427031447857611425",
+      "materialAssetGUID": "f62f40bd121bc284da57fb4f136f6a62",
+      "materialAssetPath": "Assets/Content/Props/HazardousTerrain/Materials/TERRAIN_GEN_WaterPlane_Sewer_Mat.mat",
+      "materialName": "TERRAIN_GEN_WaterPlane_Sewer_Mat",
+      "rendererPathId": -2927136597763024166,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-4a21017c3d3efe196d03f060618511a0",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_dlc_sb_tunnels.asset.bundle",
+      "sourceSha256": "548f26ea5ffc53b715affc6773adc111605fc21623b7a8cdf89146d2dc8efda6"
+    },
+    {
+      "ancestry": [
+        "TERRAIN_Water_Sewer_03_PR",
+        "TERRAIN_Water_Plane"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "terrain",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_sewer_mat.bundle::CAB-16d173ac114489e0188a95aa2da0f94e:6427031447857611425",
+      "materialAssetGUID": "f62f40bd121bc284da57fb4f136f6a62",
+      "materialAssetPath": "Assets/Content/Props/HazardousTerrain/Materials/TERRAIN_GEN_WaterPlane_Sewer_Mat.mat",
+      "materialName": "TERRAIN_GEN_WaterPlane_Sewer_Mat",
+      "rendererPathId": 6217466263989580026,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-4a21017c3d3efe196d03f060618511a0",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_dlc_sb_tunnels.asset.bundle",
+      "sourceSha256": "548f26ea5ffc53b715affc6773adc111605fc21623b7a8cdf89146d2dc8efda6"
+    },
+    {
+      "ancestry": [
+        "TERRAIN_Water_Sewer_02_PR",
+        "TERRAIN_Water_Plane"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "terrain",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_sewer_mat.bundle::CAB-16d173ac114489e0188a95aa2da0f94e:6427031447857611425",
+      "materialAssetGUID": "f62f40bd121bc284da57fb4f136f6a62",
+      "materialAssetPath": "Assets/Content/Props/HazardousTerrain/Materials/TERRAIN_GEN_WaterPlane_Sewer_Mat.mat",
+      "materialName": "TERRAIN_GEN_WaterPlane_Sewer_Mat",
+      "rendererPathId": 1763408734165668797,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-4a21017c3d3efe196d03f060618511a0",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_dlc_sb_tunnels.asset.bundle",
+      "sourceSha256": "548f26ea5ffc53b715affc6773adc111605fc21623b7a8cdf89146d2dc8efda6"
+    },
+    {
+      "ancestry": [
+        "DLC_TH_SC08_SluiceGate_BAY",
+        "DLC_SC11_WaterPlane"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "dlc-sluice",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_dlc_sc11_waterplane_mat.bundle::CAB-2b8975dc627ed12a42352d00844f687b:-7697117355709442674",
+      "materialAssetGUID": "5a3f67fbca3ea2e45867b66dbef3d1d0",
+      "materialAssetPath": "Assets/_AssetBundles/DLC_JoTL/Content/Environment/DLC_Themes/DLC_TH_Custom_04/DLC_TH_SC08_SluiceGate/Materials/DLC_SC11_WaterPlane_MAT.mat",
+      "materialName": "DLC_SC11_WaterPlane_MAT",
+      "rendererPathId": 6530550502368844719,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-d86567a1f07bdfd19732e65d42f01c2e",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_dlc_th_custom_04.asset.bundle",
+      "sourceSha256": "05229556df6d8759ae84e83bb51a3f2cd6df60b550dbca460ee572ebe65a9c4f"
+    },
+    {
+      "ancestry": [
+        "DLC_TH_SC08_SluiceGate_BAY",
+        "DLC_SC11_WaterPlane",
+        "geo_watersurface_cube"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "dlc-sluice",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_dlc_sc11_waterplane_mat.bundle::CAB-2b8975dc627ed12a42352d00844f687b:-7697117355709442674",
+      "materialAssetGUID": "5a3f67fbca3ea2e45867b66dbef3d1d0",
+      "materialAssetPath": "Assets/_AssetBundles/DLC_JoTL/Content/Environment/DLC_Themes/DLC_TH_Custom_04/DLC_TH_SC08_SluiceGate/Materials/DLC_SC11_WaterPlane_MAT.mat",
+      "materialName": "DLC_SC11_WaterPlane_MAT",
+      "rendererPathId": -7016506903190856785,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-d86567a1f07bdfd19732e65d42f01c2e",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_dlc_th_custom_04.asset.bundle",
+      "sourceSha256": "05229556df6d8759ae84e83bb51a3f2cd6df60b550dbca460ee572ebe65a9c4f"
+    },
+    {
+      "ancestry": [
+        "DLC_TH_SC08_SluiceGate_BAY",
+        "water_Torus"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "dlc-sluice",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_dlc_sc11_watertorus_mat.bundle::CAB-402adf223b5e9435d35513103ba7e2f3:-6817190155308395833",
+      "materialAssetGUID": "54e95899dab58fd4481c29bcff454810",
+      "materialAssetPath": "Assets/_AssetBundles/DLC_JoTL/Content/Environment/DLC_Themes/DLC_TH_Custom_04/DLC_TH_SC08_SluiceGate/Materials/DLC_SC11_WaterTorus_MAT.mat",
+      "materialName": "DLC_SC11_WaterTorus_MAT",
+      "rendererPathId": 8667436419212090287,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-d86567a1f07bdfd19732e65d42f01c2e",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_dlc_th_custom_04.asset.bundle",
+      "sourceSha256": "05229556df6d8759ae84e83bb51a3f2cd6df60b550dbca460ee572ebe65a9c4f"
+    },
+    {
+      "ancestry": [
+        "TERRAIN_Water_Dungeon_01_PR",
+        "TERRAIN_Water_Plane"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "terrain",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_mat.bundle::CAB-19d828663fc8b1a31f540e8bd793c449:7018948157779208032",
+      "materialAssetGUID": "353df7ec8e4fee0459d98ed6b456230c",
+      "materialAssetPath": "Assets/Content/Props/HazardousTerrain/Materials/TERRAIN_GEN_WaterPlane_Mat.mat",
+      "materialName": "TERRAIN_GEN_WaterPlane_Mat",
+      "rendererPathId": 2507068190481437758,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-7d1181909da33df1ce3ac5dea2f1859c",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_dungeon.asset.bundle",
+      "sourceSha256": "18ccc1e52b6060a7bd1569ef1b35241ef4094909f6da24afbcda3ec3f4832c7a"
+    },
+    {
+      "ancestry": [
+        "TERRAIN_Water_Sewer_01_PR",
+        "TERRAIN_Water_Plane"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "terrain",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_sewer_mat.bundle::CAB-16d173ac114489e0188a95aa2da0f94e:6427031447857611425",
+      "materialAssetGUID": "f62f40bd121bc284da57fb4f136f6a62",
+      "materialAssetPath": "Assets/Content/Props/HazardousTerrain/Materials/TERRAIN_GEN_WaterPlane_Sewer_Mat.mat",
+      "materialName": "TERRAIN_GEN_WaterPlane_Sewer_Mat",
+      "rendererPathId": -2927136597763024166,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-a22e11e3035e0d91ede0408d50fa40d8",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_rot.asset.bundle",
+      "sourceSha256": "a29e9752436fed2677aa2dc5be55716d1e565146112de95d87c09ccd0ceb64bb"
+    },
+    {
+      "ancestry": [
+        "TERRAIN_Water_Sewer_03_PR",
+        "TERRAIN_Water_Plane"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "terrain",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_sewer_mat.bundle::CAB-16d173ac114489e0188a95aa2da0f94e:6427031447857611425",
+      "materialAssetGUID": "f62f40bd121bc284da57fb4f136f6a62",
+      "materialAssetPath": "Assets/Content/Props/HazardousTerrain/Materials/TERRAIN_GEN_WaterPlane_Sewer_Mat.mat",
+      "materialName": "TERRAIN_GEN_WaterPlane_Sewer_Mat",
+      "rendererPathId": 6217466263989580026,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-a22e11e3035e0d91ede0408d50fa40d8",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_rot.asset.bundle",
+      "sourceSha256": "a29e9752436fed2677aa2dc5be55716d1e565146112de95d87c09ccd0ceb64bb"
+    },
+    {
+      "ancestry": [
+        "TERRAIN_Water_Sewer_02_PR",
+        "TERRAIN_Water_Plane"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "terrain",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_sewer_mat.bundle::CAB-16d173ac114489e0188a95aa2da0f94e:6427031447857611425",
+      "materialAssetGUID": "f62f40bd121bc284da57fb4f136f6a62",
+      "materialAssetPath": "Assets/Content/Props/HazardousTerrain/Materials/TERRAIN_GEN_WaterPlane_Sewer_Mat.mat",
+      "materialName": "TERRAIN_GEN_WaterPlane_Sewer_Mat",
+      "rendererPathId": 1763408734165668797,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-a22e11e3035e0d91ede0408d50fa40d8",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_rot.asset.bundle",
+      "sourceSha256": "a29e9752436fed2677aa2dc5be55716d1e565146112de95d87c09ccd0ceb64bb"
+    },
+    {
+      "ancestry": [
+        "TERRAIN_Water_Sewer_01_PR",
+        "TERRAIN_Water_Plane"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "terrain",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_sewer_mat.bundle::CAB-16d173ac114489e0188a95aa2da0f94e:6427031447857611425",
+      "materialAssetGUID": "f62f40bd121bc284da57fb4f136f6a62",
+      "materialAssetPath": "Assets/Content/Props/HazardousTerrain/Materials/TERRAIN_GEN_WaterPlane_Sewer_Mat.mat",
+      "materialName": "TERRAIN_GEN_WaterPlane_Sewer_Mat",
+      "rendererPathId": -2927136597763024166,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-83ebb65fe9e75fc114b0acbb459d7b10",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_sewers.asset.bundle",
+      "sourceSha256": "61abbf7d57b3918688b0dab4bcfdd4616c2a2980f3c6a4c86907e87b228134dd"
+    },
+    {
+      "ancestry": [
+        "TERRAIN_Water_Sewer_03_PR",
+        "TERRAIN_Water_Plane"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "terrain",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_sewer_mat.bundle::CAB-16d173ac114489e0188a95aa2da0f94e:6427031447857611425",
+      "materialAssetGUID": "f62f40bd121bc284da57fb4f136f6a62",
+      "materialAssetPath": "Assets/Content/Props/HazardousTerrain/Materials/TERRAIN_GEN_WaterPlane_Sewer_Mat.mat",
+      "materialName": "TERRAIN_GEN_WaterPlane_Sewer_Mat",
+      "rendererPathId": 6217466263989580026,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-83ebb65fe9e75fc114b0acbb459d7b10",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_sewers.asset.bundle",
+      "sourceSha256": "61abbf7d57b3918688b0dab4bcfdd4616c2a2980f3c6a4c86907e87b228134dd"
+    },
+    {
+      "ancestry": [
+        "TERRAIN_Water_Sewer_02_PR",
+        "TERRAIN_Water_Plane"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "terrain",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_sewer_mat.bundle::CAB-16d173ac114489e0188a95aa2da0f94e:6427031447857611425",
+      "materialAssetGUID": "f62f40bd121bc284da57fb4f136f6a62",
+      "materialAssetPath": "Assets/Content/Props/HazardousTerrain/Materials/TERRAIN_GEN_WaterPlane_Sewer_Mat.mat",
+      "materialName": "TERRAIN_GEN_WaterPlane_Sewer_Mat",
+      "rendererPathId": 1763408734165668797,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-83ebb65fe9e75fc114b0acbb459d7b10",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_sewers.asset.bundle",
+      "sourceSha256": "61abbf7d57b3918688b0dab4bcfdd4616c2a2980f3c6a4c86907e87b228134dd"
+    },
+    {
+      "ancestry": [
+        "TERRAIN_Water_Wood_03_PR",
+        "TERRAIN_Water_Plane"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "terrain",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_crypt_mat.bundle::CAB-c7a43240c16625e49b1c92aa6e0e5c19:-8892978875446173739",
+      "materialAssetGUID": "88b35496a8cf1bb499871ada85658393",
+      "materialAssetPath": "Assets/Content/Props/HazardousTerrain/Materials/TERRAIN_GEN_WaterPlane_Crypt_Mat.mat",
+      "materialName": "TERRAIN_GEN_WaterPlane_Crypt_Mat",
+      "rendererPathId": -6241515777665587850,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-03495d8b21ccd456507f24015051514f",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_shack.asset.bundle",
+      "sourceSha256": "38f0f80f09ec74df6ce74be0bc444dfdaa87755df539446c461355dc77083d08"
+    },
+    {
+      "ancestry": [
+        "TERRAIN_Water_Wood_02_PR",
+        "TERRAIN_Water_Plane"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "terrain",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_crypt_mat.bundle::CAB-c7a43240c16625e49b1c92aa6e0e5c19:-8892978875446173739",
+      "materialAssetGUID": "88b35496a8cf1bb499871ada85658393",
+      "materialAssetPath": "Assets/Content/Props/HazardousTerrain/Materials/TERRAIN_GEN_WaterPlane_Crypt_Mat.mat",
+      "materialName": "TERRAIN_GEN_WaterPlane_Crypt_Mat",
+      "rendererPathId": 950923193528801076,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-03495d8b21ccd456507f24015051514f",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_shack.asset.bundle",
+      "sourceSha256": "38f0f80f09ec74df6ce74be0bc444dfdaa87755df539446c461355dc77083d08"
+    },
+    {
+      "ancestry": [
+        "TERRAIN_Water_Wood_01_PR",
+        "TERRAIN_Water_Plane"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "terrain",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_crypt_mat.bundle::CAB-c7a43240c16625e49b1c92aa6e0e5c19:-8892978875446173739",
+      "materialAssetGUID": "88b35496a8cf1bb499871ada85658393",
+      "materialAssetPath": "Assets/Content/Props/HazardousTerrain/Materials/TERRAIN_GEN_WaterPlane_Crypt_Mat.mat",
+      "materialName": "TERRAIN_GEN_WaterPlane_Crypt_Mat",
+      "rendererPathId": -6945915481748586116,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-03495d8b21ccd456507f24015051514f",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_shack.asset.bundle",
+      "sourceSha256": "38f0f80f09ec74df6ce74be0bc444dfdaa87755df539446c461355dc77083d08"
+    },
+    {
+      "ancestry": [
+        "PCG_SW_FR_Bay_Small_01_PR",
+        "FR_SW_Pond_Small",
+        "FR_SW_Pond_Small"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "decorative-pool",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_forestwater_mat.bundle::CAB-82b14f94462ba049a59c5dd9082d1a91:4238829028166234560",
+      "materialAssetGUID": "1c9cdf945fa70194f88306672b02a18a",
+      "materialAssetPath": "Assets/Content/VFX/Common/Materials/ForestWater_Mat.mat",
+      "materialName": "ForestWater_Mat",
+      "rendererPathId": 9072983482372160518,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-cc3035f962a31335402c31fac948f4df",
+      "shader": "VFX/Water_Shd",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_stillwaters.asset.bundle",
+      "sourceSha256": "23d6caba65915514f54a53b4db7f26fd529dd7fc9fbddf0d3f3a4fb2bb9f8ce6"
+    },
+    {
+      "ancestry": [
+        "PCG_SW_FR_Bay_Large_01_PR",
+        "FR_SW_Pond_Large",
+        "FR_SW_Pond_Large"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "decorative-pool",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_forestwater_mat.bundle::CAB-82b14f94462ba049a59c5dd9082d1a91:4238829028166234560",
+      "materialAssetGUID": "1c9cdf945fa70194f88306672b02a18a",
+      "materialAssetPath": "Assets/Content/VFX/Common/Materials/ForestWater_Mat.mat",
+      "materialName": "ForestWater_Mat",
+      "rendererPathId": -4973126339903457495,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-cc3035f962a31335402c31fac948f4df",
+      "shader": "VFX/Water_Shd",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_stillwaters.asset.bundle",
+      "sourceSha256": "23d6caba65915514f54a53b4db7f26fd529dd7fc9fbddf0d3f3a4fb2bb9f8ce6"
+    },
+    {
+      "ancestry": [
+        "PCG_SW_FR_Bay_Medium_01_PR",
+        "FR_SW_Pond_Medium",
+        "FR_SW_Pond_Medium"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "decorative-pool",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_forestwater_mat.bundle::CAB-82b14f94462ba049a59c5dd9082d1a91:4238829028166234560",
+      "materialAssetGUID": "1c9cdf945fa70194f88306672b02a18a",
+      "materialAssetPath": "Assets/Content/VFX/Common/Materials/ForestWater_Mat.mat",
+      "materialName": "ForestWater_Mat",
+      "rendererPathId": -9192646606334164904,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-cc3035f962a31335402c31fac948f4df",
+      "shader": "VFX/Water_Shd",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_stillwaters.asset.bundle",
+      "sourceSha256": "23d6caba65915514f54a53b4db7f26fd529dd7fc9fbddf0d3f3a4fb2bb9f8ce6"
+    },
+    {
+      "ancestry": [
+        "TERRAIN_Water_Crypt_02_PR",
+        "TERRAIN_Water_Plane"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "terrain",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_crypt_mat.bundle::CAB-c7a43240c16625e49b1c92aa6e0e5c19:-8892978875446173739",
+      "materialAssetGUID": "88b35496a8cf1bb499871ada85658393",
+      "materialAssetPath": "Assets/Content/Props/HazardousTerrain/Materials/TERRAIN_GEN_WaterPlane_Crypt_Mat.mat",
+      "materialName": "TERRAIN_GEN_WaterPlane_Crypt_Mat",
+      "rendererPathId": 5780932122345095309,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-3186f5789e08c822dd614a6df697caba",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_stonerooms.asset.bundle",
+      "sourceSha256": "d9a1f668ec1a7640d91281970733aa3e37408f91077e37f7cd54e6259707b180"
+    },
+    {
+      "ancestry": [
+        "TERRAIN_Water_Crypt_01_PR",
+        "TERRAIN_Water_Plane"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "terrain",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_crypt_mat.bundle::CAB-c7a43240c16625e49b1c92aa6e0e5c19:-8892978875446173739",
+      "materialAssetGUID": "88b35496a8cf1bb499871ada85658393",
+      "materialAssetPath": "Assets/Content/Props/HazardousTerrain/Materials/TERRAIN_GEN_WaterPlane_Crypt_Mat.mat",
+      "materialName": "TERRAIN_GEN_WaterPlane_Crypt_Mat",
+      "rendererPathId": -147495011234594696,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-3186f5789e08c822dd614a6df697caba",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_stonerooms.asset.bundle",
+      "sourceSha256": "d9a1f668ec1a7640d91281970733aa3e37408f91077e37f7cd54e6259707b180"
+    },
+    {
+      "ancestry": [
+        "TERRAIN_Water_Crypt_03_PR",
+        "TERRAIN_Water_Plane"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "terrain",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_crypt_mat.bundle::CAB-c7a43240c16625e49b1c92aa6e0e5c19:-8892978875446173739",
+      "materialAssetGUID": "88b35496a8cf1bb499871ada85658393",
+      "materialAssetPath": "Assets/Content/Props/HazardousTerrain/Materials/TERRAIN_GEN_WaterPlane_Crypt_Mat.mat",
+      "materialName": "TERRAIN_GEN_WaterPlane_Crypt_Mat",
+      "rendererPathId": -5521999231246032361,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-3186f5789e08c822dd614a6df697caba",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_stonerooms.asset.bundle",
+      "sourceSha256": "d9a1f668ec1a7640d91281970733aa3e37408f91077e37f7cd54e6259707b180"
+    },
+    {
+      "ancestry": [
+        "TERRAIN_Water_Wood_03_PR",
+        "TERRAIN_Water_Plane"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "terrain",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_crypt_mat.bundle::CAB-c7a43240c16625e49b1c92aa6e0e5c19:-8892978875446173739",
+      "materialAssetGUID": "88b35496a8cf1bb499871ada85658393",
+      "materialAssetPath": "Assets/Content/Props/HazardousTerrain/Materials/TERRAIN_GEN_WaterPlane_Crypt_Mat.mat",
+      "materialName": "TERRAIN_GEN_WaterPlane_Crypt_Mat",
+      "rendererPathId": -6241515777665587850,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-f4f57578b50c182a4c24fcf623ceb0c3",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_stonewoodenrooms.asset.bundle",
+      "sourceSha256": "009d48ae6beedc85cf775fb422e92119c2a0d10e49f9e3c4fa402abbaa1a73d3"
+    },
+    {
+      "ancestry": [
+        "TERRAIN_Water_Wood_02_PR",
+        "TERRAIN_Water_Plane"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "terrain",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_crypt_mat.bundle::CAB-c7a43240c16625e49b1c92aa6e0e5c19:-8892978875446173739",
+      "materialAssetGUID": "88b35496a8cf1bb499871ada85658393",
+      "materialAssetPath": "Assets/Content/Props/HazardousTerrain/Materials/TERRAIN_GEN_WaterPlane_Crypt_Mat.mat",
+      "materialName": "TERRAIN_GEN_WaterPlane_Crypt_Mat",
+      "rendererPathId": 950923193528801076,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-f4f57578b50c182a4c24fcf623ceb0c3",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_stonewoodenrooms.asset.bundle",
+      "sourceSha256": "009d48ae6beedc85cf775fb422e92119c2a0d10e49f9e3c4fa402abbaa1a73d3"
+    },
+    {
+      "ancestry": [
+        "TERRAIN_Water_Wood_01_PR",
+        "TERRAIN_Water_Plane"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "terrain",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_crypt_mat.bundle::CAB-c7a43240c16625e49b1c92aa6e0e5c19:-8892978875446173739",
+      "materialAssetGUID": "88b35496a8cf1bb499871ada85658393",
+      "materialAssetPath": "Assets/Content/Props/HazardousTerrain/Materials/TERRAIN_GEN_WaterPlane_Crypt_Mat.mat",
+      "materialName": "TERRAIN_GEN_WaterPlane_Crypt_Mat",
+      "rendererPathId": -6945915481748586116,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-f4f57578b50c182a4c24fcf623ceb0c3",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_stonewoodenrooms.asset.bundle",
+      "sourceSha256": "009d48ae6beedc85cf775fb422e92119c2a0d10e49f9e3c4fa402abbaa1a73d3"
+    },
+    {
+      "ancestry": [
+        "TERRAIN_Water_Crypt_02_PR",
+        "TERRAIN_Water_Plane"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "terrain",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_crypt_mat.bundle::CAB-c7a43240c16625e49b1c92aa6e0e5c19:-8892978875446173739",
+      "materialAssetGUID": "88b35496a8cf1bb499871ada85658393",
+      "materialAssetPath": "Assets/Content/Props/HazardousTerrain/Materials/TERRAIN_GEN_WaterPlane_Crypt_Mat.mat",
+      "materialName": "TERRAIN_GEN_WaterPlane_Crypt_Mat",
+      "rendererPathId": 5780932122345095309,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-548fa0bdd17b9f84bf91fd8205965a47",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_subbiome_03.asset.bundle",
+      "sourceSha256": "657c5258015094d97bcf1d16372d9ba9c4e2ff5aa6fc5d75ae4af7f1da16d0ac"
+    },
+    {
+      "ancestry": [
+        "TERRAIN_Water_Crypt_01_PR",
+        "TERRAIN_Water_Plane"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "terrain",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_crypt_mat.bundle::CAB-c7a43240c16625e49b1c92aa6e0e5c19:-8892978875446173739",
+      "materialAssetGUID": "88b35496a8cf1bb499871ada85658393",
+      "materialAssetPath": "Assets/Content/Props/HazardousTerrain/Materials/TERRAIN_GEN_WaterPlane_Crypt_Mat.mat",
+      "materialName": "TERRAIN_GEN_WaterPlane_Crypt_Mat",
+      "rendererPathId": -147495011234594696,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-548fa0bdd17b9f84bf91fd8205965a47",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_subbiome_03.asset.bundle",
+      "sourceSha256": "657c5258015094d97bcf1d16372d9ba9c4e2ff5aa6fc5d75ae4af7f1da16d0ac"
+    },
+    {
+      "ancestry": [
+        "TERRAIN_Water_Crypt_03_PR",
+        "TERRAIN_Water_Plane"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "terrain",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_crypt_mat.bundle::CAB-c7a43240c16625e49b1c92aa6e0e5c19:-8892978875446173739",
+      "materialAssetGUID": "88b35496a8cf1bb499871ada85658393",
+      "materialAssetPath": "Assets/Content/Props/HazardousTerrain/Materials/TERRAIN_GEN_WaterPlane_Crypt_Mat.mat",
+      "materialName": "TERRAIN_GEN_WaterPlane_Crypt_Mat",
+      "rendererPathId": -5521999231246032361,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-548fa0bdd17b9f84bf91fd8205965a47",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_subbiome_03.asset.bundle",
+      "sourceSha256": "657c5258015094d97bcf1d16372d9ba9c4e2ff5aa6fc5d75ae4af7f1da16d0ac"
+    },
+    {
+      "ancestry": [
+        "TERRAIN_Water_01_PR",
+        "TERRAIN_Water_Plane"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "terrain",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_mat.bundle::CAB-19d828663fc8b1a31f540e8bd793c449:7018948157779208032",
+      "materialAssetGUID": "353df7ec8e4fee0459d98ed6b456230c",
+      "materialAssetPath": "Assets/Content/Props/HazardousTerrain/Materials/TERRAIN_GEN_WaterPlane_Mat.mat",
+      "materialName": "TERRAIN_GEN_WaterPlane_Mat",
+      "rendererPathId": -5624867153276199676,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-436caf58c889d0f38bbc19eb6d616585",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_terrain.asset.bundle",
+      "sourceSha256": "b162c8e8e666b02cd2a30b919606e37ea3af66fd6696cfc66e62694ba8ca51c1"
+    },
+    {
+      "ancestry": [
+        "TERRAIN_Water_03_PR",
+        "TERRAIN_Water_Plane"
+      ],
+      "binding": "MaterialLoader.Addressables.AssetGUID",
+      "classification": "terrain",
+      "material": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_mat.bundle::CAB-19d828663fc8b1a31f540e8bd793c449:7018948157779208032",
+      "materialAssetGUID": "353df7ec8e4fee0459d98ed6b456230c",
+      "materialAssetPath": "Assets/Content/Props/HazardousTerrain/Materials/TERRAIN_GEN_WaterPlane_Mat.mat",
+      "materialName": "TERRAIN_GEN_WaterPlane_Mat",
+      "rendererPathId": 6290253231756966121,
+      "rendererType": "MeshRenderer",
+      "replaceWaterFilm": true,
+      "serializedFile": "CAB-436caf58c889d0f38bbc19eb6d616585",
+      "shader": "VFX/Water_Shd_Trans",
+      "slot": 0,
+      "source": "StreamingAssets/aa/StandaloneWindows64/pcg_databases_assets_assets/pcg/pcg_terrain.asset.bundle",
+      "sourceSha256": "b162c8e8e666b02cd2a30b919606e37ea3af66fd6696cfc66e62694ba8ca51c1"
+    }
+  ],
+  "waterShaderFamilies": [
+    "VFX/Water_Shd",
+    "VFX/Water_Shd_Low",
+    "VFX/Water_Shd_Trans",
+    "VFX/Water_Shd_Trans_Low"
+  ]
+}
