@@ -58,3 +58,21 @@ locally generated APK is implied by these host-only changes.
 
 Evidence and run cleanup receipts live outside the worktrees under
 `/home/claw/quest3-local/build/evidence/B672-install-options-191308-20261014/`.
+
+Final focused evidence:217 existing/manual installer cases,25 final manual/reset
+controls (ten overlap the first group),132 Wizard/API/progress cases and83
+producer/release-compatibility cases pass. The42 root browser/model cases include
+real Chrome confirmation, cancellation, stale-action and request-order controls.
+Worker receipts retain their separate44-case UI and228-case installer executions;
+these are overlapping evidence, not additional unique coverage. Each owned run
+was reaped and passed to the central retention API. The read-only safety review
+has no outstanding findings at its eleven recorded source hashes.
+
+The whole previous delivered source inventory retains completed preparation,
+recovery and compact-update producer scopes. Actual extracted delivery smoke
+checks the Bash launcher/venv/browser, current installation-log export and the
+real reset-consent API, including rejection of a consumed nonce without creating
+an install/build job. Existing JDWP protocol and B672 runtime evidence is inherited
+for unchanged bytes. No firmware-specific automatic-start cause has been proved;
+manual launch and explicit clean installation are concrete alternatives, with
+headset execution still requiring the next hardware test.
