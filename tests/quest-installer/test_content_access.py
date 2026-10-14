@@ -38,6 +38,8 @@ class ShellView:
         if self.device.disconnect: raise ConnectionRequired("device offline")
         if self.device.direct_open_denied and mode == "app-direct" and "head -c 1" in script:
             raise RuntimeError("direct namespace open denied")
+        if self.device.process_open_denied and mode == "app-process" and "head -c 1" in script:
+            raise RuntimeError("proc pathname namespace open denied")
         return self.device.execute(script, app=True)
 
     def shell(self, script, timeout):
@@ -61,6 +63,7 @@ class Device:
         self.scripts = []
         self.foreign = self.disconnect = self.deny_after_repair = False
         self.direct_open_denied = False
+        self.process_open_denied = False
         self.waits = 0
 
     def identity(self, address):
@@ -168,6 +171,23 @@ class ContentAccessTests(unittest.TestCase):
     def test_process_namespace_open_can_succeed_without_permission_mutation(self):
         self.device.direct_open_denied = True
         self.assertEqual(self.qualify()["appAccess"], "verified")
+        self.assertFalse(any(not app for app, _ in self.device.scripts))
+
+    def test_actual_app_origin_open_can_succeed_after_both_aliases_fail(self):
+        self.device.direct_open_denied = self.device.process_open_denied = True
+        self.assertEqual(self.qualify()["appAccess"], "verified")
+        self.assertFalse(any(not app for app, _ in self.device.scripts))
+
+    def test_unavailable_alias_roots_select_app_origin_without_chmod(self):
+        class OriginOnlyView(ShellView):
+            def _access_root(self, root, mode):
+                if mode in ("app-direct", "app-process"): raise RuntimeError("scoped alias denied")
+                if mode != "app-jdwp": raise AssertionError("unexpected storage view")
+                return super()._access_root(root, mode)
+        with access.BankAccess(self.device, "quest", OriginOnlyView) as owner:
+            result = owner.qualify(self.remote, {"files": self.rows}, ".quest-installation.receipt")
+            self.assertEqual(owner.mode, "app-jdwp")
+        self.assertEqual(result["appAccess"], "verified")
         self.assertFalse(any(not app for app, _ in self.device.scripts))
 
     def test_process_namespace_is_rechecked_after_permission_repair(self):

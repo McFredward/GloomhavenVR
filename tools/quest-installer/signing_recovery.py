@@ -261,6 +261,7 @@ class Recovery:
         self.decode_receipt = decode_receipt
         self._direct_storage_proved = False
         self._storage_process = None
+        self._storage_command = None
         self._source_fingerprint = self._fingerprint(source.apk)
         self._rename_helper = None
         self._apk_regenerated_files = None
@@ -545,6 +546,10 @@ class Recovery:
         return debug_args
 
     def _close_storage_process(self):
+        command = getattr(self, "_storage_command", None)
+        if command:
+            self._storage_command = None
+            command.close()
         owned = self._storage_process
         if not owned: return
         self._storage_process = None
@@ -555,6 +560,30 @@ class Recovery:
         except RuntimeError: return
         if current != owned: raise RecoveryError("The paused storage process changed before scoped cleanup.")
         self.adb.run("-s", self.address, "shell", "am", "force-stop", PACKAGE, check_text=False)
+
+    def _app_context_command(self):
+        """Use an app-origin child when UID changes cannot enter its FUSE view.
+
+        Capture165236 proves an awake USB-connected app at the debugger-wait
+        boundary; run-as still cannot traverse either its direct external root
+        or /proc/PID/root alias. That alias is only a pathname, not setns or an
+        app-origin process. A scoped JDWP invocation executes before gameplay
+        and inherits the real app's UID, SELinux domain and mount namespace.
+        Never use shell extraction as a substitute for app-readable ownership.
+        """
+        self._device_guard()
+        command = getattr(self, "_storage_command", None)
+        if command:
+            command.guard()
+            return command
+        self._process_storage_root()
+        owned = self._storage_process
+        if not owned or self._process_snapshot(owned[0], stopped=True) != owned:
+            raise RecoveryError("The app-context storage command requires the proved pre-game process.")
+        spec = importlib.util.spec_from_file_location("quest_jdwp_storage", Path(__file__).with_name("jdwp_storage.py"))
+        helper = importlib.util.module_from_spec(spec); spec.loader.exec_module(helper)
+        self._storage_command = helper.AppCommand(self.adb, self.address, self.hardware, owned)
+        return self._storage_command
 
     def shell(self, script, *, timeout=60):
         return self.adb.run("-s", self.address, "shell", "-T", "sh", "-s",
@@ -724,7 +753,7 @@ class Recovery:
         if root != EXTERNAL:
             raise RecoveryError("External restoration must remain inside this app's exact recovery root.")
         errors = []
-        for mode in ("app-direct", "app-process"):
+        for mode in ("app-direct", "app-process", "app-jdwp"):
             self._device_guard()
             try:
                 actual = self._access_root(root, mode)
@@ -751,8 +780,8 @@ class Recovery:
         with self.adb.log.open("a", encoding="utf-8") as log:
             log.write(json.dumps({"replacementAppRestoreAccess": "unavailable", "attempts": errors,
                                   "shellRestoreAllowed": False}) + "\n")
-        raise CaptureRepairError("The replacement app cannot yet restore its external saves/settings through its own storage view; original backups are retained for a scoped retry.",
-                                 root="external", reason="restore-app-access", attempts=len(errors), total=len(errors))
+        raise CaptureRepairError("Android rejected the replacement app's external-storage access, including its app-context fallback. The completed APK and original save backups are retained for a scoped retry; no full rebuild or reinstall is needed.",
+                                 root="external", reason="restore-app-storage-unavailable", attempts=len(errors), total=len(errors))
 
     def _prepare_external_restore_root(self, root, mode):
         """Create a missing exact external root as its replacement app UID.
@@ -764,19 +793,24 @@ class Recovery:
         changing anyone's permissions. Inaccessible namespaces still use the
         guarded debugger-wait fallback; they are never shell-extraction targets.
         """
-        if mode not in ("app-direct", "app-process") or root != self._access_root(EXTERNAL, mode):
+        if mode not in ("app-direct", "app-process", "app-jdwp") or root != self._access_root(EXTERNAL, mode):
             raise RecoveryError("External root preparation must use this package's replacement app view.")
         boundary = "/storage"
         if root.startswith("/proc/"): boundary = root.split("/root/", 1)[0] + "/root"
-        checks = ["test -d " + shlex.quote(str(PurePosixPath(root).parent))]
+        # Keep the exact failed component in the command's stderr. Empty
+        # `test -d` failures previously appeared as an unexplained awake-device
+        # prompt. This adds no round trip, data read or private tree census.
+        diagnostic = "status=$?; printf 'GHVRQ_APP_STORAGE mode=" + mode + " component=%s status=%s\\n' \"$component\" \"$status\" >&2; exit \"$status\""
+        checks = ["component=parent-directory", "trap " + shlex.quote(diagnostic) + " EXIT",
+                  "test -d " + shlex.quote(str(PurePosixPath(root).parent)), "component=ancestor-link"]
         for parent in PurePosixPath(root).parents:
             value = str(parent)
             if value == boundary: break
             checks.append("test ! -L " + shlex.quote(value))
         target = shlex.quote(root)
         script = "\n".join(checks) + "\ntest ! -L " + target
-        script += "\nif test -e " + target + "; then test -d " + target + "; else umask 077; mkdir " + target + "; fi"
-        script += "\ntest -d " + target + "\nprintf GHVRQ_APP_ROOT_READY"
+        script += "\ncomponent=package-root\nif test -e " + target + "; then test -d " + target + "; else umask 077; mkdir " + target + "; fi"
+        script += "\ntest -d " + target + "\ntrap - EXIT\nprintf GHVRQ_APP_ROOT_READY"
         reply = self._context_shell(script, mode).strip()
         if reply != "GHVRQ_APP_ROOT_READY":
             raise RecoveryError("The replacement-app external root preparation returned no complete acknowledgement.")
@@ -793,10 +827,13 @@ class Recovery:
             if "package:" + PACKAGE in owned: raise RecoveryError("The app also belongs to another Android profile; signing recovery will not remove that profile's app.")
 
     def _access_root(self, root, mode):
-        if mode not in ("app-direct", "app-process"): return root
+        if mode not in ("app-direct", "app-process", "app-jdwp"): return root
         if not (root == EXTERNAL or root.startswith(EXTERNAL + "/") or root == self.park or root.startswith(self.park + "/")):
             raise RecoveryError("The direct storage view is outside this app's recovery roots.")
         if mode == "app-process": return self._process_storage_root() + root[len("/sdcard"):]
+        if mode == "app-jdwp":
+            self._app_context_command()
+            return "/storage/emulated/0" + root[len("/sdcard"):]
         if not self._direct_storage_proved:
             self._device_guard()
             # /sdcard can traverse /mnt/user/0, whose shell-owned parent is not
@@ -809,12 +846,14 @@ class Recovery:
             self._direct_storage_proved = True
         return "/storage/emulated/0" + root[len("/sdcard"):]
 
-    def _context_shell(self, script, mode):
+    def _context_shell(self, script, mode, *, timeout=120):
+        if mode == "app-jdwp":
+            return self._app_context_command().shell("set -eu\n" + script + "\n", timeout=timeout)
         if mode in ("app", "app-direct", "app-process"):
             if mode == "app-process": self._process_storage_root()
             return self.adb.run("-s", self.address, "shell", "-T", "run-as", PACKAGE, "sh", "-s",
-                                input_text="set -eu\n" + script + "\n", check_text=False, timeout=120)
-        return self.shell(script, timeout=120)
+                                input_text="set -eu\n" + script + "\n", check_text=False, timeout=timeout)
+        return self.shell(script, timeout=timeout)
 
     def _check_external_root(self, root, mode):
         # The proc root is intentionally the kernel namespace bridge; every
@@ -832,6 +871,10 @@ class Recovery:
     def _capture_census(self, item, *, parked_bank=None):
         """Prove readable typed members before streaming any payload bytes."""
         root = item["root"]; modes = ("app",) if item["internal"] else ("shell", "app", "app-direct", "app-process")
+        if not item["internal"] and item.get("restoreAccessMode") == "app-jdwp":
+            # A shell-readable restored tree cannot prove accessibility through
+            # the actual app view. Keep this post-restore census app-origin.
+            modes = ("app-jdwp",)
         ignored = set(); directories = set()
         if not item["internal"]:
             for bank in ([parked_bank] if parked_bank else self.journal.get("banks", [])):
@@ -1498,9 +1541,11 @@ class Recovery:
                     or not re.fullmatch(r"[0-9a-f]{64}", str(item.get("sha256")))):
                 raise RecoveryError("Invalid retained app-data archive identity.")
             seen.add(name); local = ordinary(self.backup / item["archive"])
-            if "accessMode" in item and item["accessMode"] not in ("app", "app-direct", "app-process", "shell"): raise RecoveryError("Invalid retained app-data access identity.")
-            if "restoreAccessMode" in item and item["restoreAccessMode"] not in ("app", "app-direct", "app-process"): raise RecoveryError("Invalid retained app-data restoration identity.")
-            if item.get("accessMode") in ("app-direct", "app-process") and item["internal"]: raise RecoveryError("Private app data cannot use the external storage view.")
+            if "accessMode" in item and item["accessMode"] not in ("app", "app-direct", "app-process", "app-jdwp", "shell"): raise RecoveryError("Invalid retained app-data access identity.")
+            if "restoreAccessMode" in item and item["restoreAccessMode"] not in ("app", "app-direct", "app-process", "app-jdwp"): raise RecoveryError("Invalid retained app-data restoration identity.")
+            if item["internal"] and any(item.get(key) in ("app-direct", "app-process", "app-jdwp")
+                                         for key in ("accessMode", "restoreAccessMode")):
+                raise RecoveryError("Private app data cannot use the external storage view.")
             if item.get("accessMode") == "shell" and item["internal"]: raise RecoveryError("Private app data cannot be restored through shell ownership.")
             if "capturePaths" in item:
                 paths = item["capturePaths"]
@@ -1688,6 +1733,7 @@ class Recovery:
         self.adb.run("-s", self.address, "shell", "am", "force-stop", PACKAGE)
         private = self.adb.run("-s", self.address, "shell", "run-as", PACKAGE, "pwd", check_text=False).strip()
         if private not in ("/data/user/0/" + PACKAGE, "/data/data/" + PACKAGE): raise RecoveryError("The installed replacement does not permit run-as restoration; all original backups remain retained.")
+        self._cleanup_app_context_stage()
         # Unknown extras captured inside a native bank must overlay its retained
         # original tree, rather than precreating a conflicting bank directory.
         self._restore_banks()
@@ -1702,13 +1748,17 @@ class Recovery:
             restore = self.backup / (item["name"] + ".restore.tar")
             self._safe_restore_archive(local, restore, target_item)
             try:
-                self._transfer(self._restore_tar_args(item["root"], internal=item["internal"], access_mode=mode), restore, restore=True, phase="restore", total=restore.stat().st_size)
+                if mode == "app-jdwp": self._restore_app_context_archive(restore, item["root"])
+                else: self._transfer(self._restore_tar_args(item["root"], internal=item["internal"], access_mode=mode), restore, restore=True, phase="restore", total=restore.stat().st_size)
                 if mode == "app-process": self._process_storage_root()
             finally: restore.unlink(missing_ok=True)
             progress("restore", index + 1, len(self.journal["roots"]), "Restored " + item["name"] + " app data", unit="files", local=True)
         self.commit(restoringArchive=None)
         progress("restore", 5, 7, "Retained saves, settings and content restored")
         for item in self.journal["roots"]:
+            if not item["internal"] and item.get("restoreAccessMode") == "app-jdwp":
+                self._verify_app_context_restore(item)
+                continue
             verify = self.backup / (item["name"] + ".restored.tar")
             try:
                 restored = self._capture_root(item, verify, fresh=True)
@@ -1721,6 +1771,113 @@ class Recovery:
                     raise RecoveryError("Restored app data contains an unexpected new member; original backups remain retained.")
             finally: verify.unlink(missing_ok=True)
         progress("verify", 6, 7, "Restored saves and settings match their original backups")
+
+    def _private_storage_stage(self):
+        self._device_guard()
+        self._cleanup_app_context_stage()
+        root = self.adb.run("-s", self.address, "shell", "run-as", PACKAGE, "pwd", check_text=False).strip()
+        if root not in ("/data/user/0/" + PACKAGE, "/data/data/" + PACKAGE):
+            raise RecoveryError("The app-context storage stage has no qualified private package root.")
+        cache = shlex.quote(root + "/cache")
+        self._context_shell("test ! -L " + cache + "\nif test -e " + cache
+                            + "; then test -d " + cache + "; else umask 077; mkdir " + cache + "; fi", "app")
+        return root + "/cache/.quest-restore-stage-" + uuid.uuid4().hex
+
+    def _app_context_stage_record(self):
+        journal = getattr(self, "journal", None)
+        if journal is not None: return journal.get("appContextStage")
+        path = ordinary(self.adb.log.parent / ("app-storage-stage-" + self.hardware + ".json"))
+        if not path.exists(): return None
+        if not path.is_file() or path.stat().st_nlink != 1 or path.stat().st_size > 4096:
+            raise RecoveryError("The private app-storage stage receipt is not a bounded independent file.")
+        value = json.loads(path.read_text(encoding="utf-8"))
+        if (not isinstance(value, dict) or value.get("schema") != 1 or value.get("package") != PACKAGE
+                or value.get("deviceSerial") != self.hardware):
+            raise RecoveryError("The private app-storage stage receipt has an invalid device/package identity.")
+        return value.get("path")
+
+    def _remember_app_context_stage(self, remote):
+        if getattr(self, "journal", None) is not None:
+            self.commit(appContextStage=remote)
+            return
+        path = ordinary(self.adb.log.parent / ("app-storage-stage-" + self.hardware + ".json"))
+        if remote is None: path.unlink(missing_ok=True)
+        else: atomic_json(path, {"schema": 1, "package": PACKAGE, "deviceSerial": self.hardware, "path": remote})
+
+    def _cleanup_app_context_stage(self):
+        remote = self._app_context_stage_record()
+        if remote is None: return
+        if not isinstance(remote, str) or not re.fullmatch(r"/data/(?:user/0|data)/" + re.escape(PACKAGE)
+                + r"/cache/\.quest-restore-stage-[0-9a-f]{32}", remote):
+            raise RecoveryError("The retained private app-storage stage is outside its exact owned cache scope.")
+        self._device_guard()
+        target, parent = shlex.quote(remote), shlex.quote(str(PurePosixPath(remote).parent))
+        reply = self._context_shell("test ! -L " + parent + "\nif test -e " + parent
+            + "; then test -d " + parent + "; test ! -L " + target
+            + "; if test -e " + target + "; then test -f " + target
+            + "; test \"$(stat -c %u " + target + ")\" = \"$(id -u)\"; rm " + target
+            + "; fi; fi\nprintf GHVRQ_PRIVATE_STAGE_REMOVED", "app").strip()
+        if reply != "GHVRQ_PRIVATE_STAGE_REMOVED":
+            raise RecoveryError("Private app-storage stage cleanup returned an incomplete acknowledgement.")
+        self._remember_app_context_stage(None)
+
+    def _app_context_binary(self, local, script, *, timeout=120):
+        """Supply binary stdin through one exact private app-owned scratch file."""
+        remote = self._private_storage_stage(); quoted = shlex.quote(remote)
+        self._remember_app_context_stage(remote)
+        stage = "set -eu\numask 077\ntest ! -L " + quoted + "\ntest ! -e " + quoted + "\ncat > " + quoted
+        try:
+            self._transfer(["exec-in", "run-as", PACKAGE, "sh", "-c", stage], local,
+                           restore=True, phase="restore", total=local.stat().st_size)
+            expected = str(local.stat().st_size)
+            check = "test ! -L " + quoted + "\ntest -f " + quoted
+            check += "\ntest \"$(stat -c %s " + quoted + ")\" = " + expected
+            check += "\ntest \"$(sha256sum " + quoted + " | cut -d' ' -f1)\" = " + file_hash(local)
+            self._context_shell(check, "app")
+            return self._context_shell("test ! -L " + quoted + "\ntest -f " + quoted
+                + "\n(\n" + script + "\n) < " + quoted, "app-jdwp", timeout=timeout)
+        finally:
+            active_error = sys.exc_info()[0]
+            try: self._cleanup_app_context_stage()
+            except RuntimeError as cleanup:
+                if active_error is None: raise
+                print("Private app-data stage cleanup remains pending: " + str(cleanup)[:1024], flush=True)
+
+    def _restore_app_context_archive(self, local, root):
+        """Transfer retained app data once, then extract inside the real app.
+
+        A private, replacement-UID staging file avoids Android external FUSE
+        restrictions and Windows text-mode ADB. JDWP transports only commands;
+        no game banks are uploaded, scanned or duplicated by this operation.
+        The durable host backup remains intact after every interruption.
+        """
+        actual = self._access_root(root, "app-jdwp")
+        self._check_external_root(actual, "app-jdwp")
+        progress("restore", 0, 1, "Extracting retained saves/settings through the actual app process", local=True)
+        reply = self._app_context_binary(local, "tar -C " + shlex.quote(actual)
+            + " -xof -\nprintf GHVRQ_APP_DATA_RESTORED", timeout=1800).strip()
+        if reply != "GHVRQ_APP_DATA_RESTORED":
+            raise RecoveryError("The actual app-context extraction returned an incomplete acknowledgement.")
+
+    def _verify_app_context_restore(self, item):
+        """Qualify only retained app-data members; never traverse game banks."""
+        original = item["inventory"]
+        rows = self._capture_census(item)
+        if set(rows) != set(original):
+            raise RecoveryError("The restored actual app-data view differs from its retained member census.")
+        for index, (name, expected) in enumerate(sorted(original.items())):
+            row = rows[name]
+            if row["type"] != expected["type"]:
+                raise RecoveryError("Restored app data changed a retained member type.")
+            path, digest = self._member_identity(item, name, digest=row["type"] == "file")
+            if row["type"] == "file":
+                if row["size"] != expected["size"] or digest != expected["sha256"]:
+                    raise RecoveryError("Restored app data failed its actual app-context size/hash proof.")
+            elif row["type"] == "symlink":
+                target = self._context_shell("readlink " + shlex.quote(path), "app-jdwp")
+                if target != expected["target"] + "\n":
+                    raise RecoveryError("Restored app data changed a retained terminal link.")
+            progress("verify", index + 1, len(original), "Verifying retained saves/settings through the actual app process", unit="files", local=True)
 
     def recover(self, *, detected=False):
         try:
@@ -1872,6 +2029,7 @@ class AppStorageView(Recovery):
         self.adb, self.address, self.hardware = adb, address, hardware
         self._direct_storage_proved = False
         self._storage_process = None
+        self._storage_command = None
 
     def _access_root(self, root, mode):
         if (not isinstance(root, str) or root != str(PurePosixPath(root))
@@ -1945,7 +2103,7 @@ def repairs_current_external_access(adb, address, hardware, source, config_direc
         view._device_guard()
         view._check_external_root(EXTERNAL + "/files", "shell")
         mode = None
-        for candidate in ("app-direct", "app-process"):
+        for candidate in ("app-direct", "app-process", "app-jdwp"):
             view._device_guard()
             try:
                 parent = view._access_root(EXTERNAL + "/files", candidate)
@@ -2024,18 +2182,27 @@ def repairs_current_external_access(adb, address, hardware, source, config_direc
                     app_witness = view._context_shell("stat -c '%d:%i:%s:%y:%z' " + actual_q, mode).strip()
                     app_hash = view._context_shell("sha256sum " + actual_q, mode).strip()
                 except RuntimeError as error:
-                    if type(error).__name__ == "ConnectionRequired" or mode != "app-direct": raise
+                    if type(error).__name__ == "ConnectionRequired" or mode == "app-jdwp": raise
                     # A readable shell path can still belong to a different
                     # storage mount view than run-as. Open the guarded waiting
                     # app's view before treating that mount denial as file loss.
-                    mode = "app-process"
-                    actual = view._access_root(remote, mode)
-                    actual_q = shlex.quote(actual)
-                    view._check_external_root(str(PurePosixPath(actual).parent), mode)
-                    stage = actual + ".quest-access-" + token
-                    stage_q = shlex.quote(stage)
-                    app_witness = view._context_shell("stat -c '%d:%i:%s:%y:%z' " + actual_q, mode).strip()
-                    app_hash = view._context_shell("sha256sum " + actual_q, mode).strip()
+                    last_access = error
+                    candidates = ("app-process", "app-jdwp") if mode == "app-direct" else ("app-jdwp",)
+                    for candidate in candidates:
+                        try:
+                            mode = candidate
+                            actual = view._access_root(remote, mode)
+                            actual_q = shlex.quote(actual)
+                            view._check_external_root(str(PurePosixPath(actual).parent), mode)
+                            stage = actual + ".quest-access-" + token
+                            stage_q = shlex.quote(stage)
+                            app_witness = view._context_shell("stat -c '%d:%i:%s:%y:%z' " + actual_q, mode).strip()
+                            app_hash = view._context_shell("sha256sum " + actual_q, mode).strip()
+                            break
+                        except RuntimeError as denied:
+                            if type(denied).__name__ == "ConnectionRequired": raise
+                            last_access = denied
+                    else: raise last_access
                 if app_hash != checksum + "  " + actual:
                     raise RecoveryError("The app's mutable storage view differs from the witnessed current bytes.")
                 app_guards = ["test ! -L " + shlex.quote(view._access_root(parent, mode)) for parent in parents]
@@ -2049,8 +2216,12 @@ def repairs_current_external_access(adb, address, hardware, source, config_direc
                     "mv -f " + stage_q + " " + actual_q, "trap - EXIT", "printf %s " + token]
                 view._device_guard()
                 if mode == "app-process": view._process_storage_root()
-                reply = adb.binary_stream(address, local, "exec run-as " + PACKAGE + " sh -c " + shlex.quote("\n".join(lines)), 60)
-                if reply.returncode or reply.stdout.strip() != token:
+                if mode == "app-jdwp":
+                    reply_ok = view._app_context_binary(local, "\n".join(lines), timeout=60).strip() == token
+                else:
+                    reply = adb.binary_stream(address, local, "exec run-as " + PACKAGE + " sh -c " + shlex.quote("\n".join(lines)), 60)
+                    reply_ok = not reply.returncode and reply.stdout.strip() == token
+                if not reply_ok:
                     raise CaptureRepairError("Current app-data could not yet be replaced through the app UID; current bytes and saves remain retained.",
                                              root="external", reason="current-app-access-write", attempts=1, total=1)
                 published = True

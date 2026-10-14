@@ -40,7 +40,7 @@ class BankAccess:
             raise RuntimeError("App content access refuses an unexpected bank root.")
         if self.mode is None:
             failure = None
-            for mode in ("app-direct", "app-process"):
+            for mode in ("app-direct", "app-process", "app-jdwp"):
                 try:
                     parent = self.view._access_root(BASE.rstrip("/"), mode)
                     self.view._context_shell("test -d " + shlex.quote(parent)
@@ -98,16 +98,26 @@ class BankAccess:
         except RuntimeError as error:
             if _transport_failure(error): raise
             first_error = error
-        if self.mode == "app-direct":
-            # An app's actual storage namespace can differ from run-as's mount
-            # view. Exhaust the guarded, pre-game namespace seam before chmod.
-            self.mode = "app-process"
+        initial_mode = self.mode
+        for mode in ({"app-direct": ("app-process", "app-jdwp"), "app-process": ("app-jdwp",)}.get(initial_mode, ())):
+            # The proc pathname seam still executes in run-as's origin. A real
+            # app-origin child is necessary on scoped FUSE variants that reject
+            # both aliases, even with the same UID. Exhaust it before chmod.
+            self.mode = mode
             try:
                 self._probe(root, rows, receipt)
                 return {"appAccess": "verified", "accessRepairFiles": 0}
             except RuntimeError as error:
                 if _transport_failure(error): raise
-                self.mode = "app-direct"
+                # A failed app-origin launch must not disable an otherwise
+                # usable direct view's metadata-only permission repair.
+                if mode == "app-jdwp":
+                    try:
+                        actual = self._root(root)
+                        self.view._check_external_root(actual, mode)
+                    except RuntimeError as boundary:
+                        if _transport_failure(boundary): raise
+                        self.mode = initial_mode
         print("Repairing app access to retained " + root.rsplit("/", 1)[-1]
               + "; only manifested file/directory permissions are touched.", flush=True)
         directories = {root, root + "/StreamingAssets"}
@@ -131,16 +141,17 @@ class BankAccess:
         except RuntimeError as error:
             if _transport_failure(error): raise
             after_error = error
-            if self.mode == "app-direct":
+            if self.mode in ("app-direct", "app-process"):
                 # A bank may need both mode repair and the app's actual mount
                 # view; the pre-repair process probe cannot prove this case.
-                self.mode = "app-process"
-                try:
-                    self._probe(root, rows, receipt)
-                    return {"appAccess": "repaired", "accessRepairFiles": len(rows)}
-                except RuntimeError as error:
-                    if _transport_failure(error): raise
-                    after_error = error
+                for mode in ({"app-direct": ("app-process", "app-jdwp"), "app-process": ("app-jdwp",)}[self.mode]):
+                    self.mode = mode
+                    try:
+                        self._probe(root, rows, receipt)
+                        return {"appAccess": "repaired", "accessRepairFiles": len(rows)}
+                    except RuntimeError as error:
+                        if _transport_failure(error): raise
+                        after_error = error
             raise RuntimeError("Android still denies the app access to " + root.rsplit("/", 1)[-1]
                                + " after targeted permission repair. The APK and game data are retained; "
                                "no full content copy was attempted. Original check: " + str(first_error)
