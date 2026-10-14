@@ -13,13 +13,13 @@ AI candidates and six follow-up proposals with prompting research. The private G
 are under `.planning/debug/trailer/remake-v1/`. The first A04 video-edit result
 and its source-preserving composite remain historical review material.
 See [reference-remake-editing.md](reference-remake-editing.md) for the active
-pipeline and the current USD65 total cap. The completed65-second film below is retained
+pipeline and the current USD75 total cap. The completed65-second film below is retained
 as the earlier direction, with its sources and cost evidence.
 
 **Expansion correction checkpoint, 2026-10-14:** all six additional cinematic
-edits and both forest atmospheres are authorized, with total ceiling USD65 and
-USD58.75 conservatively reserved. Five new components remain root-approved;
-L01/L03 need longer readable interactions and L05 needs moving-cloud continuity.
+edits and both forest atmospheres are authorized, with total ceiling USD75 and
+USD63.75 conservatively reserved. Six new components are root-approved, including L05 after a moving temporal
+hand repair. L01/L03 still need their final sustained-interaction review.
 Their earlier approvals are withdrawn. The liked O01 Runeveil scene needs its
 Tinkerer restored to the original performance, equipment and two-leg anatomy,
 without changing the surrounding staging. AI-assisted local repairs are in

@@ -11,14 +11,14 @@ the first spoken Gloomhaven becomes GloomhavenVR. The original title reveal at
 ## Active interaction direction
 
 **Expansion correction checkpoint, 2026-10-14:** the total authorized ceiling
-is USD65. Conservative reservations are USD58.75, including validation failures
+is USD75. Conservative reservations are USD63.75, including validation failures
 and rejected creative outputs; invoices remain unavailable. The latest
-`production/budget-authorization-65-usd.json` supersedes the USD55/45 history.
+`production/budget-authorization-75-usd.json` supersedes the USD55/45 history.
 
-Five new components remain root-approved: E01/E02/L02/L04/L06. The maintainer
+Six new components are root-approved: E01/E02/L02/L04/L06 and repaired L05. The maintainer
 rejected L01/L03 because their additions were too brief to read and L05 because
-the hand-tail patch visibly changed the clouds. Those three assembly receipts
-are withdrawn. O01's liked Runeveil/world staging also needs a local Tinkerer
+the hand-tail patch visibly changed the clouds. Their earlier assembly receipts
+were withdrawn. L05 now selects the root-reviewed moving LTX repair in matched-v3. O01's liked Runeveil/world staging also needs a local Tinkerer
 repair: the original has an upright ready stance and distinct crossbow-equipped
 arms; the generated crouch/ambiguous third limb is not an authorized redesign.
 Compare the actual original O01 performance first; the later native full-body
@@ -44,16 +44,38 @@ The retained approved components keep native clocks and the fan-mod mark.
 L02 uses native Grimhorn with the original camera pullback and title focus shift.
 L04 isolates clean generated god pixels over native action: the glove exits
 before the original shot and the mask passes above the camera crop. L05's
-static-sky repair is rejected; temporal AI inpainting must preserve moving
-clouds. The latest Seedance2.5 door trial gives a readable hand but no convincing
-edge contact and is rejected. A sustained native-rig motion guide is being
-prepared for a bounded video-edit refinement. L01 uses a corrected contact guide
-and source-pinned5s core; its first request failed element-schema validation,
-and the separate corrected request retains that failed reservation.
+static-sky repair is rejected. Its selected matched-v3 uses actual LTX temporal
+inpainting only inside the moving hand/path union, preserving original moving
+clouds and native bandits elsewhere. Root reviewed all121 final frames: one
+upward withdrawal, no returning fist or sky rectangle. The Seedance2.5 door
+trial lacks convincing contact; Omni redraws the door, and a masked LTX trial
+removes the hand except two anchor flashes. All are rejected. A sustained native
+15-bone glove guide with matched focus and pressure flex is now submitted for a
+bounded Kling refinement. L01's corrected source-based core plus a dedicated
+paired-image exit is being conformed; the old free wing/foreground warps were
+rejected. Its failed first element-schema request remains reserved. O01's
+Seedance repair improves identity but still leaves an unconvincing early foot;
+actual moving original Tinkerer pixels are being restored instead.
 No clip approval follows merely from queue completion, a still, unchanged pixels
 outside a matte or a reference pose lasting too briefly to see.
 
 Additional primary-source research for the correction round:
+
+- [LTX2.3 temporal inpaint API](https://fal.ai/models/fal-ai/ltx-2.3-quality/inpaint/api)
+  uses white regenerate/black keep masks. The [official model guide](https://docs.ltx.io/open-source-model/feature-guides/editing-effects/in-outpainting)
+  and implementation require an8k+1 temporal grid. L05 uses73frames at36fps,
+  matched to its2s source span, and768x448 real moving image pixels. Actual
+  background phase was checked before restoring the121-frame native clock.
+- [Kling O3 paired-image API](https://fal.ai/models/fal-ai/kling-video/o3/pro/image-to-video/api)
+  takes image_url/end_image_url and a3–15s duration; this differs from v3's
+  start_image_url. L01's dedicated3s exit uses the approved core pose and native
+  end pose, then fits the exact2s exit window. Raw output and the native join
+  are reviewed before full-component approval.
+- [Kling O3 edit API](https://fal.ai/models/fal-ai/kling-video/o3/pro/video-to-video/edit/api)
+  supports3–15s source video, with video-only refinement possible. L03 supplies
+  the actual sustained glove motion, omitting isolated anchors and still-world
+  references after their observed failure. Current listed price isUSD0.168 per
+  generated second; its3s trial reservesUSD0.60.
 
 - [Seedance2.5 reference/edit API](https://fal.ai/models/bytedance/seedance-2.5/reference-to-video/api)
   has an explicit editing task with source-duration/aspect preservation, images

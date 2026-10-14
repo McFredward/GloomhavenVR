@@ -5,7 +5,7 @@
   "source_url": "https://www.youtube.com/watch?v=-SGDEP-zFHo",
   "source_title": "Gloomhaven | Gameplay Overview Trailer",
   "source_duration_seconds": 246.861,
-  "source_format": "YouTube source3840\u00d72160/60fps; analysis proxy1280\u00d7720/60fps",
+  "source_format": "YouTube source3840×2160/60fps; analysis proxy1280×720/60fps",
   "source_frame_review": {
     "scene_frames_viewed": 57,
     "cue_frames_viewed": 82,
@@ -44,14 +44,14 @@
     "previous_reserved_usd": 29.9,
     "previous_cap_usd": 30,
     "previous_invoice_reconciled": false,
-    "additional_round_cap_usd": 35,
-    "total_authorized_cap_usd": 65,
+    "additional_round_cap_usd": 45,
+    "total_authorized_cap_usd": 75,
     "new_reserved_usd": 28.85,
     "actual_new_invoice_reconciled": false,
-    "pilot_scope": "Five new components approved; three user-rejected revisions and native O01 Tinkerer restoration in progress. Total ceiling65; conservative reservations58.75 including all failures; invoice unreconciled.",
+    "pilot_scope": "User authorizes autonomous completion of current trailer, total cap75; targeted corrections ongoing; conservative reservations63.75, invoices unavailable.",
     "initial_three_model_comparison_proposed_usd": 3.75,
     "initial_model_comparison_status": "Not run; only one Kling pilot commissioned",
-    "all_reserved_usd": 58.75,
+    "all_reserved_usd": 63.75,
     "request_states": {
       "all_remake_ledger_states": {
         "completed": 31,
@@ -67,14 +67,14 @@
       "v5_raw_video_creative_status": "rejected_by_user; reservation retained"
     },
     "this_revision_reserved_usd": 13.9,
-    "proposed_total_cap_usd": 65,
+    "proposed_total_cap_usd": 75,
     "budget_extension_pending": false,
-    "unreserved_under_total_cap_usd": 6.25,
+    "unreserved_under_total_cap_usd": 11.25,
     "request_states_note": "Completed state is provider transport/result availability, not creative approval. Selected/rejected clips are recorded separately.",
     "this_v4_reserved_usd": 4.35,
     "this_v5_reserved_usd": 0.5,
     "this_v6_reserved_usd": 13.9,
-    "authorization_receipt": ".planning/debug/trailer/production/budget-authorization-65-usd.json"
+    "authorization_receipt": ".planning/debug/trailer/production/budget-authorization-75-usd.json"
   },
   "private_briefing": ".planning/debug/trailer/remake-v1/AUFNAHMEPLAN.html",
   "private_capture_list": ".planning/debug/trailer/remake-v1/AUFNAHMELISTE.txt",
@@ -1368,7 +1368,7 @@
     "root_original_entry_frames_viewed_in_ordered_sheets": 73,
     "independent_master_boundary_actual_frames": 8,
     "independent_pixel_identical_logo_frames": 4,
-    "audio_scope": "Entire AAC stream byte/timestamp-identical to v4, including its earlier authorized6.225\u20137.575s narrator patch; no new subjective listening claim",
+    "audio_scope": "Entire AAC stream byte/timestamp-identical to v4, including its earlier authorized6.225–7.575s narrator patch; no new subjective listening claim",
     "limits": [
       "Generated world differs from native party room but remains coherent, permitted by latest user clarification",
       "Source party last frame deliberately not restored; direct existing hard logo cut at7s",
@@ -1533,61 +1533,156 @@
     "total_if_all_eight_pass": 11,
     "approved_components": [
       {
-        "id": "E01",
-        "review": ".planning/debug/trailer/remake-v1/ai-edits-v6/E01/root-creative-review.json",
         "status": "root-approved-for-assembly",
+        "utc": "2026-10-14T18:30:33.265614+00:00",
+        "file": "/home/claw/gloomhaven_vr/.planning/debug/trailer/remake-v1/ai-edits-v6/E01/matched-v1/matched-interaction.mkv",
         "sha256": "d02a17d75997afe548da44573af0d36c5fd74123429784b00714948565895642",
         "frames": 152,
         "fps": 60,
         "source_frame_start": 801,
-        "source_frame_end_exclusive": 953
+        "source_frame_end_exclusive": 953,
+        "root_actual_visual_evidence": "E01 all73 raw frames in4chronological contacts and all152 matched frames in8contacts; E02 all13 raw watch cues and all121 matched frames in7contacts; additional final full-resolution stills/footer inspected.",
+        "findings": [
+          "One coherent native-derived forest world, no observed architecture/prop transformation",
+          "One native mask high above ground; restrained head motion and natural foreground tree occlusion",
+          "Actual native hard cut exits, no forced return to incompatible original endpoint",
+          "Exact clock and continuous English unofficial fan-mod label"
+        ],
+        "limits": [
+          "Approval covers these cinematic components, not the still-unrendered complete v6 timeline.",
+          "No hands or hero contact claimed in these short atmospheric views."
+        ],
+        "id": "E01",
+        "review": ".planning/debug/trailer/remake-v1/ai-edits-v6/E01/root-creative-review.json"
       },
       {
-        "id": "E02",
-        "review": ".planning/debug/trailer/remake-v1/ai-edits-v6/E02/root-creative-review.json",
         "status": "root-approved-for-assembly",
+        "utc": "2026-10-14T18:30:33.410511+00:00",
+        "file": "/home/claw/gloomhaven_vr/.planning/debug/trailer/remake-v1/ai-edits-v6/E02/matched-v1/matched-interaction.mkv",
         "sha256": "3cd3bed4c83d80a1aa733bfbe4e3b5d59fe88f7d91a5716c91b3442cfe6b3226",
         "frames": 121,
         "fps": 60,
         "source_frame_start": 953,
-        "source_frame_end_exclusive": 1074
+        "source_frame_end_exclusive": 1074,
+        "root_actual_visual_evidence": "E01 all73 raw frames in4chronological contacts and all152 matched frames in8contacts; E02 all13 raw watch cues and all121 matched frames in7contacts; additional final full-resolution stills/footer inspected.",
+        "findings": [
+          "One coherent native-derived forest world, no observed architecture/prop transformation",
+          "One native mask high above ground; restrained head motion and natural foreground tree occlusion",
+          "Actual native hard cut exits, no forced return to incompatible original endpoint",
+          "Exact clock and continuous English unofficial fan-mod label"
+        ],
+        "limits": [
+          "Approval covers these cinematic components, not the still-unrendered complete v6 timeline.",
+          "No hands or hero contact claimed in these short atmospheric views."
+        ],
+        "id": "E02",
+        "review": ".planning/debug/trailer/remake-v1/ai-edits-v6/E02/root-creative-review.json"
       },
       {
-        "id": "L02",
-        "review": ".planning/debug/trailer/remake-v1/ai-edits-v6/L02/root-creative-review.json",
         "status": "root-approved-for-assembly",
+        "utc": "2026-10-14T19:43:53.747171+00:00",
+        "file": "/home/claw/gloomhaven_vr/.planning/debug/trailer/remake-v1/ai-edits-v6/L02/matched-v2/matched-interaction.mkv",
         "sha256": "a7ad3db27819d26d4334faeeb65760ab1fdfb39f45a8a1f817ab229627d5c60e",
         "frames": 327,
         "fps": 60,
         "source_frame_start": 7808,
-        "source_frame_end_exclusive": 8135
+        "source_frame_end_exclusive": 8135,
+        "root_actual_visual_evidence": "All327 v1 frames in11 chronological contacts and full61/90/122/220/326; all changed v2 frames176..326 in6 contacts and full220/326. First176 v2 PNGs verified byte-identical to viewed v1. Original worker viewed all327 and24 watch cues.",
+        "findings": [
+          "Native Grimhorn geometry looks downward from above; physically projected original-camera pullback, restrained head nod, no hand",
+          "Early dark cropped lower mask tip continuously reveals through original framing; no opacity pop",
+          "One exact original hall/roster plate, native emblems and entire gold title protected with zero changed protected channels",
+          "Mask follows native title focus pull with smooth extra depth defocus; first176 composite frames unchanged",
+          "Native cuts at both ends, exact327frames/60fps and continuous fan-mod mark"
+        ],
+        "limits": [
+          "Original-camera reconstruction is an approximation from measured source motion, not the extracted game camera.",
+          "This shot uses native 3D compositing after both AI edit outputs failed; it is not represented as a successful generated edit.",
+          "Component approval only; complete v6 movie remains pending."
+        ],
+        "new_fal_calls_for_repair": 0,
+        "id": "L02",
+        "review": ".planning/debug/trailer/remake-v1/ai-edits-v6/L02/root-creative-review.json"
       },
       {
-        "id": "L04",
-        "review": ".planning/debug/trailer/remake-v1/ai-edits-v6/L04/root-creative-review.json",
         "status": "root-approved-for-assembly",
+        "utc": "2026-10-14T20:00:07.128302+00:00",
+        "file": "/home/claw/gloomhaven_vr/.planning/debug/trailer/remake-v1/ai-edits-v6/L04/matched-v2/matched-interaction.mkv",
         "sha256": "2060227d100c3d8c699e053e92f1aeabe0152201af8688f9390089585080ddda",
         "frames": 220,
         "fps": 60,
         "source_frame_start": 11359,
-        "source_frame_end_exclusive": 11579
+        "source_frame_end_exclusive": 11579,
+        "root_actual_visual_evidence": "All220 actual final H264 frames via11 chronological contacts; full raw-frame files0001/0008/0016/0019/0035/0045/0061/0073/0074. Independent producer all220 and7 watch cues.",
+        "findings": [
+          "Runeveil above heroes, isolated glove withdraws up and fully exits at18 before original spark34; no head or weapon overlap.",
+          "Rigid clean generated mask pixels follow bounded native forward-camera projection and exit upper crop after72. No contact claim.",
+          "Original hall, actors, first spark and complete final flash preserved. All action rows430..959 native-exact for220 frames, entire source native-exact73..219 before footer.",
+          "Native first cut allows god already in composition, native-exact tail preserves continuous exit; continuous unofficial footer."
+        ],
+        "limits": [
+          "Generated face isolated and motion rebuilt over exact native plate; original rejected raw retained.",
+          "Camera reconstruction is approximate, not recovered authoritative source camera.",
+          "Component approval only; full v6 movie pending."
+        ],
+        "new_fal_calls_for_repair": 0,
+        "id": "L04",
+        "review": ".planning/debug/trailer/remake-v1/ai-edits-v6/L04/root-creative-review.json"
       },
       {
-        "id": "L06",
-        "review": ".planning/debug/trailer/remake-v1/ai-edits-v6/L06/root-creative-review.json",
         "status": "root-approved-for-assembly",
+        "utc": "2026-10-14T18:58:35.021130+00:00",
+        "file": "/home/claw/gloomhaven_vr/.planning/debug/trailer/remake-v1/ai-edits-v6/L06/matched-v1/matched-interaction.mkv",
         "sha256": "58459317b0f8745fb06ba8db42d9192d773677298c590ed01a8510fbfee9b86d",
         "frames": 93,
         "fps": 60,
         "source_frame_start": 10266,
-        "source_frame_end_exclusive": 10359
+        "source_frame_end_exclusive": 10359,
+        "root_actual_visual_evidence": "ALL73raw frames in5chronological contacts and ALL93normalized frames in5chronological contacts, plus final full-resolution keyframes. Independent full-frame/watch evidence in auxiliary-qc.",
+        "findings": [
+          "One stable native-derived setting through the entire used shot; no observed architecture morph",
+          "High native VR element with relaxed short gesture and smooth upward withdrawal",
+          "Native following hard cut and original clock retained",
+          "Black cores restored and continuous unofficial fan-mod label",
+          "Single hand only in the genuine mine light shaft, no mask or new opening; fingertips fully clear by1.5s"
+        ],
+        "limits": [
+          "Approval is for the component; whole v6 export remains unrendered.",
+          "The subsequent undead/workroom shots are retained native, not part of this AI edit.",
+          "No complete reach/grasp cycle or interaction with mine machinery is claimed."
+        ],
+        "id": "L06",
+        "review": ".planning/debug/trailer/remake-v1/ai-edits-v6/L06/root-creative-review.json"
+      },
+      {
+        "status": "root-approved-for-assembly",
+        "utc": "2026-10-14T21:53:23.782013+00:00",
+        "file": "/home/claw/gloomhaven_vr/.planning/debug/trailer/remake-v1/ai-edits-v6/L05/matched-v3/matched-interaction.mkv",
+        "sha256": "6a7a093f336d0d308df1900a252c35fe5d339368652852d4228b7014d5bab255",
+        "frames": 121,
+        "fps": 60,
+        "source_frame_start": 10537,
+        "source_frame_end_exclusive": 10658,
+        "root_actual_visual_evidence": "All121 actual final H264 frames on8chronological contacts, all36 hand details20..55, full33/48/70/120. Earlier all73 LTX raw frames plus full24/36/72 personally viewed.",
+        "findings": [
+          "Single anatomically readable downward glove above the bandits withdraws upward with motion blur; no malformed returning fist.",
+          "Moving clouds remain coherent; no static rectangular sky patch or observed cloud transition.",
+          "Original three bandits, gear, floor and native cut timing remain authoritative.",
+          "English unofficial fan-mod footer readable at bottom right."
+        ],
+        "limits": [
+          "Complete v6 trailer still requires assembly and full visual review.",
+          "Motion blur intentionally softens the fast upward withdrawal."
+        ],
+        "id": "L05",
+        "review": ".planning/debug/trailer/remake-v1/ai-edits-v6/L05/root-creative-review.json"
       }
     ],
     "user_hand_feedback": {
       "scene": "L05 bandits (called L03 by user)",
-      "corrected_component": "L05/matched-v2",
-      "status": "Previous hand-tail repair rejected for cloud discontinuity; original raw and all attempts preserved.",
-      "method": "Rejected static sky tail; replaced by proposed temporal AI inpainting of late fist only, with original moving clouds and foreground preserved."
+      "corrected_component": "L05/matched-v3",
+      "status": "Root approved actual temporal LTX-assisted repair after reviewing all121 final frames; complete timeline review still pending.",
+      "method": "Generated moving hand/path region only; original moving cloud/bandit pixels elsewhere. Single upward withdrawal, no returning malformed fist or static sky rectangle."
     },
     "alternate_wan_door_probe": {
       "job": "remake-l03-wan-edit-v3b",
@@ -1603,7 +1698,7 @@
       "ledger_completed": 51,
       "ledger_failed": 4,
       "original_audit_cap_usd": 55,
-      "latest_optional_cap_usd": 65,
+      "latest_optional_cap_usd": 75,
       "all_failed_reservations_retained": true
     },
     "latest_user_rejections": {
@@ -1630,13 +1725,48 @@
       },
       {
         "job": "remake-l01-visible-contact-kling-ref-v7b",
-        "state": "queued",
+        "state": "completed",
         "reserved_usd": "0.65"
       },
       {
         "job": "remake-o01-native-tinkerer-restore-v7",
-        "state": "queued",
+        "state": "completed",
         "reserved_usd": "0.80"
+      },
+      {
+        "job": "remake-l05-natural-glove-omni-v7",
+        "state": "completed",
+        "reserved_usd": "0.50"
+      },
+      {
+        "job": "remake-l03-contact-motion-omni-v7",
+        "state": "completed",
+        "reserved_usd": "0.60"
+      },
+      {
+        "job": "remake-o01-native-pose-seedance-v7",
+        "state": "completed",
+        "reserved_usd": "2.50"
+      },
+      {
+        "job": "remake-l05-temporal-withdraw-ltx-v7",
+        "state": "completed",
+        "reserved_usd": "0.15"
+      },
+      {
+        "job": "remake-l01-clean-native-exit-v7",
+        "state": "completed",
+        "reserved_usd": "0.40"
+      },
+      {
+        "job": "remake-l03-local-contact-ltx-v7",
+        "state": "completed",
+        "reserved_usd": "0.25"
+      },
+      {
+        "job": "remake-l03-native-rig-kling-refine-v7",
+        "state": "queued",
+        "reserved_usd": "0.60"
       }
     ]
   },
