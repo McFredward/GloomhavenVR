@@ -16,16 +16,24 @@ See [reference-remake-editing.md](reference-remake-editing.md) for the active
 pipeline and the current USD75 total cap. The completed65-second film below is retained
 as the earlier direction, with its sources and cost evidence.
 
-**Expansion correction checkpoint, 2026-10-14:** all six additional cinematic
+**Expansion delivery checkpoint, 2026-10-15:** all six additional cinematic
 edits and both forest atmospheres are authorized, with total ceiling USD75 and
-USD63.75 conservatively reserved. Six new components are root-approved, including L05 after a moving temporal
-hand repair. L01/L03 still need their final sustained-interaction review.
-Their earlier approvals are withdrawn. The liked O01 Runeveil scene needs its
-Tinkerer restored to the original performance, equipment and two-leg anatomy,
-without changing the surrounding staging. AI-assisted local repairs are in
-progress; the expanded full film is not complete or approved. All generated
-videos, including rejects, remain preserved. The earlier42-video/six-audio audit
-is a historical preservation snapshot, not the current queue state.
+USD64.75 conservatively reserved. All nine new or corrected components are now
+root-approved and assembled in the complete 4:07 v6 film, bringing the cinematic
+VR moments to eleven. L01 has a sustained readable mask/hand interaction, L03
+has a sustained overhead door brace, and L05 keeps the original moving sky
+through a temporal hand repair. O01 restores the actual original Tinkerer face,
+upright performance and paired arm mechanisms inside the liked Runeveil scene.
+The selected environment remains coherent through the native hard logo cut.
+Root viewed 156 complete-export cues and native-resolution critical witnesses;
+the independent all-frame video/footer and exact AAC packet checks pass.
+All 340 independent whole-film watch images, 24 native-resolution witnesses and
+six actual browser screenshots pass visual review. Desktop/mobile Chromium
+playback, chapters, downloads and late seeks pass; mobile uses device emulation.
+Root approved this exact complete master for delivery at `ai-edits-v6/REVIEW.html`.
+All 55 provider videos and six audio files, including rejects, are preserved.
+USD10.25 remains unreserved; provider invoices are unavailable. Original Flat
+gameplay stays in this delivery for the later genuine VR recording exchange.
 
 **Active interaction direction:** giant native masks look down from high above
 living characters. Hands descend from above with purposeful motion, credible
@@ -35,7 +43,9 @@ and soundtrack clock match. Vary single players and multiplayer across Ironwatch
 Runeveil and Grimhorn. The latest instruction authorizes autonomous completion
 and self-review of the entire film without per-shot user approval pauses.
 
-**Latest follow-up,2026-10-14:** the maintainer requests additional cinematic
+## Historical cinematic checkpoints
+
+**Follow-up,2026-10-14:** the maintainer requests additional cinematic
 VR scenes and reports O01's visible background transformation. Root confirms
 the generated facade-to-courtyard change around whole-film6.2–6.7s; the earlier
 v4 review missed world continuity. The single continuous native-hall attempt

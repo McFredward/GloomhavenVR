@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "status": "User rejected L01/L03 for imperceptibly brief VR additions and L05 for cloud discontinuity; five other new clips retained, AI-assisted revisions in progress. Full expansion assembly withheld.",
-  "date": "2026-10-14",
+  "status": "Complete cinematic v6 finished, root-approved and independently reviewed; eleven VR cinematic moments delivered. Original Flat gameplay retained for the later genuine VR recording exchange.",
+  "date": "2026-10-15",
   "source_url": "https://www.youtube.com/watch?v=-SGDEP-zFHo",
   "source_title": "Gloomhaven | Gameplay Overview Trailer",
   "source_duration_seconds": 246.861,
@@ -12,10 +12,10 @@
     "total_viewed": 139,
     "independent_creative_frames": 12,
     "transcript": "Official manual English captions; no paid ASR",
-    "motion_quality": "Earlier v4 O01 approval missed world deformation and a new endpoint-conditioned trial was rejected. The selected free entry-only repair is root-reviewed: full73-frame raw sequence,29 normalized cues,19 actual final-context cues. All later video packets and entire AAC identical to v4."
+    "motion_quality": "V6 resolves reported O01 world/limb defects and L01/L03/L05 visibility/hand/cloud defects. Every actual new/corrected component frame reviewed before assembly; root156 complete-export cues and independent340 actual watch images plus native-resolution witnesses reviewed. Native picture fidelity measured after lossy reencode; AAC packets/clocks exact with v5."
   },
   "direction": "Original film as base; selected cinematic shots modified with video-edit models; Flat explanation footage replaced by genuine VR captures; invisible visual joins",
-  "timing_note": "Editorial planning windows, not a frame-perfect final EDL; sampled frames and native captions provide anchors. Preserve original full duration and cut order during actual edit.",
+  "timing_note": "Initial planning windows are historical. The completed v6 assembly uses exact approved frame windows and retains the original14810-frame/60fps timeline and246.861s audio tail.",
   "voice": {
     "mode": "Keep original English text/timing, user confirmed; small GloomhavenVR substitutions only",
     "patches": [
@@ -39,26 +39,25 @@
     "geographic_note": "These two mentions name the fictional city/region; preserve Gloomhaven there unless final wording needs adjustment."
   },
   "budget": {
-    "new_paid_calls": 36,
+    "new_paid_calls": 45,
     "new_fal_usd": null,
     "previous_reserved_usd": 29.9,
     "previous_cap_usd": 30,
     "previous_invoice_reconciled": false,
     "additional_round_cap_usd": 45,
     "total_authorized_cap_usd": 75,
-    "new_reserved_usd": 28.85,
+    "new_reserved_usd": 34.85,
     "actual_new_invoice_reconciled": false,
-    "pilot_scope": "User authorizes autonomous completion of current trailer, total cap75; targeted corrections ongoing; conservative reservations63.75, invoices unavailable.",
+    "pilot_scope": "Current cinematic expansion/correction phase completed and self-reviewed; cap75, conservative reservations64.75, unreserved10.25, invoices unavailable. All provider jobs terminal; failed reservations retained.",
     "initial_three_model_comparison_proposed_usd": 3.75,
     "initial_model_comparison_status": "Not run; only one Kling pilot commissioned",
-    "all_reserved_usd": 63.75,
+    "all_reserved_usd": 64.75,
     "request_states": {
       "all_remake_ledger_states": {
-        "completed": 31,
-        "failed": 3,
-        "queued": 2
+        "completed": 42,
+        "failed": 3
       },
-      "remake_paid_requests_including_voice_and_failed": 36,
+      "remake_paid_requests_including_voice_and_failed": 45,
       "v4_paid_requests": 8,
       "v4_raw_videos_preserved": 8,
       "v4_timeline_components_selected": 2,
@@ -66,14 +65,14 @@
       "v5_raw_video_requests": 1,
       "v5_raw_video_creative_status": "rejected_by_user; reservation retained"
     },
-    "this_revision_reserved_usd": 13.9,
+    "this_revision_reserved_usd": 19.9,
     "proposed_total_cap_usd": 75,
     "budget_extension_pending": false,
-    "unreserved_under_total_cap_usd": 11.25,
+    "unreserved_under_total_cap_usd": 10.25,
     "request_states_note": "Completed state is provider transport/result availability, not creative approval. Selected/rejected clips are recorded separately.",
     "this_v4_reserved_usd": 4.35,
     "this_v5_reserved_usd": 0.5,
-    "this_v6_reserved_usd": 13.9,
+    "this_v6_reserved_usd": 19.9,
     "authorization_receipt": ".planning/debug/trailer/production/budget-authorization-75-usd.json"
   },
   "private_briefing": ".planning/debug/trailer/remake-v1/AUFNAHMEPLAN.html",
@@ -1418,8 +1417,8 @@
     "free_repair_status": "root-approved for local review; direct native hard logo cut; no native party endpoint morph"
   },
   "cinematic_expansion": {
-    "status": "Five new components retained; L01/L03 sustained-visibility revisions, L05 temporal cloud repair and original-faithful O01 Tinkerer restoration in progress. Full expansion assembly withheld.",
-    "private_review": ".planning/debug/trailer/remake-v1/expansion-v1/MEHR-SZENEN.html",
+    "status": "Complete cinematic v6 finished, root-approved and independently reviewed; eleven VR cinematic moments delivered. Original Flat gameplay retained for the later genuine VR recording exchange.",
+    "private_review": ".planning/debug/trailer/remake-v1/ai-edits-v6/REVIEW.html",
     "private_exact_plan": ".planning/debug/trailer/remake-v1/expansion-v1/scene-expansion-plan.json",
     "existing_windows": 3,
     "new_priority_windows": 4,
@@ -1457,7 +1456,7 @@
           116.4
         ],
         "duration_seconds": 6.116666666666666,
-        "action": "Grimhorn/Runeveil coordinate Scoundrel/Mindthief from high above the red cavern; heroes own their original attacks."
+        "action": "One high Runeveil remains readable for about2.65s; one Arcane glove descends, briefly steadies the native heroine at the outer head/shoulder and withdraws. Coherent cave action and native return."
       },
       {
         "id": "L03",
@@ -1472,7 +1471,7 @@
           169.21666666666667
         ],
         "duration_seconds": 3,
-        "action": "Ironwatch hand assists the already-opening rune door; original rune and entire far aperture remain protected."
+        "action": "A native15-bone armored right glove, polished by Kling, braces the upper edge of the original rectangular door from above for a sustained readable moment, then withdraws. Native heroes, runes, aperture and title remain authoritative."
       },
       {
         "id": "L02",
@@ -1517,7 +1516,7 @@
           177.63333333333333
         ],
         "duration_seconds": 2.0166666666666666,
-        "action": "High Ironwatch observes original bandits; original foreground restored; following undead hard cut untouched."
+        "action": "One overhead armored glove withdraws upward; native bandits and moving clouds remain intact outside the moving local hand/path repair. No returning fist, static sky patch or altered next hard cut."
       }
     ],
     "source_review": {
@@ -1529,9 +1528,33 @@
     "flat_gameplay": "Preserved for later genuine VR replacement",
     "private_progress": ".planning/debug/trailer/remake-v1/ai-edits-v6/PROGRESS.html",
     "private_raw_catalogue": ".planning/debug/trailer/remake-v1/ai-edits-v6/RAW-OUTPUTS.html",
-    "budget_for_new_proposals_reserved_usd": 13.9,
+    "budget_for_new_proposals_reserved_usd": 19.9,
     "total_if_all_eight_pass": 11,
     "approved_components": [
+      {
+        "status": "root-approved-for-assembly",
+        "utc": "2026-10-14T22:57:13.007791+00:00",
+        "file": "/home/claw/gloomhaven_vr/.planning/debug/trailer/remake-v1/ai-edits-v6/O01/matched-v1/matched-interaction.mkv",
+        "sha256": "591658a797768a00fb6d45d40a11f03808546d391d36fa7eace1a111b14c24b7",
+        "frames": 240,
+        "fps": 60,
+        "source_frame_start": 180,
+        "source_frame_end_exclusive": 420,
+        "root_actual_visual_evidence": "All97 returned Kling raw frames in5contacts, full60/96 and actual native385 face/gear reference. Initial/v2 full-scene composites rejected for matte leaks. Corrected v3 full036/061/126/239 inspected. All240 final lossless decoded frames in10 ordered contacts, plus actual final full036/120/239 personally viewed.",
+        "findings": [
+          "Original same-shot Tinkerer identity restored: long un-bearded face, native goggles/cyan lights, upright ready stance and two forearm mechanisms.",
+          "No third-leg crouch, detached waist/floor shards or old right-side black holdout remnant apparent in final sequence.",
+          "Native foreground rat contour provides credible occlusion; selected coherent torchlit world, giant Runeveil and other heroes remain stable.",
+          "Actual moving source performance guides generated local integration; measured camera registration and fade exposure avoid a pasted still.",
+          "Exact4s/240@60 window and native black entry retained; no room reconstruction before hard logo cut; continuous English lower-right fan-mod mark."
+        ],
+        "limits": [
+          "Generated local relighting follows native identity and pose; not a claim of native game-render pixel identity inside the repaired actor.",
+          "Complete-master technical/browser/whole-film review remains required."
+        ],
+        "id": "O01",
+        "review": ".planning/debug/trailer/remake-v1/ai-edits-v6/O01/root-creative-review.json"
+      },
       {
         "status": "root-approved-for-assembly",
         "utc": "2026-10-14T18:30:33.265614+00:00",
@@ -1580,6 +1603,30 @@
       },
       {
         "status": "root-approved-for-assembly",
+        "utc": "2026-10-14T22:09:16.310853+00:00",
+        "file": "/home/claw/gloomhaven_vr/.planning/debug/trailer/remake-v1/ai-edits-v6/L01/matched-v2/matched-interaction.mkv",
+        "sha256": "6387025c3030ba5680b287b46eb539b06a5f27005f5f2fcf79a3b37578318c01",
+        "frames": 367,
+        "fps": 60,
+        "source_frame_start": 6617,
+        "source_frame_end_exclusive": 6984,
+        "root_actual_visual_evidence": "Root personally viewed all367 actual final frames in23ordered component-v2 contact sheets, full32/33,212/213,332/333. Previously all121base and73paid-exit raw frames viewed; native-join proof96..143 and full119/120 reviewed.",
+        "findings": [
+          "Clearly readable overhead Runeveil and one Arcane hand, sustained interaction rather than brief glimpse.",
+          "One coherent cave and original heroes, no magical wall swap or duplicated wing.",
+          "Native33frame entry/34frame tail retained, paired core/exit join coherent.",
+          "Fast camera motion uses actual generated cadence to avoid interpolation block tears.",
+          "Continuous bottom-right unofficial fan-mod mark."
+        ],
+        "limits": [
+          "Fast camera sections retain native model frame cadence; not claimed full60 unique motion samples.",
+          "Component approval only; complete master visual/technical gate still required."
+        ],
+        "id": "L01",
+        "review": ".planning/debug/trailer/remake-v1/ai-edits-v6/L01/root-creative-review.json"
+      },
+      {
+        "status": "root-approved-for-assembly",
         "utc": "2026-10-14T19:43:53.747171+00:00",
         "file": "/home/claw/gloomhaven_vr/.planning/debug/trailer/remake-v1/ai-edits-v6/L02/matched-v2/matched-interaction.mkv",
         "sha256": "a7ad3db27819d26d4334faeeb65760ab1fdfb39f45a8a1f817ab229627d5c60e",
@@ -1606,28 +1653,26 @@
       },
       {
         "status": "root-approved-for-assembly",
-        "utc": "2026-10-14T20:00:07.128302+00:00",
-        "file": "/home/claw/gloomhaven_vr/.planning/debug/trailer/remake-v1/ai-edits-v6/L04/matched-v2/matched-interaction.mkv",
-        "sha256": "2060227d100c3d8c699e053e92f1aeabe0152201af8688f9390089585080ddda",
-        "frames": 220,
+        "utc": "2026-10-14T22:20:34.093637+00:00",
+        "file": "/home/claw/gloomhaven_vr/.planning/debug/trailer/remake-v1/ai-edits-v6/L03/matched-v3/matched-interaction.mkv",
+        "sha256": "c36edfe20908f9128ef0378b17838e8dab8be5f18df08a38a3cb105cb53b6dbe",
+        "frames": 180,
         "fps": 60,
-        "source_frame_start": 11359,
-        "source_frame_end_exclusive": 11579,
-        "root_actual_visual_evidence": "All220 actual final H264 frames via11 chronological contacts; full raw-frame files0001/0008/0016/0019/0035/0045/0061/0073/0074. Independent producer all220 and7 watch cues.",
+        "source_frame_start": 9973,
+        "source_frame_end_exclusive": 10153,
+        "root_actual_visual_evidence": "All73 raw Kling frames in4contacts+full36/48/60/72. All180 composite PNGs in6contacts+full117/143/154/158. All180 final H264 decoded frames in8contacts+full144/168 personally viewed.",
         "findings": [
-          "Runeveil above heroes, isolated glove withdraws up and fully exits at18 before original spark34; no head or weapon overlap.",
-          "Rigid clean generated mask pixels follow bounded native forward-camera projection and exit upper crop after72. No contact claim.",
-          "Original hall, actors, first spark and complete final flash preserved. All action rows430..959 native-exact for220 frames, entire source native-exact73..219 before footer.",
-          "Native first cut allows god already in composition, native-exact tail preserves continuous exit; continuous unofficial footer."
+          "Sustained1.383s overhead steel glove braces the upper-right edge of the native rectangular door and leaves through upper crop.",
+          "Original heroes, architecture, door emblems/runes and Guildmaster reveal restored, no redesigned room.",
+          "Measured50ms local hand-phase advance registers generated glove to original moving door; source clock unchanged.",
+          "Native prefix/tail and exact180-frame range retained; continuous bottom-right unofficial fan-mod mark."
         ],
         "limits": [
-          "Generated face isolated and motion rebuilt over exact native plate; original rejected raw retained.",
-          "Camera reconstruction is approximate, not recovered authoritative source camera.",
-          "Component approval only; full v6 movie pending."
+          "This deliberately stylized native armored glove retains segmented plates; no claim of exposed human skin.",
+          "Full-master review remains required."
         ],
-        "new_fal_calls_for_repair": 0,
-        "id": "L04",
-        "review": ".planning/debug/trailer/remake-v1/ai-edits-v6/L04/root-creative-review.json"
+        "id": "L03",
+        "review": ".planning/debug/trailer/remake-v1/ai-edits-v6/L03/root-creative-review.json"
       },
       {
         "status": "root-approved-for-assembly",
@@ -1676,12 +1721,37 @@
         ],
         "id": "L05",
         "review": ".planning/debug/trailer/remake-v1/ai-edits-v6/L05/root-creative-review.json"
+      },
+      {
+        "status": "root-approved-for-assembly",
+        "utc": "2026-10-14T20:00:07.128302+00:00",
+        "file": "/home/claw/gloomhaven_vr/.planning/debug/trailer/remake-v1/ai-edits-v6/L04/matched-v2/matched-interaction.mkv",
+        "sha256": "2060227d100c3d8c699e053e92f1aeabe0152201af8688f9390089585080ddda",
+        "frames": 220,
+        "fps": 60,
+        "source_frame_start": 11359,
+        "source_frame_end_exclusive": 11579,
+        "root_actual_visual_evidence": "All220 actual final H264 frames via11 chronological contacts; full raw-frame files0001/0008/0016/0019/0035/0045/0061/0073/0074. Independent producer all220 and7 watch cues.",
+        "findings": [
+          "Runeveil above heroes, isolated glove withdraws up and fully exits at18 before original spark34; no head or weapon overlap.",
+          "Rigid clean generated mask pixels follow bounded native forward-camera projection and exit upper crop after72. No contact claim.",
+          "Original hall, actors, first spark and complete final flash preserved. All action rows430..959 native-exact for220 frames, entire source native-exact73..219 before footer.",
+          "Native first cut allows god already in composition, native-exact tail preserves continuous exit; continuous unofficial footer."
+        ],
+        "limits": [
+          "Generated face isolated and motion rebuilt over exact native plate; original rejected raw retained.",
+          "Camera reconstruction is approximate, not recovered authoritative source camera.",
+          "Component approval only; full v6 movie pending."
+        ],
+        "new_fal_calls_for_repair": 0,
+        "id": "L04",
+        "review": ".planning/debug/trailer/remake-v1/ai-edits-v6/L04/root-creative-review.json"
       }
     ],
     "user_hand_feedback": {
       "scene": "L05 bandits (called L03 by user)",
       "corrected_component": "L05/matched-v3",
-      "status": "Root approved actual temporal LTX-assisted repair after reviewing all121 final frames; complete timeline review still pending.",
+      "status": "Selected L05 matched-v3 is root-approved and inserted in complete v6; original moving clouds retained through temporal glove withdrawal.",
       "method": "Generated moving hand/path region only; original moving cloud/bandit pixels elsewhere. Single upward withdrawal, no returning malformed fist or static sky rectangle."
     },
     "alternate_wan_door_probe": {
@@ -1690,16 +1760,19 @@
       "raw_sha256": "c1bc0ade48c0bcd9602eac48e60646c4d56a289f03cf3f8d06338e8656bd6e49"
     },
     "preservation_audit": {
-      "receipt": ".planning/debug/trailer/remake-v1/ai-edits-v6/independent-qc/preservation-final/audit.json",
-      "generated_videos_verified": 42,
+      "receipt": ".planning/debug/trailer/remake-v1/ai-edits-v6/independent-qc/preservation-delivery-final/audit.json",
+      "generated_videos_verified": 55,
       "generated_audio_verified": 6,
-      "public_v6_hardlinks_verified": 13,
+      "public_v6_hardlinks_verified": 26,
+      "earlier_public_hardlinks_verified": 14,
+      "ledger_jobs": 69,
+      "ledger_completed": 64,
+      "ledger_failed": 5,
       "pending_provider_jobs": 0,
-      "ledger_completed": 51,
-      "ledger_failed": 4,
-      "original_audit_cap_usd": 55,
-      "latest_optional_cap_usd": 75,
-      "all_failed_reservations_retained": true
+      "authorized_cap_usd": 75,
+      "conservative_reservations_usd": 64.75,
+      "all_failed_reservations_retained": true,
+      "invoice_reconciled": false
     },
     "latest_user_rejections": {
       "L01": "User rejection: added mask glimpse is too short and almost no perceptible change. Needs sustained readable VR action.",
@@ -1765,10 +1838,87 @@
       },
       {
         "job": "remake-l03-native-rig-kling-refine-v7",
-        "state": "queued",
+        "state": "completed",
         "reserved_usd": "0.60"
+      },
+      {
+        "job": "remake-o01-temporal-actor-cleanplate-ltx-v7",
+        "state": "completed",
+        "reserved_usd": "0.20"
+      },
+      {
+        "job": "remake-o01-native-actor-integrate-kling-v7",
+        "state": "completed",
+        "reserved_usd": "0.80"
       }
-    ]
+    ],
+    "completion_status": "Complete cinematic v6 finished, root-approved and independently reviewed; eleven VR cinematic moments delivered. Original Flat gameplay retained for the later genuine VR recording exchange.",
+    "reservation_scope": "All expansion/correction reservations after v5 total44.85; including failed and creatively rejected trials.",
+    "historical_preservation_audits": [
+      {
+        "receipt": ".planning/debug/trailer/remake-v1/ai-edits-v6/independent-qc/preservation-final/audit.json",
+        "generated_videos_verified": 42,
+        "generated_audio_verified": 6,
+        "public_v6_hardlinks_verified": 13,
+        "pending_provider_jobs": 0,
+        "ledger_completed": 51,
+        "ledger_failed": 4,
+        "original_audit_cap_usd": 55,
+        "latest_optional_cap_usd": 75,
+        "all_failed_reservations_retained": true
+      }
+    ],
+    "current_export": {
+      "status": "root-approved-for-delivery",
+      "path": ".planning/debug/trailer/remake-v1/ai-edits-v6/full-timeline-v1/reference-remake-cinematic-v6.mp4",
+      "sha256": "fef07ebcf63f81f473fc544dd1e53833be5f6b02f5d009991238c6b40f681982",
+      "bytes": 328761937,
+      "frames": 14810,
+      "fps": 60,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "video_duration_seconds": 246.83333333333334,
+      "container_duration_seconds": 246.861,
+      "vr_cinematic_moments": 11,
+      "new_or_corrected_component_count": 9,
+      "root_actual_complete_export_cues_viewed": 156,
+      "root_actual_native_resolution_witnesses_viewed": 8,
+      "assembler_checks_passed": 13,
+      "independent_decoded_frames": 14810,
+      "native_frames_outside_new_edits_verified": 12989,
+      "worst_native_low_resolution_mae_8bit": 1.0031099033816424,
+      "all_frame_fanmark_passed": true,
+      "exact_aac_packets_including_clock_and_config": 11573,
+      "audio_reencoded": false,
+      "root_review": ".planning/debug/trailer/remake-v1/ai-edits-v6/root-qc/whole-film/root-review.json",
+      "independent_qc": ".planning/debug/trailer/remake-v1/ai-edits-v6/independent-qc/full-v6",
+      "original_flat_gameplay_retained_for_later_vr_capture": true,
+      "limits": "Lossy H264 native-picture fidelity, not byte-identical video outside inserts. Exact AAC packet payload/clock equality. Sampled whole-film manual review plus every-frame component review and automated full output decode; no headset/runtime gate claim.",
+      "independent_actual_complete_export_images_viewed": 340,
+      "independent_actual_native_resolution_witnesses_viewed": 24,
+      "independent_actual_browser_screenshots_viewed": 6,
+      "independent_visual_passed": true,
+      "staged_browser_passed": true,
+      "review_published": true,
+      "review_url": "http://192.168.0.80:8090/remake-v1/ai-edits-v6/REVIEW.html",
+      "root_delivery_receipt_sha256": "9be74749ff8287ef65c769d3a8e7a9c493afcc31ed994b945a3891d8abc0fb82",
+      "mobile_browser_scope": "Chromium390x844 emulation, not physical phone/headset",
+      "published_browser_passed": true,
+      "primary_navigation_promoted": true,
+      "primary_navigation_http_links_checked": 34,
+      "published_review_http_links_checked": 35,
+      "delivery_verification": ".planning/debug/trailer/remake-v1/ai-edits-v6/independent-qc/full-v6/delivery-verification.json",
+      "root_additional_published_screenshots_viewed": [
+        "published-nav/desktop-start.png",
+        "published-nav/mobile-review.png"
+      ]
+    },
+    "proposal_counts_are_historical": true,
+    "actual_vr_cinematic_moments": 11,
+    "private_proposal_review": ".planning/debug/trailer/remake-v1/expansion-v1/MEHR-SZENEN.html",
+    "review_url": "http://192.168.0.80:8090/remake-v1/ai-edits-v6/REVIEW.html"
   },
   "historical_complete_cinematic_cuts": [
     {

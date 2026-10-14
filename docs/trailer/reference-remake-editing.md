@@ -10,27 +10,44 @@ the first spoken Gloomhaven becomes GloomhavenVR. The original title reveal at
 
 ## Active interaction direction
 
-**Expansion correction checkpoint, 2026-10-14:** the total authorized ceiling
-is USD75. Conservative reservations are USD63.75, including validation failures
+**Expansion delivery checkpoint, 2026-10-15:** the total authorized ceiling
+is USD75. Conservative reservations are USD64.75, including validation failures
 and rejected creative outputs; invoices remain unavailable. The latest
 `production/budget-authorization-75-usd.json` supersedes the USD55/45 history.
 
-Six new components are root-approved: E01/E02/L02/L04/L06 and repaired L05. The maintainer
-rejected L01/L03 because their additions were too brief to read and L05 because
-the hand-tail patch visibly changed the clouds. Their earlier assembly receipts
-were withdrawn. L05 now selects the root-reviewed moving LTX repair in matched-v3. O01's liked Runeveil/world staging also needs a local Tinkerer
-repair: the original has an upright ready stance and distinct crossbow-equipped
-arms; the generated crouch/ambiguous third limb is not an authorized redesign.
-Compare the actual original O01 performance first; the later native full-body
-shot supplies anatomy only. Preserve Runeveil, other actors and the world.
+All nine new or corrected components are root-approved and assembled in v6:
+O01/E01/E02/L01/L02/L03/L04/L05/L06. Together with retained I01/A04, the film now
+contains eleven VR cinematic moments. The complete export has 14,810 frames at
+1920x1080/60fps and retains the 246.861s container/audio tail. Its SHA256 is
+`fef07ebcf63f81f473fc544dd1e53833be5f6b02f5d009991238c6b40f681982`.
+The private master is `ai-edits-v6/full-timeline-v1/reference-remake-cinematic-v6.mp4`.
+Root viewed all 156 whole-film watch cues, eleven individual watch witnesses and
+eight native-resolution master witnesses, after every-frame component reviews.
+All 13 assembler checks and the independent 14,810-frame technical gate pass.
+All 11,573 AAC packet payloads, clocks and codec configuration match v5 exactly;
+video outside the nine inserts passes measured lossy-encode fidelity checks.
+The lower-right unofficial/fan-made mark passes on every output frame.
+Independent review additionally covers all 340 materialized watch images,
+24 native-resolution witnesses and six actual browser screenshots. Desktop and
+mobile Chromium playback, all nine inserts, twelve chapters, late seeks and
+35 HTTP links pass. Mobile evidence uses emulation, not a physical phone.
+Root approved the exact master for delivery after reading these final receipts.
+The complete review page is `ai-edits-v6/REVIEW.html`; the movie retains original
+Flat explanations for the explicitly deferred genuine VR capture exchange.
+The promoted primary overview passes all 34 links and actual desktop/mobile
+navigation into v6 playback. The published review passes all 35 links and repeat
+seek/playback checks. Evidence is retained in
+`ai-edits-v6/independent-qc/full-v6/delivery-verification.json`.
 
-AI-assisted revisions are in progress; no expanded complete movie is approved.
-The previous complete v5 stays available with the newly reported O01 defect.
-`ai-edits-v6/PROGRESS.html` distinguishes local clips from the complete movie;
-`RAW-OUTPUTS.html` preserves successful raw outputs, including rejected trials.
-The earlier preservation audit verified42 provider videos and six audio outputs
-before this correction round. Its media evidence remains valid; it is not a
-current queue/budget snapshot.
+The final preservation audit verifies 55 provider videos and six audio files,
+including rejected trials, against the 69-job ledger. All 26 current public raw
+downloads and 14 earlier raw archive paths are canonical hardlinks. The five
+failed requests retain USD3.10 of reservations; no refund or invoice reconciliation
+is assumed. Zero provider jobs remain pending; USD10.25 stays unreserved.
+Historical 42- and 54-video audit snapshots remain preserved separately.
+`PROGRESS.html` exposes all nine local clips; `RAW-OUTPUTS.html` retains every
+new provider original. Original Flat gameplay remains for the later genuine VR
+capture exchange requested by the maintainer.
 
 Dense source inspection corrected the provisional edit ranges: E01 begins at
 frame801, including the original black entry; L02 covers the entire continuous
@@ -49,13 +66,21 @@ inpainting only inside the moving hand/path union, preserving original moving
 clouds and native bandits elsewhere. Root reviewed all121 final frames: one
 upward withdrawal, no returning fist or sky rectangle. The Seedance2.5 door
 trial lacks convincing contact; Omni redraws the door, and a masked LTX trial
-removes the hand except two anchor flashes. All are rejected. A sustained native
-15-bone glove guide with matched focus and pressure flex is now submitted for a
-bounded Kling refinement. L01's corrected source-based core plus a dedicated
-paired-image exit is being conformed; the old free wing/foreground warps were
-rejected. Its failed first element-schema request remains reserved. O01's
-Seedance repair improves identity but still leaves an unconvincing early foot;
-actual moving original Tinkerer pixels are being restored instead.
+removes the hand except two anchor flashes. All are rejected. The selected L03
+matched-v3 refines a sustained native 15-bone glove guide with Kling, retaining
+the original rectangular door, heroes and runes outside the local hand support.
+Its 83 visible frames include a credible overhead brace and upward withdrawal.
+L01 matched-v2 uses the source-based core and dedicated paired-image exit, with
+a readable mask for about 2.65s; rejected foreground/wing warps remain archived.
+Its failed first element-schema request remains reserved. O01 matched-v1 uses
+the actual original same-shot upright Tinkerer performance and equipment as a
+moving guide, a local LTX clean plate and Kling lighting integration. Measured
+camera registration, native opening exposure and the actual foreground rat
+contour remove the old extra-limb/matte remnants. All 240 frames of the unmarked
+lossless plate preserve selected pixels outside the local actor union and the
+true rat holdout, before adding the continuous fanmark.
+Root rejected earlier crouch/foot and polygon-mask results
+before assembly.
 No clip approval follows merely from queue completion, a still, unchanged pixels
 outside a matte or a reference pose lasting too briefly to see.
 
