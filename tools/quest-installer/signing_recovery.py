@@ -104,10 +104,10 @@ def save_member(name):
             or anchor.startswith(".quest-save-import-"))
 
 
-def progress(phase, done, total, detail, *, unit="tasks", local=False):
+def progress(phase, done, total, detail, *, unit="tasks", local=False, status="progress"):
     value = {"schema": 1, "phase": "install-recovery-" + phase if local else "install-signature-" + phase,
              "operation": "apk", "done": done, "total": total, "unit": unit,
-             "status": "progress", "detail": detail[:1024]}
+             "status": status, "detail": detail[:1024]}
     print("GHVRQ_PROGRESS " + json.dumps(value, ensure_ascii=False), flush=True)
 
 
@@ -265,11 +265,15 @@ def archive_inventory(path):
 
 
 class Recovery:
-    def __init__(self, adb, address, hardware, source, directory, *, install_timeout=1800, decode_receipt=None, data_policy="saves", allow_content_reinstall=None):
+    def __init__(self, adb, address, hardware, source, directory, *, install_timeout=1800, decode_receipt=None, data_policy="saves", allow_content_reinstall=None, manual_storage_launch=None, reset_app_data=None, reset_source_available=True):
         if not re.fullmatch(r"[A-Za-z0-9_-]+", hardware): raise RecoveryError("Invalid headset identity.")
         if data_policy not in ("all", "saves"): raise RecoveryError("Invalid signing recovery data policy.")
         if allow_content_reinstall is not None and not re.fullmatch(r"[0-9a-f]{32}", str(allow_content_reinstall)):
             raise RecoveryError("Invalid content reinstallation choice.")
+        if any(choice is not None and not re.fullmatch(r"[0-9a-f]{32}", str(choice)) for choice in (manual_storage_launch, reset_app_data)):
+            raise RecoveryError("Invalid restoration recovery choice.")
+        if manual_storage_launch is not None and reset_app_data is not None:
+            raise RecoveryError("Choose either manual restoration or clean app-data reset.")
         self.adb, self.address, self.hardware, self.source = adb, address, hardware, source
         self.data_policy = data_policy
         self.home = ordinary(Path(directory) / "signing-recovery" / hardware)
@@ -284,6 +288,11 @@ class Recovery:
         self._rename_helper = None
         self._apk_regenerated_files = None
         self.allow_content_reinstall = allow_content_reinstall
+        self.manual_storage_launch, self.reset_app_data = manual_storage_launch, reset_app_data
+        self.reset_source_available = reset_source_available is True
+        self._manual_storage_launch_enabled = False
+        self._manual_storage_fallback_enabled = False
+        self._manual_debug_armed = False
 
     def _require_content_reinstall_choice(self):
         if self.allow_content_reinstall == self.journal["transaction"]: return
@@ -430,6 +439,16 @@ class Recovery:
         return (str(pid), rows[2], fields[19])
 
     def _process_storage_root(self):
+        if not self._storage_process: self._reconcile_manual_debug_wait()
+        if getattr(self, "_manual_storage_launch_enabled", False) and not self._storage_process:
+            return self._manual_process_storage_root()
+        try:
+            return self._automatic_process_storage_root()
+        except CaptureRepairError:
+            if not getattr(self, "_manual_storage_fallback_enabled", False): raise
+            return self._manual_process_storage_root()
+
+    def _automatic_process_storage_root(self):
         if self._storage_process:
             self._device_guard()
             if self._process_snapshot(self._storage_process[0], stopped=True) != self._storage_process:
@@ -575,6 +594,203 @@ class Recovery:
         # Do not clear-debug-app: it would overwrite another developer setting.
         return debug_args
 
+    def _manual_process_storage_root(self):
+        """Let the headset's own library launch a freshly armed debugger wait.
+
+        Capture191308 proves that even the canonical ADB intent can return0
+        without starting a process. Repeating its acknowledged request does not
+        repair that firmware behavior. The explicit manual choice instead asks
+        the user to open this installed app in Unknown Sources. set-debug-app -w
+        arms a pre-Application wait independent of that launcher. The existing
+        exact UID/starttime, fresh ActivityThread wait and all-task pause proofs
+        remain mandatory; there is no running-game storage substitution.
+
+        AOSP does not dump the current mWaitForDebugger. Re-arming a previous
+        transient selection can save that wait as its original, leaving future
+        gameplay stuck. Admit only a known originally empty debugger selection
+        with empty persistent settings, and explicitly release our owned wait.
+        Foreign or ambiguous developer selections are retained and refused.
+        """
+        self._device_guard()
+        rows = self.shell("dumpsys activity processes | sed -n '/mDebugApp=/p'").splitlines()
+        state = re.fullmatch(r"\s*mDebugApp=(null|" + re.escape(PACKAGE) + r")/orig=null mDebugTransient=(true|false) mOrigWaitForDebugger=false\s*", rows[0]) if len(rows) == 1 else None
+        if rows and (not state or state.group(1) == PACKAGE and state.group(2) != "true"):
+            raise CaptureRepairError("Manual startup cannot safely replace the current developer debugger selection. Keep its settings or choose a clean app-data reset; original save backups remain retained.",
+                                     root="external", reason="restore-app-launch-unavailable", attempts=1, total=1)
+        persistent = self.shell("settings get global debug_app\nsettings get global wait_for_debugger").splitlines()
+        if len(persistent) != 2 or persistent[0] != "null" or persistent[1] not in ("null", "0"):
+            raise CaptureRepairError("Manual startup cannot safely change an existing persistent developer debugger setting. Original saves and the installed app remain retained.",
+                                     root="external", reason="restore-app-launch-unavailable", attempts=1, total=1)
+        current = self.adb.run("-s", self.address, "shell", "pidof", PACKAGE, check_text=False, empty_exit_codes=(1,)).strip()
+        if current:
+            raise CaptureRepairError("Close the current GloomhavenVR app before preparing its manual restoration start. Original save backups remain retained.",
+                                     root="external", reason="restore-app-launch-unavailable", attempts=1, total=1)
+        started_at = self.shell("date +%s").strip()
+        if not started_at.isdigit(): raise RecoveryError("The manual app storage wait boundary could not be identified.")
+        self._manual_debug_original = state.group(1) if state else "null"
+        self._remember_manual_debug_wait(self._new_manual_debug_record(rows[0] if rows else ""))
+        self._manual_debug_armed = True  # A lost command reply may still arm it.
+        owned = None
+        owned_polls = 0
+        try:
+            self.adb.run("-s", self.address, "shell", "am", "set-debug-app", "-w", PACKAGE, timeout=30)
+            with self.adb.log.open("a", encoding="utf-8") as log:
+                log.write(json.dumps({"manualStorageLaunch": {"armed": True, "package": PACKAGE,
+                    "gameplayAllowed": False, "persistentDebugSettingChanged": False}}) + "\n")
+            guidance = "On the Quest, open Library > Unknown Sources and start GloomhavenVR. Leave any Waiting for debugger message open; the Builder will restore the retained data before gameplay."
+            progress("manual-launch", 0, 1, guidance, local=True, status="waiting")
+            deadline = time.monotonic() + 300
+            next_guidance = time.monotonic() + 5
+            # Five minutes is an interaction budget, never a percentage. Every
+            # poll is still bound to the same authorized physical headset.
+            for attempt in range(1200):
+                if time.monotonic() >= deadline: break
+                self._device_guard()
+                raw = self.adb.run("-s", self.address, "shell", "pidof", PACKAGE, check_text=False, empty_exit_codes=(1,)).strip()
+                if raw and not re.fullmatch(r"[1-9][0-9]{0,9}", raw):
+                    raise RecoveryError("Manual storage launch returned an incomplete app process identity.")
+                if raw:
+                    owned_polls += 1
+                    candidate = self._process_snapshot(raw)
+                    if owned is not None and candidate != owned:
+                        raise RecoveryError("The manually launched app process changed before its safe wait boundary.")
+                    owned = candidate
+                    logs = self.adb.run("-s", self.address, "shell", "logcat", "-d", "-t", "128", "--pid", raw,
+                                        "-v", "epoch", "ActivityThread:I", "*:S", check_text=False)
+                    waiting = any(re.match(r"\s*([0-9]+)\.[0-9]+\s", line) and
+                        int(re.match(r"\s*([0-9]+)\.[0-9]+\s", line).group(1)) >= int(started_at) and
+                        "Application " + PACKAGE + " is waiting for the debugger" in line for line in logs.splitlines())
+                    if waiting:
+                        if self._process_snapshot(raw) != owned: raise RecoveryError("The manual waiting app changed before pausing.")
+                        self._device_guard()
+                        self.adb.run("-s", self.address, "shell", "run-as", PACKAGE, "kill", "-STOP", raw, check_text=False)
+                        for _ in range(20):
+                            try: paused = self._process_snapshot(raw, stopped=True)
+                            except RuntimeError:
+                                time.sleep(0.05); continue
+                            if paused != owned: raise RecoveryError("The manually launched waiting app changed while pausing.")
+                            self._storage_process = paused
+                            progress("manual-launch", 1, 1, "Manual app start proved and paused before gameplay", local=True)
+                            return "/proc/" + raw + "/root/storage/emulated/0"
+                        raise RecoveryError("The manual storage process did not completely pause.")
+                    if owned_polls >= 20:
+                        raise RecoveryError("The manually launched app did not prove its pre-game debugger wait.")
+                if time.monotonic() >= next_guidance:
+                    progress("manual-launch", 0, 1, guidance, local=True, status="waiting")
+                    next_guidance = time.monotonic() + 5
+                time.sleep(0.25)
+            self._storage_launch_diagnostics()
+            raise CaptureRepairError("The Builder is still waiting for the headset library to start GloomhavenVR. Retry manual startup, or explicitly choose clean installation with original backups retained.",
+                                     root="external", reason="restore-app-launch-unavailable", attempts=1, total=1)
+        except BaseException:
+            try:
+                self._device_guard()
+                if owned is None or self._process_snapshot(owned[0]) == owned:
+                    self.adb.run("-s", self.address, "shell", "am", "force-stop", PACKAGE, check_text=False)
+                self._release_manual_debug_wait()
+            except RuntimeError as cleanup:
+                print("Manual restoration debugger cleanup remains pending: " + str(cleanup)[:1024], flush=True)
+            error = sys.exc_info()[1]
+            if isinstance(error, RecoveryError) and not isinstance(error, CaptureRepairError):
+                raise CaptureRepairError(str(error), root="external", reason="restore-app-storage-unavailable", attempts=1, total=1) from error
+            raise
+
+    def _manual_debug_identity(self):
+        journal = getattr(self, "journal", None)
+        if journal:
+            return {"apkSha256": journal["apkSha256"], "inputKey": journal["inputKey"], "transaction": journal["transaction"]}
+        value = getattr(self.adb, "manual_storage_identity", None)
+        if (not isinstance(value, dict) or not re.fullmatch(r"[0-9a-f]{64}", str(value.get("apkSha256", "")))
+                or not re.fullmatch(r"[0-9a-f]{64}", str(value.get("inputKey", "")))
+                or value.get("transaction") is not None and not re.fullmatch(r"[0-9a-f]{32}", str(value["transaction"]))):
+            raise RecoveryError("Manual storage startup lacks its exact installed-source identity.")
+        return {key: value.get(key) for key in ("apkSha256", "inputKey", "transaction")}
+
+    def _manual_debug_receipt(self):
+        return ordinary(self.adb.log.parent / (".manual-storage-debug-" + self.hardware + ".json"))
+
+    def _manual_debug_record(self):
+        journal = getattr(self, "journal", None)
+        if journal is not None: value = journal.get("manualDebugWait")
+        else:
+            path = self._manual_debug_receipt()
+            if not path.exists(): return None
+            if not path.is_file() or path.stat().st_size > 16384: raise RecoveryError("Invalid manual-debug ownership receipt.")
+            value = json.loads(path.read_text(encoding="utf-8"))
+        if value is None: return None
+        if (not isinstance(value, dict) or value.get("schema") != 1 or value.get("package") != PACKAGE
+                or value.get("deviceSerial") != self.hardware or value.get("source") != self._manual_debug_identity()
+                or value.get("originalCurrent") not in ("null", PACKAGE)
+                or not isinstance(value.get("initialDebugLine"), str) or len(value["initialDebugLine"]) > 4096
+                or not re.fullmatch(r"/data/app/[A-Za-z0-9_./=+~-]+/base\.apk", str(value.get("installedPath", "")))
+                or not re.fullmatch(r"[0-9]+:[0-9]+:[0-9]+:-?[0-9]+:-?[0-9]+", str(value.get("installedStat", "")))):
+            raise RecoveryError("The manual-debug ownership receipt differs from this package, source or headset.")
+        return value
+
+    def _new_manual_debug_record(self, initial):
+        paths = self.adb.run("-s", self.address, "shell", "pm", "path", "--user", "0", PACKAGE, check_text=False).splitlines()
+        if len(paths) != 1 or not re.fullmatch(r"package:/data/app/[A-Za-z0-9_./=+~-]+/base\.apk", paths[0]):
+            raise RecoveryError("The installed app cannot be identified before manual debugger arming.")
+        return {"schema": 1, "package": PACKAGE, "deviceSerial": self.hardware, "source": self._manual_debug_identity(),
+                "originalCurrent": self._manual_debug_original, "initialDebugLine": initial,
+                "installedPath": paths[0][8:], "installedStat": self._installed_stat(paths[0][8:])}
+
+    def _remember_manual_debug_wait(self, value):
+        if getattr(self, "journal", None) is not None: self.commit(manualDebugWait=value)
+        elif value is None: self._manual_debug_receipt().unlink(missing_ok=True)
+        else: atomic_json(self._manual_debug_receipt(), value)
+
+    def _reconcile_manual_debug_wait(self):
+        record = self._manual_debug_record()
+        if record is None: return
+        self._device_guard()
+        paths = self.adb.run("-s", self.address, "shell", "pm", "path", "--user", "0", PACKAGE, check_text=False).splitlines()
+        if paths:
+            if paths != ["package:" + record["installedPath"]] or self._installed_stat(record["installedPath"]) != record["installedStat"]:
+                raise CaptureRepairError("The installed app changed after manual debugger arming. Its current data and original backups were retained; do not replay the old restoration over a different app.",
+                                         root="external", reason="restore-app-storage-unavailable", attempts=1, total=1)
+            self.adb.run("-s", self.address, "shell", "am", "force-stop", PACKAGE, check_text=False)
+            if self.adb.run("-s", self.address, "shell", "pidof", PACKAGE, check_text=False, empty_exit_codes=(1,)).strip():
+                raise RecoveryError("The retained manual-debug process could not yet be stopped.")
+        self._release_manual_debug_wait()
+
+    def _release_manual_debug_wait(self):
+        record = self._manual_debug_record()
+        if record is None and not getattr(self, "_manual_debug_armed", False): return
+        if record is not None: self._manual_debug_original = record["originalCurrent"]
+        self._device_guard()
+        rows = self.shell("dumpsys activity processes | sed -n '/mDebugApp=/p'").splitlines()
+        if rows:
+            match = re.fullmatch(r"\s*mDebugApp=(null|" + re.escape(PACKAGE) + r")/orig=" + re.escape(self._manual_debug_original)
+                                 + r" mDebugTransient=true mOrigWaitForDebugger=(true|false)\s*", rows[0]) if len(rows) == 1 else None
+            if not match and (record is None or rows[0] != record["initialDebugLine"]):
+                raise RecoveryError("The developer debugger selection changed; the Builder retained it instead of clearing another selection.")
+            persistent = self.shell("settings get global debug_app\nsettings get global wait_for_debugger").splitlines()
+            if len(persistent) != 2 or persistent[0] != "null" or persistent[1] not in ("null", "0"):
+                raise RecoveryError("Persistent developer debugger settings changed; their values and the owned wait receipt remain retained.")
+            self.adb.run("-s", self.address, "shell", "am", "clear-debug-app", timeout=30)
+            remaining = self.shell("dumpsys activity processes | sed -n '/mDebugApp=/p'").strip()
+            if remaining: raise RecoveryError("The manual debugger wait could not yet confirm release; its ownership marker remains retained.")
+        self._manual_debug_armed = False
+        self._remember_manual_debug_wait(None)
+        with self.adb.log.open("a", encoding="utf-8") as log:
+            log.write(json.dumps({"manualStorageLaunch": {"debuggerWaitReleased": True, "gameplayAllowed": False}}) + "\n")
+
+    def _release_recovery_pending_debug_wait(self):
+        """Release an originally empty, still-pending Quest wait after consent."""
+        self._device_guard()
+        rows = self.shell("dumpsys activity processes | sed -n '/mDebugApp=/p'").splitlines()
+        if not rows: return
+        expected = re.fullmatch(r"\s*mDebugApp=" + re.escape(PACKAGE)
+            + r"/orig=null mDebugTransient=true mOrigWaitForDebugger=false\s*", rows[0]) if len(rows) == 1 else None
+        if not expected: return  # Retain foreign or ambiguous developer settings.
+        persistent = self.shell("settings get global debug_app\nsettings get global wait_for_debugger").splitlines()
+        if len(persistent) == 2 and persistent[0] == "null" and persistent[1] in ("null", "0"):
+            self.adb.run("-s", self.address, "shell", "am", "clear-debug-app", timeout=30)
+            with self.adb.log.open("a", encoding="utf-8") as log:
+                log.write(json.dumps({"cleanInstallation": {"ownedPendingDebuggerWaitReleased": True,
+                    "foreignDebuggerSettingsChanged": False}}) + "\n")
+
     def _close_storage_process(self):
         command = getattr(self, "_storage_command", None)
         if command:
@@ -583,15 +799,24 @@ class Recovery:
                 raise RecoveryError("The app-context debugger connection cannot be released before confirmed process termination.")
             self._storage_command = None
         owned = self._storage_process
-        if not owned: return
-        self._storage_process = None
+        if not owned:
+            self._release_manual_debug_wait()
+            return
         self._device_guard()
         # Stop only the process we started. A changed/reused PID is not a reason
         # to force-stop a newly launched app or any foreign process.
-        try: current = self._process_snapshot(owned[0])
-        except RuntimeError: return
+        raw = self.adb.run("-s", self.address, "shell", "pidof", PACKAGE, check_text=False, empty_exit_codes=(1,)).strip()
+        if not raw:
+            self._storage_process = None
+            self._release_manual_debug_wait()
+            return
+        current = self._process_snapshot(owned[0])
         if current != owned: raise RecoveryError("The paused storage process changed before scoped cleanup.")
         self.adb.run("-s", self.address, "shell", "am", "force-stop", PACKAGE, check_text=False)
+        remaining = self.adb.run("-s", self.address, "shell", "pidof", PACKAGE, check_text=False, empty_exit_codes=(1,)).strip()
+        if remaining: raise RecoveryError("The paused storage process did not confirm termination; its ownership witness remains retained.")
+        self._storage_process = None
+        self._release_manual_debug_wait()
 
     def _app_context_command(self):
         """Use an app-origin child when UID changes cannot enter its FUSE view.
@@ -647,10 +872,11 @@ class Recovery:
         value = json.loads(self.path.read_text(encoding="utf-8"))
         if (value.get("schema") != 1 or value.get("package") != PACKAGE or value.get("deviceSerial") != self.hardware
                 or not re.fullmatch(r"[0-9a-f]{32}", str(value.get("transaction", "")))
-                or value.get("state") not in ("created", "backed-up", "parking", "parked", "uninstalling", "removed", "installing", "restoring", "rolling-back", "rollback-restoring", "verified", "complete")):
+                or value.get("state") not in ("created", "backed-up", "parking", "parked", "uninstalling", "removed", "installing", "restoring", "rolling-back", "rollback-restoring", "verified", "complete",
+                    "reset-approved", "reset-removing", "reset-installing", "reset-installed", "reset-complete")):
             raise RecoveryError("Recovery journal has an invalid identity or state.")
         self.journal = value
-        if value["state"] == "complete": return False
+        if value["state"] in ("complete", "reset-complete"): return False
         if value.get("apkSha256") != self.source.sha256 or value.get("inputKey") != self.source.input_key:
             raise RecoveryError("Finish the pending recovery with its original selected APK before selecting another build.")
         self._source_guard()
@@ -694,6 +920,77 @@ class Recovery:
                 # matching completed archive remains reusable in _backup.
                 self.commit("created", dataPolicy=self.data_policy)
         return True
+
+    def _recover_clean_reset(self):
+        """Execute only the explicitly approved transaction's clean reinstall.
+
+        This is a compromise offered after restoration fails, never an automatic
+        repair: current device saves/settings and game files are removed. The
+        previously verified host originals remain immutable. Distinct durable
+        states prevent either a repeated removal after an interrupted install or
+        an old backup replay over new progress on later ordinary updates.
+        """
+        reset_states = ("reset-approved", "reset-removing", "reset-installing", "reset-installed")
+        if self.journal["state"] != "reset-installed": self._reset_content_source_guard()
+        if self.journal["state"] not in reset_states:
+            if self.reset_app_data != self.journal["transaction"] or self.journal["state"] != "restoring":
+                raise RecoveryError("Clean app-data reset requires the exact pending restoration transaction.")
+            self._source_guard(phase="the explicitly approved clean installation")
+            self._device_guard(); self._check_users()
+            self._verify_backups(original=False, validate_only=True)
+            if any(not ordinary(self.backup / item["archive"]).is_file() for item in self.journal["roots"]):
+                raise RecoveryError("A retained host backup is missing; no clean app-data removal was started.")
+            self._installed_apk_guard(self.source.sha256)
+            self._close_storage_process()
+            self.commit("reset-approved", saveDataReset=True, restorationSkipped=True,
+                        resetConsentTransaction=self.journal["transaction"], restoringArchive=None)
+        if (self.journal.get("resetConsentTransaction") != self.journal["transaction"]
+                or self.journal.get("saveDataReset") is not True or self.journal.get("restorationSkipped") is not True):
+            raise RecoveryError("The clean installation lacks its retained transaction-bound approval.")
+        self._device_guard(); self._source_guard(phase="clean installation")
+        if self.journal["state"] == "reset-approved":
+            self._installed_apk_guard(self.source.sha256)
+            self.adb.run("-s", self.address, "shell", "am", "force-stop", PACKAGE, check_text=False)
+            self._release_manual_debug_wait()
+            self._release_recovery_pending_debug_wait()
+            self.commit("reset-removing")
+        if self.journal["state"] == "reset-removing":
+            self._reset_content_source_guard()
+            self._check_users()
+            paths = self.adb.run("-s", self.address, "shell", "pm", "path", "--user", "0", PACKAGE, check_text=False).strip()
+            if paths:
+                self._installed_apk_guard(self.source.sha256)
+                progress("reset", 0, 2, "Removing the app and its data as explicitly requested; original PC backups remain retained", local=True)
+                self.adb.run("-s", self.address, "uninstall", PACKAGE, timeout=120, positive=r"^Success\s*$")
+            self.commit("reset-installing", replacementStat=None)
+        if self.journal["state"] == "reset-installing":
+            paths = self.adb.run("-s", self.address, "shell", "pm", "path", "--user", "0", PACKAGE, check_text=False).strip()
+            if paths:
+                # A lost install reply may have completed. This exceptional
+                # adoption hashes only the APK, never an external game bank.
+                if not re.fullmatch(r"package:/data/app/[A-Za-z0-9_./=+~-]+/base\.apk", paths):
+                    raise RecoveryError("The replacement package cannot be identified after interrupted clean installation.")
+                remote = paths[8:]
+                if self.shell("sha256sum " + shlex.quote(remote), timeout=600) != self.source.sha256 + "  " + remote:
+                    raise RecoveryError("A different app appeared during clean installation; its current data was retained.")
+            else:
+                progress("reset", 1, 2, "Installing the retained finished APK with fresh app data", local=True)
+                self.adb.run("-s", self.address, "install", "-r", self.source.apk, timeout=self.install_timeout, positive=r"^Success\s*$")
+            self._installed_apk_guard(self.source.sha256)
+            self.commit("reset-installed")
+        self._installed_apk_guard(self.source.sha256)
+        progress("reset", 2, 2, "Clean APK installation finished; original saves remain in the PC backup and have not been restored", local=True)
+        return {"schema": 1, "transaction": self.journal["transaction"], "backupPath": str(self.backup),
+                "verified": False, "saveDataReset": True, "restorationSkipped": True}
+
+    def _reset_content_source_guard(self):
+        if not self.reset_source_available:
+            raise RecoveryError("Clean installation requires the complete local game-content package; the installed app and data were retained.")
+        for bank in getattr(self.source, "content", ()):
+            package = getattr(bank, "package", None)
+            path = ordinary(package or bank.path)
+            if not path.is_file() or package is None and path.stat().st_size != bank.size:
+                raise RecoveryError("The required local game-content package changed or is missing; the installed app and data were retained.")
 
     def _record_omissions(self, item, omissions):
         if self.journal["state"] not in ("created", "backed-up", "parking", "parked", "uninstalling"):
@@ -1929,6 +2226,35 @@ class Recovery:
     def recover(self, *, detected=False):
         try:
             pending = self.load()
+            reset_states = ("reset-approved", "reset-removing", "reset-installing", "reset-installed")
+            if self.manual_storage_launch is not None:
+                if (not self.journal or self.journal["state"] not in ("restoring", "verified", "complete")
+                        or self.manual_storage_launch != self.journal["transaction"]
+                        or self.journal.get("apkSha256") != self.source.sha256 or self.journal.get("inputKey") != self.source.input_key):
+                    raise RecoveryError("Manual restoration requires the exact pending restoration transaction and selected APK.")
+                self._manual_storage_launch_enabled = self.journal["state"] == "restoring"
+                self._source_guard()
+                if self.journal["state"] == "complete":
+                    self.backup = ordinary(self.home / self.journal["transaction"])
+                    self._installed_apk_guard(self.source.sha256)
+                    self._reconcile_manual_debug_wait()
+                    return {"schema": 1, "transaction": self.journal["transaction"], "backupPath": str(self.backup),
+                            "verified": True, "manualStorageLaunch": True}
+            if self.reset_app_data is not None:
+                if (not self.journal or self.reset_app_data != self.journal["transaction"]
+                        or self.journal["state"] not in ("restoring", *reset_states, "reset-complete")
+                        or self.journal.get("apkSha256") != self.source.sha256 or self.journal.get("inputKey") != self.source.input_key):
+                    raise RecoveryError("Clean installation requires the exact pending restoration transaction and selected APK.")
+                if self.journal["state"] == "reset-complete":
+                    self._source_guard()
+                    self.backup = ordinary(self.home / self.journal["transaction"])
+                    self._installed_apk_guard(self.source.sha256)
+                    return {"schema": 1, "transaction": self.journal["transaction"], "backupPath": str(self.backup),
+                            "verified": False, "saveDataReset": True, "restorationSkipped": True}
+            if pending: self._reconcile_manual_debug_wait()
+            if pending and (self.reset_app_data is not None or self.journal["state"] in reset_states):
+                print("Retained signing migration backup: " + str(self.backup), flush=True)
+                return self._recover_clean_reset()
             if not pending and not detected: return None
             if not pending:
                 identifier = uuid.uuid4().hex
@@ -2019,12 +2345,17 @@ class Recovery:
                 self._close_storage_process(); self.commit("backed-up", rolledBack=True)
                 raise RecoveryError("Interrupted rollback has restored the original app and data; retry the selected new APK.")
             return {"schema": 1, "transaction": self.journal["transaction"], "backupPath": str(self.backup),
-                    "verified": self.journal["state"] in ("verified", "complete")}
+                    "verified": self.journal["state"] in ("verified", "complete"),
+                    **({"manualStorageLaunch": True} if self.manual_storage_launch is not None else {})}
         except Exception as error:
             if isinstance(error, DataPolicyError):
                 print("GHVRQ_ACTION " + json.dumps({"schema": 1, "kind": "signing-data-policy", "reason": error.reason,
                                                   "policy": self.data_policy, "saveDataProtected": True}), flush=True)
             elif isinstance(error, CaptureRepairError):
+                if (self.journal and self.journal["state"] == "restoring"
+                        and error.action["reason"].startswith("restore-app-")):
+                    error.action.update(requiresRestoreChoice=True, transaction=self.journal["transaction"],
+                                        deviceSerial=self.hardware, manualLaunchAvailable=True, resetAppDataAvailable=self.reset_source_available)
                 print("GHVRQ_ACTION " + json.dumps(error.action), flush=True)
             elif isinstance(error, ContentReinstallChoiceError):
                 print("GHVRQ_ACTION " + json.dumps(error.action), flush=True)
@@ -2046,6 +2377,10 @@ class Recovery:
                     print("Signing recovery retained its tiny transaction-owned rename helper for later cleanup.", flush=True)
 
     def complete(self):
+        if self.journal and self.journal["state"] == "reset-installed":
+            self.commit("reset-complete")
+            progress("reset", 1, 1, "Clean installation completed; original saves and settings remain in the PC backup without being replayed", local=True)
+            return
         if self.journal and self.journal["state"] == "verified":
             self.commit("complete")
             progress("verify", 7, 7, "Signing migration and original app-data restoration verified")
@@ -2077,6 +2412,9 @@ class AppStorageView(Recovery):
         self._direct_storage_proved = False
         self._storage_process = None
         self._storage_command = None
+        self._manual_storage_launch_enabled = False
+        self._manual_storage_fallback_enabled = getattr(adb, "manual_storage_launch", False) is True
+        self._manual_debug_armed = False
 
     def _access_root(self, root, mode):
         if (not isinstance(root, str) or root != str(PurePosixPath(root))
