@@ -18,7 +18,12 @@ whole-game catalog are exercised, including colors, queues and normal maps.
 Cases cover empty initial slots followed by native completion, incomplete native
 loads, later-slot and in-place shader overwrites, inactive preview rooms, late
 room placement, mixed opaque slots, destroyed renderers, bounded event overflow,
-restoration and re-entry. Eight compiled defects must fail their causal assertions.
+restoration and re-entry. Eight compiled lifecycle defects must fail their causal assertions.
+A separate real Camera.Render control proves that opaque/cutout ground at queue2450
+overwrites an alpha film left at queue2000. The owned film therefore maps only
+opaque queues into the transparent phase; authored2900/3000 order and all native
+material/restoration queues remain unchanged. The old queue code must reproduce
+the actual wrong pixels, independently of the lifecycle controls.
 The suite does not establish headset appearance, FPS or multiplayer acceptance.
 
 Run `python3 scripts/check-water-terrain-runtime.py`. Worker checkouts can select

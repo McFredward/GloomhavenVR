@@ -126,7 +126,7 @@ def main():
         actual_method = method(native_source.read_text(), '\tprivate void CheckAllMaterialLoaded()')
         assert actual_method == native_method, 'actual installed native material publication differs'
         bridge_paths.append(native_source)
-    variants = [('production', sources, '')]
+    variants = [('production', sources, ''), ('queue-pixels', sources, '')]
     changes = [
         ('async-ready-lost', '_readyMaterials.Add(renderer);', '/* lost ready event */', 'asynchronous publication after empty seed adopts in the same frame'),
         ('inactive-ready-lost', 'if (renderer == null || !Want || !_owned.ContainsKey(renderer)', 'if (renderer == null || !renderer.gameObject.activeInHierarchy || !Want || !_owned.ContainsKey(renderer)', 'inactive preview water receives the material before first visible frame'),
@@ -142,6 +142,10 @@ def main():
         assert text.count(before) == 1, (name, text.count(before))
         changed = dict(sources); changed['WaterTerrainVR.cs'] = text.replace(before, after, 1)
         variants.append((name, changed, expected))
+    bad_queue = dict(sources)
+    assert sources['WaterTerrainVR.cs'].count('inst.renderQueue = FilmRenderQueue(shared.renderQueue);') == 1
+    bad_queue['WaterTerrainVR.cs'] = sources['WaterTerrainVR.cs'].replace('inst.renderQueue = FilmRenderQueue(shared.renderQueue);', 'inst.renderQueue = shared.renderQueue;', 1)
+    variants.append(('queue-old-opaque-order', bad_queue, 'opaque queue film is visible above native ground'))
     if args.case:
         selected = set(args.case); variants = [v for v in variants if v[0] in selected]
         assert len(variants) == len(selected), 'unknown selected case'

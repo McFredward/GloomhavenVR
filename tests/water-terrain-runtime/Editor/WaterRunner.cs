@@ -35,7 +35,8 @@ public static class WaterRunner
                 try
                 {
                     assembly = Assembly.LoadFile(entry.dll);
-                    int count = (int)assembly.GetType("WaterTerrainProgram").GetMethod("Run").Invoke(null, null);
+                    string program = entry.name.StartsWith("queue-") ? "WaterQueuePixels" : "WaterTerrainProgram";
+                    int count = (int)assembly.GetType(program).GetMethod("Run").Invoke(null, null);
                     if (!String.IsNullOrEmpty(entry.expected)) throw new Exception("negative control escaped");
                     output.WriteLine("PASS " + entry.name + ": " + count + " assertions");
                 }

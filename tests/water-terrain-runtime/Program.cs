@@ -141,7 +141,7 @@ public static class WaterTerrainProgram
             var film = Surface(crypt.transform, "Native quality film", Array.Empty<Material>());
             Material authored = sample.Create(); new MaterialLoaderData().Complete(film, new[] { authored }); Tick();
             Check(Own(film), "native material identity and quality: " + sample.Name);
-            Check(film.sharedMaterial.renderQueue == authored.renderQueue, "native render queue retained: " + sample.Name);
+            Check(film.sharedMaterial.renderQueue == (authored.renderQueue <= 2500 ? 3000 : authored.renderQueue), "native transparent order retained or opaque film phase adapted: " + sample.Name);
             Check(ReferenceEquals(film.sharedMaterial.GetTexture(WaterOwnSurface.NormalMapProperty), authored.GetTexture("_Normal_Map")), "native normal map retained: " + sample.Name);
         }
         foreach (NativeWaterSurface sample in NativeWaterCoverage.Surfaces)
@@ -157,7 +157,7 @@ public static class WaterTerrainProgram
             new MaterialLoaderData().Complete(film, new[] { authored }); Tick();
             Check(Own(film), "native full-game material-loader assignment: " + sample.Name);
             Check(WaterTerrainVR.IsOwnedWaterSurface(film), "native full-game current water ownership: " + sample.Name);
-            Check(film.sharedMaterial.renderQueue == authored.renderQueue, "native surface queue retained: " + sample.Name);
+            Check(film.sharedMaterial.renderQueue == (authored.renderQueue <= 2500 ? 3000 : authored.renderQueue), "native surface transparent order retained or opaque film phase adapted: " + sample.Name);
         }
         Check(NativeWaterCoverage.Surfaces.Length == 45 && NativeWaterCoverage.Materials.Length == 14, "all 45 native film assignments and 14 materials execute");
 

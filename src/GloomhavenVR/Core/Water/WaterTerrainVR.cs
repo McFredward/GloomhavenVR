@@ -41,7 +41,7 @@ namespace GloomhavenVR.Core;
 /// explanation: the pale sheet and the head-bound reflection are a TEXTURE or a CONSTANT compiled
 /// into <c>VFX/Water_Shd_Trans</c>, which no property name can reach. So the film draws on
 /// <c>GloomhavenVR/WaterVR</c> out of this mod's own bundle instead, in the tileset's own colour
-/// at the authored render queue, with the tileset's own normal map and a swell the shader's own
+/// in the authored transparent order (opaque films enter the transparent phase), with the tileset's own normal map and a swell the shader's own
 /// tessellator carries. ModBuild 162's flat sheet on <c>GloomhavenVR/Overlay</c> is the FALLBACK
 /// when the bundle yields nothing else, and the OWN SURFACE census block names which of the two is
 /// actually on the renderers rather than which was wanted.</para>
@@ -311,12 +311,12 @@ internal static class WaterTerrainVR
         }
         VRLog.Info(Name,
             "WaterTerrainVR installed — the parts of the game's water FEATURE (the film "
-            + "'TERRAIN_Water_Plane' on shader family 'Water_Sh*' AND the basin bed/rim inside "
-            + "its own footprint) all KEEP RENDERING (user ruling 2026-08-18: hiding is not an "
+            + "on native shader family 'Water_Sh*' in procedural scenery, including terrain, "
+            + "pond and DLC films; basin bed/rim tuning remains terrain-only) all KEEP RENDERING (user ruling 2026-08-18: hiding is not an "
             + "option) and are retuned for a free camera. THE FILM does not run the game's "
             + "shader at all: WaterSettings.OwnSurface (default ON) gives it a material of the mod's "
             + "own on '" + WaterOwnSurface.FilmShaderName + "', in the tileset's own green at "
-            + "the WaterSettings.Opacity alpha, at the authored render queue, carrying the tileset's "
+            + "the WaterSettings.Opacity alpha, preserving authored transparent order and promoting opaque films, carrying the tileset's "
             + "own normal map and a tessellated swell — with no shoreline, no foam, no depth "
             + "read, nothing that translates, and NO VIEW DIRECTION ANYWHERE IN IT (no cube "
             + "sample, no reflect(), no Fresnel, no half-vector specular, because a half-vector "
@@ -1610,14 +1610,18 @@ internal static class WaterTerrainVR
         /// out of it. See <see cref="WaterOwnSurface"/> for the second, independent reason it could
         /// not be used here.</para>
         ///
-        /// <para>The instance keeps the AUTHORED render queue, so the film draws exactly where the
-        /// water drew. No <c>_MainTex</c> is bound: it declares a <c>"white"</c> default, so
+        /// <para>The instance keeps an already-transparent authored queue. Native opaque film
+        /// queues instead enter the transparent phase because the owned film does not write depth;
+        /// otherwise later opaque/cutout ground can erase it. The original material is unchanged. No <c>_MainTex</c> is bound: it declares a <c>"white"</c> default, so
         /// clearing it leaves the tint alone on screen — and a texture compiled into the game's
         /// shader is the surviving suspect for the pale sheet, so binding one would be the one move
         /// guaranteed to keep that question open. The RIPPLE normal map is a different thing
         /// entirely and IS bound: it is the tileset's own, it is read off the game material, and it
         /// carries no colour into the frame — only slope.</para>
         /// </summary>
+        private static int FilmRenderQueue(int authored) =>
+            authored <= (int)RenderQueue.GeometryLast ? (int)RenderQueue.Transparent : authored;
+
         private void OwnFilmOne(Owned o, Material shared, Material inst)
         {
             Shader? own = _ownShader;
@@ -1651,7 +1655,10 @@ internal static class WaterTerrainVR
                     WaterOwnSurface.SrcBlendProperty, WaterOwnSurface.SrcBlendSrcAlpha);
                 inst.SetFloat(
                     WaterOwnSurface.DstBlendProperty, WaterOwnSurface.DstBlendOneMinusSrcAlpha);
-                inst.renderQueue = shared.renderQueue;
+                // Native opaque water wrote depth in the <=2500 phase. Our alpha film does
+                // not: keeping it there lets later opaque/cutout geometry erase the water.
+                // Existing transparent terrain order (2900) stays exactly as authored.
+                inst.renderQueue = FilmRenderQueue(shared.renderQueue);
                 if (_ownIsWater)
                     AnimateFilmOne(o, shared, inst);
             }
@@ -3031,8 +3038,8 @@ internal static class WaterTerrainVR
                       + "deliberately NOT swapped — it is opaque ground, not a film, and keeps the "
                       + "property retune. DERIVED FROM THE TILESET'S OWN VALUES: ")
               .Append(_ownNote)
-              .Append("; render queue kept at the authored value so the film draws exactly where "
-                      + "the water drew; no _MainTex bound (it defaults to \"white\", and a texture "
+              .Append("; authored transparent order is retained; opaque film queues enter the transparent phase "
+                      + "so later opaque ground cannot erase the alpha film; no _MainTex bound (it defaults to \"white\", and a texture "
                       + "compiled into the game's shader is the prime SUSPECT for the pale sheet, "
                       + "so binding one would keep the question open); blend "
                       + "SrcAlpha/OneMinusSrcAlpha, ZWrite off, two-sided.");
