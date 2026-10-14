@@ -159,6 +159,16 @@ class GuardTests(unittest.TestCase):
             with self.subTest(frames=frames), self.assertRaises(bridge.StorageError):
                 self.value._wait_boundary()
 
+    def test_android_zygote_and_runtime_boot_frames_remain_allowed(self):
+        self.value.protocol.frames.return_value = [
+            ("Landroid/os/Debug;", "waitForDebugger"),
+            ("Landroid/app/ActivityThread;", "handleBindApplication"),
+            ("Landroid/os/Looper;", "loop"),
+            ("Landroid/app/ActivityThread;", "main"),
+            ("Lcom/android/internal/os/RuntimeInit$MethodAndArgsCaller;", "run"),
+            ("Lcom/android/internal/os/ZygoteInit;", "main")]
+        self.value._wait_boundary()
+
     def test_close_stops_only_matching_owned_process_before_socket_detach(self):
         self.adb.run.return_value = self.snapshot(state="S")
         stream = self.value.stream

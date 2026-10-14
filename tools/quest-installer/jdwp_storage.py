@@ -396,7 +396,8 @@ class AppCommand:
 
     def _wait_boundary(self):
         frames = self.protocol.frames(self.thread)
-        allowed = ("Ljava/", "Ljavax/", "Landroid/", "Ldalvik/", "Llibcore/", "Lsun/", "Ljdk/")
+        allowed = ("Ljava/", "Ljavax/", "Landroid/", "Ldalvik/", "Llibcore/", "Lsun/", "Ljdk/",
+                   "Lcom/android/internal/os/")
         if (any(not signature.startswith(allowed) for signature, _ in frames)
                 or ("Landroid/os/Debug;", "waitForDebugger") not in frames
                 or ("Landroid/app/ActivityThread;", "handleBindApplication") not in frames):
