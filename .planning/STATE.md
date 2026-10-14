@@ -1,5 +1,21 @@
 # State — where the project stands
 
+**Quest actual Android wait wrapper, 2026-10-14: feature / B672.**
+
+Capture203422 completes the four-file mod transfer, then positively proves the
+user's manual app start before Application. The app-origin guard rejects the
+actual ActivityThread wait wrapper and cleanup force-stops the owned process;
+the observed disappearance is not proof of a gameplay crash. Accept only the
+exact bootstrap/private wrapper and retain true-argument/event suspension proofs.
+Also recognize inactive historical debugger fields after a confirmed clear, so
+the next attempt can reconcile its owned receipt and continue. Keep the APK,
+accepted mod files and reset frontier; no new build or uninstall is required.
+
+Manual guidance describes the temporary check process. Content-access refusals
+offer retained-installation retry/export/skip instructions. Source/JVM/browser
+checks remain separate from actual Android results. See
+[QUEST-INSTALL-WAIT-203422-20261014.md](QUEST-INSTALL-WAIT-203422-20261014.md).
+
 **Quest content continuation and device cleanup, 2026-10-14: feature / B672.**
 
 Capture200458 completes the selected fresh APK installation; its following

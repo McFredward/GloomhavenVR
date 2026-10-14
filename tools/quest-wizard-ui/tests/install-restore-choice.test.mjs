@@ -134,10 +134,10 @@ test('actual Chrome requires explicit reset acknowledgment and never posts on ca
       assert.match(await client.evaluate("document.getElementById('install-manual-instructions').textContent"),/First choose.*Then put on.*Unknown Sources.*Waiting for debugger.*before gameplay/s);
       await client.picture('restore-manual-confirmation-en');
       await client.evaluate("document.getElementById('install-restore-confirm').click()");
-      await client.wait("document.getElementById('progress-title').textContent==='Restoration is waiting for you to launch the app.'");
+      await client.wait("document.getElementById('progress-title').textContent==='Installation is waiting for you to launch the app.'");
       assert.deepEqual(posts,[{path:'/api/install-restore-choice',body:{session,nonce,choice:'manual-launch'}},{path:'/api/run',body:{session}}]);
       assert.equal(await client.evaluate("document.getElementById('action-needed').hidden"),false);
-      assert.match(await client.evaluate("document.getElementById('action-needed-copy').textContent"),/Unknown Sources.*Waiting for debugger.*resumes restoration automatically/s);
+      assert.match(await client.evaluate("document.getElementById('action-needed-copy').textContent"),/Unknown Sources.*Waiting for debugger.*resumes installation automatically.*closes this temporary check/s);
       assert.equal(await client.evaluate("document.getElementById('substep-progress').hidden"),true,'0/1 launch wait is not a computation progress bar');
       assert.equal(await client.evaluate("document.getElementById('progress-track').getAttribute('aria-valuenow')"),'20');
       assert.equal(await client.evaluate("document.getElementById('install-manual-launch').hidden&&document.getElementById('install-reset-app-data').hidden"),true);

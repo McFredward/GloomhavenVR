@@ -38,6 +38,21 @@ class RecoveryError(RuntimeError):
     """The existing data could not be proved safe to replace or restore."""
 
 
+def _debug_selection_cleared(rows):
+    """Ignore only inactive history from our own transient debugger selection.
+
+    Capture203422 proves clear-debug-app leaves orig=PACKAGE and origWait=true
+    in dumpsys although its current selection is null and transient=false.
+    ActivityManagerService.setDebugApp(null, false, true) clears the live values
+    but does not rewrite mOrigDebugApp/mOrigWaitForDebugger. Callers separately
+    prove empty persistent settings and exact durable ownership. A foreign or
+    still-active selection never qualifies as cleared.
+    """
+    return not rows or len(rows) == 1 and re.fullmatch(
+        r"\s*mDebugApp=null/orig=(?:null|" + re.escape(PACKAGE)
+        + r") mDebugTransient=false mOrigWaitForDebugger=(?:true|false)\s*", rows[0]) is not None
+
+
 def launcher_arguments(component):
     """Use the documented Android main-activity intent with Quest VR routing.
 
@@ -614,7 +629,8 @@ class Recovery:
         self._device_guard()
         rows = self.shell("dumpsys activity processes | sed -n '/mDebugApp=/p'").splitlines()
         state = re.fullmatch(r"\s*mDebugApp=(null|" + re.escape(PACKAGE) + r")/orig=null mDebugTransient=(true|false) mOrigWaitForDebugger=false\s*", rows[0]) if len(rows) == 1 else None
-        if rows and (not state or state.group(1) == PACKAGE and state.group(2) != "true"):
+        cleared = _debug_selection_cleared(rows)
+        if rows and not cleared and (not state or state.group(1) == PACKAGE and state.group(2) != "true"):
             raise CaptureRepairError("Manual startup cannot safely replace the current developer debugger selection. Keep its settings or choose a clean app-data reset; original save backups remain retained.",
                                      root="external", reason="restore-app-launch-unavailable", attempts=1, total=1)
         persistent = self.shell("settings get global debug_app\nsettings get global wait_for_debugger").splitlines()
@@ -627,7 +643,7 @@ class Recovery:
                                      root="external", reason="restore-app-launch-unavailable", attempts=1, total=1)
         started_at = self.shell("date +%s").strip()
         if not started_at.isdigit(): raise RecoveryError("The manual app storage wait boundary could not be identified.")
-        self._manual_debug_original = state.group(1) if state else "null"
+        self._manual_debug_original = "null" if cleared else state.group(1)
         self._remember_manual_debug_wait(self._new_manual_debug_record(rows[0] if rows else ""))
         self._manual_debug_armed = True  # A lost command reply may still arm it.
         owned = None
@@ -637,7 +653,7 @@ class Recovery:
             with self.adb.log.open("a", encoding="utf-8") as log:
                 log.write(json.dumps({"manualStorageLaunch": {"armed": True, "package": PACKAGE,
                     "gameplayAllowed": False, "persistentDebugSettingChanged": False}}) + "\n")
-            guidance = "On the Quest, open Library > Unknown Sources and start GloomhavenVR. Leave any Waiting for debugger message open; the Builder will restore the retained data before gameplay."
+            guidance = "On the Quest, open Library > Unknown Sources and start GloomhavenVR. Leave any Waiting for debugger message open; the Builder checks storage before gameplay and closes this installation process again."
             progress("manual-launch", 0, 1, guidance, local=True, status="waiting")
             deadline = time.monotonic() + 300
             next_guidance = time.monotonic() + 5
@@ -764,14 +780,17 @@ class Recovery:
         if rows:
             match = re.fullmatch(r"\s*mDebugApp=(null|" + re.escape(PACKAGE) + r")/orig=" + re.escape(self._manual_debug_original)
                                  + r" mDebugTransient=true mOrigWaitForDebugger=(true|false)\s*", rows[0]) if len(rows) == 1 else None
-            if not match and (record is None or rows[0] != record["initialDebugLine"]):
+            if not _debug_selection_cleared(rows) and not match and (record is None or rows[0] != record["initialDebugLine"]):
                 raise RecoveryError("The developer debugger selection changed; the Builder retained it instead of clearing another selection.")
             persistent = self.shell("settings get global debug_app\nsettings get global wait_for_debugger").splitlines()
             if len(persistent) != 2 or persistent[0] != "null" or persistent[1] not in ("null", "0"):
                 raise RecoveryError("Persistent developer debugger settings changed; their values and the owned wait receipt remain retained.")
-            self.adb.run("-s", self.address, "shell", "am", "clear-debug-app", timeout=30)
-            remaining = self.shell("dumpsys activity processes | sed -n '/mDebugApp=/p'").strip()
-            if remaining: raise RecoveryError("The manual debugger wait could not yet confirm release; its ownership marker remains retained.")
+            if not _debug_selection_cleared(rows):
+                self.adb.run("-s", self.address, "shell", "am", "clear-debug-app", timeout=30)
+                remaining = self.shell("dumpsys activity processes | sed -n '/mDebugApp=/p'").splitlines()
+                persistent = self.shell("settings get global debug_app\nsettings get global wait_for_debugger").splitlines()
+                if not _debug_selection_cleared(remaining) or len(persistent) != 2 or persistent[0] != "null" or persistent[1] not in ("null", "0"):
+                    raise RecoveryError("The manual debugger wait could not yet confirm release; its ownership marker remains retained.")
         self._manual_debug_armed = False
         self._remember_manual_debug_wait(None)
         with self.adb.log.open("a", encoding="utf-8") as log:

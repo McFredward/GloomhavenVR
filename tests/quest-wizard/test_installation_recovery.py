@@ -84,6 +84,22 @@ class InstallationFailureTests(unittest.TestCase):
                 self.assertEqual(error.code, "quest_connection_required")
                 self.assertEqual(error.parameters["connectionReason"], reason)
 
+    def test_current_content_access_pause_retains_apk_and_does_not_offer_another_reset(self):
+        cause = ("The app's own Android content view is unavailable; installed game data is retained. "
+                 "The app main thread did not retain its pre-Application debugger wait.")
+        error = self.failure("Quest installation stopped: " + cause + "\nADB log: current.log\n")
+        self.assertEqual(error.code, "quest_content_access_required")
+        self.assertEqual(error.parameters["cause"], cause)
+        for name in ("contentAccessRequired", "completedBuildRetained", "completedWorkRetained", "canSkipInstall"):
+            self.assertTrue(error.parameters[name])
+        self.assertEqual(error.parameters["retryAction"], "install")
+        self.assertNotIn("requiresRestoreChoice", error.parameters)
+        self.assertNotIn("connectionReason", error.parameters)
+        self.assertIn("Prüfstart", error.message["de"])
+        latest = self.failure("Quest installation stopped: " + cause
+                              + "\nQuest installation stopped: The APK ZIP is corrupt.\n")
+        self.assertEqual(latest.code, "installation_tool_failed")
+
     def test_corruption_signature_mismatch_and_unknown_refusals_keep_the_exact_cause(self):
         for cause in ("Signing-key mismatch. Use the original key.",
                       "The APK ZIP payload is incomplete or corrupt.",

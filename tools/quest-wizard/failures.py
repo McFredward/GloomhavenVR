@@ -212,6 +212,15 @@ def installation_failure(text, parameters):
     ) if primary == prefix or primary.startswith(prefix + " ")), None)
     fields = dict(parameters, cause=cause, completedWorkRetained=True,
                   completedBuildRetained=True, retryAction="install", canSkipInstall=True)
+    if primary.startswith(("The app's own Android content view is unavailable;",
+                           "Android still denies the app access to ")):
+        # Capture203422 reaches the app-origin content check after the APK and
+        # first bank are installed. It is neither another signature conflict
+        # nor a reason to discard the completed Player or accepted game files.
+        return WizardError("quest_content_access_required",
+            "The APK is installed, but installation is paused while checking app access to the game files. Keep the Quest connected and unlocked, then retry installation. If requested, open GloomhavenVR under Unknown Sources; the Builder closes this temporary check process again. The finished APK and transferred files are retained. You can also save diagnostics or finish without installing; no new build or app-data reset is required.",
+            "Die APK ist installiert. Die Installation wartet bei der Prüfung, ob die App ihre Spieldateien öffnen kann. Quest verbunden und entsperrt lassen, dann die Installation erneut versuchen. Falls aufgefordert, GloomhavenVR unter Unbekannte Quellen öffnen; der Builder schließt diesen Prüfstart wieder. Die fertige APK und übertragene Dateien bleiben erhalten. Alternativ Logs exportieren oder ohne Installation abschließen; ein neuer Build oder Zurücksetzen der App-Daten ist nicht erforderlich.",
+            **dict(fields, contentAccessRequired=True))
     if primary.startswith("Clean installation could not safely continue:"):
         backup = re.search(r"Original recovery data is retained at ([^\r\n]{1,2048}?)(?=\. Retry with the same APK and headset\.)", current_error)
         if backup and not any(ord(char) < 32 or ord(char) == 127 for char in backup[1]):

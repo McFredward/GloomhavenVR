@@ -370,7 +370,7 @@ test('completed APK is prominent while connection is blocked; retry and skip ret
       current.stages[6].progress={phase:'install-recovery-access',done:1,total:3,unit:'files',percent:100/3,stagePercent:20,stageOperation:'apk'};
       await reopen();
       assert.equal(await client.evaluate("document.getElementById('progress-title').textContent"),'APK fertig. Installation wird automatisch angepasst.');
-      assert.match(await client.evaluate("document.getElementById('substep-label').textContent"),/Zugriff auf Spielstände und Einstellungen vorbereiten/);
+      assert.match(await client.evaluate("document.getElementById('substep-label').textContent"),/App-Speicherzugriff vorbereiten/);
       assert.match(await client.evaluate("document.getElementById('progress-detail').textContent"),/1 \/ 3 Dateien/);
       let previous;
       for(const done of [1,20,40]){

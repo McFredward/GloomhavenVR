@@ -41,8 +41,9 @@ class ManualDevice(fixture.Device):
             return result()
         if action == ["shell", "am", "clear-debug-app"]:
             if not self.clear_denied:
-                self.debug_current = self.debug_original = "null"
-                self.debug_wait = self.debug_original_wait = self.debug_transient = False
+                # AOSP clears current values while retaining inactive orig fields.
+                self.debug_current = "null"
+                self.debug_wait = self.debug_transient = False
             self.manual_armed = False
             return result()
         if "settings get global debug_app" in script:
@@ -106,6 +107,39 @@ class ManualLaunchTests(unittest.TestCase):
         self.view._close_storage_process()
         self.assertEqual(self.device.debug_current, "null")
         self.assertFalse(self.device.debug_wait)
+
+    def test_current_capture_inactive_history_is_cleared_and_allows_next_start(self):
+        self.device.debug_current = recovery.PACKAGE
+        self.device.debug_wait = self.device.debug_transient = True
+        self.run_manual()
+        self.view._close_storage_process()
+        self.assertEqual(self.device.debug_current, "null")
+        self.assertEqual(self.device.debug_original, recovery.PACKAGE)
+        self.assertTrue(self.device.debug_original_wait)
+        self.assertFalse(self.view._manual_debug_receipt().exists())
+        self.run_manual()
+        self.assertTrue(self.device.process_stopped)
+        self.view._close_storage_process()
+        self.assertFalse(self.device.debug_wait)
+
+    def test_host_retry_accepts_already_cleared_owned_wait_without_clearing_again(self):
+        self.device.debug_current = recovery.PACKAGE
+        self.device.debug_wait = self.device.debug_transient = True
+        self.run_manual()
+        self.adb.run("-s", "usb", "shell", "am", "force-stop", recovery.PACKAGE)
+        self.adb.run("-s", "usb", "shell", "am", "clear-debug-app")
+        resumed = recovery.AppStorageView(self.adb, "usb", self.device.hardware)
+        count = sum("clear-debug-app" in row for row in self.device.calls)
+        resumed._reconcile_manual_debug_wait()
+        self.assertEqual(sum("clear-debug-app" in row for row in self.device.calls), count)
+        self.assertFalse(self.view._manual_debug_receipt().exists())
+        self.view._storage_process = None
+
+    def test_inactive_foreign_history_is_not_used_to_arm_or_clear_debugger(self):
+        self.device.debug_original = "another.debug.app"
+        self.device.debug_original_wait = True
+        with self.assertRaises(recovery.CaptureRepairError): self.run_manual()
+        self.assertFalse(any("set-debug-app" in row or "clear-debug-app" in row for row in self.device.calls))
 
     def test_foreign_developer_selection_refused_without_change(self):
         self.device.debug_current = "another.debug.app"

@@ -298,6 +298,10 @@ class AppOriginStorageTests(unittest.TestCase):
                     snapshot.assert_not_called()
                 command.close.side_effect = None
                 command.closed = True
+                # The real command proves process exit before closing its
+                # socket. pidof then returns empty, rather than an unconfigured
+                # truthy Mock suggesting a still-live replacement process.
+                self.adb.run.return_value = ""
                 with mock.patch.object(self.engine, "_process_snapshot", side_effect=recovery.RecoveryError("owned process exited")):
                     self.engine._close_storage_process()
                 self.assertIsNone(self.engine._storage_command)
