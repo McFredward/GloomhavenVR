@@ -268,6 +268,7 @@ class Store:
             state.pop("installationAction", None)
             state.pop("installationRecoveryPolicy", None)
             state.pop("installationContentReinstallApproval", None)
+            state.pop("installationRestoreApproval", None)
             for row in state["stages"]:
                 row.update(status="pending", details={}, progress=stage_progress())
                 row["workMode"] = choices.get("mode", "build")

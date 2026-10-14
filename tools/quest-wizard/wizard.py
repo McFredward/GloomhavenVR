@@ -465,6 +465,65 @@ class Engine:
                 self.emit(self.store.event(state, "installation_content_reinstall_approved", "install", completedBuildRetained=True))
                 return state
 
+    def installation_restore_approval(self, state):
+        """Keep recovery consent bound to one completed APK and headset."""
+        saved = state.get("installationRestoreApproval")
+        if saved is None: return None
+        binding = self.installation_policy(state)
+        if (not isinstance(saved, dict) or set(saved) != {*binding, "transaction", "deviceSerial", "choice"}
+                or any(saved.get(name) != value for name, value in binding.items())
+                or saved.get("choice") not in ("manual-launch", "reset-app-data")
+                or not isinstance(saved.get("transaction"), str) or not re.fullmatch(r"[0-9a-f]{32}", saved["transaction"])
+                or not isinstance(saved.get("deviceSerial"), str) or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,256}", saved["deviceSerial"])):
+            raise WizardError("installation_action_stale", "The recovery choice no longer matches this APK. Refresh the run.",
+                              "Die Wiederherstellungsauswahl passt nicht mehr zu dieser APK. Den Lauf neu laden.")
+        return saved
+
+    def approve_restoration_choice(self, session, nonce, choice):
+        """Consume explicit manual-start/reset consent, never an inferred retry.
+
+        The action is issued only after an installed replacement fails its
+        storage restoration. None of the source, conversion, Unity or build
+        owners change. A reset is never implied by a timeout or a retry.
+        """
+        if (not isinstance(nonce, str) or not re.fullmatch(r"[0-9a-f]{32}", nonce)
+                or choice not in ("manual-launch", "reset-app-data")):
+            raise WizardError("installation_action_invalid", "Invalid restoration choice.", "Ungültige Wiederherstellungsauswahl.")
+        with file_lock(self.store.root / "run.lock"):
+            state = self.store.load(session)
+            binding = self.installation_policy(state)
+            action = state.get("installationAction", {})
+            needed = next((item for item in state.get("needsActions", []) if isinstance(item, dict)
+                           and item.get("code") == "quest_signing_repair_wait" and item.get("stage") == "install"), {})
+            parameters = needed.get("parameters", {})
+            available = "manualLaunchAvailable" if choice == "manual-launch" else "resetAppDataAvailable"
+            if (value_hash(state["choices"]) != state["choicesKey"]
+                    or not self.store.installation_pending(state, skip=True)
+                    or not isinstance(action, dict)
+                    or set(action) != {*binding, "nonce", "reason", "attempt", "kind", "transaction", "deviceSerial"}
+                    or any(action.get(name) != value for name, value in binding.items())
+                    or action.get("nonce") != nonce or action.get("kind") != "restore-choice"
+                    or action.get("reason") not in ("restore-app-access", "restore-app-launch-unavailable", "restore-app-storage-unavailable")
+                    or type(action.get("attempt")) is not int or action["attempt"] != state["stages"][-1].get("attempts")
+                    or not isinstance(action.get("transaction"), str) or not re.fullmatch(r"[0-9a-f]{32}", action["transaction"])
+                    or not isinstance(action.get("deviceSerial"), str) or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,256}", action["deviceSerial"])
+                    or parameters.get("installationActionNonce") != nonce
+                    or parameters.get("requiresRestoreChoice") is not True or parameters.get(available) is not True
+                    or parameters.get("saveDataProtected") is not True or parameters.get("repairReason") != action["reason"]
+                    or parameters.get("restoreChoiceTransaction") != action["transaction"]
+                    or parameters.get("restoreChoiceDeviceSerial") != action["deviceSerial"]):
+                raise WizardError("installation_action_stale", "This restoration choice is no longer current. Refresh the run.",
+                                  "Diese Wiederherstellungsauswahl ist nicht mehr aktuell. Den Lauf neu laden.")
+            with self.store.active(state):
+                state["installationRestoreApproval"] = dict(binding, transaction=action["transaction"],
+                                                           deviceSerial=action["deviceSerial"], choice=choice)
+                state.pop("installationAction", None)
+                state["needsActions"] = []
+                self.emit(self.store.event(state, "installation_restoration_choice_approved", "install",
+                                           choice=choice, completedBuildRetained=True,
+                                           hostBackupsRetained=True, resetsDeviceSaves=choice == "reset-app-data"))
+                return state
+
     def delivery_resume_candidate(self, state):
         """Qualify unchanged session choices without checking earlier outputs.
 
@@ -850,6 +909,7 @@ class Engine:
         config = self.store.root / "device/wireless-install.json"
         policy = self.installation_policy(state)
         content_approval = self.installation_content_approval(state)
+        restore_approval = self.installation_restore_approval(state)
         state["installationRecoveryPolicy"] = policy
         self.store.save(state)
         self.emit(self.store.event(state, "installation_guidance", "install", automaticReconnect=True, message={
@@ -866,8 +926,19 @@ class Engine:
             adb = network_preflight.local_adb(self.store.root, source, editor=editor)
             if adb is not None: arguments += ["--adb", str(adb)]
             if content_approval: arguments += ["--allow-content-reinstall", content_approval["transaction"]]
+            if restore_approval:
+                switch = "--manual-storage-launch" if restore_approval["choice"] == "manual-launch" else "--reset-app-data"
+                arguments += [switch, restore_approval["transaction"], "--recovery-device", restore_approval["deviceSerial"]]
             supervisor.run(arguments, self.log(state, "install"))
         except WizardError as error:
+            if error.code == "quest_signing_repair_wait" and error.parameters.get("requiresRestoreChoice") is True:
+                action = dict(policy, nonce=secrets.token_hex(16), kind="restore-choice",
+                              reason=error.parameters["repairReason"],
+                              transaction=error.parameters["restoreChoiceTransaction"],
+                              deviceSerial=error.parameters["restoreChoiceDeviceSerial"],
+                              attempt=state["stages"][-1]["attempts"])
+                state["installationAction"] = action
+                error.parameters["installationActionNonce"] = action["nonce"]
             if error.code == "quest_signing_content_reinstall_required":
                 action = dict(policy, nonce=secrets.token_hex(16), kind="content-reinstall",
                               reason=error.parameters["contentReinstallReason"],
@@ -892,8 +963,12 @@ class Engine:
                 or value["inputKey"] != self.details(state, "build")["inputKey"]):
             raise WizardError("installed_identity", "Installed receipt differs from the completed build.")
         self.store.operation(state["session"], "install", "launch", complete=True, detail="Installed build identity and launch receipt confirmed.")
-        atomic_json(result, {"schema": 1, "requested": True, "inputKey": value["inputKey"], "apkSha256": value["apkSha256"], "launched": value["launched"]})
-        return [result, receipt], {"requested": True, "hardwareVerified": False}
+        recovery = value.get("signingRecovery", {})
+        reset = isinstance(recovery, dict) and recovery.get("saveDataReset") is True
+        atomic_json(result, {"schema": 1, "requested": True, "inputKey": value["inputKey"], "apkSha256": value["apkSha256"],
+                             "launched": value["launched"], **({"saveDataReset": True, "hostBackupsRetained": True} if reset else {})})
+        return [result, receipt], {"requested": True, "hardwareVerified": False,
+                                 **({"saveDataReset": True, "hostBackupsRetained": True} if reset else {})}
 
 
 def main(argv=None):

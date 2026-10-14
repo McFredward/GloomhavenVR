@@ -1562,6 +1562,12 @@ def parser():
                         help="Signing migration: retain saves/settings without copying game banks or the original APK; all is the explicit legacy full rollback policy.")
     result.add_argument("--allow-content-reinstall", metavar="TRANSACTION",
                         help="Explicitly allow required game-content reinstallation if Android cannot retain its directories by direct rename; saves/settings remain protected.")
+    recovery_choice = result.add_mutually_exclusive_group()
+    recovery_choice.add_argument("--manual-storage-launch", metavar="TRANSACTION",
+                                 help="Wait for a user launch from the Quest library with the debugger armed before restoring retained data.")
+    recovery_choice.add_argument("--reset-app-data", metavar="TRANSACTION",
+                                 help="Explicitly delete this Quest transaction's app data and reinstall the completed APK; retained PC backups are not restored automatically.")
+    result.add_argument("--recovery-device", metavar="SERIAL", help="Bind an explicit recovery choice to its original headset.")
     result.add_argument("--dry-run", action="store_true")
     return result
 
@@ -1574,9 +1580,16 @@ def main(argv=None, runner=None):
     log = None
     try:
         config_path = args.config.expanduser().resolve()
+        if bool(args.recovery_device) != bool(args.manual_storage_launch or args.reset_app_data):
+            raise InstallError("An explicit recovery choice requires its original headset identity.")
+        if args.repair_app_access and (args.manual_storage_launch or args.reset_app_data):
+            raise InstallError("A recovery choice needs normal installation, not access-only repair. No app data was removed.")
         _INPUT_CACHE_PATH = None if args.dry_run else config_path.parent / "qualified-inputs.json"
         config = read_json(config_path) if config_path.is_file() else {}
         source = select_source(args, config)
+        reset_source_available = all(content_available(bank) for bank in source.content)
+        if args.reset_app_data and not reset_source_available:
+            raise InstallError("Clean reinstallation needs the complete local game-content package before deleting Quest app data. Select the original complete ZIP/output, then retry. No app data was removed; no APK rebuild is needed when that package is available.")
         receipt = config_path.parent / "wireless-last-install.json"
         protected = {source.apk, source.path / "latest-build.json" if source.kind == "output-root" else source.path}
         protected.update(bank.path for bank in source.content)
@@ -1613,6 +1626,7 @@ def main(argv=None, runner=None):
         # Re-read both the receipt and APK immediately before the only app mutation.
         if resolve_source(source.kind, source.path, check_zip=False) != source:
             raise InstallError("The APK or source evidence changed during device setup; retry with the intended build.")
+        adb.manual_storage_identity = {"apkSha256": source.sha256, "inputKey": source.input_key, "transaction": None}
         if args.repair_app_access:
             if args.repair_content:
                 raise InstallError("Access-only repair cannot be combined with full content verification.")
@@ -1630,9 +1644,13 @@ def main(argv=None, runner=None):
         transfer_seconds = (source.apk.stat().st_size + 1024 * 1024 - 1) // (1024 * 1024)
         install_timeout = min(1800, max(180, 120 + transfer_seconds))
         recovery_api = signing_recovery_module()
+        if args.recovery_device and args.recovery_device != hardware:
+            raise InstallError("The recovery choice belongs to a different Quest. No app data was removed.")
         recovery = recovery_api.Recovery(adb, address, hardware, source, config_path.parent,
                                          install_timeout=install_timeout, decode_receipt=decode_content_receipt,
-                                         data_policy=args.recovery_data_policy, allow_content_reinstall=args.allow_content_reinstall)
+                                         data_policy=args.recovery_data_policy, allow_content_reinstall=args.allow_content_reinstall,
+                                         manual_storage_launch=args.manual_storage_launch, reset_app_data=args.reset_app_data,
+                                         reset_source_available=reset_source_available)
         adb.connection_operation = "apk"
         migration = connected_recovery(adb, address, recovery)
         if migration is None:
@@ -1643,6 +1661,12 @@ def main(argv=None, runner=None):
                 install_connected_apk(adb, address, source, install_timeout)
             except SigningMismatch:
                 migration = connected_recovery(adb, address, recovery, detected=True)
+        # Only the transaction owner can enable a later storage view's manual
+        # launch. Arbitrary CLI input cannot grant it to another APK/headset.
+        adb.manual_storage_identity = {"apkSha256": source.sha256, "inputKey": source.input_key,
+                                       "transaction": migration.get("transaction") if migration else None}
+        if migration and (migration.get("manualStorageLaunch") is True or migration.get("saveDataReset") is True):
+            adb.manual_storage_launch = True
         # B618+ uses its build number as Android versionCode. Querying that
         # small package record confirms installation without another multi-GB
         # hash/read of the headset's APK before every hardware test.
@@ -1668,7 +1692,7 @@ def main(argv=None, runner=None):
             except (OSError, ValueError):
                 pass
         content_records = install_content(adb, address, source, previous, repair=args.repair_content, hardware=hardware)
-        if installation_manifest(source) is not None:
+        if installation_manifest(source) is not None and not (migration and migration.get("saveDataReset") is True):
             repair_current_access(adb, address, hardware, source, config_path.parent)
         clean_previous_content(adb, address, previous, content_records)
         if not args.no_launch:
@@ -1687,7 +1711,8 @@ def main(argv=None, runner=None):
                              **({"signingRecovery": migration} if migration else {}),
                              "completedUtc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
         recovery.complete()
-        print("Installed with app data retained" + (" and launched" if not args.no_launch else "")
+        print(("Installed with app data reset by explicit choice; PC backups retained" if migration and migration.get("saveDataReset") is True
+               else "Installed with app data retained") + (" and launched" if not args.no_launch else "")
               + ": " + address + ". Device behavior remains for hardware testing.")
         return 0
     except ConnectionRequired as error:

@@ -45,6 +45,15 @@ class SigningProgressTests(unittest.TestCase):
             self.assertEqual(current["stageOperation"], "apk")
             self.assertNotIn("apk", self.store.load(self.session)["stages"][-1]["progressPlan"]["completed"])
 
+    def test_manual_library_launch_is_a_visible_wait_without_false_install_completion(self):
+        before = self.progress("install-signature-restore", 4, 7)["stagePercent"]
+        waiting = self.progress("install-recovery-manual-launch", 0, 1, status="waiting")
+        self.assertEqual(waiting["operationStatus"], "waiting")
+        self.assertEqual(waiting["stagePercent"], before)
+        opened = self.progress("install-recovery-manual-launch", 1, 1, status="complete")
+        self.assertEqual(opened["stagePercent"], before)
+        self.assertNotIn("apk", self.store.load(self.session)["stages"][-1]["progressPlan"]["completed"])
+
     def test_saved_recovery_milestones_remain_below_final_installation_and_do_not_reopen_build(self):
         percentages = []
         for phase, done in (("detect", 0), ("backup", 1), ("backup", 3),

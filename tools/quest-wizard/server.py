@@ -280,6 +280,16 @@ class LocalServer(ThreadingHTTPServer):
         return {"schema": 1, "event": "status", "session": session,
                 "state": self.visible_state(session, state)}
 
+    def approve_restoration_choice(self, session, nonce, choice):
+        with self.jobs_lock:
+            if self.operation_active():
+                raise WizardError("already_running", "Stop the active operation before choosing a recovery action.",
+                                  "Den laufenden Vorgang vor der Auswahl einer Wiederherstellungsaktion anhalten.")
+            state = self.engine_factory(self.store).approve_restoration_choice(session, nonce, choice)
+            self.job_errors.pop(session, None)
+        return {"schema": 1, "event": "status", "session": session,
+                "state": self.visible_state(session, state)}
+
     def storage_status(self):
         with self.storage_lock:
             # A cancellation is acknowledged only after the cooperative worker
@@ -906,6 +916,10 @@ class Handler(BaseHTTPRequestHandler):
                 if set(value) != {"session", "nonce"}:
                     raise WizardError("request_body", "Expected the current content transfer action.")
                 return self.server.approve_content_reinstallation(value["session"], value["nonce"])
+            if parsed.path == "/api/install-restore-choice":
+                if set(value) != {"session", "nonce", "choice"}:
+                    raise WizardError("request_body", "Expected the current restoration choice.")
+                return self.server.approve_restoration_choice(value["session"], value["nonce"], value["choice"])
             if parsed.path == "/api/support":
                 if set(value) not in (set(), {"session"}):
                     raise WizardError("request_body", "Expected an optional diagnostic session ID.")
