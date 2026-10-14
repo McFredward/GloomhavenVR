@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "status": "Corrected cinematic v5 opening self-reviewed: coherent entry world through native hard logo cut; six additional cinematic windows identified only; original Flat gameplay retained",
+  "status": "Eight-shot expansion in progress: four new components root-approved, four require repair; selected full movie remains cinematic v5; original Flat gameplay retained",
   "date": "2026-10-14",
   "source_url": "https://www.youtube.com/watch?v=-SGDEP-zFHo",
   "source_title": "Gloomhaven | Gameplay Overview Trailer",
@@ -39,25 +39,26 @@
     "geographic_note": "These two mentions name the fictional city/region; preserve Gloomhaven there unless final wording needs adjustment."
   },
   "budget": {
-    "new_paid_calls": 17,
+    "new_paid_calls": 31,
     "new_fal_usd": null,
     "previous_reserved_usd": 29.9,
     "previous_cap_usd": 30,
     "previous_invoice_reconciled": false,
-    "additional_round_cap_usd": 15,
-    "total_authorized_cap_usd": 45,
-    "new_reserved_usd": 14.95,
+    "additional_round_cap_usd": 25,
+    "total_authorized_cap_usd": 55,
+    "new_reserved_usd": 24.15,
     "actual_new_invoice_reconciled": false,
-    "pilot_scope": "Full selected-cinematic remake with internal shot QC and complete-film self-review. User explicitly approved USD45 total; no per-shot user approval pauses.",
+    "pilot_scope": "User authorized all six new cinematic edits and two forest atmospheres, with USD10 more and an explicit USD55 overall ceiling. Complete-film approval remains pending all eight components.",
     "initial_three_model_comparison_proposed_usd": 3.75,
     "initial_model_comparison_status": "Not run; only one Kling pilot commissioned",
-    "all_reserved_usd": 44.85,
+    "all_reserved_usd": 54.05,
     "request_states": {
       "all_remake_ledger_states": {
-        "completed": 16,
-        "failed": 1
+        "completed": 28,
+        "failed": 2,
+        "queued": 1
       },
-      "remake_paid_requests_including_voice_and_failed": 17,
+      "remake_paid_requests_including_voice_and_failed": 31,
       "v4_paid_requests": 8,
       "v4_raw_videos_preserved": 8,
       "v4_timeline_components_selected": 2,
@@ -66,12 +67,13 @@
       "v5_raw_video_creative_status": "rejected_by_user; reservation retained"
     },
     "this_revision_reserved_usd": 10.95,
-    "proposed_total_cap_usd": 45,
+    "proposed_total_cap_usd": 55,
     "budget_extension_pending": false,
-    "unreserved_under_total_cap_usd": 0.15,
+    "unreserved_under_total_cap_usd": 0.95,
     "request_states_note": "Completed state is provider transport/result availability, not creative approval. Selected/rejected clips are recorded separately.",
     "this_v4_reserved_usd": 4.35,
-    "this_v5_reserved_usd": 0.5
+    "this_v5_reserved_usd": 0.5,
+    "this_v6_reserved_usd": 9.2
   },
   "private_briefing": ".planning/debug/trailer/remake-v1/AUFNAHMEPLAN.html",
   "private_capture_list": ".planning/debug/trailer/remake-v1/AUFNAHMELISTE.txt",
@@ -1415,7 +1417,7 @@
     "free_repair_status": "root-approved for local review; direct native hard logo cut; no native party endpoint morph"
   },
   "cinematic_expansion": {
-    "status": "Identified proposals only; no new videos or uploads for these additions",
+    "status": "In production; E01/E02/L05/L06 root-approved components, L01/L02/L03/L04 repairs pending; no expanded full movie rendered",
     "private_review": ".planning/debug/trailer/remake-v1/expansion-v1/MEHR-SZENEN.html",
     "private_exact_plan": ".planning/debug/trailer/remake-v1/expansion-v1/scene-expansion-plan.json",
     "existing_windows": 3,
@@ -1423,8 +1425,8 @@
     "new_quieter_choices": 2,
     "total_if_all_six_pass": 9,
     "extra_atmosphere_options": 2,
-    "budget_for_new_proposals_spent_usd": 0,
-    "new_generation_permission_claimed": false,
+    "budget_for_new_proposals_spent_usd": null,
+    "new_generation_permission_claimed": true,
     "candidates": [
       {
         "id": "L04",
@@ -1476,15 +1478,15 @@
         "priority": 4,
         "kind": "priority",
         "frames": [
-          7818,
-          7974
+          7808,
+          8135
         ],
         "seconds": [
-          130.3,
-          132.9
+          130.13333333333333,
+          135.58333333333334
         ],
-        "duration_seconds": 2.6,
-        "action": "One high Grimhorn gives a short mercenary selection cue; preserve original class emblems and stop before title entry."
+        "duration_seconds": 5.45,
+        "action": "Full continuous native pullback; high downward-looking Grimhorn; original class emblems and title protected. Native-model repair in progress."
       },
       {
         "id": "L06",
@@ -1492,14 +1494,14 @@
         "kind": "reserve",
         "frames": [
           10266,
-          10537
+          10359
         ],
         "seconds": [
           171.1,
-          175.61666666666667
+          172.65
         ],
-        "duration_seconds": 4.516666666666667,
-        "action": "One Arcane hand indicates the mine route through the existing light shaft; keep roof/scenery unchanged."
+        "duration_seconds": 1.55,
+        "action": "One Arcane glove indicates mine route through existing light shaft and withdraws; no mask, following room cut untouched."
       },
       {
         "id": "L05",
@@ -1507,14 +1509,14 @@
         "kind": "reserve",
         "frames": [
           10537,
-          10735
+          10658
         ],
         "seconds": [
           175.61666666666667,
-          178.91666666666666
+          177.63333333333333
         ],
-        "duration_seconds": 3.3,
-        "action": "One high Ironwatch inspects bandit and undead threats; preserve internal cut and never help enemy attacks."
+        "duration_seconds": 2.0166666666666666,
+        "action": "High Ironwatch observes original bandits; original foreground restored; following undead hard cut untouched."
       }
     ],
     "source_review": {
@@ -1523,7 +1525,53 @@
       "root_early_actual_cues": 22,
       "scope": "Focused source frames and exact native cut scans, not continuous subjective playback"
     },
-    "flat_gameplay": "Preserved for later genuine VR replacement"
+    "flat_gameplay": "Preserved for later genuine VR replacement",
+    "private_progress": ".planning/debug/trailer/remake-v1/ai-edits-v6/PROGRESS.html",
+    "private_raw_catalogue": ".planning/debug/trailer/remake-v1/ai-edits-v6/RAW-OUTPUTS.html",
+    "budget_for_new_proposals_reserved_usd": 9.2,
+    "total_if_all_eight_pass": 11,
+    "approved_components": [
+      {
+        "id": "E01",
+        "review": ".planning/debug/trailer/remake-v1/ai-edits-v6/E01/root-creative-review.json",
+        "status": "root-approved-for-assembly",
+        "sha256": "d02a17d75997afe548da44573af0d36c5fd74123429784b00714948565895642",
+        "frames": 152,
+        "fps": 60,
+        "source_frame_start": 801,
+        "source_frame_end_exclusive": 953
+      },
+      {
+        "id": "E02",
+        "review": ".planning/debug/trailer/remake-v1/ai-edits-v6/E02/root-creative-review.json",
+        "status": "root-approved-for-assembly",
+        "sha256": "3cd3bed4c83d80a1aa733bfbe4e3b5d59fe88f7d91a5716c91b3442cfe6b3226",
+        "frames": 121,
+        "fps": 60,
+        "source_frame_start": 953,
+        "source_frame_end_exclusive": 1074
+      },
+      {
+        "id": "L05",
+        "review": ".planning/debug/trailer/remake-v1/ai-edits-v6/L05/root-creative-review.json",
+        "status": "root-approved-for-assembly",
+        "sha256": "b8a496a1e4d6b5cb98ff186f5e6b4d36862a321fbf9b3f9425492438e904e455",
+        "frames": 121,
+        "fps": 60,
+        "source_frame_start": 10537,
+        "source_frame_end_exclusive": 10658
+      },
+      {
+        "id": "L06",
+        "review": ".planning/debug/trailer/remake-v1/ai-edits-v6/L06/root-creative-review.json",
+        "status": "root-approved-for-assembly",
+        "sha256": "58459317b0f8745fb06ba8db42d9192d773677298c590ed01a8510fbfee9b86d",
+        "frames": 93,
+        "fps": 60,
+        "source_frame_start": 10266,
+        "source_frame_end_exclusive": 10359
+      }
+    ]
   },
   "historical_complete_cinematic_cuts": [
     {

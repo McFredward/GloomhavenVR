@@ -10,6 +10,57 @@ the first spoken Gloomhaven becomes GloomhavenVR. The original title reveal at
 
 ## Active interaction direction
 
+**Expansion checkpoint, 2026-10-14:** the maintainer approved another USD10,
+explicitly setting the total ceiling to USD55. The private authorization receipt
+is `production/budget-authorization-55-usd.json`. Conservative reservations are
+USD54.05, including failed validation and rejected creative outputs; invoices
+remain unavailable. This supersedes the USD45 boundary below.
+
+The additional six cinematic scenes and both forest atmospheres are now in
+production. E01/E02/L05/L06 have separate root-reviewed, frame-addressed
+components; no expanded complete movie is approved yet. The v5 movie remains
+the selected complete review. The private `ai-edits-v6/PROGRESS.html` separates
+approved components from ongoing repairs; `RAW-OUTPUTS.html` preserves all twelve
+initial and second-round model videos individually, including rejected results.
+
+Dense source inspection corrected the provisional edit ranges: E01 begins at
+frame801, including the original black entry; L02 covers the entire continuous
+pullback `[7808,8135)`, retaining the native gold title and class emblems. L05
+uses only the bandits `[10537,10658)`; L06 uses only the mine `[10266,10359)`.
+Their following native hard cuts remain untouched. L01's endpoint at6984 and
+both L03 boundaries are continuous camera motion, not arbitrary hard cuts. The
+L01 impact never fully hides the architecture, so it cannot conceal a room swap.
+
+The four approved components retain their original clocks and fan-mod mark.
+L05 restores original faces, bodies, weapons and attacks over the generated
+upper background. Both L01 model trials and both L03 Kling trials inserted a
+reference at the beginning without delivering the requested later interaction.
+L02's outputs failed original-symbol or downward-gaze requirements. Both L04
+outputs bring the glove too close to the head/weapon and alter the first native
+shot. These results are rejected, despite valid decoding and stable scenery.
+Free native-model/plate corrections are being evaluated; a short alternate
+Wan2.7 edit is queued for L03. There is no approval based solely on transport
+completion, a still image, exact source pixels outside a matte, or upward
+translation of a front-facing mask.
+
+Additional official research checked for this round:
+
+- [Runway's Aleph2.0 guide](https://help.runwayml.com/hc/en-us/articles/52150503729171-Aleph-2-0-Prompting-Guide)
+  describes edited-keyframe propagation and recommends a specific local action
+  with optional extra motion. Its availability through the funded fal account
+  was not established; no Runway billing or request was initiated.
+- [fal's Wan2.7 edit API](https://fal.ai/models/fal-ai/wan/v2.7/edit-video/api)
+  supports a source video, one reference image and a local editing instruction.
+  Its [model page](https://fal.ai/models/fal-ai/wan/v2.7/edit-video) lists
+  USD0.15 per output second at1080p. A two-second door probe bounds the alternate
+  model comparison. Actual validation requires integer `duration`, including
+  integer0 for source duration, despite the documentation's quoted default.
+  The rejected string request remains conservatively reserved; local preflight
+  now prevents repeating that type error before upload or reservation.
+- [fal's Lucy2.5 guide](https://fal.ai/learn/tools/real-time-video-editing-with-ai)
+  describes localized streaming edits through WebRTC. It was researched but not
+  invoked; adding a streaming integration is not evidence of better shot quality.
+
 **Budget update,2026-10-14:** the maintainer explicitly approved the requested
 additionalUSD5 (`Freigegeben - leg los`). The total authorized cap is nowUSD45.
 `production/budget-authorization-45-usd.json` records the approval; root raised

@@ -28,6 +28,12 @@ DEFAULT_ROOT = REPO / ".planning/debug/trailer/production"
 
 def check_model_arguments(endpoint, arguments):
     """Reject known provider limits before reserving or uploading paid inputs."""
+    if endpoint == "fal-ai/wan/v2.7/edit-video" and "duration" in arguments:
+        # The published enum is numeric despite its quoted default in the docs.
+        # Catch provider HTTP422 validation before another conservative reservation.
+        duration = arguments["duration"]
+        if type(duration) is not int or duration not in {0, *range(2, 11)}:
+            raise ValueError("Wan 2.7 edit duration must be integer 0 or 2–10")
     if endpoint == "fal-ai/kling-video/o3/pro/video-to-video/edit":
         # Actual provider validation rejected the overhead-player pilot above
         # 2500 characters. Queue COMPLETED can still contain that HTTP422 failure.
