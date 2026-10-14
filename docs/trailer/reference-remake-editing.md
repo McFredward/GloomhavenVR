@@ -18,6 +18,45 @@ The historicalUSD40 boundary below explains the previous pause, not a current
 restriction. Cinematic v4 completes O01/A04 without a per-shot user approval gate.
 All generated videos and the working-v3 export remain preserved.
 
+### Cinematic v4 production
+
+The new paid round conservatively reserves USD4.35, bringing all reservations
+to USD44.35 against the approved USD45 ceiling. Invoice reconciliation remains
+unavailable; rejected and failed requests retain their reservations.
+
+O01 now has a root-reviewed Runeveil entry/exit pair, normalized to exactly
+240 frames at 60fps. The source camera is active throughout, so no idle phase
+was removed: the six-second pair runs at approximately 1.506 times source speed.
+Free local repairs preserve the first 25 black frames, avoid mixing original
+faces into the fade, and clamp outer-edge motion during the final return.
+Root viewed both raw phases, all 24 normalized cue images and three decoded-
+verified witnesses of the final edge repair. The selected `O01/matched-v3/`
+retains exact native endpoints, final three source frames and black cores.
+
+A04's reference-video trial lost the two-player action almost immediately and
+was rejected. A guide-driven entry initially copied Tinkerer's crossbow onto
+Cragheart; a repair fixed the weapon but fired too late. The selected early-shot
+entry keeps Cragheart's hands empty, fires green around 0.75–1.0 seconds, then
+reveals Grimhorn and Runeveil above the heroes. The green effect reaches the
+undergrowth before the approaching demon is fully revealed; it is not an exact
+reproduction of the source body hit. Do not force a morph from the original
+whip-pan into this generated wide shot: their geometry differs.
+
+The first exit created an extra golden Tinkerer shot and was rejected. Its
+replacement lowers Tinkerer's crossbow, physically withdraws both players
+upward, and gives the stone attack to Cragheart from offscreen left. Root viewed
+all 13 selected entry cues and 17 replacement exit cues. Their paired 395-frame
+normalization and complete v4 export still require root review. Original green
+impact occurs around 1.3–1.4 seconds; native gold impact spans 5.4–5.8 seconds,
+with a color peak at 5.833 seconds. Whole-mix transients are measured evidence,
+not isolated effect identification or a subjective listening test.
+
+I01 reuses the already reviewed lossless v3 component. The final v4 keeps the
+native VR title, bounded opening narrator patch, original gameplay and complete
+soundtrack clock. Review media and every raw attempt stay under
+`ai-edits-v4/`; the complete export will be linked from `START-HERE.html` after
+the final checks.
+
 The maintainer's later 2026-10-13 feedback permits meaningful changes to a
 selected shot's interior action and camera. Giant hands may physically guide or
 move a living character from above. Keep the original first/last images, the
@@ -65,8 +104,8 @@ uses the original clip, a visually reviewed unified middle-scene guide, native
 Ironwatch/metal-hand identity and source endpoint images. Its interior camera
 and staging may change to create physical depth, contact, correct occlusion and
 matching torch light. The six-second trial reserves USD1.35; total reservations
-are USD39.20 against the authorized USD40 cap. A proposed USD45 ceiling is
-pending and cannot be spent before explicit authorization. A good guide is not
+were USD39.20 against the then-authorized USD40 cap. The proposed USD45 ceiling
+was pending at that point; the approval above now supersedes that boundary. A good guide is not
 a video approval. Root review of26 sampled video frames rejected this output: the new
 hand appears only near the end, misses the intended shoulder guidance, and the
 added props remain at the source endpoint. It is preserved but excluded.
@@ -120,8 +159,8 @@ Opus packets unchanged; the final AAC mux passes seven checks, including complet
 audio/video decode, unchanged encoded video packets and a peak below full scale.
 Root viewed all41 whole-cut cue frames, covering the title, native cards/UI,
 interaction joins, bright map branding and ending. It is accepted as a working
-cut, not the completed requested film: O01/A04 remain original until additional
-budget is authorized. Original Flat gameplay is retained for the later genuine
+cut, not the completed requested film: O01/A04 remain original in that historical
+v3 export. Original Flat gameplay is retained for the later genuine
 VR capture exchange. No subjective listening or universal imperceptibility
 approval is claimed.
 

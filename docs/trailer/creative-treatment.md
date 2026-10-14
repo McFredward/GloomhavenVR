@@ -11,9 +11,9 @@ The active [reference-remake-plan.json](reference-remake-plan.json) records38
 planning windows,25 recording tasks plus a capture check, four proposed AI edits
 and current edit-model research. The private German briefing and capture list
 are under `.planning/debug/trailer/remake-v1/`. The first A04 video-edit result
-is complete; its source-preserving composite is inserted in the first review.
+and its source-preserving composite remain historical review material.
 See [reference-remake-editing.md](reference-remake-editing.md) for the active
-pipeline and additionalUSD10 cap. The completed65-second film below is retained
+pipeline and the current USD45 total cap. The completed65-second film below is retained
 as the earlier direction, with its sources and cost evidence.
 
 **Active interaction direction:** giant native masks look down from high above
@@ -50,7 +50,15 @@ ceiling fromUSD40 toUSD45. Cinematic v4 is completing the remaining Runeveil
 opening and coordinated two-player forest scene. The priorUSD40 reservation
 boundary is historical; conservative reservations continue in the shared ledger.
 The current key cannot read billing events(403), so no failed-job reservations
-have been released.
+have been released. The new round reserves USD4.35; all conservative reservations
+total USD44.35, leaving USD0.65 under the approved ceiling.
+
+V4 now selects O01's root-approved `matched-v3` Runeveil shot and the existing
+I01 Ironwatch component. A04 uses a corrected early-green entry and a stone-only
+exit: Cragheart keeps empty hands, Tinkerer lowers his crossbow after firing,
+and the gods withdraw physically upward. All rejected weapon, timing and extra-
+shot attempts remain preserved. The forest pair's normalized join and complete
+v4 export are undergoing final review. Original cards and UI are never generated.
 All AI-generated videos, native sources, receipts and earlier drafts remain
 in the gitignored trailer directory. Its `START-HERE.html` links current work,
 completed intro and preserved archives. Fourteen identical raw-video archive
