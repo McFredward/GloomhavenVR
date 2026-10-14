@@ -428,10 +428,49 @@ class GuardTests(unittest.TestCase):
         bridge._PENDING_CLOSE.remove(self.value)
 
     def test_script_bounds_rejected_before_any_device_work(self):
-        for script in ("a\0b", "x" * (bridge.MAX_SCRIPT + 1), None):
+        for script in ("a\0b", "x" * (bridge.MAX_SCRIPT + 1), "💡" * (bridge.MAX_SCRIPT // 4 + 1), None, "\ud800"):
             with self.subTest(script=type(script)), self.assertRaises(bridge.StorageError):
                 self.value.shell(script)
         self.adb.identity.assert_not_called()
+
+    @unittest.skipUnless(os.name == "posix", "Literal shell transport fixture needs POSIX")
+    def test_job_upload_preserves_literal_bytes_without_implicit_temporary_file(self):
+        self.value.guard = mock.Mock()
+        self.value.close = mock.Mock()
+        self.value.scratches = set()
+        payload = "# quotes ' \" ` $(touch INJECTED) \\ %s %b\r\n# Grüße 日本語 💡\n"
+        payload += "# " + "'" * (bridge.MAX_SCRIPT // 4)
+        token = "a" * 32
+        relative = "cache/.ghvrq-jdwp-" + token
+        absolute = "/data/user/0/" + bridge.PACKAGE + "/" + relative
+
+        class UploadObserved(Exception):
+            pass
+
+        def upload_then_stop(*args, **kwargs):
+            self.assertEqual(args, ("-s", "USB", "shell", "-T", "run-as", bridge.PACKAGE, "sh", "-s"))
+            self.assertNotIn("<<", kwargs["input_text"])
+            # The old heredoc upload needed mksh's default /data/local. This
+            # actual stdin path is independent of an unusable inherited TMPDIR.
+            result = subprocess.run(["sh", "-s"], input=kwargs["input_text"].encode("utf-8"),
+                                    cwd=self.home.name, capture_output=True, timeout=10,
+                                    env=dict(os.environ, TMPDIR=str(Path(self.home.name) / "missing")))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            uploaded = (Path(self.home.name) / relative / "job.sh").read_bytes()
+            expected = ("#!/system/bin/sh\numask 077\nTMPDIR=" + absolute + "\nexport TMPDIR\n(\nset -eu\n" + payload
+                        + "\n) > " + absolute + "/stdout 2> " + absolute + "/stderr\nstatus=$?\nprintf '%s' \"$status\" > "
+                        + absolute + "/status.part\nmv " + absolute + "/status.part " + absolute + "/status\n")
+            self.assertEqual(uploaded, expected.encode("utf-8"))
+            self.assertFalse((Path(self.home.name) / "INJECTED").exists())
+            self.assertGreater(len(uploaded), 32768)
+            raise UploadObserved()
+
+        self.adb.run.side_effect = upload_then_stop
+        with mock.patch.object(bridge.uuid, "uuid4", return_value=types.SimpleNamespace(hex=token)):
+            with self.assertRaises(UploadObserved):
+                self.value.shell(payload)
+        self.value.protocol.command.assert_not_called()
+        self.value.close.assert_called_once_with(suppress=True)
 
     def test_binary_reader_preserves_nul_and_line_endings(self):
         raw = b"\0first\r\nlast\0\xff"
@@ -701,6 +740,25 @@ JNIEXPORT jboolean JNICALL Java_android_os_BinderProxy_transactNative(
             app.guard()
             second = app.shell("printf 'second'", timeout=20)
             self.assertEqual(second, "second")
+        self.assertFalse((self.home / "game").exists())
+        self.assertFalse(list((self.home / "cache").glob(".ghvrq-jdwp-*")))
+        self.assertIn('"mainThreadEventSuspended": true', (self.home / "adb.log").read_text())
+        app.close()
+        self.process.wait(timeout=10)
+        self.assertFalse((self.home / "game").exists())
+
+    def test_actual_shell_quoted_unicode_and_temporary_context(self):
+        app, local_string = self.fixture()
+        prefix = "Grüße 日本語 💡 ' \" ` $(touch INJECTED) \\ %s %b"
+        expected = prefix + "\r\nend\0"
+        # The command itself stays valid shell text; CRLF and NUL in stdout
+        # must survive the binary result path exactly.
+        script = "printf '%s\\r\\nend\\000' " + bridge.shlex.quote(prefix)
+        with mock.patch.object(bridge, "_string", side_effect=local_string):
+            self.assertEqual(app.shell(script, timeout=20), expected)
+            temporary = app.shell("test -d \"$TMPDIR\"\nprintf '%s' \"$TMPDIR\"", timeout=20)
+            self.assertRegex(temporary, re.escape(str(self.home / "cache")) + r"/\.ghvrq-jdwp-[0-9a-f]{32}$")
+        self.assertFalse((self.home / "INJECTED").exists())
         self.assertFalse((self.home / "game").exists())
         self.assertFalse(list((self.home / "cache").glob(".ghvrq-jdwp-*")))
         self.assertIn('"mainThreadEventSuspended": true', (self.home / "adb.log").read_text())

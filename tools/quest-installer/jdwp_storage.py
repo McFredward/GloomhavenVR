@@ -627,7 +627,13 @@ class AppCommand:
                         "offline-or-unauthorized")
 
     def shell(self, script, *, timeout=120):
-        if not isinstance(script, str) or "\0" in script or len(script.encode("utf-8")) > MAX_SCRIPT:
+        if not isinstance(script, str) or "\0" in script:
+            raise StorageError("The app storage command exceeds its bounded script size.")
+        try:
+            size = len(script.encode("utf-8"))
+        except UnicodeEncodeError as error:
+            raise StorageError("The app storage command is not valid UTF-8 text.") from error
+        if size > MAX_SCRIPT:
             raise StorageError("The app storage command exceeds its bounded script size.")
         if not isinstance(timeout, (int, float)) or not 0 < timeout <= 1800:
             raise StorageError("The app storage command timeout is invalid.")
@@ -635,13 +641,18 @@ class AppCommand:
         token = uuid.uuid4().hex
         relative = "cache/.ghvrq-jdwp-" + token
         absolute = "/data/user/0/" + PACKAGE + "/" + relative
-        marker = "GHVRQ_SCRIPT_" + token
-        content = ("#!/system/bin/sh\numask 077\n(\nset -eu\n" + script + "\n) > " + shlex.quote(absolute + "/stdout")
+        # Android mksh creates here-document backing files under /data/local
+        # unless TMPDIR is set. Capture205156 reaches this upload as the app UID,
+        # which cannot write that non-app location. Send literal printf data
+        # over the existing stdin transport; the script never enters Windows argv
+        # or an implicit shell temporary file. Child scripts use this operation's
+        # already owned private scratch for any explicit shell temporary needs.
+        content = ("#!/system/bin/sh\numask 077\nTMPDIR=" + shlex.quote(absolute) + "\nexport TMPDIR\n(\nset -eu\n" + script + "\n) > " + shlex.quote(absolute + "/stdout")
                    + " 2> " + shlex.quote(absolute + "/stderr") + "\nstatus=$?\nprintf '%s' \"$status\" > "
                    + shlex.quote(absolute + "/status.part") + "\nmv " + shlex.quote(absolute + "/status.part") + " "
                    + shlex.quote(absolute + "/status") + "\n")
         upload = ("umask 077\ntest ! -L cache\nmkdir -p cache\nmkdir " + shlex.quote(relative)
-                  + "\ncat > " + shlex.quote(relative + "/job.sh") + " <<'" + marker + "'\n" + content + marker)
+                  + "\nprintf '%s' " + shlex.quote(content) + " > " + shlex.quote(relative + "/job.sh"))
         completed = False
         try:
             self.scratches.add(relative)
