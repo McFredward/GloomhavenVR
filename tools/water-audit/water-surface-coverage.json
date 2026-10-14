@@ -8,12 +8,34 @@
   "limits": "Read-only installed native renderer/material provenance; not live procedural placement, headset pixels, or FPS proof.",
   "materials": [
     {
+      "customRenderQueue": 2000,
+      "declaredConsumedProperties": [
+        "_Color_Tint",
+        "_NormalTilings",
+        "_Normal_Map",
+        "_Smoothness"
+      ],
       "exclusions": [
         "unreviewed-native-family"
       ],
       "id": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_cavewater_mat.bundle::CAB-061a7183ceca948b0ce290fdbc75c7ca:-960588957517911381",
       "name": "CaveWater_Mat",
       "rawSha256": "784478ca33804279b6c96d0134d1b750bef560f54a269d40491198f76115a208",
+      "savedNative": {
+        "_Color_Tint": {
+          "a": 0.9176470637321472,
+          "b": 0.4978640079498291,
+          "g": 0.5188679099082947,
+          "r": 0.23006406426429749
+        },
+        "_NormalTilings": {
+          "a": 0.05000000074505806,
+          "b": 0.019999999552965164,
+          "g": 0.05000000074505806,
+          "r": 0.014999999664723873
+        },
+        "_Smoothness": 1.0
+      },
       "shader": "VFX/Water_Shd",
       "shaderPPtr": {
         "m_FileID": 1,
@@ -27,12 +49,34 @@
       }
     },
     {
+      "customRenderQueue": 2000,
+      "declaredConsumedProperties": [
+        "_Color_Tint",
+        "_NormalTilings",
+        "_Normal_Map",
+        "_Smoothness"
+      ],
       "exclusions": [
         "unreviewed-native-family"
       ],
       "id": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_cavewater_mat_lcm.bundle::CAB-126ab5a6a42eeea3a9884a11d17bd62b:3685606001769648181",
       "name": "CaveWater_Mat_LCM",
       "rawSha256": "422715176f71a335e59cfda1ae894a8105318ad7f2eca44904687a56554be99c",
+      "savedNative": {
+        "_Color_Tint": {
+          "a": 0.9176470637321472,
+          "b": 0.29492589831352234,
+          "g": 0.31132078170776367,
+          "r": 0.07195622473955154
+        },
+        "_NormalTilings": {
+          "a": 0.05000000074505806,
+          "b": 0.019999999552965164,
+          "g": 0.7699999809265137,
+          "r": 2.4100000858306885
+        },
+        "_Smoothness": 1.0
+      },
       "shader": "VFX/Water_Shd_Low",
       "shaderPPtr": {
         "m_FileID": 1,
@@ -46,12 +90,41 @@
       }
     },
     {
+      "customRenderQueue": 2000,
+      "declaredConsumedProperties": [
+        "_Color_Tint",
+        "_DetailOpacityBaseNormalStr",
+        "_NormalTilings",
+        "_Normal_Map",
+        "_Smoothness"
+      ],
       "exclusions": [
         "unreviewed-native-family"
       ],
       "id": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_dlc_sc11_waterplane_mat.bundle::CAB-2b8975dc627ed12a42352d00844f687b:-7697117355709442674",
       "name": "DLC_SC11_WaterPlane_MAT",
       "rawSha256": "05ebf2e99d2e146d3c849a1e25713ca2cea8a230186754dd4147d76cc080f51e",
+      "savedNative": {
+        "_Color_Tint": {
+          "a": 1.0,
+          "b": 0.2543164789676666,
+          "g": 0.4245283007621765,
+          "r": 0.28905361890792847
+        },
+        "_DetailOpacityBaseNormalStr": {
+          "a": 0.0,
+          "b": 0.0,
+          "g": 1.0,
+          "r": 5.0
+        },
+        "_NormalTilings": {
+          "a": 0.019999999552965164,
+          "b": 0.5,
+          "g": 0.009999999776482582,
+          "r": 0.10000000149011612
+        },
+        "_Smoothness": 0.6579999923706055
+      },
       "shader": "VFX/Water_Shd_Trans",
       "shaderPPtr": {
         "m_FileID": 1,
@@ -65,12 +138,40 @@
       }
     },
     {
+      "customRenderQueue": 3000,
+      "declaredConsumedProperties": [
+        "_Color_Tint",
+        "_NormalTilings",
+        "_Normal_Map",
+        "_Smoothness"
+      ],
       "exclusions": [
         "unreviewed-native-family"
       ],
       "id": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_dlc_sc11_waterplane_mat_lcm.bundle::CAB-1824d1eaeee16d290d2a2956669299d3:6320377157843362863",
       "name": "DLC_SC11_WaterPlane_MAT_LCM",
       "rawSha256": "6f9a824af1cb15a88f03ff4de71be3a4119049601bd85fda3e4f6a87ca8bd34f",
+      "savedNative": {
+        "_Color_Tint": {
+          "a": 1.0,
+          "b": 0.801886796951294,
+          "g": 0.801886796951294,
+          "r": 0.801886796951294
+        },
+        "_DetailOpacityBaseNormalStr": {
+          "a": 0.0,
+          "b": 0.0,
+          "g": 1.0,
+          "r": 5.0
+        },
+        "_NormalTilings": {
+          "a": 0.019999999552965164,
+          "b": 0.5,
+          "g": 10.0,
+          "r": 10.0
+        },
+        "_Smoothness": 1.0
+      },
       "shader": "VFX/Water_Shd_Trans_Low",
       "shaderPPtr": {
         "m_FileID": 1,
@@ -84,12 +185,41 @@
       }
     },
     {
+      "customRenderQueue": 2000,
+      "declaredConsumedProperties": [
+        "_Color_Tint",
+        "_DetailOpacityBaseNormalStr",
+        "_NormalTilings",
+        "_Normal_Map",
+        "_Smoothness"
+      ],
       "exclusions": [
         "unreviewed-native-family"
       ],
       "id": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_dlc_sc11_watertorus_mat.bundle::CAB-402adf223b5e9435d35513103ba7e2f3:-6817190155308395833",
       "name": "DLC_SC11_WaterTorus_MAT",
       "rawSha256": "f38c5d914b91320089a2fcf97dc66080c0bf65ba5d4f51406cdbfa425eb1e27f",
+      "savedNative": {
+        "_Color_Tint": {
+          "a": 1.0,
+          "b": 0.2705589234828949,
+          "g": 0.6037735939025879,
+          "r": 0.3882351517677307
+        },
+        "_DetailOpacityBaseNormalStr": {
+          "a": 0.0,
+          "b": 0.0,
+          "g": 5.0,
+          "r": 5.0
+        },
+        "_NormalTilings": {
+          "a": 0.10000000149011612,
+          "b": 0.10000000149011612,
+          "g": 0.029999999329447746,
+          "r": 0.0010000000474974513
+        },
+        "_Smoothness": 0.6919999718666077
+      },
       "shader": "VFX/Water_Shd_Trans",
       "shaderPPtr": {
         "m_FileID": 1,
@@ -103,12 +233,40 @@
       }
     },
     {
+      "customRenderQueue": 2000,
+      "declaredConsumedProperties": [
+        "_Color_Tint",
+        "_NormalTilings",
+        "_Normal_Map",
+        "_Smoothness"
+      ],
       "exclusions": [
         "unreviewed-native-family"
       ],
       "id": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_dlc_sc11_watertorus_mat_lcm.bundle::CAB-b4f4593d83e5d350465fd39ad10f0596:-5258566870842283138",
       "name": "DLC_SC11_WaterTorus_MAT_LCM",
       "rawSha256": "70fc02128c35803fdeca6e782b86b16bbeeeefacdce463f5c88699e31ace0bd8",
+      "savedNative": {
+        "_Color_Tint": {
+          "a": 1.0,
+          "b": 0.65196692943573,
+          "g": 0.8584905862808228,
+          "r": 0.7064370512962341
+        },
+        "_DetailOpacityBaseNormalStr": {
+          "a": 0.0,
+          "b": 0.0,
+          "g": 5.0,
+          "r": 5.0
+        },
+        "_NormalTilings": {
+          "a": 0.10000000149011612,
+          "b": 0.10000000149011612,
+          "g": 0.029999999329447746,
+          "r": 0.0010000000474974513
+        },
+        "_Smoothness": 1.0
+      },
       "shader": "VFX/Water_Shd_Trans_Low",
       "shaderPPtr": {
         "m_FileID": 1,
@@ -122,12 +280,34 @@
       }
     },
     {
+      "customRenderQueue": 2000,
+      "declaredConsumedProperties": [
+        "_Color_Tint",
+        "_NormalTilings",
+        "_Normal_Map",
+        "_Smoothness"
+      ],
       "exclusions": [
         "unreviewed-native-family"
       ],
       "id": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_forestwater_mat.bundle::CAB-82b14f94462ba049a59c5dd9082d1a91:4238829028166234560",
       "name": "ForestWater_Mat",
       "rawSha256": "3a6099c3289ab89217b62352bd7a0dcd5b5636bf9780391191a3a5efc80fc513",
+      "savedNative": {
+        "_Color_Tint": {
+          "a": 1.0,
+          "b": 0.445667564868927,
+          "g": 0.5754716992378235,
+          "r": 0.3664560317993164
+        },
+        "_NormalTilings": {
+          "a": 0.10000000149011612,
+          "b": 0.03999999910593033,
+          "g": 0.10000000149011612,
+          "r": 0.029999999329447746
+        },
+        "_Smoothness": 0.0
+      },
       "shader": "VFX/Water_Shd",
       "shaderPPtr": {
         "m_FileID": 1,
@@ -141,12 +321,34 @@
       }
     },
     {
+      "customRenderQueue": 2000,
+      "declaredConsumedProperties": [
+        "_Color_Tint",
+        "_NormalTilings",
+        "_Normal_Map",
+        "_Smoothness"
+      ],
       "exclusions": [
         "unreviewed-native-family"
       ],
       "id": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_forestwater_mat_lcm.bundle::CAB-488f7c3060234ea0e30e576bdb4fb57e:-1136454742408358481",
       "name": "ForestWater_Mat_LCM",
       "rawSha256": "79857bf18c74ccb3ce6fc7ddb51bf3f33d7ee73d3d98ecbb67270aa202aa9b93",
+      "savedNative": {
+        "_Color_Tint": {
+          "a": 1.0,
+          "b": 0.445667564868927,
+          "g": 0.5754716992378235,
+          "r": 0.3664560317993164
+        },
+        "_NormalTilings": {
+          "a": 0.10000000149011612,
+          "b": 0.03999999910593033,
+          "g": 0.10000000149011612,
+          "r": 0.029999999329447746
+        },
+        "_Smoothness": 0.0
+      },
       "shader": "VFX/Water_Shd_Low",
       "shaderPPtr": {
         "m_FileID": 1,
@@ -160,12 +362,41 @@
       }
     },
     {
+      "customRenderQueue": 2900,
+      "declaredConsumedProperties": [
+        "_Color_Tint",
+        "_DetailOpacityBaseNormalStr",
+        "_NormalTilings",
+        "_Normal_Map",
+        "_Smoothness"
+      ],
       "exclusions": [
         "unreviewed-native-family"
       ],
       "id": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_crypt_mat.bundle::CAB-c7a43240c16625e49b1c92aa6e0e5c19:-8892978875446173739",
       "name": "TERRAIN_GEN_WaterPlane_Crypt_Mat",
       "rawSha256": "770119aa3096216269dd250a60d53e8c88cc1a99ce1eb2a8d0b9063bc17f81bd",
+      "savedNative": {
+        "_Color_Tint": {
+          "a": 0.7372549176216125,
+          "b": 0.13069598376750946,
+          "g": 0.31132078170776367,
+          "r": 0.19504299759864807
+        },
+        "_DetailOpacityBaseNormalStr": {
+          "a": 0.0,
+          "b": 0.0,
+          "g": 5.0,
+          "r": 5.0
+        },
+        "_NormalTilings": {
+          "a": -0.20000000298023224,
+          "b": -0.11999999731779099,
+          "g": 6.0,
+          "r": 0.14000000059604645
+        },
+        "_Smoothness": 0.7540000081062317
+      },
       "shader": "VFX/Water_Shd_Trans",
       "shaderPPtr": {
         "m_FileID": 1,
@@ -179,12 +410,40 @@
       }
     },
     {
+      "customRenderQueue": 2900,
+      "declaredConsumedProperties": [
+        "_Color_Tint",
+        "_NormalTilings",
+        "_Normal_Map",
+        "_Smoothness"
+      ],
       "exclusions": [
         "unreviewed-native-family"
       ],
       "id": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_crypt_mat_lcm.bundle::CAB-7846e992ae636622bb503dc77b3e243d:1469976354582322149",
       "name": "TERRAIN_GEN_WaterPlane_Crypt_Mat_LCM",
       "rawSha256": "50c992c7ac2feb8be4b2c86173379d7f6355769a2a639144db8528656cc09588",
+      "savedNative": {
+        "_Color_Tint": {
+          "a": 0.7372549176216125,
+          "b": 0.8235582113265991,
+          "g": 0.8773584961891174,
+          "r": 0.8439291715621948
+        },
+        "_DetailOpacityBaseNormalStr": {
+          "a": 0.0,
+          "b": 0.0,
+          "g": 5.0,
+          "r": 5.0
+        },
+        "_NormalTilings": {
+          "a": -0.20000000298023224,
+          "b": -0.11999999731779099,
+          "g": 0.949999988079071,
+          "r": 1.1799999475479126
+        },
+        "_Smoothness": 0.9319999814033508
+      },
       "shader": "VFX/Water_Shd_Trans_Low",
       "shaderPPtr": {
         "m_FileID": 1,
@@ -198,12 +457,41 @@
       }
     },
     {
+      "customRenderQueue": 2900,
+      "declaredConsumedProperties": [
+        "_Color_Tint",
+        "_DetailOpacityBaseNormalStr",
+        "_NormalTilings",
+        "_Normal_Map",
+        "_Smoothness"
+      ],
       "exclusions": [
         "unreviewed-native-family"
       ],
       "id": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_mat.bundle::CAB-19d828663fc8b1a31f540e8bd793c449:7018948157779208032",
       "name": "TERRAIN_GEN_WaterPlane_Mat",
       "rawSha256": "07b56623d6f11776b434e8b6b2ea93dd9cc0b323b8bd9f00a2cf32eb3a213062",
+      "savedNative": {
+        "_Color_Tint": {
+          "a": 0.7372549176216125,
+          "b": 0.6415094137191772,
+          "g": 0.5634440183639526,
+          "r": 0.4266642928123474
+        },
+        "_DetailOpacityBaseNormalStr": {
+          "a": 0.0,
+          "b": 0.0,
+          "g": 5.0,
+          "r": 5.0
+        },
+        "_NormalTilings": {
+          "a": -0.20000000298023224,
+          "b": -0.11999999731779099,
+          "g": 6.0,
+          "r": 0.14000000059604645
+        },
+        "_Smoothness": 0.7540000081062317
+      },
       "shader": "VFX/Water_Shd_Trans",
       "shaderPPtr": {
         "m_FileID": 1,
@@ -217,12 +505,40 @@
       }
     },
     {
+      "customRenderQueue": 2900,
+      "declaredConsumedProperties": [
+        "_Color_Tint",
+        "_NormalTilings",
+        "_Normal_Map",
+        "_Smoothness"
+      ],
       "exclusions": [
         "unreviewed-native-family"
       ],
       "id": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_mat_lcm.bundle::CAB-7282f5bb372969688493d5a597068a80:2106209393374173098",
       "name": "TERRAIN_GEN_WaterPlane_Mat_LCM",
       "rawSha256": "2ef36114e6b0868eb09f3fe279b21e2aae2e154c8c8ead8e4bd88084691095a5",
+      "savedNative": {
+        "_Color_Tint": {
+          "a": 0.7372549176216125,
+          "b": 0.9339622855186462,
+          "g": 0.9160140156745911,
+          "r": 0.8855019807815552
+        },
+        "_DetailOpacityBaseNormalStr": {
+          "a": 0.0,
+          "b": 0.0,
+          "g": 5.0,
+          "r": 5.0
+        },
+        "_NormalTilings": {
+          "a": -0.20000000298023224,
+          "b": -0.11999999731779099,
+          "g": 0.8500000238418579,
+          "r": 0.9800000190734863
+        },
+        "_Smoothness": 0.7229999899864197
+      },
       "shader": "VFX/Water_Shd_Trans_Low",
       "shaderPPtr": {
         "m_FileID": 1,
@@ -236,12 +552,41 @@
       }
     },
     {
+      "customRenderQueue": 2900,
+      "declaredConsumedProperties": [
+        "_Color_Tint",
+        "_DetailOpacityBaseNormalStr",
+        "_NormalTilings",
+        "_Normal_Map",
+        "_Smoothness"
+      ],
       "exclusions": [
         "unreviewed-native-family"
       ],
       "id": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_sewer_mat.bundle::CAB-16d173ac114489e0188a95aa2da0f94e:6427031447857611425",
       "name": "TERRAIN_GEN_WaterPlane_Sewer_Mat",
       "rawSha256": "5887992eb6e6f7e7174d2ca1cac0c598f9117358b50d74508078c2ee41443021",
+      "savedNative": {
+        "_Color_Tint": {
+          "a": 0.9725490212440491,
+          "b": 0.32529371976852417,
+          "g": 0.8113207817077637,
+          "r": 0.7325042486190796
+        },
+        "_DetailOpacityBaseNormalStr": {
+          "a": 0.0,
+          "b": 0.0,
+          "g": 5.0,
+          "r": 5.0
+        },
+        "_NormalTilings": {
+          "a": -0.20000000298023224,
+          "b": -0.11999999731779099,
+          "g": 6.0,
+          "r": 0.14000000059604645
+        },
+        "_Smoothness": 0.7540000081062317
+      },
       "shader": "VFX/Water_Shd_Trans",
       "shaderPPtr": {
         "m_FileID": 1,
@@ -255,12 +600,40 @@
       }
     },
     {
+      "customRenderQueue": 2900,
+      "declaredConsumedProperties": [
+        "_Color_Tint",
+        "_NormalTilings",
+        "_Normal_Map",
+        "_Smoothness"
+      ],
       "exclusions": [
         "unreviewed-native-family"
       ],
       "id": "StreamingAssets/aa/StandaloneWindows64/pcg_materials_assets_terrain_gen_waterplane_sewer_mat_lcm.bundle::CAB-3582d22c05655a6ec4d65236f6bcdd67:-1887622985945822350",
       "name": "TERRAIN_GEN_WaterPlane_Sewer_Mat_LCM",
       "rawSha256": "9a91e63e98b5a67daf2411445f767a1bac4e0d47900c189e5005fc06de8d8b87",
+      "savedNative": {
+        "_Color_Tint": {
+          "a": 0.9725490212440491,
+          "b": 0.2530704736709595,
+          "g": 0.4433962106704712,
+          "r": 0.36119329929351807
+        },
+        "_DetailOpacityBaseNormalStr": {
+          "a": 0.0,
+          "b": 0.0,
+          "g": 5.0,
+          "r": 5.0
+        },
+        "_NormalTilings": {
+          "a": -0.20000000298023224,
+          "b": -0.11999999731779099,
+          "g": 1.649999976158142,
+          "r": 1.7799999713897705
+        },
+        "_Smoothness": 0.7540000081062317
+      },
       "shader": "VFX/Water_Shd_Trans_Low",
       "shaderPPtr": {
         "m_FileID": 1,

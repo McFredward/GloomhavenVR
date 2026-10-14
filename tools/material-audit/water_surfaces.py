@@ -20,6 +20,9 @@ WATER_SHADERS = {
     "VFX/Water_Shd", "VFX/Water_Shd_Low",
     "VFX/Water_Shd_Trans", "VFX/Water_Shd_Trans_Low",
 }
+CONSUMED_PROPERTIES = {
+    "_Color_Tint", "_Normal_Map", "_NormalTilings", "_Smoothness", "_DetailOpacityBaseNormalStr",
+}
 
 
 def sha256(path):
@@ -62,7 +65,7 @@ def game_object_path(assets_file, pointer):
     return list(reversed(names))
 
 
-def verify_water_materials(game_data, catalog, by_source):
+def verify_water_materials(game_data, catalog, by_source, property_output=None):
     import UnityPy
     source_identity = {s["path"]: s for s in catalog["sources"]}
     verified_materials = []
@@ -85,8 +88,45 @@ def verify_water_materials(game_data, catalog, by_source):
                     or data.m_Shader.m_PathID != material["shaderPPtr"]["m_PathID"]):
                 raise ValueError("Native water material object changed: " + material["id"])
             verified_materials.append(material["id"])
+            if property_output is not None:
+                raw = obj.read_typetree()
+                props = raw["m_SavedProperties"]
+                saved = dict(props.get("m_Colors", [])) | dict(props.get("m_Floats", []))
+                property_output[material["id"]] = {
+                    "customRenderQueue": raw["m_CustomRenderQueue"],
+                    "savedNative": {k: v for k, v in saved.items() if k in CONSUMED_PROPERTIES},
+                }
         del environment
     return verified_materials
+
+
+def native_shader_declarations(game_data, catalog):
+    import UnityPy
+    source_identity = {s["path"]: s for s in catalog["sources"]}
+    result = {}
+    for shader in catalog["shaderIdentityTable"]:
+        if shader["name"] not in WATER_SHADERS:
+            continue
+        source, object_key = shader["id"].rsplit("::", 1)
+        serialized, path_id = object_key.rsplit(":", 1)
+        path = game_data / source
+        if sha256(path) != source_identity[source]["sha256"]:
+            raise ValueError("Native water shader source changed: " + source)
+        environment = UnityPy.load(str(path))
+        files = [f for f in environment.assets if f.name == serialized]
+        if len(files) != 1:
+            raise ValueError("Native water shader has no exact serialized owner")
+        obj = files[0].objects[int(path_id)]
+        parsed = obj.read().m_ParsedForm
+        if (parsed.m_Name != shader["name"]
+                or hashlib.sha256(obj.get_raw_data()).hexdigest() != shader["rawSha256"]):
+            raise ValueError("Native water shader identity changed")
+        result[shader["name"]] = sorted(p.m_Name for p in parsed.m_PropInfo.m_Props
+                                        if p.m_Name in CONSUMED_PROPERTIES)
+        del environment
+    if set(result) != WATER_SHADERS:
+        raise ValueError("Incomplete native water shader declaration census")
+    return result
 
 
 def compact_coverage(census):
@@ -106,7 +146,9 @@ def compact_coverage(census):
         "nativeAddressablesCatalogSha256": census["addressablesCatalogSha256"],
         "census": {k: census[k] for k in ("sourceCount", "rendererCount", "materialLoaderCount", "waterSlotCount")},
         "waterShaderFamilies": sorted(WATER_SHADERS),
-        "materials": census["waterMaterials"], "surfaces": surfaces,
+        "materials": [m | census.get("nativeMaterialProperties", {}).get(m["id"], {})
+                      | {"declaredConsumedProperties": census.get("nativeShaderDeclarations", {}).get(m["shader"], [])}
+                      for m in census["waterMaterials"]], "surfaces": surfaces,
         "scope": "All exact native water-film shaders, including terrain, decorative pools and DLC sluice water. Solid basin/stone materials are not film candidates.",
         "limits": census["limits"],
     }
@@ -165,7 +207,9 @@ def scan(game_data, catalog_dir, output, coverage_output=None):
             guid_materials[key] = matches[0]
     if {r["material"]["id"] for r in guid_materials.values()} != {m["id"] for m in water}:
         raise ValueError("Not every native water material has an exact original Addressables GUID")
-    verified_materials = verify_water_materials(game_data, catalog, by_source)
+    material_properties = {}
+    verified_materials = verify_water_materials(game_data, catalog, by_source, material_properties)
+    shader_declarations = native_shader_declarations(game_data, catalog)
     source_rows = [s for s in catalog["sources"]
                    if s["types"].get("MeshRenderer", 0) + s["types"].get("SkinnedMeshRenderer", 0)]
     renderers, checked, records, loader_count = 0, [], [], 0
@@ -261,6 +305,7 @@ def scan(game_data, catalog_dir, output, coverage_output=None):
         "materialLoaderCount": loader_count, "addressablesCatalogSha256": sha256(addressables_path),
         "addressableWaterMaterialCount": len(guid_materials),
         "verifiedNativeMaterials": verified_materials,
+        "nativeMaterialProperties": material_properties, "nativeShaderDeclarations": shader_declarations,
         "waterMaterials": water, "waterSlotCount": len(records), "sources": checked,
         "shaderCounts": dict(sorted(Counter(r["shader"] for r in records).items())),
         "waterRenderers": records,

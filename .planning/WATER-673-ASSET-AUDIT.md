@@ -97,7 +97,12 @@ shader still needs hardware review.
 Its optional `--coverage-output` exports metadata suitable for runtime tests.
 `tools/water-audit/water-surface-coverage.json` retains all 14 exact material
 identities and 45 original prefab/material bindings, including source hashes,
-GUIDs, renderer path IDs and ancestry; it is a coverage fixture, not a runtime
+GUIDs, renderer path IDs and ancestry. Its per-material fields also retain the
+actual custom queue, saved tint/tilings/smoothness/optional normal strength and
+the separately verified list of properties the native shader really declares.
+This permits quality-variant runtime fixtures to use the actual authored numbers
+and distinguish stale saved values from live property availability. It is a
+coverage fixture, not a runtime
 allowlist. The runtime must support arbitrary newly loaded instances of the
 native shader family rather than consult this offline file.
 
