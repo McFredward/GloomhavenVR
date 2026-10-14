@@ -548,8 +548,10 @@ class Recovery:
     def _close_storage_process(self):
         command = getattr(self, "_storage_command", None)
         if command:
-            self._storage_command = None
             command.close()
+            if getattr(command, "closed", False) is not True:
+                raise RecoveryError("The app-context debugger connection cannot be released before confirmed process termination.")
+            self._storage_command = None
         owned = self._storage_process
         if not owned: return
         self._storage_process = None
@@ -580,8 +582,23 @@ class Recovery:
         owned = self._storage_process
         if not owned or self._process_snapshot(owned[0], stopped=True) != owned:
             raise RecoveryError("The app-context storage command requires the proved pre-game process.")
-        spec = importlib.util.spec_from_file_location("quest_jdwp_storage", Path(__file__).with_name("jdwp_storage.py"))
-        helper = importlib.util.module_from_spec(spec); spec.loader.exec_module(helper)
+        name = "quest_jdwp_storage"
+        source = Path(__file__).with_name("jdwp_storage.py")
+        helper = sys.modules.get(name)
+        if helper is None:
+            spec = importlib.util.spec_from_file_location(name, source)
+            helper = importlib.util.module_from_spec(spec)
+            # A failed termination retains its suspension socket in the
+            # helper's _PENDING_CLOSE. Keep that module rooted globally even
+            # after this Recovery/view exits, so GC cannot resume gameplay by
+            # closing its last connection. Reuse it for later scoped retries.
+            sys.modules[name] = helper
+            try: spec.loader.exec_module(helper)
+            except BaseException:
+                if sys.modules.get(name) is helper: del sys.modules[name]
+                raise
+        elif Path(getattr(helper, "__file__", "")) != source:
+            raise RecoveryError("The app-context debugger helper has a foreign loaded source identity.")
         self._storage_command = helper.AppCommand(self.adb, self.address, self.hardware, owned)
         return self._storage_command
 

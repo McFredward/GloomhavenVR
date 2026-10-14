@@ -11,6 +11,7 @@ import io
 import json
 from pathlib import Path
 import subprocess
+import sys
 import tarfile
 import tempfile
 import types
@@ -273,13 +274,52 @@ class AppOriginStorageTests(unittest.TestCase):
             self.engine._storage_process = owned
             return "/proc/10415/root/storage/emulated/0"
         loader = types.SimpleNamespace(exec_module=lambda module: setattr(module, "AppCommand", factory))
-        with mock.patch.object(self.engine, "_process_storage_root", side_effect=started), \
+        module = types.SimpleNamespace(__file__=str(Path(recovery.__file__).with_name("jdwp_storage.py")))
+        with mock.patch.dict(sys.modules, {"quest_jdwp_storage": None}), \
+                mock.patch.object(self.engine, "_process_storage_root", side_effect=started), \
                 mock.patch.object(self.engine, "_process_snapshot", return_value=owned) as snapshot, \
                 mock.patch.object(recovery.importlib.util, "spec_from_file_location", return_value=types.SimpleNamespace(loader=loader)), \
-                mock.patch.object(recovery.importlib.util, "module_from_spec", return_value=types.SimpleNamespace()):
+                mock.patch.object(recovery.importlib.util, "module_from_spec", return_value=module):
             self.assertIs(self.engine._app_context_command(), command)
         snapshot.assert_called_once_with("10415", stopped=True)
         factory.assert_called_once_with(self.adb, "usb", "LOCAL-QUEST", owned)
+
+    def test_unconfirmed_close_retains_command_until_exact_termination_is_confirmed(self):
+        for fault in (recovery.RecoveryError("termination unconfirmed"), None):
+            with self.subTest(fault=fault):
+                command = mock.Mock(closed=False)
+                command.close.side_effect = fault
+                self.engine._storage_command = command
+                self.engine._storage_process = ("10415", "10190", "941516")
+                with mock.patch.object(self.engine, "_process_snapshot") as snapshot:
+                    with self.assertRaises(recovery.RecoveryError): self.engine._close_storage_process()
+                    self.assertIs(self.engine._storage_command, command)
+                    self.assertEqual(self.engine._storage_process, ("10415", "10190", "941516"))
+                    snapshot.assert_not_called()
+                command.close.side_effect = None
+                command.closed = True
+                with mock.patch.object(self.engine, "_process_snapshot", side_effect=recovery.RecoveryError("owned process exited")):
+                    self.engine._close_storage_process()
+                self.assertIsNone(self.engine._storage_command)
+                self.assertIsNone(self.engine._storage_process)
+
+    def test_loaded_helper_module_is_rooted_and_reused_with_its_pending_connections(self):
+        owned = ("10415", "10190", "941516")
+        command = mock.Mock()
+        factory = mock.Mock(return_value=command)
+        module = types.SimpleNamespace(__file__=str(Path(recovery.__file__).with_name("jdwp_storage.py")),
+                                       AppCommand=factory, _PENDING_CLOSE=[command])
+        self.engine._storage_process = owned
+        with mock.patch.dict(sys.modules, {"quest_jdwp_storage": module}), \
+                mock.patch.object(self.engine, "_process_storage_root"), \
+                mock.patch.object(self.engine, "_process_snapshot", return_value=owned), \
+                mock.patch.object(recovery.importlib.util, "spec_from_file_location") as load:
+            self.assertIs(self.engine._app_context_command(), command)
+            self.engine._storage_command = None
+            self.assertIs(self.engine._app_context_command(), command)
+            self.assertIs(sys.modules["quest_jdwp_storage"]._PENDING_CLOSE[0], command)
+            load.assert_not_called()
+        self.assertEqual(factory.call_count, 2)
 
     def test_changed_pause_identity_never_attaches_debugger(self):
         self.engine._storage_process = ("10415", "10190", "941516")
