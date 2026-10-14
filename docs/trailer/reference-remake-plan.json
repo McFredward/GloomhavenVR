@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "status": "Cinematic v4: Runeveil and Ironwatch approved for insertion; forest sync/attack repairs in review under authorized USD45 cap; original Flat gameplay retained",
+  "status": "Cinematic v4 complete and self-reviewed: all three native-mask scenes inserted; genuine VR gameplay capture exchange is the next phase",
   "date": "2026-10-14",
   "source_url": "https://www.youtube.com/watch?v=-SGDEP-zFHo",
   "source_title": "Gloomhaven | Gameplay Overview Trailer",
@@ -12,7 +12,7 @@
     "total_viewed": 139,
     "independent_creative_frames": 12,
     "transcript": "Official manual English captions; no paid ASR",
-    "motion_quality": "Rejected source-based interaction trials preserved; both keyframe phases and normalized matched-v2 reviewed. I01 approved for timeline only, remaining scenes/full trailer pending."
+    "motion_quality": "All three selected components and the complete final movie approved after dense actual cue review and local boundary repairs. Root41 and independent33 complete-export cues viewed; complete technical decode and native gameplay comparisons pass."
   },
   "direction": "Original film as base; selected cinematic shots modified with video-edit models; Flat explanation footage replaced by genuine VR captures; invisible visual joins",
   "timing_note": "Editorial planning windows, not a frame-perfect final EDL; sampled frames and native captions provide anchors. Preserve original full duration and cut order during actual edit.",
@@ -29,7 +29,7 @@
       {
         "start": 211.5,
         "end": 217.15,
-        "role": "Later co-op product/world-name candidate; not patched in review 2"
+        "role": "Later co-op product/world-name candidate; original wording retained in cinematic v4"
       }
     ],
     "geographic_mentions": [
@@ -53,18 +53,22 @@
     "initial_model_comparison_status": "Not run; only one Kling pilot commissioned",
     "all_reserved_usd": 44.35,
     "request_states": {
-      "completed_video_edits": 2,
-      "completed_voice_patches": 1,
-      "provider_validation_failures": 1,
-      "completed_interactive_edit_rejected": 1,
-      "completed_reference_trial_rejected": 1,
-      "completed_keyframe_entry": 1,
-      "completed_keyframe_exit": 1
+      "all_remake_ledger_states": {
+        "completed": 15,
+        "failed": 1
+      },
+      "remake_paid_requests_including_voice_and_failed": 16,
+      "v4_paid_requests": 8,
+      "v4_raw_videos_preserved": 8,
+      "v4_timeline_components_selected": 2,
+      "existing_I01_reused": true
     },
     "this_revision_reserved_usd": 10.95,
     "proposed_total_cap_usd": 45,
     "budget_extension_pending": false,
-    "unreserved_under_total_cap_usd": 0.65
+    "unreserved_under_total_cap_usd": 0.65,
+    "request_states_note": "Completed state is provider transport/result availability, not creative approval. Selected/rejected clips are recorded separately.",
+    "this_v4_reserved_usd": 4.35
   },
   "private_briefing": ".planning/debug/trailer/remake-v1/AUFNAHMEPLAN.html",
   "private_capture_list": ".planning/debug/trailer/remake-v1/AUFNAHMELISTE.txt",
@@ -1119,7 +1123,8 @@
       "players": 1,
       "mask": "Runeveil",
       "action": "High god uses one relaxed Arcane directional gesture; Tinkerer takes a balanced small step; recover original party ending",
-      "status": "Root-approved final matched-v3:240frames60fps, first25 and last3 native frames, repaired edge flow; full-film export pending"
+      "status": "Root-approved matched-v3 inserted in complete cinematicv4:240frames60fps, first25 and last3 native frames, repaired edge flow",
+      "inserted_in_complete_v4": true
     },
     {
       "id": "I01",
@@ -1135,7 +1140,8 @@
       "players": 1,
       "mask": "Ironwatch",
       "action": "Metal hand reaches from above, gently guides rocky party warrior shoulder, releases and withdraws",
-      "status": "Root-approved matched-v2 integrated into full working cut v3; source-matched345frames/60fps"
+      "status": "Root-approved matched-v2 reused unchanged in complete cinematicv4; source-matched345frames60fps",
+      "inserted_in_complete_v4": true
     },
     {
       "id": "A04",
@@ -1154,7 +1160,8 @@
         "Runeveil"
       ],
       "action": "Early native-style Tinkerer green shot, two high gods guide from above, release before own Cragheart stone attack",
-      "status": "Reference trial rejected; weapon-copy and late-green entry attempts preserved; early-green entry and stone-only exit repair under review"
+      "status": "Root-approved paired-keyframes-v1/matched-v2:395frames60fps; exact native first/last anchors and black cores; source/model geometry mixes removed",
+      "inserted_in_complete_v4": true
     }
   ],
   "omitted_cinematic_candidate": {
@@ -1195,7 +1202,9 @@
       "A04"
     ],
     "no_subjective_listening_approval": true,
-    "no_imperceptibility_claim": true
+    "no_imperceptibility_claim": true,
+    "historical": true,
+    "superseded_by": "final_cinematic_cut"
   },
   "production_round_v4": {
     "private_root": ".planning/debug/trailer/remake-v1/ai-edits-v4",
@@ -1228,12 +1237,8 @@
     },
     "A04": {
       "route": "Reference trial rejected after29rootcues; switch to exact native start/contact guide/end pair with sequential weapon/sync/stone-only repairs",
-      "job": "remake-a04-reference-v4",
-      "request_id": "01a138da-1238-7831-912c-11ced7e8de16",
-      "reserve_usd": 1.35,
       "guide": ".planning/debug/trailer/remake-v1/ai-edits-v4/A04/guide-native-v2.png",
       "guide_correction": "Source-native broad grey Cragheart face, bare muscular stone chest and original blue/gold shoulders; both god chins above hero heads.",
-      "creative_approval": false,
       "reference_trial_rejected": true,
       "reference_rejection": "Two-player contact leaves frame almost immediately and generated first image differs from source",
       "jobs": [
@@ -1271,7 +1276,7 @@
           "job": "remake-a04-keyframe-exit-repair-v4",
           "request_id": "01a138fb-90aa-7170-956b-1b923eef812a",
           "reserved_usd": 0.5,
-          "state": "queued"
+          "state": "completed"
         }
       ],
       "guide_released": ".planning/debug/trailer/remake-v1/ai-edits-v4/A04/guide-released-v3.png",
@@ -1292,9 +1297,79 @@
         ],
         "gold_color_peak": 5.833333
       },
-      "effect_timing_note": "Source imagery verified; audio-mix transients measured, not isolated or subjectively listened to."
+      "effect_timing_note": "Source imagery verified; audio-mix transients measured, not isolated or subjectively listened to.",
+      "selected": ".planning/debug/trailer/remake-v1/ai-edits-v4/A04/paired-keyframes-v1/matched-v2/matched-interaction.mkv",
+      "selected_sha256": "311c373b5f696c2dc4fd7811863d93e4deb4e7afeef27bec9aaf301c639a7231",
+      "selected_entry_job": "remake-a04-keyframe-entry-sync-v4",
+      "selected_exit_job": "remake-a04-keyframe-exit-repair-v4",
+      "selected_entry_root_cues": 13,
+      "selected_exit_root_cues": 17,
+      "normalized_v1_root_actual_cues": 28,
+      "final_v2_handle_root_actual_cues": 15,
+      "additional_final_frame_viewed": 394,
+      "unchanged_interior_frames_verified": 375,
+      "free_repair": "20 boundary frames replaced with pure generated motion; retain exact native endpoint anchors; no source/generated geometry mix",
+      "limits": [
+        "Green effect lands in undergrowth before approaching enemy fully revealed; not exact native body hit",
+        "Gold peak roughly6.10s vs source5.833s; whole soundtrack clock retained",
+        "Minor motion softness on fast arm movement and small sharpness change at final native anchor; no large pose/camera jump",
+        "A small warm glint/projectile remains near the demon early in the exit; previous large extra muzzle burst is removed, but zero extra warm effect is not claimed."
+      ],
+      "reference_trial_job": "remake-a04-reference-v4",
+      "reference_trial_request_id": "01a138da-1238-7831-912c-11ced7e8de16",
+      "reference_trial_reserve_usd": 1.35,
+      "reference_trial_creative_approval": false,
+      "selected_component_creative_approval": true
     },
     "all_reserved_usd": 44.35,
-    "remaining_under_cap_usd": 0.65
+    "remaining_under_cap_usd": 0.65,
+    "complete_export_status": "Complete cinematic phase root-reviewed; desktop/mobile actual video decode and scene navigation passed",
+    "manifest": ".planning/debug/trailer/remake-v1/ai-edits-v4/full-timeline-v1/assembly-manifest.json",
+    "further_paid_calls_planned": false
+  },
+  "final_cinematic_cut": {
+    "path": ".planning/debug/trailer/remake-v1/ai-edits-v4/full-timeline-v1/reference-remake-cinematic-v4.mp4",
+    "sha256": "2e8f8999c946d3b43481ea71e8d2962e5233d89385b388d6297e1fdbd53c6730",
+    "bytes": 291681875,
+    "frames": 14810,
+    "fps": 60,
+    "dimensions": [
+      1920,
+      1080
+    ],
+    "container_duration_seconds": 246.861,
+    "root_actual_complete_export_cues_viewed": 41,
+    "independent_actual_complete_export_cues_viewed": 33,
+    "assembly_checks_passed": 13,
+    "final_mux_checks_passed": 7,
+    "complete_audio_video_decode_passed": true,
+    "fan_mark_frames_checked": 14810,
+    "fan_mark_failures": 0,
+    "original_gameplay_comparisons_passed": 22,
+    "minimum_original_comparison_psnr_db": 37.91631668193028,
+    "root_creative_approval": true,
+    "cinematic_phase_complete": true,
+    "original_flat_gameplay_intentionally_retained": true,
+    "real_vr_capture_phase_remaining": true,
+    "all_ai_videos_preserved": true,
+    "private_review": ".planning/debug/trailer/remake-v1/ai-edits-v4/REVIEW.html",
+    "root_receipt": ".planning/debug/trailer/remake-v1/ai-edits-v4/full-timeline-v1/root-complete-cinematic-review.json",
+    "independent_receipt": ".planning/debug/trailer/remake-v1/ai-edits-v4/independent-qc/FINAL-VERIFIED.json",
+    "audio_scope": "Opening preencode PCM patch6.225-7.575s only; final AAC lossy throughout; no subjective listening approval",
+    "limits": [
+      "Sample-based creative review; no universal imperceptibility claim",
+      "Forest green effect is ground-directed before enemy reveal; gold timing approximate",
+      "Minor fast-motion softness and final native-anchor sharpness changes remain",
+      "Brief small warm glint/projectile before crossbow lowering remains; interior action is an authorized variation of the original."
+    ],
+    "navigation": {
+      "local_links_passed": 230,
+      "catalogued_video_paths": 177,
+      "symbolic_video_aliases": 2,
+      "previous_video_sizes_mtimes_preserved": 146,
+      "desktop_mobile_actual_decode_and_scene_buttons_passed": true,
+      "root_browser_screenshots_viewed": 4,
+      "private_receipt": ".planning/debug/trailer/storage-audit-20261013/browser-qc-cinematic-v4-final/navigation-receipt.json"
+    }
   }
 }

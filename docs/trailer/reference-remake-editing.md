@@ -44,9 +44,12 @@ whip-pan into this generated wide shot: their geometry differs.
 
 The first exit created an extra golden Tinkerer shot and was rejected. Its
 replacement lowers Tinkerer's crossbow, physically withdraws both players
-upward, and gives the stone attack to Cragheart from offscreen left. Root viewed
+upward, and gives the large stone attack to Cragheart from offscreen left. Root viewed
 all 13 selected entry cues and 17 replacement exit cues. Their paired 395-frame
-normalization and complete v4 export still require root review. Original green
+normalization is now root-approved after removing source/model face and hand
+mixes from 20 boundary frames. All 375 other frames are unchanged. Root viewed
+28 initial normalized cues, 15 repaired boundary cues and exact final frame394.
+The full v4 export is finished and reviewed as described below. Original green
 impact occurs around 1.3–1.4 seconds; native gold impact spans 5.4–5.8 seconds,
 with a color peak at 5.833 seconds. Whole-mix transients are measured evidence,
 not isolated effect identification or a subjective listening test.
@@ -54,8 +57,31 @@ not isolated effect identification or a subjective listening test.
 I01 reuses the already reviewed lossless v3 component. The final v4 keeps the
 native VR title, bounded opening narrator patch, original gameplay and complete
 soundtrack clock. Review media and every raw attempt stay under
-`ai-edits-v4/`; the complete export will be linked from `START-HERE.html` after
-the final checks.
+`ai-edits-v4/`; `START-HERE.html` and `ai-edits-v4/REVIEW.html` present the
+complete export, individual scenes and preserved raw attempts.
+
+The selected complete movie is
+`ai-edits-v4/full-timeline-v1/reference-remake-cinematic-v4.mp4`:
+291681875 bytes, SHA256
+`2e8f8999c946d3b43481ea71e8d2962e5233d89385b388d6297e1fdbd53c6730`.
+It retains 14810 frames at 1920×1080/60fps and the original 246.861-second
+container clock. All 13 assembly checks and seven final-mux checks pass,
+including complete audio/video decode and unchanged video packets through mux.
+Root viewed all 41 complete-export cue images; an independent reviewer viewed
+33. The independent check also confirms all 14810 timestamps, zero fan-mark
+detection failures across every frame, and 22 original-gameplay comparisons
+with a minimum PSNR of 37.92 dB. This is source-comparison evidence under lossy
+H264, not a claim of pixel identity after compression.
+
+Root approves the complete cinematic phase for user review. Original Flat
+explanation shots remain deliberately retained until genuine VR recordings are
+supplied. Minor fast-motion softness and native-anchor sharpness changes remain;
+the forest green effect targets undergrowth before the enemy reveal, and gold
+timing is approximate. A brief small warm glint/projectile remains near the
+demon before Tinkerer lowers his crossbow; its origin is ambiguous, so zero
+extra warm effect or an exact original attack sequence is not claimed. Neither subjective listening nor universal visual
+imperceptibility is claimed. No game build, runtime change, headset result or
+external publication is part of these offline media checks.
 
 The maintainer's later 2026-10-13 feedback permits meaningful changes to a
 selected shot's interior action and camera. Giant hands may physically guide or

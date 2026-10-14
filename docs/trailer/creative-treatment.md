@@ -39,14 +39,14 @@ Kling entry reaches a readable shoulder contact with integrated lighting;
 its paired exit physically withdraws upward to the native party ending. Root
 reviewed both raw phases and the repaired345-frame shot, approving I01 for
 timeline insertion. The original-audio context also passes focused visual and
-browser checks. O01/A04 video generation and complete-trailer approval remain
-pending; their integrated guides are ready.
-The whole four-minute working cut v3 now contains the reviewed I01 shot,
+browser checks. O01/A04 video generation and complete-trailer approval remained
+pending at that point; their integrated guides were ready.
+The preserved four-minute working cut v3 contains the reviewed I01 shot,
 opening voice/title patch and outlined fan-mod branding. Technical decode/timing
 checks pass and root inspected41 whole-cut frames. O01/A04 remain original in
 this explicitly incomplete working cut; no completed-trailer approval is claimed.
 The maintainer has now explicitly approved an additionalUSD5, raising the total
-ceiling fromUSD40 toUSD45. Cinematic v4 is completing the remaining Runeveil
+ceiling fromUSD40 toUSD45. Cinematic v4 completes the Runeveil
 opening and coordinated two-player forest scene. The priorUSD40 reservation
 boundary is historical; conservative reservations continue in the shared ledger.
 The current key cannot read billing events(403), so no failed-job reservations
@@ -57,8 +57,14 @@ V4 now selects O01's root-approved `matched-v3` Runeveil shot and the existing
 I01 Ironwatch component. A04 uses a corrected early-green entry and a stone-only
 exit: Cragheart keeps empty hands, Tinkerer lowers his crossbow after firing,
 and the gods withdraw physically upward. All rejected weapon, timing and extra-
-shot attempts remain preserved. The forest pair's normalized join and complete
-v4 export are undergoing final review. Original cards and UI are never generated.
+shot attempts remain preserved. The forest pair's corrected normalized join is
+root-approved. The complete v4 export is now finished and self-reviewed: 14810
+frames at 1080p60, 246.861 seconds including the original audio tail. Root viewed
+41 complete-export cues; an independent reviewer viewed 33. All 13 assembly
+checks, seven final-mux checks, 22 original-gameplay comparisons and the fan-mark
+check across every frame pass. This completes the cinematic phase; the retained
+Flat footage is ready for the later genuine VR capture exchange. Original cards
+and UI are never generated.
 All AI-generated videos, native sources, receipts and earlier drafts remain
 in the gitignored trailer directory. Its `START-HERE.html` links current work,
 completed intro and preserved archives. Fourteen identical raw-video archive
