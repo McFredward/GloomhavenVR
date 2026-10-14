@@ -1,5 +1,21 @@
 # State — where the project stands
 
+**Quest content continuation and device cleanup, 2026-10-14: feature / B672.**
+
+Capture200458 completes the selected fresh APK installation; its following
+recursive content push fails at `secure_mkdirs` EPERM. Prepare exact manifested
+parents through the working shell and retain the existing atomic binary fallback
+and accepted-file journal. Keep the completed APK/reset frontier; no Unity build
+or further uninstall is required. Actual device free space is not established.
+
+Device tools now preview and confirm bounded, owned temporary-file cleanup.
+Protect game banks, saves, settings, accepted resume data and unknown recovery
+parking; inaccessible bytes remain unknown. Automatic completion cleanup is
+limited to the current terminal transaction's exact scratch. Focused shell,
+HTTP/browser, support and extracted-delivery evidence remains separate from
+unverified Android behavior. See
+[QUEST-INSTALL-CLEANUP-200458-20261014.md](QUEST-INSTALL-CLEANUP-200458-20261014.md).
+
 **Quest clean-install continuation, 2026-10-14: feature / B672.**
 
 Capture194342 confirms the user's app-data reset and successful uninstall. The

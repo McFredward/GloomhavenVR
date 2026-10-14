@@ -88,6 +88,27 @@ class UpdateSupportTests(unittest.TestCase):
         (folder / 'device-tools-state.json').write_text('broken JSON')
         meta, _ = self.export(); self.assertNotIn('deviceTools', meta)
 
+    def test_device_cleanup_reports_quantities_and_unknowns_without_private_paths(self):
+        folder = self.root / 'device'; folder.mkdir()
+        for phase in ('scanning', 'cleaning', 'storage-preview', 'storage-complete'):
+            write_json(folder / 'device-tools-state.json', {'status': phase, 'operation': 'storage-preview',
+                'storagePlan': {'schema': 1, 'planId': '5' * 32, 'complete': True, 'bytes': 8192, 'files': 2,
+                    'candidates': [{'kind': 'upload', 'reason': 'orphan-stage', 'path': '/PRIVATE CACHE NAME', 'bytes': 8192, 'files': 2}],
+                    'protected': [{'kind': 'recovery', 'reason': 'pending-transaction', 'path': '/PRIVATE RECOVERY NAME', 'bytes': None, 'files': None}],
+                    'unknown': [{'kind': 'private', 'reason': 'access-unavailable', 'path': '/PRIVATE SAVE NAME', 'bytes': None, 'files': None}]},
+                'storageResult': {'freedBytes': 8192, 'deletedFiles': 2, 'removed': ['/PRIVATE CACHE NAME'], 'retained': []}})
+            with self.subTest(phase=phase):
+                meta, files = self.export(); device = meta['deviceTools']
+                self.assertEqual(device['status'], phase)
+                self.assertEqual(device['storagePlan']['bytes'], 8192)
+                self.assertEqual(device['storagePlan']['protected'][0]['bytes'], None)
+                self.assertEqual(device['storagePlan']['unknownCount'], 1)
+                self.assertEqual(device['storageResult']['removedCount'], 1)
+                self.assertEqual(device['storageResult']['freedBytes'], 8192)
+                self.assertNotIn('PRIVATE CACHE NAME', json.dumps(device))
+                self.assertNotIn('PRIVATE RECOVERY NAME', json.dumps(device))
+                self.assertNotIn('PRIVATE SAVE NAME', json.dumps(device))
+
     def test_current_cleanup_and_request_failures_survive_many_historical_unity_logs(self):
         logs = self.root / 'logs'; logs.mkdir()
         (logs / 'storage-cleanup.log').write_text('already_running: current cleanup admission failed\n')

@@ -348,7 +348,13 @@ function deviceStorageRows(node,rows,emptyKey){
     const li=document.createElement('li');
     const size=Number.isFinite(row.bytes)?storageSize(row.bytes):t('deviceStorageSizeUnknown');
     const count=Number.isFinite(row.files)?t('deviceStorageFiles',{files:new Intl.NumberFormat(language).format(row.files)}):'';
-    li.textContent=[message(row.label,'deviceStorageArtifact'),size,count].filter(Boolean).join(' · ');
+    const labels={'content-upload':'deviceStorageUpload','upload-marker':'deviceStorageMarker',
+      'rename-helper':'deviceStorageHelper','restore-upload':'deviceStorageRestore',
+      'debugger-scratch':'deviceStorageHelper','installed-content':'deviceStorageGame',
+      'app-data':'deviceStorageAppData','pc-backup':'deviceStorageBackup','recovery-parking':'deviceStorageRecovery'};
+    const supplied=message(row.label,'deviceStorageArtifact');
+    const label=supplied===row.path?t(labels[row.kind]??'deviceStorageArtifact'):supplied;
+    li.textContent=[label,size,count].filter(Boolean).join(' · ');
     // These are finite Builder artifact roots from the preview, never a save
     // member inventory. textContent also keeps device-controlled text inert.
     if(typeof row.path==='string'){const path=document.createElement('code');path.className='storage-root';path.textContent=row.path;li.append(path);}

@@ -93,7 +93,7 @@
             <div id="device-capture-result" class="device-capture-result" hidden><p id="device-capture-path" class="storage-root"></p><button id="device-download" class="secondary" data-i18n="deviceDownload">Quest-Testbericht speichern</button></div>
             <section class="device-storage" aria-labelledby="device-storage-title">
               <h3 id="device-storage-title" data-i18n="deviceStorageTitle">Quest-Speicher</h3>
-              <p class="hint" data-i18n="deviceStorageCopy">Prüft vom Builder angelegte temporäre Dateien. Spielinhalte, Spielstände, Einstellungen und Fortsetzungsdaten bleiben erhalten. Nicht erreichbare Daten werden als unbekannt angezeigt.</p>
+              <p class="hint" data-i18n="deviceStorageCopy">Prüft vom Builder angelegte temporäre Dateien. GloomhavenVR vorher auf der Quest schließen. Spielinhalte, Spielstände, Einstellungen und Fortsetzungsdaten bleiben erhalten. Nicht erreichbare Daten werden als unbekannt angezeigt.</p>
               <button id="device-storage-preview" class="secondary" data-i18n="deviceStoragePreview">Quest-Speicher prüfen</button>
               <div id="device-storage-preview-result" hidden>
                 <p id="device-storage-summary" role="status"></p>
@@ -152,7 +152,7 @@
     <h2 id="device-storage-dialog-title" data-i18n="deviceStorageConfirmTitle">Temporäre Quest-Dateien entfernen?</h2>
     <p id="device-storage-dialog-copy"></p><ul id="device-storage-dialog-list" class="device-storage-list"></ul>
     <p data-i18n="deviceStorageConfirmKeep">Nur die angezeigten, eindeutig zugeordneten temporären Dateien werden entfernt. Spielstände, Einstellungen, Spielinhalte und benötigte Fortsetzungsdaten bleiben erhalten.</p>
-    <div class="device-actions"><button id="device-storage-confirm" class="secondary" data-i18n="deviceStorageConfirm">Angezeigte Dateien entfernen</button><button id="device-storage-dismiss" class="text-button" data-i18n="cancel">Abbrechen</button></div>
+    <div class="device-actions"><button id="device-storage-confirm" class="secondary" data-i18n="deviceStorageConfirm">Angezeigte Dateien entfernen</button><button id="device-storage-dismiss" class="text-button" data-i18n="deviceStorageDismiss">Abbrechen</button></div>
   </dialog>
   <script type="module" src="app.mjs"></script>
 </body>

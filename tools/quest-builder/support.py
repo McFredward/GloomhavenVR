@@ -384,14 +384,38 @@ def device_tool_evidence(root, replacements):
     """Retain the current utility task, never enumerate captures or game data."""
     try:
         folder = ordinary(root / 'device')
-        value = read_object(folder / 'device-tools-state.json', limit=128 * 1024)
-        if not isinstance(value, dict) or value.get('status') not in ('idle', 'running', 'connecting', 'connected', 'capturing', 'complete', 'waiting', 'failed', 'cancelled'): return None, []
+        value = read_object(folder / 'device-tools-state.json', limit=512 * 1024)
+        if not isinstance(value, dict) or value.get('status') not in ('idle', 'running', 'connecting', 'connected', 'capturing', 'complete', 'waiting', 'failed', 'cancelled',
+                                                                   'scanning', 'cleaning', 'storage-preview', 'storage-complete'): return None, []
         for serial in [value.get('serial'), value.get('hardwareSerial'),
                        *(row.get('serial') for row in value.get('devices', [])[:32] if isinstance(row, dict))]:
             if isinstance(serial, str) and 3 <= len(serial) <= 256: replacements.append((serial, '<quest>'))
         summary = {key: safe_json(value[key], replacements) for key in
                    ('status', 'operation', 'updatedAt', 'elapsedSeconds', 'message', 'progress', 'activity') if key in value}
         summary['hardwareVerified'] = False
+        # Device cleanup reports counts and known/unknown byte estimates, never
+        # arbitrary cache paths or save member names. Inaccessible storage must
+        # remain unknown instead of becoming a misleading zero-byte result.
+        def count(item):
+            return item if type(item) is int and 0 <= item <= 2**63 - 1 else None
+        plan = value.get('storagePlan')
+        if isinstance(plan, dict) and plan.get('schema') == 1:
+            record = {key: count(plan.get(key)) for key in ('bytes', 'files')}
+            record['complete'] = plan.get('complete') is True
+            for name in ('candidates', 'protected', 'unknown'):
+                rows = plan.get(name)
+                if not isinstance(rows, list): continue
+                record[name + 'Count'] = len(rows)
+                record[name] = [{**{key: row[key] for key in ('kind', 'reason')
+                                   if isinstance(row.get(key), str) and re.fullmatch(r'[a-z0-9-]{1,80}', row[key])},
+                                 'bytes': count(row.get('bytes')), 'files': count(row.get('files'))}
+                                for row in rows[:128] if isinstance(row, dict)]
+            summary['storagePlan'] = record
+        cleaned = value.get('storageResult')
+        if isinstance(cleaned, dict):
+            summary['storageResult'] = {key: count(cleaned.get(key)) for key in ('freedBytes', 'deletedFiles')}
+            for name in ('removed', 'retained'):
+                if isinstance(cleaned.get(name), list): summary['storageResult'][name + 'Count'] = len(cleaned[name])
         candidates = []
         log = value.get('log')
         if isinstance(log, str):
@@ -434,6 +458,15 @@ def signing_recovery_stats(root, session_root, state, *, diagnostic=None, requir
             stream.seek(max(0, log.stat().st_size - 16384))
             tail = stream.read(16384).decode('utf-8', errors='replace')
         matches = re.findall(r'Original recovery data is retained at ([^\r\n]+?)\. Retry with the same APK and headset\.', tail)
+        if not matches:
+            # Capture200458 finishes clean APK installation and then fails its
+            # content transfer, outside the recovery exception wrapper. Bind
+            # the current transaction's banner only within this attempt's APK
+            # header; its journal still must match the run's full APK identity.
+            headers = list(re.finditer(r'^Selected local APK: ', tail, re.M))
+            if headers:
+                attempt = tail[headers[-1].start():]
+                matches = re.findall(r'^Retained signing migration backup: ([^\r\n]{1,2048})\r?$', attempt, re.M)
         if not matches: return None
         selected = True
         normalized = matches[-1].replace('\\', '/')

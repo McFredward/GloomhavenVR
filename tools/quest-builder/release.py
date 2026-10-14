@@ -64,7 +64,7 @@ REQUIRED = set(PUBLIC_PACKAGES) | {"tools/quest-builder/staging_copy.py", "tools
             'tools/quest-wizard/server.py', 'tools/quest-wizard/cleanup.py',
             'tools/quest-wizard/cleanup_io.py', 'tools/quest-wizard/run_storage.py',
             'tools/quest-installer/installer.py', 'tools/quest-installer/signing_recovery.py',
-            'tools/quest-installer/content_access.py',
+            'tools/quest-installer/content_access.py', 'tools/quest-installer/device_cleanup.py',
             'tools/quest-builder/portable_package.py', 'tools/quest-wizard/package_tools.py',
             'tools/quest-installer/native_rename.py', 'tools/quest-wizard/device_tools.py',
             'tools/quest-builder/builder.py', 'tools/quest-builder/release.py',

@@ -79,7 +79,7 @@ class ReleaseTests(unittest.TestCase):
 
     def test_release_cannot_publish_an_inventory_omitting_dynamic_installation_dependencies(self):
         for name in ('tools/quest-installer/installer.py', 'tools/quest-installer/signing_recovery.py',
-                     'tools/quest-installer/native_rename.py', 'tools/quest-wizard/device_tools.py',
+                     'tools/quest-installer/native_rename.py', 'tools/quest-installer/device_cleanup.py', 'tools/quest-wizard/device_tools.py',
                      'tools/quest-wizard/server.py', 'tools/quest-wizard/cleanup.py',
                      'tools/quest-wizard/cleanup_io.py', 'tools/quest-wizard/run_storage.py'):
             with self.subTest(name=name):
@@ -289,6 +289,21 @@ class SupportTests(unittest.TestCase):
                 self.assertTrue(row['saveDataReset']); self.assertTrue(row['restorationSkipped'])
                 self.assertTrue(row['resetConsentBound'])
                 self.assertNotIn('PRIVATE ARCHIVE BYTES', '\n'.join(files.values()))
+
+    def test_content_failure_after_successful_reset_retains_current_recovery_banner_binding(self):
+        home, folder, value = self.signing_log()
+        value.update(state='reset-installed', saveDataReset=True, restorationSkipped=True, resetConsentTransaction=value['transaction'])
+        write_json(home / 'active.json', value)
+        log = self.directory / 'logs/install.log'
+        log.write_text('Selected local APK: completed.apk\nRetained signing migration backup: ' + str(folder)
+                       + '\nConfirmed installed build: B672\nQuest installation stopped: ADB push secure_mkdirs failed\nADB log: '
+                       + str(next((self.root / 'device').glob('wireless-install-*.log'))) + '\n')
+        _, files = self.export()
+        self.assertEqual(json.loads(files['diagnostic.json'])['signingRecovery']['state'], 'reset-installed')
+        self.assertNotIn('PRIVATE ARCHIVE BYTES', files['diagnostic.json'])
+        for other in ('\nSelected local APK: another.apk\nQuest installation stopped: later failure\n',):
+            with log.open('a') as stream: stream.write(other)
+            self.assertIsNone(support.signing_recovery_stats(self.root, self.directory, self.state))
     def test_signing_summary_rejects_foreign_source_or_transaction_and_retains_failure(self):
         home, folder, value = self.signing_log()
         for key, changed in [('apkSha256', '0' * 64), ('inputKey', '1' * 64), ('transaction', '2' * 32),

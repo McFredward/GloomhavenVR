@@ -349,7 +349,7 @@ class DeviceStorageTests(unittest.TestCase):
         result = self.tools.storage_clean({"planId": "c" * 32})
         self.assertEqual(result["status"], "waiting")
         self.assertIsNone(result["storagePlan"])
-        self.assertEqual(self.cleanup.calls, ["reconnect"])
+        self.assertEqual(self.cleanup.calls, [])  # Existing connection identity guard rejects it first.
         self.assertIn("Quest-Speicher prüfen", result["message"]["de"])
 
     def test_cancelled_preview_retains_no_deletion_authority(self):

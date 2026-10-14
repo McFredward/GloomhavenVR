@@ -67,6 +67,26 @@ def signing_recovery_module():
     return module
 
 
+def cleanup_completed_install(adb, address, hardware, directory, source):
+    """Best-effort exact scratch cleanup; never replay game or save payloads."""
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "_ghvr_quest_device_cleanup", REPO / "tools/quest-installer/device_cleanup.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        result = module.cleanup_after_install(adb, address, hardware, directory, source)
+    except (OSError, ValueError, RuntimeError, ImportError) as error:
+        result = {"complete": False, "deferred": "owned-scratch-cleanup-unavailable", "detail": str(error)[:512]}
+    # Failure to inspect optional scratch never invalidates a finished install.
+    # Full, user-confirmed inventory lives in the independent device-tools page.
+    try:
+        with adb.log.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps({"completedInstallerScratchCleanup": result}) + "\n")
+    except OSError:
+        pass
+    return result
+
+
 def content_access_module():
     spec = importlib.util.spec_from_file_location(
         "_ghvr_quest_content_access", REPO / "tools/quest-installer/content_access.py")
@@ -1769,6 +1789,7 @@ def main(argv=None, runner=None):
                              **({"signingRecovery": migration} if migration else {}),
                              "completedUtc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
         recovery.complete()
+        cleanup_completed_install(adb, address, hardware, config_path.parent, source)
         print(("Installed with app data reset by explicit choice; PC backups retained" if migration and migration.get("saveDataReset") is True
                else "Installed with app data retained") + (" and launched" if not args.no_launch else "")
               + ": " + address + ". Device behavior remains for hardware testing.")
