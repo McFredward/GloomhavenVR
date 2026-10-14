@@ -5,6 +5,7 @@ import io
 import json
 from pathlib import Path
 import tempfile
+import types
 import unittest
 from unittest import mock
 
@@ -168,6 +169,38 @@ class ManualLaunchTests(unittest.TestCase):
         self.assertTrue(self.view._manual_debug_receipt().exists())
         self.device.clear_denied = False
         self.view._close_storage_process()
+        self.assertFalse(self.view._manual_debug_receipt().exists())
+
+    def test_recovery_journal_wait_survives_host_memory_loss(self):
+        source = types.SimpleNamespace(apk=self.device.new_apk, sha256=recovery.file_hash(self.device.new_apk), input_key="a" * 64)
+        def engine(**options):
+            return recovery.Recovery(self.adb, "usb", self.device.hardware, source, self.root / "workspace", data_policy="saves", **options)
+        original = engine()
+        blocked = recovery.CaptureRepairError("Library launch required", root="external", reason="restore-app-launch-unavailable", attempts=2, total=2)
+        with mock.patch.object(original, "_restore", side_effect=blocked), contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(recovery.RecoveryError): original.recover(detected=True)
+        current = engine(manual_storage_launch=original.journal["transaction"])
+        current.load()
+        current._manual_storage_launch_enabled = True
+        with mock.patch.object(recovery.time, "sleep"), contextlib.redirect_stdout(io.StringIO()): current._process_storage_root()
+        self.assertIsInstance(json.loads(current.path.read_text())["manualDebugWait"], dict)
+        current._storage_process = None
+        current._manual_debug_armed = False
+        resumed = engine()
+        resumed.load(); resumed._reconcile_manual_debug_wait()
+        self.assertIsNone(json.loads(current.path.read_text())["manualDebugWait"])
+        self.assertFalse(self.device.process_started)
+        self.assertEqual(self.device.debug_current, "null")
+
+    def test_deadline_uses_real_clock_without_claiming_work_percentage(self):
+        self.device.user_launch_after = 10000
+        clock = iter((0, 0, 301))
+        with mock.patch.object(recovery.time, "monotonic", side_effect=lambda: next(clock)), \
+                mock.patch.object(recovery.time, "sleep"), contextlib.redirect_stdout(io.StringIO()) as output:
+            with self.assertRaises(recovery.CaptureRepairError): self.view._process_storage_root()
+        self.assertEqual(sum(row[:2] == ("shell", "pidof") for row in self.device.calls), 1)
+        progress = [json.loads(row.split(" ", 1)[1]) for row in output.getvalue().splitlines() if row.startswith("GHVRQ_PROGRESS ")]
+        self.assertTrue(all(row["done"] == 0 for row in progress))
         self.assertFalse(self.view._manual_debug_receipt().exists())
 
 
