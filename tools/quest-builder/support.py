@@ -19,6 +19,7 @@ MAX_TOTAL_BYTES = 24 * 1048576
 MAX_FILES = 64
 MAX_WORKSPACE_RUNS = 128
 MAX_WORKSPACE_MANIFESTS = 32
+MAX_INSTALLATION_RUNS = 3
 # Completed preparation retains per-output receipts: capture 134446 reports
 # 25,864,174 journal bytes. This is a journal input bound, not an archive or
 # generic metadata allowance; only identities/counts enter the support package.
@@ -215,13 +216,13 @@ def workspace_evidence(root, replacements, omitted):
                         omitted.append({'name': relative + '/' + entry.name, 'reason': 'missing or mismatched run metadata'}); continue
                     account_replacements(entry, state, replacements, omitted)
                     # Retain compact facts, not up to 256 full event histories.
-                    retained.append((entry, run_summary(state, removed, replacements), removed))
+                    retained.append((entry, run_summary(state, removed, replacements), removed, installation_state(state)))
                 except (BuildError, OSError, ValueError):
                     omitted.append({'name': relative + '/' + entry.name, 'reason': 'unsafe or unavailable run metadata'})
         except (BuildError, OSError, ValueError):
             omitted.append({'name': relative, 'reason': 'unsafe or unavailable run directory'})
     retained.sort(key=lambda row: row[0].name)
-    for folder, summary, _ in retained: runs.append(summary)
+    for _, summary, _, _ in retained: runs.append(summary)
     manifests = []
     try:
         folder = ordinary(root / 'build/manifests')
@@ -264,10 +265,32 @@ def failed_command_log(build_root, failure):
     return 'build/' + match['name']
 
 
+def installation_stage(state):
+    stages = state.get('stages') if isinstance(state, dict) else None
+    if not isinstance(stages, list): return {}
+    return next((row for row in stages[:16] if isinstance(row, dict) and row.get('id') == 'install'), {})
+
+
+def installation_state(state):
+    """Retain only install status and build identities, never full run histories."""
+    stage = installation_stage(state)
+    result = {'stages': [{key: value[:80] if isinstance(value, str) else value
+                          for key, value in stage.items() if key in
+                          ('id', 'status', 'attempts', 'startedAt', 'durationSeconds')
+                          and type(value) in (str, int, float, bool)}]}
+    completed = state.get('completed')
+    build = completed.get('build') if isinstance(completed, dict) else None
+    details = build.get('details') if isinstance(build, dict) else None
+    if isinstance(details, dict):
+        result['completed'] = {'build': {'details': {key: value for key in ('apkSha256', 'inputKey')
+                                                    if isinstance(value := details.get(key), str) and len(value) <= 64}}}
+    return result
+
+
 def installation_logs(root, session_root, state):
     """Select only the current install attempt's explicitly named ADB log."""
     try:
-        stage = next((row for row in state.get('stages', []) if row.get('id') == 'install'), {})
+        stage = installation_stage(state)
         started = stage.get('startedAt')
         if isinstance(started, bool) or not isinstance(started, (int, float)) or not math.isfinite(started) or started <= 0:
             return []
@@ -384,7 +407,7 @@ def device_tool_evidence(root, replacements):
     except (BuildError, OSError, ValueError, TypeError, AttributeError): return None, []
 
 
-def signing_recovery_stats(root, session_root, state, *, diagnostic=None):
+def signing_recovery_stats(root, session_root, state, *, diagnostic=None, require_run_build=False):
     """Summarize only the current installation's explicitly named transaction.
 
     Capture112552 included the ADB failure but not the durable recovery frontier.
@@ -431,14 +454,23 @@ def signing_recovery_stats(root, session_root, state, *, diagnostic=None):
         if journal.stat().st_size > 32 * 1048576: return unavailable('journal-oversized')
         try:
             value = read_object(journal, limit=32 * 1048576)
-        except ValueError:
+        except (ValueError, RecursionError):
             return unavailable('journal-invalid')
         if (not isinstance(value, dict) or value.get('schema') != 1
                 or value.get('package') != 'dev.gloomhavenvr.quest'
                 or value.get('deviceSerial') != parts[0] or value.get('transaction') != parts[1]):
             return unavailable('journal-identity-mismatch')
         reason = 'build-receipt-unreadable'
-        latest = read_object(root / 'build/latest-build.json')
+        # A workspace report has several independent runs. Its latest-build
+        # pointer cannot bind an older run's installation to somebody else's
+        # APK. Prefer the named run's completed build; retain the historical
+        # pointer fallback only for an explicitly selected legacy session.
+        completed = state.get('completed')
+        build = completed.get('build') if isinstance(completed, dict) else None
+        latest = build.get('details') if isinstance(build, dict) else None
+        if latest is None:
+            if require_run_build: return unavailable('run-build-receipt-missing')
+            latest = read_object(root / 'build/latest-build.json')
         if latest is None: return unavailable('build-receipt-missing')
         latest = latest.get('details', latest) if isinstance(latest, dict) else {}
         if not isinstance(latest, dict): return unavailable('build-receipt-invalid')
@@ -527,6 +559,51 @@ def signing_recovery_stats(root, session_root, state, *, diagnostic=None):
     except (BuildError, OSError, ValueError, TypeError, AttributeError):
         # Optional metadata must not suppress the actual failure logs.
         return unavailable(reason) if selected else None
+
+
+def workspace_installations(root, records, omitted):
+    """Select recent owned per-run logs; a workspace has no selected session.
+
+    Capture181310 contains the blocked ninth installation but loses install.log,
+    its exact ADB child and signing frontier in the home-page support export.
+    Keep three recent installation runs separately from the general run-log
+    selection. An incomplete stage may still provide its owned install log,
+    but only the valid current-attempt tail marker can admit an ADB log.
+    """
+    observed = []
+    for folder, summary, removed, state in records:
+        logs = []
+        name = 'runs/' + folder.name + '/install.log'
+        add_log(logs, name, folder / 'logs/install.log', False, omitted)
+        if not logs: continue
+        stage = installation_stage(state)
+        started = stage.get('startedAt')
+        recent = started if type(started) in (int, float) and math.isfinite(started) and started > 0 else summary.get('updated', summary.get('created', 0))
+        if type(recent) not in (int, float) or not math.isfinite(recent): recent = 0
+        observed.append((recent, folder, removed, state, stage, logs))
+    observed.sort(key=lambda row: (row[0], row[1].name), reverse=True)
+    result = []; candidates = []
+    for _, folder, removed, state, stage, logs in observed[:MAX_INSTALLATION_RUNS]:
+        started = stage.get('startedAt')
+        current = type(started) in (int, float) and math.isfinite(started) and started > 0 and logs[0][0] / 10**9 >= started
+        row = {'session': folder.name, 'removed': removed, 'installLog': logs[0][1],
+               'currentAttemptLog': current, 'hardwareVerified': False}
+        for key in ('status', 'attempts', 'startedAt', 'durationSeconds'):
+            value = stage.get(key)
+            if type(value) in (str, int, float, bool) and (not isinstance(value, float) or math.isfinite(value)):
+                row[key] = value[:80] if isinstance(value, str) else value
+        for name, path in installation_logs(root, folder, state):
+            row['adbLog'] = name
+            add_log(logs, name, path, False, omitted)
+        diagnostic = {}
+        signing = signing_recovery_stats(root, folder, state, diagnostic=diagnostic, require_run_build=True)
+        if signing: row['signingRecovery'] = signing
+        elif diagnostic: row['signingRecoveryUnavailable'] = diagnostic
+        result.append(row); candidates.extend(logs)
+    if len(observed) > MAX_INSTALLATION_RUNS:
+        omitted.append({'name': 'installations', 'reason': 'recent installation run limit',
+                        'count': len(observed) - MAX_INSTALLATION_RUNS})
+    return result, candidates
 
 
 def recovery_workspaces(build_root, failure=None):
@@ -734,16 +811,20 @@ def export_support(state_root, session=None, destination=None):
     device_summary, device_logs = device_tool_evidence(root, replacements)
     if session_root is not None: account_replacements(session_root, state, replacements, omitted)
     stages = []
-    for stage in state.get('stages', [])[:16]:
+    for stage in state['stages'][:16] if isinstance(state.get('stages'), list) else []:
+        if not isinstance(stage, dict): continue
+        details = stage.get('details') if isinstance(stage.get('details'), dict) else {}
         stages.append({key: safe_json(stage[key], replacements) for key in ('id', 'status', 'attempts', 'progress', 'waiting', 'durationSeconds') if key in stage} |
-                      {'details': {key: safe_json(value, replacements) for key, value in stage.get('details', {}).items() if key in SAFE_DETAIL_KEYS}})
+                      {'details': {key: safe_json(value, replacements) for key, value in details.items() if key in SAFE_DETAIL_KEYS}})
+    events = state['events'][-128:] if isinstance(state.get('events'), list) else []
     meta = {'schema': 1, 'kind': 'GloomhavenVR Quest build support', 'createdUtc': datetime.now(timezone.utc).isoformat(),
             'scope': scope, 'session': session,
             'host': {'system': platform.system(), 'machine': platform.machine(), 'python': platform.python_version(), 'logicalCpuCount': os.cpu_count()},
             'stages': stages, 'needsActions': safe_json(state.get('needsActions', []), replacements),
             'events': [{key: safe_json(event[key], replacements) for key in ('sequence', 'time', 'code', 'stage') if key in event} |
-                       {'parameters': {key: safe_json(value, replacements) for key, value in event.get('parameters', {}).items() if key in SAFE_EVENT_KEYS}}
-                       for event in state.get('events', [])[-128:]],
+                       {'parameters': {key: safe_json(value, replacements) for key, value in
+                                       (event['parameters'].items() if isinstance(event.get('parameters'), dict) else []) if key in SAFE_EVENT_KEYS}}
+                       for event in events if isinstance(event, dict)],
             'limits': {'fileBytes': MAX_FILE_BYTES, 'totalBytes': MAX_TOTAL_BYTES, 'files': MAX_FILES},
             'files': [], 'omitted': omitted, 'hardwareVerified': False, 'workspace': workspace}
     if session is not None:
@@ -798,6 +879,16 @@ def export_support(state_root, session=None, destination=None):
                     meta[name]['buildReport'] = {key: safe_json(item, replacements) for key, item in report.items()
                                                  if key in SAFE_DETAIL_KEYS}
     candidates = []
+    installation_names = set()
+    if session_root:
+        for name, path in installation_logs(root, session_root, state):
+            add_log(candidates, name, path, False, omitted)
+            installation_names.update(('wizard/install.log', name))
+    else:
+        installations, installation_candidates = workspace_installations(root, run_records, omitted)
+        if installations: meta['installations'] = installations
+        candidates.extend(installation_candidates)
+        installation_names.update(row[1] for row in installation_candidates)
     if session_root:
         add_log(candidates, 'wizard/network-preflight.json', session_root / 'network-preflight.json', True, omitted,
                 strict_links=True)
@@ -819,7 +910,7 @@ def export_support(state_root, session=None, destination=None):
         def updated(row):
             value = row[1].get('updated', row[1].get('created', 0))
             return value if type(value) in (int, float) and math.isfinite(value) else 0
-        for folder, _, _ in sorted(run_records, key=updated, reverse=True)[:3]:
+        for folder, _, _, _ in sorted(run_records, key=updated, reverse=True)[:3]:
             prefix = 'runs/' + folder.name
             log_sources.append((folder / 'logs', prefix, lambda name: name in ('progress.log', 'build.log', 'inspect.log')))
     for log_root, prefix, accept in log_sources:
@@ -843,8 +934,6 @@ def export_support(state_root, session=None, destination=None):
         candidates.append((path.stat().st_mtime_ns, name, path, False))
     for name, path in procedural_logs(build_root) if session_root else []:
         candidates.append((path.stat().st_mtime_ns, name, path, name.endswith('.json')))
-    for name, path in installation_logs(root, session_root, state) if session_root else []:
-        candidates.append((path.stat().st_mtime_ns, name, path, False))
     for name, path, structured in device_logs:
         candidates.append((path.stat().st_mtime_ns, name, path, structured))
     # The actual failed child comes before historic Unity logs even if those
@@ -858,10 +947,12 @@ def export_support(state_root, session=None, destination=None):
         # Unity/export logs. Admission failures happen before any build child;
         # preserve these two bounded utility/request records even when the
         # current build event history only reports a disk-capacity stop.
-        return (6 if name in ('wizard/storage-cleanup.log', 'wizard/wizard-requests.log', 'wizard/storage-analysis.json') else
+        return (7 if name in installation_names else
+                6 if name in ('wizard/storage-cleanup.log', 'wizard/wizard-requests.log', 'wizard/storage-analysis.json') else
                 5 if name == failed_log else 4 if structured else
                 3 if name in ('wizard/build.log', 'wizard/install.log', 'wizard/progress.log') or name.startswith('device/') else
                 2 if name.startswith('build/') and name[6:] in UPDATE_LOGS else 1)
+    candidates = list({row[1]: row for row in candidates}.values())
     candidates.sort(key=lambda row: (priority(row), row[0]), reverse=True)
     archive_rows = []; used = 0
     for _, name, path, structured in candidates:
@@ -906,6 +997,7 @@ def export_support(state_root, session=None, destination=None):
     # can supply the account value mentioned in an earlier progress detail.
     # Apply the complete replacement set before publishing any summary.
     meta['workspace'] = safe_json(meta['workspace'], replacements)
+    if 'installations' in meta: meta['installations'] = safe_json(meta['installations'], replacements)
     if len(omitted) > 512:
         meta['omitted'] = omitted[:511] + [{'name': 'additional diagnostics', 'reason': 'omission summary limit',
                                           'count': len(omitted) - 511}]
