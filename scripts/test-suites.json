@@ -2715,6 +2715,18 @@
         "ci"
       ],
       "weight": 3
+    },
+    {
+      "id": "water-terrain-runtime",
+      "command": [
+        "python3",
+        "scripts/check-water-terrain-runtime.py"
+      ],
+      "groups": [
+        "local",
+        "ci"
+      ],
+      "weight": 50
     }
   ]
 }

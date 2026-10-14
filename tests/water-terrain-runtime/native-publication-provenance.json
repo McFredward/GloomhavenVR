@@ -1,0 +1,7 @@
+{
+  "decompiledFileSha256": "da39d19536d99deedf416f2e59e736408a55ab85fa694887d3be0b6f56e62b45",
+  "methodSha256": "b1d0fe565f5722aca9b6e6f9a5fdaed96f87ff6c70913d136dd8b4133234c7ca",
+  "nativeAssemblySha256": "fcfcd2e420299139b6cba9a5fedb52c9cae60bb5e1292adb84152c14d5e8f495",
+  "method": "MaterialLoaderData.CheckAllMaterialLoaded",
+  "boundary": "Original native method source and production Harmony postfix; Addressables completion and storage are explicit fixture inputs, not original game assembly execution."
+}
