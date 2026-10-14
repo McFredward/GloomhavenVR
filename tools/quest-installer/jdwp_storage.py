@@ -438,21 +438,54 @@ class AppCommand:
             raise StorageError("The app storage process stopped boundary changed.")
 
     def _wait_boundary(self):
-        frames = self.protocol.frames(self.thread)
-        self._require_wait_frames(frames)
+        frames = self.protocol.frames(self.thread, detailed=True)
+        self._require_wait_details(frames)
 
     @staticmethod
     def _require_wait_frames(frames):
         allowed = ("Ljava/", "Ljavax/", "Landroid/", "Ldalvik/", "Llibcore/", "Lsun/", "Ljdk/",
                    "Lcom/android/internal/os/")
         forbidden = ("Landroid/app/Application;", "Landroid/app/Application$", "Landroid/app/LoadedApk;", "Landroid/app/LoadedApk$")
+        debug = ("Landroid/os/Debug;", "waitForDebugger")
+        bind = ("Landroid/app/ActivityThread;", "handleBindApplication")
+        wrapper = ("Landroid/app/ActivityThread;", "waitForDebugger")
         if (any(not signature.startswith(allowed) or signature.startswith(forbidden)
                 for signature, _ in frames)
-                or frames.count(("Landroid/os/Debug;", "waitForDebugger")) != 1
-                or frames.count(("Landroid/app/ActivityThread;", "handleBindApplication")) != 1
-                or frames.index(("Landroid/os/Debug;", "waitForDebugger")) + 1
-                    != frames.index(("Landroid/app/ActivityThread;", "handleBindApplication"))):
+                or frames.count(debug) != 1 or frames.count(bind) != 1
+                or frames.count(wrapper) > 1
+                or frames[frames.index(debug) + 1:frames.index(bind)] not in ([], [wrapper])
+                or frames.index(debug) >= frames.index(bind)
+                or (wrapper in frames and frames.index(wrapper) != frames.index(bind) - 1)):
             raise StorageError("The app main thread did not retain its pre-Application debugger wait.")
+
+    def _wait_owner(self, frames):
+        """Keep the exact direct bind call or its original private wait wrapper."""
+        pairs = [(frame["signature"], frame["name"]) for frame in frames]
+        bind = ("Landroid/app/ActivityThread;", "handleBindApplication")
+        wrapper = ("Landroid/app/ActivityThread;", "waitForDebugger")
+        if pairs.count(bind) != 1 or pairs.count(wrapper) > 1:
+            raise StorageError("The Android waiting display has no unique bind/wait owner.")
+        bind_at = pairs.index(bind)
+        if wrapper not in pairs:
+            return bind_at
+        at = pairs.index(wrapper)
+        frame = frames[at]
+        # Capture203422 includes this extra frame. Android14 AOSP ActivityThread
+        # (android-14.0.0_r1/core/java/android/app/ActivityThread.java) extracts
+        # the private waitForDebugger(AppBindData) instance method while keeping
+        # the true Proxy -> Debug wait -> false Proxy sequence. Admit this exact
+        # boot method, not arbitrary helpers, overloads or a post-Application call.
+        if (at + 1 != bind_at or frame["descriptor"] != "(Landroid/app/ActivityThread$AppBindData;)V"
+                or frame["flags"] & (8 | 256) or not frame["flags"] & 2
+                or not self.protocol.boot_type(frame["type"])):
+            raise StorageError("The Android debugger wait wrapper is not its original boot bind call.")
+        return at
+
+    def _require_wait_details(self, frames):
+        self._require_wait_frames([(frame["signature"], frame["name"]) for frame in frames])
+        self._wait_owner(frames)
+        if not all(self.protocol.boot_type(frame["type"]) for frame in frames):
+            raise StorageError("The app debugger wait no longer belongs to the boot main-thread stack.")
 
     def _pre_wait_boundary(self, frames, witness=None):
         proxy = ("Landroid/app/IActivityManager$Stub$Proxy;", "showWaitingForDebugger")
@@ -461,8 +494,9 @@ class AppCommand:
         if pairs.count(bind) != 1 or pairs.count(proxy) > 1:
             raise StorageError("The Android waiting display has no unique bind/proxy boundary.")
         bind_at = pairs.index(bind)
+        owner_at = self._wait_owner(frames)
         # No generic framework whitelist: these are only the original main
-        # dispatch ancestry beneath handleBindApplication in Android11-13.
+        # dispatch ancestry beneath handleBindApplication in Android11-14.
         ancestry = {("Landroid/app/ActivityThread$H;", "handleMessage"),
                     ("Landroid/app/ActivityThread;", "-$$Nest$mhandleBindApplication"),
                     ("Landroid/os/Handler;", "dispatchMessage"), ("Landroid/os/Looper;", "loop"),
@@ -473,17 +507,17 @@ class AppCommand:
         if (any(pair not in ancestry for pair in pairs[bind_at + 1:])
                 or not all(self.protocol.boot_type(frame["type"]) for frame in frames)):
             raise StorageError("The Android waiting display is not bound to the boot main-thread stack.")
-        outer = tuple((frame["type"], frame["method"]) for frame in frames[bind_at:])
-        if witness is not None and (outer != witness[0] or frames[bind_at]["index"] < witness[1]):
+        outer = tuple((frame["type"], frame["method"]) for frame in frames[owner_at:])
+        if witness is not None and (outer != witness[0] or frames[owner_at]["index"] < witness[1]):
             raise StorageError("The Android waiting display changed its original bind call site.")
         if proxy not in pairs:
-            if witness is None or bind_at != 0:
+            if witness is None or owner_at != 0:
                 raise StorageError("The Android waiting display has not proved its pre-wait proxy call.")
             return witness  # One-instruction steps between the proved call and Debug entry.
         proxy_at = pairs.index(proxy)
         frame = frames[proxy_at]
-        if proxy_at + 1 != bind_at:
-            raise StorageError("The Android waiting proxy was not called directly by handleBindApplication.")
+        if proxy_at + 1 != owner_at:
+            raise StorageError("The Android waiting proxy was not called directly by handleBindApplication or its proved wait wrapper.")
         if (frame["descriptor"] != "(Landroid/app/IApplicationThread;Z)V"
                 or frame["flags"] & (8 | 256) or not self.protocol.waiting_argument(self.thread, frame)):
             raise StorageError("The Android waiting display is not its original waiting=true call.")
@@ -497,7 +531,7 @@ class AppCommand:
                       ("Landroid/os/Parcel;", "nativeFreeBuffer")}
         if any(pair not in operations for pair in pairs[:proxy_at]):
             raise StorageError("The Android waiting display reached an unsupported proxy operation.")
-        return witness or (outer, frames[bind_at]["index"])
+        return witness or (outer, frames[owner_at]["index"])
 
     def _establish_wait_event(self):
         # AOSP ActivityThread logs before showWaitingForDebugger(true), then
@@ -510,7 +544,7 @@ class AppCommand:
             frames = self.protocol.frames(self.thread, detailed=True)
             pairs = [(frame["signature"], frame["name"]) for frame in frames]
             if ("Landroid/os/Debug;", "waitForDebugger") in pairs:
-                self._require_wait_frames(pairs)
+                self._require_wait_details(frames)
                 self.protocol.step_event(self.thread)
                 self.event_owned = True
                 self._wait_boundary()
@@ -528,9 +562,9 @@ class AppCommand:
                 frames = self.protocol.frames(self.thread, detailed=True)
                 pairs = [(frame["signature"], frame["name"]) for frame in frames]
                 if ("Landroid/os/Debug;", "waitForDebugger") in pairs:
-                    self._require_wait_frames(pairs)
-                    bind_at = pairs.index(("Landroid/app/ActivityThread;", "handleBindApplication"))
-                    if tuple((frame["type"], frame["method"]) for frame in frames[bind_at:]) != witness[0]:
+                    self._require_wait_details(frames)
+                    owner_at = self._wait_owner(frames)
+                    if tuple((frame["type"], frame["method"]) for frame in frames[owner_at:]) != witness[0]:
                         raise StorageError("The Android debugger entry changed its original boot ancestry.")
                     self._wait_boundary()
                     self._log({"appOriginStorageWaitEntry": True, "ownedSingleSteps": steps,

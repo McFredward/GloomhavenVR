@@ -193,31 +193,95 @@ class GuardTests(unittest.TestCase):
         self.adb.run.assert_not_called()
 
     def test_wait_boundary_refuses_gameplay_or_missing_debug_wait(self):
-        safe = [("Ljava/lang/Thread;", "sleep"), ("Landroid/os/Debug;", "waitForDebugger"),
-                ("Landroid/app/ActivityThread;", "handleBindApplication")]
+        safe = self.detailed_frames(("Ljava/lang/Thread;", "sleep"), ("Landroid/os/Debug;", "waitForDebugger"),
+                                    ("Landroid/app/ActivityThread;", "handleBindApplication"))
         self.value.protocol.frames.return_value = safe
         self.value._wait_boundary()
-        for frames in (safe[:-2], safe + [("Lcom/unity3d/player/UnityPlayer;", "start")]):
+        for frames in (safe[:-2], safe + self.detailed_frames(("Lcom/unity3d/player/UnityPlayer;", "start"))):
             self.value.protocol.frames.return_value = frames
             with self.subTest(frames=frames), self.assertRaises(bridge.StorageError):
                 self.value._wait_boundary()
 
     def test_android_zygote_and_runtime_boot_frames_remain_allowed(self):
-        self.value.protocol.frames.return_value = [
+        self.value.protocol.frames.return_value = self.detailed_frames(
             ("Landroid/os/Debug;", "waitForDebugger"),
             ("Landroid/app/ActivityThread;", "handleBindApplication"),
             ("Landroid/os/Looper;", "loop"),
             ("Landroid/app/ActivityThread;", "main"),
             ("Lcom/android/internal/os/RuntimeInit$MethodAndArgsCaller;", "run"),
-            ("Lcom/android/internal/os/ZygoteInit;", "main")]
+            ("Lcom/android/internal/os/ZygoteInit;", "main"))
         self.value._wait_boundary()
 
     @staticmethod
     def detailed_frames(*pairs):
+        wrapper = ("Landroid/app/ActivityThread;", "waitForDebugger")
+        descriptors = {("Landroid/app/IActivityManager$Stub$Proxy;", "showWaitingForDebugger"): "(Landroid/app/IApplicationThread;Z)V",
+                       wrapper: "(Landroid/app/ActivityThread$AppBindData;)V"}
         return [{"signature": signature, "name": name,
-                 "descriptor": "(Landroid/app/IApplicationThread;Z)V" if name == "showWaitingForDebugger" else "()V",
-                 "flags": 1, "type": index + 10, "method": index + 20, "frame": index + 30, "index": 4}
+                 "descriptor": descriptors.get((signature, name), "()V"),
+                 "flags": 2 if (signature, name) == wrapper else 1,
+                 "type": index + 10, "method": index + 20, "frame": index + 30, "index": 4}
                 for index, (signature, name) in enumerate(pairs)]
+
+    def test_wait_wrapper_accepts_only_exact_private_boot_owner_and_no_intermediate_helper(self):
+        safe = self.detailed_frames(("Ljava/lang/Thread;", "sleep"), ("Landroid/os/Debug;", "waitForDebugger"),
+                                    ("Landroid/app/ActivityThread;", "waitForDebugger"),
+                                    ("Landroid/app/ActivityThread;", "handleBindApplication"),
+                                    ("Landroid/app/ActivityThread;", "main"))
+        self.value.protocol.frames.return_value = safe
+        self.value.protocol.boot_type.return_value = True
+        self.value._wait_boundary()
+        cases = [safe[:2] + self.detailed_frames(("Landroid/os/Trace;", "traceBegin")) + safe[2:],
+                 safe[:3] + [dict(safe[2])] + safe[3:],
+                 safe[:2] + [dict(safe[2], descriptor="()V")] + safe[3:],
+                 safe[:2] + [dict(safe[2], flags=8 | 2)] + safe[3:],
+                 safe[:2] + [dict(safe[2], flags=256 | 2)] + safe[3:],
+                 safe[:2] + [dict(safe[2], flags=1)] + safe[3:],
+                 safe + self.detailed_frames(("Landroid/app/Application;", "onCreate"))]
+        for frames in cases:
+            self.value.protocol.frames.return_value = frames
+            with self.subTest(frames=frames), self.assertRaises(bridge.StorageError):
+                self.value._wait_boundary()
+        self.value.protocol.frames.return_value = safe
+        self.value.protocol.boot_type.return_value = False
+        with self.assertRaisesRegex(bridge.StorageError, "boot"):
+            self.value._wait_boundary()
+        self.value.protocol.invoke.assert_not_called()
+
+    def test_wait_wrapper_pre_wait_witness_keeps_wrapper_call_site_and_true_argument(self):
+        frames = self.pre_wait_frames()
+        wrapper = self.detailed_frames(("Landroid/app/ActivityThread;", "waitForDebugger"))[0]
+        wrapper.update(type=100, method=200, frame=300)
+        frames.insert(3, wrapper)
+        self.value.protocol.boot_type.return_value = True
+        self.value.protocol.waiting_argument.return_value = True
+        witness = self.value._pre_wait_boundary(frames)
+        self.assertEqual(self.value._pre_wait_boundary(frames[3:], witness), witness)
+        self.assertEqual(witness[0][0], (100, 200))
+        for changed in (dict(wrapper, method=201), dict(wrapper, index=3)):
+            with self.subTest(changed=changed), self.assertRaisesRegex(bridge.StorageError, "call site"):
+                self.value._pre_wait_boundary([changed] + frames[4:], witness)
+        self.value.protocol.waiting_argument.return_value = False
+        with self.assertRaisesRegex(bridge.StorageError, "waiting=true"):
+            self.value._pre_wait_boundary(frames, witness)
+
+    def test_wait_wrapper_requires_actual_owned_step_and_still_waiting_stack(self):
+        frames = self.detailed_frames(("Landroid/os/Debug;", "waitForDebugger"),
+                                      ("Landroid/app/ActivityThread;", "waitForDebugger"),
+                                      ("Landroid/app/ActivityThread;", "handleBindApplication"))
+        self.value.protocol.boot_type.return_value = True
+        self.value.event_owned = False
+        self.value.protocol.frames.return_value = frames
+        self.value.protocol.step_event.side_effect = bridge.StorageError("foreign step boundary")
+        with self.assertRaisesRegex(bridge.StorageError, "foreign step"):
+            self.value._establish_wait_event()
+        self.assertFalse(self.value.event_owned)
+        self.value.protocol.invoke.assert_not_called()
+        self.value.protocol.step_event.side_effect = None
+        self.value.protocol.frames.side_effect = [frames, frames[1:]]
+        with self.assertRaisesRegex(bridge.StorageError, "pre-Application"):
+            self.value._establish_wait_event()
+        self.value.protocol.invoke.assert_not_called()
 
     def pre_wait_frames(self):
         return self.detailed_frames(("Landroid/os/BinderProxy;", "transactNative"),
@@ -252,9 +316,9 @@ class GuardTests(unittest.TestCase):
             self.value._pre_wait_boundary(frames)
 
     def test_post_wait_application_and_loaded_apk_never_reach_invocation(self):
-        safe = [("Landroid/os/Debug;", "waitForDebugger"), ("Landroid/app/ActivityThread;", "handleBindApplication")]
+        safe = self.detailed_frames(("Landroid/os/Debug;", "waitForDebugger"), ("Landroid/app/ActivityThread;", "handleBindApplication"))
         for pair in (("Landroid/app/Application;", "onCreate"), ("Landroid/app/LoadedApk;", "makeApplication")):
-            self.value.protocol.frames.return_value = safe + [pair]
+            self.value.protocol.frames.return_value = safe + self.detailed_frames(pair)
             with self.subTest(pair=pair), self.assertRaises(bridge.StorageError):
                 self.value._wait_boundary()
         self.value.protocol.invoke.assert_not_called()
@@ -427,6 +491,9 @@ class RealJvmTests(unittest.TestCase):
         self.phase = {"test_actual_pre_wait_proxy_reaches_strict_wait_before_storage": "pre",
                       "test_actual_post_wait_false_proxy_is_rejected_without_storage": "post",
                       "test_actual_application_proxy_is_rejected_without_storage": "application",
+                      "test_actual_private_wrapper_wait_keeps_owned_event_and_no_gameplay": "wrapper-wait",
+                      "test_actual_private_wrapper_true_proxy_reaches_wait_before_storage": "wrapper-pre",
+                      "test_actual_private_wrapper_false_proxy_never_resumes_or_invokes": "wrapper-post",
                       "test_actual_foreign_pid_cannot_attach_to_pre_wait_vm": "pre"}.get(self._testMethodName, "wait")
         debug = self.home / "android/os/Debug.java"
         activity = self.home / "android/app/ActivityThread.java"
@@ -436,16 +503,26 @@ class RealJvmTests(unittest.TestCase):
 public class Debug {
   public static void waitForDebugger() throws Exception {
     new java.io.FileOutputStream(System.getProperty("fixture.wait")).close();
-    if ("post".equals(System.getProperty("fixture.phase"))) return;
+    if (System.getProperty("fixture.phase").endsWith("post")) return;
     while (true) { Thread.sleep(20); }
   }
 }''')
         activity.write_text('''package android.app;
 public class ActivityThread {
+  static class AppBindData {}
+  private void waitForDebugger(AppBindData data) throws Exception {
+    String phase=System.getProperty("fixture.phase");
+    android.app.IActivityManager.Stub.Proxy manager=new android.app.IActivityManager.Stub.Proxy();
+    if ("wrapper-pre".equals(phase)) manager.showWaitingForDebugger(null,true);
+    android.os.Debug.waitForDebugger();
+    manager.showWaitingForDebugger(null,false);
+  }
   public static void handleBindApplication() throws Exception {
     String phase=System.getProperty("fixture.phase");
     android.app.IActivityManager.Stub.Proxy manager=new android.app.IActivityManager.Stub.Proxy();
-    if ("pre".equals(phase)) {
+    if (phase.startsWith("wrapper-")) {
+      new ActivityThread().waitForDebugger(new AppBindData());
+    } else if ("pre".equals(phase)) {
       manager.showWaitingForDebugger(null,true);
       android.os.Debug.waitForDebugger();
       manager.showWaitingForDebugger(null,false);
@@ -499,7 +576,7 @@ public class Application {
             path.write_text(text)
             paths.append(path)
         subprocess.run(["javac", "-g", "-d", str(self.home), *map(str, paths)], check=True, capture_output=True, timeout=30)
-        if self.phase != "wait":
+        if not self.phase.endswith("wait"):
             if not shutil.which("cc"):
                 self.skipTest("Delayed real Binder control requires a native C compiler")
             # An actual JNI call blocks outside Java, like BinderProxy's native
@@ -536,7 +613,7 @@ JNIEXPORT jboolean JNICALL Java_android_os_BinderProxy_transactNative(
         while time.monotonic() < deadline:
             text = (self.home / "java.log").read_text(errors="replace")
             match = re.search(r"Listening for transport dt_socket at address: (\d+)", text)
-            if match and (self.home / ("wait" if self.phase == "wait" else "proxy")).is_file():
+            if match and (self.home / ("wait" if self.phase.endswith("wait") else "proxy")).is_file():
                 self.port = match.group(1)
                 break
             if self.process.poll() is not None:
@@ -569,7 +646,7 @@ JNIEXPORT jboolean JNICALL Java_android_os_BinderProxy_transactNative(
                 "gameplayMarkerExists": (self.home / "game").exists(), "cleanup": cleanup,
                 "fixturePhase": self.phase, "debugWaitMarkerExists": (self.home / "wait").exists(),
                 "androidUidAndPathAdapted": True, "realJdwpProtocolAndRuntimeExec": True,
-                "nativeBinderDelayAdapted": self.phase != "wait"}, indent=2))
+                "nativeBinderDelayAdapted": not self.phase.endswith("wait")}, indent=2))
 
     def fixture(self, *, identity=None):
         home, process, start, port = self.home, self.process, self.start, self.port
@@ -659,6 +736,40 @@ JNIEXPORT jboolean JNICALL Java_android_os_BinderProxy_transactNative(
             self.assertEqual(app.shell("printf 'pre-wait storage'", timeout=20), "pre-wait storage")
         self.assertFalse((self.home / "game").exists())
         app.close()
+        self.process.wait(timeout=10)
+        self.assertFalse((self.home / "game").exists())
+
+    def test_actual_private_wrapper_wait_keeps_owned_event_and_no_gameplay(self):
+        app, local_string = self.fixture()
+        frames = app.protocol.frames(app.thread)
+        self.assertIn(("Landroid/app/ActivityThread;", "waitForDebugger"), frames)
+        with mock.patch.object(bridge, "_string", side_effect=local_string):
+            self.assertEqual(app.shell("printf 'wrapper storage'", timeout=20), "wrapper storage")
+        app.guard()
+        app.close()
+        self.process.wait(timeout=10)
+        self.assertFalse((self.home / "game").exists())
+
+    def test_actual_private_wrapper_true_proxy_reaches_wait_before_storage(self):
+        self.assertFalse((self.home / "wait").exists())
+        app, local_string = self.fixture()
+        log = (self.home / "adb.log").read_text()
+        self.assertIn('"waitingProxyArgumentProved": true', log)
+        self.assertIn('"appOriginStorageWaitEntry": true', log)
+        with mock.patch.object(bridge, "_string", side_effect=local_string):
+            self.assertEqual(app.shell("printf 'true wrapper storage'", timeout=20), "true wrapper storage")
+        app.close()
+        self.process.wait(timeout=10)
+        self.assertFalse((self.home / "game").exists())
+
+    def test_actual_private_wrapper_false_proxy_never_resumes_or_invokes(self):
+        self.assertTrue((self.home / "wait").exists())
+        with mock.patch.object(bridge._Protocol, "step_event", side_effect=AssertionError("false proxy resumed")) as step, \
+                mock.patch.object(bridge._Protocol, "invoke", side_effect=AssertionError("false proxy invocation")) as invocation:
+            with self.assertRaisesRegex(bridge.StorageError, "waiting=true"):
+                self.fixture()
+        step.assert_not_called()
+        invocation.assert_not_called()
         self.process.wait(timeout=10)
         self.assertFalse((self.home / "game").exists())
 
