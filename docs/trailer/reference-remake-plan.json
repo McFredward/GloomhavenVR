@@ -1478,7 +1478,7 @@
     "primary_navigation_promoted": true,
     "primary_navigation_http_links_checked": 44,
     "published_review_http_links_checked": 20,
-    "delivery_verification": ".planning/debug/trailer/remake-v1/ai-edits-v7/independent-qc/full-v7/delivery-verification.json"
+    "delivery_verification": ".planning/debug/trailer/remake-v1/ai-edits-v7/independent-qc/full-v7/final-delivery-verification.json"
   },
   "continuity_followup": {
     "user_rule": "A different background is acceptable if it remains coherent throughout the shot. Sudden architectural reconstruction is rejected AI slop.",
@@ -2016,7 +2016,7 @@
       "primary_navigation_promoted": true,
       "primary_navigation_http_links_checked": 44,
       "published_review_http_links_checked": 20,
-      "delivery_verification": ".planning/debug/trailer/remake-v1/ai-edits-v7/independent-qc/full-v7/delivery-verification.json"
+      "delivery_verification": ".planning/debug/trailer/remake-v1/ai-edits-v7/independent-qc/full-v7/final-delivery-verification.json"
     },
     "proposal_counts_are_historical": true,
     "actual_vr_cinematic_moments": 11,
@@ -2257,7 +2257,7 @@
       "primary_navigation_promoted": true,
       "primary_navigation_http_links_checked": 44,
       "published_review_http_links_checked": 20,
-      "delivery_verification": ".planning/debug/trailer/remake-v1/ai-edits-v7/independent-qc/full-v7/delivery-verification.json"
+      "delivery_verification": ".planning/debug/trailer/remake-v1/ai-edits-v7/independent-qc/full-v7/final-delivery-verification.json"
     },
     "provider_jobs_settled": true,
     "actual_raw_videos_preserved": 11,
