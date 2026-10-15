@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "status": "Fresh whole-shot v7 correction in progress after user rejected v6 dragon/hand defects; preserve original Flat gameplay for later genuine VR capture exchange.",
+  "status": "Cinematic v7 complete, root self-reviewed and delivered; original Flat gameplay remains for later genuine VR captures.",
   "date": "2026-10-15",
   "source_url": "https://www.youtube.com/watch?v=-SGDEP-zFHo",
   "source_title": "Gloomhaven | Gameplay Overview Trailer",
@@ -12,10 +12,10 @@
     "total_viewed": 139,
     "independent_creative_frames": 12,
     "transcript": "Official manual English captions; no paid ASR",
-    "motion_quality": "V6 historical reviews missed user-reported native dragon and hand-motion defects. Current v7 must independently inspect all fresh raw/component frames and complete master before delivery."
+    "motion_quality": "Every fresh raw/component frame actually reviewed; root157 whole-film cues and 14native-resolution witnesses viewed. Independent whole-film review and automated14810-frame fidelity/footer checks pass. User acceptance is not claimed."
   },
   "direction": "Original film as base; selected cinematic shots modified with video-edit models; Flat explanation footage replaced by genuine VR captures; invisible visual joins",
-  "timing_note": "Initial planning windows are historical. The completed v6 assembly uses exact approved frame windows and retains the original14810-frame/60fps timeline and246.861s audio tail.",
+  "timing_note": "V7 retains exact14810-frame/60fps source clock and246.861s AAC tail. Initial planning windows are historical; current active windows use exact approved ranges.",
   "voice": {
     "mode": "Keep original English text/timing, user confirmed; small GloomhavenVR substitutions only",
     "patches": [
@@ -39,43 +39,45 @@
     "geographic_note": "These two mentions name the fictional city/region; preserve Gloomhaven there unless final wording needs adjustment."
   },
   "budget": {
-    "new_paid_calls": 45,
+    "new_paid_calls": 12,
     "new_fal_usd": null,
-    "previous_reserved_usd": 29.9,
-    "previous_cap_usd": 30,
+    "previous_reserved_usd": 64.75,
+    "previous_cap_usd": 75,
     "previous_invoice_reconciled": false,
-    "additional_round_cap_usd": 45,
+    "additional_round_cap_usd": 10,
     "total_authorized_cap_usd": 85,
-    "new_reserved_usd": 34.85,
+    "new_reserved_usd": 11,
     "actual_new_invoice_reconciled": false,
-    "pilot_scope": "Fresh whole-shot correction round capped at10USD; first four requests reserve3.40USD, not yet visually approved. Prior v6 reservations64.75 retained.",
+    "pilot_scope": "Completed v7: newest10USD allocation plus1USD from previously authorized unreserved balance, announced before use; overall85USD ceiling unchanged. Rejected and failed reservations retained, invoices unavailable.",
     "initial_three_model_comparison_proposed_usd": 3.75,
     "initial_model_comparison_status": "Not run; only one Kling pilot commissioned",
-    "all_reserved_usd": 68.15,
+    "all_reserved_usd": 75.75,
     "request_states": {
       "all_remake_ledger_states": {
-        "completed": 42,
-        "failed": 3
+        "completed": 75,
+        "failed": 6
       },
-      "remake_paid_requests_including_voice_and_failed": 45,
-      "v4_paid_requests": 8,
-      "v4_raw_videos_preserved": 8,
-      "v4_timeline_components_selected": 2,
-      "existing_I01_reused": true,
-      "v5_raw_video_requests": 1,
-      "v5_raw_video_creative_status": "rejected_by_user; reservation retained"
+      "all_ledger_jobs": 81,
+      "v7_paid_requests": 12,
+      "v7_raw_videos_preserved": 11,
+      "v7_selected_whole_shots": 4,
+      "total_raw_videos_preserved": 66,
+      "total_audio_files_preserved": 6,
+      "pending_jobs": 0
     },
-    "this_revision_reserved_usd": 19.9,
-    "proposed_total_cap_usd": 75,
+    "this_revision_reserved_usd": 11,
+    "proposed_total_cap_usd": 85,
     "budget_extension_pending": false,
-    "unreserved_under_total_cap_usd": 16.85,
+    "unreserved_under_total_cap_usd": 9.25,
     "request_states_note": "Completed state is provider transport/result availability, not creative approval. Selected/rejected clips are recorded separately.",
     "this_v4_reserved_usd": 4.35,
     "this_v5_reserved_usd": 0.5,
     "this_v6_reserved_usd": 19.9,
     "authorization_receipt": ".planning/debug/trailer/production/budget-authorization-85-usd.json",
     "this_v7_round_cap_usd": 10,
-    "this_v7_reserved_usd": 3.4
+    "this_v7_reserved_usd": 11,
+    "this_v7_initial_new_allocation_usd": 10,
+    "this_v7_previous_authorized_margin_usd": 1
   },
   "private_briefing": ".planning/debug/trailer/remake-v1/AUFNAHMEPLAN.html",
   "private_capture_list": ".planning/debug/trailer/remake-v1/AUFNAHMELISTE.txt",
@@ -1118,57 +1120,146 @@
   "active_cinematic_windows": [
     {
       "id": "O01",
-      "window_seconds": [
-        3,
-        7
-      ],
       "frames": [
         180,
         420
       ],
       "count": 240,
-      "players": 1,
-      "mask": "Runeveil",
-      "action": "High god uses one relaxed Arcane directional gesture; Tinkerer takes a balanced small step; recover original party ending",
-      "status": "Root-approved matched-v3 inserted in complete cinematicv4:240frames60fps, first25 and last3 native frames, repaired edge flow",
-      "inserted_in_complete_v4": true
+      "window_seconds": [
+        3.0,
+        7.0
+      ],
+      "status": "Retained approved cinematic in immutable v6 base"
+    },
+    {
+      "id": "E01",
+      "frames": [
+        801,
+        953
+      ],
+      "count": 152,
+      "window_seconds": [
+        13.35,
+        15.883333333333333
+      ],
+      "status": "Retained approved cinematic in immutable v6 base"
+    },
+    {
+      "id": "E02",
+      "frames": [
+        953,
+        1074
+      ],
+      "count": 121,
+      "window_seconds": [
+        15.883333333333333,
+        17.9
+      ],
+      "status": "Retained approved cinematic in immutable v6 base"
+    },
+    {
+      "id": "L01",
+      "frames": [
+        6617,
+        6984
+      ],
+      "count": 367,
+      "window_seconds": [
+        110.28333333333333,
+        116.4
+      ],
+      "status": "Fresh v7 whole-shot correction"
+    },
+    {
+      "id": "L02",
+      "frames": [
+        7808,
+        8135
+      ],
+      "count": 327,
+      "window_seconds": [
+        130.13333333333333,
+        135.58333333333334
+      ],
+      "status": "Retained approved cinematic in immutable v6 base"
     },
     {
       "id": "I01",
-      "window_seconds": [
-        139.95,
-        145.7
-      ],
       "frames": [
         8397,
         8742
       ],
       "count": 345,
-      "players": 1,
-      "mask": "Ironwatch",
-      "action": "Metal hand reaches from above, gently guides rocky party warrior shoulder, releases and withdraws",
-      "status": "Root-approved matched-v2 reused unchanged in complete cinematicv4; source-matched345frames60fps",
-      "inserted_in_complete_v4": true
+      "window_seconds": [
+        139.95,
+        145.7
+      ],
+      "status": "Retained approved cinematic in immutable v6 base"
+    },
+    {
+      "id": "L03",
+      "frames": [
+        9973,
+        10266
+      ],
+      "count": 293,
+      "window_seconds": [
+        166.21666666666667,
+        171.1
+      ],
+      "status": "Fresh v7 whole-shot correction"
+    },
+    {
+      "id": "L06",
+      "frames": [
+        10266,
+        10359
+      ],
+      "count": 93,
+      "window_seconds": [
+        171.1,
+        172.65
+      ],
+      "status": "Fresh v7 whole-shot correction"
+    },
+    {
+      "id": "L05",
+      "frames": [
+        10537,
+        10658
+      ],
+      "count": 121,
+      "window_seconds": [
+        175.61666666666667,
+        177.63333333333333
+      ],
+      "status": "Fresh v7 whole-shot correction"
+    },
+    {
+      "id": "L04",
+      "frames": [
+        11359,
+        11579
+      ],
+      "count": 220,
+      "window_seconds": [
+        189.31666666666666,
+        192.98333333333332
+      ],
+      "status": "Retained approved cinematic in immutable v6 base"
     },
     {
       "id": "A04",
-      "window_seconds": [
-        217.2,
-        223.78333333333333
-      ],
       "frames": [
         13032,
         13427
       ],
       "count": 395,
-      "players": 2,
-      "masks": [
-        "Grimhorn",
-        "Runeveil"
+      "window_seconds": [
+        217.2,
+        223.78333333333333
       ],
-      "action": "Early native-style Tinkerer green shot, two high gods guide from above, release before own Cragheart stone attack",
-      "status": "Root-approved paired-keyframes-v1/matched-v2:395frames60fps; exact native first/last anchors and black cores; source/model geometry mixes removed",
-      "inserted_in_complete_v4": true
+      "status": "Retained approved cinematic in immutable v6 base"
     }
   ],
   "omitted_cinematic_candidate": {
@@ -1335,9 +1426,10 @@
     "further_paid_calls_planned": false
   },
   "final_cinematic_cut": {
-    "path": ".planning/debug/trailer/remake-v1/ai-edits-v5/full-timeline-v1/reference-remake-cinematic-v5.mp4",
-    "sha256": "e8278d2ab7c420fe0044340bbdea5c84959b3c56512b26b2c664a705c1baaf29",
-    "bytes": 290152951,
+    "status": "root-approved-for-delivery",
+    "path": ".planning/debug/trailer/remake-v1/ai-edits-v7/full-timeline-v1/reference-remake-cinematic-v7.mp4",
+    "sha256": "0f0f25170c0e97404445420fe43f40009999943b68ddf8394660c1cf8efd4b19",
+    "bytes": 318103471,
     "frames": 14810,
     "fps": 60,
     "dimensions": [
@@ -1345,47 +1437,48 @@
       1080
     ],
     "container_duration_seconds": 246.861,
-    "root_creative_approval": true,
-    "cinematic_phase_complete": false,
-    "completion_scope": "Background correction complete; additional six cinematic proposals remain ungenerated",
-    "original_flat_gameplay_intentionally_retained": true,
-    "real_vr_capture_phase_remaining": true,
-    "all_ai_videos_preserved": true,
-    "private_review": ".planning/debug/trailer/remake-v1/ai-edits-v5/REVIEW.html",
-    "root_receipt": ".planning/debug/trailer/remake-v1/ai-edits-v5/full-timeline-v1/root-cinematic-review.json",
-    "new_focused_technical_checks_passed": 9,
-    "new_complete_assembly_gate_claimed": false,
-    "complete_audio_video_decode_passed": true,
-    "all14810_pts_verified": true,
-    "all14390_tail_video_packets_exactly_identical_to_v4": true,
-    "entire_audio_packets_and_timestamps_identical_to_v4": true,
-    "prefix_frames_reencoded": 420,
-    "prefix_fanmark_frames_checked": 420,
-    "prefix_fanmark_failures": 0,
-    "inherited_unchanged_tail_fanmark_frames": 14390,
-    "inherited_v4_source_comparisons": 22,
-    "root_actual_final_context_cues_viewed": 19,
-    "root_actual_component_cues_viewed": 29,
-    "root_original_entry_frames_viewed_in_ordered_sheets": 73,
-    "independent_master_boundary_actual_frames": 8,
-    "independent_pixel_identical_logo_frames": 4,
-    "audio_scope": "Entire AAC stream byte/timestamp-identical to v4, including its earlier authorized6.225\u20137.575s narrator patch; no new subjective listening claim",
-    "limits": [
-      "Generated world differs from native party room but remains coherent, permitted by latest user clarification",
-      "Source party last frame deliberately not restored; direct existing hard logo cut at7s",
-      "Slowed24fps entry uses optical-flow interpolation; mild motion softness remains",
-      "Mask and glove remain visible at title cut; no completed withdrawal claimed",
-      "Six identified additional scenes not generated yet"
+    "vr_cinematic_moments": 11,
+    "new_whole_shot_components": [
+      "L01",
+      "L03",
+      "L06",
+      "L05"
     ],
-    "navigation": {
-      "local_links_passed": 277,
-      "catalogued_video_paths": 189,
-      "symbolic_video_aliases": 2,
-      "previous_video_sizes_mtimes_preserved": 187,
-      "desktop_mobile_actual_decode_and_scene_buttons_passed": true,
-      "root_browser_screenshots_viewed": 3,
-      "private_receipt": ".planning/debug/trailer/storage-audit-20261013/browser-qc-v5-final/navigation-receipt.json"
-    }
+    "root_actual_complete_export_cues_viewed": 157,
+    "root_actual_native_resolution_witnesses_viewed": 14,
+    "assembler_checks_passed": 13,
+    "independent_decoded_frames": 14810,
+    "native_frames_outside_new_edits_verified": 13936,
+    "all_frame_fanmark_passed": true,
+    "exact_aac_packets_including_clock_and_config": 11573,
+    "audio_reencoded": false,
+    "root_review": ".planning/debug/trailer/remake-v1/ai-edits-v7/root-qc/whole-film/root-review.json",
+    "independent_qc": ".planning/debug/trailer/remake-v1/ai-edits-v7/independent-qc/full-v7",
+    "private_review": ".planning/debug/trailer/remake-v1/ai-edits-v7/REVIEW.html",
+    "review_url": "http://192.168.0.80:8090/remake-v1/ai-edits-v7/REVIEW.html",
+    "root_creative_approval": true,
+    "cinematic_phase_complete": true,
+    "user_approval_claimed": false,
+    "real_vr_capture_phase_remaining": true,
+    "original_flat_gameplay_intentionally_retained": true,
+    "all_ai_videos_preserved": true,
+    "limits": [
+      "Wholefilm manual review sampled157cues+14nativewitnesses; every-frame visual review covers the four replacement components, while automated decode/footer/fidelity covers the whole film.",
+      "Native60fps footage meets24fps model motion repeated at60; no invented interpolation of fingers.",
+      "L01 readable mask approximately1s in separate reveal before shoulder action; actors hold a ready pose during contact.",
+      "L03 interior hero performance differs from original as permitted; small rune-symbol/blur variation at native handoff.",
+      "L05 physical exit finishes late, approximately0.18s before the native hard cut.",
+      "No claim of user approval, imperceptibility guarantee, new subjective audio listening, phone hardware or headset/runtime testing."
+    ],
+    "independent_actual_complete_export_images_viewed": 330,
+    "independent_actual_native_resolution_witnesses_viewed": 42,
+    "independent_actual_browser_screenshots_viewed": 14,
+    "review_published": true,
+    "published_browser_passed": true,
+    "primary_navigation_promoted": true,
+    "primary_navigation_http_links_checked": 44,
+    "published_review_http_links_checked": 20,
+    "delivery_verification": ".planning/debug/trailer/remake-v1/ai-edits-v7/independent-qc/full-v7/delivery-verification.json"
   },
   "continuity_followup": {
     "user_rule": "A different background is acceptable if it remains coherent throughout the shot. Sudden architectural reconstruction is rejected AI slop.",
@@ -1419,7 +1512,7 @@
     "free_repair_status": "root-approved for local review; direct native hard logo cut; no native party endpoint morph"
   },
   "cinematic_expansion": {
-    "status": "Complete cinematic v6 finished, root-approved and independently reviewed; eleven VR cinematic moments delivered. Original Flat gameplay retained for the later genuine VR recording exchange.",
+    "status": "Cinematic v7 complete, root self-reviewed and delivered; original Flat gameplay remains for later genuine VR captures.",
     "private_review": ".planning/debug/trailer/remake-v1/ai-edits-v6/REVIEW.html",
     "private_exact_plan": ".planning/debug/trailer/remake-v1/expansion-v1/scene-expansion-plan.json",
     "existing_windows": 3,
@@ -1854,7 +1947,7 @@
         "reserved_usd": "0.80"
       }
     ],
-    "completion_status": "Complete cinematic v6 finished, root-approved and independently reviewed; eleven VR cinematic moments delivered. Original Flat gameplay retained for the later genuine VR recording exchange.",
+    "completion_status": "Cinematic v7 complete, root self-reviewed and delivered; original Flat gameplay remains for later genuine VR captures.",
     "reservation_scope": "All expansion/correction reservations after v5 total44.85; including failed and creatively rejected trials.",
     "historical_preservation_audits": [
       {
@@ -1872,55 +1965,63 @@
     ],
     "current_export": {
       "status": "root-approved-for-delivery",
-      "path": ".planning/debug/trailer/remake-v1/ai-edits-v6/full-timeline-v1/reference-remake-cinematic-v6.mp4",
-      "sha256": "fef07ebcf63f81f473fc544dd1e53833be5f6b02f5d009991238c6b40f681982",
-      "bytes": 328761937,
+      "path": ".planning/debug/trailer/remake-v1/ai-edits-v7/full-timeline-v1/reference-remake-cinematic-v7.mp4",
+      "sha256": "0f0f25170c0e97404445420fe43f40009999943b68ddf8394660c1cf8efd4b19",
+      "bytes": 318103471,
       "frames": 14810,
       "fps": 60,
       "dimensions": [
         1920,
         1080
       ],
-      "video_duration_seconds": 246.83333333333334,
       "container_duration_seconds": 246.861,
       "vr_cinematic_moments": 11,
-      "new_or_corrected_component_count": 9,
-      "root_actual_complete_export_cues_viewed": 156,
-      "root_actual_native_resolution_witnesses_viewed": 8,
+      "new_whole_shot_components": [
+        "L01",
+        "L03",
+        "L06",
+        "L05"
+      ],
+      "root_actual_complete_export_cues_viewed": 157,
+      "root_actual_native_resolution_witnesses_viewed": 14,
       "assembler_checks_passed": 13,
       "independent_decoded_frames": 14810,
-      "native_frames_outside_new_edits_verified": 12989,
-      "worst_native_low_resolution_mae_8bit": 1.0031099033816424,
+      "native_frames_outside_new_edits_verified": 13936,
       "all_frame_fanmark_passed": true,
       "exact_aac_packets_including_clock_and_config": 11573,
       "audio_reencoded": false,
-      "root_review": ".planning/debug/trailer/remake-v1/ai-edits-v6/root-qc/whole-film/root-review.json",
-      "independent_qc": ".planning/debug/trailer/remake-v1/ai-edits-v6/independent-qc/full-v6",
-      "original_flat_gameplay_retained_for_later_vr_capture": true,
-      "limits": "Lossy H264 native-picture fidelity, not byte-identical video outside inserts. Exact AAC packet payload/clock equality. Sampled whole-film manual review plus every-frame component review and automated full output decode; no headset/runtime gate claim.",
-      "independent_actual_complete_export_images_viewed": 340,
-      "independent_actual_native_resolution_witnesses_viewed": 24,
-      "independent_actual_browser_screenshots_viewed": 6,
-      "independent_visual_passed": true,
-      "staged_browser_passed": true,
+      "root_review": ".planning/debug/trailer/remake-v1/ai-edits-v7/root-qc/whole-film/root-review.json",
+      "independent_qc": ".planning/debug/trailer/remake-v1/ai-edits-v7/independent-qc/full-v7",
+      "private_review": ".planning/debug/trailer/remake-v1/ai-edits-v7/REVIEW.html",
+      "review_url": "http://192.168.0.80:8090/remake-v1/ai-edits-v7/REVIEW.html",
+      "root_creative_approval": true,
+      "cinematic_phase_complete": true,
+      "user_approval_claimed": false,
+      "real_vr_capture_phase_remaining": true,
+      "original_flat_gameplay_intentionally_retained": true,
+      "all_ai_videos_preserved": true,
+      "limits": [
+        "Wholefilm manual review sampled157cues+14nativewitnesses; every-frame visual review covers the four replacement components, while automated decode/footer/fidelity covers the whole film.",
+        "Native60fps footage meets24fps model motion repeated at60; no invented interpolation of fingers.",
+        "L01 readable mask approximately1s in separate reveal before shoulder action; actors hold a ready pose during contact.",
+        "L03 interior hero performance differs from original as permitted; small rune-symbol/blur variation at native handoff.",
+        "L05 physical exit finishes late, approximately0.18s before the native hard cut.",
+        "No claim of user approval, imperceptibility guarantee, new subjective audio listening, phone hardware or headset/runtime testing."
+      ],
+      "independent_actual_complete_export_images_viewed": 330,
+      "independent_actual_native_resolution_witnesses_viewed": 42,
+      "independent_actual_browser_screenshots_viewed": 14,
       "review_published": true,
-      "review_url": "http://192.168.0.80:8090/remake-v1/ai-edits-v6/REVIEW.html",
-      "root_delivery_receipt_sha256": "9be74749ff8287ef65c769d3a8e7a9c493afcc31ed994b945a3891d8abc0fb82",
-      "mobile_browser_scope": "Chromium390x844 emulation, not physical phone/headset",
       "published_browser_passed": true,
       "primary_navigation_promoted": true,
-      "primary_navigation_http_links_checked": 34,
-      "published_review_http_links_checked": 35,
-      "delivery_verification": ".planning/debug/trailer/remake-v1/ai-edits-v6/independent-qc/full-v6/delivery-verification.json",
-      "root_additional_published_screenshots_viewed": [
-        "published-nav/desktop-start.png",
-        "published-nav/mobile-review.png"
-      ]
+      "primary_navigation_http_links_checked": 44,
+      "published_review_http_links_checked": 20,
+      "delivery_verification": ".planning/debug/trailer/remake-v1/ai-edits-v7/independent-qc/full-v7/delivery-verification.json"
     },
     "proposal_counts_are_historical": true,
     "actual_vr_cinematic_moments": 11,
     "private_proposal_review": ".planning/debug/trailer/remake-v1/expansion-v1/MEHR-SZENEN.html",
-    "review_url": "http://192.168.0.80:8090/remake-v1/ai-edits-v6/REVIEW.html"
+    "review_url": "http://192.168.0.80:8090/remake-v1/ai-edits-v7/REVIEW.html"
   },
   "historical_complete_cinematic_cuts": [
     {
@@ -1969,12 +2070,114 @@
       },
       "current_status": "Historical v4: O01 world-continuity defect reported by maintainer and confirmed; do not claim the expanded cinematic phase complete",
       "root_creative_approval_current": false
+    },
+    {
+      "path": ".planning/debug/trailer/remake-v1/ai-edits-v5/full-timeline-v1/reference-remake-cinematic-v5.mp4",
+      "sha256": "e8278d2ab7c420fe0044340bbdea5c84959b3c56512b26b2c664a705c1baaf29",
+      "bytes": 290152951,
+      "frames": 14810,
+      "fps": 60,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "container_duration_seconds": 246.861,
+      "root_creative_approval": true,
+      "cinematic_phase_complete": false,
+      "completion_scope": "Background correction complete; additional six cinematic proposals remain ungenerated",
+      "original_flat_gameplay_intentionally_retained": true,
+      "real_vr_capture_phase_remaining": true,
+      "all_ai_videos_preserved": true,
+      "private_review": ".planning/debug/trailer/remake-v1/ai-edits-v5/REVIEW.html",
+      "root_receipt": ".planning/debug/trailer/remake-v1/ai-edits-v5/full-timeline-v1/root-cinematic-review.json",
+      "new_focused_technical_checks_passed": 9,
+      "new_complete_assembly_gate_claimed": false,
+      "complete_audio_video_decode_passed": true,
+      "all14810_pts_verified": true,
+      "all14390_tail_video_packets_exactly_identical_to_v4": true,
+      "entire_audio_packets_and_timestamps_identical_to_v4": true,
+      "prefix_frames_reencoded": 420,
+      "prefix_fanmark_frames_checked": 420,
+      "prefix_fanmark_failures": 0,
+      "inherited_unchanged_tail_fanmark_frames": 14390,
+      "inherited_v4_source_comparisons": 22,
+      "root_actual_final_context_cues_viewed": 19,
+      "root_actual_component_cues_viewed": 29,
+      "root_original_entry_frames_viewed_in_ordered_sheets": 73,
+      "independent_master_boundary_actual_frames": 8,
+      "independent_pixel_identical_logo_frames": 4,
+      "audio_scope": "Entire AAC stream byte/timestamp-identical to v4, including its earlier authorized6.225\u20137.575s narrator patch; no new subjective listening claim",
+      "limits": [
+        "Generated world differs from native party room but remains coherent, permitted by latest user clarification",
+        "Source party last frame deliberately not restored; direct existing hard logo cut at7s",
+        "Slowed24fps entry uses optical-flow interpolation; mild motion softness remains",
+        "Mask and glove remain visible at title cut; no completed withdrawal claimed",
+        "Six identified additional scenes not generated yet"
+      ],
+      "navigation": {
+        "local_links_passed": 277,
+        "catalogued_video_paths": 189,
+        "symbolic_video_aliases": 2,
+        "previous_video_sizes_mtimes_preserved": 187,
+        "desktop_mobile_actual_decode_and_scene_buttons_passed": true,
+        "root_browser_screenshots_viewed": 3,
+        "private_receipt": ".planning/debug/trailer/storage-audit-20261013/browser-qc-v5-final/navigation-receipt.json"
+      },
+      "historical": true
+    },
+    {
+      "status": "root-approved-for-delivery",
+      "path": ".planning/debug/trailer/remake-v1/ai-edits-v6/full-timeline-v1/reference-remake-cinematic-v6.mp4",
+      "sha256": "fef07ebcf63f81f473fc544dd1e53833be5f6b02f5d009991238c6b40f681982",
+      "bytes": 328761937,
+      "frames": 14810,
+      "fps": 60,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "video_duration_seconds": 246.83333333333334,
+      "container_duration_seconds": 246.861,
+      "vr_cinematic_moments": 11,
+      "new_or_corrected_component_count": 9,
+      "root_actual_complete_export_cues_viewed": 156,
+      "root_actual_native_resolution_witnesses_viewed": 8,
+      "assembler_checks_passed": 13,
+      "independent_decoded_frames": 14810,
+      "native_frames_outside_new_edits_verified": 12989,
+      "worst_native_low_resolution_mae_8bit": 1.0031099033816424,
+      "all_frame_fanmark_passed": true,
+      "exact_aac_packets_including_clock_and_config": 11573,
+      "audio_reencoded": false,
+      "root_review": ".planning/debug/trailer/remake-v1/ai-edits-v6/root-qc/whole-film/root-review.json",
+      "independent_qc": ".planning/debug/trailer/remake-v1/ai-edits-v6/independent-qc/full-v6",
+      "original_flat_gameplay_retained_for_later_vr_capture": true,
+      "limits": "Lossy H264 native-picture fidelity, not byte-identical video outside inserts. Exact AAC packet payload/clock equality. Sampled whole-film manual review plus every-frame component review and automated full output decode; no headset/runtime gate claim.",
+      "independent_actual_complete_export_images_viewed": 340,
+      "independent_actual_native_resolution_witnesses_viewed": 24,
+      "independent_actual_browser_screenshots_viewed": 6,
+      "independent_visual_passed": true,
+      "staged_browser_passed": true,
+      "review_published": true,
+      "review_url": "http://192.168.0.80:8090/remake-v1/ai-edits-v6/REVIEW.html",
+      "root_delivery_receipt_sha256": "9be74749ff8287ef65c769d3a8e7a9c493afcc31ed994b945a3891d8abc0fb82",
+      "mobile_browser_scope": "Chromium390x844 emulation, not physical phone/headset",
+      "published_browser_passed": true,
+      "primary_navigation_promoted": true,
+      "primary_navigation_http_links_checked": 34,
+      "published_review_http_links_checked": 35,
+      "delivery_verification": ".planning/debug/trailer/remake-v1/ai-edits-v6/independent-qc/full-v6/delivery-verification.json",
+      "root_additional_published_screenshots_viewed": [
+        "published-nav/desktop-start.png",
+        "published-nav/mobile-review.png"
+      ],
+      "historical": true
     }
   ],
   "whole_shot_correction_v7": {
-    "state": "generating_not_approved",
+    "state": "complete_root_self_reviewed_delivered",
     "user_feedback": "Changed native dragon near1:51; glitching hand near2:50; hand disappearance near2:56. Restore liked shoulder contact. User explicitly requests fresh video generation rather than continuing patch repairs.",
-    "input_authority": "Clean native original video; old model image used only as shoulder action reference.",
+    "input_authority": "Clean native footage/anchors and actual native mod mask/glove references; fresh integrated middle/start keyframes for controlled whole-shot generation. No previous repair chain scene pixels.",
     "windows": {
       "L01": [
         6617,
@@ -1996,6 +2199,130 @@
     "private_root": ".planning/debug/trailer/remake-v1/ai-edits-v7",
     "previous_delivery_preserved": true,
     "round_reserve_cap_usd": 10,
-    "root_creative_approval_pending": true
-  }
+    "root_creative_approval_pending": false,
+    "round_reserve_cap_note": "Initial newest10USD allocation plus necessary existing authorized balance; unchanged global85USD ceiling.",
+    "all_correction_reservations_usd": 11,
+    "previous_authorized_balance_used_usd": 1,
+    "shoulder_contact": "Selected fresh L01 take contacts original Scoundrel outer pauldron; native creature opening retained.",
+    "complete_master": {
+      "status": "root-approved-for-delivery",
+      "path": ".planning/debug/trailer/remake-v1/ai-edits-v7/full-timeline-v1/reference-remake-cinematic-v7.mp4",
+      "sha256": "0f0f25170c0e97404445420fe43f40009999943b68ddf8394660c1cf8efd4b19",
+      "bytes": 318103471,
+      "frames": 14810,
+      "fps": 60,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "container_duration_seconds": 246.861,
+      "vr_cinematic_moments": 11,
+      "new_whole_shot_components": [
+        "L01",
+        "L03",
+        "L06",
+        "L05"
+      ],
+      "root_actual_complete_export_cues_viewed": 157,
+      "root_actual_native_resolution_witnesses_viewed": 14,
+      "assembler_checks_passed": 13,
+      "independent_decoded_frames": 14810,
+      "native_frames_outside_new_edits_verified": 13936,
+      "all_frame_fanmark_passed": true,
+      "exact_aac_packets_including_clock_and_config": 11573,
+      "audio_reencoded": false,
+      "root_review": ".planning/debug/trailer/remake-v1/ai-edits-v7/root-qc/whole-film/root-review.json",
+      "independent_qc": ".planning/debug/trailer/remake-v1/ai-edits-v7/independent-qc/full-v7",
+      "private_review": ".planning/debug/trailer/remake-v1/ai-edits-v7/REVIEW.html",
+      "review_url": "http://192.168.0.80:8090/remake-v1/ai-edits-v7/REVIEW.html",
+      "root_creative_approval": true,
+      "cinematic_phase_complete": true,
+      "user_approval_claimed": false,
+      "real_vr_capture_phase_remaining": true,
+      "original_flat_gameplay_intentionally_retained": true,
+      "all_ai_videos_preserved": true,
+      "limits": [
+        "Wholefilm manual review sampled157cues+14nativewitnesses; every-frame visual review covers the four replacement components, while automated decode/footer/fidelity covers the whole film.",
+        "Native60fps footage meets24fps model motion repeated at60; no invented interpolation of fingers.",
+        "L01 readable mask approximately1s in separate reveal before shoulder action; actors hold a ready pose during contact.",
+        "L03 interior hero performance differs from original as permitted; small rune-symbol/blur variation at native handoff.",
+        "L05 physical exit finishes late, approximately0.18s before the native hard cut.",
+        "No claim of user approval, imperceptibility guarantee, new subjective audio listening, phone hardware or headset/runtime testing."
+      ],
+      "independent_actual_complete_export_images_viewed": 330,
+      "independent_actual_native_resolution_witnesses_viewed": 42,
+      "independent_actual_browser_screenshots_viewed": 14,
+      "review_published": true,
+      "published_browser_passed": true,
+      "primary_navigation_promoted": true,
+      "primary_navigation_http_links_checked": 44,
+      "published_review_http_links_checked": 20,
+      "delivery_verification": ".planning/debug/trailer/remake-v1/ai-edits-v7/independent-qc/full-v7/delivery-verification.json"
+    },
+    "provider_jobs_settled": true,
+    "actual_raw_videos_preserved": 11,
+    "source_title_tail": "L03 retains4native entry frames,155fresh action frames and134exact original title-tail frames.",
+    "selected_versions": {
+      "L01": "whole-reference-kling-v9b",
+      "L03": "whole-action-keyframes-kling-v12",
+      "L06": "whole-native-kling-v8",
+      "L05": "whole-keyframes-kling-v10"
+    }
+  },
+  "historical_core_cinematic_windows_v4": [
+    {
+      "id": "O01",
+      "window_seconds": [
+        3,
+        7
+      ],
+      "frames": [
+        180,
+        420
+      ],
+      "count": 240,
+      "players": 1,
+      "mask": "Runeveil",
+      "action": "High god uses one relaxed Arcane directional gesture; Tinkerer takes a balanced small step; recover original party ending",
+      "status": "Root-approved matched-v3 inserted in complete cinematicv4:240frames60fps, first25 and last3 native frames, repaired edge flow",
+      "inserted_in_complete_v4": true
+    },
+    {
+      "id": "I01",
+      "window_seconds": [
+        139.95,
+        145.7
+      ],
+      "frames": [
+        8397,
+        8742
+      ],
+      "count": 345,
+      "players": 1,
+      "mask": "Ironwatch",
+      "action": "Metal hand reaches from above, gently guides rocky party warrior shoulder, releases and withdraws",
+      "status": "Root-approved matched-v2 reused unchanged in complete cinematicv4; source-matched345frames60fps",
+      "inserted_in_complete_v4": true
+    },
+    {
+      "id": "A04",
+      "window_seconds": [
+        217.2,
+        223.78333333333333
+      ],
+      "frames": [
+        13032,
+        13427
+      ],
+      "count": 395,
+      "players": 2,
+      "masks": [
+        "Grimhorn",
+        "Runeveil"
+      ],
+      "action": "Early native-style Tinkerer green shot, two high gods guide from above, release before own Cragheart stone attack",
+      "status": "Root-approved paired-keyframes-v1/matched-v2:395frames60fps; exact native first/last anchors and black cores; source/model geometry mixes removed",
+      "inserted_in_complete_v4": true
+    }
+  ]
 }

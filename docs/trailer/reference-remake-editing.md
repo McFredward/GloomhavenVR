@@ -10,20 +10,39 @@ the first spoken Gloomhaven becomes GloomhavenVR. The original title reveal at
 
 ## Active interaction direction
 
-**Fresh whole-shot correction in progress, 2026-10-15:** the maintainer rejected
-the current v6 dragon appearance near1:51, the glitching hand during the camera
-move near2:50, and the hand disappearance near2:56. The earlier technical and
-visual approvals are historical evidence, not acceptance of these defects.
-Regenerate L01, the complete L03 door/title camera shot, adjacent L06 mine and
-L05 bandits from clean original footage. Restore the liked sustained Mindthief
-outer-shoulder contact in L01. Use coherent whole-shot motion instead of adding
-another local repair chain. Preserve all previous generated videos and exports.
+**V7 cinematic delivery, 2026-10-15:** four fresh whole-shot replacements
+address the changed dragon near 1:51 and the glitching camera/hand sequences
+near 2:50 and 2:56. L01 preserves the native creature opening and restores sustained
+Scoundrel outer-pauldron contact after a separate readable Runeveil reveal.
+L03 uses a solid overhead door brace and upward withdrawal, then resumes all 134
+original title-reveal frames before any generated typography can appear. L06
+replaces the adjacent mine gesture; L05 uses a warm, dim glove with a physical
+upward exit. Every new scene uses actual model frames; no old hand repair chain
+or anatomy interpolation is carried into these four replacements.
 
-A further USD10 is authorized, raising the recorded overall ceiling to USD85.
-This correction round itself is capped at USD10; its first four requests reserve
-USD3.40 on top of the previous USD64.75. Paid queue completion never implies
-creative approval. Private work is under `ai-edits-v7/`; v6 remains available
-as the previous delivery until the new complete film passes root review.
+The complete 4:07 film is root-approved for delivery after actual review of 157
+whole-film Watch cues and 14 native-resolution master witnesses. Independent
+review covers 330 materialized Watch images, 42 native-resolution witnesses and
+actual desktop/mobile browser playback. All 13 assembly checks and the separate
+14,810-frame gate pass: the fanmark is present on every frame, all 13,936 frames
+outside the four replacements pass picture-fidelity checks, and all 11,573 AAC
+packets retain exact payloads, clocks and codec configuration. Mobile evidence
+uses Chromium emulation; no hardware or new subjective listening claim is made.
+The master SHA256 is `0f0f25170c0e97404445420fe43f40009999943b68ddf8394660c1cf8efd4b19`. Its private review page is
+`ai-edits-v7/REVIEW.html`; original Flat gameplay remains for the subsequent
+genuine VR recording exchange. User acceptance of this new delivery is pending.
+
+Reservations total USD75.75 against the authorized USD85 ceiling. This correction
+used USD11: the newest USD10 allocation plus USD1 of previously authorized unused
+balance, explained to the user before use. All failed/rejected requests remain
+reserved; invoices are unavailable. All 66 provider videos and 6 audio files are
+hash-verified and preserved, including 11 new raw videos. No jobs remain pending.
+
+Limits are recorded explicitly: 24fps model motion repeats in the 60fps export;
+L01's mask is readable for about 1s before the shoulder action, whose party holds
+a ready pose; L03 changes interior hero motion and has a small rune/blur variation
+at the native handoff; L05 leaves about 0.18s clean after its late withdrawal.
+These are self-review findings, not an imperceptibility guarantee.
 
 ## Historical v6 expansion delivery
 

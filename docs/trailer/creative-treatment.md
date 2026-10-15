@@ -16,15 +16,21 @@ See [reference-remake-editing.md](reference-remake-editing.md) for the active
 pipeline and the current USD85 total cap. The completed65-second film below is retained
 as the earlier direction, with its sources and cost evidence.
 
-**Fresh whole-shot correction, 2026-10-15:** the latest user review rejects
-v6's changed native dragon and glitching door/bandit hand motion. L01/L03/L05
-and the adjacent L06 camera shot are being regenerated from clean original
-footage, with sustained Mindthief shoulder contact restored. The new correction
-round is capped at USD10, within the newly authorized USD85 overall ceiling.
-The historical v6 review below does not establish acceptance of these defects.
-All previous generated videos remain preserved; v7 will replace the delivery
-only after complete-film self-review. Flat gameplay remains for later genuine
-VR recordings.
+**V7 correction delivery, 2026-10-15:** the complete 4:07 film now contains
+fresh L01/L03/L05/L06 whole-shot corrections. The native dragon opening is
+restored, Scoundrel receives sustained outer-shoulder contact, the overhead door
+glove withdraws physically before the unchanged original title reveal, and the
+mine/bandit gestures have stable whole-hand exits. Root and independent actual
+visual review, all-frame media checks and desktop/mobile browser playback pass.
+The latest review is `ai-edits-v7/REVIEW.html`; user acceptance remains pending.
+Current conservative reservations are USD75.75/85, including USD11 for this round:
+USD10 newest allocation plus USD1 of already authorized unused balance. All 66
+provider videos and 6 audio files remain preserved. Original Flat gameplay stays
+for the later genuine VR recording exchange. See the editing guide for exact
+evidence, timing and 24fps cadence/remaining creative limits.
+
+**Historical v6 expansion delivery:** the following checkpoint precedes the
+latest user feedback and v7 corrections; its earlier review is retained as history.
 
 **Expansion delivery checkpoint, 2026-10-15:** all six additional cinematic
 edits and both forest atmospheres are authorized, with total ceiling USD75 and

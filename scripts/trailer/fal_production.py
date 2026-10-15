@@ -34,6 +34,11 @@ def check_model_arguments(endpoint, arguments):
         duration = arguments["duration"]
         if type(duration) is not int or duration not in {0, *range(2, 11)}:
             raise ValueError("Wan 2.7 edit duration must be integer 0 or 2–10")
+    if endpoint == "fal-ai/kling-video/o3/pro/reference-to-video":
+        # The live provider rejects this combination although its public schema
+        # does not describe the restriction. Catch it before reserving money.
+        if arguments.get("end_image_url") and len(arguments.get("image_urls") or []) > 2:
+            raise ValueError("Kling O3 reference end image supports at most two reference images")
     if endpoint == "fal-ai/kling-video/o3/pro/video-to-video/edit":
         # Actual provider validation rejected the overhead-player pilot above
         # 2500 characters. Queue COMPLETED can still contain that HTTP422 failure.
