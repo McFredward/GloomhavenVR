@@ -1,5 +1,15 @@
 # Gloomhaven VR — Step Inside
 
+**Genuine VR gameplay pass, 2026-10-16:** the maintainer accepted the v9 AI
+cinematics and requested an incremental replacement of Flat gameplay. The
+inventory covers 41 gameplay regions; the first selection inserts 20 genuine
+VR excerpts covering 25 regions and 65.533 seconds at the original positions.
+Sixteen regions still require suitable captures. The accepted cinematics and
+complete narration/music remain inherited, with no new inference cost.
+See [vr-gameplay-replacement.md](vr-gameplay-replacement.md) for the actual
+matches, remaining captures and delivery evidence. This is the current editing
+phase; the cinematic deliveries below document its accepted source history.
+
 **Direction update, 2026-10-13:** the maintainer replaced this original CGI-short
 approach with a close remake of the official Gameplay Overview Trailer
 (`-SGDEP-zFHo`, approximately4:07). The original film is the base: selected
@@ -34,7 +44,8 @@ IDs/result links before removing unused local media. Provider URLs are recovery
 metadata, not a permanent remote-backup guarantee. Cleanup is complete and
 freed 40.31 GB. The final movie hash, used sources and all 74 current web links
 pass the post-cleanup check. Exact delivery and deletion evidence are recorded
-in the editing guide. Genuine VR gameplay capture remains the agreed next phase.
+in the editing guide. That delivery established the base for the genuine VR
+gameplay replacement now in progress.
 
 
 **Historical targeted v8 revision, 2026-10-15:** the maintainer accepts the

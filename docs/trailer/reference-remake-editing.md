@@ -1,9 +1,19 @@
 # Reference trailer editing
 
-The active trailer uses the official Gameplay Overview film as its timeline
-master. Selected existing cinematic shots receive mask/hand additions from
-video-edit models. The maintainer will supply real VR footage for the Flat
-explanation shots after the complete cinematic remake has been self-reviewed. Keep
+The current editing phase replaces Flat gameplay with genuine VR recordings.
+The v10 first pass uses 20 inserts covering 25 of 41 inventory regions; 16
+regions retain their previous pictures pending suitable captures. The accepted
+v9 cinematics and complete AAC track are inherited. No new paid generation is
+used. The private review is `vr-gameplay-v1/REVIEW.html`, with original-v9
+comparison, source links and a concrete next capture list. See
+[vr-gameplay-replacement.md](vr-gameplay-replacement.md) for coverage, limits and
+exact delivery evidence. The v9 section below records the immutable accepted
+cinematic base rather than a new runtime result.
+
+The trailer uses the official Gameplay Overview film as its timeline master.
+Selected cinematic shots received mask/hand additions from video-edit models.
+The maintainer has now supplied real VR recordings for the incremental Flat
+gameplay exchange after accepting the complete cinematic remake. Keep
 the original English narration and mix except the requested opening name patch:
 the first spoken Gloomhaven becomes GloomhavenVR. The original title reveal at
 7.000–9.050s receives the VR suffix from the native mod logo.
