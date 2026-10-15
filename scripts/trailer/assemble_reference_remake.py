@@ -383,10 +383,12 @@ def build_command(plan: dict) -> tuple[str, list[str]]:
             graph.append(f"[{foreground}][matte{node}]alphamerge[masked{node}]")
             foreground = f"masked{node}"
         graph.append(f"[{foreground}]setpts=PTS+{edit['start_frame']}[placed{node}]")
-        # Generic multi-input timeline n can count secondary frames too. Use
-        # the normalized main clock and rational frame boundaries instead.
+        # Generic multi-input timeline n can count secondary frames too. Snap
+        # the normalized main clock to its integer delivery frame: comparing
+        # raw doubles against a rational boundary can skip an insertion's
+        # first frame (observed at 4088/60 in adjacent gameplay inserts).
         graph.append(f"[{current}][placed{node}]overlay=eof_action=pass:repeatlast=0:"
-                     f"enable='gte(t,{edit['start_frame']}/{FPS})*lt(t,{edit['end_frame_exclusive']}/{FPS})'[base{node}]")
+                     f"enable='gte(round(t*{FPS}),{edit['start_frame']})*lt(round(t*{FPS}),{edit['end_frame_exclusive']})'[base{node}]")
         current = f"base{node}"
     for edit in plan["graphics"]:
         node += 1
@@ -394,7 +396,7 @@ def build_command(plan: dict) -> tuple[str, list[str]]:
         normalize(image, edit, f"graphic{node}", still=True)
         graph.append(f"[graphic{node}]setpts=PTS+{edit['start_frame']}[placed{node}]")
         graph.append(f"[{current}][placed{node}]overlay=eof_action=pass:repeatlast=0:"
-                     f"enable='gte(t,{edit['start_frame']}/{FPS})*lt(t,{edit['end_frame_exclusive']}/{FPS})'[base{node}]")
+                     f"enable='gte(round(t*{FPS}),{edit['start_frame']})*lt(round(t*{FPS}),{edit['end_frame_exclusive']})'[base{node}]")
         current = f"base{node}"
     if plan["footer_height"]:
         height = HEIGHT - plan["footer_height"]
