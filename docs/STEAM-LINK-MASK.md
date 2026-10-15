@@ -44,6 +44,28 @@ mod head camera. Missing/unsupported targets at menu closure stop the request
 rather than indefinitely retrying or attaching to another camera. SPI/SRP/mono
 callbacks retain the ordinary source blit.
 
+### First hardware source-output check
+
+Install the current `dev` build on the PC using the usual development installer;
+verify its ModBuild banner. Start that PC game through the ordinary Steam Link
+VR stream on Frame. No new Frame helper installation or restart is needed.
+
+1. Keep Debug logging enabled. In VR options open **Advanced → Measurement &
+   diagnostics → Steam Link mask test (EXP.)** and enable the test.
+2. Close VR options. Expect the diagnostic color/grayscale pattern in both eyes.
+   This build cannot show native streamed passthrough, even if the test succeeds.
+3. Press the ordinary controller menu button. The game image must return
+   immediately and normal menu interaction must remain usable.
+4. Enable the test again and let its 30-second limit expire. Verify ordinary
+   output returns and the switch is off. A fresh explicit enable must work again.
+
+Retain the PC `LogOutput.log` and `Player.log`, with the run's ModBuild, under
+`.planning/debug/steamlink_passthrough/`. A Frame screenshot can establish the
+visible pattern, but not decoded-resource association or numerical fidelity.
+Debug `PAYLOAD` lines record the selected/actual eye and first callback gates;
+the stop summary should show positive left/right callback counts. Report absent
+output or incomplete eye output rather than treating it as a successful carrier.
+
 ## Ownership and lifecycle
 
 `CoreModule` binds/clears the diagnostic request before XR bootstrap, installs a
