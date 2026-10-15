@@ -148,3 +148,39 @@ Stored-Y diagnostics have discontinuous structured regions; do not infer a
 simple image projection, guessed RGB transform or passthrough-ready association.
 Offline interpretation is now underway without further Frame access. The main
 mod DLL/source676 is unchanged and no complete local test gate is repeated.
+
+## Local same-image sampler comparison preparation, 2026-10-16
+
+The first saved native components contain block discontinuities and recover no
+CRC source header under the bounded tested mappings; original left/right source
+PNGs pass all three header positive controls. Historical compressed Qualcomm
+memory metadata is not proof of the current image layout or a driver defect.
+Never substitute a physical DRM pitch for a logical Vulkan buffer-copy stride.
+
+The research fork integrates a paired comparison at4e74494: tight P010 plus
+matching native-view RGB_IDENTITY sampled components in disjoint regions of the
+same64MiB staging allocation. Both share the original command, fence and exact
+retirement proof. All GPU objects are prepared cold; native graphics/push state,
+shader and Steam PC sender remain unchanged. Exact device enablement, public
+format/modifier support, converted view, compute queue and clean command history
+are mandatory. Unobserved conditional/inherited/heap/tile-dispatch routes and
+enabled pipeline statistics are refused. Compute reads are ordered before later
+native GPU work as well as host publication. One bounded background refusal
+record explains rejected sampler admission without render-thread logging.
+
+Focused controls, real software/hardware Vulkan fixture evidence and independent
+source review are retained in the fork's private sampler evidence. The local
+GPUs do not support the exact native MIDPOINT/LINEAR P010 profile: the separate
+supported-profile software fixture must not be described as that proof. Final
+strict ARM build is291248bytes, SHA
+61c8016596da18047d5d85a8ae8eeb75c44b6c9bdfd8a6124ecb11d37a8cc8b3;
+three private exports, no TLS/direct Vulkan dependency and BIND_NOW/RELRO pass.
+All14 final original-loader smoke cases pass; they do not issue PS_DISTORT.
+
+This remains local, not a new Frame installation. Preparation and future paired
+transfer/rollback rules are in the fork's
+docs/PIXEL-SAMPLER-PREPARATION-20261016.md. Fresh device approval/readiness and
+actual current-provider/native-health gates remain required before activation.
+There is no automatic expiry/rollback/restart. Source-frame/eye/UV/foveation and
+working streamed passthrough are still open. Source676, mod defaults, gameplay,
+wire and unrelated concurrent trailer edits remain untouched.
