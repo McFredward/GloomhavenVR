@@ -10,6 +10,69 @@ the first spoken Gloomhaven becomes GloomhavenVR. The original title reveal at
 
 ## Active interaction direction
 
+**V9 speed correction, 2026-10-15:** the maintainer rejected v8's slowed
+A04 beat and accelerated dragon bridge. The new edit replaces only L01
+`[6617,6984)` and A04 `[13032,13427)` against the immutable v8 master. The
+approved I01 camera/shoulder edit and every other scene remain inherited.
+
+The maintainer then explicitly selected the older L01 provider take
+`remake-l01-visible-contact-kling-ref-v7b`, asking to keep its remainder and
+correct only the malformed dragon opening. V9 keeps 108 exact native opening
+frames, cuts to that take's raw30..119 for 225 delivery frames at its original
+24fps source speed, and restores 34 native tail frames. The new reverse-angle
+cut at 6725 is an editorial change. The original ending resumes at 6950. There
+is no endpoint fitting, slow motion, acceleration or anatomy interpolation.
+The selected old remainder retains its own camera pan; it is not presented as
+a newly generated, continuous six-second take. A brief second-woman behavior
+near raw100 is inherited from the exact remainder the maintainer selected,
+rather than silently substituted or claimed newly corrected.
+
+A04 establishes all three ground actors and both overhead masks immediately.
+Its entire three-second readiness beat runs at exact 1x source time: 72 actual
+24fps images become 180 delivery frames with ordinary 2/3 repetition. An
+intentional angle cut at 13212 leads to 215 unchanged native attack frames.
+The brown glove physically exits down/left; no upward-withdrawal claim is made.
+The final component has 395 frames at 60fps and retains the complete source clock.
+
+The complete 4:07 v9 film is reviewed and published at
+`ai-edits-v9/REVIEW.html`. Its SHA256 is
+`0b332c1e1860a2395154e6d99f938cc8dc1b54177cadd2a2466ed6e585b8ef9b`.
+Root viewed all 762 changed component frames, 139 whole-film Watch cues,
+21 native witness contacts and eight full-size master witnesses. Independent
+technical review passes all 14,810 decoded frames, the continuous fan-mod mark,
+14,048 outside-window picture-fidelity comparisons and all 11,573 unchanged
+AAC packets including their clocks and codec configuration. Outside-window
+video comparisons allow normal export loss; they do not establish byte identity.
+Independent visual review and actual desktop/mobile Chromium playback pass;
+mobile checks use emulation. Original Flat gameplay remains for the agreed
+subsequent VR capture exchange. No new headset or subjective listening claim
+is made.
+
+User-authorized cleanup is complete: 37,062 unused files and 813 obsolete
+aliases were removed. Unique allocated file bytes unlinked total
+40,306,987,008; measured filesystem free space increased by 40,311,316,480 bytes
+(40.31 GB, including filesystem activity/metadata differences). All 6,401
+protected paths remain present and all 2,427 selected authority hashes match
+before and after deletion. The final movie hash and all 74 current HTTP
+dependencies pass again after cleanup. Used sources, capture inputs and compact
+review evidence remain local. All 93 fal runs retain recovery metadata;
+unused local outputs are removed, and remote result URLs have no permanence
+guarantee. Exact deletion and verification receipts are in
+`ai-edits-v9/cleanup-plan/`.
+
+Conservative reservations are USD84.05/85, including USD2.80 for four new
+requests. Unused and rejected requests remain reserved; invoices are
+unavailable. The selected L01 repair uses existing footage and adds no further
+generation cost.
+
+**Historical v8 review:** its initial creative sign-off was retracted after the
+maintainer's speed feedback. The2.535x dragon bridge and47-image A04 prefix
+stretched across180frames are superseded. V8's passing technical checks remain
+historical evidence and cannot authorize v9 delivery or deletion. I01 remains
+the accepted bounded raw0..138 take, with a deliberate new map cut at8758.
+
+## Historical v7 delivery
+
 **V7 cinematic delivery, 2026-10-15:** four fresh whole-shot replacements
 address the changed dragon near 1:51 and the glitching camera/hand sequences
 near 2:50 and 2:56. L01 preserves the native creature opening and restores sustained

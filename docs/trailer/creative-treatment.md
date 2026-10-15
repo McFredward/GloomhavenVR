@@ -13,10 +13,44 @@ AI candidates and six follow-up proposals with prompting research. The private G
 are under `.planning/debug/trailer/remake-v1/`. The first A04 video-edit result
 and its source-preserving composite remain historical review material.
 See [reference-remake-editing.md](reference-remake-editing.md) for the active
-pipeline and the current USD85 total cap. The completed65-second film below is retained
-as the earlier direction, with its sources and cost evidence.
+pipeline and the current USD85 total cap. The 65-second treatment below is
+historical documentation; unused media were removed after the current delivery.
 
-**V7 correction delivery, 2026-10-15:** the complete 4:07 film now contains
+**V9 speed correction, 2026-10-15:** the user restored the older L01
+`remake-l01-visible-contact-kling-ref-v7b` remainder, with only its malformed
+dragon opening replaced. Use the original first 108 frames, 225 delivery frames
+from raw30..119 at exact 1x, then 34 original tail frames. Keep its liked Runeveil
+and Mindthief hand action. A04 now uses a full natural-speed three-second
+readiness performance before the original attack. The two updated windows are
+L01[6617,6984) and A04[13032,13427); all other accepted pictures and the complete
+soundtrack clock remain inherited. V8's earlier creative approval was retracted
+for its excessive slowing/acceleration; its technical receipts are historical.
+
+The complete v9 film is reviewed and published at `ai-edits-v9/REVIEW.html`.
+Conservative reservations are USD84.05/85, including unused attempts. The latest
+explicit cleanup request supersedes the earlier preserve-all-AI rule: retain
+used canonical sources, inputs and compact evidence, and archive all request
+IDs/result links before removing unused local media. Provider URLs are recovery
+metadata, not a permanent remote-backup guarantee. Cleanup is complete and
+freed 40.31 GB. The final movie hash, used sources and all 74 current web links
+pass the post-cleanup check. Exact delivery and deletion evidence are recorded
+in the editing guide. Genuine VR gameplay capture remains the agreed next phase.
+
+
+**Historical targeted v8 revision, 2026-10-15:** the maintainer accepts the
+rest of v7 and requests exactly three corrections: establish the dragon before
+its hit near1:57, remove the camera-motion breaks near2:21, and restore a
+solid Cragheart presence and motivated forest action near3:38. Retain the
+two liked forest masks. Preserve all other approved scenes, Flat gameplay,
+soundtrack, logo/name patch and continuous unofficial branding. Native moving
+footage governs the forest attack; rejected generations remain archived. I01
+uses one continuous selected take and a new editorial hard cut to the clean
+original map. A04 replaces the missed Tinkerer shot with quiet readiness before
+the unchanged native Cragheart attack. Work uses the already authorized USD85
+production balance, with USD81.25 conservatively reserved.
+V7 remains published until the complete v8 replacement passes actual review.
+
+**Previous v7 correction delivery, 2026-10-15:** the complete 4:07 film contains
 fresh L01/L03/L05/L06 whole-shot corrections. The native dragon opening is
 restored, Scoundrel receives sustained outer-shoulder contact, the overhead door
 glove withdraws physically before the unchanged original title reveal, and the

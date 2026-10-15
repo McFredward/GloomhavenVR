@@ -1,21 +1,21 @@
 {
   "schema_version": 1,
-  "status": "Cinematic v7 complete, root self-reviewed and delivered; original Flat gameplay remains for later genuine VR captures.",
+  "status": "V9 complete, reviewed and published; user-authorized unused-media cleanup complete. User-selected older L01 contact retains the original dragon opening; A04 runs at natural source speed. Genuine VR gameplay capture is the agreed next phase.",
   "date": "2026-10-15",
   "source_url": "https://www.youtube.com/watch?v=-SGDEP-zFHo",
   "source_title": "Gloomhaven | Gameplay Overview Trailer",
   "source_duration_seconds": 246.861,
-  "source_format": "YouTube source3840\u00d72160/60fps; analysis proxy1280\u00d7720/60fps",
+  "source_format": "YouTube source3840×2160/60fps; analysis proxy1280×720/60fps",
   "source_frame_review": {
     "scene_frames_viewed": 57,
     "cue_frames_viewed": 82,
     "total_viewed": 139,
     "independent_creative_frames": 12,
     "transcript": "Official manual English captions; no paid ASR",
-    "motion_quality": "Every fresh raw/component frame actually reviewed; root157 whole-film cues and 14native-resolution witnesses viewed. Independent whole-film review and automated14810-frame fidelity/footer checks pass. User acceptance is not claimed."
+    "motion_quality": "V9 root review covers all762 changed component frames,139 whole-film Watch cues and21 native witness contacts/eight full-size witnesses. Independent visual review, all14810-frame technical/footer checks and actual browser playback pass; user acceptance is not claimed."
   },
   "direction": "Original film as base; selected cinematic shots modified with video-edit models; Flat explanation footage replaced by genuine VR captures; invisible visual joins",
-  "timing_note": "V7 retains exact14810-frame/60fps source clock and246.861s AAC tail. Initial planning windows are historical; current active windows use exact approved ranges.",
+  "timing_note": "V9 preserves14810frames/60fps and246.861s container/AAC clock. Only L01[6617,6984) and A04[13032,13427) change against immutable v8; approved I01 remains inherited.",
   "voice": {
     "mode": "Keep original English text/timing, user confirmed; small GloomhavenVR substitutions only",
     "patches": [
@@ -39,36 +39,33 @@
     "geographic_note": "These two mentions name the fictional city/region; preserve Gloomhaven there unless final wording needs adjustment."
   },
   "budget": {
-    "new_paid_calls": 12,
+    "new_paid_calls": 4,
     "new_fal_usd": null,
-    "previous_reserved_usd": 64.75,
-    "previous_cap_usd": 75,
+    "previous_reserved_usd": 81.25,
+    "previous_cap_usd": 85,
     "previous_invoice_reconciled": false,
-    "additional_round_cap_usd": 10,
+    "additional_round_cap_usd": 0,
     "total_authorized_cap_usd": 85,
-    "new_reserved_usd": 11,
+    "new_reserved_usd": 2.8,
     "actual_new_invoice_reconciled": false,
-    "pilot_scope": "Completed v7: newest10USD allocation plus1USD from previously authorized unreserved balance, announced before use; overall85USD ceiling unchanged. Rejected and failed reservations retained, invoices unavailable.",
+    "pilot_scope": "V9:0.40USD A04 plus three0.80USD L01 attempts already submitted before/around user restored the older favorite; final bounded L01 uses existing footage with no additional paid call. All reservations, including unused outputs, remain counted; invoices unavailable.",
     "initial_three_model_comparison_proposed_usd": 3.75,
     "initial_model_comparison_status": "Not run; only one Kling pilot commissioned",
-    "all_reserved_usd": 75.75,
+    "all_reserved_usd": 84.05,
     "request_states": {
+      "all_ledger_jobs": 93,
       "all_remake_ledger_states": {
-        "completed": 75,
+        "completed": 87,
         "failed": 6
       },
-      "all_ledger_jobs": 81,
-      "v7_paid_requests": 12,
-      "v7_raw_videos_preserved": 11,
-      "v7_selected_whole_shots": 4,
-      "total_raw_videos_preserved": 66,
-      "total_audio_files_preserved": 6,
-      "pending_jobs": 0
+      "v9_paid_requests": 4,
+      "pending_jobs": 0,
+      "preservation_note": "Unused local outputs removed after exact-master delivery gates. Selected used source closure and all 93 fal run recovery records are retained; remote URLs have no permanence guarantee."
     },
-    "this_revision_reserved_usd": 11,
+    "this_revision_reserved_usd": 2.8,
     "proposed_total_cap_usd": 85,
     "budget_extension_pending": false,
-    "unreserved_under_total_cap_usd": 9.25,
+    "unreserved_under_total_cap_usd": 0.95,
     "request_states_note": "Completed state is provider transport/result availability, not creative approval. Selected/rejected clips are recorded separately.",
     "this_v4_reserved_usd": 4.35,
     "this_v5_reserved_usd": 0.5,
@@ -77,7 +74,8 @@
     "this_v7_round_cap_usd": 10,
     "this_v7_reserved_usd": 11,
     "this_v7_initial_new_allocation_usd": 10,
-    "this_v7_previous_authorized_margin_usd": 1
+    "this_v7_previous_authorized_margin_usd": 1,
+    "this_v8_reserved_usd": 5.5
   },
   "private_briefing": ".planning/debug/trailer/remake-v1/AUFNAHMEPLAN.html",
   "private_capture_list": ".planning/debug/trailer/remake-v1/AUFNAHMELISTE.txt",
@@ -1168,7 +1166,7 @@
         110.28333333333333,
         116.4
       ],
-      "status": "Fresh v7 whole-shot correction"
+      "status": "V9 user-selected older take remainder with bounded native opening and tail at exact1x"
     },
     {
       "id": "L02",
@@ -1187,14 +1185,14 @@
       "id": "I01",
       "frames": [
         8397,
-        8742
+        8758
       ],
-      "count": 345,
+      "count": 361,
       "window_seconds": [
         139.95,
-        145.7
+        145.96666666666667
       ],
-      "status": "Retained approved cinematic in immutable v6 base"
+      "status": "Retained approved v8 camera/shoulder edit; new editorial map cut8758"
     },
     {
       "id": "L03",
@@ -1259,7 +1257,7 @@
         217.2,
         223.78333333333333
       ],
-      "status": "Retained approved cinematic in immutable v6 base"
+      "status": "V9 natural-clock readiness beat and original attack tail"
     }
   ],
   "omitted_cinematic_candidate": {
@@ -1427,9 +1425,9 @@
   },
   "final_cinematic_cut": {
     "status": "root-approved-for-delivery",
-    "path": ".planning/debug/trailer/remake-v1/ai-edits-v7/full-timeline-v1/reference-remake-cinematic-v7.mp4",
-    "sha256": "0f0f25170c0e97404445420fe43f40009999943b68ddf8394660c1cf8efd4b19",
-    "bytes": 318103471,
+    "path": ".planning/debug/trailer/remake-v1/ai-edits-v9/full-timeline-v1/reference-remake-cinematic-v9.mp4",
+    "sha256": "0b332c1e1860a2395154e6d99f938cc8dc1b54177cadd2a2466ed6e585b8ef9b",
+    "bytes": 308772391,
     "frames": 14810,
     "fps": 60,
     "dimensions": [
@@ -1438,47 +1436,68 @@
     ],
     "container_duration_seconds": 246.861,
     "vr_cinematic_moments": 11,
-    "new_whole_shot_components": [
+    "changed_components": [
       "L01",
-      "L03",
-      "L06",
-      "L05"
+      "A04"
     ],
-    "root_actual_complete_export_cues_viewed": 157,
-    "root_actual_native_resolution_witnesses_viewed": 14,
+    "root_actual_complete_export_cues_viewed": 139,
+    "root_native_witnesses_viewed_as_contacts": 21,
+    "root_actual_native_resolution_witnesses_viewed": 8,
     "assembler_checks_passed": 13,
     "independent_decoded_frames": 14810,
-    "native_frames_outside_new_edits_verified": 13936,
+    "native_frames_outside_new_edits_verified": 14048,
     "all_frame_fanmark_passed": true,
     "exact_aac_packets_including_clock_and_config": 11573,
     "audio_reencoded": false,
-    "root_review": ".planning/debug/trailer/remake-v1/ai-edits-v7/root-qc/whole-film/root-review.json",
-    "independent_qc": ".planning/debug/trailer/remake-v1/ai-edits-v7/independent-qc/full-v7",
-    "private_review": ".planning/debug/trailer/remake-v1/ai-edits-v7/REVIEW.html",
-    "review_url": "http://192.168.0.80:8090/remake-v1/ai-edits-v7/REVIEW.html",
+    "root_review": ".planning/debug/trailer/remake-v1/ai-edits-v9/root-qc/whole-film/root-review.json",
+    "independent_qc": ".planning/debug/trailer/remake-v1/ai-edits-v9/independent-qc/full-v9",
+    "private_review": ".planning/debug/trailer/remake-v1/ai-edits-v9/REVIEW.html",
+    "review_url": "http://192.168.0.80:8090/remake-v1/ai-edits-v9/REVIEW.html",
     "root_creative_approval": true,
     "cinematic_phase_complete": true,
     "user_approval_claimed": false,
     "real_vr_capture_phase_remaining": true,
     "original_flat_gameplay_intentionally_retained": true,
-    "all_ai_videos_preserved": true,
+    "all_ai_videos_preserved": false,
+    "unused_media_cleanup_pending": false,
     "limits": [
-      "Wholefilm manual review sampled157cues+14nativewitnesses; every-frame visual review covers the four replacement components, while automated decode/footer/fidelity covers the whole film.",
-      "Native60fps footage meets24fps model motion repeated at60; no invented interpolation of fingers.",
-      "L01 readable mask approximately1s in separate reveal before shoulder action; actors hold a ready pose during contact.",
-      "L03 interior hero performance differs from original as permitted; small rune-symbol/blur variation at native handoff.",
-      "L05 physical exit finishes late, approximately0.18s before the native hard cut.",
-      "No claim of user approval, imperceptibility guarantee, new subjective audio listening, phone hardware or headset/runtime testing."
+      "L01 uses the exact older remainder selected by the maintainer. Its brief second-woman pan behavior near raw100 is inherited, not claimed repaired.",
+      "Native flame brightness rises at6950 handoff; recorded peripheral brightness pulse, not a pixel-identical endpoint guarantee.",
+      "24fps model motion repeats at60fps delivery without anatomy interpolation; all new component source sampling stays at1x.",
+      "Whole-film manual root review samples139cues plus21native witness contacts/8full-size images; all762 component frames viewed separately.",
+      "No imperceptibility guarantee, new subjective audio listening, phone hardware or headset/runtime verification claimed."
     ],
-    "independent_actual_complete_export_images_viewed": 330,
-    "independent_actual_native_resolution_witnesses_viewed": 42,
-    "independent_actual_browser_screenshots_viewed": 14,
     "review_published": true,
     "published_browser_passed": true,
     "primary_navigation_promoted": true,
-    "primary_navigation_http_links_checked": 44,
-    "published_review_http_links_checked": 20,
-    "delivery_verification": ".planning/debug/trailer/remake-v1/ai-edits-v7/independent-qc/full-v7/final-delivery-verification.json"
+    "primary_navigation_http_links_checked": 74,
+    "independent_actual_changed_and_context_frames_viewed": 786,
+    "independent_actual_complete_export_images_viewed": 139,
+    "independent_actual_base_final_witness_pairs_viewed": 51,
+    "actual_browser_screenshots_viewed": 26,
+    "actual_master_posters_viewed": 3,
+    "delivery_verification": ".planning/debug/trailer/remake-v1/ai-edits-v9/web-publication/navigation-verification.json",
+    "unused_media_cleanup": {
+      "status": "completed",
+      "receipt": ".planning/debug/trailer/remake-v1/ai-edits-v9/cleanup-plan/deletion-receipt.json",
+      "post_cleanup_verification": ".planning/debug/trailer/remake-v1/ai-edits-v9/cleanup-plan/post-cleanup-verification.json",
+      "unused_files_deleted": 37062,
+      "obsolete_aliases_removed": 813,
+      "unique_allocated_file_bytes_unlinked": 40306987008,
+      "observed_filesystem_free_bytes_increase": 40311316480,
+      "free_space_measurement_note": "Observed free-space delta also includes filesystem metadata/activity differences; allocated file bytes are counted once per unlinked inode.",
+      "protected_paths_retained": 6401,
+      "retained_authority_hashes_verified_before_and_after": 2427,
+      "all_protected_paths_present": true,
+      "post_cleanup_master_sha256_unchanged": true,
+      "post_cleanup_http_links_passed": 74,
+      "canonical_used_public_raw_videos_retained": 11,
+      "fal_run_recovery_records_retained": 93,
+      "fal_recovery_index": ".planning/debug/trailer/remake-v1/ai-edits-v9/cleanup-plan/fal-recovery-index.json",
+      "all_provider_requests_terminal": true,
+      "paid_calls_for_cleanup": 0,
+      "remote_results_permanence_guaranteed": false
+    }
   },
   "continuity_followup": {
     "user_rule": "A different background is acceptable if it remains coherent throughout the shot. Sudden architectural reconstruction is rejected AI slop.",
@@ -2106,7 +2125,7 @@
       "root_original_entry_frames_viewed_in_ordered_sheets": 73,
       "independent_master_boundary_actual_frames": 8,
       "independent_pixel_identical_logo_frames": 4,
-      "audio_scope": "Entire AAC stream byte/timestamp-identical to v4, including its earlier authorized6.225\u20137.575s narrator patch; no new subjective listening claim",
+      "audio_scope": "Entire AAC stream byte/timestamp-identical to v4, including its earlier authorized6.225–7.575s narrator patch; no new subjective listening claim",
       "limits": [
         "Generated world differs from native party room but remains coherent, permitted by latest user clarification",
         "Source party last frame deliberately not restored; direct existing hard logo cut at7s",
@@ -2172,6 +2191,61 @@
         "published-nav/mobile-review.png"
       ],
       "historical": true
+    },
+    {
+      "status": "root-approved-for-delivery",
+      "path": ".planning/debug/trailer/remake-v1/ai-edits-v7/full-timeline-v1/reference-remake-cinematic-v7.mp4",
+      "sha256": "0f0f25170c0e97404445420fe43f40009999943b68ddf8394660c1cf8efd4b19",
+      "bytes": 318103471,
+      "frames": 14810,
+      "fps": 60,
+      "dimensions": [
+        1920,
+        1080
+      ],
+      "container_duration_seconds": 246.861,
+      "vr_cinematic_moments": 11,
+      "new_whole_shot_components": [
+        "L01",
+        "L03",
+        "L06",
+        "L05"
+      ],
+      "root_actual_complete_export_cues_viewed": 157,
+      "root_actual_native_resolution_witnesses_viewed": 14,
+      "assembler_checks_passed": 13,
+      "independent_decoded_frames": 14810,
+      "native_frames_outside_new_edits_verified": 13936,
+      "all_frame_fanmark_passed": true,
+      "exact_aac_packets_including_clock_and_config": 11573,
+      "audio_reencoded": false,
+      "root_review": ".planning/debug/trailer/remake-v1/ai-edits-v7/root-qc/whole-film/root-review.json",
+      "independent_qc": ".planning/debug/trailer/remake-v1/ai-edits-v7/independent-qc/full-v7",
+      "private_review": ".planning/debug/trailer/remake-v1/ai-edits-v7/REVIEW.html",
+      "review_url": "http://192.168.0.80:8090/remake-v1/ai-edits-v7/REVIEW.html",
+      "root_creative_approval": true,
+      "cinematic_phase_complete": true,
+      "user_approval_claimed": false,
+      "real_vr_capture_phase_remaining": true,
+      "original_flat_gameplay_intentionally_retained": true,
+      "all_ai_videos_preserved": true,
+      "limits": [
+        "Wholefilm manual review sampled157cues+14nativewitnesses; every-frame visual review covers the four replacement components, while automated decode/footer/fidelity covers the whole film.",
+        "Native60fps footage meets24fps model motion repeated at60; no invented interpolation of fingers.",
+        "L01 readable mask approximately1s in separate reveal before shoulder action; actors hold a ready pose during contact.",
+        "L03 interior hero performance differs from original as permitted; small rune-symbol/blur variation at native handoff.",
+        "L05 physical exit finishes late, approximately0.18s before the native hard cut.",
+        "No claim of user approval, imperceptibility guarantee, new subjective audio listening, phone hardware or headset/runtime testing."
+      ],
+      "independent_actual_complete_export_images_viewed": 330,
+      "independent_actual_native_resolution_witnesses_viewed": 42,
+      "independent_actual_browser_screenshots_viewed": 14,
+      "review_published": true,
+      "published_browser_passed": true,
+      "primary_navigation_promoted": true,
+      "primary_navigation_http_links_checked": 44,
+      "published_review_http_links_checked": 20,
+      "delivery_verification": ".planning/debug/trailer/remake-v1/ai-edits-v7/independent-qc/full-v7/final-delivery-verification.json"
     }
   ],
   "whole_shot_correction_v7": {
@@ -2324,5 +2398,73 @@
       "status": "Root-approved paired-keyframes-v1/matched-v2:395frames60fps; exact native first/last anchors and black cores; source/model geometry mixes removed",
       "inserted_in_complete_v4": true
     }
-  ]
+  ],
+  "targeted_correction_v8": {
+    "state": "historical-creative-approval-retracted-after-user-speed-feedback",
+    "user_approved_other_v7_scenes": true,
+    "base_master_sha256": "0f0f25170c0e97404445420fe43f40009999943b68ddf8394660c1cf8efd4b19",
+    "windows": {
+      "DRAGON": [
+        6912,
+        6984
+      ],
+      "I01": [
+        8397,
+        8758
+      ],
+      "A04": [
+        13032,
+        13427
+      ]
+    },
+    "preserve_liked_two_forest_masks": true,
+    "preserve_other_cinematics": true,
+    "original_flat_gameplay_intentionally_retained": true,
+    "soundtrack_copy_required": true,
+    "authorization": "Existing85USD ceiling, previously authorized remaining9.25USD; no new allocation requested.",
+    "private_root": ".planning/debug/trailer/remake-v1/ai-edits-v8",
+    "rejected_first_trials": {
+      "remake-v8-dragon-bridge-v1": "Duplicate heroes despite a physically established dragon.",
+      "remake-v8-i01-whole-camera-v1": "Whole raw take rejected; bounded raw0..138 selection approved after actual review, omitting late139..144 camera correction."
+    },
+    "user_approval_of_v8_claimed": false,
+    "I01_editorial_exit": "New hard cut at frame8758 to the clean original map, replacing the native whirl transition; this is an editorial change within the user-authorized scene, not a pre-existing hard cut.",
+    "forest_action": "Free bounded early v4 group beat is under review, followed by a deliberate native attack cut. Whole v4 raw is rejected for a duplicate hero during its late forced camera move.",
+    "reservations_usd": 81.25,
+    "unreserved_usd": 3.75,
+    "current_round_reserved_usd": 5.5,
+    "preservation": {
+      "status": "passed",
+      "audit": ".planning/debug/trailer/remake-v1/ai-edits-v8/preservation-final/audit.json",
+      "provider_videos": 74,
+      "audio_files": 6,
+      "failed_reservations_retained_usd": 3.9,
+      "pending_jobs": 0
+    },
+    "speed_feedback": "User rejected the slowed47-image A04 prefix and the2.535x dragon bridge. V8 technical results remain historical; they cannot authorize v9 delivery or cleanup.",
+    "I01_retained_in_v9": true
+  },
+  "speed_correction_v9": {
+    "state": "root-independent-browser-reviewed-published-and-cleaned",
+    "base_master_sha256": "9a3873e7b7c671d5da2ba5a7fed7102cb24ea9ec3a4fc3ab72bc238fe1f7a51c",
+    "windows": {
+      "L01": [
+        6617,
+        6984
+      ],
+      "A04": [
+        13032,
+        13427
+      ]
+    },
+    "changed_frames": 762,
+    "outside_frames": 14048,
+    "user_selected_l01_job": "remake-l01-visible-contact-kling-ref-v7b",
+    "user_selected_l01_url": "https://v3b.fal.media/files/b/0aae6474/tMJfSJ6_YdS1cVJIjF57l_output.mp4",
+    "L01_clock": "108native frames,225 actual source samples raw30+floor(n*24/60),34native tail;367total at60fps, exact1x. New reverse-angle cut6725; native tail6950.",
+    "A04_clock": "180frames rawfloor(n*24/60),215 exact native tail;395total, exact1x. New native attack angle cut13212.",
+    "preserve_other_scenes": true,
+    "real_vr_gameplay_deferred": true,
+    "cleanup_authority": "Latest explicit unused-video/resource deletion instruction overrides historical preserve-all-AI policy. Retain selected used sources and all fal run recovery metadata."
+  }
 }
