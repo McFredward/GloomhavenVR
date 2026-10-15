@@ -612,7 +612,22 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 673;
+    public const ushort ModBuild = 674;
+
+    // ModBuild674 — isolate optional town-asset discovery from required NPC originals.
+    // A long Build671 session repeatedly failed the complete town preparation after
+    // returning from scenarios, leaving an empty merchant cabinet. The old reporter
+    // retained only an empty exception message; it cannot identify the offending object.
+    // Resources discovery includes unrelated transient TMP assets and surviving mip
+    // copies whose native original may already be destroyed. A metadata getter failure
+    // there must not abort every resident's original bank. Required canonical originals,
+    // immutable identity conflicts and missing-source failures remain strict and retryable;
+    // no guessed artwork, inventory/model writes or native gameplay callbacks are added.
+    // Report bounded exception type/reason and guarded Debug context for future failures.
+    // Keep Build673 water code and its full native coverage unchanged. Its real-Unity
+    // fixture belongs in the local gate; hosted CI retains its portable 98-suite inventory.
+    // Version3/next-free118; implementation, focused evidence and hardware boundaries are
+    // recorded in NPC-674-REVIEW.md. This is a dev repair, not a new published release.
 
     // ModBuild673 — restore asynchronous water adoption across the installed game.
     // Native water prefabs begin with empty material slots. Build615's one-time tile
