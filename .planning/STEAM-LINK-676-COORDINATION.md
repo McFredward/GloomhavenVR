@@ -120,3 +120,31 @@ bytes, SHAdef9445f8ec5690150026a9b35e782e424efe0b61bc13dc90dd067f5efdef5e4;
 three private exports/no TLS/no Vulkan dependency/BIND_NOW/RELRO remain verified.
 See `build/private-concurrency-prep-20261015/` in the fork for retained evidence
 and the current package. No successful Frame image or passthrough is claimed.
+
+## First complete native image capture and verified restoration
+
+The maintainer subsequently approved the corrected package, confirmed the676
+pattern in both eyes, and separately approved manual rollback. This attempt
+passes actual provider/load/startup checks and progresses through prepared,
+armed, commands_recorded and complete. One immutable1152x4608 P010 artifact
+(15,925,248bytes) is secured locally, raw SHA
+1eb48d4cff6480c5983193558a9b3711ec061d05ddab554e3f413fc2fba3a850.
+Metadata1251bytes SHA410ec9f619478902c859ff4e689010a5d93ed3e1988b6cd12c127aedcfd36670
+records owned-fence completion and exact reusable-command generation31088
+retirement. Both raw/plane and metadata digests are independently verified.
+The initial multi-source SCP exit1 was not accepted; the missing small metadata
+file was copied exactly via bounded read-only SSH, and both final files match.
+
+Rollback is complete: new native UI health invocation ready, activation files
+and owned run library absent, no owned/foreign diagnostic mappings, no errors.
+The user was told standby is safe. Small inactive packages/evidence and the
+captured image remain; no automatic timers/restarts were introduced. Exact
+private evidence is fork `build/private-concurrency-run-20261015/`, capture
+f6267827c7462ea93972a012278288e5, with independent evidence review.
+
+The fork's `docs/PIXEL-SNAPSHOT-CAPTURE-20261015.md` separates actual GPU image
+acquisition from still-unproved payload/source-frame/eye/UV/foveation recovery.
+Stored-Y diagnostics have discontinuous structured regions; do not infer a
+simple image projection, guessed RGB transform or passthrough-ready association.
+Offline interpretation is now underway without further Frame access. The main
+mod DLL/source676 is unchanged and no complete local test gate is repeated.
