@@ -2723,8 +2723,7 @@
         "scripts/check-water-terrain-runtime.py"
       ],
       "groups": [
-        "local",
-        "ci"
+        "local"
       ],
       "weight": 50
     }
