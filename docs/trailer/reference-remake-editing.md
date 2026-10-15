@@ -1,10 +1,19 @@
 # Reference trailer editing
 
-The current editing phase replaces Flat gameplay with genuine VR recordings.
-The v10 first pass uses 20 inserts covering 25 of 41 inventory regions; 16
+The current VR gameplay edit is a provisional material trial. The maintainer
+rejected v10's contextual filling: damage avoidance is not a played loss,
+healing is not an enemy attack, an item preview is not confirmed use, and one
+cursor is not the original multi-view co-op demonstration. V11 restores those
+original images and native transitions. Only three matching demonstrations at
+existing hard cuts remain: ability display, item inspection and a triangular
+multi-target attack. More correct footage will arrive later. The active private
+review is `vr-gameplay-v2/REVIEW.html`; detailed selection reasoning and capture
+requests live beside it. See [vr-gameplay-replacement.md](vr-gameplay-replacement.md).
+
+The historical v10 first pass used 20 inserts covering 25 of 41 inventory regions; 16
 regions retain their previous pictures pending suitable captures. The accepted
 v9 cinematics and complete AAC track are inherited. No new paid generation is
-used. The private review is `vr-gameplay-v1/REVIEW.html`, with original-v9
+used. Its historical review is `vr-gameplay-v1/REVIEW.html`, with original-v9
 comparison, source links and a concrete next capture list. See
 [vr-gameplay-replacement.md](vr-gameplay-replacement.md) for coverage, limits and
 exact delivery evidence. The v9 section below records the immutable accepted

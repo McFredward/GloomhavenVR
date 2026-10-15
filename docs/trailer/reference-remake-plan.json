@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "status": "V10 first genuine VR gameplay pass reviewed and published:20inserts cover25of41inventoryregions;16awaitcaptures. Accepted v9 cinematics/fullAAC inherited; no new paid generation. Known unused preliminary media removed.",
+  "status": "Provisional v11 material trial: user rejected v10 contextual filling. Keep only3matching demonstrations/nativehardcuts;restore17substitutions and original transitions. More footage will arrive; coverage is not quality target.",
   "date": "2026-10-16",
   "source_url": "https://www.youtube.com/watch?v=-SGDEP-zFHo",
   "source_title": "Gloomhaven | Gameplay Overview Trailer",
@@ -15,7 +15,7 @@
     "motion_quality": "V9 root review covers all762 changed component frames,139 whole-film Watch cues and21 native witness contacts/eight full-size witnesses. Independent visual review, all14810-frame technical/footer checks and actual browser playback pass; user acceptance is not claimed."
   },
   "direction": "Original film as base; selected cinematic shots modified with video-edit models; Flat explanation footage replaced by genuine VR captures; invisible visual joins",
-  "timing_note": "V10 preserves14810frames/60fps and246.861s container/AAC clock.20fixed genuineVR windows replace3932frames; all11acceptedcinematicwindows remain outside edits. Actual source tempo; no speedfit, interpolation or held end.",
+  "timing_note": "Provisionalv11 preserves14810frames/60fps and246.861s AAC clock. Only3nativehardcutwindows/350frames replaced;14460framesincludingallacceptedcinematicsandrestoredgameplayfollowv9. No source speedchanges.",
   "voice": {
     "mode": "Keep original English text/timing, user confirmed; small GloomhavenVR substitutions only",
     "patches": [
@@ -2468,10 +2468,11 @@
     "cleanup_authority": "Latest explicit unused-video/resource deletion instruction overrides historical preserve-all-AI policy. Retain selected used sources and all fal run recovery metadata."
   },
   "current_working_cut": {
-    "phase": "genuine-vr-gameplay-v1",
-    "private_master": ".planning/debug/trailer/remake-v1/vr-gameplay-v1/full-timeline-v2/reference-remake-vr-v10.mp4",
-    "sha256": "213abdfaa03e7779870d4c9db3d8a88523d08ce7b8e73cdded79ce6d68ff24f3",
-    "private_review": ".planning/debug/trailer/remake-v1/vr-gameplay-v1/REVIEW.html",
+    "phase": "genuine-vr-gameplay-v2",
+    "status": "provisional-material-trial-reviewed-and-published",
+    "private_master": ".planning/debug/trailer/remake-v1/vr-gameplay-v2/full-timeline-v1/reference-remake-vr-v11.mp4",
+    "sha256": "6f4007b7db11ebffde14ea92e1585d0bc8f6bb43f48fb6e8d6ba3b21a1d127ee",
+    "private_review": ".planning/debug/trailer/remake-v1/vr-gameplay-v2/REVIEW.html",
     "base_phase": "accepted cinematic v9",
     "base_sha256": "0b332c1e1860a2395154e6d99f938cc8dc1b54177cadd2a2466ed6e585b8ef9b",
     "frames": 14810,
@@ -2479,14 +2480,14 @@
     "container_seconds": 246.861,
     "new_paid_calls": 0,
     "user_acceptance_claimed": false,
-    "bytes": 311310827,
-    "status": "root-approved-for-delivery",
+    "provisional_material_trial": true,
+    "bytes": 306563006,
     "review_published": true,
-    "review_url": "http://192.168.0.80:8090/remake-v1/vr-gameplay-v1/REVIEW.html"
+    "review_url": "http://192.168.0.80:8090/remake-v1/vr-gameplay-v2/REVIEW.html"
   },
   "genuine_vr_gameplay_pass_v1": {
     "date": "2026-10-16",
-    "status": "root-approved-and-published-first-available-footage-pass",
+    "status": "historical-first-material-trial-user-rejected-creative-substitutions",
     "inventory_regions": 41,
     "covered_regions": 25,
     "remaining_original_regions": 16,
@@ -2615,6 +2616,101 @@
       "actual_desktop_and_mobile_navigation": true,
       "authority_hashes_unchanged": 6,
       "full_playback_repeated": false
+    },
+    "superseded_by": "genuine_vr_gameplay_pass_v2",
+    "user_review": "Insufficient semantic equivalence and transitions; user explicitly prioritizes correct action over filling shots."
+  },
+  "genuine_vr_gameplay_pass_v2": {
+    "status": "provisional-material-trial-reviewed-and-published-awaiting-more-captures",
+    "date": "2026-10-16",
+    "selection_rule": "Original demonstrated action, direction, mechanism, result and readable transition first. Context-only resemblance is insufficient. More captures will follow.",
+    "kept": [
+      "Ability-card overview",
+      "Actual equipment inspection",
+      "Actual triangular multi-target attack impacts/resolution"
+    ],
+    "kept_components": [
+      {
+        "id": "VR-G01-planning-fan",
+        "start_frame": 3129,
+        "end_frame_exclusive": 3272,
+        "sha256": "96b37b1f92f66743bb81d42c37b0b2f05d265ac86492071466f4db0aa6317970"
+      },
+      {
+        "id": "VR-G02-equipment",
+        "start_frame": 3485,
+        "end_frame_exclusive": 3583,
+        "sha256": "8e1bf5191199ec091e04d7bb77fb97977015fea96835219e1e313f87e22e13a1"
+      },
+      {
+        "id": "VR-G04-area-attack",
+        "start_frame": 4250,
+        "end_frame_exclusive": 4359,
+        "sha256": "a9cc8429185729df4ede025e803e8837d445d7a56d50b26d0057c64318dd2b8a"
+      }
+    ],
+    "changed_frames": 350,
+    "changed_seconds": 5.833333333333333,
+    "unchanged_frames": 14460,
+    "original_regions_retained": 38,
+    "withdrawn_previous_substitutions": 17,
+    "same_source_tempo": true,
+    "original_AAC_and_all_11_cinematic_windows_inherited": true,
+    "new_paid_calls": 0,
+    "user_acceptance_claimed": false,
+    "finished_vr_gameplay_trailer_claimed": false,
+    "guide": "docs/trailer/vr-gameplay-replacement.md",
+    "private_selection": ".planning/debug/trailer/remake-v1/vr-gameplay-v2/editor/selection-final.json",
+    "private_capture_list": ".planning/debug/trailer/remake-v1/vr-gameplay-v2/NAECHSTE-AUFNAHMEN.txt",
+    "semantic_audits": [
+      ".planning/debug/trailer/remake-v1/vr-gameplay-v2/audit-early/semantic-audit.json",
+      ".planning/debug/trailer/remake-v1/vr-gameplay-v2/audit-late/semantic-audit.json"
+    ],
+    "root_transition_evidence": ".planning/debug/trailer/remake-v1/vr-gameplay-v2/transition-audit/index.json",
+    "limits": [
+      "Different generic class/item/card identities are explicitly labeled; no other mechanic is substituted.",
+      "G04 shows area-attack hits/resolution; complete pre-attack target selection is not contained in this short take.",
+      "This is a provisional first material trial. More correct captures will follow; no finished VR gameplay trailer or user acceptance is claimed."
+    ],
+    "technical_review": {
+      "status": "passed",
+      "assembler_checks": 13,
+      "decoded_and_footer_checked_frames": 14810,
+      "selected_component_picture_frames": 350,
+      "base_picture_frames": 14460,
+      "identical_AAC_packets_including_clocks_and_codec_config": 11573,
+      "comparison_resolution": [
+        320,
+        180
+      ],
+      "mae_limit_8bit": 2.0,
+      "max_base_mae_8bit": 0.7713194444444444,
+      "max_component_mae_8bit": 1.8338234599395313,
+      "receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v2/audit-early/final/technical.json"
+    },
+    "visual_review": {
+      "root_actual_export_watch_cues": 48,
+      "root_contact_sheets": 3,
+      "independent_focused_watch_cues": 31,
+      "independent_exact_original_final_cut_pairs": 12,
+      "every_frame_manual_whole_film_claimed": false,
+      "receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v2/audit-early/final/visual-review.json"
+    },
+    "browser_review": {
+      "status": "passed",
+      "desktop_mobile_1x_windows_each": 3,
+      "local_dependencies": 12,
+      "native_hard_cuts": 6,
+      "receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v2/audit-late/final-browser/run-061089f6/result.json",
+      "manual_receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v2/audit-late/final-browser/run-061089f6/manual-review.json",
+      "later_caption_only_clarification": "Area-attack caption clarified to hits/result and full preselection not shown. The same three media windows remain; the postpublication DOM check covers final wording.",
+      "final_navigation_receipt": ".planning/debug/trailer/remake-v1/vr-gameplay-v2/audit-late/final-browser/final-review.json",
+      "final_navigation_status": "passed-postpromotion-final-review",
+      "root_navigation_verified": true
+    },
+    "completion_cleanup": {
+      "scope": "Two owned review worktrees removed after clean status and reaped jobs; supplied footage, selected components, masters and review evidence preserved.",
+      "runtime_gate": "Not rerun: documentation/media-only revision; focused media, semantic and browser evidence applies."
     }
   }
 }

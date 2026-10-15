@@ -1,5 +1,57 @@
 # Genuine VR gameplay replacement
 
+## Current provisional material trial
+
+The maintainer rejected v10 after the first review: the actual demonstrated
+action and its transition matter more than replacing many regions. More
+recordings will follow. Treat the available footage as a first material trial,
+not an almost-complete gameplay trailer.
+
+A fresh comparison of the original pictures, English captions and actual VR
+shots withdraws seventeen replacements. V11 retains only three demonstrations
+on native hard cuts: an ability-card overview, item inspection and an executed
+triangular area attack. Their card/class identities differ where the narration
+is generic; their demonstrated actions match. The 350 frames retain source
+time. All other pictures and transitions come from accepted cinematic v9.
+
+The removed clips included important semantic reversals: placing two cards
+instead of the original action/target selection, healing instead of enemy
+attacks, a Spellweaver attack instead of damage received, trap inspection
+instead of disarm, short-rest/damage burns instead of a played loss, item
+preview instead of use, browsing instead of purchase, and one cursor instead
+of multiple cooperative viewpoints. Passive end-of-turn gold collection is
+also deferred until an actual Loot2 action is recorded. The actual victory
+is semantically suitable, but its sharp entry interrupts the native blur and
+its short view is partly obscured by the control board; it remains original.
+The sparse Guildmaster map and free nine-tile montage are also withdrawn.
+
+The active private review and exact next capture list are
+`vr-gameplay-v2/REVIEW.html` and `vr-gameplay-v2/NAECHSTE-AUFNAHMEN.txt`.
+The v11 master SHA256 is
+`6f4007b7db11ebffde14ea92e1585d0bc8f6bb43f48fb6e8d6ba3b21a1d127ee`.
+Its actual area-attack excerpt shows impacts/resolution; it does not contain
+complete target selection beforehand. The final review says this explicitly
+and requests a closer Ink Bomb take with that lead-in.
+
+The bounded technical check compares all 350 selected component frames and
+14,460 inherited pictures, checks the fan-mod mark on all 14,810 frames and
+verifies all 11,573 unchanged AAC packets including clocks/configuration.
+Root viewed 48 actual export cues; separate focused review viewed 31 cues and
+12 exact original/final cut pairs. Desktop/mobile Chromium tests cover the
+three short shots at 1x and time-preserving v9 comparison. This is validation
+of a provisional material trial, not complete creative approval of the trailer
+or a new game runtime/headset gate. Receipts live under
+`vr-gameplay-v2/audit-early/final/` and `vr-gameplay-v2/audit-late/final-browser/`.
+The final `final-browser/final-review.json` also verifies the published homepage
+links, final captions and twelve dependencies. Both owned review worktrees were
+removed after their jobs finished; input footage and review evidence remain.
+
+The original-v9 comparison is the reference. Old passing technical receipts
+establish their measured media properties, not the suitability of rejected
+creative substitutions. The v10 delivery account below is historical.
+
+## Historical v10 account
+
 The maintainer accepted the AI cinematics and requested an incremental exchange
 of the remaining Flat gameplay in the official Gameplay Overview timeline.
 The immutable starting point is the accepted cinematic v9 master, SHA256

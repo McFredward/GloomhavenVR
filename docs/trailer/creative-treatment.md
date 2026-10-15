@@ -1,6 +1,14 @@
 # Gloomhaven VR — Step Inside
 
-**Genuine VR gameplay pass, 2026-10-16:** the maintainer accepted the v9 AI
+**Current material trial, 2026-10-16:** the maintainer rejected v10's broad
+contextual replacements. The first available recordings are a provisional
+trial; more footage will follow. Match the actual original action and its
+direction/result, then judge its edit transition. Coverage is not a quality
+target. V11 retains only the ability display, item inspection and executed
+triangular area attack. Seventeen substitutions are withdrawn, restoring v9 pictures and native
+transitions. No new inference, speed changes or fabricated demonstrations.
+
+**Historical first VR trial, 2026-10-16:** the maintainer accepted the v9 AI
 cinematics and requested an incremental replacement of Flat gameplay. The
 inventory covers 41 gameplay regions; the first selection inserts 20 genuine
 VR excerpts covering 25 regions and 65.533 seconds at the original positions.
