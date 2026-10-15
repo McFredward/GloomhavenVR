@@ -54,3 +54,30 @@ the pixel-capture scope; actual native provider resolution and UI health must
 be checked before activation/arming. No automatic rollback/restart/test expiry
 is introduced, and no native Steam sender hook is added. Preserve unrelated
 trailer work and other agents' active test inputs during cleanup.
+
+## First approved native image attempt and restoration
+
+The maintainer subsequently approved the pixel package and manual restart. The
+actual Frame runtime imports/isolated load passed and the public layer loaded
+with a healthy native UI. A cold-stage process-map permission refusal was fixed
+through explicit, bounded read-only protected-map checks (fork529e2ff;31 focused
+tests and full fork CI pass). No native shader/sender/PC DLL change was involved.
+
+After initial `prepared`, the writer reported `tracking_refused` before arming.
+The maintainer confirmed the streamed pattern was visible, but the orchestrator
+refused to create the arm token. No image copy, raw snapshot or snapshot metadata
+was produced. The old record cannot identify its exact first failure; the briefly
+open Steam menu is not a proven cause. The maintainer separately approved rollback;
+native UI health returned ready, all diagnostic mappings and activation files
+were absent, and owned run-library deletion completed with no errors. The Frame
+may be placed in standby. See private fork evidence
+`build/private-pixel-run-20261015/` and its documented attempt.
+
+The fork now prepares exact first-refusal telemetry in9f3c7d8. First-winner enum,
+static API site and bounded atomic Core counters are published once; admission
+and refusal behavior are unchanged.1103 tracker controls normal/sanitized, six
+actual formatter tests,14 final real-loader cases and independent review pass.
+The revised ARM artifact remains local, not installed. No new PC build is needed:
+source676 stays unchanged. A new Frame readiness/restart agreement is needed
+before collecting the missing native cause; no successful pixel/passthrough
+claim or speculative guard relaxation is made.
