@@ -113,7 +113,20 @@ namespace GloomhavenVR.WorldUI
 namespace GloomhavenVR.Hands
 {
     public enum HapticPreset { HoverTick, ClickPulse }
-    public class VRHand { public string Side="Right"; public float WorldScale=1f; public bool HasPose = true, GripPressed; public Holder Grabber; public HandRig Rig = new(); public int HoverTicks, ClickPulses; public VRHand(){Grabber=new Holder(this);} public void SendHaptic(HapticPreset preset) { if (preset == HapticPreset.HoverTick) HoverTicks++; else ClickPulses++; } }
+    public class VRHand { public string Side="Right"; public float WorldScale=1f; public bool HasPose = true, GripPressed; public Holder Grabber; public HandRig Rig = new(); public int HoverTicks, ClickPulses; public VRHand(){Grabber=new Holder(this);} public void SendHaptic(HapticPreset preset) { if (preset == HapticPreset.HoverTick) HoverTicks++; else ClickPulses++; }
+        // Semantic pointer-hover delivery is outside this handoff/callback proof. The separate
+        // native haptics suite executes the real gate, sender and action-region resolver. Keep
+        // existing offer/shared-cue SendHaptic counters above: their assertions remain in scope.
+        public void SendHoverHaptic(object? target) { }
+    }
+    // PokeInteractor now asks these APIs only for hover feedback; neither result drives
+    // native raycast, press ownership or callback dispatch. Explicit silent boundaries avoid
+    // pretending this fixture's minimal FullAbilityCard model proves native action identity.
+    internal static class HoverHapticTargets
+    {
+        internal static object? Pokeable(Interact.IPokeable target) => null;
+        internal static object? Ui(GameObject? target) => null;
+    }
     public sealed class HandRig { public Transform IndexTip = null!; public Transform PalmCenter = null!; }
     public partial class Holder {
         public object? Held; private bool _enabled=true; private VRHand _hand; private string _grabLabel="fixture";
