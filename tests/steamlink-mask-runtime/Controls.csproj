@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework><OutputType>Exe</OutputType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors><Nullable>enable</Nullable>
+    <SourceRoot Condition="'$(SourceRoot)' == ''">$(MSBuildProjectDirectory)/../..</SourceRoot>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(SourceRoot)/src/GloomhavenVR/Core/SteamLink/ProbePolicy.cs" Link="ProbePolicy.cs" />
+    <Compile Include="$(SourceRoot)/src/GloomhavenVR/Core/SteamLink/ProbeManifest.cs" Link="ProbeManifest.cs" />
+    <Compile Include="$(SourceRoot)/src/GloomhavenVR/Core/SteamLink/SteamLinkMaskLifecycle.cs" Link="SteamLinkMaskLifecycle.cs" />
+    <Compile Include="$(SourceRoot)/src/GloomhavenVR/Core/SteamLink/SteamLinkMaskCallbackGate.cs" Link="SteamLinkMaskCallbackGate.cs" />
+    <Compile Include="$(SourceRoot)/tests/steamlink-mask-runtime/Program.cs" />
+  </ItemGroup>
+</Project>

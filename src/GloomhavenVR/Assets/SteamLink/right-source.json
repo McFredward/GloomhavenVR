@@ -1,0 +1,47 @@
+{
+  "canvas_rgb_sha256": "b2a6f577e36707199f24c2337bb6aac1b6a60cc3f2c750dabbd5be809cff3298",
+  "color_numeric_encoding": "uninterpreted_rgb8_codes",
+  "color_sha256": "c2f594f501d59a3c2cdd76a3c80de1b7ca88d6df765181b64aae53f879d02b18",
+  "content_id": 7,
+  "coverage_numeric_encoding": "linear_coverage_r8",
+  "coverage_reference_r8": [
+    0,
+    64,
+    128,
+    191,
+    255
+  ],
+  "coverage_sha256": "7f10a32074ce36514d64b96078612b38e6a8583bd5e3491a12a9d54ad3c5c40b",
+  "eye": "right",
+  "header_copies": 3,
+  "layout_revision": 1,
+  "native_frame_identity": null,
+  "native_spatial_mapping": null,
+  "opaque_fallback_required": true,
+  "passthrough_authorized": false,
+  "placements": {
+    "canvas": [
+      688,
+      548
+    ],
+    "color": [
+      16,
+      244,
+      320,
+      192
+    ],
+    "coverage": [
+      352,
+      244,
+      320,
+      192
+    ]
+  },
+  "rgb_convention": "straight",
+  "schema": "frame-app-payload-reference-v1",
+  "session": "0123456789abcdef0123456789abcdef",
+  "source_extent": [
+    320,
+    192
+  ]
+}

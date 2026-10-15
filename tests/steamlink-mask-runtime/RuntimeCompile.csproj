@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework><EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AutomaticallyUseReferenceAssemblyPackages>false</AutomaticallyUseReferenceAssemblyPackages>
+    <FrameworkPathOverride>$(FrameworkReferenceDir)</FrameworkPathOverride>
+    <SourceRoot Condition="'$(SourceRoot)' == ''">$(MSBuildProjectDirectory)/../..</SourceRoot>
+    <UnityReferenceDir Condition="'$(UnityReferenceDir)' == ''">$(SourceRoot)/ressources/GH_Data/Managed</UnityReferenceDir>
+    <Nullable>enable</Nullable><LangVersion>latest</LangVersion><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(SourceRoot)/src/GloomhavenVR/Core/SteamLink/*.cs" Exclude="$(SourceRoot)/src/GloomhavenVR/Core/SteamLink/SteamLinkMaskConfig.cs" />
+    <Compile Include="$(SourceRoot)/tests/steamlink-mask-runtime/RuntimeCompileStubs.cs" />
+    <Reference Include="UnityEngine.CoreModule" HintPath="$(UnityReferenceDir)/UnityEngine.CoreModule.dll" Private="false" />
+    <Reference Include="UnityEngine.ImageConversionModule" HintPath="$(UnityReferenceDir)/UnityEngine.ImageConversionModule.dll" Private="false" />
+    <Reference Include="UnityEngine.VRModule" HintPath="$(UnityReferenceDir)/UnityEngine.VRModule.dll" Private="false" />
+    <Reference Include="UnityEngine.XRModule" HintPath="$(UnityReferenceDir)/UnityEngine.XRModule.dll" Private="false" />
+    <Reference Include="System.Runtime.Serialization" />
+  </ItemGroup>
+</Project>
