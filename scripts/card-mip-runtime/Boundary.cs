@@ -4,8 +4,11 @@ namespace GloomhavenVR.Core
 {
     internal static class VRLog
     {
-        internal static void Info(string scope, string text) => Debug.Log(scope + ": " + text);
-        internal static void Warn(string scope, string text) => Debug.LogWarning(scope + ": " + text);
+        internal static bool WantsDebug => false;
+        internal static void Debug(string scope, string text) => UnityEngine.Debug.Log(scope + ": " + text);
+        internal static void Note(string scope, string text) => UnityEngine.Debug.Log(scope + ": " + text);
+        internal static void Info(string scope, string text) => UnityEngine.Debug.Log(scope + ": " + text);
+        internal static void Warn(string scope, string text) => UnityEngine.Debug.LogWarning(scope + ": " + text);
     }
     internal static class BundleShaders { internal static Shader? Resolve(string name, string scope, string ready, string pending) => Shader.Find(name); }
     internal static class PerfMonitor
