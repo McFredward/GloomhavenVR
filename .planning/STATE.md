@@ -41,6 +41,10 @@ old-seed controls retain real diagnostic escape detection, baseline61 unchanged.
 
 This is focused/composed validation, not a new complete221-suite local gate.
 Actual final Debug and full hosted CI receipts follow in ignored evidence.
+First CI preflight required the strict expected inventory to be updated from
+217/98 to221/100 and command-script lookup to accept interpreter flags. Runner18
+(16 pass/two existing optional skips) and topology5 pass; this test/docs-only
+follow-up preserves all validated production sources and prior focused evidence.
 Source/evidence/captures and failed controls are retained under
 `.planning/debug/fix675/`; owned processes are reaped before cache cleanup.
 Unrelated trailer edits are preserved. See

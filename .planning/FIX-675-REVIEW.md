@@ -137,6 +137,15 @@ verified raw duplicates are removed while retaining sources, results, captures,
 failed attempts, original inputs/pins and current deliverables. Main proof and
 source/compiled/surface receipts are under `.planning/debug/fix675/`.
 
+The first hosted attempt exposed a missed CI-preflight inventory update: its
+frozen expectations still required217/98 suites. Register all four new entries
+in that strict expected inventory, keeping native interaction/physics local-only
+and both portable Steam Link checks shared. Resolve the command's actual script
+after optional interpreter switches such as `python3 -B`; retain the file-exists
+check. Parallel-runner18 (16 pass/two existing optional skips) and topology5 pass.
+This follow-up changes only CI tests/documentation, so the passing native,
+production Debug/Release, compiled, wire and source evidence remains applicable.
+
 Real hardware is required to confirm the final feel of haptics, headset bar
 appearance and laser edge behavior. Native raster and production input tests
 establish their tested conditions, not a headset outcome.

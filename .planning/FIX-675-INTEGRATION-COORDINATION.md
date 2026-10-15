@@ -72,3 +72,10 @@ building final actual Debug and pushing. Do not repeat the completed gates.
 Full hosted CI is monitored afterwards with ignored receipts, avoiding a later
 tracked CI-status-only commit. Trailer documentation may accompany the push if
 its owner commits before then; it does not gate these completed source repairs.
+
+The first pushed675 run exposed the strict CI-preflight inventory expectations
+still at217/98, plus an optional`python3 -B` flag mistaken for a script path.
+The metadata-test-only follow-up updates221/100 expected sets with native/shared
+boundaries intact and checks the actual script. Runner18 (two existing optional
+skips) and topology5 pass. No production source, native proof, wire vector or
+artifact changed; no repeated native/build gate is needed for this repair.
