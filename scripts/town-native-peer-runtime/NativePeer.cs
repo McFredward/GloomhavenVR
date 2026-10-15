@@ -85,7 +85,7 @@ public static partial class MirrorProgram
         UIInfoTools catalog=OriginalCatalogue(observer);Texture2D mask=OriginalPng("effect-mask.png");mask.name="T_rect_frame_mask_card_wide";
         var registry=new TownServiceAssets();TownServiceTemplateAssets.RegisterSpriteCatalog(registry,catalog);
         Sprite baked=Sprite.Create(catalog.Target.texture,catalog.Target.rect,Vector2.one*.5f,100f,0,SpriteMeshType.FullRect);Assets.Add(baked);
-        GloomhavenVR.Cards.CardFaceMipBake.Originals[baked]=catalog.Target;
+        GloomhavenVR.Cards.CardFaceMipBake.SeedOriginal674(baked,catalog.Target);
         Check(registry.Key(baked)==registry.Key(catalog.Target),"baked sprite resolves the verified original before cached identity lookup");
         // The very same immutable original occurs in multiple lazy cards. Owner/observer
         // borrow them in opposite orders; different instance IDs are never transmitted.
