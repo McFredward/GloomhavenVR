@@ -46,6 +46,7 @@ internal static class HealthbarForegroundDepth
     private static float _nextRefresh;
     private static bool _viewportQueryWarned;
     private static bool _captureWarned;
+    private static bool _viewportLogged;
 
     // These are existing owner identities, not a blanket mod-layer/name heuristic.
     // Sky/room, haunt figures, world geometry, lasers, particles and highlights are
@@ -187,7 +188,16 @@ internal static class HealthbarForegroundDepth
                 display.GetRenderPass(eye, out XRDisplaySubsystem.XRRenderPass pass);
                 if (pass.GetRenderParameterCount() == 0) continue;
                 pass.GetRenderParameter(camera, 0, out XRDisplaySubsystem.XRRenderParameter parameter);
-                if (parameter.viewport.width > 0 && parameter.viewport.height > 0) return parameter.viewport;
+                if (parameter.viewport.width > 0 && parameter.viewport.height > 0)
+                {
+                    Rect pixels = XrPixelViewport(parameter.viewport, width, height);
+                    if (!_viewportLogged)
+                    {
+                        _viewportLogged = true;
+                        VRLog.Info("WorldUI", $"Healthbar foreground XR viewport: normalized {parameter.viewport} -> pixels {pixels}; target {width}x{height}, eye {camera.stereoActiveEye}.");
+                    }
+                    return pixels;
+                }
             }
         }
         catch (Exception ex)
@@ -204,6 +214,16 @@ internal static class HealthbarForegroundDepth
         float scale = Mathf.Clamp(XRSettings.renderViewportScale, 0.01f, 1f);
         return new Rect(0, 0, width * scale, height * scale);
     }
+
+    // Build674 hardware exposes (0,0,1,1) for each 3560x3560 OpenXR eye. The
+    // provider viewport is normalized (Unity2021.3.5 URP XRPass.XRView performs
+    // this same conversion); CommandBuffer.SetViewport and the shader's
+    // capture-pixel mapping both require pixels. Passing that Rect through unchanged
+    // captured/restored only one pixel and made every bar sample the same depth:
+    // a single card then hid all actors and flickered as that sample changed. The
+    // Build672 targetTexture fixtures bypassed this XR boundary entirely.
+    internal static Rect XrPixelViewport(Rect viewport, int width, int height) =>
+        new(viewport.x * width, viewport.y * height, viewport.width * width, viewport.height * height);
 
     private static void DrawHeld(CommandBuffer capture, Camera camera, Renderer[]? renderers)
     {
@@ -287,6 +307,7 @@ internal static class HealthbarForegroundDepth
         }
         _capture?.Release(); _release?.Release(); _capture = null; _release = null; _camera = null;
         Shader.SetGlobalFloat(ReadyId, 0f);
+        _viewportLogged = false;
         ActorBarDepthShaders.SetCaptureAvailable(false);
     }
 }

@@ -68,7 +68,8 @@ public static class NativeFontProgram
         wall.SetActive(false);var firstOriginal=Render("native-font-first-original",false);
         File.WriteAllText(Path.Combine(evidence,"native-font-binding.txt"),"initialOriginalPixels="+Green(firstOriginal)+"\nshader="+number.fontSharedMaterial.shader.name+"\ncharCount="+number.textInfo.characterCount+"\nvertexCount="+number.textInfo.meshInfo[0].vertexCount+"\natlas="+atlas.width+"x"+atlas.height+"\nfont="+font.faceInfo.familyName+"\n");
         Check(Green(firstOriginal)>20&&number.textInfo.characterCount==2,"canonical original shader and actual native game glyphs render before capture instrumentation");
-        _checks+=ActorBarViewportPixels.Run(evidence,camera,number,original,wallMat);wall.SetActive(true);
+        _checks+=ActorBarViewportPixels.Run(evidence,camera,number,original,wallMat);
+        _checks+=ActorBarXrViewportPixels.Run(evidence,camera,number,original,wallMat);wall.SetActive(true);
         ActorBars.Scan(owner,true);Check(Green(Render("native-font-wall-hidden"))==0,"actual native font health numbers are hidden by walls only when requested");
         ActorBars.Restore(owner);ActorBars.Scan(owner,false);HealthbarForegroundDepth.SetActive(true);
         var baseline=Render("native-font-through-wall");int visible=Green(baseline);Check(visible>20,"original game atlas and real TMP glyph tessellation render through a wall");

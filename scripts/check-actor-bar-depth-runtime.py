@@ -29,6 +29,16 @@ def method(source,signature):
         depth+=(source[end]=='{')-(source[end]=='}');end+=1
     return source[start:end]
 
+def xr_viewport_binding_contract(source):
+    """The GPU analogue cannot create an XR provider; pin its real admission chain."""
+    viewport=method(source,'private static Rect Viewport(')
+    assert 'Rect pixels = XrPixelViewport(parameter.viewport, width, height);' in viewport, 'XR provider viewport bypasses normalized-to-pixel admission'
+    assert 'return pixels;' in viewport, 'XR provider ignores converted pixel viewport'
+    prepare=method(source,'internal static void Prepare(')
+    assert 'Rect viewport = Viewport(camera, width, height);' in prepare, 'Capture bypasses actual camera/XR viewport'
+    assert prepare.count('capture.SetViewport(viewport);')==2, 'Capture and camera target must restore the same admitted viewport'
+    assert 'new Vector4(viewport.x, viewport.y, viewport.width, viewport.height)' in prepare, 'Shader pixel mapping bypasses admitted viewport'
+
 def native_shader_depth_contract(root,run):
     """Cross-check real shipped TMP pass depth, not the fixture shader's aliases."""
     python=Path.home()/'unitypy-venv/bin/python'
@@ -91,6 +101,11 @@ def main():
     read=(root/'src/GloomhavenVR/WorldUI/Sharpness/PanelGraphicMaterial.cs').read_text()
     shaders=(root/'src/GloomhavenVR/WorldUI/ActorBarDepthShaders.cs').read_text()
     foreground=(root/'src/GloomhavenVR/WorldUI/HealthbarForegroundDepth.cs').read_text()
+    xr_viewport_binding_contract(foreground)
+    for before,after in [('return pixels;','return parameter.viewport;'),('capture.SetViewport(viewport);','capture.SetViewport(camera.pixelRect);')]:
+        try:xr_viewport_binding_contract(foreground.replace(before,after))
+        except AssertionError:pass
+        else:raise SystemExit('Disconnected production XR viewport binding escaped source control')
     variants=[('production',code,foreground,'')]
     changes=[
       ('text-native-refresh-ignored','text.OnPreRenderText += callback;','/* native refresh omitted */','native inline sprite receives its own complete foreground-aware material'),
@@ -103,6 +118,7 @@ def main():
         assert code.count(before)==1, 'Mutation binding drift: '+name
         variants.append((name,code.replace(before,after),foreground,expected))
     more=[
+        ('xr-normalized-viewport-treated-as-pixels','new(viewport.x * width, viewport.y * height, viewport.width * width, viewport.height * height);','viewport;','normalized XR viewport preserves all native pixels for independently occluded actors'),
         ('capture-fallback-unsafe','ActorBarDepthShaders.SetCaptureAvailable(false);','/* unsafe Always retained */','capture unavailable keeps own derivative on safe ordinary depth rather than piercing foreground'),
         ('viewport-native-domain-ignored','new Vector4(viewport.x, viewport.y, viewport.width, viewport.height)','new Vector4(0, 0, camera.pixelWidth, camera.pixelHeight)','target-texture viewport matches native full-target card occlusion despite ignored camera rect'),
         ('ignore-solid-foreground','capture.SetGlobalFloat(ReadyId, 1f);','capture.SetGlobalFloat(ReadyId, 0f);','actual nearer solid card geometry hides every covered native glyph pixel'),
