@@ -93,6 +93,7 @@ internal static partial class Loc
     private static Dictionary<string, Dictionary<string, string>> BuildConfigNames() =>
         new(512, StringComparer.Ordinal)
         {
+            ["SteamLink/PayloadTestEnabled"] = Pair("Steam Link mask test (EXP.)", "Steam-Link-Maskentest (EXP.)"),
             // ---- [General] / [Core] / [Dev] — system & start-up -----------------------------
             ["General/Enabled"] = Pair("Enable VR mod", "VR-Mod aktivieren"),
             ["General/LogLevel"] = Pair("Log detail level", "Protokoll-Detailstufe"),

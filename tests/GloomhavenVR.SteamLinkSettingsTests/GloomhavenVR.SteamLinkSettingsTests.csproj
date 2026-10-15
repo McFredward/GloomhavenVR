@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(ProductionDir)/SteamLinkMaskConfig.cs" />
+    <Compile Include="$(ProductionDir)/Defaults.SteamLink.cs" />
+    <Compile Include="$(FixtureDir)/Program.cs" />
+    <Reference Include="BepInEx" HintPath="$(BepInExAssembly)" />
+    <Reference Include="UnityEngine.CoreModule" HintPath="$(GameManaged)/UnityEngine.CoreModule.dll" />
+  </ItemGroup>
+</Project>

@@ -25,6 +25,7 @@ internal static class Program
             panel.UserClosing = true;
             panel.Panel.PreRoll = true;
             bool latched = true;
+            GloomhavenVR.Core.SteamLinkMaskRuntime.OutputRunning = true;
             Check(VROptionsTab.Open(() => { callbacks++; latched = false; }), "opens on first request");
             Check(VROptionsTab.IsOpen && pane.gameObject.activeSelf, "native window is open");
             Check(!panel.UserClosing && !panel.Panel.PreRoll,

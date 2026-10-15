@@ -77,6 +77,8 @@ internal static partial class VROptionsTab
     internal static object? ContentRoot => _window;
     private static bool ShowStandalone()
     {
+        if (GloomhavenVR.Core.SteamLinkMaskRuntime.OutputRunning)
+            throw new InvalidOperationException("opening VR options restores diagnostic output before native show");
         ModalFallback.PrepareModMenuReopen(_window!.Window);
         _window.Show(); return IsOpen;
     }

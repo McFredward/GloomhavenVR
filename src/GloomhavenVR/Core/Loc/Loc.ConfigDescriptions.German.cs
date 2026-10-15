@@ -33,6 +33,11 @@ internal static partial class Loc
     private static Dictionary<string, string> BuildGerman() =>
         new(784, StringComparer.Ordinal)
         {
+            ["SteamLink/PayloadTestEnabled"] =
+                "Experimenteller Test der Maskenübertragung über Steam Link. Ersetzt nach dem Schließen "
+                + "der VR-Optionen kurz das Spielbild durch ein Testmuster. Endet nach spätestens "
+                + "30 Sekunden oder beim erneuten Öffnen der VR-Optionen. Aktiviert kein Passthrough. "
+                + "Bei jedem Spielstart aus.",
             // ---- [Voice] spatial voice chat (ModBuild 297) ------------------------------------
             ["Voice/Enabled"] =
                 "Macht den Sprachchat des SPIELS räumlich: die Stimme eines Mitspielers kommt aus "

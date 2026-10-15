@@ -27,7 +27,7 @@ cp "$repo_root/tests/GloomhavenVR.OptionsCloseTests/"*.cs "$test_dir/"
 cp "$repo_root/tests/GloomhavenVR.OptionsCloseTests/"*.csproj "$test_dir/"
 project="$test_dir/GloomhavenVR.OptionsCloseTests.csproj"
 dotnet run --project "$project" --configuration Release --property:OptionsCloseSource="$test_dir/Close.fixture"
-for mutation in native-order stale-clone stale-open callback-once reopen-gap ordinary-window; do
+for mutation in native-order stale-clone stale-open callback-once reopen-gap ordinary-window mask-escape; do
     python3 - "$test_dir" "$mutation" <<'PY'
 import pathlib, sys
 out = pathlib.Path(sys.argv[1]); s = (out / 'Close.fixture').read_text()
@@ -38,6 +38,7 @@ pairs = {
 'callback-once': ('        _onHidden = null;\n        if (pending == null)', '        if (pending == null)'),
 'reopen-gap': ('        wp.UserClosing = false;', '        wp.UserClosing = true;'),
 'ordinary-window': ('if (!MenuWindowFamily.IsModOwned(window))', 'if (window == null)'),
+'mask-escape': ('GloomhavenVR.Core.SteamLinkMaskRuntime.NotifyOptionsOpening();', ''),
 }
 a, b = pairs[sys.argv[2]]; assert a in s; (out / 'Close.mutant').write_text(s.replace(a, b, 1))
 PY
@@ -52,6 +53,7 @@ PY
         callback-once) expected='duplicate close invokes callback once' ;;
         reopen-gap) expected='explicit reopen supersedes pending gap-close' ;;
         ordinary-window) expected='ordinary window pending close stays untouched' ;;
+        mask-escape) expected='opening VR options restores diagnostic output before native show' ;;
     esac
     if ! rg -qF "$expected" "$test_dir/mutant.log"; then cat "$test_dir/mutant.log"; exit 1; fi
     echo "VR options close negative control: $mutation rejected."
