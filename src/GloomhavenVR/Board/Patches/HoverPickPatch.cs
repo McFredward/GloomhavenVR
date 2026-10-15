@@ -275,6 +275,23 @@ internal static class HoverPickPatch
             return false;
         }
 
+        // Build675: an elevated prop collider can answer while the actual laser lands on
+        // a neighbouring hex or misses the board. Tooltip admission follows the native
+        // picked hex, never that collider's overhang. Keep fingertip reach and all game
+        // targeting/clicks unchanged; this gate owns only the laser's IHoverable dispatch.
+        if (BoardPick.Source == BoardPick.PickSource.Far)
+        {
+            Controller? controller = Controller.Instance;
+            // Match WorldspaceStarHexDisplay's own hex mask, not Controller's potentially
+            // different active-selection mask cached by BoardPick during another phase.
+            if (controller == null || !TileHoverAdmission.Allows(origin, direction, maxDistance,
+                    controller.m_HexSelectionRaycastLayer, hitObject))
+            {
+                ExitAll(cursorTargets, "the laser does not point at a native hex containing this prop");
+                return false;
+            }
+        }
+
         // HoverRegisterer.cs:39 uses GetComponents on the HIT GameObject — NOT
         // GetComponentInParent, which is what MF.FindInteractableAtMousePosition uses. Keep that
         // difference: every UnityGameEditor*Prop puts its collider and its IHoverable on the same
