@@ -1,8 +1,9 @@
 # Steam Link mask-carriage source experiment
 
 The source experiment is part of **GloomhavenVR itself**, enabled through its VR
-settings. There is no separate plugin, extra configuration file, CLI flag,
-keyboard start key or externally installed fixture. It is disabled by default
+settings. There is no separate plugin, manual configuration step, CLI flag,
+keyboard start key or externally installed fixture. The existing module-config
+system stores the toggle in `dev.gloomhavenvr.steamlink.cfg`. It is disabled by default
 and its persisted request is cleared at process startup. It does **not** enable
 Steam Link passthrough, export real game alpha, modify the native PC Steam
 sender, or install anything on the Frame.
