@@ -160,6 +160,12 @@ internal sealed class OptionsToggle
         if (!VRSession.IsRunning && !Plugin.DevMode.Value)
             return;
 
+        // The diagnostic test replaces the eye image, including a newly opened pause menu.
+        // Restore it at the ordinary menu tap before ResolveMenu can return without a menu.
+        // This observes the existing edge; normal menu handling still owns its consumption.
+        if (NonDominantHold.ShortTapThisFrame)
+            SteamLinkMaskRuntime.NotifyOptionsOpening();
+
         // THE LEFT RIM (ModBuild 423): the Debug-only settle pump for the whole-scene eye census,
         // placed ABOVE the ResolveMenu early return because a settled read must still happen after
         // a tap chain that ended with the pause menu gone. Ordinary logging disarms the census;

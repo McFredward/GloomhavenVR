@@ -10,6 +10,35 @@ internal static class Program
     }
     private static void Main()
     {
+        var menuToggle = new OptionsToggle();
+        Plugin.DevMode.Value = false;
+        NonDominantHold.Consumed = false;
+        GloomhavenVR.Core.VRSession.IsRunning = true;
+        NonDominantHold.ShortTapThisFrame = true;
+        GloomhavenVR.Core.SteamLinkMaskRuntime.OutputRunning = true;
+        menuToggle.Tick();
+        Check(!GloomhavenVR.Core.SteamLinkMaskRuntime.OutputRunning,
+            "ordinary menu tap restores diagnostic output even without a pause menu");
+        Check(!NonDominantHold.Consumed && menuToggle.DroppedMissingMenu,
+            "diagnostic escape leaves ordinary input consumption and missing-menu state untouched");
+        menuToggle.Menu = new ESCMenu();
+        GloomhavenVR.Core.SteamLinkMaskRuntime.OutputRunning = true;
+        menuToggle.Tick();
+        Check(!GloomhavenVR.Core.SteamLinkMaskRuntime.OutputRunning && menuToggle.ReachedNormalMenu,
+            "ordinary menu tap restores output before continuing normal pause-menu handling");
+        NonDominantHold.ShortTapThisFrame = false;
+        GloomhavenVR.Core.SteamLinkMaskRuntime.OutputRunning = true;
+        menuToggle.Tick();
+        Check(GloomhavenVR.Core.SteamLinkMaskRuntime.OutputRunning,
+            "idle options tick does not stop diagnostic output");
+        GloomhavenVR.Core.VRSession.IsRunning = false;
+        NonDominantHold.ShortTapThisFrame = true;
+        menuToggle.Tick();
+        Check(GloomhavenVR.Core.SteamLinkMaskRuntime.OutputRunning,
+            "ordinary flat-session VR gate remains unchanged");
+        GloomhavenVR.Core.VRSession.IsRunning = true;
+        GloomhavenVR.Core.SteamLinkMaskRuntime.OutputRunning = false;
+
         var old = new UISubmenuGOWindow();
         var pane = new UISubmenuGOWindow();
         VROptionsTab.Bind(old);

@@ -23,7 +23,7 @@ internal static class SteamLinkMaskConfig
         _file = ModuleConfig.Create("steamlink");
         PayloadTestEnabled = _file.Bind("SteamLink", "PayloadTestEnabled",
             Defaults.SteamLinkPayloadTestEnabled,
-            "Experimental Steam Link mask-transmission test. After closing VR options, briefly replaces the game image with a diagnostic pattern. Ends after at most 30 seconds or when VR options are reopened. Does not enable passthrough. Off at every game start.");
+            "Experimental Steam Link mask-transmission test. After closing VR options, briefly replaces the game image with a diagnostic pattern. Ends after at most 30 seconds, on the ordinary menu button, or when VR options are reopened. Does not enable passthrough. Off at every game start.");
 
         // Config files auto-save user edits. Clear a persisted request once at bootstrap,
         // not on every menu bind; otherwise reopening the catalog would consume a fresh request.

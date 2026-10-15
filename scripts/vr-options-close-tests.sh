@@ -9,25 +9,31 @@ import pathlib, sys
 root, out = map(pathlib.Path, sys.argv[1:])
 pane = (root / 'src/GloomhavenVR/WorldUI/Options/VROptionsTab.1.Inject.cs').read_text()
 modal = (root / 'src/GloomhavenVR/WorldUI/Modal/ModalFallback.7.Close.cs').read_text()
+toggle = (root / 'src/GloomhavenVR/WorldUI/Options/OptionsToggle.cs').read_text()
 def method(source, signature):
     start = source.index('    ' + signature)
     end = source.index('\n    }', start) + len('\n    }')
     return source[start:end]
-s = 'using System;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class VROptionsTab {\n'
+s = 'using System; using GloomhavenVR.Core;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class VROptionsTab {\n'
 for signature in ['internal static bool IsOpen', 'private static void HookHidden(UISubmenuGOWindow window)', 'private static void NotifyHidden(UISubmenuGOWindow source)', 'internal static bool Open(Action? onHidden, RectTransform? pointAt = null)', 'internal static void Close()']:
     s += method(pane, signature) + '\n'
 s += '}\ninternal static partial class ModalFallback {\n'
 s += method(modal, 'internal static void PrepareModMenuReopen(UIWindow window)') + '\n}\n'
+prefix = method(toggle, 'public void Tick()').split('        // PARENT open-state', 1)[0]
+assert 'ESCMenu? menu = ResolveMenu();' in prefix and '_spentPressId = NonDominantHold.PressId;' in prefix
+s += 'internal sealed partial class OptionsToggle {\n' + prefix + '\n        ReachedNormalMenu = true;\n    }\n}\n'
 show = method(pane, 'private static bool ShowStandalone()')
 assert show.index('ModalFallback.PrepareModMenuReopen(win);') < show.index('_window.Show();')
 (out / 'Close.fixture').write_text(s)
-print('VR options close: six production method bindings and reopen call ordering passed.')
+print('VR options close: six production method bindings, actual menu Tick prefix and reopen ordering passed.')
 PY
 cp "$repo_root/tests/GloomhavenVR.OptionsCloseTests/"*.cs "$test_dir/"
 cp "$repo_root/tests/GloomhavenVR.OptionsCloseTests/"*.csproj "$test_dir/"
 project="$test_dir/GloomhavenVR.OptionsCloseTests.csproj"
 dotnet run --project "$project" --configuration Release --property:OptionsCloseSource="$test_dir/Close.fixture"
-for mutation in native-order stale-clone stale-open callback-once reopen-gap ordinary-window mask-escape; do
+mutations=(native-order stale-clone stale-open callback-once reopen-gap ordinary-window mask-escape menu-tap-escape menu-escape-idle)
+if (( $# > 0 )); then mutations=("$@"); fi
+for mutation in "${mutations[@]}"; do
     python3 - "$test_dir" "$mutation" <<'PY'
 import pathlib, sys
 out = pathlib.Path(sys.argv[1]); s = (out / 'Close.fixture').read_text()
@@ -39,6 +45,8 @@ pairs = {
 'reopen-gap': ('        wp.UserClosing = false;', '        wp.UserClosing = true;'),
 'ordinary-window': ('if (!MenuWindowFamily.IsModOwned(window))', 'if (window == null)'),
 'mask-escape': ('GloomhavenVR.Core.SteamLinkMaskRuntime.NotifyOptionsOpening();', ''),
+'menu-tap-escape': ('if (NonDominantHold.ShortTapThisFrame)\n            SteamLinkMaskRuntime.NotifyOptionsOpening();', ''),
+'menu-escape-idle': ('if (NonDominantHold.ShortTapThisFrame)\n            SteamLinkMaskRuntime.NotifyOptionsOpening();', 'SteamLinkMaskRuntime.NotifyOptionsOpening();'),
 }
 a, b = pairs[sys.argv[2]]; assert a in s; (out / 'Close.mutant').write_text(s.replace(a, b, 1))
 PY
@@ -54,6 +62,8 @@ PY
         reopen-gap) expected='explicit reopen supersedes pending gap-close' ;;
         ordinary-window) expected='ordinary window pending close stays untouched' ;;
         mask-escape) expected='opening VR options restores diagnostic output before native show' ;;
+        menu-tap-escape) expected='ordinary menu tap restores diagnostic output even without a pause menu' ;;
+        menu-escape-idle) expected='idle options tick does not stop diagnostic output' ;;
     esac
     if ! rg -qF "$expected" "$test_dir/mutant.log"; then cat "$test_dir/mutant.log"; exit 1; fi
     echo "VR options close negative control: $mutation rejected."
