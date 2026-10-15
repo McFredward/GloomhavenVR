@@ -76,7 +76,7 @@ namespace GloomhavenVR.Core.SteamLink
                     Camera.MonoOrStereoscopicEye actualEye = _camera.stereoActiveEye;
                     ProbeEye eye = actualEye == Camera.MonoOrStereoscopicEye.Left ? ProbeEye.Left
                         : actualEye == Camera.MonoOrStereoscopicEye.Right ? ProbeEye.Right : ProbeEye.Unknown;
-                    selected = _policy.Select(Time.realtimeSinceStartupAsDouble, _camera.gameObject == gameObject
+                    selected = _policy.Select(_camera.gameObject == gameObject
                         && source != null && source.dimension == TextureDimension.Tex2D
                         && (destination == null || destination.dimension == TextureDimension.Tex2D),
                         Camera.current == _camera, GraphicsSettings.currentRenderPipeline == null,

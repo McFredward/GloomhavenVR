@@ -6,7 +6,7 @@ internal static class SteamLinkMaskCallbackGate
     internal static bool OwnsRequest(object? currentDriver, object driver) => ReferenceEquals(currentDriver, driver);
 
     internal static bool Admit(ProbePolicy current, ProbePolicy callback, bool sameComponent,
-                                bool sameCamera, bool allowed, double now, out bool stopCurrent)
+                                bool sameCamera, bool allowed, out bool stopCurrent)
     {
         stopCurrent = false;
         if (!ReferenceEquals(current, callback))
@@ -16,7 +16,7 @@ internal static class SteamLinkMaskCallbackGate
         }
         if (!sameComponent || !sameCamera)
             return false;
-        if (allowed && current.IsRunning(now))
+        if (allowed && current.IsRunning)
             return true;
         current.Stop();
         stopCurrent = true;

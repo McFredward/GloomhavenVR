@@ -2,7 +2,7 @@ namespace GloomhavenVR.Core.SteamLink;
 
 internal enum SteamLinkMaskStep { Idle, Prepare, WaitForOptions, Ready, Continue, Stop }
 
-/// <summary>Actual one-request lifecycle; menu waiting never spends the visible output deadline.</summary>
+/// <summary>Actual one-request lifecycle; output remains active until explicitly stopped or its owner becomes invalid.</summary>
 internal sealed class SteamLinkMaskLifecycle
 {
     internal ProbePolicy Policy { get; } = new();
@@ -10,7 +10,7 @@ internal sealed class SteamLinkMaskLifecycle
     internal bool Running => Policy.Phase == ProbePhase.Running;
 
     internal SteamLinkMaskStep Tick(bool requested, bool optionsVisible, bool supportedSession,
-                                     bool sameCamera, double now)
+                                     bool sameCamera)
     {
         if (!requested)
             return HasRequest ? SteamLinkMaskStep.Stop : SteamLinkMaskStep.Idle;
@@ -23,7 +23,7 @@ internal sealed class SteamLinkMaskLifecycle
         }
         if (Running)
         {
-            if (optionsVisible || !sameCamera || !Policy.IsRunning(now))
+            if (optionsVisible || !sameCamera)
                 return SteamLinkMaskStep.Stop;
             return SteamLinkMaskStep.Continue;
         }

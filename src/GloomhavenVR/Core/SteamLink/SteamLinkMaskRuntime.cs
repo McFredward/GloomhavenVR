@@ -82,7 +82,7 @@ internal static class SteamLinkMaskRuntime
         private void Tick()
         {
             bool requested = SteamLinkMaskConfig.Requested;
-            // Ordinary players pay one request/ownership check; no menu/camera/clock sampling while off.
+            // Ordinary players pay one request/ownership check; no menu/camera sampling while off.
             if (!requested && !_lifecycle.HasRequest && _output == null && _left == null && _right == null)
                 return;
             if (_output != null) DrainObservations();
@@ -95,7 +95,7 @@ internal static class SteamLinkMaskRuntime
             bool optionsVisible = VROptionsTab.IsOpen;
             bool sameCamera = _camera != null && ReferenceEquals(_camera, VRRigDriver.HeadCamera);
             SteamLinkMaskStep step = _lifecycle.Tick(requested, optionsVisible,
-                VRSession.IsRunning && _pcSource, sameCamera, Time.realtimeSinceStartupAsDouble);
+                VRSession.IsRunning && _pcSource, sameCamera);
             switch (step)
             {
                 case SteamLinkMaskStep.Prepare:
@@ -112,7 +112,7 @@ internal static class SteamLinkMaskRuntime
                     StartOutput();
                     break;
                 case SteamLinkMaskStep.Stop:
-                    StopCurrent(!_pcSource ? "PC streaming source required" : "request, VR session, camera or deadline ended");
+                    StopCurrent(!_pcSource ? "PC streaming source required" : "request, VR session or camera ended");
                     break;
             }
         }
@@ -127,7 +127,7 @@ internal static class SteamLinkMaskRuntime
                 StopCurrent("authorized head camera unavailable");
                 return;
             }
-            if (!_lifecycle.Policy.Start(Time.realtimeSinceStartupAsDouble, true,
+            if (!_lifecycle.Policy.Start(true,
                     GraphicsSettings.currentRenderPipeline == null,
                     VRSession.IsRunning && XRSettings.enabled && XRSettings.isDeviceActive && target.stereoEnabled,
                     XRSettings.stereoRenderingMode == XRSettings.StereoRenderingMode.MultiPass,
@@ -140,7 +140,7 @@ internal static class SteamLinkMaskRuntime
             _output = target.gameObject.AddComponent<PayloadOutput>();
             _output.Initialize(target, _lifecycle.Policy, _left, _right);
             VRLog.Note(Scope, "PAYLOAD source test started; static diagnostic generation only, no passthrough. "
-                + "Ends within 30 seconds or immediately when VR options reopen.");
+                + "Remains active until the menu is opened or the setting is switched off.");
             if (VRLog.WantsDebug)
             {
                 VRLog.Debug(Scope, "PAYLOAD attached camera_id=" + target.GetInstanceID() + " stereo=" + XRSettings.stereoRenderingMode
@@ -173,7 +173,7 @@ internal static class SteamLinkMaskRuntime
             bool allowed = owned && _pcSource && ReferenceEquals(VRRigDriver.HeadCamera, camera)
                 && VRSession.IsRunning && SteamLinkMaskConfig.Requested && !VROptionsTab.IsOpen;
             bool result = SteamLinkMaskCallbackGate.Admit(_lifecycle.Policy, policy, sameComponent,
-                sameCamera, allowed, owned ? Time.realtimeSinceStartupAsDouble : 0, out bool stopCurrent);
+                sameCamera, allowed, out bool stopCurrent);
             if (stopCurrent) _renderStop = true;
             return result;
         }

@@ -20,31 +20,39 @@ internal static class PortableControls
     private static void LifecycleControls()
     {
         var pending = new SteamLinkMaskLifecycle();
-        Require(pending.Tick(false, true, true, false, 1) == SteamLinkMaskStep.Idle, "disabled leaves normal rendering");
-        Require(pending.Tick(true, true, true, false, 2) == SteamLinkMaskStep.Prepare, "explicit setting prepares once while options visible");
+        Require(pending.Tick(false, true, true, false) == SteamLinkMaskStep.Idle, "disabled leaves normal rendering");
+        Require(pending.Tick(true, true, true, false) == SteamLinkMaskStep.Prepare, "explicit setting prepares once while options visible");
         Require(!pending.StopForOptionsOpening(), "pending request survives own options OnShow");
-        Require(pending.Tick(true, true, true, false, 90000) == SteamLinkMaskStep.WaitForOptions, "options waiting never spends output timer");
-        Require(pending.Tick(true, false, true, false, 90001) == SteamLinkMaskStep.Ready, "menu closure admits start");
-        Require(pending.Policy.Start(90001, true, true, true, true, true), "real policy begins only after closure");
-        Require(pending.Tick(true, false, true, true, 90002) == SteamLinkMaskStep.Continue, "running same current camera continues");
-        Require(pending.StopForOptionsOpening(), "synchronous options open interrupts active output");
-        Require(pending.Policy.Phase == ProbePhase.Stopped, "synchronous interruption closes render admission");
-        Require(pending.Tick(true, false, true, true, 90003) == SteamLinkMaskStep.Stop, "closed policy never rearms unchanged request");
-        foreach (int cause in new[] { 0, 1, 2, 3, 4 })
+        for (int update = 0; update < 128; update++)
+            Require(pending.Tick(true, true, true, false) == SteamLinkMaskStep.WaitForOptions,
+                    "pending request waits for explicit options closure without autonomous expiration");
+        Require(pending.Tick(true, false, true, false) == SteamLinkMaskStep.Ready, "menu closure admits start");
+        Require(pending.Policy.Start(true, true, true, true, true), "real policy begins only after closure");
+        for (int callback = 0; callback < 128; callback++)
+        {
+            Require(pending.Tick(true, false, true, true) == SteamLinkMaskStep.Continue,
+                    "ongoing valid lifecycle remains active until a real stop edge");
+            Require(SteamLinkMaskCallbackGate.Admit(pending.Policy, pending.Policy, true, true, true, out bool stop)
+                    && !stop && pending.Policy.IsRunning,
+                    "ongoing valid callbacks never autonomously expire");
+        }
+        Require(pending.StopForOptionsOpening(), "normal menu/options opening interrupts active output");
+        Require(!pending.Policy.IsRunning, "synchronous interruption closes render admission");
+        Require(pending.Tick(true, false, true, true) == SteamLinkMaskStep.Stop, "closed policy never rearms unchanged request");
+        foreach (int cause in new[] { 0, 1, 2, 3 })
         {
             var run = new SteamLinkMaskLifecycle();
-            run.Tick(true, true, true, false, 10);
-            run.Policy.Start(20, true, true, true, true, true);
+            run.Tick(true, true, true, false);
+            run.Policy.Start(true, true, true, true, true);
             bool requested = cause != 0, menu = cause == 1, supported = cause != 2, sameCamera = cause != 3;
-            double now = cause == 4 ? 50 : 21;
-            Require(run.Tick(requested, menu, supported, sameCamera, now) == SteamLinkMaskStep.Stop,
-                    "disable/menu/VR loss/camera replacement/deadline request termination");
+            Require(run.Tick(requested, menu, supported, sameCamera) == SteamLinkMaskStep.Stop,
+                    "disable/menu/VR loss/camera replacement terminates the request");
         }
-        Require(new SteamLinkMaskLifecycle().Tick(true, false, false, false, 1) == SteamLinkMaskStep.Stop,
+        Require(new SteamLinkMaskLifecycle().Tick(true, false, false, false) == SteamLinkMaskStep.Stop,
                 "standalone or unavailable VR rejects without preparing resources");
         var cancelledPending = new SteamLinkMaskLifecycle();
-        cancelledPending.Tick(true, true, true, false, 1);
-        Require(cancelledPending.Tick(false, true, true, false, 2) == SteamLinkMaskStep.Stop,
+        cancelledPending.Tick(true, true, true, false);
+        Require(cancelledPending.Tick(false, true, true, false) == SteamLinkMaskStep.Stop,
                 "disable while options open cancels pending preparation");
         object retiredDriver = new object(), currentDriver = new object();
         bool freshRequest = true;
@@ -53,24 +61,27 @@ internal static class PortableControls
         Require(SteamLinkMaskCallbackGate.OwnsRequest(currentDriver, currentDriver), "current driver can clear its own request");
         Require(!SteamLinkMaskCallbackGate.OwnsRequest(null, retiredDriver), "unloaded driver owns no future request");
         var retired = new ProbePolicy();
-        retired.Start(1, true, true, true, true, true);
+        retired.Start(true, true, true, true, true);
         retired.Stop();
         var newRun = new ProbePolicy();
-        newRun.Start(10, true, true, true, true, true);
-        Require(!SteamLinkMaskCallbackGate.Admit(newRun, retired, false, false, false, 999, out bool stopNew)
-            && !stopNew && newRun.Phase == ProbePhase.Running && newRun.StartedAt == 10,
-            "deferred retired callback cannot cancel or expire freshly enabled output");
-        Require(SteamLinkMaskCallbackGate.Admit(newRun, newRun, true, true, true, 11, out stopNew) && !stopNew,
+        newRun.Start(true, true, true, true, true);
+        Require(!SteamLinkMaskCallbackGate.Admit(newRun, retired, false, false, false, out bool stopNew)
+            && !stopNew && newRun.IsRunning,
+            "deferred retired callback cannot cancel freshly enabled output");
+        Require(SteamLinkMaskCallbackGate.Admit(newRun, newRun, true, true, true, out stopNew) && !stopNew,
             "current component continues after retired callback");
-        Require(!SteamLinkMaskCallbackGate.Admit(newRun, newRun, false, true, false, 999, out stopNew)
-            && !stopNew && newRun.Phase == ProbePhase.Running,
+        Require(!SteamLinkMaskCallbackGate.Admit(newRun, newRun, false, true, false, out stopNew)
+            && !stopNew && newRun.IsRunning,
             "foreign component cannot mutate current owner policy");
-        Require(!SteamLinkMaskCallbackGate.Admit(newRun, newRun, true, true, false, 12, out stopNew)
-            && stopNew && newRun.Phase == ProbePhase.Stopped,
+        Require(!SteamLinkMaskCallbackGate.Admit(newRun, newRun, true, true, false, out stopNew)
+            && stopNew && !newRun.IsRunning,
             "current callback menu/disable/VR guard immediately closes output before Update");
         var fresh = new SteamLinkMaskLifecycle();
-        Require(fresh.Tick(true, true, true, false, 100) == SteamLinkMaskStep.Prepare,
+        Require(fresh.Tick(true, true, true, false) == SteamLinkMaskStep.Prepare,
                 "fresh explicit request supports another run after cleanup");
+        Require(fresh.Tick(true, false, true, false) == SteamLinkMaskStep.Ready
+                && fresh.Policy.Start(true, true, true, true, true),
+                "fresh explicit off/on cycle can resume output with a new policy");
     }
 
     private static int Main(string[] args)
@@ -79,39 +90,35 @@ internal static class PortableControls
         for (int mask = 0; mask < 32; mask++)
         {
             var policy = new ProbePolicy();
-            bool started = policy.Start(10, (mask & 1) != 0, (mask & 2) != 0, (mask & 4) != 0,
+            bool started = policy.Start((mask & 1) != 0, (mask & 2) != 0, (mask & 4) != 0,
                                         (mask & 8) != 0, (mask & 16) != 0);
             Require(started == (mask == 31), "all five start gates");
         }
-        foreach (double invalid in new[] { double.NaN, double.PositiveInfinity, double.NegativeInfinity, -1d })
-            Require(!new ProbePolicy().Start(invalid, true, true, true, true, true), "invalid start time");
         for (int mask = 0; mask < 64; mask++)
             foreach (ProbeEye eye in new[] { ProbeEye.Unknown, ProbeEye.Left, ProbeEye.Right, (ProbeEye)99 })
             {
                 var policy = new ProbePolicy();
-                Require(policy.Start(10, true, true, true, true, true), "prepare valid running policy");
-                ProbeEye actual = policy.Select(11, (mask & 1) != 0, (mask & 2) != 0, (mask & 4) != 0,
+                Require(policy.Start(true, true, true, true, true), "prepare valid running policy");
+                ProbeEye actual = policy.Select((mask & 1) != 0, (mask & 2) != 0, (mask & 4) != 0,
                     (mask & 8) != 0, (mask & 16) != 0, (mask & 32) != 0, eye);
                 ProbeEye expected = mask == 63 && (eye == ProbeEye.Left || eye == ProbeEye.Right) ? eye : ProbeEye.Unknown;
                 Require(actual == expected, "camera/XR/both-eye/eye admission matrix");
             }
-        foreach (double expired in new[] { 40d, 41d, 9d, double.NaN, double.PositiveInfinity })
-        {
-            var policy = new ProbePolicy();
-            policy.Start(10, true, true, true, true, true);
-            Require(!policy.IsRunning(expired), "deadline or invalid clock stops output");
-            Require(policy.Phase == ProbePhase.Stopped, "stop is permanent");
-            Require(!policy.Start(200, true, true, true, true, true), "no rearm after stop");
-        }
         var one = new ProbePolicy();
-        Require(one.Phase == ProbePhase.Prepared && !one.IsRunning(99999), "waiting for F8 consumes no run window");
-        Require(one.Start(100000, true, true, true, true, true), "F8 start after arbitrary preparation wait");
-        Require(one.IsRunning(100029.999), "not expired before original deadline");
-        Require(!one.Start(100010, true, true, true, true, true), "second start cannot reset deadline");
-        Require(one.StartedAt == 100000, "original time remains immutable");
+        Require(one.Phase == ProbePhase.Prepared && !one.IsRunning, "request stays inactive before explicit start");
+        Require(one.Start(true, true, true, true, true), "supported explicit request starts output");
+        for (int callback = 0; callback < 128; callback++)
+        {
+            Require(one.IsRunning, "running policy remains active without an automatic timer");
+            ProbeEye eye = callback % 2 == 0 ? ProbeEye.Left : ProbeEye.Right;
+            Require(one.Select(true, true, true, true, true, true, eye) == eye,
+                    "repeated stereo callbacks retain their actual eye until manually stopped");
+        }
+        Require(!one.Start(true, true, true, true, true), "duplicate start cannot replace an active request");
         one.Stop();
-        Require(one.Select(100011, true, true, true, true, true, true, ProbeEye.Left) == ProbeEye.Unknown,
+        Require(!one.IsRunning && one.Select(true, true, true, true, true, true, ProbeEye.Left) == ProbeEye.Unknown,
                 "manual stop immediately uses source fallback");
+        Require(!one.Start(true, true, true, true, true), "stopped policy cannot silently rearm");
 
         string root = Path.GetFullPath(args[0]);
         Func<string, ProbeManifest> load = eye => ProbeManifest.Load(File.ReadAllBytes(Path.Combine(root, eye + "-source.json")), eye);
