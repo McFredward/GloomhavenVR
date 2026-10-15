@@ -35,8 +35,8 @@ internal static partial class Loc
         {
             ["SteamLink/PayloadTestEnabled"] =
                 "Experimenteller Test der Maskenübertragung über Steam Link. Ersetzt nach dem Schließen "
-                + "der VR-Optionen kurz das Spielbild durch ein Testmuster. Endet nach spätestens "
-                + "30 Sekunden, mit der normalen Menütaste oder beim erneuten Öffnen der VR-Optionen. Aktiviert kein Passthrough. "
+                + "der VR-Optionen das Spielbild ohne Zeitbegrenzung durch ein Testmuster. Beende den Test "
+                + "mit dem Schalter, der normalen Menütaste oder durch erneutes Öffnen der VR-Optionen. Aktiviert kein Passthrough. "
                 + "Bei jedem Spielstart aus.",
             // ---- [Voice] spatial voice chat (ModBuild 297) ------------------------------------
             ["Voice/Enabled"] =

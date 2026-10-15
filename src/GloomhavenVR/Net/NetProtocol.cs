@@ -612,7 +612,18 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 675;
+    public const ushort ModBuild = 676;
+
+    // ModBuild676 — manual-only Steam Link source test; no automatic expiry.
+    // The maintainer explicitly rejects Build675's30-second limit. Remove the
+    // clock/deadline API entirely; output stays active until the existing menu /
+    // options escape or switch stops it. Keep camera/eye/session/ownership/fault
+    // guards and boot-off behavior, with no replacement timer or timeout setting.
+    // Update English/German help and the developer hardware checklist accordingly.
+    // This remains a source-pattern diagnostic, not working streamed passthrough.
+    // No Frame or native Steam sender change, gameplay change, config-key/default
+    // change or wire-schema change. Focused proof and inherited675 evidence are
+    // recorded in STATE; unmodified native/wire suites are not repeated.
 
     // ModBuild675 — semantic hover feedback, tile-scoped prop hover and XR healthbar viewport repair.
     // The maintainer's Build674 hardware run confirms the water repair and reports no

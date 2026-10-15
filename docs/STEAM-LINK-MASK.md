@@ -22,12 +22,14 @@ reprojection/foveation mapping, real material alpha or working passthrough.
 
 The normal VR settings toggle owns the request. Enabling it prepares the embedded
 original PNGs/source manifests and waits while VR options are open. Closing the
-options window starts at most **30 seconds** of diagnostic output on the existing
-`VRRigDriver.HeadCamera`. Open the normal controller menu or reopen VR options to
-stop immediately and restore ordinary output; disabling the request, timeout,
+options window starts diagnostic output on the existing `VRRigDriver.HeadCamera`
+**without a time limit**. Open the normal controller menu or reopen VR options to
+stop immediately and restore ordinary output; disabling the request,
 VR shutdown, camera replacement, component destruction and failures also stop it.
 The request resets to off after stopping. A fresh explicit enable may start a new
-run, with fresh owned resources and policy; no old deadline or callback is reused.
+run, with fresh owned resources and policy; no old callback is reused. The
+maintainer explicitly removed the automatic 30-second stop in Build676. There is
+no replacement timer or configurable expiry.
 
 Normal menu/options opening stops synchronously before native showing, while the
 render callback independently checks current options visibility and request/VR
@@ -56,8 +58,8 @@ VR stream on Frame. No new Frame helper installation or restart is needed.
    This build cannot show native streamed passthrough, even if the test succeeds.
 3. Press the ordinary controller menu button. The game image must return
    immediately and normal menu interaction must remain usable.
-4. Enable the test again and let its 30-second limit expire. Verify ordinary
-   output returns and the switch is off. A fresh explicit enable must work again.
+4. Enable the test again and leave it active for as long as needed. It must not
+   stop automatically. End it manually and verify a fresh enable works again.
 
 Retain the PC `LogOutput.log` and `Player.log`, with the run's ModBuild, under
 `.planning/debug/steamlink_passthrough/`. A Frame screenshot can establish the
@@ -71,7 +73,7 @@ output or incomplete eye output rather than treating it as a successful carrier.
 `CoreModule` binds/clears the diagnostic request before XR bootstrap, installs a
 dormant driver on the existing hardened core host after runtime dependencies are
 loaded, and shuts it down before host/VR teardown. The off path reads only the
-request and owned-resource state, returning before menu/camera/clock sampling.
+request and owned-resource state, returning before menu/camera sampling.
 Standalone eligibility is cached outside callbacks because its launch marker
 check involves filesystem access.
 
@@ -135,7 +137,7 @@ python3 -B scripts/check-steamlink-mask-runtime.py --compile-only
 ```
 
 The runner uses the actual production policy/manifest/lifecycle/callback gate,
-including pending-menu starts, request cancellation, deadline, VR/camera loss,
+including pending-menu starts, sustained output, request cancellation, VR/camera loss,
 retired callbacks/drivers and fresh explicit repeat. Hosted execution needs no
 private game assets. The optional runtime type-check uses real local Unity
 references with compile-only adapters for other mod types; the complete mod

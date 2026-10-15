@@ -1,5 +1,23 @@
 # State — where the project stands
 
+**Build676 manual-only Steam Link source test, 2026-10-15: dev1.1.1.**
+
+The maintainer rejects the automatic30-second test expiry. Remove the complete
+clock/deadline API and runtime time sampling. Preserve the manual menu/options
+escape and switch, camera/eye/session/fault/ownership gates and boot-off behavior.
+English/German hints and the source-output checklist now describe manual stopping.
+No replacement timeout setting, Frame/sender mutation, gameplay or wire change.
+This still presents a diagnostic pattern, not working streamed passthrough.
+
+Focused validation under `.planning/debug/steamlink676/`: 1,225 production-policy
+controls and the Unity-reference runtime compile pass; actual Debug/Release builds
+finish with zero warnings/errors. Player-help lookup passes 2,308 assertions,
+options coverage and docs i18n pass, and all 667 config keys / 236 Harmony patches /
+4,797 log tokens remain unchanged. Independent source review passes. Reuse only
+unchanged675 native/wire/menu/binder evidence; this is not another full221-suite
+gate or a hardware/passthrough result. Unrelated trailer work and675 CI-preflight
+repairs remain preserved.
+
 **Build675 semantic hover and XR viewport repair, 2026-10-15: dev1.1.1.**
 
 The latest local hardware logs identify674. The maintainer confirms water and

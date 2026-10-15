@@ -3,7 +3,7 @@ using BepInEx.Configuration;
 namespace GloomhavenVR.Core;
 
 /// <summary>
-/// Opt-in app-owned output experiment inside GloomhavenVR. This is a bounded transport test,
+/// Opt-in app-owned output experiment inside GloomhavenVR. This is a manual transport test,
 /// not a claim that Steam Link carries a usable passthrough mask. Never resume a saved test
 /// automatically: its temporary full-eye image must always follow a fresh explicit request.
 /// </summary>
@@ -23,7 +23,7 @@ internal static class SteamLinkMaskConfig
         _file = ModuleConfig.Create("steamlink");
         PayloadTestEnabled = _file.Bind("SteamLink", "PayloadTestEnabled",
             Defaults.SteamLinkPayloadTestEnabled,
-            "Experimental Steam Link mask-transmission test. After closing VR options, briefly replaces the game image with a diagnostic pattern. Ends after at most 30 seconds, on the ordinary menu button, or when VR options are reopened. Does not enable passthrough. Off at every game start.");
+            "Experimental Steam Link mask-transmission test. After closing VR options, replaces the game image with a diagnostic pattern without a time limit. Stop it with the switch, the ordinary menu button, or by reopening VR options. Does not enable passthrough. Off at every game start.");
 
         // Config files auto-save user edits. Clear a persisted request once at bootstrap,
         // not on every menu bind; otherwise reopening the catalog would consume a fresh request.
