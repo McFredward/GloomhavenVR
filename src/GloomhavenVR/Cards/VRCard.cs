@@ -2060,7 +2060,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         if (PokeSelectEnabled && AllowsHand(hand) && !IsRooted)
         {
             _popped = true;
-            hand.SendHaptic(HapticPreset.HoverTick);
+            hand.SendHoverHaptic(this);
         }
     }
 

@@ -276,8 +276,8 @@ internal sealed partial class CardsDriver
             ClearLaserHover();
             _laserHover = beam;
             beam.SetLaserHover(true);
-            dom.SendHaptic(HapticPreset.HoverTick); // debounced: only on card change
         }
+        dom.SendHoverHaptic(beam);
         _laserHoverGraceUntil = Time.unscaledTime + FanHoverGraceSeconds; // refresh the pull-jerk grace
 
         // Clamp the visible beam to the card — also raises Ray.HasFreshUiHit, which
@@ -1484,8 +1484,8 @@ internal sealed partial class CardsDriver
                 ClearTrayCardHover();
                 _trayCardHover = card;
                 card.SetLaserHover(true);
-                dom.SendHaptic(HapticPreset.HoverTick); // debounced: only on change
             }
+            dom.SendHoverHaptic(card);
             dom.Ray.UiHitOverride = cardPoint;
             _boardHoverDist = cardDist; // nearest-wins arbitration with the board-anchored fans
             if (dom.TriggerDown && !HandFanOwnsTrigger(dom))
@@ -1507,6 +1507,7 @@ internal sealed partial class CardsDriver
             _boardHoverHand = dom;
             best!.OnPokeEnter(dom); // elements do their own hover haptic/tint
         }
+        dom.SendHoverHaptic(HoverHapticTargets.Pokeable(best!));
         dom.Ray.UiHitOverride = bestPoint;
         _boardHoverDist = bestDist; // nearest-wins arbitration with the board-anchored fans
         // HAND-FAN OWNERSHIP: a hand physically holding up a browse card / item chip already owns
@@ -1864,8 +1865,8 @@ internal sealed partial class CardsDriver
             ClearBrowseHover();
             _browseHover = card;
             card.SetLaserHover(true);
-            dom.SendHaptic(HapticPreset.HoverTick); // debounced: only on card change
         }
+        dom.SendHoverHaptic(card);
         // Refresh the pull-jerk grace on every hovered frame (see _browseGraceCard).
         _browseGraceCard = card;
         _browseGraceUntil = Time.unscaledTime + FanHoverGraceSeconds;
@@ -2187,6 +2188,7 @@ internal sealed partial class CardsDriver
             _itemChipHoverHand = dom;
             chip.OnPokeEnter(dom); // pop + hover haptic (debounced: only on chip change)
         }
+        if (chip.CanGrab) dom.SendHoverHaptic(chip);
         // Refresh the pull-jerk grace on every hovered frame (see _itemChipGraceChip): if the
         // trigger comes down within FanHoverGraceSeconds of the beam slipping off THIS chip,
         // the miss branch above plucks it instead of click-away-closing the fan.
@@ -2309,9 +2311,9 @@ internal sealed partial class CardsDriver
             ClearActiveHover();
             _activeHover = card;
             card.SetLaserHover(true);
-            dom.SendHaptic(HapticPreset.HoverTick); // debounced: only on card change
         }
 
+        dom.SendHoverHaptic(card);
         dom.Ray.UiHitOverride = point; // clamp beam + suppress board far-click
         if (dom.TriggerDown && card.CanGrab)
         {

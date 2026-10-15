@@ -243,6 +243,8 @@ internal sealed class ProximityGrabber
         }
 
         UpdateHighlight();
+        if (Highlighted != null)
+            _hand.SendHoverHaptic(Highlighted);
 
         // The offer, decided from the election that just ran (see TriggerGrabOffered): either the
         // lit candidate takes the trigger itself, or a trigger-taking target sits in reach behind
@@ -1238,7 +1240,6 @@ internal sealed class ProximityGrabber
             // own working. SetHighlighted is also called by CancelAll and by the hover-tail
             // teardown, where there is no election to report.
             LogHighlightEngaged(nearest);
-            _hand.SendHaptic(HapticPreset.HoverTick);
         }
     }
 

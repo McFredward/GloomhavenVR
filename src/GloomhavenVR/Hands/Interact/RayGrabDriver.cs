@@ -102,8 +102,8 @@ internal sealed class RayGrabDriver
             ClearHover();
             _hovered = best;
             best!.OnGrabHighlight(_hand, true);
-            _hand.SendHaptic(HapticPreset.HoverTick); // debounced: only on hover change
         }
+        _hand.SendHoverHaptic(best);
         // LABELLED as a panel hover (ModBuild 359, RayInteractor.SetPanelUiHit): like the uGUI
         // canvas raise, this happens on MERE HOVER of a floated window's drag bar — no press. It
         // is the second of the two menu-dependent producers that were vetoing near-hand figure

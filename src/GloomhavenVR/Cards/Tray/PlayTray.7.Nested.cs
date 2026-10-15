@@ -2246,7 +2246,7 @@ internal sealed partial class PlayTray
         {
             _hoverHand = hand; // arm the finger-follow press (feature 6a)
             if (_enabledState)
-                hand.SendHaptic(HapticPreset.HoverTick);
+                hand.SendHoverHaptic(this);
         }
     }
 }

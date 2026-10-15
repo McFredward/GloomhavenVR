@@ -64,7 +64,9 @@ internal static class TargetingUx
         // point-at-figure info panel is not a haptics feature.
         SuppressHoverActorInfo();
 
-        if (!BoardConfig.HoverHaptics.Value)
+        // Laser tile/tooltip hover is silent (2026-10-15 hardware ruling). Keep the
+        // existing toggle and physical fingertip feedback; card action regions tick separately.
+        if (!BoardConfig.HoverHaptics.Value || BoardPick.Source != BoardPick.PickSource.Near)
         {
             _lastHover = null;
             return;

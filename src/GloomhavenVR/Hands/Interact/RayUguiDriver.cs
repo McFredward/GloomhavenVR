@@ -368,10 +368,8 @@ internal sealed class RayUguiDriver
         VRCard? selectedCard = null;
         bool nativeAreaHit = hit
             && WorldUI.TownServiceEnhancementHandoff.TryNativeArea(_canvas, top.gameObject, out selectedCard);
-        GameObject? previous = _pointer.Hovered;
         _pointer.SetHovered(hit ? top.gameObject : null);
-        if (_pointer.Hovered != null && !ReferenceEquals(_pointer.Hovered, previous))
-            _hand.SendHaptic(HapticPreset.HoverTick); // debounced: only on hover change
+        _hand.SendHoverHaptic(HoverHapticTargets.Ui(_pointer.Hovered));
 
         TickStickScroll(); // task #8: pointing hand's thumbstick scrolls a hovered ScrollRect
 

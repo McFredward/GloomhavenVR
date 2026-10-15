@@ -1418,7 +1418,7 @@ internal sealed class PileViewer
         public void OnPokeEnter(VRHand hand)
         {
             if (_hasCards)
-                hand.SendHaptic(HapticPreset.HoverTick);
+                hand.SendHoverHaptic(this);
         }
 
         public void OnPokeExit(VRHand hand) => _pokeArmed = true; // left the stack — re-arm

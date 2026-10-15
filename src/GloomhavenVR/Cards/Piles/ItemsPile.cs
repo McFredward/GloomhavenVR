@@ -1366,68 +1366,13 @@ internal sealed partial class ItemsPile
         _handWinnerLeft?.SetFingertipPop(true);
         _handWinnerRight?.SetFingertipPop(true);
 
-        // ---- THE TICK THAT GOES WITH THE LIFT (user report 2026-08-09, "Controller-Vibrationen") --
-        //
-        // The ability fan ticks the hand the instant a card starts lifting under it —
-        // CardFan.UpdateFingertipHover ends its state change with `dom.SendHaptic(HoverTick)`, and
-        // VRCard.OnPokeEnter does the same for a fingertip poke. The item fan raised its chip in
-        // complete silence: this election, the ONE event that decides which chip lifts, never spoke
-        // to the controller at all. (A HoverTick did reach the hand from ProximityGrabber's own
-        // highlight edge, but that is a DIFFERENT edge with a different reach and a different
-        // debounce, so the buzz and the lift routinely landed at different moments on different
-        // chips — which is exactly why the feedback read as absent rather than as merely weak. The
-        // ability card does not have that split: VRCard implements IGrabHighlight, so the grabber's
-        // tick and the card's pop are the same event by construction.)
-        //
-        // SAME PRESET, SAME EDGE, SAME DEBOUNCE — deliberately not a new haptic vocabulary:
-        //   * HapticPreset.HoverTick, the mod's single "a hover/highlight started" effect (0.15
-        //     amplitude / 12 ms), which is what every other hover in the mod plays, item chips
-        //     included (ItemChip.OnPokeEnter already ticks the laser hover with it).
-        //   * On the hand whose OWN election changed, so a two-handed sweep ticks the hand that
-        //     actually moved — the per-hand elections are separate for exactly this reason.
-        //   * On the winner-CHANGE edge only, never per frame. The debounce is the election's own
-        //     incumbent hysteresis (FanReach.Sticky, the same margin ProximityGrabber's
-        //     SwitchMarginMeters serves): an incumbent keeps its lift until a rival is DECISIVELY
-        //     closer, so a hand drawn across an arc of overlapping chips cannot machine-gun the
-        //     controller at the strip boundaries. This is CardFan's "debounced: only on card change"
-        //     word for word.
-        //
-        // AND DELIBERATELY NOT DE-DUPLICATED AGAINST ProximityGrabber's OWN TICK, because two
-        // proximity tick sources per card IS the ability fan's behaviour and this is a parity task.
-        // A card crossed by a sweeping hand can tick twice as well — once when ProximityGrabber's
-        // highlight moves to it (palm reach) and once when CardFan.UpdateFingertipHover's pop moves
-        // to it (index-tip reach) — because those are two genuinely different reaches answering two
-        // genuinely different questions ("which card would my grab take" vs "which card is my finger
-        // on"). Suppressing one of the chip's two would make the item fan QUIETER than the ability
-        // fan, which is the opposite of the report. Both effects are the same 0.15 amplitude / 12 ms
-        // impulse, so a frame in which both fire reads as one slightly firmer tick, not as a rattle.
-        //
-        // NO TICK FOR A CHIP THAT MAKES NO GRAB PROMISE, structurally rather than by a new guard: a
-        // held chip, a chip clipped into the use recess and a chip whose USE is still resolving are
-        // all PendingUse or Holder-bound, and IFanSweepTarget.SweepEligible rejects both, so such a
-        // chip can never BE a winner here. A buzz over the berth would contradict it, and the berth
-        // is the placement flow's to own.
-        //
-        // MULTIPLAYER: NOTHING TO MIRROR HERE, and that is an answer to the 1:1 ruling rather than an
-        // exception to it. The ruling governs what a peer SEES of this player's board ("alle anderen
-        // sehen … bei seinem board"), and it is honoured in full: the chip that lifts, how far it
-        // lifts and the arc that opens around it all ride extension record 6 + record 28 and are
-        // replayed by Net/RemoteItemFan. A haptic is not board state — it is a pulse in the motor of
-        // THIS player's controller, produced by THIS player's hand being at THIS chip. There is no
-        // hand of theirs at that chip on a peer's machine, and buzzing a peer's controller for
-        // somebody else's hover would be a phantom, not a mirror. The ability fan takes the identical
-        // position (CardFan/VRCard tick locally and sync only the highlight INDEX), so this is the
-        // established reading of the rule and not a new carve-out.
-        if (!ReferenceEquals(prevLeft, _handWinnerLeft) && _handWinnerLeft != null)
-        {
-            left?.SendHaptic(HapticPreset.HoverTick);
+        // One semantic chip encounter per hand, shared with the grabber and laser. The old
+        // deliberate double pulse (finger + palm parity) contradicted the 2026-10-15 hardware
+        // ruling: a card receives one tick even when the three drivers engage at different times.
+        left?.SendHoverHaptic(_handWinnerLeft);
+        right?.SendHoverHaptic(_handWinnerRight);
+        if (_handWinnerLeft != null || _handWinnerRight != null)
             LogHoverFeedbackOnce();
-        }
-        if (!ReferenceEquals(prevRight, _handWinnerRight) && _handWinnerRight != null)
-        {
-            right?.SendHaptic(HapticPreset.HoverTick);
-            LogHoverFeedbackOnce();
-        }
 
         // ARC SPLIT / MP index: one pivot, because splitting an arc around two pivots at once is
         // not a layout. The DOMINANT hand's winner is the pivot when it has one (it is the hand the
@@ -4884,13 +4829,10 @@ internal sealed partial class ItemsPile
         /// <c>ItemsPile.HandOwnedChip</c>'s first branch — "the grabber's highlight IS the clipped
         /// chip" — is precisely "this hand is on the placed card", and it is what already routes the
         /// trigger and the laser stand-down for it. <see cref="IGrabHighlight"/> is that branch AT ITS
-        /// SOURCE: the very event <c>ProximityGrabber.SetHighlighted</c> raises, on the very edge it
-        /// already plays its <see cref="HapticPreset.HoverTick"/> on. That makes the buzz and the
-        /// lift the SAME event by construction — which is, word for word, the property
-        /// <c>UpdateHandSweep</c>'s haptic note names as the reason the ability card feels different
-        /// ("VRCard implements IGrabHighlight, so the grabber's tick and the card's pop are the same
-        /// event by construction"). A docked ability card's hand-proximity lift comes from exactly
-        /// this hook and nothing else; the placed item card now uses the identical one.</para>
+        /// SOURCE: the very event <c>ProximityGrabber.SetHighlighted</c> raises. The hand refreshes
+        /// that candidate through the same semantic haptic gate as the fan and laser, so its lift
+        /// receives one encounter tick even when another driver reaches the card later. A docked
+        /// ability card's hand-proximity lift uses the identical hook.</para>
         /// </summary>
         private bool _recessPopped;
         private float _pop; // smoothed 0..1
@@ -6771,12 +6713,9 @@ internal sealed partial class ItemsPile
         /// on the grabber's own un-highlight edge even though the flag stopped being read the moment
         /// <see cref="OnGrab"/> dropped <see cref="PendingUse"/>.
         ///
-        /// <para>The HAPTIC that goes with this lift is not sent here and must not be: the grabber
-        /// itself plays <see cref="HapticPreset.HoverTick"/> on this very edge
-        /// (<c>ProximityGrabber.UpdateHighlight</c>), debounced by its own
-        /// <c>SwitchMarginMeters</c> hysteresis. Same preset, same edge, same debounce as the
-        /// ability card and as the item fan's own chips — and sending a second one from here would
-        /// make the recess card the loudest object on the board.</para>
+        /// <para>The HAPTIC is not sent here: <c>VRHand</c> continuously refreshes the grabber's
+        /// candidate through its shared semantic hover gate. The same chip reached by a fingertip
+        /// or laser is the same encounter, rather than a second motor impulse.</para>
         /// </summary>
         public void OnGrabHighlight(VRHand hand, bool highlighted)
         {
@@ -7182,7 +7121,7 @@ internal sealed partial class ItemsPile
             if (_owner != null && _owner.PlacedCardIsLocked(this))
                 return;
             _laserPopped = true;
-            hand.SendHaptic(HapticPreset.HoverTick);
+            hand.SendHoverHaptic(this);
         }
 
         public void OnPokeExit(VRHand hand) => _laserPopped = false;
