@@ -35,6 +35,7 @@ public static partial class MirrorProgram
 
     private static void NativeBankLifecycle669()
     {
+        AmbientDiscovery674();
         NativeBankInitialization669();
         NativeBankDiagnostic669();
         TownLaneShutdown669();
