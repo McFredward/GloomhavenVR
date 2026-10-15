@@ -1,18 +1,18 @@
 {
   "schema_version": 1,
-  "status": "Complete cinematic v6 finished, root-approved and independently reviewed; eleven VR cinematic moments delivered. Original Flat gameplay retained for the later genuine VR recording exchange.",
+  "status": "Fresh whole-shot v7 correction in progress after user rejected v6 dragon/hand defects; preserve original Flat gameplay for later genuine VR capture exchange.",
   "date": "2026-10-15",
   "source_url": "https://www.youtube.com/watch?v=-SGDEP-zFHo",
   "source_title": "Gloomhaven | Gameplay Overview Trailer",
   "source_duration_seconds": 246.861,
-  "source_format": "YouTube source3840×2160/60fps; analysis proxy1280×720/60fps",
+  "source_format": "YouTube source3840\u00d72160/60fps; analysis proxy1280\u00d7720/60fps",
   "source_frame_review": {
     "scene_frames_viewed": 57,
     "cue_frames_viewed": 82,
     "total_viewed": 139,
     "independent_creative_frames": 12,
     "transcript": "Official manual English captions; no paid ASR",
-    "motion_quality": "V6 resolves reported O01 world/limb defects and L01/L03/L05 visibility/hand/cloud defects. Every actual new/corrected component frame reviewed before assembly; root156 complete-export cues and independent340 actual watch images plus native-resolution witnesses reviewed. Native picture fidelity measured after lossy reencode; AAC packets/clocks exact with v5."
+    "motion_quality": "V6 historical reviews missed user-reported native dragon and hand-motion defects. Current v7 must independently inspect all fresh raw/component frames and complete master before delivery."
   },
   "direction": "Original film as base; selected cinematic shots modified with video-edit models; Flat explanation footage replaced by genuine VR captures; invisible visual joins",
   "timing_note": "Initial planning windows are historical. The completed v6 assembly uses exact approved frame windows and retains the original14810-frame/60fps timeline and246.861s audio tail.",
@@ -45,13 +45,13 @@
     "previous_cap_usd": 30,
     "previous_invoice_reconciled": false,
     "additional_round_cap_usd": 45,
-    "total_authorized_cap_usd": 75,
+    "total_authorized_cap_usd": 85,
     "new_reserved_usd": 34.85,
     "actual_new_invoice_reconciled": false,
-    "pilot_scope": "Current cinematic expansion/correction phase completed and self-reviewed; cap75, conservative reservations64.75, unreserved10.25, invoices unavailable. All provider jobs terminal; failed reservations retained.",
+    "pilot_scope": "Fresh whole-shot correction round capped at10USD; first four requests reserve3.40USD, not yet visually approved. Prior v6 reservations64.75 retained.",
     "initial_three_model_comparison_proposed_usd": 3.75,
     "initial_model_comparison_status": "Not run; only one Kling pilot commissioned",
-    "all_reserved_usd": 64.75,
+    "all_reserved_usd": 68.15,
     "request_states": {
       "all_remake_ledger_states": {
         "completed": 42,
@@ -68,12 +68,14 @@
     "this_revision_reserved_usd": 19.9,
     "proposed_total_cap_usd": 75,
     "budget_extension_pending": false,
-    "unreserved_under_total_cap_usd": 10.25,
+    "unreserved_under_total_cap_usd": 16.85,
     "request_states_note": "Completed state is provider transport/result availability, not creative approval. Selected/rejected clips are recorded separately.",
     "this_v4_reserved_usd": 4.35,
     "this_v5_reserved_usd": 0.5,
     "this_v6_reserved_usd": 19.9,
-    "authorization_receipt": ".planning/debug/trailer/production/budget-authorization-75-usd.json"
+    "authorization_receipt": ".planning/debug/trailer/production/budget-authorization-85-usd.json",
+    "this_v7_round_cap_usd": 10,
+    "this_v7_reserved_usd": 3.4
   },
   "private_briefing": ".planning/debug/trailer/remake-v1/AUFNAHMEPLAN.html",
   "private_capture_list": ".planning/debug/trailer/remake-v1/AUFNAHMELISTE.txt",
@@ -1367,7 +1369,7 @@
     "root_original_entry_frames_viewed_in_ordered_sheets": 73,
     "independent_master_boundary_actual_frames": 8,
     "independent_pixel_identical_logo_frames": 4,
-    "audio_scope": "Entire AAC stream byte/timestamp-identical to v4, including its earlier authorized6.225–7.575s narrator patch; no new subjective listening claim",
+    "audio_scope": "Entire AAC stream byte/timestamp-identical to v4, including its earlier authorized6.225\u20137.575s narrator patch; no new subjective listening claim",
     "limits": [
       "Generated world differs from native party room but remains coherent, permitted by latest user clarification",
       "Source party last frame deliberately not restored; direct existing hard logo cut at7s",
@@ -1968,5 +1970,32 @@
       "current_status": "Historical v4: O01 world-continuity defect reported by maintainer and confirmed; do not claim the expanded cinematic phase complete",
       "root_creative_approval_current": false
     }
-  ]
+  ],
+  "whole_shot_correction_v7": {
+    "state": "generating_not_approved",
+    "user_feedback": "Changed native dragon near1:51; glitching hand near2:50; hand disappearance near2:56. Restore liked shoulder contact. User explicitly requests fresh video generation rather than continuing patch repairs.",
+    "input_authority": "Clean native original video; old model image used only as shoulder action reference.",
+    "windows": {
+      "L01": [
+        6617,
+        6984
+      ],
+      "L03": [
+        9973,
+        10266
+      ],
+      "L06": [
+        10266,
+        10359
+      ],
+      "L05": [
+        10537,
+        10658
+      ]
+    },
+    "private_root": ".planning/debug/trailer/remake-v1/ai-edits-v7",
+    "previous_delivery_preserved": true,
+    "round_reserve_cap_usd": 10,
+    "root_creative_approval_pending": true
+  }
 }

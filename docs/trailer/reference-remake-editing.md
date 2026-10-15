@@ -10,6 +10,23 @@ the first spoken Gloomhaven becomes GloomhavenVR. The original title reveal at
 
 ## Active interaction direction
 
+**Fresh whole-shot correction in progress, 2026-10-15:** the maintainer rejected
+the current v6 dragon appearance near1:51, the glitching hand during the camera
+move near2:50, and the hand disappearance near2:56. The earlier technical and
+visual approvals are historical evidence, not acceptance of these defects.
+Regenerate L01, the complete L03 door/title camera shot, adjacent L06 mine and
+L05 bandits from clean original footage. Restore the liked sustained Mindthief
+outer-shoulder contact in L01. Use coherent whole-shot motion instead of adding
+another local repair chain. Preserve all previous generated videos and exports.
+
+A further USD10 is authorized, raising the recorded overall ceiling to USD85.
+This correction round itself is capped at USD10; its first four requests reserve
+USD3.40 on top of the previous USD64.75. Paid queue completion never implies
+creative approval. Private work is under `ai-edits-v7/`; v6 remains available
+as the previous delivery until the new complete film passes root review.
+
+## Historical v6 expansion delivery
+
 **Expansion delivery checkpoint, 2026-10-15:** the total authorized ceiling
 is USD75. Conservative reservations are USD64.75, including validation failures
 and rejected creative outputs; invoices remain unavailable. The latest

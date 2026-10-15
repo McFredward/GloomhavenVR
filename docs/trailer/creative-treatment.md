@@ -13,8 +13,18 @@ AI candidates and six follow-up proposals with prompting research. The private G
 are under `.planning/debug/trailer/remake-v1/`. The first A04 video-edit result
 and its source-preserving composite remain historical review material.
 See [reference-remake-editing.md](reference-remake-editing.md) for the active
-pipeline and the current USD75 total cap. The completed65-second film below is retained
+pipeline and the current USD85 total cap. The completed65-second film below is retained
 as the earlier direction, with its sources and cost evidence.
+
+**Fresh whole-shot correction, 2026-10-15:** the latest user review rejects
+v6's changed native dragon and glitching door/bandit hand motion. L01/L03/L05
+and the adjacent L06 camera shot are being regenerated from clean original
+footage, with sustained Mindthief shoulder contact restored. The new correction
+round is capped at USD10, within the newly authorized USD85 overall ceiling.
+The historical v6 review below does not establish acceptance of these defects.
+All previous generated videos remain preserved; v7 will replace the delivery
+only after complete-film self-review. Flat gameplay remains for later genuine
+VR recordings.
 
 **Expansion delivery checkpoint, 2026-10-15:** all six additional cinematic
 edits and both forest atmospheres are authorized, with total ceiling USD75 and
