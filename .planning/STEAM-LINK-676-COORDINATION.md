@@ -81,3 +81,42 @@ The revised ARM artifact remains local, not installed. No new PC build is needed
 source676 stays unchanged. A new Frame readiness/restart agreement is needed
 before collecting the missing native cause; no successful pixel/passthrough
 claim or speculative guard relaxation is made.
+
+## Concrete native lock refusal and causal local repair
+
+The approved revised Frame attempt now records the missing cause: failure1
+`contention` at `traceBindImageMemory`, with all Core loss/reason/capacity counters
+zero. The outer `LiveTracker` used `try_to_lock` and permanently refused a session
+on an ordinary failed mutex acquisition. The streamed676 pattern was visible;
+no arm token, GPU image copy, raw snapshot or snapshot metadata was produced.
+The separately approved rollback completed: activation files absent, original
+SteamVR native health ready, no owned/foreign mappings, run library removed,
+no errors. The maintainer was explicitly told standby was safe. Small inactive
+package/evidence files remain; no automatic restart/expiry was introduced.
+
+Private exact evidence is in the fork's `build/private-refusal-run-20261015/`
+(capture221bea80a49fd76a80e9b4223ec4e86b). A targeted local repair serializes finite
+own CPU metadata instead of losing/refusing legitimate parallel observations;
+same-thread recursive entry and real unsupported/lost/stale/capacity/generation
+conditions still fail closed. Native driver calls, GPU work and file I/O remain
+outside that lock, and no new TLS storage or deferred journal is introduced.
+The fork documents the actual attempt in
+`docs/PIXEL-TRACKER-CONCURRENCY-20261015.md`.
+
+The new actual production Vulkan-loader concurrency fixture reproduces the OLD
+policy's failure locally (`contention` at `traceAllocateMemory`, Core counters0)
+with three threads and distinct native images/memory/views. This is a causal
+negative control, not another speculative Frame retry. The corrected tracker,
+its actual layer integration and final ARM package are being validated before
+any fresh device readiness/restart request. The main DLL/source676 and its
+unchanged full-suite/wire evidence are not rebuilt or repeated for this work.
+
+The corrected fork integration4f84db9 now passes5,225 tracker controls normally
+and under ASan/UBSan, all14 actual production-loader cases (each exercising72
+parallel native resource lifecycles), six formatter tests and independent
+source review. TSan is explicitly unavailable on this host (unexpected memory
+mapping before test execution), not passed. The strict ARM library is229,232
+bytes, SHAdef9445f8ec5690150026a9b35e782e424efe0b61bc13dc90dd067f5efdef5e4;
+three private exports/no TLS/no Vulkan dependency/BIND_NOW/RELRO remain verified.
+See `build/private-concurrency-prep-20261015/` in the fork for retained evidence
+and the current package. No successful Frame image or passthrough is claimed.
