@@ -1754,6 +1754,28 @@
       "weight": 90
     },
     {
+      "id": "haptics675-runtime",
+      "command": [
+        "python3",
+        "scripts/check-haptics675-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 100
+    },
+    {
+      "id": "tile-hover-runtime",
+      "command": [
+        "python3",
+        "scripts/check-tile-hover-runtime.py"
+      ],
+      "groups": [
+        "local"
+      ],
+      "weight": 70
+    },
+    {
       "id": "player-settings-help",
       "command": [
         "python3",

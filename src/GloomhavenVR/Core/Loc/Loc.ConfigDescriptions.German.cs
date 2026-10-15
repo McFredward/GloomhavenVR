@@ -3221,8 +3221,8 @@ internal static partial class Loc
                 + "überfahrenen Hex-Felds ein — stabilisiert die Verankerung von Hover und Tooltip auf kleinen "
                 + "Feldern.",
             ["Board/HoverHaptics"] =
-                "Haptischer Impuls in der zeigenden Hand, sobald der Zielpunkt auf ein neues gültiges Ziel "
-                + "auf dem Spielbrett wandert.",
+                "Haptischer Impuls, wenn die Fingerspitze ein neues gültiges Ziel auf dem Spielbrett "
+                + "anvisiert. Laser-Tooltips bleiben ohne Vibration.",
             // Nachgetragen beim Einstellungs-Audit vom 2026-08-22: die Zeile ist seither eine
             // kuratierte Komfort-Zeile ("die Kamera bewegt sich von selbst" ist DIE klassische
             // VR-Komfort-Beschwerde) und hatte als einzige dort keinen deutschen Hilfetext.

@@ -612,7 +612,34 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 674;
+    public const ushort ModBuild = 675;
+
+    // ModBuild675 — semantic hover feedback, tile-scoped prop hover and XR healthbar viewport repair.
+    // The maintainer's Build674 hardware run confirms the water repair and reports no
+    // recurrence of the empty NPC merchant so far. It exposes three independent input /
+    // rendering defects: several hover drivers pulse for one physical card; laser child
+    // tooltip targets pulse within the same action; elevated prop colliders admit a hover
+    // outside their actual tile; and a normalized XR viewport is consumed as pixel units.
+    // In that final case the native log reports (0,0,1,1) for both 3560x3560 MultiPass
+    // eyes: capturing/restoring a one-pixel viewport makes unrelated bars share a depth
+    // sample. The repair covers actual provider units and spatially separate bars,
+    // retaining original depth shaders, native tile geometry and click/grab feedback.
+    // Version3 and the existing wire records stay unchanged. Focused runtime evidence,
+    // negative controls and the hardware verification boundary are recorded in STATE.
+    // Concurrent Steam Link integration adds a default-off, bounded source-carriage
+    // diagnostic inside this plugin's advanced measurement options. Saved requests reset
+    // at boot; admission starts after VR options close, ends within 30s and stops on an
+    // ordinary menu tap, options reopen, camera/VR loss or fault. Owned tiny fixture
+    // resources are embedded in this DLL. Standalone Frame refuses this PC diagnostic.
+    // This does not establish streamed native passthrough: actual XR/codec carriage,
+    // selected frame, eye/UV/foveation and fractional alpha remain hardware boundaries.
+    // Focused evidence: native haptics32/all8 controls, tile admission289/all5,
+    // foreground GL223/all12 plus actual-bank D3D11223/new XR control; eleven
+    // existing affected integration suites pass as composed evidence. Sixteen source
+    // suites compose15 initial passes with the repaired constructor-seed checker;
+    // 35 regressions/all11 old-seed controls retain actual diagnostic escape detection.
+    // Release0/0, original300518 goldens, docs/banks and667/236/4797 surfaces pass.
+    // Compiled1257->1273 is scoped/reviewed; this is not a new full221-suite gate.
 
     // ModBuild674 — isolate optional town-asset discovery from required NPC originals.
     // A long Build671 session repeatedly failed the complete town preparation after

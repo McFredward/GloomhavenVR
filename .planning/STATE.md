@@ -1,5 +1,51 @@
 # State — where the project stands
 
+**Build675 semantic hover and XR viewport repair, 2026-10-15: dev1.1.1.**
+
+The latest local hardware logs identify674. The maintainer confirms water and
+reports no recurrence of the empty NPC merchant so far; the older remote vanilla
+October11 log is not a paired674 session. Three new reports cover duplicate card
+and tooltip haptics, prop hover beyond its hex and collective healthbar hiding.
+
+The healthbar cause is source/log-proven: native OpenXR supplies normalized
+`(0,0,1,1)` for each3560x3560 eye, but the old capture consumed pixel units. It
+could collapse unrelated bars onto one depth sample. Convert that provider
+rectangle once for capture, camera restoration and shader mapping; retain the
+existing depth shaders/bundle/default. Native GL223/all12 controls and actual
+unchanged-bank D3D11:223/new control pass, with three simultaneous native glyph
+actors, moving card, both eye poses and reduced/offset viewports. Five production
+admission bindings and both disconnection controls pass. This still does not
+execute a headset XR provider.
+
+Card haptics now share per-hand physical-card/native-action encounters with150ms
+loss grace; tooltip children and passive laser tile hover stay silent. Preserve
+direct fingertip board feedback and its option, click/grab/confirm presets and
+distinct simultaneous card receipts. Native32/all8 controls and independent
+review pass. Prop hover uses the actual native hex-mask ray and current exact
+prop/spawner GUID membership; original picks/colliders/near reach/callbacks remain.
+Native289/all5 controls pass over three board scales/three yaws.
+
+A separate concurrent integration adds a default-off, bounded Steam Link source
+diagnostic to this same plugin. It is not working streamed passthrough. Its own
+policy/lifecycle tests and review remain distinct; no Frame installation/change
+is performed. See the integration coordination records for ownership.
+
+Final Release0/0, direct300518 goldens, docs/banks and667/236/4797 surfaces pass.
+Compiled1257 ->1273 adds four repair helpers/12 Steam Link types;30 changed types
+are reviewed with no removals. Ten existing focused suites pass plus the repaired
+enchantress handoff1515/all78: its explicit haptic boundary now accepts the new
+API without changing original tests/callbacks. Source15 initial passes plus the
+repaired instrument-write checker cover16;35 constructor regressions/all11
+old-seed controls retain real diagnostic escape detection, baseline61 unchanged.
+221 local/100 hosted/16 source inventory; Version3/next-free118 unchanged.
+
+This is focused/composed validation, not a new complete221-suite local gate.
+Actual final Debug and full hosted CI receipts follow in ignored evidence.
+Source/evidence/captures and failed controls are retained under
+`.planning/debug/fix675/`; owned processes are reaped before cache cleanup.
+Unrelated trailer edits are preserved. See
+[FIX-675-REVIEW.md](FIX-675-REVIEW.md).
+
 **Build674 merchant preparation after extended sessions, 2026-10-15: dev1.1.1 repair.**
 
 October15 local hardware logs are still671/1.1.0; the remote vanilla log is older

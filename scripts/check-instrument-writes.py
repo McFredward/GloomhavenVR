@@ -321,7 +321,14 @@ def parse_file(rel, code):
                     for e2 in reversed(stack):
                         if e2 and e2[0] == "type":
                             nm = ent[1]
-                            e2[1].methods.append((nm, ent[2], ln, bool(DIAG_NAME.match(nm))))
+                            # A constructor inherits its type's name; ProbeTexture is not
+                            # a diagnostic method merely because its type starts with Probe.
+                            # Keep ordinary construction outside the name-based seed. The
+                            # caller fixpoint below can still promote constructors used only
+                            # by actual diagnostics. Otherwise generic public field names
+                            # such as Texture/Manifest falsely escape into unrelated types.
+                            is_diag = nm != e2[1].type and bool(DIAG_NAME.match(nm))
+                            e2[1].methods.append((nm, ent[2], ln, is_diag))
                             break
             depth = max(0, depth - 1)
     return found
