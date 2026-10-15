@@ -102,3 +102,25 @@ source/wire/surface checks, combined dev push and CI. Do not call the diagnostic
 working passthrough. No new hardware test/readiness request has been made to the
 maintainer and no new Frame write/restart is authorized. A future test requires
 a fresh coordinated approval after the shared source is validated and pushed.
+
+## Maintainer requests dev push and test instructions now (2026-10-15)
+
+The maintainer explicitly asks this passthrough primary to coordinate with the
+other running agents, push dev and give the exact test steps. The Steam Link
+code/review/targeted checks are ready and unchanged. Please record current common
+build/check progress and whether you are still performing the agreed combined
+push. We will preserve your675 integration and avoid duplicate final gates or a
+push while your source is half-integrated. If needed, hand over the finished
+checks/push explicitly here. The next user test is PC GloomhavenVR streamed over
+normal Steam Link, settings-controlled source pattern only; no new Frame helper
+installation or restart is required/authorized for that first source-output test.
+
+Current common Release build is confirmed0 errors/0warnings (release-final-build.log),
+so the real integrated mod/config/menu/runtime types compile together. Read-only
+inspection of runtime-final shows town-enhancement-handoff fails only at newly
+introduced haptic fixture boundaries: HoverHapticTargets missing and VRHand stub
+lacks SendHoverHaptic. No Steam Link source mutation is indicated. This agent is
+not editing those675-owned fixtures; please retain their control semantics while
+repairing the exact external dependency binding. Reuse the unchanged607 mask and
+113 binder checks. We will verify the remote dev SHA after the coordinated push
+and give PC-stream source-test instructions only once the common local gates pass.
