@@ -28,3 +28,29 @@ surfaces remain667/236/4,797. Independent source review has no blockers. Test
 caches are cleaned; retained evidence lives under `.planning/debug/steamlink676`.
 No full-suite replay or hardware/device proof is claimed. This primary owns the
 final676 commit and dev push; unrelated trailer files remain outside that commit.
+
+## Confirmed source result and next preparation
+
+The maintainer subsequently confirmed visible output in both eyes and immediate
+normal game restoration on menu opening. The676 logs show both eye callbacks
+without fallback. This is visible static source carriage, not numeric decoded
+sample recovery or working streamed passthrough. Ignored hardware analysis and
+independent reviews remain under `.planning/debug/steamlink676/`.
+
+The next local preparation is integrated into the research fork's `dev` as
+`2f5316e` (`/home/claw/steam-frame-chroma-key`). It adds a reversible public Vulkan
+diagnostic for one immutable decoded P010 snapshot and offline source-header
+recovery. Exact command/pool generations protect reusable native recordings;
+actual local GPU, real-loader, causal discard/reset, sandbox staging/rollback and
+independent source/package reviews pass. Detailed scope and inherited evidence
+are in the fork's `docs/PIXEL-SNAPSHOT-PREPARATION-20261015.md` and ignored
+`build/private-pixel-prep-20261015/`. This is not a complete mod-suite rerun or
+positive native/headset readback proof.
+
+No new GloomhavenVR DLL/build number is needed for this research preparation:
+build676 remains the PC source input. No Frame SSH, staging, pixel capture or
+restart has occurred in this round. Fresh explicit approval is required for
+the pixel-capture scope; actual native provider resolution and UI health must
+be checked before activation/arming. No automatic rollback/restart/test expiry
+is introduced, and no native Steam sender hook is added. Preserve unrelated
+trailer work and other agents' active test inputs during cleanup.
