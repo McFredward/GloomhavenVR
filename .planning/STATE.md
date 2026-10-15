@@ -1,5 +1,41 @@
 # State — where the project stands
 
+**Build674 merchant preparation after extended sessions, 2026-10-15: dev1.1.1 repair.**
+
+October15 local hardware logs are still671/1.1.0; the remote vanilla log is older
+October11 evidence. Seven empty-message prepare failures follow scenario/map
+transitions and eventually leave the merchant cabinet without a public catalog.
+The exact hardware object is unobservable because the old catch discarded type
+and stack. Source/native probes establish optional Resources discovery can abort
+the whole bank on an unrelated partial TMP asset or retired mip original.
+
+Reject destroyed normalized originals before cached identity lookup; isolate
+recoverable per-object failures only in optional discovery. Required canonical
+originals and identity conflicts remain strict. Bound useful discovery summaries
+and retain publisher exception type/reason plus guarded Debug stacks. No stock,
+gold, model/callback, authority, presentation/default, wire or asset changes.
+
+The water fix is already on dev673 and remains byte-unchanged. Repair its prior
+CI registration: full native water proof stays in217 local suites, with98 hosted
+and16 source suites. Hosted metadata cannot execute the Unity/native-asset proof.
+Runner18 (16pass/two unchanged optional skips), topology5 and both controls pass.
+
+Merchant native-bank245/all25 controls and independent shipped-TMP9 pass; root
+native-peer45775/45862/all7, card-mip six variants and flame1156/all6 plus original
+billboard pass after narrow external-fixture updates. Source16, strict Debug and
+Release0/0, direct300518 goldens, docs/banks and666/236/4795 surfaces pass.
+Compiled1257 ->1257: two implementation types/eight674 consumers, no removals;
+generated project changes only decompiler-relative reference paths. Version3 and
+next-free118 remain unchanged. This is focused/composed local validation, not a
+new complete217-suite gate. Full hosted CI follows the final source-changing push;
+its ignored receipt avoids another unnecessary documentation-only CI cycle.
+
+Sources, failed attempts, native DLL/capture bindings and review evidence are
+hash-retained under `.planning/debug/npc674/`; owned processes are reaped before
+cache cleanup. Current Debug binaries and unrelated trailer work are preserved.
+Actual long-session recovery, water scenarios and HMD appearance await hardware.
+See [NPC-674-REVIEW.md](NPC-674-REVIEW.md).
+
 **Build673 asynchronous water replacement, 2026-10-14: dev1.1.1 repair.**
 
 Latest local logs are671, with WaterVR resolved but no actual water adoption.
