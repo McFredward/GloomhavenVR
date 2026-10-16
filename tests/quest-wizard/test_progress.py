@@ -37,7 +37,9 @@ class ProgressTests(ProgressFixture):
         self.store.progress(self.session, "build", "copy", 3, 8, "files", "actor.png")
         value = self.row()["progress"]
         self.assertEqual(value["percent"], 37.5)
-        self.assertEqual(set(value), {"phase", "done", "total", "unit", "percent", "detail", "updatedAt", "stagePercent", "stageOperation", "stageDone", "stageTotal", "buildOverview"})
+        self.assertEqual(set(value), {"phase", "done", "total", "unit", "percent", "detail", "updatedAt", "stagePercent", "stageOperation", "stageDone", "stageTotal", "buildOverview", "lastProgressAt", "lastActivityAt"})
+        self.assertEqual(value["lastProgressAt"], value["updatedAt"])
+        self.assertEqual(value["lastActivityAt"], value["updatedAt"])
         self.assertEqual(value["buildOverview"]["schema"], 1)
         self.assertEqual(value["buildOverview"]["total"], 23)
 
