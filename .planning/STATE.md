@@ -1,5 +1,16 @@
 # State — where the project stands
 
+**Quest compact OpenXR pre-build settings, 2026-10-16: feature / B673.**
+
+Support172343 confirms all2636original script rows and zero order repairs on
+Windows, then a new failure inside the OpenXR1.13pre-build callback. Load and
+register its compiler-local settings before BuildPipeline starts; preserve an
+already registered target on retry. The host additionally permits one exact,
+fresh settings-race retry of the same command/project, never an asset rebuild.
+Repeated/stale/unrelated errors remain explicit and bounded. Existing APK,
+game banks and compiler results stay retained. No local APK build or new
+hardware proof. See [QUEST-UPDATE-OPENXR-172343-20261016.md](QUEST-UPDATE-OPENXR-172343-20261016.md).
+
 **Quest compact update conditional script identities, 2026-10-16: feature / B673.**
 
 Support170547 confirms Buildercd71dd316 and a retained compact update stopping
