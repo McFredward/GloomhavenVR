@@ -1,5 +1,18 @@
 # State — where the project stands
 
+**Quest compact update conditional script identities, 2026-10-16: feature / B673.**
+
+Support170547 confirms Buildercd71dd316 and a retained compact update stopping
+after119seconds during original script roster admission. An inactive InputForUI
+source file has null GetClass; the helper's filename fallback loses its native
+namespace. Read the pinned Editor's exact native source identity instead. Real
+Unity fixtures retain four inactive source identities and preserve no-op metadata;
+an independent package catalog resolves all34comparable prior missing rows.
+Pre-compilation catalog failure no longer implies asset migration. Keep strict
+post-compile native/metadata and serialized-roster gates, runtimeB673, existing
+APK/banks and compiler Library. Resume Mod Update; no full game rebuild was
+started or locally performed. See [QUEST-UPDATE-ROSTER-170547-20261016.md](QUEST-UPDATE-ROSTER-170547-20261016.md).
+
 **Quest compact update imports, measured progress and ADB lifetime, 2026-10-16: feature / B673.**
 
 Support163304 confirms the current compact update without new original asset
