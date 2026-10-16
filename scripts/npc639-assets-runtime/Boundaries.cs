@@ -8,3 +8,10 @@ namespace GloomhavenVR.WorldUI {internal static class PanelMipBake {internal sta
 namespace GloomhavenVR.Core {internal static class BundleShaders {
  internal static Shader Resolve(string name,string channel,string found,string pending)=>throw new System.InvalidOperationException("Unused mod shader adapter");
 }}
+// Asset discovery keeps production diagnostics; the native atlas proof does not
+// depend on the unrelated BepInEx logging sink.
+namespace GloomhavenVR.Core {internal static class VRLog {
+ internal static bool WantsDebug => false;
+ internal static void Note(string scope,string message) { }
+ internal static void Debug(string scope,string message) { }
+}}
