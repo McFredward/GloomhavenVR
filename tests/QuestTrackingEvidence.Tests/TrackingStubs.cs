@@ -49,10 +49,30 @@ namespace UnityEngine
         public Vector3 InverseTransformPoint(Vector3 value) => Vector3.Divide(Quaternion.Inverse(rotation)*(value-position),lossyScale);
     }
     internal sealed class GameObject { public readonly Transform transform=new(); }
+    internal struct Rect
+    {
+        public float x,y,width,height;
+        public Rect(float x,float y,float width,float height) {this.x=x;this.y=y;this.width=width;this.height=height;}
+    }
+    internal struct RenderTextureDescriptor
+    {
+        public int width,height,volumeDepth,msaaSamples;
+        public string dimension,colorFormat;
+        public bool sRGB;
+    }
+    internal static class SubsystemManager
+    {
+        public static readonly List<XR.XRDisplaySubsystem> Displays=new();
+        public static void GetInstances(List<XR.XRDisplaySubsystem> displays)
+        {Probe.Queries++;displays.Clear();displays.AddRange(Displays);}
+    }
     internal enum StereoTargetEyeMask { None,Left,Right,Both }
     internal sealed class Camera
     {
         public enum StereoscopicEye { Left,Right }
+        public enum MonoOrStereoscopicEye {Left,Right,Mono}
+        public MonoOrStereoscopicEye stereoActiveEye=MonoOrStereoscopicEye.Left;
+        public Rect rect=new(0,0,1,1),pixelRect=new(0,0,1600,1700);
         public readonly Transform transform=new();
         public bool stereoEnabled;
         public StereoTargetEyeMask stereoTargetEye;
@@ -109,6 +129,28 @@ namespace UnityEngine.XR
     }
     internal static class XRSettings
     { public enum StereoRenderingMode{MultiPass,SinglePassInstanced}public static StereoRenderingMode stereoRenderingMode=StereoRenderingMode.SinglePassInstanced;public static float renderViewportScale,eyeTextureResolutionScale; }
+    internal sealed class XRDisplaySubsystem
+    {
+        public bool running=true,ThrowOnRead;
+        public float scaleOfAllViewports=.8f,scaleOfAllRenderTargets=1;
+        public readonly List<XRRenderPass> Passes=new();
+        public int GetRenderPassCount(){UnityEngine.Probe.Queries++;if(ThrowOnRead)throw new InvalidOperationException("provider probe");return Passes.Count;}
+        public void GetRenderPass(int index,out XRRenderPass pass){UnityEngine.Probe.Queries++;pass=Passes[index];}
+        public struct XRRenderPass
+        {
+            public UnityEngine.RenderTextureDescriptor renderTargetDesc;
+            public List<XRRenderParameter> Parameters;
+            public int GetRenderParameterCount(){UnityEngine.Probe.Queries++;return Parameters.Count;}
+            public void GetRenderParameter(UnityEngine.Camera camera,int index,out XRRenderParameter value)
+            {UnityEngine.Probe.Queries++;value=Parameters[index];}
+        }
+        public struct XRRenderParameter
+        {
+            public int textureArraySlice;
+            public UnityEngine.Rect viewport;
+            public UnityEngine.Matrix4x4 projection,view;
+        }
+    }
 }
 namespace GloomhavenVR.Core
 {

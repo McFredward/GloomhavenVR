@@ -32,13 +32,16 @@ def main():
     assert teardown.index("StopQuestTrackingEvidence();") < teardown.index("Destroy(_poseDriver)")
     assert "Debug.Log(text.ToString());" in source and '"[Quest startup] presentation tracking ' in source
     controls = [
+        ("real-api", None, None, None),
         ("production", None, None, None),
         ("game-debug-facade", "UnityEngine.Debug.Log(text.ToString())", "global::Debug.Log(text.ToString())", "first actual head render sample"),
         ("desktop-subscribed", "if (!QuestStandalonePlatform.Enabled)\n            return;", "if (QuestStandalonePlatform.Enabled && !QuestStandalonePlatform.Enabled)\n            return;", "desktop has no diagnostic subscription or queries"),
         ("normal-level-queried", " || !VRLog.Wants(VRLogLevel.Debug)", "", "normal level performs no device clock matrix or transform queries"),
         ("right-eye-aliased", "rendering.GetStereoProjectionMatrix(Camera.StereoscopicEye.Right)", "rendering.GetStereoProjectionMatrix(Camera.StereoscopicEye.Left)", "rightProjectionSlopes=(-0.5500,0.4500,-0.3750,0.1250)"),
-        ("sample-cap-removed", " || _questTrackingSamples >= QuestTrackingSampleLimit", "", "six sample lifetime cap survives scene changes"),
+        ("sample-cap-removed", " || _questTrackingSamples >= QuestTrackingSampleLimit", "", "eighteen sample lifetime cap survives scene changes"),
         ("device-space-corrupted", "Vector3.Distance(_rigRoot!.transform.InverseTransformPoint(observed.position), position)", "Vector3.Distance(observed.position, position)", "headDevicePositionDelta=0.0000"),
+        ("provider-viewport-invented", 'AppendTrackingRect(text, "viewport", parameter.viewport);', 'AppendTrackingRect(text, "viewport", rendering.pixelRect);', "viewport=(8.0000,12.0000,1280.0000,1360.0000)"),
+        ("scene-cap-removed", "            || _questTrackingSceneSamples >= QuestTrackingSceneSampleLimit", "", "three samples per scene stop further device and provider queries"),
     ]
     dotnet = shutil.which("dotnet") or str(Path.home() / ".dotnet/dotnet")
     spec = importlib.util.spec_from_file_location("tracking_retention", checkout / "scripts/town_run_retention.py")
@@ -62,8 +65,13 @@ def main():
         with log.open("w") as stream:
             stream.write("evidence: " + str(run) + "\n")
             stream.flush()
-            process = subprocess.Popen([dotnet, "run", "--project", str(fixture / "QuestTrackingEvidence.Tests.csproj"),
-                                        "-c", "Release", "-p:RuntimeSource=" + str(sources)], cwd=checkout,
+            command = [dotnet, "run", "--project", str(fixture / "QuestTrackingEvidence.Tests.csproj"),
+                       "-c", "Release", "-p:RuntimeSource=" + str(sources)]
+            if name == "real-api":
+                command = [dotnet, "build", str(fixture / "RealApi.csproj"), "-c", "Release", "--nologo",
+                           "-p:RuntimeSource=" + str(sources),
+                           "-p:UnityManaged=/home/claw/unity-2021.3.5/Editor/Data/Managed"]
+            process = subprocess.Popen(command, cwd=checkout,
                                        stdout=stream, stderr=subprocess.STDOUT, start_new_session=True)
             try:
                 code = process.wait(timeout=120)
@@ -82,9 +90,12 @@ def main():
         cleanup = retention.cleanup_completed_run("quest-tracking", code, cleanup_log, checkout, process_reaped=True)
         text = log.read_text()
         (output / (name + ".log")).write_text(text)
-        passed = "error CS" not in text and "error MSB" not in text and (
-            code == 0 and "PASS Quest tracking evidence:" in text if expected is None
-            else code != 0 and "FAIL " + expected in text)
+        if name == "real-api":
+            passed = code == 0 and "Build succeeded." in text
+        else:
+            passed = "error CS" not in text and "error MSB" not in text and (
+                code == 0 and "PASS Quest tracking evidence:" in text if expected is None
+                else code != 0 and "FAIL " + expected in text)
         result["cases"].append({"name": name, "exitCode": code, "passed": passed, "expected": expected,
                                 "elapsedSeconds": round(time.monotonic() - started, 3), "cleanup": cleanup})
         (output / "validation.json").write_text(json.dumps(result, indent=2) + "\n")
