@@ -1,5 +1,27 @@
 # Steam Link manual-only source test, 2026-10-15
 
+## r3 full retention succeeds; remaining native semantics refused, 2026-10-16
+
+Approved r3 package loads against all79 native imports; isolated load/device/UI
+health pass. After the maintainer confirms the moving PC-VR pattern, pre-arm
+correctly refuses zero complete recipes. No shader is bound or image/SSBO read.
+Actual journal occupancy105 valid layouts/256, one Set fact and no Capacity
+confirms the prior retention defect is removed. New original RP2 shape counts
+show2/3 subpasses with1-3 attachments, outside the one-subpass decoder. One
+pinned target reaches dynamic state1000455017 (SAMPLE_LOCATIONS_ENABLE_EXT);
+additional enums/child-state contents remain unknown. Do not infer full native
+payloads from the grouped first-shape receipt.
+
+Manual rollback is complete with no diagnostic mappings/activation/run library,
+healthy original UI and user-confirmed normally visible/usable surface. Standby
+safe. CaptureID0974d7797d6f09aae2f8925d0a18b180, exact private results/consumed plan
+in fork build/private-native-ssbo-run-20261016-r3/. No extra device action now.
+Offline workers atdcdbd34 own separate pass/factory, runtime subpass and graphics
+state paths. Preserve original RP2 creation route and input aspects, rather than
+infer maintenance2 negotiation from physical-device API capability. Preserve
+full-pass End/copy ordering and exact target subpass identity. Broaden meaningful
+GPU/callback/ignored-pointer coverage together before another headset request.
+
 ## Full-startup repair complete offline; no new Frame action yet, 2026-10-16
 
 Forkdevb609bde is pushed and exact CI38968827113 succeeds:125CTest/98.87s,

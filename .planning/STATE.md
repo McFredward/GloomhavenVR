@@ -1,5 +1,33 @@
 # State — where the project stands
 
+**r3 native admission refused before arm; fully restored, 2026-10-16: Build677 unchanged.**
+
+The maintainer approved the562,379B r3 package and one restart. Native79 imports,
+isolated load, device contract and original UI health pass. The moving PC-VR
+pattern is confirmed. No complete recipe is admitted, so no arm/shader bind or
+image/SSBO acquisition occurs. CaptureID0974d7797d6f09aae2f8925d0a18b180.
+
+New detailed evidence confirms105 qualifying layouts retained within256, one
+shared Set fact and no Capacity refusal: the old retention bottleneck is gone.
+Actual RP2 shapes include2/3 subpasses and1-3 attachments. The one-subpass-only
+decoder rejects them; one admitted single-pass route lets an actual pinned
+target reach DynamicState refusal1000455017, SAMPLE_LOCATIONS_ENABLE_EXT.
+Other dynamic enums and subordinate native payloads were not captured and must
+not be invented. Old grouped shape reporting emitted its first sample only,
+so later targets sharing a shape cannot always be correlated by object handle.
+
+Manual agreed rollback is complete: activation/run library absent, no loaded
+diagnostic mappings/uncertainty, fresh original UI health and maintainer visible/
+usable confirmation pass. Standby is safe. Private exact completion/consumed
+plan: fork build/private-native-ssbo-run-20261016-r3/. No timer was introduced.
+
+Next work is offline and comprehensive: bounded exact legacy/RP2 subpass cohort,
+original RP2 creation retained rather than lossy lowering of input aspects,
+target subpass provenance/inline recording across the whole pass, and owned
+extended dynamic-state/static-state representation with ignored pointers handled
+correctly. Three disjoint fork workers start atdcdbd34; no further Frame access
+or headset request until that entire route and meaningful GPU proofs are reviewed.
+
 **Full-startup receiver repair pushed and checked offline, 2026-10-16: Build677 unchanged.**
 
 Fork devb609bde integrates the r2 follow-up: separate small layout identities and
