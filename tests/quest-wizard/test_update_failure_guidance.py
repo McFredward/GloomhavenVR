@@ -10,7 +10,9 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'tools/quest-wizard'))
 from failures import tool_failure
-from state import Store, atomic_json
+from state import Store, WizardError, atomic_json
+from processes import Supervisor
+import wizard
 
 
 class UpdateFailureGuidanceTests(unittest.TestCase):
@@ -85,6 +87,37 @@ class UpdateFailureGuidanceTests(unittest.TestCase):
             target.write_text(json.dumps({'schema': 1, 'stage': 'update-mod', 'message': 'The existing Quest APK could not be read.'}))
             failure.symlink_to(target)
             self.assertNotIn('updateGuidance', tool_failure(self.root, 'build', self.log, self.started, 'python.exe', 1).parameters)
+
+    def test_actual_legacy_build_failure_in_real_supervised_update_gets_current_mode_guidance(self):
+        cause = 'A rewritten original assembly needs one recovered DLL and its retained .meta: UnityEngine.UI.dll'
+        script = ("import json,os,pathlib,sys;root=pathlib.Path(sys.argv[1]);"
+                  "failure=root/'build/last-failure.json';failure.parent.mkdir(parents=True,exist_ok=True);"
+                  "failure.write_text(json.dumps(dict(schema=1,stage='build',error='BuildError',message=sys.argv[2])));"
+                  "stale=sys.argv[3]=='stale';"
+                  "os.utime(failure,(1,1)) if stale else None;"
+                  "print('Quest builder: '+sys.argv[2]);sys.exit(1)")
+        for mode, stale in (('update-mod', False), ('build', False), ('update-mod', True)):
+            with self.subTest(mode=mode, stale=stale):
+                store = Store(self.root)
+                saved = store.create(wizard.choices({'gameRoot': str(self.root / 'Game'), 'mode': mode,
+                                                     'baseApk': str(self.root / 'base.apk'), 'install': False}))
+                session = saved['session']; log = store.session_dir(session) / 'logs/build.log'
+                supervisor = Supervisor(store, session, poll=.01); supervisor.set_stage('build')
+                with self.assertRaises(WizardError) as caught:
+                    supervisor.run([sys.executable, '-B', '-c', script, str(self.root), cause, 'stale' if stale else 'current'], log)
+                error = caught.exception
+                self.assertEqual(error.code, 'build_tool_failed')
+                self.assertEqual(error.parameters['failureStage'], 'build')
+                self.assertEqual(error.parameters['workflowMode'], mode)
+                self.assertIn(cause, error.parameters['cause'])
+                if mode == 'update-mod' and not stale:
+                    self.assertEqual(error.parameters['updateGuidance']['kind'], 'compact-project')
+                    self.assertNotIn('could not be repaired', error.message['en'])
+                    self.assertNotIn('automatic repair tried', error.message['en'])
+                else:
+                    self.assertNotIn('updateGuidance', error.parameters)
+                self.assertFalse(store.receipt(session, 'build').exists())
+                self.assertFalse((store.session_dir(session) / 'child.json').exists())
 
 
 if __name__ == '__main__': unittest.main()

@@ -15,8 +15,8 @@ with tempfile.TemporaryDirectory(prefix='quest-update-guidance-') as directory:
     log = root / 'sessions/current/logs/build.log'; log.parent.mkdir(parents=True)
     cause = "The PC game does not match this APK's original assembly: Managed/Assembly-CSharp.dll; use the matching PC installation or create a full build."
     log.write_text('Quest builder: ' + cause)
-    atomic_json(root / 'build/last-failure.json', {'schema': 1, 'stage': 'update-mod', 'message': cause})
-    update = tool_failure(root, 'build', log, time.time() - 1, 'python.exe', 1)
+    atomic_json(root / 'build/last-failure.json', {'schema': 1, 'stage': 'build', 'message': cause})
+    update = tool_failure(root, 'build', log, time.time() - 1, 'python.exe', 1, workflow_mode='update-mod')
     # The mandatory-file writer is tested against actual OS errors separately;
     # this fixture exercises its exact public error ABI rather than simulating
     # Windows file locking on Linux.

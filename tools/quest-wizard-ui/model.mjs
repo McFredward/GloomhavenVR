@@ -154,7 +154,9 @@ export function updateFailureView(state) {
   if(!failureView(state)||!['update-mod','update-profile'].includes(state?.choices?.mode))return null;
   const action=state.needsActions?.find(value=>value&&typeof value==='object')??{};
   const value=action.parameters?.updateGuidance;
-  if(action.code!=='build_tool_failed'||!['inspect-update','update-mod','update-profile'].includes(action.parameters?.failureStage)||
+  const directStage=['inspect-update','update-mod','update-profile'].includes(action.parameters?.failureStage);
+  const legacyStage=['inspect','build'].includes(action.parameters?.failureStage)&&action.parameters?.workflowMode===state.choices.mode;
+  if(action.code!=='build_tool_failed'||!directStage&&!legacyStage||
     !value||value.schema!==1||!['compact-project','project-ownership','owned-input','signing','source-apk','unknown'].includes(value.kind)||
     value.retryRetained!==true||value.editInputs!==true)return null;
   const nextSteps=value.nextSteps;

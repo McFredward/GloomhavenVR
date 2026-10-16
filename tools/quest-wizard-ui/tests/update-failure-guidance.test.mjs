@@ -14,6 +14,9 @@ test('only current failed update actions expose bounded input-review suggestions
     {...guidance,nextSteps:{en:'a'.repeat(2049),de:'OK'}},{...guidance,nextSteps:{en:'unsafe\nstep',de:'OK'}}])
     assert.equal(updateFailureView({...failed,needsActions:[{...action,parameters:{...action.parameters,updateGuidance:value}}]}),null);
   assert.equal(updateFailureView({...failed,needsActions:[{...action,parameters:{...action.parameters,failureStage:'recovery'}}]}),null);
+  const actual={...failed,needsActions:[{...action,parameters:{...action.parameters,failureStage:'build',workflowMode:'update-mod'}}]};
+  assert.equal(updateFailureView(actual).kind,'owned-input','legacy nested build stage uses the explicit current workflow');
+  for(const workflowMode of [undefined,'build','update-profile'])assert.equal(updateFailureView({...actual,needsActions:[{...actual.needsActions[0],parameters:{...actual.needsActions[0].parameters,workflowMode}}]}),null);
 });
 test('blocked mandatory metadata error exposes actual cause without adopting a memory explanation',()=>{
   const action={code:'workspace_metadata_busy',stage:'build',message:{en:'File remains locked.',de:'Datei bleibt gesperrt.'},parameters:{cause:'PermissionError: WinError 5'}};

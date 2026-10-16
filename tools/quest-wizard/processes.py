@@ -1041,6 +1041,10 @@ class Supervisor:
 
     def run(self, argv, log, *, cwd=None, env=None, timeout=None, on_started=None, on_poll=None, acceptable_codes=(0,)):
         self.store.check_cancel(self.session)
+        # The Builder's legacy nested failure records use stage="build" even
+        # for compact updates. Bind recovery guidance to this selected session,
+        # never infer its workflow from a previous log or output filename.
+        workflow_mode = self.store._state(self.session).get("choices", {}).get("mode", "build")
         if self.stage in ("inspect", "build"):
             from qualification import check_runtime_space, SPACE_CHECK_SECONDS
             check_runtime_space(self.store.root)
@@ -1082,7 +1086,8 @@ class Supervisor:
                 self._tail_progress(tails, parser, started_wall, final=True)
                 if code not in acceptable_codes and not controlled_stop:
                     from failures import tool_failure
-                    raise tool_failure(self.store.root, self.stage, log, started_wall, Path(argv[0]).name, code)
+                    raise tool_failure(self.store.root, self.stage, log, started_wall, Path(argv[0]).name, code,
+                                       workflow_mode=workflow_mode)
                 return 0 if controlled_stop else code
         finally:
             parser.close_coverage()

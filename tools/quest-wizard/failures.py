@@ -332,9 +332,11 @@ def installation_failure(text, parameters):
         **fields)
 
 
-def tool_failure(root, stage, log, started, executable, exit_code):
+def tool_failure(root, stage, log, started, executable, exit_code, *, workflow_mode=None):
     """Read only this attempt's failure and explicitly named child logs."""
     parameters = {"executable": executable, "exitCode": exit_code, "log": str(log), "failureStage": stage}
+    if workflow_mode in ("build", "update-mod", "update-profile"):
+        parameters["workflowMode"] = workflow_mode
     resources, failure_code = {}, None
     logs = [ordinary(log)]
     child_logs = []

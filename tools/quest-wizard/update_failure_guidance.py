@@ -12,7 +12,15 @@ UPDATE_STAGES = frozenset(("inspect-update", "update-mod", "update-profile"))
 
 
 def update_failure(parameters):
-    if parameters.get("failureStage") not in UPDATE_STAGES:
+    mode, stage = parameters.get("workflowMode"), parameters.get("failureStage")
+    if mode is not None and mode not in ("update-mod", "update-profile"):
+        return None
+    # Support143919's actual nested producer reports stage="build". Only the
+    # Supervisor's explicit selected workflow plus a current structured failure
+    # can qualify that legacy shape; touching a stale log grants no authority.
+    legacy_update = (mode in ("update-mod", "update-profile") and stage in ("build", "inspect")
+                     and "builderError" in parameters)
+    if stage not in UPDATE_STAGES and not legacy_update:
         return None
     error = "\n".join(str(parameters.get(name, "")) for name in ("builderError", "cause"))[:16384]
     kind = "unknown"
@@ -26,11 +34,11 @@ def update_failure(parameters):
                                       "A rewritten original assembly needs one recovered DLL and its retained .meta:",
                                       "The code-update package API binding is incomplete", "The code update did not compile the actual Android package APIs.")):
         kind = "compact-project"
-        en = "The small update compiler project could not be repaired safely with its current inputs."
-        de = "Das kleine Compilerprojekt für das Update konnte mit seinen aktuellen Eingaben nicht sicher repariert werden."
-        next_en = ("Close any Unity Editor using this update project, then retry this saved run. The Builder can repair known generated-file faults without discarding the game conversion. "
+        en = "The small update compiler project did not produce a verified native update with its current inputs."
+        de = "Das kleine Compilerprojekt für das Update hat mit seinen aktuellen Eingaben kein geprüftes natives Update erzeugt."
+        next_en = ("Close any Unity Editor using this update project, then retry this saved run. Compatible saved game conversion remains available. "
                    "If the same cause returns, save diagnostics; a repeated retry alone will not resolve an unknown compiler or package mismatch. Keep the workspace and original APK.")
-        next_de = ("Einen Unity Editor schließen, der dieses Update-Projekt geöffnet hat, und diesen gespeicherten Run erneut versuchen. Bekannte Fehler erzeugter Dateien kann der Builder gezielt reparieren, ohne die Spielkonvertierung zu verwerfen. "
+        next_de = ("Einen Unity Editor schließen, der dieses Update-Projekt geöffnet hat, und diesen gespeicherten Run erneut versuchen. Eine passende gespeicherte Spielkonvertierung bleibt verfügbar. "
                    "Bleibt dieselbe Ursache bestehen, Logs exportieren; bloßes Wiederholen behebt keine unbekannte Compiler- oder Paketabweichung. Arbeitsordner und ursprüngliche APK behalten.")
     elif any(text in error for text in ("Code-only project belongs to a different update;", "Code-only project owner state is invalid.",
                                         "The code-only project has no matching owned staging receipt;", "Compact update repair refused:",
