@@ -612,7 +612,20 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 677;
+    public const ushort ModBuild = 678;
+
+    // ModBuild678 — approved first-save GloomhavenVR campaign intro.
+    // The maintainer approved the trailer opening and requested the same film in the
+    // first-save intro, with our native artwork instead of PEGI/original title. Ship
+    // a mod-local 48.85s movie; never modify game StreamingAssets. Replace only the
+    // native VideoPlayer URL assignment before its first Play; preserve its volume,
+    // completion/error/skip callbacks and canonical CP_Intro key. Shared cosmetic
+    // decoders resolve that same installed movie. Missing media keeps native playback.
+    // Keep the accepted AI shots at source tempo, both VR titles and approved name
+    // patch; retain the native closing fade and existing fan-mod mark. Installer and
+    // release packages include the movie. No gameplay, config/default or wire change.
+    // Focused playback/interception, media and build evidence is recorded in STATE;
+    // actual headset first-save/skip and paired viewing remain hardware verification.
 
     // ModBuild677 — changing app-owned Steam Link registration source.
     // The successful676 static source/native-uniform capture does not establish

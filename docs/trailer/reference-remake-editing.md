@@ -1,5 +1,8 @@
 # Reference trailer editing
 
+The accepted opening also supplies the first-save campaign intro, with a native-style
+GloomhavenVR title and the original ending fade. See [game-intro.md](game-intro.md).
+
 The current VR gameplay edit is a provisional material trial. The maintainer
 rejected v10's contextual filling: damage avoidance is not a played loss,
 healing is not an enemy attack, an item preview is not confirmed use, and one

@@ -2712,5 +2712,26 @@
       "scope": "Two owned review worktrees removed after clean status and reaped jobs; supplied footage, selected components, masters and review evidence preserved.",
       "runtime_gate": "Not rerun: documentation/media-only revision; focused media, semantic and browser evidence applies."
     }
+  },
+  "campaign_intro": {
+    "status": "media-and-browser-reviewed-runtime-integrated-full-regression-running",
+    "source_accepted_opening": "First 46 seconds of current v11; all three opening AI shots retained at source tempo.",
+    "modbuild": 678,
+    "asset": "src/GloomhavenVR/Assets/Movies/CP_Intro/GH_CP_Intro.mov",
+    "plugin_path": "Movies/CP_Intro/GH_CP_Intro.mov",
+    "sha256": "25db586688981fee9f2d508c2fdc0c51896159802a50b4c0115a6bb818803778",
+    "bytes": 56087082,
+    "frames": 2931,
+    "fps": 60,
+    "duration_seconds": 48.85,
+    "native_game_files_changed": false,
+    "new_paid_calls": 0,
+    "guide": "docs/trailer/game-intro.md",
+    "private_review": ".planning/debug/trailer/remake-v1/game-intro-v1/REVIEW.html",
+    "private_media_receipt": ".planning/debug/trailer/remake-v1/game-intro-v1/render-v2/receipt.json",
+    "hardware_verified": false,
+    "date": "2026-10-17",
+    "private_browser_receipt": ".planning/debug/trailer/remake-v1/game-intro-v1/independent-review/final-navigation.json",
+    "private_debug_package_receipt": ".planning/debug/trailer/remake-v1/game-intro-v1/debug-package.json"
   }
 }

@@ -175,6 +175,8 @@ internal sealed class WorldUIModule : IVRModule
         // EmbeddedResource in this DLL (the asset bundle stays byte-identical on purpose).
         // See MainMenuLogoSwap.
         VRSession.Harmony?.PatchAll(typeof(Patches.MainMenuLogoSwap));
+        // ModBuild 678: select the approved mod-local first-save movie before native Play.
+        VRSession.Harmony?.PatchAll(typeof(NativeVideoMoviePatch));
         // NO EXIT CONTROL MAY BE LEFT LATCHED (user, 2026-09-02, his SECOND deadlock in two
         // days: "Ich konnte aus dem Tutorial heraus nicht mehr ins Hauptmenu zurückkehren, da
         // das Fenster das mich normalerweise fragt nicht mehr angezeigt wurde"). UIMenuOption
