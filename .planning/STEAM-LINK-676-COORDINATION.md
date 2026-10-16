@@ -1,5 +1,42 @@
 # Steam Link manual-only source test, 2026-10-15
 
+## Current checkpoint: final-draw bytes and restored Frame, 2026-10-16
+
+The approved fork446027e capture e5138e4b1410ff2f888365cbe66659e5 retains
+the exact final-draw native uniforms in addition to both original pixel paths.
+All four files and their slice/plane hashes independently match. The actual
+current-record consistency mismatch takes fallback0; selected VS/PS matrices
+are bit-identical and R1=[0,.75,1,1]. The new bounded lookup helper was checked
+against the original fragment instructions on24 asymmetric cases, maximum UV
+discrepancy5.96e-8/RGB0. It takes post-reprojection q as input, not application
+rays; physical eye, source/video registration and alpha remain unproven.
+
+The user-approved manual rollback is complete. Certain scans find no owned
+diagnostic mappings or activation/run library, and two fresh native UI samples
+are healthy. The initial reported vrserver crash is independently attributed
+to the old process during teardown, before the new service execution. Its
+underlying cause remains unknown. The user separately confirms a normal visible,
+usable surface and has been told the Frame may enter standby. No more Frame
+access is needed for current offline work; any new activation/restart requires
+fresh readiness agreement. No timers were introduced.
+
+Fork a0141c2 integrates that evidence, the strict old-server identity/reuse fix
+and the offline mapping helper/CMake registration. Composed health72 methods
+and mapping12 methods plus independent instruction-level review pass; only the
+new CMake registration was rerun at integration. Current source676 remains
+unchanged; this is not a fresh complete mod gate or streamed-passthrough result.
+See fork docs/NATIVE-UNIFORM-CAPTURE-20261016.md and retained ignored
+build/private-uniform-final-draw-run-20261016-r1/.
+
+Next source work reserves the SteamLink source lane only: a fresh app-owned
+session, changing stereo-pair IDs and dense deterministic synthetic coverage.
+The portable foundation worker owns only new RegistrationPairPolicy.cs,
+RegistrationSource.cs and tests/steamlink-registration-source; primary owns
+the Unity adapter, version/docs and integration. Pattern generation/upload must
+stay outside eye callbacks and GPU resources immutable until actual completion.
+This changes no native Steam sender and is not real game-alpha export. Do not
+request another headset test before the complete software package is ready.
+
 ## Latest checkpoint: native sampled source recovered, 2026-10-16
 
 The approved query-history diagnostic at fork a2893cb completed one paired
