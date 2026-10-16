@@ -14,7 +14,8 @@ import sqlite3
 import time
 
 from state import Cancelled, STAGES, WizardError, atomic_json, ordinary, stage_progress, native_memory_progress
-from stage_plan import PLANS, MEMORY_OBSERVATIONS
+import stage_plan
+from stage_plan import MEMORY_OBSERVATIONS
 
 # Pinned Unity2021.3 Bee actions witnessed in actual import/Android build logs.
 # A numeric frame plus an arbitrary word is deliberately not accepted as work.
@@ -225,6 +226,7 @@ class ProgressParser:
         self.unity_operations = {}
         self.active_operation = None
         self.closed_operations = set()
+        self.closed_compact_stages = set()
         self.import_runs = {}
         self.import_pending = {}
         self.import_coverage = {}
@@ -426,6 +428,8 @@ class ProgressParser:
 
     def _unity_fields(self, fields, source):
         """Late child tails cannot reopen their successfully closed owner."""
+        if source.startswith("update-sdk-unity") and "update-sdk" in self.closed_compact_stages:
+            return None
         operation = fields.get("operation") or self._unity_operation(source)
         if operation in self.closed_operations: return None
         if operation: fields["operation"] = operation
@@ -643,6 +647,9 @@ class ProgressParser:
                     if value["status"] == "waiting" and value.get("phase") not in ("install-connection-wait", "install-recovery-manual-launch"): return None
                     if value["status"] not in ("start", "progress", "complete", "reuse", "failed", "waiting"): return None
                     fields["status"] = value["status"]
+                if fields["phase"] == "stage:update-sdk" and not self._unity_child(source):
+                    if fields.get("status") in ("complete", "reuse"): self.closed_compact_stages.add("update-sdk")
+                    elif fields.get("status") == "start": self.closed_compact_stages.discard("update-sdk")
                 if fields["phase"] == "unity-gradle-tasks" and type(fields.get("total")) is int and fields["total"] > 0:
                     owner = fields.get("operation") or self._unity_operation(source)
                     if owner in self.closed_operations: return None
@@ -946,6 +953,22 @@ class Supervisor:
         if stage not in STAGES: raise WizardError("invalid_stage", "Invalid wizard stage.")
         self.stage = stage
 
+    def _publish_progress(self, fields):
+        """Retain the selected workflow's owners through the log boundary.
+
+        Support163304 contains real update operation boundaries, but filtering
+        against the full-build-only PLANS discarded every one of them. The raw
+        log then moved while all six scheduled update operations stayed at0.
+        Unknown nested tools remain observations; only the current plan and its
+        explicitly supported aliases can claim work ownership.
+        """
+        if not self.stage: return
+        row = next(value for value in self.store._state(self.session)["stages"] if value["id"] == self.stage)
+        owner = fields.get("operation")
+        if owner not in stage_plan.planned_operations(row) and stage_plan.update_alias(row, owner) is None:
+            fields.pop("operation", None)
+        self.store.progress(self.session, self.stage, **fields)
+
     def _tail_progress(self, tails, parser, started, *, final=False):
         if self.stage in ("inspect", "build"):
             folder = ordinary(self.store.root / "build/logs")
@@ -1003,8 +1026,7 @@ class Supervisor:
                     # poll, even without a changed inode or smaller file size.
                     tail.offset, tail.pending, tail.identity, tail.invocation = 0, b"", None, invocation
             if planned and self.stage:
-                if planned.get("operation") not in PLANS[self.stage]: planned.pop("operation", None)
-                self.store.progress(self.session, self.stage, **planned)
+                self._publish_progress(planned)
             pending_import = None
             for line in tail.read(final=final):
                 fields = parser.parse(line, tail.path.name)
@@ -1013,14 +1035,12 @@ class Supervisor:
                 # scopes. Deliver both without hiding the native log event.
                 for observation in observations:
                     if self.stage:
-                        if observation.get("operation") not in PLANS[self.stage]: observation.pop("operation", None)
-                        self.store.progress(self.session, self.stage, **observation)
+                        self._publish_progress(observation)
                 if fields and self.stage:
                     # Observation is additive. A newer selected source or a
                     # nested tool can emit another workflow's operation code;
                     # retain its raw task detail without letting it skip this
                     # stage's plan or turn logging into a build failure.
-                    if fields.get("operation") not in PLANS[self.stage]: fields.pop("operation", None)
                     if fields["phase"] in ("unity-asset-import", "unity-import-activity"):
                         # A cold Editor imports 146903 assets in the measured
                         # witness. Parse every completion, but publish the latest
@@ -1029,14 +1049,13 @@ class Supervisor:
                         pending_import = fields
                         continue
                     if pending_import:
-                        self.store.progress(self.session, self.stage, **pending_import)
+                        self._publish_progress(pending_import)
                         pending_import = None
-                    self.store.progress(self.session, self.stage, **fields)
-            if pending_import: self.store.progress(self.session, self.stage, **pending_import)
+                    self._publish_progress(fields)
+            if pending_import: self._publish_progress(pending_import)
         if self.stage:
             for fields in parser.poll_player_bee():
-                if fields.get("operation") not in PLANS[self.stage]: fields.pop("operation", None)
-                self.store.progress(self.session, self.stage, **fields)
+                self._publish_progress(fields)
         parser.flush_coverage()
 
     def run(self, argv, log, *, cwd=None, env=None, timeout=None, on_started=None, on_poll=None, acceptable_codes=(0,)):

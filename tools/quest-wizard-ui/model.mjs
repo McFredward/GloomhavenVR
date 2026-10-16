@@ -168,6 +168,14 @@ export function updateFailureView(state) {
   return {kind:value.kind,nextSteps:{en:nextSteps.en,de:nextSteps.de},editInputs:true,...(rebuildDecision?{newBuild:true}:{})};
 }
 export function activityView(stage,now=Date.now()/1000) {
+  const value=stage?.progress??{};
+  if(Object.hasOwn(value,'lastProgressAt')){
+    const valid=stamp=>typeof stamp==='number'&&Number.isFinite(stamp)&&stamp>0;
+    if(!valid(value.lastActivityAt)||typeof now!=='number'||!Number.isFinite(now))return null;
+    const activitySeconds=Math.max(0,Math.floor(now-value.lastActivityAt));
+    return {seconds:valid(value.lastProgressAt)?Math.max(0,Math.floor(now-value.lastProgressAt)):null,
+      activitySeconds,quiet:activitySeconds>=60,measured:true};
+  }
   const updated=stage?.progress?.updatedAt;
   if(typeof updated!=='number'||!Number.isFinite(updated)||updated<=0||typeof now!=='number'||!Number.isFinite(now))return null;
   const seconds=Math.max(0,Math.floor(now-updated));
@@ -333,6 +341,22 @@ export function stageProgress(stage) {
     // remains open. Display that real additional task, never an arbitrary99%.
     phasePercent=100*value.done/(value.total+1);progressScope='scope-return';
   }
+  const preparation=owner?.updateCode?.preparation;
+  if(operation==='update-code'&&preparation&&preparation.done<preparation.total&&
+    (value.phase?.startsWith('update-code-')||['unity-refresh','unity-domain','unity-packages'].includes(value.phase))){
+    // One finite preparation schedule spans catalog, roster, changed import
+    // orders, preload, and native handover. Local row completion advances its
+    // share; an incidental refresh cannot reset this aggregate to0/unknown.
+    phasePercent=preparation.percent;displayPhase='update-code-preparation';progressScope='update-preparation';
+    scopeCounter={done:preparation.done,total:preparation.total,unit:'steps'};
+  }else if(operation==='update-code'&&!owner.closed&&preparation&&preparation.done===preparation.total&&
+    (value.phase?.startsWith('update-code-')||['unity-refresh','unity-domain','unity-packages'].includes(value.phase))){
+    // All preparation tasks returned. Their green proof remains below, while
+    // the active bar immediately names the next real native-build boundary.
+    // It must not wait at a local100% for Unity's first compiler counter.
+    phasePercent=0;displayPhase='unity-native-initialization';progressScope='next-phase';
+    scopeCounter={done:0,total:1,unit:'tasks'};
+  }
   return {...value,percent,phasePercent,displayPhase,progressScope,scopeCounter,waiting:['running','blocked'].includes(stage?.status)?stage?.waiting??null:null};
 }
 export function activeWorkView(progress) {
@@ -404,14 +428,18 @@ export function buildOverviewView(state) {
     const passes=normalize(value.passes);
     if(passes.length!==names.length||new Set(passes.map(row=>row.id)).size!==names.length||passes.some(row=>!names.includes(row.id)))return null;
     return {passes,done:passes.filter(row=>row.closed).length,total:names.length,
-      active:passes.some(row=>row.id===value.active)?value.active:null};
+      active:passes.some(row=>row.id===value.active)?value.active:null,
+      percent:typeof value.percent==='number'&&Number.isFinite(value.percent)&&value.percent>=0&&value.percent<=100?value.percent:0};
   };
   const groups=raw.groups.filter(group=>validId(group?.id)).map(group=>({...group,operations:normalize(group.operations).map(row=>{
     const source=group.operations.find(item=>item.id===row.id);
+    const updateCode=observedPasses(source.updateCode,['weave','standalone','update-sdk','update-package-api','update-code','publication']);
     return {...row,preparation:preparation(source.preparation),compiler:compiler(source.compiler,source),import:unityImportView(source.import),
       pack:observedPasses(source.pack,['native-content-source-hash','native-content-native-hash','native-content-write','native-content-final-hash']),
       api:observedPasses(source.api,['package-api-bind','package-api-output','package-api-publish']),
-      validation:observedPasses(source.validation,['unity-configuration','unity-validation-tasks']),unityTask:unityTaskView(source.unityTask),unityWork:unityWorkView(source.unityWork)};
+      validation:observedPasses(source.validation,['unity-configuration','unity-validation-tasks']),unityTask:unityTaskView(source.unityTask),unityWork:unityWorkView(source.unityWork),
+      updateCode:updateCode?{...updateCode,
+        preparation:observedPasses(source.updateCode.preparation,['update-code-catalog','update-code-roster','update-code-orders','update-code-preload','update-code-handover'])}:null};
   })}));
   const operations=groups.flatMap(group=>group.operations);
   if(!operations.length||operations.length>32||new Set(operations.map(row=>row.id)).size!==operations.length)return null;
@@ -433,7 +461,7 @@ export function buildOverviewView(state) {
     ?{strategy:'cached-full-build',priorPercent:typeof raw.updateMigration.priorPercent==='number'&&
       Number.isFinite(raw.updateMigration.priorPercent)&&raw.updateMigration.priorPercent>=0&&raw.updateMigration.priorPercent<=100
       ?raw.updateMigration.priorPercent:null}:null;
-  return {groups,active,done:operations.filter(row=>row.closed).length,total:operations.length,
+  return {groups,active,done:operations.filter(row=>row.closed).length,total:operations.length,workflow:raw.workflow,
     updateMigration:migration,
     recovery:{sections,staging:stagingDetail==='observed'?staging:[],stagingDetail,
       batches:validBatches?{done:batches.done,total:batches.total}:null,stagingCounter:recovery.stagingCounter??null}};

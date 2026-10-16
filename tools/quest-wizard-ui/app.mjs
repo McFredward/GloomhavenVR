@@ -587,6 +587,7 @@ function phaseLabel(phase='') {
   return key?t('phase_'+key):phase;
 }
 function counters(value) {
+  if(value.progressScope==='update-preparation')return value.scopeCounter?counters(value.scopeCounter):'';
   if(value.progressScope==='shader-phase')return value.scopeCounter?counters(value.scopeCounter):'';
   if(value.progressScope==='phase-continuation')return '';
   if(['next-phase','result-phase'].includes(value.progressScope))return value.scopeCounter?counters(value.scopeCounter):'';
@@ -702,9 +703,21 @@ function overviewList(rows,prefix,children) {
   return list;
 }
 function preparationDetail(operation,openPlans) {
-  const data=operation.preparation,compiler=operation.compiler,imported=operation.import,packed=operation.pack,api=operation.api,validation=operation.validation,task=operation.unityTask,unityWork=operation.unityWork;
-  if(!data&&!compiler&&!imported&&!packed&&!api&&!validation&&!task&&!unityWork)return null;
+  const data=operation.preparation,compiler=operation.compiler,imported=operation.import,packed=operation.pack,api=operation.api,validation=operation.validation,task=operation.unityTask,unityWork=operation.unityWork,updateCode=operation.updateCode;
+  if(!data&&!compiler&&!imported&&!packed&&!api&&!validation&&!task&&!unityWork&&!updateCode)return null;
   const container=document.createElement('div');container.className='preparation-detail';
+  if(updateCode){
+    const plan=document.createElement('details');plan.className='build-subplan';plan.dataset.plan='update-code';plan.open=openPlans.has(plan.dataset.plan)||operation.status==='running';
+    const label=document.createElement('summary');label.textContent=t('updateCodeSummary',{done:updateCode.done,total:updateCode.total});
+    const bar=document.createElement('progress');bar.max=100;bar.value=updateCode.percent;bar.dataset.updateCode='true';bar.setAttribute('aria-label',t('updateCodeSummary',{done:updateCode.done,total:updateCode.total}));
+    plan.append(label,bar,overviewList(updateCode.passes,'updateCode_',row=>{
+      if(row.id!=='update-code'||!updateCode.preparation)return null;
+      const prepared=updateCode.preparation,nested=document.createElement('div');nested.dataset.updatePreparation='true';
+      const summary=document.createElement('p');summary.className='hint';summary.textContent=t('updatePreparationSummary',{done:prepared.done,total:prepared.total});
+      const progress=document.createElement('progress');progress.max=100;progress.value=prepared.percent;progress.setAttribute('aria-label',t('phase_update-code-preparation'));
+      nested.append(summary,progress,overviewList(prepared.passes,'phase_'));return nested;
+    }));container.append(plan);
+  }
   if(unityWork){
     const plan=document.createElement('details');plan.className='build-subplan';plan.dataset.plan='unity-work-'+operation.id;
     plan.open=openPlans.has(plan.dataset.plan)||operation.status==='running';
@@ -790,6 +803,7 @@ function renderBuildOverview() {
   const focus=Boolean(overview&&state.stages?.find(row=>row.id==='build')?.status!=='pending');
   if(focus!==buildFocus){$('setup-overview').open=!focus;buildFocus=focus;}
   if(!overview)return;
+  $('build-overview-title').textContent=t(['update-mod','update-profile'].includes(overview.workflow)?'updateOverviewTitle':'buildOverviewTitle');
   const openPlans=new Set([...$('build-groups').querySelectorAll('details[data-plan][open]')].map(node=>node.dataset.plan));
   $('build-groups').replaceChildren();
   $('build-overview-count').textContent=t('buildOverviewCount',{done:overview.done,total:overview.total,remaining:overview.total-overview.done});
@@ -997,7 +1011,7 @@ function renderProgress() {
   const activity=activityView(progress.active??progress.current);
   $('activity-status').hidden=!active||Boolean(waiting);
   $('activity-status').classList.toggle('quiet',!resourceWait&&!connectionWait&&activity?.quiet===true);
-  $('activity-status').textContent=t(manualWait?'installationManualWaitingActivity':connectionWait?'questConnectionWaitingActivity':resourceWait?'memoryWaitActivity':activity?.quiet?'activityQuiet':activity?'activityRecent':'activityUnknown',{duration:durationText(activity?.seconds??0)});
+  $('activity-status').textContent=t(manualWait?'installationManualWaitingActivity':connectionWait?'questConnectionWaitingActivity':resourceWait?'memoryWaitActivity':activity?.measured?(activity.seconds===null?'activityOnly':'activityMeasured'):activity?.quiet?'activityQuiet':activity?'activityRecent':'activityUnknown',{duration:durationText(activity?.seconds??0),activity:durationText(activity?.activitySeconds??0)});
   $('log-status').hidden=!eventsUnavailable&&!stageLogUnavailable;$('log-status').textContent=t('logUnavailable');
   renderBuildOverview();
   $('substep-progress').hidden=!hasSubstep;

@@ -63,6 +63,30 @@ def stage_progress(phase="pending", done=0, total=1, unit="stages", detail=None)
             "percent": percent, "detail": detail, "updatedAt": time.time()}
 
 
+def _progress_clocks(row, value, old, status):
+    """A log refresh is activity, never evidence of newly completed work.
+
+    Support163304's fifteen-second Asset Pipeline Refresh loop repeatedly
+    reset the UI's 'last progress' clock without completing another task. Keep
+    both observations, using measured increases and actual successful scoped
+    return boundaries for the progress clock. No clock advances a percentage.
+    """
+    now = value["updatedAt"]
+    signals = row.setdefault("progressPlan", {}).setdefault("progressSignals", {})
+    scope = str(value.get("reportedOperation") or value.get("stageOperation") or "") + ":" + value["phase"]
+    previous = signals.get(scope, {})
+    done, total = value.get("done"), value.get("total")
+    increased = type(done) in (int, float) and done > 0 and done > previous.get("done", 0)
+    returned = status in ("complete", "reuse") and previous.get("status") not in ("complete", "reuse")
+    # A raw refresh/busy observation can preserve a previous counter for
+    # continuity, but its unchanged value does not prove further completion.
+    value["lastProgressAt"] = now if increased or returned else old.get("lastProgressAt")
+    value["lastActivityAt"] = now
+    if done is not None or status in ("start", "complete", "reuse", "failed"):
+        if scope not in signals and len(signals) >= 128: signals.pop(next(iter(signals)))
+        signals[scope] = {"done": done or 0, "total": total, "status": status}
+
+
 def native_memory_progress(value):
     """Retain measured compiler observations, never paths or unbounded tool data."""
     if not isinstance(value, dict): return None
@@ -459,7 +483,9 @@ class Store:
                 if mapped is None: raise WizardError("invalid_progress", "Unknown planned operation.")
                 value["childOperation"], operation = operation, mapped
             stage_plan.advance(row, value, operation, status)
-            old = row.get("progress", {}); row["progress"] = value
+            old = row.get("progress", {})
+            _progress_clocks(row, value, old, status)
+            row["progress"] = value
             self._timing.observe(state, row, value, status)
             clock = time.monotonic(); last = self._progress_saved.get((session, stage), 0)
             changed_phase = old.get("phase") != phase or old.get("total") != total

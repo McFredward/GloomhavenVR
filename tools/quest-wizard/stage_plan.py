@@ -69,6 +69,10 @@ UPDATE_SHARES = {"update-mod": dict(zip(UPDATE_PLANS["update-mod"], (5, 5, 40, 1
                  "update-profile": dict(zip(UPDATE_PLANS["update-profile"], (20, 20, 40, 20)))}
 UPDATE_GROUPS = {"update-mod": {"inputs": UPDATE_PLANS["update-mod"][:2], "code": UPDATE_PLANS["update-mod"][2:4], "export": UPDATE_PLANS["update-mod"][4:]},
                  "update-profile": {"inputs": UPDATE_PLANS["update-profile"][:2], "export": UPDATE_PLANS["update-profile"][2:]}}
+UPDATE_CODE_SHARES = {"weave": .10, "standalone": .05, "update-sdk": .10,
+                      "update-package-api": .10, "update-code": .60, "publication": .05}
+UPDATE_PREPARATION_SHARES = {"update-code-catalog": .15, "update-code-roster": .40,
+    "update-code-orders": .25, "update-code-preload": .10, "update-code-handover": .10}
 WORK_REVISION = 7
 MEMORY_OBSERVATIONS = frozenset(("native-compiler-profile", "native-memory-retry", "native-memory-wait",
                                "asset-memory-retry", "asset-memory-wait"))
@@ -486,6 +490,7 @@ def begin_attempt(row, boundary):
     plan["unityValidation"] = {}
     plan["unityTasks"] = {}
     plan["unityWork"] = {}
+    plan.pop("progressSignals", None)
     plan.pop("installMigration", None)
     recovery = plan.get("recovery", {})
     recovery.pop("liveSection", None)
@@ -503,6 +508,10 @@ def begin_attempt(row, boundary):
         work.pop("native", None)
 
     retained_work(recovery.get("work"))
+    code = plan.get("updateCode")
+    if code:
+        retained_work(code)
+        retained_work(code.get("preparation"))
     for work in recovery.get("sections", {}).values(): retained_work(work)
     retained_work(recovery.get("batch", {}).get("work"))
     return plan
@@ -972,6 +981,7 @@ def _unity_work_fraction(work):
 
 def _migrate_player_work(plan, owner, work):
     """Repair only the old Player scopes, preserving remaining-work progress."""
+    if owner == "update-code" and plan.get("updateCode", {}).get("current") == "update-sdk": return
     if owner not in ("player", "update-code") or work.get("parts") == UNITY_METHOD_PARTS[owner]: return
     work["parts"] = dict(UNITY_METHOD_PARTS[owner])
     for key in ("partFractions", "partProofs"):
@@ -1005,16 +1015,18 @@ def _observe_unity_work(plan, owner, value, status):
     """Join one launch's counted scopes without confusing local and global work."""
     phase = value["phase"]
     works = plan.setdefault("unityWork", {})
+    parts = ({"sdk": 1.} if owner == "update-code" and plan.get("updateCode", {}).get("current") == "update-sdk"
+             else dict(UNITY_METHOD_PARTS.get(owner, {})))
     if phase == "unity-work-invocation" and status == "start":
         previous = works.get(owner, {})
         if previous.get("startedAt") != value.get("updatedAt"):
             works[owner] = {"startedAt": value.get("updatedAt"), "active": "assets", "completed": [],
-                "fractions": {}, "parts": dict(UNITY_METHOD_PARTS.get(owner, {})), "partFractions": {}, "counters": {}}
+                "fractions": {}, "parts": parts, "partFractions": {}, "counters": {}}
             for key in ("unityImports", "unityCompiler", "unityTasks"):
                 plan.get(key, {}).pop(owner, None)
     elif phase == "unity-work-plan" and owner not in works:
         works[owner] = {"startedAt": value.get("updatedAt"), "active": "assets", "completed": [],
-            "fractions": {}, "parts": dict(UNITY_METHOD_PARTS.get(owner, {})), "partFractions": {}, "counters": {}}
+            "fractions": {}, "parts": parts, "partFractions": {}, "counters": {}}
     work = works.get(owner)
     if not work: return False
     _migrate_player_work(plan, owner, work)
@@ -1183,6 +1195,11 @@ def _observe_unity_work(plan, owner, value, status):
     if owner == "mod-banks" and plan.get("preparationScopes", {}).get(owner, {}).get("open"):
         scope = plan["preparationScopes"][owner]
         fraction = (scope["done"] + .5 + .5 * fraction) / scope["total"]
+    if owner == "update-code" and plan.get("updateCode"):
+        # SDK and final native compilation launch different Editors inside one
+        # compact operation. A completed SDK invocation cannot fill its entire
+        # parent's bar. The actual host-stage schedule below owns that share.
+        return True
     plan["fractions"][owner] = max(plan["fractions"].get(owner, 0.), fraction)
     plan.setdefault("liveFractions", {})[owner] = max(plan.get("liveFractions", {}).get(owner, 0.), fraction)
     return True
@@ -1216,7 +1233,8 @@ def _unity_work_overview(plan, owner, failed=False):
         if row["id"] == "result" and not row["closed"] and work.get("counters", {}).get("result", {}).get("phase") == "unity-compute-identities":
             row["status"] = "failed" if failed or work.get("failed", False) else "running"
         if row["id"] == "method":
-            part_names = tuple(UNITY_METHOD_PARTS.get(owner, work["parts"]))
+            part_names = (("sdk",) if owner == "update-code" and work["parts"] == {"sdk": 1.}
+                          else tuple(UNITY_METHOD_PARTS.get(owner, work["parts"])))
             closed_parts = part_names if row["closed"] else work.get("partCompleted", ())
             proofs = dict.fromkeys(part_names, "complete") if row["closed"] else work.get("partProofs", {})
             active_part = None if row["closed"] or work.get("part") in closed_parts else work.get("part")
@@ -1309,6 +1327,68 @@ def _observed_pass_overview(plan, key, shares, status):
             "active": work.get("current"), "percent": round(100 * _observed_pass_ratio(work, shares), 6)}
 
 
+def _observe_update_code(plan, value, status):
+    """Join the real compact compiler stages and finite Editor preparation.
+
+    These stages already have independent durable receipts; do not invent a
+    new job, scan game assets, or infer progress from the15second refresh loop.
+    Stage boundaries close only their own work and the outer operation still
+    requires its final matched native-code/metadata publication gate.
+    """
+    phase = value["phase"]
+    boundary = phase[6:] if phase.startswith("stage:") else None
+    preparation = phase in UPDATE_PREPARATION_SHARES
+    if boundary not in UPDATE_CODE_SHARES and not preparation and "updateCode" not in plan: return
+    work = plan.setdefault("updateCode", {})
+    if boundary in UPDATE_CODE_SHARES:
+        if status == "start" and boundary == "update-code" and work.get("current") != boundary:
+            # Keep the already closed SDK phase, but do not project its returned
+            # Unity invocation as progress of the next native compilation.
+            for key in ("unityWork", "unityImports", "unityTasks", "unityCompiler"):
+                plan.get(key, {}).pop("update-code", None)
+        work.update(current=boundary, liveStatus=status or "progress")
+        if status in ("complete", "reuse"):
+            work["completed"] = list(dict.fromkeys([*work.get("completed", []), boundary]))
+            work.setdefault("proofs", {})[boundary] = status
+        work.setdefault("counters", {})[boundary] = {key: value.get(key) for key in ("phase", "done", "total", "unit", "detail")}
+    current = work.get("current")
+    if preparation:
+        current = work["current"] = "update-code"
+        child = work.setdefault("preparation", {})
+        child.update(current=phase, liveStatus=status or "progress")
+        ratio = _ratio(value)
+        if ratio is not None:
+            child.setdefault("fractions", {})[phase] = max(child.get("fractions", {}).get(phase, 0.), min(.999999, ratio))
+        if status in ("complete", "reuse") and ratio == 1.:
+            child["completed"] = list(dict.fromkeys([*child.get("completed", []), phase]))
+            child.setdefault("proofs", {})[phase] = status
+        child.setdefault("counters", {})[phase] = {key: value.get(key) for key in ("phase", "done", "total", "unit", "detail")}
+        work["liveStatus"] = "progress"
+        unity = plan.get("unityWork", {}).get("update-code")
+        if unity:
+            # Executing the compiled Editor helper proves this invocation has
+            # crossed import/domain readiness. It does not prove native work.
+            unity["completed"] = list(dict.fromkeys([*unity.get("completed", []), "assets"]))
+            unity["active"] = "method"
+    if current in ("update-sdk", "update-code"):
+        unity = plan.get("unityWork", {}).get("update-code", {})
+        observed = _unity_work_fraction(unity) if unity else 0.
+        if current == "update-code":
+            child = work.get("preparation", {})
+            observed = .20 * _observed_pass_ratio(child, UPDATE_PREPARATION_SHARES) + .80 * observed
+        work.setdefault("fractions", {})[current] = max(work.get("fractions", {}).get(current, 0.), min(.999999, observed))
+    elif current == "update-package-api" and phase in PACKAGE_API_SHARES:
+        child = work.setdefault("packageApi", {})
+        ratio = _ratio(value)
+        if ratio is not None: child.setdefault("fractions", {})[phase] = max(child.get("fractions", {}).get(phase, 0.), ratio)
+        if status in ("complete", "reuse") and ratio == 1.:
+            child["completed"] = list(dict.fromkeys([*child.get("completed", []), phase]))
+        work.setdefault("fractions", {})[current] = _observed_pass_ratio(child, PACKAGE_API_SHARES)
+    fraction = min(.999999, _observed_pass_ratio(work, UPDATE_CODE_SHARES))
+    plan["fractions"]["update-code"] = max(plan["fractions"].get("update-code", 0.), fraction)
+    plan.setdefault("liveFractions", {})["update-code"] = fraction
+
+
 def _overview_rows(steps, completed, fractions, active, proofs=None, failed=False, active_status=None):
     proofs = proofs or {}
     rows = []
@@ -1395,6 +1475,17 @@ def _build_overview(row, plan):
             checks = _observed_pass_overview(plan, "unityValidation", UNITY_VALIDATION_SHARES,
                 "failed" if row["status"] == "failed" and item["id"] == active else item["status"])
             if checks: item["validation"] = checks
+        if item["id"] == "update-code" and plan.get("updateCode"):
+            detail = _observed_pass_overview(plan, "updateCode", UPDATE_CODE_SHARES, item["status"])
+            prepared = _observed_pass_overview(plan["updateCode"], "preparation", UPDATE_PREPARATION_SHARES, item["status"])
+            if item["closed"]:
+                for part in detail["passes"]: part.update(status=item["status"], closed=True, percent=100.)
+                detail.update(done=detail["total"], percent=100., active=None)
+                if prepared:
+                    for part in prepared["passes"]: part.update(status=item["status"], closed=True, percent=100.)
+                    prepared.update(done=prepared["total"], percent=100., active=None)
+            if prepared: detail["preparation"] = prepared
+            item["updateCode"] = detail
         task = plan.get("unityTasks", {}).get(item["id"])
         if task: item["unityTask"] = dict(task, status="complete" if task.get("closed") else "failed" if row["status"] == "failed" and item["id"] == active
                                         else "complete" if item["closed"] else "running" if item["id"] == active else "pending")
@@ -1514,7 +1605,8 @@ def advance(row, value, operation=None, status=None):
         operation, measured = live_owner, False
         _observe_unity_work(plan, live_owner, value, status)
     pack_counter = value["phase"] in CONTENT_PACK_SHARES
-    api_counter = value["phase"] in PACKAGE_API_SHARES
+    compact_code = row["id"] == "build" and workflow(row) == "update-mod" and plan.get("liveOperation") == "update-code"
+    api_counter = value["phase"] in PACKAGE_API_SHARES and not compact_code
     validation_counter = value["phase"] in UNITY_VALIDATION_SHARES
     unity_child = value["phase"] in UNITY_CHILD_COUNTERS
     if pack_counter or api_counter or validation_counter:
@@ -1701,6 +1793,7 @@ def advance(row, value, operation=None, status=None):
                       or unity_child
                       or unity_work_boundary
                       or value["phase"] == "unity-work-plan"
+                      or compact_code and value["phase"] in UPDATE_PREPARATION_SHARES
                       or row["id"] == "install" and value["phase"].startswith(("install-signature-", "install-recovery-"))
                       or operation in plan.get("unityWork", {}) and value["phase"].startswith(("unity-", "bee-actions:"))
                       or workflow(row) in UPDATE_PLANS and value.get("childOperation") is not None)
@@ -1779,6 +1872,9 @@ def advance(row, value, operation=None, status=None):
         if compiler_counter and unity_owner in plan.get("unityCompiler", {}):
             plan["unityCompiler"][unity_owner].update({key: value.get(key) for key in ("done", "total", "unit", "percent")})
         measured = False
+    if compact_code:
+        _observe_update_code(plan, value, status)
+        if plan.get("updateCode"): measured = False
     if current in operations and measured and (operation is None or operation == current) and value["percent"] is not None:
         fraction = min(.99, _ratio(value))
         if current == "content-bank" and value["phase"].startswith(("unity-", "bee-actions:")): fraction *= .5
