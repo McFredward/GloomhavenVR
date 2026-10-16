@@ -33,10 +33,13 @@ class RuntimeBankAccess:
     def __init__(self, adb, address, view_factory=None, *, hardware=None):
         self.adb, self.address = adb, address
         self.hardware = hardware or adb.identity(address)
+        self.metadata = getattr(adb, "storage_metadata_fixup", None)
 
     def __enter__(self): return self
 
-    def __exit__(self, kind, error, traceback): return False
+    def __exit__(self, kind, error, traceback):
+        if self.metadata is not None: self.metadata.close()
+        return False
 
     def qualify(self, root, manifest, receipt):
         if (root not in (BASE + "quest-mod-resources", BASE + "quest-owned-game")
@@ -51,7 +54,8 @@ class RuntimeBankAccess:
                 # Never present this deferred observation as an app-origin
                 # verification. The caller still owns real transfer/integrity
                 # checks and the game opens the files through its own Context.
-                return {"appAccess": "runtime-pending", "appAccessVerified": False, "accessRepairFiles": 0}
+                metadata = self.metadata.qualify(root, manifest, receipt) if self.metadata is not None else {}
+                return {"appAccess": "runtime-pending", "appAccessVerified": False, "accessRepairFiles": 0, **metadata}
             except RuntimeError as error:
                 if not _transport_failure(error) or not getattr(self.adb, "wait_enabled", False): raise
                 self.adb.wait_for_connection(self.address)

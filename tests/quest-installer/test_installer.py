@@ -69,9 +69,10 @@ class FakeAdb:
             if action[:2] == ["shell", "getprop"]:
                 key = action[2]
                 raw = {"ro.product.model": self.models.get(serial, "Pixel 8"),
-                       "ro.product.name": "eureka", "ro.serialno": self.identities.get(serial, "unknown")}[key]
+                       "ro.product.name": "eureka", "ro.serialno": self.identities.get(serial, "unknown"),
+                       "service.adb.tcp.port": "-1"}[key]
             elif action == ["shell", "ip", "route"]:
-                raw = self.routes[serial]
+                raw = self.routes.get(serial, "")
             elif action[0] == "tcpip":
                 ip = self.routes[serial].split("src ")[-1].split()[0]
                 address = ip + ":" + action[1]
@@ -277,13 +278,15 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(self.run_cli(), 1)
         self.assertEqual(self.fake.calls, [])
 
-    def test_usb_installs_directly_without_wifi_setup_and_launches(self):
+    def test_usb_installs_and_launches_before_remembering_wireless_access(self):
         self.assertEqual(self.run_cli(), 0, self.error)
-        self.assertFalse(any("tcpip" in call or "connect" in call for call in self.fake.calls))
+        setup = next(index for index, call in enumerate(self.fake.calls) if "tcpip" in call)
+        launch = next(index for index, call in enumerate(self.fake.calls) if "start" in call)
+        self.assertGreater(setup, launch)
         self.assertIn(["-s", "USB-QUEST", "install", "-r", str(self.apk)], self.fake.calls)
         value = json.loads(self.config.read_text())
         self.assertEqual((value["deviceSerial"], value["adbSerial"], value["transport"]), ("HARDWARE-1", "USB-QUEST", "usb"))
-        self.assertNotIn("endpoint", value)
+        self.assertEqual(value["endpoint"], "192.168.1.42:5555")
         receipt = json.loads((self.config.parent / "wireless-last-install.json").read_text())
         self.assertEqual(receipt["apkSha256"], self.metadata["apkSha256"])
         self.assertTrue(receipt["launched"] and receipt["isDiagnostic"] and receipt["isDummy"])
@@ -383,8 +386,9 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(self.run_cli(), 0, self.error)
         settings = json.loads(self.config.read_text())
         self.assertEqual(settings["adbSerial"], "USB-QUEST")
-        self.assertEqual(settings["endpoint"], "192.168.1.10:5555")
-        self.assertFalse(any("connect" in call or "tcpip" in call for call in self.fake.calls))
+        self.assertEqual(settings["endpoint"], "192.168.1.42:5555")  # Newly verified current Wi-Fi route.
+        launch = next(index for index, call in enumerate(self.fake.calls) if "start" in call)
+        self.assertFalse(any("connect" in call or "tcpip" in call for call in self.fake.calls[:launch]))
 
     def test_host_change_requires_same_hardware_and_preserves_custom_port(self):
         self.remember()
@@ -405,7 +409,9 @@ class InstallerTests(unittest.TestCase):
     def test_usb_precedes_healthy_remembered_wifi_of_same_headset(self):
         self.remember(); self.fake.wireless()
         self.assertEqual(self.run_cli(), 0, self.error)
-        self.assertFalse(any("connect" in call or "tcpip" in call or "route" in call for call in self.fake.calls))
+        self.assertFalse(any("connect" in call or "tcpip" in call for call in self.fake.calls))
+        route = next(index for index, call in enumerate(self.fake.calls) if "route" in call)
+        self.assertGreater(route, next(index for index, call in enumerate(self.fake.calls) if "start" in call))
         self.assertIn(["-s", "USB-QUEST", "install", "-r", str(self.apk)], self.fake.calls)
 
     def test_usb_requires_no_wifi_ip_and_ignores_stale_wireless_identity(self):
@@ -414,12 +420,13 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(self.run_cli(), 0, self.error)
         self.assertFalse(any(call[:2] == ["-s", "192.168.1.42:5555"] for call in self.fake.calls))
 
-    def test_usb_arriving_during_failed_wifi_reconnect_is_used_without_tcpip(self):
+    def test_usb_arriving_during_failed_wifi_reconnect_is_used_before_optional_setup(self):
         self.remember(); self.fake.states.clear()
         self.fake.on_connect = lambda: self.fake.states.update({"USB-QUEST": "device"})
         self.assertEqual(self.run_cli(), 0, self.error)
         self.assertTrue(any("connect" in call for call in self.fake.calls))
-        self.assertFalse(any("tcpip" in call for call in self.fake.calls))
+        self.assertGreater(next(index for index, call in enumerate(self.fake.calls) if "tcpip" in call),
+                           next(index for index, call in enumerate(self.fake.calls) if "install" in call))
         self.assertEqual(json.loads(self.config.read_text())["transport"], "usb")
 
     def test_remembered_hardware_selects_one_usb_quest_among_other_headsets(self):

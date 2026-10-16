@@ -1,7 +1,8 @@
 """Install one verified local Quest APK over identity-checked USB or Wi-Fi ADB.
 
 Prefer an authorized USB Quest without restarting adbd or requiring Wi-Fi.
-Explicit --setup enables wireless ADB; other installs retain the current transport.
+USB transfers retain their transport; completed installations also remember
+verified wireless access for later log collection without the cable.
 Windows and Linux provision official Android platform-tools locally if ADB is missing.
 No APKs, accounts or signing material are downloaded.
 """
@@ -93,6 +94,21 @@ def content_access_module():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def remember_wireless_after_install(adb, address, hardware, settings):
+    """Optional convenience after the entire cable transaction is committed."""
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "_ghvr_quest_wireless", REPO / "tools/quest-installer/wireless.py")
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        settings, result = module.remember_after_usb(adb, address, hardware, settings)
+    except (OSError, ImportError, ValueError, RuntimeError) as error:
+        result = {"status": "unavailable", "reason": "optional-wireless-setup-unavailable", "detail": str(error)[:512]}
+    with adb.log.open("a", encoding="utf-8") as stream:
+        stream.write(json.dumps({"wirelessAfterInstallation": result}) + "\n")
+    print(result.get("message", {}).get("en", "Installation completed; wireless setup remains available in device tools."), flush=True)
+    return settings, result
 
 
 _DIGEST_CACHE = {}
@@ -1566,6 +1582,42 @@ def install_connected_apk(adb, address, source, timeout):
                     return
 
 
+def installed_apk_witness(adb, address):
+    """Observe the immutable installed APK, without reading its payload."""
+    raw = adb.run("-s", address, "shell", "pm", "path", "--user", "0", PACKAGE,
+                  check_text=False, reconnect=True, empty_exit_codes=(1,))
+    if not re.fullmatch(r"package:/data/app/[A-Za-z0-9_./=+~-]+/base\.apk", raw): return None
+    path = raw[8:]
+    stamp = adb.run("-s", address, "shell", "stat", "-c", "%d:%i:%s:%Y:%Z", path,
+                    check_text=False, reconnect=True)
+    if not re.fullmatch(r"[0-9]+:[0-9]+:[0-9]+:-?[0-9]+:-?[0-9]+", stamp): return None
+    return {"path": path, "stat": stamp}
+
+
+def retain_installed_apk(adb, address, hardware, source, previous):
+    """Retain an exact completed APK across host-only repairs and updates.
+
+    Old receipts lack a physical installed-file witness: hash that one APK
+    once on the headset, without pulling/reinstalling it. Later unchanged
+    path/inode/size/mtime/ctime witnesses avoid another multi-GB read. A source,
+    headset or physical identity change never inherits this shortcut.
+    """
+    if (not isinstance(previous, dict) or previous.get("deviceSerial") != hardware
+            or previous.get("package") != PACKAGE or previous.get("apkSha256") != source.sha256
+            or previous.get("inputKey") != source.input_key): return None
+    before = installed_apk_witness(adb, address)
+    if before is None or int(before["stat"].split(":")[2]) != source.apk.stat().st_size: return None
+    if previous.get("installedApkWitness") != before:
+        print("Qualifying the previously installed APK once; no APK or game files are transferred.", flush=True)
+        result = adb.run("-s", address, "shell", "sha256sum", before["path"],
+                         timeout=600, check_text=False, reconnect=True)
+        if result != source.sha256 + "  " + before["path"]: return None
+    if adb.identity(address) != hardware or installed_apk_witness(adb, address) != before:
+        raise InstallError("The installed APK or Quest changed during reuse qualification; completed files remain retained.")
+    print("Reusing the exact installed APK; no APK installation or signing migration is needed.", flush=True)
+    return before
+
+
 def release_retained_storage_wait(adb, address, hardware):
     """Release only a durable, source-bound wait owned by an interrupted probe.
 
@@ -1725,6 +1777,16 @@ def main(argv=None, runner=None):
             if not adb.wait_enabled: raise
             address, hardware = adb.wait_for_connection()
         adb.connection_config = connection_settings(config, address, hardware, executable)
+        previous = None
+        if receipt.is_file():
+            try:
+                prior = read_json(receipt)
+                if prior.get("deviceSerial") == hardware and prior.get("package") == PACKAGE: previous = prior
+            except (OSError, ValueError): pass
+        delivery_manifest = installation_manifest(source)
+        file_backed = bool(source.mod_build and source.mod_build >= 625 and delivery_manifest
+                           and all(isinstance(delivery_manifest.get(kind), dict) for kind in ("mod", "game")))
+        package_witness = None
         # Re-read both the receipt and APK immediately before the only app mutation.
         if resolve_source(source.kind, source.path, check_zip=False) != source:
             raise InstallError("The APK or source evidence changed during device setup; retry with the intended build.")
@@ -1761,10 +1823,12 @@ def main(argv=None, runner=None):
             if any(not content_available(bank) for bank in source.content):
                 with tempfile.TemporaryDirectory(prefix="ghvr-quest-retained-") as temporary:
                     require_installed_game(adb, address, source, Path(temporary), repair=args.repair_content)
-            try:
-                install_connected_apk(adb, address, source, install_timeout)
-            except SigningMismatch:
-                migration = connected_recovery(adb, address, recovery, detected=True)
+            package_witness = retain_installed_apk(adb, address, hardware, source, previous) if file_backed else None
+            if package_witness is None:
+                try:
+                    install_connected_apk(adb, address, source, install_timeout)
+                except SigningMismatch:
+                    migration = connected_recovery(adb, address, recovery, detected=True)
         # Only the transaction owner can enable a later storage view's manual
         # launch. Arbitrary CLI input cannot grant it to another APK/headset.
         adb.manual_storage_identity = {"apkSha256": source.sha256, "inputKey": source.input_key,
@@ -1788,13 +1852,15 @@ def main(argv=None, runner=None):
                                    + "; expected B" + str(source.mod_build) + ". No launch or success receipt was written.")
             installed_version = int(versions[0])
             print("Confirmed installed build: B" + str(installed_version) + " (input " + source.input_key[:12] + ")")
-        previous = None
-        if receipt.is_file():
-            try:
-                prior = read_json(receipt)
-                if prior.get("deviceSerial") == hardware and prior.get("package") == PACKAGE: previous = prior
-            except (OSError, ValueError):
-                pass
+            if file_backed:
+                uids = re.findall(r"^\s*appId=([0-9]+)\s*$", package_info, re.M)
+                if len(uids) != 1:
+                    raise InstallError("The installed Quest package UID is unavailable; its APK and game content remain retained.")
+                spec = importlib.util.spec_from_file_location(
+                    "_ghvr_quest_android_storage", REPO / "tools/quest-installer/android_storage.py")
+                module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+                adb.storage_metadata_fixup = module.StorageMetadata(adb, address, hardware, int(uids[0]))
+                if package_witness is None: package_witness = installed_apk_witness(adb, address)
         content_records = install_content(adb, address, source, previous, repair=args.repair_content, hardware=hardware)
         if args.diagnose_app_storage and installation_manifest(source) is not None and not (migration and migration.get("saveDataReset") is True):
             repair_current_access(adb, address, hardware, source, config_path.parent)
@@ -1811,11 +1877,17 @@ def main(argv=None, runner=None):
                              "isDiagnostic": source.diagnostic, "isDummy": source.dummy,
                              "modBuild": source.mod_build, "inputKey": source.input_key,
                              "installedVersionCode": installed_version,
+                             **({"installedApkWitness": package_witness} if package_witness else {}),
                              "content": content_records,
                              **({"signingRecovery": migration} if migration else {}),
                              "completedUtc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
         recovery.complete()
         cleanup_completed_install(adb, address, hardware, config_path.parent, source)
+        settings, wireless = remember_wireless_after_install(adb, address, hardware, settings)
+        write_json(config_path, settings)
+        completed = read_json(receipt)
+        completed.update(settings, wirelessAccess=wireless)
+        write_json(receipt, completed)
         print(("Installed with app data reset by explicit choice; PC backups retained" if migration and migration.get("saveDataReset") is True
                else "Installed with app data retained") + (" and launched" if not args.no_launch else "")
               + ": " + address + ". Device behavior remains for hardware testing.")

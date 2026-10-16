@@ -54,7 +54,7 @@ class PinnedNativeCacheTests(unittest.TestCase):
     def test_acquisition_repair_leaves_actual_seven_native_sources_unchanged(self):
         self.assertEqual({name: storage.digest(RUNTIME / name) for name in NATIVE_BASELINE}, NATIVE_BASELINE)
         self.assertEqual(row(identity.PROTON_DOWNLOAD_FIXED["path"]), identity.PROTON_DOWNLOAD_FIXED)
-        self.assertEqual(row(identity.UPDATE_DOWNLOAD_FIXED["path"]), identity.UPDATE_DOWNLOAD_FIXED)
+        self.assertEqual(row(identity.UPDATE_RETAINED_APK_FIXED["path"]), identity.UPDATE_RETAINED_APK_FIXED)
         self.assertEqual(driver._PROTON_DOWNLOAD_ROWS,
                          (identity.PROTON_DOWNLOAD_PREVIOUS, identity.PROTON_DOWNLOAD_FIXED))
 

@@ -122,6 +122,11 @@ NATIVE_BANK_HOST_ROWS = (NATIVE_BANK_HOST_ROW,
      "sha256": "49063c51bb183f37437337b7688ecd05a94de90341267f9fa28eb0dd4793c766"})
 UPDATE_DOWNLOAD_PARALLEL_PREVIOUS = UPDATE_DOWNLOAD_FIXED
 UPDATE_DOWNLOAD_FIXED = {'path': 'tools/quest-builder/update_driver.py', 'size': 68217, 'sha256': '6a68046fff158d94604c7352fdd7b9171b6575b3b06364337c0269e16553b56b'}
+# Reviewed host-only retention branch: preserves the qualified current APK and
+# original build/bank receipts. Runtime compilation and asset producers are
+# unchanged; unknown driver bodies remain independent source identities.
+UPDATE_RETAINED_APK_FIXED = {"path": "tools/quest-builder/update_driver.py", "size": 73081,
+    "sha256": "ec085d07994c319ea7c35366be96e3e1c38bf6494920d243d3d8bbe01f1fac3b"}
 
 def _memory_row(row):
     if row in (MEMORY_POLICY_FIXED, MEMORY_POLICY_ADAPTIVE, MEMORY_POLICY_MINIMUM, MEMORY_POLICY_PARALLEL):
@@ -615,7 +620,7 @@ def _scope(inputs, source, recovery, *, original_prefix=False, ui_unconsumed=Fal
     if original_prefix:
         reviewed = []
         for row in rows:
-            if row in (UPDATE_DOWNLOAD_FIXED, UPDATE_DOWNLOAD_PARALLEL_PREVIOUS): row = UPDATE_DOWNLOAD_PREVIOUS
+            if row in (UPDATE_DOWNLOAD_FIXED, UPDATE_DOWNLOAD_PARALLEL_PREVIOUS, UPDATE_RETAINED_APK_FIXED): row = UPDATE_DOWNLOAD_PREVIOUS
             if row in (PLAYER_DELIVERY_ROW, FINAL_DELIVERY_ROW): continue
             if row == COMPUTE_OWNER_DELIVERY_ROW:
                 row = LATE_DELIVERY_ROWS[row['path']][1]

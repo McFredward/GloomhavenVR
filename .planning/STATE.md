@@ -1,5 +1,25 @@
 # State — where the project stands
 
+**Quest runtime bank access and retained updates, 2026-10-16: feature / B672.**
+
+Capture074040 confirms the installed B672/inputd4e76da00ec2 and completed USB
+installation, then an actual app-origin permission exception entering the mod
+bank after about two seconds. Its files root remains writable. A normal startup
+failure, not continued conversion, leaves the reported logo at0%. Reconcile
+Android ownership/ACL metadata through the platform storage service using a
+bounded authored shell DEX; no debugger, APK rebuild, game scan or bank transfer.
+Keep appAccessVerified=false until actual hardware opens succeed.
+
+Host-only Mod Update now retains the current qualified workspace APK, original
+build evidence and game-bank locator; actual changed code/art/profile/signers
+retain their update paths. Installation retains the same APK after physical
+proof; older receipts need at most one on-device APK hash without a transfer.
+Remember verified wireless access after completed USB work, with a12second cap
+and no mid-transfer adbd restart. Preserve `.ghvrq`, choose Update mod and keep
+the existing APK/profile; no new Unity export is needed. See
+[QUEST-STARTUP-STORAGE-WIRELESS-20261016.md](QUEST-STARTUP-STORAGE-WIRELESS-20261016.md)
+for primary Android evidence, precise metadata scope and hardware limitations.
+
 **Quest normal delivery without debugger, 2026-10-14: feature / B672.**
 
 Capture205156 reaches successful mod-file transfer, then the additional run-as
