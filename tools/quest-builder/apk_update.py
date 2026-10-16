@@ -180,10 +180,56 @@ def _hash128(value):
     except (TypeError, ValueError) as exc: raise BuildError("Unity MonoScript hash bytes are invalid.") from exc
 
 
-def script_roster(apk_path):
-    """Read player MonoScripts, never the external game bank or texture payloads."""
+def _script_conflict(key, first, current):
+    """Keep the exact conflicting locations useful in bounded support logs."""
+    fields = [name for name in ("propertiesHash", "executionOrder") if first["row"][name] != current["row"][name]]
+    def candidate(value):
+        return {"member": value["member"][:256], "fileIDs": value["fileIDs"][:8], "pathID": value["pathID"],
+                "propertiesHash": value["row"]["propertiesHash"], "executionOrder": value["row"]["executionOrder"]}
+    detail = {"identity": [part[:256] for part in key], "fields": fields,
+              "candidates": [candidate(first), candidate(current)]}
+    return BuildError("APK has conflicting MonoScript identities: " + json.dumps(detail, ensure_ascii=True, separators=(",", ":")))
+
+
+def _admit_script_rows(candidates, expected_types):
+    expected = {(row["assembly"], row["namespace"], row["class"]): row for row in expected_types or ()}
+    roster, retained_orders = {}, 0
+    for key, values in sorted(candidates.items()):
+        first = values[0]
+        conflict = next((item for item in values[1:] if item["row"] != first["row"]), None)
+        if conflict is None:
+            roster[key] = first["row"]
+            continue
+        # Support205558 reaches this gate AFTER the native compiler succeeded.
+        # Compact preloaded roots and Unity's own resources can register the same
+        # managed identity more than once. Only execution order may be resolved
+        # against the exact retained original: its MonoManager/MonoScripts remain
+        # in the published APK, and the compact registry is never transplanted.
+        # Every physical candidate must prove the original serialized layout;
+        # accepting one matching hash among incompatible copies would conceal a
+        # genuine property-layout change. New ambiguous types have no authority.
+        original = expected.get(key)
+        if (original is not None and any(item["row"] == original for item in values)
+                and all(item["row"]["propertiesHash"] == original["propertiesHash"] for item in values)):
+            roster[key] = original
+            retained_orders += 1
+            continue
+        # Prefer a hash difference in the diagnostic even if an order-only
+        # duplicate appeared earlier; otherwise the relevant ABI defect is lost.
+        conflict = next((item for item in values[1:] if item["row"]["propertiesHash"] != first["row"]["propertiesHash"]), conflict)
+        raise _script_conflict(key, first, conflict)
+    return roster, retained_orders
+
+
+def script_roster(apk_path, *, expected_types=None):
+    """Read player MonoScripts, never the external game bank or texture payloads.
+
+    expected_types is used only after a compact native pair was qualified. It
+    admits order-only duplicate registrations against the retained player, never
+    conflicting serialized property hashes or an arbitrary first/last candidate.
+    """
     import UnityPy
-    roster, version = {}, None
+    candidates, version = {}, None
     with zipfile.ZipFile(apk_path) as apk:
         entries = _entries(apk)
         manager_name = "assets/bin/Data/globalgamemanagers"
@@ -199,7 +245,7 @@ def script_roster(apk_path):
             if not path_id: raise BuildError("APK native script registry contains an empty pointer.")
             if index < 0 or index > len(manager_file.externals): raise BuildError("APK native script registry has an invalid external file index.")
             name = _external_member(manager_file.externals[index - 1].path) if index else manager_name
-            required.setdefault(name, set()).add(path_id)
+            required.setdefault(name, {}).setdefault(path_id, set()).add(index)
         if not required: raise BuildError("APK native MonoManager has no original script registrations.")
         for name, path_ids in sorted(required.items()):
             if name not in entries: raise BuildError("APK native script registry references a missing player file: " + name)
@@ -213,17 +259,22 @@ def script_roster(apk_path):
                     if name != "assets/bin/Data/unity default resources" and current != version:
                         raise BuildError("APK player uses mixed Unity serialized formats.")
             objects = {obj.path_id: obj for obj in env.objects}
-            for path_id in path_ids:
+            for path_id in sorted(path_ids):
                 obj = objects.get(path_id)
                 if obj is None or obj.type.name != "MonoScript": raise BuildError("APK native script registration does not resolve to a MonoScript.")
                 item = obj.read_typetree()
                 row = {"assembly": item["m_AssemblyName"], "namespace": item["m_Namespace"], "class": item["m_ClassName"],
                        "propertiesHash": _hash128(item["m_PropertiesHash"]), "executionOrder": item["m_ExecutionOrder"]}
                 key = row["assembly"], row["namespace"], row["class"]
-                if key in roster and roster[key] != row: raise BuildError("APK has conflicting MonoScript identities.")
-                roster[key] = row
+                candidates.setdefault(key, []).append({"row": row, "member": name,
+                    "fileIDs": sorted(path_ids[path_id]), "pathID": path_id})
+    roster, retained_orders = _admit_script_rows(candidates, expected_types)
     if not roster or not _UNITY.fullmatch(version or ""): raise BuildError("APK original script roster/Unity version is missing.")
-    return {"unityVersion": version, "scriptTypes": [roster[key] for key in sorted(roster)]}
+    if retained_orders:
+        print("[Quest code update] retained original execution orders for " + str(retained_orders)
+              + " duplicate MonoScript identities; every physical serialized property hash matches.", flush=True)
+    return {"unityVersion": version, "scriptTypes": [roster[key] for key in sorted(roster)],
+            "retainedOrderDuplicateTypes": retained_orders}
 
 
 def make_capsule(apk_path, *, package_abi, dynamic_profile=False, repair_update_contracts=False, payload_producer=None):
@@ -480,7 +531,7 @@ def collect_code_update(base, compiled_apk, compiled_receipt, *, package_abi):
             if rows[0].get("size") != len(actual) or rows[0].get("sha256") != hashlib.sha256(actual).hexdigest():
                 raise BuildError("Compact native output differs from its closed compiler receipt: " + name)
             pair[name] = actual
-    registry = script_roster(compiled_apk)
+    registry = script_roster(compiled_apk, expected_types=capsule["scriptTypes"])
     if registry["unityVersion"] != capsule["unityVersion"]: raise BuildError("Code update Unity version changed.")
     _required_types(capsule["scriptTypes"], registry["scriptTypes"])
     replacements = dict(pair)
