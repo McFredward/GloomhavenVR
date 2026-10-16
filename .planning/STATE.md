@@ -1,5 +1,47 @@
 # State — where the project stands
 
+**Steam Link receiver r4 prepared and checked offline, 2026-10-17.**
+
+The Frame remains restored and user-confirmed normally visible/usable; standby
+is safe. No device contact occurred in this preparation round. Registration
+Build677 requires no change for this receiver repair; unrelated main-runtime
+work remains outside this task.
+
+Fork dev b897155 integrates complete bounded legacy/RP2 pass cohorts, exact
+selected-subpass recording, owned extended graphics/dynamic state and bounded
+per-target metadata. Independent review also found a separate core/KHR dispatch
+issue: a nonnull promoted core PFN is not negotiated API authority. Both original
+callbacks and owned factory now retain the exact original command name. This is
+a source-proven repair, not a claimed cause of an earlier native startup failure.
+
+Host GPU pass proofs succeed on Intel/Lavapipe: 866 checks each, eight cases,
+bit-identical original/observer/restored color and128B records, zero Vulkan/sync
+errors. Separate real-driver cold-factory EDS3 proofs pass154 checks each; Intel
+includes the actual r3 SAMPLE_LOCATIONS_ENABLE_EXT refusal. These are host
+proofs with explicit limits, not native Frame mapping/passthrough success.
+Focused CPU, sanitizer, ARM and actual exported-hook checks pass. Root's initial
+12-case subset retained two obsolete fixture expectations; only those bounded
+repairs/affected factory checks were repeated, inheriting the other passing areas.
+Exact hosted CI38972790160 is green:127 CTests/96.61s, both optional diagnostic
+builds, Windows sender and8,482 protocol sanitizer checks. Main full/wire gates
+are not repeated for these coordination-only edits.
+
+Final ARM510,752B SHA dc9fa04aa9d7da4e559b00c614e73378c4243dac43e457ff7367db91ab06c494
+has three exports, RELRO/NOW/nonexecstack and81 imports (two additional GLIBCXX3.4
+locale functions; actual provider/isolated-load checks precede any activation).
+Exact-artifact local staging/idempotence/unarmed/rollback and three real host
+loader cases pass. Package630,333B; package plus staged library1,141,085B. Cold
+progress is separately bounded to512KiB/256 events; ordinary JSON stays16KiB.
+One paired source capture remains64MiB combined plus128B SSBO, manual arm and
+manual agreed rollback only, with no automatic timer/restart or live mask.
+
+Fresh concrete device permission/readiness is still required. Unique prepared
+plan: fork build/private-native-ssbo-run-20261016-r4/next-run-plan.json. All three
+completed worker checkouts and own compile/VVL caches are removed; exact source
+comparisons, failed attempts, results, native references and the current package
+are retained. Fork build/private-native-r4-integration-20261016/ is the evidence
+root; see docs/research/native-renderpass-graphics-admission-20261016.md.
+
 **r3 native admission refused before arm; fully restored, 2026-10-16: Build677 unchanged.**
 
 The maintainer approved the562,379B r3 package and one restart. Native79 imports,
