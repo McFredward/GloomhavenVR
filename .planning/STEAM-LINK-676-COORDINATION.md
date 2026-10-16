@@ -49,6 +49,33 @@ Both new worker worktrees and integration CMake caches are removed after push;
 the extra audit also removes13MB of old owned test executables, retaining all
 sources, logs, captures, native references and current deployment packages.
 
+The next optional diagnostic is integrated and pushed in fork446027e. Complete
+hosted fork CI38869685818 is green, including the explicitly enabled companion
+build. The tracker selects the exact final supported draw, pins both original
+stages and rechecks complete descriptors plus conservative allocation aliases.
+After the unchanged native render-scope end, at most20,480 UBO bytes are copied
+to unused owned staging tail and published only after the original fence and
+exact reusable-generation retirement. No shader or native PC sender is replaced.
+
+New resource118, final-draw541 and formatter81 controls pass normal/sanitized;
+four actual formatter-to-reader bridge cases, strict ARM checks,14 default and
+two enabled real-loader cases pass. Earlier unchanged foundation/legacy evidence
+is inherited, not represented as another complete mod gate. Independent source,
+ARM ELF, package/activation and explicit manual-restoration reviews have no
+blockers. ARM299,792 bytes/SHAe21a5d5113305709843bdde3d02990a1058fecad090521c02e8b1753f047e75a
+has only three private loader exports, no TLS/Vulkan dependency and NOW/RELRO.
+
+All three completed worker worktrees and31MB of this integration's regenerable
+build caches are removed; manifests, logs, original captures, source and current
+deliverables remain under the fork's ignored build/private-uniform-*-20261016/.
+Cleanup stays strictly in this passthrough area. Frame state remains the previously
+verified restored original state: no new connection, install, capture or restart.
+The ready package requires fresh Frame/readiness agreement before activation.
+The wrapper refuses missing native UI/sampler/uniform readiness, failed tracking
+or uncertain/foreign mappings before requesting a stream. No automatic expiry,
+rollback or restart is installed. Source676/DLL remains unchanged; actual native
+UBO capture, physical-eye/UV/video association and visible passthrough are unproven.
+
 ## Earlier integration history
 
 The maintainer explicitly rejects the30-second automatic source-test timeout.
