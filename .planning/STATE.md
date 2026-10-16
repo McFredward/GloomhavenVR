@@ -1,5 +1,41 @@
 # State — where the project stands
 
+**Steam Link inert atlas reconstruction, 2026-10-16: Build677 unchanged.**
+
+The fork now reconstructs separate scene and raw component-G panels using
+explicit diagnostic W/Tc/Ta and two independent native sample/reconstruction
+cones. Original selected values are reused without second native descriptor
+loads; original instruction bodies and output0 expression remain intact.
+This does not infer native W or enable a Frame shader, game coverage or alpha.
+
+Intel and llvmpipe each pass48 enabled cases/3677 checks and48 disabled cases/
+3341 checks with Khronos validation active/zero errors. Each enabled run has48
+direct original-shader color and48 inverse-decoder raw-G oracles,22 unequal
+weights and16 partial original-aperture cases. Swapped panels, a reused mask
+weight and duplicate aperture all causally fail on both drivers without Vulkan
+errors. Independent final source/evidence review finds no inert-contract blocker.
+
+Intel stock/atlas output0 is bit-identical in40/48 cases (llvmpipe48/48). A
+neutral source isolates original aperture rounding rather than sample/decoder
+changes. The explicitly revised INERT comparison caps absolute error at2e-6;
+observed maximum1.35601e-6/98ULPs is recorded, not called bit identity. Computed
+clamped UNORM8 codes agree; this is CPU quantization, not another GPU-format or
+headset test. Disabled MRT1 equals the same module's MRT0 bit-for-bit. A future
+live OFF path must use the stock module rather than this diagnostic variant.
+
+All six focused Python methods pass via the new CMake entry; only the two new
+owned C++ helpers are compiled. Unchanged mod/wire suites are inherited, not
+rerun. Private evidence lives in fork build/private-atlas-{splice,gpu,integration}-
+20261016/. Completed package/compiler caches are removed after process reaping;
+source pins, failed controls, original captures and reviews remain. No Frame
+connection, installation or restart occurs; it remains restored and usable.
+
+
+Forkdev e73e7cd is pushed; hosted CI38913134977 succeeds on that exact source
+(110 CTest entries, optional uniform build, Windows cross-build and8,482 protocol
+sanitizer checks). Both byte-identical clean worker worktrees are removed after
+process reaping. Integration receipts and actual CI/source identities are retained.
+
 **Steam Link changing-source receiver recovery, 2026-10-16: Build677 unchanged.**
 
 The newly supplied PC logs independently select app session

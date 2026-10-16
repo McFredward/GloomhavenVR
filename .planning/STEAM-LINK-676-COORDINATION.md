@@ -1,5 +1,65 @@
 # Steam Link manual-only source test, 2026-10-15
 
+## Inert dual-panel reconstruction, 2026-10-16
+
+The maintainer requests continued progress. Native Frame state remains restored;
+there is no new device installation or restart agreement. The next implementation
+is restricted to offline original-fragment/GPU controls in the fork.
+
+Workers start at current forkdev3548da6. Atlas-splice owns only new
+tools/native_fragment_atlas_probe.py and its focused Python test; atlas-gpu owns
+only new tests/native-fragment-atlas-gpu/. Primary owns CMake/docs/integration.
+An independent read-only reviewer covers source and actual GPU evidence.
+
+Explicit caller-supplied diagnostic affine W and panel placements Tc/Ta produce
+separate Mc=W Tc W^-1 and Ma=W Ta W^-1. No historical fit or old uniform capture
+is admitted as a current mapping. Both lookups must reuse original consumed
+metadata and the native packed reconstruction, with independent weights. Keep
+original output0 unchanged. Retargeted color uses the original output aperture
+and tint once; raw reconstructed coverage component-G uses neither the color
+decoder, tint nor aperture. This numerical probe does not establish production
+linear coverage or a live RGB/alpha composition convention.
+
+The approved five-attachment host fixture is reused; no second native UBO reads,
+native runtime linkage, Frame access or PC sender modification is introduced.
+Private originals/generated modules remain untracked. Validation must be active
+for both Intel and llvmpipe from the beginning; unknown mappings/profiles refuse.
+Only the affected new checks run, and completed owned caches/worktrees are
+removed after reaping while preserving source pins, failed controls and results.
+
+The completed source checkpoints are atlas-splice5767a5f and atlas-gpu1d4b1fb,
+integrated as3aca438/8f602d0. Both drivers pass48 enabled cases/3677 checks and48
+disabled cases/3341 checks with active validation and zero errors. Each enabled
+run independently executes the original fragment48 times for color and48 times
+for inverse-decoded raw-G comparison. All three valid private SPIR-V mutants
+(swapped panels, shared coverage weight, double aperture) fail specifically at
+color/raw-G checks, not validation. The fixture reuses approved Vulkan helpers.
+
+The first Intel strict-bit comparison failed. A retained neutral-chroma/unit-Y
+texture with unit tint isolates a1.49e-6 difference in original aperture899;
+the smaller original SSA observer remains bit-identical. Original instructions
+and decorations are unchanged. The exact compiler optimization is unobserved.
+Primary explicitly changes only the INERT cross-module numerical contract to
+absolute error<=2e-6; alpha and raw integer metadata stay exact. Final Intel
+maximum1.35601e-6/98ULPs and40/48 bit-identical cases are recorded honestly;
+llvmpipe is48/48. CPU-computed clamped UNORM8 codes are unchanged, not a GPU
+UNORM8 or headset result. Disabled output1 is bit-identical to the same probe's
+original output0, not necessarily the separately compiled stock module.
+
+An independent review also caught unquantized affine inputs in the fixture
+oracle. Its F32-input/binary64-conjugation/F32-constant path is corrected without
+changing the transformer or assigning it as the earlier output0 failure cause.
+Six methods pass on the integrated CMake test; two new owned C++ helpers compile.
+The earlier first-run test-selector failure and all GPU failures remain intact.
+No unaffected complete gate is repeated. Reviews and receipts remain in fork
+build/private-atlas-*-20261016/. No live frame/W/eye/sampler/alpha authority follows.
+
+
+Forkdev e73e7cd is pushed; hosted CI38913134977 succeeds on that exact source
+(110 CTest entries, optional uniform build, Windows cross-build and8,482 protocol
+sanitizer checks). Both byte-identical clean worker worktrees are removed after
+process reaping. Integration receipts and actual CI/source identities are retained.
+
 ## Encoded changing pair682 recovered from the actual receiver, 2026-10-16
 
 The fresh independent PC input is now preserved. It uniquely identifies session
