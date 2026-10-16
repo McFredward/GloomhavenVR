@@ -140,5 +140,24 @@ class CompactUpdateProgressTests(unittest.TestCase):
         self.assertIsNone(self.parser.parse("[340/344 0s] Csc Library/Bee/old.dll", "update-sdk-unity.log"))
         self.assertFalse(self.owner()["closed"])
 
+    def test_openxr_retry_preserves_completed_hosts_and_keeps_native_publication_open(self):
+        self.start_code()
+        for name in ("weave", "standalone", "update-sdk", "update-package-api"):
+            self.feed("stage:" + name, 1, 1, status="complete")
+        self.feed("stage:update-code", status="start")
+        self.feed("unity-work-invocation", 0, 1, "update-code", "start")
+        for name in stage_plan.UPDATE_PREPARATION_SHARES:
+            self.feed(name, 1, 1, "update-code", "complete")
+        self.feed("unity-work-invocation", 0, 1, "update-code", "failed")
+        before = self.progress()["stagePercent"]
+        value = self.feed("update-code-openxr-retry", operation="update-code", status="start")
+        self.assertEqual(value["stagePercent"], before)
+        self.assertEqual(self.owner()["updateCode"]["done"], 4)
+        self.assertFalse(self.owner()["closed"])
+        self.feed("unity-work-invocation", 0, 1, "update-code", "start")
+        self.assertEqual(self.owner()["status"], "running")
+        self.assertFalse(self.owner()["closed"])
+        self.assertEqual(self.progress()["stagePercent"], before)
+
 
 if __name__ == "__main__": unittest.main()

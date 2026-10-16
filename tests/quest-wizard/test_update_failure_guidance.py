@@ -86,6 +86,15 @@ class UpdateFailureGuidanceTests(unittest.TestCase):
         self.assertIn('does not establish', error.message['en'])
         self.assertIn('gezielte Plugin-Reparatur', error.parameters['updateGuidance']['nextSteps']['de'])
 
+    def test_openxr_retry_exhaustion_keeps_the_small_compiler_repair_scope(self):
+        error = self.fail('Compact update OpenXR preparation failed: the package settings are still unavailable after one retained compiler retry.')
+        self.assertEqual(error.code, 'build_tool_failed')
+        self.assertEqual(error.parameters['updateGuidance']['kind'], 'compact-project')
+        self.assertTrue(error.parameters['completedWorkRetained'])
+        self.assertNotIn('newBuild', error.parameters['updateGuidance'])
+        self.assertIn('OpenXR', error.message['de'])
+        self.assertIn('keine neue Konvertierung', error.parameters['updateGuidance']['nextSteps']['de'])
+
     def test_update_inspection_has_choices_but_ordinary_build_and_memory_keep_existing_flow(self):
         self.assertEqual(self.fail('The existing Quest APK could not be read.', 'inspect-update').parameters['updateGuidance']['kind'], 'source-apk')
         self.assertNotIn('updateGuidance', self.fail('The existing Quest APK could not be read.', 'build').parameters)

@@ -721,17 +721,33 @@ def _compact_player_command(builder, argv, launch_log, unity_log, env):
         if not stat.S_ISREG(value.st_mode) or value.st_nlink != 1 or getattr(value, "st_file_attributes", 0) & 0x400:
             raise builder.BuildError("Compact compiler log is not a regular owned file.")
         return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns
-    before = stamp()
-    try:
-        return builder.command(argv, launch_log, env=env)
-    except builder.BuildError as exc:
-        after = stamp()
-        if after is not None and after != before:
-            with unity_log.open("rb") as stream:
-                stream.seek(max(0, after[2] - 65536))
-                text = stream.read(65536).decode("utf-8", errors="replace")
+    # Support172343 completes all 2636 script roots, then the package's first
+    # pre-build callback loads its still-unregistered settings and asks for one
+    # rebuild. Retry only this exact fresh transient failure, in the same project
+    # with the same command. No weaving, SDK compile, conversion or cache reset.
+    openxr_unloaded = re.compile(r"(?:^|\n)(?:Error building Player: )?BuildFailedException: OpenXR Settings found in project but not yet loaded\.  Please build again\.\r?(?:\n|$)")
+    for attempt in range(2):
+        before = stamp()
+        try:
+            return builder.command(argv, launch_log, env=env)
+        except builder.BuildError as exc:
+            after = stamp()
+            text = ""
+            if after is not None and after != before:
+                with unity_log.open("rb") as stream:
+                    stream.seek(max(0, after[2] - 65536))
+                    text = stream.read(65536).decode("utf-8", errors="replace")
+                if stamp() != after:
+                    text = ""
+            if openxr_unloaded.search(text):
+                if attempt == 0:
+                    builder.build_progress.event("update-code-openxr-retry", operation="update-code", status="start",
+                        detail="OpenXR registered its settings during the first build callback. Retrying the same compiler project once; completed inputs and Library are retained.")
+                    continue
+                raise builder.BuildError("Compact update OpenXR preparation failed: the package settings are still unavailable after one retained compiler retry. "
+                    "Keep the existing APK and workspace for a targeted settings repair; no full game rebuild was started.") from exc
             missing = re.search(r"(?:^|\n)(?:InvalidDataException: )?Retained original serialized script is missing: ([^\r\n]{1,512}); a full build is required\.\r?(?:\n|$)", text)
-            if missing and stamp() == after:
+            if missing:
                 imports = re.search(r"[^\r\n]{0,240}(?:Unable to resolve reference|references itself\.|Reference has errors)[^\r\n]{0,240}", text)
                 if imports:
                     raise builder.BuildError("Compact update plugin import failed: " + imports[0].strip()
@@ -740,7 +756,7 @@ def _compact_player_command(builder, argv, launch_log, unity_log, env):
                 raise builder.BuildError("Compact update repair required: the compiler could not resolve retained script "
                     + missing[1] + ". The Editor catalog is incomplete; this does not establish that game assets need conversion. "
                     "Keep the existing APK and workspace for a targeted compiler repair.") from exc
-        raise
+            raise
 
 
 def _compile_code(builder, args, inputs, output, source, game, project, base, tools, root):

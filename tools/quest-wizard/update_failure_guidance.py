@@ -48,6 +48,14 @@ def update_failure(parameters):
                    "Check update inputs if another APK or game copy was selected. You can explicitly set up a new build below; that opens the selection form and does not start conversion or delete saved results.")
         next_de = ("Vorhandene APK und Arbeitsordner behalten. Logs für eine gezielte Reparatur exportieren und dieses gespeicherte Update danach mit dem korrigierten Builder erneut versuchen. "
                    "Update-Eingaben prüfen, falls eine andere APK oder Spielkopie ausgewählt wurde. Unten lässt sich ausdrücklich ein neuer Build einrichten; das öffnet die Auswahl und startet keine Konvertierung oder Löschung gespeicherter Ergebnisse.")
+    elif "Compact update OpenXR preparation failed:" in error:
+        kind = "compact-project"
+        en = "Unity could not finish registering the update project's OpenXR settings after one automatic retry."
+        de = "Unity konnte die OpenXR-Einstellungen des Update-Projekts auch nach einem automatischen Wiederholungsversuch nicht vollständig registrieren."
+        next_en = ("Keep the existing APK, game contents and workspace. Close any Unity Editor using the update project, save diagnostics and retry this saved update with the corrected Builder. "
+                   "Only the affected small compiler project needs attention; this error does not require reconverting the game contents.")
+        next_de = ("Vorhandene APK, Spielinhalte und Arbeitsordner behalten. Einen Unity Editor schließen, der das Update-Projekt verwendet, Logs exportieren und dieses gespeicherte Update mit dem korrigierten Builder erneut versuchen. "
+                   "Betroffen ist nur das kleine Compilerprojekt; dieser Fehler erfordert keine neue Konvertierung der Spielinhalte.")
     elif "Compact update plugin import failed:" in error:
         kind = "compact-project"
         en = "Unity could not load the required update plugins. This does not establish that the game contents need rebuilding."

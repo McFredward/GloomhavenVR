@@ -623,6 +623,93 @@ class UpdateDriverTests(unittest.TestCase):
             self.assertEqual(tools.call_count, calls)
             self.assertTrue(built.is_file())
 
+    def test_fresh_openxr_registration_failure_retries_only_the_same_compiler(self):
+        log = self.output / "logs/update-code-unity.log"
+        argv = ["Unity", "-projectPath", str(self.output / "code-project"), "-executeMethod", "QuestCodeUpdateBuild.Build"]
+        env = {"GHVR_QUEST_CODE_OUTPUT": str(self.output / "code-player.apk")}
+        retained = self.output / "code-project/Library/native-object"
+        retained.parent.mkdir(parents=True); retained.write_bytes(b"completed native object")
+        before = retained.stat().st_mtime_ns
+        original = self.apk.read_bytes()
+        self.builder.weave = Mock(); self.builder.snapshot = Mock(); self.builder.rebuild_update = Mock()
+        calls = []
+        def compile(*args, **kwargs):
+            calls.append((args, kwargs))
+            log.parent.mkdir(parents=True, exist_ok=True)
+            if len(calls) == 1:
+                log.write_text("[Quest code update] original script roster prepared; rows=2636, uniqueScripts=2636, executionOrderRepairs=0\n"
+                    "BuildFailedException: OpenXR Settings found in project but not yet loaded.  Please build again.\n"
+                    "InvalidOperationException: Code-only Android build failed: Failed, errors=2\n")
+                raise storage.BuildError("Unity exited with 1")
+            log.write_text("Native compiler invocation completed\n")
+            return "actual command result"
+        self.builder.command = compile
+        self.assertEqual(driver._compact_player_command(self.builder, argv, self.output / "launch.log", log, env), "actual command result")
+        self.assertEqual(len(calls), 2)
+        self.assertIs(calls[0][0][0], argv); self.assertIs(calls[1][0][0], argv)
+        self.assertEqual(calls[0], calls[1])
+        self.assertEqual(retained.read_bytes(), b"completed native object")
+        self.assertEqual(retained.stat().st_mtime_ns, before)
+        self.assertEqual(self.apk.read_bytes(), original)
+        for action in (self.builder.weave, self.builder.snapshot, self.builder.rebuild_update): action.assert_not_called()
+        self.builder.build_progress.event.assert_called_once()
+        event = self.builder.build_progress.event.call_args
+        self.assertEqual(event.args, ("update-code-openxr-retry",))
+        self.assertEqual(event.kwargs["operation"], "update-code")
+        self.assertEqual(event.kwargs["status"], "start")
+
+    def test_repeated_fresh_openxr_registration_failure_has_one_retry_limit(self):
+        log = self.output / "logs/update-code-unity.log"
+        calls = []
+        def compile(*args, **kwargs):
+            calls.append(1)
+            log.parent.mkdir(parents=True, exist_ok=True)
+            log.write_text("Attempt " + str(len(calls)) + "\nError building Player: BuildFailedException: OpenXR Settings found in project but not yet loaded.  Please build again.\r\n")
+            raise storage.BuildError("Unity exited with 1")
+        self.builder.command = compile
+        with self.assertRaisesRegex(storage.BuildError, "Compact update OpenXR preparation failed:") as failed:
+            driver._compact_player_command(self.builder, ["Unity"], self.output / "launch.log", log, {})
+        self.assertNotIsInstance(failed.exception, apk_update.RebuildRequired)
+        self.assertEqual(len(calls), 2)
+        self.assertIn("no full game rebuild was started", str(failed.exception))
+        self.builder.build_progress.event.assert_called_once()
+
+    def test_stale_openxr_message_never_retries_an_unrelated_failed_launch(self):
+        log = self.output / "logs/update-code-unity.log"
+        log.parent.mkdir(parents=True, exist_ok=True)
+        log.write_text("BuildFailedException: OpenXR Settings found in project but not yet loaded.  Please build again.\n")
+        self.builder.command = Mock(side_effect=storage.BuildError("Editor did not start"))
+        with self.assertRaisesRegex(storage.BuildError, "Editor did not start"):
+            driver._compact_player_command(self.builder, ["Unity"], self.output / "launch.log", log, {})
+        self.builder.command.assert_called_once(); self.builder.build_progress.event.assert_not_called()
+
+    def test_fresh_unrelated_compiler_failure_does_not_trigger_openxr_recovery(self):
+        log = self.output / "logs/update-code-unity.log"
+        def compile(*args, **kwargs):
+            log.parent.mkdir(parents=True, exist_ok=True)
+            log.write_text("BuildFailedException: Android SDK is missing\n")
+            raise storage.BuildError("Android SDK is missing")
+        self.builder.command = Mock(side_effect=compile)
+        with self.assertRaisesRegex(storage.BuildError, "Android SDK is missing"):
+            driver._compact_player_command(self.builder, ["Unity"], self.output / "launch.log", log, {})
+        self.builder.command.assert_called_once(); self.builder.build_progress.event.assert_not_called()
+
+    def test_failure_after_openxr_retry_keeps_the_new_cause(self):
+        log = self.output / "logs/update-code-unity.log"
+        calls = []
+        def compile(*args, **kwargs):
+            calls.append(1)
+            log.parent.mkdir(parents=True, exist_ok=True)
+            if len(calls) == 1:
+                log.write_text("BuildFailedException: OpenXR Settings found in project but not yet loaded.  Please build again.\n")
+                raise storage.BuildError("OpenXR package callback failed")
+            log.write_text("BuildFailedException: Native compiler tool is missing\n")
+            raise storage.BuildError("Native compiler tool is missing")
+        self.builder.command = compile
+        with self.assertRaisesRegex(storage.BuildError, "Native compiler tool is missing"):
+            driver._compact_player_command(self.builder, ["Unity"], self.output / "launch.log", log, {})
+        self.assertEqual(len(calls), 2)
+
     def test_verified_repack_hash_closes_the_update_without_repeated_apk_reads(self):
         driver.inspect(self.builder, self.args, ROOT, self.output)
         actual = storage.digest
