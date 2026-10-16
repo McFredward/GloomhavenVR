@@ -21,11 +21,13 @@ public static class CompactScriptOrdersFixture
     [Serializable] sealed class Result
     {
         public bool success, exactRoots, changedOrdersRestored, secondRunUnchanged,
-            invalidRosterUnchanged, conflictingRosterUnchanged, nullRosterUnchanged;
+            invalidRosterUnchanged, conflictingRosterUnchanged, nullRosterUnchanged, inactiveSourceIdentities;
         public int scriptCount, rowCount, firstImports, secondImports, legacyUnchangedImports;
         public double firstSeconds, secondSeconds;
         public string error;
         public List<string> progress = new List<string>();
+        public List<string> catalog = new List<string>();
+        public List<string> inactiveIdentities = new List<string>();
     }
     static void Require(bool condition, string message)
     { if (!condition) throw new InvalidOperationException(message); }
@@ -34,7 +36,12 @@ public static class CompactScriptOrdersFixture
         return new QuestCodeUpdateBuild.ScriptType { assembly = "OrderFixture.dll", @namespace = "OrderFixture",
             @class = "Script" + index.ToString("D3"), executionOrder = order, propertiesHash = new string('a', 32) };
     }
-    static string Metadata() { return File.ReadAllText("Assets/Plugins/OrderFixture.dll.meta"); }
+    static string Metadata()
+    {
+        var paths = new[] { "Assets/Plugins/OrderFixture.dll.meta", "Assets/Inactive/InputSystemProvider.cs.meta",
+            "Assets/Inactive/Other/InputSystemProvider.cs.meta", "Assets/Inactive/NoNamespaceScript.cs.meta", "Assets/Inactive/AbsentClass.cs.meta" };
+        return string.Join("\n", paths.Select(path => path + ":" + File.GetLastWriteTimeUtc(path).Ticks + ":" + File.ReadAllText(path)));
+    }
 
     public static void Run()
     {
@@ -48,6 +55,26 @@ public static class CompactScriptOrdersFixture
             // Repeated native bank entries must preserve roots, while importing
             // shared plugin metadata once rather than once per serialized row.
             rows.Add(Row(0, -30)); rows.Add(Row(32, 45)); rows.Add(Row(127, 900));
+            // These source assets are retained by Unity even though none of
+            // their classes exists in the 2021 compiled assembly. The reported
+            // package has exactly this UNITY_2023_2_OR_NEWER boundary.
+            var inactiveRows = new[] {
+                new QuestCodeUpdateBuild.ScriptType { assembly = "Unity.InputSystem.ForUI.dll", @namespace = "UnityEngine.InputSystem.Plugins.InputForUI", @class = "InputSystemProvider" },
+                new QuestCodeUpdateBuild.ScriptType { assembly = "Unity.InputSystem.ForUI.dll", @namespace = "CompactOrderFixture.Other", @class = "InputSystemProvider" },
+                new QuestCodeUpdateBuild.ScriptType { assembly = "Unity.InputSystem.ForUI.dll", @namespace = "", @class = "NoNamespaceScript" },
+                new QuestCodeUpdateBuild.ScriptType { assembly = "Unity.InputSystem.ForUI.dll", @namespace = "CompactOrderFixture.Disabled", @class = "AbsentClass" }
+            };
+            var allScripts = MonoImporter.GetAllRuntimeMonoScripts();
+            result.catalog = allScripts.Select(QuestCodeUpdateBuild.ScriptIdentity).Where(key => key != null).OrderBy(key => key, StringComparer.Ordinal).ToList();
+            foreach (var row in inactiveRows)
+            {
+                string key = row.assembly + "|" + row.@namespace + "|" + row.@class;
+                var script = allScripts.Single(candidate => QuestCodeUpdateBuild.ScriptIdentity(candidate) == key);
+                Require(script.GetClass() == null, "Inactive source unexpectedly compiled: " + key);
+                result.inactiveIdentities.Add(key);
+            }
+            result.inactiveSourceIdentities = result.inactiveIdentities.Count == 4;
+            rows.AddRange(inactiveRows);
             result.rowCount = rows.Count;
             // The previous unconditional call really does import even when its
             // value is unchanged; establish that behavior in this same Editor.
@@ -103,6 +130,6 @@ public static class CompactScriptOrdersFixture
         string destination = Environment.GetEnvironmentVariable("GHVR_QUEST_ORDER_FIXTURE_RESULT");
         File.WriteAllText(destination, JsonUtility.ToJson(result, true));
         if (!result.success) throw new InvalidOperationException(result.error);
-        UnityEngine.Debug.Log("[Compact script order fixture] exact 131-row roster retained; targeted repairs and unchanged retry verified.");
+        UnityEngine.Debug.Log("[Compact script order fixture] exact 135-row roster retained, including inactive namespaced source; targeted repairs and unchanged retry verified.");
     }
 }

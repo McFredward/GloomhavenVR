@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Security.Cryptography;
 using UnityEditor;
 using UnityEditor.Android;
@@ -257,7 +258,10 @@ namespace GloomhavenVR.Quest.Editor
             return roots;
         }
 
-        static string ScriptIdentity(MonoScript script)
+        static readonly MethodInfo SourceAssemblyName = typeof(MonoScript).GetMethod("GetAssemblyName", BindingFlags.Instance | BindingFlags.NonPublic);
+        static readonly MethodInfo SourceNamespace = typeof(MonoScript).GetMethod("GetNamespace", BindingFlags.Instance | BindingFlags.NonPublic);
+
+        internal static string ScriptIdentity(MonoScript script)
         {
             // Partial/static source-file scripts can have a null GetClass.
             // Keep their exact MonoScript identity instead of reflection alone.
@@ -275,8 +279,18 @@ namespace GloomhavenVR.Quest.Editor
             {
                 string path = AssetDatabase.GetAssetPath(script);
                 if (!path.EndsWith(".cs", StringComparison.Ordinal)) return null;
-                assemblyName = CompilationPipeline.GetAssemblyNameFromScriptPath(path);
-                namespaceName = ""; className = Path.GetFileNameWithoutExtension(path);
+                // Support170547 reaches a real package MonoScript whose whole
+                // source is disabled by UNITY_2023_2_OR_NEWER. GetClass is null
+                // on our pinned 2021 Editor, but the full player's serialized
+                // roster still retains its namespace. Read the same native
+                // MonoScript identity that Unity serializes; a filename with an
+                // invented empty namespace cannot qualify that original row.
+                if (SourceAssemblyName == null || SourceNamespace == null)
+                    throw new InvalidDataException("The pinned Editor cannot read the native source script identity: " + path);
+                assemblyName = SourceAssemblyName.Invoke(script, null) as string;
+                namespaceName = SourceNamespace.Invoke(script, null) as string ?? "";
+                className = script.name;
+                if (string.IsNullOrEmpty(assemblyName)) assemblyName = CompilationPipeline.GetAssemblyNameFromScriptPath(path);
                 if (string.IsNullOrEmpty(assemblyName)) return null;
             }
             if (!assemblyName.EndsWith(".dll", StringComparison.Ordinal)) assemblyName += ".dll";

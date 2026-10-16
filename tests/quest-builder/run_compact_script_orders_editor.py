@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Exercise exact compact script-order preparation in the real pinned Editor.
 
-Creates one tiny 128-class plugin and runs the actual production helper twice,
-plus malformed/missing/conflicting roster rejection. No original game data,
+Creates one tiny 128-class plugin and four conditionally disabled source assets,
+runs the actual production helper twice, plus malformed/missing/conflicting
+roster rejection. No original game data,
 Android APK build, native code compilation or game asset conversion is involved.
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import os
@@ -59,16 +61,19 @@ def validate_progress(result):
         assert group[-1]["done"] == group[-1]["total"] and group[-1]["status"] == "complete", group
         assert all(a["done"] <= b["done"] and a["total"] == b["total"] for a, b in zip(group, group[1:])), group
         assert len(group) >= 5, group  # Actual finite row counts, not heartbeat percentages.
-    assert groups[1][-1]["total"] == 131 and groups[4][-1]["total"] == 131
-    assert groups[2][-1]["total"] == 132  # 3 changes + one batch import + 128 exact checks.
-    assert groups[5][-1]["total"] == 128  # Retry only checks retained exact metadata.
-    return {"events": len(events), "successfulCountedPhases": 6, "failureControls": 3}
+    assert groups[1][-1]["total"] == 135 and groups[4][-1]["total"] == 135
+    assert groups[2][-1]["total"] == 136  # 3 changes + one batch import +132 exact checks.
+    assert groups[5][-1]["total"] == 132  # Retry only checks retained exact metadata.
+    assert result["inactiveSourceIdentities"] and len(result["inactiveIdentities"]) == 4
+    return {"events": len(events), "successfulCountedPhases": 6, "failureControls": 3,
+        "inactiveSourceIdentities": result["inactiveIdentities"]}
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--unity", type=Path, required=True)
     parser.add_argument("--evidence", type=Path, required=True)
+    parser.add_argument("--production-source", type=Path, help="Explicit helper revision for a negative control; defaults to this checkout.")
     parser.add_argument("--timeout", type=int, default=240)
     args = parser.parse_args()
     args.evidence.mkdir(parents=True, exist_ok=True)
@@ -82,7 +87,14 @@ def main():
     (project / "ProjectSettings/ProjectVersion.txt").write_text("m_EditorVersion: 2021.3.5f1\n")
     (project / "Packages").mkdir()
     (project / "Packages/manifest.json").write_text('{"dependencies": {}}\n')
-    production = ROOT / "unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCodeUpdateBuild.cs"
+    inactive = project / "Assets/Inactive"
+    (inactive / "Other").mkdir(parents=True)
+    (inactive / "Unity.InputSystem.ForUI.asmdef").write_text('{"name":"Unity.InputSystem.ForUI"}\n')
+    (inactive / "InputSystemProvider.cs").write_text("#if UNITY_2023_2_OR_NEWER\nnamespace UnityEngine.InputSystem.Plugins.InputForUI { internal class InputSystemProvider {} }\n#endif\n")
+    (inactive / "Other/InputSystemProvider.cs").write_text("#if UNITY_2023_2_OR_NEWER\nnamespace CompactOrderFixture.Other { internal class InputSystemProvider {} }\n#endif\n")
+    (inactive / "NoNamespaceScript.cs").write_text("#if UNITY_2023_2_OR_NEWER\ninternal class NoNamespaceScript {}\n#endif\n")
+    (inactive / "AbsentClass.cs").write_text("#if UNITY_2023_2_OR_NEWER\nnamespace CompactOrderFixture.Disabled { internal class AbsentClass {} }\n#endif\n")
+    production = args.production_source or ROOT / "unity/GloomhavenVR.Quest/Assets/Quest/Editor/QuestCodeUpdateBuild.cs"
     fixture = ROOT / "tests/quest-builder/fixtures/CompactScriptOrdersFixture.cs"
     shutil.copyfile(production, editor_sources / production.name)
     shutil.copyfile(fixture, editor_sources / fixture.name)
@@ -96,7 +108,8 @@ def main():
     result_file = run / "result.json"
     log = run / "run.log"
     log.write_text("evidence: " + str(run) + "\n")
-    summary = {"run": str(run), "scope": "Actual Unity2021.3.5f1 compact roster/order preparation; synthetic 128-class plugin only; no game data or APK build", "success": False}
+    summary = {"run": str(run), "scope": "Actual Unity2021.3.5f1 compact roster/order preparation; synthetic 128-class plugin and four inactive source assets; no game data or APK build", "success": False,
+        "productionSource": str(production), "productionSha256": hashlib.sha256(production.read_bytes()).hexdigest()}
     process = None
     code = 1
     started = time.monotonic()
